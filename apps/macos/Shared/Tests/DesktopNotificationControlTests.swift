@@ -15,6 +15,33 @@ final class DesktopNotificationControlTests: XCTestCase {
         XCTAssertEqual(actions, [.localRecordings])
     }
 
+    func testElapsedContinuesDuringMicrophonePauseAndFreezesOnlyAfterStop() {
+        let start = Date(timeIntervalSince1970: 1_000)
+        let model = DesktopControlModel()
+        var snapshot = DesktopControlSnapshot()
+        snapshot.session = CaptureSession(
+            id: "timer", mode: .audioRecording, state: .active,
+            sourceAppEligibility: .eligible, policySnapshotRef: "policy", triggerEvidence: [:],
+            visibleIndicatorState: .active, stopActionAvailable: true,
+            bufferSummaryId: nil, startedAt: start, stoppedAt: nil
+        )
+        model.update(snapshot)
+        XCTAssertEqual(model.elapsed(now: start.addingTimeInterval(5)), "0:05")
+        snapshot.session?.state = .paused
+        model.update(snapshot)
+        XCTAssertEqual(model.elapsed(now: start.addingTimeInterval(15)), "0:15")
+        XCTAssertEqual(model.elapsed(now: start.addingTimeInterval(25)), "0:25")
+        XCTAssertTrue(model.snapshot.active)
+        snapshot.session?.state = .active
+        model.update(snapshot)
+        XCTAssertEqual(model.elapsed(now: start.addingTimeInterval(65)), "1:05")
+        snapshot.session?.state = .stopped
+        snapshot.session?.stoppedAt = start.addingTimeInterval(70)
+        model.update(snapshot)
+        XCTAssertEqual(model.elapsed(now: start.addingTimeInterval(90)), "1:10")
+        XCTAssertFalse(model.snapshot.active)
+    }
+
     func testPermissionDefaultsAndOwnerIsolation() throws {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: "graf-notification-test-\(UUID())"))
         let store = DesktopNotificationPreferencesStore(defaults: defaults)

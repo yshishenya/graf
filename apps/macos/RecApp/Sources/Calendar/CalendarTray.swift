@@ -345,10 +345,10 @@ public final class CalendarTrayController: NSObject {
         button.setAccessibilityLabel("Ближайшие встречи GRAF")
         button.setAccessibilityRole(.button)
         captureObservation = DesktopControlModel.shared.$snapshot.sink { [weak button] snapshot in
-            let label = snapshot.session.map { CaptureStatusItem.statusLabel(for: $0) } ?? "Готово к записи"
+            let label = snapshot.session.map { CaptureStatusItem.statusLabel(for: $0) } ?? (snapshot.startAvailable ? "Готово к записи" : "Проверьте доступ к записи")
             button?.image = NSImage(systemSymbolName: snapshot.active ? (snapshot.session?.state == .paused ? "pause.circle.fill" : "record.circle") : "waveform", accessibilityDescription: "")
             button?.image?.isTemplate = true
-            button?.title = snapshot.active ? (snapshot.session?.state == .paused ? " Пауза" : " Запись") : ""
+            button?.title = snapshot.active ? (snapshot.session?.state == .paused ? " Микрофон на паузе" : " Запись") : ""
             button?.toolTip = "GRAF · " + label
             button?.setAccessibilityLabel("GRAF. " + label + ". Открыть управление")
         }

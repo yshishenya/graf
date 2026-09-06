@@ -172,7 +172,7 @@ public struct CaptureStatusItem: View {
         case .active:
             return "Идёт запись"
         case .paused:
-            return "Запись на паузе"
+            return "Микрофон на паузе"
         case .degraded:
             return "Запись с ограничением"
         case .stopping:

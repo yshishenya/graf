@@ -27,21 +27,12 @@ public final class DesktopControlModel: ObservableObject {
     public static let shared = DesktopControlModel()
     @Published public private(set) var snapshot = DesktopControlSnapshot()
     public var onAction: (DesktopControlAction) -> Void = { _ in }
-    private var pausedAt: Date?
-    private var pausedSeconds: TimeInterval = 0
     public init() {}
-    public func update(_ value: DesktopControlSnapshot, now: Date = Date()) {
-        if value.session?.id != snapshot.session?.id { pausedAt = nil; pausedSeconds = 0 }
-        if value.session?.state == .paused && pausedAt == nil { pausedAt = now }
-        if value.session?.state != .paused, let pause = pausedAt {
-            pausedSeconds += max(0, now.timeIntervalSince(pause)); pausedAt = nil
-        }
-        snapshot = value
-    }
+    public func update(_ value: DesktopControlSnapshot) { snapshot = value }
     public func elapsed(now: Date = Date()) -> String {
         guard let start = snapshot.session?.startedAt else { return "0:00" }
-        let end = snapshot.session?.stoppedAt ?? pausedAt ?? now
-        let seconds = Int(max(0, end.timeIntervalSince(start) - pausedSeconds))
+        let end = snapshot.session?.stoppedAt ?? now
+        let seconds = Int(max(0, end.timeIntervalSince(start)))
         return String(format: "%d:%02d", seconds / 60, seconds % 60)
     }
     public func send(_ action: DesktopControlAction) { onAction(action) }
@@ -75,6 +66,10 @@ public struct DesktopControlPanel: View {
                 Text(model.snapshot.transitioning ? "Подготавливаем запись…" : model.snapshot.startAvailable ? "Готово к записи" : "Проверьте доступ к записи")
                 Button("Начать запись") { model.send(.start) }
                     .disabled(!model.snapshot.startAvailable || model.snapshot.transitioning)
+            }
+            if model.snapshot.session?.state == .paused {
+                Text(SystemAudioStatusLabels.localRecordingPausedStatus)
+                    .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             if !compact || model.snapshot.active {
                 Label("Микрофон: \(model.snapshot.microphone)", systemImage: "mic")

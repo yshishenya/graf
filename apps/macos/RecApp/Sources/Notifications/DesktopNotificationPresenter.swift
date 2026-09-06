@@ -67,12 +67,16 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
     private var calendarEvents: [DesktopCalendarPromptEvent] = []
     private var requests: [String: (owner: String, event: DesktopCalendarPromptEvent?)] = [:]
     private var observation: AnyCancellable?
+    private var activationObservation: AnyCancellable?
     private var lastSnapshot = DesktopControlSnapshot()
     public override init() {
         super.init()
         center.delegate = self
         center.removeAllPendingNotificationRequests()
         center.removeAllDeliveredNotifications()
+        activationObservation = NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification).sink { [weak self] _ in
+            Task { await self?.refreshPermission() }
+        }
         observation = DesktopControlModel.shared.$snapshot.sink { [weak self] snapshot in
             guard let self, snapshot != self.lastSnapshot else { return }
             let activeChanged = snapshot.active != self.lastSnapshot.active
@@ -115,6 +119,7 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
         Task { await scheduleReminders() }
     }
     public func refreshPermission() async {
+        let previous = permissionText
         let settings = await center.notificationSettings()
         canRequestPermission = settings.authorizationStatus == .notDetermined
         switch settings.authorizationStatus {
@@ -122,6 +127,10 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
         case .denied: permissionText = "Уведомления macOS выключены"
         case .authorized, .provisional, .ephemeral: permissionText = "Уведомления macOS разрешены"
         @unknown default: permissionText = "Статус разрешения неизвестен"
+        }
+        if permissionText != previous {
+            message = ""
+            await scheduleReminders()
         }
     }
     public func enable() async {

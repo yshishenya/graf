@@ -1014,7 +1014,7 @@ Cross-surface state mapping:
 | `created` | `idle` or `ready` | Not shown or scheduled | Session exists but capture has not started |
 | `detecting` | `detecting` | Detecting | Meeting/audio activity detected |
 | `recording` | `recording` or `transcript_only` | Capturing | Audio is actively captured |
-| `paused` | `paused` | Paused | Capture is intentionally paused |
+| `paused` | `paused` | Paused | Local microphone is excluded from the GRAF recording; pause does not disable system capture; incoming audio continues only while the source is otherwise valid and user-visible (Feature 022) |
 | `uploading` | `uploading` | Uploading | Chunks are being sent to server |
 | `upload_interrupted` | `buffered_locally` or `upload_failed` | Upload interrupted | Audio exists locally and needs retry |
 | `uploaded` | `complete` | Uploaded | Required chunks are durably stored |

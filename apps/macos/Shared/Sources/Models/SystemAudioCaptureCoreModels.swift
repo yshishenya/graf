@@ -784,7 +784,7 @@ public enum SystemAudioStatusLabels {
     public static let recordButtonAccessibilityLabel = "Начать запись системного звука"
     public static let stopButtonTitle = "Остановить"
     public static let stopButtonAccessibilityLabel = "Остановить запись"
-    public static let pauseButtonTitle = "Пауза"
+    public static let pauseButtonTitle = "Пауза микрофона"
     public static let pauseButtonAccessibilityLabel = "Поставить локальный микрофон на паузу"
     public static let resumeButtonTitle = "Продолжить"
     public static let resumeButtonAccessibilityLabel = "Продолжить запись локального микрофона"
@@ -793,9 +793,9 @@ public enum SystemAudioStatusLabels {
     public static let recordingSourceSystemAudio = "Системный звук"
     public static let recordingSourceUnknown = "Источник не определён"
     public static let localRecordingPausedStatus =
-        "Запись на паузе. Остановить можно в любой момент."
+        "Микрофон не попадает в запись GRAF. Пауза не отключает запись системного звука."
     public static let meetingMuteTruthLimitationCopy =
-        "GRAF не может проверить, выключен ли микрофон во встрече. Чтобы ваша речь не попала в запись, используйте «Паузу» или «Остановить» в GRAF."
+        "GRAF не может проверить, выключен ли микрофон во встрече. Чтобы ваша речь не попала в запись, используйте «Паузу микрофона» или «Остановить» в GRAF."
     public static let captureAudioTitle = "Уровни записи"
     public static let microphoneTitle = "Микрофон"
     public static let incomingTitle = "Встреча"

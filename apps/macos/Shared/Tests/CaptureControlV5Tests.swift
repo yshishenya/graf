@@ -351,7 +351,7 @@ final class CaptureControlTests: XCTestCase {
                 blockedReason: nil,
                 localRecordingStatus: nil
             ),
-            "Запись на паузе"
+            "Микрофон на паузе"
         )
         XCTAssertEqual(
             CaptureControlView.primaryStatus(

@@ -42,9 +42,13 @@ def test_dev_presentation_is_fixed_and_distinct_from_production():
 def test_retired_launchers_refuse_without_creating_an_app(tmp_path):
     import subprocess
 
-    for name in ("build-local-app.sh", "run-local-app.sh"):
+    for script in (
+        ROOT / "apps/macos/Scripts/build-local-app.sh",
+        ROOT / "apps/macos/Scripts/run-local-app.sh",
+        ROOT / "specs/249-notification-control-design/native-preview/build.sh",
+    ):
         result = subprocess.run(
-            ["sh", str(ROOT / "apps/macos/Scripts" / name), "--open"],
+            ["sh", str(script), "--open"],
             cwd=tmp_path, capture_output=True, text=True, check=False,
         )
         assert result.returncode == 1

@@ -4,13 +4,13 @@ import UserNotifications
 
 // A standalone design preview. No capture, product API, files, or account data.
 enum Capture: String, CaseIterable {
-    case ready = "Готовность", recording = "Запись", paused = "Пауза", offline = "Без сети"
+    case ready = "Готовность", recording = "Запись", paused = "Пауза микрофона", offline = "Без сети"
     var active: Bool { self != .ready }
     var title: String {
         switch self {
         case .ready: "Готово к записи"
         case .recording, .offline: "Идёт запись"
-        case .paused: "Запись на паузе"
+        case .paused: "Микрофон на паузе"
         }
     }
 }
@@ -83,11 +83,11 @@ struct CaptureCard: View {
                 }
             }.accessibilityElement(children: .combine)
             LabeledContent("Микрофон", value: model.capture.active ? "Пример источника" : "Готов · пример")
-            LabeledContent("Системный звук", value: model.capture == .paused ? "На паузе · пример" : "Пример источника")
+            LabeledContent("Системный звук", value: "Пример системного источника · запись продолжается")
                 .foregroundStyle(.secondary)
             HStack {
                 if model.capture.active {
-                    Button(model.capture == .paused ? "Продолжить" : "Пауза") {
+                    Button(model.capture == .paused ? "Продолжить" : "Пауза микрофона") {
                         model.capture = model.capture == .paused ? .recording : .paused
                         app.updateCapture()
                     }
@@ -140,7 +140,7 @@ struct FloatingControls: View {
             if model.capture.active {
                 Button { model.capture = model.capture == .paused ? .recording : .paused; app.updateCapture() } label: {
                     Image(systemName: model.capture == .paused ? "play.fill" : "pause.fill")
-                }.accessibilityLabel(model.capture == .paused ? "Продолжить запись" : "Пауза")
+                }.accessibilityLabel(model.capture == .paused ? "Продолжить запись микрофона" : "Пауза микрофона")
                 Button("Стоп", role: .destructive) { model.stop(); app.updateCapture() }
             } else {
                 Button("Открыть") { app.showWindow(page: "Управление") }
@@ -403,7 +403,7 @@ final class PreviewApp: NSObject, NSApplicationDelegate, UNUserNotificationCente
         if model.capture.active {
             let alert = NSAlert(); alert.messageText = "Остановить запись и выйти из макета?"
             alert.informativeText = "Запись искусственная. В GRAF выход должен дождаться остановки и сохранения очереди."
-            alert.addButton(withTitle: "Продолжить запись"); alert.addButton(withTitle: "Остановить и выйти")
+            alert.addButton(withTitle: "Продолжить запись микрофона"); alert.addButton(withTitle: "Остановить и выйти")
             guard alert.runModal() == .alertSecondButtonReturn else { return }
             model.stop()
         }

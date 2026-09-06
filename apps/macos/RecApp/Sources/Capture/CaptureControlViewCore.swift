@@ -427,7 +427,7 @@ public struct CaptureControlView: View {
             return "Сохранено на Mac"
         }
         if normalized.contains("пауз") {
-            return "Запись на паузе"
+            return "Микрофон на паузе"
         }
         if normalized.contains("идет") || normalized.contains("идёт") {
             return "Идёт запись"
@@ -450,7 +450,7 @@ public struct CaptureControlView: View {
         case .active:
             return "Идёт запись"
         case .paused:
-            return "Запись на паузе"
+            return "Микрофон на паузе"
         case .degraded:
             return "Запись с ограничением"
         case .stopping:

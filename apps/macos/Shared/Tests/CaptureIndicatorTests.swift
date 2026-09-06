@@ -155,7 +155,7 @@ final class CaptureIndicatorTests: XCTestCase {
     func testPausedRecordingKeepsVisibleIndicatorAndStopAvailable() {
         let session = makeSession(state: .paused, indicator: .paused, stopAvailable: true)
 
-        XCTAssertEqual(CaptureStatusItem.statusLabel(for: session), "Запись на паузе")
+        XCTAssertEqual(CaptureStatusItem.statusLabel(for: session), "Микрофон на паузе")
         XCTAssertEqual(session.visibleIndicatorState, .paused)
         XCTAssertTrue(CaptureStatusItem.showsStopButton(for: session))
         XCTAssertTrue(CaptureStatusItem.shouldEnableStopButton(for: session, stopDisabled: false))

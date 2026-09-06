@@ -539,8 +539,8 @@ private struct ContentView: View {
         value.transitioning = recordingStartInProgress || recordingStopInProgress
         value.startAvailable = CaptureControlView.shouldShowDirectRecordButton(for: captureSession, calendarPrompt: desktopCalendarPrompt) && effectivePermissionOnboardingStatus.isReady && !value.transitioning
         value.blocker = recordingBlocker
-        value.microphone = effectivePermissionOnboardingStatus.microphone == .granted ? (captureSession?.state == .paused ? "На паузе" : localRecordingActive ? (liveRecordingLevels.microphoneIsLive() ? "Поступает звук" : "Нет свежих аудиоданных") : "Доступ разрешён") : "Нужен доступ"
-        value.systemAudio = effectivePermissionOnboardingStatus.systemAudio == .granted ? (captureSession?.state == .paused ? "На паузе" : localRecordingActive ? (liveRecordingLevels.incomingIsLive() ? "Поступает звук" : "Нет свежих аудиоданных") : "Доступ разрешён") : "Нужен доступ"
+        value.microphone = effectivePermissionOnboardingStatus.microphone == .granted ? (captureSession?.state == .paused ? "На паузе" : localRecordingActive ? (liveRecordingLevels.microphoneIsLive() ? "Поступают аудиоданные" : "Нет свежих аудиоданных") : "Доступ разрешён") : "Нужен доступ"
+        value.systemAudio = effectivePermissionOnboardingStatus.systemAudio == .granted ? (localRecordingActive ? (liveRecordingLevels.incomingIsLive() ? "Поступают аудиоданные" : "Нет свежих аудиоданных") : "Доступ разрешён") : "Нужен доступ"
         value.uploadItems = uploadQueueItems
         return value
     }
@@ -2210,7 +2210,7 @@ private struct ContentView: View {
                 detail: "sessionId=\(paused.id) localMicTreatment=silenced stopAvailable=\(paused.stopActionAvailable)"
             )
         } catch {
-            recordingBlocker = "Не удалось поставить запись на паузу. Запись продолжается; попробуйте ещё раз."
+            recordingBlocker = "Не удалось поставить микрофон на паузу. Остановите запись, если не хотите записывать звук."
             AppLog.writeRaw(
                 event: AuditEventName.recordingFailed.rawValue,
                 detail: "pause_failed error=\(error)"
@@ -2234,7 +2234,7 @@ private struct ContentView: View {
                 detail: "sessionId=\(active.id) localMicTreatment=capturing stopAvailable=\(active.stopActionAvailable)"
             )
         } catch {
-            recordingBlocker = "Не удалось продолжить запись. Она остаётся на паузе; попробуйте ещё раз или остановите её."
+            recordingBlocker = "Не удалось продолжить запись микрофона. Проверьте состояние источников или остановите запись."
             AppLog.writeRaw(
                 event: AuditEventName.recordingFailed.rawValue,
                 detail: "resume_failed error=\(error)"

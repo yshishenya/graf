@@ -90,6 +90,7 @@ T001→T002 обязательны для всей реализации. T003→
 - T020: https://github.com/yshishenya/graf/issues/6689
 - T021: https://github.com/yshishenya/graf/issues/6690
 - T022: https://github.com/yshishenya/graf/issues/6691
+- T023: https://github.com/yshishenya/graf/issues/6709
 
 Setup evidence: independent UX 13/13 and security 9/9; analyze.md critical/high 0; base a389657e6; 22/22 tasks have open owners. Feature249 canon 23/23 PASS. Global canon hook failed only unrelated #6684 (feature253, area label and Spec tasks field); global sync success is not claimed.
 
@@ -105,3 +106,11 @@ T007/T018/T020 остаются открытыми до проверки уст�
 конфигурация виджета и совместимость покрыты тестами, аппаратные сценарии этим
 не подменяются. T009 опирается на неизменённые существующие countdown/lifecycle
 тесты в полном наборе Swift. Новый общий файл проверок — DesktopNotificationControlTests.swift.
+
+## Phase 9: Convergence
+
+Runtime выявил HIGH/contradicts по FR-002/004, US1/AC4 и принципу II:
+новый виджет ошибочно обещает остановку системного звука на паузе микрофона.
+Независимый reviewer подтвердил сохранение семантики Feature 022.
+
+- [ ] T023 Исправить общие нативные подписи паузы микрофона, отображение обоих источников и непрерывный таймер; согласовать spec/experience/quickstart/макет с существующим V5LocalRecordingWriter, добавить тест времени и повторить GRAF Dev. [FR-002/004; US1/AC4; contradicts]
