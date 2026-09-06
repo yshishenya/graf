@@ -1,7 +1,7 @@
 # Implementation Plan: Единая и простая оболочка GRAF
 
 **Branch**: `codex/255-simplify-macos-interface` | **Date**: 2026-09-06 | **Spec**: [spec.md](spec.md)
-**Status**: План подготовлен; реализация ожидает reviewer-owned checklist.
+**Status**: Реализация начата после review требований; нативная приёмка GRAF Dev и обеих ОС ещё открыта.
 
 ## Summary
 
@@ -64,7 +64,7 @@
 - `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/base.html`, `cabinet/view_models.py`: только необходимая передача existing theme/menu.
 - `apps/macos/Shared/Tests/`, `apps/server/tests/{unit,contract}/`: профильные проверки.
 - `specs/255-simplify-macos-interface/`: spec, plan, research, inventory, journeys, data-model, contracts, quickstart, checklists, tasks, validation evidence.
-- `changes/unreleased/255-simplify-macos-interface.md`: итоговый фрагмент изменений при реализации.
+- `changes/unreleased/F255.yaml`: итоговый фрагмент изменений при реализации.
 
 ## Complexity Tracking
 

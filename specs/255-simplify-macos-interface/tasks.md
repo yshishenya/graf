@@ -1,11 +1,11 @@
 # Tasks: Единая и простая оболочка GRAF
 
 **Input**: spec.md, plan.md, research.md, data-model.md, contracts/interface.md, journeys.md, inventory.md, quickstart.md.
-**Lane**: high-risk-feature. Все задачи открыты до выполнения и evidence. Custom checklist оценивает рецензент; реализация его не отмечает.
+**Lane**: high-risk-feature. Незавершённые задачи остаются открытыми; выполненные отмечаются по evidence. Custom checklist оценивает рецензент; реализация его не отмечает.
 
 ## Phase 1: Допуск и исходная точка
 
-- [ ] T001 Завершить review требований в `specs/255-simplify-macos-interface/checklists/ux.md` и `checklists/security.md`, проверить analyze и владельцев зависимостей в `inventory.md`, закрепить допуск в `validation/readiness.md`. FR-013/FR-016; это review рецензента, не самоодобрение реализации.
+- [X] T001 Завершить review требований в `specs/255-simplify-macos-interface/checklists/ux.md` и `checklists/security.md`, проверить analyze и владельцев зависимостей в `inventory.md`, закрепить допуск в `validation/readiness.md`. FR-013/FR-016; это review рецензента, не самоодобрение реализации.
 
 ## Phase 2: Проверяемая основа
 
@@ -38,7 +38,7 @@
 ## Phase 6: Приёмка, PR и выпуск
 
 - [ ] T012 Выполнить всю матрицу `specs/255-simplify-macos-interface/quickstart.md`, записать версии/SHA, сценарии/контраст/снимки и ограничения в `validation/acceptance.md`. FR-001–FR-016/SC-001–SC-006. Реальное native evidence и смешанные версии обязательны; незакрытые строки блокируют готовность.
-- [ ] T013 Провести converge и review простоты, обновить `specs/255-simplify-macos-interface/tasks.md`, записать `validation/convergence.md`, подготовить `changes/unreleased/255-simplify-macos-interface.md`; после разрешения владельца на коммит оформить PR с exact-SHA governance-fast и согласовать закрытие выполненных issues. FR-012/FR-013/FR-014/FR-016.
+- [ ] T013 Провести converge и review простоты, обновить `specs/255-simplify-macos-interface/tasks.md`, записать `validation/convergence.md`, подготовить `changes/unreleased/F255.yaml`; после разрешения владельца на коммит оформить PR с exact-SHA governance-fast и согласовать закрытие выполненных issues. FR-012/FR-013/FR-014/FR-016.
 - [ ] T014 После допуска к выпуску пройти frozen candidate/Full CI/CD dry-run и релизные проверки, Developer ID/notarization/stapling/Gatekeeper/Sparkle/live appcast, smoke и русский CalVer release по `docs/agent-guidance/release-and-validation.md` и `docs/agent-guidance/macos-notarization.md`; сохранить evidence в `specs/255-simplify-macos-interface/validation/release.md`. FR-016/SC-006; без разрешения/gates не публиковать.
 
 ## Dependencies & Execution Order
@@ -53,7 +53,7 @@ T001 → T002 → T003 → T004 → T005 → T006 → T007 → T008 → T009 →
 
 ## GitHub ownership
 
-Umbrella/reservation: #6752. Task ownership синхронизировано 2026-09-06; T001 остаётся открытой до фактического review. Открытые задачи не закрываются за наличие документа. Чужие F245–F253 и #5804 не присваиваются F255.
+Umbrella/reservation: #6752. Task ownership синхронизировано 2026-09-06; T001 завершена отдельным рецензентом; runtime этим review не одобрен. Открытые задачи не закрываются за наличие документа. Чужие F245–F253 и #5804 не присваиваются F255.
 
 
 | Spec tasks | GitHub issue |
@@ -66,3 +66,13 @@ Umbrella/reservation: #6752. Task ownership синхронизировано 202
 | T012, T013 | [#6757](https://github.com/yshishenya/graf/issues/6757) |
 
 #6752 сохраняет reservation/umbrella и не закрывается после одного T001: владеет также T014. Остальные issues закрываются только после выполнения всей группы и closure evidence.
+
+## Phase 7: Convergence
+
+- [ ] T015 Повторить нативный прототип и передачу меню в штатном установленном GRAF Dev через build/promote/status/smoke на чистом согласованном SHA; записать manifest, app presentation и реальные смешанные версии в `validation/native-prototype.md` и `validation/acceptance.md` per FR-004/FR-016 (partial, HIGH). Владелец #6753; уточняет незавершённые T002/T012, диагностический GRAF Local не засчитывается.
+- [ ] T016 Завершить матрицу macOS 14.5/26, темы/system, прозрачности/движения/контраста, VoiceOver, минимального окна/200% и активной записи/Stop в `validation/acceptance.md`; исправить выявленные дефекты в разрешённых native/CSS/JS файлах per FR-005/FR-006/FR-009, SC-003/SC-004 (partial, HIGH). Владелец #6755; уточняет T008/T009/T012.
+- [ ] T017 Проверить согласованную объединённую ревизию F245–F253 и все оставшиеся admin/public/no-JS/account-save сценарии, обновить `inventory.md` и `validation/acceptance.md` per FR-010/FR-011/FR-013, SC-006 (partial, HIGH). Владелец #6756; уточняет T011/T012, открытый соседний PR не считается внедрённым.
+
+## Промежуточное состояние реализации
+
+Код T003–T010 реализован и прошёл профильные проверки, но задачи с обязательной runtime приёмкой сохраняют `[ ]` до полного evidence. См. `validation/acceptance.md`, `validation/cleanup.md` и `validation/convergence.md`. Коммит `c6bbcf3` содержит документы; implementation commit, Dev promotion, PR и выпуск ещё не выполнены.

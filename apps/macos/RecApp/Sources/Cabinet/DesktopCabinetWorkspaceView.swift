@@ -21,6 +21,10 @@ public struct DesktopCabinetWorkspaceView: View {
     private let localRecordingRows: [EmbeddedCabinetLocalRecordingRow]
     private let onLocalRecordingAction: EmbeddedCabinetWebView.LocalRecordingAction
     private let externalCabinetState: Binding<DesktopCabinetState>?
+    @StateObject private var shellBridge = EmbeddedCabinetShellBridge()
+    @State private var sidebarVisibility: NavigationSplitViewVisibility = .detailOnly
+    @State private var sidebarExpanded = true
+    @FocusState private var sidebarFocused: Bool
     @StateObject private var navigationController = EmbeddedCabinetNavigationController()
     @State private var internalCabinetState: DesktopCabinetState
     @Binding private var currentRoute: URL?
@@ -130,7 +134,8 @@ public struct DesktopCabinetWorkspaceView: View {
                 localRecordingRows: localRecordingRows,
                 onLocalRecordingAction: onLocalRecordingAction,
                 fallbackRequest: configuration.urlRequest(for: configuration.meetingsURL()),
-                navigationController: navigationController
+                navigationController: navigationController,
+                shellBridge: presentation == .shell ? shellBridge : nil
             )
             .id(navigationController.sessionBoundaryID)
             .accessibilityIdentifier(DesktopCabinetAccessibilityIdentifier.embeddedSurface)
@@ -144,15 +149,127 @@ public struct DesktopCabinetWorkspaceView: View {
                         maxHeight: Self.embeddedSurfaceHeight
                     )
             case .shell:
-                webView
-                    .frame(
-                        maxWidth: .infinity,
-                        minHeight: Self.shellEmbeddedSurfaceMinHeight,
-                        maxHeight: .infinity
-                    )
+                NavigationSplitView(columnVisibility: $sidebarVisibility) {
+                    nativeSidebar
+                        .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 320)
+                } detail: {
+                    webView
+                        .frame(
+                            maxWidth: .infinity,
+                            minHeight: Self.shellEmbeddedSurfaceMinHeight,
+                            maxHeight: .infinity
+                        )
+                }
+                .navigationSplitViewStyle(.balanced)
+                .toolbar(removing: .sidebarToggle)
+                .toolbar {
+                    if shellBridge.snapshot != nil {
+                        ToolbarItem(placement: .navigation) {
+                            Button {
+                                sidebarExpanded.toggle()
+                                sidebarVisibility = sidebarExpanded ? .all : .detailOnly
+                            } label: { Image(systemName: "sidebar.left") }
+                            .help(sidebarExpanded ? "Скрыть боковую панель" : "Показать боковую панель")
+                            .accessibilityLabel(sidebarExpanded ? "Скрыть боковую панель" : "Показать боковую панель")
+                        }
+                    }
+                }
+                .onChange(of: shellBridge.snapshot != nil) { _, ready in
+                    sidebarVisibility = ready && sidebarExpanded ? .all : .detailOnly
+                    if ready && shellBridge.focusSidebar { sidebarFocused = true }
+                }
             }
         } else {
             unavailableState
+        }
+    }
+
+    @ViewBuilder
+    private var nativeSidebar: some View {
+        if #available(macOS 26, *) {
+            sidebarContents
+        } else {
+            sidebarContents
+                .scrollContentBackground(.hidden)
+                .background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 16))
+                .padding(8)
+                .background(Color(nsColor: .controlBackgroundColor))
+        }
+    }
+
+    private var sidebarContents: some View {
+        List(selection: Binding<String?>(
+            get: { shellBridge.snapshot?.items.last(where: \.selected)?.id },
+            set: { id in
+                if let item = shellBridge.snapshot?.items.first(where: { $0.id == id }) {
+                    shellBridge.navigate(item, controller: navigationController)
+                }
+            }
+        )) {
+            if let snapshot = shellBridge.snapshot {
+                ForEach(snapshot.items.filter { $0.group == "main" }) { item in
+                    Label(item.label, systemImage: sidebarSymbol(item.id)).tag(item.id)
+                        .help(item.label)
+                }
+                if snapshot.items.contains(where: { $0.group == "settings" }) {
+                    Section("Настройки") {
+                        ForEach(snapshot.items.filter { $0.group == "settings" }) { item in
+                            Label(item.label, systemImage: sidebarSymbol(item.id)).tag(item.id)
+                                .help(item.label)
+                        }
+                    }
+                }
+            }
+        }
+        .listStyle(.sidebar)
+        .focused($sidebarFocused)
+        .accessibilityLabel("Навигация кабинета")
+        .accessibilityIdentifier("desktop-cabinet-native-sidebar")
+        .toolbar(removing: .sidebarToggle)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if let snapshot = shellBridge.snapshot {
+                if showsAppUpdateBadge && snapshot.commands.contains("update") {
+                    Button("Доступно обновление", systemImage: "arrow.down.circle", action: onCheckForUpdates)
+                        .padding(.horizontal, 12).padding(.bottom, 8)
+                }
+                Menu {
+                    if snapshot.commands.contains("account") { Button("Аккаунт") { shellBridge.perform("account") } }
+                    if snapshot.commands.contains("theme") {
+                        Menu("Вид") {
+                            ForEach([("system", "Системный"), ("light", "Светлый"), ("dark", "Тёмный")], id: \.0) { value, label in
+                                Button { shellBridge.perform("theme", value: value) } label: {
+                                    if snapshot.theme == value { Label(label, systemImage: "checkmark") } else { Text(label) }
+                                }
+                            }
+                        }
+                    }
+                    if snapshot.commands.contains("settings") { Button("Настройки") { shellBridge.perform("settings") } }
+                    Divider()
+                    if snapshot.commands.contains("logout") { Button("Выйти") { shellBridge.perform("logout") } }
+                    if snapshot.commands.contains("quit") { Button("Закрыть GRAF") { shellBridge.perform("quit") } }
+                } label: {
+                    Label(snapshot.name.isEmpty ? "Профиль" : snapshot.name, systemImage: "person.crop.circle")
+                        .lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .menuStyle(.borderlessButton)
+                .padding(12)
+                .help("Открыть меню профиля")
+                .accessibilityLabel("Открыть меню профиля")
+            }
+        }
+    }
+
+    private func sidebarSymbol(_ id: String) -> String {
+        switch id {
+        case "meetings": "rectangle.stack"
+        case "shared-with-me": "person.2"
+        case "settings", "overview": "gearshape"
+        case "account": "person.crop.circle"
+        case "calendar": "calendar"
+        case "recording": "record.circle"
+        case "notifications": "bell"
+        case "billing": "creditcard"
+        default: "circle.grid.2x2"
         }
     }
 

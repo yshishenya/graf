@@ -1120,7 +1120,7 @@ def test_full_cabinet_pages_share_one_primary_sidebar_contract() -> None:
     assert '<a class="skip-link" href="#cabinet-main">К содержимому</a>' in settings_page
     assert settings_page.count('id="cabinet-sidebar" data-cabinet-navigation') == 1
     assert settings_page.count('aria-label="Навигация кабинета"') == 1
-    assert settings_page.count('aria-current="page"') == 1
+    assert settings_page.count('aria-current="page"') == 2
     assert 'data-active-nav="settings"' in settings_page
     assert 'href="/settings/integrations/calendar"' in settings_page
 
@@ -1132,7 +1132,7 @@ def test_full_cabinet_pages_share_one_primary_sidebar_contract() -> None:
     )
     assert calendar_settings_page.count('id="cabinet-sidebar" data-cabinet-navigation') == 1
     assert calendar_settings_page.count('aria-label="Навигация кабинета"') == 1
-    assert calendar_settings_page.count('aria-current="page"') == 1
+    assert calendar_settings_page.count('aria-current="page"') == 2
     assert 'data-active-nav="settings"' in calendar_settings_page
     assert 'href="/settings/integrations/calendar"' in calendar_settings_page
 
@@ -1575,14 +1575,13 @@ def test_feature_159_download_and_profile_surface_contract_is_surface_aware() ->
         assert menu_match is not None
         menu = menu_match.group(0)
         ordered_labels = (
-            "Длинное синтетическое имя пользователя", "Вид", "Настройки", "Решение проблем", "Документация",
-            "Техническая поддержка", "Обратная связь", "Присоединиться к ТГ-каналу",
+            "Длинное синтетическое имя пользователя", "Вид", "Настройки",
             "Выйти",
         )
         assert all(menu.index(label) < menu.index(ordered_labels[index + 1]) for index, label in enumerate(ordered_labels[:-1]))
         assert ">Аккаунт</strong>" not in menu
-        assert menu.count('role="separator"') == 3
-        assert menu.count('aria-disabled="true"') == 10
+        assert menu.count('role="separator"') == 2
+        assert menu.count('aria-disabled="true"') == 0
         assert f'href="{account_href}"' in menu
         assert f'href="{settings_href}"' in menu
         assert ('data-graf-app-quit' in menu) is quit_marker
@@ -1594,12 +1593,7 @@ def test_feature_159_download_and_profile_surface_contract_is_surface_aware() ->
             "Начало работы", "Что нового", "Центр помощи", "Конфиденциальность и обмен данными",
             "Техническая поддержка", "Обратная связь", "Присоединиться к ТГ-каналу",
         ):
-            expected_label = escape(label).replace("&#x27;", "&#39;")
-            assert re.search(
-                rf'<button[^>]+disabled[^>]+aria-disabled="true"[^>]*>.*?{re.escape(expected_label)}',
-                menu,
-                flags=re.DOTALL,
-            )
+            assert label not in menu
     assert 'data-account-preferences-auto-save' in web
     assert 'data-account-preferences-auto-save' in embedded
     assert 'aria-haspopup="menu"' not in web
@@ -1625,7 +1619,7 @@ def test_profile_menu_theme_and_disabled_action_contract_is_shared() -> None:
     assert "menu.hidePopover()" in script
     assert 'menu.matches(":popover-open")' in script
     assert 'style.setProperty("--profile-menu-bottom"' in script
-    assert ".sidebar-profile-menu__item--disabled" in css
+    assert ".sidebar-profile-menu__item--disabled" not in css
     assert ".sidebar-profile-menu__theme-form .theme-picker__options" in css
     assert ".sidebar-profile-menu__submenu" in css
     assert "inset-inline-start: calc(100% + 8px);" in css
@@ -1658,12 +1652,15 @@ def test_saved_theme_is_applied_to_the_full_cabinet_page() -> None:
     assert '<html lang="ru" data-theme=' not in system
 
 
-def test_feature_159_settings_use_one_primary_sidebar_and_canonical_meetings_return() -> None:
+def test_feature_255_settings_keep_primary_sections_and_category_navigation() -> None:
     for embedded, meetings_href in ((False, "/meetings"), (True, "/desktop/meetings")):
         page = render_settings_page(embedded=embedded, category="account")
         assert page.count("data-settings-primary-nav>") == 1
-        assert page.count("data-settings-primary-nav-item") == 9
+        assert page.count("data-settings-primary-nav-item") == 8
         assert f'href="{meetings_href}"' in page
+        sidebar = page.split('<aside class="sidebar"', 1)[1].split("</aside>", 1)[0]
+        shared_href = "/desktop/shared-with-me" if embedded else "/shared-with-me"
+        assert f'href="{shared_href}"' in sidebar
         assert page.count('data-settings-primary-nav-item="account"') == 1
         primary_sidebar = re.search(
             r'<nav class="cabinet-sidebar-nav cabinet-sidebar-nav--settings".*?</nav>',
@@ -1675,7 +1672,7 @@ def test_feature_159_settings_use_one_primary_sidebar_and_canonical_meetings_ret
         assert (
             page.count(
                 '<nav class="cabinet-sidebar-nav cabinet-sidebar-nav--settings" '
-                'aria-label="Навигация кабинета"'
+                'aria-label="Разделы настроек"'
             )
             == 1
         )

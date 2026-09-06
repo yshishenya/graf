@@ -28,7 +28,7 @@ swift build --package-path apps/macos --product TwoBrainRecApp
 
 ## Ранняя нативная проверка T002
 
-Собрать и запустить штатную локальную `.app` командой `apps/macos/Scripts/build-local-app.sh --open` при готовом локальном сервере на 127.0.0.1:8081; сохранить версию ОС, SDK, SHA и обезличенные снимки. Приложение с системной sidebar должно показывать реальный материал, titlebar controls и один WebView без перезагрузки на resize/theme. Debug app не является public release. Если композиция не подтверждена, остановить интеграцию и исправить план; скриншот HTML недостаточен.
+Использовать только GRAF Dev по `docs/agent-guidance/local-development.md` и `development-process.md`: чистая проверенная ревизия → `dev-harness.sh build` → `promote` под блокировкой → `status` → `smoke`. Сборщик `apps/macos/Scripts/build-dev-app.sh` сохраняет bundle ID `pro.2brain.graf.dev`, подпись и точный SHA; установленная копия одна — `/Applications/GRAF Dev.app`. Перед продвижением проверить текущий манифест и владельца стенда. Не запускать install напрямую при работающем приложении. Сохранить версию ОС, SDK, SHA и обезличенные снимки. Приложение с системной sidebar должно показывать реальный материал, titlebar controls и один WebView без перезагрузки на resize/theme. Debug app не является public release. Если композиция не подтверждена, остановить интеграцию и исправить план; скриншот HTML недостаточен.
 
 ## Матрица приёмки T012
 

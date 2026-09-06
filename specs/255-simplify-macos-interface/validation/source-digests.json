@@ -1,0 +1,16 @@
+{
+  "status": "uncommitted scoped validation; not exact-SHA release evidence",
+  "base_sha": "c6bbcf3765ff7a23221ced2aca64dd809dc420f8",
+  "sha256": {
+    "apps/macos/RecApp/Sources/Cabinet/DesktopCabinetWorkspaceView.swift": "c8582de34691f3f16949e6b8a7b0245ffd1dce7fe50274ba1a347a11da74db51",
+    "apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift": "cbe56d1588d29f082dde547c900f9a702ac299c8fea03607b67d4c33151cf4b0",
+    "apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetWebView.swift": "9d1a1296907544bfe10e5cdf24f664861c75bfab3e14e9534d5e0f56d4322cc2",
+    "apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetShellBridge.swift": "eb592b74983aea25604b97034fb1bdb3adf4c953a8a0e858e48b3a47d6c9ba67",
+    "apps/macos/Shared/Tests/EmbeddedCabinetShellBridgeTests.swift": "3300ac66ef304eb66c405b63433fb6274f70381a554f56e0f4e69f70d69c6b00",
+    "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css": "7aca05c655f1be810a229b0415bc1197c7d70040bb91ac9ed865d54284a72951",
+    "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js": "629061b4cf9fe3b970707a912b9bd0af51bcdfb1e5020a750295f37187c30b81",
+    "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/components/sections.html": "9fcc8b8c2ed07be9e7594a882882cba4d72b20cb4eace25228e85be8cae4f71c",
+    "apps/server/tests/contract/test_settings_ui_contract.py": "9d85323443c5905069a6b2c3cfa9167ab89fb668942e16573630a0fa502b74ab",
+    "apps/server/tests/unit/test_cabinet_web_shell.py": "485186d4de35b4d3ab3f41b1d4fa847b617dabf9c49ee03460b757bdee7f2c96"
+  }
+}
