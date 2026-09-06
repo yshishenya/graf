@@ -1081,6 +1081,8 @@ def test_throttled_browser_provider_start_precedes_state_growth_and_adapter(
     assert response.status_code == 429
     assert response.headers["retry-after"] == "60"
     assert "Слишком много попыток" in response.text
+    assert '<a class="auth-provider" href="/login/yandex/start?next=%2Fmeetings">' in response.text
+    assert '<a class="auth-provider" href="/login/vk/start?next=%2Fmeetings">' in response.text
     assert asyncio.run(count_states()) == before
     assert captured_scopes == [
         (
