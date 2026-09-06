@@ -236,6 +236,7 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
         return status == .authorized || status == .provisional
     }
     public func test() async {
+        await refreshPermission()
         guard await allowed() else {
             message = "Разрешите уведомления для GRAF в настройках macOS."; return
         }
@@ -391,5 +392,10 @@ public struct DesktopNotificationsSettingsView: View {
             }
         }.formStyle(.grouped)
         .onAppear { Task { await presenter.refreshPermission() } }
+        // macOS may persist an authorization change after the activation callback.
+        .onReceive(Timer.publish(every: 2, on: .main, in: .common).autoconnect()) { _ in
+            guard NSApp.isActive else { return }
+            Task { await presenter.refreshPermission() }
+        }
     }
 }

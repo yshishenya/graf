@@ -157,3 +157,9 @@ T030: https://github.com/yshishenya/graf/issues/6763
 - [ ] T031 Устранить повторные сигналы одной записи при ошибке Stop и подавлять баннер поверх видимого результата; назвать переход в общий список «Открыть локальные записи» в `DesktopNotificationPresenter.swift` и `DesktopControlPanel.swift`, добавить регрессии. [FR-002/005/019; expert pass 5; contradicts]
 
 T031: https://github.com/yshishenya/graf/issues/6764
+
+## Phase 14: Convergence
+
+- [ ] T032 Исправить устаревший статус разрешения после повторного включения macOS: обновлять его в открытом активном разделе настроек, сверять перед тестовым уведомлением. Повторить OS off/on без закрытия раздела в единственном GRAF Dev. [FR-011/012; live eb9a8d517; contradicts]
+
+T032: https://github.com/yshishenya/graf/issues/6765
