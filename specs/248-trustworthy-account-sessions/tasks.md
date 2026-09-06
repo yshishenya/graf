@@ -20,7 +20,7 @@ Independent test: current/other/expired/revoked/unknown UI, timezone, no-JS по
 - [X] T008 [US3] Реализовать единый список и историю, подтверждение/отмену, тексты результатов в apps/server/src/twobrain_rec_server/cabinet/{view_models,queries,rendering}.py, web_routes/settings.py и templates/cabinet/pages/settings_account_content.html. [FR-004–006,010–012] (Issue #6623)
 
 ## Phase 5 — Validation / PR
-- [ ] T009 Проверить полный auth/UI путь в изолированном PostgreSQL, browser и WKWebView; пройти converge/Ponytail review, добавить changes/unreleased/F248.yaml и specs/248-trustworthy-account-sessions/evidence/implementation.md; создать PR и дождаться exact-SHA governance-fast. [FR-001–012,SC-001–004] (Issue #6624)
+- [X] T009 Проверить полный auth/UI путь в изолированном PostgreSQL, browser и WKWebView; пройти converge/Ponytail review, добавить changes/unreleased/F248.yaml и specs/248-trustworthy-account-sessions/evidence/implementation.md; создать PR и дождаться exact-SHA governance-fast. [FR-001–012,SC-001–004] (Issue #6624)
 
 ## Dependencies
 T001 → T002 → T003; T004 после T001 (отдельные Swift файлы). T005 → T006 после T003; T007 → T008 после T006; T009 после всех реализаций. Сначала тесты, затем соответствующий код. Checklist state принадлежит рецензенту, не реализации. Tasks отмечать только после evidence.

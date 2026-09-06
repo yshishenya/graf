@@ -4,4 +4,4 @@
 
 Новых actionable gaps реализации: **0** (missing 0 / partial 0 / contradicts 0 / unrequested 0; CRITICAL 0 / HIGH 0 / MEDIUM 0 / LOW 0). Два обнаруженных независимым ревью дефекта устранены в рамках T006 и доказаны регрессиями; повторное ревью APPROVED. Подробности находятся в implementation.md.
 
-Реализация согласована с spec/plan/tasks; новые задачи не добавляются. PR/check gate T009 остаётся явным завершающим этапом; это заключение не заменяет governance-fast и не разрешает релиз. В extensions.yml исполняемых after_converge hooks нет.
+Реализация согласована с spec/plan/tasks; новые задачи не добавляются. PR/check gate T009 выполнен на SHA реализации (ссылка в implementation.md); документальный closeout повторно проверяется на текущем SHA; это заключение не заменяет governance-fast и не разрешает релиз. В extensions.yml исполняемых after_converge hooks нет.
