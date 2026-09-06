@@ -10,6 +10,7 @@ from twobrain_rec_server.cabinet.view_models import (
     AccountDeviceView,
     AccountProfileView,
     AccountProviderView,
+    AccountSettingsSurface,
     account_settings_surface,
 )
 from twobrain_rec_server.cabinet.web_routes.settings import router as settings_router
@@ -134,6 +135,13 @@ def test_settings_templates_use_primary_sidebar_and_single_content_column() -> N
     assert "grid-template-columns: minmax(0, 1fr)" in single_column_css
     assert "grid-column: 1" in single_column_css
     assert "gap: 0" in single_column_css
+    assert "width: min(var(--settings-content-width), 100%);" in single_column_css
+    assert "margin-inline: auto;" in single_column_css
+    assert re.search(
+        r"\.settings-page > \.settings-page__content,\s*"
+        r"\.calendar-settings > \.calendar-settings__content\s*\{[^}]*margin-inline: auto;",
+        single_column_css,
+    )
     assert ".settings-navigation" not in css
     assert ".settings-page {\n  grid-template-columns" not in css
 
@@ -251,10 +259,37 @@ def test_recording_settings_keep_native_boundary_copy_compact() -> None:
     assert 'data-sidebar-download href="/download"' in page
     assert page.count("data-sidebar-download") == 1
     assert "data-sidebar-download" not in embedded_page
+    assert "Нет приложения GRAF?" not in embedded_page
+    assert 'href="/download">Скачать GRAF для macOS</a>' in page
     assert (
         '/desktop/settings/meeting-detection">Открыть настройки записи в приложении'
         in embedded_page
     )
+
+
+def test_settings_forms_share_dirty_state_without_duplicate_submit_handler() -> None:
+    account = render_settings_page(
+        category="account",
+        account_surface=AccountSettingsSurface(profile=AccountProfileView("Synthetic")),
+    )
+    notifications = render_settings_page(category="notifications")
+    assert account.count("data-settings-form-disable-pristine") == 2
+    assert account.count("data-settings-form-reset") == 2
+    assert "data-settings-form-disable-pristine" in notifications
+    root = Path(__file__).resolve().parents[2]
+    script = (root / "src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js").read_text()
+    preferences = script.split("const initAccountPreferences =", 1)[1].split(
+        "const initSettingsConfirmations =", 1
+    )[0]
+    assert 'form.addEventListener("submit"' not in preferences
+
+
+def test_settings_retire_unused_style_paths() -> None:
+    root = Path(__file__).resolve().parents[2]
+    css = (root / "src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css").read_text()
+    assert ".settings-handoff-card" not in css
+    assert ".settings-choice-row--toggle" not in css
+    assert ".settings-section { grid-template-columns:" not in css
 
 
 def test_settings_account_close_phrase_is_described_to_confirmation_field() -> None:

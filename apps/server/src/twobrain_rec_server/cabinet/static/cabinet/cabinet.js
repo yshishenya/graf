@@ -5097,13 +5097,6 @@
           if (form.dataset.accountPreferencesAutoSave === "true") form.requestSubmit();
         }
       });
-      form.addEventListener("submit", () => {
-        // Keep the native POST/no-JS path authoritative; preview is local only until the server confirms.
-        const status = form.querySelector("[data-settings-form-status]");
-        if (status) { status.textContent = "Сохраняем настройки…"; status.hidden = false; }
-        const submit = form.querySelector("button[type='submit']");
-        if (submit) submit.disabled = false;
-      });
       form.addEventListener("reset", () => window.setTimeout(() => {
         applyTheme(form.elements.namedItem("theme")?.value || "system");
       }, 0));

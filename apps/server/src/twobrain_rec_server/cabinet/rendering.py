@@ -475,11 +475,18 @@ def render_settings_page(
         "activated": "Текущее пространство изменено. Новые встречи сохранятся здесь.",
     }.get(workspace_switch_result)
     provider_link_outcome = _provider_link_outcome(provider_link_result)
-    provider_link_result_copy = provider_link_outcome["detail"] if provider_link_outcome else None
     provider_unlink_outcome = _PROVIDER_UNLINK_OUTCOMES.get(provider_unlink_result or "")
-    provider_unlink_result_copy = (
-        provider_unlink_outcome["detail"] if provider_unlink_outcome else None
+    requires_account_reauth = "reauth_required" in (
+        provider_link_result,
+        provider_unlink_result,
+        device_revoke_result,
+        session_result,
+        account_close_result,
     )
+    if provider_link_result == "reauth_required":
+        provider_link_outcome = {**provider_link_outcome, "kind": "warning"}
+    if provider_unlink_result == "reauth_required":
+        provider_unlink_outcome = {**provider_unlink_outcome, "kind": "warning"}
     device_revoke_result_copy = {
         "revoked": "Устройство отозвано. Его активные сессии больше не действуют.",
         "others_revoked": "Доступ на остальных устройствах завершён. Текущее устройство остаётся активным.",
@@ -489,7 +496,6 @@ def render_settings_page(
     other_account_result = " ".join(
         message
         for message in (
-            provider_unlink_result_copy,
             device_revoke_result_copy,
             {
                 "revoked": "Сеанс завершён.",
@@ -504,18 +510,34 @@ def render_settings_page(
         )
         if message
     )
-    account_outcome = (
-        provider_link_outcome
-        or provider_unlink_outcome
-        or (
+    other_account_kind = (
+        "error"
+        if device_revoke_result == "failed"
+        else "warning"
+        if "reauth_required" in (device_revoke_result, session_result, account_close_result)
+        else "success"
+    )
+    account_outcomes = (
+        provider_link_outcome,
+        provider_unlink_outcome,
+        (
             {
-                "title": "Настройки обновлены",
+                "title": {
+                    "error": "Не удалось изменить настройки",
+                    "warning": "Нужно войти снова",
+                    "success": "Настройки обновлены",
+                }[other_account_kind],
                 "detail": other_account_result,
-                "kind": "success",
+                "kind": other_account_kind,
             }
             if other_account_result
             else None
-        )
+        ),
+    )
+    account_outcome = max(
+        (outcome for outcome in account_outcomes if outcome),
+        key=lambda outcome: {"success": 0, "warning": 1, "error": 2}[outcome["kind"]],
+        default=None,
     )
     content_templates = {
         "overview": "cabinet/pages/settings_content.html",
@@ -552,28 +574,14 @@ def render_settings_page(
         else "/settings/join-offers",
         "summary_formats": BUILT_IN_TEMPLATES,
         "account_surface": account_surface or cabinet_view_models.AccountSettingsSurface(),
-        "provider_link_result": provider_link_result_copy,
         "account_outcome": account_outcome,
-        "requires_account_reauth": provider_link_result == "reauth_required"
-        or provider_unlink_result == "reauth_required",
+        "requires_account_reauth": requires_account_reauth,
         "account_reauth_action": "/desktop/meetings" if embedded else "/logout",
         "account_reauth_next": "/login?next="
         + ("/desktop/settings/account" if embedded else "/settings/account"),
-        "provider_unlink_result": provider_unlink_result_copy,
-        "device_revoke_result": device_revoke_result_copy,
-        "session_result": {
-            "revoked": "Сеанс завершён.",
-            "others_revoked": "Остальные сеансы завершены. Текущая сессия остаётся активной.",
-            "reauth_required": "Для управления сессиями войдите через подтверждённую веб-сессию и повторите попытку.",
-        }.get(session_result),
         "notification_result": {"saved": "Настройки уведомлений сохранены."}.get(
             notification_result
         ),
-        "account_close_result": {
-            "scheduled": "Закрытие аккаунта запланировано. До даты отмены доступ и данные сохраняются, будущие списания отключены.",
-            "canceled": "Закрытие аккаунта отменено.",
-            "reauth_required": "Для закрытия аккаунта войдите через подтверждённую веб-сессию и повторите попытку.",
-        }.get(account_close_result),
         "profile_result": {"saved": "Профиль сохранён."}.get(profile_result),
         "preferences_result": {"saved": "Настройки языка, часового пояса и темы сохранены."}.get(
             preferences_result

@@ -832,7 +832,7 @@ def test_account_security_renders_exact_bulk_and_per_session_actions() -> None:
     page = render_settings_page(category="account", csrf_token="safe-csrf")
 
     assert "Завершить остальные сеансы" in page
-    assert "Выйти на всех устройствах" in page
+    assert "Выйти на остальных устройствах" in page
     assert 'action="/settings/account/sessions/revoke-others"' in page
     assert 'action="/settings/account/devices/revoke-others"' in page
 
