@@ -23,14 +23,19 @@ GENERIC_OWNER_LABEL_RE = re.compile(
     r"^(?:UNKNOWN|REMOTE|LOCAL|SPEAKER(?:[_ -]?[A-Z0-9]+)?|SPEAKER\s+\d+)$",
     re.IGNORECASE,
 )
-OUTCOME_CONFIG_KEYS: Final = {
+OUTCOME_CONFIG_KEYS_WITH_LIMIT: Final = {
     "config_contract_version",
     "model",
     "temperature",
-    "max_completion_tokens",
     "response_format",
 }
-REFLECTION_CONFIG_KEYS: Final = OUTCOME_CONFIG_KEYS - {"response_format"}
+OUTCOME_CONFIG_KEYS_WITHOUT_LIMIT: Final = OUTCOME_CONFIG_KEYS_WITH_LIMIT - {
+    "max_completion_tokens"
+}
+REFLECTION_CONFIG_KEYS: Final = OUTCOME_CONFIG_KEYS_WITHOUT_LIMIT - {"response_format"}
+REFLECTION_CONFIG_KEYS_WITHOUT_LIMIT: Final = OUTCOME_CONFIG_KEYS_WITHOUT_LIMIT - {
+    "response_format"
+}
 OUTCOME_VARIABLES: Final = {
     "transcript_json",
     "output_language",
@@ -132,10 +137,9 @@ def judge_schema() -> dict[str, object]:
 
 def outcome_config(*, schema_name: str, model: str = "gpt-5.6-luna") -> dict[str, object]:
     return {
-        "config_contract_version": 1,
+        "config_contract_version": 2,
         "model": model,
         "temperature": 1,
-        "max_completion_tokens": 4096,
         "response_format": {
             "type": "json_schema",
             "json_schema": {"name": schema_name, "strict": True, "schema": outcome_schema()},
@@ -145,9 +149,8 @@ def outcome_config(*, schema_name: str, model: str = "gpt-5.6-luna") -> dict[str
 
 def judge_config(*, schema_name: str, model: str = "gpt-5.6-luna") -> dict[str, object]:
     config = outcome_config(schema_name=schema_name, model=model)
-    config["config_contract_version"] = 2
+    config["config_contract_version"] = 3
     config["temperature"] = 1
-    config["max_completion_tokens"] = 2048
     config["response_format"] = {
         "type": "json_schema",
         "json_schema": {"name": schema_name, "strict": True, "schema": judge_schema()},
@@ -162,8 +165,16 @@ class PromptSnapshot:
     prompt_type: Literal["chat", "text"]
     prompt: object
     config: dict[str, object]
-    source: Literal["langfuse_production", "verified_promoted_snapshot"]
+    source: Literal[
+        "langfuse_production", "langfuse_evaluation", "verified_promoted_snapshot"
+    ]
     canonical_hash: str
+    # Set only after the snapshot has been authorized by the immutable root
+    # bundle. A child prompt without these bindings is not production-ready.
+    root_bundle_hash: str | None = None
+    root_prompt_version: int | None = None
+    route_binding_hash: str | None = None
+    route_binding: dict[str, object] | None = None
 
     @property
     def model(self) -> str:
@@ -174,8 +185,9 @@ class PromptSnapshot:
             "model": self.model,
             "messages": [dict(message) for message in messages],
             "temperature": self.config["temperature"],
-            "max_completion_tokens": self.config["max_completion_tokens"],
         }
+        if "max_completion_tokens" in self.config:
+            request["max_completion_tokens"] = self.config["max_completion_tokens"]
         if "response_format" in self.config:
             request["response_format"] = self.config["response_format"]
         return request
@@ -235,7 +247,11 @@ def validate_prompt_snapshot(
 ) -> PromptSnapshot:
     if version < 1:
         raise ValueError("prompt version must be positive")
-    if source not in {"langfuse_production", "verified_promoted_snapshot"}:
+    if source not in {
+        "langfuse_production",
+        "langfuse_evaluation",
+        "verified_promoted_snapshot",
+    }:
         raise ValueError("unsupported prompt source")
     if prompt_type not in {"chat", "text"}:
         raise ValueError("unsupported prompt type")
@@ -338,6 +354,7 @@ def validate_outcome_result(
     allowed_categories: Sequence[str],
     allowed_segment_ids: set[str],
     allowed_segment_sequences: Mapping[str, int] | None = None,
+    repair_source_refs: bool = False,
 ) -> dict[str, object]:
     if not isinstance(result, dict) or set(result) != {"category_states", "items"}:
         raise ValueError("outcome result must contain category_states and items only")
@@ -356,6 +373,16 @@ def validate_outcome_result(
     seen: set[tuple[str, int]] = set()
     counts = {category: 0 for category in OUTCOME_CATEGORIES}
     normalized_items: list[dict[str, object]] = []
+    sequence_to_segment: dict[int, str] = {}
+    duplicate_sequences: set[int] = set()
+    if allowed_segment_sequences is not None:
+        for segment_id, segment_sequence in allowed_segment_sequences.items():
+            if segment_sequence in sequence_to_segment:
+                duplicate_sequences.add(segment_sequence)
+            else:
+                sequence_to_segment[segment_sequence] = segment_id
+        for segment_sequence in duplicate_sequences:
+            sequence_to_segment.pop(segment_sequence, None)
     for item in items:
         if not isinstance(item, dict):
             raise ValueError("outcome item must be an object")
@@ -388,41 +415,57 @@ def validate_outcome_result(
             raise ValueError("outcome item text is invalid")
         if item["truth_label"] != "supported":
             raise ValueError("outcome item must be supported")
-        if category != "action_items" and (
-            item["owner_text"] is not None or item["due_date_text"] is not None
-        ):
-            raise ValueError("owner and due date are only valid for action items")
-        if isinstance(item["owner_text"], str) and GENERIC_OWNER_LABEL_RE.fullmatch(
-            item["owner_text"].strip()
+        owner_text = item["owner_text"] if category == "action_items" else None
+        due_date_text = item["due_date_text"] if category == "action_items" else None
+        if isinstance(owner_text, str) and GENERIC_OWNER_LABEL_RE.fullmatch(
+            owner_text.strip()
         ):
             raise ValueError("generic speaker label cannot be an action owner")
         refs = item["source_refs"]
-        if not isinstance(refs, list) or not 1 <= len(refs) <= 8:
+        if not isinstance(refs, list) or len(refs) > 8:
             raise ValueError("outcome item requires at least one source reference")
         normalized_refs: list[dict[str, object]] = []
         seen_refs: set[tuple[str, int]] = set()
         for ref in refs:
             if not isinstance(ref, dict) or set(ref) != {"transcript_segment_id", "sequence"}:
+                if repair_source_refs:
+                    continue
                 raise ValueError("source reference is invalid")
             segment_id = str(ref["transcript_segment_id"])
-            if segment_id not in allowed_segment_ids:
-                raise ValueError("source reference is outside the pinned transcript")
             if (
                 not isinstance(ref["sequence"], int)
                 or isinstance(ref["sequence"], bool)
                 or ref["sequence"] < 0
             ):
+                if repair_source_refs:
+                    continue
                 raise ValueError("source reference sequence is invalid")
             provided_sequence = int(ref["sequence"])
             canonical_sequence = provided_sequence
             if allowed_segment_sequences is not None:
                 canonical_sequence = allowed_segment_sequences.get(segment_id)
                 if canonical_sequence is None:
-                    raise ValueError("source reference is outside the pinned transcript")
-                if provided_sequence != canonical_sequence:
+                    if repair_source_refs:
+                        # Some gateways preserve the segment position but
+                        # rewrite or omit the UUID. Recover only when that
+                        # position maps to exactly one pinned segment; never
+                        # invent evidence for an unknown position.
+                        segment_id = sequence_to_segment.get(provided_sequence)
+                        if segment_id is None:
+                            continue
+                        canonical_sequence = provided_sequence
+                    else:
+                        raise ValueError("source reference is outside the pinned transcript")
+                elif provided_sequence != canonical_sequence and not repair_source_refs:
                     raise ValueError("source reference sequence does not match pinned transcript")
+            elif segment_id not in allowed_segment_ids:
+                if repair_source_refs:
+                    continue
+                raise ValueError("source reference is outside the pinned transcript")
             ref_key = (segment_id, canonical_sequence)
             if ref_key in seen_refs:
+                if repair_source_refs:
+                    continue
                 raise ValueError("source references must be unique")
             seen_refs.add(ref_key)
             normalized_refs.append(
@@ -432,13 +475,29 @@ def validate_outcome_result(
                     "evidence_kind": "segment",
                 }
             )
+        if not normalized_refs:
+            if repair_source_refs:
+                # A model item without a verifiable source is not safe to
+                # publish. Keep the rest of the response when possible.
+                continue
+            raise ValueError("outcome item requires at least one source reference")
         normalized_items.append(
             {
                 **item,
+                "owner_text": owner_text,
+                "due_date_text": due_date_text,
                 "source_refs": normalized_refs,
             }
         )
         counts[category] += 1
+    if repair_source_refs:
+        normalized_states = dict(states)
+        for category in OUTCOME_CATEGORIES:
+            if counts[category] > 0:
+                normalized_states[category] = "available"
+            elif normalized_states[category] == "available":
+                normalized_states[category] = "not_inferable"
+        return {"category_states": normalized_states, "items": normalized_items}
     for category, state in states.items():
         if (state == "available") != (counts[category] > 0):
             raise ValueError("category state and item count disagree")
@@ -489,7 +548,6 @@ def _validate_base_config(
         raise ValueError(f"prompt config does not match {contract_label}")
     model = config.get("model")
     temperature = config.get("temperature")
-    max_tokens = config.get("max_completion_tokens")
     if not isinstance(model, str) or not ALLOWED_MODEL_RE.fullmatch(model):
         raise ValueError("model route is invalid")
     if (
@@ -498,19 +556,21 @@ def _validate_base_config(
         or not 0 <= temperature <= 2
     ):
         raise ValueError("temperature is invalid")
-    if (
-        isinstance(max_tokens, bool)
-        or not isinstance(max_tokens, int)
-        or not 1 <= max_tokens <= 8192
-    ):
-        raise ValueError("max_completion_tokens is invalid")
-
+    if "max_completion_tokens" in config:
+        max_tokens = config["max_completion_tokens"]
+        if (
+            isinstance(max_tokens, bool)
+            or not isinstance(max_tokens, int)
+            or not 1 <= max_tokens <= 8192
+        ):
+            raise ValueError("max_completion_tokens is invalid")
 
 def _validate_outcome_config(config: Mapping[str, object], *, judge: bool) -> None:
+    version = config.get("config_contract_version")
     _validate_base_config(
         config,
-        OUTCOME_CONFIG_KEYS,
-        contract_versions={1, 2} if judge else {1},
+        OUTCOME_CONFIG_KEYS_WITHOUT_LIMIT,
+        contract_versions={1, 2, 3} if judge else {1, 2},
     )
     response_format = config.get("response_format")
     if not isinstance(response_format, dict) or set(response_format) != {"type", "json_schema"}:
@@ -531,8 +591,8 @@ def _validate_outcome_config(config: Mapping[str, object], *, judge: bool) -> No
     if descriptor.get("schema") != expected_schema:
         raise ValueError("response schema does not match the closed contract v1")
     if judge:
-        expected_temperature = 0 if config["config_contract_version"] == 1 else 1
-        if config["temperature"] != expected_temperature or config["max_completion_tokens"] != 2048:
+        expected_temperature = 0 if version == 1 else 1
+        if config["temperature"] != expected_temperature:
             raise ValueError("judge settings do not match the config contract")
 
 

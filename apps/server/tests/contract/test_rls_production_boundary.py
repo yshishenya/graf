@@ -111,9 +111,10 @@ def test_migration_execute_blocks_when_rls_validation_is_blocked(tmp_path: Path)
     )
     output = result.stdout + result.stderr
 
-    assert "rls_validation_result=blocked" in output
+    assert "migration_verification_result=blocked" in output
+    assert "reason=production_migration_verification_requires_release_gate" in output
     assert "migration_verification_result=pass" not in output
-    assert result.returncode != 0 or "migration_verification_result=blocked" in output
+    assert result.returncode != 0
 
 
 def test_migration_verification_reuses_runtime_maintenance_secret() -> None:

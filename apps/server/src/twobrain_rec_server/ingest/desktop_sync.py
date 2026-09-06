@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from sqlalchemy import desc, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.problems import ProblemDetail
@@ -47,8 +47,12 @@ from twobrain_rec_server.ingest.store import (
     persist_upload_session,
     restore_meeting_after_upload_session_lifecycle,
 )
+from twobrain_rec_server.processing import store as processing_store
 from twobrain_rec_server.processing.fences import lock_meeting_fence, meeting_is_deleted_or_deleting
-from twobrain_rec_server.processing.results import effective_processing_result_query
+from twobrain_rec_server.processing.results import (
+    effective_processing_result_query,
+    result_is_terminal_input,
+)
 
 
 def _utc_aware(value: datetime) -> datetime:
@@ -185,6 +189,13 @@ def _status_value(status: object) -> str:
     return str(getattr(status, "value", status))
 
 
+def _processing_status(status: object) -> ProcessingStatus:
+    try:
+        return ProcessingStatus(_status_value(status))
+    except ValueError:
+        return ProcessingStatus.BLOCKED
+
+
 def _transcript_artifact_available(result: ProcessingResult | None) -> bool:
     return bool(
         result is not None
@@ -214,16 +225,58 @@ def _desktop_review_status(
     *,
     meeting: object,
     result: ProcessingResult | None,
-    workflow: ProcessingWorkflow | None,
+    processing_status: ProcessingStatus,
+    processing_workflow_id: object | None,
+    replacement_active: bool = False,
 ) -> str:
+    if processing_status in {
+        ProcessingStatus.FAILED_RETRYABLE,
+        ProcessingStatus.FAILED_TERMINAL,
+    }:
+        return "failed"
+    if replacement_active:
+        return "processing"
     has_transcript = _transcript_artifact_available(result)
     has_diarization = _diarization_available(result)
+    if (
+        processing_status == ProcessingStatus.PROCESSED
+        and has_transcript != has_diarization
+    ):
+        # A terminal processing attempt that produced only one artifact is a
+        # failed/incomplete review state, matching the cabinet projection.
+        return "failed"
+    latest_attempt_has_effective_result = bool(
+        result is not None
+        and processing_workflow_id is not None
+        and result.processing_workflow_id == processing_workflow_id
+    )
+    if processing_workflow_id is not None and not latest_attempt_has_effective_result:
+        lifecycle_status = processing_status.value
+        if lifecycle_status in {
+            ProcessingStatus.PENDING_PROCESSING.value,
+            ProcessingStatus.STARTING.value,
+            ProcessingStatus.WORKFLOW_STARTED.value,
+            ProcessingStatus.SUBMITTING.value,
+            ProcessingStatus.SUBMITTED.value,
+            ProcessingStatus.POLLING.value,
+            ProcessingStatus.IMPORTING.value,
+            ProcessingStatus.WAITING_RETRY.value,
+        }:
+            return "processing"
+        if lifecycle_status in {
+            ProcessingStatus.FAILED_RETRYABLE.value,
+            ProcessingStatus.FAILED_TERMINAL.value,
+            ProcessingStatus.PROCESSED.value,
+        }:
+            return "failed"
+        if lifecycle_status == ProcessingStatus.BLOCKED.value:
+            return "blocked"
     if has_transcript and has_diarization:
         return "ready"
     if has_transcript or has_diarization:
         return "partial"
 
-    lifecycle_status = workflow.status if workflow is not None else _status_value(meeting.processing_status)
+    lifecycle_status = processing_status.value
     if lifecycle_status in {
         ProcessingStatus.PENDING_PROCESSING.value,
         ProcessingStatus.STARTING.value,
@@ -232,6 +285,7 @@ def _desktop_review_status(
         ProcessingStatus.SUBMITTED.value,
         ProcessingStatus.POLLING.value,
         ProcessingStatus.IMPORTING.value,
+        ProcessingStatus.WAITING_RETRY.value,
     }:
         return "processing"
     if lifecycle_status == ProcessingStatus.NOT_SUBMITTED.value:
@@ -262,16 +316,12 @@ async def _latest_processing_workflow(
 ) -> ProcessingWorkflow | None:
     if db is None:
         return None
-    base_query = select(ProcessingWorkflow).where(
-        ProcessingWorkflow.workspace_id == workspace_id,
-        ProcessingWorkflow.meeting_id == meeting_id,
+    return await processing_store.get_processing_workflow(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        media_revision_id=media_revision_id,
     )
-    query = base_query
-    if media_revision_id is not None:
-        query = query.where(ProcessingWorkflow.media_revision_id == media_revision_id)
-    else:
-        query = query.where(ProcessingWorkflow.media_revision_id.is_(None))
-    return await db.scalar(query.order_by(desc(ProcessingWorkflow.updated_at), desc(ProcessingWorkflow.created_at)))
 
 
 async def _latest_processing_result(
@@ -280,7 +330,9 @@ async def _latest_processing_result(
     workspace_id: object,
     meeting_id: object,
     media_revision_id: object | None,
+    processing_workflow_id: object | None = None,
 ) -> ProcessingResult | None:
+    del processing_workflow_id  # Retained for compatible internal callers; selection is revision-wide.
     if db is None or media_revision_id is None:
         return None
     return await db.scalar(
@@ -292,7 +344,10 @@ async def _latest_processing_result(
     )
 
 
-def _review_available(conflict: DesktopSyncConflict, processing_status: ProcessingStatus) -> bool:
+def _review_available(
+    conflict: DesktopSyncConflict,
+    processing_status: ProcessingStatus,
+) -> bool:
     if conflict.state in {
         SyncConflictState.SERVER_MEETING_DELETED,
         SyncConflictState.ACCESS_REVOKED,
@@ -723,7 +778,6 @@ async def get_desktop_recording_sync_state(
         deletion_state=deletion_state,
         media_revision_status=meeting.media_revision_status,
     )
-    processing_conflict = _processing_conflict(meeting.processing_status)
     review_workflow = await _latest_processing_workflow(
         db,
         workspace_id=tenant_scope.workspace_id,
@@ -736,12 +790,76 @@ async def get_desktop_recording_sync_state(
         meeting_id=meeting.id,
         media_revision_id=meeting.media_revision_id,
     )
-    effective_processing_status = (
-        ProcessingStatus(review_workflow.status) if review_workflow is not None else meeting.processing_status
+    workflow_result = await processing_store.latest_processing_result(
+        db,
+        workspace_id=tenant_scope.workspace_id,
+        meeting_id=meeting.id,
+        media_revision_id=meeting.media_revision_id,
     )
-    review_status = _desktop_review_status(meeting=meeting, result=review_result, workflow=review_workflow)
-    transcript_ready = _transcript_available(review_result)
-    diarization_ready = _diarization_available(review_result)
+    terminal_input_result = bool(
+        review_workflow is not None
+        and workflow_result is not None
+        and workflow_result.processing_workflow_id == review_workflow.id
+        and result_is_terminal_input(workflow_result)
+    )
+    # A replacement attempt owns the desktop projection while it is active.
+    # Do not expose artifacts from the prior attempt until this attempt has
+    # published its own result; once it has, expose its partial/complete state.
+    replacement_active = bool(
+        review_workflow is not None
+        and review_workflow.attempt_ordinal > 1
+        and review_workflow.status
+        in {
+            ProcessingStatus.PENDING_PROCESSING.value,
+            ProcessingStatus.STARTING.value,
+            ProcessingStatus.WORKFLOW_STARTED.value,
+            ProcessingStatus.SUBMITTING.value,
+            ProcessingStatus.SUBMITTED.value,
+            ProcessingStatus.POLLING.value,
+            ProcessingStatus.IMPORTING.value,
+            ProcessingStatus.WAITING_RETRY.value,
+        }
+    )
+    review_projection_result = review_result
+    if replacement_active:
+        replacement_result = await db.scalar(
+            select(ProcessingResult)
+            .where(
+                ProcessingResult.workspace_id == tenant_scope.workspace_id,
+                ProcessingResult.meeting_id == meeting.id,
+                ProcessingResult.media_revision_id == meeting.media_revision_id,
+                ProcessingResult.processing_workflow_id == review_workflow.id,
+                ProcessingResult.status == ProcessingResultStatus.IMPORTED.value,
+            )
+            .order_by(ProcessingResult.result_version.desc(), ProcessingResult.created_at.desc())
+        )
+        if replacement_result is None:
+            review_projection_result = None
+        elif _transcript_available(replacement_result) and _diarization_available(
+            replacement_result
+        ):
+            review_projection_result = replacement_result
+    effective_processing_status = (
+        ProcessingStatus.FAILED_TERMINAL
+        if terminal_input_result
+        else _processing_status(review_workflow.status)
+        if review_workflow is not None
+        else _processing_status(meeting.processing_status)
+    )
+    processing_conflict = _processing_conflict(effective_processing_status)
+    review_status = _desktop_review_status(
+        meeting=meeting,
+        result=(
+            review_projection_result
+            if replacement_active
+            else (review_projection_result or workflow_result)
+        ),
+        processing_status=effective_processing_status,
+        processing_workflow_id=review_workflow.id if review_workflow is not None else None,
+        replacement_active=replacement_active,
+    )
+    transcript_ready = _transcript_available(review_projection_result)
+    diarization_ready = _diarization_available(review_projection_result)
     session_device_conflict = _session_device_conflict(tenant_scope=tenant_scope, session=session)
     conflict = _first_blocking_conflict(
         access_conflict,
@@ -757,7 +875,7 @@ async def get_desktop_recording_sync_state(
     accepted_bytes_by_track = _accepted_bytes_by_track(session)
     missing_ranges_by_track = _missing_ranges_by_track(session)
     review_available = _review_available(conflict, effective_processing_status)
-    custody_review_available = review_available and effective_processing_status == ProcessingStatus.PROCESSED
+    custody_review_available = review_available and transcript_ready and diarization_ready
     review_desktop_url = f"/desktop/meetings/{meeting.id}" if review_available else None
     custody_review_desktop_url = f"/desktop/meetings/{meeting.id}" if custody_review_available else None
     return DesktopRecordingSyncStateResponse(
@@ -766,7 +884,7 @@ async def get_desktop_recording_sync_state(
         meeting=DesktopSyncMeetingState(
             meeting_id=meeting.id,
             status=meeting.status,
-            processing_status=meeting.processing_status,
+            processing_status=effective_processing_status,
             deletion_state=deletion_state,
             access_state=access_state,
         ),
@@ -787,7 +905,13 @@ async def get_desktop_recording_sync_state(
         processing=DesktopSyncProcessingState(
             status=effective_processing_status,
             workflow_id=review_workflow.workflow_id if review_workflow is not None else None,
-            reason_code=review_workflow.last_reason_code if review_workflow is not None else processing_conflict.reason,
+            reason_code=(
+                workflow_result.failure_reason
+                if terminal_input_result
+                else review_workflow.last_reason_code
+                if review_workflow is not None
+                else processing_conflict.reason
+            ),
         ),
         review=DesktopSyncReviewState(
             available=review_available,

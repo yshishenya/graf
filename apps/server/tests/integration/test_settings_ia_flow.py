@@ -64,7 +64,7 @@ def test_settings_related_surfaces_keep_one_outer_navigation(client) -> None:
         assert response.status_code == 200, path
         assert response.text.count('aria-label="Навигация кабинета"') == 1
         assert response.text.count('aria-current="page"') == 1
-        assert 'class="settings-page__content"' in response.text
+        assert 'class="settings-page__content' in response.text
         assert 'class="settings-navigation"' not in response.text
 
 

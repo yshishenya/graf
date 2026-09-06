@@ -118,7 +118,7 @@ public final class MacOSAudioOwnershipLogStream: @unchecked Sendable {
             let live = runChild(
                 arguments: configuration.arguments,
                 mode: .live,
-                timeoutNanoseconds: nil,
+                timeoutNanoseconds: configuration.liveRefreshTimeoutNanoseconds,
                 activeSensorMicBundleIDs: &activeSensorMicBundleIDs,
                 continuation: continuation
             )

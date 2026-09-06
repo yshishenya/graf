@@ -83,9 +83,12 @@ def test_smoke_artifact_cleanup_deletes_processing_rows_before_meeting() -> None
         "delete from recording_calendar_match_attempts where consumed_by_meeting_id=:meeting_id",
         "delete from transcript_segments where meeting_id=:meeting_id",
         "delete from diarization_segments where meeting_id=:meeting_id",
-        "delete from processing_audit_events where meeting_id=:meeting_id",
+        "delete from processing_audit_events\n            where meeting_id=:meeting_id",
+        "select id from mediascribe_jobs where meeting_id=:meeting_id",
+        "select id from processing_workflows where meeting_id=:meeting_id",
         '"processing_dependency_states",\n            processing_dependency_delete',
         "delete from dispatch_intents where meeting_id=:meeting_id",
+        "update meeting_summary_slots\n               set current_outcome_set_id=null",
         "delete from meeting_outcome_generation_attempts",
         "delete from meeting_outcome_items",
         "delete from meeting_outcome_sets where meeting_id=:meeting_id",
@@ -103,6 +106,33 @@ def test_smoke_artifact_cleanup_deletes_processing_rows_before_meeting() -> None
         position = script.index(fragment)
         assert position > previous_position
         previous_position = position
+
+
+def test_smoke_artifact_cleanup_follows_processing_result_dependencies() -> None:
+    script = (
+        Path(__file__).resolve().parents[2]
+        / "scripts"
+        / "cleanup_smoke_artifacts.py"
+    ).read_text(encoding="utf-8")
+
+    for table_name in (
+        "transcript_segments",
+        "diarization_segments",
+        "meeting_outcome_generation_attempts",
+        "meeting_outcome_items",
+        "meeting_outcome_sets",
+    ):
+        table_position = script.index(f'"{table_name}",')
+        processing_result_link = script.index(
+            "select id from processing_results where meeting_id=:meeting_id",
+            table_position,
+        )
+        processing_result_delete = script.index(
+            "delete from processing_results where meeting_id=:meeting_id"
+        )
+        assert table_position < processing_result_link < processing_result_delete
+
+    assert "or source_result_id in (" in script
 
 
 def test_smoke_artifact_cleanup_deletes_billing_children_before_workspace() -> None:
@@ -132,6 +162,77 @@ def test_smoke_artifact_cleanup_deletes_billing_children_before_workspace() -> N
         previous_position = position
 
 
+def test_smoke_artifact_cleanup_deletes_playback_backfill_before_workspace() -> None:
+    script = (
+        Path(__file__).resolve().parents[2]
+        / "scripts"
+        / "cleanup_smoke_artifacts.py"
+    ).read_text(encoding="utf-8")
+
+    backfill_delete = script.index(
+        "delete from playback_backfill_runs where workspace_id=:workspace_id"
+    )
+    workspace_delete = script.index(
+        "delete from workspaces where id=:workspace_id"
+    )
+
+    assert backfill_delete < workspace_delete
+
+
+def test_smoke_artifact_cleanup_locks_workspace_before_discovery() -> None:
+    script = (
+        Path(__file__).resolve().parents[2]
+        / "scripts"
+        / "cleanup_smoke_artifacts.py"
+    ).read_text(encoding="utf-8")
+
+    workspace_lock = script.index(
+        'text("select id from workspaces where id=:workspace_id for update")'
+    )
+    discovery = script.index("meeting_ids = await _discover_smoke_meetings")
+
+    assert workspace_lock < discovery
+
+
+def test_smoke_artifact_cleanup_deletes_backfill_in_tenant_context() -> None:
+    script = (
+        Path(__file__).resolve().parents[2]
+        / "scripts"
+        / "cleanup_smoke_artifacts.py"
+    ).read_text(encoding="utf-8")
+
+    request_context = script.index(
+        "context_kind=\"request\"",
+        script.index("TenantDatabaseContext("),
+    )
+    backfill_delete = script.index(
+        "delete from playback_backfill_runs where workspace_id=:workspace_id"
+    )
+    maintenance_context = script.index(
+        "await apply_tenant_context_to_connection(conn, _maintenance_context())",
+        request_context,
+    )
+
+    assert request_context < backfill_delete < maintenance_context
+
+
+def test_smoke_artifact_cleanup_deletes_generation_calls_before_workspace() -> None:
+    script = (
+        Path(__file__).resolve().parents[2]
+        / "scripts"
+        / "cleanup_smoke_artifacts.py"
+    ).read_text(encoding="utf-8")
+
+    generation_calls_delete = script.index(
+        "delete from generation_calls where workspace_id=:workspace_id"
+    )
+    workspace_delete = script.index(
+        "delete from workspaces where id=:workspace_id"
+    )
+
+    assert generation_calls_delete < workspace_delete
+
+
 def test_smoke_artifact_cleanup_matches_revision_linked_dependencies() -> None:
     script = (
         Path(__file__).resolve().parents[2]
@@ -149,3 +250,37 @@ def test_smoke_artifact_cleanup_matches_revision_linked_dependencies() -> None:
     assert "media_revision_id in (" in script
     assert "select id from media_revisions where meeting_id=:meeting_id" in script
     assert dependency_delete < revision_delete
+
+
+def test_smoke_artifact_cleanup_locks_revisions_before_dependency_delete() -> None:
+    script = (
+        Path(__file__).resolve().parents[2]
+        / "scripts"
+        / "cleanup_smoke_artifacts.py"
+    ).read_text(encoding="utf-8")
+
+    revision_lock = script.index(
+        '"select id from media_revisions "'
+    )
+    dependency_delete = script.index(
+        'processing_dependency_delete = """',
+        revision_lock,
+    )
+
+    assert revision_lock < dependency_delete
+
+
+def test_smoke_artifact_cleanup_clears_cross_lineage_foreign_keys_without_counting_updates() -> None:
+    script = (
+        Path(__file__).resolve().parents[2]
+        / "scripts"
+        / "cleanup_smoke_artifacts.py"
+    ).read_text(encoding="utf-8")
+
+    pointer_clear = script.index("set current_outcome_set_id=null")
+    supersession_clear = script.index("set supersedes_outcome_set_id=null")
+    delete_loop = script.index("for table_name, sql in ordered_meeting_deletes")
+    assert pointer_clear < delete_loop
+    assert supersession_clear < delete_loop
+    assert "where current_outcome_set_id in (select id from lineage)" in script
+    assert "where supersedes_outcome_set_id in (select id from lineage)" in script

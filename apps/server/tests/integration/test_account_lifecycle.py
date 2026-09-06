@@ -21,6 +21,7 @@ from twobrain_rec_server.db.models import (
     AuthAuditEvent,
     AuthSession,
     AuthSessionDeviceBinding,
+    BillingOperation,
     ExternalIdentity,
     RegisteredDevice,
     TrialActivation,
@@ -197,6 +198,61 @@ def test_trial_requires_explicit_confirmation_and_is_one_per_identity(client) ->
     assert asyncio.run(count_trials()) == 1
 
 
+def test_trial_activation_is_blocked_while_checkout_is_pending(client) -> None:
+    workspace_id, device_id = asyncio.run(_seed_personal_workspace(client))
+
+    async def seed_pending_checkout() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            db.add(
+                ExternalIdentity(
+                    user_id=USER_ID,
+                    provider="email",
+                    provider_subject=f"verified-pending-{USER_ID}",
+                    email="verified-pending@example.test",
+                    is_verified=True,
+                    is_active=True,
+                )
+            )
+            db.add(
+                BillingOperation(
+                    workspace_id=workspace_id,
+                    kind="initial_checkout",
+                    idempotency_key="trial-pending-checkout",
+                    state="provider_pending",
+                    request_snapshot={"plan_code": "personal", "cycle": "month"},
+                )
+            )
+            await db.commit()
+
+    asyncio.run(seed_pending_checkout())
+    token, session_id = asyncio.run(
+        _issue_web_session(client, user_id=USER_ID, workspace_id=workspace_id, device_id=device_id)
+    )
+    headers = _bind_web_session(client, token=token, session_id=session_id)
+
+    response = client.post(
+        "/billing/trial/activate",
+        headers=headers,
+        data={"confirmation": "start_trial"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"].endswith("trial=pending")
+
+    async def count_trials() -> int:
+        async with client.app_state["sessionmaker"]() as db:
+            return len(
+                (
+                    await db.scalars(
+                        select(TrialActivation).where(TrialActivation.workspace_id == workspace_id)
+                    )
+                ).all()
+            )
+
+    assert asyncio.run(count_trials()) == 0
+
+
 def test_trial_expiry_projects_free_without_grace_period(client) -> None:
     workspace_id, device_id = asyncio.run(_seed_personal_workspace(client))
     token, session_id = asyncio.run(
@@ -231,7 +287,7 @@ def test_trial_expiry_projects_free_without_grace_period(client) -> None:
     asyncio.run(expire_trial())
     response = client.get("/billing")
     assert response.status_code == 200
-    assert '<h2 id="billing-plan-title">Free</h2>' in response.text
+    assert '<h2 id="billing-summary-title">Free</h2>' in response.text
     assert "Пробный период активирован" not in response.text
 
 
@@ -1037,3 +1093,34 @@ def test_trial_verification_gate_rejects_unverified_identity() -> None:
             workspace_kind="personal",
             already_used=False,
         )
+
+
+def test_theme_only_form_survives_reload_without_changing_locale_or_timezone(client) -> None:
+    workspace_id, device_id = asyncio.run(_seed_personal_workspace(client))
+    token, session_id = asyncio.run(
+        _issue_web_session(client, user_id=USER_ID, workspace_id=workspace_id, device_id=device_id)
+    )
+    headers = _bind_web_session(client, token=token, session_id=session_id)
+    initial = client.post(
+        "/settings/account/preferences", headers=headers,
+        data={"locale": "en-US", "timezone": "UTC", "theme": "dark"},
+        follow_redirects=False,
+    )
+    assert initial.status_code == 303
+    for prefix in ("", "/desktop"):
+        saved = client.post(
+            f"{prefix}/settings/account/preferences", headers=headers,
+            data={"theme": "light"}, follow_redirects=False,
+        )
+        assert saved.status_code == 303
+        reloaded = client.get(f"{prefix}/settings/account")
+        assert reloaded.status_code == 200
+        assert 'data-theme="light"' in reloaded.text
+
+        async def persisted() -> None:
+            async with client.app_state["sessionmaker"]() as db:
+                user = await db.get(UserIdentity, USER_ID)
+                assert user is not None
+                assert (user.locale, user.timezone, user.theme) == ("en-US", "UTC", "light")
+
+        asyncio.run(persisted())

@@ -9,16 +9,23 @@ from twobrain_rec_server.mediascribe.import_results import (
 from twobrain_rec_server.mediascribe.schemas import (
     MediaScribeDiarizationSegment,
     MediaScribeResult,
-    MediaScribeSegment,
+    MediaScribeTranscriptSegment,
+    MediaScribeWordItem,
 )
 from twobrain_rec_server.processing.audit import safe_audit_metadata
+from twobrain_rec_server.processing.reasons import (
+    FAILURE_SOURCE_MEDIASCRIBE,
+    MEDIASCRIBE_MALFORMED_RESPONSE,
+)
+from twobrain_rec_server.processing.submit import _classify_ready_result
 
 
 def test_result_normalization_maps_roles_and_digest_is_stable() -> None:
     result = MediaScribeResult(
         external_job_id="job_result",
+        transcript_status=ProcessingAvailabilityStatus.AVAILABLE,
         transcript=[
-            MediaScribeSegment(
+            MediaScribeTranscriptSegment(
                 sequence=0, start_seconds=0, end_seconds=1, text="hello", source_role="microphone"
             )
         ],
@@ -37,6 +44,65 @@ def test_result_normalization_maps_roles_and_digest_is_stable() -> None:
     assert normalized.transcript[0].source_role == "mic"
     assert normalized.diarization[0].source_role == "incoming"
     assert result_digest(normalized) == result_digest(normalized)
+
+
+def test_result_digest_changes_when_provider_words_change() -> None:
+    base = MediaScribeResult(
+        external_job_id="job_words_hash",
+        diarization=[
+            MediaScribeDiarizationSegment(
+                sequence=0,
+                start_seconds=0,
+                end_seconds=1,
+                text="hello",
+                speaker_label="SPEAKER_00",
+                words=[MediaScribeWordItem(word="hello")],
+            )
+        ],
+    )
+    changed = base.model_copy(
+        deep=True,
+        update={
+            "diarization": [
+                base.diarization[0].model_copy(
+                    update={"words": [MediaScribeWordItem(word="changed")]}
+                )
+            ]
+        },
+    )
+
+    assert result_digest(base) != result_digest(changed)
+
+
+def test_word_item_requires_word_and_ignores_provider_extensions() -> None:
+    with pytest.raises(ValidationError):
+        MediaScribeWordItem.model_validate({"start": 0, "end": 1})
+
+    word = MediaScribeWordItem.model_validate({"word": "hello", "future": "ignored"})
+    assert word.word == "hello"
+    assert "future" not in word.model_dump()
+
+
+def test_missing_single_track_roles_normalize_to_mixed() -> None:
+    result = MediaScribeResult(
+        external_job_id="job_single_role",
+        transcript_status=ProcessingAvailabilityStatus.AVAILABLE,
+        transcript=[MediaScribeTranscriptSegment(sequence=0, start_seconds=0, end_seconds=1, text="hello")],
+        diarization=[
+            MediaScribeDiarizationSegment(
+                sequence=0,
+                start_seconds=0,
+                end_seconds=1,
+                text="hello",
+                speaker_label="SPEAKER_00",
+            )
+        ],
+    )
+
+    normalized = normalize_result(result)
+
+    assert normalized.transcript[0].source_role == "mixed"
+    assert normalized.diarization[0].source_role == "mixed"
 
 
 def test_result_schema_rejects_unbounded_attribution_reason_code() -> None:
@@ -62,8 +128,9 @@ def test_result_schema_rejects_unbounded_attribution_reason_code() -> None:
 def test_result_normalization_degrades_non_positive_timing() -> None:
     result = MediaScribeResult(
         external_job_id="job_bad",
+        transcript_status=ProcessingAvailabilityStatus.AVAILABLE,
         transcript=[
-            MediaScribeSegment(
+            MediaScribeTranscriptSegment(
                 sequence=0, start_seconds=2, end_seconds=1, text="bad", source_role="mic"
             )
         ],
@@ -78,8 +145,9 @@ def test_result_normalization_degrades_non_positive_timing() -> None:
 def test_result_normalization_degrades_impossible_provider_chronology() -> None:
     result = MediaScribeResult(
         external_job_id="job_chronology",
+        transcript_status=ProcessingAvailabilityStatus.AVAILABLE,
         transcript=[
-            MediaScribeSegment(
+            MediaScribeTranscriptSegment(
                 sequence=0,
                 start_seconds=0,
                 end_seconds=2,
@@ -120,7 +188,7 @@ def test_explicit_unavailable_transcript_status_is_authoritative() -> None:
         external_job_id="job_unavailable_with_rows",
         transcript_status=ProcessingAvailabilityStatus.UNAVAILABLE,
         transcript=[
-            MediaScribeSegment(
+            MediaScribeTranscriptSegment(
                 sequence=0, start_seconds=0, end_seconds=1, text="ignored", source_role="mic"
             )
         ],
@@ -162,8 +230,9 @@ def test_provider_turns_survive_when_raw_transcript_is_unavailable() -> None:
 def test_result_normalization_detects_tiny_unknown_and_duplicate_text() -> None:
     result = MediaScribeResult(
         external_job_id="job_synthetic",
+        transcript_status=ProcessingAvailabilityStatus.AVAILABLE,
         transcript=[
-            MediaScribeSegment(
+            MediaScribeTranscriptSegment(
                 sequence=0,
                 start_seconds=0,
                 end_seconds=3,
@@ -207,7 +276,7 @@ def test_import_diagnostics_use_persisted_millisecond_precision_at_unknown_thres
         external_job_id="job_rounding_boundary",
         transcript_status=ProcessingAvailabilityStatus.AVAILABLE,
         transcript=[
-            MediaScribeSegment(
+            MediaScribeTranscriptSegment(
                 sequence=0,
                 start_seconds=0,
                 end_seconds=0.0504,
@@ -238,8 +307,9 @@ def test_import_diagnostics_use_persisted_millisecond_precision_at_unknown_thres
 def test_internal_diagnostics_do_not_change_source_result_hash() -> None:
     result = MediaScribeResult(
         external_job_id="job_hash",
+        transcript_status=ProcessingAvailabilityStatus.AVAILABLE,
         transcript=[
-            MediaScribeSegment(
+            MediaScribeTranscriptSegment(
                 sequence=0,
                 start_seconds=0,
                 end_seconds=1,
@@ -327,8 +397,9 @@ def test_attribution_audit_metadata_rejects_url_and_local_path_values() -> None:
 def test_result_import_projects_unknown_source_role_without_dropping_raw_role_or_extensions() -> None:
     result = MediaScribeResult(
         external_job_id="job_future_role",
+        transcript_status=ProcessingAvailabilityStatus.AVAILABLE,
         transcript=[
-            MediaScribeSegment(
+            MediaScribeTranscriptSegment(
                 sequence=0,
                 start_seconds=0,
                 end_seconds=1,
@@ -348,13 +419,34 @@ def test_result_import_projects_unknown_source_role_without_dropping_raw_role_or
     assert normalized.model_extra["provider_result_extension"] == {"kept": True}
 
 
-def test_result_import_treats_null_diarization_as_an_empty_internal_collection() -> None:
+def test_result_import_preserves_null_diarization_contract() -> None:
     result = MediaScribeResult(
         external_job_id="job_without_diarization",
-        transcript=[MediaScribeSegment(sequence=0, start_seconds=0, end_seconds=1, text="hello")],
+        transcript=[MediaScribeTranscriptSegment(sequence=0, start_seconds=0, end_seconds=1, text="hello")],
         diarization=None,
     )
 
     normalized = normalize_result(result)
 
-    assert normalized.diarization == []
+    assert normalized.diarization is None
+
+
+def test_ready_result_without_requested_diarization_is_terminal_contract_evidence() -> None:
+    result = MediaScribeResult(
+        external_job_id="job_without_requested_diarization",
+        transcript_status=ProcessingAvailabilityStatus.AVAILABLE,
+        transcript=[
+            MediaScribeTranscriptSegment(sequence=0, start_seconds=0, end_seconds=1, text="hello")
+        ],
+        diarization=None,
+    )
+
+    classified = _classify_ready_result(
+        normalize_result(result),
+        diarization_required=True,
+    )
+
+    assert classified.failure_reason == MEDIASCRIBE_MALFORMED_RESPONSE
+    assert classified.failure_source == FAILURE_SOURCE_MEDIASCRIBE
+    assert len(classified.transcript) == 1
+    assert classified.diarization is None

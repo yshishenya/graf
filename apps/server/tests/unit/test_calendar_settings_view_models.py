@@ -31,8 +31,8 @@ def test_calendar_settings_boundary_copy_names_read_only_no_auto_record_attendee
     assert "не получают доступ к записи автоматически" in rendered
     assert "на сервере GRAF" in rendered
     assert "Приложение на Mac их не хранит" in rendered
-    assert "не включает автоматическую запись" in rendered
-    assert "автоматическую запись" in rendered
+    assert "Подключение календаря само по себе не включает запись" in rendered
+    assert "Автозапись по приложениям настраивается отдельно" in rendered
     assert "raw_token" not in rendered
     assert "refresh_token" not in rendered
 
@@ -106,10 +106,28 @@ def test_google_provider_payload_reflects_runtime_availability() -> None:
     )
     assert unavailable["supported"] is False
     assert unavailable["runtime_available"] is False
-    assert available["supported"] is False
-    assert available["runtime_available"] is False
+    assert available["supported"] is True
+    assert available["runtime_available"] is True
     assert development_verification["supported"] is True
     assert development_verification["runtime_available"] is True
+
+
+def test_yandex_provider_payload_is_certified_and_connectable() -> None:
+    local_verification = next(
+        item
+        for item in provider_preset_payloads(allow_uncertified_yandex=True)
+        if item["provider_family"] == "caldav_yandex"
+    )
+    default = next(
+        item
+        for item in provider_preset_payloads()
+        if item["provider_family"] == "caldav_yandex"
+    )
+
+    assert default["supported"] is True
+    assert default["runtime_available"] is True
+    assert local_verification["supported"] is True
+    assert local_verification["runtime_available"] is True
 
 
 def test_provider_payload_does_not_claim_missing_ews_or_bitrix_runtime() -> None:
@@ -131,7 +149,7 @@ def test_provider_view_separates_available_connections_from_roadmap_cards() -> N
     )
     providers = {provider.provider_family: provider for provider in surface.providers}
 
-    assert providers["caldav_yandex"].runtime_available is False
+    assert providers["caldav_yandex"].runtime_available is True
     assert providers["caldav_yandex"].trigger_label == "Подключить Яндекс Календарь"
     assert providers["exchange_ews"].runtime_available is False
     assert providers["exchange_ews"].availability_label == "Скоро"
@@ -152,7 +170,7 @@ def test_provider_view_prioritizes_common_available_connections() -> None:
         "caldav_mail_ru",
         "custom_caldav",
     ]
-    assert not any(provider.runtime_available for provider in surface.providers)
+    assert any(provider.runtime_available for provider in surface.providers)
 
 
 def test_calendar_settings_defaults_keep_manual_safe_prompt_behavior() -> None:

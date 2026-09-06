@@ -218,6 +218,7 @@ private extension Array where Element == DesktopUploadQueueItem {
     }
 }
 
+@MainActor
 public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: View>: View {
     private let session: CaptureSession?
     private let uploadQueueItems: [DesktopUploadQueueItem]
@@ -490,7 +491,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     }
 
     private var custodyDetailSummaries: [DesktopUploadCustodySummary] {
-        DesktopUploadCustodySummary.summaries(for: uploadQueueItems)
+        return DesktopUploadCustodySummary.summaries(for: uploadQueueItems)
     }
 
     private var attentionCustodySummaries: [DesktopUploadCustodySummary] {
@@ -643,7 +644,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     }
 
     private func localRecordingDuration(for item: DesktopUploadQueueItem) -> String {
-        let seconds = max(1, item.artifactProfile.durationSeconds)
+        let seconds = max(0, item.artifactProfile.durationSeconds)
         let minutes = seconds / 60
         let remainder = seconds % 60
         if minutes == 0 {
@@ -675,7 +676,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         switch item.state {
         case .uploaded:
             return "checkmark.circle"
-        case .uploading, .queued, .retrying:
+        case .saving, .uploading, .queued, .retrying:
             return "speaker.wave.2"
         case .blocked, .degraded, .failed:
             return "exclamationmark.circle"
@@ -688,7 +689,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         switch item.state {
         case .uploaded:
             return .green
-        case .uploading, .queued:
+        case .saving, .uploading, .queued:
             return DesktopMeetingShellChrome.shellAccentColor
         case .retrying, .degraded:
             return .orange

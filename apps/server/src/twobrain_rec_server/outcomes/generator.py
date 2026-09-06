@@ -5,6 +5,7 @@ import re
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from hashlib import sha256
 from typing import Any
 
 from twobrain_rec_server.domain.statuses import OutcomeCategory
@@ -14,7 +15,11 @@ from twobrain_rec_server.outcomes.models import (
     OutcomeSourceReference,
     OutcomeTranscriptSegment,
 )
-from twobrain_rec_server.outcomes.prompts import PromptSnapshot, canonical_json
+from twobrain_rec_server.outcomes.prompts import (
+    PROMPT_VARIABLE_RE,
+    PromptSnapshot,
+    canonical_json,
+)
 
 CATEGORIES = [category.value for category in OutcomeCategory]
 NEGATIVE_CONTEXT_RE = re.compile(r"\b(без|нет|не было|отсутств)\b", re.IGNORECASE)
@@ -56,10 +61,18 @@ class LiteLLMGenerationResult:
 class LiteLLMGateway:
     """One zero-retry OpenAI-compatible call through the operator-owned proxy."""
 
-    def __init__(self, *, base_url: str, api_key: str, timeout_seconds: int) -> None:
+    def __init__(
+        self,
+        *,
+        base_url: str,
+        api_key: str,
+        timeout_seconds: int,
+        require_route_binding: bool = False,
+    ) -> None:
         self._url = f"{base_url.rstrip('/')}/chat/completions"
         self._api_key = api_key
         self._timeout_seconds = timeout_seconds
+        self._require_route_binding = require_route_binding
 
     async def generate(
         self,
@@ -71,6 +84,29 @@ class LiteLLMGateway:
         import httpx
 
         request = snapshot.litellm_request(messages)
+        route_binding = snapshot.route_binding
+        expected_route_hash = snapshot.route_binding_hash
+        if self._require_route_binding and route_binding is None:
+            raise LiteLLMError(
+                "litellm_route_binding_missing",
+                retryable=False,
+                egress_state="not_sent",
+            )
+        if route_binding is not None:
+            if not expected_route_hash or route_binding.get("binding_hash") != expected_route_hash:
+                raise LiteLLMError(
+                    "litellm_route_binding_mismatch",
+                    retryable=False,
+                    egress_state="not_sent",
+                )
+            descriptor = dict(route_binding)
+            descriptor.pop("binding_hash", None)
+            if sha256(canonical_json(descriptor).encode("utf-8")).hexdigest() != expected_route_hash:
+                raise LiteLLMError(
+                    "litellm_route_binding_mismatch",
+                    retryable=False,
+                    egress_state="not_sent",
+                )
         try:
             async with httpx.AsyncClient(timeout=self._timeout_seconds) as client:
                 headers = {
@@ -79,6 +115,8 @@ class LiteLLMGateway:
                 }
                 if idempotency_key:
                     headers["Idempotency-Key"] = idempotency_key
+                if expected_route_hash:
+                    headers["X-GRAF-Route-Binding-Hash"] = expected_route_hash
                 response = await client.post(
                     self._url,
                     headers=headers,
@@ -135,6 +173,42 @@ class LiteLLMGateway:
                 retryable=False,
                 raw_response={"response_json": raw},
             )
+        actual_model = _optional_string(raw.get("model"))
+        hidden = raw.get("_hidden_params")
+        hidden_mapping = hidden if isinstance(hidden, dict) else {}
+        response_headers = getattr(response, "headers", {})
+        provider = (
+            hidden_mapping.get("custom_llm_provider")
+            or raw.get("provider")
+            or response_headers.get("X-GRAF-Actual-Provider")
+        )
+        actual_provider = _optional_string(provider)
+        actual_model = actual_model or _optional_string(
+            response_headers.get("X-GRAF-Actual-Model")
+        )
+        if route_binding is not None:
+            echoed_hash = response_headers.get("X-GRAF-Route-Binding-Hash")
+            if echoed_hash != expected_route_hash:
+                raise LiteLLMError(
+                    "litellm_route_binding_unconfirmed",
+                    retryable=False,
+                    raw_response={"route_binding_hash": echoed_hash},
+                )
+            allowed_pairs = route_binding.get("allowed_provider_models")
+            if not isinstance(allowed_pairs, list) or not any(
+                isinstance(pair, dict)
+                and pair.get("provider") == actual_provider
+                and pair.get("model") == actual_model
+                for pair in allowed_pairs
+            ):
+                raise LiteLLMError(
+                    "litellm_route_binding_pair_unallowlisted",
+                    retryable=False,
+                    raw_response={
+                        "actual_provider": actual_provider,
+                        "actual_model": actual_model,
+                    },
+                )
         try:
             content = _response_content(raw)
         except LiteLLMError as exc:
@@ -156,16 +230,13 @@ class LiteLLMGateway:
                 raw_response=dict(raw),
             ) from exc
         usage = raw.get("usage")
-        hidden = raw.get("_hidden_params")
-        hidden_mapping = hidden if isinstance(hidden, dict) else {}
-        provider = hidden_mapping.get("custom_llm_provider") or raw.get("provider")
         cost = hidden_mapping.get("response_cost") or raw.get("cost")
         return LiteLLMGenerationResult(
             request=request,
             raw_response=dict(raw),
             parsed_content=parsed,
-            actual_model=_optional_string(raw.get("model")),
-            actual_provider=_optional_string(provider),
+            actual_model=actual_model,
+            actual_provider=actual_provider,
             provider_request_id=_optional_string(raw.get("id")),
             token_usage=dict(usage) if isinstance(usage, dict) else None,
             cost_details={"total": cost} if isinstance(cost, (int, float)) and not isinstance(cost, bool) else None,
@@ -221,10 +292,21 @@ def compile_prompt_messages(
         content = message["content"]
         if role not in {"system", "user", "assistant"} or not isinstance(content, str):
             raise ValueError("chat prompt message is invalid")
-        for key, value in variables.items():
-            content = content.replace(f"{{{{{key}}}}}", value)
-        if "{{" in content or "}}" in content:
+        # Validate placeholders in the template before inserting values. A
+        # transcript is untrusted data and may legitimately contain
+        # placeholder-looking text; checking the rendered message would treat
+        # that data as an unresolved instruction.
+        template_content = content
+        for key in variables:
+            template_content = template_content.replace(f"{{{{{key}}}}}", "")
+        if "{{" in template_content or "}}" in template_content:
             raise ValueError("chat prompt contains an unresolved variable")
+        # Replace template variables in one pass so inserted data is never
+        # processed as another variable.
+        content = PROMPT_VARIABLE_RE.sub(
+            lambda match: variables.get(match.group(1), match.group(0)),
+            content,
+        )
         messages.append({"role": role, "content": content})
     return messages
 

@@ -4,6 +4,8 @@ from __future__ import annotations
 import re
 import sys
 
+sys.dont_write_bytecode = True
+
 from issue_canon_common import (
     LEGACY_TITLE_RE,
     REQUIRED_SECTIONS,

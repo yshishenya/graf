@@ -5,7 +5,8 @@ from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from uuid import UUID, uuid4
 
-from sqlalchemy import func, nullslast, select
+from sqlalchemy import func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from twobrain_rec_server.cabinet.speakers import (
@@ -20,6 +21,7 @@ from twobrain_rec_server.db.models import (
     MeetingOutcomeItem,
     MeetingOutcomeSet,
     MeetingSpeakerName,
+    MeetingSummarySlot,
     ProcessingResult,
     TranscriptSegment,
 )
@@ -50,9 +52,34 @@ from twobrain_rec_server.processing.fences import (
     lock_meeting_fence,
     meeting_is_deleted_or_deleting,
 )
+from twobrain_rec_server.processing.results import (
+    effective_processing_result_query,
+    latest_processing_result_query,
+    result_is_complete,
+    result_is_terminal_input,
+)
 from twobrain_rec_server.processing.store import ProcessingLifecycleBlocked
 
 BASELINE_TEMPLATE_KEY = "graf-auto-v1"
+AI_DISPATCH_UNAVAILABLE = "summary_generation_unavailable"
+
+
+class SummarySlotDefaultConflict(ValueError):
+    """The meeting already has a different persisted default summary type."""
+
+
+MAX_SUMMARY_STATE_VERSION = 2**63 - 1
+
+
+class SummaryStateVersionExhausted(RuntimeError):
+    """A summary type can no longer advance its signed client version."""
+
+
+def advance_summary_slot_state_version(slot: MeetingSummarySlot) -> int:
+    if slot.state_version >= MAX_SUMMARY_STATE_VERSION:
+        raise SummaryStateVersionExhausted("summary_state_version_exhausted")
+    slot.state_version += 1
+    return slot.state_version
 
 
 def _baseline_template_provenance() -> tuple[str, int, str]:
@@ -87,21 +114,13 @@ async def ensure_outcomes_for_meeting(
             )
             .order_by(MediaRevision.revision_number.desc(), MediaRevision.updated_at.desc())
         )
-        result_query = select(ProcessingResult).where(
-            ProcessingResult.meeting_id == meeting_id,
-            ProcessingResult.status == ProcessingResultStatus.IMPORTED.value,
-        )
-        result_query = result_query.where(
-            ProcessingResult.media_revision_id == latest_revision.id
-            if latest_revision is not None
-            else ProcessingResult.media_revision_id.is_(None)
-        )
+        if latest_revision is None:
+            return None
         result = await db.scalar(
-            result_query.order_by(
-                ProcessingResult.result_version.desc(),
-                nullslast(ProcessingResult.imported_at.desc()),
-                ProcessingResult.created_at.desc(),
-                ProcessingResult.id.desc(),
+            effective_processing_result_query(
+                workspace_id=latest_revision.workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=latest_revision.id,
             )
         )
         if result is None:
@@ -110,6 +129,7 @@ async def ensure_outcomes_for_meeting(
             db,
             result=result,
             publish_initial_baseline=publish_initial_baseline,
+            enforce_latest_result=False,
         )
         await db.commit()
         return outcome_set
@@ -120,6 +140,8 @@ async def ensure_outcomes_for_processing_result(
     *,
     result: ProcessingResult,
     publish_initial_baseline: bool = False,
+    ai_dispatch_planned: bool | None = None,
+    enforce_latest_result: bool = True,
 ) -> MeetingOutcomeSet:
     meeting = await lock_meeting_fence(
         db, workspace_id=result.workspace_id, meeting_id=result.meeting_id
@@ -140,25 +162,34 @@ async def ensure_outcomes_for_processing_result(
     )
     if (latest_revision.id if latest_revision is not None else None) != result.media_revision_id:
         raise ProcessingLifecycleBlocked("summary_source_revision_stale")
-    latest_result = await db.scalar(
-        select(ProcessingResult)
-        .where(
-            ProcessingResult.workspace_id == result.workspace_id,
-            ProcessingResult.meeting_id == result.meeting_id,
-            ProcessingResult.media_revision_id == result.media_revision_id,
-            ProcessingResult.status == ProcessingResultStatus.IMPORTED.value,
+    latest_result = None
+    if enforce_latest_result:
+        latest_result = await db.scalar(
+            latest_processing_result_query(
+                workspace_id=result.workspace_id,
+                meeting_id=result.meeting_id,
+                media_revision_id=result.media_revision_id,
+            )
         )
-        .order_by(
-            ProcessingResult.result_version.desc(),
-            nullslast(ProcessingResult.imported_at.desc()),
-            ProcessingResult.created_at.desc(),
-            ProcessingResult.id.desc(),
+        # A callback may only create or update the lineage for the latest
+        # imported row. Meeting-level reconciliation intentionally uses the
+        # effective complete result, even when a newer partial row exists.
+        if latest_result is None or latest_result.id != result.id:
+            raise ProcessingLifecycleBlocked("summary_source_result_stale")
+    if result_is_complete(result):
+        effective_result = await db.scalar(
+            effective_processing_result_query(
+                workspace_id=result.workspace_id,
+                meeting_id=result.meeting_id,
+                media_revision_id=result.media_revision_id,
+            )
         )
-    )
-    if latest_result is None or latest_result.id != result.id:
-        raise ProcessingLifecycleBlocked("summary_source_result_stale")
+        if effective_result is None or effective_result.id != result.id:
+            raise ProcessingLifecycleBlocked("summary_source_result_stale")
     if (
-        latest_result.source_result_hash is not None
+        latest_result is not None
+        and latest_result.id == result.id
+        and latest_result.source_result_hash is not None
         and result.source_result_hash is not None
         and latest_result.source_result_hash != result.source_result_hash
     ):
@@ -173,8 +204,45 @@ async def ensure_outcomes_for_processing_result(
     existing = await _load_current_outcome_set(
         db, result=result, generator_config_hash=generator_config_hash
     )
-    initial_trusted_baseline = result.media_revision_id is None
+    if existing is None:
+        # A generated revision can be a candidate without being the slot
+        # current. Reuse the exact active deterministic lineage so repeated
+        # processing callbacks do not create another unpublished row.
+        existing = await db.scalar(
+            select(MeetingOutcomeSet)
+            .where(
+                MeetingOutcomeSet.workspace_id == result.workspace_id,
+                MeetingOutcomeSet.meeting_id == result.meeting_id,
+                MeetingOutcomeSet.processing_result_id == result.id,
+                MeetingOutcomeSet.template_key == template_key,
+                MeetingOutcomeSet.template_version == template_version,
+                MeetingOutcomeSet.generator_version == OUTCOME_GENERATOR_VERSION,
+                MeetingOutcomeSet.generator_config_hash == generator_config_hash,
+                MeetingOutcomeSet.candidate_id.is_not(None),
+                MeetingOutcomeSet.revision_state == "candidate",
+                MeetingOutcomeSet.status.in_(
+                    {
+                        OutcomeSetStatus.AVAILABLE.value,
+                        OutcomeSetStatus.PARTIAL.value,
+                        OutcomeSetStatus.GENERATING.value,
+                        OutcomeSetStatus.BLOCKED.value,
+                    }
+                ),
+            )
+            .with_for_update()
+        )
     transcript_is_available = canonical_speech_available(result)
+    has_transcript_artifact = bool(
+        result.transcript_status == "available" and int(result.segment_count or 0) > 0
+    )
+    if not has_transcript_artifact and not result_is_terminal_input(result):
+        raise ProcessingLifecycleBlocked("summary_source_result_stale")
+    revision_scoped_ai_wait = (
+        publish_initial_baseline
+        and result.media_revision_id is not None
+        and ai_dispatch_planned is not None
+        and transcript_is_available
+    )
     speaker_revision = await speaker_attribution_revision(
         db,
         workspace_id=result.workspace_id,
@@ -189,6 +257,13 @@ async def ensure_outcomes_for_processing_result(
         "accepted",
         "superseded",
     }
+    if revision_scoped_ai_wait and existing is not None and not existing_is_immutable_history:
+        await _project_revision_scoped_ai_wait(
+            db,
+            outcome_set=existing,
+            ai_dispatch_planned=bool(ai_dispatch_planned),
+        )
+        return existing
     if existing is not None and not existing_is_immutable_history:
         existing.template_key = existing.template_key or template_key
         existing.template_version = existing.template_version or template_version
@@ -196,25 +271,13 @@ async def ensure_outcomes_for_processing_result(
     if existing is not None and should_reuse_outcome_set(
         existing, transcript_is_available=transcript_is_available
     ):
-        await _accept_initial_outcome_set(
-            db,
-            meeting=meeting,
-            outcome_set=existing,
-            publish_initial_baseline=publish_initial_baseline,
-        )
         return existing
     if existing is not None and existing.revision_state in {"accepted", "superseded"}:
         # Accepted history is immutable; a new processing result gets a new set.
         return existing
-    publishable_initial_baseline = (
-        publish_initial_baseline and meeting.current_outcome_set_id is None
-    )
-    automatic_candidate_id = (
-        None if initial_trusted_baseline or publishable_initial_baseline else uuid4()
-    )
+    automatic_candidate_id = uuid4()
     replace_blocked_revision = (
         existing is not None
-        and not initial_trusted_baseline
         and transcript_is_available
         and existing.status == OutcomeSetStatus.BLOCKED.value
     )
@@ -269,6 +332,13 @@ async def ensure_outcomes_for_processing_result(
     )
     if replace_blocked_revision:
         outcome_set.supersedes_outcome_set_id = existing.id
+    if revision_scoped_ai_wait:
+        await _project_revision_scoped_ai_wait(
+            db,
+            outcome_set=outcome_set,
+            ai_dispatch_planned=bool(ai_dispatch_planned),
+        )
+        return outcome_set
     outcome_set.status = OutcomeSetStatus.GENERATING.value
     outcome_set.failure_reason = None
     outcome_set.failure_source = None
@@ -366,15 +436,7 @@ async def ensure_outcomes_for_processing_result(
         return outcome_set
     outcome_set.status = OutcomeSetStatus.AVAILABLE.value
     if outcome_set.revision_state is None:
-        if initial_trusted_baseline or publishable_initial_baseline:
-            # Legacy imports predate immutable media-revision provenance. Keep
-            # their historical auto-publish behavior. A newly imported,
-            # revision-scoped baseline may also publish once when no accepted
-            # outcome exists; later revisions remain candidates.
-            outcome_set.revision_state = "accepted"
-            meeting.current_outcome_set_id = outcome_set.id
-        else:
-            outcome_set.revision_state = "candidate"
+        outcome_set.revision_state = "candidate"
     outcome_set.generated_at = datetime.now(UTC)
     outcome_set.latency_ms = max(
         0, int((outcome_set.generated_at - started_at).total_seconds() * 1000)
@@ -391,11 +453,7 @@ async def ensure_outcomes_for_processing_result(
         media_revision_id=result.media_revision_id,
         processing_result_id=result.id,
         outcome_set_id=outcome_set.id,
-        status=(
-            "candidate"
-            if automatic_candidate_id is not None
-            else OutcomeGenerationAttemptStatus.STORED.value
-        ),
+        status="candidate",
         started_at=started_at,
         ended_at=outcome_set.generated_at,
         latency_ms=outcome_set.latency_ms,
@@ -418,41 +476,40 @@ async def ensure_outcomes_for_processing_result(
             "speaker_attribution_revision": speaker_revision,
         },
     )
-    await _accept_initial_outcome_set(
-        db,
-        meeting=meeting,
-        outcome_set=outcome_set,
-        publish_initial_baseline=publish_initial_baseline,
-    )
     await db.flush()
     return outcome_set
 
 
-async def _accept_initial_outcome_set(
+async def _project_revision_scoped_ai_wait(
     db: AsyncSession,
     *,
-    meeting: Meeting,
     outcome_set: MeetingOutcomeSet,
-    publish_initial_baseline: bool = False,
+    ai_dispatch_planned: bool,
 ) -> None:
-    if outcome_set.status not in {
-        OutcomeSetStatus.AVAILABLE.value,
-        OutcomeSetStatus.PARTIAL.value,
-    }:
-        return
-    if meeting.deleted_at is not None or meeting.deletion_state not in {None, "none"}:
-        return
-    if meeting.current_outcome_set_id not in {None, outcome_set.id}:
-        return
+    """Keep revision-scoped processing truthful until the AI result exists."""
+    # A revision-scoped result is a replaceable candidate until the trusted
+    # provider response publishes it into its type slot.  Set this explicitly
+    # for the first blocked projection as well as legacy rows that predate the
+    # slot lifecycle value.
+    outcome_set.revision_state = outcome_set.revision_state or "candidate"
+    outcome_set.status = (
+        OutcomeSetStatus.GENERATING.value
+        if ai_dispatch_planned
+        else OutcomeSetStatus.BLOCKED.value
+    )
+    outcome_set.failure_reason = None if ai_dispatch_planned else AI_DISPATCH_UNAVAILABLE
+    outcome_set.failure_source = None
+    outcome_set.generated_at = None
+    outcome_set.latency_ms = None
+    outcome_set.content_hash = None
+    set_outcome_category_states(
+        outcome_set,
+        OutcomeCategoryState.PROCESSING.value
+        if ai_dispatch_planned
+        else OutcomeCategoryState.UNAVAILABLE.value,
+    )
+    await replace_outcome_items(db, outcome_set=outcome_set, items=[])
     if outcome_set.candidate_id is not None:
-        if not publish_initial_baseline or meeting.current_outcome_set_id is not None:
-            return
-        if (
-            outcome_set.generator_kind != "deterministic_extractive"
-            or outcome_set.requested_by_user_id is not None
-            or outcome_set.revision_state != "candidate"
-        ):
-            return
         attempt = await db.scalar(
             select(MeetingOutcomeGenerationAttempt)
             .where(
@@ -461,31 +518,11 @@ async def _accept_initial_outcome_set(
             )
             .with_for_update()
         )
-        if (
-            attempt is None
-            or attempt.provider_kind != "deterministic_extractive"
-            or attempt.request_intent != "automatic_baseline"
-            or attempt.requested_by_user_id is not None
-        ):
-            return
-        now = datetime.now(UTC)
-        outcome_set.revision_state = "accepted"
-        outcome_set.expires_at = None
-        outcome_set.accepted_at = outcome_set.accepted_at or now
-        meeting.current_outcome_set_id = outcome_set.id
-        attempt.status = "accepted"
-        attempt.ended_at = attempt.ended_at or now
-        attempt.expires_at = None
-        await db.flush()
-        return
-    if outcome_set.revision_state in {"candidate", "rejected", "stale", "expired"}:
-        return
-    outcome_set.revision_state = "accepted"
-    outcome_set.accepted_at = (
-        outcome_set.accepted_at or outcome_set.generated_at or datetime.now(UTC)
-    )
-    if meeting.current_outcome_set_id is None:
-        meeting.current_outcome_set_id = outcome_set.id
+        if attempt is not None and attempt.provider_kind == "deterministic_extractive":
+            attempt.status = "generating" if ai_dispatch_planned else "blocked_dependency"
+            attempt.failure_code = None if ai_dispatch_planned else AI_DISPATCH_UNAVAILABLE
+            attempt.failure_reason = None if ai_dispatch_planned else AI_DISPATCH_UNAVAILABLE
+            attempt.ended_at = None
     await db.flush()
 
 
@@ -544,21 +581,227 @@ async def _load_current_outcome_set(
     result: ProcessingResult,
     generator_config_hash: str | None = None,
 ) -> MeetingOutcomeSet | None:
-    conditions = [
-        MeetingOutcomeSet.workspace_id == result.workspace_id,
-        MeetingOutcomeSet.meeting_id == result.meeting_id,
-        MeetingOutcomeSet.media_revision_id == result.media_revision_id,
-        MeetingOutcomeSet.processing_result_id == result.id,
-        MeetingOutcomeSet.generator_version == OUTCOME_GENERATOR_VERSION,
-    ]
-    if generator_config_hash is not None:
-        conditions.append(
-            (MeetingOutcomeSet.generator_config_hash == generator_config_hash)
-            | MeetingOutcomeSet.generator_config_hash.is_(None)
+    slot = await db.scalar(
+        select(MeetingSummarySlot).where(
+            MeetingSummarySlot.workspace_id == result.workspace_id,
+            MeetingSummarySlot.meeting_id == result.meeting_id,
+            MeetingSummarySlot.template_key == BASELINE_TEMPLATE_KEY,
         )
-    return await db.scalar(
-        select(MeetingOutcomeSet).where(*conditions).order_by(MeetingOutcomeSet.created_at.desc())
     )
+    if slot is not None:
+        if slot.current_outcome_set_id is None:
+            return None
+        return await db.scalar(
+            select(MeetingOutcomeSet).where(
+                MeetingOutcomeSet.id == slot.current_outcome_set_id,
+                MeetingOutcomeSet.workspace_id == result.workspace_id,
+                MeetingOutcomeSet.meeting_id == result.meeting_id,
+                MeetingOutcomeSet.processing_result_id == result.id,
+                MeetingOutcomeSet.template_key == slot.template_key,
+            )
+        )
+
+    return None
+
+
+async def load_summary_slot(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+    template_key: str,
+    for_update: bool = False,
+) -> MeetingSummarySlot | None:
+    query = select(MeetingSummarySlot).where(
+        MeetingSummarySlot.workspace_id == workspace_id,
+        MeetingSummarySlot.meeting_id == meeting_id,
+        MeetingSummarySlot.template_key == template_key,
+    )
+    if for_update:
+        query = query.with_for_update()
+    return await db.scalar(query)
+
+
+async def ensure_summary_slot(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+    template_key: str,
+    is_meeting_default: bool = False,
+    default_resolution_source: str | None = None,
+    default_resolution_version: str | None = None,
+    default_resolved_at: datetime | None = None,
+) -> MeetingSummarySlot:
+    slot = await load_summary_slot(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        template_key=template_key,
+    )
+    if slot is not None:
+        return slot
+    if is_meeting_default and (
+        default_resolution_source is None
+        or default_resolution_version is None
+        or default_resolved_at is None
+    ):
+        raise ValueError("default slot requires complete resolver provenance")
+    slot = MeetingSummarySlot(
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        template_key=template_key,
+        is_meeting_default=is_meeting_default,
+        default_resolution_source=default_resolution_source,
+        default_resolution_version=default_resolution_version,
+        default_resolved_at=default_resolved_at,
+    )
+    try:
+        # The unique slot key is the linearization point for concurrent first
+        # ensure requests. Keep the outer transaction usable when another
+        # request wins the insert race.
+        async with db.begin_nested():
+            db.add(slot)
+            await db.flush()
+    except IntegrityError as exc:
+        if "uq_meeting_summary_slots_workspace_meeting_type" not in str(exc):
+            raise
+        existing = await load_summary_slot(
+            db,
+            workspace_id=workspace_id,
+            meeting_id=meeting_id,
+            template_key=template_key,
+        )
+        if existing is None:
+            raise
+        return existing
+    return slot
+
+
+async def load_meeting_default_slot(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+    for_update: bool = False,
+) -> MeetingSummarySlot | None:
+    query = select(MeetingSummarySlot).where(
+        MeetingSummarySlot.workspace_id == workspace_id,
+        MeetingSummarySlot.meeting_id == meeting_id,
+        MeetingSummarySlot.is_meeting_default.is_(True),
+    )
+    if for_update:
+        query = query.with_for_update()
+    return await db.scalar(query)
+
+
+async def mark_meeting_default_slot(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+    template_key: str,
+    resolution_source: str,
+    resolution_version: str,
+    resolved_at: datetime,
+) -> MeetingSummarySlot:
+    """Persist the meeting default once; viewer preferences never participate."""
+    meeting = await db.scalar(
+        select(Meeting)
+        .where(Meeting.workspace_id == workspace_id, Meeting.id == meeting_id)
+        .with_for_update()
+    )
+    if meeting is None:
+        raise ValueError("meeting_not_found")
+
+    existing = await load_meeting_default_slot(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        for_update=True,
+    )
+    if existing is not None:
+        if existing.template_key != template_key:
+            raise SummarySlotDefaultConflict("summary_default_conflict")
+        return existing
+
+    slot = await ensure_summary_slot(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        template_key=template_key,
+        is_meeting_default=True,
+        default_resolution_source=resolution_source,
+        default_resolution_version=resolution_version,
+        default_resolved_at=resolved_at,
+    )
+    if not slot.is_meeting_default:
+        slot.is_meeting_default = True
+        slot.default_resolution_source = resolution_source
+        slot.default_resolution_version = resolution_version
+        slot.default_resolved_at = resolved_at
+        advance_summary_slot_state_version(slot)
+    return slot
+
+
+async def load_egress_default_outcome(
+    db: AsyncSession,
+    *,
+    meeting: Meeting,
+    slot: MeetingSummarySlot | None,
+) -> MeetingOutcomeSet | None:
+    """Validate the pinned default revision without consulting viewer state."""
+
+    if slot is None or slot.current_outcome_set_id is None:
+        return None
+    return await load_pinned_egress_outcome(
+        db,
+        meeting=meeting,
+        template_key=slot.template_key,
+        outcome_set_id=slot.current_outcome_set_id,
+    )
+
+
+async def load_pinned_egress_outcome(
+    db: AsyncSession,
+    *,
+    meeting: Meeting,
+    template_key: str,
+    outcome_set_id: UUID,
+) -> MeetingOutcomeSet | None:
+    """Validate one immutable template/revision pair for outward projection."""
+
+    outcome = await db.scalar(
+        select(MeetingOutcomeSet).where(
+            MeetingOutcomeSet.id == outcome_set_id,
+            MeetingOutcomeSet.workspace_id == meeting.workspace_id,
+            MeetingOutcomeSet.meeting_id == meeting.id,
+            MeetingOutcomeSet.template_key == template_key,
+            MeetingOutcomeSet.lifecycle_state == "active",
+            MeetingOutcomeSet.status.in_((OutcomeSetStatus.AVAILABLE.value, OutcomeSetStatus.PARTIAL.value)),
+            or_(
+                MeetingOutcomeSet.revision_state.is_(None),
+                MeetingOutcomeSet.revision_state == "accepted",
+            ),
+        )
+    )
+    if outcome is None:
+        return None
+    result = await db.scalar(
+        select(ProcessingResult).where(
+            ProcessingResult.id == outcome.processing_result_id,
+            ProcessingResult.workspace_id == meeting.workspace_id,
+            ProcessingResult.meeting_id == meeting.id,
+            ProcessingResult.status == ProcessingResultStatus.IMPORTED.value,
+        )
+    )
+    if result is None or outcome.media_revision_id != result.media_revision_id:
+        return None
+    result_source_hash = result.source_result_hash or sha256(
+        f"legacy-processing-result:{result.id}".encode()
+    ).hexdigest()
+    outcome_source_hash = outcome.source_result_hash or result_source_hash
+    return outcome if outcome_source_hash == result_source_hash else None
 
 
 async def load_outcome_transcript_segments(

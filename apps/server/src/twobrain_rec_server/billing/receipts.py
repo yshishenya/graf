@@ -78,7 +78,7 @@ def merge_receipt_registration(
 def receipt_label(state: ReceiptState) -> str:
     return {
         ReceiptState.UNKNOWN: "Чек пока не найден",
-        ReceiptState.AVAILABLE: "Открыть чек",
+        ReceiptState.AVAILABLE: "Чек зарегистрирован",
         ReceiptState.PENDING: "Чек формируется",
         ReceiptState.FAILED: "Чек временно недоступен",
     }[state]

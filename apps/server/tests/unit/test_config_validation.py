@@ -1,111 +1,13 @@
-from datetime import UTC, datetime
-from uuid import UUID
-
 import pytest
 from pydantic import ValidationError
 
-from twobrain_rec_server.api.meeting_detection import _assisted_auto_start_policy
-from twobrain_rec_server.auth.context import TenantScope
 from twobrain_rec_server.config import LOCAL_DEV_SMOKE_IDS, SMOKE_IDENTITY_CLASS, Settings
 
 
-def test_assisted_auto_start_defaults_to_disabled() -> None:
-    settings = Settings()
-
-    assert settings.assisted_auto_start_enabled is False
-    assert settings.assisted_auto_start_workspace_id is None
-
-
-def test_enabled_assisted_auto_start_requires_complete_scoped_policy() -> None:
-    with pytest.raises(ValidationError, match="requires workspace"):
-        Settings(assisted_auto_start_enabled=True)
-
-    settings = Settings(
-        assisted_auto_start_enabled=True,
-        assisted_auto_start_workspace_id="20000000-0000-0000-0000-000000000001",
-        assisted_auto_start_policy_version="2026.08.12.1",
-        assisted_auto_start_acknowledgement_version="2026.08.12.1",
-        assisted_auto_start_policy_issued_at=datetime(2026, 8, 12, tzinfo=UTC),
-        assisted_auto_start_policy_expires_at=datetime(2026, 9, 12, tzinfo=UTC),
-    )
-
-    assert settings.assisted_auto_start_policy_version == "2026.08.12.1"
-
-
-def test_enabled_assisted_auto_start_global_scope_requires_explicit_approval() -> None:
-    common = {
-        "assisted_auto_start_enabled": True,
-        "assisted_auto_start_all_workspaces": True,
-        "assisted_auto_start_policy_version": "2026.08.23.1",
-        "assisted_auto_start_acknowledgement_version": "2026.08.23.1",
-        "assisted_auto_start_policy_issued_at": datetime(2026, 8, 23, tzinfo=UTC),
-        "assisted_auto_start_policy_expires_at": datetime(2026, 9, 23, tzinfo=UTC),
+def test_server_settings_do_not_define_auto_recording_policy() -> None:
+    assert not {
+        name for name in Settings.model_fields if name.startswith("assisted_auto_start_")
     }
-    with pytest.raises(ValidationError, match="global assisted auto-start"):
-        Settings(**common)
-
-    settings = Settings(
-        **common,
-        assisted_auto_start_all_workspaces_approved=True,
-    )
-    assert settings.assisted_auto_start_workspace_id is None
-
-    with pytest.raises(ValidationError, match="cannot include a workspace ID"):
-        Settings(
-            **common,
-            assisted_auto_start_all_workspaces_approved=True,
-            assisted_auto_start_workspace_id="20000000-0000-0000-0000-000000000001",
-        )
-
-
-def test_global_assisted_auto_start_policy_is_published_for_any_workspace() -> None:
-    settings = Settings(
-        assisted_auto_start_enabled=True,
-        assisted_auto_start_all_workspaces=True,
-        assisted_auto_start_all_workspaces_approved=True,
-        assisted_auto_start_policy_version="2026.08.23.1",
-        assisted_auto_start_acknowledgement_version="2026.08.23.1",
-        assisted_auto_start_policy_issued_at=datetime(2026, 8, 23, tzinfo=UTC),
-        assisted_auto_start_policy_expires_at=datetime(2026, 9, 23, tzinfo=UTC),
-    )
-    first_scope = TenantScope(
-        organization_id=UUID("10000000-0000-0000-0000-000000000001"),
-        workspace_id=UUID("20000000-0000-0000-0000-000000000001"),
-        user_id=UUID("30000000-0000-0000-0000-000000000001"),
-        device_id=UUID("40000000-0000-0000-0000-000000000001"),
-    )
-    second_scope = TenantScope(
-        organization_id=first_scope.organization_id,
-        workspace_id=UUID("20000000-0000-0000-0000-000000000099"),
-        user_id=UUID("30000000-0000-0000-0000-000000000099"),
-        device_id=UUID("40000000-0000-0000-0000-000000000099"),
-    )
-
-    first = _assisted_auto_start_policy(settings=settings, tenant_scope=first_scope)
-    second = _assisted_auto_start_policy(settings=settings, tenant_scope=second_scope)
-
-    assert first is not None and second is not None
-    assert first["scope"] == second["scope"] == "all_workspaces"
-    assert first["policyRef"] == second["policyRef"]
-    assert first["acknowledgementSubjectRef"] != second["acknowledgementSubjectRef"]
-    assert first["deviceRef"] != second["deviceRef"]
-
-
-def test_enabled_assisted_auto_start_rejects_unsafe_or_naive_values() -> None:
-    common = {
-        "assisted_auto_start_enabled": True,
-        "assisted_auto_start_workspace_id": "20000000-0000-0000-0000-000000000001",
-        "assisted_auto_start_acknowledgement_version": "2026.08.12.1",
-        "assisted_auto_start_policy_issued_at": datetime(2026, 8, 12, tzinfo=UTC),
-        "assisted_auto_start_policy_expires_at": datetime(2026, 9, 12, tzinfo=UTC),
-    }
-    with pytest.raises(ValidationError, match="safe codes"):
-        Settings(**common, assisted_auto_start_policy_version="unsafe policy")
-    with pytest.raises(ValidationError, match="timezone"):
-        Settings(
-            **{**common, "assisted_auto_start_policy_expires_at": datetime(2026, 9, 12)},
-            assisted_auto_start_policy_version="2026.08.12.1",
-        )
 
 
 def _production_settings(**overrides):
@@ -129,6 +31,11 @@ def test_production_config_accepts_non_local_runtime_credentials() -> None:
     settings = _production_settings()
 
     assert settings.env == "production"
+
+
+def test_production_rejects_uncertified_yandex_calendar() -> None:
+    with pytest.raises(ValidationError, match="uncertified Yandex Calendar"):
+        _production_settings(calendar_allow_uncertified_yandex=True)
 
 
 def test_non_web_production_runtime_does_not_require_web_csrf_secret() -> None:
@@ -279,6 +186,12 @@ def test_upload_session_hard_lifetime_cannot_exceed_24_hours() -> None:
         Settings(upload_session_ttl_seconds=86_401)
 
 
+def test_recording_duration_limit_cannot_exceed_four_hours() -> None:
+    assert Settings().max_recording_duration_seconds == 14_400
+    with pytest.raises(ValidationError, match="max_recording_duration_seconds"):
+        Settings(max_recording_duration_seconds=14_401)
+
+
 def test_database_url_rejects_non_postgresql_async_driver() -> None:
     with pytest.raises(ValidationError, match="PostgreSQL"):
         Settings(database_url="sqli" + "te+aio" + "sqli" + "te:////tmp/rec.db")
@@ -342,6 +255,30 @@ def test_prompt_optimization_accepts_complete_ai_runtime_without_outcomes(tmp_pa
 
     assert settings.prompt_optimization_enabled is True
     assert settings.outcome_generation_enabled is False
+
+
+def test_evaluation_prompt_label_is_development_only(tmp_path) -> None:
+    lite_key = tmp_path / "litellm-key"
+    public_key = tmp_path / "langfuse-public-key"
+    secret_key = tmp_path / "langfuse-secret-key"
+    for path in (lite_key, public_key, secret_key):
+        path.write_text("test", encoding="utf-8")
+    runtime = {
+        "outcome_generation_enabled": True,
+        "temporal_address": "temporal:7233",
+        "litellm_base_url": "https://litellm.example.test",
+        "litellm_api_key_file": lite_key,
+        "langfuse_base_url": "https://langfuse.example.test",
+        "langfuse_public_key_file": public_key,
+        "langfuse_secret_key_file": secret_key,
+        "outcome_prompt_label": "feature-181-eval",
+    }
+
+    assert Settings(**runtime).outcome_prompt_label == "feature-181-eval"
+    with pytest.raises(ValidationError, match="production prompt label"):
+        Settings(env="production", **runtime)
+    with pytest.raises(ValidationError, match="explicit deployment label"):
+        Settings(**{**runtime, "outcome_prompt_label": "latest"})
 
 
 @pytest.mark.parametrize(

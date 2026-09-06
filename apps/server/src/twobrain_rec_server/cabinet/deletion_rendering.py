@@ -9,6 +9,7 @@ from twobrain_rec_server.api.schemas import (
 )
 from twobrain_rec_server.cabinet.rendering_shared import _base_path, _page_shell, _ui_text
 from twobrain_rec_server.cabinet.templates import render_template, trusted_component_html
+from twobrain_rec_server.cabinet.view_models import AccountProfileView
 
 
 def render_deletion_report_page(
@@ -16,6 +17,7 @@ def render_deletion_report_page(
     report: DeletionVerificationReport,
     *,
     embedded: bool = False,
+    profile: AccountProfileView | None = None,
     csrf_token: str | None = None,
     product_analytics_provider: dict[str, object] | None = None,
 ) -> str:
@@ -24,6 +26,7 @@ def render_deletion_report_page(
         "Отчет удаления",
         content,
         embedded=embedded,
+        profile=profile,
         csrf_token=csrf_token,
         product_analytics_provider=product_analytics_provider,
         content_source="deletion_report.content",

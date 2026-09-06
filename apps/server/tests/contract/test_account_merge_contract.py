@@ -303,7 +303,7 @@ def test_stale_email_merge_can_start_a_fresh_code_flow_inline() -> None:
 def test_mobile_browser_shell_keeps_server_rendered_navigation_without_javascript() -> None:
     page = render_settings_page(category="account")
 
-    assert '<noscript><nav class="cabinet-mobile-noscript-nav"' in page
+    assert '<noscript class="cabinet-mobile-noscript"><nav class="cabinet-mobile-noscript-nav"' in page
     assert 'aria-label="Навигация кабинета без JavaScript"' in page
     assert 'href="/meetings"' in page
     assert 'href="/settings"' in page

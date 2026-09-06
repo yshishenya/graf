@@ -132,10 +132,12 @@ PROVIDER_PRESETS = (
     ),
 )
 
-# A provider becomes visible as connectable only after its exact real
-# browser/macOS matrix is recorded. Adapters remain available to dedicated
-# synthetic and certification tests while this set is empty.
-REAL_E2E_CERTIFIED_PROVIDER_FAMILIES: frozenset[str] = frozenset()
+# Providers become connectable only after their complete real browser/macOS
+# authorization, catalog, sync, reconnect and local-disconnect matrix passes.
+# Keep every other provider fail-closed until its own certification is complete.
+REAL_E2E_CERTIFIED_PROVIDER_FAMILIES: frozenset[str] = frozenset(
+    {"caldav_yandex", "google_calendar"}
+)
 
 
 def provider_preset(provider_family: str) -> CalendarProviderPreset | None:
@@ -154,6 +156,7 @@ def provider_preset_payloads(
     *,
     google_available: bool | None = None,
     allow_uncertified_google: bool = False,
+    allow_uncertified_yandex: bool = False,
 ) -> list[dict[str, object]]:
     payloads = []
     for preset in PROVIDER_PRESETS:
@@ -162,7 +165,10 @@ def provider_preset_payloads(
         development_google = (
             preset.provider_family == "google_calendar" and allow_uncertified_google
         )
-        connectable = configured and (certified or development_google)
+        development_yandex = (
+            preset.provider_family == "caldav_yandex" and allow_uncertified_yandex
+        )
+        connectable = configured and (certified or development_google or development_yandex)
         payload = {
             "provider_family": preset.provider_family,
             "label": preset.label,

@@ -1,3 +1,4 @@
+import importlib.util
 import json
 import os
 import subprocess
@@ -31,6 +32,20 @@ def test_production_smoke_runner_dry_run_is_remote_first_and_non_ready() -> None
     assert "remote_path=/opt/projects/2brain-rec" in output
     assert "production_ready" not in output
     assert "user_rollout_ready" not in output
+
+
+def test_production_smoke_execute_requires_release_gate() -> None:
+    result = subprocess.run(
+        [str(REPO_ROOT / "infra/scripts/run-production-smoke.sh"), "--execute"],
+        check=False,
+        text=True,
+        capture_output=True,
+        env={**os.environ, "TWOBRAIN_SMOKE_RUN_ID": "smoke-014"},
+    )
+
+    assert result.returncode != 0
+    assert "smoke_result=blocked" in result.stdout
+    assert "reason=production_smoke_requires_release_gate" in result.stdout
 
 
 def test_production_smoke_runner_mints_auth_session_and_cleans_it_up() -> None:
@@ -181,7 +196,6 @@ def test_remote_cd_deploys_processing_runtime_services() -> None:
     assert "rec-temporal" in runtime
     assert "rec-processing-worker" in runtime
     assert "rec-maintenance" in runtime
-    assert "rec-reprocess-maintenance" in runtime
     assert "rec-media-worker" in runtime
     assert 'if [[ "${TWOBRAIN_GOOGLE_CALENDAR_ENABLED:-false}" == "true" ]]' in runtime
     assert 'export TWOBRAIN_GOOGLE_CALENDAR_CLIENT_SECRET_FILE="$disabled_billing_secret"' in runtime
@@ -283,12 +297,16 @@ def test_smoke_upload_wrapper_dry_run_uses_internal_smoke_identity(tmp_path: Pat
 
 def test_production_smoke_runs_metadata_only_outcome_value_path() -> None:
     runtime = (REPO_ROOT / "infra/scripts/run-production-smoke.sh").read_text()
+    seeder = (REPO_ROOT / "apps/server/scripts/seed_smoke_outcome.py").read_text()
     assert "seed_smoke_outcome.py" in runtime
     assert "prove_meeting_outcome_live.py" in runtime
     assert 'OUTCOME_SMOKE_ENABLED="${TWOBRAIN_OUTCOME_SMOKE_ENABLED:-false}"' in runtime
     assert 'if [[ "$OUTCOME_SMOKE_ENABLED" == "true" ]]' in runtime
-    assert "accept_state accepted" in runtime
-    assert "public_projection_state ready" in runtime
+    assert "publish_initial_baseline=False" in seeder
+    assert "func.coalesce(func.max(ProcessingResult.result_version), 0)" in seeder
+    assert "result_version=int(next_result_version or 0) + 1" in seeder
+    assert "summary_state absent" in runtime
+    assert "slot_state unpublished" in runtime
 
 
 def test_outcome_live_proof_dry_run_is_metadata_safe(tmp_path: Path) -> None:
@@ -312,11 +330,26 @@ def test_outcome_live_proof_dry_run_is_metadata_safe(tmp_path: Path) -> None:
         env={**os.environ, "PYTHONPATH": str(REPO_ROOT / "apps/server/src")},
     )
     payload = json.loads(result.stdout)
-    assert payload["proof_id"] == "feature-139-meeting-outcome-live"
-    assert payload["candidate_state"] == "deferred"
+    assert payload["proof_id"] == "feature-183-trusted-outcome-lifecycle"
+    assert payload["summary_state"] == "deferred"
     assert payload["cleanup_state"] == "deferred"
     assert "bearer" not in result.stdout.lower()
     assert "cookie" not in result.stdout.lower()
+
+
+def test_outcome_live_proof_reads_result_state_from_catalog_entry() -> None:
+    script = REPO_ROOT / "apps/server/scripts/prove_meeting_outcome_live.py"
+    scripts_dir = str(script.parent)
+    if scripts_dir not in sys.path:
+        sys.path.insert(0, scripts_dir)
+    module_spec = importlib.util.spec_from_file_location("prove_meeting_outcome_live", script)
+    assert module_spec is not None and module_spec.loader is not None
+    module = importlib.util.module_from_spec(module_spec)
+    sys.modules[module_spec.name] = module
+    module_spec.loader.exec_module(module)
+
+    assert module._summary_result_state({"catalog_entry": {"result_state": "absent"}}) == "absent"
+    assert module._summary_result_state({"result_state": "ready"}) == "ready"
 
 
 def test_outcome_prompt_manifest_is_versioned_and_hash_only() -> None:

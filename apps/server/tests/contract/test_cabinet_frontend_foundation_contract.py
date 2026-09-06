@@ -63,3 +63,21 @@ def test_feature_104_main_window_has_responsive_accessible_dom_contract() -> Non
         'aria-label="Действия с выбранными встречами"',
     ]:
         assert marker in meeting_list
+
+
+def test_feature_240_mobile_navigation_keeps_js_and_no_js_paths_distinct() -> None:
+    sections = (
+        SERVER_ROOT / "cabinet" / "templates" / "cabinet" / "components" / "sections.html"
+    ).read_text()
+    css = (
+        SERVER_ROOT / "cabinet" / "static" / "cabinet" / "cabinet.css"
+    ).read_text()
+
+    # The existing noscript rail remains the no-JS fallback. The enhanced page
+    # needs a real mobile rail because noscript content is absent after JS runs.
+    assert '<nav class="cabinet-mobile-nav"' in sections
+    assert 'aria-current="page"' in sections
+    assert 'html[data-cabinet-js="ready"] .cabinet-mobile-nav' in css
+    assert 'html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.desktop-embedded) > .cabinet-main' in css
+    assert 'html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.desktop-embedded) > .sidebar' in css
+    assert "display: none;" in css[css.index('html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.desktop-embedded) > .sidebar') :]

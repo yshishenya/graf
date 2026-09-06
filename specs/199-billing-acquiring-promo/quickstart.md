@@ -18,6 +18,7 @@ PYTHONPATH=src uv run pytest \
   tests/integration/test_promo_checkout.py \
   tests/contract/test_billing_accessibility.py \
   tests/contract/test_billing_ui.py \
+  tests/unit/test_initial_checkout_recovery.py \
   tests/unit/test_promo_campaign_cli.py -q
 ```
 
@@ -39,6 +40,17 @@ launch evidence.
    applied.
 5. Change the catalog/campaign after preview, then submit checkout: POST
    revalidation wins and stale state cannot create a second payment.
+
+## Checkout recovery scenarios
+
+1. Make synthetic YooKassa create fail before returning `provider_id`: the
+   existing operation/invoice remain visible with a bounded safe error class.
+2. Continue from the status page before key expiry: the same operation id,
+   invoice, amount and idempotency key reach YooKassa and no second row appears.
+3. Repeat after key expiry: no provider call occurs and the status says that
+   automatic continuation is unavailable.
+4. Request status refresh for an operation without `provider_id`: the page does
+   not claim that YooKassa was checked or that state changed.
 
 ## Provisioning scenarios
 
@@ -62,10 +74,16 @@ real code in shell history or evidence.
 ```sh
 git diff --check
 infra/scripts/ci-local.sh --fast
-infra/scripts/cd-remote.sh --dry-run --branch codex/199-billing-acquiring-promo
+infra/scripts/ci-local.sh --full
+infra/scripts/cd-remote.sh --dry-run --branch master
 ```
 
-The dry-run is not production approval. Production execution, test-shop
-provider mutations and checkout enablement require the Feature 140
-`docs/runbooks/billing-launch.md` sequence, exact-SHA full CI and separate
-merchant/finance/legal/security/QA sign-off.
+The dry-run is not deployment evidence. The approved canary uses the ordinary
+production application with test-shop credentials only. Production-shop
+credentials remain disabled. Deployment requires a merged exact `master` SHA,
+full CI and the Feature 140 `docs/runbooks/billing-launch.md` sequence.
+
+Production migration verification and synthetic smoke are release-owned steps.
+Do not run their `--execute`/`--remote` forms directly: they require the
+internal release gate and shared production lock, and are invoked by
+`cd-remote.sh --execute --branch master` only after merge.

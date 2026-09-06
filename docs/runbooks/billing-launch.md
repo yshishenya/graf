@@ -80,9 +80,9 @@ controlled provider delivery checkout остаётся fail-closed.
 dry-run, получает код через скрытый prompt/stdin, сохраняет только hash и
 требует отдельный `--execute` для записи; код нельзя передавать аргументом,
 класть в shell history или evidence. После создания Owner проверяет код через
-server-side checkout preview: preview не создаёт invoice, reservation или
-provider request, а финальный checkout повторно проверяет campaign/catalog/floor
-и launch gates. Отключение кампании блокирует новые preview/checkout и не
+  server-side checkout preview: preview не создаёт invoice, reservation или
+  provider request, а финальный checkout повторно проверяет campaign/catalog/floor,
+  provider environment/shop and billing safety settings. Отключение кампании блокирует новые preview/checkout и не
 пересчитывает уже созданные immutable invoices.
 
 ## 1. Перед canary: checklist
@@ -116,9 +116,9 @@ provider request, а финальный checkout повторно проверя
   saved method, recurring, authoritative GET, webhook, receipt, full/partial
   refund observation и renewal failure→Free. Zero-amount binding — `pass`
   только при явном подтверждении shop; иначе остаётся `blocked`.
-- [ ] Продуктовые и внешние gates (JTBD/WTP/COGS, landing/usability, live
-  security/privacy) закрыты или явно помечены как blocking; отсутствие gate
-  возвращает readiness в fail-closed.
+- [ ] Продуктовые и внешние решения (JTBD/WTP/COGS, landing/usability, live
+  security/privacy) закрыты или явно помечены как blocking; checkout остаётся
+  выключенным до решения оператора.
 
 ## 2. Capability evidence packet
 
@@ -141,9 +141,10 @@ revalidation_due_utc: <RFC3339>
 incident_ref: <empty or metadata-only ref>
 ```
 
-Capability row становится `stale` при смене SHA, shop, secret, схемы,
+Capability evidence становится `stale` при смене SHA, shop, secret, схемы,
 receipt/VAT/price, provider contract, cohort или при незакрытом incident.
-Истёкшая/отсутствующая row блокирует checkout. `zero_amount_binding=blocked`
+Истёкшая/отсутствующая capability evidence блокирует запуск canary, но не
+является runtime-записью checkout. `zero_amount_binding=blocked`
 не является ошибкой: self-service replacement должен оставаться выключенным.
 
 ## 3. Test-shop procedure
@@ -161,7 +162,7 @@ receipt/VAT/price, provider contract, cohort или при незакрытом 
    ```sh
    .specify/scripts/bash/check-prerequisites.sh --json --require-tasks --include-tasks
    cd apps/server
-   uv run pytest tests/contract/test_billing_launch_gates.py -q
+   uv run pytest tests/contract/test_billing_safety_contract.py -q
    uv run pytest tests/e2e/test_billing_test_shop.py -q
    cd ../..
    infra/scripts/ci-local.sh --fast

@@ -1,0 +1,17 @@
+{
+  "merge_group_id": "mg-227-1",
+  "target_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "base_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "pull_requests": [
+    {
+      "number": 42,
+      "head": {"sha": "cccccccccccccccccccccccccccccccccccccccc"},
+      "base": {"sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
+    },
+    {
+      "number": 43,
+      "head": {"sha": "dddddddddddddddddddddddddddddddddddddddd"},
+      "base": {"sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
+    }
+  ]
+}

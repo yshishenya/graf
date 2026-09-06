@@ -1,6 +1,75 @@
 # Текущий статус продукта
 
-Date: 2026-08-24
+Date: 2026-08-31
+
+## Implementation update (2026-08-30) — Feature 213 user reprocessing
+
+- Владелец готовой записи получил действие «Ещё → Повторно обработать
+  запись» с подтверждением. Получателям общей ссылки действие не показывается;
+  сервер повторно проверяет владельца, актуальную ревизию записи и исходную
+  попытку перед запуском.
+- Повторная обработка создаёт одного непосредственного successor существующей
+  попытки. Повтор запроса и две вкладки возвращают тот же workflow, устаревшая
+  страница получает конфликт, а лимит одной media revision повторно не
+  списывается.
+- Пока новая попытка активна, частична или завершилась ошибкой, все
+  пользовательские каналы продолжают использовать последнюю полную
+  расшифровку с диаризацией. Это правило едино для detail/share, плеера,
+  desktop sync, download/export и источника итогов; combined export не смешивает
+  разные версии результата.
+- Пока замена активна, включая автоматическое ожидание, неизвестный исход и
+  временный сбой получения статуса, владелец видит только нейтральное
+  «Готовим новую версию»: прежние итоги, расшифровка, плеер и header status
+  скрыты, а повторяющееся объявление не озвучивается заново на каждом refresh.
+  После terminal failure владелец видит прежнюю версию и может запустить новую
+  повторную обработку; старый опубликованный результат остаётся доступен.
+- Новых таблиц, миграций, административного интерфейса, очередей и Temporal
+  workflow types не добавлено. Новые Temporal payload несут точный UUID строки
+  processing workflow; старые histories без поля сохраняют ограниченный
+  совместимый fallback.
+
+## Implementation update (2026-08-30) — Feature 211 CI/CD optimization
+
+- Локальный CI требует явный `--fast` или `--full`. Fast lane оставляет
+  ограниченные component checks для server, macOS, infrastructure/tooling и
+  документации; изменённые contract/integration tests запускаются focused.
+  Calendar performance получает focused required proof. Shared/high-risk,
+  unknown и unavailable diff больше не меняют явный fast на full: они честно
+  сообщают `coverage=partial` и `next_gate=full_before_release`.
+- `cd-remote.sh --execute` сохраняет clean-tree, remote-sync, exact-SHA и все
+  production gates, затем запускает один authoritative full до remote действий.
+  Обычный release path не делает отдельный preflight full; локальный receipt
+  удалён, потому что не имеет независимого provenance против того же
+  пользовательского процесса. `--skip-local-ci` остаётся только явным
+  incident-исключением.
+- Функциональные PostgreSQL-проверки и ошибки performance setup/database всегда
+  hard gate. Только p95 threshold становится report-only для несвязанных
+  shared-host runs; calendar paths, controlled run и synchronized-master full
+  требуют его как hard gate.
+- Feature 211 выпущена как `v2026.08.30.1` и была развёрнута на exact SHA
+  `2e7ef275b6fc2e1749201916202870da6d19ef4a`: authoritative full, backup и
+  restore rehearsal, migration/RLS, secrets, readiness, synthetic smoke,
+  cleanup и public health прошли. Metadata-only closeout хранится в
+  [production receipt](deployments/2brain-rec/release-v2026.08.30.1.md).
+- Повторный read-only аудит после следующего release train подтвердил, что
+  текущий production SHA `44e25fccf703d76a485cbe25f156b8561a5206dd`
+  содержит release SHA Feature 211 в своей истории. Worker control прошёл;
+  незавершённых normalization jobs, незавершённых backfill runs и cleanup
+  candidates нет.
+
+## Release update (2026-08-25) — `v2026.08.25.4`
+
+- Изменения меню профиля GRAF, стабилизации списка встреч и billing/promo
+  выкачены в production на exact SHA
+  `82b7389e9a6dffc77828ba561ad4e8507a11d9b5`.
+- Production checkout подтверждён на `master` с чистым remote worktree;
+  `/api/v1/health/live` и `/api/v1/health/ready` вернули HTTP 200.
+- Backup/restore rehearsal, migration/RLS verification, readiness и
+  synthetic smoke прошли; guarded rollback не потребовался.
+- Подробный metadata-only receipt: [release-v2026.08.25.4](deployments/2brain-rec/release-v2026.08.25.4.md).
+- Полный локальный CI в этом release-пути явно не считается PASS: он был
+  пропущен по согласованному исключению; focused-проверки финального SHA
+  прошли, а промежуточные performance failures зафиксированы в receipt.
 
 ## Implementation update (2026-08-24) — Feature 199 per-app recording policies
 
@@ -85,6 +154,26 @@ Date: 2026-08-24
   production enablement: `/Applications/GRAF.app`, production policy, deploy,
   signing и release в feature не менялись.
 
+## Planning/governance update (2026-08-23) — meeting-summary reference fidelity
+
+## Planning/governance update (2026-08-23) — meeting-summary reference fidelity
+
+- Constitution `5.0.0` отменяет прежнюю обязанность визуально отличать GRAF от
+  Krisp и разрешает Feature 196 буквальное воспроизведение наблюдаемого
+  UX/UI/IA референса.
+- Разрешение не распространяется на чужой source code, extracted assets,
+  binaries, private APIs/protocols, secrets, private meeting content или
+  proprietary model behavior. Функциональные UI labels и interaction microcopy
+  разрешено воспроизводить буквально; accessibility, product truth и права на
+  сторонние assets, logos и trademarks остаются release gates.
+- Prompt-control governance дополнен non-cyclic authority chain:
+  candidate root + activation → immutable qualification → protected-label
+  read-back event → complete typed event binding. Runtime и publication должны
+  заново получить и проверить event/qualification bodies; bare hash или label
+  не дают права на inference. Это planning contract Feature 183/195/200, а не
+  заявление о уже работающем production runtime.
+- Это planning/governance decision, а не implementation/release evidence.
+
 ## Implementation update (2026-08-20) — Feature 177 WebRTC AEC3 recording
 
 - Новый v5 capture-тракт использует один обязательный локальный WebRTC AEC3:
@@ -126,6 +215,25 @@ Date: 2026-08-24
   не заявляет поддержку для всех пользователей.
 - Подробные receipts: `docs/deployments/2brain-rec/release-v2026.08.21.5.md`
   и `specs/168-calendar-integration-completion/validation/implementation-evidence.md`.
+
+## Revalidation update (2026-08-28) — Feature 168 upcoming end boundary
+
+- На актуальном `origin/master` `65b30d3cd8ec5eae2b316bcd03b2ed6918381b8c`
+  подготовлена минимальная исправляющая дельта: upcoming-проекция включает встречу, пока
+  серверное `ends_at` ещё не наступило, и исключает её после завершения.
+- Browser и embedded `/meetings` используют один серверный projection; главная
+  страница получает безопасное время следующего обновления и перечитывает
+  состояние после окончания ближайшей видимой встречи. Автозапись,
+  auto-join и native Record/Stop этим изменением не затрагиваются.
+- Проверки: календарная PostgreSQL-focused выборка — `399 passed`; focused
+  macOS calendar/reminder/upload/cabinet выборка — `258 passed`; `node --check`
+  и `git diff --check` — PASS; fast lane — `1249 passed`, lint и Python compile
+  — PASS; локальные browser/embedded screenshots и DOM
+  проверены на synthetic data без приватного содержимого.
+- Изменение смёрджено в PR #5917 на exact merge SHA
+  `a0ca712e96e1f50ea03e4179faac74d76f965554`, но ещё не выкачено в production.
+  Production behavior и release readiness этим блоком не заявляются; pending
+  gates Feature 168 остаются в спецификации.
 
 ## Implementation update (2026-08-15) — Feature 150 workspace clean cut
 
@@ -220,6 +328,16 @@ Date: 2026-08-24
   неразрешённый IP получает 403, прямой backend без секрета — 401. Controlled
   provider delivery/canary и merchant/product/legal/finance/QA sign-offs
   остаются обязательными.
+
+## Implementation update (2026-08-25) — Feature 199 billing gate cleanup
+
+- Удалён runtime launch-gate registry: checkout и renewal больше не требуют
+  строк из `billing_launch_gates`, а сама таблица удаляется миграцией `0079`.
+- Сохранены explicit YooKassa environment/shop, checkout flag, emergency stop,
+  catalog/promo/floor validation, owner/CSRF/consent, invoice/operation ledger,
+  receipt, webhook, reconciliation и RLS оставшихся billing tables.
+- Test-shop canary и production decision остаются отдельными операционными
+  шагами; этот код не включает production checkout автоматически.
 
 ## Runtime recheck (2026-08-12) — fair-use and audit-boundary deploy
 
@@ -426,9 +544,9 @@ evidence текущего выпуска: [release note](releases/v2026.07.26.8.
   The email/pre-auth flow remains metadata-only and exact-email; the explicit
   accepted recording preset opens summary, timestamped transcript, playback,
   canonical audio download and combined export without workspace auto-join.
-- macOS local artifact `2026.07.24.4` was rebuilt after the review at
-  [`graf-local-release-125-v4.pkg`](../apps/macos/.build/installer/graf-local-release-125-v4.pkg)
-  with SHA-256
+- Historical macOS local artifact `2026.07.24.4` was named
+  `graf-local-release-125-v4.pkg`; the generated local file is not retained in
+  git. Its recorded SHA-256 is
   `112a5f2419d8517a0ef5d9fde26ebac0564bf966d01897576ecb7878c2e5d936`.
   It passes deep strict verification and uses a local-only signer; no
   Developer ID or notarization is claimed.

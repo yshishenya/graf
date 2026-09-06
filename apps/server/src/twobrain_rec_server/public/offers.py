@@ -12,10 +12,6 @@ from twobrain_rec_server.billing.catalog import (
     PlanCatalogSnapshot,
     validate_plan_version,
 )
-from twobrain_rec_server.billing.launch_gates import (
-    BillingLaunchBlocked,
-    require_current_billing_launch_gates,
-)
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.db.models import BillingPlanVersion
 
@@ -96,24 +92,11 @@ async def build_public_offer_view(
         return unavailable_public_offer()
 
     saving_minor = PUBLIC_MONTHLY_AMOUNT_MINOR * 12 - PUBLIC_ANNUAL_AMOUNT_MINOR
-    sale_ready = False
-    if (
+    sale_ready = bool(
         settings.billing_checkout_enabled
         and not settings.billing_emergency_stop
         and settings.billing_yookassa_shop_id
-    ):
-        try:
-            await require_current_billing_launch_gates(
-                db,
-                environment=settings.billing_yookassa_environment,
-                shop_id=settings.billing_yookassa_shop_id,
-                deployment_sha=settings.langfuse_release,
-                now=current,
-            )
-        except (BillingLaunchBlocked, OSError, SQLAlchemyError, ValueError):
-            pass
-        else:
-            sale_ready = True
+    )
     return PublicOfferView(
         catalog_ready=True,
         sale_ready=sale_ready,

@@ -68,7 +68,12 @@ EOF
 }
 
 if [ "${1:-}" = "--remote" ]; then
-  exec ssh "$host" "cd '$path' && ./infra/scripts/verify-rec-migration.sh --execute"
+  if [ "${TWOBRAIN_PRODUCTION_RELEASE_GATE:-}" != "1" ]; then
+    echo "migration_verification_result=blocked"
+    echo "reason=production_migration_verification_requires_release_gate"
+    exit 1
+  fi
+  exec ssh "$host" "cd '$path' && TWOBRAIN_PRODUCTION_RELEASE_GATE=1 ./infra/scripts/verify-rec-migration.sh --execute"
 fi
 
 if [ "${1:-}" != "--execute" ]; then
@@ -81,6 +86,22 @@ deploy_path=$path
 $rls_output
 EOF
   exit 0
+fi
+
+if [ "${TWOBRAIN_PRODUCTION_RELEASE_GATE:-}" != "1" ]; then
+  echo "migration_verification_result=blocked"
+  echo "reason=production_migration_verification_requires_release_gate"
+  exit 1
+fi
+
+if [ "${TWOBRAIN_PRODUCTION_RELEASE_LOCK_HELD:-0}" != "1" ]; then
+  migration_release_lock="$(git rev-parse --git-path twobrain-rec-deploy.lock)"
+  exec 8>"$migration_release_lock"
+  if ! /usr/bin/flock -n 8; then
+    echo "migration_verification_result=blocked"
+    echo "reason=deploy_already_running"
+    exit 1
+  fi
 fi
 
 if [ -f .env ]; then

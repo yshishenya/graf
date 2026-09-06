@@ -172,6 +172,15 @@ def test_allowed_maintenance_operations_match_contract() -> None:
     assert "auth_session_lookup" not in RLS_ALLOWED_MAINTENANCE_OPERATIONS
     assert (
         MaintenanceTenantContext(
+            operation_name="processing_recovery_reconciliation",
+            actor_id="graf-maintenance",
+            reason_category="durable_start_recovery",
+            feature_area="content_regeneration",
+        ).operation_name
+        == "processing_recovery_reconciliation"
+    )
+    assert (
+        MaintenanceTenantContext(
             operation_name="production_smoke_setup",
             actor_id="seed_smoke_identity.py",
             reason_category="smoke_setup",

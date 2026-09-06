@@ -48,19 +48,21 @@ public final class NoOpBufferEncryptionService: LocalBufferEncryptionService {
 }
 
 public final class AESGCMBufferEncryptionService: LocalBufferEncryptionService {
-    private let key: SymmetricKey
+    // CryptoKit's SymmetricKey is not Sendable in the macOS 14 SDK. Keep only
+    // its immutable key material in the Sendable service and recreate the
+    // value at the CryptoKit boundary.
+    private let keyData: Data
 
     public init(key: SymmetricKey = SymmetricKey(size: .bits256)) {
-        self.key = key
+        self.keyData = key.withUnsafeBytes { Data($0) }
     }
 
     public func encrypt(_ plaintext: Data) throws -> Data {
-        let sealed = try AES.GCM.seal(plaintext, using: key)
+        let sealed = try AES.GCM.seal(plaintext, using: SymmetricKey(data: keyData))
         return sealed.combined ?? Data()
     }
 
     public func keyFingerprint() -> String {
-        let keyData = key.withUnsafeBytes { Data($0) }
         return SHA256.hash(data: keyData).compactMap { String(format: "%02x", $0) }.joined()
     }
 }

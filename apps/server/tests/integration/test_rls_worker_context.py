@@ -69,7 +69,7 @@ def test_reconciler_switches_from_two_narrow_maintenance_operations_to_exact_wor
     async def exercise():
         async with client.app_state["sessionmaker"]() as db:
             seed = await _seed_legacy_revision(db, ordinal=4000, created_at=now)
-        result = await pickup.reconcile_normalization_jobs(
+        inventory_result = await pickup.reconcile_normalization_jobs(
             sessionmaker=client.app_state["media_sessionmaker"],
             settings=client.app.state.settings,
             storage=client.app_state["storage"],
@@ -77,16 +77,27 @@ def test_reconciler_switches_from_two_narrow_maintenance_operations_to_exact_wor
             now=now,
             actor_id="rls-worker-test",
         )
-        return seed, result
+        dispatch_result = await pickup.reconcile_normalization_jobs(
+            sessionmaker=client.app_state["media_sessionmaker"],
+            settings=client.app.state.settings,
+            storage=client.app_state["storage"],
+            temporal_client=FakeTemporalClient(),
+            now=now + timedelta(minutes=1),
+            actor_id="rls-worker-test",
+        )
+        return seed, inventory_result, dispatch_result
 
-    seed, result = asyncio.run(exercise())
-    assert maintenance_calls[0] == "playback_normalization_inventory"
-    assert maintenance_calls[1:] == ["playback_normalization_dispatch"] * 3
+    seed, inventory_result, dispatch_result = asyncio.run(exercise())
+    assert maintenance_calls == (
+        ["playback_normalization_dispatch"] * 3
+        + ["playback_normalization_inventory"]
+    ) * 2
     assert worker_calls
     assert all(call == worker_calls[0] for call in worker_calls)
-    assert result.workspaces_enumerated == 1
-    assert result.inventory_evaluated == 1
-    assert result.dispatched == 1
+    assert inventory_result.workspaces_enumerated == 1
+    assert inventory_result.inventory_evaluated == 1
+    assert inventory_result.dispatched == 0
+    assert dispatch_result.dispatched == 1
     assert seed.media_revision_id is not None
 
 
@@ -131,14 +142,30 @@ def test_worker_retries_a_safe_blocked_inventory_without_operator_action(
         async with client.app_state["sessionmaker"]() as db:
             recovered = await db.scalar(select(PlaybackBackfillRun))
             assert recovered is not None
+            inventoried_state = (recovered.state, recovered.safe_block_reason)
+        third = await pickup.reconcile_normalization_jobs(
+            sessionmaker=client.app_state["media_sessionmaker"],
+            settings=client.app.state.settings,
+            storage=client.app_state["storage"],
+            temporal_client=FakeTemporalClient(),
+            now=now + timedelta(minutes=2),
+            actor_id="blocked-inventory-test",
+        )
+        async with client.app_state["sessionmaker"]() as db:
+            recovered = await db.scalar(select(PlaybackBackfillRun))
+            assert recovered is not None
             recovered_state = (recovered.state, recovered.safe_block_reason)
-        return first, second, blocked_state, recovered_state
+        return first, second, third, blocked_state, inventoried_state, recovered_state
 
-    first, second, blocked_state, recovered_state = asyncio.run(exercise())
+    first, second, third, blocked_state, inventoried_state, recovered_state = asyncio.run(
+        exercise()
+    )
     assert first.inventory_blocked == 1
     assert first.dispatched == 0
     assert blocked_state == ("blocked", "database_unavailable")
     assert second.inventory_blocked == 0
     assert second.inventory_evaluated == 1
-    assert second.dispatched == 1
+    assert second.dispatched == 0
+    assert inventoried_state == ("dispatching", None)
+    assert third.dispatched == 1
     assert recovered_state == ("dispatching", None)

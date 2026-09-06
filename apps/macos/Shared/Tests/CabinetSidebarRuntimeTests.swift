@@ -6,6 +6,26 @@ import XCTest
 
 @MainActor
 final class CabinetSidebarRuntimeTests: XCTestCase {
+    // WebKit may deliver callbacks after XCTest has released a test instance.
+    // Keep the synthetic browser objects alive for the whole test process so
+    // one test's teardown cannot race the next test's WebKit startup.
+    private static var retainedWebViews: [WKWebView] = []
+    private static var retainedNavigationDelegates: [NavigationDelegate] = []
+
+    func testJavaScriptBridgePreservesNilValuesAndErrors() async throws {
+        let webView = makeWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        try await load("<!doctype html><html><body></body></html>", in: webView)
+
+        let nilResult = try await evaluatePageJavaScript("void 0", in: webView)
+        let valueResult = try await evaluatePageJavaScript("42", in: webView)
+        XCTAssertNil(nilResult)
+        XCTAssertEqual(valueResult as? Int, 42)
+        do {
+            _ = try await evaluatePageJavaScript("throw new Error('expected')", in: webView)
+            XCTFail("JavaScript errors must remain test failures")
+        } catch {}
+    }
+
     func testRailUsesInitialBreakpointAndKeepsManualChoiceAfterWindowResize() async throws {
         let root = try repositoryRoot()
         let script = try String(
@@ -35,7 +55,7 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
         )
 
         func railState() async throws -> [String: Any] {
-            let result = try await webView.evaluateJavaScript(
+            let result = try await evaluatePageJavaScript(
                 """
                 (() => {
                   const shell = document.querySelector('[data-cabinet-shell]');
@@ -43,10 +63,11 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
                   return {
                     pinned: shell.classList.contains('is-rail-pinned'),
                     expanded: toggle.getAttribute('aria-expanded'),
-                    viewportWidth: document.documentElement.clientWidth
+                    viewportWidth: window.innerWidth
                   };
                 })()
-                """
+                """,
+                in: webView
             )
             return try XCTUnwrap(result as? [String: Any])
         }
@@ -66,8 +87,9 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
         let autoWide = try await railState()
         XCTAssertEqual(autoWide["pinned"] as? Bool, true)
 
-        _ = try await webView.evaluateJavaScript(
-            "document.querySelector('[data-cabinet-rail-toggle]').click()"
+        _ = try await evaluatePageJavaScript(
+            "document.querySelector('[data-cabinet-rail-toggle]').click()",
+            in: webView
         )
         let manuallyCollapsed = try await railState()
         XCTAssertEqual(manuallyCollapsed["pinned"] as? Bool, false)
@@ -103,8 +125,9 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
             in: compactWebView,
             baseURL: origin
         )
-        let compactInitial = try await compactWebView.evaluateJavaScript(
-            "document.querySelector('[data-cabinet-shell]').classList.contains('is-rail-pinned')"
+        let compactInitial = try await evaluatePageJavaScript(
+            "document.querySelector('[data-cabinet-shell]').classList.contains('is-rail-pinned')",
+            in: compactWebView
         )
         XCTAssertEqual(compactInitial as? Bool, false)
     }
@@ -130,34 +153,38 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
               <script>\(script)</script>
             </body></html>
             """
-        let origin = try XCTUnwrap(URL(string: "https://graf.test/meetings"))
+        let origin = try XCTUnwrap(URL(string: "https://graf.test"))
 
-        try await load(page, in: webView, baseURL: origin)
-        _ = try await webView.evaluateJavaScript(
-            "document.querySelector('[data-cabinet-rail-toggle]').click()"
+        try await load(page, in: webView, baseURL: origin.appendingPathComponent("meetings"))
+        _ = try await evaluatePageJavaScript(
+            "document.querySelector('[data-cabinet-rail-toggle]').click()",
+            in: webView
         )
-        try await load(page, in: webView, baseURL: origin)
+        try await navigate(page, to: origin.appendingPathComponent("settings"), in: webView)
         var state = try await railState(in: webView)
         XCTAssertEqual(state["pinned"] as? Bool, false)
         XCTAssertEqual(state["stored"] as? String, "collapsed")
 
-        _ = try await webView.evaluateJavaScript(
-            "document.querySelector('[data-cabinet-rail-toggle]').click()"
+        _ = try await evaluatePageJavaScript(
+            "document.querySelector('[data-cabinet-rail-toggle]').click()",
+            in: webView
         )
-        try await load(page, in: webView, baseURL: origin)
+        try await navigate(page, to: origin.appendingPathComponent("archive"), in: webView)
         state = try await railState(in: webView)
         XCTAssertEqual(state["pinned"] as? Bool, true)
         XCTAssertEqual(state["stored"] as? String, "expanded")
 
-        _ = try await webView.evaluateJavaScript(
-            "document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))"
+        _ = try await evaluatePageJavaScript(
+            "document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))",
+            in: webView
         )
-        try await load(page, in: webView, baseURL: origin)
+        try await navigate(page, to: origin.appendingPathComponent("meetings"), in: webView)
         state = try await railState(in: webView)
         XCTAssertEqual(state["pinned"] as? Bool, false)
         XCTAssertEqual(state["stored"] as? String, "collapsed")
-        _ = try await webView.evaluateJavaScript(
-            "sessionStorage.removeItem('graf-cabinet-rail')"
+        _ = try await evaluatePageJavaScript(
+            "sessionStorage.removeItem('graf-cabinet-rail')",
+            in: webView
         )
     }
 
@@ -173,7 +200,7 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
 
         try await load(accountLinkingHTML(css: css), in: webView)
 
-        let result = try await webView.evaluateJavaScript(
+        let result = try await evaluatePageJavaScript(
             """
             (() => {
               const documentRoot = document.documentElement;
@@ -196,7 +223,7 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
               const secondaryFocusable = document.activeElement === secondary;
 
               return {
-                viewportWidth: documentRoot.clientWidth,
+                viewportWidth: window.innerWidth,
                 documentOverflow: documentRoot.scrollWidth - documentRoot.clientWidth,
                 mainOverflow: main.scrollWidth - main.clientWidth,
                 contentOverflow: content.scrollWidth - content.clientWidth,
@@ -216,7 +243,8 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
                 comparisonColumns: getComputedStyle(comparison).gridTemplateColumns.split(' ').length
               };
             })()
-            """
+            """,
+            in: webView
         )
         let metrics = try XCTUnwrap(result as? [String: Any])
 
@@ -280,7 +308,7 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
             in: webView
         )
 
-        let result = try await webView.evaluateJavaScript(
+        let result = try await evaluatePageJavaScript(
             """
             (() => {
               const foot = document.querySelector('.sidebar-foot');
@@ -296,7 +324,8 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
                 overflow: document.documentElement.scrollWidth - window.innerWidth
               };
             })()
-            """
+            """,
+            in: webView
         )
         let metrics = try XCTUnwrap(result as? [String: Any])
 
@@ -340,7 +369,7 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
             baseURL: origin
         )
 
-        let result = try await webView.evaluateJavaScript(
+        let result = try await evaluatePageJavaScript(
             """
             (() => {
               const trigger = document.querySelector('#profile');
@@ -365,7 +394,8 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
                 storedRailState: sessionStorage.getItem('graf-cabinet-rail')
               };
             })()
-            """
+            """,
+            in: webView
         )
         let state = try XCTUnwrap(result as? [String: Any])
 
@@ -379,13 +409,14 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
     }
 
     private func railState(in webView: WKWebView) async throws -> [String: Any] {
-        let result = try await webView.evaluateJavaScript(
+        let result = try await evaluatePageJavaScript(
             """
             (() => ({
               pinned: document.querySelector('[data-cabinet-shell]').classList.contains('is-rail-pinned'),
-              stored: sessionStorage.getItem('graf-cabinet-rail')
+              stored: sessionStorage.getItem('graf-cabinet-rail') ?? ''
             }))()
-            """
+            """,
+            in: webView
         )
         return try XCTUnwrap(result as? [String: Any])
     }
@@ -393,16 +424,71 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
     private func makeWebView(frame: CGRect) -> WKWebView {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
-        return WKWebView(frame: frame, configuration: configuration)
+        let webView = WKWebView(frame: frame, configuration: configuration)
+        Self.retainedWebViews.append(webView)
+        return webView
     }
 
     private func load(_ html: String, in webView: WKWebView, baseURL: URL? = nil) async throws {
         let delegate = NavigationDelegate()
+        Self.retainedNavigationDelegates.append(delegate)
         let loaded = expectation(description: "WKWebView loaded synthetic cabinet")
         delegate.didFinish = { loaded.fulfill() }
         webView.navigationDelegate = delegate
         webView.loadHTMLString(html, baseURL: baseURL)
+        // XCTest expectations are owned by the test instance.  The delegate
+        // is retained for WebKit's late callbacks, so never retain this
+        // per-load callback beyond the load that owns its expectation.
+        defer { delegate.didFinish = nil }
         await fulfillment(of: [loaded], timeout: 5)
+        try await waitUntilReady(in: webView)
+    }
+
+    private func navigate(_ html: String, to url: URL, in webView: WKWebView) async throws {
+        let htmlJSON = try XCTUnwrap(
+            String(
+                data: try JSONSerialization.data(withJSONObject: [html]),
+                encoding: .utf8
+            )
+        )
+        let urlJSON = try XCTUnwrap(
+            String(
+                data: try JSONSerialization.data(withJSONObject: [url.absoluteString]),
+                encoding: .utf8
+            )
+        )
+        _ = try await evaluatePageJavaScript(
+            """
+            (() => {
+              const destination = \(urlJSON)[0];
+              const documentHTML = \(htmlJSON)[0];
+              const nextDocument = new DOMParser().parseFromString(documentHTML, "text/html");
+              history.replaceState({}, "", destination);
+              document.body.replaceChildren(
+                ...Array.from(nextDocument.body.childNodes)
+                  .filter(node => node.nodeName !== "SCRIPT")
+                  .map(node => document.importNode(node, true))
+              );
+              document.body.dispatchEvent(new CustomEvent("htmx:afterSwap", { detail: { target: document.body } }));
+            })()
+            """,
+            in: webView
+        )
+        try await waitUntilReady(in: webView)
+    }
+
+    private func waitUntilReady(in webView: WKWebView) async throws {
+        for _ in 0..<50 {
+            let ready = try await evaluatePageJavaScript(
+                "(() => { const shell = document.querySelector('[data-cabinet-shell]'); const navigation = shell?.querySelector('[data-cabinet-navigation]'); return document.readyState === 'complete' && (!navigation || shell?.dataset.railReady === 'true'); })()",
+                in: webView
+            ) as? Bool ?? false
+            if ready { return }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        throw NSError(domain: "CabinetSidebarRuntimeTests", code: 1, userInfo: [
+            NSLocalizedDescriptionKey: "Cabinet rail did not finish initializing"
+        ])
     }
 
     private func accountLinkingHTML(css: String) -> String {
@@ -448,6 +534,22 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
         """
     }
 
+    private func evaluatePageJavaScript(_ script: String, in webView: WKWebView) async throws -> Any? {
+        // The macOS 14 SDK async overlay traps when JavaScript returns undefined
+        // (WebKit 282918). The callback API preserves that valid nil result.
+        var result: Any?
+        var evaluationError: Error?
+        await withCheckedContinuation { continuation in
+            webView.evaluateJavaScript(script) { value, error in
+                evaluationError = error
+                result = value
+                continuation.resume()
+            }
+        }
+        if let evaluationError { throw evaluationError }
+        return result
+    }
+
     private func number(_ key: String, in values: [String: Any]) throws -> Double {
         try XCTUnwrap(values[key] as? NSNumber).doubleValue
     }
@@ -470,8 +572,10 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
 private final class NavigationDelegate: NSObject, WKNavigationDelegate {
     var didFinish: (() -> Void)?
 
-    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        didFinish?()
+    nonisolated func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        Task { @MainActor [weak self] in
+            self?.didFinish?()
+        }
     }
 }
 #endif

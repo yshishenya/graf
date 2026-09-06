@@ -83,6 +83,59 @@ final class SystemAudioRecordingPackageTests: XCTestCase {
         )
     }
 
+    func testV5WriterKeepsRecordingAcrossFiniteOvershoot() throws {
+        let root = makeRoot("v5-system-audio-finite-overshoot")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let microphone = BufferedLocalRecordingSampleSource(channelCount: 1)
+        let incoming = BufferedLocalRecordingSampleSource(channelCount: 1)
+        let writer = makeWriter(root: root, microphone: microphone, incoming: incoming)
+
+        _ = try writer.start(
+            sessionId: "v5-finite-overshoot",
+            startedAt: Date(timeIntervalSince1970: 12),
+            scopeApproval: scopeApproval(id: "scope-v5-finite-overshoot"),
+            permissions: grantedPermissions()
+        )
+        microphone.append(batch(samples: Array(repeating: 1.25, count: 4_800), seconds: 100, clock: .hostTime))
+        incoming.append(batch(samples: Array(repeating: -1.5, count: 4_800), seconds: 100, clock: .hostTime))
+
+        let manifest = try writer.stop(stoppedAt: Date(timeIntervalSince1970: 13))
+
+        XCTAssertEqual(manifest.status, .saved)
+        XCTAssertNil(manifest.captureFailureCode)
+        XCTAssertGreaterThan(manifest.echoProcessingHealth?.clippedSampleCount ?? 0, 0)
+        XCTAssertTrue(manifest.isComplete)
+    }
+
+    func testV5WriterKeepsExactInvalidSampleFailureWithoutRawMicrophoneFallback() throws {
+        let root = makeRoot("v5-system-audio-invalid-sample")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let microphone = BufferedLocalRecordingSampleSource(channelCount: 1)
+        let incoming = BufferedLocalRecordingSampleSource(channelCount: 1)
+        let writer = makeWriter(root: root, microphone: microphone, incoming: incoming)
+
+        let directory = try writer.start(
+            sessionId: "v5-invalid-sample",
+            startedAt: Date(timeIntervalSince1970: 12),
+            scopeApproval: scopeApproval(id: "scope-v5-invalid-sample"),
+            permissions: grantedPermissions()
+        )
+        var invalid = Array(repeating: Float(0.2), count: 4_800)
+        invalid[0] = .nan
+        microphone.append(batch(samples: invalid, seconds: 100, clock: .hostTime))
+        incoming.append(batch(samples: Array(repeating: 0.2, count: 4_800), seconds: 100, clock: .hostTime))
+
+        let manifest = try writer.stop(stoppedAt: Date(timeIntervalSince1970: 13))
+
+        XCTAssertEqual(manifest.status, .failed)
+        XCTAssertEqual(manifest.captureFailureCode, "invalid_samples")
+        XCTAssertEqual(
+            Set(try FileManager.default.contentsOfDirectory(atPath: directory.directoryURL.path)),
+            Set(["manifest.json"])
+        )
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.directoryURL.appendingPathComponent("mic.wav").path))
+    }
+
     func testRepeatedStopReturnsTheAlreadyFinalizedManifest() throws {
         let root = makeRoot("v5-system-audio-repeated-stop")
         defer { try? FileManager.default.removeItem(at: root) }

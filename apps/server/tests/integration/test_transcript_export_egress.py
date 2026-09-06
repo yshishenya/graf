@@ -27,11 +27,13 @@ from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.cabinet import egress as egress_module
 from twobrain_rec_server.db.models import (
     DiarizationSegment,
+    ExportPackage,
     MediaRevision,
     Meeting,
     MeetingArtifactPolicy,
     MeetingOutcomeItem,
     MeetingOutcomeSet,
+    MeetingSummarySlot,
     ProcessingResult,
     TranscriptSegment,
 )
@@ -829,7 +831,7 @@ def test_export_capability_never_pairs_an_accepted_summary_with_a_newer_result(c
     assert capability["processing_result_id"] == str(newer_result_id)
     assert capability["transcript"]["state"] == "available"
     assert capability["summary"] == {
-        "state": "missing",
+        "state": "available",
         "reason": "stored_summary_revision_stale",
     }
     assert capability["combined"]["state"] == "missing"
@@ -846,7 +848,7 @@ def test_export_capability_never_pairs_an_accepted_summary_with_a_newer_result(c
         f"/api/v1/cabinet/meetings/{seeds.ready_id}/summary-candidates",
         headers=auth_headers(),
         json={
-            "template_key": "graf-meeting-minutes-v1",
+            "template_key": "graf-auto-v1",
             "template_id": None,
             "template_version": 1,
             "expected_current_outcome_set_id": str(accepted_id),
@@ -856,7 +858,7 @@ def test_export_capability_never_pairs_an_accepted_summary_with_a_newer_result(c
     assert candidate.json()["current_outcome_set_id"] == str(accepted_id)
     assert len(temporal.starts) == 1
 
-    denied = client.post(
+    summary_export = client.post(
         f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
         headers=auth_headers(),
         json={
@@ -866,14 +868,15 @@ def test_export_capability_never_pairs_an_accepted_summary_with_a_newer_result(c
             "outcome_set_id": str(accepted_id),
         },
     )
-    assert denied.status_code == 409
-    assert denied.json()["code"] == "export_unavailable"
-    assert "content-disposition" not in denied.headers
-    assert any(
-        event.event_type == "content_export_denied"
-        and event.policy_reason == "stored_summary_revision_stale"
-        for event in audit_events(client, seeds.ready_id)
+    assert summary_export.status_code == 200
+    exported_payload = summary_export.json()
+    summary_payload = exported_payload["summary"]
+    assert summary_payload["processing_result_id"] != str(newer_result_id)
+    assert (
+        exported_payload["revisions"]["processing_result_id"]
+        == summary_payload["processing_result_id"]
     )
+    assert all(not item["evidence_turn_ids"] for item in summary_payload["items"])
 
 
 def test_export_capability_uses_newest_media_revision_before_summary_acceptance(client) -> None:
@@ -987,7 +990,7 @@ def test_export_capability_uses_newest_media_revision_before_summary_acceptance(
     assert payload["processing_result_id"] == str(newer_result_id)
     assert payload["outcome_set_id"] == str(accepted_id)
     assert payload["summary"] == {
-        "state": "missing",
+        "state": "available",
         "reason": "stored_summary_revision_stale",
     }
     transcript_export = client.post(
@@ -1203,6 +1206,87 @@ def test_identical_json_retry_returns_identical_revision_pinned_bytes(client) ->
     assert first.headers["content-disposition"] == second.headers["content-disposition"]
 
 
+def test_summary_export_pins_persisted_default_and_survives_same_type_refresh(client) -> None:
+    seeds = seed_cabinet_meetings(client)
+    set_artifact_policy(client, seeds.ready_id, summary_download="allowed")
+    first_id = asyncio.run(
+        _seed_stored_summary(client, seeds.ready_id, generator_version="fixture-default-v1")
+    )
+
+    capability = client.get(
+        f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+        headers=auth_headers(),
+    ).json()
+    first = client.post(
+        f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+        headers=auth_headers(),
+        json={
+            "content_scope": "summary",
+            "format": "json",
+            "processing_result_id": capability["processing_result_id"],
+            "outcome_set_id": str(first_id),
+        },
+    )
+    assert first.status_code == 200, first.text
+
+    async def refresh_default() -> UUID:
+        second_id = await _seed_stored_summary(
+            client, seeds.ready_id, generator_version="fixture-default-v2"
+        )
+        async with client.app_state["sessionmaker"]() as db:
+            slot = await db.scalar(
+                select(MeetingSummarySlot).where(
+                    MeetingSummarySlot.meeting_id == seeds.ready_id,
+                    MeetingSummarySlot.is_meeting_default.is_(True),
+                )
+            )
+            assert slot is not None
+            slot.current_outcome_set_id = second_id
+            slot.current_binding_class = "verified_complete"
+            slot.legacy_migration_proof_hash = None
+            await db.commit()
+        return second_id
+
+    second_id = asyncio.run(refresh_default())
+    assert second_id != first_id
+
+    # The old revision is no longer the default and cannot be exported by UUID.
+    stale = client.post(
+        f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+        headers=auth_headers(),
+        json={
+            "content_scope": "summary",
+            "format": "json",
+            "processing_result_id": capability["processing_result_id"],
+            "outcome_set_id": str(first_id),
+        },
+    )
+    assert stale.status_code == 409
+
+
+def test_summary_export_package_manifest_pins_default_revision(client) -> None:
+    seeds = seed_cabinet_meetings(client)
+    asyncio.run(_seed_stored_summary(client, seeds.ready_id, generator_version="fixture-package-v1"))
+    set_artifact_policy(client, seeds.ready_id, package_export="allowed", summary_download="allowed")
+
+    created = client.post(
+        f"/api/v1/cabinet/meetings/{seeds.ready_id}/exports",
+        headers=auth_headers(),
+        json={"artifact_classes": ["summary"]},
+    )
+    assert created.status_code == 202, created.text
+
+    async def read_manifest() -> dict:
+        async with client.app_state["sessionmaker"]() as db:
+            package = await db.get(ExportPackage, UUID(created.json()["export_id"]))
+            assert package is not None
+            return package.manifest_json
+
+    manifest = asyncio.run(read_manifest())
+    assert manifest["summary_revision"]["template_key"] == "graf-auto-v1"
+    assert manifest["summary_revision"]["outcome_set_id"]
+
+
 async def _seed_stored_summary(
     client,
     meeting_id: UUID,
@@ -1241,6 +1325,8 @@ async def _seed_stored_summary(
             source_kind="extractive_generator",
             generator_kind="deterministic_extractive",
             generator_version=generator_version,
+            template_key="graf-auto-v1",
+            template_version=1,
             content_hash=f"fixture-summary-hash-{generator_version}",
             lifecycle_state="active",
             generated_at=datetime.now(UTC) if status in {"available", "partial"} else None,
@@ -1251,6 +1337,26 @@ async def _seed_stored_summary(
         if status in {"available", "partial"}:
             outcome_set.accepted_at = outcome_set.generated_at
             meeting.current_outcome_set_id = outcome_set.id
+            slot = await db.scalar(
+                select(MeetingSummarySlot).where(
+                    MeetingSummarySlot.meeting_id == meeting_id,
+                    MeetingSummarySlot.template_key == "graf-auto-v1",
+                )
+            )
+            if slot is None:
+                slot = MeetingSummarySlot(
+                    workspace_id=meeting.workspace_id,
+                    meeting_id=meeting_id,
+                    template_key="graf-auto-v1",
+                    is_meeting_default=True,
+                    default_resolution_source="explicit_meeting",
+                    default_resolution_version="slot-fixture-v1",
+                    default_resolved_at=datetime.now(UTC),
+                )
+                db.add(slot)
+                await db.flush()
+            slot.current_outcome_set_id = outcome_set.id
+            slot.current_binding_class = "verified_complete"
         db.add_all(
             [
                 MeetingOutcomeItem(

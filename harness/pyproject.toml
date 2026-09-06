@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "development-process-harness"
+version = "0.1.13"
+description = "Portable dependency-free governance validators"
+requires-python = ">=3.9"
+license = "MIT"
+license-files = ["LICENSE"]
+
+[project.scripts]
+harness-check = "dev_harness.validators:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

@@ -40,6 +40,52 @@ def test_built_ins_are_original_immutable_versioned_definitions() -> None:
     )
 
 
+def test_all_builtin_purposes_sections_and_versions_remain_compatible() -> None:
+    expected = {
+        "graf-auto-v1": (
+            "Главное после встречи: решения, действия, риски и открытые вопросы",
+            OUTCOME_CATEGORIES,
+        ),
+        "graf-outline-v1": (
+            "Темы разговора по порядку и вывод по каждой",
+            ("summary", "key_points", "evidence"),
+        ),
+        "graf-meeting-minutes-v1": (
+            "Цель, принятые решения, обязательства и следующие шаги",
+            ("summary", "decisions", "action_items", "followups", "evidence"),
+        ),
+        "graf-project-sync-v1": (
+            "Прогресс проекта, вехи, блокеры, зависимости и запросы",
+            ("summary", "key_points", "decisions", "action_items", "risks"),
+        ),
+        "graf-weekly-team-meeting-v1": (
+            "Изменения за неделю, приоритеты, блокеры и командные действия",
+            ("summary", "key_points", "action_items", "risks", "questions"),
+        ),
+        "graf-one-to-one-v1": (
+            "Темы сотрудника, нагрузка, обратная связь и взаимные договорённости",
+            ("summary", "key_points", "action_items", "followups", "questions"),
+        ),
+        "graf-client-status-update-v1": (
+            "Достигнутая ценность, подтверждённый прогресс, риски и следующие шаги",
+            ("summary", "key_points", "decisions", "action_items", "risks"),
+        ),
+        "graf-interview-v1": (
+            "Вопросы, фактические ответы кандидата и темы для уточнения",
+            ("summary", "key_points", "questions", "evidence"),
+        ),
+        "graf-sales-discovery-v1": (
+            "Потребности клиента, влияние, ограничения и согласованный следующий шаг",
+            ("summary", "key_points", "action_items", "risks", "questions", "evidence"),
+        ),
+    }
+
+    assert {
+        template.key: (template.purpose, template.sections) for template in BUILT_IN_TEMPLATES
+    } == expected
+    assert all(template.version == 1 and template.key.endswith("-v1") for template in BUILT_IN_TEMPLATES)
+
+
 def test_personal_template_is_structured_and_bounded() -> None:
     request = CreateSummaryTemplateRequest(
         name="  Мой   формат ",

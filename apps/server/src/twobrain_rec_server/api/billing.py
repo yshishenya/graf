@@ -7,7 +7,6 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from twobrain_rec_server.billing.launch_gates import provider_environment
 from twobrain_rec_server.billing.provider_events import (
     ProviderEventError,
     WebhookInbox,
@@ -15,7 +14,11 @@ from twobrain_rec_server.billing.provider_events import (
     redacted_event_metadata,
     validate_webhook_secret,
 )
-from twobrain_rec_server.billing.yookassa import YooKassaConfigurationError, read_webhook_secret
+from twobrain_rec_server.billing.yookassa import (
+    YooKassaConfigurationError,
+    provider_environment,
+    read_webhook_secret,
+)
 from twobrain_rec_server.db.models import BillingWebhookEvent, Workspace
 from twobrain_rec_server.db.tenant_context import WorkspaceAuthContext, apply_tenant_context
 

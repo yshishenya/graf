@@ -7,6 +7,8 @@ public enum DesktopUploadQueueServiceError: Error, CustomStringConvertible, Send
     case manifestMissing(URL)
     case packageNotFound(String)
     case localArtifactOutsideRecordingsRoot(String)
+    case localPlaybackUnavailable(String)
+    case localDeletionUnavailable(String)
 
     public var description: String {
         switch self {
@@ -16,6 +18,10 @@ public enum DesktopUploadQueueServiceError: Error, CustomStringConvertible, Send
             return "package_not_found:\(id)"
         case .localArtifactOutsideRecordingsRoot(let path):
             return "local_artifact_outside_recordings_root:\(URL(fileURLWithPath: path).lastPathComponent)"
+        case .localPlaybackUnavailable(let itemId):
+            return "local_playback_unavailable:\(itemId)"
+        case .localDeletionUnavailable(let itemId):
+            return "local_deletion_unavailable:\(itemId)"
         }
     }
 }
@@ -115,7 +121,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
     ]
 
     private let queueURL: URL
-    private let recordingsRootURL: URL
+    public let recordingsRootURL: URL
     private let policy: LocalBufferPolicy
     private let manifestService: LocalRecordingManifestService
     private let client: DesktopUploadClientProtocol?
@@ -145,8 +151,10 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         applicationSupportURL: URL? = nil,
         channel: GrafAppChannel = .current
     ) -> URL {
-        let base = applicationSupportURL ?? fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ??
-            fileManager.temporaryDirectory
+        let base = MeetingDetectionAppModule.applicationSupportBaseURL(
+            fileManager: fileManager,
+            applicationSupportURL: applicationSupportURL
+        )
         let current = base
             .appendingPathComponent(channel.applicationSupportFolderName, isDirectory: true)
             .appendingPathComponent("UploadQueue", isDirectory: true)
@@ -187,6 +195,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 else {
                     continue
                 }
+                guard manifest.status != .active else { continue }
                 let item = try makeItem(
                     manifest: manifest,
                     directoryURL: directory,
@@ -258,6 +267,43 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             document.updatedAt = now
             try saveDocumentOnQueue(document)
             return savedItem
+        }
+    }
+
+    @discardableResult
+    public func enqueueSaving(
+        manifest: LocalRecordingManifest,
+        directoryURL: URL,
+        calendarContextEventId: String? = nil,
+        calendarMatchAttemptId: String? = nil
+    ) throws -> DesktopUploadQueueItem {
+        try queue.sync {
+            var document = try loadDocumentOnQueue()
+            let now = clock()
+            var item = try makeItem(
+                manifest: manifest,
+                directoryURL: directoryURL,
+                now: now,
+                reason: "local_recording_saving",
+                calendarContextEventId: calendarContextEventId,
+                calendarMatchAttemptId: calendarMatchAttemptId
+            )
+            item.state = .saving
+            item.failureCategory = .none
+            item.failureReason = nil
+            item.retryMode = .manualOnly
+            item.nextRetryAt = nil
+            if let index = document.items.firstIndex(where: { $0.id == item.id }) {
+                guard !document.items[index].state.isTerminal else { return document.items[index] }
+                document.items[index] = Self.preservingQueueState(from: document.items[index], over: item)
+                item = document.items[index]
+            } else {
+                document.items.append(item)
+            }
+            document.items = document.items.sortedForDisplay()
+            document.updatedAt = now
+            try saveDocumentOnQueue(document)
+            return item
         }
     }
 
@@ -339,6 +385,111 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 )
             )
         }
+    }
+
+    @discardableResult
+    public func deleteLocalCopy(itemId: String) throws -> DesktopUploadQueueItem {
+        try queue.sync {
+            var document = try loadDocumentOnQueue()
+            guard let index = document.items.firstIndex(where: { $0.id == itemId }) else {
+                throw DesktopUploadQueueServiceError.packageNotFound(itemId)
+            }
+            let item = document.items[index]
+            guard isInsideRecordingsRoot(item.directoryPath) else {
+                throw DesktopUploadQueueServiceError.localArtifactOutsideRecordingsRoot(item.directoryPath)
+            }
+            guard Self.canDeleteLocalCopy(item: item, recordingsRootURL: recordingsRootURL) else {
+                throw DesktopUploadQueueServiceError.localDeletionUnavailable(itemId)
+            }
+            if FileManager.default.fileExists(atPath: item.directoryPath) {
+                try FileManager.default.removeItem(atPath: item.directoryPath)
+            }
+            let now = clock()
+            let deleted = item.withTransition(
+                to: .terminalDeleted,
+                now: now,
+                failureCategory: UploadFailureCategory.none,
+                failureReason: nil,
+                retryMode: .terminal,
+                nextRetryAt: nil,
+                retentionDecision: RetentionDecision(
+                    decision: .terminalDeleted,
+                    decidedAt: now,
+                    reason: "local_copy_deleted_by_user",
+                    localArtifactsRetained: false,
+                    policyReference: "local_buffer.user_delete"
+                )
+            )
+            document.items[index] = deleted
+            document.items = document.items.sortedForDisplay()
+            document.updatedAt = now
+            try saveDocumentOnQueue(document)
+            return deleted
+        }
+    }
+
+    public func localPlaybackURL(itemId: String) throws -> URL {
+        try queue.sync {
+            let document = try loadDocumentOnQueue()
+            guard let item = document.items.first(where: { $0.id == itemId }) else {
+                throw DesktopUploadQueueServiceError.packageNotFound(itemId)
+            }
+            guard Self.canOpenLocalPlayback(item: item, recordingsRootURL: recordingsRootURL)
+            else {
+                throw DesktopUploadQueueServiceError.localPlaybackUnavailable(itemId)
+            }
+            return URL(fileURLWithPath: item.reviewAudioPath)
+        }
+    }
+
+    public static func canOpenLocalPlayback(
+        item: DesktopUploadQueueItem,
+        recordingsRootURL: URL
+    ) -> Bool {
+        guard canProjectLocalPlayback(item: item, recordingsRootURL: recordingsRootURL),
+              let playbackTrack = playbackTrack(for: item),
+              let artifact = reviewAudioArtifact(URL(fileURLWithPath: item.reviewAudioPath)),
+              artifact.byteCount == playbackTrack.byteCount
+        else {
+            return false
+        }
+        return playbackTrack.sha256 == nil || playbackTrack.sha256 == artifact.sha256
+    }
+
+    /// Projects the inexpensive part of the playback contract for frequent UI refreshes.
+    /// Full audio parsing and hashing remain reserved for the native-open authorization path.
+    public static func canProjectLocalPlayback(
+        item: DesktopUploadQueueItem,
+        recordingsRootURL: URL
+    ) -> Bool {
+        guard let playbackTrack = playbackTrack(for: item),
+              isInsideRecordingsRoot(item.reviewAudioPath, rootURL: recordingsRootURL),
+              FileManager.default.fileExists(atPath: item.reviewAudioPath),
+              FileManager.default.isReadableFile(atPath: item.reviewAudioPath),
+              fileSize(URL(fileURLWithPath: item.reviewAudioPath)) == playbackTrack.byteCount
+        else {
+            return false
+        }
+        return true
+    }
+
+    public static func canDeleteLocalCopy(
+        item: DesktopUploadQueueItem,
+        recordingsRootURL: URL
+    ) -> Bool {
+        guard isInsideRecordingsRoot(item.directoryPath, rootURL: recordingsRootURL) else {
+            return false
+        }
+        return item.failureReason == "recording_recovery_not_possible"
+            || [.degraded, .blocked, .failed].contains(item.state)
+    }
+
+    private static func playbackTrack(
+        for item: DesktopUploadQueueItem
+    ) -> UploadTrackCompleteness? {
+        item.artifactProfile.trackCompleteness.first(where: {
+            $0.transportRole == .playback && $0.present
+        })
     }
 
     @discardableResult
@@ -741,7 +892,11 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
     }
 
     private func isInsideRecordingsRoot(_ path: String) -> Bool {
-        let rootPath = recordingsRootURL
+        Self.isInsideRecordingsRoot(path, rootURL: recordingsRootURL)
+    }
+
+    private static func isInsideRecordingsRoot(_ path: String, rootURL: URL) -> Bool {
+        let rootPath = rootURL
             .standardizedFileURL
             .resolvingSymlinksInPath()
             .path
@@ -1125,7 +1280,9 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             transcriptionURL: transcriptionURL
         )
         let state: UploadItemState = profile.isUploadable ? .queued : .blocked
-        let failureCategory: UploadFailureCategory = profile.isUploadable ? .none : .schemaIncompatibility
+        let failureCategory: UploadFailureCategory = profile.isUploadable
+            ? .none
+            : (manifest.isV5Package ? .localResource : .schemaIncompatibility)
         let retryMode: UploadRetryMode = profile.isUploadable ? .automatic : .manualOnly
         let retentionDeadline = Calendar.current.date(
             byAdding: .day,
@@ -1157,6 +1314,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 manifest: manifest,
                 profile: profile
             ),
+            captureFailureCode: manifest.captureFailureCode,
             retryMode: retryMode,
             nextRetryAt: profile.isUploadable ? now : nil,
             retentionDeadline: retentionDeadline,
@@ -1187,11 +1345,14 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         }
         if !refreshed.artifactProfile.isUploadable && existing.state == .blocked {
             merged.state = existing.state
-            merged.failureCategory = existing.failureCategory
-            merged.failureReason = Self.mostSpecificFailureReason(
-                existing: existing.failureReason,
-                refreshed: refreshed.failureReason
-            )
+            merged.failureCategory = refreshed.failureCategory
+            merged.failureReason = existing.failureCategory == .schemaIncompatibility
+                && refreshed.failureCategory == .localResource
+                ? refreshed.failureReason
+                : Self.mostSpecificFailureReason(
+                    existing: existing.failureReason,
+                    refreshed: refreshed.failureReason
+                )
             merged.retryMode = existing.retryMode
             merged.nextRetryAt = existing.nextRetryAt
             merged.retentionDecision = existing.retentionDecision
@@ -1231,7 +1392,22 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         merged.supportIncidentSubmission = existing.supportIncidentSubmission
         merged.calendarContextEventId = existing.calendarContextEventId ?? refreshed.calendarContextEventId
         merged.calendarMatchAttemptId = existing.calendarMatchAttemptId ?? refreshed.calendarMatchAttemptId
-        merged.recordingMetadata = existing.recordingMetadata ?? refreshed.recordingMetadata
+        if let existingMetadata = existing.recordingMetadata,
+           var refreshedMetadata = refreshed.recordingMetadata {
+            refreshedMetadata.recordingStartedAt = existingMetadata.recordingStartedAt
+            refreshedMetadata.title = existingMetadata.title
+            refreshedMetadata.titleStatus = existingMetadata.titleStatus
+            refreshedMetadata.titleSource = existingMetadata.titleSource
+            refreshedMetadata.titleConfidence = existingMetadata.titleConfidence
+            refreshedMetadata.titleGeneratedAt = existingMetadata.titleGeneratedAt
+            refreshedMetadata.safeFileBasename = existingMetadata.safeFileBasename
+            refreshedMetadata.stableSuffix = existingMetadata.stableSuffix
+            refreshedMetadata.suppressedSources = existingMetadata.suppressedSources
+            refreshedMetadata.recordingDisplayTimeZoneOffsetMinutes = existingMetadata.recordingDisplayTimeZoneOffsetMinutes
+            merged.recordingMetadata = refreshedMetadata
+        } else {
+            merged.recordingMetadata = existing.recordingMetadata ?? refreshed.recordingMetadata
+        }
         return merged
     }
 
@@ -1514,6 +1690,13 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         manifest: LocalRecordingManifest,
         profile: ArtifactCompletenessProfile
     ) -> String {
+        if manifest.captureFailureCode == "recording_recovery_not_possible" {
+            return "recording_recovery_not_possible"
+        }
+        if let captureFailureCode = manifest.captureFailureCode?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !captureFailureCode.isEmpty {
+            return captureFailureCode
+        }
         if manifest.scopeApproval?.isAcceptedForMeetingRecording != true {
             return LocalRecordingFailureReason.scopeUnavailable.rawValue
         }
@@ -1562,7 +1745,10 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         let microphoneSize = fileSize(microphoneURL)
         let systemAudioSize = fileSize(systemAudioURL)
         let reviewAudio = reviewAudioURL.flatMap(reviewAudioArtifact)
-        let durationSeconds = max(1, Int(ceil(Double(max(0, manifest.stoppedAt.timeIntervalSince(manifest.startedAt))))))
+        let sessionDurationSeconds = max(
+            1,
+            Int(ceil(Double(max(0, manifest.stoppedAt.timeIntervalSince(manifest.startedAt)))))
+        )
         if manifest.isV5Package {
             let mediaURL = transcriptionURL ?? manifestURL
                 .deletingLastPathComponent()
@@ -1582,7 +1768,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 present: mediaAudio != nil,
                 byteCount: mediaAudio?.byteCount ?? fileSize(mediaURL),
                 sha256: mediaAudio?.sha256,
-                durationSeconds: mediaAudio?.durationSeconds ?? durationSeconds
+                durationSeconds: mediaAudio?.durationSeconds ?? sessionDurationSeconds
             )
             let playbackTrack = UploadTrackCompleteness(
                 transportRole: .playback,
@@ -1590,7 +1776,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 present: reviewAudio != nil,
                 byteCount: reviewAudio?.byteCount ?? (reviewAudioURL.map(fileSize) ?? 0),
                 sha256: reviewAudio?.sha256,
-                durationSeconds: reviewAudio?.durationSeconds ?? durationSeconds
+                durationSeconds: reviewAudio?.durationSeconds ?? sessionDurationSeconds
             )
             let tracks = [manifestTrack, mediaTrack, playbackTrack]
             let manifestTracksByRole = Dictionary(
@@ -1605,6 +1791,10 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 manifest.isComplete &&
                 integrityMatches &&
                 tracks.allSatisfy(\.uploadable)
+            let savedDurationSeconds = max(
+                mediaAudio?.durationSeconds ?? 0,
+                reviewAudio?.durationSeconds ?? 0
+            )
             return ArtifactCompletenessProfile(
                 schemaVersion: manifest.schemaVersion,
                 manifestPresent: manifestTrack.present,
@@ -1616,7 +1806,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 manifestSizeBytes: manifestSize,
                 microphoneSizeBytes: 0,
                 systemAudioSizeBytes: 0,
-                durationSeconds: durationSeconds,
+                durationSeconds: savedDurationSeconds,
                 trackCompleteness: tracks,
                 isUploadable: uploadable,
                 qualityWarningReason: uploadable ? Self.qualityWarningReason(for: manifest) : nil
@@ -1636,7 +1826,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             present: microphoneSize > 44,
             byteCount: microphoneSize,
             sha256: sha256Hex(url: microphoneURL),
-            durationSeconds: durationSeconds
+            durationSeconds: sessionDurationSeconds
         )
         let systemTrack = UploadTrackCompleteness(
             transportRole: .system,
@@ -1644,7 +1834,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             present: systemAudioSize > 44,
             byteCount: systemAudioSize,
             sha256: sha256Hex(url: systemAudioURL),
-            durationSeconds: durationSeconds
+            durationSeconds: sessionDurationSeconds
         )
         var tracks = [microphoneTrack, systemTrack, manifestTrack]
         if let reviewAudio {
@@ -1674,7 +1864,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             manifestSizeBytes: manifestSize,
             microphoneSizeBytes: microphoneSize,
             systemAudioSizeBytes: systemAudioSize,
-            durationSeconds: durationSeconds,
+            durationSeconds: sessionDurationSeconds,
             trackCompleteness: tracks,
             isUploadable: uploadable,
             qualityWarningReason: qualityWarningReason

@@ -37,8 +37,21 @@ from twobrain_rec_server.db.models import (
     CalendarParticipant,
     CalendarSource,
     ExternalCalendar,
+    MediaScribeJob,
     Meeting,
+    MeetingOutcomeItem,
+    MeetingOutcomeSet,
+    MeetingSummarySlot,
+    ProcessingResult,
+    ProcessingWorkflow,
     RecordingCalendarContextLink,
+)
+from twobrain_rec_server.domain.statuses import (
+    MediaScribeJobStatus,
+    ProcessingAvailabilityStatus,
+    ProcessingResultStatus,
+    ProcessingStatus,
+    SummaryStatus,
 )
 
 
@@ -76,22 +89,22 @@ def test_cabinet_ready_detail_returns_ordered_transcript_speakers_and_provenance
 def test_missing_canonical_object_projects_automatic_recovery_in_api_and_web(client) -> None:
     seeds = seed_cabinet_meetings(client)
     add_retained_playback_m4a(client, seeds.ready_id, b"\x00\x00\x00\x18ftypM4A stale")
-    client.app_state["storage"].delete_object(
-        f"tests/cabinet/{seeds.ready_id}/meeting-review.m4a"
-    )
+    client.app_state["storage"].delete_object(f"tests/cabinet/{seeds.ready_id}/meeting-review.m4a")
 
-    api_response = client.get(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}", headers=auth_headers()
-    )
+    api_response = client.get(f"/api/v1/cabinet/meetings/{seeds.ready_id}", headers=auth_headers())
     web_response = client.get(f"/meetings/{seeds.ready_id}", headers=auth_headers())
 
     assert api_response.status_code == 200
-    assert api_response.json()["playback"] | {
-        "state": "preparing",
-        "reason_code": "canonical_artifact_missing",
-        "automatic_recovery": True,
-        "can_play": False,
-    } == api_response.json()["playback"]
+    assert (
+        api_response.json()["playback"]
+        | {
+            "state": "preparing",
+            "reason_code": "canonical_artifact_missing",
+            "automatic_recovery": True,
+            "can_play": False,
+        }
+        == api_response.json()["playback"]
+    )
     assert web_response.status_code == 200
     assert 'data-playback-state="preparing"' in web_response.text
     assert 'data-playback-reason="canonical_artifact_missing"' in web_response.text
@@ -174,7 +187,7 @@ def test_098_calendar_roster_stays_separate_from_transcript_speakers_and_permiss
         assert CALENDAR_ROSTER_EMAIL_SENTINEL not in response.text
 
 
-def test_cabinet_processing_failed_and_partial_detail_states_are_truthful(client) -> None:
+def test_cabinet_processing_failed_and_incomplete_detail_states_are_truthful(client) -> None:
     seeds = seed_cabinet_meetings(client)
 
     processing = client.get(
@@ -200,16 +213,17 @@ def test_cabinet_processing_failed_and_partial_detail_states_are_truthful(client
     assert SAFE_TRANSCRIPT_TEXT not in str(failed)
     assert failed["notes_action_truth"]["summary"]["state"] == "blocked"
     assert failed["notes_action_truth"]["decisions"]["state"] == "blocked"
-    assert partial["processing"]["state"] == "partial"
+    assert partial["processing"]["state"] == "failed"
     assert partial["transcript"]["available"] is False
     assert partial["speakers"]["available"] is False
-    assert partial["notes_action_truth"]["summary"]["state"] == "deferred"
-    assert partial["notes_action_truth"]["followups"]["state"] == "deferred"
+    assert partial["notes_action_truth"]["summary"]["state"] == "blocked"
+    assert partial["notes_action_truth"]["followups"]["state"] == "blocked"
 
 
 def test_manual_upload_detail_handoff_keeps_processing_truth_separate_from_review_readiness(
     client,
 ) -> None:
+    client.app.state.settings.playback_normalization_enabled = True
     uploaded = client.post(
         "/api/v1/media-uploads",
         headers=auth_headers(),
@@ -240,6 +254,7 @@ def test_manual_upload_detail_handoff_keeps_processing_truth_separate_from_revie
 
 
 def test_manual_upload_ready_playback_reports_uploaded_media_provenance(client) -> None:
+    client.app.state.settings.playback_normalization_enabled = True
     uploaded = client.post(
         "/api/v1/media-uploads",
         headers=auth_headers(),
@@ -319,6 +334,113 @@ def test_cabinet_and_desktop_sync_review_states_match_for_result_states(client) 
         assert sync_payload["review"]["desktop_url"] == f"/desktop/meetings/{meeting_id}"
 
 
+def test_cabinet_detail_keeps_complete_content_during_partial_replacement(client) -> None:
+    meeting_id = seed_cabinet_meetings(client).ready_id
+    add_retained_playback_m4a(client, meeting_id, b"\x00\x00\x00\x18ftypM4A replacement")
+
+    async def seed_partial_replacement() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            meeting = await db.get(Meeting, meeting_id)
+            previous = await db.scalar(
+                select(ProcessingWorkflow).where(ProcessingWorkflow.meeting_id == meeting_id)
+            )
+            previous_result = await db.scalar(
+                select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
+            )
+            assert meeting is not None and previous is not None and previous_result is not None
+            previous.attempt_ordinal = 1
+            replacement = ProcessingWorkflow(
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                media_revision_id=previous_result.media_revision_id,
+                workflow_id=f"processing/{previous_result.media_revision_id}/2",
+                status=ProcessingStatus.POLLING.value,
+                attempt_ordinal=2,
+            )
+            db.add(replacement)
+            await db.flush()
+            replacement_job = MediaScribeJob(
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                media_revision_id=previous_result.media_revision_id,
+                processing_workflow_id=replacement.id,
+                external_job_id="fixture-replacement-partial-job",
+                status=MediaScribeJobStatus.TRANSCRIBING.value,
+            )
+            db.add(replacement_job)
+            await db.flush()
+            db.add(
+                ProcessingResult(
+                    workspace_id=meeting.workspace_id,
+                    meeting_id=meeting.id,
+                    media_revision_id=previous_result.media_revision_id,
+                    mediascribe_job_id=replacement_job.id,
+                    processing_workflow_id=replacement.id,
+                    result_version=1,
+                    status=ProcessingResultStatus.IMPORTED.value,
+                    transcript_status=ProcessingAvailabilityStatus.AVAILABLE.value,
+                    diarization_status=ProcessingAvailabilityStatus.UNAVAILABLE.value,
+                    summary_status=SummaryStatus.NOT_REQUESTED.value,
+                    segment_count=1,
+                    diarization_segment_count=0,
+                )
+            )
+            meeting.processing_status = ProcessingStatus.POLLING.value
+            await db.commit()
+
+    asyncio.run(seed_partial_replacement())
+
+    response = client.get(
+        f"/api/v1/cabinet/meetings/{meeting_id}",
+        headers=auth_headers(),
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["processing"]["state"] == "processing"
+    assert payload["processing"]["transcript_available"] is True
+    assert payload["processing"]["diarization_available"] is True
+    assert payload["transcript"]["available"] is True
+    assert [segment["text"] for segment in payload["transcript"]["segments"]] == [
+        SAFE_TRANSCRIPT_TEXT,
+        SAFE_SECOND_TRANSCRIPT_TEXT,
+    ]
+
+    for path in (f"/meetings/{meeting_id}", f"/desktop/meetings/{meeting_id}"):
+        active = client.get(path, headers=auth_headers())
+        assert active.status_code == 200, path
+        assert 'data-processing-replacement-active="true"' in active.text
+        assert "Готовим новую версию" in active.text
+        assert "Временная ошибка" not in active.text
+        assert SAFE_TRANSCRIPT_TEXT in active.text
+        assert 'class="playback-bar detail-playback"' in active.text
+
+    async def fail_replacement() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            replacement = await db.scalar(
+                select(ProcessingWorkflow)
+                .where(ProcessingWorkflow.meeting_id == meeting_id)
+                .order_by(ProcessingWorkflow.attempt_ordinal.desc())
+            )
+            meeting = await db.get(Meeting, meeting_id)
+            assert replacement is not None and meeting is not None
+            replacement.status = ProcessingStatus.FAILED_TERMINAL.value
+            meeting.processing_status = ProcessingStatus.FAILED_TERMINAL.value
+            await db.commit()
+
+    asyncio.run(fail_replacement())
+
+    for path in (f"/meetings/{meeting_id}", f"/desktop/meetings/{meeting_id}"):
+        failed = client.get(path, headers=auth_headers())
+        assert failed.status_code == 200, path
+        assert 'data-processing-replacement-active="false"' in failed.text
+        assert "Не удалось подготовить новую версию" in failed.text
+        assert "Текущая версия не изменилась." in failed.text
+        assert "Попробовать снова" in failed.text
+        assert SAFE_TRANSCRIPT_TEXT in failed.text
+        assert 'class="playback-bar detail-playback"' in failed.text
+
+
 def test_cabinet_summary_reported_without_stored_output_is_blocked(client) -> None:
     meeting_id = create_summary_reported_meeting(client)
 
@@ -330,6 +452,123 @@ def test_cabinet_summary_reported_without_stored_output_is_blocked(client) -> No
     assert truth["summary"]["copy_key"] == "notes.summary.blocked_missing_stored_output"
     assert truth["decisions"]["state"] == "deferred"
     assert truth["action_items"]["state"] == "deferred"
+
+
+def test_browser_and_embedded_review_use_default_slot_before_newer_result(client) -> None:
+    meeting_id = seed_cabinet_meetings(client).ready_id
+
+    async def seed_slot() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            meeting = await db.get(Meeting, meeting_id)
+            result = await db.scalar(
+                select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
+            )
+            assert meeting is not None and result is not None
+            outcome = MeetingOutcomeSet(
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                media_revision_id=result.media_revision_id,
+                processing_result_id=result.id,
+                status="available",
+                summary_state="available",
+                source_kind="db_fixture",
+                generator_kind="db_fixture",
+                generator_version="test-db-only",
+                source_result_hash=result.source_result_hash,
+                source_fingerprint=f"result:{result.id}",
+                content_hash="stored-summary-hash",
+                template_key="graf-auto-v1",
+                revision_state="accepted",
+            )
+            db.add(outcome)
+            await db.flush()
+            db.add(
+                MeetingOutcomeItem(
+                    workspace_id=meeting.workspace_id,
+                    meeting_id=meeting.id,
+                    outcome_set_id=outcome.id,
+                    category="summary",
+                    sequence=0,
+                    state="available",
+                    text="Сохраненный итог из default slot",
+                    truth_label="supported",
+                )
+            )
+            db.add(
+                MeetingSummarySlot(
+                    workspace_id=meeting.workspace_id,
+                    meeting_id=meeting.id,
+                    template_key="graf-auto-v1",
+                    current_outcome_set_id=outcome.id,
+                    current_binding_class="verified_complete",
+                    is_meeting_default=True,
+                    default_resolution_source="explicit_meeting",
+                    default_resolution_version="test-fixture-v1",
+                    default_resolved_at=datetime(2026, 8, 24, tzinfo=UTC),
+                )
+            )
+            newer = ProcessingResult(
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                media_revision_id=result.media_revision_id,
+                mediascribe_job_id=result.mediascribe_job_id,
+                processing_workflow_id=result.processing_workflow_id,
+                result_version=result.result_version + 1,
+                status="imported",
+                transcript_status=result.transcript_status,
+                diarization_status=result.diarization_status,
+                summary_status=result.summary_status,
+                language=result.language,
+                segment_count=result.segment_count,
+                diarization_segment_count=result.diarization_segment_count,
+                source_result_hash="newer-result-hash",
+                imported_at=datetime(2026, 8, 24, 12, 1, tzinfo=UTC),
+            )
+            db.add(newer)
+            meeting.current_outcome_set_id = None
+            await db.commit()
+
+    asyncio.run(seed_slot())
+
+    api = client.get(f"/api/v1/cabinet/meetings/{meeting_id}", headers=auth_headers())
+    assert api.status_code == 200
+    assert api.json()["notes_action_truth"]["summary"]["state"] == "available"
+    assert "Сохраненный итог из default slot" in api.text
+
+    for path in (f"/meetings/{meeting_id}", f"/desktop/meetings/{meeting_id}"):
+        page = client.get(path, headers=auth_headers())
+        assert page.status_code == 200
+        assert "Сохраненный итог из default slot" in page.text
+        assert "Итоги отложены" not in page.text
+
+    async def remove_default_marker() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            slot = await db.scalar(
+                select(MeetingSummarySlot).where(
+                    MeetingSummarySlot.meeting_id == meeting_id,
+                    MeetingSummarySlot.template_key == "graf-auto-v1",
+                )
+            )
+            meeting = await db.get(Meeting, meeting_id)
+            assert slot is not None and meeting is not None
+            slot.is_meeting_default = False
+            slot.default_resolution_source = None
+            slot.default_resolution_version = None
+            slot.default_resolved_at = None
+            meeting.current_outcome_set_id = slot.current_outcome_set_id
+            await db.commit()
+
+    asyncio.run(remove_default_marker())
+
+    no_default_api = client.get(f"/api/v1/cabinet/meetings/{meeting_id}", headers=auth_headers())
+    assert no_default_api.status_code == 200
+    assert no_default_api.json()["notes_action_truth"]["summary"]["state"] != "available"
+
+    for path in (f"/meetings/{meeting_id}", f"/desktop/meetings/{meeting_id}"):
+        page = client.get(path, headers=auth_headers())
+        assert page.status_code == 200
+        assert "Сохраненный итог из default slot" not in page.text
+        assert 'data-outcome-source-basis="' in page.text
 
 
 def test_cabinet_detail_denies_foreign_meeting_without_existence_proof(client) -> None:
@@ -366,10 +605,14 @@ def test_cabinet_ready_and_processing_web_detail_shells(client) -> None:
     assert SAFE_TRANSCRIPT_TEXT in ready.text
     assert "Спикеры" in ready.text
     assert "Формат:" in ready.text
+    assert 'data-summary-result-state="absent"' in ready.text
+    assert 'data-summary-generation-state="deferred"' in ready.text
+    assert 'data-summary-source-state="current"' in ready.text
+    assert 'data-summary-availability-state="available"' in ready.text
     assert "Все форматы…" in ready.text
     assert "Кратко" in ready.text
     assert "Действия" in ready.text
-    assert "Итоги отложены" in ready.text
+    assert "Итоги не запрошены" in ready.text
     assert "AI notes are reserved for a later feature" not in ready.text
     assert "feature 016" not in ready.text.lower()
     assert "feature:016" not in ready.text.lower()
@@ -385,6 +628,10 @@ def test_cabinet_ready_and_processing_web_detail_shells(client) -> None:
     assert processing.status_code == 200
     assert "Транскрипт готовится" in processing.text
     assert "Итоги готовятся" in processing.text
+    assert 'data-summary-result-state="absent"' in processing.text
+    assert 'data-summary-generation-state="preparing"' in processing.text
+    assert 'data-summary-source-state="not_ready"' in processing.text
+    assert 'data-summary-reason-code="transcript_not_ready"' in processing.text
     assert SAFE_TRANSCRIPT_TEXT not in processing.text
 
 
@@ -485,6 +732,16 @@ def test_cabinet_owner_default_audio_download_has_web_embedded_parity(client) ->
         assert response.status_code == 200, surface
         assert f'href="/api/v1/cabinet/meetings/{seeds.ready_id}/downloads/audio"' in response.text
         assert "Скачать аудио…" in response.text
+        assert response.text.count("Повторно обработать запись") >= 1
+        assert 'data-processing-reprocess-available="true"' in response.text
+
+    add_workspace_user(client)
+    set_meeting_visibility(client, seeds.ready_id, "team")
+    for path in (f"/meetings/{seeds.ready_id}", f"/desktop/meetings/{seeds.ready_id}"):
+        shared = client.get(path, headers=shared_auth_headers())
+        assert shared.status_code == 200, path
+        assert "data-processing-reprocess-dialog" not in shared.text
+        assert 'data-processing-reprocess-available="false"' in shared.text
 
 
 def test_098_ambiguous_owner_detail_renders_safe_chooser_with_web_embedded_parity(client) -> None:
@@ -506,9 +763,9 @@ def test_098_ambiguous_owner_detail_renders_safe_chooser_with_web_embedded_parit
         assert (
             response.text.count("Несколько встреч подходят по времени. GRAF ничего не выбрал.") == 1
         )
-        assert response.text.count(
-            '<fieldset aria-describedby="calendar-context-choice-help">'
-        ) == 1
+        assert (
+            response.text.count('<fieldset aria-describedby="calendar-context-choice-help">') == 1
+        )
         assert response.text.count("<legend>Выберите встречу</legend>") == 1
         assert response.text.count('type="radio" name="event_id"') == 2
         assert response.text.count('name="event_id"') == 2

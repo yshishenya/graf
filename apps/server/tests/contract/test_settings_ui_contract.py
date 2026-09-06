@@ -8,6 +8,7 @@ from fastapi.routing import APIRoute
 from twobrain_rec_server.cabinet.rendering import render_settings_page
 from twobrain_rec_server.cabinet.view_models import (
     AccountDeviceView,
+    AccountProfileView,
     AccountProviderView,
     account_settings_surface,
 )
@@ -30,6 +31,7 @@ def test_settings_overview_exposes_supported_categories_in_primary_sidebar() -> 
         assert page.count("data-settings-primary-nav>") == 1
         assert page.count("data-settings-primary-nav-item") == 9
         assert '<span class="cabinet-sidebar-nav__section-label">Настройки</span>' in page
+        assert f'<a href="{prefix}/account">Настройки</a>' not in page
         assert 'class="settings-navigation"' not in page
         assert "provider_subject" not in page
         assert "candidate_identity_subject" not in page
@@ -205,7 +207,7 @@ def test_settings_overview_matches_product_reference_geometry() -> None:
 def test_settings_binary_controls_use_shared_switches_and_segmented_theme() -> None:
     root = Path(__file__).resolve().parents[2]
     script = (root / "src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js").read_text()
-    account = render_settings_page(category="account")
+    account = render_settings_page(category="account", profile=AccountProfileView("Synthetic"))
     notifications = render_settings_page(category="notifications")
 
     assert 'class="theme-picker"' in account

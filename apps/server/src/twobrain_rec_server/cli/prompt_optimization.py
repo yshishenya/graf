@@ -16,6 +16,11 @@ from twobrain_rec_server.db.session import (
     verify_prompt_optimization_database_identity,
 )
 from twobrain_rec_server.observability.langfuse import create_langfuse_client, shutdown_langfuse
+from twobrain_rec_server.outcomes.prompt_bundle import (
+    bind_snapshot_from_metadata,
+    fetch_root_bundle_by_label,
+    snapshot_bundle_metadata,
+)
 from twobrain_rec_server.outcomes.prompt_optimization import (
     ADAPTER_VERSION,
     JUDGE_NAMES,
@@ -145,9 +150,19 @@ async def _start(
         raise RuntimeError("optimization budget is invalid")
     client = create_langfuse_client(settings)
     try:
-        source = _fetch_snapshot(client, args.prompt_name, "chat")
-        reflection = _fetch_snapshot(client, "graf/prompt-optimization/reflection", "text")
-        judges = [_fetch_snapshot(client, name, "chat") for name in JUDGE_NAMES]
+        root_bundle = fetch_root_bundle_by_label(client)
+        source = root_bundle.child(args.prompt_name)
+        bundle_metadata = snapshot_bundle_metadata(source)
+        if bundle_metadata is None:
+            raise RuntimeError("production root bundle has no route binding")
+        reflection = bind_snapshot_from_metadata(
+            _fetch_snapshot(client, "graf/prompt-optimization/reflection", "text"),
+            bundle_metadata,
+        )
+        judges = [
+            bind_snapshot_from_metadata(_fetch_snapshot(client, name, "chat"), bundle_metadata)
+            for name in JUDGE_NAMES
+        ]
     finally:
         shutdown_langfuse(client)
     judge_gates = {
@@ -171,6 +186,7 @@ async def _start(
         "max_cost": str(args.max_cost),
         "protected_label_capability_verified": True,
         "reflection_control_gate": reflection_gate,
+        "root_bundle_binding": bundle_metadata,
     }
     async with sessionmaker() as db:
         run = PromptOptimizationRun(

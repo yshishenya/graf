@@ -473,6 +473,23 @@ def test_embedded_calendar_settings_desktop_cookie_survives_legacy_header_shutdo
     )
 
 
+def test_local_yandex_verification_exposes_only_the_connect_form(client) -> None:
+    settings = client.app.state.settings
+    original = settings.calendar_allow_uncertified_yandex
+    settings.calendar_allow_uncertified_yandex = True
+    try:
+        response = client.get("/settings/integrations/calendar", headers=auth_headers())
+    finally:
+        settings.calendar_allow_uncertified_yandex = original
+
+    assert response.status_code == 200
+    assert 'id="calendar-provider-dialog-caldav_yandex"' in response.text
+    assert 'name="username"' in response.text
+    assert 'name="credential_input"' in response.text
+    assert "Пароль приложения" in response.text
+    assert 'name="caldav_url"' not in response.text
+
+
 def test_calendar_settings_connect_app_password_creates_source_without_selected_calendars_and_audits(
     client,
 ) -> None:
@@ -515,6 +532,7 @@ def test_calendar_settings_connect_app_password_creates_source_without_selected_
     assert len(sources) == 1
     assert sources[0].provider_family == "caldav_yandex"
     assert sources[0].credential_state == "sealed"
+    assert sources[0].last_sync_finished_at is not None
     assert sources[0].selected_calendar_count == 0
     assert len(envelopes) == 1
     sealed_payload = json.loads(
@@ -574,7 +592,7 @@ def test_calendar_provider_failure_does_not_persist_source(client) -> None:
         client.app.state.calendar_provider_factory = original_factory
 
     assert response.status_code == 303
-    assert response.headers["location"].endswith("connect_result=denied")
+    assert response.headers["location"].endswith("connect_result=invalid_credentials")
 
     async def load_source_count() -> int:
         async with client.app_state["sessionmaker"]() as session:
@@ -586,6 +604,7 @@ def test_calendar_provider_failure_does_not_persist_source(client) -> None:
 def test_calendar_settings_provider_result_states_are_safe(client) -> None:
     expected = {
         "cancelled": "Подключение отменено",
+        "invalid_credentials": "Неверные данные Яндекса",
         "denied": "Календарь не подключен",
         "failed": "Не удалось подключить календарь",
         "no_readable_calendars": "Нет доступных для чтения календарей",
@@ -1035,7 +1054,9 @@ def test_calendar_settings_selection_save_empty_and_no_retrospective_matching(cl
         follow_redirects=False,
     )
     assert selected.status_code == 303
-    assert selected.headers["location"] == "/settings/integrations/calendar?selection_result=saved"
+    assert selected.headers["location"] == (
+        "/settings/integrations/calendar?selection_result=saved&sync_result=reconnect_required"
+    )
 
     rendered = client.get(selected.headers["location"], headers=auth_headers())
     assert "Выбор календарей сохранен" in rendered.text
@@ -1173,7 +1194,9 @@ def test_calendar_selection_accepts_twenty_and_rejects_twenty_one_without_trunca
         follow_redirects=False,
     )
     assert accepted.status_code == 303
-    assert accepted.headers["location"].endswith("selection_result=saved")
+    assert accepted.headers["location"].endswith(
+        "selection_result=saved&sync_result=completed"
+    )
 
     overflow_ids = [*provider_ids, "overflow"]
     rejected = client.post(
@@ -1722,8 +1745,8 @@ def test_calendar_settings_manual_sync_results_cover_safe_states_and_audit(clien
                 "sync_state": "stale",
                 "last_successful_sync_at": now - timedelta(days=2),
             },
-            "accepted",
-            "Синхронизация поставлена в очередь",
+        "reconnect_required",
+        "Нужно действие",
         ),
         ("already-running", {"sync_state": "syncing"}, "already_running", "Синхронизация уже идет"),
         (
@@ -1780,7 +1803,7 @@ def test_calendar_settings_manual_sync_results_cover_safe_states_and_audit(clien
     provider_failed = asyncio.run(load_source(seen_source_ids[2]))
     disconnected = asyncio.run(load_source(seen_source_ids[5]))
 
-    assert accepted.sync_state == "queued"
+    assert accepted.sync_state == "failed_closed"
     assert accepted.last_sync_started_at is not None
     assert accepted.last_successful_sync_at is not None
     assert already_running.sync_state == "syncing"
@@ -1803,7 +1826,7 @@ def test_calendar_settings_manual_sync_results_cover_safe_states_and_audit(clien
     assert len(events) == len(cases) * 2
     assert len(result_events) == len(cases)
     assert [event.safe_reason_code for event in result_events] == [
-        None,
+        "reconnect_required",
         "already_running",
         "failed",
         "reconnect_required",
@@ -1877,13 +1900,13 @@ def test_calendar_settings_cached_projection_and_sync_ack_p95(client) -> None:
         )
         sync_ack_samples.append(perf_counter() - started)
         assert response.status_code == 303
-        assert response.headers["location"].endswith("sync_result=accepted")
+        assert response.headers["location"].endswith("sync_result=reconnect_required")
 
-    # NFR-006: one warmed cached projection covers the post-callback result and
-    # cached catalog surface; sync acknowledgement never waits for provider I/O.
+    # Projection stays cached while manual sync intentionally waits for the
+    # bounded provider path and returns a final state.
     assert _p95_seconds(projection_samples) <= 0.5
     assert _p95_seconds(projection_samples) <= 1.0
-    assert _p95_seconds(sync_ack_samples) <= 0.3
+    assert max(sync_ack_samples) < 2.0
 
 
 def test_calendar_settings_disconnect_stops_future_contribution_purges_credentials_and_audits(

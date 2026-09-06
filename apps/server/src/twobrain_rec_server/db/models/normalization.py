@@ -197,7 +197,7 @@ class PlaybackNormalizationJob(Base):
                     'encrypted_media', 'corrupt_source', 'no_audio',
                     'ambiguous_audio_tracks', 'stream_limit_exceeded',
                     'duration_limit_exceeded', 'source_size_limit_exceeded',
-                    'source_missing', 'source_mismatch'
+                    'source_missing', 'source_mismatch', 'storage_capacity_exceeded'
                 )
             )
             """,

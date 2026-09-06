@@ -9,8 +9,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from urllib.parse import unquote, urlsplit
 
-from twobrain_rec_server.mediascribe.schemas import MediaScribeDownloadResponse
-
 DOWNLOAD_ARTIFACTS = frozenset({"archive", "diarization", "summary", "transcript"})
 
 
@@ -44,25 +42,3 @@ def safe_download_references(values: Mapping[str, object] | None) -> dict[str, s
         if str(name) in DOWNLOAD_ARTIFACTS
         and (normalized := normalize_download_reference(value)) is not None
     }
-
-
-def provider_download_path(downloads: Mapping[str, object] | None, artifact: str) -> str | None:
-    if artifact not in DOWNLOAD_ARTIFACTS:
-        return None
-    return safe_download_references(downloads).get(artifact)
-
-
-async def download_provider_artifact(
-    mediascribe_client: object,
-    *,
-    downloads: Mapping[str, object] | None,
-    artifact: str,
-    request_id: str | None = None,
-) -> MediaScribeDownloadResponse:
-    path = provider_download_path(downloads, artifact)
-    if path is None:
-        raise ValueError("provider_artifact_unavailable")
-    downloader = getattr(mediascribe_client, "download_artifact", None)
-    if not callable(downloader):
-        raise ValueError("provider_download_unavailable")
-    return await downloader(path, request_id=request_id)

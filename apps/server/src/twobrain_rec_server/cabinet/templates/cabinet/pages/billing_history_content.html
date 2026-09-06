@@ -1,4 +1,4 @@
-<main id="cabinet-main" class="cabinet-main" tabindex="-1">
+<main id="cabinet-main" class="cabinet-main billing-page" tabindex="-1">
   <div class="cabinet-workspace settings-page">
     <div class="settings-page__content">
       <header class="cabinet-topbar settings-page__topbar">
@@ -22,11 +22,18 @@
         </ul>
         {% else %}<p role="status">Платежей пока нет.</p>{% endif %}
       </section>
-      <p class="billing-help"><a class="button quiet" href="/billing/history">Нужна помощь с оплатой?</a></p>
-      <section class="settings-section cabinet-card" aria-labelledby="billing-refund-title">
-        <h2 id="billing-refund-title">Вопрос о возврате</h2>
-        <p>Возврат не оформляется автоматически и не создаёт заявку в продукте. Напишите в поддержку и укажите номер платежа.</p>
-        <p class="muted">Не отправляйте данные карты, идентификаторы YooKassa, ссылки или содержимое встреч.{% if support_email %} Адрес поддержки: {{ support_email }}.{% endif %}</p>
+      <p class="billing-help"><a class="button quiet" href="#billing-help">Нужна помощь с оплатой?</a></p>
+      <section class="settings-section cabinet-card" id="billing-help" tabindex="-1" aria-labelledby="billing-refund-title">
+        <h2 id="billing-refund-title">Помощь с оплатой и возвратом</h2>
+        {% if support_email %}
+        <p>Напишите в поддержку. Если вопрос связан с платежом, укажите его номер из истории выше.</p>
+        <p><a href="mailto:{{ support_email }}">{{ support_email }}</a> <button class="button quiet" type="button" data-copy-value="{{ support_email }}">Скопировать email</button></p>
+        <p class="muted">Не отправляйте данные карты, идентификаторы YooKassa, ссылки или содержимое встреч.</p>
+        {% else %}
+        <p role="status">Контакт поддержки пока не настроен. Обращение из этого раздела сейчас недоступно.</p>
+        <a class="button quiet" href="/billing">Вернуться к тарифу и оплате</a>
+        {% endif %}
+        <p class="muted">Возврат не оформляется автоматически и не создаёт заявку в продукте.</p>
       </section>
     </div>
   </div>

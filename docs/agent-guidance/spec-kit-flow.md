@@ -14,9 +14,9 @@ move down to the stricter lane.
 | Read-only investigation | No file changes, no external state changes | No Spec Kit artifacts | Report inspected sources and confidence/limits |
 | Docs-only / mechanical | Comments, typos, links, docs wording, or template text with no product/runtime behavior change | Direct edit; no new spec or issue unless part of an active slice | Markdown/template review; run a focused check if one exists |
 | Tiny low-risk code | Narrow code edit with no shared behavior, no data contract change, and no high-risk domain | Direct edit; record lane and rationale | Focused test/lint for touched path; add one small check for non-trivial logic |
-| Active Spec Kit slice | Work belongs to an existing `specs/<feature>/` and `tasks.md` | Use the existing spec, plan, quickstart, and tasks; do not create a duplicate slice | Focused quickstart/tests during development; repository gate at closeout when behavior, shared surface, UX/QA expectation, operations, release readiness, or code path changed |
-| Significant feature / architecture | New feature, architecture, cross-module contract, or user-visible workflow | Full Spec Kit sequence below | Quickstart plus `infra/scripts/ci-local.sh` before closeout/PR when behavior, shared surface, UX/QA expectation, operations, release readiness, or code path changed |
-| High-risk product area | Capture, auth, privacy, storage, AI, deletion, diagnostics, deployment, high-risk UX, or brand-distance work | Full Spec Kit with mandatory clarify/checklist/analyze | Domain gates plus quickstart; repository gate before closeout; deploy gate only for release |
+| Active Spec Kit slice | Work belongs to an existing `specs/<feature>/` and `tasks.md` | Use the existing spec, plan, quickstart, and tasks; do not create a duplicate slice | Focused quickstart/tests during development; `infra/scripts/ci-local.sh --fast` at closeout/PR; one `--full` on the exact release candidate |
+| Significant feature / architecture | New feature, architecture, cross-module contract, or user-visible workflow | Full Spec Kit sequence below | Quickstart plus `infra/scripts/ci-local.sh --fast` before closeout/PR; one `--full` on the exact release candidate |
+| High-risk product area | Capture, auth, privacy, storage, AI, deletion, diagnostics, deployment, high-risk UX, or reference-fidelity work | Full Spec Kit with mandatory clarify/checklist/analyze | Domain gates, quickstart and `infra/scripts/ci-local.sh --fast` before closeout; one `--full` on the exact release candidate; deploy gate only for release |
 | Release / production deploy | Version, release, production rollout, smoke, rollback, or deployment evidence | Release guidance and explicit user approval | `cd-remote.sh --dry-run`; `--execute` only when release gate is met |
 
 Direct lanes never bypass product gates. Escalate to a full Spec Kit lane when
@@ -29,7 +29,7 @@ the change touches:
 - MediaScribe, Langfuse, MinIO, Postgres, Temporal, Docker, deployment, backup,
   restore, rollback, or public health checks;
 - tray, widget, onboarding, delete, admin, accessibility, localization,
-  unavailable/degraded states, or brand-distance UX;
+  unavailable/degraded states, or reference-fidelity UX;
 - public API contracts, migrations, shared helpers, security boundaries, or
   behavior used by multiple feature slices;
 - process and governance surfaces such as `AGENTS.md`, constitution,
@@ -51,10 +51,18 @@ $speckit-tasks
 $speckit-analyze
 $speckit-taskstoissues
 $speckit-implement
+$speckit-converge
+validation/release gates
 ```
 
 Use the Codex skill names above. Upstream docs may show slash commands such as
 `/speckit.specify`; this repository uses `$speckit-*` skills.
+
+This ordered list is the canonical significant/high-risk GRAF path. The
+upstream six-step `Full SDD Cycle` is a useful generic subset, but MUST NOT be
+treated as a complete GRAF workflow for significant/high-risk work because it
+does not own project checklist review, issue sync, convergence, or GRAF
+validation/release gates.
 
 ## 0. Constitution
 
@@ -118,10 +126,26 @@ The plan must:
 - create `data-model.md` where data is involved;
 - create `contracts/` for APIs, capture/session protocols, or UI contracts;
 - create `quickstart.md` with validation scenarios;
-- update the root `AGENTS.md` plan reference between the Spec Kit markers.
+- keep the root `AGENTS.md` stable; active feature routing belongs only to the
+  ignored per-worktree `.specify/feature.json` pointer and the explicit
+  prerequisite command output.
 
 Planning stops when constitution gates fail or important clarifications remain
 unresolved.
+
+If the agent-context hook must be invoked directly, use the Python environment
+from the installed `specify` shebang rather than system Python:
+
+```sh
+specify_bin="$(command -v specify)"
+specify_shebang="$(sed -n '1s/^#!//p' "$specify_bin")"
+PATH="$(dirname "$specify_shebang"):$PATH" \
+  .specify/extensions/agent-context/scripts/bash/update-agent-context.sh \
+  specs/<number>-<slug>/plan.md
+```
+
+The bootstrap already applies this runtime fallback. Do not install PyYAML
+globally to make the hook work.
 
 ## 4. Checklist
 
@@ -137,13 +161,17 @@ Default checklist set:
 - `advanced-routing.md` only when a newly approved feature introduces a
   distinct audio-routing architecture, packaging model, or privileged boundary.
 - `ux.md` for tray/widget, onboarding, accessibility, theme, deletion UX, and
-  brand distance.
+  reference fidelity and asset provenance.
 - `infra.md` for Docker, Temporal, MinIO, Postgres, MediaScribe, Langfuse,
   backup, and restore.
 
 Checklist items should ask whether requirements are complete, clear,
 measurable, consistent, and traceable. Avoid implementation-test wording like
 "verify the button works."
+
+Custom checklist checkbox state is reviewer-owned. Generation leaves new items
+unchecked; a reviewer records the result. Implementation MUST read that state
+as a gate and MUST NOT mark reviewer checklist items complete itself.
 
 ## 5. Tasks
 
@@ -188,8 +216,10 @@ Mandatory quality loop:
 - Re-run `$speckit-clarify` when ambiguity is the root cause.
 - Re-run `$speckit-checklist` for affected areas.
 - Re-run `$speckit-analyze`.
-- Repeat until one full pass has no unresolved critical issues and no blocking
-  clarification requests.
+- Repeat until the feature's declared analyze threshold passes. When a feature
+  does not declare a stricter threshold, the default is no unresolved critical
+  or high issues and no blocking clarification requests. Feature 183 explicitly
+  requires `CRITICAL 0 · HIGH 0 · MEDIUM 0`.
 
 `$speckit-implement` is blocked until this loop is clean.
 
@@ -215,7 +245,8 @@ Use `$speckit-implement` only after:
 
 - high-risk checklists are complete; non-high-risk checklist gaps may proceed
   only with recorded user risk acceptance;
-- analyze has no critical blockers;
+- analyze meets the feature's declared threshold (or the default zero
+  critical/high threshold when none is declared);
 - tasks are generated and reviewed;
 - GitHub issue sync is complete when implementation is in scope.
 
@@ -244,9 +275,18 @@ Implementation closeout rules:
   remain incomplete, and add a Russian status comment explaining what is still
   missing.
 
+## 9. Converge And Validate
+
+Run `$speckit-converge` after implementation and focused validation. Convergence
+is append-only: add any newly discovered work to `tasks.md`, execute it, and
+repeat convergence until no mandatory task remains. Only then run the declared
+repository and release gates. The upstream six-step workflow ending at
+implementation does not satisfy this closeout.
+
 ## Commit Checkpoints
 
-Spec Kit documentation stages may use user-approved auto-commit hooks:
+Spec Kit documentation stages may use explicitly approved documentation
+commits, but auto-commit hooks are disabled by default:
 
 - `$speckit-constitution` -> constitution updates
 - `$speckit-specify` -> `spec.md`

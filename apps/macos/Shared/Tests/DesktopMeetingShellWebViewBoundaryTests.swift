@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 import TwoBrainRecAppCore
 import TwoBrainRecShared
@@ -230,6 +231,131 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
         ])
     }
 
+    func testEmbeddedLocalRecordingRowsExposeOnlyBoundedCopyAndAllowedActions() throws {
+        let playbackRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: playbackRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: playbackRoot) }
+        let playbackURL = playbackRoot.appendingPathComponent("meeting-review.m4a")
+        let playbackByteCount = try writeTestPlaybackAudio(to: playbackURL)
+        let saving = makeQueueItem(
+            id: "saving-row",
+            state: .saving,
+            retryMode: .manualOnly,
+            createdAt: Date(timeIntervalSince1970: 100)
+        )
+        var failed = makeQueueItem(
+            id: "failed-row",
+            state: .blocked,
+            retryMode: .manualOnly,
+            createdAt: Date(timeIntervalSince1970: 90)
+        )
+        var playable = makeQueueItem(
+            id: "playable-row",
+            state: .blocked,
+            retryMode: .manualOnly,
+            createdAt: Date(timeIntervalSince1970: 80)
+        )
+        failed.directoryPath = playbackRoot.appendingPathComponent("failed-package", isDirectory: true).path
+        playable.directoryPath = playbackRoot.path
+        playable.artifactProfile.trackCompleteness = [
+            UploadTrackCompleteness(
+                transportRole: .playback,
+                fileName: "meeting-review.m4a",
+                present: true,
+                byteCount: playbackByteCount,
+                sha256: nil,
+                durationSeconds: 9
+            )
+        ]
+        playable.failureCategory = .localResource
+        playable.captureFailureCode = "aec_capture_failed"
+        playable.artifactProfile.isUploadable = false
+        failed.failureReason = "recording_recovery_not_possible"
+        let rows = EmbeddedCabinetLocalRecordingRow.rows(
+            for: [saving, failed, playable],
+            recordingsRootURL: playbackRoot
+        )
+        let encoded = try JSONEncoder().encode(rows)
+        let json = String(decoding: encoded, as: UTF8.self)
+
+        XCTAssertEqual(rows.map(\.status), ["Сохраняется", "Запись повреждена", "Сохранена часть записи"])
+        XCTAssertFalse(rows[0].canSend)
+        XCTAssertFalse(rows[1].canSend)
+        XCTAssertFalse(rows[0].canDelete)
+        XCTAssertTrue(rows[1].canDelete)
+        XCTAssertTrue(rows[2].canOpen)
+        XCTAssertFalse(json.contains("directoryPath"))
+        XCTAssertFalse(json.contains("manifestPath"))
+        XCTAssertFalse(json.contains("sessionId"))
+        XCTAssertNil(EmbeddedCabinetLocalRecordingBridge.allowedAction(
+            from: ["action": "send", "id": "saving-row"],
+            rows: rows
+        ))
+        XCTAssertNil(
+            EmbeddedCabinetLocalRecordingBridge.allowedAction(
+                from: ["action": "delete", "id": "saving-row"],
+                rows: rows
+            )
+        )
+        XCTAssertEqual(
+            EmbeddedCabinetLocalRecordingBridge.allowedAction(
+                from: ["action": "delete", "id": "failed-row"],
+                rows: rows
+            )?.id,
+            "failed-row"
+        )
+        XCTAssertNil(EmbeddedCabinetLocalRecordingBridge.allowedAction(
+            from: ["action": "send", "id": "unknown"],
+            rows: rows
+        ))
+        XCTAssertNil(EmbeddedCabinetLocalRecordingBridge.allowedAction(
+            from: ["action": "open_path", "id": "saving-row"],
+            rows: rows
+        ))
+        XCTAssertEqual(
+            EmbeddedCabinetLocalRecordingBridge.allowedAction(
+                from: ["action": "open", "id": "playable-row"],
+                rows: rows
+            )?.id,
+            "playable-row"
+        )
+        let rowsScript = EmbeddedCabinetLocalRecordingBridge.rowsScript(rows)
+        XCTAssertTrue(rowsScript.contains("TextDecoder('utf-8')"))
+        XCTAssertFalse(rowsScript.contains("JSON.parse(atob("))
+    }
+
+    func testCabinetListOwnsLocalRecordingStatesAndUsesSendCopy() throws {
+        let root = try repositoryRootForMeetingShellBoundaryTests()
+        let cabinetSource = try String(
+            contentsOf: root.appendingPathComponent(
+                "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js"
+            ),
+            encoding: .utf8
+        )
+        let shellSource = try String(
+            contentsOf: root.appendingPathComponent(
+                "apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift"
+            ),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(cabinetSource.contains("data-graf-local-recording-row"))
+        XCTAssertTrue(cabinetSource.contains("send.textContent = \"Отправить\""))
+        XCTAssertTrue(cabinetSource.contains("renderLocalRecordingRows"))
+        XCTAssertTrue(cabinetSource.contains("item.uploadComplete !== true"))
+        XCTAssertTrue(cabinetSource.contains("data-meeting-open"))
+        XCTAssertTrue(cabinetSource.contains("data-icon=\"audio\""))
+        XCTAssertTrue(cabinetSource.contains("item.showsPartialDuration"))
+        XCTAssertTrue(cabinetSource.contains("localRecordingDisplayTitle"))
+        XCTAssertTrue(cabinetSource.contains("SHORT_MEETING_MONTH_LABELS"))
+        XCTAssertTrue(cabinetSource.contains("time.textContent = formatMeetingListDate(item.startedAt)"))
+        XCTAssertTrue(cabinetSource.contains("data-icon=\"trash\""))
+        XCTAssertFalse(cabinetSource.contains("remove.textContent = \"Удалить\""))
+        XCTAssertFalse(cabinetSource.contains("serverRow.dataset.grafLocalRecordingId"))
+        XCTAssertTrue(shellSource.contains("DesktopUploadCustodySummary.summaries(for: uploadQueueItems)"))
+    }
+
     func testOfflineStatesExposeOnlySafeSameOriginRetryFromWorkspace() throws {
         let configuration = try XCTUnwrap(DesktopCabinetConfiguration(
             rawBaseURL: "https://rec.2brain.dev",
@@ -305,7 +431,8 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
         )
 
         XCTAssertTrue(webViewSource.contains("webView.uiDelegate = context.coordinator"))
-        XCTAssertTrue(webViewSource.contains("WKNavigationDelegate, WKUIDelegate"))
+        XCTAssertTrue(webViewSource.contains("WKNavigationDelegate"))
+        XCTAssertTrue(webViewSource.contains("WKUIDelegate"))
         XCTAssertTrue(webViewSource.contains("runOpenPanelWith parameters: WKOpenPanelParameters"))
         XCTAssertTrue(webViewSource.contains("let panel = NSOpenPanel()"))
         XCTAssertTrue(webViewSource.contains("panel.canChooseFiles = true"))
@@ -356,6 +483,53 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
                 routePolicy: policy
             )
         )
+    }
+
+    func testEmbeddedCabinetMeetingDetailUsesSlotBackedSummaryContract() throws {
+        let root = try repositoryRootForMeetingShellBoundaryTests()
+        let detailSource = try String(
+            contentsOf: root.appendingPathComponent(
+                "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/meeting_detail_content.html"
+            ),
+            encoding: .utf8
+        )
+        let cabinetSource = try String(
+            contentsOf: root.appendingPathComponent(
+                "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js"
+            ),
+            encoding: .utf8
+        )
+
+        for marker in [
+            "data-summary-result-state",
+            "data-summary-generation-state",
+            "data-summary-source-state",
+            "data-summary-availability-state",
+            "data-summary-reason-code",
+            "data-summary-format-controls",
+            "data-summary-format-button",
+            "data-summary-format-listbox",
+            "data-summary-refresh-button",
+            "data-summary-format-dialog",
+            "data-summary-format-all"
+        ] {
+            XCTAssertTrue(detailSource.contains(marker), marker)
+        }
+
+        XCTAssertTrue(cabinetSource.contains("currentOutcomeSetId"))
+        XCTAssertTrue(cabinetSource.contains("current_outcome_set_id"))
+        XCTAssertTrue(cabinetSource.contains("summary-candidate-status"))
+        XCTAssertTrue(cabinetSource.contains("Текущие итоги остаются доступны."))
+
+        for forbidden in [
+            "data-summary-candidate-preview",
+            "data-summary-candidate-accept",
+            "data-summary-candidate-reject",
+            "data-summary-candidate-content"
+        ] {
+            XCTAssertFalse(detailSource.contains(forbidden), forbidden)
+            XCTAssertFalse(cabinetSource.contains(forbidden), forbidden)
+        }
     }
 
     private func makeActiveSession() -> CaptureSession {
@@ -437,6 +611,24 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
             code: 1,
             userInfo: [NSLocalizedDescriptionKey: "Repository root not found"]
         )
+    }
+
+    private func writeTestPlaybackAudio(to url: URL) throws -> Int64 {
+        let format = AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 1)!
+        var file: AVAudioFile? = try AVAudioFile(
+            forWriting: url,
+            settings: [
+                AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
+                AVSampleRateKey: 48_000.0,
+                AVNumberOfChannelsKey: 1,
+                AVEncoderBitRateKey: 64_000
+            ]
+        )
+        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4_800)!
+        buffer.frameLength = 4_800
+        try file?.write(from: buffer)
+        file = nil
+        return (try FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.int64Value ?? 0
     }
 }
 #endif

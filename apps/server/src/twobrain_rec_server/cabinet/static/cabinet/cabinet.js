@@ -11,20 +11,30 @@
   let listRefreshFocusOrigin = null;
   let playbackRecoveryTimer = null;
   let playbackRecoveryRequest = null;
+  let calendarUpcomingRefreshTimer = null;
   let processingRecoveryCountdownTimer = null;
   let processingRecoveryPollTimer = null;
   let processingRecoveryRequest = null;
   let processingRecoveryStatusController = null;
   let processingRecoveryActionRequest = null;
   let processingRecoveryGeneration = 0;
+  let processingReprocessReturnFocus = null;
   const processingListProjectionRequests = new Map();
   const processingListProjectionLastFetchedAt = new Map();
   const processingListProjectionStates = new Map();
-  const resetProcessingListProjectionState = () => {
-    processingListProjectionRequests.forEach((entry) => entry.controller?.abort());
+  let processingListProjectionPollTimer = null;
+  const resetProcessingListProjectionState = ({ preserveSnapshots = false } = {}) => {
+    if (processingListProjectionPollTimer) window.clearTimeout(processingListProjectionPollTimer);
+    processingListProjectionPollTimer = null;
+    processingListProjectionRequests.forEach((entry, meetingId) => {
+      entry.controller?.abort();
+      if (preserveSnapshots) processingListProjectionLastFetchedAt.delete(meetingId);
+    });
     processingListProjectionRequests.clear();
-    processingListProjectionLastFetchedAt.clear();
-    processingListProjectionStates.clear();
+    if (!preserveSnapshots) {
+      processingListProjectionLastFetchedAt.clear();
+      processingListProjectionStates.clear();
+    }
   };
   const selectedMeetingIds = new Set();
   const announcedUploadProgressBuckets = new Map();
@@ -125,6 +135,128 @@
 
   const currentList = () => document.querySelector("[data-meeting-list]");
   const allRows = () => Array.from(currentList()?.querySelectorAll("[data-meeting-row]") || []);
+  const SHORT_MEETING_MONTH_LABELS = ["", "янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
+  const GENERATED_CAPTURE_TITLE_RE = /^(?:current(?: display)? system audio|system audio|yandex telemost|zoom(?:\.us)?|meeting)\s*[-—]\s*\d{4}-\d{2}-\d{2}(?:[ T]\d{1,2}:\d{2})?$/i;
+  const GENERATED_CAPTURE_TITLE_SUFFIX_RE = /\s*[-—]\s*\d{4}-\d{2}-\d{2}(?:[ T]\d{1,2}:\d{2})?$/;
+  const formatMeetingListDate = (value) => {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "На этом Mac";
+    const pad = (part) => String(part).padStart(2, "0");
+    return `${date.getDate()} ${SHORT_MEETING_MONTH_LABELS[date.getMonth() + 1]}, ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  };
+  const localRecordingDisplayTitle = (item) => {
+    const rawTitle = (item.title || "").trim();
+    if (!GENERATED_CAPTURE_TITLE_RE.test(rawTitle)) return rawTitle || "Запись";
+    const sourceTitle = rawTitle.replace(GENERATED_CAPTURE_TITLE_SUFFIX_RE, "").trim();
+    const date = formatMeetingListDate(item.startedAt);
+    return date === "На этом Mac" ? rawTitle : `${sourceTitle} — ${date}`;
+  };
+  let localRecordingRows = [];
+  const renderLocalRecordingRows = () => {
+    const host = currentList();
+    if (!host) return;
+    host.querySelectorAll("[data-graf-local-recording-row]").forEach((row) => row.remove());
+    const localOnly = localRecordingRows.filter((item) => {
+      if (!item.meetingId) return true;
+      const serverRow = allRows().find((row) => row.dataset.meetingId === item.meetingId);
+      if (!serverRow || item.uploadComplete !== true) return true;
+      return false;
+    });
+    let list = host.querySelector("ol.meeting-list");
+    const emptyState = host.querySelector(":scope > .empty-state");
+    if (!localOnly.length) {
+      host.querySelector("ol[data-graf-local-recording-list]")?.remove();
+      if (emptyState) emptyState.hidden = false;
+      return;
+    }
+    if (!list) {
+      list = document.createElement("ol");
+      list.className = "meeting-list";
+      list.setAttribute("role", "list");
+      list.setAttribute("aria-label", "Встречи");
+      list.dataset.grafLocalRecordingList = "";
+      host.append(list);
+    }
+    if (emptyState) emptyState.hidden = true;
+    localOnly.slice().reverse().forEach((item) => {
+      const row = document.createElement("li");
+      row.className = "meeting-row cabinet-row is-local-recording";
+      row.dataset.meetingRow = "";
+      row.dataset.grafLocalRecordingRow = "";
+      row.dataset.grafLocalRecordingId = item.id;
+
+      const selection = document.createElement("span");
+      selection.className = "row-select-hit row-contextual-placeholder";
+      selection.setAttribute("aria-hidden", "true");
+      const icon = document.createElement("span");
+      icon.className = "row-icon";
+      icon.dataset.mediaKind = "recording";
+      icon.setAttribute("aria-hidden", "true");
+      icon.innerHTML = '<svg class="ui-icon" data-icon="audio" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"></path><path d="M16 9a5 5 0 0 1 0 6"></path><path d="M19.364 18.364a9 9 0 0 0 0-12.728"></path></svg>';
+      const content = document.createElement("div");
+      content.className = "meeting-content";
+      const heading = document.createElement("span");
+      heading.className = "meeting-heading";
+      const title = document.createElement(item.canOpen ? "button" : "strong");
+      title.className = `meeting-title row-title${item.canOpen ? " local-recording-open" : ""}`;
+      const displayTitle = localRecordingDisplayTitle(item);
+      title.textContent = displayTitle;
+      if (item.canOpen) {
+        title.type = "button";
+        title.dataset.meetingOpen = "";
+        title.dataset.grafLocalRecordingAction = "open";
+        title.dataset.grafLocalRecordingId = item.id;
+        title.setAttribute("aria-label", `Открыть локальную запись ${displayTitle}`);
+      }
+      const duration = document.createElement("span");
+      duration.className = "meeting-duration muted";
+      const durationLabel = (value) => {
+        const minutes = Math.floor(value / 60);
+        const seconds = value % 60;
+        return minutes ? `${minutes} мин ${seconds ? `${seconds} с` : ""}`.trim() : `${seconds} с`;
+      };
+      duration.textContent = item.showsPartialDuration
+        ? `Сохранено ${durationLabel(item.durationSeconds)} из ${durationLabel(item.sessionDurationSeconds)}`
+        : durationLabel(item.durationSeconds);
+      heading.append(title, duration);
+      const meta = document.createElement("span");
+      meta.className = "row-meta";
+      meta.textContent = item.status;
+      content.append(heading, meta);
+      const actions = document.createElement("span");
+      actions.className = "row-delete-form upload-activity-actions";
+      if (item.canSend) {
+        const send = document.createElement("button");
+        send.className = "button quiet upload-activity-action";
+        send.type = "button";
+        send.textContent = "Отправить";
+        send.dataset.grafLocalRecordingAction = "send";
+        send.dataset.grafLocalRecordingId = item.id;
+        actions.append(send);
+      }
+      if (item.canDelete) {
+        const remove = document.createElement("button");
+        remove.className = "row-delete icon-button";
+        remove.type = "button";
+        remove.innerHTML = '<svg class="ui-icon" data-icon="trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>';
+        remove.setAttribute("aria-label", `Удалить локальную запись ${displayTitle}`);
+        remove.dataset.grafLocalRecordingAction = "delete";
+        remove.dataset.grafLocalRecordingId = item.id;
+        actions.append(remove);
+      }
+      const time = document.createElement("span");
+      time.className = "meeting-date";
+      time.textContent = formatMeetingListDate(item.startedAt);
+      row.append(selection, icon, content, actions, time);
+      list.prepend(row);
+    });
+  };
+  window.GRAFLocalRecordings = {
+    update(rows) {
+      localRecordingRows = Array.isArray(rows) ? rows : [];
+      renderLocalRecordingRows();
+    },
+  };
   const rowPrimaryFocusTarget = (row) => row?.querySelector("[data-meeting-open]") || null;
   const selectableRows = () => allRows().filter((row) => row.querySelector("[data-meeting-select]"));
   const selectedRows = () => selectableRows().filter((row) => row.querySelector("[data-meeting-select]")?.checked);
@@ -331,7 +463,7 @@
     'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
   )).filter((element) => isUsableFocusTarget(element) && !element.matches(":disabled"));
 
-  const trapModalFocus = (dialog, event) => {
+  const trapModalFocus = (dialog, event, { cycleAll = false } = {}) => {
     if (event.key !== "Tab" || !dialog.open) return;
     const elements = modalFocusTargets(dialog);
     if (!elements.length) return;
@@ -340,6 +472,7 @@
       ? (current <= 0 ? elements.length - 1 : current - 1)
       : (current < 0 || current === elements.length - 1 ? 0 : current + 1);
     if (
+      cycleAll ||
       (event.shiftKey && current <= 0) ||
       (!event.shiftKey && (current < 0 || current === elements.length - 1))
     ) {
@@ -701,7 +834,7 @@
     if (problemCode === "auth_session_invalid") return "session";
     if (
       problemCode === "workspace_scope_denied"
-      && location.pathname.startsWith("/desktop/")
+      && (location.pathname.startsWith("/desktop/") || document.body?.dataset?.surfaceMode === "desktop_embedded")
     ) return "workspace";
     if (unknownForbiddenMeansAccess || accessLossProblemCodes.has(problemCode)) return "access";
     return "";
@@ -984,7 +1117,9 @@
         return;
       }
       meetingListRequestGeneration += 1;
-      resetProcessingListProjectionState();
+      resetProcessingListProjectionState({
+        preserveSnapshots: requestIsMeetingListProgressPoll(event),
+      });
       rememberMeetingListRequestFocus(event);
     });
     document.body.addEventListener("htmx:afterRequest", finishAuthoritativeMeetingListRequest);
@@ -1360,29 +1495,9 @@
     && Object.prototype.hasOwnProperty.call(object, field)
   );
 
-  // The server remains authoritative.  This allowlist only decides whether a
-  // terminal state is safe to offer as an explicit, user-confirmed attempt;
-  // unknown reasons deliberately fall back to support/refresh guidance.
-  const processingSafeNewAttemptReasons = new Set([
-    "invalid_audio_payload",
-    "mediascribe_payload_too_large",
-    "mediascribe_validation_failed",
-    ["mediascribe", "job_failed"].join("_"),
-    "blocked_temporal_unavailable",
-    "mediascribe_malformed_response",
-    "mediascribe_retries_exhausted",
-    "processing_retry_deadline_exceeded",
-    "result_import_failed",
-    "no_recognizable_speech",
-    "processed_no_transcript",
-    "provider_terminal",
-    "provider_request_rejected",
-  ]);
-
   const processingNewAttemptAllowed = (projection) => (
     projection?.retry_class === "terminal"
     && projection?.manual_action === "new_attempt"
-    && processingSafeNewAttemptReasons.has(String(projection?.reason_code || "").toLowerCase())
     && projection?.attempt_in_flight !== true
   );
 
@@ -1420,7 +1535,24 @@
     return Math.max(0, Math.ceil((deadline - (now + offset)) / 1000));
   };
 
-  const processingCountdownCopy = (seconds, source) => {
+  const processingCountdownDuration = (seconds) => {
+    const bounded = Math.max(0, Math.floor(seconds));
+    const hours = Math.floor(bounded / 3600);
+    const minutes = Math.floor((bounded % 3600) / 60);
+    const rest = bounded % 60;
+    return hours > 0
+      ? `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(rest).padStart(2, "0")}`
+      : `${String(minutes).padStart(2, "0")}:${String(rest).padStart(2, "0")}`;
+  };
+
+  const processingCountdownCopy = (seconds, source, nextAttemptAt = null, replacement = false) => {
+    if (replacement && Number.isFinite(seconds) && processingTimestamp(nextAttemptAt) !== null) {
+      const time = new Intl.DateTimeFormat("ru-RU", {
+        hour: "2-digit",
+        minute: "2-digit",
+      }).format(new Date(nextAttemptAt));
+      return `GRAF повторит попытку автоматически в ${time} (через ${processingCountdownDuration(seconds)}).`;
+    }
     const prefix = source === "server_fallback" ? "Примерно через" : "Следующая проверка через";
     if (!Number.isFinite(seconds) || seconds <= 0) return "Следующая проверка доступна сейчас.";
     if (seconds >= 3600) {
@@ -1453,6 +1585,15 @@
     processingArtifactVisible(projection, "transcript")
     && processingArtifactVisible(projection, "diarization")
   );
+
+  const processingProjectionTerminal = (projection) => {
+    const retryClass = String(projection?.retry_class || "none");
+    const state = String(projection?.state || "").toLowerCase();
+    return retryClass === "terminal"
+      || ["failed_terminal", "canceled"].includes(state)
+      || (state === "blocked" && retryClass !== "unknown_outcome");
+  };
+  const processingTerminalFailure = processingProjectionTerminal;
 
   const processingProjectionMatchesDetail = (detail, projection) => {
     const meetingId = String(detail.dataset.meetingId || "");
@@ -1529,6 +1670,23 @@
     }
   };
 
+  const scheduleProcessingStatusRetry = (
+    generation = processingRecoveryGeneration,
+    delay = 15000,
+  ) => {
+    stopProcessingRecoveryPolling();
+    processingRecoveryPollTimer = window.setTimeout(() => {
+      processingRecoveryPollTimer = null;
+      if (
+        !document.hidden
+        && generation === processingRecoveryGeneration
+        && processingRecoveryActionRequest === null
+      ) {
+        void refreshProcessingStatus({ force: true, generation });
+      }
+    }, delay);
+  };
+
   const announceProcessingChange = (detail, message, signature = message) => {
     const live = detail.querySelector("[data-processing-live]");
     if (!live || !message || detail.dataset.processingAnnouncement === signature) return;
@@ -1552,24 +1710,150 @@
     if (status) status.textContent = label;
   };
 
-  const processingSummaryCopy = (state) => ({
+  const processingSummaryCopy = (state, hasStoredOutput = false, transcriptReady = false) => ({
     available: ["Итоги готовы.", "success"],
-    partial: ["Итоги доступны частично. Расшифровка остаётся доступной.", "warning"],
+    partial: [
+      transcriptReady ? "Итоги доступны частично. Расшифровка остаётся доступной." : "Итоги доступны частично.",
+      "warning",
+    ],
     queued: ["Итоги готовятся отдельно. Расшифровка может быть доступна раньше.", "pending"],
     pending: ["Итоги готовятся отдельно. Расшифровка может быть доступна раньше.", "pending"],
     processing: ["Итоги готовятся отдельно. Расшифровка может быть доступна раньше.", "pending"],
     running: ["Итоги готовятся отдельно. Расшифровка может быть доступна раньше.", "pending"],
     generating: ["Итоги готовятся отдельно. Расшифровка может быть доступна раньше.", "pending"],
     submitted: ["Итоги готовятся отдельно. Расшифровка может быть доступна раньше.", "pending"],
-    failed: ["Не удалось подготовить итоги. Расшифровка сохранена.", "failed"],
-    unavailable: ["Итоги пока недоступны. Расшифровка сохранена.", "warning"],
-    not_requested: ["Итоги ещё не запрошены. Расшифровка остаётся доступной.", "warning"],
+    failed: [transcriptReady ? "Не удалось подготовить итоги. Расшифровка сохранена." : "Не удалось подготовить итоги.", "failed"],
+    unavailable: [transcriptReady ? "Итоги пока недоступны. Расшифровка сохранена." : "Итоги пока недоступны.", "warning"],
+    not_requested: [
+      hasStoredOutput
+        ? "Сохраненные итоги доступны. Новые итоги ещё не запрошены."
+        : transcriptReady
+        ? "Итоги ещё не запрошены. Расшифровка остаётся доступной."
+        : "Итоги ещё не запрошены.",
+      "warning",
+    ],
   }[String(state || "").toLowerCase()] || null);
 
-  const processingRecoveryCopy = (projection, transcriptReady) => {
+  const processingTerminalReasonCopy = {
+    invalid_audio_payload: "Файл записи не является декодируемым аудио или поврежден.",
+    mediascribe_validation_failed: "Сервис транскрипции отклонил файл: проверьте формат и повторите обработку.",
+    mediascribe_payload_too_large: "Файл записи превышает допустимый размер.",
+    mediascribe_auth_failed: "Сервис транскрипции отклонил доступ; повторить можно после проверки настройки сервера.",
+    mediascribe_malformed_response: "Сервис транскрипции вернул некорректный ответ. Повторите обработку; если ошибка повторится, обратитесь к оператору.",
+  };
+
+  const processingRecoveryCopy = (projection, transcriptReady, replacementPublished = false) => {
     const retryClass = String(projection?.retry_class || "none");
     const reason = String(projection?.reason_code || "").toLowerCase();
+    const reasonCopy = processingTerminalReasonCopy[reason] || "";
+    const projectionState = String(projection?.state || "").toLowerCase();
     const inFlight = projection?.attempt_in_flight === true;
+    const replacementAttemptOrdinal = Number(projection?.attempt_ordinal ?? 0);
+    const replacement = Number.isSafeInteger(replacementAttemptOrdinal)
+      && replacementAttemptOrdinal > 1
+      && (projection?.content_available === true || transcriptReady);
+    if (replacement && processingTerminalFailure(projection)) {
+      return {
+        state: "terminal",
+        title: "Не удалось подготовить новую версию",
+        copy: "Текущая версия не изменилась.",
+        canCheck: false,
+        canStartNewAttempt: false,
+        canReprocess: true,
+        reprocessLabel: "Попробовать снова",
+        showRefresh: false,
+        showCountdown: false,
+      };
+    }
+    if (replacement && (!replacementPublished || inFlight || projectionState !== "processed")) {
+      return {
+        state: "active",
+        title: "Готовим новую версию",
+        copy: "",
+        canCheck: false,
+        showRefresh: false,
+        showCountdown: false,
+      };
+    }
+    if (projection?.manual_action === "retry_preparation") {
+      return {
+        state: "retryable",
+        title: "Подготовка записи временно приостановлена",
+        copy: "GRAF повторит подготовку автоматически. Можно запустить попытку раньше — параллельная обработка не создастся.",
+        canCheck: !inFlight,
+        checkLabel: "Повторить подготовку",
+        busyLabel: "Запускаем подготовку…",
+        showRefresh: false,
+        showCountdown: true,
+      };
+    }
+    if (projection?.manual_action === "upload_another") {
+      const storageFull = reason === "storage_capacity_exceeded";
+      return {
+        state: "terminal",
+        title: storageFull ? "Недостаточно места для аудио" : "Не удалось подготовить запись",
+        copy: storageFull
+          ? "Загрузите запись без сохранения аудио — расшифровка и итоги останутся доступны. Освободить или увеличить хранилище можно позже."
+          : reasonCopy
+          ? `${reasonCopy} Загрузите другую копию или файл в другом формате.`
+          : "Этот файл не удалось обработать. Загрузите другую копию или файл в другом формате.",
+        canCheck: false,
+        canStartNewAttempt: false,
+        canUploadAnother: true,
+        uploadWithoutArchive: storageFull,
+        showRefresh: false,
+      };
+    }
+    if (projection?.manual_action === "contact_support") {
+      const accessFailure = [
+        "blocked_config",
+        "blocked_unauthorized",
+        "mediascribe_auth_failed",
+      ].includes(reason);
+      return {
+        state: "terminal",
+        title: accessFailure ? "Сервис расшифровки временно недоступен" : "Нужна помощь с обработкой",
+        copy: reasonCopy || (accessFailure
+          ? "GRAF не может продолжить из-за настройки доступа к сервису расшифровки. Запись сохранена; вернитесь позже или к списку встреч."
+          : "Автоматическое продолжение недоступно. Запись сохранена; обновите статус позже или вернитесь к списку встреч."),
+        canCheck: false,
+        canStartNewAttempt: false,
+        showRefresh: true,
+      };
+    }
+    if (
+      reason === "blocked_free_processing_exhausted"
+      && projection?.manual_action === "new_attempt"
+    ) {
+      return {
+        state: "terminal",
+        title: "Лимит расшифровки исчерпан",
+        copy: "Для этой записи не хватило доступного времени расшифровки. После обновления лимита запустите обработку заново.",
+        canCheck: false,
+        canStartNewAttempt: processingNewAttemptAllowed(projection),
+        showRefresh: false,
+      };
+    }
+    if (projectionState === "canceled") {
+      return {
+        state: "terminal",
+        title: "Обработка отменена",
+        copy: "Обработка этой записи остановлена. Вернитесь к списку встреч, чтобы продолжить работу.",
+        canCheck: false,
+        canStartNewAttempt: false,
+        showRefresh: false,
+      };
+    }
+    if (projectionState === "blocked" || (projectionState === "failed_terminal" && retryClass !== "terminal")) {
+      return {
+        state: "terminal",
+        title: "Обработка остановлена",
+        copy: reasonCopy || "Автоматическое продолжение недоступно. Обновите страницу или вернитесь к списку встреч.",
+        canCheck: false,
+        canStartNewAttempt: false,
+        showRefresh: true,
+      };
+    }
     if (retryClass === "unknown_outcome") {
       return {
         state: "unknown",
@@ -1595,9 +1879,11 @@
       return {
         state: "terminal",
         title: "Обработка завершилась без результата",
-        copy: canStartNewAttempt
+        copy: reasonCopy
+          ? `${reasonCopy}${canStartNewAttempt ? " Если нужно, начните обработку заново кнопкой ниже." : ""}`
+          : canStartNewAttempt
           ? "Доступные результаты сохранены. Если нужно, начните обработку заново кнопкой ниже."
-          : "Автоматический перезапуск недоступен. Обновите страницу позже; если проблема повторится, обратитесь в поддержку.",
+          : "Автоматический перезапуск недоступен. Обновите страницу позже или вернитесь к списку встреч.",
         canCheck: false,
         canStartNewAttempt,
         showRefresh: true,
@@ -1615,12 +1901,23 @@
           showCountdown: false,
         };
       }
+      if (["processing_retry_deadline_exceeded", "mediascribe_poll_limit_exceeded"].includes(reason)) {
+        return {
+          state: "retryable",
+          title: "Результат ещё не подтверждён",
+          copy: reasonCopy || "MediaScribe не сообщил об ошибке. Автоматическое ожидание остановлено; проверьте обработку вручную.",
+          canCheck: projection?.manual_action === "check_now" && !inFlight,
+          canStartNewAttempt: false,
+          showRefresh: true,
+          showCountdown: false,
+        };
+      }
       const canCheck = projection?.manual_action === "check_now" && !inFlight;
       if (!canCheck) {
         return {
           state: "terminal",
           title: "Обработка требует внимания",
-          copy: "GRAF не может безопасно повторить эту операцию автоматически. Обновите страницу позже; если проблема повторится, обратитесь в поддержку.",
+          copy: "GRAF не может безопасно повторить эту операцию автоматически. Обновите страницу позже или вернитесь к списку встреч.",
           canCheck: false,
           canStartNewAttempt: false,
           showRefresh: true,
@@ -1691,12 +1988,22 @@
         return null;
       }
       countdown.hidden = false;
-      countdown.textContent = processingCountdownCopy(seconds, projection?.next_attempt_source);
+      countdown.textContent = processingCountdownCopy(
+        seconds,
+        projection?.next_attempt_source,
+        projection?.next_attempt_at,
+        Number(projection?.attempt_ordinal ?? detail.dataset.processingAttemptOrdinal ?? 0) > 1
+          && (
+            projection?.content_available === true
+            || detail.dataset.processingTranscriptContentReady === "true"
+            || detail.dataset.processingTranscriptVisible === "true"
+          ),
+      );
       countdown.dataset.seconds = String(seconds);
       return seconds;
     };
     const seconds = update();
-    if (seconds !== null) {
+    if (seconds !== null && seconds > 0) {
       processingRecoveryCountdownTimer = window.setInterval(update, 1000);
     }
     return seconds;
@@ -1704,38 +2011,181 @@
 
   const scheduleProcessingRecoveryPolling = (detail, projection) => {
     stopProcessingRecoveryPolling();
-    if (processingRecoveryActionRequest !== null) return;
-    const transcriptReady = processingTranscriptReady(projection);
+    if (processingRecoveryActionRequest !== null || processingTerminalFailure(projection)) return;
+    const transcriptReady = typeof processingTranscriptReady === "function"
+      ? processingTranscriptReady(projection)
+      : false;
     const summaryState = processingSummaryState(projection);
-    const shouldPoll = !transcriptReady
+    const terminalProjection = processingTerminalFailure(projection);
+    const attemptOrdinal = Number(projection?.attempt_ordinal ?? 0);
+    const replacementContentPending = Number.isSafeInteger(attemptOrdinal)
+      && attemptOrdinal > 1
+      && String(projection?.state || "").toLowerCase() === "processed"
+      && detail.dataset.processingPublishedAttempt !== String(attemptOrdinal);
+    const shouldPoll = !terminalProjection && (
+      (typeof processingTranscriptReady === "function" && !transcriptReady)
       || processingSummaryPending(summaryState)
-      || projection?.retry_class === "retryable"
+      || projection?.retry_class === "retryable" && projection?.next_attempt_at != null
       || projection?.retry_class === "unknown_outcome"
-      || projection?.attempt_in_flight === true;
+      || projection?.attempt_in_flight === true
+      || replacementContentPending
+    );
     if (!shouldPoll || !detail.dataset.processingStatusUrl) return;
     const remaining = processingServerSecondsRemaining(
       projection,
       Date.now(),
       processingServerClockOffset(detail),
     );
-    const delay = remaining === null
+    const delay = document.hidden || remaining === null
       ? 15000
-      : Math.min(15000, Math.max(1000, remaining * 1000));
+      : projection?.attempt_in_flight === true || processingSummaryPending(summaryState)
+      ? 15000
+      : remaining > 0
+      ? Math.max(1000, remaining * 1000)
+      : 1000;
     processingRecoveryPollTimer = window.setTimeout(() => {
-      if (!document.hidden) void refreshProcessingStatus();
+      void refreshProcessingStatus();
     }, delay);
+  };
+
+  const refreshProcessingDetailContentOnce = async (
+    detail,
+    projection,
+    { resetRetryBudget = false } = {},
+  ) => {
+    if (resetRetryBudget) delete detail.dataset.processingContentRefreshRetryCount;
+    const transcriptReady = processingTranscriptReady(projection);
+    const summaryReady = processingSummaryState(projection).toLowerCase() === "available";
+    const attemptOrdinal = Number(projection?.attempt_ordinal ?? 0);
+    const refreshReplacement = Number.isSafeInteger(attemptOrdinal)
+      && attemptOrdinal > 1
+      && String(projection?.state || "").toLowerCase() === "processed"
+      && detail.dataset.processingPublishedAttempt !== String(attemptOrdinal);
+    const refreshTranscript = transcriptReady
+      && detail.dataset.processingTranscriptContentReady !== "true";
+    const refreshSummary = summaryReady
+      && detail.dataset.processingSummaryContentReady !== "true";
+    if (!refreshTranscript && !refreshSummary && !refreshReplacement) return false;
+    const pollUrl = detail.dataset.playbackPollUrl;
+    if (!pollUrl) return false;
+    const refreshGeneration = processingRecoveryGeneration;
+    const refreshScheduleGeneration = detail.dataset.processingScheduleGeneration || "0";
+    const refreshClaim = [
+      refreshGeneration,
+      refreshScheduleGeneration,
+      projection?.updated_at || "",
+      transcriptReady,
+      summaryReady,
+      refreshReplacement,
+    ].join("|");
+    if (detail.dataset.processingContentRefreshClaim === refreshClaim) return false;
+    detail.dataset.processingContentRefreshClaim = refreshClaim;
+    const refreshIsCurrent = () => (
+      detail.isConnected
+      && refreshGeneration === processingRecoveryGeneration
+      && (detail.dataset.processingScheduleGeneration || "0") === refreshScheduleGeneration
+      && detail.dataset.processingContentRefreshClaim === refreshClaim
+      && processingProjectionMatchesDetail(detail, projection)
+    );
+    const releaseRefreshClaim = () => {
+      if (detail.dataset.processingContentRefreshClaim === refreshClaim) {
+        delete detail.dataset.processingContentRefreshClaim;
+      }
+    };
+    const discardStaleRefresh = () => {
+      if (refreshIsCurrent()) return false;
+      releaseRefreshClaim();
+      return true;
+    };
+    const retryFragmentRefresh = () => {
+      releaseRefreshClaim();
+      const retryCount = Number(detail.dataset.processingContentRefreshRetryCount || "0") + 1;
+      if (retryCount > 3) {
+        delete detail.dataset.processingContentRefreshRetryCount;
+        stopProcessingRecoveryPolling();
+        processingRecoveryPollTimer = window.setTimeout(() => {
+          processingRecoveryPollTimer = null;
+          if (detail.isConnected && refreshGeneration === processingRecoveryGeneration) {
+            void refreshProcessingStatus({ force: true, generation: refreshGeneration });
+          }
+        }, 15000);
+        return;
+      }
+      detail.dataset.processingContentRefreshRetryCount = String(retryCount);
+      if (processingRecoveryPollTimer !== null) stopProcessingRecoveryPolling();
+      window.setTimeout(() => {
+        if (detail.isConnected) void refreshProcessingDetailContentOnce(detail, projection);
+      }, Math.min(2000 * retryCount, 8000));
+    };
+    try {
+      const response = await fetch(pollUrl, {
+        method: "GET",
+        credentials: "same-origin",
+        cache: "no-store",
+        headers: {
+          "HX-Request": "true",
+          ...(detail.dataset.cabinetEmbedded === "true" ? { "X-GRAF-Client": "desktop" } : {}),
+        },
+      });
+      if (discardStaleRefresh() || await recoverMeetingDetailFromResponse(response)) return false;
+      if (!response.ok) {
+        retryFragmentRefresh();
+        return false;
+      }
+      const responseText = await response.text();
+      if (discardStaleRefresh()) return false;
+      const fragment = new DOMParser().parseFromString(responseText, "text/html");
+      const nextDetail = fragment.querySelector("[data-playback-poll-url]");
+      const currentPlayback = detail.nextElementSibling?.matches?.(".detail-playback")
+        ? detail.nextElementSibling
+        : null;
+      const nextPlayback = fragment.querySelector(".detail-playback");
+      if (!nextDetail || (refreshReplacement && (!currentPlayback || !nextPlayback))) {
+        retryFragmentRefresh();
+        return false;
+      }
+      nextDetail.dataset.processingTranscriptContentReady =
+        refreshTranscript ? "true" : detail.dataset.processingTranscriptContentReady || "false";
+      nextDetail.dataset.processingSummaryContentReady =
+        refreshSummary ? "true" : detail.dataset.processingSummaryContentReady || "false";
+      if (refreshReplacement) {
+        nextDetail.dataset.processingPublishedAttempt = String(attemptOrdinal);
+      }
+      if (discardStaleRefresh()) return false;
+      releaseRefreshClaim();
+      stopProcessingRecoveryCountdown();
+      stopProcessingRecoveryPolling();
+      if (refreshReplacement) {
+        currentPlayback?.querySelector("audio")?.pause();
+        if (currentPlayback && nextPlayback) currentPlayback.replaceWith(nextPlayback);
+      }
+      detail.replaceWith(nextDetail);
+      window.setTimeout(initCabinet, 0);
+      return true;
+    } catch {
+      retryFragmentRefresh();
+      return false;
+    }
   };
 
   const renderProcessingProjection = (detail, projection) => {
     if (!processingProjectionMatchesDetail(detail, projection) || processingProjectionIsStale(detail, projection)) return false;
     const updatedAt = processingTimestamp(projection?.updated_at);
     if (updatedAt !== null) detail.dataset.processingProjectionUpdatedAt = projection.updated_at;
+    if (typeof projection?.workflow_id === "string" && projection.workflow_id) {
+      detail.dataset.processingWorkflowId = projection.workflow_id;
+    }
+    const attemptOrdinal = Number(projection?.attempt_ordinal);
+    if (Number.isSafeInteger(attemptOrdinal) && attemptOrdinal > 0) {
+      detail.dataset.processingAttemptOrdinal = String(attemptOrdinal);
+    }
     const scheduleGeneration = Number(projection?.schedule_generation);
     detail.dataset.processingScheduleGeneration = Number.isSafeInteger(scheduleGeneration) && scheduleGeneration >= 0
       ? String(scheduleGeneration)
       : "0";
     detail.dataset.processingReasonCode = String(projection?.reason_code || "").toLowerCase();
     detail.dataset.processingManualAction = String(projection?.manual_action || "none");
+    detail.dataset.processingTerminal = processingTerminalFailure(projection) ? "true" : "false";
     const serverTime = processingTimestamp(projection?.server_time);
     if (serverTime !== null) {
       detail.dataset.processingServerClockOffsetMs = String(serverTime - Date.now());
@@ -1744,15 +2194,31 @@
     }
     delete detail.dataset.processingRecoveryError;
     const transcriptReady = processingTranscriptReady(projection);
+    const statusLabel = detail.querySelector("[data-meeting-status-label]");
+    const projectionState = String(projection?.state || "").toLowerCase();
+    const retryClass = String(projection?.retry_class || "none");
+    const reason = String(projection?.reason_code || "").toLowerCase();
+    if (statusLabel) {
+      statusLabel.textContent = retryClass === "terminal"
+        || ["failed_terminal", "blocked", "canceled"].includes(projectionState)
+        ? "Нужна помощь"
+        : ["processing_retry_deadline_exceeded", "mediascribe_poll_limit_exceeded"].includes(reason)
+        ? "Нужна проверка"
+        : transcriptReady && projectionState === "processed" ? "Готово" : "Обрабатывается";
+    }
+    const transcriptState = processingArtifactState(projection, "transcript");
+    const transcriptVisible = transcriptReady;
+    const terminalTranscript = ["failed", "unavailable"].includes(transcriptState);
     const transcript = detail.querySelector("[data-playback-transcript]");
     const pending = detail.querySelector("[data-transcript-pending]");
     if (transcript) {
-      transcript.hidden = !transcriptReady;
-      transcript.setAttribute("aria-hidden", transcriptReady ? "false" : "true");
+      transcript.hidden = !transcriptVisible;
+      transcript.setAttribute("aria-hidden", transcriptVisible ? "false" : "true");
     }
-    if (pending) pending.hidden = transcriptReady;
+    const terminalProcessing = processingTerminalFailure(projection);
+    if (pending) pending.hidden = transcriptVisible || terminalTranscript || terminalProcessing;
     updateProcessingExportVisibility(transcriptReady);
-    detail.dataset.processingTranscriptVisible = transcriptReady ? "true" : "false";
+    detail.dataset.processingTranscriptVisible = transcriptVisible ? "true" : "false";
     detail.dataset.processingRetryClass = String(projection?.retry_class || "none");
     detail.dataset.processingSummaryStatus = processingSummaryState(projection);
 
@@ -1760,7 +2226,6 @@
       ? "active"
       : "ready";
     updateProcessingStage(detail, "source", sourceState, sourceState === "ready" ? "Сохранено" : "Ожидаем отправку");
-    const transcriptState = processingArtifactState(projection, "transcript");
     updateProcessingStage(
       detail,
       "transcript",
@@ -1779,7 +2244,11 @@
         : ["failed", "unavailable"].includes(diarizationState) ? "Недоступно" : "Определяются",
     );
     const summaryState = processingSummaryState(projection);
-    const summaryCopy = processingSummaryCopy(summaryState);
+    const summaryCopy = processingSummaryCopy(
+      summaryState,
+      detail.dataset.storedOutcomesAvailable === "true",
+      transcriptReady,
+    );
     const summaryStatus = detail.querySelector("[data-processing-summary-status]");
     if (summaryStatus) {
       summaryStatus.hidden = !summaryCopy;
@@ -1799,7 +2268,23 @@
 
     const recovery = detail.querySelector("[data-processing-recovery]");
     if (!recovery) return true;
-    const copy = processingRecoveryCopy(projection, transcriptReady);
+    const replacementAttempt = Number(
+      projection?.attempt_ordinal ?? detail.dataset.processingAttemptOrdinal ?? 0,
+    ) > 1 && (
+      projection?.content_available === true
+      || detail.dataset.processingTranscriptContentReady === "true"
+      || detail.dataset.processingTranscriptVisible === "true"
+    );
+    const replacementPublished = detail.dataset.processingPublishedAttempt === String(attemptOrdinal);
+    const copy = processingRecoveryCopy(projection, transcriptReady, replacementPublished);
+    const replacementActive = replacementAttempt
+      && !terminalProcessing
+      && (projectionState !== "processed" || !replacementPublished);
+    detail.dataset.processingReplacementActive = replacementActive ? "true" : "false";
+    recovery.dataset.processingReplacement = replacementAttempt ? "true" : "false";
+    if (replacementActive) {
+      detail.nextElementSibling?.querySelector?.("audio")?.pause();
+    }
     const showSurface = copy !== null;
     recovery.hidden = !showSurface;
     recovery.dataset.state = copy?.state || "ready";
@@ -1811,15 +2296,12 @@
       ? null
       : renderProcessingCountdown(detail, projection);
     if (countdownSeconds === null || copy?.showCountdown !== true) {
-      const countdown = recovery.querySelector("[data-processing-countdown]");
-      if (countdown) {
-        countdown.hidden = true;
-        countdown.textContent = "";
-        delete countdown.dataset.seconds;
-      }
+      resetProcessingRecoveryCountdown(detail);
     }
     const check = recovery.querySelector("[data-processing-check]");
     const newAttempt = recovery.querySelector("[data-processing-new-attempt]");
+    const reprocess = recovery.querySelector("[data-processing-reprocess-open]");
+    const uploadAnother = recovery.querySelector("[data-processing-upload-another]");
     const refresh = recovery.querySelector("[data-processing-refresh]");
     const busyAction = recovery.dataset.processingBusyAction || "";
     const busy = processingRecoveryRequest !== null
@@ -1830,7 +2312,9 @@
       check.hidden = !copy?.canCheck && !(busy && busyAction === "check");
       check.disabled = busy || !copy?.canCheck;
       check.setAttribute("aria-busy", busy && busyAction === "check" ? "true" : "false");
-      check.textContent = busy && busyAction === "check" ? "Проверяем…" : "Проверить обработку";
+      check.textContent = busy && busyAction === "check"
+        ? copy?.busyLabel || "Проверяем…"
+        : copy?.checkLabel || "Проверить обработку";
     }
     if (newAttempt) {
       newAttempt.hidden = !copy?.canStartNewAttempt && !(busy && busyAction === "new_attempt");
@@ -1838,19 +2322,42 @@
       newAttempt.setAttribute("aria-busy", busy && busyAction === "new_attempt" ? "true" : "false");
       newAttempt.textContent = busy && busyAction === "new_attempt" ? "Запускаем…" : "Начать обработку заново";
     }
+    if (reprocess) {
+      const canReprocess = copy?.canReprocess === true
+        && detail.dataset.processingReprocessAvailable === "true";
+      reprocess.hidden = !canReprocess && !(busy && busyAction === "reprocess");
+      reprocess.disabled = busy || !canReprocess;
+      reprocess.setAttribute("aria-busy", busy && busyAction === "reprocess" ? "true" : "false");
+      reprocess.textContent = copy?.reprocessLabel || "Повторно обработать запись";
+    }
+    if (uploadAnother) {
+      uploadAnother.hidden = !copy?.canUploadAnother;
+      uploadAnother.href = copy?.uploadWithoutArchive
+        ? uploadAnother.dataset.noArchiveHref
+        : uploadAnother.dataset.defaultHref;
+      uploadAnother.textContent = copy?.uploadWithoutArchive
+        ? "Загрузить без сохранения аудио"
+        : "Загрузить другой файл";
+    }
     if (refresh) refresh.hidden = !copy?.showRefresh;
     const summaryAnnouncement = summaryCopy?.[0] || "";
-    const announcement = transcriptReady
+    const announcement = replacementActive
+      ? "Готовим новую версию."
+      : replacementAttempt && terminalProcessing
+      ? "Не удалось подготовить новую версию. Текущая версия не изменилась."
+      : transcriptReady
       ? `Расшифровка и спикеры готовы.${summaryAnnouncement ? ` ${summaryAnnouncement}` : ""}`
       : `${copy?.title || "Обработка записи"}. ${copy?.copy || ""}`;
-    const signature = [
-      projection?.state,
-      projection?.retry_class,
-      projection?.attempt_in_flight,
-      transcriptReady,
-      processingArtifactVisible(projection, "diarization"),
-      summaryState,
-    ].join("|");
+    const signature = replacementActive
+      ? "replacement-active"
+      : [
+        projection?.state,
+        projection?.retry_class,
+        projection?.attempt_in_flight,
+        transcriptReady,
+        processingArtifactVisible(projection, "diarization"),
+        summaryState,
+      ].join("|");
     announceProcessingChange(detail, announcement, signature);
     scheduleProcessingRecoveryPolling(detail, projection);
     return true;
@@ -1861,12 +2368,15 @@
       if (!detail.isConnected) return;
       const check = detail.querySelector("[data-processing-check]");
       const newAttempt = detail.querySelector("[data-processing-new-attempt]");
+      const reprocess = detail.querySelector("[data-processing-reprocess-open]");
       const title = detail.querySelector("[data-processing-recovery-title]");
       const titleVisible = title && !title.hidden && !title.closest("[hidden]");
       const target = check && !check.hidden && !check.disabled
         ? check
         : newAttempt && !newAttempt.hidden && !newAttempt.disabled
         ? newAttempt
+        : reprocess && !reprocess.hidden && !reprocess.disabled
+        ? reprocess
         : titleVisible
         ? title
         : detail;
@@ -1888,11 +2398,15 @@
     else delete recovery.dataset.processingBusyAction;
     const check = recovery.querySelector("[data-processing-check]");
     const newAttempt = recovery.querySelector("[data-processing-new-attempt]");
+    const reprocess = recovery.querySelector("[data-processing-reprocess-open]");
     if (check) {
       if (busy && action === "check") check.hidden = false;
       check.disabled = busy;
       check.setAttribute("aria-busy", busy && action === "check" ? "true" : "false");
-      check.textContent = busy && action === "check" ? "Проверяем…" : "Проверить обработку";
+      const preparing = detail.dataset.processingManualAction === "retry_preparation";
+      check.textContent = busy && action === "check"
+        ? preparing ? "Запускаем подготовку…" : "Проверяем…"
+        : preparing ? "Повторить подготовку" : "Проверить обработку";
     }
     if (newAttempt) {
       if (busy && action === "new_attempt") newAttempt.hidden = false;
@@ -1900,24 +2414,43 @@
       newAttempt.setAttribute("aria-busy", busy && action === "new_attempt" ? "true" : "false");
       newAttempt.textContent = busy && action === "new_attempt" ? "Запускаем…" : "Начать обработку заново";
     }
+    if (reprocess) {
+      if (busy && action === "reprocess") reprocess.hidden = false;
+      reprocess.disabled = busy;
+      reprocess.setAttribute("aria-busy", busy && action === "reprocess" ? "true" : "false");
+      reprocess.textContent = "Повторно обработать запись";
+    }
   };
 
-  const processingRecoveryActionFailureCopy = (status) => {
+  const processingRecoveryActionFailureCopy = (status, manualAction) => {
+    const preparation = manualAction === "retry_preparation";
     if (status === 401 || status === 403) {
-      return ["Не удалось проверить обработку", "Сессия больше не подтверждена. Обновите страницу и войдите снова."];
+      return [
+        preparation ? "Не удалось повторить подготовку" : "Не удалось проверить обработку",
+        "Сессия больше не подтверждена. Обновите страницу и войдите снова.",
+      ];
     }
     if (status >= 500) {
-      return ["Сервис обработки временно недоступен", "Проверка не запущена. Попробуйте ещё раз позже или обновите страницу."];
+      return [
+        preparation ? "Подготовка временно недоступна" : "Сервис обработки временно недоступен",
+        preparation
+          ? "Новая попытка подготовки не запущена. Попробуйте ещё раз позже."
+          : "Проверка не запущена. Попробуйте ещё раз позже или обновите страницу.",
+      ];
     }
-    return ["Не удалось проверить обработку", "Проверка не завершилась. Нажмите «Проверить обработку» ещё раз или обновите страницу."];
+    return [
+      preparation ? "Не удалось повторить подготовку" : "Не удалось проверить обработку",
+      preparation
+        ? "Новая попытка не запущена. Нажмите «Повторить подготовку» ещё раз позже."
+        : "Проверка не завершилась. Нажмите «Проверить обработку» ещё раз или обновите страницу.",
+    ];
   };
 
   const renderProcessingRecoveryFailure = (
     detail,
     {
       title = "Не удалось обновить статус обработки",
-      message = "Обновите страницу или нажмите «Проверить обработку» ещё раз. Расшифровка останется скрытой, пока готовность спикеров не подтверждена.",
-      preserveProjection = false,
+      message = null,
       signature = "status-fetch-failed",
       failedAction = "check",
     } = {},
@@ -1927,16 +2460,15 @@
     const recovery = detail.querySelector("[data-processing-recovery]");
     if (!recovery) return;
     delete recovery.dataset.processingBusyAction;
-    if (!preserveProjection) {
-      const transcript = detail.querySelector("[data-playback-transcript]");
-      const pending = detail.querySelector("[data-transcript-pending]");
-      if (transcript) {
-        transcript.hidden = true;
-        transcript.setAttribute("aria-hidden", "true");
-      }
-      if (pending) pending.hidden = false;
-      updateProcessingExportVisibility(false);
+    const transcript = detail.querySelector("[data-playback-transcript]");
+    const pending = detail.querySelector("[data-transcript-pending]");
+    const transcriptWasVisible = detail.dataset.processingTranscriptVisible === "true";
+    if (transcript) {
+      transcript.hidden = !transcriptWasVisible;
+      transcript.setAttribute("aria-hidden", transcriptWasVisible ? "false" : "true");
     }
+    if (pending) pending.hidden = transcriptWasVisible;
+    updateProcessingExportVisibility(transcriptWasVisible);
     detail.dataset.processingRecoveryError = "true";
     recovery.hidden = false;
     recovery.dataset.state = "unknown";
@@ -1944,13 +2476,20 @@
     const titleNode = recovery.querySelector("[data-processing-recovery-title]");
     const messageNode = recovery.querySelector("[data-processing-recovery-copy]");
     if (titleNode) titleNode.textContent = title;
-    if (messageNode) messageNode.textContent = message;
+    const resolvedMessage = message || (
+      transcriptWasVisible
+        ? "Проверка временно недоступна. Расшифровка и спикеры остаются доступны; попробуйте проверить статус ещё раз позже."
+        : "Обновите страницу или нажмите «Проверить обработку» ещё раз. Расшифровка появится после подтверждения готовности спикеров."
+    );
+    if (messageNode) messageNode.textContent = resolvedMessage;
     const check = recovery.querySelector("[data-processing-check]");
     if (check) {
       check.hidden = failedAction !== "check";
       check.disabled = failedAction !== "check";
       check.setAttribute("aria-busy", "false");
-      check.textContent = "Проверить обработку";
+      check.textContent = detail.dataset.processingManualAction === "retry_preparation"
+        ? "Повторить подготовку"
+        : "Проверить обработку";
     }
     const newAttempt = recovery.querySelector("[data-processing-new-attempt]");
     if (newAttempt) {
@@ -1966,9 +2505,13 @@
       newAttempt.setAttribute("aria-busy", "false");
       newAttempt.textContent = "Начать обработку заново";
     }
+    const uploadAnother = recovery.querySelector("[data-processing-upload-another]");
+    if (uploadAnother) {
+      uploadAnother.hidden = detail.dataset.processingManualAction !== "upload_another";
+    }
     const refresh = recovery.querySelector("[data-processing-refresh]");
     if (refresh) refresh.hidden = false;
-    announceProcessingChange(detail, `${title}. ${message}`, signature);
+    announceProcessingChange(detail, `${title}. ${resolvedMessage}`, signature);
   };
 
   const abortProcessingRecoveryStatusRequest = () => {
@@ -1984,6 +2527,7 @@
     const detail = recovery?.closest("[data-processing-status-url]");
     const statusUrl = detail?.dataset.processingStatusUrl;
     if (!detail || !statusUrl || processingRecoveryActionRequest !== null) return false;
+    if (!force && detail.dataset.processingTerminal === "true") return false;
     if (generation !== processingRecoveryGeneration) return false;
     if (processingRecoveryRequest) {
       if (!force) return false;
@@ -2018,9 +2562,12 @@
         throw new Error("processing_status_invalid");
       }
       const rendered = renderProcessingProjection(detail, projection);
+      if (rendered && typeof refreshProcessingDetailContentOnce === "function") {
+        await refreshProcessingDetailContentOnce(detail, projection, { resetRetryBudget: true });
+      }
       if (!rendered && requestGeneration === processingRecoveryGeneration) {
         processingRecoveryPollTimer = window.setTimeout(() => {
-          if (!document.hidden) void refreshProcessingStatus({ force: true });
+          void refreshProcessingStatus({ force: true });
         }, 1000);
       }
       return rendered;
@@ -2028,7 +2575,20 @@
       if (error?.name === "AbortError" || requestGeneration !== processingRecoveryGeneration) return false;
       if (processingRecoveryRequest !== null && processingRecoveryRequest !== request) return false;
       if (processingRecoveryRequest === request) processingRecoveryRequest = null;
-      if (detail.isConnected) renderProcessingRecoveryFailure(detail);
+      if (detail.isConnected && detail.dataset.processingTerminal !== "true") {
+        if (detail.dataset.processingReplacementActive !== "true") {
+          renderProcessingRecoveryFailure(detail);
+        }
+        processingRecoveryPollTimer = window.setTimeout(() => {
+          processingRecoveryPollTimer = null;
+          if (
+            requestGeneration === processingRecoveryGeneration
+            && processingRecoveryActionRequest === null
+          ) {
+            void refreshProcessingStatus({ force: true, generation: requestGeneration });
+          }
+        }, 15000);
+      }
       return false;
     } finally {
       if (processingRecoveryRequest === request) processingRecoveryRequest = null;
@@ -2061,13 +2621,16 @@
     const checkUrl = detail.dataset.processingCheckUrl
       || `/api/v1/meetings/${encodeURIComponent(detail.dataset.meetingId || "")}/processing/check`;
     if (!csrfToken || !detail.dataset.meetingId || !checkUrl) {
-      const [title] = processingRecoveryActionFailureCopy(403);
+      const [title] = processingRecoveryActionFailureCopy(
+        403,
+        detail.dataset.processingManualAction,
+      );
       renderProcessingRecoveryFailure(detail, {
         title,
         message: "Сессия не подтверждена. Обновите страницу и войдите снова.",
-        preserveProjection: true,
         signature: `manual-check-failed-${generation}`,
       });
+      scheduleProcessingStatusRetry(generation, 1000);
       focusProcessingRecovery(detail);
       return;
     }
@@ -2112,13 +2675,16 @@
     } catch (error) {
       if (generation !== processingRecoveryGeneration || processingRecoveryActionRequest !== request) return;
       processingRecoveryActionRequest = null;
-      const [title, message] = processingRecoveryActionFailureCopy(Number(error?.status || 0));
+      const [title, message] = processingRecoveryActionFailureCopy(
+        Number(error?.status || 0),
+        detail.dataset.processingManualAction,
+      );
       renderProcessingRecoveryFailure(detail, {
         title,
         message,
-        preserveProjection: true,
         signature: `manual-check-failed-${generation}`,
       });
+      scheduleProcessingStatusRetry(generation);
     } finally {
       if (processingRecoveryActionRequest === request) processingRecoveryActionRequest = null;
       if (generation === processingRecoveryGeneration && !recoveryHandled && detail.isConnected) {
@@ -2141,10 +2707,10 @@
       renderProcessingRecoveryFailure(detail, {
         title: "Не удалось начать обработку заново",
         message: "Сессия не подтверждена. Обновите страницу и войдите снова.",
-        preserveProjection: true,
         signature: `new-attempt-failed-${generation}`,
         failedAction: "new_attempt",
       });
+      scheduleProcessingStatusRetry(generation, 1000);
       focusProcessingRecovery(detail);
       return;
     }
@@ -2169,6 +2735,16 @@
       const payload = response.status === 204 ? null : await response.json().catch(() => null);
       if (!response.ok) {
         if (response.status === 409) {
+          if (payload?.code === "processing_quota_exceeded") {
+            processingRecoveryActionRequest = null;
+            renderProcessingRecoveryFailure(detail, {
+              title: "Лимит расшифровки ещё не обновился",
+              message: "Новая попытка не запущена. Дождитесь обновления лимита и нажмите «Начать обработку заново» ещё раз.",
+              signature: `new-attempt-quota-${generation}`,
+              failedAction: "new_attempt",
+            });
+            return;
+          }
           processingRecoveryActionRequest = null;
           await refreshProcessingStatus({ force: true, generation });
           return;
@@ -2189,16 +2765,177 @@
         message: Number(error?.status || 0) === 409
           ? "Новая попытка сейчас недоступна. Обновите страницу, чтобы увидеть актуальный статус."
           : "Новая попытка не запущена. Обновите страницу и попробуйте ещё раз позже.",
-        preserveProjection: true,
         signature: `new-attempt-failed-${generation}`,
         failedAction: "new_attempt",
       });
+      scheduleProcessingStatusRetry(generation);
     } finally {
       if (processingRecoveryActionRequest === request) processingRecoveryActionRequest = null;
       if (generation === processingRecoveryGeneration && !recoveryHandled && detail.isConnected) {
         focusProcessingRecovery(detail);
       }
     }
+  };
+
+  const restoreProcessingReprocessFocus = () => {
+    if (!(processingReprocessReturnFocus instanceof HTMLElement)) return;
+    const menu = processingReprocessReturnFocus.closest('[role="menu"]');
+    if (menu?.hidden) {
+      menu.hidden = false;
+      document.querySelector('[data-meeting-panel-open="more"]')
+        ?.setAttribute("aria-expanded", "true");
+    }
+    if (isUsableFocusTarget(processingReprocessReturnFocus)) {
+      processingReprocessReturnFocus.focus({ preventScroll: true });
+    } else {
+      restoreMeetingActionFocus(processingReprocessReturnFocus);
+    }
+    processingReprocessReturnFocus = null;
+  };
+
+  const setProcessingReprocessDialogBusy = (dialog, busy) => {
+    const form = dialog.querySelector("[data-processing-reprocess-form]");
+    const submit = dialog.querySelector("[data-processing-reprocess-submit]");
+    form?.setAttribute("aria-busy", busy ? "true" : "false");
+    if (submit) {
+      submit.disabled = busy;
+      submit.textContent = busy ? "Готовим…" : "Подготовить";
+    }
+    dialog.querySelectorAll("[data-processing-reprocess-cancel]").forEach((button) => {
+      button.disabled = busy;
+    });
+  };
+
+  const setProcessingReprocessError = (dialog, message = "") => {
+    const error = dialog.querySelector("[data-processing-reprocess-error]");
+    if (!error) return;
+    error.hidden = !message;
+    error.textContent = message;
+  };
+
+  const runProcessingReprocess = async (detail, dialog) => {
+    if (processingRecoveryActionRequest !== null) return;
+    const submit = dialog.querySelector("[data-processing-reprocess-submit]");
+    const reprocessUrl = detail.dataset.processingReprocessUrl;
+    if (
+      !csrfToken
+      || !detail.dataset.meetingId
+      || !detail.dataset.processingWorkflowId
+      || !detail.dataset.mediaRevisionId
+      || !reprocessUrl
+    ) {
+      setProcessingReprocessError(
+        dialog,
+        "Не удалось подтвердить актуальную версию встречи. Обновите страницу и попробуйте снова.",
+      );
+      return;
+    }
+    const generation = ++processingRecoveryGeneration;
+    resetProcessingRecoveryCountdown(detail);
+    stopProcessingRecoveryPolling();
+    abortProcessingRecoveryStatusRequest();
+    setProcessingRecoveryBusy(detail, true, "reprocess");
+    setProcessingReprocessDialogBusy(dialog, true);
+    setProcessingReprocessError(dialog);
+    const request = fetch(reprocessUrl, {
+      method: "POST",
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        "X-CSRF-Token": csrfToken,
+      },
+      body: JSON.stringify({
+        expected_workflow_id: detail.dataset.processingWorkflowId,
+        expected_media_revision_id: detail.dataset.mediaRevisionId,
+      }),
+    });
+    processingRecoveryActionRequest = request;
+    let recoveryHandled = false;
+    try {
+      const response = await request;
+      if (generation !== processingRecoveryGeneration || processingRecoveryActionRequest !== request) return;
+      if (await recoverMeetingDetailFromResponse(response, { actionProblemCodes: detailActionProblemCodes })) {
+        recoveryHandled = true;
+        return;
+      }
+      const payload = response.status === 204 ? null : await response.json().catch(() => null);
+      if (!response.ok) {
+        const failure = new Error(`processing_reprocess_${response.status}`);
+        failure.status = response.status;
+        throw failure;
+      }
+      processingRecoveryActionRequest = null;
+      const projection = processingProjectionFromActionPayload(detail, payload);
+      if (projection) renderProcessingProjection(detail, projection);
+      setProcessingReprocessDialogBusy(dialog, false);
+      dialog.close();
+      processingReprocessReturnFocus = null;
+      await refreshProcessingStatus({ force: true, generation });
+      if (detail.isConnected) focusProcessingRecovery(detail);
+    } catch (error) {
+      if (generation !== processingRecoveryGeneration || processingRecoveryActionRequest !== request) return;
+      processingRecoveryActionRequest = null;
+      setProcessingRecoveryBusy(detail, false, "reprocess");
+      setProcessingReprocessDialogBusy(dialog, false);
+      setProcessingReprocessError(
+        dialog,
+        Number(error?.status || 0) === 409
+          ? "Страница встречи устарела. Закройте окно, обновите статус и подтвердите запуск снова."
+          : Number(error?.status || 0) === 401 || Number(error?.status || 0) === 403
+          ? "Сессия больше не подтверждена. Обновите страницу и войдите снова."
+          : "Повторная обработка не запущена. Попробуйте ещё раз позже.",
+      );
+      submit?.focus({ preventScroll: true });
+      scheduleProcessingStatusRetry(generation);
+    } finally {
+      if (processingRecoveryActionRequest === request) processingRecoveryActionRequest = null;
+      if (recoveryHandled) processingReprocessReturnFocus = null;
+    }
+  };
+
+  const initProcessingReprocess = () => {
+    const dialog = document.querySelector("[data-processing-reprocess-dialog]");
+    const detail = document.querySelector("[data-processing-reprocess-url]");
+    if (!dialog || !detail || typeof dialog.showModal !== "function") return;
+    const closeDialog = (restoreFocus = true) => {
+      if (processingRecoveryActionRequest !== null) return;
+      if (dialog.open) dialog.close();
+      setProcessingReprocessDialogBusy(dialog, false);
+      setProcessingReprocessError(dialog);
+      if (restoreFocus) restoreProcessingReprocessFocus();
+      else processingReprocessReturnFocus = null;
+    };
+    document.querySelectorAll("[data-processing-reprocess-open]").forEach((opener) => {
+      if (opener.dataset.processingReprocessReady === "true") return;
+      opener.dataset.processingReprocessReady = "true";
+      opener.addEventListener("click", () => {
+        processingReprocessReturnFocus = opener;
+        setProcessingReprocessDialogBusy(dialog, false);
+        setProcessingReprocessError(dialog);
+        dialog.showModal();
+        dialog.querySelector("#processing-reprocess-dialog-title")?.focus({ preventScroll: true });
+      });
+    });
+    if (dialog.dataset.processingReprocessReady === "true") return;
+    dialog.dataset.processingReprocessReady = "true";
+    dialog.querySelectorAll("[data-processing-reprocess-cancel]").forEach((button) => {
+      button.addEventListener("click", () => closeDialog(true));
+    });
+    dialog.addEventListener("cancel", (event) => {
+      event.preventDefault();
+      closeDialog(true);
+    });
+    dialog.addEventListener("click", (event) => {
+      if (event.target === dialog) closeDialog(true);
+    });
+    const keepFocusInsideDialog = (event) => trapModalFocus(dialog, event);
+    dialog.addEventListener("keydown", keepFocusInsideDialog);
+    dialog.querySelector("[data-processing-reprocess-form]")?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      void runProcessingReprocess(detail, dialog);
+    });
   };
 
   const initProcessingRecovery = () => {
@@ -2211,7 +2948,23 @@
     }
     if (recovery.dataset.processingRecoveryReady === "true") return;
     recovery.dataset.processingRecoveryReady = "true";
-    updateProcessingExportVisibility(false);
+    const transcript = detail.querySelector("[data-playback-transcript]");
+    if (detail.dataset.processingTranscriptContentReady == null) {
+      detail.dataset.processingTranscriptContentReady = transcript && !transcript.hidden
+        ? "true"
+        : "false";
+    }
+    if (detail.dataset.processingSummaryContentReady == null) {
+      detail.dataset.processingSummaryContentReady = detail.dataset.storedOutcomesAvailable === "true"
+        ? "true"
+        : "false";
+    }
+    if (detail.dataset.processingTranscriptVisible == null) {
+      detail.dataset.processingTranscriptVisible = transcript && !transcript.hidden
+        ? "true"
+        : "false";
+    }
+    updateProcessingExportVisibility(detail.dataset.processingTranscriptVisible === "true");
     recovery.querySelector("[data-processing-recovery-copy]")?.setAttribute("id", "processing-recovery-copy");
     recovery.querySelector("[data-processing-check]")?.addEventListener("click", () => {
       void runProcessingManualCheck(detail, recovery);
@@ -2232,24 +2985,6 @@
     void refreshProcessingStatus();
   };
 
-  const processingListStatusNode = (row) => {
-    const existing = row.querySelector("[data-processing-list-status]");
-    if (existing) return existing;
-    const readiness = row.querySelector(".meeting-content-readiness");
-    if (readiness) {
-      readiness.dataset.processingListStatus = "true";
-      return readiness;
-    }
-    const content = row.querySelector(".meeting-content");
-    if (!content) return null;
-    const status = document.createElement("span");
-    status.className = "meeting-content-readiness";
-    status.dataset.processingListStatus = "true";
-    content.append(status);
-    row.classList.add("has-status");
-    return status;
-  };
-
   const renderProcessingListProjection = (row, projection, generation) => {
     const rowMeetingId = String(row?.dataset.meetingId || "");
     if (
@@ -2259,10 +2994,22 @@
       || String(projection?.meeting_id || "") !== rowMeetingId
       || generation !== meetingListRequestGeneration
     ) return;
+    const retryClass = String(projection?.retry_class || "none");
+    const state = String(projection?.state || "").toLowerCase();
+    if (
+      retryClass === "terminal"
+      || ["processed", "blocked", "failed_terminal", "canceled"].includes(state)
+    ) {
+      const restoreFocus = row.contains(document.activeElement);
+      if (requestMeetingListRefresh({ focusMeetingIds: [rowMeetingId], restoreFocus })) return;
+    }
     const transcriptReady = processingTranscriptReady(projection);
     const summaryState = processingSummaryState(projection);
-    const retryClass = String(projection?.retry_class || "none");
-    const text = retryClass === "retryable"
+    const replacement = Number(projection?.attempt_ordinal ?? 0) > 1
+      && projection?.content_available === true;
+    const text = replacement && !processingTerminalFailure(projection)
+      ? "Готовится новая версия"
+      : retryClass === "retryable"
       ? "Обработка временно приостановлена"
       : retryClass === "unknown_outcome"
       ? "Проверяем исходную попытку"
@@ -2271,14 +3018,15 @@
       : transcriptReady
       ? `Расшифровка готова · ${summaryState === "available" ? "итоги готовы" : processingSummaryPending(summaryState) ? "итоги готовятся" : "итоги недоступны"}`
       : "Спикеры определяются · расшифровка готовится";
-    const node = processingListStatusNode(row);
+    const node = row.querySelector(".meeting-content-readiness");
+    if (node) node.dataset.processingListStatus = "true";
     if (!node) return;
     const signature = `${row.dataset.meetingId || ""}|${text}|${retryClass}|${transcriptReady}|${summaryState}`;
-    const previous = processingListProjectionStates.get(row.dataset.meetingId || "");
+    const previous = processingListProjectionStates.get(row.dataset.meetingId || "")?.signature;
     node.textContent = text;
     node.dataset.processingRetryClass = retryClass;
     row.dataset.processingTranscriptVisible = transcriptReady ? "true" : "false";
-    processingListProjectionStates.set(row.dataset.meetingId || "", signature);
+    processingListProjectionStates.set(row.dataset.meetingId || "", { signature, projection });
     if (previous && previous !== signature) {
       const announcer = document.querySelector("[data-processing-list-announcer]");
       if (announcer) announcer.textContent = "Статусы обработки встреч обновлены.";
@@ -2325,11 +3073,30 @@
     if (!list) return;
     const rows = allRows().filter((row) => {
       const kind = row.querySelector(".meeting-status[data-status-kind]")?.dataset.statusKind || "";
-      const readiness = row.querySelector(".meeting-content-readiness")?.textContent || "";
-      return ["processing", "failed"].includes(kind)
-        || /расшифровка.*(готова|недоступна|готовятся)/i.test(readiness);
+      return kind === "processing";
     });
-    rows.forEach(requestProcessingListProjection);
+    if (!rows.length) {
+      resetProcessingListProjectionState();
+      return;
+    }
+    const activeMeetingIds = new Set(rows.map((row) => row.dataset.meetingId || ""));
+    processingListProjectionStates.forEach((_state, meetingId) => {
+      if (!activeMeetingIds.has(meetingId)) {
+        processingListProjectionStates.delete(meetingId);
+        processingListProjectionLastFetchedAt.delete(meetingId);
+      }
+    });
+    rows.forEach((row) => {
+      const snapshot = processingListProjectionStates.get(row.dataset.meetingId || "")?.projection;
+      if (snapshot) renderProcessingListProjection(row, snapshot, meetingListRequestGeneration);
+      requestProcessingListProjection(row);
+    });
+    if (!processingListProjectionPollTimer) {
+      processingListProjectionPollTimer = window.setTimeout(() => {
+        processingListProjectionPollTimer = null;
+        initProcessingListProjection();
+      }, 15000);
+    }
   };
 
   const initSummaryFormats = () => {
@@ -2340,7 +3107,8 @@
       const listbox = controls.querySelector("[data-summary-format-listbox]");
       const pendingLabel = controls.querySelector("[data-summary-pending-format-label]");
       const status = document.querySelector("[data-summary-candidate-status]");
-      const preview = document.querySelector("[data-summary-candidate-preview]");
+      const statusLive = status?.querySelector("[data-summary-candidate-live]");
+      const statusActions = status?.querySelector("[data-summary-candidate-actions]");
       const dialog = document.querySelector("[data-summary-format-dialog]");
       const meetingId = controls.dataset.meetingId || "";
       const candidateStorageKey = `graf-summary-candidate-${meetingId}`;
@@ -2354,6 +3122,7 @@
       let activeRequestIntentId = null;
       let candidateRequestGeneration = 0;
       let candidateRequestInFlightGeneration = null;
+      const acceptedFocusKey = `graf-summary-focus-${meetingId}`;
       if (!button || !listbox) return;
       controls.dataset.summaryFormatReady = "true";
       const options = () => Array.from(listbox.querySelectorAll('[role="option"]'));
@@ -2373,31 +3142,36 @@
         if (refreshButton) refreshButton.disabled = busy;
         controls.setAttribute("aria-busy", busy ? "true" : "false");
       };
+      const reloadAfterSummaryChange = (template = activeTemplate) => {
+        window.sessionStorage.setItem(acceptedFocusKey, "current");
+        const templateKey = typeof template === "string" ? template : template?.key;
+        if (templateKey) {
+          const url = new URL(window.location.href);
+          url.searchParams.set("summary_format", templateKey);
+          window.history.replaceState(null, "", url);
+        }
+        window.location.reload();
+      };
       const showStatus = (message, state = "generating", actions = []) => {
-        if (!status) return;
+        if (!status || !statusLive || !statusActions) return;
         status.hidden = false;
         status.dataset.state = state;
-        status.replaceChildren();
-        const copy = document.createElement("span");
-        copy.textContent = message;
-        status.append(copy);
+        statusLive.textContent = message;
+        statusActions.replaceChildren();
         const validActions = actions.filter((item) => (
           item
           && typeof item.text === "string"
           && typeof item.action === "function"
         ));
         if (!validActions.length) return;
-        const actionRow = document.createElement("div");
-        actionRow.className = "summary-candidate-actions";
         validActions.forEach(({ text, action, primary = false }) => {
           const actionButton = document.createElement("button");
           actionButton.type = "button";
           actionButton.textContent = text;
           if (primary) actionButton.className = "button";
           actionButton.addEventListener("click", action);
-          actionRow.append(actionButton);
+          statusActions.append(actionButton);
         });
-        status.append(actionRow);
       };
       const candidateErrorCopy = (code) => ({
         summary_transcript_too_large: "Расшифровка слишком большая для этого действия.",
@@ -2408,7 +3182,8 @@
         summary_transcript_snapshot_invalid: "Расшифровка изменилась. Обновите страницу и попробуйте снова.",
         summary_transcript_changed: "Расшифровка изменилась. Обновите страницу и запросите новый вариант.",
         outcome_transcript_changed: "Расшифровка изменилась. Обновите страницу и запросите новый вариант.",
-        summary_generation_unavailable: "Новый вариант сейчас недоступен. Текущие итоги сохранены.",
+        summary_dependency_unavailable: "Сервис генерации временно недоступен. Текущие итоги сохранены.",
+        summary_generation_unavailable: "Сервис генерации временно недоступен. Текущие итоги сохранены.",
         summary_prompt_resolution_conflict: "Настройки формата изменились. Обновите страницу и попробуйте снова.",
         summary_prompt_invalid: "Настройки выбранного формата недоступны. Выберите другой формат.",
         summary_prompt_snapshot_corrupt: "Настройки выбранного формата недоступны. Выберите другой формат.",
@@ -2548,10 +3323,16 @@
         }
         return null;
       };
+      const focusCurrentDialogFormat = () => {
+        const current = dialog?.querySelector(
+          '[data-summary-format-current], [data-summary-format-option][aria-current="true"]'
+        );
+        (current || dialog?.querySelector("[data-summary-format-option]"))?.focus({ preventScroll: true });
+      };
       const openFormatPicker = () => {
         if (dialog instanceof HTMLDialogElement) {
           dialog.showModal();
-          dialog.querySelector("[data-summary-format-option]")?.focus({ preventScroll: true });
+          focusCurrentDialogFormat();
         } else {
           open();
         }
@@ -2584,7 +3365,7 @@
         pollDeadline = Date.now() + 5 * 60 * 1000;
         pollDelay = 1500;
         setBusy(true);
-        showStatus("Проверяем новый вариант. Текущие итоги остаются на месте.");
+        showStatus("Проверяем новую версию. Текущие итоги остаются доступны.");
         schedulePoll(candidate, generation);
       };
       const mutate = async (url, method, body) => {
@@ -2609,148 +3390,17 @@
         }
         return payload;
       };
-      const clearPreview = () => {
-        if (!preview) return;
-        preview.hidden = true;
-        preview.replaceChildren();
-      };
-      const loadPreview = async (candidate, generation = candidateRequestGeneration) => {
-        if (generation !== candidateRequestGeneration) return null;
-        clearPreview();
-        if (candidate.state !== "ready") return null;
-        try {
-          const response = await fetch(
-            `/api/v1/cabinet/meetings/${meetingId}/summary-candidates/${candidate.candidate_id}/preview`,
-            { credentials: "same-origin", cache: "no-store" }
-          );
-          if (!response.ok) return null;
-          const body = await response.json();
-          if (generation !== candidateRequestGeneration) return null;
-          const items = Array.isArray(body.items)
-            ? body.items.filter((item) => item && typeof item === "object").slice(0, 24)
-            : [];
-          return items.length ? items : null;
-        } catch (_error) {
-          return null;
-        }
-      };
-      const resolveCandidate = async (candidate, accept, generation = candidateRequestGeneration) => {
-        if (generation !== candidateRequestGeneration) return;
-        setBusy(true);
-        try {
-          const resolved = await mutate(
-            `/api/v1/cabinet/meetings/${meetingId}/summary-candidates/${candidate.candidate_id}/${accept ? "accept" : "reject"}`,
-            "POST",
-            { expected_current_outcome_set_id: currentOutcomeSetId }
-          );
-          if (generation !== candidateRequestGeneration) return;
-          currentOutcomeSetId = resolved.current_outcome_set_id || currentOutcomeSetId;
-          if (accept) window.location.reload();
-          else {
-            if (status) status.hidden = true;
-            clearPreview();
-          }
-        } catch (error) {
-          if (isMeetingDetailRecoveredError(error)) return;
-          if (generation !== candidateRequestGeneration) return;
-          const code = error instanceof Error ? error.message : "";
-          if (code === "summary_source_revision_stale") clearPreview();
-          showStatus(candidateErrorCopy(code), "failed", [retryCandidateAction(code)]);
-        } finally {
-          if (generation === candidateRequestGeneration) setBusy(false);
-        }
-      };
-      const candidateSections = [
-        ["summary", "Кратко"],
-        ["action_items", "Действия"],
-        ["decisions", "Решения"],
-        ["key_points", "Ключевые пункты"],
-        ["followups", "Следующие шаги"],
-        ["risks", "Риски"],
-        ["questions", "Вопросы"],
-        ["evidence", "Подтверждения"]
-      ];
-      const renderCandidateItem = (item) => {
-        const article = document.createElement("article");
-        article.className = "outcome-item";
-        const text = document.createElement("p");
-        text.className = "outcome-item-text";
-        text.textContent = item.text || "Без текста";
-        article.append(text);
-        const metadata = [
-          ["Ответственный", item.owner_text],
-          ["Срок", item.due_date_text]
-        ].filter(([, value]) => typeof value === "string" && value.trim());
-        if (metadata.length) {
-          const row = document.createElement("div");
-          row.className = "notes-item-meta-row";
-          metadata.forEach(([label, value]) => {
-            const meta = document.createElement("span");
-            meta.className = "notes-item-meta";
-            meta.textContent = `${label}: ${value.trim()}`;
-            row.append(meta);
-          });
-          article.append(row);
-        }
-        const refs = Array.isArray(item.source_refs)
-          ? item.source_refs.filter((ref) => (
-              ref?.seekable && Number.isFinite(Number.parseFloat(ref.start_seconds))
-            ))
-          : [];
-        if (refs.length && document.querySelector("[data-transcript-turn]")) {
-          const sources = document.createElement("div");
-          sources.className = "notes-item-sources";
-          const label = document.createElement("span");
-          label.className = "notes-source-label";
-          label.textContent = "Источник:";
-          sources.append(label);
-          const appendSource = (host, ref) => {
-            const seconds = Number.parseFloat(ref.start_seconds);
-            const source = document.createElement("button");
-            source.type = "button";
-            source.className = "notes-source-link";
-            source.textContent = formatTime(seconds);
-            source.dataset.seekSeconds = String(seconds);
-            source.dataset.sourceSegment = ref.transcript_segment_id || "";
-            source.setAttribute("aria-label", `Открыть источник ${formatTime(seconds)} в расшифровке`);
-            host.append(source);
-          };
-          refs.slice(0, 2).forEach((ref) => appendSource(sources, ref));
-          const overflow = refs.slice(2);
-          if (overflow.length) {
-            const more = document.createElement("details");
-            more.className = "notes-source-more";
-            const summary = document.createElement("summary");
-            summary.textContent = `Ещё ${overflow.length}`;
-            const sourceNoun = overflow.length === 1
-              ? "источник"
-              : overflow.length < 5 ? "источника" : "источников";
-            summary.setAttribute("aria-label", `Показать ещё ${overflow.length} ${sourceNoun}`);
-            more.append(summary);
-            overflow.forEach((ref) => appendSource(more, ref));
-            sources.append(more);
-          }
-          if (sources.childElementCount > 1) article.append(sources);
-        }
-        return article;
-      };
-      const appendCandidateSections = (host, entries) => {
-        entries.forEach(([key, label, items]) => {
-          const section = document.createElement("section");
-          section.className = "summary-candidate-section";
-          const heading = document.createElement("h4");
-          heading.textContent = label;
-          const list = document.createElement("div");
-          list.className = "summary-candidate-items";
-          items.forEach((item) => list.append(renderCandidateItem(item)));
-          section.append(heading, list);
-          host.append(section);
-        });
+      const dismissStatus = () => {
+        setBusy(false);
+        if (status) status.hidden = true;
+        button.focus({ preventScroll: true });
       };
       const renderCandidate = (candidate, generation = candidateRequestGeneration) => {
         if (generation !== candidateRequestGeneration) return false;
+        if (Object.prototype.hasOwnProperty.call(candidate, "current_outcome_set_id")) {
+          currentOutcomeSetId = candidate.current_outcome_set_id || null;
+        }
         if (candidate.state === "generating") {
-          clearPreview();
           if (candidate.reason_code === "temporary_unavailable") {
             window.clearTimeout(pollingTimer);
             pollingTimer = null;
@@ -2775,7 +3425,7 @@
               ? `Готовим вариант: ${activeTemplate.name}`
               : "Готовим новый вариант";
           }
-          showStatus(`Готовим формат «${candidate.format_name || activeTemplate?.name || "итогов"}». Текущие итоги остаются на месте.`);
+          showStatus(`Готовим формат «${candidate.format_name || activeTemplate?.name || "итогов"}». Текущие итоги остаются доступны.`);
           return;
         }
         window.clearTimeout(pollingTimer);
@@ -2783,89 +3433,24 @@
         pollingTimer = null;
         setBusy(false);
         if (pendingLabel) pendingLabel.hidden = true;
-        const renderPreview = () => {
-          if (!preview) return;
-          preview.hidden = false;
-          preview.replaceChildren();
-          preview.setAttribute("aria-label", "Предпросмотр нового варианта итогов");
-          const heading = document.createElement("h3");
-          heading.textContent = "Новый вариант";
-          const source = document.createElement("p");
-          source.className = "summary-candidate-source";
-          const sourceLabel = candidate?.provenance?.source_revision_label
-            ? `Источник: ${candidate.provenance.source_revision_label}`
-            : "Источник: текущая расшифровка";
-          source.textContent = candidate?.provenance?.source_result_id
-            ? sourceLabel
-            : "Источник: подтверждённая расшифровка недоступна";
-          const previewItems = Array.isArray(candidate.preview) ? candidate.preview.slice(0, 24) : [];
-          if (previewItems.length) {
-            const grouped = candidateSections
-              .map(([key, label]) => [
-                key,
-                label,
-                previewItems.filter((item) => item.category === key)
-              ])
-              .filter(([, , items]) => items.length);
-            const primary = grouped.filter(([key]) => ["summary", "action_items", "decisions"].includes(key));
-            const secondary = grouped.filter(([key]) => !["summary", "action_items", "decisions"].includes(key));
-            preview.append(heading, source);
-            appendCandidateSections(preview, primary);
-            if (secondary.length) {
-              const more = document.createElement("details");
-              more.className = "summary-candidate-more";
-              const summary = document.createElement("summary");
-              summary.textContent = `Ещё разделы · ${secondary.length}`;
-              more.append(summary);
-              appendCandidateSections(more, secondary);
-              preview.append(more);
-            }
-          } else {
-            const empty = document.createElement("p");
-            empty.textContent = "Предпросмотр недоступен для этого варианта.";
-            preview.append(heading, source, empty);
-          }
-        };
         if (candidate.state === "ready") {
-          const previewItems = Array.isArray(candidate.preview) ? candidate.preview.slice(0, 24) : [];
-          if (!previewItems.length) {
-            clearPreview();
-            setBusy(true);
-            showStatus(
-              `Вариант «${candidate.format_name || activeTemplate?.name || "итогов"}» готов. Загружаем предпросмотр…`,
-              "generating",
-            );
-            void loadPreview(candidate, generation).then((loadedPreview) => {
-              if (generation !== candidateRequestGeneration) return;
-              setBusy(false);
-              if (!loadedPreview?.length) {
-                showStatus(
-                  "Предпросмотр пока недоступен. Текущие итоги сохранены.",
-                  "failed",
-                  [{ text: "Обновить страницу", action: () => window.location.reload(), primary: true }],
-                );
-                return;
-              }
-              renderCandidate({ ...candidate, preview: loadedPreview }, generation);
-            });
-            return;
-          }
-          showStatus(`Вариант «${candidate.format_name || activeTemplate?.name || "итогов"}» готов. Текущие итоги сохранены.`, "ready", [
-            { text: "Оставить текущие", action: () => resolveCandidate(candidate, false, generation) },
-            { text: "Использовать", action: () => resolveCandidate(candidate, true, generation), primary: true }
-          ]);
-          renderPreview();
+          showStatus(
+            `Новая версия «${candidate.format_name || activeTemplate?.name || "итогов"}» проверена. Обновите экран, чтобы увидеть результат.`,
+            "ready",
+            [{ text: "Обновить экран", action: reloadAfterSummaryChange, primary: true }],
+          );
           return;
         }
         if (candidate.state === "accepted") {
-          window.location.reload();
+          showStatus("Итоги обновлены. Обновляем экран.", "ready");
+          window.setTimeout(reloadAfterSummaryChange, 0);
           return;
         }
         if (candidate.state === "expired") {
           const retry = retryCandidateAction(candidate) || {
             text: "Обновить страницу", action: () => window.location.reload(), primary: true
           };
-          showStatus("Вариант устарел. Текущие итоги сохранены — запустите генерацию ещё раз.", "failed", [
+          showStatus("Новая версия устарела. Текущие итоги сохранены — запустите обновление ещё раз.", "failed", [
             retry
           ]);
           return;
@@ -2874,7 +3459,7 @@
           const retry = retryCandidateAction(candidate) || {
             text: "Обновить страницу", action: () => window.location.reload(), primary: true
           };
-          showStatus("Расшифровка изменилась, поэтому вариант закрыт. Текущие итоги сохранены.", "failed", [
+          showStatus("Расшифровка изменилась, поэтому новая версия закрыта. Текущие итоги сохранены.", "failed", [
             retry
           ]);
           return;
@@ -2917,10 +3502,10 @@
         if (document.hidden || pollAttempts >= 40 || (pollDeadline && Date.now() >= pollDeadline)) {
           if (pollAttempts >= 40 || (pollDeadline && Date.now() >= pollDeadline)) {
             setBusy(false);
-            showStatus("Генерация занимает больше обычного. Текущие итоги сохранены.", "failed", [
-              { text: "Проверить снова", action: () => resumeCandidatePolling(candidate, generation), primary: true },
-              { text: "Оставить текущие", action: () => { if (status) status.hidden = true; } }
-            ]);
+          showStatus("Генерация занимает больше обычного. Текущие итоги сохранены.", "slow", [
+            { text: "Проверить снова", action: () => resumeCandidatePolling(candidate, generation), primary: true },
+            { text: "Закрыть", action: dismissStatus }
+          ]);
           }
           return;
         }
@@ -2984,9 +3569,7 @@
               ? "Не удалось обновить новый вариант. Текущие итоги сохранены."
               : candidateErrorCopy(code),
             "failed",
-            [retry, ...(transientPollFailure
-              ? [{ text: "Оставить текущие", action: () => { if (status) status.hidden = true; } }]
-              : [])]
+            retry ? [retry] : []
           );
         }
       };
@@ -3025,16 +3608,17 @@
           pendingLabel.hidden = false;
           pendingLabel.textContent = `Готовим вариант: ${template.name}`;
         }
-        showStatus(`Готовим формат «${template.name}». Текущие итоги остаются на месте.`);
-        const body = {
-          template_key: template.key,
-          template_id: template.id || null,
-          template_version: template.version,
-          expected_current_outcome_set_id: currentOutcomeSetId,
-          request_intent: requestIntent
-        };
-        if (requestIntentId) body.request_intent_id = requestIntentId;
+        showStatus(`Готовим формат «${template.name}». Текущие итоги остаются доступны.`);
         try {
+          const expectedCurrentOutcomeSetId = await currentOutcomeSetIdForTemplate(template);
+          const body = {
+            template_key: template.key,
+            template_id: template.id || null,
+            template_version: template.version,
+            expected_current_outcome_set_id: expectedCurrentOutcomeSetId,
+            request_intent: requestIntent
+          };
+          if (requestIntentId) body.request_intent_id = requestIntentId;
           const candidate = await mutate(
             `/api/v1/cabinet/meetings/${meetingId}/summary-candidates`,
             "POST",
@@ -3092,6 +3676,118 @@
         }
         return { id: controls.dataset.currentTemplateId || null, key, version, name };
       };
+      const currentOutcomeSetIdForTemplate = async (template) => {
+        if (!template?.key) return null;
+        const currentKey = controls.dataset.currentTemplateKey || "";
+        const currentVersion = Number(controls.dataset.currentTemplateVersion || "1");
+        if (template.key === currentKey && template.version === currentVersion) {
+          return currentOutcomeSetId;
+        }
+        const response = await fetch(
+          `/api/v1/cabinet/meetings/${meetingId}/summaries/${encodeURIComponent(template.key)}`,
+          { credentials: "same-origin", cache: "no-store" }
+        );
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          const error = new Error(payload.code || "summary_poll_unavailable");
+          error.status = response.status;
+          throw error;
+        }
+        return payload.current_outcome_set_id || null;
+      };
+       const pollSummaryRefresh = async (template, generation) => {
+        if (generation !== candidateRequestGeneration) return;
+        if (Date.now() > pollDeadline) {
+          pollingTimer = null;
+          candidateRequestInFlightGeneration = null;
+          setBusy(false);
+          showStatus("Не удалось дождаться обновления. Текущие итоги сохранены.", "failed", [
+            { text: "Обновить страницу", action: () => window.location.reload(), primary: true }
+          ]);
+          return;
+        }
+        try {
+          const response = await fetch(
+            `/api/v1/cabinet/meetings/${meetingId}/summaries/${encodeURIComponent(template.key)}`,
+            { credentials: "same-origin", cache: "no-store" }
+          );
+          if (await recoverMeetingDetailFromResponse(response, { actionProblemCodes: summaryActionProblemCodes })) {
+            throw meetingDetailRecoveredError();
+          }
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            const error = new Error(payload.code || "summary_poll_unavailable");
+            error.status = response.status;
+            throw error;
+          }
+          if (generation !== candidateRequestGeneration) return;
+          const previousOutcomeSetId = currentOutcomeSetId;
+          currentOutcomeSetId = payload.current_outcome_set_id || currentOutcomeSetId;
+          const state = payload.catalog_entry?.generation_state;
+          if (["preparing", "updating", "blocked", "deferred", "ambiguous"].includes(state)) {
+            showStatus("Обновляем итоги. Текущие итоги остаются доступны.");
+            pollingTimer = window.setTimeout(() => pollSummaryRefresh(template, generation), 1200);
+            return;
+          }
+          pollingTimer = null;
+          candidateRequestInFlightGeneration = null;
+          setBusy(false);
+          if (payload.current_outcome_set_id && payload.current_outcome_set_id !== previousOutcomeSetId && state === "idle") {
+            showStatus("Итоги обновлены. Обновляем экран.", "ready");
+            window.setTimeout(reloadAfterSummaryChange, 0);
+          } else {
+            showStatus("Обновление не завершено. Текущие итоги сохранены.", "failed", [
+              { text: "Обновить страницу", action: () => window.location.reload(), primary: true }
+            ]);
+          }
+        } catch (error) {
+          if (isMeetingDetailRecoveredError(error) || generation !== candidateRequestGeneration) return;
+          pollingTimer = null;
+          candidateRequestInFlightGeneration = null;
+          setBusy(false);
+          const code = error instanceof Error ? error.message : "summary_poll_unavailable";
+          showStatus(candidateErrorCopy(code), "failed", [
+            { text: "Обновить страницу", action: () => window.location.reload(), primary: true }
+          ]);
+        }
+      };
+      const requestSummaryRefresh = async (template, requestIntentId, generation) => {
+        if (!template?.key || generation !== candidateRequestGeneration) return;
+        activeTemplate = template;
+        activeRequestIntent = "manual_refresh";
+        activeRequestIntentId = requestIntentId;
+        setBusy(true);
+        showStatus("Обновляем итоги. Текущие итоги остаются доступны.");
+        try {
+          const payload = await mutate(
+            `/api/v1/cabinet/meetings/${meetingId}/summaries/${encodeURIComponent(template.key)}/refresh`,
+            "POST",
+            {
+              schema_version: 1,
+              idempotency_key: requestIntentId,
+              expected_current_outcome_set_id: await currentOutcomeSetIdForTemplate(template),
+              template_id: template.id || null,
+              template_version: template.version,
+              generation_options: {}
+            }
+          );
+          if (generation !== candidateRequestGeneration) return;
+          currentOutcomeSetId = payload.current_outcome_set_id || currentOutcomeSetId;
+          pollAttempts = 0;
+          pollDeadline = Date.now() + 5 * 60 * 1000;
+          pollDelay = 1200;
+          showStatus("Обновляем итоги. Текущие итоги остаются доступны.");
+          pollingTimer = window.setTimeout(() => pollSummaryRefresh(template, generation), pollDelay);
+        } catch (error) {
+          if (isMeetingDetailRecoveredError(error) || generation !== candidateRequestGeneration) return;
+          setBusy(false);
+          candidateRequestInFlightGeneration = null;
+          const code = error instanceof Error ? error.message : "summary_request_unavailable";
+          showStatus(candidateErrorCopy(code), "failed", [
+            { text: "Обновить страницу", action: () => window.location.reload(), primary: true }
+          ]);
+        }
+       };
       const requestCurrentRefresh = async () => {
         // Invalidate an in-flight history load before resolving the current template.
         const refreshGeneration = ++candidateRequestGeneration;
@@ -3103,10 +3799,7 @@
           openFormatPicker();
           return;
         }
-        await requestCandidate(template, {
-          requestIntent: "manual_refresh",
-          requestIntentId: newRequestIntentId()
-        });
+        await requestSummaryRefresh(template, newRequestIntentId(), refreshGeneration);
       };
       const newRequestIntentId = () => typeof window.crypto?.randomUUID === "function"
           ? window.crypto.randomUUID()
@@ -3183,6 +3876,55 @@
         version: Number(option.dataset.templateVersion || "1"),
         name: option.dataset.templateName || option.textContent.trim()
       });
+      const candidateSectionLabels = new Map([
+        ["summary", "Кратко"],
+        ["action_items", "Действия"],
+        ["decisions", "Решения"],
+        ["key_points", "Ключевые пункты"],
+        ["followups", "Следующие шаги"],
+        ["risks", "Риски"],
+        ["questions", "Вопросы"],
+        ["evidence", "Подтверждения"]
+      ]);
+      const personalFormatOption = (template) => {
+        const option = document.createElement("button");
+        const safeName = typeof template.name === "string" && template.name.trim()
+          ? template.name.trim()
+          : "Личный формат";
+        const sections = Array.isArray(template.sections)
+          ? template.sections
+              .filter((section) => typeof section === "string" && section.trim())
+              .map((section) => candidateSectionLabels.get(section) || section)
+          : [];
+        option.type = "button";
+        option.dataset.summaryFormatOption = "";
+        option.dataset.templateId = template.template_id || "";
+        option.dataset.templateKey = template.template_key || "";
+        option.dataset.templateVersion = String(Number(template.version) || 1);
+        option.dataset.templateName = safeName;
+        const name = document.createElement("strong");
+        name.textContent = safeName;
+        const purpose = document.createElement("span");
+        purpose.textContent = typeof template.purpose === "string" && template.purpose.trim()
+          ? template.purpose.trim()
+          : "Назначение личного формата не указано.";
+        const expectedSections = document.createElement("small");
+        expectedSections.textContent = `Ожидаемые разделы: ${sections.length ? sections.join(", ") : "не указаны"}`;
+        option.append(name, purpose, expectedSections);
+        const isCurrent = option.dataset.templateKey === (controls.dataset.currentSummaryFormatKey || "")
+          && option.dataset.templateId === (controls.dataset.currentSummaryFormatTemplateId || "")
+          && Number(option.dataset.templateVersion)
+            === Number(controls.dataset.currentSummaryFormatVersion || "0");
+        option.setAttribute("aria-current", isCurrent ? "true" : "false");
+        if (isCurrent) {
+          option.dataset.summaryFormatCurrent = "";
+          const marker = document.createElement("small");
+          marker.className = "summary-format-current";
+          marker.textContent = "Текущий формат";
+          option.append(marker);
+        }
+        return option;
+      };
       const applyServerCandidate = (candidate) => {
         currentOutcomeSetId = candidate.current_outcome_set_id || currentOutcomeSetId;
         activeTemplate = templateFromCandidate(candidate);
@@ -3240,7 +3982,7 @@
         close({ restoreFocus: false });
         if (!(dialog instanceof HTMLDialogElement)) return;
         dialog.showModal();
-        dialog.querySelector("[data-summary-format-option]")?.focus({ preventScroll: true });
+        focusCurrentDialogFormat();
         const personalHost = dialog.querySelector("[data-summary-personal-options]");
         try {
           const response = await fetch("/api/v1/cabinet/summary-templates", { credentials: "same-origin", cache: "no-store" });
@@ -3248,17 +3990,8 @@
           const templates = await response.json();
           if (!personalHost || !templates.personal?.length) return;
           personalHost.hidden = false;
-          personalHost.replaceChildren(...templates.personal.map((template) => {
-            const option = document.createElement("button");
-            option.type = "button";
-            option.dataset.summaryFormatOption = "";
-            option.dataset.templateId = template.template_id;
-            option.dataset.templateKey = template.template_key;
-            option.dataset.templateVersion = String(template.version);
-            option.dataset.templateName = template.name;
-            option.textContent = template.name;
-            return option;
-          }));
+          personalHost.replaceChildren(...templates.personal.map(personalFormatOption));
+          if (dialog.open) focusCurrentDialogFormat();
         } catch (_error) {
           // Built-in formats remain usable when the optional personal list cannot refresh.
         }
@@ -3303,11 +4036,16 @@
         pollDeadline = Number(resumed.pollDeadline || (Date.now() + 5 * 60 * 1000));
         pollDelay = Number(resumed.pollDelay || 1500);
         setBusy(true);
-        showStatus("Проверяем новый вариант. Текущие итоги остаются на месте.");
+        showStatus("Проверяем новую версию. Текущие итоги остаются доступны.");
         pollCandidate({ poll_url: resumed.poll_url });
         return true;
       };
       const initialCandidateLoadGeneration = candidateRequestGeneration;
+      const showCandidateHistoryFailure = () => showStatus(
+        "Не удалось проверить сохранённые варианты. Текущие итоги доступны.",
+        "attention",
+        [{ text: "Повторить", action: () => window.location.reload(), primary: true }]
+      );
       fetch(`/api/v1/cabinet/meetings/${meetingId}/summary-candidates`, {
         credentials: "same-origin",
         cache: "no-store"
@@ -3335,10 +4073,21 @@
           applyServerCandidate(latestFailure);
           return;
         }
-        resumeCachedCandidate();
+        if (!resumeCachedCandidate() && payload === null) {
+          showCandidateHistoryFailure();
+        }
       }).catch(() => {
-        resumeCachedCandidate();
+        if (!resumeCachedCandidate()) {
+          showCandidateHistoryFailure();
+        }
       });
+      if (window.sessionStorage.getItem(acceptedFocusKey) === "current") {
+        window.sessionStorage.removeItem(acceptedFocusKey);
+        window.requestAnimationFrame(() => {
+          activateDetailTab("outcomes");
+          document.querySelector("[data-summary-current-result]")?.focus({ preventScroll: false });
+        });
+      }
     });
   };
 
@@ -3476,9 +4225,20 @@
       const loadTemplates = async () => {
         try {
           const payload = await request(endpoint);
-          renderTemplates(payload.personal || []);
+          const personal = payload.personal || [];
+          renderTemplates(personal);
           if (defaultSelect) {
             canManageDefault = payload.can_manage_default === true;
+            defaultSelect.querySelectorAll("option[data-personal-template]").forEach((option) => option.remove());
+            personal.forEach((template) => {
+              const option = document.createElement("option");
+              option.value = template.template_key;
+              option.textContent = `${template.name} — личный`;
+              option.dataset.personalTemplate = "";
+              option.dataset.templateId = template.template_id;
+              option.dataset.templateVersion = String(template.version);
+              defaultSelect.append(option);
+            });
             defaultSelect.value = payload.default_template_key;
             defaultSelect.disabled = !canManageDefault;
           }
@@ -3724,13 +4484,37 @@
   const initSourceNavigation = () => {
     if (document.body.dataset.sourceNavigationReady === "true") return;
     document.body.dataset.sourceNavigationReady = "true";
+    const returnButton = document.querySelector("[data-source-return]");
+    let sourceReturnTarget = null;
+    const clearSourceReturn = () => {
+      sourceReturnTarget = null;
+      if (returnButton) returnButton.hidden = true;
+    };
+    document.querySelectorAll("[data-detail-tab]").forEach((tab) => {
+      tab.addEventListener("click", clearSourceReturn);
+      tab.addEventListener("keydown", (event) => {
+        if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
+          clearSourceReturn();
+        }
+      });
+    });
+    returnButton?.addEventListener("click", () => {
+      const target = sourceReturnTarget;
+      activateDetailTab("outcomes");
+      clearSourceReturn();
+      window.requestAnimationFrame(() => target?.focus({ preventScroll: true }));
+    });
     document.addEventListener("click", (event) => {
       const control = event.target.closest?.("[data-seek-seconds]");
       if (!control) return;
       const seconds = Number.parseFloat(control.dataset.seekSeconds || "0");
       if (!Number.isFinite(seconds)) return;
       const sourceJump = control.hasAttribute("data-source-segment");
-      if (sourceJump) activateDetailTab("recording");
+      if (sourceJump) {
+        sourceReturnTarget = control;
+        if (returnButton) returnButton.hidden = false;
+        activateDetailTab("recording");
+      }
       const player = document.querySelector("[data-playback-player]");
       if (player) {
         try {
@@ -3925,16 +4709,6 @@
     document.querySelectorAll("[data-playback-shell]").forEach((shell) => {
       if (shell.dataset.playbackReady === "true") return;
       shell.dataset.playbackReady = "true";
-      const detailMain = shell.closest(".app-shell")?.querySelector(".detail-page-main");
-      const syncPlaybackClearance = () => {
-        if (!detailMain) return;
-        const height = Math.ceil(shell.getBoundingClientRect().height);
-        detailMain.style.setProperty("--playback-clearance", `${height + 20}px`);
-      };
-      syncPlaybackClearance();
-      if (typeof ResizeObserver === "function") {
-        new ResizeObserver(syncPlaybackClearance).observe(shell);
-      }
       const player = shell.querySelector("[data-playback-player]");
       if (!player) return;
       const toggle = shell.querySelector("[data-playback-toggle]");
@@ -4088,7 +4862,7 @@
     const mutationCopy = {
       connect: "Проверяем доступ…",
       selection: "Сохраняем выбор…",
-      sync: "Ставим синхронизацию в очередь…",
+      sync: "Синхронизируем календарь…",
       disconnect: "Отключаем календарь…",
     };
     const initCalendarMutation = (form) => {
@@ -4246,6 +5020,22 @@
         if (details) details.open = false;
       });
     });
+  };
+
+  const initCalendarUpcomingRefresh = () => {
+    if (calendarUpcomingRefreshTimer !== null) {
+      window.clearTimeout(calendarUpcomingRefreshTimer);
+      calendarUpcomingRefreshTimer = null;
+    }
+    const upcoming = document.querySelector("[data-calendar-upcoming-refresh-at]");
+    if (!upcoming) return;
+    const endsAt = Date.parse(upcoming.dataset.calendarUpcomingRefreshAt || "");
+    if (!Number.isFinite(endsAt)) return;
+    const delay = Math.max(0, endsAt - Date.now() + 1000);
+    calendarUpcomingRefreshTimer = window.setTimeout(() => {
+      calendarUpcomingRefreshTimer = null;
+      window.location.reload();
+    }, Math.min(delay, 2147483647));
   };
 
   const initSettingsFormState = () => {
@@ -4815,6 +5605,7 @@
       }
       if (typeof dialog.showModal === "function") dialog.showModal();
       else dialog.setAttribute("open", "");
+      dialog.scrollTop = 0;
       const focusTarget = fileInput || dialog.querySelector("a,button,input");
       focusDialogElement(focusTarget);
     };
@@ -4844,7 +5635,15 @@
       return wasOpen;
     };
 
-    dialog.addEventListener("keydown", (event) => trapModalFocus(dialog, event));
+    dialog.addEventListener("keydown", (event) => trapModalFocus(dialog, event, { cycleAll: true }));
+    dialog.addEventListener("cancel", (event) => {
+      event.preventDefault();
+      closeDialog();
+    });
+    dialog.addEventListener("focusin", (event) => {
+      const target = event.target === fileInput ? dropZone : event.target;
+      if (target instanceof HTMLElement) target.scrollIntoView({ block: "nearest" });
+    });
 
     document.body.addEventListener("click", (event) => {
       if (!(event.target instanceof Element)) return;
@@ -4960,24 +5759,28 @@
       const expandedMedia = window.matchMedia(
         shell.classList.contains("desktop-embedded") ? "(min-width: 1121px)" : "(min-width: 981px)"
       );
+      const narrowMedia = window.matchMedia("(max-width: 640px)");
       const storedRailState = sessionStorage.getItem("graf-cabinet-rail");
       let manuallySet = ["expanded", "collapsed"].includes(storedRailState);
+      let preferredPinned = manuallySet
+        ? storedRailState === "expanded"
+        : shell.classList.contains("is-rail-pinned") || expandedMedia.matches;
       const syncViewport = () => {
-        if (!manuallySet) setRailPinned(shell, toggle, expandedMedia.matches);
+        if (!manuallySet) preferredPinned = expandedMedia.matches;
+        setRailPinned(shell, toggle, preferredPinned && !(narrowMedia.matches && shell.querySelector("main")?.contains(document.activeElement)));
       };
       const setManualRailState = (pinned) => {
         manuallySet = true;
+        preferredPinned = pinned;
         sessionStorage.setItem("graf-cabinet-rail", pinned ? "expanded" : "collapsed");
         setRailPinned(shell, toggle, pinned);
       };
-      setRailPinned(
-        shell,
-        toggle,
-        manuallySet
-          ? storedRailState === "expanded"
-          : shell.classList.contains("is-rail-pinned") || expandedMedia.matches
-      );
+      setRailPinned(shell, toggle, preferredPinned && !(narrowMedia.matches && shell.querySelector("main")?.contains(document.activeElement)));
       expandedMedia.addEventListener("change", syncViewport);
+      narrowMedia.addEventListener("change", syncViewport);
+      shell.addEventListener("focusin", (event) => {
+        if (narrowMedia.matches && shell.querySelector("main")?.contains(event.target)) setRailPinned(shell, toggle, false);
+      });
       toggle.addEventListener("click", () => {
         setManualRailState(!shell.classList.contains("is-rail-pinned"));
         toggle.focus({ preventScroll: true });
@@ -4993,33 +5796,123 @@
     });
   };
 
+  let cabinetTooltipsReady = false;
+  const positionCabinetTooltip = (body) => {
+    const trigger = body.closest(".cabinet-tooltip")?.querySelector(".cabinet-tooltip__trigger");
+    if (!trigger) return;
+    const anchor = trigger.getBoundingClientRect();
+    const scale = body.offsetWidth ? body.getBoundingClientRect().width / body.offsetWidth : 1;
+    body.style.setProperty("--tooltip-viewport-width", `${window.innerWidth / scale}px`);
+    body.style.setProperty("--tooltip-viewport-height", `${window.innerHeight / scale}px`);
+    const rect = body.getBoundingClientRect();
+    const left = Math.max(8, Math.min(anchor.left, window.innerWidth - rect.width - 8));
+    const below = anchor.bottom + 8;
+    const top = Math.max(8, Math.min(
+      below + rect.height <= window.innerHeight - 8 ? below : anchor.top - rect.height - 8,
+      window.innerHeight - rect.height - 8,
+    ));
+    body.style.setProperty("--tooltip-left", `${left / scale}px`);
+    body.style.setProperty("--tooltip-top", `${top / scale}px`);
+    body.style.setProperty("--tooltip-bottom", "auto");
+  };
+
+  const initCabinetTooltips = () => {
+    if (cabinetTooltipsReady) return;
+    cabinetTooltipsReady = true;
+    const show = (root) => {
+      const body = root.querySelector(".cabinet-tooltip__body");
+      if (!body || typeof body.showPopover !== "function") return;
+      if (!body.matches(":popover-open")) body.showPopover();
+      positionCabinetTooltip(body);
+    };
+    // Delegation also covers HTMX replacements without retaining old controls.
+    ["pointerover", "focusin"].forEach((name) => document.addEventListener(name, (event) => {
+      const root = event.target.closest?.(".cabinet-tooltip");
+      if (root && !root.contains(event.relatedTarget)) show(root);
+    }));
+    ["pointerout", "focusout"].forEach((name) => document.addEventListener(name, (event) => {
+      const root = event.target.closest?.(".cabinet-tooltip");
+      if (!root || root.contains(event.relatedTarget)) return;
+      // Allow the pointer to cross the small gap into the tooltip itself.
+      window.setTimeout(() => {
+        if (root.matches(":hover") || root.contains(document.activeElement)) return;
+        root.querySelector(".cabinet-tooltip__body:popover-open")?.hidePopover();
+      }, 150);
+    }));
+    document.addEventListener("click", (event) => {
+      const trigger = event.target.closest?.(".cabinet-tooltip__trigger");
+      if (!trigger || typeof trigger.popoverTargetElement?.showPopover !== "function") return;
+      event.preventDefault();
+      show(trigger.closest(".cabinet-tooltip"));
+    });
+    const reposition = () => document.querySelectorAll(".cabinet-tooltip__body:popover-open").forEach(positionCabinetTooltip);
+    window.addEventListener("resize", reposition);
+    document.addEventListener("scroll", reposition, true);
+  };
+
   const initCabinetProfileMenus = () => {
     document.querySelectorAll("[data-profile-menu-root]").forEach((root) => {
       const trigger = root.querySelector("[data-profile-menu-trigger]");
       const menu = root.querySelector("[data-profile-menu]");
       if (!trigger || !menu || root.getAttribute("data-profile-menu-ready") === "true") return;
       root.setAttribute("data-profile-menu-ready", "true");
+      const originalParent = root.parentElement;
+      const mobileNav = root.closest("[data-cabinet-shell]")?.querySelector(".cabinet-mobile-nav");
+      const mobileMedia = window.matchMedia("(max-width: 980px)");
+      const syncProfileLocation = () => {
+        if (!mobileNav) return;
+        const target = mobileMedia.matches ? mobileNav : originalParent;
+        if (root.parentElement !== target) target.append(root);
+      };
+      syncProfileLocation();
+      if (mobileNav) mobileMedia.addEventListener("change", syncProfileLocation);
+      const supportsPopover = typeof menu.showPopover === "function";
+      const popoverOpen = () => supportsPopover && menu.matches(":popover-open");
+      const positionMenu = () => {
+        const rect = trigger.getBoundingClientRect();
+        const scale = trigger.offsetWidth ? rect.width / trigger.offsetWidth : 1;
+        menu.style.setProperty("--profile-menu-bottom", `${Math.max(8, window.innerHeight - rect.top + 8) / scale}px`);
+        menu.style.setProperty("--profile-menu-viewport-width", `${window.innerWidth / scale}px`);
+        menu.style.setProperty("--profile-menu-viewport-height", `${window.innerHeight / scale}px`);
+      };
       const disclosures = Array.from(menu.querySelectorAll(".sidebar-profile-menu__disclosure"));
       const syncDisclosurePosition = (details) => {
-        details.classList.remove("is-flipped");
+        details.classList.remove("is-flipped", "is-inline");
         if (!details.open) return;
         const submenu = details.querySelector("[data-profile-menu-submenu]");
         if (!(submenu instanceof HTMLElement)) return;
         window.requestAnimationFrame(() => {
+          if (!details.open || !details.isConnected) return;
           const rect = submenu.getBoundingClientRect();
           details.classList.toggle("is-flipped", rect.right > window.innerWidth - 8);
+          const placed = submenu.getBoundingClientRect();
+          details.classList.toggle("is-inline", placed.left < 8 || placed.right > window.innerWidth - 8
+            || placed.top < 8 || placed.bottom > window.innerHeight - 8);
         });
       };
       disclosures.forEach((details) => {
         details.addEventListener("toggle", () => syncDisclosurePosition(details));
       });
       const setOpen = (open, restoreFocus = false) => {
-        menu.hidden = !open;
+        if (open) {
+          positionMenu();
+          menu.hidden = false;
+          if (supportsPopover && !popoverOpen()) menu.showPopover();
+        } else {
+          if (popoverOpen()) menu.hidePopover();
+          menu.hidden = true;
+        }
         trigger.setAttribute("aria-expanded", open ? "true" : "false");
         if (!open) disclosures.forEach((details) => { details.open = false; syncDisclosurePosition(details); });
         if (!open && restoreFocus) trigger.focus({ preventScroll: true });
       };
-      trigger.addEventListener("click", () => setOpen(menu.hidden));
+      trigger.addEventListener("click", () => setOpen(menu.hidden || (supportsPopover && !popoverOpen())));
+      window.addEventListener("resize", () => {
+        if (!menu.hidden) {
+          positionMenu();
+          disclosures.forEach(syncDisclosurePosition);
+        }
+      });
       document.addEventListener("keydown", (event) => {
         if (event.key === "Escape" && !menu.hidden) setOpen(false, true);
       });
@@ -5037,7 +5930,13 @@
 
   const renderMeetingDetailRecovery = (detail, kind) => {
     stopPlaybackRecoveryPolling();
-    const listPath = location.pathname.startsWith("/desktop/")
+    const playback = detail.closest("[data-cabinet-shell]")?.querySelector(".playback-bar");
+    const player = playback?.querySelector("[data-playback-player]");
+    player?.pause?.();
+    player?.removeAttribute?.("src");
+    player?.load?.();
+    playback?.remove();
+    const listPath = location.pathname.startsWith("/desktop/") || document.body?.dataset?.surfaceMode === "desktop_embedded"
       ? "/desktop/meetings"
       : "/meetings";
     const copy = {
@@ -5186,8 +6085,13 @@
 
   const playbackRecoveryCopy = "Не удалось обновить статус. GRAF попробует снова автоматически.";
 
+  const detailPlayback = (detail) => {
+    const playback = detail?.nextElementSibling;
+    return playback?.matches?.(".detail-playback") ? playback : null;
+  };
+
   const showPlaybackRecoveryNotice = (detail) => {
-    const playback = detail.querySelector(".detail-playback");
+    const playback = detailPlayback(detail);
     const liveStatus = detail.querySelector("[data-playback-live-status]");
     if (playback && !playback.querySelector("[data-playback-recovery-copy]")) {
       const notice = document.createElement("p");
@@ -5202,7 +6106,7 @@
   };
 
   const clearPlaybackRecoveryNotice = (detail) => {
-    detail.querySelector("[data-playback-recovery-copy]")?.remove();
+    detailPlayback(detail)?.querySelector("[data-playback-recovery-copy]")?.remove();
   };
 
   const refreshPlaybackRecovery = async () => {
@@ -5214,7 +6118,10 @@
       method: "GET",
       credentials: "same-origin",
       cache: "no-store",
-      headers: { "HX-Request": "true" }
+      headers: {
+        "HX-Request": "true",
+        ...(detail.dataset.cabinetEmbedded === "true" ? { "X-GRAF-Client": "desktop" } : {}),
+      }
     });
     try {
       const response = await playbackRecoveryRequest;
@@ -5226,8 +6133,8 @@
       }
       const documentFragment = new DOMParser().parseFromString(await response.text(), "text/html");
       const nextDetail = documentFragment.querySelector("[data-playback-poll-url]");
-      const currentPlayback = detail.querySelector(".detail-playback");
-      const nextPlayback = nextDetail?.querySelector(".detail-playback");
+      const currentPlayback = detailPlayback(detail);
+      const nextPlayback = detailPlayback(nextDetail);
       const currentTranscript = detail.querySelector("[data-playback-transcript]");
       const nextTranscript = nextDetail?.querySelector("[data-playback-transcript]");
       const currentLiveStatus = detail.querySelector("[data-playback-live-status]");
@@ -6214,6 +7121,7 @@
     initAuthTransition();
     initCabinetRail();
     initCabinetProfileMenus();
+    initCabinetTooltips();
     initListDisclosures();
     initCodeForms();
     initOutcomeFocus();
@@ -6226,6 +7134,7 @@
     initSummaryFormats();
     initSummaryTemplateSettings();
     initMeetingContextPanels();
+    initProcessingReprocess();
     initShareDialogs();
     initSourceNavigation();
     initPlayback();
@@ -6236,6 +7145,7 @@
     initContentExport();
     initMeetingDeleteDialog();
     initCalendarSettings();
+    initCalendarUpcomingRefresh();
     initSettingsFormState();
     initAccountPreferences();
     initSettingsConfirmations();
@@ -6319,6 +7229,7 @@
       source.setAttribute("aria-expanded", "true");
     }
     if (target instanceof Element && (target.id === "meeting-list-region" || target.matches("[data-meeting-list]"))) {
+      renderLocalRecordingRows();
       if (pendingDeleteRows.length) {
         const pendingMeetingIds = new Set(pendingDeleteRows.map((row) => row.dataset.meetingId));
         pendingDeleteRows = allRows().filter((row) => pendingMeetingIds.has(row.dataset.meetingId));
@@ -6359,13 +7270,12 @@
 
   window.addEventListener("pageshow", updateSelection);
 
-  if (!csrfToken) return;
-
   document.body.addEventListener("htmx:configRequest", (event) => {
     const detail = event.detail || {};
-    const verb = String(detail.verb || "get").toUpperCase();
-    if (!["POST", "PUT", "PATCH", "DELETE"].includes(verb)) return;
     detail.headers = detail.headers || {};
+    if (document.body?.dataset?.surfaceMode === "desktop_embedded") detail.headers["X-GRAF-Client"] = "desktop";
+    const verb = String(detail.verb || "get").toUpperCase();
+    if (!csrfToken || !["POST", "PUT", "PATCH", "DELETE"].includes(verb)) return;
     detail.headers["X-CSRF-Token"] = csrfToken;
   });
 })();

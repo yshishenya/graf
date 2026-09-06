@@ -3,7 +3,31 @@ from io import BytesIO
 import httpx
 import pytest
 
-from twobrain_rec_server.mediascribe.client import MediaScribeClient
+from twobrain_rec_server.mediascribe.client import MediaScribeClient, _safe_media_content_type
+
+
+@pytest.mark.parametrize(
+    ("content_type", "expected"),
+    [
+        ("audio/wav", "audio/wav"),
+        ("audio/x-wav", "audio/x-wav"),
+        ("audio/wave", "audio/wave"),
+        ("audio/mpeg", "audio/mpeg"),
+        ("audio/mp3", "audio/mp3"),
+        ("audio/mp4", "audio/mp4"),
+        ("audio/x-m4a", "audio/mp4"),
+        ("audio/m4a", "audio/mp4"),
+        ("audio/aac", "audio/aac"),
+        ("audio/webm", "audio/webm"),
+        ("audio/ogg", "audio/ogg"),
+        ("audio/flac", "audio/flac"),
+        ("video/mp4", "video/mp4"),
+        ("video/quicktime", "video/quicktime"),
+        ("video/webm", "video/webm"),
+    ],
+)
+def test_single_track_request_keeps_supported_media_types(content_type: str, expected: str) -> None:
+    assert _safe_media_content_type(content_type, b"unknown") == expected
 
 
 @pytest.mark.asyncio

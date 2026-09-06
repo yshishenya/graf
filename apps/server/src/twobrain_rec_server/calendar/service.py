@@ -158,10 +158,12 @@ def list_provider_presets(
     *,
     google_available: bool | None = None,
     allow_uncertified_google: bool = False,
+    allow_uncertified_yandex: bool = False,
 ) -> list[dict[str, object]]:
     return provider_preset_payloads(
         google_available=google_available,
         allow_uncertified_google=allow_uncertified_google,
+        allow_uncertified_yandex=allow_uncertified_yandex,
     )
 
 

@@ -11,9 +11,14 @@ import pytest
 
 from twobrain_rec_server.cli.langfuse_prompts import (
     CONTROL_PROMPTS,
+    create_root_bundle_candidate,
     desired_prompts,
     promote_control_prompt_version,
     sync_prompts,
+)
+from twobrain_rec_server.outcomes.prompt_bundle import (
+    bind_snapshot_from_metadata,
+    snapshot_bundle_metadata,
 )
 from twobrain_rec_server.outcomes.prompt_optimization import (
     OUTCOME_EVAL_METRIC_THRESHOLDS,
@@ -25,6 +30,7 @@ from twobrain_rec_server.outcomes.prompt_optimization import (
     _commit_database_until_quiescent,
     _publish_optimization_terminal_observation,
     _run_thread_until_quiescent,
+    _snapshot_from_payload,
     _snapshot_payload,
     authorize_prompt_rollback_action_activity,
     control_gate_evidence_hash,
@@ -915,6 +921,114 @@ def test_prompt_sync_treats_an_older_production_contract_as_change_required(
     )
 
     assert f"change-required:{prompt_name}" in outcomes
+
+
+def test_root_bundle_candidate_accepts_exact_version_per_prompt(monkeypatch) -> None:
+    import langfuse
+
+    prompt_definitions = desired_prompts()
+    names = [name for name in prompt_definitions if name.startswith("graf/meeting-outcome/")]
+    versions = {name: index + 1 for index, name in enumerate(names)}
+    calls: list[tuple[str, int]] = []
+
+    class Client:
+        def get_prompt(self, name, **kwargs):
+            calls.append((name, kwargs["version"]))
+            prompt_type, prompt, config = prompt_definitions[name]
+            assert prompt_type == "chat"
+            return Mock(version=kwargs["version"], prompt=prompt, config=config)
+
+        def create_prompt(self, **_kwargs):
+            return Mock(version=31)
+
+        def flush(self):
+            pass
+
+        def shutdown(self):
+            pass
+
+    monkeypatch.setattr(langfuse, "Langfuse", lambda **_kwargs: Client())
+    descriptor = {
+        "alias": "gpt-5.6-luna",
+        "binding_version": "graf-litellm-route-v1",
+        "allowed_provider_models": [{"provider": "openai", "model": "gpt-5.6-luna"}],
+        "request_compiler_hash": "a" * 64,
+        "request_compiler_version": "graf-chat-compiler-v1",
+    }
+    from twobrain_rec_server.outcomes.prompt_bundle import route_binding_hash
+
+    route_binding = {**descriptor, "binding_hash": route_binding_hash(descriptor)}
+    result = create_root_bundle_candidate(
+        base_url="https://langfuse.invalid",
+        public_key="pk-test",
+        secret_key="sk-test",
+        child_versions=versions,
+        route_binding=route_binding,
+    )
+
+    assert result["root_prompt_version"] == 31
+    assert result["child_versions"] == dict(sorted(versions.items()))
+    assert sorted(calls) == sorted(versions.items())
+
+
+def test_optimizer_snapshot_and_candidate_retain_route_binding() -> None:
+    source = _source()
+    descriptor = {
+        "alias": "gpt-5.6-luna",
+        "binding_version": "graf-litellm-route-v1",
+        "allowed_provider_models": [{"provider": "openai", "model": "gpt-5.6-luna"}],
+        "request_compiler_hash": "a" * 64,
+        "request_compiler_version": "graf-chat-compiler-v1",
+    }
+    from twobrain_rec_server.outcomes.prompt_bundle import route_binding_hash
+
+    binding = {**descriptor, "binding_hash": route_binding_hash(descriptor)}
+    bound = bind_snapshot_from_metadata(
+        source,
+        {
+            "root_bundle_hash": "b" * 64,
+            "root_prompt_version": 3,
+            "route_binding_hash": binding["binding_hash"],
+            "route_binding": binding,
+        },
+    )
+
+    restored = _snapshot_from_payload(_snapshot_payload(bound))
+    candidate = validate_candidate_prompt(bound, canonical_json(bound.prompt))
+
+    assert snapshot_bundle_metadata(restored) == snapshot_bundle_metadata(bound)
+    assert snapshot_bundle_metadata(candidate) == snapshot_bundle_metadata(bound)
+
+
+def test_production_optimizer_uses_secret_file_and_requires_route_binding(
+    monkeypatch, tmp_path
+) -> None:
+    from twobrain_rec_server.outcomes import generator as generator_module
+    from twobrain_rec_server.outcomes.prompt_optimization import _ProductionModelExecutor
+
+    secret = tmp_path / "twobrain_litellm_api_key"
+    secret.write_text("luna-key\n", encoding="utf-8")
+    captured: dict[str, object] = {}
+
+    class Gateway:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(generator_module, "LiteLLMGateway", Gateway)
+    _ProductionModelExecutor(
+        settings=SimpleNamespace(
+            litellm_base_url="https://litellm.pro-4.ru",
+            litellm_api_key_file=secret,
+            litellm_request_timeout_seconds=120,
+        )
+    )
+
+    assert captured == {
+        "base_url": "https://litellm.pro-4.ru",
+        "api_key": "luna-key",
+        "timeout_seconds": 120,
+        "require_route_binding": True,
+    }
 
 
 def test_heldout_gate_uses_worst_example_instead_of_mean() -> None:

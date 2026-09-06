@@ -1,0 +1,10 @@
+schema_version: 1
+feature_id: 233
+category: Changed
+summary: "PR-проверка перенесена на GitHub Actions с pinned Spec Kit bootstrap; локальный CI сохранён как fallback"
+issue: 6363
+tasks: [T001, T002, T003, T004, T005, T006, T007, T008]
+compatibility: "infra/scripts/ci-local.sh не удалён и может использоваться локально для диагностики"
+known_limitations:
+  - "Полный CI остаётся отдельным gate для замороженного release candidate"
+release_notes: "GitHub governance-fast становится обязательной автоматической проверкой PR; локальный запуск больше не является источником merge evidence."

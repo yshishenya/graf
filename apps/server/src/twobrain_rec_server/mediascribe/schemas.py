@@ -116,15 +116,6 @@ class MediaScribeProblemDetails(MediaScribeModel):
     errors: list[dict[str, Any]] | None = None
 
 
-class MediaScribeSubmitRequest(MediaScribeModel):
-    mic_object_key: str
-    incoming_object_key: str
-    diarize: bool = True
-    summarize: bool = False
-    speaker_count_mode: str | None = None
-    num_speakers: int | None = Field(default=None, ge=1)
-
-
 class MediaScribeMediaSource(MediaScribeModel):
     role: str
     filename: str
@@ -312,10 +303,22 @@ class MediaScribeTranscriptSegment(MediaScribeModel):
     source_role_original: str | None = None
 
 
+class MediaScribeWordItem(BaseModel):
+    """The public v0.5.3 word contract; provider extensions are not public."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    word: str
+    start: float | None = None
+    end: float | None = None
+    probability: float | None = None
+
+
 class MediaScribeDiarizationSegment(MediaScribeTranscriptSegment):
     speaker_label: str = Field(
         validation_alias=AliasChoices("speaker_label", "speaker"),
     )
+    words: list[MediaScribeWordItem] | None = None
 
 
 class MediaScribeAcousticSpeakerTurn(MediaScribeModel):
@@ -395,17 +398,8 @@ class MediaScribeResult(MediaScribeModel):
             raise ValueError("unsupported_transcript_status")
         return self
 
-    @model_validator(mode="before")
-    @classmethod
-    def infer_legacy_transcript_status(cls, data: Any) -> Any:
-        if not isinstance(data, dict):
-            return data
-        if data.get("transcript_status") is None and data.get("transcript_reason") is None and data.get("transcript"):
-            return {**data, "transcript_status": ProcessingAvailabilityStatus.AVAILABLE}
-        return data
-
     @model_validator(mode="after")
-    def infer_legacy_summary_status(self) -> MediaScribeResult:
+    def derive_summary_status(self) -> MediaScribeResult:
         if self.summary is None or self.summary_status != SummaryStatus.NOT_REQUESTED:
             return self
         mapped = {
@@ -450,18 +444,3 @@ class MediaScribeDownloadResponse(MediaScribeModel):
     request_id: str | None = None
     headers: MediaScribeResponseHeaders = Field(default_factory=MediaScribeResponseHeaders)
     http_status: int | None = None
-
-
-# Short aliases keep the adapter API readable while the Response suffixes make
-# the provider DTO boundary explicit for callers and tests.
-MediaScribeCapabilities = MediaScribeCapabilitiesResponse
-MediaScribeVersion = MediaScribeVersionResponse
-MediaScribeJob = MediaScribeJobResponse
-MediaScribeJobList = MediaScribeJobListResponse
-MediaScribeSummary = MediaScribeSummaryResponse
-MediaScribeDeletion = MediaScribeDeletionResponse
-MediaScribeDownload = MediaScribeDownloadResponse
-
-# Existing processing code imports this name. Keep it as an alias while
-# allowing the v1 provider status to carry an unknown future value.
-MediaScribeSegment = MediaScribeTranscriptSegment

@@ -159,6 +159,29 @@ final class LocalRecordingWriterTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: directory.directoryURL.appendingPathComponent("meeting-transcription.partial.wav").path))
         XCTAssertFalse(FileManager.default.fileExists(atPath: directory.directoryURL.appendingPathComponent("meeting-review.partial.m4a").path))
     }
+
+    func testCanonicalWriterCheckpointsRecoverableWAVWithinTenSeconds() throws {
+        let root = makeWriterTestRoot("canonical-checkpoint")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let directory = try LocalRecordingStore(rootURL: root).createDirectory(sessionId: "canonical-checkpoint")
+        let writer = try CanonicalRecordingWriter(directory: directory)
+        let acceptedFrames = Int(CanonicalRecordingWriter.canonicalSampleRate * 11)
+
+        try writer.append(RecordingAudioTimelineChunk(
+            startFrameIndex: 0,
+            samples: Array(repeating: 0.2, count: acceptedFrames)
+        ))
+
+        let partialURL = directory.directoryURL.appendingPathComponent("meeting-transcription.partial.wav")
+        let header = try V5WAVHeader(url: partialURL)
+        let securedFrames = Int(header.dataByteCount / 2)
+        let acceptedTranscriptionFrames = acceptedFrames / 3
+        XCTAssertGreaterThan(securedFrames, 0)
+        XCTAssertLessThanOrEqual(
+            acceptedTranscriptionFrames - securedFrames,
+            Int(CanonicalRecordingWriter.transcriptionSampleRate * 10)
+        )
+    }
 }
 
 private func makeWriterTestRoot(_ name: String) -> URL {
@@ -221,6 +244,7 @@ private struct V5WAVHeader {
     let channelCount: UInt16
     let sampleRate: UInt32
     let bitsPerSample: UInt16
+    let dataByteCount: UInt32
 
     init(url: URL) throws {
         let data = try Data(contentsOf: url)
@@ -231,6 +255,7 @@ private struct V5WAVHeader {
         channelCount = data.v5UInt16LE(at: 22)
         sampleRate = data.v5UInt32LE(at: 24)
         bitsPerSample = data.v5UInt16LE(at: 34)
+        dataByteCount = data.v5UInt32LE(at: 40)
     }
 }
 

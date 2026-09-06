@@ -20,7 +20,7 @@
       {{ dependencies_band }}
       {{ egress_limits_band }}
     </div>
-    <div class="report-band" {{ primitives.analytics_private_attrs() if primitives is defined else '' }}>
+    <div class="report-band" data-graf-analytics-private="true" data-ph-no-capture="true" data-ph-mask="true" data-ym-hide-content="true" data-ym-disable-keys="true">
       <h3>Границы аналитики</h3>
       <div class="truth-copy">{{ analytics_limits }}</div>
     </div>

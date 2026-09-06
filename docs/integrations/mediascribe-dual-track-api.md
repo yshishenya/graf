@@ -15,9 +15,8 @@ recordings.
 - The server reads the API key from its protected runtime secret. Credentials,
   signed URLs, audio bytes, transcript text, and provider payloads are never
   written to application diagnostics or feature evidence.
-- One accepted media revision owns at most one persisted MediaScribe job. An
-  ambiguous provider response blocks a v5 retry rather than risking a second
-  external job.
+- One accepted media revision owns at most one persisted MediaScribe job and
+  one durable `Idempotency-Key`.
 
 ## Active v5 contract
 
@@ -25,7 +24,7 @@ Every new macOS recording has exactly these final package members:
 
 | Purpose | File | Format | Provider behavior |
 |---|---|---|---|
-| ASR source | `meeting-transcription.wav` | PCM s16le, mono, 16 kHz | The only audio sent to MediaScribe. |
+| ASR source | `meeting-transcription.wav` | PCM s16le, mono, 16 kHz | The only audio sent to MediaScribe for a v5 macOS package. |
 | Local/server playback | `meeting-review.m4a` | AAC, mono, 48 kHz | Stored for playback only; never sent to MediaScribe. |
 | Package metadata | `manifest.json` | JSON | Sent to GRAF's upload API, never to MediaScribe. |
 
@@ -64,6 +63,11 @@ M4A filename, user path, or client-supplied filename. A successful response
 must have a provider job id. GRAF persists the id before future polling and
 imports one ordered result for that job.
 
+Manual uploads use the same v1 single-track endpoint after GRAF has produced
+and strictly validated one canonical `manual-media.m4a`. GRAF sends that exact
+artifact as `audio/mp4`; the same M4A is the playback artifact when audio
+archiving is enabled. Manual upload does not create an intermediate WAV.
+
 The canonical WAV is intentionally continuous from a single shared recording
 timeline. Silence and proven discontinuities remain timestamped rather than
 being removed or filled to a wall-clock stop time. This preserves transcript
@@ -72,8 +76,8 @@ timing without trying to reconstruct separate speakers from two recordings.
 ## Polling and result import
 
 ```http
-GET /jobs/{job_id}
-GET /jobs/{job_id}/result
+GET /v1/audio/transcriptions/{job_id}
+GET /v1/audio/transcriptions/{job_id}/result
 X-API-Key: <server-side secret>
 ```
 
@@ -111,8 +115,10 @@ active product feature.
   ASR input.
 - Missing or mismatched stored objects block the workflow with a safe reason;
   they are not silently replaced with another track.
-- Retriable transport errors on a v5 submission with an unknown outcome become
-  a terminal safe block, because submitting again could create a duplicate job.
+- If an upload response is lost after egress may have started, GRAF retries
+  only the exact same multipart request with the same `Idempotency-Key`, bytes,
+  filenames, content types and form parameters. MediaScribe v0.5.3 returns the
+  original job for that replay. A new key or a changed request is forbidden.
 
 ## Operational privacy rules
 

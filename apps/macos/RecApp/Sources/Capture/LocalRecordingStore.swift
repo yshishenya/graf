@@ -20,10 +20,10 @@ public struct LocalRecordingStore: Sendable {
         applicationSupportURL: URL? = nil,
         channel: GrafAppChannel = .current
     ) -> URL {
-        let base = applicationSupportURL ?? fileManager.urls(
-            for: .applicationSupportDirectory,
-            in: .userDomainMask
-        ).first ?? fileManager.temporaryDirectory
+        let base = MeetingDetectionAppModule.applicationSupportBaseURL(
+            fileManager: fileManager,
+            applicationSupportURL: applicationSupportURL
+        )
         let current = base
             .appendingPathComponent(channel.applicationSupportFolderName, isDirectory: true)
             .appendingPathComponent("Recordings", isDirectory: true)

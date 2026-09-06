@@ -53,6 +53,7 @@ from twobrain_rec_server.db.models import (
     ExternalIdentity,
     Meeting,
     MeetingShareInvitation,
+    ProcessingWorkflow,
     UserIdentity,
     Workspace,
     WorkspaceMembership,
@@ -85,12 +86,18 @@ from twobrain_rec_server.outcomes.ai_service import (
 from twobrain_rec_server.outcomes.dispatch import (
     list_due_dispatch_intents,
     reconcile_dispatch_intent,
+    reconcile_missing_summary_defaults,
+    reconcile_orphaned_summary_candidates,
+    reconcile_unrequested_summary_candidates,
 )
 from twobrain_rec_server.processing import reasons, store
-from twobrain_rec_server.processing.fences import is_legacy_lineage
+from twobrain_rec_server.processing.pickup import pick_up_processing
 from twobrain_rec_server.processing.recovery import schedule_retry, schedule_retry_with_settings
 from twobrain_rec_server.processing.store import ProcessingLifecycleBlocked
 from twobrain_rec_server.processing.submit import (
+    ManualUploadNormalizationPending,
+    ManualUploadNormalizationTerminal,
+    ProcessingUsageUnavailable,
     poll_and_import_mediascribe_result,
     submit_to_mediascribe,
 )
@@ -137,6 +144,25 @@ BILLING_RENEWAL_TERMINAL_STATES = frozenset({"succeeded", "canceled", "succeeded
 PROCESSING_ACTIVITY_HEARTBEAT_INTERVAL_SECONDS = 15
 
 
+def _processing_mediascribe_client(settings: Any) -> MediaScribeClient | None:
+    """Build the provider client without making Dev worker readiness depend on it.
+
+    The local full-stack adapter intentionally starts with no MediaScribe
+    endpoint or secret. The Temporal worker must still poll its queues so that
+    local readiness proves the worker/runtime wiring. An activity that actually
+    needs provider work continues to fail closed through the normal
+    ``blocked_config`` path. Production never gets this startup exception.
+    """
+
+    try:
+        return MediaScribeClient.from_settings(settings, reuse_connections=True)
+    except MediaScribeClientError as exc:
+        if settings.env.lower() not in {"development", "test"} or exc.reason_code != "blocked_config":
+            raise
+        logger.warning("processing worker started with MediaScribe provider unconfigured")
+        return None
+
+
 def _processing_activity_is_cancelled(activity_context: Any) -> bool:
     is_cancelled = getattr(activity_context, "is_cancelled", None)
     if is_cancelled is None:
@@ -152,6 +178,93 @@ def _heartbeat_processing_activity(activity_context: Any, **details: Any) -> Non
     activity_context.heartbeat(details)
     if _processing_activity_is_cancelled(activity_context):
         raise asyncio.CancelledError
+
+
+def _processing_activity_temporal_workflow_id(activity_context: Any) -> str | None:
+    try:
+        workflow_id = activity_context.info().workflow_id
+    except RuntimeError:
+        # Direct test callers do not have a Temporal activity context.
+        return None
+    return str(workflow_id) if workflow_id else None
+
+
+async def _load_processing_workflow_for_activity(
+    db: Any,
+    *,
+    processing_workflow_id: UUID | None,
+    workspace_id: UUID,
+    meeting_id: UUID,
+    media_revision_id: UUID | None,
+    temporal_workflow_id: str | None,
+    active_only: bool,
+) -> ProcessingWorkflow:
+    if processing_workflow_id is None:
+        # ponytail: legacy histories omit the row UUID; remove this fallback
+        # after every such execution has closed.
+        if media_revision_id is None:
+            # Legacy callbacks omitted revision identity. Discover the
+            # workflow, then let the accepted-revision fence reject it.
+            query = (
+                select(ProcessingWorkflow)
+                .where(
+                    ProcessingWorkflow.workspace_id == workspace_id,
+                    ProcessingWorkflow.meeting_id == meeting_id,
+                    ProcessingWorkflow.purpose == "transcription",
+                )
+                .order_by(
+                    ProcessingWorkflow.attempt_ordinal.desc(),
+                    ProcessingWorkflow.created_at.desc(),
+                )
+            )
+            if active_only:
+                query = query.where(
+                    ProcessingWorkflow.status.notin_(
+                        {
+                            ProcessingStatus.PROCESSED.value,
+                            ProcessingStatus.BLOCKED.value,
+                            ProcessingStatus.FAILED_TERMINAL.value,
+                            ProcessingStatus.CANCELED.value,
+                        }
+                    )
+                )
+            workflow = await db.scalar(query)
+        else:
+            workflow = await store.get_processing_workflow(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
+                active_only=active_only,
+            )
+    else:
+        query = select(ProcessingWorkflow).where(
+            ProcessingWorkflow.id == processing_workflow_id,
+            ProcessingWorkflow.workspace_id == workspace_id,
+            ProcessingWorkflow.meeting_id == meeting_id,
+        )
+        if active_only:
+            query = query.where(
+                ProcessingWorkflow.status.notin_(
+                    {
+                        ProcessingStatus.PROCESSED.value,
+                        ProcessingStatus.BLOCKED.value,
+                        ProcessingStatus.FAILED_TERMINAL.value,
+                        ProcessingStatus.CANCELED.value,
+                    }
+                )
+            )
+        workflow = await db.scalar(query)
+    if workflow is None:
+        raise ProcessingLifecycleBlocked("processing_workflow_missing")
+    if (
+        workflow.workspace_id != workspace_id
+        or workflow.meeting_id != meeting_id
+        or (media_revision_id is not None and workflow.media_revision_id != media_revision_id)
+        or (temporal_workflow_id is not None and workflow.workflow_id != temporal_workflow_id)
+    ):
+        raise ProcessingLifecycleBlocked("processing_workflow_identity_mismatch")
+    return workflow
 
 
 async def _await_processing_operation(
@@ -217,7 +330,11 @@ def _provider_request_fingerprint(provider_job: Any) -> tuple[bool, str | None]:
         if not isinstance(raw, str):
             return True, None
         value = raw.strip()
-        if not value or len(value) > 128 or any(ord(char) < 0x21 or ord(char) > 0x7E for char in value):
+        if (
+            not value
+            or len(value) > 128
+            or any(ord(char) < 0x21 or ord(char) > 0x7E for char in value)
+        ):
             return True, None
         return True, value
     return False, None
@@ -252,7 +369,10 @@ def _provider_job_status(provider_job: Any) -> MediaScribeJobStatus:
 def _is_unknown_mediascribe_upload(*, workflow: Any, job: Any) -> bool:
     if getattr(workflow, "status", None) == ProcessingStatus.BLOCKED_UNKNOWN.value:
         return True
-    return getattr(job, "last_error_code", None) == reasons.BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN
+    return (
+        getattr(job, "last_error_code", None)
+        == reasons.BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN
+    )
 
 
 async def _restore_unknown_processing_state(
@@ -261,8 +381,9 @@ async def _restore_unknown_processing_state(
     workflow: Any,
     retry_after_seconds: int | None = None,
     schedule_next_retry: bool = False,
+    settings: Any | None = None,
 ) -> Any | None:
-    """Keep an unknown upload recoverable without ever issuing a new upload."""
+    """Keep an unknown upload recoverable on its durable idempotency key."""
 
     current = await store.get_processing_workflow(
         db,
@@ -284,13 +405,26 @@ async def _restore_unknown_processing_state(
             if retry_after_seconds is not None
             else None
         )
-        retry_schedule = schedule_retry(
-            now=datetime.now(UTC),
-            retry_count=int(current.retry_count or 0),
-            generation=int(current.schedule_generation or 0),
-            retry_after=retry_after,
-            deadline_at=current.deadline_at,
-            source="provider_retry_after" if retry_after is not None else None,
+        scheduler = schedule_retry_with_settings if settings is not None else schedule_retry
+        retry_schedule = (
+            scheduler(
+                settings,
+                now=datetime.now(UTC),
+                retry_count=int(current.retry_count or 0),
+                generation=int(current.schedule_generation or 0),
+                retry_after=retry_after,
+                deadline_at=current.deadline_at,
+                source="provider_retry_after" if retry_after is not None else None,
+            )
+            if settings is not None
+            else scheduler(
+                now=datetime.now(UTC),
+                retry_count=int(current.retry_count or 0),
+                generation=int(current.schedule_generation or 0),
+                retry_after=retry_after,
+                deadline_at=current.deadline_at,
+                source="provider_retry_after" if retry_after is not None else None,
+            )
         )
         current.next_attempt_at = retry_schedule.next_attempt_at
         current.next_attempt_source = retry_schedule.source
@@ -323,90 +457,53 @@ async def _reconcile_unknown_mediascribe_upload(
     workflow: Any,
     job: Any | None,
     mediascribe_client: Any,
+    settings: Any | None = None,
 ) -> Any | None:
-    """Reconcile an uncertain POST without issuing another multipart upload."""
+    """Reconcile an uncertain POST when the provider job id is already known."""
 
     if job is None:
-        await _restore_unknown_processing_state(db, workflow=workflow)
+        await _restore_unknown_processing_state(db, workflow=workflow, settings=settings)
         return None
 
-    idempotency_key = getattr(job, "idempotency_key", None)
     external_job_id = getattr(job, "external_job_id", None)
+    if not external_job_id:
+        # A POST can time out after the provider accepted it.  The only
+        # contract-backed reconciliation is replaying the exact request with
+        # the same durable Idempotency-Key; submit_to_mediascribe owns that
+        # replay on the next Temporal/manual cycle.
+        return job
+
     provider_job: Any | None = None
-    if external_job_id:
-        get_job = getattr(mediascribe_client, "get_job", None)
-        if callable(get_job):
-            try:
-                provider_job = await get_job(external_job_id)
-            except MediaScribeClientError as exc:
-                await _restore_unknown_processing_state(
-                    db,
-                    workflow=workflow,
-                    retry_after_seconds=exc.retry_after_seconds,
-                    schedule_next_retry=exc.retryable,
-                )
-                return None
-            if not _provider_request_matches_job(provider_job=provider_job, job=job):
-                await _restore_unknown_processing_state(db, workflow=workflow)
-                return None
-    else:
-        if not isinstance(idempotency_key, str) or not idempotency_key:
-            await _restore_unknown_processing_state(db, workflow=workflow)
-            return None
-        list_jobs = getattr(mediascribe_client, "list_jobs", None)
-        if not callable(list_jobs):
-            await _restore_unknown_processing_state(db, workflow=workflow)
-            return None
+    get_job = getattr(mediascribe_client, "get_job", None)
+    if callable(get_job):
         try:
-            listing = await list_jobs(q=idempotency_key, page_size=100)
+            provider_job = await get_job(external_job_id)
         except MediaScribeClientError as exc:
             await _restore_unknown_processing_state(
                 db,
                 workflow=workflow,
                 retry_after_seconds=exc.retry_after_seconds,
                 schedule_next_retry=exc.retryable,
+                settings=settings,
             )
             return None
-        fingerprint_mismatch = False
-        for candidate in getattr(listing, "data", ()) or ():
-            if _provider_job_field(candidate, "idempotency_key") != idempotency_key:
-                continue
-            candidate_id = _provider_job_field(candidate, "id")
-            if isinstance(candidate_id, str) and candidate_id:
-                if not _provider_request_matches_job(provider_job=candidate, job=job):
-                    fingerprint_mismatch = True
-                    continue
-                provider_job = candidate
-                external_job_id = candidate_id
-                break
-        if fingerprint_mismatch and not external_job_id:
-            await _restore_unknown_processing_state(db, workflow=workflow)
-            return None
-        if not external_job_id:
-            # The provider may be eventually consistent after an ambiguous
-            # upload. Re-querying with the same key is safe and avoids a
-            # duplicate multipart submission.
-            await _restore_unknown_processing_state(db, workflow=workflow, schedule_next_retry=True)
+        if not _provider_request_matches_job(provider_job=provider_job, job=job):
+            await _restore_unknown_processing_state(db, workflow=workflow, settings=settings)
             return None
 
-    status = _provider_job_status(provider_job) if provider_job is not None else MediaScribeJobStatus.SUBMITTED
-    if getattr(job, "external_job_id", None) is None:
-        job.external_job_id = external_job_id
-        job = await store.persist_mediascribe_submission(
-            db,
-            job=job,
-            external_job_id=external_job_id,
-            status=status,
-        )
-    else:
-        # The fallback path already retained the opaque provider ID. Clear the
-        # blocked projection so the normal poll/import path can advance it.
-        job.status = status.value
-        job.failed_at = None
-        job.last_error_code = None
-        job.last_error_message = None
-        await db.commit()
-    await _restore_unknown_processing_state(db, workflow=workflow)
+    status = (
+        _provider_job_status(provider_job)
+        if provider_job is not None
+        else MediaScribeJobStatus.SUBMITTED
+    )
+    # The fallback path already retained the opaque provider ID. Clear the
+    # blocked projection so the normal poll/import path can advance it.
+    job.status = status.value
+    job.failed_at = None
+    job.last_error_code = None
+    job.last_error_message = None
+    await db.commit()
+    await _restore_unknown_processing_state(db, workflow=workflow, settings=settings)
     return job
 
 
@@ -1123,6 +1220,24 @@ async def run_dispatch_reconciler(settings: Any, temporal_client: object) -> Non
                             feature_area="content_regeneration",
                         ),
                     )
+                    repaired = await reconcile_orphaned_summary_candidates(db, limit=25)
+                    if repaired:
+                        logger.info(
+                            "reconciled orphaned summary candidates",
+                            extra={"repaired_count": repaired},
+                        )
+                    backfilled = await reconcile_unrequested_summary_candidates(db, limit=25)
+                    if backfilled:
+                        logger.info(
+                            "backfilled unrequested summary candidates",
+                            extra={"backfilled_count": backfilled},
+                        )
+                    defaults_repaired = await reconcile_missing_summary_defaults(db, limit=25)
+                    if defaults_repaired:
+                        logger.info(
+                            "repaired missing summary defaults",
+                            extra={"repaired_count": defaults_repaired},
+                        )
                     intents = await list_due_dispatch_intents(db, limit=100)
                     # list_due_dispatch_intents may project expired leases on
                     # intent rows. Flush that projection before the first
@@ -1192,8 +1307,73 @@ async def run_deletion_purge_reconciler(settings: Any, temporal_client: object) 
         await engine.dispose()
 
 
-async def run_legacy_processing_lineage_reconciler(settings: Any) -> None:
-    """Converge pre-revision processing rows without guessing their source."""
+async def reconcile_stale_processing_starts(
+    db: Any,
+    *,
+    settings: Any,
+    temporal_client: object,
+    now: datetime | None = None,
+    limit: int = 25,
+) -> int:
+    if limit <= 0:
+        return 0
+    if not settings.processing_enabled:
+        return 0
+    missing_limit = 1
+    missing = (
+        await store.claim_missing_processing_start_intents(
+            db,
+            now=now,
+            limit=missing_limit,
+        )
+        if missing_limit
+        else []
+    )
+    stale_limit = limit - len(missing)
+    intents = (
+        await store.claim_stale_processing_start_intents(
+            db,
+            now=now,
+            limit=stale_limit,
+        )
+        if stale_limit
+        else []
+    )
+    # Candidate enumeration is advisory; canonical pickup owns the row locks
+    # and idempotency fences.
+    await db.rollback()
+    reconciled = 0
+    for intent in intents:
+        result = await pick_up_processing(
+            db=db,
+            settings=settings,
+            workspace_id=intent.workspace_id,
+            meeting_id=intent.meeting_id,
+            limit=1,
+            temporal_client=temporal_client,
+        )
+        if result.started_count or result.reused_count or result.blocked_count:
+            reconciled += 1
+    for intent in missing:
+        result = await pick_up_processing(
+            db=db,
+            settings=settings,
+            workspace_id=intent.workspace_id,
+            meeting_id=intent.meeting_id,
+            limit=1,
+            temporal_client=temporal_client,
+            archive_audio=intent.archive_audio,
+            expected_media_revision_id=intent.media_revision_id,
+            processing_intent_session_id=intent.upload_session_id,
+        )
+        if result.started_count or result.reused_count or result.blocked_count:
+            reconciled += 1
+    return reconciled
+
+
+async def run_processing_start_reconciler(settings: Any, temporal_client: object) -> None:
+    """Recover committed Temporal start intents without another user request."""
+
     engine = create_engine(settings)
     sessionmaker = create_sessionmaker(engine)
     try:
@@ -1203,20 +1383,22 @@ async def run_legacy_processing_lineage_reconciler(settings: Any) -> None:
                     await apply_tenant_context(
                         db,
                         MaintenanceTenantContext(
-                            operation_name="processing_legacy_lineage_reconciliation",
+                            operation_name="processing_recovery_reconciliation",
                             actor_id="graf-maintenance",
-                            reason_category="legacy_lineage_backfill",
+                            reason_category="durable_start_recovery",
                             feature_area="content_regeneration",
                         ),
                     )
-                    report = await store.reconcile_legacy_processing_lineage(db, limit=500)
-                    if report["relinked"] or report["blocked"]:
-                        logger.info("legacy processing lineage reconciliation: %s", report)
+                    await reconcile_stale_processing_starts(
+                        db,
+                        settings=settings,
+                        temporal_client=temporal_client,
+                    )
             except asyncio.CancelledError:
                 raise
             except Exception:
-                logger.exception("legacy processing lineage reconciliation cycle failed")
-            await asyncio.sleep(60)
+                logger.exception("processing start reconciliation cycle failed")
+            await asyncio.sleep(15)
     finally:
         await engine.dispose()
 
@@ -1231,17 +1413,30 @@ def invitation_delivery_failure_state(
     )
 
 
-async def run_processing_pipeline_activity(payload: dict[str, str]) -> dict[str, str]:
+async def run_processing_pipeline_activity(
+    payload: dict[str, str],
+    *,
+    settings: Any | None = None,
+    sessionmaker: Any | None = None,
+    storage: object | None = None,
+    mediascribe_client: MediaScribeClient | None = None,
+) -> dict[str, str]:
     from temporalio import activity
 
     meeting_ref = payload.get("meeting_id", "unknown")
     media_revision_id: UUID | None = None
+    processing_workflow_row_id: UUID | None = None
     _heartbeat_processing_activity(activity, state="starting", meeting_id=meeting_ref)
+    temporal_workflow_id = _processing_activity_temporal_workflow_id(activity)
     try:
         tenant_scope = tenant_scope_from_processing_payload(payload)
         meeting_id = UUID(payload["meeting_id"])
         if payload.get("media_revision_id"):
             media_revision_id = UUID(payload["media_revision_id"])
+        if payload.get("processing_workflow_id"):
+            processing_workflow_row_id = UUID(payload["processing_workflow_id"])
+            if media_revision_id is None:
+                raise ValueError("exact processing workflow identity requires a revision")
         workspace_id = UUID(payload["workspace_id"])
     except (KeyError, ValueError):
         return {
@@ -1249,57 +1444,27 @@ async def run_processing_pipeline_activity(payload: dict[str, str]) -> dict[str,
             "processing_status": ProcessingStatus.BLOCKED.value,
             "reason_code": reasons.BLOCKED_UNAUTHORIZED,
         }
-    settings = get_settings()
+    settings = settings or get_settings()
     single_step = payload.get("single_step") == "true"
-    engine = create_engine(settings)
-    sessionmaker = create_sessionmaker(engine)
+    owned_engine = None
+    if sessionmaker is None:
+        owned_engine = create_engine(settings)
+        sessionmaker = create_sessionmaker(owned_engine)
     try:
-        mediascribe_client = MediaScribeClient.from_settings(settings)
-        storage = get_storage(settings)
+        mediascribe_client = mediascribe_client or MediaScribeClient.from_settings(settings)
+        storage = storage or get_storage(settings)
         async with sessionmaker() as db:
             await apply_tenant_scope(db, tenant_scope, context_kind="worker")
-            workflow = await store.get_processing_workflow(
+            workflow = await _load_processing_workflow_for_activity(
                 db,
+                processing_workflow_id=processing_workflow_row_id,
                 workspace_id=workspace_id,
                 meeting_id=meeting_id,
                 media_revision_id=media_revision_id,
+                temporal_workflow_id=temporal_workflow_id,
                 active_only=True,
             )
-            if workflow is None:
-                # Older workers persisted an uncertain POST as terminal
-                # ``blocked``. Re-open only that narrowly identifiable state;
-                # unrelated terminal workflows remain immutable.
-                legacy_workflow = await store.get_processing_workflow(
-                    db,
-                    workspace_id=workspace_id,
-                    meeting_id=meeting_id,
-                    media_revision_id=media_revision_id,
-                    active_only=False,
-                )
-                legacy_job = (
-                    await store.get_mediascribe_job(
-                        db,
-                        workspace_id=workspace_id,
-                        meeting_id=meeting_id,
-                        media_revision_id=media_revision_id,
-                        processing_workflow_id=legacy_workflow.id,
-                        active_only=False,
-                    )
-                    if legacy_workflow is not None
-                    else None
-                )
-                if legacy_workflow is not None and _is_unknown_mediascribe_upload(
-                    workflow=legacy_workflow,
-                    job=legacy_job,
-                ):
-                    workflow = legacy_workflow
-            if media_revision_id is None and not (
-                workflow is not None
-                and is_legacy_lineage(
-                    media_revision_id=workflow.media_revision_id,
-                    source_fingerprint=workflow.source_fingerprint,
-                )
-            ):
+            if media_revision_id is None:
                 latest_revision = await store.latest_media_revision_for_meeting(
                     db,
                     workspace_id=workspace_id,
@@ -1307,8 +1472,6 @@ async def run_processing_pipeline_activity(payload: dict[str, str]) -> dict[str,
                 )
                 if latest_revision is not None:
                     raise ProcessingLifecycleBlocked("processing_source_revision_stale")
-            if workflow is None:
-                raise ProcessingLifecycleBlocked("processing_workflow_missing")
             job = await store.get_mediascribe_job(
                 db,
                 workspace_id=workspace_id,
@@ -1323,13 +1486,18 @@ async def run_processing_pipeline_activity(payload: dict[str, str]) -> dict[str,
                     workflow=workflow,
                     job=job,
                     mediascribe_client=mediascribe_client,
+                    settings=settings,
                 )
                 if job is None:
                     return {
                         "meeting_id": payload.get("meeting_id", meeting_ref),
                         "processing_status": ProcessingStatus.BLOCKED_UNKNOWN.value,
                         "reason_code": reasons.BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN,
-                        **({"next_poll_seconds": _next_poll_seconds(workflow)} if _next_poll_seconds(workflow) else {}),
+                        **(
+                            {"next_poll_seconds": _next_poll_seconds(workflow)}
+                            if _next_poll_seconds(workflow)
+                            else {}
+                        ),
                     }
             _heartbeat_processing_activity(
                 activity,
@@ -1350,38 +1518,99 @@ async def run_processing_pipeline_activity(payload: dict[str, str]) -> dict[str,
                     meeting_id=meeting_ref,
                 )
                 job = submit_result.job
+            except ManualUploadNormalizationPending as exc:
+                now = datetime.now(UTC)
+                next_attempt_at = exc.next_attempt_at
+                if next_attempt_at is not None and next_attempt_at.tzinfo is None:
+                    next_attempt_at = next_attempt_at.replace(tzinfo=UTC)
+                delay = (
+                    max(5, min(int((next_attempt_at - now).total_seconds()), 900))
+                    if next_attempt_at is not None
+                    else 900
+                )
+                return {
+                    "meeting_id": payload.get("meeting_id", meeting_ref),
+                    "processing_status": "normalization_pending",
+                    "reason_code": exc.reason_code,
+                    "next_poll_seconds": str(delay),
+                    **(
+                        {"next_attempt_at": next_attempt_at.isoformat()}
+                        if next_attempt_at is not None
+                        else {}
+                    ),
+                }
+            except ManualUploadNormalizationTerminal as exc:
+                return {
+                    "meeting_id": payload.get("meeting_id", meeting_ref),
+                    "processing_status": (
+                        ProcessingStatus.CANCELED.value
+                        if exc.cancelled
+                        else ProcessingStatus.FAILED_TERMINAL.value
+                    ),
+                    "reason_code": exc.reason_code,
+                }
+            except ProcessingUsageUnavailable as exc:
+                return {
+                    "meeting_id": payload.get("meeting_id", meeting_ref),
+                    "processing_status": ProcessingStatus.BLOCKED.value,
+                    "reason_code": str(exc),
+                }
             except MediaScribeClientError as exc:
                 if exc.reason_code != reasons.BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN:
                     raise
-                # submit.py has already recorded the safe unknown marker. The
-                # only allowed next operation is a same-key lookup; no upload
-                # retry is attempted when that lookup cannot prove a job.
-                job = await store.get_mediascribe_job(
-                    db,
-                    workspace_id=workspace_id,
-                    meeting_id=meeting_id,
-                    media_revision_id=workflow.media_revision_id,
-                    processing_workflow_id=workflow.id,
-                    active_only=False,
+                # The ambiguous attempt is durably recorded. Replaying the
+                # exact same POST belongs to the next workflow/manual cycle;
+                # never poll a job whose opaque provider id is unknown.
+                workflow = (
+                    await _restore_unknown_processing_state(
+                        db,
+                        workflow=workflow,
+                        retry_after_seconds=exc.retry_after_seconds,
+                        schedule_next_retry=True,
+                        settings=settings,
+                    )
+                    or workflow
                 )
-                job = await _reconcile_unknown_mediascribe_upload(
-                    db,
-                    workflow=workflow,
-                    job=job,
-                    mediascribe_client=mediascribe_client,
-                )
-                if job is None:
-                    return {
-                        "meeting_id": payload.get("meeting_id", meeting_ref),
-                        "processing_status": ProcessingStatus.BLOCKED_UNKNOWN.value,
-                        "reason_code": reasons.BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN,
-                        **({"next_poll_seconds": _next_poll_seconds(workflow)} if _next_poll_seconds(workflow) else {}),
-                    }
+                return {
+                    "meeting_id": payload.get("meeting_id", meeting_ref),
+                    "processing_status": ProcessingStatus.BLOCKED_UNKNOWN.value,
+                    "reason_code": reasons.BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN,
+                    **(
+                        {"next_poll_seconds": _next_poll_seconds(workflow)}
+                        if _next_poll_seconds(workflow)
+                        else {}
+                    ),
+                }
             _heartbeat_processing_activity(
                 activity,
                 state="submitted",
                 meeting_id=meeting_ref,
             )
+            if single_step and workflow.status == ProcessingStatus.WAITING_RETRY.value:
+                return {
+                    "meeting_id": payload["meeting_id"],
+                    "processing_status": ProcessingStatus.WAITING_RETRY.value,
+                    "next_poll_seconds": _next_poll_seconds(workflow) or "30",
+                }
+            deadline_at = workflow.deadline_at
+            if deadline_at is not None and workflow.manual_claimed_at is None:
+                if deadline_at.tzinfo is None:
+                    deadline_at = deadline_at.replace(tzinfo=UTC)
+                if deadline_at <= datetime.now(UTC):
+                    workflow.retry_class = "retryable"
+                    workflow.next_attempt_at = None
+                    workflow.next_attempt_source = None
+                    await store.set_workflow_status(
+                        db,
+                        workflow,
+                        ProcessingStatus.FAILED_RETRYABLE,
+                        reason_code="processing_retry_deadline_exceeded",
+                    )
+                    return {
+                        "meeting_id": payload["meeting_id"],
+                        "processing_status": ProcessingStatus.FAILED_RETRYABLE.value,
+                        "reason_code": "processing_retry_deadline_exceeded",
+                    }
             poll_attempts = 1 if single_step else settings.processing_max_poll_attempts
             for poll_attempt in range(poll_attempts):
                 _heartbeat_processing_activity(
@@ -1423,6 +1652,7 @@ async def run_processing_pipeline_activity(payload: dict[str, str]) -> dict[str,
                 if single_step:
                     schedule = schedule_retry_with_settings(
                         settings,
+                        respect_max_attempts=False,
                         now=datetime.now(UTC),
                         retry_count=int(workflow.retry_count or 0),
                         generation=int(workflow.schedule_generation or 0),
@@ -1440,20 +1670,31 @@ async def run_processing_pipeline_activity(payload: dict[str, str]) -> dict[str,
                         ),
                     )
                     if schedule.next_attempt_at is None:
-                        reason_code = "processing_retry_deadline_exceeded"
-                        workflow.retry_class = "terminal"
+                        deadline_exceeded = schedule.stop_reason == "deadline_exceeded"
+                        reason_code = (
+                            "processing_retry_deadline_exceeded"
+                            if deadline_exceeded
+                            else "processing_recovery_attempt_limit_exceeded"
+                        )
+                        workflow.retry_class = "retryable" if deadline_exceeded else "terminal"
                         workflow.next_attempt_at = None
                         workflow.next_attempt_source = None
                         await store.set_workflow_status(
                             db,
                             workflow,
-                            ProcessingStatus.FAILED_TERMINAL,
+                            ProcessingStatus.FAILED_RETRYABLE
+                            if deadline_exceeded
+                            else ProcessingStatus.FAILED_TERMINAL,
                             reason_code=reason_code,
-                            terminal=True,
+                            terminal=not deadline_exceeded,
                         )
                         return {
                             "meeting_id": payload["meeting_id"],
-                            "processing_status": ProcessingStatus.FAILED_TERMINAL.value,
+                            "processing_status": (
+                                ProcessingStatus.FAILED_RETRYABLE
+                                if deadline_exceeded
+                                else ProcessingStatus.FAILED_TERMINAL
+                            ).value,
                             "reason_code": reason_code,
                         }
                     workflow.retry_class = "retryable"
@@ -1486,14 +1727,18 @@ async def run_processing_pipeline_activity(payload: dict[str, str]) -> dict[str,
             await store.set_workflow_status(
                 db,
                 workflow,
-                ProcessingStatus.FAILED_TERMINAL,
+                ProcessingStatus.FAILED_RETRYABLE,
                 reason_code="mediascribe_poll_limit_exceeded",
-                terminal=True,
+                terminal=False,
             )
-            return {"meeting_id": payload["meeting_id"], "processing_status": "failed_terminal"}
+            return {
+                "meeting_id": payload["meeting_id"],
+                "processing_status": ProcessingStatus.FAILED_RETRYABLE.value,
+                "reason_code": "mediascribe_poll_limit_exceeded",
+            }
     except ProcessingLifecycleBlocked as exc:
         if str(exc) == "processing_source_revision_stale":
-            # A legacy callback can omit its revision id after a newer source
+            # A stale callback can omit its revision id after a newer source
             # is accepted. Terminalize only older active workflows; never let
             # that callback leave a stale row visible to reconciliation.
             try:
@@ -1516,7 +1761,13 @@ async def run_processing_pipeline_activity(payload: dict[str, str]) -> dict[str,
         }
     except MediaScribeClientError as exc:
         if exc.reason_code == reasons.BLOCKED_MEDIASCRIBE_SUBMISSION_OUTCOME_UNKNOWN:
-            await _restore_unknown_processing_state(db, workflow=workflow)
+            await _restore_unknown_processing_state(
+                db,
+                workflow=workflow,
+                retry_after_seconds=exc.retry_after_seconds,
+                schedule_next_retry=True,
+                settings=settings,
+            )
             return {
                 "meeting_id": payload.get("meeting_id", meeting_ref),
                 "processing_status": ProcessingStatus.BLOCKED_UNKNOWN.value,
@@ -1530,35 +1781,48 @@ async def run_processing_pipeline_activity(payload: dict[str, str]) -> dict[str,
         exhausted = exc.retryable and activity_attempt >= PROCESSING_ACTIVITY_MAX_ATTEMPTS
         if exhausted:
             status = ProcessingStatus.FAILED_TERMINAL
-            reason_code = reasons.MEDIASCRIBE_RETRIES_EXHAUSTED
+            reason_code = "processing_recovery_attempt_limit_exceeded"
         else:
             reason_code = exc.reason_code
         try:
-            await _persist_activity_client_error(
+            persisted = await _persist_activity_client_error(
                 sessionmaker,
+                processing_workflow_id=processing_workflow_row_id,
                 workspace_id=workspace_id,
                 meeting_id=meeting_id,
                 media_revision_id=media_revision_id,
+                temporal_workflow_id=temporal_workflow_id,
                 tenant_scope=tenant_scope,
                 status=status,
                 reason_code=reason_code,
                 retry_after_seconds=exc.retry_after_seconds,
+                settings=settings,
             )
-        except ProcessingLifecycleBlocked:
+        except ProcessingLifecycleBlocked as blocked:
             return {
                 "meeting_id": payload.get("meeting_id", meeting_ref),
                 "processing_status": ProcessingStatus.CANCELED.value,
-                "reason_code": "meeting_deleting",
+                "reason_code": str(blocked),
             }
-        if exhausted:
-            return {
-                "meeting_id": payload["meeting_id"],
-                "processing_status": status.value,
-                "reason_code": reason_code,
-            }
-        if status == ProcessingStatus.FAILED_RETRYABLE:
-            raise
-        return {"meeting_id": payload["meeting_id"], "processing_status": status.value}
+        status = ProcessingStatus(persisted.status)
+        reason_code = persisted.last_reason_code or reason_code
+        next_poll_seconds = _next_poll_seconds(persisted)
+        return {
+            "meeting_id": payload["meeting_id"],
+            "processing_status": (
+                ProcessingStatus.WAITING_RETRY.value
+                if status == ProcessingStatus.FAILED_RETRYABLE and next_poll_seconds is not None
+                else status.value
+            ),
+            **(
+                {"reason_code": reason_code}
+                if status in {ProcessingStatus.BLOCKED, ProcessingStatus.FAILED_TERMINAL}
+                or exhausted
+                or (status == ProcessingStatus.FAILED_RETRYABLE and next_poll_seconds is None)
+                else {}
+            ),
+            **({"next_poll_seconds": next_poll_seconds} if next_poll_seconds is not None else {}),
+        }
     except RuntimeError as exc:
         classified = _processing_status_for_runtime_error(exc)
         if classified is None:
@@ -1573,33 +1837,43 @@ async def run_processing_pipeline_activity(payload: dict[str, str]) -> dict[str,
             status = ProcessingStatus.FAILED_TERMINAL
         reason_code = str(exc)
         try:
-            await _persist_activity_client_error(
+            persisted = await _persist_activity_client_error(
                 sessionmaker,
+                processing_workflow_id=processing_workflow_row_id,
                 workspace_id=workspace_id,
                 meeting_id=meeting_id,
                 media_revision_id=media_revision_id,
+                temporal_workflow_id=temporal_workflow_id,
                 tenant_scope=tenant_scope,
                 status=status,
                 reason_code=reason_code,
+                settings=settings,
             )
-        except ProcessingLifecycleBlocked:
+        except ProcessingLifecycleBlocked as blocked:
             return {
                 "meeting_id": payload.get("meeting_id", meeting_ref),
                 "processing_status": ProcessingStatus.CANCELED.value,
-                "reason_code": "meeting_deleting",
+                "reason_code": str(blocked),
             }
-        if status == ProcessingStatus.FAILED_RETRYABLE:
-            raise
+        status = ProcessingStatus(persisted.status)
+        reason_code = persisted.last_reason_code or reason_code
+        next_poll_seconds = _next_poll_seconds(persisted)
         return {
             "meeting_id": payload["meeting_id"],
-            "processing_status": status.value,
+            "processing_status": (
+                ProcessingStatus.WAITING_RETRY.value
+                if status == ProcessingStatus.FAILED_RETRYABLE and next_poll_seconds is not None
+                else status.value
+            ),
             "reason_code": reason_code,
+            **({"next_poll_seconds": next_poll_seconds} if next_poll_seconds is not None else {}),
         }
     finally:
-        await engine.dispose()
+        if owned_engine is not None:
+            await owned_engine.dispose()
 
 
-async def resolve_outcome_prompt_config_activity(payload: dict[str, str]) -> dict[str, Any]:
+async def resolve_outcome_prompt_config_activity(payload: dict[str, Any]) -> dict[str, Any]:
     settings = get_settings()
     engine = create_engine(settings)
     sessionmaker = create_sessionmaker(engine)
@@ -1624,7 +1898,7 @@ async def resolve_outcome_prompt_config_activity(payload: dict[str, str]) -> dic
 
 
 async def snapshot_outcome_transcript_metadata_activity(
-    payload: dict[str, str],
+    payload: dict[str, Any],
 ) -> dict[str, Any]:
     settings = get_settings()
     engine = create_engine(settings)
@@ -2293,30 +2567,30 @@ def tenant_scope_from_processing_payload(payload: dict[str, str]) -> TenantScope
 async def _persist_activity_client_error(
     sessionmaker,
     *,
+    processing_workflow_id: UUID | None,
     workspace_id: UUID,
     meeting_id: UUID,
     media_revision_id: UUID | None = None,
+    temporal_workflow_id: str | None,
     tenant_scope: TenantScope | None = None,
     status: ProcessingStatus,
     reason_code: str,
     retry_after_seconds: int | None = None,
-) -> None:
+    settings: Any | None = None,
+) -> ProcessingWorkflow:
     async with sessionmaker() as db:
         if tenant_scope is not None:
             await apply_tenant_scope(db, tenant_scope, context_kind="worker")
-        workflow = await store.get_processing_workflow(
+        workflow = await _load_processing_workflow_for_activity(
             db,
+            processing_workflow_id=processing_workflow_id,
             workspace_id=workspace_id,
             meeting_id=meeting_id,
             media_revision_id=media_revision_id,
+            temporal_workflow_id=temporal_workflow_id,
+            active_only=False,
         )
-        if media_revision_id is None and not (
-            workflow is not None
-            and is_legacy_lineage(
-                media_revision_id=workflow.media_revision_id,
-                source_fingerprint=workflow.source_fingerprint,
-            )
-        ):
+        if media_revision_id is None:
             latest_revision = await store.latest_media_revision_for_meeting(
                 db,
                 workspace_id=workspace_id,
@@ -2324,45 +2598,74 @@ async def _persist_activity_client_error(
             )
             if latest_revision is not None:
                 raise ProcessingLifecycleBlocked("processing_source_revision_stale")
-        if workflow is None:
-            raise ProcessingLifecycleBlocked("processing_workflow_missing")
+        if status == ProcessingStatus.BLOCKED_UNKNOWN:
+            restored = await _restore_unknown_processing_state(
+                db,
+                workflow=workflow,
+                settings=settings,
+            )
+            if restored is None:
+                raise ProcessingLifecycleBlocked("processing_workflow_missing")
+            return restored
+        terminal = status in {ProcessingStatus.BLOCKED, ProcessingStatus.FAILED_TERMINAL}
+        already_persisted = (
+            workflow.status == status.value
+            and workflow.last_reason_code == reason_code
+            and (not terminal or workflow.ended_at is not None)
+        )
+        if already_persisted and (
+            status != ProcessingStatus.FAILED_RETRYABLE or workflow.next_attempt_at is not None
+        ):
+            return workflow
         if status == ProcessingStatus.FAILED_RETRYABLE:
-            schedule = schedule_retry(
-                now=datetime.now(UTC),
-                retry_count=int(workflow.retry_count or 0),
-                generation=int(workflow.schedule_generation or 0),
-                retry_after=(
+            scheduler = schedule_retry_with_settings if settings is not None else schedule_retry
+            schedule_kwargs = {
+                "now": datetime.now(UTC),
+                "retry_count": int(workflow.retry_count or 0),
+                "generation": int(workflow.schedule_generation or 0),
+                "retry_after": (
                     timedelta(seconds=max(0, int(retry_after_seconds)))
                     if retry_after_seconds is not None
                     else None
                 ),
-                deadline_at=workflow.deadline_at,
-                source="provider_retry_after" if retry_after_seconds is not None else None,
+                "deadline_at": workflow.deadline_at,
+                "source": "provider_retry_after" if retry_after_seconds is not None else None,
+            }
+            schedule = (
+                scheduler(settings, respect_max_attempts=False, **schedule_kwargs)
+                if settings is not None
+                else scheduler(**schedule_kwargs)
             )
             workflow.next_attempt_at = schedule.next_attempt_at
             workflow.next_attempt_source = schedule.source
             workflow.schedule_generation = schedule.generation
             workflow.retry_count = schedule.retry_count
             workflow.retry_class = "retryable"
-        if status == ProcessingStatus.BLOCKED_UNKNOWN:
-            restored = await _restore_unknown_processing_state(db, workflow=workflow)
-            if restored is None:
-                raise ProcessingLifecycleBlocked("processing_workflow_missing")
-            return
-        terminal = status in {ProcessingStatus.BLOCKED, ProcessingStatus.FAILED_TERMINAL}
-        if (
-            workflow.status == status.value
-            and workflow.last_reason_code == reason_code
-            and (not terminal or workflow.ended_at is not None)
-        ):
-            return
-        await store.set_workflow_status(
+            if schedule.next_attempt_at is None:
+                if schedule.stop_reason == "deadline_exceeded":
+                    reason_code = "processing_retry_deadline_exceeded"
+                else:
+                    status = ProcessingStatus.FAILED_TERMINAL
+                    reason_code = "processing_recovery_attempt_limit_exceeded"
+                    terminal = True
+                    workflow.retry_class = "terminal"
+        return await store.set_workflow_status(
             db,
             workflow,
             status,
             reason_code=reason_code,
             terminal=terminal,
         )
+
+
+async def _run_temporal_workers(workers: list[Any]) -> None:
+    worker_tasks = [asyncio.create_task(worker.run()) for worker in workers]
+    try:
+        await asyncio.gather(*worker_tasks)
+    finally:
+        for task in worker_tasks:
+            task.cancel()
+        await asyncio.gather(*worker_tasks, return_exceptions=True)
 
 
 async def run_worker() -> None:
@@ -2373,8 +2676,24 @@ async def run_worker() -> None:
     if settings.prompt_optimization_enabled:
         raise RuntimeError("prompt optimization must run in the operations-only worker")
     processing_client = await connect_temporal_client(settings)
+    processing_engine = create_engine(settings)
+    processing_sessionmaker = create_sessionmaker(processing_engine)
+    processing_storage = get_storage(settings)
+    processing_mediascribe_client = (
+        _processing_mediascribe_client(settings) if settings.processing_enabled else None
+    )
+
+    async def processing_activity_impl(payload: dict[str, str]) -> dict[str, str]:
+        return await run_processing_pipeline_activity(
+            payload,
+            settings=settings,
+            sessionmaker=processing_sessionmaker,
+            storage=processing_storage,
+            mediascribe_client=processing_mediascribe_client,
+        )
+
     processing_activity = activity.defn(name="run_processing_pipeline_activity")(
-        run_processing_pipeline_activity
+        processing_activity_impl
     )
     billing_renewal_activity = activity.defn(name=BILLING_RENEWAL_ACTIVITY_NAME)(
         run_billing_renewal_activity
@@ -2452,7 +2771,15 @@ async def run_worker() -> None:
                 identity=f"{processing_worker_identity()}:outcomes",
             )
             workers.append(outcome_worker)
-    await asyncio.gather(*(worker.run() for worker in workers))
+    try:
+        await _run_temporal_workers(workers)
+    finally:
+        if processing_mediascribe_client is not None:
+            await processing_mediascribe_client.aclose()
+        close_storage = getattr(processing_storage, "close", None)
+        if close_storage is not None:
+            close_storage()
+        await processing_engine.dispose()
 
 
 def main() -> None:

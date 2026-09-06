@@ -352,7 +352,9 @@ if [ "$DRY_RUN" != true ]; then
     fi
 
     # Persist to .specify/feature.json so downstream commands can find the feature
-    _persist_feature_json "$REPO_ROOT" "$FEATURE_DIR"
+    FEATURE_OWNER="${GRAF_FEATURE_OWNER:-$(git config user.name 2>/dev/null || printf '%s' "${USER:-local}")}"
+    FEATURE_RISK_LANE="${GRAF_RISK_LANE:-active-spec-kit}"
+    _persist_feature_json "$REPO_ROOT" "$FEATURE_DIR" "$FEATURE_NUM" "$BRANCH_NAME" "$FEATURE_OWNER" "$FEATURE_RISK_LANE"
 
     # Inform the user how to set feature state in their own shell
     printf '# To persist: export SPECIFY_FEATURE=%s\n' "$(shell_quote "$BRANCH_NAME")" >&2

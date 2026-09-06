@@ -321,23 +321,20 @@ final class MeetingDetectionTelemetryTests: XCTestCase {
         XCTAssertEqual(retryOutcome.skippedReason, "backoff")
     }
 
-    func testSettingsStorePersistsDetectionAndAutoRecordPreferences() throws {
+    func testSettingsStorePersistsOnlyThreeStateRulesAndTelemetryPreferences() throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let store = MeetingDetectionSettingsStore(settingsURL: root.appendingPathComponent("settings.json"))
 
-        XCTAssertEqual(try store.load().detectionMode, .detectAndAsk)
         XCTAssertEqual(try store.load().uploadMode, .automaticCandidateUpload)
-        XCTAssertFalse(try store.load().targetScopedAutoRecordEnabled)
+        XCTAssertEqual(try store.load().recordingRule(for: "yandex_telemost"), .ask)
 
         try store.save(MeetingDetectionSettings(
-            targetScopedAutoRecordEnabled: true,
-            autoRecordTargetIds: ["yandex_telemost"]
+            automaticRecordingRules: ["yandex_telemost": .always]
         ))
         let saved = try store.load()
 
-        XCTAssertTrue(saved.targetScopedAutoRecordEnabled)
-        XCTAssertEqual(saved.autoRecordTargetIds, ["yandex_telemost"])
+        XCTAssertEqual(saved.recordingRule(for: "yandex_telemost"), .always)
     }
 
     private func temporaryRoot() -> URL {

@@ -24,6 +24,7 @@ from twobrain_rec_server.db.models import (
     PlaybackNormalizationJob,
     TrackArtifact,
 )
+from twobrain_rec_server.normalization import pickup as pickup_module
 from twobrain_rec_server.normalization.pickup import reconcile_normalization_jobs
 from twobrain_rec_server.normalization.service import (
     NormalizationExecutionDeferred,
@@ -315,7 +316,10 @@ def test_late_worker_cannot_publish_after_expired_lease_recovery(
     assert set(client.app_state["storage"].objects) == source_keys
 
 
-def test_reconciler_recovers_lost_post_commit_dispatch_once(client) -> None:
+def test_reconciler_recovers_lost_post_commit_dispatch_before_legacy_inventory(
+    client,
+    monkeypatch,
+) -> None:
     meeting, result = _accept_first_party_recording(
         client,
         local_recording_id="normalization-lost-dispatch",
@@ -326,6 +330,23 @@ def test_reconciler_recovers_lost_post_commit_dispatch_once(client) -> None:
     temporal = FakeTemporalClient()
     client.app.state.settings.playback_normalization_enabled = True
     now = datetime(2026, 7, 14, 13, 0, tzinfo=UTC)
+    events: list[str] = []
+    dispatch = pickup_module.dispatch_normalization_after_accepted_commit
+
+    async def record_dispatch(**kwargs):
+        events.append("dispatch")
+        return await dispatch(**kwargs)
+
+    async def record_inventory(**_kwargs):
+        events.append("inventory")
+        return 0, 0, 0, 0
+
+    monkeypatch.setattr(
+        pickup_module,
+        "dispatch_normalization_after_accepted_commit",
+        record_dispatch,
+    )
+    monkeypatch.setattr(pickup_module, "_inventory_legacy_workspaces", record_inventory)
 
     async def reconcile_twice():
         first = await reconcile_normalization_jobs(
@@ -356,6 +377,7 @@ def test_reconciler_recovers_lost_post_commit_dispatch_once(client) -> None:
     workflow_id = f"playback-normalization/{revision_id}/v1"
     assert first.dispatched == 1
     assert second.dispatched == 0
+    assert events[:2] == ["dispatch", "inventory"]
     assert list(temporal.starts) == [workflow_id]
     assert job.workflow_run_id == temporal.starts[workflow_id]["run_id"]
     assert job.lease_owner_sha256 == sha256(

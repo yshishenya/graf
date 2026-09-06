@@ -24,6 +24,7 @@ CHECKOUT_BLOCKING_STATES = frozenset(
         "sent",
         "processing",
         "unknown",
+        "pending_reconciliation",
         "method_required",
         "reconciliation_gap",
         "manual_resolution",
@@ -44,7 +45,9 @@ def require_billing_enabled(*, checkout_enabled: bool, emergency_stop: bool) -> 
         raise BillingEmergencyStop("billing checkout is disabled")
 
 
-def classify_provider_outcome(*, status_code: int | None, provider_status: str | None) -> OperationOutcome:
+def classify_provider_outcome(
+    *, status_code: int | None, provider_status: str | None
+) -> OperationOutcome:
     if status_code is None or status_code >= 500:
         return OperationOutcome.UNKNOWN
     if provider_status in {"succeeded", "paid"}:

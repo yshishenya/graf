@@ -1,4 +1,5 @@
 import json
+from hashlib import sha256
 from pathlib import Path
 
 import httpx
@@ -181,6 +182,34 @@ async def test_yookassa_adapter_uses_hosted_redirect_and_saved_method_consent(tm
     assert payload["save_payment_method"] is True
     assert payload["confirmation"]["type"] == "redirect"
     assert captured[0].headers["Idempotence-Key"] == "op-2"
+
+
+@pytest.mark.asyncio
+async def test_yookassa_adapter_hashes_overlong_idempotence_key(tmp_path: Path) -> None:
+    secret = tmp_path / "secret"
+    secret.write_text("test-secret", encoding="utf-8")
+    captured: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        return httpx.Response(200, json={"id": "pay-long-key"})
+
+    settings = Settings(
+        billing_yookassa_base_url="https://api.yookassa.test",
+        billing_yookassa_shop_id="shop-1",
+        billing_yookassa_secret_file=secret,
+    )
+    key = "checkout:" + "x" * 100
+    async with YooKassaClient(settings, transport=httpx.MockTransport(handler)) as client:
+        await client.create_payment(
+            amount_minor=7_900,
+            currency="RUB",
+            description="Личный",
+            idempotence_key=key,
+            metadata={"return_url": "https://rec.2brain.pro/billing"},
+        )
+
+    assert captured[0].headers["Idempotence-Key"] == sha256(key.encode()).hexdigest()
 
 
 @pytest.mark.asyncio

@@ -20,8 +20,8 @@ The physical Codex worktree folder name is not a source of truth.
 - `codex-worktrees.md`: how to choose the project root and reason about Codex
   worktrees.
 - `spec-kit-flow.md`: the full feature workflow and quality gates.
-- `product-gates.md`: non-negotiable product, privacy, AI, deletion, and
-  clean-room gates.
+- `product-gates.md`: non-negotiable product, privacy, AI, deletion,
+  reference-fidelity and third-party provenance gates.
 - `tracker-policy.md`: GitHub issue sync, Russian/plain-language comments, and
   retired Linear policy.
 - `github-issue-canon.md`: exact GitHub issue format.

@@ -37,7 +37,11 @@ def test_subscription_cancellation_and_no_grace_projection() -> None:
 
 def test_subscription_resume_requires_active_paid_period_and_bumps_authority() -> None:
     paid_through = datetime(2026, 9, 1, tzinfo=UTC)
-    control = resume_auto_renewal(SubscriptionControl(paid_through, False, 2), expected_version=2)
+    control = resume_auto_renewal(
+        SubscriptionControl(paid_through, False, 2),
+        expected_version=2,
+        now=datetime(2026, 8, 6, tzinfo=UTC),
+    )
     assert control.recurring_allowed is True
     assert control.authority_version == 3
 
@@ -68,7 +72,7 @@ def test_renewal_and_storage_addon_are_bounded() -> None:
 
 def test_receipt_history_and_notification_copy_is_safe() -> None:
     assert mask_payment_method("card_ending_1234") == "card_ending_1234"
-    assert receipt_label(ReceiptState.AVAILABLE) == "Открыть чек"
+    assert receipt_label(ReceiptState.AVAILABLE) == "Чек зарегистрирован"
     event = build_notification(event_id="evt-1", kind=BillingNotification.PAYMENT_SUCCEEDED, payload={"invoice": "INV-1", "provider_token": "secret"})
     assert event.safe_payload == {"invoice": "INV-1"}
 

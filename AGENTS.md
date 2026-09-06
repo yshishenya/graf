@@ -14,6 +14,14 @@ Context policy: keep always-on rules and pointers here; put task-specific
 procedures in one scoped guidance file and read that file only when relevant.
 Do not duplicate a detailed rule between this file and `docs/agent-guidance/`.
 
+## Общение с пользователем
+
+Отвечай на языке пользователя, если он не попросил иначе. Пиши просто и
+понятно. В русскоязычных ответах не используй англицизмы, если есть точное и
+привычное русское слово. Сохраняй названия продуктов, команды, пути,
+программные обозначения и необходимые технические термины, когда перевод
+ухудшает точность. Непонятный термин кратко объясняй при первом использовании.
+
 ## Project context and routing
 
 Product: `GRAF`, a self-hosted meeting capture and transcription product with a
@@ -27,7 +35,8 @@ Read the guidance index first, then only the file for the task:
 
 - `codex-worktrees.md` — project root and worktree source of truth.
 - `spec-kit-flow.md` — risk lanes and Spec Kit sequence.
-- `product-gates.md` — capture, privacy, AI, deletion, and clean-room gates.
+- `product-gates.md` — capture, privacy, AI, deletion, reference-fidelity and
+  third-party provenance gates.
 - `tracker-policy.md` and `github-issue-canon.md` — tasks and GitHub issues.
 - `release-and-validation.md` — CI, deployment, release, and evidence.
 - `macos-notarization.md` — Developer ID, notarization, stapling, and Sparkle.
@@ -56,10 +65,19 @@ use the full Spec Kit sequence; `$speckit-constitution` is for governance
 changes. Clarify is mandatory for capture, privacy, auth, backend,
 infrastructure, deletion, diagnostics, and high-risk UX work.
 
+The canonical significant/high-risk GRAF path is `specify → clarify → plan →
+checklist → tasks → analyze → taskstoissues → implement → converge →
+validation/release gates`. The shorter upstream six-step workflow is not a
+complete GRAF path. Custom checklist state is reviewer-owned; implementation
+must read it as a gate and must not mark review items complete.
+
 <!-- SPECKIT START -->
-For additional context about technologies to be used, project structure,
-shell commands, and other important information, read the current plan
-at specs/200-windows-desktop-app/plan.md
+For feature-specific context, read only the active paths reported by
+`.specify/feature.json` and `.specify/scripts/bash/check-prerequisites.sh
+--json --paths-only`. Do not infer a feature from file mtime, a physical
+worktree folder name, or a plan pointer in this file. Read the active feature's
+`spec.md`, `plan.md`, `tasks.md` and `quickstart.md` plus only the guidance
+files required by its risk lane. Keep this root file stable across features.
 <!-- SPECKIT END -->
 
 ## Tracking and product gates
@@ -74,22 +92,33 @@ deployment, or user-facing workflow, read the constitution, product baseline,
 current status, and `product-gates.md` before editing. Keep the MVP
 system-audio-first, preserve visible manual capture controls, never put
 MediaScribe credentials in the desktop app, and keep deletion copy within GRAF's
-control. UI must pass clean-room and brand-distance review.
+control. UI may faithfully reproduce the approved Krisp UX/UI/IA reference, but
+must pass accessibility, reference-fidelity, independent-implementation and
+third-party asset-provenance review.
 
 ## Validation and release
 
 Use `release-and-validation.md` for the selected lane and closeout evidence.
-Default anchors are `infra/scripts/ci-local.sh`,
-`infra/scripts/cd-remote.sh --dry-run` before production execution, and
-`./scripts/prepare-release.sh YYYY.MM.DD.N` for product releases.
+Default PR validation is the required GitHub Actions `governance-fast` check,
+bound to the exact PR SHA. `infra/scripts/ci-local.sh --fast` / `--full` remain
+available as local diagnostic/fallback lanes; `infra/scripts/cd-remote.sh
+--dry-run` is required before production execution, and
+`./scripts/prepare-release.sh YYYY.MM.DD.N` prepares product releases.
 
 Public GRAF macOS distribution is Developer ID-only. Notarization, stapling,
 Gatekeeper, Sparkle signature, and live appcast checks are mandatory; the full
 procedure is in `macos-notarization.md`. Never publish a non-notarized build.
 
 Implementation commits require explicit user approval after validation. Never
-reset or discard user changes. Update `CHANGELOG.md` for behavior, architecture,
-UX/QA, operations, or release-readiness changes.
+reset or discard user changes. Feature work writes an owned changelog fragment
+under `changes/unreleased/`; the release operator alone assembles root
+`CHANGELOG.md` for a frozen release candidate.
+
+For a sole-owner public repository with no independent collaborator, GitHub
+required-approval count may be `0`; merge eligibility then comes from recorded
+owner/agent review, reviewer-owned Spec Kit checklists, convergence and all
+required checks. Agent review comments are evidence, not a reason to bypass
+linear history, stale-SHA, status-check or release gates.
 
 <!-- SPECKIT RELEASE VERSIONING START -->
 ## Правила релизов и версий
@@ -116,8 +145,10 @@ Spec Kit project files expected in git:
 - `specs/` once features are created
 - `docs/agent-guidance/`
 
-Codex skill files are installed globally by the current Spec Kit bootstrap and
-are not expected to be committed under repo-local `.agents/skills/`.
+Generated Spec Kit skills are project-local under `.agents/skills/speckit-*`,
+committed with the repository, recorded in the bootstrap lock, and verified by
+`speckit-bootstrap . --doctor --frozen`. Legacy user-level copies are not the
+project source of truth and must not be deleted automatically.
 
 Keep generated build/cache/secret files out of git through `.gitignore`.
 
@@ -129,8 +160,11 @@ specify version
 specify self check
 specify integration list
 specify extension list
+speckit-bootstrap . --doctor --frozen
+python3 scripts/check_spec_kit_governance.py
 .specify/scripts/bash/check-prerequisites.sh --json --paths-only
-infra/scripts/ci-local.sh
+infra/scripts/ci-local.sh --fast
+infra/scripts/ci-local.sh --full
 ./scripts/prepare-release.sh YYYY.MM.DD.N
 ```
 

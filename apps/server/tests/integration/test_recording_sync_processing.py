@@ -19,7 +19,11 @@ from twobrain_rec_server.domain.statuses import (
     SyncConflictState,
     UploadSessionStatus,
 )
-from twobrain_rec_server.ingest.desktop_sync import _custody_read_model
+from twobrain_rec_server.ingest.desktop_sync import _custody_read_model, _processing_status
+
+
+def test_desktop_sync_fails_closed_for_unknown_processing_status() -> None:
+    assert _processing_status("unknown-persisted-status") == ProcessingStatus.BLOCKED
 
 
 def test_processing_pickup_keys_workflow_by_media_revision(client) -> None:

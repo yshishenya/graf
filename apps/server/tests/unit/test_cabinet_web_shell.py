@@ -1166,6 +1166,45 @@ def test_meeting_detail_page_embeds_shared_runtime_recovery_template() -> None:
     assert "new-button" not in page
 
 
+def test_terminal_no_speech_detail_does_not_render_processing_transcript_placeholder() -> None:
+    review = _review()
+    review.processing = review.processing.model_copy(
+        update={"state": "failed", "reason_code": "no_recognizable_speech"}
+    )
+    page = render_meeting_detail_page(review)
+
+    assert 'data-transcript-pending' not in page
+    assert 'data-processing-state="failed"' in page
+    assert 'data-processing-reason-code="no_recognizable_speech"' in page
+
+
+def test_partial_transcript_detail_renders_diarization_placeholder() -> None:
+    review = _review()
+    review.provenance = review.provenance.model_copy(update={"media_revision_id": uuid4()})
+    review.processing = review.processing.model_copy(update={"state": "partial"})
+    review.transcript = review.transcript.model_copy(update={"degraded_reason": "diarization_pending"})
+
+    page = render_meeting_detail_page(review)
+
+    assert 'data-transcript-pending' in page
+    assert "Здесь появится расшифровка." in page
+    pending = re.search(r'<div[^>]*data-transcript-pending>.*?</div>', page, re.S).group()
+    assert "Спикеры ещё определяются" not in pending
+    assert "Расшифровка появится после завершения диаризации." not in pending
+    assert 'data-playback-transcript hidden aria-hidden="true"' in page
+
+
+def test_processing_summary_copy_can_distinguish_stored_output_from_not_requested() -> None:
+    review = _review()
+    review.notes_action_truth = review.notes_action_truth.model_copy(
+        update={"source_basis": "stored_output"}
+    )
+    page = render_meeting_detail_page(review)
+
+    assert 'data-stored-outcomes-available="true"' in page
+    assert 'data-processing-summary-status role="status" aria-live="off"' in page
+
+
 def test_meeting_detail_page_uses_manual_upload_receipt_date() -> None:
     review = _review()
     review = review.model_copy(
@@ -1246,12 +1285,12 @@ def test_web_shell_keeps_sidebar_pinned_without_scrollbar() -> None:
 
     assert (
         ".app-shell {\n"
-        "  --playback-inline-start: var(--app-sidebar-width);\n"
         "  height: 100vh;\n"
         "  min-height: 0;\n"
         "  overflow: hidden;\n"
         "  display: grid;\n"
         "  grid-template-columns: var(--app-sidebar-width) minmax(0, 1fr);\n"
+        "  grid-template-rows: minmax(0, 1fr) auto;\n"
         "}"
     ) in css
     assert (
@@ -1259,18 +1298,28 @@ def test_web_shell_keeps_sidebar_pinned_without_scrollbar() -> None:
         "  grid-template-columns: var(--app-sidebar-width) minmax(0, 1fr);\n"
         "}"
     ) in css
-    assert ".sidebar {\n  position: sticky;" in css
+    assert ".sidebar {\n  grid-row: 1 / -1;\n  position: sticky;" in css
     assert "  height: 100vh;\n  overflow-x: hidden;\n  overflow-y: auto;" in css
     assert (
-        ".main,\n.cabinet-main {\n  height: 100vh;\n  min-height: 0;\n  overflow-y: auto;\n}"
+        ".main,\n.cabinet-main {\n  grid-column: 2;\n  grid-row: 1;\n  height: 100%;\n  min-height: 0;\n  overflow-y: auto;\n}"
     ) in css
-    assert "max-height: calc(100vh - 48px);" in css
+    assert "max-height: calc(var(--profile-menu-viewport-height, 100vh) - var(--profile-menu-bottom, 60px) - 8px);" in css
     assert '.app-shell[data-mobile-scroll="page"] {' in css
     assert (
-        ".desktop-embedded .main {\n  --meeting-detail-main-padding-top: 22px;\n  padding: var(--meeting-detail-main-padding-top)"
+        ".desktop-embedded .main {\n  --meeting-detail-main-padding-top: 22px;\n\n  padding: var(--meeting-detail-main-padding-top)"
         in css
     )
     assert ".desktop-embedded .cabinet-main {\n  padding: 24px" in css
+    assert (
+        'html:not([data-cabinet-js="ready"]) .app-shell:not(.desktop-embedded) {\n'
+        "    grid-template-rows: auto minmax(0, 1fr) auto;"
+    ) in css
+    assert (
+        'html:not([data-cabinet-js="ready"]) '
+        ".app-shell:not(.desktop-embedded) > noscript {\n"
+        "    grid-column: 1;\n"
+        "    grid-row: 1;"
+    ) in css
 
 
 def test_embedded_window_breakpoints_keep_sidebar_stable_until_tight_width() -> None:
@@ -1281,14 +1330,12 @@ def test_embedded_window_breakpoints_keep_sidebar_stable_until_tight_width() -> 
     assert (
         "@media (max-width: 980px) {\n"
         "  .app-shell { grid-template-columns: 1fr; }\n"
-        "  .app-shell:not(.desktop-embedded) { --playback-inline-start: 0px; }\n"
         "  .app-shell.desktop-embedded { grid-template-columns: var(--app-sidebar-width) minmax(0, 1fr); }"
     ) in css
     assert "  .desktop-embedded .sidebar { display: flex; }" in css
     assert "  .desktop-embedded .cabinet-rail-toggle { display: none; }" in css
     assert (
         'html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned) {\n'
-        "  --playback-inline-start: var(--app-rail-width);\n"
         "  grid-template-columns: var(--app-rail-width) minmax(0, 1fr);\n"
         "}"
     ) in css
@@ -1297,10 +1344,15 @@ def test_embedded_window_breakpoints_keep_sidebar_stable_until_tight_width() -> 
     assert "    width: var(--app-rail-width);" in css
     assert "  .desktop-embedded .sidebar:hover," not in css
     assert ".desktop-embedded.is-rail-pinned .sidebar {" in css
-    assert "--playback-inline-start: var(--app-rail-width);" in css
-    assert "--playback-inline-start: var(--app-sidebar-width);" in css
-    assert "left: var(--playback-inline-start);" in css
-    assert ".desktop-embedded .cabinet-main { padding: 18px 14px 172px; }" in css
+    assert "--playback-inline-start" not in css
+    assert (
+        'html:not([data-cabinet-js="ready"]) '
+        ".app-shell:not(.desktop-embedded) > .playback-bar {\n    grid-column: 1;"
+    ) in css
+    assert ".cabinet-main { padding: 18px 14px; }" in css
+    assert ".desktop-embedded .main { padding: var(--meeting-detail-main-padding-top) 14px 18px; }" in css
+    assert ".desktop-embedded .cabinet-main { padding: 18px 14px; }" in css
+    assert "172px" not in css
 
 
 def test_embedded_shell_exposes_compact_rail_toggle_and_lucide_nav_icons() -> None:
@@ -1408,7 +1460,7 @@ def test_cabinet_rail_collapses_at_surface_breakpoint_without_resize_handler() -
         assert marker in js
     assert "if (!event.matches) setRailPinned(shell, toggle, false)" not in js
 
-    rail_source = js[js.index("const initCabinetRail") : js.index("const initCabinetProfileMenus")]
+    rail_source = js[js.index("const initCabinetRail") : js.index("let cabinetTooltipsReady")]
     assert 'window.addEventListener("resize"' not in rail_source
     assert 'sidebar.querySelectorAll("a[href]")' not in rail_source
     assert 'document.addEventListener("click"' not in rail_source
@@ -1524,7 +1576,8 @@ def test_feature_159_download_and_profile_surface_contract_is_surface_aware() ->
         menu = menu_match.group(0)
         ordered_labels = (
             "Длинное синтетическое имя пользователя", "Вид", "Настройки", "Решение проблем", "Документация",
-            "Техническая поддержка", "Обратная связь", "Присоединиться к ТГ-каналу", "Выйти",
+            "Техническая поддержка", "Обратная связь", "Присоединиться к ТГ-каналу",
+            "Выйти",
         )
         assert all(menu.index(label) < menu.index(ordered_labels[index + 1]) for index, label in enumerate(ordered_labels[:-1]))
         assert ">Аккаунт</strong>" not in menu
@@ -1556,6 +1609,33 @@ def test_feature_159_download_and_profile_surface_contract_is_surface_aware() ->
     assert "synthetic-owner@example.test" in web
     assert "provider_subject" not in web
     assert "candidate_identity_subject" not in web
+
+
+def test_profile_menu_theme_and_disabled_action_contract_is_shared() -> None:
+    script = _cabinet_js()
+    css = _cabinet_css()
+    sections = (
+        SERVER_ROOT / "cabinet" / "templates" / "cabinet" / "components" / "sections.html"
+    ).read_text()
+
+    assert 'form.dataset.accountPreferencesAutoSave === "true"' in script
+    assert "form.requestSubmit()" in script
+    assert 'data-profile-menu popover="manual" hidden' in sections
+    assert "menu.showPopover()" in script
+    assert "menu.hidePopover()" in script
+    assert 'menu.matches(":popover-open")' in script
+    assert 'style.setProperty("--profile-menu-bottom"' in script
+    assert ".sidebar-profile-menu__item--disabled" in css
+    assert ".sidebar-profile-menu__theme-form .theme-picker__options" in css
+    assert ".sidebar-profile-menu__submenu" in css
+    assert "inset-inline-start: calc(100% + 8px);" in css
+    assert ".sidebar-profile-menu__disclosure.is-flipped" in css
+    assert "width: min(248px, calc(var(--profile-menu-viewport-width, 100vw) - 16px));" in css
+    assert "inset: auto auto var(--profile-menu-bottom, calc(12px + 48px)) 8px;" in css
+    assert "height: max-content;" in css
+    assert "grid-auto-rows: max-content;" in css
+    assert "align-content: start;" in css
+    assert "syncDisclosurePosition" in script
 
 
 def test_saved_theme_is_applied_to_the_full_cabinet_page() -> None:
@@ -1640,7 +1720,7 @@ def test_list_shell_renders_audio_video_transcript_and_upload_icons() -> None:
     assert 'data-icon="upload"' in page
     assert 'data-media-kind="аудио"' in page
     assert 'data-media-kind="видео"' in page
-    assert 'data-media-kind="транскрипт"' in page
+    assert 'data-media-kind="расшифровка"' in page
     assert 'data-media-kind="медиа"' in page
     assert "▣" not in page
 
@@ -1682,7 +1762,7 @@ def test_list_shell_renders_server_upload_progress_in_recording_row() -> None:
     assert "◁" not in page
 
 
-def test_list_shell_polls_processing_recordings_until_review_ready() -> None:
+def test_list_shell_projects_processing_without_replacing_the_full_list() -> None:
     page = render_meeting_list_page(
         MeetingListResponse(
             items=[_item()],
@@ -1693,11 +1773,12 @@ def test_list_shell_polls_processing_recordings_until_review_ready() -> None:
     )
 
     assert "Проектный синк" in page
-    assert 'hx-trigger="every 1s"' in page
-    assert 'hx-get="/meetings"' in page
+    assert "Спикеры определяются · расшифровка готовится" in page
+    assert "data-upload-progress-poll" not in page
+    assert 'hx-trigger="every 1s"' not in page
 
 
-def test_list_shell_polls_submitted_recordings_until_processing_starts() -> None:
+def test_list_shell_projects_submitted_recordings_without_full_list_poll() -> None:
     item = _item()
     item.status = "submitted"
     item.status_label = "Submitted"
@@ -1711,7 +1792,9 @@ def test_list_shell_polls_submitted_recordings_until_processing_starts() -> None
     )
 
     assert "Обрабатывается" in page
-    assert 'hx-trigger="every 1s"' in page
+    assert "Спикеры определяются · расшифровка готовится" in page
+    assert "data-upload-progress-poll" not in page
+    assert 'hx-trigger="every 1s"' not in page
 
 
 def test_list_shell_stops_polling_terminal_private_failure_states() -> None:
@@ -1746,6 +1829,7 @@ def test_list_shell_stops_polling_terminal_private_failure_states() -> None:
         )
 
         assert "Не удалось обработать" in page
+        assert "Спикеры определяются · расшифровка готовится" not in page
         assert "data-upload-progress-poll" not in page
         assert 'hx-trigger="every 1s"' not in page
 
@@ -1846,7 +1930,7 @@ def test_detail_shell_renders_tabs_and_gated_actions() -> None:
     assert 'role="tablist" aria-label="Содержимое встречи"' in page
     assert 'data-detail-tab="recording"' in page
     assert 'aria-selected="true" aria-controls="detail-panel-recording"' in page
-    assert 'data-detail-panel="outcomes" hidden' in page
+    assert 'data-detail-panel="outcomes" data-summary-current-result tabindex="-1" hidden' in page
     assert 'data-detail-panel="recording"' in page
     assert '<h2 class="sr-only">Итоги</h2>' in page
     assert "const activateDetailTab = (name, { updateUrl = true } = {})" in _cabinet_js()
@@ -1940,6 +2024,7 @@ def test_detail_shell_renders_playback_player_and_seekable_timestamps() -> None:
     page = render_meeting_detail_page(review)
 
     assert 'class="playback-bar detail-playback"' in page
+    assert 'aria-label="Воспроизведение записи"' in page
     assert "data-playback-transcript" in page
     assert 'data-playback-live-status role="status" aria-live="polite"' in page
     assert "data-playback-shell" in page
@@ -1977,6 +2062,11 @@ def test_detail_shell_renders_playback_player_and_seekable_timestamps() -> None:
     assert "recoverMeetingDetailFromResponse(response)" in script
     assert 'new URL(response.url, window.location.href).pathname === "/login"' in script
     assert "detail.replaceWith(recovery)" in script
+    assert 'querySelector(".playback-bar")' in script
+    assert "player?.pause?.()" in script
+    assert 'player?.removeAttribute?.("src")' in script
+    assert "player?.load?.()" in script
+    assert "playback?.remove()" in script
     assert 'document.querySelector("[data-meeting-detail-recovery-template]")' in script
     assert "cloneNode(true)" in script
     assert 'document.createElement("h1")' not in script
@@ -2189,6 +2279,7 @@ def test_detail_shell_renders_speaker_timeline_segments() -> None:
     assert 'data-speaker-timeline-default-height="120"' in page
     assert 'aria-valuemin="120" aria-valuemax="120" aria-valuenow="120"' in page
     assert page.count("data-speaker-timeline-hint") == 1
+    assert page.index("</main>") < page.index("data-playback-shell")
     assert "Нажмите на цветной фрагмент, чтобы перейти к этому месту записи." in page
     assert 'data-speaker-lane="speaker_00"' in page
     assert 'data-speaker-lane="speaker_01"' in page
@@ -2211,7 +2302,7 @@ def test_detail_shell_renders_speaker_timeline_segments() -> None:
     )
     assert ".playback-range-thumb" in css
     assert "width: 16px" in css
-    assert "--playback-clearance: 192px" in css
+    assert "--playback-clearance" not in css
     assert ".timeline-lane.is-active" in css
     assert ".segment.is-current" in css
     assert ".speaker {" in css and "color: var(--muted)" in css
@@ -2229,8 +2320,8 @@ def test_detail_shell_renders_speaker_timeline_segments() -> None:
     assert "width:50.00%" in page
     script = _cabinet_js()
     assert "const seekTo = (seconds, { follow = true, autoplay = false } = {}) =>" in script
-    assert 'detailMain.style.setProperty("--playback-clearance"' in script
-    assert "new ResizeObserver(syncPlaybackClearance).observe(shell)" in script
+    assert 'detailMain.style.setProperty("--playback-clearance"' not in script
+    assert "new ResizeObserver(syncPlaybackClearance).observe(shell)" not in script
     assert "const followTranscript = (seconds) =>" in script
     assert 'track.addEventListener("click"' in script
     assert 'lane.classList.toggle("is-active"' in script
@@ -2552,6 +2643,7 @@ def test_detail_shell_renders_all_non_playable_states_without_repair_controls() 
 
         assert f'data-playback-state="{state}"' in page
         assert f'data-playback-reason="{reason_code}"' in page
+        assert 'aria-label="Воспроизведение записи"' in page
         assert label in page
         assert "<audio" not in page
         forbidden_controls = (
@@ -2587,7 +2679,7 @@ def test_terminal_playback_copy_renders_as_plain_status_without_user_work() -> N
     assert "<audio" not in page
     forbidden = (
         "retry",
-        "reprocess",
+        "reprocess-playback",
         "backfill",
         "повторить",
         "загрузить заново",
@@ -2683,7 +2775,7 @@ def test_detail_shell_renders_stored_outcomes_with_long_content_and_playback_spa
     assert 'data-outcome-state="available"' in page
     assert "Синтетический длинный итог встречи" in page
     assert "Источник: 00:12" in page
-    assert "Ключевое" in page
+    assert "Ключевое" not in page
     css = _cabinet_css()
     assert ".notes-more" in css
     assert ".notes-primary-outcomes" in css
@@ -2693,6 +2785,12 @@ def test_detail_shell_renders_stored_outcomes_with_long_content_and_playback_spa
 def test_detail_shell_renders_simple_outcomes_with_metadata_and_sources() -> None:
     review = _review()
     review.transcript = review.transcript.model_copy(update={"available": True, "search_enabled": True})
+    review.template = SlotState(
+        state="available",
+        label="Протокол встречи",
+        reason="graf-meeting-minutes-v1",
+        template_version=1,
+    )
     review.playback = PlaybackReviewState(
         available=True,
         duration_seconds=120,
@@ -2825,9 +2923,11 @@ def test_detail_shell_renders_simple_outcomes_with_metadata_and_sources() -> Non
 
     assert (
         page.index('data-outcome-category="summary"')
-        < page.index('data-outcome-category="action_items"')
         < page.index('data-outcome-category="decisions"')
+        < page.index('data-outcome-category="action_items"')
     )
+    assert 'data-outcome-category="key_points"' not in page
+    assert 'data-outcome-category="followups"' not in page
     assert "Алексей" in page
     assert "до пятницы" in page
     assert "Ответственный не определён" not in page
@@ -2841,7 +2941,7 @@ def test_detail_shell_renders_simple_outcomes_with_metadata_and_sources() -> Non
     assert 'aria-label="Открыть источник 00:12 в расшифровке"' in page
     assert "data-export-dialog-open" in page
     assert 'data-export-scope="summary"' not in page
-    assert 'class="notes-more"' in page
+    assert 'class="notes-more"' not in page
 
 
 def test_detail_shell_hides_source_controls_without_a_valid_destination() -> None:
@@ -3074,9 +3174,10 @@ def test_detail_shell_exposes_active_review_player_timeline_and_mobile_safe_cont
 
     page = render_meeting_detail_page(review)
 
-    assert 'class="tab active" role="tab" id="detail-tab-recording"' in page
-    assert 'aria-selected="true" aria-controls="detail-panel-recording"' in page
-    assert 'data-detail-panel="recording"' in page
+    assert 'class="tab active" role="tab" id="detail-tab-outcomes"' in page
+    assert 'aria-selected="true" aria-controls="detail-panel-outcomes"' in page
+    assert 'data-detail-panel="outcomes"' in page
+    assert "Полезных итогов не найдено" in page
     assert "data-playback-shell" in page
     assert "data-playback-player" in page
     assert "data-playback-progress" in page
@@ -3085,15 +3186,11 @@ def test_detail_shell_exposes_active_review_player_timeline_and_mobile_safe_cont
     assert 'data-speaker-lane="speaker_00"' in page
     assert page.count("data-lane-segment") == 1
     assert 'data-outcome-source-basis="stored_output"' in page
-    assert page.count("data-outcome-category=") == 8
+    assert "data-outcome-category=" not in page
     css = _cabinet_css()
     assert "@media (max-width: 980px)" in css
     assert "@media (max-width: 540px)" in css
-    assert (
-        ".detail-page-main {\n"
-        "    --playback-clearance: 172px;\n"
-        "    padding-bottom: var(--playback-clearance);"
-    ) in css
+    assert "--playback-clearance" not in css
     assert ".detail-playback { --timeline-label-width: 68px; --timeline-value-width: 34px; }" in css
     assert ".speaker-timeline { gap: 4px; }" in css
 
@@ -3262,7 +3359,7 @@ def test_098_ambiguity_chooser_uses_safe_native_controls_and_graf_primitives() -
     assert "panel" in chooser_classes
     assert "<fieldset" in page
     assert "<legend>Выберите встречу</legend>" in page
-    assert page.count('type="radio"') == 5  # chooser radios + profile appearance radios
+    assert page.count('type="radio"') == 2  # chooser only; no profile was supplied
     assert page.count('name="event_id"') == 2
     assert 'aria-describedby="calendar-context-choice-help"' in page
     assert 'id="calendar-context-chooser-heading"' in page

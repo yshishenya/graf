@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from hashlib import sha256
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -21,8 +22,24 @@ class YooKassaProviderError(RuntimeError):
         self.status_code = status_code
 
 
+def provider_environment(environment: object) -> str:
+    """Return the explicitly selected YooKassa environment."""
+    value = str(environment).strip().lower()
+    if value not in {"test", "production"}:
+        raise ValueError("provider environment is invalid")
+    return value
+
+
 def _format_minor_amount(amount_minor: int) -> str:
     return f"{amount_minor // 100}.{amount_minor % 100:02d}"
+
+
+def _provider_idempotence_key(value: str) -> str:
+    if not value:
+        raise ValueError("idempotence key is unavailable")
+    if len(value) <= 64 and value.isascii() and value.isprintable():
+        return value
+    return sha256(value.encode()).hexdigest()
 
 
 def build_receipt_payload(
@@ -209,7 +226,11 @@ class YooKassaClient:
         idempotence_key: str | None = None,
         params: dict[str, str] | None = None,
     ) -> dict[str, Any]:
-        headers = {"Idempotence-Key": idempotence_key} if idempotence_key else {}
+        headers = (
+            {"Idempotence-Key": _provider_idempotence_key(idempotence_key)}
+            if idempotence_key is not None
+            else {}
+        )
         response = await self._http.request(method, path, json=payload, headers=headers, params=params)
         if response.status_code >= 400:
             raise YooKassaProviderError(

@@ -32,6 +32,20 @@ def test_meeting_detail_has_exactly_two_keyboard_operable_content_tabs() -> None
     assert "tab.tabIndex = selected ? 0 : -1" in script
 
 
+def test_processing_recovery_updates_terminal_header_and_hides_pending_copy() -> None:
+    page = _source(MEETING_DETAIL)
+    script = _source(JAVASCRIPT)
+
+    assert "data-meeting-status-label" in page
+    assert "statusLabel.textContent" in script
+    assert '"Нужна помощь"' in script
+    assert "terminalProcessing" in script
+    assert 'state === "blocked" && retryClass !== "unknown_outcome"' in script
+    assert "processing_retry_deadline_exceeded" in script
+    assert 'projection?.retry_class === "terminal"' in script
+    assert "const shouldPoll = !terminalProjection && (" in script
+
+
 def test_meeting_review_continuity_exposes_lane_hint_resize_separator_and_sticky_header() -> None:
     page = _source(MEETING_DETAIL)
     rendering = _source(RENDERING)
@@ -119,6 +133,54 @@ def test_more_menu_has_complete_keyboard_model_and_visible_return_target() -> No
     assert "min-height: 48px" in css
 
 
+def test_reprocess_confirmation_is_named_traps_focus_and_returns_to_exact_opener() -> None:
+    governance = _source(GOVERNANCE_DIALOG)
+    detail = _source(MEETING_DETAIL)
+    script = _source(JAVASCRIPT)
+
+    assert 'aria-haspopup="dialog"' in governance
+    assert 'aria-controls="processing-reprocess-dialog"' in governance
+    assert 'aria-labelledby="processing-reprocess-dialog-title"' in governance
+    assert 'aria-describedby="processing-reprocess-dialog-copy"' in governance
+    assert 'aria-modal="true"' in governance
+    assert "data-processing-reprocess-cancel" in governance
+    assert 'data-processing-reprocess-error role="alert"' in governance
+    assert "Подготовить новую версию?" in governance
+    assert (
+        "Имена спикеров, заданные вручную, будут сброшены после успешной обработки."
+        in governance
+    )
+    assert 'data-processing-reprocess-open aria-describedby="processing-recovery-copy"' in detail
+    assert 'dialog.addEventListener("cancel"' in script
+    assert "trapModalFocus(dialog, event)" in script
+    assert "processingReprocessReturnFocus" in script
+    assert "restoreProcessingReprocessFocus" in script
+    assert "processingReprocessReturnFocus.focus({ preventScroll: true })" in script
+
+
+def test_replacement_uses_one_polite_live_region_without_intermediate_copy() -> None:
+    detail = _source(MEETING_DETAIL)
+    script = _source(JAVASCRIPT)
+
+    assert 'data-processing-countdown aria-live="off"' in detail
+    assert 'data-processing-live role="status" aria-live="polite" aria-atomic="true"' in detail
+    assert "data-processing-reprocess-continuity" not in detail
+    assert "data-processing-replacement-active" in detail
+    assert "countdown.textContent = processingCountdownCopy" in script
+    countdown = script[
+        script.index("const renderProcessingCountdown") :
+        script.index("const scheduleProcessingRecoveryPolling")
+    ]
+    assert "announceProcessingChange" not in countdown
+    replacement = script[
+        script.index("const replacementAttemptOrdinal") :
+        script.index('if (projection?.manual_action === "retry_preparation")')
+    ]
+    assert "Готовим новую версию" in replacement
+    assert "Временная ошибка" not in replacement
+    assert "Ждём актуальный статус" not in replacement
+
+
 def test_format_selector_exposes_one_labelled_listbox_with_bounded_quick_choices() -> None:
     source = _source(RENDERING) + _source(MEETING_DETAIL) + _source(JAVASCRIPT)
 
@@ -152,14 +214,23 @@ def test_processing_recovery_projection_keeps_artifacts_independent_and_refresh_
     styles = _source(STYLES)
 
     assert "data-processing-status-url" in detail
-    assert 'data-processing-recovery aria-labelledby="processing-recovery-title"' in detail
+    assert "data-processing-replacement-active" in detail
+    assert "data-processing-published-attempt" in detail
+    assert "data-processing-recovery data-processing-replacement=" in detail
+    assert 'aria-labelledby="processing-recovery-title"' in detail
+    assert 'data-state="{% if processing_state in [\'failed\', \'blocked\', \'unavailable\'] %}terminal{% elif processing_state == \'ready\' %}ready{% else %}active{% endif %}"' in detail
+    assert "{% if processing_state == 'ready' %} hidden{% endif %}" in detail
+    assert "processing_reason_label" in detail
     assert 'data-processing-check aria-describedby="processing-recovery-copy"' in detail
     assert 'data-processing-attempt-url=' in detail
     assert 'data-processing-new-attempt aria-describedby="processing-recovery-copy"' in detail
+    assert "data-processing-upload-another" in detail
+    assert "Загрузить другой файл" in detail
     assert "Проверить обработку" in detail
     assert "Начать обработку заново" in detail
+    assert "К списку встреч" in detail
     assert 'data-transcript-pending' in detail
-    assert 'data-playback-transcript{% if media_revision_id %} hidden aria-hidden="true"{% endif %}' in detail
+    assert 'data-playback-transcript{% if media_revision_id and not transcript_available %} hidden aria-hidden="true"{% endif %}' in detail
     assert 'data-processing-summary-status role="status" aria-live="off"' in detail
     assert 'data-processing-list-announcer role="status" aria-live="polite"' in meeting_list
 
@@ -172,7 +243,6 @@ def test_processing_recovery_projection_keeps_artifacts_independent_and_refresh_
         "retry_class",
         "attempt_in_flight",
         "manual_action",
-        "processingSafeNewAttemptReasons",
         "processingNewAttemptAllowed",
         "runProcessingNewAttempt",
         "unknown_outcome",
@@ -184,16 +254,37 @@ def test_processing_recovery_projection_keeps_artifacts_independent_and_refresh_
         "document.addEventListener(\"visibilitychange\"",
     ):
         assert marker in script
+    assert "processingSafeNewAttemptReasons" not in script
     assert "fetch(statusUrl" in script
+    assert "preserveProjection" not in script
     assert '"Content-Type": "application/json"' in script
     assert "command_id: processingClientCommandId()" in script
     assert "schedule_generation: Number.parseInt(detail.dataset.processingScheduleGeneration" in script
     assert "processingRecoveryActionRequest !== null" in script
+    assert '"replacement-active"' in script
     assert "transcriptReady = processingTranscriptReady(projection)" in script
+    assert "const transcriptVisible = transcriptReady;" in script
+    assert 'const terminalTranscript = ["failed", "unavailable"].includes(transcriptState)' in script
+    assert "pending.hidden = transcriptVisible || terminalTranscript" in script
     assert "updateProcessingExportVisibility(transcriptReady)" in script
+    assert 'manual_action === "upload_another"' in script
+    assert 'manualAction === "retry_preparation"' in script
+    assert '"Повторить подготовку"' in script
+    assert "processingTerminalFailure(projection)" in script
+    assert "refreshProcessingDetailContentOnce" in script
+    assert 'manual_action === "contact_support"' in script
+    assert 'projectionState === "canceled"' in script
+    assert 'title: "Обработка остановлена"' in script
+    assert (
+        "processingRecoveryActionRequest !== null || processingTerminalFailure(projection)"
+        in script
+    )
     assert "@media (prefers-reduced-motion: reduce)" in styles
     assert "@media (forced-colors: active)" in styles
     assert ".processing-stage-list" in styles
+    assert '[data-processing-replacement-active="true"] .meeting-detail-tabs' in styles
+    assert '[data-processing-replacement-active="true"] [data-meeting-status-label]' in styles
+    assert '[data-processing-replacement-active="true"] + .detail-playback' in styles
 
 
 def test_workflow_surfaces_cover_responsive_theme_motion_contrast_and_visible_focus() -> None:

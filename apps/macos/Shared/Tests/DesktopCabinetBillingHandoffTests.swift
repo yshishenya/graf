@@ -34,13 +34,86 @@ final class DesktopCabinetBillingHandoffTests: XCTestCase {
             baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.dev"))
         )
 
-        for path in ["/billing", "/billing/plans", "/billing/usage", "/billing/subscription", "/billing/payment-method", "/billing/storage", "/billing/checkout", "/billing/checkout/return", "/billing/checkout/status/INV-2026-0001", "/billing/discounts", "/billing/history", "/billing/invoices/INV-2026-0001"] {
+        for path in [
+            "/billing",
+            "/billing/plans",
+            "/billing/usage",
+            "/billing/subscription",
+            "/billing/subscription/cancel",
+            "/billing/subscription/resume",
+            "/billing/payment-method",
+            "/billing/payment-method/delete",
+            "/billing/storage",
+            "/billing/checkout",
+            "/billing/checkout/preview",
+            "/billing/checkout/start",
+            "/billing/checkout/return",
+            "/billing/checkout/status/INV-2026-0001",
+            "/billing/checkout/status/INV-2026-0001/refresh",
+            "/billing/checkout/status/INV-2026-0001/continue",
+            "/billing/discounts",
+            "/billing/discounts/apply",
+            "/billing/discounts/remove",
+            "/billing/trial/activate",
+            "/billing/history",
+            "/billing/invoices/INV-2026-0001"
+        ] {
             let decision = policy.decision(for: try XCTUnwrap(URL(string: "https://rec.2brain.dev\(path)")))
             XCTAssertEqual(decision.decision, .allow, path)
             XCTAssertEqual(decision.route.kind, .billing, path)
             XCTAssertEqual(decision.reason, .allowedBilling, path)
             XCTAssertNil(URL(string: "https://rec.2brain.dev\(path)")?.query)
         }
+    }
+
+    func testUnknownBillingActionsStayBlocked() throws {
+        let policy = DesktopCabinetRoutePolicy(
+            baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.dev"))
+        )
+
+        for path in [
+            "/billing/checkout/unknown",
+            "/billing/checkout/start/extra",
+            "/billing/subscription/delete",
+            "/billing/discounts/unknown",
+            "/billing/checkout/status/INV-2026-0001/delete",
+            "/billing/checkout/status/unsafe%2Fnumber/refresh"
+        ] {
+            let decision = policy.decision(
+                for: try XCTUnwrap(URL(string: "https://rec.2brain.dev\(path)"))
+            )
+            XCTAssertEqual(decision.decision, .blockWithMessage, path)
+        }
+    }
+
+    func testOfferRouteOpensExternallyWithoutCarryingQueryData() throws {
+        let policy = DesktopCabinetRoutePolicy(
+            baseURL: try XCTUnwrap(URL(string: "https://rec.2brain.dev"))
+        )
+        let source = try XCTUnwrap(
+            URL(string: "https://rec.2brain.dev/offer?invoice=INV-2026-0001#payment")
+        )
+
+        let decision = policy.decision(for: source)
+        XCTAssertEqual(decision.decision, .openExternally)
+        XCTAssertEqual(decision.route.kind, .external)
+        XCTAssertEqual(decision.reason, .openExternalSafeLink)
+        XCTAssertEqual(
+            policy.sanitizedExternalURL(for: source)?.absoluteString,
+            "https://rec.2brain.dev/offer"
+        )
+        for path in ["/offer/", "//offer", "/offer//", "/offer/extra"] {
+            let variant = try XCTUnwrap(URL(string: "https://rec.2brain.dev\(path)"))
+            XCTAssertEqual(policy.decision(for: variant).decision, .blockWithMessage, path)
+            XCTAssertNil(policy.sanitizedExternalURL(for: variant), path)
+        }
+
+        let insecurePolicy = DesktopCabinetRoutePolicy(
+            baseURL: try XCTUnwrap(URL(string: "http://rec.2brain.dev"))
+        )
+        let insecureOffer = try XCTUnwrap(URL(string: "http://rec.2brain.dev/offer"))
+        XCTAssertEqual(insecurePolicy.decision(for: insecureOffer).decision, .blockWithMessage)
+        XCTAssertNil(insecurePolicy.sanitizedExternalURL(for: insecureOffer))
     }
 
     func testReferralMenuRoutesOpenInTheBrowserWithoutCarryingQueryData() throws {

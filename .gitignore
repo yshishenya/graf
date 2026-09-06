@@ -45,6 +45,7 @@ docker-data/
 minio-data/
 postgres-data/
 infra/runtime/
+/twobrain-rec-deploy.lock
 
 # Swift / Xcode local outputs
 .build/
@@ -77,11 +78,24 @@ out/
 *.suo
 *.user
 
+# Dev harness manifests, artifacts and runtime logs (never source/evidence)
+.dev/
+
+# Immutable release-candidate records are operator evidence, not source.
+/infra/release/candidate*.json*
+/infra/release/.candidate*.json*
+
+# The portable harness ships its own executable launcher despite the generic
+# repository bin/ ignore rule.
+!/harness/bin/
+!/harness/bin/harness-check
+
 # Spec Kit local runtime state that should not contain project source
 .specify/feature.json
 
 # Spec Kit/Codex generated working files
 .specify/extensions/.registry
+.specify/extensions/.cache/
 .specify/integrations/codex.manifest.json
 .specify/scripts/bash/check-prerequisites.sh
 .specify/scripts/bash/common.sh
@@ -100,3 +114,4 @@ out/
 # real account names, meeting titles, transcripts, local paths, or screenshots.
 specs/**/reference/private-appshots/
 docs/evidence/**/private-appshots/
+.playwright-cli/

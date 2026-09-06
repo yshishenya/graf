@@ -44,17 +44,22 @@ def normalize_source_role(role: str | None) -> str:
 def normalize_result(result: MediaScribeResult) -> MediaScribeResult:
     if (
         result.transcript_status == ProcessingAvailabilityStatus.UNAVAILABLE
-        and not result.diarization
+        and result.diarization == []
     ):
         return result.model_copy(update={"transcript": [], "diarization": []})
     transcript = []
+    default_source_role = (
+        "unknown_provider_state"
+        if result.job is not None and result.job.source_mode == "dual"
+        else "mixed"
+    )
     source_transcript = (
         []
         if result.transcript_status == ProcessingAvailabilityStatus.UNAVAILABLE
         else result.transcript
     )
     for segment in source_transcript:
-        normalized_role = normalize_source_role(segment.source_role)
+        normalized_role = normalize_source_role(segment.source_role or default_source_role)
         transcript.append(
             segment.model_copy(
                 update={
@@ -66,9 +71,9 @@ def normalize_result(result: MediaScribeResult) -> MediaScribeResult:
                 }
             )
         )
-    diarization = []
+    diarization = None if result.diarization is None else []
     for segment in result.diarization or []:
-        normalized_role = normalize_source_role(segment.source_role)
+        normalized_role = normalize_source_role(segment.source_role or default_source_role)
         diarization.append(
             segment.model_copy(
                 update={
@@ -97,7 +102,7 @@ def normalize_result(result: MediaScribeResult) -> MediaScribeResult:
                     "end_seconds": _persisted_seconds(segment.end_seconds),
                 }
             )
-            for segment in diarization
+            for segment in diarization or []
         ],
         processing_result_id=UUID(int=0),
         provider_job_id=result.external_job_id,

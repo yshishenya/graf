@@ -7,8 +7,17 @@ MACOS_DIR="$ROOT_DIR/apps/macos"
 BUILD_DIR="${GRAF_DEV_BUILD_DIR:-$MACOS_DIR/.build/dev}"
 APP_BUNDLE="${GRAF_DEV_APP_BUNDLE:-$BUILD_DIR/GRAF Dev.app}"
 LOCAL_ORIGIN="${GRAF_DEV_ORIGIN:-}"
-SIGNING_IDENTITY="${GRAF_DEV_SIGN_IDENTITY:-GRAF Local Code Signing}"
+SIGNING_IDENTITY="${GRAF_DEV_SIGNING_IDENTITY:-${GRAF_DEV_SIGN_IDENTITY:-GRAF Local Code Signing}}"
+if [ -n "${GRAF_DEV_SIGNING_IDENTITY:-}" ] && [ -n "${GRAF_DEV_SIGN_IDENTITY:-}" ] &&
+  [ "$GRAF_DEV_SIGNING_IDENTITY" != "$GRAF_DEV_SIGN_IDENTITY" ]; then
+  echo "GRAF Dev build: signing identity variables disagree; use GRAF_DEV_SIGNING_IDENTITY" >&2
+  exit 1
+fi
 DEV_BUNDLE_ID="pro.2brain.graf.dev"
+CURRENT_SOURCE_SHA="$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || true)"
+SOURCE_SHA="${GRAF_DEV_SOURCE_SHA:-$CURRENT_SOURCE_SHA}"
+SOURCE_SHA_SHORT=$(printf '%s' "$SOURCE_SHA" | cut -c1-12)
+MANIFEST_ID="${GRAF_DEV_MANIFEST_ID:-dev-$SOURCE_SHA_SHORT}"
 
 fail() {
   echo "GRAF Dev build: $1" >&2
@@ -16,6 +25,17 @@ fail() {
 }
 
 [ -n "$LOCAL_ORIGIN" ] || fail "GRAF_DEV_ORIGIN must be explicitly supplied"
+if [ -z "$SOURCE_SHA" ] || ! printf '%s' "$SOURCE_SHA" | grep -Eq '^[0-9a-fA-F]{40}$'; then
+  fail "GRAF_DEV_SOURCE_SHA must be a 40-character git SHA"
+fi
+[ -n "$CURRENT_SOURCE_SHA" ] || fail "could not resolve the checked-out source SHA"
+[ "$SOURCE_SHA" = "$CURRENT_SOURCE_SHA" ] ||
+  fail "GRAF_DEV_SOURCE_SHA must match the checked-out HEAD"
+[ -z "$(git -C "$ROOT_DIR" status --porcelain --untracked-files=all)" ] ||
+  fail "source checkout must be clean; commit or stash local changes before building GRAF Dev"
+if [ -z "$MANIFEST_ID" ] || ! printf '%s' "$MANIFEST_ID" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$'; then
+  fail "GRAF_DEV_MANIFEST_ID contains unsupported characters"
+fi
 [ "$(basename -- "$APP_BUNDLE")" = "GRAF Dev.app" ] || fail "Dev bundle path must end in GRAF Dev.app"
 case "$LOCAL_ORIGIN" in
   http://127.0.0.1:*|http://localhost:*) ;;
@@ -67,6 +87,10 @@ for icon_size in 16 32 128 256 512; do
   sips -z "$retina_size" "$retina_size" "$DEV_ICON_PNG" --out "$ICONSET_DIR/icon_${icon_size}x${icon_size}@2x.png" >/dev/null
 done
 iconutil -c icns "$ICONSET_DIR" -o "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
+[ -s "$APP_BUNDLE/Contents/Resources/AppIcon.icns" ] || fail "Dev icon is missing"
+if cmp -s "$MACOS_DIR/RecApp/Resources/AppIcon.icns" "$APP_BUNDLE/Contents/Resources/AppIcon.icns"; then
+  fail "Dev icon must include a presentation distinct from production"
+fi
 
 if ! otool -l "$APP_BUNDLE/Contents/MacOS/GRAF" | grep -Fq '@executable_path/../Frameworks'; then
   install_name_tool -add_rpath '@executable_path/../Frameworks' "$APP_BUNDLE/Contents/MacOS/GRAF"
@@ -97,6 +121,10 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<EOF
   <string>0.0.0-dev</string>
   <key>CFBundleVersion</key>
   <string>0.0.0-dev</string>
+  <key>GRAFSourceSHA</key>
+  <string>$SOURCE_SHA</string>
+  <key>GRAFManifestID</key>
+  <string>$MANIFEST_ID</string>
   <key>LSMinimumSystemVersion</key>
   <string>14.5</string>
   <key>NSHighResolutionCapable</key>
@@ -191,7 +219,10 @@ DESIGNATED_REQUIREMENT=$(codesign -dr - "$APP_BUNDLE" 2>&1 | sed -n 's/^designat
 
 INFO_PLIST="$APP_BUNDLE/Contents/Info.plist"
 plutil -extract CFBundleDisplayName raw "$INFO_PLIST" | grep -Fxq "GRAF Dev" || fail "Dev display name is invalid"
+plutil -extract CFBundleName raw "$INFO_PLIST" | grep -Fxq "GRAF Dev" || fail "Dev bundle name is invalid"
 plutil -extract CFBundleIdentifier raw "$INFO_PLIST" | grep -Fxq "pro.2brain.graf.dev" || fail "Dev bundle ID is invalid"
+plutil -extract CFBundleIconFile raw "$INFO_PLIST" | grep -Fxq "AppIcon" || fail "Dev icon metadata is invalid"
+plutil -extract LSEnvironment.GRAF_APP_CHANNEL raw "$INFO_PLIST" | grep -Fxq "dev" || fail "Dev channel is invalid"
 if plutil -extract SUFeedURL raw "$INFO_PLIST" >/dev/null 2>&1 ||
    plutil -extract SUPublicEDKey raw "$INFO_PLIST" >/dev/null 2>&1; then
   fail "Dev updater metadata must be absent"

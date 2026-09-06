@@ -7,6 +7,7 @@ from minio.error import S3Error
 from twobrain_rec_server.storage.minio_client import (
     STORAGE_READINESS_OBJECT_KEY,
     MinioStorage,
+    StorageTransferError,
 )
 
 
@@ -201,5 +202,16 @@ def test_iter_object_streams_requested_range_and_releases_storage_response() -> 
 
     assert chunks == [b"cd", b"e"]
     assert client.calls == [{"offset": 2, "length": 3}]
+    assert client.response.closed is True
+    assert client.response.released is True
+
+
+def test_iter_object_rejects_short_range_and_releases_storage_response() -> None:
+    client = _FakeGetObjectClient(b"ab")
+    storage = _storage_with_client(client)
+
+    with pytest.raises(StorageTransferError, match="storage_object_size_mismatch"):
+        list(MinioStorage.iter_object(storage, "objects/audio.m4a", length=3, chunk_size=2))
+
     assert client.response.closed is True
     assert client.response.released is True

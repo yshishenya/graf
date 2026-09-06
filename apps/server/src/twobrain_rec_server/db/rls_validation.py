@@ -59,6 +59,7 @@ RLS_DIRECT_WORKSPACE_TABLES = frozenset(
         "meeting_outcome_sets",
         "meeting_outcome_items",
         "meeting_outcome_generation_attempts",
+        "meeting_summary_slots",
         "summary_templates",
         "generation_calls",
         "meeting_share_invitations",
@@ -123,7 +124,6 @@ RLS_OPERATOR_TABLES = frozenset(
 RLS_BILLING_TABLES = frozenset(
     {
         "billing_plan_versions",
-        "billing_launch_gates",
         "promotion_campaigns",
         "promotion_redemptions",
         "workspace_subscriptions",

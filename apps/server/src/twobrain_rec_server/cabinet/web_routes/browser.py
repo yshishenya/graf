@@ -84,11 +84,17 @@ from twobrain_rec_server.db.models import (
     ExternalIdentity,
     Meeting,
     MeetingOutcomeItem,
+    MeetingShareGrant,
     MeetingShareInvitation,
 )
 from twobrain_rec_server.db.tenant_context import (
     TenantDatabaseContext,
     apply_tenant_context,
+)
+from twobrain_rec_server.outcomes.service import (
+    load_egress_default_outcome,
+    load_meeting_default_slot,
+    load_pinned_egress_outcome,
 )
 from twobrain_rec_server.product_analytics.browser_context import (
     build_request_browser_provider_context,
@@ -116,7 +122,10 @@ def _meeting_unavailable_response(
     if _is_hx_request(request):
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
     return cabinet_html_response(
-        render_meeting_unavailable_page(csrf_token=csrf_token),
+        render_meeting_unavailable_page(
+            csrf_token=csrf_token,
+            embedded=request.headers.get("X-GRAF-Client") == "desktop",
+        ),
         status_code=404,
     )
 
@@ -126,23 +135,59 @@ async def _render_shared_summary_for_grant(
     *,
     workspace_id: UUID,
     meeting_id: UUID,
+    viewer_user_id: UUID | None = None,
+    grant: MeetingShareGrant | None = None,
+    embedded: bool = False,
 ) -> str:
     meeting = await session.get(Meeting, meeting_id)
     if meeting is None or meeting.workspace_id != workspace_id:
         raise ProblemDetail(status=404, code="invitation_not_found", title="Invitation not found")
+    if grant is None and viewer_user_id is not None:
+        grant = await session.scalar(
+            select(MeetingShareGrant).where(
+                MeetingShareGrant.workspace_id == workspace_id,
+                MeetingShareGrant.meeting_id == meeting_id,
+                MeetingShareGrant.grantee_user_id == viewer_user_id,
+                MeetingShareGrant.audience_type == "user",
+                MeetingShareGrant.status == "active",
+            )
+        )
+    metadata = grant.metadata_json if grant is not None and isinstance(grant.metadata_json, dict) else {}
+    pin = metadata.get("summary_revision")
+    outcome = None
+    if isinstance(pin, dict):
+        try:
+            pinned_id = UUID(str(pin.get("outcome_set_id")))
+        except (TypeError, ValueError):
+            pinned_id = None
+        template_key = pin.get("template_key")
+        if isinstance(template_key, str) and pinned_id is not None:
+            outcome = await load_pinned_egress_outcome(
+                session,
+                meeting=meeting,
+                template_key=template_key,
+                outcome_set_id=pinned_id,
+            )
+    else:
+        slot = await load_meeting_default_slot(
+            session,
+            workspace_id=workspace_id,
+            meeting_id=meeting.id,
+        )
+        outcome = await load_egress_default_outcome(session, meeting=meeting, slot=slot)
     items = (
         (
             await session.scalars(
                 select(MeetingOutcomeItem)
                 .where(
                     MeetingOutcomeItem.workspace_id == workspace_id,
-                    MeetingOutcomeItem.outcome_set_id == meeting.current_outcome_set_id,
+                    MeetingOutcomeItem.outcome_set_id == outcome.id,
                     MeetingOutcomeItem.state == "available",
                 )
                 .order_by(MeetingOutcomeItem.category, MeetingOutcomeItem.sequence)
             )
         ).all()
-        if meeting.current_outcome_set_id is not None
+        if outcome is not None
         else []
     )
     projection = narrow_summary_projection(
@@ -157,6 +202,7 @@ async def _render_shared_summary_for_grant(
         duration_seconds=int(projection["duration_seconds"]),
         summary_sections=projection["summary_sections"],
         authenticated=True,
+        embedded=embedded,
     )
 
 
@@ -260,6 +306,7 @@ async def share_invitation_continuation(
                 session,
                 workspace_id=workspace_id,
                 meeting_id=grant.meeting_id,
+                grant=grant,
             )
         )
         await session.commit()
@@ -558,6 +605,7 @@ async def share_invitation_magic_link(
                 session,
                 workspace_id=workspace_id,
                 meeting_id=grant.meeting_id,
+                grant=grant,
             )
         )
         await session.commit()
@@ -841,6 +889,7 @@ async def meeting_detail_page(
         workspace_id=tenant_scope.workspace_id,
         meeting_id=parsed_meeting_id,
         viewer_user_id=principal.user_id,
+        selected_summary_template_key=request.query_params.get("summary_format"),
         storage=storage,
         include_calendar_correction_candidates=calendar_context_action == "change",
         external_invitations_enabled=request.app.state.settings.share_external_invitations_enabled,
@@ -861,6 +910,7 @@ async def meeting_detail_page(
                 db,
                 workspace_id=tenant_scope.workspace_id,
                 meeting_id=parsed_meeting_id,
+                viewer_user_id=principal.user_id,
             )
         )
         shared_summary.headers.update(
@@ -951,6 +1001,8 @@ async def shared_meeting_detail_page(
                 db,
                 workspace_id=workspace_id,
                 meeting_id=parsed_meeting_id,
+                viewer_user_id=principal.user_id,
+                embedded=request.headers.get("X-GRAF-Client") == "desktop",
             )
         )
         response.headers.update(
@@ -982,6 +1034,7 @@ async def shared_meeting_detail_page(
             poll_url=_request_path_with_query(request),
             product_analytics_provider=None,
             shared_workspace_id=workspace_id,
+            embedded=request.headers.get("X-GRAF-Client") == "desktop",
         )
     )
     response.headers.update(

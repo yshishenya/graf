@@ -27,6 +27,7 @@ from twobrain_rec_server.db.models import (
     MeetingOutcomeItem,
     MeetingOutcomeSet,
     MeetingSpeakerName,
+    MeetingSummarySlot,
     ProcessingResult,
     TranscriptSegment,
 )
@@ -39,6 +40,10 @@ from twobrain_rec_server.domain.statuses import (
     MediaRevisionStatus,
     ProcessingAvailabilityStatus,
     ProcessingResultStatus,
+)
+from twobrain_rec_server.outcomes.service import (
+    load_egress_default_outcome,
+    load_pinned_egress_outcome,
 )
 from twobrain_rec_server.processing.results import effective_processing_result_query
 
@@ -90,7 +95,7 @@ SUMMARY_CATEGORY_ORDER = (
     "evidence",
 )
 SUMMARY_CATEGORY_LABELS = {
-    "summary": "Саммари",
+    "summary": "Итоги",
     "key_points": "Ключевые моменты",
     "decisions": "Решения",
     "action_items": "Задачи",
@@ -229,6 +234,7 @@ async def build_export_snapshot(
     meeting: Meeting,
     result: ProcessingResult,
     selection: ExportSelection,
+    pinned_summary_revision: tuple[str, UUID] | None = None,
 ) -> ExportSnapshot:
     validate_export_selection(selection)
     selection = _effective_export_selection(selection)
@@ -318,7 +324,7 @@ async def build_export_snapshot(
     # Summary is an independent value stream.  It may be exported while the
     # transcript remains an internal transcript-only/diarization-pending result;
     # do not manufacture transcript evidence in that case.
-    if not transcript_visible:
+    if not transcript_requested or not transcript_visible:
         transcript_rows = []
         diarization_rows = []
     speaker_names = speaker_names_for_result(
@@ -350,16 +356,35 @@ async def build_export_snapshot(
         result=result,
         outcome_set_id=selection.outcome_set_id,
         turns=turns,
+        pinned_summary_revision=pinned_summary_revision,
+        require_matching_result=selection.content_scope == "combined",
     )
+    metadata_result = result
+    if (
+        selection.content_scope == "summary"
+        and summary is not None
+        and summary.processing_result_id != str(result.id)
+    ):
+        metadata_result = await db.scalar(
+            select(ProcessingResult).where(
+                ProcessingResult.id == UUID(summary.processing_result_id),
+                ProcessingResult.workspace_id == meeting.workspace_id,
+                ProcessingResult.meeting_id == meeting.id,
+            )
+        )
+        if metadata_result is None:
+            raise _stale_selection()
     return ExportSnapshot(
         selection=selection,
         meeting_id=str(meeting.id),
         meeting_title=_safe_title(meeting.title),
-        language=result.language,
+        language=metadata_result.language,
         duration_seconds=max(meeting.duration_seconds, 0),
-        processing_result_id=str(result.id),
-        processing_result_version=result.result_version,
-        media_revision_id=str(result.media_revision_id) if result.media_revision_id else None,
+        processing_result_id=str(metadata_result.id),
+        processing_result_version=metadata_result.result_version,
+        media_revision_id=(
+            str(metadata_result.media_revision_id) if metadata_result.media_revision_id else None
+        ),
         raw_segments=raw_segments,
         canonical_turns=turns,
         summary=summary,
@@ -454,28 +479,62 @@ async def _load_summary_revision(
     result: ProcessingResult,
     outcome_set_id: UUID | None,
     turns: tuple[CanonicalExportTurn, ...],
+    pinned_summary_revision: tuple[str, UUID] | None = None,
+    require_matching_result: bool = False,
 ) -> SummaryExportRevision | None:
     if outcome_set_id is None:
         return None
-    outcome_set = await db.scalar(
-        select(MeetingOutcomeSet).where(
-            MeetingOutcomeSet.id == outcome_set_id,
-            MeetingOutcomeSet.workspace_id == meeting.workspace_id,
-            MeetingOutcomeSet.meeting_id == meeting.id,
-            MeetingOutcomeSet.processing_result_id == result.id,
-            MeetingOutcomeSet.lifecycle_state == "active",
-            or_(
-                MeetingOutcomeSet.revision_state.is_(None),
-                MeetingOutcomeSet.revision_state == "accepted",
-            ),
-            (
-                MeetingOutcomeSet.id == meeting.current_outcome_set_id
-                if meeting.current_outcome_set_id is not None
-                else True
-            ),
+    if pinned_summary_revision is not None:
+        template_key, pinned_outcome_id = pinned_summary_revision
+        if pinned_outcome_id != outcome_set_id:
+            raise _stale_selection()
+        outcome_set = await load_pinned_egress_outcome(
+            db,
+            meeting=meeting,
+            template_key=template_key,
+            outcome_set_id=pinned_outcome_id,
         )
-    )
-    if outcome_set is None:
+        if outcome_set is None:
+            raise _stale_selection()
+        default_slot = None
+        current_pointer_id = outcome_set.id
+    else:
+        default_slot = await db.scalar(
+            select(MeetingSummarySlot).where(
+                MeetingSummarySlot.workspace_id == meeting.workspace_id,
+                MeetingSummarySlot.meeting_id == meeting.id,
+                MeetingSummarySlot.is_meeting_default.is_(True),
+            )
+        )
+        if default_slot is not None:
+            current_pointer_id = default_slot.current_outcome_set_id
+        else:
+            current_pointer_id = None
+        if current_pointer_id != outcome_set_id:
+            raise _stale_selection()
+        if default_slot is not None:
+            pinned_outcome = await load_egress_default_outcome(
+                db,
+                meeting=meeting,
+                slot=default_slot,
+            )
+            if pinned_outcome is None or pinned_outcome.id != outcome_set_id:
+                raise _stale_selection()
+        outcome_set = await db.scalar(
+            select(MeetingOutcomeSet).where(
+                MeetingOutcomeSet.id == outcome_set_id,
+                MeetingOutcomeSet.workspace_id == meeting.workspace_id,
+                MeetingOutcomeSet.meeting_id == meeting.id,
+                MeetingOutcomeSet.lifecycle_state == "active",
+                or_(
+                    MeetingOutcomeSet.revision_state.is_(None),
+                    MeetingOutcomeSet.revision_state == "accepted",
+                ),
+            )
+        )
+    if outcome_set is None or (
+        require_matching_result and outcome_set.processing_result_id != result.id
+    ):
         raise _stale_selection()
     rows = list(
         (
@@ -540,7 +599,7 @@ async def _load_summary_revision(
     )
     return SummaryExportRevision(
         outcome_set_id=str(outcome_set.id),
-        processing_result_id=str(result.id),
+        processing_result_id=str(outcome_set.processing_result_id),
         revision_token=revision_token,
         status=outcome_set.status,
         category_states=category_states,
@@ -626,7 +685,7 @@ def _render_txt(snapshot: ExportSnapshot) -> bytes:
     lines = [
         snapshot.meeting_title,
         f"Состав: {_scope_label(snapshot.selection.content_scope)}",
-        f"Ревизия транскрипта: {snapshot.processing_result_version}",
+        f"Версия расшифровки: {snapshot.processing_result_version}",
         f"Язык: {snapshot.language or 'не указан'}",
         f"Длительность: {_human_time(snapshot.duration_seconds * 1000)}",
         f"Разделение по спикерам: {_attribution_status_label(snapshot)}",
@@ -634,11 +693,11 @@ def _render_txt(snapshot: ExportSnapshot) -> bytes:
     ]
     if snapshot.selection.content_scope in {"transcript", "combined"}:
         if snapshot.selection.content_scope == "combined":
-            lines.extend(("Транскрипт", "===========", ""))
+            lines.extend(("Расшифровка", "===========", ""))
         lines.extend(_human_transcript_lines(snapshot, markdown=False))
     if snapshot.selection.content_scope in {"summary", "combined"}:
         if snapshot.selection.content_scope == "combined":
-            lines.extend(("", "Саммари", "=======", ""))
+            lines.extend(("", "Итоги", "=======", ""))
         lines.extend(_summary_lines(snapshot, markdown=False))
     return ("\n".join(lines).rstrip() + "\n").encode("utf-8")
 
@@ -648,7 +707,7 @@ def _render_markdown(snapshot: ExportSnapshot) -> bytes:
         f"# {_markdown_escape(snapshot.meeting_title)}",
         "",
         f"- Состав: {_scope_label(snapshot.selection.content_scope)}",
-        f"- Ревизия транскрипта: {snapshot.processing_result_version}",
+        f"- Версия расшифровки: {snapshot.processing_result_version}",
         f"- Язык: {_markdown_escape(snapshot.language or 'не указан')}",
         f"- Длительность: {_human_time(snapshot.duration_seconds * 1000)}",
         f"- Разделение по спикерам: {_markdown_escape(_attribution_status_label(snapshot))}",
@@ -656,11 +715,11 @@ def _render_markdown(snapshot: ExportSnapshot) -> bytes:
     ]
     if snapshot.selection.content_scope in {"transcript", "combined"}:
         if snapshot.selection.content_scope == "combined":
-            lines.extend(("## Транскрипт", ""))
+            lines.extend(("## Расшифровка", ""))
         lines.extend(_human_transcript_lines(snapshot, markdown=True))
     if snapshot.selection.content_scope in {"summary", "combined"}:
         if snapshot.selection.content_scope == "combined":
-            lines.extend(("", "## Саммари", ""))
+            lines.extend(("", "## Итоги", ""))
         lines.extend(_summary_lines(snapshot, markdown=True))
     return ("\n".join(lines).rstrip() + "\n").encode("utf-8")
 
@@ -721,7 +780,7 @@ def human_display_groups(
 def _summary_lines(snapshot: ExportSnapshot, *, markdown: bool) -> list[str]:
     summary = snapshot.summary
     if summary is None:
-        return ["Сохраненное саммари недоступно."]
+        return ["Сохранённые итоги недоступны."]
     lines = [
         (
             f"Статус сохраненной ревизии: {_markdown_escape(summary.status)}"
@@ -1131,7 +1190,7 @@ def _safe_title(title: str | None) -> str:
 
 
 def _scope_label(scope: ExportScope) -> str:
-    return {"transcript": "транскрипт", "summary": "саммари", "combined": "транскрипт и саммари"}[
+    return {"transcript": "расшифровка", "summary": "итоги", "combined": "расшифровка и итоги"}[
         scope
     ]
 

@@ -82,8 +82,10 @@ final class MicrophoneSampleGraphContractTests: XCTestCase {
     }
 
     func testManifestFixtureWithMicrophoneStreamMetadataDecodesWithoutRawAudio() throws {
-        let fixtureURL = try XCTUnwrap(contractFixtureURL(
-            "apps/macos/Shared/Tests/Fixtures/MicrophoneSampleGraph/manifest-with-stream-metadata.json"
+        let fixtureURL = try XCTUnwrap(Bundle.module.url(
+            forResource: "manifest-with-stream-metadata",
+            withExtension: "json",
+            subdirectory: "Fixtures/MicrophoneSampleGraph"
         ))
         let data = try Data(contentsOf: fixtureURL)
         let decoder = JSONDecoder()
@@ -156,16 +158,5 @@ private func contractGrantedPermissions() -> SystemAudioPermissionSnapshot {
         systemAudio: .granted,
         evaluatedAt: Date(timeIntervalSince1970: 9)
     )
-}
-
-private func contractFixtureURL(_ relativePath: String) -> URL? {
-    let current = URL(fileURLWithPath: #filePath)
-    let candidates = sequence(first: current.deletingLastPathComponent()) { directory in
-        let parent = directory.deletingLastPathComponent()
-        return parent.path == directory.path ? nil : parent
-    }
-    return candidates
-        .map { $0.appendingPathComponent(relativePath) }
-        .first { FileManager.default.fileExists(atPath: $0.path) }
 }
 #endif

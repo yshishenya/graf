@@ -177,7 +177,8 @@ public enum RecordingAudioTimelineError: Error, Equatable {
     case missingRequiredSource
     case converterFailed
     case renderReferenceMissing
-    case echoProcessingFailed
+    case echoProcessingFailed(RecordingEchoProcessorError)
+    case echoProcessingOutputInvalid
     case sourceStopped
     case alreadyFinished
 }
@@ -650,16 +651,19 @@ public final class RecordingAudioTimeline: @unchecked Sendable {
             let processingStartedAt = ProcessInfo.processInfo.systemUptime
             do {
                 cleanedMicrophone = try processEchoFrame(systemAudio, microphone)
+            } catch let error as RecordingEchoProcessorError {
+                metrics.processErrorCount += 1
+                throw RecordingAudioTimelineError.echoProcessingFailed(error)
             } catch {
                 metrics.processErrorCount += 1
-                throw RecordingAudioTimelineError.echoProcessingFailed
+                throw RecordingAudioTimelineError.echoProcessingFailed(.internalFailure)
             }
             recordProcessingTime((ProcessInfo.processInfo.systemUptime - processingStartedAt) * 1_000)
             guard cleanedMicrophone.count == RecordingEchoProcessor.frameSamples,
                   cleanedMicrophone.allSatisfy(\.isFinite)
             else {
                 metrics.processErrorCount += 1
-                throw RecordingAudioTimelineError.echoProcessingFailed
+                throw RecordingAudioTimelineError.echoProcessingOutputInvalid
             }
             let mixed = zip(cleanedMicrophone.prefix(frameCount), systemAudio.prefix(frameCount)).map { microphoneSample, systemSample in
                 let value = 0.5 * (microphoneSample + systemSample)

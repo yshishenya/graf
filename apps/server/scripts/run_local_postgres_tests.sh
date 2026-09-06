@@ -196,6 +196,17 @@ if [[ ! "$workers" =~ ^[1-9][0-9]*$ ]] || (( workers > 8 )); then
   exit 2
 fi
 
+performance_gate="${GRAF_PERFORMANCE_GATE:-report}"
+if [[ "$performance_gate" != "report" && "$performance_gate" != "required" ]]; then
+  printf 'GRAF_PERFORMANCE_GATE must be report or required.\n' >&2
+  exit 2
+fi
+export GRAF_PERFORMANCE_GATE="$performance_gate"
+if [[ "$mode" == "fast" && "$performance_gate" == "required" ]]; then
+  printf 'refusing --fast with GRAF_PERFORMANCE_GATE=required; use --full\n' >&2
+  exit 2
+fi
+
 timing_args=(--durations=20)
 for argument in "${pytest_args[@]}"; do
   if [[ "$argument" == --durations || "$argument" == --durations=* ]]; then
@@ -269,12 +280,15 @@ fi
 
 baseline_node_ids="$metadata_directory/baseline-nodeids.txt"
 parallel_node_ids="$metadata_directory/parallel-nodeids.txt"
+performance_node_ids="$metadata_directory/performance-nodeids.txt"
 strict_node_ids="$metadata_directory/strict-nodeids.txt"
 union_node_ids="$metadata_directory/union-nodeids.txt"
 collect_node_ids "$baseline_node_ids" "${collection_args[@]}"
-collect_node_ids "$parallel_node_ids" -m "not strict_rls" "${collection_args[@]}"
+collect_node_ids "$parallel_node_ids" -m "not strict_rls and not serial_performance" "${collection_args[@]}"
+collect_node_ids "$performance_node_ids" -m "serial_performance and not strict_rls" "${collection_args[@]}"
 collect_node_ids "$strict_node_ids" -m strict_rls "${collection_args[@]}"
-cat "$parallel_node_ids" "$strict_node_ids" | LC_ALL=C sort -u > "$union_node_ids"
+cat "$parallel_node_ids" "$performance_node_ids" "$strict_node_ids" \
+  | LC_ALL=C sort -u > "$union_node_ids"
 if ! cmp -s "$baseline_node_ids" "$union_node_ids"; then
   printf 'full PostgreSQL test runner phase union does not match the same-commit collection\n' >&2
   diff -u "$baseline_node_ids" "$union_node_ids" >&2 || true
@@ -292,10 +306,19 @@ if [[ "$collect_only" == true ]]; then
 fi
 
 if run_phase parallel \
-  uv run --extra dev --extra evaluation pytest -n "$workers" --dist=loadfile -m "not strict_rls" \
+  uv run --extra dev --extra evaluation pytest -n "$workers" --dist=loadfile \
+  -m "not strict_rls and not serial_performance" \
   "${timing_args[@]}" "${pytest_args[@]}"; then
   :
 else
+  exit 1
+fi
+if run_phase performance \
+  uv run --extra dev --extra evaluation pytest -m "serial_performance and not strict_rls" \
+  "${timing_args[@]}" "${pytest_args[@]}"; then
+  :
+else
+  printf 'postgres_test_performance_gate=%s result=fail\n' "$performance_gate" >&2
   exit 1
 fi
 if run_phase strict \

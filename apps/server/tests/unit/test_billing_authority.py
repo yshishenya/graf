@@ -47,13 +47,19 @@ def test_authority_version_and_audit_redaction_fail_closed() -> None:
 
 
 def test_operation_outcomes_and_emergency_stop() -> None:
-    assert classify_provider_outcome(status_code=200, provider_status="succeeded") is OperationOutcome.SUCCESS
-    assert classify_provider_outcome(status_code=504, provider_status=None) is OperationOutcome.UNKNOWN
+    assert (
+        classify_provider_outcome(status_code=200, provider_status="succeeded")
+        is OperationOutcome.SUCCESS
+    )
+    assert (
+        classify_provider_outcome(status_code=504, provider_status=None) is OperationOutcome.UNKNOWN
+    )
     now = datetime.now(UTC)
     assert provider_key_is_expired(expires_at=now - timedelta(seconds=1), now=now)
     assert blocks_new_checkout("scheduled")
     assert blocks_new_checkout("provider_pending")
     assert blocks_new_checkout("unknown")
+    assert blocks_new_checkout("pending_reconciliation")
     assert blocks_new_checkout("manual_resolution")
     assert blocks_new_checkout("reconciliation_gap")
     assert blocks_new_checkout("provider_key_expired")

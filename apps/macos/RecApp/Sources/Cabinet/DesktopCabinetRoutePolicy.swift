@@ -108,7 +108,7 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
                 userMessage: "Support email"
             )
         }
-        guard scheme == "http" || scheme == "https" else {
+        guard (scheme == "http" || scheme == "https"), url.user == nil, url.password == nil else {
             return block(path: url.path, kind: .unsupported, reason: .invalidURL, message: "This meeting route cannot be opened.")
         }
         guard sameOrigin(url) else {
@@ -125,6 +125,14 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
 
         let path = normalizedPath(url.path)
         let components = path.split(separator: "/").map(String.init)
+        if let sharedRoute = sharedRoute(for: url, components: components) {
+            return DesktopCabinetRouteDecision(
+                route: sharedRoute,
+                decision: .allow,
+                reason: sharedRoute.kind == .meetingDetail ? .allowedMeetingDetail : .allowedArtifactDownload,
+                userMessage: "Общая встреча"
+            )
+        }
         if isLoginRoute(components) {
             return DesktopCabinetRouteDecision(
                 route: DesktopCabinetRoute(path: path, kind: .authLogin),
@@ -275,6 +283,16 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
                 decision: .allow,
                 reason: .allowedBilling,
                 userMessage: "Тарифы и оплата"
+            )
+        }
+        if scheme == "https",
+           let encodedPath = URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedPath,
+           ["/offer", "/terms", "/privacy"].contains(encodedPath) {
+            return DesktopCabinetRouteDecision(
+                route: DesktopCabinetRoute(path: path, kind: .external),
+                decision: .openExternally,
+                reason: .openExternalSafeLink,
+                userMessage: "Открыть документ в браузере."
             )
         }
         if isBrowserOwnedAccountRoute(components) {
@@ -520,9 +538,10 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
         }
         if tail.count == 2,
            tail[0] == "account",
-           ["profile", "security", "notifications"].contains(tail[1]) {
+           ["profile", "security", "notifications", "preferences", "close"].contains(tail[1]) {
             return true
         }
+        if tail == ["account", "close", "cancel"] { return true }
         if tail.count == 4,
            tail[0] == "account",
            tail[1] == "devices",
@@ -579,6 +598,31 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
         return false
     }
 
+    private func sharedRoute(for url: URL, components: [String]) -> DesktopCabinetRoute? {
+        let meetingId: String
+        let kind: DesktopCabinetRouteKind
+        if components.count == 2, components[0] == "shared-meetings" {
+            meetingId = components[1]
+            kind = .meetingDetail
+        } else if components.count == 7,
+                  Array(components.prefix(4)) == ["api", "v1", "cabinet", "shared-meetings"],
+                  Array(components.suffix(2)) == ["downloads", "audio"] {
+            meetingId = components[4]
+            kind = .artifactDownload
+        } else {
+            return nil
+        }
+        guard UUID(uuidString: meetingId) != nil,
+              let parsed = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              parsed.percentEncodedPath == "/" + components.joined(separator: "/"),
+              parsed.fragment == nil || (kind == .meetingDetail && ["outcomes", "recording"].contains(parsed.percentEncodedFragment ?? "")),
+              let items = parsed.queryItems, items.count == 1,
+              items[0].name == "workspace_id",
+              let workspaceId = items[0].value, UUID(uuidString: workspaceId) != nil
+        else { return nil }
+        return DesktopCabinetRoute(path: url.path, meetingId: meetingId, kind: kind)
+    }
+
     private func isArtifactDownloadRoute(_ components: [String]) -> Bool {
         components.count == 7 &&
             components[0] == "api" &&
@@ -617,9 +661,27 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
         if components.count == 2 {
             return ["plans", "usage", "subscription", "payment-method", "checkout", "history", "discounts", "storage"].contains(components[1])
         }
+        if [
+            ["billing", "checkout", "preview"],
+            ["billing", "checkout", "start"],
+            ["billing", "discounts", "apply"],
+            ["billing", "discounts", "remove"],
+            ["billing", "trial", "activate"],
+            ["billing", "payment-method", "delete"],
+            ["billing", "subscription", "cancel"],
+            ["billing", "subscription", "resume"]
+        ].contains(components) {
+            return true
+        }
         if components == ["billing", "checkout", "return"] { return true }
         if components.count == 4 && components[1] == "checkout" && components[2] == "status" {
             return isSafePathComponent(components[3])
+        }
+        if components.count == 5,
+           components[1] == "checkout",
+           components[2] == "status",
+           isSafePathComponent(components[3]) {
+            return ["refresh", "continue"].contains(components[4])
         }
         return components.count == 3 && components[1] == "invoices" && isSafePathComponent(components[2])
     }

@@ -13,11 +13,9 @@ rollout, or production readiness.
 
 - DNS for `rec.2brain.pro` resolves to the production reverse proxy.
 - TLS terminates successfully for `https://rec.2brain.pro`.
-- `/opt/projects/2brain-rec` contains the checked-out feature branch.
+- `/opt/projects/2brain-rec` contains the checked-out `master` release.
 - Production env and Docker secret files exist only on the remote server.
-- `infra/scripts/backup-rec-stack.sh --remote` has produced a backup reference.
-- `infra/scripts/rehearse-rec-restore.sh --remote` has passed against that backup.
-- `infra/scripts/verify-rec-migration.sh --remote` has passed.
+- `infra/scripts/cd-remote.sh --dry-run --branch master` has passed.
 
 ## Dry Run
 
@@ -36,18 +34,20 @@ remote_host=2brain.dev
 remote_path=/opt/projects/2brain-rec
 ```
 
-## Remote Smoke
+## Canonical release smoke
 
-Run only after the preconditions pass:
+Run only after merge, exact-SHA validation and explicit release approval:
 
 ```sh
-infra/scripts/run-production-smoke.sh --remote
+infra/scripts/cd-remote.sh --execute --branch master
 ```
 
-The script executes in `/opt/projects/2brain-rec` on `2brain.dev`, seeds a
-dedicated `internal_smoke` identity/device, validates production config,
-verifies migration state, uploads a non-sensitive smoke artifact through the
-public Rec API, and cleans up smoke records and object keys.
+The release command executes in `/opt/projects/2brain-rec` on `2brain.dev`,
+creates the backup and restore rehearsal, seeds a dedicated `internal_smoke`
+identity/device, validates production config, verifies migration state, uploads
+a non-sensitive smoke artifact through the public Rec API, and cleans up smoke
+records and object keys. Direct `run-production-smoke.sh --remote/--execute`
+calls are blocked and cannot compete with another deploy.
 
 ## Cleanup Expectations
 

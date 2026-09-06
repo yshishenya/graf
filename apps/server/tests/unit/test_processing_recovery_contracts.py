@@ -12,7 +12,6 @@ from twobrain_rec_server.mediascribe.schemas import (
     MediaScribeProvenance,
     MediaScribeResult,
 )
-from twobrain_rec_server.processing.audit import validate_processing_aggregate_event
 from twobrain_rec_server.processing.deletion import reconcile_deletion_response
 from twobrain_rec_server.processing.recovery import schedule_retry_with_settings
 from twobrain_rec_server.processing.store import _safe_provenance_projection
@@ -32,6 +31,11 @@ def test_processing_recovery_settings_are_bounded_and_ordered() -> None:
     )
     assert schedule.next_attempt_at is not None
     assert schedule.next_attempt_at > datetime(2026, 8, 24, tzinfo=UTC)
+
+
+def test_enabled_processing_requires_diarization() -> None:
+    with pytest.raises(ValueError, match="requires MediaScribe diarization"):
+        Settings(processing_enabled=True, mediascribe_diarize=False)
 
 
 @pytest.mark.parametrize(
@@ -74,35 +78,6 @@ def test_deletion_202_is_pending_until_provider_receipt() -> None:
     assert reconcile_deletion_response(pending).confirmed is False
     assert reconcile_deletion_response(pending).next_retry_seconds == 20
     assert reconcile_deletion_response(completed).confirmed is True
-
-
-def test_processing_analytics_envelope_is_allowlisted_and_content_free() -> None:
-    event = validate_processing_aggregate_event(
-        event_name="processing_retry_scheduled",
-        window="hour",
-        window_started_at="2026-08-24T00:00:00Z",
-        window_ended_at="2026-08-24T01:00:00Z",
-        surface="server",
-        count=2,
-        dimensions={
-            "retry_reason": "transport",
-            "schedule_source": "server_fallback",
-            "delay_bucket": "30s_2m",
-            "retry_count_bucket": "first",
-        },
-    )
-    assert event["schema_version"] == 1
-    assert "meeting_id" not in event
-    with pytest.raises(ValueError):
-        validate_processing_aggregate_event(
-            event_name="processing_retry_scheduled",
-            window="hour",
-            window_started_at="2026-08-24T00:00:00Z",
-            window_ended_at="2026-08-24T01:00:00Z",
-            surface="server",
-            count=1,
-            dimensions={"retry_reason": "raw provider detail"},
-        )
 
 
 def test_durable_provenance_ignores_provider_extras_and_content() -> None:

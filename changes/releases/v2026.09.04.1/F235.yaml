@@ -1,0 +1,10 @@
+schema_version: 1
+feature_id: 235
+category: Changed
+summary: "Closeout harness сохраняет task↔issue трассируемость для wrapped и standalone mapping rows и fail-closed проверяет завершённость задач."
+issue: 6385
+tasks: [T001, T002, T003, T004, T005, T006]
+compatibility: "Формат существующих tasks.md сохраняется; product runtime и production data не меняются."
+known_limitations:
+  - "Umbrella issue закрывается отдельно после общего release/operator closeout."
+release_notes: "Проверка task↔issue работает для многострочных и canonical mapping rows, принимает только Issue #N и отклоняет незавершённые задачи."

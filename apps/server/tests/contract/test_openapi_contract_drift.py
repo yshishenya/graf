@@ -94,11 +94,16 @@ def test_meeting_detection_telemetry_openapi_contract_is_registered(client) -> N
 def test_meeting_detection_registry_openapi_contract_is_registered(client) -> None:
     schema = client.get("/openapi.json").json()
     operation = schema["paths"]["/api/v1/desktop/meeting-detection/target-registry"]["get"]
+    registry_fields = schema["components"]["schemas"]["MeetingDetectionRegistryResponse"][
+        "properties"
+    ]
 
     assert operation["operationId"] == "getMeetingDetectionTargetRegistry"
     assert "MeetingDetectionRegistryResponse" in json.dumps(operation, sort_keys=True)
     assert "If-None-Match" in json.dumps(operation, sort_keys=True)
     assert "X-GRAF-Meeting-Detection-Signals" not in json.dumps(operation, sort_keys=True)
+    assert "assistedAutoStartPolicy" not in registry_fields
+    assert "AssistedAutoStartPolicy" not in schema["components"]["schemas"]
 
 
 def test_calendar_auto_context_create_and_context_schemas_are_registered(client) -> None:

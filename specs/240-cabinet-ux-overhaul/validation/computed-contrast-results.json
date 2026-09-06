@@ -1,0 +1,11 @@
+{
+  "chrome": {
+    "measured": 3042,
+    "failures": []
+  },
+  "webkit": {
+    "measured": 3048,
+    "failures": []
+  },
+  "scope": "Visible text and placeholders; not a full WCAG certification"
+}

@@ -897,6 +897,7 @@ public enum DesktopUploadTransportRole: String, Codable, CaseIterable, Sendable 
 }
 
 public enum UploadItemState: String, Codable, CaseIterable, Sendable {
+    case saving
     case queued
     case uploading
     case retrying
@@ -910,7 +911,7 @@ public enum UploadItemState: String, Codable, CaseIterable, Sendable {
         switch self {
         case .uploaded, .failed, .terminalDeleted:
             return true
-        case .queued, .uploading, .retrying, .degraded, .blocked:
+        case .saving, .queued, .uploading, .retrying, .degraded, .blocked:
             return false
         }
     }
@@ -919,13 +920,15 @@ public enum UploadItemState: String, Codable, CaseIterable, Sendable {
         switch self {
         case .queued, .retrying, .degraded:
             return true
-        case .uploading, .uploaded, .failed, .blocked, .terminalDeleted:
+        case .saving, .uploading, .uploaded, .failed, .blocked, .terminalDeleted:
             return false
         }
     }
 
     public var displayName: String {
         switch self {
+        case .saving:
+            return "Сохраняется"
         case .queued:
             return "Ожидает загрузки"
         case .uploading:
@@ -947,20 +950,22 @@ public enum UploadItemState: String, Codable, CaseIterable, Sendable {
 
     public var sortPriority: Int {
         switch self {
-        case .uploading:
+        case .saving:
             return 0
-        case .retrying:
+        case .uploading:
             return 1
-        case .blocked, .degraded:
+        case .retrying:
             return 2
-        case .queued:
+        case .blocked, .degraded:
             return 3
-        case .failed:
+        case .queued:
             return 4
-        case .uploaded:
+        case .failed:
             return 5
-        case .terminalDeleted:
+        case .uploaded:
             return 6
+        case .terminalDeleted:
+            return 7
         }
     }
 }
@@ -1074,7 +1079,10 @@ public struct ArtifactCompletenessProfile: Codable, Equatable, Sendable {
         self.manifestSizeBytes = manifestSizeBytes
         self.microphoneSizeBytes = microphoneSizeBytes
         self.systemAudioSizeBytes = systemAudioSizeBytes
-        self.durationSeconds = max(1, durationSeconds)
+        // A finalized package may contain only its manifest when capture fails
+        // before the first audio frame. Preserve that truthful zero instead of
+        // substituting the wall-clock session duration at the model boundary.
+        self.durationSeconds = max(0, durationSeconds)
         self.trackCompleteness = trackCompleteness
         self.isUploadable = isUploadable
         self.qualityWarningReason = qualityWarningReason
@@ -1559,6 +1567,10 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
     public var state: UploadItemState
     public var failureCategory: UploadFailureCategory
     public var failureReason: String?
+    /// Safe machine-readable capture failure marker copied from the recording manifest.
+    /// This is distinct from `failureCategory`, which also covers post-capture
+    /// upload failures such as a missing local track.
+    public var captureFailureCode: String?
     public var retryMode: UploadRetryMode
     public var attemptCount: Int
     public var nextRetryAt: Date?
@@ -1606,6 +1618,7 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
         state: UploadItemState,
         failureCategory: UploadFailureCategory = .none,
         failureReason: String? = nil,
+        captureFailureCode: String? = nil,
         retryMode: UploadRetryMode,
         attemptCount: Int = 0,
         nextRetryAt: Date? = nil,
@@ -1638,6 +1651,7 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
         self.state = state
         self.failureCategory = failureCategory
         self.failureReason = failureReason
+        self.captureFailureCode = captureFailureCode
         self.retryMode = retryMode
         self.attemptCount = max(0, attemptCount)
         self.nextRetryAt = nextRetryAt
@@ -1752,6 +1766,7 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
         case state
         case failureCategory
         case failureReason
+        case captureFailureCode
         case retryMode
         case attemptCount
         case nextRetryAt
@@ -1790,6 +1805,7 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
             state: try container.decode(UploadItemState.self, forKey: .state),
             failureCategory: try container.decodeIfPresent(UploadFailureCategory.self, forKey: .failureCategory) ?? .none,
             failureReason: try container.decodeIfPresent(String.self, forKey: .failureReason),
+            captureFailureCode: try container.decodeIfPresent(String.self, forKey: .captureFailureCode),
             retryMode: try container.decode(UploadRetryMode.self, forKey: .retryMode),
             attemptCount: try container.decodeIfPresent(Int.self, forKey: .attemptCount) ?? 0,
             nextRetryAt: try container.decodeIfPresent(Date.self, forKey: .nextRetryAt),

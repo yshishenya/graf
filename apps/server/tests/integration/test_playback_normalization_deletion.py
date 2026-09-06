@@ -169,7 +169,7 @@ def test_deletion_reports_candidate_and_canonical_separately(client) -> None:
     assert canonical_truth["attempt"].state == "purged"
 
 
-def test_deletion_waits_for_inflight_upload_and_removes_the_serialized_output(
+def test_deletion_does_not_wait_for_inflight_upload_and_removes_the_late_output(
     client,
     tmp_path: Path,
 ) -> None:
@@ -183,7 +183,7 @@ def test_deletion_waits_for_inflight_upload_and_removes_the_serialized_output(
     work_directory = tmp_path / "normalization-work"
     delegate_storage = client.app_state["storage"]
 
-    async def delete_while_upload_holds_the_meeting_lock():
+    async def delete_while_upload_is_in_flight():
         upload_started = asyncio.Event()
         release_upload = asyncio.Event()
 
@@ -246,11 +246,10 @@ def test_deletion_waits_for_inflight_upload_and_removes_the_serialized_output(
                 json={"confirmation_boundary": BOUNDED_COPY},
             )
         )
-        await asyncio.sleep(0.1)
-        assert not deletion_task.done()
+        deletion = await asyncio.wait_for(deletion_task, timeout=5)
+        assert deletion.status_code == 202
         release_upload.set()
         await asyncio.wait_for(worker_task, timeout=5)
-        deletion = await asyncio.wait_for(deletion_task, timeout=5)
 
         async with client.app_state["sessionmaker"]() as db:
             job = await db.scalar(
@@ -280,7 +279,7 @@ def test_deletion_waits_for_inflight_upload_and_removes_the_serialized_output(
         return deletion, job, attempts, canonical_count, attempt_key
 
     deletion, job, attempts, canonical_count, attempt_key = asyncio.run(
-        delete_while_upload_holds_the_meeting_lock()
+        delete_while_upload_is_in_flight()
     )
     assert deletion.status_code == 202
     assert job.state == "cancelled"

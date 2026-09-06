@@ -19,27 +19,46 @@ cleanup, and final evidence are remote operations on `2brain.dev`.
 
 ## CI Lanes
 
-Use focused tests first while implementing. Before opening or updating a code
-PR, run the fast lane:
+Use focused tests first while implementing. GitHub Actions runs the required
+`governance-fast` gate for each PR. Run the local fast lane only when explicit
+diagnosis or offline fallback is needed:
 
 ```sh
 infra/scripts/ci-local.sh --fast
 ```
 
-It runs the server unit suite, Ruff and Python compile checks. It is the fast
-feedback lane, not a release gate.
+The lane argument is mandatory. The fast lane uses the diff from
+`origin/master` to run bounded server, macOS, infrastructure/tooling and
+documentation checks. Changed server contract/integration files run focused;
+calendar performance paths run a focused required proof, while a missing or
+renamed proof reports partial coverage without invoking a deleted path.
+Deployment evidence also runs its dedicated secret/verdict scanner.
+Shared/high-risk, unknown or unavailable diffs report partial coverage and
+require full before release, but an explicit `--fast` never changes to `effective=full`.
+Release/Spec Kit governance documents also report partial coverage. The common
+whitespace check covers the merge-base diff and selected untracked files. It is
+the fast feedback lane, not a release gate.
 
-GitHub Actions are disabled. No pull-request validation runs remotely. For an
-early full baseline, run locally:
+Every local lane emits one metadata-only diagnostic record under the ignored
+`.dev/ci-evidence/` directory (or the path in `GRAF_CI_EVIDENCE_PATH`) and
+prints `ci_evidence_path=...`. Local evidence is never authoritative for a
+release candidate; supplying `GRAF_CI_CANDIDATE_FILE` does not change this.
+
+GitHub Actions runs `governance-fast` automatically for every pull request and
+is the authoritative PR gate on the exact PR SHA. The workstation does not run
+CI automatically: local `ci-local.sh` is retained only for explicit diagnosis,
+offline fallback, or release-operator recovery. For an early full baseline,
+run locally only when it is intentionally requested:
 
 ```sh
 infra/scripts/ci-local.sh --full
 ```
 
-The full lane adds macOS tests and contracts (on macOS), the complete server
+The local full lane adds macOS tests and contracts (on macOS), the complete server
 suite, RLS validation, production Compose rendering and the deployment evidence
-scan. Do not run it after every small edit: `cd-remote.sh --execute` runs this
-full lane automatically for the exact commit that will be deployed.
+scan. Do not run it after every small edit. The normal release path runs one
+manual `release-full` workflow in GitHub for the frozen candidate and reuses its
+canonical evidence during production execution.
 
 ## Local CD
 
@@ -50,10 +69,13 @@ infra/scripts/cd-remote.sh --dry-run
 infra/scripts/cd-remote.sh --execute
 ```
 
-The execute mode requires a clean local worktree, verifies that the current
-branch matches `origin/<branch>`, pins the deployment to that exact commit SHA,
-then runs `infra/scripts/ci-local.sh --full`. On `2brain.dev`, it verifies the remote `origin/<branch>`
-still resolves to the pinned SHA before reset, then performs backup, restore
+The execute mode requires a clean tracked-and-untracked local worktree, verifies
+that the current branch matches `origin/<branch>`, pins the deployment to that
+exact commit SHA, and re-checks the clean worktree plus local/remote SHA before
+SSH. Release candidates must carry the immutable authoritative Full CI evidence
+from the release workflow; the workstation does not start a local Full CI run.
+On `2brain.dev`, it
+verifies the remote `origin/<branch>` still resolves to the pinned SHA before reset, then performs backup, restore
 rehearsal, production Compose secret-exposure scan, rebuild/up, runtime
 secret-environment scan, production smoke, and public health checks.
 

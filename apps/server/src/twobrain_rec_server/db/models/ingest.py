@@ -42,7 +42,9 @@ class MediaRevision(Base):
     meeting_id: Mapped[UUID] = mapped_column(ForeignKey("meetings.id"), nullable=False)
     local_media_revision_id: Mapped[str] = mapped_column(String(300), nullable=False)
     revision_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
-    source_kind: Mapped[str] = mapped_column(String(64), nullable=False, default="initial_recording")
+    source_kind: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="initial_recording"
+    )
     status: Mapped[str] = mapped_column(String(64), nullable=False, default="pending_upload")
     manifest_sha256: Mapped[str | None] = mapped_column(String(64))
     track_sha256_by_role: Mapped[dict] = mapped_column(JSON, default=dict)
@@ -50,18 +52,52 @@ class MediaRevision(Base):
     immutable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
 
 class UploadSession(Base):
     __tablename__ = "upload_sessions"
+    __table_args__ = (
+        Index(
+            "ix_upload_sessions_processing_dispatch_recovery",
+            "finalized_at",
+            "workspace_id",
+            "meeting_id",
+            "media_revision_id",
+            postgresql_where=(
+                "status = 'finalized' and processing_status = 'starting' "
+                "and media_revision_id is not null"
+            ),
+        ),
+        Index(
+            "ix_upload_sessions_transient_hard_due",
+            "finalized_at",
+            "workspace_id",
+            "meeting_id",
+            "media_revision_id",
+            postgresql_where=(
+                "archive_audio = false and status = 'finalized' and media_revision_id is not null"
+            ),
+        ),
+        Index(
+            "ix_upload_sessions_transient_revision_custody",
+            "workspace_id",
+            "meeting_id",
+            "media_revision_id",
+            postgresql_where=("status = 'finalized' and media_revision_id is not null"),
+        ),
+    )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     meeting_id: Mapped[UUID] = mapped_column(ForeignKey("meetings.id"), nullable=False)
     media_revision_id: Mapped[UUID | None] = mapped_column(ForeignKey("media_revisions.id"))
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
     device_id: Mapped[UUID] = mapped_column(ForeignKey("registered_devices.id"), nullable=False)
-    created_by_user_id: Mapped[UUID] = mapped_column(ForeignKey("user_identities.id"), nullable=False)
+    created_by_user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("user_identities.id"), nullable=False
+    )
     upload_strategy: Mapped[str] = mapped_column(String(64), default="server_mediated")
     status: Mapped[str] = mapped_column(String(64), default="pending")
     processing_status: Mapped[str] = mapped_column(String(64), default="not_submitted")
@@ -75,7 +111,9 @@ class UploadSession(Base):
     max_track_bytes_snapshot: Mapped[int] = mapped_column(BigInteger, nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
     finalized_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
@@ -84,7 +122,9 @@ class UploadPart(Base):
     __table_args__ = (UniqueConstraint("upload_session_id", "track_role", "part_number"),)
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    upload_session_id: Mapped[UUID] = mapped_column(ForeignKey("upload_sessions.id"), nullable=False)
+    upload_session_id: Mapped[UUID] = mapped_column(
+        ForeignKey("upload_sessions.id"), nullable=False
+    )
     track_role: Mapped[str] = mapped_column(String(64), nullable=False)
     part_number: Mapped[int] = mapped_column(Integer, nullable=False)
     byte_offset: Mapped[int] = mapped_column(BigInteger, nullable=False)
@@ -97,9 +137,12 @@ class UploadPart(Base):
 
 class TemporaryUploadObject(Base):
     __tablename__ = "temporary_upload_objects"
+    __table_args__ = (Index("ix_temporary_upload_objects_session", "upload_session_id"),)
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    upload_session_id: Mapped[UUID] = mapped_column(ForeignKey("upload_sessions.id"), nullable=False)
+    upload_session_id: Mapped[UUID] = mapped_column(
+        ForeignKey("upload_sessions.id"), nullable=False
+    )
     media_revision_id: Mapped[UUID | None] = mapped_column(ForeignKey("media_revisions.id"))
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
     storage_object_key: Mapped[str] = mapped_column(String(1000), nullable=False)
@@ -109,7 +152,9 @@ class TemporaryUploadObject(Base):
     failure_reason: Mapped[str | None] = mapped_column(String(240))
     last_error: Mapped[str | None] = mapped_column(String(500))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
 
 class TrackArtifact(Base):
@@ -186,19 +231,15 @@ class TrackArtifact(Base):
     source_lifecycle_state: Mapped[str] = mapped_column(
         String(32), nullable=False, default="not_source"
     )
-    source_transcript_imported_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True)
-    )
-    source_playback_verified_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True)
-    )
+    source_transcript_imported_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    source_playback_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     source_retention_policy_version: Mapped[str | None] = mapped_column(String(120))
-    source_retention_purge_due_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True)
-    )
+    source_retention_purge_due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     source_purged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
 
 class ManifestSnapshot(Base):

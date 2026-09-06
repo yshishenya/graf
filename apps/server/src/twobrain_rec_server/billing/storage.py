@@ -4,12 +4,12 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import func, select, text
+from sqlalchemy import exists, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.billing.catalog import classify_storage_threshold
 from twobrain_rec_server.db.models import StorageReservation as StorageReservationRow
-from twobrain_rec_server.db.models import TrackArtifact
+from twobrain_rec_server.db.models import TrackArtifact, UploadSession
 
 CANONICAL_PLAYBACK_PROFILE = "review_m4a_aac_lc_48k_mono_64k_v1"
 CANONICAL_PLAYBACK_FILENAME = "meeting-review.m4a"
@@ -97,6 +97,15 @@ async def project_active_playback_storage(
             TrackArtifact.status == "stored",
             TrackArtifact.normalization_profile_version == CANONICAL_PLAYBACK_PROFILE,
             TrackArtifact.storage_object_key.endswith("/meeting-review.m4a"),
+            ~exists(
+                select(1).where(
+                    UploadSession.workspace_id == TrackArtifact.workspace_id,
+                    UploadSession.meeting_id == TrackArtifact.meeting_id,
+                    UploadSession.media_revision_id == TrackArtifact.media_revision_id,
+                    UploadSession.status == "finalized",
+                    UploadSession.archive_audio.is_(False),
+                )
+            ),
         )
     )
     return StorageProjection(
@@ -225,8 +234,25 @@ async def reserve_storage(
         .with_for_update()
     )
     if existing is not None:
-        return existing
+        if existing.state == "committed":
+            return existing
+        existing_active = (
+            existing.state == "active"
+            and (existing.expires_at is None or existing.expires_at > now)
+        )
+        if existing_active and existing.declared_bytes == declared_bytes:
+            if expires_at is not None and (
+                existing.expires_at is None or existing.expires_at < expires_at
+            ):
+                existing.expires_at = expires_at
+                await db.flush()
+            return existing
     reserved = await _active_reserved_bytes(db, workspace_id=workspace_id, now=now)
+    if existing is not None and existing_active:
+        reserved = max(
+            0,
+            reserved - max(0, existing.declared_bytes - existing.committed_bytes),
+        )
     projection = await project_active_playback_storage(
         db,
         workspace_id=workspace_id,
@@ -234,6 +260,14 @@ async def reserve_storage(
         reserved_bytes=reserved,
     )
     admit_storage(projection, declared_bytes)
+    if existing is not None:
+        existing.declared_bytes = declared_bytes
+        existing.committed_bytes = 0
+        existing.artifact_id = None
+        existing.state = "active"
+        existing.expires_at = expires_at or now + timedelta(minutes=15)
+        await db.flush()
+        return existing
     reservation = StorageReservationRow(
         workspace_id=workspace_id,
         idempotency_key=reservation_key,

@@ -183,7 +183,9 @@ def test_production_share_head_upgrades_to_regeneration_merge(
     command.upgrade(alembic_config, "0037_auth_rate_limit_buckets")
     command.upgrade(alembic_config, "head")
 
-    async def inspect_schema() -> tuple[list[str], set[str], set[tuple[str, str]], str]:
+    async def inspect_schema() -> tuple[
+        list[str], set[str], set[tuple[str, str]], str, str, tuple[str, ...]
+    ]:
         engine = create_async_engine(postgres_clean_database_url)
         try:
             async with engine.connect() as connection:
@@ -215,12 +217,40 @@ def test_production_share_head_upgrades_to_regeneration_merge(
                 maintenance_helper = await connection.scalar(
                     text("select pg_get_functiondef('rec_maintenance_allowed()'::regprocedure)")
                 )
-                return versions, tables, columns, str(maintenance_helper)
+                promotion_counter_function = await connection.scalar(
+                    text(
+                        "select pg_get_functiondef("
+                        "'rec_sync_promotion_reservation_counter()'::regprocedure)"
+                    )
+                )
+                promotion_counter_config = await connection.scalar(
+                    text(
+                        "select proconfig from pg_proc where oid = "
+                        "'rec_sync_promotion_reservation_counter()'::regprocedure"
+                    )
+                )
+                return (
+                    versions,
+                    tables,
+                    columns,
+                    str(maintenance_helper),
+                    str(promotion_counter_function),
+                    tuple(str(item) for item in promotion_counter_config or ()),
+                )
         finally:
             await engine.dispose()
 
-    versions, tables, columns, maintenance_helper = asyncio.run(inspect_schema())
-    assert versions == ["0078_processing_recovery"]
+    (
+        versions,
+        tables,
+        columns,
+        maintenance_helper,
+        promotion_counter_function,
+        promotion_counter_config,
+    ) = asyncio.run(inspect_schema())
+    assert versions == ["0085_merge_summary_mediascribe"]
+    assert "public.promotion_campaigns" in promotion_counter_function
+    assert "search_path=pg_catalog, pg_temp" in promotion_counter_config
     assert {
         "dispatch_intents",
         "meeting_deletion_fences",
@@ -237,6 +267,7 @@ def test_production_share_head_upgrades_to_regeneration_merge(
             "submission_claim_token",
             "submission_claimed_at",
         },
+        "diarization_segments": {"words_json"},
         "meeting_outcome_sets": {
             "source_fingerprint",
             "deletion_epoch_at_start",
@@ -263,7 +294,7 @@ def test_production_share_head_upgrades_to_regeneration_merge(
         for column_name in column_names
     )
     assert "prompt_optimization" in maintenance_helper
-    assert "processing_legacy_lineage_reconciliation" in maintenance_helper
+    assert "processing_legacy_lineage_reconciliation" not in maintenance_helper
 
 
 @pytest.mark.parametrize("legacy_check_exists", [False, True])
@@ -789,6 +820,8 @@ def test_alembic_revision_ids_fit_default_version_table_length() -> None:
     legacy_overlength = {
         "0048_billing_notification_preferences",
         "0050_referral_token_lookup_context",
+        "0078_merge_summary_slots_provider_unlink",
+        "0080_merge_summary_state_processing_recovery",
     }
 
     for migration_path in versions.glob("*.py"):

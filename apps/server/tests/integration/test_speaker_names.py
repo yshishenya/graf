@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from sqlalchemy import select
@@ -98,6 +99,7 @@ def test_legacy_ordinal_name_stays_unresolved_after_new_processing_result(
     stable_key = _renameable_keys_from_html(page.text)[0]
 
     assert 'value="Старое имя"' not in page.text
+    assert "SPEAKER_00" in page.text
     assert stable_key.startswith("provider:")
 
     saved = client.post(
@@ -366,6 +368,7 @@ async def _seed_reprocessed_result(client, meeting_id) -> None:
             meeting_id=previous.meeting_id,
             media_revision_id=previous.media_revision_id,
             mediascribe_job_id=previous.mediascribe_job_id,
+            processing_workflow_id=previous.processing_workflow_id,
             result_version=previous.result_version + 1,
             status=previous.status,
             transcript_status=previous.transcript_status,
@@ -375,6 +378,7 @@ async def _seed_reprocessed_result(client, meeting_id) -> None:
             segment_count=len(transcripts),
             diarization_segment_count=len(speakers),
             source_result_hash="synthetic-reprocessed-result",
+            imported_at=datetime.now(UTC),
         )
         db.add(current)
         await db.flush()

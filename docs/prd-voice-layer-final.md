@@ -16,7 +16,14 @@ for playback. `2brain Rec` uploads that package to the customer-controlled
 server, sends only the canonical WAV to MediaScribe through the server boundary,
 and exposes recordings/transcripts/notes in a web dashboard.
 
-The product is functionally in the same category as Krisp's meeting assistant, but must not copy Krisp's brand, assets, UI expression, copy, icons, proprietary behavior, binaries, or model behavior. The implementation must use public OS APIs, original code, licensed SDKs, and approved open-source or commercial models.
+The product may faithfully reproduce the observable Krisp UX/UI/IA, including
+screen composition, navigation, interaction states, control placement and
+visible wording. Functional UI labels and interaction microcopy may be
+reproduced literally without a brand-distance rewrite. Implementation code
+remains independent and uses public OS APIs, licensed SDKs, approved
+open-source or commercial models, and GRAF-owned or properly licensed assets.
+Competitor source, extracted assets, binaries, private APIs/protocols, secrets,
+private content and model behavior are not reused.
 
 ## 1A. Current Implementation Status
 
@@ -217,14 +224,17 @@ MVP includes:
 - System-audio capture mode for incoming/remote audio.
 - Explicit microphone capture for local speaker audio.
 - Manual recording start/stop.
-- Assisted auto-start for the internal MVP only when enabled by workspace
-  policy, user-acknowledged during onboarding, and limited to approved meeting
-  targets or explicit user-selected capture scopes.
+- Automatic start for the internal MVP is controlled by a local per-application
+  preference and limited to approved meeting targets or explicit user-selected
+  capture scopes. General workspace recording and consent restrictions still
+  apply, but no server assisted-auto-start permission or acknowledgement is
+  required.
 - Target-scoped automatic recording for verified native meeting apps: the
   `Автозапись` settings page exposes the complete prompt-capable registry and
-  one reversible checkbox per app; the prompt offers `Записать сейчас`,
-  `Пропустить`, `Всегда писать это приложение`, and an eight-second countdown
-  that starts capture on expiry. This is not a global or arbitrary-audio mode.
+  the local `Всегда`, `Спрашивать`, `Никогда` choice for each app, defaulting to
+  `Спрашивать` on a new installation. The prompt offers `Записать`, `Не
+  записывать`, `Запомнить выбор`, and an eight-second countdown that starts the
+  current capture on expiry. This is not an arbitrary-audio mode.
 - Auto-stop configurable in settings; default auto-stop after 10 minutes of no routed meeting audio.
 - Audio recording mode.
 - Transcript-only mode.
@@ -290,13 +300,15 @@ Local/native desktop surfaces are authoritative for:
 - offline pending recordings;
 - diagnostics export and local degraded states.
 
-Server-provided policy, feature flags, approved targets, naming policy,
-consent/legal profile, localization, and non-critical help content may constrain
-or annotate the desktop UI, but MUST NOT be required to display active capture
-truth or to stop active capture. If policy is stale or the server is
-unreachable, the desktop app must keep active capture stoppable, show a truthful
-offline or policy-stale state, and fail closed for new assisted auto-start when
-the last valid policy cannot authorize it.
+Server-provided general workspace policy, feature flags, approved targets,
+naming policy, consent/legal profile, localization, and non-critical help
+content may constrain or annotate the desktop UI, but MUST NOT be required to
+display active capture truth or to stop active capture. If policy is stale or
+the server is unreachable, the desktop app must keep active capture stoppable,
+show a truthful
+offline or policy-stale state, and preserve the last valid general workspace
+recording/consent restriction. The server does not own or authorize the local
+per-application `Всегда`, `Спрашивать`, `Никогда` preference.
 
 Server-driven UI or WebView-rendered remote UI MUST NOT own:
 
@@ -330,7 +342,9 @@ MVP excludes:
 - Auto-start from arbitrary system audio, media playback, notification sounds, music, videos, or non-approved apps.
 - Calendar-driven auto-start.
 - Calendar, vocabulary, integrations, AI chat, public links, advanced search, full export workflows, unless separately pulled into MVP.
-- Any copied Krisp UI, copy, assets, code, binaries, or proprietary behavior.
+- Competitor source code, extracted assets, binaries, private APIs/protocols,
+  secrets, private content or proprietary model behavior. Observable Krisp
+  UX/UI/IA reproduction is explicitly allowed.
 
 ## 5. User Promises
 
@@ -383,7 +397,9 @@ Settings information architecture:
 - Audio devices: physical microphone, system-audio capture permission, physical
   speaker/headphones for playback awareness, route/capture test.
 - Recording defaults: default mode, language, manual start behavior, title defaults.
-- Auto-start and auto-stop: workspace policy status, eligible apps/domains, user suppression list where allowed, auto-stop duration.
+- Auto-start and auto-stop: local three-state choice per eligible app, bulk
+  application of the same choice, general workspace restriction status and
+  auto-stop duration.
 - Privacy and retention: local buffer retention, transcript-only behavior, deletion policy summary, consent policy summary.
 - Local buffer and upload queue: disk usage, queued meetings, retry failed upload, purge eligible local cache.
 - Capture and diagnostics: permission status, source eligibility, current
@@ -921,17 +937,23 @@ Required upload endpoints:
 
 Upload finalization must not start MediaScribe until required tracks are complete or explicitly marked unavailable with a valid degraded reason.
 
-Assisted auto-start backend contract:
+Local automatic-start and upload contract:
 
-- Assisted auto-start creates a local desktop capture session first.
-- Server meeting creation happens only after policy and auth requirements are satisfied.
-- Desktop may begin local encrypted buffering when assisted auto-start triggers.
-- Desktop must bind a `policy_snapshot_id` before upload.
+- Automatic start creates and durably identifies a local desktop capture
+  session before any server work.
+- Server meeting creation happens only after normal auth and general workspace
+  ingest requirements are satisfied; it does not evaluate the local
+  per-application choice.
+- Desktop may begin local buffering when automatic start triggers.
 - If authenticated and online, desktop creates a server `Meeting` and `UploadSession` immediately.
 - If offline or temporarily unauthenticated, desktop stores a local pending meeting record and uploads after re-authentication.
-- Upload is rejected if the policy snapshot no longer permits the capture.
+- A failure to create or complete the upload leaves the local recording visible
+  in the common meeting list with automatic retry and an `Отправить` action.
+- An unrecoverable local artifact remains visible as `Запись повреждена` and is
+  deletable, but offers no upload action.
 - Auto-start-created meetings must have `start_trigger=assisted_auto_start`.
-- Auto-start trigger, policy snapshot, source app, device ID, and user ID must be audit logged.
+- Auto-start trigger, source app, device ID, and user ID must be audit logged
+  without copying the local three-state preference to the server.
 - If upload never occurs and local retention expires, desktop purges the local pending meeting and records a local diagnostic event.
 
 ## 16. State Machines
@@ -1193,7 +1215,8 @@ MVP notes:
 - Executive summary.
 - Key discussion points.
 - Decisions.
-- Action items with owner and due date only when inferable.
+- Action items with owner and due date only when each field is explicitly
+  supported by source evidence; otherwise the field remains unknown.
 - Follow-up questions.
 - Risks/blockers.
 - Important timestamped quotes.
@@ -1247,8 +1270,15 @@ Quality rules:
   manually assigned deployment labels, never auto-promotes production, and
   requires held-out evaluation plus explicit
   deployment-operator promotion, expected-source verification, and rollback
-  evidence. Automated promotion also requires protected-label capability and a
-  sole deployment-service mutation credential; otherwise it remains disabled.
+  evidence. Langfuse labels are not assumed to provide native expected-source
+  CAS: one authorized deployment writer/lock performs expected-root read/compare,
+  validates an immutable candidate-root qualification, performs protected-label
+  movement and exact read-back, then persists an immutable promotion event and
+  complete typed binding. Runtime/model/publication paths re-fetch/re-hash that
+  binding; a bare event digest or current label is non-authorizing, and the
+  event remains outside the root/activation hashes to avoid a cycle. Automated promotion also
+  requires protected-label capability and a sole deployment-service mutation
+  credential; otherwise it remains disabled and runtime uses last-known-good.
   Workspace admins cannot change the project-global production label. Real
   transcript/output/feedback optimization remains out of scope for this first
   synthetic-only optimizer.
@@ -1559,22 +1589,24 @@ Consent policy modes:
 MVP capture start policy:
 
 - Manual start/stop is the default behavior and is always available when workspace policy permits recording.
-- Assisted auto-start is included in the internal MVP only when enabled by workspace policy.
-- Assisted auto-start is disabled by default for future external/customer workspaces and must be explicitly enabled by admin policy.
-- Assisted auto-start requires user acknowledgement during onboarding. If either workspace policy or user acknowledgement is missing, meeting detection may show `detecting` but must not start capture.
+- Automatic start is controlled by the local per-application choice; no server
+  assisted-auto-start policy or acknowledgement is required.
+- New installations set every known application to `Спрашивать`.
 - Assisted auto-start may trigger only for locked MVP approved meeting targets.
 - Assisted auto-start must require an approved meeting target or explicit
   user-confirmed capture scope, current recording prerequisites, satisfied
   consent policy, and immediate visible local capture indication.
-- For a verified target without a persisted target-scoped rule, the prompt
-  remains visible during the eight-second countdown; the user may start
-  immediately, skip, or opt that exact app into future automatic recording.
-  Countdown expiry is the approved automatic-start action, not silent capture.
+- For `Спрашивать`, the prompt remains visible during the eight-second
+  countdown; `Записать` starts immediately, `Не записывать` suppresses this
+  meeting, and timeout starts the current recording. `Запомнить выбор` maps the
+  two explicit actions to `Всегда` and `Никогда`; timeout never changes the
+  saved setting.
+- `Всегда` bypasses the prompt, while `Никогда` neither records nor prompts.
 - Assisted auto-start must never trigger from arbitrary system audio, media playback, notification sounds, music, videos, or non-approved apps.
 - If meeting-like activity is uncertain, the product must remain in `detecting` or ask the user; it must not silently start capture.
-- For MVP, assisted auto-start must use the Feature-124 prompt/countdown for a
-  verified target; a persisted target-scoped opt-in may bypass a new prompt,
-  but never bypasses policy, prerequisite, visibility, and Stop gates.
+- For MVP, automatic start must use the Feature-214 three-state contract for a
+  verified target; `Всегда` may bypass a new prompt, but never bypasses general
+  workspace consent, prerequisite, visibility, and Stop gates.
 - User-controlled private/do-not-record mode must suppress assisted auto-start.
 - Participant-facing notice is not required for internal-team MVP.
 - Silent recording must not be used as a product term or default behavior.
@@ -1588,7 +1620,8 @@ Each meeting stores consent evidence:
 - Source app if detected.
 - Notice method used.
 - Whether auto-start was used.
-- Assisted auto-start trigger reason, route validation state, confirmation state, visible-indicator state, device ID, and policy snapshot.
+- Automatic-start trigger reason, target validation state, visible-indicator
+  state and device ID. The local three-state preference is not server evidence.
 - Whether participant-facing notice was unavailable.
 
 Participant notice requirements:
@@ -1815,7 +1848,8 @@ MVP internal admin controls:
 - Basic user management for the internal team.
 - Basic admin vs non-admin role separation only where required for sensitive actions.
 - Recording mode policy.
-- Assisted auto-start policy.
+- General recording and consent policy; per-application automatic-recording
+  preferences remain local to the desktop client.
 - Consent policy.
 - Retention policy.
 - Download/share disablement or basic controls if those features remain enabled.
@@ -1845,14 +1879,22 @@ Design principles:
 - Clear state hierarchy.
 - No marketing hero layouts inside product.
 - No card-within-card compositions.
-- No Krisp-like brand colors, icon shapes, screen arrangements, or copied copy.
+- Follow the approved Krisp reference closely unless a documented GRAF gate
+  requires a deviation.
 
-Brand-distance approval gate:
+Reference-fidelity approval gate:
 
-- No UI implementation ticket for onboarding, tray/widget, desktop home, Audio Health, dashboard, or meeting detail may be marked design-ready until the brand-distance checklist is completed.
-- The checklist must include reference screenshots reviewed, explicit notes on how `2brain Rec` differs in layout, palette, typography, iconography, meters, widget shape, navigation, and copy, reviewer name, review date, and approval status.
-- Competitor screenshots may be used only for category awareness and legal/design avoidance, not as implementation references.
-- Prohibited: copied UI labels, slogans, claims, distinctive phrasing, competitor brand colors, gradients, icon shapes, mascots, same widget silhouette/control arrangement, or recreated competitor screen layouts.
+- UI implementation tickets for the approved Krisp-parity surfaces must link
+  the exact reference screen/state and identify any deliberate deviation.
+- Review covers layout, palette, typography, icon treatment, meters, widget
+  shape, navigation, copy, loading/error/empty states and interaction timing.
+- Deviations are required for known defects, misleading state, accessibility,
+  localization, privacy, security, consent or deletion-truth conflicts.
+- Private screenshots remain outside git. They may guide implementation but
+  may not ship as assets or appear in public evidence.
+- Independently recreated visual treatment and independently obtained licensed
+  equivalents are allowed. Assets extracted from a competitor application are
+  never reused.
 
 Required components:
 
@@ -1891,12 +1933,12 @@ Theme requirements:
 
 - Theme follows system preference by default.
 - User can override theme in settings.
-- Both themes must meet WCAG 2.1 AA contrast for text, controls, tables, badges, meters, destructive dialogs, and widget states.
+- Both themes must meet WCAG 2.2 AA contrast and focus requirements for text, controls, tables, badges, meters, destructive dialogs, and widget states.
 - Manual recording and auto-started recording must use distinct text labels and iconography. They may share the same base recording color only if the state remains distinguishable without color.
 
 Accessibility:
 
-- WCAG 2.1 AA target for web dashboard.
+- WCAG 2.2 AA target for web dashboard.
 - Equivalent native accessibility standards for desktop.
 - Full keyboard navigation for desktop, tray, widget, dashboard, player, transcript, admin tables.
 - Visible focus states.
@@ -1951,12 +1993,15 @@ Required UX artifacts before pilot rollout:
 
 Each artifact must define layout hierarchy, primary and secondary actions, empty/loading/error states, permission and policy-blocked states, light and dark theme behavior, keyboard navigation, screen reader labels for critical controls, responsive behavior where applicable, and acceptance criteria.
 
-## 30. Copy And Clean-Room Rules
+## 30. Reference Fidelity And Independent Implementation Rules
 
 Copy rules:
 
-- Do not use Krisp product names, slogans, UI labels, or distinctive phrasing in product UI.
-- Do not call the product a Krisp clone in user-facing surfaces.
+- Observable functional Krisp UI labels and interaction microcopy may be
+  reproduced literally when they are part of the approved reference; they do
+  not require paraphrasing for brand distance. Product names, logos,
+  trademarks, slogans and marketing claims require separate documented rights.
+- Do not describe GRAF as Krisp or imply affiliation in user-facing surfaces.
 - Use "records from your computer using selected audio devices" in user-facing consent and onboarding copy.
 - Avoid relying on "botless" as a trust claim in consent-critical UI. It may appear in positioning, but recording notices must plainly explain what is captured.
 - Avoid absolute claims unless guaranteed.
@@ -1964,20 +2009,29 @@ Copy rules:
 - Error copy must name the issue and next action.
 - Policy-blocked copy must explain workspace policy or permission reason.
 
-IP/trade dress rules:
+Independent-implementation and rights rules:
 
-- Do not copy competitor brand assets, logos, icons, screenshots, color systems, typography, UI layouts, copywriting, or marketing claims.
-- Do not reverse engineer, decompile, inspect, or reuse competitor binaries,
-  system components, protocols, private APIs, or model behavior.
-- Use public OS APIs, original code, licensed SDKs, and approved open-source components.
-- Maintain independent design system and product language.
+- Observable layouts, interaction patterns, color/typography treatment and UI
+  wording may be reproduced under the approved reference-fidelity decision.
+- Do not reuse competitor source, extracted assets, binaries, system
+  components, protocols, private APIs, secrets, private content or model
+  behavior. Do not decompile or circumvent protections.
+- Use public OS APIs, independently written code, licensed SDKs and approved
+  open-source components.
+- Verify rights for logos, trademarks, fonts, icons, illustrations, screenshots,
+  slogans and marketing assets before shipping them.
+- Legal notices, consent/privacy statements, plan or pricing terms and marketing
+  claims must be independently true and applicable to GRAF even when the
+  surrounding functional UI matches Krisp literally.
 - Review STT, diarization, embedding, LLM, and capture SDK licenses before use.
 
 Acceptance criteria:
 
-- Design review includes brand-distance checklist.
+- Design review includes reference-fidelity, accessibility, deviation and asset-
+  provenance checks.
 - Legal/license review complete before shipping third-party model or SDK.
-- No competitor assets or copied UI text appear in product, docs, marketing, or onboarding.
+- No unlicensed third-party asset, logo or trademark appears in product, docs,
+  marketing or onboarding.
 
 ## 31. Observability
 
@@ -2409,7 +2463,11 @@ Decision criteria:
 - Diarization quality may disappoint if oversold.
 - Deletion must cover derived artifacts, indexes, backups, and exports.
 - External providers/integrations can undermine self-hosting promise if not tightly controlled.
-- Trade dress risk if UI imitates Krisp too closely.
+- Copyright, trademark, trade-dress and license risk remains until every copied
+  third-party asset, logo, trademark and protected visual element in the
+  approved Krisp reference scope has documented clearance or an independently
+  created substitute. Literal functional UI labels and interaction microcopy
+  are an approved product target, not a required brand-distance rewrite.
 
 ## 39. Canonical Status
 

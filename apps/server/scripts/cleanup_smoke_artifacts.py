@@ -128,6 +128,16 @@ async def _delete_smoke_meeting_rows(
         "delete from processing_dependency_states where meeting_id=:meeting_id"
     )
     if processing_dependency_has_revision:
+        # Lock the parent rows before deleting children so a concurrent worker
+        # cannot insert a new FK row between the dependency delete and the
+        # media revision delete.
+        await conn.execute(
+            text(
+                "select id from media_revisions "
+                "where meeting_id=:meeting_id for update"
+            ),
+            meeting_params,
+        )
         processing_dependency_delete = """
             delete from processing_dependency_states
             where meeting_id=:meeting_id
@@ -150,15 +160,34 @@ async def _delete_smoke_meeting_rows(
         ),
         (
             "transcript_segments",
-            "delete from transcript_segments where meeting_id=:meeting_id",
+            """
+            delete from transcript_segments where meeting_id=:meeting_id
+               or processing_result_id in (
+                   select id from processing_results where meeting_id=:meeting_id
+               )
+            """,
         ),
         (
             "diarization_segments",
-            "delete from diarization_segments where meeting_id=:meeting_id",
+            """
+            delete from diarization_segments where meeting_id=:meeting_id
+               or processing_result_id in (
+                   select id from processing_results where meeting_id=:meeting_id
+               )
+            """,
         ),
         (
             "processing_audit_events",
-            "delete from processing_audit_events where meeting_id=:meeting_id",
+            """
+            delete from processing_audit_events
+            where meeting_id=:meeting_id
+               or mediascribe_job_id in (
+                   select id from mediascribe_jobs where meeting_id=:meeting_id
+               )
+               or processing_workflow_id in (
+                   select id from processing_workflows where meeting_id=:meeting_id
+               )
+            """,
         ),
         (
             "processing_dependency_states",
@@ -169,12 +198,32 @@ async def _delete_smoke_meeting_rows(
             "delete from dispatch_intents where meeting_id=:meeting_id",
         ),
         (
+            "meeting_summary_slots",
+            """
+            update meeting_summary_slots
+               set current_outcome_set_id=null,
+                   current_binding_class=null,
+                   legacy_migration_proof_hash=null
+             where meeting_id=:meeting_id
+            """,
+        ),
+        (
             "meeting_outcome_generation_attempts",
             """
             delete from meeting_outcome_generation_attempts
             where meeting_id=:meeting_id
+               or processing_result_id in (
+                   select id from processing_results where meeting_id=:meeting_id
+               )
+               or source_result_id in (
+                   select id from processing_results where meeting_id=:meeting_id
+               )
                or outcome_set_id in (
-                   select id from meeting_outcome_sets where meeting_id=:meeting_id
+                   select id from meeting_outcome_sets
+                   where meeting_id=:meeting_id
+                      or processing_result_id in (
+                          select id from processing_results where meeting_id=:meeting_id
+                      )
                )
             """,
         ),
@@ -183,13 +232,22 @@ async def _delete_smoke_meeting_rows(
             """
             delete from meeting_outcome_items
             where outcome_set_id in (
-                select id from meeting_outcome_sets where meeting_id=:meeting_id
+                select id from meeting_outcome_sets
+                where meeting_id=:meeting_id
+                   or processing_result_id in (
+                       select id from processing_results where meeting_id=:meeting_id
+                   )
             )
             """,
         ),
         (
             "meeting_outcome_sets",
-            "delete from meeting_outcome_sets where meeting_id=:meeting_id",
+            """
+            delete from meeting_outcome_sets where meeting_id=:meeting_id
+               or processing_result_id in (
+                   select id from processing_results where meeting_id=:meeting_id
+               )
+            """,
         ),
         (
             "processing_results",
@@ -260,6 +318,48 @@ async def _delete_smoke_meeting_rows(
             "delete from track_artifacts where meeting_id=:meeting_id",
         ),
     ]
+    # Outcome sets can be selected through a processing-result lineage whose
+    # meeting_id is stale. Clear every meeting pointer to that full set before
+    # deleting it; this update is not a deletion and must not inflate counts.
+    if "meetings" in available_tables and "meeting_outcome_sets" in available_tables:
+        await conn.execute(
+            text(
+                """
+                with lineage as (
+                    select id from meeting_outcome_sets
+                    where meeting_id=:meeting_id
+                       or processing_result_id in (
+                           select id from processing_results where meeting_id=:meeting_id
+                       )
+                )
+                update meetings
+                   set current_outcome_set_id=null
+                 where current_outcome_set_id in (select id from lineage)
+                """
+            ),
+            meeting_params,
+        )
+    if "meeting_outcome_sets" in available_tables:
+        # A later/non-smoke outcome set may supersede a selected set. Break
+        # that FK edge before deleting the selected lineage.
+        await conn.execute(
+            text(
+                """
+                with lineage as (
+                    select id from meeting_outcome_sets
+                    where meeting_id=:meeting_id
+                       or processing_result_id in (
+                           select id from processing_results where meeting_id=:meeting_id
+                       )
+                )
+                update meeting_outcome_sets
+                   set supersedes_outcome_set_id=null
+                 where supersedes_outcome_set_id in (select id from lineage)
+                   and id not in (select id from lineage)
+                """
+            ),
+            meeting_params,
+        )
     for table_name, sql in ordered_meeting_deletes:
         removed_rows += await _delete_statement(
             conn,
@@ -370,6 +470,10 @@ async def _database_residue(conn: Any, smoke_identity: dict[str, str]) -> list[s
             "fair_use_reviews",
             "select count(*) from fair_use_reviews where workspace_id=:workspace_id",
         ),
+        (
+            "playback_backfill_runs",
+            "select count(*) from playback_backfill_runs where workspace_id=:workspace_id",
+        ),
     )
     residue: list[str] = []
     for table_name, sql in checks:
@@ -402,6 +506,14 @@ async def cleanup_smoke_artifacts(
     try:
         async with engine.begin() as conn:
             await apply_tenant_context_to_connection(conn, _maintenance_context())
+            # Lock the synthetic parent before discovery/deletion. PostgreSQL
+            # FK inserts take a key-share lock on this row, so a concurrent
+            # playback worker cannot create a new workspace child between the
+            # ordered deletes and workspace removal.
+            await conn.execute(
+                text("select id from workspaces where id=:workspace_id for update"),
+                {"workspace_id": smoke_identity["workspace_id"]},
+            )
             meeting_ids = await _discover_smoke_meetings(conn, smoke_identity)
             sessions_by_meeting = await _discover_upload_sessions(conn, meeting_ids)
             if meeting_id in sessions_by_meeting and session_id:
@@ -419,14 +531,17 @@ async def cleanup_smoke_artifacts(
                 "processing_audit_events",
                 "processing_dependency_states",
                 "dispatch_intents",
+                "meeting_summary_slots",
                 "meeting_outcome_generation_attempts",
                 "meeting_outcome_items",
                 "meeting_outcome_sets",
                 "processing_results",
+                "generation_calls",
                 "mediascribe_jobs",
                 "processing_workflows",
                 "playback_normalization_attempts",
                 "playback_normalization_jobs",
+                "playback_backfill_runs",
                 "meeting_deletion_artifact_states",
                 "meeting_deletion_reports",
                 "local_purge_tasks",
@@ -468,6 +583,17 @@ async def cleanup_smoke_artifacts(
                     available_tables=available_tables,
                     processing_dependency_has_revision=processing_dependency_has_revision,
                 )
+            # Playback normalization tables use a dedicated RLS policy that
+            # permits tenant-scoped request/worker writes, not the generic
+            # maintenance cleanup context. The meeting-scoped jobs are gone
+            # above, so remove their workspace-scoped backfill parent here.
+            removed_rows += await _delete_statement(
+                conn,
+                available_tables,
+                "playback_backfill_runs",
+                "delete from playback_backfill_runs where workspace_id=:workspace_id",
+                {"workspace_id": smoke_identity["workspace_id"]},
+            )
 
             await apply_tenant_context_to_connection(conn, _maintenance_context())
             identity_deletes = (
@@ -516,8 +642,16 @@ async def cleanup_smoke_artifacts(
                     "delete from billing_notification_deliveries where workspace_id=:workspace_id",
                 ),
                 (
+                    "generation_calls",
+                    "delete from generation_calls where workspace_id=:workspace_id",
+                ),
+                (
                     "fair_use_reviews",
                     "delete from fair_use_reviews where workspace_id=:workspace_id",
+                ),
+                (
+                    "ingest_audit_events",
+                    "delete from ingest_audit_events where workspace_id=:workspace_id",
                 ),
                 (
                     "billing_audit_events",

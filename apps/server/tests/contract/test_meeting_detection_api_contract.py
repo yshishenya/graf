@@ -1,14 +1,10 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from uuid import UUID
 
 from fastapi.testclient import TestClient
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
-from tests.fakes.auth_contexts import WORKSPACE_ID
-from twobrain_rec_server.api.meeting_detection import _assisted_auto_start_policy
-from twobrain_rec_server.auth.context import TenantScope
 
 
 def meeting_detection_payload(**overrides: object) -> dict[str, object]:
@@ -141,97 +137,19 @@ def test_meeting_detection_registry_contract_returns_metadata_only_registry(clie
         assert forbidden not in exported
 
 
-def test_meeting_detection_registry_policy_is_fail_closed_and_workspace_scoped(
+def test_meeting_detection_registry_has_no_server_recording_policy_and_keeps_etag(
     client: TestClient,
 ) -> None:
-    settings = client.app.state.settings
-    default_response = client.get(
-        "/api/v1/desktop/meeting-detection/target-registry",
-        headers=auth_headers(),
-    )
-    assert "assistedAutoStartPolicy" not in default_response.json()
-
-    settings.assisted_auto_start_enabled = True
-    settings.assisted_auto_start_workspace_id = WORKSPACE_ID
-    settings.assisted_auto_start_policy_version = "2026.08.12.1"
-    settings.assisted_auto_start_acknowledgement_version = "2026.08.12.1"
-    settings.assisted_auto_start_policy_issued_at = datetime.now(UTC) - timedelta(days=1)
-    settings.assisted_auto_start_policy_expires_at = datetime.now(UTC) + timedelta(days=30)
-
-    settings.assisted_auto_start_workspace_id = UUID("20000000-0000-0000-0000-000000000099")
-    wrong_workspace_response = client.get(
-        "/api/v1/desktop/meeting-detection/target-registry",
-        headers=auth_headers(),
-    )
-    assert "assistedAutoStartPolicy" not in wrong_workspace_response.json()
-
-    settings.assisted_auto_start_workspace_id = WORKSPACE_ID
-
-    enabled_response = client.get(
-        "/api/v1/desktop/meeting-detection/target-registry",
-        headers=auth_headers(),
-    )
-    policy = enabled_response.json()["assistedAutoStartPolicy"]
-    assert policy["enabled"] is True
-    assert policy["scope"] == "workspace"
-    assert policy["policyRef"].startswith("sha256:")
-    assert policy["acknowledgementSubjectRef"].startswith("sha256:")
-    assert policy["deviceRef"].startswith("sha256:")
-    assert str(WORKSPACE_ID) not in str(policy)
-    assert enabled_response.headers["etag"] != default_response.headers["etag"]
-
-    settings.assisted_auto_start_policy_issued_at = datetime.now(UTC) + timedelta(days=1)
-    future_response = client.get(
-        "/api/v1/desktop/meeting-detection/target-registry",
-        headers=auth_headers(),
-    )
-    assert "assistedAutoStartPolicy" not in future_response.json()
-
-    settings.assisted_auto_start_policy_issued_at = datetime.now(UTC) - timedelta(days=1)
-    settings.assisted_auto_start_policy_expires_at = datetime.now(UTC) - timedelta(seconds=1)
-    expired_response = client.get(
-        "/api/v1/desktop/meeting-detection/target-registry",
-        headers=auth_headers(),
-    )
-    assert "assistedAutoStartPolicy" not in expired_response.json()
-
-
-def test_meeting_detection_registry_global_policy_binds_scope_without_cross_workspace_refs(
-    client: TestClient,
-) -> None:
-    settings = client.app.state.settings
-    settings.assisted_auto_start_enabled = True
-    settings.assisted_auto_start_all_workspaces = True
-    settings.assisted_auto_start_all_workspaces_approved = True
-    settings.assisted_auto_start_workspace_id = None
-    settings.assisted_auto_start_policy_version = "2026.08.23.1"
-    settings.assisted_auto_start_acknowledgement_version = "2026.08.23.1"
-    settings.assisted_auto_start_policy_issued_at = datetime.now(UTC) - timedelta(days=1)
-    settings.assisted_auto_start_policy_expires_at = datetime.now(UTC) + timedelta(days=30)
-
     response = client.get(
         "/api/v1/desktop/meeting-detection/target-registry",
         headers=auth_headers(),
     )
-    policy = response.json()["assistedAutoStartPolicy"]
-    assert policy["scope"] == "all_workspaces"
-
-    base_scope = TenantScope(
-        organization_id=UUID("10000000-0000-0000-0000-000000000001"),
-        workspace_id=UUID("20000000-0000-0000-0000-000000000001"),
-        user_id=UUID("30000000-0000-0000-0000-000000000001"),
-        device_id=UUID("40000000-0000-0000-0000-000000000001"),
+    assert response.status_code == 200
+    assert "assistedAutoStartPolicy" not in response.json()
+    assert response.headers["cache-control"]
+    cached = client.get(
+        "/api/v1/desktop/meeting-detection/target-registry",
+        headers=auth_headers() | {"If-None-Match": response.headers["etag"]},
     )
-    other_scope = TenantScope(
-        organization_id=base_scope.organization_id,
-        workspace_id=UUID("20000000-0000-0000-0000-000000000099"),
-        user_id=UUID("30000000-0000-0000-0000-000000000099"),
-        device_id=UUID("40000000-0000-0000-0000-000000000099"),
-    )
-    first = _assisted_auto_start_policy(settings=settings, tenant_scope=base_scope)
-    second = _assisted_auto_start_policy(settings=settings, tenant_scope=other_scope)
-    assert first is not None and second is not None
-    assert first["scope"] == second["scope"] == "all_workspaces"
-    assert first["policyRef"] == second["policyRef"]
-    assert first["acknowledgementSubjectRef"] != second["acknowledgementSubjectRef"]
-    assert first["deviceRef"] != second["deviceRef"]
+    assert cached.status_code == 304
+    assert cached.headers["etag"] == response.headers["etag"]

@@ -8,7 +8,7 @@ from sqlalchemy import select
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fakes.auth_contexts import WORKSPACE_ID
 from tests.integration.test_playback_normalization_backfill import _seed_legacy_revision
-from twobrain_rec_server.db.models import PlaybackNormalizationJob
+from twobrain_rec_server.db.models import PlaybackNormalizationJob, ProcessingWorkflow
 from twobrain_rec_server.normalization.service import inventory_playback_backfill_page
 
 
@@ -39,6 +39,23 @@ def test_admin_metrics_expose_only_aggregate_backfill_backlog_age_and_reasons(cl
             job.state = "retry_wait"
             job.reason_code = "storage_unavailable"
             job.next_attempt_at = now + timedelta(hours=1)
+            terminal_job = await db.scalar(
+                select(PlaybackNormalizationJob).where(
+                    PlaybackNormalizationJob.media_revision_id == terminal.media_revision_id
+                )
+            )
+            assert terminal_job is not None
+            terminal_job.started_at = now + timedelta(minutes=1)
+            terminal_job.terminal_at = now + timedelta(minutes=1, seconds=20)
+            db.add(
+                ProcessingWorkflow(
+                    workspace_id=WORKSPACE_ID,
+                    meeting_id=recoverable.meeting_id,
+                    media_revision_id=recoverable.media_revision_id,
+                    workflow_id=f"processing/{recoverable.media_revision_id}",
+                    status="workflow_started",
+                )
+            )
             await db.commit()
             return recoverable, terminal
 
@@ -53,6 +70,9 @@ def test_admin_metrics_expose_only_aggregate_backfill_backlog_age_and_reasons(cl
         "reason_counts",
         "backlog_total",
         "oldest_backlog_age_seconds",
+        "execution_duration_seconds",
+        "processing_gate_waiting_count",
+        "oldest_processing_gate_wait_seconds",
         "retry_cycle_buckets",
         "cleanup_pending_count",
         "purge_journal_terminal_unknown_count",
@@ -69,6 +89,13 @@ def test_admin_metrics_expose_only_aggregate_backfill_backlog_age_and_reasons(cl
     assert summary["backlog_total"] == 1
     assert isinstance(summary["oldest_backlog_age_seconds"], int)
     assert summary["oldest_backlog_age_seconds"] >= 0
+    assert summary["execution_duration_seconds"] == {
+        "count": 1,
+        "average": 20,
+        "maximum": 20,
+    }
+    assert summary["processing_gate_waiting_count"] == 1
+    assert summary["oldest_processing_gate_wait_seconds"] >= 0
     assert summary["retry_cycle_buckets"] == {"0": 2, "1": 0, "2": 0, "3_plus": 0}
     assert summary["cleanup_pending_count"] == 0
     assert summary["purge_journal_terminal_unknown_count"] == 0
@@ -111,6 +138,9 @@ def test_metrics_view_model_keeps_aggregate_normalization_summary() -> None:
         "reason_counts": {},
         "backlog_total": 0,
         "oldest_backlog_age_seconds": 0,
+        "execution_duration_seconds": {"count": 4, "average": 20, "maximum": 30},
+        "processing_gate_waiting_count": 0,
+        "oldest_processing_gate_wait_seconds": 0,
         "retry_cycle_buckets": {"0": 4, "1": 0, "2": 0, "3_plus": 0},
         "cleanup_pending_count": 0,
         "purge_journal_terminal_unknown_count": 0,

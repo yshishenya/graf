@@ -43,6 +43,7 @@ RLS_DIRECT_WORKSPACE_TABLES = {
     "meeting_outcome_sets",
     "meeting_outcome_items",
     "meeting_outcome_generation_attempts",
+    "meeting_summary_slots",
     "summary_templates",
     "generation_calls",
     "meeting_share_invitations",
@@ -97,7 +98,6 @@ RLS_OPERATOR_TABLES = {
 
 RLS_BILLING_TABLES = {
     "billing_plan_versions",
-    "billing_launch_gates",
     "promotion_campaigns",
     "promotion_redemptions",
     "workspace_subscriptions",
@@ -141,8 +141,8 @@ RLS_ALLOWED_MAINTENANCE_OPERATIONS = {
     "prompt_optimization",
     "outcome_dispatch_reconciliation",
     "deletion_purge_reconciliation",
-    "processing_legacy_lineage_reconciliation",
     "outcome_initial_baseline_reconciliation",
     "billing_reconciliation",
     "account_merge",
+    "processing_recovery_reconciliation",
 }

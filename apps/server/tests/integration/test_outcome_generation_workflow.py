@@ -3,11 +3,14 @@ from __future__ import annotations
 from hashlib import sha256
 from types import SimpleNamespace
 from typing import Any, get_type_hints
+from uuid import UUID
 
 import pytest
 from temporalio.converter import DataConverter
 
 from twobrain_rec_server.workflows import outcome_generation_workflow as workflow_module
+from twobrain_rec_server.workflows import temporal_client
+from twobrain_rec_server.workflows import worker as worker_module
 
 
 def test_child_completion_result_uses_temporal_compatible_type_hint() -> None:
@@ -26,6 +29,31 @@ def test_child_completion_result_uses_temporal_compatible_type_hint() -> None:
     payload = DataConverter.default.payload_converter.to_payloads([result])
     assert DataConverter.default.payload_converter.from_payloads(payload, [return_hint]) == [
         result
+    ]
+
+
+def test_transcript_metadata_activity_accepts_nullable_slot_identity() -> None:
+    """Temporal must decode the first-generation payload with no current slot."""
+    payload_hint = get_type_hints(
+        worker_module.snapshot_outcome_transcript_metadata_activity
+    )["payload"]
+    assert payload_hint == dict[str, Any]
+
+    payload = {
+        "candidate_id": "candidate",
+        "meeting_id": "meeting",
+        "workspace_id": "workspace",
+        "source_result_id": "result",
+        "template_key": "graf-outline-v1",
+        "template_version": "1",
+        "prompt_name": "graf/meeting-outcome/outline",
+        "summary_slot_id": "slot",
+        "expected_current_outcome_set_id": None,
+    }
+    encoded = DataConverter.default.payload_converter.to_payloads([payload])
+
+    assert DataConverter.default.payload_converter.from_payloads(encoded, [payload_hint]) == [
+        payload
     ]
 
 
@@ -374,3 +402,153 @@ async def test_observability_reconciler_waits_then_exits_after_terminal_delivery
     assert result == {"candidate_terminal": True, "pending_count": 0, "published_count": 2}
     assert len(sleeps) == 1
     assert retry_attempts == [0, 0]
+
+
+@pytest.mark.anyio
+async def test_late_completion_is_observability_only_and_never_dispatches_replacement(
+    monkeypatch,
+) -> None:
+    activity_names: list[str] = []
+    child_starts: list[tuple[dict, dict]] = []
+
+    async def execute_activity(name, payload, **_kwargs):
+        activity_names.append(name)
+        snapshot_hash = sha256(b"synthetic transcript").hexdigest()
+        if name == "resolve_outcome_prompt_config_activity":
+            return {"prompt_hash": "prompt-hash"}
+        if name == "snapshot_outcome_transcript_metadata_activity":
+            return {
+                "candidate_id": payload["candidate_id"],
+                "source_result_id": payload["source_result_id"],
+                "snapshot_hash": snapshot_hash,
+                "chunk_count": 1,
+                "transcript_bytes": len("synthetic transcript"),
+            }
+        if name == "snapshot_outcome_transcript_chunk_activity":
+            return {
+                "candidate_id": payload["candidate_id"],
+                "source_result_id": payload["source_result_id"],
+                "snapshot_hash": snapshot_hash,
+                "chunk_index": 0,
+                "chunk_count": 1,
+                "transcript_utf8": "synthetic transcript",
+            }
+        if name == "execute_outcome_generation_activity":
+            # A provider response that arrives after the source fence changed
+            # remains retained for observability, not a publication trigger.
+            return {
+                "generation_call_id": "call",
+                "candidate_state": "stale",
+                "failure_code": "summary_source_revision_stale",
+            }
+        if name == "publish_outcome_observability_activity":
+            assert payload["generation_call_id"] == "call"
+            return {"candidate_terminal": True, "pending_count": 0}
+        raise AssertionError(name)
+
+    runtime = _workflow_runtime(execute_activity, child_starts)
+    runtime.patched = lambda _marker: False
+    monkeypatch.setattr(workflow_module, "workflow", runtime)
+
+    result = await workflow_module.OutcomeGenerationWorkflow().run(
+        {
+            "candidate_id": "candidate",
+            "meeting_id": "meeting",
+            "workspace_id": "workspace",
+            "source_result_id": "result",
+            "template_key": "graf-auto-v1",
+            "template_version": "1",
+            "prompt_name": "graf/meeting-outcome/auto",
+        }
+    )
+
+    assert result["candidate_state"] == "stale"
+    assert activity_names.count("execute_outcome_generation_activity") == 1
+    assert activity_names.count("publish_outcome_observability_activity") == 1
+    assert not any("replacement" in name or "ensure" in name for name in activity_names)
+    assert child_starts == []
+
+
+@pytest.mark.anyio
+async def test_duplicate_temporal_dispatch_reuses_existing_run_without_new_workflow_identity(
+) -> None:
+    calls: list[tuple[str, str]] = []
+
+    class WorkflowAlreadyStartedError(Exception):
+        run_id = "existing-run"
+
+    class TemporalClient:
+        async def start_workflow(self, workflow_run, _payload, *, id, task_queue, id_reuse_policy):
+            calls.append((id, task_queue))
+            raise WorkflowAlreadyStartedError("already started")
+
+    settings = SimpleNamespace(
+        temporal_task_queue="graf",
+        langfuse_environment="test",
+    )
+    candidate_id = UUID("11111111-1111-1111-1111-111111111111")
+    start = temporal_client.start_outcome_generation_workflow
+
+    first = await start(
+        temporal_client=TemporalClient(),
+        settings=settings,
+        candidate_id=candidate_id,
+        meeting_id=UUID("22222222-2222-2222-2222-222222222222"),
+        workspace_id=UUID("33333333-3333-3333-3333-333333333333"),
+        source_result_id=UUID("44444444-4444-4444-4444-444444444444"),
+        template_key="graf-auto-v1",
+        template_version=1,
+        prompt_name="graf/meeting-outcome/auto",
+    )
+    second = await start(
+        temporal_client=TemporalClient(),
+        settings=settings,
+        candidate_id=candidate_id,
+        meeting_id=UUID("22222222-2222-2222-2222-222222222222"),
+        workspace_id=UUID("33333333-3333-3333-3333-333333333333"),
+        source_result_id=UUID("44444444-4444-4444-4444-444444444444"),
+        template_key="graf-auto-v1",
+        template_version=1,
+        prompt_name="graf/meeting-outcome/auto",
+    )
+
+    assert first.reused is True and first.run_id == "existing-run"
+    assert second.reused is True and second.run_id == "existing-run"
+    assert calls == [
+        ("outcome-generation/11111111-1111-1111-1111-111111111111", "graf-outcomes"),
+        ("outcome-generation/11111111-1111-1111-1111-111111111111", "graf-outcomes"),
+    ]
+
+
+def test_stale_slot_event_identity_is_stable_and_type_scoped() -> None:
+    meeting_id = UUID("55555555-5555-5555-5555-555555555555")
+
+    # Summary reads use the same immutable tuple (meeting, type, state version)
+    # for Feature 197's later coalescing decision; a workflow identity is not a
+    # substitute for that slot event.
+    from twobrain_rec_server.api.cabinet import _summary_event_id
+
+    auto_v7 = _summary_event_id(
+        meeting_id=meeting_id,
+        template_key="graf-auto-v1",
+        state_version=7,
+    )
+    auto_v7_replay = _summary_event_id(
+        meeting_id=meeting_id,
+        template_key="graf-auto-v1",
+        state_version=7,
+    )
+    minutes_v7 = _summary_event_id(
+        meeting_id=meeting_id,
+        template_key="graf-meeting-minutes-v1",
+        state_version=7,
+    )
+    auto_v8 = _summary_event_id(
+        meeting_id=meeting_id,
+        template_key="graf-auto-v1",
+        state_version=8,
+    )
+
+    assert auto_v7 == auto_v7_replay
+    assert auto_v7 != minutes_v7
+    assert auto_v7 != auto_v8

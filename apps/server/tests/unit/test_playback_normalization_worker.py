@@ -160,7 +160,7 @@ async def test_schema_startup_gate_requires_exact_migration_head() -> None:
 
 
 def test_worker_schema_head_is_derived_from_packaged_migrations() -> None:
-    assert packaged_schema_head() == "0078_processing_recovery"
+    assert packaged_schema_head() == "0085_merge_summary_mediascribe"
 
 
 @pytest.mark.anyio
@@ -215,6 +215,7 @@ async def test_initial_reconciliation_failure_disposes_engine_and_storage(
     monkeypatch.setattr(worker_module, "create_sessionmaker", lambda _engine: object())
     monkeypatch.setattr(worker_module, "require_storage_ready", no_op_async)
     monkeypatch.setattr(worker_module, "require_schema_head", no_op_async)
+    monkeypatch.setattr(worker_module, "validate_media_tools", lambda **_kwargs: None)
     monkeypatch.setattr(worker_module, "connect_temporal_client", connect_temporal)
     monkeypatch.setattr(
         worker_module,

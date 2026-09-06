@@ -35,19 +35,24 @@ class _FakeDb:
 
 
 @pytest.mark.anyio
-async def test_confirmed_payment_grants_once_and_records_receipt_state(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_confirmed_payment_grants_once_and_records_receipt_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    notifications: list[dict[str, object]] = []
+
     async def no_promo(*_args: object, **_kwargs: object) -> str:
         return "none"
 
     async def no_credit(*_args: object, **_kwargs: object) -> str:
         return "ineligible"
 
-    async def no_notification(*_args: object, **_kwargs: object) -> bool:
+    async def capture_notification(*_args: object, **kwargs: object) -> bool:
+        notifications.append(kwargs)
         return True
 
     monkeypatch.setattr(entitlements, "redeem_invoice_promo", no_promo)
     monkeypatch.setattr(entitlements, "create_pending_credit", no_credit)
-    monkeypatch.setattr(entitlements, "enqueue_billing_notification", no_notification)
+    monkeypatch.setattr(entitlements, "enqueue_billing_notification", capture_notification)
 
     operation = BillingOperation(
         id=OPERATION_ID,
@@ -95,12 +100,12 @@ async def test_confirmed_payment_grants_once_and_records_receipt_state(monkeypat
         amount_minor=79_000,
         currency="RUB",
         paid_at=datetime(2026, 8, 7, 12, tzinfo=UTC),
-        receipt_registration="succeeded",
+        receipt_registration="pending",
     )
 
     assert result == "granted"
     assert invoice.status == "succeeded"
-    assert invoice.plan_snapshot["receipt_registration"] == "succeeded"
+    assert invoice.plan_snapshot["receipt_registration"] == "pending"
     assert operation.state == "succeeded"
     grant = next(row for row in db.added if isinstance(row, BillingEntitlementGrant))
     assert grant.provider_payment_id == "payment-1"
@@ -124,6 +129,11 @@ async def test_confirmed_payment_grants_once_and_records_receipt_state(monkeypat
         == "duplicate"
     )
     assert not [row for row in duplicate_db.added if isinstance(row, BillingEntitlementGrant)]
+    assert invoice.plan_snapshot["receipt_registration"] == "succeeded"
+    assert [event["kind"] for event in notifications] == [
+        entitlements.BillingNotification.PAYMENT_SUCCEEDED,
+        entitlements.BillingNotification.RECEIPT_AVAILABLE,
+    ]
 
     # A duplicate payment GET must not downgrade receipt truth or move a
     # previously succeeded operation into reconciliation_gap.
@@ -142,6 +152,7 @@ async def test_confirmed_payment_grants_once_and_records_receipt_state(monkeypat
     )
     assert operation.state == "succeeded"
     assert invoice.plan_snapshot["receipt_registration"] == "succeeded"
+    assert len(notifications) == 2
 
 
 @pytest.mark.anyio

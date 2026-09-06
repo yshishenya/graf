@@ -23,13 +23,14 @@ ALLOWED_MAINTENANCE_OPERATIONS = frozenset(
         "playback_normalization_dispatch",
         "prompt_optimization",
         "outcome_dispatch_reconciliation",
+        "summary_slots_reconciliation",
         "deletion_purge_reconciliation",
-        "processing_legacy_lineage_reconciliation",
         "outcome_initial_baseline_reconciliation",
         "billing_reconciliation",
         "billing_notification_reconciliation",
         "account_merge",
         "calendar_sync_reconciliation",
+        "processing_recovery_reconciliation",
     }
 )
 

@@ -48,8 +48,8 @@ async def get_public_web_db_session(request: Request):
         yield None
         return
     async with sessionmaker() as session:
-        # Billing catalog and launch-gate tables are global, but PostgreSQL
-        # still requires the ordinary request RLS context before reading them.
+        # Billing catalog is global, but PostgreSQL still requires the ordinary
+        # request RLS context before reading it.
         # A zero UUID cannot match any tenant-owned row if this dependency is
         # ever extended with another query.
         try:

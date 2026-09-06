@@ -51,23 +51,21 @@
         <span class="sidebar-profile__icon" aria-hidden="true">{{ icons.icon("users-round") }}</span>
         <span class="sidebar-profile__copy"><strong class="sidebar-profile__name">{{ profile_name }}</strong>{% if profile_email %}<span class="sidebar-profile__email">{{ profile_email }}</span>{% endif %}</span>
       </button>
-      <div class="sidebar-profile-menu" id="cabinet-profile-menu" data-profile-menu hidden>
+      <div class="sidebar-profile-menu" id="cabinet-profile-menu" data-profile-menu popover="manual" hidden>
         <a class="sidebar-profile-menu__account" href="{{ '/desktop/settings/account' if embedded else '/settings/account' }}" data-profile-menu-item="account">
           <span class="sidebar-profile-menu__account-icon" aria-hidden="true">{{ icons.icon("users-round") }}</span>
           <span class="sidebar-profile-menu__account-copy"><strong>{{ profile_name }}</strong>{% if profile_email %}<span>{{ profile_email }}</span>{% endif %}</span>
         </a>
         <div class="sidebar-profile-menu__separator" role="separator"></div>
-        <details class="sidebar-profile-menu__disclosure">
+        {% if profile %}<details class="sidebar-profile-menu__disclosure">
           <summary class="sidebar-profile-menu__item">{{ icons.icon("sun") }}<span>Вид</span></summary>
           <div class="sidebar-profile-menu__submenu" data-profile-menu-submenu>
-            <form class="sidebar-profile-menu__theme-form" data-account-preferences data-account-preferences-auto-save method="post" action="{{ '/desktop/settings/account/preferences' if embedded else '/settings/account/preferences' }}">
+            <form class="sidebar-profile-menu__theme-form" data-account-preferences data-account-preferences-auto-save="true" method="post" action="{{ '/desktop/settings/account/preferences' if embedded else '/settings/account/preferences' }}">
               {{ csrf_field(csrf_token) }}
-              <input type="hidden" name="locale" value="{{ profile.locale if profile else 'ru-RU' }}">
-              <input type="hidden" name="timezone" value="{{ profile.timezone if profile else 'Europe/Moscow' }}">
-              {{ ui.theme_picker(profile.theme if profile else "system") }}
+              {{ ui.theme_picker(profile.theme) }}
             </form>
           </div>
-        </details>
+        </details>{% endif %}
         <a class="sidebar-profile-menu__item" href="{{ '/desktop/settings' if embedded else '/settings' }}" data-profile-menu-item="settings">{{ icons.icon("settings") }}<span>Настройки</span></a>
         <div class="sidebar-profile-menu__separator" role="separator"></div>
         <details class="sidebar-profile-menu__disclosure">
@@ -99,13 +97,18 @@
 {% macro cabinet_shell(navigation, embedded=False, content=None, static_url="", skip_target="cabinet-main", csrf_token=None, settings_navigation=(), settings_active="overview", profile=None) -%}
 <div class="app-shell{% if embedded %} desktop-embedded{% endif %}" data-shell-scroll="contained" data-cabinet-shell data-active-nav="{{ navigation.active }}" data-rail-tooltip="Показать боковую панель">
   <a class="skip-link" href="#{{ skip_target }}">К содержимому</a>
-  {% if not embedded %}<noscript><nav class="cabinet-mobile-noscript-nav" aria-label="Навигация кабинета без JavaScript">
+  {% if not embedded %}<noscript class="cabinet-mobile-noscript"><nav class="cabinet-mobile-noscript-nav" aria-label="Навигация кабинета без JavaScript">
     {% for item in navigation.items %}<a href="{{ item.href }}"{% if item.id == navigation.active %} data-current="true" aria-label="Текущая страница: {{ item.label }}"{% endif %}>{{ item.label }}</a>{% endfor %}
     {% if navigation.active == "settings" %}
     <a href="/settings">Обзор настроек</a>
     {% for item in settings_navigation %}<a href="{{ item.href }}"{% if item.id == settings_active %} data-current="true" aria-label="Текущая страница: {{ item.label }}"{% endif %}>{{ item.label }}</a>{% endfor %}
     {% endif %}
   </nav></noscript>{% endif %}
+  {% if not embedded %}<nav class="cabinet-mobile-nav" aria-label="Основная навигация кабинета">
+    <a class="cabinet-mobile-nav__brand" href="/meetings" aria-label="GRAF — мои встречи"><span aria-hidden="true">Г</span></a>
+    <span class="cabinet-mobile-nav__divider" aria-hidden="true"></span>
+    {% for item in navigation.items %}<a class="cabinet-mobile-nav__item{% if item.id == navigation.active %} is-selected{% endif %}" href="{{ item.href }}" aria-label="{% if item.id == navigation.active %}Текущий раздел: {% endif %}{{ item.label }}" title="{{ item.label }}" data-state="{{ 'selected' if item.id == navigation.active else 'normal' }}">{{ icons.icon(item.icon) }}<span>{{ item.label }}</span></a>{% endfor %}
+  </nav>{% endif %}
   {{ cabinet_sidebar(navigation, embedded=embedded, static_url=static_url, csrf_token=csrf_token, settings_navigation=settings_navigation, settings_active=settings_active, profile=profile) }}
   {% if content is not none %}
   {{ content }}
@@ -137,49 +140,6 @@
 </header>
 {%- endmacro %}
 
-{% macro meeting_row(title, href, status_label, media_kind="audio", date_label="", selected=False, disabled=False) -%}
-<article class="cabinet-meeting-row{% if selected %} is-selected{% endif %}" data-state="{{ 'disabled' if disabled else 'selected' if selected else 'normal' }}">
-  {{ ui.checkbox("meeting", "Выбрать запись " ~ title, checked=selected, disabled=disabled) }}
-  <span class="cabinet-meeting-row__icon" data-media-kind="{{ media_kind }}">{{ icons.icon(media_kind) }}</span>
-  <a class="cabinet-meeting-row__title" href="{{ href }}">{{ title }}</a>
-  {{ ui.status_label(status_label, "disabled" if disabled else "normal") }}
-  <span class="cabinet-meeting-row__date">{{ date_label }}</span>
-</article>
-{%- endmacro %}
-
-{% macro playback_controls(label="Запись", available=True, duration="00:00") -%}
-<section class="cabinet-playback-controls" aria-label="{{ label }}" data-state="{{ 'normal' if available else 'unavailable' }}">
-  {{ ui.icon_button("audio", "Воспроизвести", disabled=(not available)) }}
-  <span class="cabinet-playback-controls__timeline" aria-hidden="true"></span>
-  <span class="cabinet-playback-controls__duration">{{ duration }}</span>
-</section>
-{%- endmacro %}
-
-{% macro detail_side_panel(title, body, state="normal") -%}
-<aside class="cabinet-detail-panel" data-state="{{ state }}">
-  <h2>{{ title }}</h2>
-  <p>{{ body }}</p>
-</aside>
-{%- endmacro %}
-
-{% macro confirmation_dialog(title, body, confirm_label="Подтвердить", cancel_label="Отмена", destructive=True) -%}
-<section class="cabinet-confirmation-dialog" role="dialog" aria-modal="true" aria-labelledby="cabinet-confirmation-title" data-state="{{ 'destructive' if destructive else 'normal' }}">
-  <h2 id="cabinet-confirmation-title">{{ title }}</h2>
-  <p>{{ body }}</p>
-  <div class="cabinet-confirmation-dialog__actions">
-    {{ ui.button(cancel_label, variant="quiet") }}
-    {{ ui.button(confirm_label, variant="danger", destructive=destructive) }}
-  </div>
-</section>
-{%- endmacro %}
-
-{% macro status_banner(title, body, state="info") -%}
-<section class="cabinet-banner cabinet-banner--{{ state }}" role="status" data-state="{{ state }}">
-  <h2>{{ title }}</h2>
-  <p>{{ body }}</p>
-</section>
-{%- endmacro %}
-
 {% macro state_panel(title, body="", state="empty", heading_id="cabinet-state-title", heading_level=2, icon_name="info", action_label=None, action_href=None, live=False) -%}
 <section class="cabinet-state cabinet-state--{{ state }} cabinet-{{ state }} cabinet-card" data-cabinet-state data-state="{{ state }}"{% if state != "empty" %} role="status"{% endif %}{% if live %} aria-live="polite" aria-atomic="true"{% endif %} aria-labelledby="{{ heading_id }}">
   {% if icon_name %}<span class="cabinet-state__icon" aria-hidden="true">{{ icons.icon(icon_name) }}</span>{% endif %}
@@ -197,24 +157,24 @@
 </main>
 {%- endmacro %}
 
-{% macro empty_state(title, body) -%}
-{{ state_panel(title, body, state="empty", icon_name=None) }}
-{%- endmacro %}
-
-{% macro unavailable_state(title, body) -%}
-{{ state_panel(title, body, state="unavailable") }}
-{%- endmacro %}
-
 {% macro csrf_field(csrf_token=None) -%}
 {%- if csrf_token -%}
 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 {%- endif -%}
 {%- endmacro %}
 
-{% macro auth_form(title, action, email_label="Email", submit_label="Продолжить", error=None) -%}
-<form class="cabinet-auth-form" action="{{ action }}" method="post" data-state="{{ 'error' if error else 'normal' }}">
-  <h1>{{ title }}</h1>
-  {{ ui.input("email", email_label, type="email", error=error) }}
-  {{ ui.button(submit_label, type="submit") }}
-</form>
+
+{% macro trial_confirmation(csrf_token=None, starts_at=None, ends_at=None, primary=False) -%}
+<details class="billing-coupon" data-trial-confirmation>
+  <summary class="button quiet"{% if primary %} data-billing-primary{% endif %}>Начать 7 дней бесплатно</summary>
+  <p><strong>Карта не нужна. Автосписания не будет.</strong></p>
+  <p>Пробный период доступен один раз. После семи дней автоматически включится Free.</p>
+  {% if starts_at and ends_at %}<p>На момент открытия страницы предварительный период: с {{ starts_at }} до {{ ends_at }}.</p>{% endif %}
+  <p>Семь полных дней начнутся при окончательном подтверждении. Точные даты появятся здесь после запуска. Чтобы отказаться, сверните этот блок.</p>
+  <form action="/billing/trial/activate" method="post">
+    {{ csrf_field(csrf_token) }}
+    <input type="hidden" name="confirmation" value="start_trial">
+    <button class="button quiet" type="submit">Подтвердить запуск на 7 дней</button>
+  </form>
+</details>
 {%- endmacro %}

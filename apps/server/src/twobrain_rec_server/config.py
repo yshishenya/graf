@@ -1,4 +1,4 @@
-from datetime import datetime
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     api_port: int = 8080
     log_level: str = "INFO"
     web_runtime_enabled: bool = True
+    calendar_allow_uncertified_yandex: bool = False
 
     database_url: str = (
         "postgresql+asyncpg://twobrain_rec:twobrain_rec@localhost:54329/twobrain_rec"
@@ -137,19 +138,7 @@ class Settings(BaseSettings):
     product_analytics_live_provider_delivery_approved: bool = False
     product_analytics_campaign_readiness_approved: bool = False
 
-    assisted_auto_start_enabled: bool = False
-    # Global scope is an explicit internal-deployment attestation. An empty
-    # workspace ID never becomes a wildcard by itself.
-    assisted_auto_start_all_workspaces: bool = False
-    assisted_auto_start_all_workspaces_approved: bool = False
-    assisted_auto_start_workspace_id: UUID | None = None
-    assisted_auto_start_policy_version: str | None = None
-    assisted_auto_start_acknowledgement_version: str | None = None
-    assisted_auto_start_policy_issued_at: datetime | None = None
-    assisted_auto_start_policy_expires_at: datetime | None = None
-
     mediascribe_base_url: AnyUrl | None = None
-    mediascribe_health_url: AnyUrl | None = None
     mediascribe_api_key_file: Path | None = None
     mediascribe_request_timeout_seconds: PositiveInt = Field(default=30)
     mediascribe_diarize: bool = True
@@ -163,6 +152,7 @@ class Settings(BaseSettings):
     langfuse_release: str | None = None
 
     outcome_generation_enabled: bool = False
+    outcome_prompt_label: str = "production"
     litellm_base_url: AnyUrl | None = None
     litellm_api_key_file: Path | None = None
     litellm_request_timeout_seconds: PositiveInt = Field(default=120)
@@ -226,7 +216,7 @@ class Settings(BaseSettings):
     playback_normalization_ffmpeg_path: Path = Path("/usr/bin/ffmpeg")
     playback_normalization_ffprobe_path: Path = Path("/usr/bin/ffprobe")
 
-    max_recording_duration_seconds: PositiveInt = Field(default=14_400)
+    max_recording_duration_seconds: PositiveInt = Field(default=14_400, le=14_400)
     max_track_bytes: PositiveInt = Field(default=2_684_354_560)
     max_package_bytes: PositiveInt = Field(default=5_368_709_120)
     max_upload_part_bytes: PositiveInt = Field(default=1_073_741_824)
@@ -301,7 +291,6 @@ class Settings(BaseSettings):
         "public_base_url",
         "postal_api_url",
         "mediascribe_base_url",
-        "mediascribe_health_url",
         "langfuse_base_url",
         "langfuse_health_url",
         "litellm_base_url",
@@ -327,11 +316,6 @@ class Settings(BaseSettings):
         "product_analytics_posthog_project_key_file",
         "product_analytics_yandex_counter_id",
         "product_analytics_yandex_oauth_token_file",
-        "assisted_auto_start_workspace_id",
-        "assisted_auto_start_policy_version",
-        "assisted_auto_start_acknowledgement_version",
-        "assisted_auto_start_policy_issued_at",
-        "assisted_auto_start_policy_expires_at",
         mode="before",
     )
     @classmethod
@@ -431,50 +415,6 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
-    def validate_assisted_auto_start_safety(self) -> "Settings":
-        if not self.assisted_auto_start_enabled:
-            return self
-        if self.assisted_auto_start_all_workspaces:
-            if not self.assisted_auto_start_all_workspaces_approved:
-                raise ValueError(
-                    "global assisted auto-start requires explicit all-workspaces approval"
-                )
-            if self.assisted_auto_start_workspace_id is not None:
-                raise ValueError(
-                    "global assisted auto-start cannot include a workspace ID"
-                )
-        elif self.assisted_auto_start_workspace_id is None:
-            raise ValueError(
-                "assisted auto-start requires workspace or approved global scope"
-            )
-        if (
-            self.assisted_auto_start_policy_issued_at is None
-            or self.assisted_auto_start_policy_expires_at is None
-            or not self.assisted_auto_start_policy_version
-            or not self.assisted_auto_start_acknowledgement_version
-        ):
-            raise ValueError(
-                "assisted auto-start requires policy, acknowledgement, and expiry"
-            )
-        for value in (
-            self.assisted_auto_start_policy_version,
-            self.assisted_auto_start_acknowledgement_version,
-        ):
-            if len(value) > 64 or any(
-                character not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-"
-                for character in value
-            ):
-                raise ValueError("assisted auto-start versions must be safe codes")
-        if (
-            self.assisted_auto_start_policy_issued_at.tzinfo is None
-            or self.assisted_auto_start_policy_expires_at.tzinfo is None
-        ):
-            raise ValueError("assisted auto-start policy dates must include a timezone")
-        if self.assisted_auto_start_policy_issued_at >= self.assisted_auto_start_policy_expires_at:
-            raise ValueError("assisted auto-start policy expiry must follow issue time")
-        return self
-
-    @model_validator(mode="after")
     def validate_playback_normalization_safety(self) -> "Settings":
         if not self.playback_normalization_enabled:
             return self
@@ -536,6 +476,8 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_processing_recovery_safety(self) -> "Settings":
+        if self.processing_enabled and not self.mediascribe_diarize:
+            raise ValueError("enabled processing requires MediaScribe diarization")
         if self.processing_recovery_min_delay_seconds > self.processing_recovery_default_delay_seconds:
             raise ValueError(
                 "processing recovery minimum delay must not exceed the default delay"
@@ -562,6 +504,13 @@ class Settings(BaseSettings):
             )
         if not (self.outcome_generation_enabled or self.prompt_optimization_enabled):
             return self
+        prompt_label = self.outcome_prompt_label.strip()
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", prompt_label):
+            raise ValueError("outcome prompt label is invalid")
+        if prompt_label == "latest":
+            raise ValueError("outcome prompt label must pin an explicit deployment label")
+        if self.env == "production" and prompt_label != "production":
+            raise ValueError("production outcome generation requires the production prompt label")
         capability = (
             "outcome generation" if self.outcome_generation_enabled else "prompt optimization"
         )
@@ -714,6 +663,8 @@ class Settings(BaseSettings):
     def validate_production_safety(self) -> "Settings":
         if self.env.lower() != "production":
             return self
+        if self.calendar_allow_uncertified_yandex:
+            raise ValueError("production cannot enable uncertified Yandex Calendar")
         if self.public_analytics_enabled and self.public_analytics_yandex_metrica_id is None:
             raise ValueError(
                 "production public analytics requires public_analytics_yandex_metrica_id"

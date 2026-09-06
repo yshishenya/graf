@@ -1,4 +1,5 @@
 import asyncio
+from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -9,9 +10,14 @@ from sqlalchemy import select
 from tests.fakes.fake_mediascribe import FakeMediaScribeClient
 from tests.fakes.fake_temporal import FakeTemporalClient
 from tests.fixtures.processing import create_finalized_meeting, create_finalized_mixed_recording
+from twobrain_rec_server.billing.storage import project_active_playback_storage
+from twobrain_rec_server.cabinet.access import AccessDecision
+from twobrain_rec_server.cabinet.egress import review_playback_state, stored_audio_artifacts
 from twobrain_rec_server.db.models import (
     MediaRevision,
     MediaScribeJob,
+    Meeting,
+    PlaybackNormalizationJob,
     ProcessingWorkflow,
     TrackArtifact,
 )
@@ -26,7 +32,10 @@ from twobrain_rec_server.processing.reasons import (
     PROCESSING_TEMP_STORAGE_UNAVAILABLE,
 )
 from twobrain_rec_server.processing.store import ProcessingLifecycleBlocked
-from twobrain_rec_server.processing.submit import submit_to_mediascribe
+from twobrain_rec_server.processing.submit import (
+    ManualUploadNormalizationPending,
+    submit_to_mediascribe,
+)
 
 
 class StagingOnlyStorage:
@@ -105,6 +114,109 @@ def test_submit_persists_external_job_id_before_retry_continues(client) -> None:
     assert second_submitted is False
 
 
+def test_submit_accepts_fresh_temporal_attempt_in_starting_state(client) -> None:
+    """A newly admitted attempt may submit before the start projection lands."""
+    finalized = create_finalized_meeting(client, "mediascribe-submit-starting")
+    meeting_id = UUID(finalized["meeting"]["meeting_id"])
+    media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
+    workspace_id = UUID(finalized["meeting"]["workspace_id"])
+    fake_client = FakeMediaScribeClient(external_job_id="job_starting")
+
+    async def submit_from_starting() -> tuple[str, str, str, int]:
+        async with client.app_state["sessionmaker"]() as db:
+            workflow = await store.upsert_processing_workflow(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
+                workflow_id=f"processing/{media_revision_id}",
+                status=ProcessingStatus.STARTING,
+            )
+            result = await submit_to_mediascribe(
+                db=db,
+                settings=client.app.state.settings,
+                storage=StagingOnlyStorage(client.app_state["storage"]),
+                mediascribe_client=fake_client,
+                workflow=workflow,
+            )
+            persisted_workflow = await db.scalar(
+                select(ProcessingWorkflow).where(ProcessingWorkflow.id == workflow.id)
+            )
+            persisted_job = await db.scalar(
+                select(MediaScribeJob).where(MediaScribeJob.processing_workflow_id == workflow.id)
+            )
+            assert persisted_workflow is not None
+            assert persisted_job is not None
+            return (
+                result.job.external_job_id or "",
+                persisted_workflow.status,
+                persisted_job.status,
+                len(fake_client.submissions),
+            )
+
+    assert asyncio.run(submit_from_starting()) == (
+        "job_starting",
+        ProcessingStatus.SUBMITTED.value,
+        MediaScribeJobStatus.UPLOADED.value,
+        1,
+    )
+
+
+def test_unknown_submission_replays_the_same_idempotency_key(client) -> None:
+    finalized = create_finalized_meeting(client, "mediascribe-submit-unknown-replay")
+    meeting_id = UUID(finalized["meeting"]["meeting_id"])
+    media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
+    workspace_id = UUID(finalized["meeting"]["workspace_id"])
+    fake_client = FakeMediaScribeClient(external_job_id="job_unknown_replayed")
+
+    async def replay_unknown() -> tuple[str, str, str, int]:
+        async with client.app_state["sessionmaker"]() as db:
+            revision = await db.get(MediaRevision, media_revision_id)
+            assert revision is not None
+            source_fingerprint = source_fingerprint_for_revision(revision)
+            workflow = await store.upsert_processing_workflow(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
+                workflow_id=f"processing/{media_revision_id}",
+                status=ProcessingStatus.BLOCKED_UNKNOWN,
+                source_fingerprint=source_fingerprint,
+            )
+            microphone = await _track_artifact(db, workspace_id, meeting_id, "microphone")
+            incoming = await _track_artifact(db, workspace_id, meeting_id, "system")
+            job = await store.upsert_mediascribe_job(
+                db,
+                workflow=workflow,
+                mic_artifact=microphone,
+                incoming_artifact=incoming,
+                request_mode="dual_track",
+                source_fingerprint=source_fingerprint,
+            )
+            original_key = job.idempotency_key or ""
+            job.status = MediaScribeJobStatus.BLOCKED.value
+            job.last_error_code = "blocked_mediascribe_submission_outcome_unknown"
+            await db.commit()
+            submitted = await submit_to_mediascribe(
+                db=db,
+                settings=client.app.state.settings,
+                storage=StagingOnlyStorage(client.app_state["storage"]),
+                mediascribe_client=fake_client,
+                workflow=workflow,
+            )
+            return (
+                original_key,
+                submitted.job.idempotency_key or "",
+                submitted.job.external_job_id or "",
+                len(fake_client.submissions),
+            )
+
+    original_key, replayed_key, external_job_id, submission_count = asyncio.run(replay_unknown())
+    assert replayed_key == original_key
+    assert external_job_id == "job_unknown_replayed"
+    assert submission_count == 1
+
+
 def test_submission_claim_loss_persists_provider_id_with_blocked_projection(client) -> None:
     finalized = create_finalized_meeting(client, "mediascribe-submit-claim-loss")
     meeting_id = UUID(finalized["meeting"]["meeting_id"])
@@ -126,6 +238,7 @@ def test_submission_claim_loss_persists_provider_id_with_blocked_projection(clie
                 workflow=workflow,
                 mic_artifact=await _track_artifact(db, workspace_id, meeting_id, "microphone"),
                 incoming_artifact=await _track_artifact(db, workspace_id, meeting_id, "system"),
+                request_mode="dual_track",
             )
             job.status = MediaScribeJobStatus.SUBMITTING.value
             job.submission_claim_token = "new-owner"
@@ -193,6 +306,7 @@ def test_submit_does_not_reuse_external_job_from_parallel_workflow_lineage(clien
                 workflow_id=f"processing/parallel/{media_revision_id}",
                 source_fingerprint=source_fingerprint,
                 status=ProcessingStatus.PROCESSED.value,
+                attempt_ordinal=0,
                 attempt_count=1,
             )
             db.add(parallel)
@@ -255,12 +369,12 @@ def test_submit_retains_external_job_id_when_final_fence_loses_race(client, monk
     original_fence = submit_module._ensure_processing_fence
     fence_calls = 0
 
-    async def fail_after_provider_submit(db, workflow):
+    async def fail_after_provider_submit(db, workflow, **kwargs):
         nonlocal fence_calls
         fence_calls += 1
         if fence_calls == 3:
             raise ProcessingLifecycleBlocked("meeting_deleting")
-        return await original_fence(db, workflow)
+        return await original_fence(db, workflow, **kwargs)
 
     monkeypatch.setattr(submit_module, "_ensure_processing_fence", fail_after_provider_submit)
 
@@ -451,8 +565,16 @@ def test_submit_marks_temp_storage_unavailable_retryable_before_staging(client, 
     assert submission_count == 0
 
 
-def test_submit_single_track_media_upload_persists_source_and_reuses_existing_job(client) -> None:
+@pytest.mark.parametrize("archive_audio", [True, False])
+def test_submit_single_track_media_upload_persists_source_and_reuses_existing_job(
+    client,
+    archive_audio: bool,
+) -> None:
+    client.app.state.settings.playback_normalization_enabled = True
+    client.app.state.settings.playback_normalization_automatic_dispatch_enabled = True
+    client.app.state.settings.processing_enabled = True
     client.app.state.temporal_client = FakeTemporalClient()
+    source_body = b"manual-media-audio"
     upload = client.post(
         "/api/v1/media-uploads",
         headers={
@@ -461,16 +583,21 @@ def test_submit_single_track_media_upload_persists_source_and_reuses_existing_jo
             "X-User-Id": str(UUID("30000000-0000-0000-0000-000000000001")),
             "X-Device-Id": str(UUID("40000000-0000-0000-0000-000000000001")),
         },
-        data={"duration_seconds": "60", "local_recording_id": "manual-mediascribe-submit"},
-        files={"file": ("meeting.wav", b"manual-media-audio", "audio/wav")},
+        data={
+            "duration_seconds": "60",
+            "local_recording_id": f"manual-mediascribe-submit-{archive_audio}",
+            "archive_audio": str(archive_audio).lower(),
+        },
+        files={"file": ("meeting.wav", source_body, "audio/wav")},
     )
     assert upload.status_code == 202
     finalized = upload.json()
     meeting_id = UUID(finalized["meeting"]["meeting_id"])
     media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
     fake_client = FakeMediaScribeClient(external_job_id="job_single_submit")
+    canonical_body = b"canonical-manual-media"
 
-    async def submit_twice() -> tuple[str, int, str | None, bool, str, bool, bool]:
+    async def submit_twice() -> tuple[str, int, str | None, bool, str, bool, bool, int, int, bool]:
         async with client.app_state["sessionmaker"]() as db:
             workflow = await store.upsert_processing_workflow(
                 db,
@@ -479,6 +606,77 @@ def test_submit_single_track_media_upload_persists_source_and_reuses_existing_jo
                 media_revision_id=media_revision_id,
                 workflow_id=f"processing/{media_revision_id}",
                 status=ProcessingStatus.WORKFLOW_STARTED,
+                archive_audio=archive_audio,
+            )
+            with pytest.raises(ManualUploadNormalizationPending):
+                await submit_to_mediascribe(
+                    db=db,
+                    settings=client.app.state.settings,
+                    storage=StagingOnlyStorage(client.app_state["storage"]),
+                    mediascribe_client=fake_client,
+                    workflow=workflow,
+                )
+            assert fake_client.submissions == []
+
+            normalization_job = await db.scalar(
+                select(PlaybackNormalizationJob).where(
+                    PlaybackNormalizationJob.media_revision_id == media_revision_id
+                )
+            )
+            assert normalization_job is not None
+            canonical_id = uuid4()
+            canonical_key = f"tests/canonical/{canonical_id}/meeting-review.m4a"
+            client.app_state["storage"].put_bytes(canonical_key, canonical_body)
+            canonical = TrackArtifact(
+                id=canonical_id,
+                meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
+                workspace_id=UUID(finalized["meeting"]["workspace_id"]),
+                track_role="playback",
+                codec="m4a-aac-lc",
+                sample_rate_hz=48_000,
+                channel_count=1,
+                duration_seconds=60,
+                byte_length=len(canonical_body),
+                sha256=sha256(canonical_body).hexdigest(),
+                storage_object_key=canonical_key,
+                status="stored",
+                normalization_profile_version=normalization_job.profile_version,
+                validation_version=normalization_job.validation_version,
+                validated_at=datetime.now(UTC),
+                derivation_kind="single_source_transcode",
+                source_fingerprint_sha256=normalization_job.source_fingerprint_sha256,
+            )
+            db.add(canonical)
+            normalization_job.state = "ready"
+            normalization_job.canonical_track_artifact_id = canonical.id
+            normalization_job.ready_at = datetime.now(UTC)
+            await db.commit()
+            projection = await project_active_playback_storage(
+                db,
+                workspace_id=workflow.workspace_id,
+                capacity_bytes=1_000_000,
+            )
+            visible_audio = await stored_audio_artifacts(
+                db,
+                workspace_id=workflow.workspace_id,
+                meeting_id=meeting_id,
+            )
+            meeting = await db.get(Meeting, meeting_id)
+            assert meeting is not None
+            playback = await review_playback_state(
+                db,
+                meeting=meeting,
+                access=AccessDecision(
+                    state="owner",
+                    label="Owner",
+                    reason=None,
+                    can_view=True,
+                    can_share=True,
+                    can_manage_team_visibility=True,
+                    can_download=True,
+                    can_export=True,
+                ),
             )
             first = await submit_to_mediascribe(
                 db=db,
@@ -502,6 +700,9 @@ def test_submit_single_track_media_upload_persists_source_and_reuses_existing_jo
                 first.job.external_job_id,
                 first.job.source_track_artifact_id is not None,
                 first.job.mic_track_artifact_id is None and first.job.incoming_track_artifact_id is None,
+                projection.used_bytes,
+                len(visible_audio),
+                playback.can_play,
             )
 
     (
@@ -512,15 +713,93 @@ def test_submit_single_track_media_upload_persists_source_and_reuses_existing_jo
         external_job_id,
         has_source,
         no_pair,
+        used_bytes,
+        visible_audio_count,
+        can_play,
     ) = asyncio.run(submit_twice())
     assert request_mode == "single_track"
     assert submission_count == 1
-    assert media_content_type == "audio/wav"
+    assert media_content_type == "audio/mp4"
     assert second_submitted is False
     assert external_job_id == "job_single_submit"
     assert has_source is True
     assert no_pair is True
-    assert fake_client.submissions[0]["request_mode"] == "single_track"
+    assert used_bytes == (len(canonical_body) if archive_audio else 0)
+    assert visible_audio_count == (1 if archive_audio else 0)
+    assert can_play is archive_audio
+    assert fake_client.submissions[0] == {
+        "request_mode": "single_track",
+        "media_size": len(canonical_body),
+        "media_sha256": sha256(canonical_body).hexdigest(),
+        "media_content_type": "audio/mp4",
+        "media_filename": "manual-media.m4a",
+        "diarize": True,
+        "summarize": False,
+        "num_speakers": None,
+        "speaker_count_mode": None,
+        "idempotency_key": fake_client.submissions[0]["idempotency_key"],
+    }
+
+
+def test_failed_pre_egress_job_conflict_terminalizes_transient_workflow(client) -> None:
+    finalized = create_finalized_meeting(
+        client,
+        "stale-pre-egress-lineage",
+        archive_audio=False,
+    )
+    meeting_id = UUID(finalized["meeting"]["meeting_id"])
+    media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
+    workspace_id = UUID(finalized["meeting"]["workspace_id"])
+    fake_client = FakeMediaScribeClient(external_job_id="must_not_submit")
+
+    async def exercise() -> tuple[str, bool, bool, int]:
+        async with client.app_state["sessionmaker"]() as db:
+            workflow = await store.upsert_processing_workflow(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                media_revision_id=media_revision_id,
+                workflow_id=f"processing/{media_revision_id}",
+                status=ProcessingStatus.WORKFLOW_STARTED,
+                archive_audio=False,
+            )
+            microphone = await db.scalar(
+                select(TrackArtifact).where(
+                    TrackArtifact.media_revision_id == media_revision_id,
+                    TrackArtifact.track_role == "microphone",
+                )
+            )
+            assert microphone is not None
+            stale_job = await store.upsert_mediascribe_job(
+                db,
+                workflow=workflow,
+                source_artifact=microphone,
+                request_mode="single_track",
+            )
+            stale_job.status = MediaScribeJobStatus.FAILED.value
+            await db.commit()
+
+            with pytest.raises(
+                ProcessingLifecycleBlocked,
+                match="processing_request_fingerprint_conflict",
+            ):
+                await submit_to_mediascribe(
+                    db=db,
+                    settings=client.app.state.settings,
+                    storage=StagingOnlyStorage(client.app_state["storage"]),
+                    mediascribe_client=fake_client,
+                    workflow=workflow,
+                )
+            await db.refresh(workflow)
+            await db.refresh(stale_job)
+            return (
+                workflow.status,
+                workflow.transient_purge_due_at is not None,
+                stale_job.source_track_artifact_id == microphone.id,
+                len(fake_client.submissions),
+            )
+
+    assert asyncio.run(exercise()) == (ProcessingStatus.BLOCKED.value, True, True, 0)
 
 
 def test_v5_mislabeled_media_is_blocked_before_any_provider_submission(client) -> None:

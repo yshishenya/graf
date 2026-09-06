@@ -58,7 +58,12 @@ from twobrain_rec_server.cabinet.templates import (
 )
 from twobrain_rec_server.deletion.report import BOUNDED_DELETE_COPY
 from twobrain_rec_server.domain.media_filenames import MANUAL_MEDIA_UPLOAD_ACCEPT
-from twobrain_rec_server.outcomes.templates import BUILT_IN_BY_KEY, BUILT_IN_TEMPLATES
+from twobrain_rec_server.outcomes.templates import (
+    BUILT_IN_BY_KEY,
+    BUILT_IN_TEMPLATES,
+    OUTCOME_CATEGORIES,
+    built_in_template_for_version,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -386,33 +391,37 @@ def render_shared_meeting_summary_page(
     duration_seconds: int,
     summary_sections: list[dict[str, object]],
     authenticated: bool = False,
+    embedded: bool = False,
 ) -> str:
     return _page_shell(
         "Итоги встречи",
-        embedded=False,
+        embedded=embedded,
         content_template="cabinet/pages/shared_meeting_summary_content.html",
         meeting_title=meeting_title,
         occurred_at=occurred_at,
         duration_seconds=duration_seconds,
         summary_sections=_localized_shared_summary_sections(summary_sections),
         authenticated=authenticated,
+        meeting_list_href=_base_path(embedded),
     )
+
+
+SUMMARY_SECTION_LABELS = {
+    "summary": "Кратко",
+    "action_items": "Действия",
+    "decisions": "Решения",
+    "key_points": "Ключевые пункты",
+    "followups": "Следующие шаги",
+    "risks": "Риски",
+    "questions": "Вопросы",
+    "evidence": "Подтверждения",
+}
 
 
 def _localized_shared_summary_sections(
     rows: list[dict[str, object]],
 ) -> list[dict[str, object]]:
-    labels = {
-        "summary": "Кратко",
-        "action_items": "Действия",
-        "decisions": "Решения",
-        "key_points": "Ключевые пункты",
-        "followups": "Следующие шаги",
-        "risks": "Риски",
-        "questions": "Вопросы",
-        "evidence": "Подтверждения",
-    }
-    grouped: dict[str, list[dict[str, str]]] = {key: [] for key in labels}
+    grouped: dict[str, list[dict[str, str]]] = {key: [] for key in SUMMARY_SECTION_LABELS}
     for row in rows[:100]:
         category = str(row.get("category") or "")
         text = str(row.get("text") or "").strip()
@@ -427,7 +436,7 @@ def _localized_shared_summary_sections(
         )
     return [
         {"label": label, "items": grouped[category]}
-        for category, label in labels.items()
+        for category, label in SUMMARY_SECTION_LABELS.items()
         if grouped[category]
     ]
 
@@ -747,6 +756,7 @@ def calendar_settings_notice_codes(
     result_map = {
         "success": "connect_success",
         "cancelled": "connect_cancelled",
+        "invalid_credentials": "connect_invalid_credentials",
         "denied": "connect_denied",
         "failed": "connect_failed",
         "no_readable_calendars": "no_readable_calendars",
@@ -804,7 +814,7 @@ def calendar_connection_result_from_problem(code: str | None) -> str:
         "unsupported_calendar_provider": "failed",
         "credential_encryption_key_unavailable": "failed",
         "calendar_credential_key_unavailable": "failed",
-        "invalid_credentials": "denied",
+        "invalid_credentials": "invalid_credentials",
         "tenant_policy_denied": "denied",
         "provider_timeout": "failed",
         "provider_unavailable": "failed",
@@ -924,7 +934,7 @@ def _meeting_list_should_poll(response: MeetingListResponse, *, poll_empty: bool
             continue
         if (
             (item.upload is not None and item.upload.is_active)
-            or presentation_status in {"uploading", "submitted", "processing"}
+            or presentation_status == "uploading"
             or item.playback.state == "preparing"
         ):
             return True
@@ -1015,7 +1025,11 @@ def _render_meeting_detail_content(
             """,
             source="meeting_detail.empty_transcript",
         )
-    outcomes_selected = review.notes_action_truth.summary.state == "available"
+    outcomes_selected = review.notes_action_truth.summary.state == "available" or bool(
+        review.access is not None
+        and review.access.state == "owner"
+        and review.transcript.available
+    )
     content_export_available = review.content_exports is not None and (
         (
             review.transcript.available
@@ -1028,11 +1042,31 @@ def _render_meeting_detail_content(
         )
     )
     meeting_details_available = _meeting_details_available(review) and shared_workspace_id is None
+    summary_lifecycle = _summary_render_lifecycle(review)
+    summary_source_stale = summary_lifecycle["source_state"] == "stale"
+    reprocess_available = bool(
+        shared_workspace_id is None and review.processing.reprocess_available
+    )
+    replacement_attempt = bool(
+        shared_workspace_id is None
+        and review.access is not None
+        and review.access.state == "owner"
+        and review.processing.attempt_ordinal > 1
+        and review.processing.content_available
+    )
+    replacement_active = bool(
+        replacement_attempt
+        and review.processing.state not in {"ready", "failed", "blocked"}
+    )
+    replacement_failed = bool(
+        replacement_attempt and review.processing.state in {"failed", "blocked"}
+    )
     more_actions_available = (
         content_export_available
         or review.governance.download.state == "available"
         or meeting_details_available
         or review.governance.delete.state == "available"
+        or reprocess_available
     )
     current_summary_format_key = review.template.reason or "graf-auto-v1"
     current_summary_format = BUILT_IN_BY_KEY.get(current_summary_format_key)
@@ -1055,6 +1089,7 @@ def _render_meeting_detail_content(
     )
     return render_template(
         "cabinet/pages/meeting_detail_content.html",
+        embedded=embedded,
         base_path=_base_path(embedded),
         meeting_title=review.meeting.title,
         meeting_date=cabinet_view_models.date_label(review.meeting),
@@ -1072,6 +1107,23 @@ def _render_meeting_detail_content(
         ),
         playback_poll_url=poll_url or "",
         playback_poll_active="true" if review.playback.state == "preparing" else "false",
+        processing_state=review.processing.state,
+        processing_workflow_id=review.processing.workflow_id or "",
+        processing_attempt_ordinal=review.processing.attempt_ordinal,
+        reprocess_available=reprocess_available,
+        replacement_attempt=replacement_attempt,
+        replacement_active=replacement_active,
+        replacement_failed=replacement_failed,
+        processing_published_attempt=(
+            review.processing.attempt_ordinal
+            if replacement_attempt and review.processing.state == "ready"
+            else ""
+        ),
+        processing_reason_code=review.processing.reason_code or "",
+        processing_reason_label=_ui_text(review.processing.reason_label or ""),
+        transcript_available=review.transcript.available,
+        transcript_degraded_reason=review.transcript.degraded_reason or "",
+        stored_outcomes_available=review.notes_action_truth.source_basis == "stored_output",
         playback_live_label=review.playback.label,
         top_actions=trusted_component_html(
             _render_meeting_workspace_actions(
@@ -1086,6 +1138,9 @@ def _render_meeting_detail_content(
         meeting_details_available=meeting_details_available,
         more_actions_available=more_actions_available,
         meeting_id=review.meeting.meeting_id,
+        summary_lifecycle=summary_lifecycle,
+        summary_source_stale=summary_source_stale,
+        summary_section_labels=SUMMARY_SECTION_LABELS,
         summary_controls_available=bool(
             review.access is not None
             and review.access.state == "owner"
@@ -1104,8 +1159,8 @@ def _render_meeting_detail_content(
             else review.template.label
         ),
         current_outcome_set_id=(
-            str(review.content_exports.outcome_set_id or "")
-            if review.content_exports is not None
+            str(review.template.outcome_set_id or "")
+            if review.template.outcome_set_id is not None
             else ""
         ),
         current_summary_format_template_id=(str(review.template.template_id or "")),
@@ -1196,6 +1251,72 @@ def _meeting_details_available(review: MeetingReviewResponse) -> bool:
         or review.calendar_context
         or review.deletion_truth_copy
     )
+
+
+def _summary_render_lifecycle(review: MeetingReviewResponse) -> dict[str, str]:
+    """Project independent summary dimensions for the server-rendered detail."""
+    summary = review.notes_action_truth.summary
+    result_state = (
+        "ready"
+        if review.notes_action_truth.source_basis == "stored_output"
+        and summary.state in {"available", "not_found", "not_inferable"}
+        else "absent"
+    )
+    export_summary = review.content_exports.summary if review.content_exports else None
+    summary_reason = export_summary.reason if export_summary is not None else None
+
+    if summary_reason == "stored_summary_revision_stale":
+        source_state = "stale"
+        reason_code = "stored_summary_revision_stale"
+    elif review.processing.state in {"failed", "blocked"} and not review.transcript.available:
+        source_state = "transcript_failed"
+        reason_code = "transcript_failed"
+    elif review.processing.state in {"processing", "submitted", "uploading"}:
+        source_state = "not_ready"
+        reason_code = "transcript_not_ready"
+    elif not review.transcript.available and review.processing.state in {"ready", "partial"}:
+        source_state = "empty"
+        reason_code = "source_empty"
+    else:
+        source_state = "current"
+        reason_code = ""
+
+    generation_state = "idle"
+    if summary.state == "processing":
+        generation_state = "updating" if result_state == "ready" else "preparing"
+    elif summary.state == "blocked":
+        generation_state = "blocked"
+    elif summary.state == "deferred":
+        generation_state = "deferred"
+    elif summary.state == "unsafe":
+        generation_state = "ambiguous"
+    elif summary.state in {"not_found", "not_inferable"}:
+        generation_state = "no_supported_content"
+
+    template_key = review.template.reason or ""
+    if review.template.state != "available":
+        availability_state = "unavailable"
+    elif template_key and template_key not in BUILT_IN_BY_KEY and review.template.template_id is None:
+        availability_state = "retired"
+    else:
+        availability_state = "available"
+    if not reason_code:
+        if availability_state == "retired":
+            reason_code = "summary_type_retired"
+        elif availability_state != "available":
+            reason_code = "summary_type_unavailable"
+        elif generation_state != "idle":
+            reason_code = f"summary_{generation_state}"
+        elif summary.state == "unavailable":
+            reason_code = "summary_unavailable"
+
+    return {
+        "result_state": result_state,
+        "generation_state": generation_state,
+        "source_state": source_state,
+        "availability_state": availability_state,
+        "reason_code": reason_code[:80],
+    }
 
 
 def _render_meeting_workspace_actions(
@@ -1420,6 +1541,7 @@ def _notes_source_label(source_basis: str) -> str:
         "blocked": "заблокировано",
         "not_supported": "не поддерживается",
         "policy_deferral": "отложено политикой",
+        "transcript_only": "только расшифровка",
         "processing_status": "статус обработки",
         "stored_output": "сохраненные итоги",
     }.get(source_basis, _ui_text(source_basis))
@@ -1628,6 +1750,7 @@ def _render_home_upcoming(
         "/desktop/settings/integrations/calendar" if embedded else "/settings/integrations/calendar"
     )
     preview = calendar_surface.preview[:4]
+    upcoming_refresh_at = min((item.ends_at for item in preview), default=None)
     source_states = {source.sync_health_state for source in calendar_surface.sources}
     credential_issue = bool(source_states & {"credential_failed", "failed_closed"})
     provider_issue = bool(source_states & {"provider_unavailable", "rate_limited"})
@@ -1686,7 +1809,7 @@ def _render_home_upcoming(
         )
 
     return f"""
-      <details class="calendar-home-upcoming" open>
+      <details class="calendar-home-upcoming" open{f' data-calendar-upcoming-refresh-at="{escape(upcoming_refresh_at.isoformat())}"' if upcoming_refresh_at is not None else ''}>
         <summary>
           <span>Ближайшие встречи</span>
           <small>{escape(state_copy)}</small>
@@ -2043,7 +2166,7 @@ def _render_playback(
         speed_options = ",".join(f"{speed:g}" for speed in review.playback.speed_options)
         speaker_palette = _speaker_palette(review)
         return f"""
-          <section class="playback-bar detail-playback" data-playback-shell data-playback-state="available" data-playback-reason="{escape(review.playback.reason_code)}" data-source-mode="{escape(review.playback.source_mode)}" aria-describedby="playback-live-status">
+          <section class="playback-bar detail-playback" data-playback-shell data-playback-state="available" data-playback-reason="{escape(review.playback.reason_code)}" data-source-mode="{escape(review.playback.source_mode)}" aria-label="Воспроизведение записи" aria-describedby="playback-live-status">
             <audio class="playback-audio" data-playback-player preload="metadata" src="{escape(playback_path)}"></audio>
             <div class="playback-toolbar">
               {_render_speaker_manager(review, embedded=embedded, csrf_token=csrf_token, speaker_palette=speaker_palette)}
@@ -2075,7 +2198,7 @@ def _render_playback(
     if review.playback.state != "unavailable":
         state_classes += f" is-{escape(review.playback.state)}"
     return f"""
-      <section class="playback-bar detail-playback {state_classes}" data-playback-state="{escape(review.playback.state)}" data-playback-reason="{escape(review.playback.reason_code)}" data-source-mode="{escape(review.playback.source_mode)}" aria-describedby="playback-live-status"{focus_attribute}>
+      <section class="playback-bar detail-playback {state_classes}" data-playback-state="{escape(review.playback.state)}" data-playback-reason="{escape(review.playback.reason_code)}" data-source-mode="{escape(review.playback.source_mode)}" aria-label="Воспроизведение записи" aria-describedby="playback-live-status"{focus_attribute}>
         <span>{escape(review.playback.label)}</span>
         <span>{cabinet_view_models.format_duration(review.playback.duration_seconds)}</span>
       </section>
@@ -2262,18 +2385,28 @@ def _render_revision_status(review: MeetingReviewResponse) -> str:
 
 
 def _render_notes_outcomes(review: MeetingReviewResponse) -> str:
-    primary = [
-        ("summary", "Summary", review.notes_action_truth.summary),
-        ("action_items", "Action Items", review.notes_action_truth.action_items),
-        ("decisions", "Decisions", review.notes_action_truth.decisions),
-    ]
-    secondary = [
-        ("key_points", "Key points", review.notes_action_truth.key_points),
-        ("followups", "Follow-ups", review.notes_action_truth.followups),
-        ("risks", "Risks", review.notes_action_truth.risks),
-        ("questions", "Questions", review.notes_action_truth.questions),
-        ("evidence", "Evidence", review.notes_action_truth.evidence),
-    ]
+    rows = {
+        "summary": ("summary", "Summary", review.notes_action_truth.summary),
+        "key_points": ("key_points", "Key points", review.notes_action_truth.key_points),
+        "decisions": ("decisions", "Decisions", review.notes_action_truth.decisions),
+        "action_items": (
+            "action_items",
+            "Action Items",
+            review.notes_action_truth.action_items,
+        ),
+        "followups": ("followups", "Follow-ups", review.notes_action_truth.followups),
+        "risks": ("risks", "Risks", review.notes_action_truth.risks),
+        "questions": ("questions", "Questions", review.notes_action_truth.questions),
+        "evidence": ("evidence", "Evidence", review.notes_action_truth.evidence),
+    }
+    definition = built_in_template_for_version(
+        review.template.reason,
+        review.template.template_version or 1,
+    )
+    # Personal and historical unknown templates use the stable canonical order.
+    section_order = definition.sections if definition is not None else OUTCOME_CATEGORIES
+    ordered = [rows[category] for category in section_order]
+    primary, secondary = ordered[:4], ordered[4:]
     aggregate_states = {"processing", "blocked", "unavailable", "deferred", "unsafe"}
     aggregate_candidates = [
         state for _, _, state in primary + secondary if state.state in aggregate_states
@@ -2284,8 +2417,27 @@ def _render_notes_outcomes(review: MeetingReviewResponse) -> str:
         key=lambda state: priority.get(state.state, len(priority)),
         default=None,
     )
-    primary = [row for row in primary if row[2].state not in aggregate_states]
-    secondary = [row for row in secondary if row[2].state not in aggregate_states]
+    fully_empty = aggregate is None and all(
+        state.state in {"not_found", "not_inferable"} and not any(
+            item.text for item in state.items
+        )
+        for _, _, state in primary + secondary
+    )
+    if fully_empty:
+        primary = []
+        secondary = []
+    else:
+        hidden_empty_states = aggregate_states | {"not_found", "not_inferable"}
+        primary = [
+            row
+            for row in primary
+            if row[2].state not in hidden_empty_states or bool(row[2].items)
+        ]
+        secondary = [
+            row
+            for row in secondary
+            if row[2].state not in hidden_empty_states or bool(row[2].items)
+        ]
     source_destination_available = review.transcript.available and (
         review.playback.can_play
         or bool(review.transcript.speaker_turns or review.transcript.segments)
@@ -2318,12 +2470,23 @@ def _render_notes_outcomes(review: MeetingReviewResponse) -> str:
     if secondary_count:
         secondary_label += f" ({secondary_count})"
     aggregate_html = ""
-    if aggregate is not None:
+    if fully_empty:
+        aggregate_html = (
+            '<div class="notes-aggregate-state" data-outcome-state="empty" role="status">'
+            "<strong>Полезных итогов не найдено</strong>"
+            "<p>В разговоре нет достаточно подтверждённых решений, действий "
+            "или других результатов для выбранного формата.</p>"
+            "</div>"
+        )
+    elif aggregate is not None:
         reason = _ui_text(aggregate.reason)
+        label = "Итоги готовятся" if aggregate.state == "processing" else _ui_text(
+            aggregate.label
+        )
         aggregate_html = (
             f'<div class="notes-aggregate-state" data-outcome-state="{escape(aggregate.state)}" '
             'role="status">'
-            f"<strong>{escape(_ui_text(aggregate.label))}</strong>"
+            f"<strong>{escape(label)}</strong>"
             + (f"<p>{escape(reason)}</p>" if reason else "")
             + "</div>"
         )

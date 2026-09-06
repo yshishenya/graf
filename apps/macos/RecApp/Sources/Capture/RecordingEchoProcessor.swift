@@ -42,16 +42,19 @@ public final class RecordingEchoProcessor: @unchecked Sendable {
     public func process(render: [Float], capture: [Float]) throws -> [Float] {
         guard render.count == Self.frameSamples,
               capture.count == Self.frameSamples,
-              render.allSatisfy({ $0.isFinite && (-1...1).contains($0) }),
-              capture.allSatisfy({ $0.isFinite && (-1...1).contains($0) })
+              render.allSatisfy(\.isFinite),
+              capture.allSatisfy(\.isFinite)
         else {
+            terminalError = .invalidFrame
             throw RecordingEchoProcessorError.invalidFrame
         }
         guard let processor else { throw RecordingEchoProcessorError.closed }
+        let boundedRender = render.map { min(1, max(-1, $0)) }
+        let boundedCapture = capture.map { min(1, max(-1, $0)) }
 
         var output = [Float](repeating: 0, count: Self.frameSamples)
-        let status = render.withUnsafeBufferPointer { renderBuffer in
-            capture.withUnsafeBufferPointer { captureBuffer in
+        let status = boundedRender.withUnsafeBufferPointer { renderBuffer in
+            boundedCapture.withUnsafeBufferPointer { captureBuffer in
                 output.withUnsafeMutableBufferPointer { outputBuffer in
                     graf_aec3_process(
                         processor,

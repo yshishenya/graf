@@ -5,9 +5,8 @@ from html.parser import HTMLParser
 import pytest
 from fastapi.testclient import TestClient
 
-from twobrain_rec_server.billing.launch_gates import MANDATORY_BILLING_LAUNCH_GATES, shop_id_hash
 from twobrain_rec_server.config import Settings
-from twobrain_rec_server.db.models import BillingLaunchGate, BillingPlanVersion
+from twobrain_rec_server.db.models import BillingPlanVersion
 from twobrain_rec_server.main import create_app
 from twobrain_rec_server.public.offers import (
     PUBLIC_APPROVED_OFFER_VERSION,
@@ -18,11 +17,11 @@ from twobrain_rec_server.public.templates import render_template
 
 
 class _OfferDb:
-    def __init__(self, catalog_rows, gate_rows):
-        self._results = iter((catalog_rows, gate_rows))
+    def __init__(self, catalog_rows):
+        self._catalog_rows = catalog_rows
 
     async def scalars(self, _query):
-        return next(self._results)
+        return self._catalog_rows
 
 
 class _UnavailableOfferDb:
@@ -67,54 +66,17 @@ def _public_catalog_rows(*, annual_amount_minor: int = 1_000_000):
     ]
 
 
-def _public_gate_rows(now: datetime, sha: str):
-    return [
-        BillingLaunchGate(
-            environment="production",
-            shop_id_hash=shop_id_hash("shop-1"),
-            deployment_sha=sha,
-            gate_key=key,
-            version=1,
-            status="approved",
-            evidence_ref=f"evidence:{key}",
-            owner_role=key,
-            approver_ref=f"approver:{key}",
-            executor_ref="release:operator",
-            values_json={
-                "provider_correction": {
-                    "threshold_minor": 0,
-                    "approver_role": "finance",
-                    "executor_role": "billing_operator",
-                },
-                "off_provider_correction": {
-                    "threshold_minor": 0,
-                    "approver_role": "finance",
-                    "executor_role": "billing_operator",
-                },
-            },
-            approved_at=now - timedelta(minutes=1),
-            valid_until=now + timedelta(days=1),
-        )
-        for key in MANDATORY_BILLING_LAUNCH_GATES
-    ]
-
-
 @pytest.mark.anyio
-async def test_public_offer_uses_exact_catalog_and_launch_gates() -> None:
-    now = datetime(2026, 8, 21, tzinfo=UTC)
-    sha = "a" * 40
+async def test_public_offer_uses_exact_catalog_and_runtime_safety_flags() -> None:
     settings = Settings.model_construct(
         billing_checkout_enabled=True,
         billing_emergency_stop=False,
-        billing_yookassa_environment="production",
         billing_yookassa_shop_id="shop-1",
-        langfuse_release=sha,
     )
 
     offer = await build_public_offer_view(
-        _OfferDb(_public_catalog_rows(), _public_gate_rows(now, sha)),
+        _OfferDb(_public_catalog_rows()),
         settings,
-        now=now,
     )
 
     assert offer.sale_ready is True
@@ -128,7 +90,7 @@ async def test_public_offer_uses_exact_catalog_and_launch_gates() -> None:
 async def test_public_offer_fails_closed_for_wrong_price() -> None:
     settings = Settings.model_construct(billing_checkout_enabled=True)
     offer = await build_public_offer_view(
-        _OfferDb(_public_catalog_rows(annual_amount_minor=999_000), []),
+        _OfferDb(_public_catalog_rows(annual_amount_minor=999_000)),
         settings,
         now=datetime(2026, 8, 21, tzinfo=UTC),
     )
@@ -174,7 +136,7 @@ async def test_public_offer_uses_latest_effective_catalog_version() -> None:
     ]
 
     offer = await build_public_offer_view(
-        _OfferDb(rows, []),
+        _OfferDb(rows),
         Settings.model_construct(billing_checkout_enabled=False),
         now=now,
     )
@@ -191,7 +153,7 @@ async def test_public_offer_fails_closed_for_unapproved_offer_revision() -> None
         row.policy_snapshot = {"offer_version": "personal-legacy"}
 
     offer = await build_public_offer_view(
-        _OfferDb(rows, []),
+        _OfferDb(rows),
         Settings.model_construct(billing_checkout_enabled=False),
         now=datetime(2026, 8, 21, tzinfo=UTC),
     )

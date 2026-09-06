@@ -12,6 +12,7 @@ from twobrain_rec_server.cabinet.deletion_rendering import (
     render_deletion_report_fragment,
     render_deletion_report_page,
 )
+from twobrain_rec_server.cabinet.queries import get_account_profile_view
 from twobrain_rec_server.cabinet.rendering import _base_path
 from twobrain_rec_server.cabinet.templates import (
     cabinet_html_response,
@@ -69,6 +70,7 @@ async def meeting_deletion_report_page(
         render_deletion_report_page(
             meeting_title,
             report,
+            profile=await get_account_profile_view(db, tenant_scope),
             csrf_token=_csrf_token_for_principal(request, principal),
             product_analytics_provider=build_request_browser_provider_context(
                 request,

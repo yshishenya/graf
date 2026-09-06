@@ -1,3 +1,4 @@
+import json
 import re
 import subprocess
 from pathlib import Path
@@ -74,15 +75,96 @@ def test_cabinet_js_wires_csrf_header_for_unsafe_htmx_requests() -> None:
     assert "DELETE" in script
 
 
+def test_owner_reprocess_action_uses_confirmed_predecessor_and_revision_contract() -> None:
+    templates = ROOT / "src/twobrain_rec_server/cabinet/templates/cabinet"
+    governance = (templates / "fragments/meeting_governance.html").read_text()
+    detail = (templates / "pages/meeting_detail_content.html").read_text()
+    script = (STATIC_DIR / "cabinet.js").read_text()
+
+    action = governance.index("data-processing-reprocess-open")
+    deletion = governance.index("{{ delete_action }}")
+    assert action < deletion
+    assert "{% if reprocess_available %}" in governance
+    assert "Повторно обработать запись" in governance
+    assert 'aria-controls="processing-reprocess-dialog"' in governance
+    assert "Подготовить новую версию?" in governance
+    assert (
+        "Имена спикеров, заданные вручную, будут сброшены после успешной обработки."
+        in governance
+    )
+    assert "GRAF заново подготовит расшифровку, спикеров и итоги." not in governance
+    assert "Текущая версия останется доступной" not in governance
+    assert "Исходная запись не изменится." not in governance
+    assert "\n          Подготовить\n" in governance
+    assert "data-processing-reprocess-reason" not in governance
+
+    assert "data-processing-reprocess-url=" in detail
+    assert "data-processing-workflow-id=" in detail
+    assert "data-processing-reprocess-available=" in detail
+    assert "/processing/reprocess" in detail
+
+    request = script[
+        script.index("const runProcessingReprocess") :
+        script.index("const initProcessingReprocess")
+    ]
+    assert 'method: "POST"' in request
+    assert '"Content-Type": "application/json"' in request
+    assert "expected_workflow_id: detail.dataset.processingWorkflowId" in request
+    assert "expected_media_revision_id: detail.dataset.mediaRevisionId" in request
+    assert 'submit.textContent = busy ? "Готовим…" : "Подготовить"' in script
+    assert "processingRecoveryActionRequest !== null" in request
+    assert "reason" not in request
+
+
+def test_replacement_status_uses_one_neutral_state_until_terminal_outcome() -> None:
+    templates = ROOT / "src/twobrain_rec_server/cabinet/templates/cabinet"
+    detail = (templates / "pages/meeting_detail_content.html").read_text()
+    script = (STATIC_DIR / "cabinet.js").read_text()
+
+    assert "data-processing-replacement-active=" in detail
+    assert "data-processing-published-attempt=" in detail
+    assert "data-processing-reprocess-continuity" not in detail
+    assert 'data-processing-countdown aria-live="off"' in detail
+    assert "data-processing-reprocess-open" in detail
+    assert "По предыдущей версии расшифровки" in detail
+    assert "refreshReplacement" in script
+    assert "processingPublishedAttempt" in script
+
+    status_copy = script[
+        script.index("const processingTerminalReasonCopy") :
+        script.index("const renderProcessingCountdown")
+    ]
+    for copy in (
+        "Готовим новую версию",
+        "Не удалось подготовить новую версию",
+        "Текущая версия не изменилась.",
+        "Попробовать снова",
+    ):
+        assert copy in status_copy
+    replacement_copy = status_copy[
+        status_copy.index("const replacementAttemptOrdinal") :
+        status_copy.index('if (projection?.manual_action === "retry_preparation")')
+    ]
+    for forbidden in (
+        "Временная ошибка",
+        "Ждём актуальный статус",
+        "Повторить сейчас",
+        "Проверить статус",
+        "Текущая версия остаётся доступной",
+    ):
+        assert forbidden not in replacement_copy
+    assert 'reprocessLabel: "Попробовать снова"' in status_copy
+    assert "schedule_generation: Number.parseInt(detail.dataset.processingScheduleGeneration" in script
+    assert "processingRecoveryCountdownTimer = window.setInterval(update, 1000)" in script
+
+
 def test_tooltip_does_not_enter_layout_flow() -> None:
     css = (STATIC_DIR / "cabinet.css").read_text()
-    tooltip_body = css[css.index(".cabinet-tooltip__body {"): css.index(".cabinet-tooltip:hover")]
+    tooltip_body = css.split(".cabinet-tooltip__body {", 1)[1].split("}", 1)[0]
 
-    assert "position: absolute;" in tooltip_body
-    assert "inset-inline-start: calc(100% + var(--tooltip-offset));" in tooltip_body
-    assert "inset-block-start: 50%;" in tooltip_body
-    assert "transform: translateY(calc(-50% - 2px));" in tooltip_body
-    assert "max-width: min(var(--tooltip-max-width), 80vw);" in tooltip_body
+    assert "position: fixed;" in tooltip_body
+    assert "max-width: min(var(--tooltip-max-width), calc(var(--tooltip-viewport-width, 100vw) - 16px));" in tooltip_body
+    assert "max-height: calc(var(--tooltip-viewport-height, 100vh) - 16px);" in tooltip_body
     assert ".manual-upload-dialog .cabinet-tooltip__body" not in css
     assert "display: contents" not in tooltip_body
     assert "flex: 1 0 100%" not in tooltip_body
@@ -91,13 +173,12 @@ def test_tooltip_does_not_enter_layout_flow() -> None:
 
 def test_all_tooltips_use_one_shared_configuration() -> None:
     css = (STATIC_DIR / "cabinet.css").read_text()
-    tokens = css[css.index(":root {"): css.index("}", css.index(":root {"))]
-    tooltip = css[css.index(".cabinet-tooltip {"): css.index(".cabinet-loader {")]
+    tokens = css[css.index(":root {") : css.index("}", css.index(":root {"))]
+    tooltip = css.split(".cabinet-tooltip {", 1)[1].split(".cabinet-badge", 1)[0]
 
     for token in [
         "--tooltip-trigger-size: 24px;",
         "--tooltip-icon-size: 14px;",
-        "--tooltip-offset: 6px;",
         "--tooltip-max-width: 280px;",
         "--tooltip-padding: 8px 10px;",
         "--tooltip-radius: 10px;",
@@ -107,15 +188,76 @@ def test_all_tooltips_use_one_shared_configuration() -> None:
     for use in [
         "var(--tooltip-trigger-size)",
         "var(--tooltip-icon-size)",
-        "var(--tooltip-offset)",
         "var(--tooltip-max-width)",
         "var(--tooltip-padding)",
         "var(--tooltip-radius)",
         "var(--tooltip-layer)",
     ]:
         assert use in tooltip
-    assert ".settings-control-row__title .cabinet-tooltip__body {\n    inset-inline-start: 50%;\n    transform: translate(-50%, calc(-50% - 2px));" in tooltip
-    assert ".settings-control-row__title .cabinet-tooltip:focus-within .cabinet-tooltip__body {\n    transform: translate(-50%, -50%);" in tooltip
+    assert ".settings-control-row__title .cabinet-tooltip__body" not in css
+
+
+def test_overlay_positioning_and_accepted_summary_focus_execute() -> None:
+    harness = r"""
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const source = fs.readFileSync(process.argv[1], 'utf8');
+global.window = { innerWidth: 375, innerHeight: 400, requestAnimationFrame: fn => fn() };
+vm.runInThisContext(source.slice(source.indexOf('  const positionCabinetTooltip ='), source.indexOf('  const initCabinetTooltips =')));
+for (const width of [375, 550, 768, 1200]) {
+  window.innerWidth = width;
+  const properties = {};
+  const body = {
+    closest: () => ({querySelector: () => ({getBoundingClientRect: () => ({left: width - 20, top: 370, bottom: 394})})}),
+    getBoundingClientRect: () => ({width: 280, height: 150}),
+    style: {setProperty: (key, value) => properties[key] = value},
+  };
+  positionCabinetTooltip(body);
+  assert.ok(parseFloat(properties['--tooltip-left']) >= 8);
+  assert.ok(parseFloat(properties['--tooltip-left']) + 280 <= width - 8);
+  assert.ok(parseFloat(properties['--tooltip-top']) >= 8);
+  assert.ok(parseFloat(properties['--tooltip-top']) + 150 <= window.innerHeight - 8);
+}
+global.HTMLElement = class {};
+const classes = new Set();
+const submenu = new HTMLElement();
+submenu.getBoundingClientRect = () => classes.has('is-flipped')
+  ? {left: -309, right: 0, top: 50, bottom: 250}
+  : {left: 264, right: 584, top: 50, bottom: 250};
+const details = {open: true, isConnected: true, querySelector: () => submenu,
+  classList: {remove: (...names) => names.forEach(name => classes.delete(name)),
+    toggle: (name, on) => on ? classes.add(name) : classes.delete(name)}};
+vm.runInThisContext(source.slice(source.indexOf('      const syncDisclosurePosition ='), source.indexOf('      disclosures.forEach((details) =>')));
+window.innerWidth = 550;
+syncDisclosurePosition(details);
+assert.ok(classes.has('is-inline'), 'neither side fits at 550px');
+window.innerWidth = 1200;
+syncDisclosurePosition(details);
+assert.ok(!classes.has('is-inline') && !classes.has('is-flipped'), 'resize restores a fitting side');
+window.innerHeight = 200;
+syncDisclosurePosition(details);
+assert.ok(classes.has('is-inline'), 'short window uses scrollable inline layout');
+details.open = false;
+syncDisclosurePosition(details);
+assert.equal(classes.size, 0);
+const calls = [];
+global.acceptedFocusKey = 'synthetic';
+window.sessionStorage = {getItem: () => 'current', removeItem: () => calls.push('consume')};
+global.activateDetailTab = name => calls.push(name);
+global.document = {querySelector: selector => {
+  assert.equal(selector, '[data-summary-current-result]');
+  return {focus: () => calls.push('focus')};
+}};
+const focusStart = source.indexOf('      if (window.sessionStorage.getItem(acceptedFocusKey)');
+vm.runInThisContext(source.slice(focusStart, source.indexOf('\n    });\n  };', focusStart)));
+assert.deepEqual(calls, ['consume', 'outcomes', 'focus']);
+"""
+    completed = subprocess.run(
+        ["node", "-e", harness, str(STATIC_DIR / "cabinet.js")],
+        capture_output=True, text=True, check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
 
 
 def test_cabinet_js_keeps_fragment_state_ephemeral() -> None:
@@ -124,15 +266,168 @@ def test_cabinet_js_keeps_fragment_state_ephemeral() -> None:
     assert "htmx:afterSwap" in script
     assert "meeting-list-region" in script
     assert "localStorage" not in script
-    assert script.count("sessionStorage") == 13
+    assert script.count("sessionStorage") == 16
     assert script.count('sessionStorage.removeItem("htmx-history-cache")') == 1
     assert script.count('sessionStorage.removeItem("htmx-current-path-for-history")') == 2
     assert "graf-summary-candidate-" in script
     assert "sessionStorage.setItem(candidateStorageKey, JSON.stringify({" in script
     assert 'sessionStorage.getItem("graf-cabinet-rail")' in script
-    assert 'sessionStorage.setItem("graf-cabinet-rail", pinned ? "expanded" : "collapsed")' in script
+    assert (
+        'sessionStorage.setItem("graf-cabinet-rail", pinned ? "expanded" : "collapsed")' in script
+    )
     assert "poll_url: candidate.poll_url" in script
     assert "template: activeTemplate" in script
+
+
+def test_processing_recovery_poll_is_not_dropped_while_window_is_hidden() -> None:
+    script = (STATIC_DIR / "cabinet.js").read_text()
+    recovery_polling = script[
+        script.index("const scheduleProcessingRecoveryPolling") :
+        script.index("const processingProjectionFromActionPayload")
+    ]
+
+    assert "if (!document.hidden)" not in recovery_polling
+    assert "const delay = document.hidden || remaining === null" in recovery_polling
+
+
+def test_processing_status_poll_recovers_after_transient_failure_while_hidden() -> None:
+    script_path = STATIC_DIR / "cabinet.js"
+    harness = r"""
+const fs = require("fs");
+const vm = require("vm");
+const script = fs.readFileSync(process.argv[1], "utf8");
+const source = script.slice(
+  script.indexOf("const refreshProcessingStatus"),
+  script.indexOf("const processingProjectionFromActionPayload"),
+);
+const detail = {
+  dataset: {
+    processingStatusUrl: "/api/v1/meetings/meeting-a/processing",
+    processingReplacementActive: "true",
+  },
+  isConnected: true,
+};
+const recovery = { closest: () => detail };
+const timers = [];
+const responses = [
+  { ok: false, status: 503 },
+  { ok: true, status: 200, json: async () => ({ meeting_id: "meeting-a", state: "failed_terminal", retry_class: "terminal" }) },
+  { ok: false, status: 503 },
+];
+let failures = 0;
+let rendered = 0;
+global.document = {
+  hidden: true,
+  querySelector: (selector) => selector === "[data-processing-recovery]" ? recovery : null,
+};
+global.window = {
+  setTimeout(callback, delay) { timers.push({ callback, delay }); return timers.length; },
+};
+global.fetch = async () => responses.shift();
+vm.runInThisContext(`
+  let processingRecoveryGeneration = 0;
+  let processingRecoveryActionRequest = null;
+  let processingRecoveryRequest = null;
+  let processingRecoveryStatusController = null;
+  let processingRecoveryPollTimer = null;
+  const stopProcessingRecoveryPolling = () => {};
+  const abortProcessingRecoveryStatusRequest = () => {};
+  const recoverMeetingDetailFromResponse = async () => false;
+  const processingProjectionMatchesDetail = () => true;
+  const renderProcessingProjection = (_detail, projection) => {
+    rendered += 1;
+    detail.dataset.processingTerminal = projection.retry_class === "terminal" ? "true" : "false";
+    return true;
+  };
+  const renderProcessingRecoveryFailure = () => { failures += 1; };
+  ${source}
+  global.refreshProcessingStatus = refreshProcessingStatus;
+`);
+(async () => {
+  await global.refreshProcessingStatus();
+  if (failures !== 0 || timers.length !== 1 || timers[0].delay !== 15000) {
+    throw new Error("replacement status failure escaped the neutral state");
+  }
+  timers.shift().callback();
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+  if (rendered !== 1 || responses.length !== 1) {
+    throw new Error("hidden retry did not render the later terminal projection");
+  }
+  await global.refreshProcessingStatus({ force: true });
+  if (failures !== 0 || timers.length !== 0 || responses.length !== 0) {
+    throw new Error("terminal projection restarted polling after a transient refresh failure");
+  }
+})().catch((error) => {
+  process.stderr.write(`${error.stack || error}\n`);
+  process.exitCode = 1;
+});
+"""
+    completed = subprocess.run(
+        ["node", "-e", harness, str(script_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_processing_status_failure_preserves_ready_transcript_and_export() -> None:
+    script_path = STATIC_DIR / "cabinet.js"
+    harness = r"""
+const fs = require("fs");
+const vm = require("vm");
+const script = fs.readFileSync(process.argv[1], "utf8");
+const source = script.slice(
+  script.indexOf("const renderProcessingRecoveryFailure"),
+  script.indexOf("const abortProcessingRecoveryStatusRequest"),
+);
+const transcript = { hidden: false, setAttribute(_name, value) { this.ariaHidden = value; } };
+const pending = { hidden: true };
+const recovery = {
+  hidden: true,
+  dataset: {},
+  setAttribute() {},
+  querySelector(selector) {
+    if (selector === "[data-processing-recovery-title]") return { textContent: "" };
+    if (selector === "[data-processing-recovery-copy]") return { textContent: "" };
+    if (selector === "[data-processing-check]") return null;
+    if (selector === "[data-processing-new-attempt]") return null;
+    if (selector === "[data-processing-upload-another]") return null;
+    if (selector === "[data-processing-refresh]") return null;
+    return null;
+  },
+};
+const detail = {
+  dataset: { processingTranscriptVisible: "true" },
+  querySelector(selector) {
+    if (selector === "[data-processing-recovery]") return recovery;
+    if (selector === "[data-playback-transcript]") return transcript;
+    if (selector === "[data-transcript-pending]") return pending;
+    return null;
+  },
+};
+const resetProcessingRecoveryCountdown = () => {};
+const stopProcessingRecoveryPolling = () => {};
+let exported = null;
+let announcement = "";
+const updateProcessingExportVisibility = (value) => { exported = value; };
+const announceProcessingChange = (_detail, value) => { announcement = value; };
+vm.runInThisContext(`${source}; global.renderProcessingRecoveryFailure = renderProcessingRecoveryFailure;`);
+global.renderProcessingRecoveryFailure(detail);
+if (transcript.hidden || transcript.ariaHidden !== "false" || pending.hidden !== true || exported !== true) {
+  throw new Error("transient status failure hid ready content");
+}
+if (announcement.includes("null")) throw new Error("recovery announcement contains null");
+"""
+    completed = subprocess.run(
+        ["node", "-e", harness, str(script_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
 
 
 def test_processing_list_projection_fences_identity_and_stale_requests() -> None:
@@ -142,7 +437,7 @@ const fs = require("fs");
 const vm = require("vm");
 const script = fs.readFileSync(process.argv[1], "utf8");
 const source = script.slice(
-  script.indexOf("const processingListStatusNode"),
+      script.indexOf("const renderProcessingListProjection"),
   script.indexOf("const initSummaryFormats"),
 );
 class FakeElement {
@@ -163,7 +458,9 @@ const rows = [];
 const deferred = [];
 const makeRow = (meetingId) => {
   const row = new FakeElement("row", meetingId);
-  row.nodes.set("[data-processing-list-status]", new FakeElement("status"));
+  const status = new FakeElement("status");
+  row.nodes.set("[data-processing-list-status]", status);
+  row.nodes.set(".meeting-content-readiness", status);
   rows.push(row);
   return row;
 };
@@ -237,6 +534,927 @@ global.list = list;
     assert completed.returncode == 0, completed.stderr
 
 
+def test_processing_list_projection_only_polls_active_rows_and_refreshes_terminal_once() -> None:
+    script_path = STATIC_DIR / "cabinet.js"
+    harness = r"""
+const fs = require("fs");
+const vm = require("vm");
+const script = fs.readFileSync(process.argv[1], "utf8");
+const source = script.slice(
+      script.indexOf("const renderProcessingListProjection"),
+  script.indexOf("const initSummaryFormats"),
+);
+let now = 100000;
+const fetches = [];
+const timers = [];
+let refreshes = 0;
+class FakeElement {
+  constructor(kind, meetingId = "", statusKind = "") {
+    this.kind = kind;
+    this.dataset = meetingId ? { meetingId } : statusKind ? { statusKind } : {};
+    this.isConnected = true;
+    this.textContent = "";
+    this.nodes = new Map();
+    this.classList = { add() {}, remove() {}, toggle() {} };
+  }
+  append(node) { this.nodes.set("[data-processing-list-status]", node); }
+  contains(target) { return this.kind === "list" ? rows.includes(target) : false; }
+  querySelector(selector) { return this.nodes.get(selector) || null; }
+}
+const list = new FakeElement("list");
+const announcer = new FakeElement("announcer");
+const rows = [];
+const makeRow = (meetingId, statusKind, withReadiness) => {
+  const row = new FakeElement("row", meetingId);
+  const status = new FakeElement("status", "", statusKind);
+  row.nodes.set(".meeting-status[data-status-kind]", status);
+  row.nodes.set(".meeting-content", new FakeElement("content"));
+  if (withReadiness) {
+    const readiness = new FakeElement("readiness");
+    readiness.textContent = "Спикеры определяются · расшифровка готовится";
+    row.nodes.set(".meeting-content-readiness", readiness);
+    row.nodes.set("[data-processing-list-status]", readiness);
+  }
+  rows.push(row);
+  return row;
+};
+const failedAbove = makeRow("failed-above", "failed", false);
+const processing = makeRow("processing", "processing", true);
+const failedBelow = makeRow("failed-below", "failed", false);
+const projections = [
+  { meeting_id: "processing", state: "polling", retry_class: "retryable" },
+  { meeting_id: "processing", state: "processed", retry_class: "none" },
+];
+global.document = {
+  activeElement: null,
+  querySelector(selector) {
+    if (selector === "[data-meeting-list]") return list;
+    if (selector === "[data-processing-list-announcer]") return announcer;
+    return null;
+  },
+  createElement() { return new FakeElement("created"); },
+};
+global.window = {
+  clearTimeout() {},
+  setTimeout(callback, delay) { timers.push({ callback, delay }); return timers.length; },
+};
+global.fetch = (url) => {
+  fetches.push(url);
+  const projection = projections.shift();
+  return Promise.resolve({ ok: true, json: async () => projection });
+};
+Date.now = () => now;
+vm.runInThisContext(`
+  let meetingListRequestGeneration = 0;
+  let processingListProjectionPollTimer = null;
+  const currentList = () => global.list;
+  const allRows = () => global.rows;
+  const processingListProjectionRequests = new Map();
+  const processingListProjectionLastFetchedAt = new Map();
+  const processingListProjectionStates = new Map();
+  const processingTranscriptReady = () => false;
+  const processingSummaryState = () => "processing";
+  const processingSummaryPending = () => true;
+  const requestMeetingListRefresh = () => { refreshes += 1; return true; };
+  ${source}
+  global.initProcessingListProjection = initProcessingListProjection;
+`);
+global.list = list;
+global.rows = rows;
+(async () => {
+  global.initProcessingListProjection();
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+  if (fetches.length !== 1 || !fetches[0].endsWith("/processing/processing")) {
+    throw new Error(`projection fetched non-active rows: ${fetches.join(",")}`);
+  }
+  if (timers.length !== 1 || timers[0].delay !== 15000) {
+    throw new Error("active processing projection did not schedule one 15-second tick");
+  }
+  if (failedAbove.nodes.has("[data-processing-list-status]") || failedBelow.nodes.has("[data-processing-list-status]")) {
+    throw new Error("failed neighbor received a processing status node");
+  }
+  processing.isConnected = false;
+  const replacement = makeRow("processing", "processing", true);
+  rows.splice(rows.indexOf(processing), 1);
+  global.initProcessingListProjection();
+  if (replacement.querySelector(".meeting-content-readiness").textContent !== "Обработка временно приостановлена") {
+    throw new Error("progress swap reset the last processing projection");
+  }
+  if (fetches.length !== 1) throw new Error("projection snapshot bypassed the 15-second throttle");
+  now += 15000;
+  timers.shift().callback();
+  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
+  if (fetches.length !== 2) throw new Error("second active projection tick did not run");
+  if (refreshes !== 1) throw new Error(`terminal transition requested ${refreshes} refreshes`);
+  if (failedAbove.nodes.has("[data-processing-list-status]") || failedBelow.nodes.has("[data-processing-list-status]")) {
+    throw new Error("terminal transition changed a failed neighbor");
+  }
+})().catch((error) => {
+  process.stderr.write(`${error.stack || error}\n`);
+  process.exitCode = 1;
+});
+"""
+    completed = subprocess.run(
+        ["node", "-e", harness, str(script_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_processing_detail_polling_stops_in_manual_pause_without_a_timer() -> None:
+    script_path = STATIC_DIR / "cabinet.js"
+    harness = r"""
+const fs = require("fs");
+const vm = require("vm");
+const script = fs.readFileSync(process.argv[1], "utf8");
+const source = script.slice(
+  script.indexOf("const scheduleProcessingRecoveryPolling"),
+  script.indexOf("const renderProcessingProjection"),
+);
+const scheduled = [];
+let processingRecoveryPollTimer = null;
+const processingRecoveryActionRequest = null;
+const stopProcessingRecoveryPolling = () => { processingRecoveryPollTimer = null; };
+const processingTerminalFailure = () => false;
+const processingSummaryState = (projection) => projection.summary_status;
+const processingSummaryPending = (state) => state === "processing";
+const processingServerSecondsRemaining = (projection) => projection.remaining ?? null;
+const processingServerClockOffset = () => 0;
+global.document = { hidden: false };
+global.window = {
+  setTimeout(_callback, delay) { scheduled.push(delay); return scheduled.length; },
+};
+const detail = { dataset: { processingStatusUrl: "/status" } };
+vm.runInThisContext(`${source}; global.scheduleProcessingRecoveryPolling = scheduleProcessingRecoveryPolling;`);
+global.scheduleProcessingRecoveryPolling(detail, {
+  retry_class: "retryable",
+  attempt_in_flight: false,
+  next_attempt_at: null,
+  summary_status: "unavailable",
+});
+if (scheduled.length !== 0) throw new Error("manual-only pause scheduled background polling");
+global.scheduleProcessingRecoveryPolling(detail, {
+  retry_class: "retryable",
+  attempt_in_flight: false,
+  next_attempt_at: "2026-01-01T00:00:00Z",
+  remaining: 360,
+  summary_status: "unavailable",
+});
+global.scheduleProcessingRecoveryPolling(detail, {
+  retry_class: "none",
+  attempt_in_flight: true,
+  next_attempt_at: null,
+  summary_status: "unavailable",
+});
+global.scheduleProcessingRecoveryPolling(detail, {
+  retry_class: "none",
+  attempt_in_flight: false,
+  next_attempt_at: null,
+  summary_status: "processing",
+});
+global.scheduleProcessingRecoveryPolling(detail, {
+  retry_class: "retryable",
+  attempt_in_flight: false,
+  next_attempt_at: "2026-01-01T00:00:00Z",
+  remaining: 0,
+  summary_status: "unavailable",
+});
+    if (scheduled.join(",") !== "360000,15000,15000,1000") {
+  throw new Error(`unexpected polling delays: ${scheduled.join(",")}`);
+}
+"""
+    completed = subprocess.run(
+        ["node", "-e", harness, str(script_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_processing_status_retry_survives_transient_fetch_and_action_failures() -> None:
+    script_path = STATIC_DIR / "cabinet.js"
+    script = script_path.read_text()
+    manual_catch = script[
+        script.index("signature: `manual-check-failed-${generation}`") :
+        script.index("const runProcessingNewAttempt")
+    ]
+    new_attempt_catch = script[
+        script.index("} catch (error) {", script.index("const runProcessingNewAttempt")) :
+        script.index("const initProcessingRecovery")
+    ]
+    assert "scheduleProcessingStatusRetry(generation);" in manual_catch
+    assert "scheduleProcessingStatusRetry(generation);" in new_attempt_catch
+    harness = r"""
+const fs = require("fs");
+const vm = require("vm");
+const script = fs.readFileSync(process.argv[1], "utf8");
+const source = script.slice(
+  script.indexOf("const scheduleProcessingStatusRetry"),
+  script.indexOf("const announceProcessingChange"),
+);
+const scheduled = [];
+const refreshes = [];
+let processingRecoveryPollTimer = null;
+let processingRecoveryGeneration = 7;
+let processingRecoveryActionRequest = null;
+const stopProcessingRecoveryPolling = () => { processingRecoveryPollTimer = null; };
+global.document = { hidden: false };
+global.window = {
+  setTimeout(callback, delay) { scheduled.push({ callback, delay }); return scheduled.length; },
+};
+global.refreshProcessingStatus = (options) => { refreshes.push(options); };
+vm.runInThisContext(`${source}; global.scheduleProcessingStatusRetry = scheduleProcessingStatusRetry;`);
+global.scheduleProcessingStatusRetry();
+if (scheduled[0].delay !== 15000) throw new Error("status retry did not use bounded delay");
+scheduled.shift().callback();
+if (refreshes.length !== 1 || refreshes[0].force !== true || refreshes[0].generation !== 7) {
+  throw new Error("status retry did not force the current generation");
+}
+processingRecoveryActionRequest = {};
+global.scheduleProcessingStatusRetry(7, 1000);
+scheduled.shift().callback();
+if (refreshes.length !== 1) throw new Error("status retry raced an active action");
+"""
+    completed = subprocess.run(
+        ["node", "-e", harness, str(script_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_processing_detail_refreshes_content_once_when_artifacts_first_become_ready() -> None:
+    script_path = STATIC_DIR / "cabinet.js"
+    harness = r"""
+const fs = require("fs");
+const vm = require("vm");
+const script = fs.readFileSync(process.argv[1], "utf8");
+const source = script.slice(
+  script.indexOf("const refreshProcessingDetailContentOnce"),
+  script.indexOf("const renderProcessingProjection"),
+);
+let fetchCount = 0;
+let replaceCount = 0;
+let playbackReplaceCount = 0;
+let pauseCount = 0;
+let initCount = 0;
+let stopCount = 0;
+let failNext = true;
+let staleDetail = null;
+const scheduled = [];
+const nextDetail = { dataset: {} };
+const nextPlayback = { kind: "next-playback" };
+const currentPlayback = {
+  matches: (selector) => selector === ".detail-playback",
+  querySelector: (selector) => selector === "audio" ? { pause() { pauseCount += 1; } } : null,
+  replaceWith(node) {
+    if (node !== nextPlayback) throw new Error("unexpected playback fragment");
+    playbackReplaceCount += 1;
+  },
+};
+const detail = {
+  dataset: {
+    playbackPollUrl: "/meetings/meeting-1",
+    meetingId: "meeting-1",
+    mediaRevisionId: "revision-1",
+    processingScheduleGeneration: "1",
+    processingTranscriptContentReady: "false",
+    processingSummaryContentReady: "false",
+    processingPublishedAttempt: "1",
+  },
+  nextElementSibling: currentPlayback,
+  isConnected: true,
+  replaceWith(node) {
+    if (node !== nextDetail) throw new Error("unexpected detail fragment");
+    replaceCount += 1;
+    this.isConnected = false;
+  },
+};
+const processingTranscriptReady = (projection) => projection.transcript_ready === true;
+const processingSummaryState = (projection) => projection.summary_status;
+const processingProjectionMatchesDetail = (node, projection) => (
+  node.dataset.meetingId === projection.meeting_id
+  && node.dataset.mediaRevisionId === projection.media_revision_id
+);
+const recoverMeetingDetailFromResponse = async () => false;
+const stopProcessingRecoveryCountdown = () => { stopCount += 1; };
+const stopProcessingRecoveryPolling = () => { stopCount += 1; };
+const initCabinet = () => { initCount += 1; };
+global.fetch = async () => {
+  fetchCount += 1;
+  if (failNext) {
+    failNext = false;
+    return { ok: false, text: async () => "" };
+  }
+  return {
+    ok: true,
+    text: async () => {
+      if (staleDetail) processingRecoveryGeneration += 1;
+      return "<main></main>";
+    },
+  };
+};
+global.DOMParser = class {
+  parseFromString() {
+    return {
+      querySelector(selector) {
+        return selector === ".detail-playback" ? nextPlayback : nextDetail;
+      },
+    };
+  }
+};
+let processingRecoveryPollTimer = null;
+let processingRecoveryGeneration = 0;
+global.window = { setTimeout(callback) { scheduled.push(callback); } };
+vm.runInThisContext(`${source}; global.refreshProcessingDetailContentOnce = refreshProcessingDetailContentOnce;`);
+(async () => {
+  const projection = {
+    meeting_id: "meeting-1",
+    media_revision_id: "revision-1",
+    transcript_ready: true,
+    summary_status: "available",
+    attempt_ordinal: 2,
+    state: "processed",
+    content_available: true,
+  };
+  await global.refreshProcessingDetailContentOnce(detail, projection);
+  if (
+    fetchCount !== 1
+    || detail.dataset.processingTranscriptContentReady !== "false"
+    || detail.dataset.processingSummaryContentReady !== "false"
+    || scheduled.length !== 1
+  ) {
+    throw new Error("failed refresh claim was not released");
+  }
+  scheduled.shift()();
+  await new Promise((resolve) => setImmediate(resolve));
+  scheduled.shift()();
+  if (
+    fetchCount !== 2
+    || replaceCount !== 1
+    || playbackReplaceCount !== 1
+    || pauseCount !== 1
+    || initCount !== 1
+    || stopCount !== 2
+  ) {
+    throw new Error(`unexpected refresh counts: ${fetchCount}/${replaceCount}/${initCount}`);
+  }
+  if (nextDetail.dataset.processingTranscriptContentReady !== "true") {
+    throw new Error("transcript refresh marker was not preserved");
+  }
+  if (nextDetail.dataset.processingSummaryContentReady !== "true") {
+    throw new Error("summary refresh marker was not preserved");
+  }
+  if (nextDetail.dataset.processingPublishedAttempt !== "2") {
+    throw new Error("replacement publication marker was not preserved");
+  }
+  await global.refreshProcessingDetailContentOnce(nextDetail, projection);
+  if (fetchCount !== 2) throw new Error("ready content refreshed more than once");
+  staleDetail = {
+    dataset: {
+      playbackPollUrl: "/meetings/meeting-1",
+      meetingId: "meeting-1",
+      mediaRevisionId: "revision-1",
+      processingScheduleGeneration: "2",
+      processingTranscriptContentReady: "false",
+      processingSummaryContentReady: "false",
+    },
+    isConnected: true,
+    replaceWith() { replaceCount += 1; },
+  };
+  await global.refreshProcessingDetailContentOnce(staleDetail, projection);
+  if (
+    replaceCount !== 1
+    || stopCount !== 2
+    || staleDetail.dataset.processingTranscriptContentReady !== "false"
+    || staleDetail.dataset.processingSummaryContentReady !== "false"
+  ) {
+    throw new Error("stale fragment response mutated the current detail lifecycle");
+  }
+})().catch((error) => {
+  process.stderr.write(`${error.stack || error}\n`);
+  process.exitCode = 1;
+});
+"""
+    completed = subprocess.run(
+        ["node", "-e", harness, str(script_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_newer_processing_projection_supersedes_stale_fragment_refresh_claim() -> None:
+    script_path = STATIC_DIR / "cabinet.js"
+    harness = r"""
+const fs = require("fs");
+const vm = require("vm");
+const script = fs.readFileSync(process.argv[1], "utf8");
+const source = script.slice(
+  script.indexOf("const refreshProcessingDetailContentOnce"),
+  script.indexOf("const renderProcessingProjection"),
+);
+let firstResolve;
+let secondResolve;
+let fetchCount = 0;
+let replaceCount = 0;
+const detail = {
+  dataset: {
+    playbackPollUrl: "/meetings/meeting-1",
+    meetingId: "meeting-1",
+    mediaRevisionId: "revision-1",
+    processingScheduleGeneration: "1",
+    processingTranscriptContentReady: "false",
+    processingSummaryContentReady: "false",
+  },
+  isConnected: true,
+  replaceWith() {
+    replaceCount += 1;
+    this.isConnected = false;
+  },
+};
+const fragments = {
+  first: { dataset: {} },
+  second: { dataset: {} },
+};
+const processingTranscriptReady = (projection) => projection.transcript_ready === true;
+const processingSummaryState = (projection) => projection.summary_status;
+const processingProjectionMatchesDetail = (node, projection) => (
+  node.dataset.meetingId === projection.meeting_id
+  && node.dataset.mediaRevisionId === projection.media_revision_id
+);
+const recoverMeetingDetailFromResponse = async () => false;
+const stopProcessingRecoveryCountdown = () => {};
+const stopProcessingRecoveryPolling = () => {};
+const initCabinet = () => {};
+global.fetch = async () => {
+  fetchCount += 1;
+  const body = await new Promise((resolve) => {
+    if (fetchCount === 1) firstResolve = resolve;
+    else secondResolve = resolve;
+  });
+  return { ok: true, text: async () => body };
+};
+global.DOMParser = class {
+  parseFromString(body) { return { querySelector() { return fragments[body]; } }; }
+};
+let processingRecoveryPollTimer = null;
+let processingRecoveryGeneration = 0;
+global.window = { setTimeout(callback) { callback(); } };
+vm.runInThisContext(`${source}; global.refreshProcessingDetailContentOnce = refreshProcessingDetailContentOnce;`);
+(async () => {
+  const firstProjection = {
+    meeting_id: "meeting-1",
+    media_revision_id: "revision-1",
+    updated_at: "2026-01-01T00:00:00Z",
+    transcript_ready: true,
+    summary_status: "processing",
+  };
+  const secondProjection = {
+    ...firstProjection,
+    updated_at: "2026-01-01T00:00:01Z",
+    summary_status: "available",
+  };
+  const first = global.refreshProcessingDetailContentOnce(detail, firstProjection);
+  await new Promise((resolve) => setImmediate(resolve));
+  detail.dataset.processingScheduleGeneration = "2";
+  const second = global.refreshProcessingDetailContentOnce(detail, secondProjection);
+  await new Promise((resolve) => setImmediate(resolve));
+  if (fetchCount !== 2) throw new Error("newer projection was blocked by stale refresh claim");
+  firstResolve("first");
+  await first;
+  if (replaceCount !== 0 || !detail.dataset.processingContentRefreshClaim) {
+    throw new Error("stale owner released the newer refresh claim");
+  }
+  secondResolve("second");
+  await second;
+  if (
+    replaceCount !== 1
+    || fragments.second.dataset.processingTranscriptContentReady !== "true"
+    || fragments.second.dataset.processingSummaryContentReady !== "true"
+  ) {
+    throw new Error("newer fragment was not installed with ready content markers");
+  }
+})().catch((error) => {
+  process.stderr.write(`${error.stack || error}\n`);
+  process.exitCode = 1;
+});
+"""
+    completed = subprocess.run(
+        ["node", "-e", harness, str(script_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_processing_fragment_refresh_resumes_bounded_status_polling_after_retries() -> None:
+    script_path = STATIC_DIR / "cabinet.js"
+    harness = r"""
+const fs = require("fs");
+const vm = require("vm");
+const script = fs.readFileSync(process.argv[1], "utf8");
+const source = script.slice(
+  script.indexOf("const refreshProcessingDetailContentOnce"),
+  script.indexOf("const renderProcessingProjection"),
+);
+let fetchCount = 0;
+let statusRefreshes = [];
+const scheduled = [];
+const detail = {
+  dataset: {
+    playbackPollUrl: "/meetings/meeting-1",
+    meetingId: "meeting-1",
+    mediaRevisionId: "revision-1",
+    processingScheduleGeneration: "1",
+    processingTranscriptContentReady: "false",
+    processingSummaryContentReady: "false",
+    processingPublishedAttempt: "1",
+  },
+  isConnected: true,
+};
+const projection = {
+  meeting_id: "meeting-1",
+  media_revision_id: "revision-1",
+  transcript_ready: true,
+  summary_status: "available",
+  attempt_ordinal: 2,
+  state: "processed",
+  content_available: true,
+};
+const processingTranscriptReady = (value) => value.transcript_ready === true;
+const processingSummaryState = (value) => value.summary_status;
+const processingProjectionMatchesDetail = (node, value) => (
+  node.dataset.meetingId === value.meeting_id
+  && node.dataset.mediaRevisionId === value.media_revision_id
+);
+const recoverMeetingDetailFromResponse = async () => false;
+const stopProcessingRecoveryCountdown = () => {};
+const stopProcessingRecoveryPolling = () => { processingRecoveryPollTimer = null; };
+const refreshProcessingStatus = (options) => { statusRefreshes.push(options); };
+let processingRecoveryPollTimer = null;
+let processingRecoveryGeneration = 4;
+global.fetch = async () => {
+  fetchCount += 1;
+  return { ok: false, text: async () => "" };
+};
+global.window = {
+  setTimeout(callback, delay) { scheduled.push({ callback, delay }); return scheduled.length; },
+};
+vm.runInThisContext(`${source}; global.refreshProcessingDetailContentOnce = refreshProcessingDetailContentOnce;`);
+
+const flushRetry = async () => {
+  const next = scheduled.shift();
+  if (!next) throw new Error("missing scheduled retry");
+  next.callback();
+  await new Promise((resolve) => setImmediate(resolve));
+};
+(async () => {
+  await global.refreshProcessingDetailContentOnce(detail, projection, { resetRetryBudget: true });
+  if (fetchCount !== 1 || scheduled.length !== 1 || scheduled[0].delay !== 2000) {
+    throw new Error("first fragment retry was not scheduled");
+  }
+  await flushRetry();
+  if (fetchCount !== 2 || scheduled[0]?.delay !== 4000) throw new Error("second retry was not bounded");
+  await flushRetry();
+  if (fetchCount !== 3 || scheduled[0]?.delay !== 6000) throw new Error("third retry was not bounded");
+  await flushRetry();
+  if (fetchCount !== 4 || scheduled.length !== 1 || scheduled[0].delay !== 15000) {
+    throw new Error("fragment refresh did not resume status polling after bounded retries");
+  }
+  scheduled.shift().callback();
+  if (statusRefreshes.length !== 1 || statusRefreshes[0].force !== true || statusRefreshes[0].generation !== 4) {
+    throw new Error("status polling did not resume with the current generation");
+  }
+})().catch((error) => {
+  process.stderr.write(`${error.stack || error}\n`);
+  process.exitCode = 1;
+});
+"""
+    completed = subprocess.run(
+        ["node", "-e", harness, str(script_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_processing_terminal_projections_never_fall_back_to_active_copy() -> None:
+    script_path = STATIC_DIR / "cabinet.js"
+    harness = r"""
+const fs = require("fs");
+const vm = require("vm");
+const script = fs.readFileSync(process.argv[1], "utf8");
+const source = script.slice(
+  script.indexOf("const processingTerminalReasonCopy"),
+  script.indexOf("const renderProcessingCountdown"),
+);
+const processingNewAttemptAllowed = (projection) => (
+  projection?.retry_class === "terminal"
+  && projection?.manual_action === "new_attempt"
+  && projection?.attempt_in_flight !== true
+);
+const processingTerminalFailure = () => false;
+vm.runInThisContext(`${source}; global.processingRecoveryCopy = processingRecoveryCopy;`);
+const cases = [
+  {
+    projection: { state: "blocked", retry_class: "none", manual_action: "contact_support" },
+    title: "Нужна помощь с обработкой",
+    showRefresh: true,
+  },
+  {
+    projection: { state: "canceled", retry_class: "none", manual_action: "none" },
+    title: "Обработка отменена",
+    showRefresh: false,
+  },
+  {
+    projection: { state: "blocked", retry_class: "none", manual_action: "none" },
+    title: "Обработка остановлена",
+    showRefresh: true,
+  },
+  {
+    projection: {
+      state: "failed_terminal",
+      retry_class: "terminal",
+      manual_action: "new_attempt",
+      reason_code: "blocked_free_processing_exhausted",
+    },
+    title: "Лимит расшифровки исчерпан",
+    showRefresh: false,
+    canStartNewAttempt: true,
+  },
+  {
+    projection: {
+      state: "failed_terminal",
+      retry_class: "terminal",
+      manual_action: "upload_another",
+      reason_code: "storage_capacity_exceeded",
+    },
+    title: "Недостаточно места для аудио",
+    showRefresh: false,
+    uploadWithoutArchive: true,
+  },
+  {
+    projection: {
+      state: "failed_terminal",
+      retry_class: "terminal",
+      manual_action: "new_attempt",
+      reason_code: "processing_retry_deadline_exceeded",
+    },
+    title: "Обработка завершилась без результата",
+    showRefresh: true,
+    canStartNewAttempt: true,
+  },
+  {
+    projection: {
+      state: "failed_terminal",
+      retry_class: "terminal",
+      manual_action: "new_attempt",
+      reason_code: "invalid_audio_payload",
+    },
+    title: "Обработка завершилась без результата",
+    copyIncludes: "Файл записи не является декодируемым аудио или поврежден.",
+    showRefresh: true,
+    canStartNewAttempt: true,
+  },
+];
+for (const testCase of cases) {
+  const copy = global.processingRecoveryCopy(testCase.projection, false);
+  if (
+    copy?.state !== "terminal"
+    || copy?.title !== testCase.title
+    || copy?.showRefresh !== testCase.showRefresh
+    || copy?.uploadWithoutArchive !== testCase.uploadWithoutArchive
+    || ("canStartNewAttempt" in testCase
+      && copy?.canStartNewAttempt !== testCase.canStartNewAttempt)
+    || ("copyIncludes" in testCase && !copy.copy.includes(testCase.copyIncludes))
+  ) {
+    throw new Error(`terminal projection used wrong copy: ${JSON.stringify({ copy, testCase })}`);
+  }
+  if (copy.copy.includes("Спикеры ещё определяются")) {
+    throw new Error("terminal projection fell back to active processing copy");
+  }
+}
+const unpublishedReplacement = global.processingRecoveryCopy(
+  { state: "processed", retry_class: "none", attempt_ordinal: 2, content_available: true },
+  true,
+  false,
+);
+if (unpublishedReplacement?.state !== "active" || unpublishedReplacement?.title !== "Готовим новую версию") {
+  throw new Error("processed replacement lost neutral surface before fragment installation");
+}
+"""
+    completed = subprocess.run(
+        ["node", "-e", harness, str(script_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+    script = script_path.read_text(encoding="utf-8")
+    assert 'payload?.code === "processing_quota_exceeded"' in script
+    assert "Лимит расшифровки ещё не обновился" in script
+
+
+def test_summary_refresh_does_not_pause_or_replace_the_current_player() -> None:
+    script_path = STATIC_DIR / "cabinet.js"
+    harness = r"""
+const fs = require("fs");
+const vm = require("vm");
+const script = fs.readFileSync(process.argv[1], "utf8");
+const source = script.slice(
+  script.indexOf("const refreshProcessingDetailContentOnce"),
+  script.indexOf("const renderProcessingProjection"),
+);
+let pauseCount = 0;
+let playbackReplaceCount = 0;
+let detailReplaceCount = 0;
+let initCount = 0;
+const nextDetail = { dataset: {} };
+const currentPlayback = {
+  matches: (selector) => selector === ".detail-playback",
+  querySelector: (selector) => selector === "audio" ? { pause() { pauseCount += 1; } } : null,
+  replaceWith() { playbackReplaceCount += 1; },
+};
+const detail = {
+  dataset: {
+    playbackPollUrl: "/meetings/meeting-1",
+    meetingId: "meeting-1",
+    mediaRevisionId: "revision-1",
+    processingScheduleGeneration: "1",
+    processingTranscriptContentReady: "true",
+    processingSummaryContentReady: "false",
+    processingPublishedAttempt: "1",
+    cabinetEmbedded: "true",
+  },
+  nextElementSibling: currentPlayback,
+  isConnected: true,
+  replaceWith(node) {
+    if (node !== nextDetail) throw new Error("unexpected detail fragment");
+    detailReplaceCount += 1;
+    this.isConnected = false;
+  },
+};
+const processingTranscriptReady = (projection) => projection.transcript_ready === true;
+const processingSummaryState = (projection) => projection.summary_status;
+const processingProjectionMatchesDetail = (node, projection) => (
+  node.dataset.meetingId === projection.meeting_id
+  && node.dataset.mediaRevisionId === projection.media_revision_id
+);
+const recoverMeetingDetailFromResponse = async () => false;
+const stopProcessingRecoveryCountdown = () => {};
+const stopProcessingRecoveryPolling = () => {};
+const initCabinet = () => { initCount += 1; };
+global.fetch = async (_url, options) => {
+  if (options.headers['X-GRAF-Client'] !== 'desktop') throw new Error('embedded refresh lost desktop hint');
+  return { ok: true, text: async () => "<main></main>" };
+};
+global.DOMParser = class {
+  parseFromString() { return { querySelector() { return nextDetail; } }; }
+};
+let processingRecoveryPollTimer = null;
+let processingRecoveryGeneration = 0;
+global.window = { setTimeout(callback) { callback(); } };
+vm.runInThisContext(`${source}; global.refreshProcessingDetailContentOnce = refreshProcessingDetailContentOnce;`);
+(async () => {
+  await global.refreshProcessingDetailContentOnce(detail, {
+    meeting_id: "meeting-1",
+    media_revision_id: "revision-1",
+    transcript_ready: true,
+    summary_status: "available",
+    attempt_ordinal: 1,
+    state: "processed",
+  });
+  if (pauseCount !== 0 || playbackReplaceCount !== 0 || detailReplaceCount !== 1 || initCount !== 1) {
+    throw new Error(`summary refresh touched player: ${pauseCount}/${playbackReplaceCount}/${detailReplaceCount}/${initCount}`);
+  }
+})().catch((error) => {
+  process.stderr.write(`${error.stack || error}\n`);
+  process.exitCode = 1;
+});
+"""
+    completed = subprocess.run(
+        ["node", "-e", harness, str(script_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_storage_failure_recovery_links_directly_to_no_archive_upload() -> None:
+    template = (
+        ROOT / "src/twobrain_rec_server/cabinet/templates/cabinet/pages/meeting_detail_content.html"
+    ).read_text()
+
+    assert 'data-no-archive-href="{{ base_path }}?archive_audio=false#manual-upload"' in template
+    assert 'href="/billing/storage" data-processing-manage-storage' not in template
+    harness = r"""
+const fs = require("fs");
+const vm = require("vm");
+const script = fs.readFileSync(process.argv[1], "utf8");
+const source = [
+  script.slice(
+    script.indexOf("const processingTerminalReasonCopy"),
+    script.indexOf("const renderProcessingCountdown"),
+  ),
+  script.slice(
+    script.indexOf("const renderProcessingProjection"),
+    script.indexOf("const focusProcessingRecovery"),
+  ),
+].join("\n");
+const processingNewAttemptAllowed = () => false;
+const processingProjectionMatchesDetail = () => true;
+const processingProjectionIsStale = () => false;
+const processingTimestamp = () => null;
+const processingTranscriptReady = () => false;
+const processingArtifactState = () => "unavailable";
+const processingTerminalFailure = () => true;
+const updateProcessingExportVisibility = () => {};
+const updateProcessingStage = () => {};
+const processingArtifactVisible = () => false;
+const processingSummaryState = () => "unavailable";
+const processingSummaryCopy = () => null;
+const resetProcessingRecoveryCountdown = () => {};
+const announceProcessingChange = () => {};
+const scheduleProcessingRecoveryPolling = () => {};
+let processingRecoveryActionRequest = null;
+let processingRecoveryRequest = null;
+const uploadAnother = {
+  dataset: {
+    defaultHref: "/meetings#manual-upload",
+    noArchiveHref: "/meetings?archive_audio=false#manual-upload",
+  },
+  hidden: true,
+  href: "",
+  textContent: "",
+};
+const recovery = {
+  dataset: {},
+  hidden: true,
+  setAttribute() {},
+  querySelector(selector) {
+    return selector === "[data-processing-upload-another]" ? uploadAnother : null;
+  },
+};
+const detail = {
+  dataset: { storedOutcomesAvailable: "false" },
+  querySelector(selector) {
+    return selector === "[data-processing-recovery]" ? recovery : null;
+  },
+};
+vm.runInThisContext(`${source}; global.renderProcessingProjection = renderProcessingProjection;`);
+global.renderProcessingProjection(detail, {
+  state: "failed_terminal",
+  retry_class: "terminal",
+  manual_action: "upload_another",
+  reason_code: "storage_capacity_exceeded",
+});
+if (
+  uploadAnother.hidden
+  || uploadAnother.href !== uploadAnother.dataset.noArchiveHref
+  || uploadAnother.textContent !== "Загрузить без сохранения аудио"
+) throw new Error("storage recovery action is not the no-archive upload");
+global.renderProcessingProjection(detail, {
+  state: "failed_terminal",
+  retry_class: "terminal",
+  manual_action: "upload_another",
+  reason_code: "corrupt_source",
+});
+if (
+  uploadAnother.hidden
+  || uploadAnother.href !== uploadAnother.dataset.defaultHref
+  || uploadAnother.textContent !== "Загрузить другой файл"
+) throw new Error("upload recovery action did not return to its default state");
+"""
+    completed = subprocess.run(
+        ["node", "-e", harness, str(STATIC_DIR / "cabinet.js")],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
 def test_cabinet_rail_initial_state_uses_surface_breakpoints() -> None:
     script = (STATIC_DIR / "cabinet.js").read_text()
     css = (STATIC_DIR / "cabinet.css").read_text()
@@ -247,7 +1465,9 @@ def test_cabinet_rail_initial_state_uses_surface_breakpoints() -> None:
         assert marker in script
     assert "@media (max-width: 1120px)" in css
 
-    rail_source = script[script.index("const initCabinetRail"):script.index("const initCabinetProfileMenus")]
+    rail_source = script[
+        script.index("const initCabinetRail") : script.index("let cabinetTooltipsReady")
+    ]
     assert 'window.addEventListener("resize"' not in rail_source
     assert rail_source.count('toggle.addEventListener("click"') == 1
 
@@ -255,10 +1475,20 @@ def test_cabinet_rail_initial_state_uses_surface_breakpoints() -> None:
 def test_cabinet_rail_ready_state_geometry() -> None:
     css = (STATIC_DIR / "cabinet.css").read_text()
 
-    collapsed_selector = 'html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned) {'
-    expanded_selector = 'html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell].is-rail-pinned {'
-    assert f"{collapsed_selector}\n  --playback-inline-start: var(--app-rail-width);\n  grid-template-columns: var(--app-rail-width) minmax(0, 1fr);" in css
-    assert f"{expanded_selector}\n  --playback-inline-start: var(--app-sidebar-width);\n  grid-template-columns: var(--app-sidebar-width) minmax(0, 1fr);" in css
+    collapsed_selector = (
+        'html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned) {'
+    )
+    expanded_selector = (
+        'html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell].is-rail-pinned {'
+    )
+    assert (
+        f"{collapsed_selector}\n  grid-template-columns: var(--app-rail-width) minmax(0, 1fr);"
+        in css
+    )
+    assert (
+        f"{expanded_selector}\n  grid-template-columns: var(--app-sidebar-width) minmax(0, 1fr);"
+        in css
+    )
 
 
 def test_cabinet_collapsed_rail_uses_one_centered_control_geometry() -> None:
@@ -270,8 +1500,7 @@ def test_cabinet_collapsed_rail_uses_one_centered_control_geometry() -> None:
     collapsed_css = css[collapsed_start:collapsed_end]
 
     collapsed_root = (
-        'html[data-cabinet-js="ready"] '
-        ".app-shell[data-cabinet-shell]:not(.is-rail-pinned)"
+        'html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned)'
     )
     assert (
         f"{collapsed_root} .cabinet-rail-toggle,\n"
@@ -310,11 +1539,7 @@ def test_cabinet_collapsed_rail_uses_one_centered_control_geometry() -> None:
         "  margin-inline: 2px auto;\n"
         "  inset-block-start: -4px;"
     ) in css
-    assert (
-        ".sidebar {\n"
-        "  padding: 12px 10px;\n"
-        "  gap: 12px;"
-    ) in css
+    assert (".sidebar {\n  padding: 12px 10px;\n  gap: 12px;") in css
     assert (
         ".app-shell.desktop-embedded.is-rail-pinned .cabinet-rail-toggle {\n"
         "    margin-inline-start: 6px;\n"
@@ -325,11 +1550,6 @@ def test_cabinet_collapsed_rail_uses_one_centered_control_geometry() -> None:
 def test_cabinet_playback_shares_ready_state_geometry() -> None:
     css = (STATIC_DIR / "cabinet.css").read_text()
 
-    collapsed_selector = 'html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned) {'
-    expanded_selector = 'html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell].is-rail-pinned {'
-    assert f"{collapsed_selector}\n  --playback-inline-start: var(--app-rail-width);" in css
-    assert f"{expanded_selector}\n  --playback-inline-start: var(--app-sidebar-width);" in css
-    assert "left: var(--playback-inline-start);" in css
     assert (
         'html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell] .sidebar {\n'
         "    z-index: 31;\n"
@@ -485,8 +1705,8 @@ if ((toggle.listeners.get("click") || []).length !== 1) throw new Error("duplica
         ("browser", 1280, "default"),
         ("browser", 981, "default"),
         ("browser", 980, "default"),
-            ("embedded", 1121, "default"),
-            ("embedded", 1120, "default"),
+        ("embedded", 1121, "default"),
+        ("embedded", 1120, "default"),
         ("embedded", 1120, "pinned"),
         ("embedded", 720, "default"),
     ]
@@ -651,7 +1871,8 @@ global.window = {
 vm.runInThisContext(fs.readFileSync(process.argv[1], "utf8"));
 const resizeHandlerCount = handle.listenerCount("keydown");
 if (resizeHandlerCount !== 1) throw new Error(`expected one key handler, got ${resizeHandlerCount}`);
-if ((windowListeners.get("resize") || []).length !== 1) throw new Error("expected one page resize listener");
+const resizeListenerCount = (windowListeners.get("resize") || []).length;
+if (resizeListenerCount !== 2) throw new Error("expected playback and tooltip resize listeners");
 const currentTime = 42;
 playback.currentTime = currentTime;
 if (["one", "two", "fit"].includes(scenario)) {
@@ -674,10 +1895,16 @@ if (["one", "two", "fit"].includes(scenario)) {
 }
 body.dispatch("htmx:afterSwap", { detail: { target: null } });
 if (handle.listenerCount("keydown") !== 1) throw new Error("partial update duplicated resize listeners");
-if ((windowListeners.get("resize") || []).length !== 1) throw new Error("partial update duplicated page resize listeners");
+if ((windowListeners.get("resize") || []).length !== resizeListenerCount) throw new Error("partial update duplicated page resize listeners");
 if (playback.currentTime !== currentTime) throw new Error("resize changed playback position");
 """
-    for scenario, top in [("one", 500), ("two", 500), ("fit", 500), ("overflow", 500), ("viewport", 120)]:
+    for scenario, top in [
+        ("one", 500),
+        ("two", 500),
+        ("fit", 500),
+        ("overflow", 500),
+        ("viewport", 120),
+    ]:
         completed = subprocess.run(
             ["node", "-e", harness, str(script_path), scenario, str(top)],
             capture_output=True,
@@ -876,8 +2103,8 @@ def test_meeting_list_js_owns_loading_and_metadata_safe_recovery_states() -> Non
         "clearMeetingListAnnouncements",
         "current.replaceChildren(recovery)",
         "navigator.onLine",
-        'status === 401',
-        'status === 403',
+        "status === 401",
+        "status === 403",
         'getResponseHeader?.("X-GRAF-Cabinet-Recovery")',
         'recoveryHeader === "reselect-space"',
         'problemCode === "auth_session_invalid"',
@@ -886,8 +2113,8 @@ def test_meeting_list_js_owns_loading_and_metadata_safe_recovery_states() -> Non
         "status >= 400 && status < 500",
         'target?.removeAttribute("aria-busy")',
         "current.hidden = false",
-        'data-list-retry',
-        'data-list-sign-in',
+        "data-list-retry",
+        "data-list-sign-in",
         "Нет подключения",
         "Запись на Mac продолжает работать.",
         "Не удалось загрузить встречи",
@@ -907,12 +2134,9 @@ def test_meeting_list_js_owns_loading_and_metadata_safe_recovery_states() -> Non
         assert marker in script
 
     meeting_list_template = (
-        ROOT
-        / "src/twobrain_rec_server/cabinet/templates/cabinet/fragments/meeting_list.html"
+        ROOT / "src/twobrain_rec_server/cabinet/templates/cabinet/fragments/meeting_list.html"
     ).read_text()
-    rendering = (
-        ROOT / "src/twobrain_rec_server/cabinet/rendering.py"
-    ).read_text()
+    rendering = (ROOT / "src/twobrain_rec_server/cabinet/rendering.py").read_text()
     assert "data-list-loading-state" in rendering
     assert "Загружаем встречи…" in rendering
     assert 'id="meeting-list-region"' in meeting_list_template
@@ -928,7 +2152,7 @@ def test_meeting_list_js_owns_loading_and_metadata_safe_recovery_states() -> Non
     assert "target.replaceChildren(loading, current)" in recovery_function
     assert "loading.hidden = true" in recovery_function
     assert "current.hidden = false" in recovery_function
-    assert '} else {\n      clearMeetingListAnnouncements();\n    }' in recovery_function
+    assert "} else {\n      clearMeetingListAnnouncements();\n    }" in recovery_function
 
     announcement_clear = script[
         script.index("const clearMeetingListAnnouncements") : script.index(
@@ -936,15 +2160,22 @@ def test_meeting_list_js_owns_loading_and_metadata_safe_recovery_states() -> Non
         )
     ]
     assert "meetingResultCountAnnouncementVersion += 1" in announcement_clear
-    assert 'document.querySelector("[data-upload-progress-announcer]")?.replaceChildren()' in announcement_clear
-    assert 'document.querySelector("[data-upload-activity-announcer]")?.replaceChildren()' in announcement_clear
-    assert 'document.querySelector("[data-meeting-result-announcer]")?.replaceChildren()' in announcement_clear
+    assert (
+        'document.querySelector("[data-upload-progress-announcer]")?.replaceChildren()'
+        in announcement_clear
+    )
+    assert (
+        'document.querySelector("[data-upload-activity-announcer]")?.replaceChildren()'
+        in announcement_clear
+    )
+    assert (
+        'document.querySelector("[data-meeting-result-announcer]")?.replaceChildren()'
+        in announcement_clear
+    )
     assert "announcedUploadProgressBuckets.clear()" in announcement_clear
 
     interaction_guard = script[
-        script.index("const listInteractionIsActive") : script.index(
-            "const isUsableFocusTarget"
-        )
+        script.index("const listInteractionIsActive") : script.index("const isUsableFocusTarget")
     ]
     assert "[data-delete-dialog][open]" in interaction_guard
     assert 'matches(":hover")' not in interaction_guard
@@ -988,7 +2219,7 @@ def test_meeting_list_js_closes_authorization_retry_and_deletion_boundaries() ->
         ".find(Boolean)",
         "xhrProblemCode",
         'JSON.parse(xhr?.responseText || "{}")',
-        '[403, 404].includes(response.status)',
+        "[403, 404].includes(response.status)",
         'response.status === 404 && problemCode === "meeting_not_found"',
         'deletionResult === "missing"',
         'row.removeAttribute("data-meeting-id")',
@@ -998,7 +2229,7 @@ def test_meeting_list_js_closes_authorization_retry_and_deletion_boundaries() ->
 
     upload_scrub = script[
         script.index("scrubManualUploadPrivateState =") : script.index(
-            'dialog.addEventListener("keydown", (event) => trapModalFocus(dialog, event))',
+            'dialog.addEventListener("keydown", (event) => trapModalFocus(dialog, event, { cycleAll: true }))',
             script.index("scrubManualUploadPrivateState ="),
         )
     ]
@@ -1027,14 +2258,13 @@ def test_meeting_list_js_closes_authorization_retry_and_deletion_boundaries() ->
     ]
     assert 'dialog.dataset.uploadAvailable === "true"' in upload_readiness
 
-    assert 'const refreshFocusMeetingId = deleteFocusFallbackIds[0]' not in script
+    assert "const refreshFocusMeetingId = deleteFocusFallbackIds[0]" not in script
 
 
 def test_meeting_list_js_announces_polled_progress_in_bounded_steps() -> None:
     script = (STATIC_DIR / "cabinet.js").read_text()
     template = (
-        ROOT
-        / "src/twobrain_rec_server/cabinet/templates/cabinet/pages/meeting_list_content.html"
+        ROOT / "src/twobrain_rec_server/cabinet/templates/cabinet/pages/meeting_list_content.html"
     ).read_text()
 
     for marker in [
@@ -1046,7 +2276,7 @@ def test_meeting_list_js_announces_polled_progress_in_bounded_steps() -> None:
         "scheduleUploadProgressTrackingPrune",
         "rememberUploadProgressMetadata",
         "announceUploadProgress",
-        'data-upload-progress-active][data-upload-progress-percent',
+        "data-upload-progress-active][data-upload-progress-percent",
         'compactStatus?.dataset.statusKind === "uploading"',
         "Number.isFinite(previousState?.bucket)",
         "announcedUploadProgressBuckets.set(meetingId, { bucket: null })",
@@ -1067,8 +2297,7 @@ def test_meeting_list_js_announces_polled_progress_in_bounded_steps() -> None:
     assert '?.dataset.meetingResultComplete === "true"' in script
     assert (
         'resultIsComplete\n        ? "Показаны все встречи"\n'
-        '        : "Показана первая часть встреч без поиска и фильтров"'
-        in script
+        '        : "Показана первая часть встреч без поиска и фильтров"' in script
     )
     assert 'const message = count || "Показаны все встречи"' not in script
     assert "if (!announcer || !count) return" not in script
@@ -2797,7 +4026,7 @@ if (rendered.includes("PRIVATE")) throw new Error("private detail leaked into re
 def test_detail_fetch_actions_share_fail_closed_authorization_recovery() -> None:
     script = (STATIC_DIR / "cabinet.js").read_text()
 
-    assert script.count("recoverMeetingDetailFromResponse(response)") == 3
+    assert script.count("recoverMeetingDetailFromResponse(response)") == 4
     assert "summaryActionProblemCodes" in script
     assert "sharingActionProblemCodes" in script
     assert '"meeting_not_found"' in script
@@ -2806,12 +4035,18 @@ def test_detail_fetch_actions_share_fail_closed_authorization_recovery() -> None
     assert "preserveDetail: shareRequest" in script
     assert "meeting-share-action-error" in script
     assert "meetingDetailRecoveredError" in script
-    assert script.count(
-        "recoverMeetingDetailFromResponse(response, { actionProblemCodes: summaryActionProblemCodes })"
-    ) == 2
-    assert script.count(
-        "recoverMeetingDetailFromResponse(response, { actionProblemCodes: sharingActionProblemCodes })"
-    ) == 2
+    assert (
+        script.count(
+            "recoverMeetingDetailFromResponse(response, { actionProblemCodes: summaryActionProblemCodes })"
+        )
+            == 3
+    )
+    assert (
+        script.count(
+            "recoverMeetingDetailFromResponse(response, { actionProblemCodes: sharingActionProblemCodes })"
+        )
+        == 2
+    )
     assert "initMeetingDetailAuthorizationRecovery()" in script
     assert 'document.body.addEventListener("htmx:beforeSwap", recoverFromHtmx)' in script
     assert 'document.body.addEventListener("htmx:responseError", recoverFromHtmx)' in script
@@ -2943,9 +4178,9 @@ def test_batch_deletion_keeps_success_out_of_visible_feedback_region() -> None:
         script.index("const submitDeletionForm") : script.index("const requestMeetingListRefresh")
     ]
     deletion_handler = script[
-        script.index('const confirm = event.target.closest("[data-delete-confirm]")') : script.index(
-            'const row = event.target.closest("[data-meeting-row]")'
-        )
+        script.index(
+            'const confirm = event.target.closest("[data-delete-confirm]")'
+        ) : script.index('const row = event.target.closest("[data-meeting-row]")')
     ]
     request_loop = deletion_handler[
         deletion_handler.index("for (const row of pendingDeleteRows)") : deletion_handler.index(
@@ -2956,7 +4191,9 @@ def test_batch_deletion_keeps_success_out_of_visible_feedback_region() -> None:
     assert "#delete-feedback-region" not in submit_deletion
     assert "responseDocument" not in submit_deletion
     assert "publishDeletionFeedback" not in request_loop
-    assert 'document.querySelector("#delete-feedback-region")?.replaceChildren()' in deletion_handler
+    assert (
+        'document.querySelector("#delete-feedback-region")?.replaceChildren()' in deletion_handler
+    )
     assert 'publishDeletionFeedback(failureMessage, "error")' in deletion_handler
     assert "announceDeletionResult" in deletion_handler
     assert "Запись удалена из списка. Очистка данных GRAF продолжается." not in deletion_handler
@@ -3049,10 +4286,10 @@ def test_cabinet_js_owns_component_dom_behavior() -> None:
     ]:
         assert marker in script
 
-    assert 'resultCount.textContent = `Найдено: ${allRows().length}`' not in script
+    assert "resultCount.textContent = `Найдено: ${allRows().length}`" not in script
     assert "renderClientEmptyList" not in script
     assert "const setRowContextualAvailability" not in script
-    assert 'event.target !== row' not in script
+    assert "event.target !== row" not in script
 
 
 def test_feature_159_shared_shell_initializers_are_idempotent_and_safe() -> None:
@@ -3061,10 +4298,10 @@ def test_feature_159_shared_shell_initializers_are_idempotent_and_safe() -> None
     for marker in [
         'document.querySelectorAll("[data-cabinet-shell]")',
         'shell.dataset.railReady === "true"',
-        'data-profile-menu-trigger',
-        'data-profile-menu-ready',
+        "data-profile-menu-trigger",
+        "data-profile-menu-ready",
         'event.key === "Escape"',
-        'trigger.focus({ preventScroll: true })',
+        "trigger.focus({ preventScroll: true })",
         "Скрыть боковую панель",
         "Показать боковую панель",
     ]:
@@ -3074,15 +4311,14 @@ def test_feature_159_shared_shell_initializers_are_idempotent_and_safe() -> None
 def test_feature_159_shared_shell_static_contract_keeps_search_and_download_boundaries() -> None:
     css = (STATIC_DIR / "cabinet.css").read_text()
     sections = (
-        ROOT
-        / "src/twobrain_rec_server/cabinet/templates/cabinet/components/sections.html"
+        ROOT / "src/twobrain_rec_server/cabinet/templates/cabinet/components/sections.html"
     ).read_text()
 
     assert "padding-inline-start: 42px;" in css
     assert "padding-inline-end: 34px;" in css
     assert ".sidebar-download" in css
     assert "position: fixed;" in css
-    assert "max-height: calc(100vh - 24px);" in css
+    assert "max-height: calc(var(--profile-menu-viewport-height, 100vh) - var(--profile-menu-bottom, 60px) - 8px);" in css
     assert "overflow-y: auto;" in css
     assert 'data-sidebar-download href="/download"' in sections
     assert 'data-sidebar-download href="/download"' not in sections.replace(
@@ -3135,7 +4371,7 @@ def test_sidebar_toggle_tooltip_is_visible_on_hover_and_keyboard_focus() -> None
 
     for marker in (
         ".app-shell[data-cabinet-shell]::after",
-        'content: attr(data-rail-tooltip);',
+        "content: attr(data-rail-tooltip);",
         "position: fixed;",
         "pointer-events: none;",
         ":has(.cabinet-rail-toggle:hover)::after",
@@ -3163,8 +4399,7 @@ def test_cabinet_js_owns_manual_upload_without_frontend_toolchain() -> None:
     script = (STATIC_DIR / "cabinet.js").read_text()
     css = (STATIC_DIR / "cabinet.css").read_text()
     template = (
-        ROOT
-        / "src/twobrain_rec_server/cabinet/templates/cabinet/pages/meeting_list_content.html"
+        ROOT / "src/twobrain_rec_server/cabinet/templates/cabinet/pages/meeting_list_content.html"
     ).read_text()
 
     for marker in [
@@ -3200,8 +4435,8 @@ def test_cabinet_js_owns_manual_upload_without_frontend_toolchain() -> None:
         "announceUploadActivity",
         "announcedProgressBucket",
         "Math.min(99",
-        'activity.progress.hidden = !progressActive',
-        'activity.percentLabel.hidden = true',
+        "activity.progress.hidden = !progressActive",
+        "activity.percentLabel.hidden = true",
         "await refreshMeetingList();",
         "currentMeetingListUrl",
         "new FormData(form).forEach",
@@ -3221,19 +4456,26 @@ def test_cabinet_js_owns_manual_upload_without_frontend_toolchain() -> None:
     ]:
         assert marker in css
     assert '<span class="upload-activity-state">' in script
-    assert script.index('data-upload-activity-status') < script.index('data-upload-activity-percent')
-    assert script.index('data-upload-activity-percent') < script.index('upload-activity-progress')
+    assert script.index("data-upload-activity-status") < script.index(
+        "data-upload-activity-percent"
+    )
+    assert script.index("data-upload-activity-percent") < script.index("upload-activity-progress")
     assert "Перетащите файл сюда" not in script
     assert "Длительность не прочитана" in script
     assert 'data-upload-activity-list aria-live="polite"' not in template
-    assert 'data-upload-activity-announcer role="status" aria-live="polite" aria-atomic="true"' in template
+    assert (
+        'data-upload-activity-announcer role="status" aria-live="polite" aria-atomic="true"'
+        in template
+    )
     assert "setActivityProgress(activity, 100, true)" not in script
     assert "dialog.dataset.uploadRefreshUrl" not in script
     assert 'durationInput?.addEventListener("input"' not in script
     assert ".manual-upload-duration__control" not in css
 
 
-def test_manual_upload_keeps_untrusted_progress_indeterminate_and_preserves_list_query_state() -> None:
+def test_manual_upload_keeps_untrusted_progress_indeterminate_and_preserves_list_query_state() -> (
+    None
+):
     script_path = STATIC_DIR / "cabinet.js"
     harness = r"""
 const fs = require("fs");
@@ -3331,9 +4573,9 @@ def test_auth_static_assets_keep_compact_panel_and_six_slot_code_autosubmit() ->
     assert "--auth-content-width: min(100%, 448px)" in css
     assert "width: min(520px, 100%)" in css
     assert "requestSubmit" in script
-    assert 'data-code-slot' in script
-    assert 'data-code-hidden' in script
-    assert 'hidden.disabled = false' in script
+    assert "data-code-slot" in script
+    assert "data-code-hidden" in script
+    assert "hidden.disabled = false" in script
     assert 'replace(/\\D/g, "").slice(0, 6)' in script
     assert "isComplete" in script
     assert "fillFromStart" in script
@@ -3486,7 +4728,7 @@ def test_feature_104_css_uses_shared_density_focus_and_responsive_contracts() ->
         "--space-4: 24px;",
         "--control-height: 36px;",
         "--meeting-row-height: 48px;",
-        "--focus-ring: #b6aaff;",
+        "--focus-ring:",
         "--app-sidebar-width: 240px;",
         "--app-rail-width: 64px;",
         "outline: 2px solid var(--focus-ring);",
@@ -3527,16 +4769,13 @@ def test_feature_191_centralizes_interaction_tokens_and_compact_upload_contract(
     css = (STATIC_DIR / "cabinet.css").read_text()
     script = (STATIC_DIR / "cabinet.js").read_text()
     manual_upload = (
-        ROOT
-        / "src/twobrain_rec_server/cabinet/templates/cabinet/fragments/manual_upload.html"
+        ROOT / "src/twobrain_rec_server/cabinet/templates/cabinet/fragments/manual_upload.html"
     ).read_text()
 
     for token in [
         "--accent-hover:",
-        "--accent-solid: #6347d9;",
+        "--accent-solid:",
         "--accent-foreground: #fff;",
-        "--sidebar-accent: #8c73ff;",
-        "--sidebar-focus-ring: #b6aaff;",
         "--accent-soft:",
         "--accent-surface:",
         "--accent-border:",
@@ -3553,16 +4792,18 @@ def test_feature_191_centralizes_interaction_tokens_and_compact_upload_contract(
         "--control-height-sm: 32px;",
         "--control-height: 36px;",
         "--control-height-lg: 40px;",
-        "--radius-control: 7px;",
-        "--radius-card: 10px;",
-        "--radius-panel: 12px;",
+        "--radius-control: 9px;",
+        "--radius-card: 12px;",
+        "--radius-panel: 14px;",
         "--radius-dialog: 16px;",
     ]:
         assert token in css
 
     assert "accent-color: var(--accent);" in css
-    assert "--accent: var(--sidebar-accent);" in css
-    assert "--focus-ring: var(--sidebar-focus-ring);" in css
+    # F240: the sidebar inherits the same palette as dialogs and main content.
+    # Numeric palette contrast is covered by test_cabinet_theme_contract.py.
+    assert "--sidebar-accent" not in css
+    assert "--sidebar-focus-ring" not in css
     assert (
         ".primary { background: var(--accent-solid); border-color: var(--accent-solid); "
         "color: var(--accent-foreground);"
@@ -3640,7 +4881,9 @@ def test_feature_191_shared_button_contract_keeps_actions_centered_and_on_one_li
     assert ".settings-list-item > form { flex: 0 0 auto; }" in css
     assert ".calendar-empty-state > .button { flex: 0 0 auto; }" in css
     assert "align-self: flex-start;" in css
-    assert ".account-email-form__heading { position: relative; display: flex; flex-wrap: wrap;" in css
+    assert (
+        ".account-email-form__heading { position: relative; display: flex; flex-wrap: wrap;" in css
+    )
     mobile_controls = css[
         css.index("@media (max-width: 620px)") : css.index("@media (max-width: 480px)")
     ]
@@ -3659,7 +4902,7 @@ def test_feature_191_shared_button_contract_keeps_actions_centered_and_on_one_li
     assert ".calendar-section-head > .button { align-self: flex-start; }" in calendar_reflow
     for compound_action in [
         ".meeting-action-item {",
-        ".summary-format-grid > button {",
+        ".summary-format-grid > button,\n.summary-personal-formats > button {",
         ".calendar-provider-button {",
         ".share-recipient-results button { display: grid;",
         ".sidebar-profile__trigger {\n  width: 100%;",
@@ -3741,13 +4984,80 @@ def test_meeting_list_css_binds_target_geometry_contrast_and_motion_contracts() 
     assert "html, body { min-height: 100%; margin: 0;" in css
     assert "overflow-x: hidden;" in css
     assert "minmax(0, 1fr)" in css
-    assert ".selection-toolbar {\n  min-height: var(--control-height);\n  padding-left: 0;\n  gap: var(--space-1);\n  flex-wrap: wrap;" in css
+    assert (
+        ".selection-toolbar {\n  min-height: var(--control-height);\n  padding-left: 0;\n  gap: var(--space-1);\n  flex-wrap: wrap;"
+        in css
+    )
     assert ".selection-clear {\n    display: none;\n  }" not in css
     assert (
         "@media (max-width: 620px) {" in css
         and "grid-template-columns: 32px 20px minmax(0, 1fr) 32px;" in css
-        and ".meeting-row.cabinet-row .meeting-date {\n"
-        "    grid-column: 3 / 5;\n"
-        "    grid-row: 2;" in css
+        and ".meeting-row.cabinet-row .meeting-date {\n    grid-column: 3 / 5;\n    grid-row: 2;"
+        in css
     )
     assert ".meeting-row:hover { transform: translateX(2px); }" not in css
+
+
+def test_manual_upload_dialog_has_name_and_scrollable_focus_targets() -> None:
+    template = (
+        ROOT / "src/twobrain_rec_server/cabinet/templates/cabinet/fragments/manual_upload.html"
+    ).read_text()
+    assert 'aria-labelledby="manual-upload-heading"' in template
+    assert template.count('id="manual-upload-heading"') == 1
+    css = (STATIC_DIR / "cabinet.css").read_text()
+    dialog_css = css.split(".manual-upload-dialog {", 1)[1].split("}", 1)[0]
+    assert "100dvh" in dialog_css
+    assert "overflow-y: auto" in dialog_css
+    script = (STATIC_DIR / "cabinet.js").read_text()
+    upload = script[
+        script.index("const initManualUpload =") : script.index("const setRailPinned =")
+    ]
+    assert 'dialog.addEventListener("focusin"' in upload
+    assert 'scrollIntoView({ block: "nearest" })' in upload
+    assert "event.target === fileInput ? dropZone : event.target" in upload
+
+
+def test_rail_narrow_focus_keeps_preference_and_wide_breakpoints() -> None:
+    script = (STATIC_DIR / "cabinet.js").read_text()
+    source = script[
+        script.index("const setRailPinned =") : script.index("const initCabinetProfileMenus =")
+    ]
+    harness = r"""
+const assert = require('node:assert/strict');
+for (const embedded of [false, true]) {
+  const classes = new Set(embedded ? ['desktop-embedded'] : []);
+  const listeners = {}; const docs = {}; const writes = [];
+  let search = {}; let main = {target:search, contains(node) {return node===this.target;}};
+  const toggle = {setAttribute(name, value) { this[name] = value; }, addEventListener(name, fn) {this[name] = fn;}, focus() {document.activeElement = this;}};
+  const shell = {dataset:{}, classList:{contains:name=>classes.has(name), toggle(name,on) {if(on) classes.add(name);else classes.delete(name);}},
+    querySelector:s=>s === '[data-cabinet-navigation]' ? {} : s === '[data-cabinet-rail-toggle]' ? toggle : main,
+    setAttribute(){}, addEventListener(name, fn) {listeners[name]=fn;}};
+  let overlay = null; const document = {activeElement:null, querySelectorAll:()=>[shell],querySelector:()=>overlay,addEventListener(name,fn){docs[name]=fn;}};
+  const media = {}; const window = {matchMedia(query) {return media[query] = {matches:query.startsWith('(min'), addEventListener(name,fn){this.change=fn;}};}};
+  const sessionStorage = {getItem:()=> 'expanded',setItem(key,value){writes.push([key,value]);}};
+  eval(SOURCE + '\ninitCabinetRail();');
+  const narrow = media['(max-width: 640px)'];
+  assert.ok(narrow, 'narrow media listener exists');
+  assert.equal(classes.has('is-rail-pinned'),true);
+  document.activeElement=search; narrow.matches=true; narrow.change();
+  assert.equal(classes.has('is-rail-pinned'),false,'resize hides panel over existing focus');
+  assert.equal(toggle['aria-expanded'],'false'); assert.equal(writes.length,0);
+  narrow.matches=false; narrow.change(); assert.equal(classes.has('is-rail-pinned'),true);
+  document.activeElement=toggle; narrow.matches=true; narrow.change();
+  assert.equal(classes.has('is-rail-pinned'),true);
+  search = {}; main = {target:search, contains(node) {return node===this.target;}};
+  document.activeElement=search; listeners.focusin({target:search});
+  assert.equal(classes.has('is-rail-pinned'),false,'focus in main hides panel'); assert.equal(writes.length,0);
+  toggle.click(); assert.equal(classes.has('is-rail-pinned'),true); assert.equal(writes.at(-1)[1],'expanded');
+  overlay={}; docs.keydown({key:'Escape'}); assert.equal(classes.has('is-rail-pinned'),true);
+  overlay=null; docs.keydown({key:'Escape'}); assert.equal(classes.has('is-rail-pinned'),false); assert.equal(writes.at(-1)[1],'collapsed');
+  narrow.matches=false; narrow.change(); assert.equal(classes.has('is-rail-pinned'),false);
+}
+"""
+    completed = subprocess.run(
+        ["node", "-e", "const SOURCE = " + json.dumps(source) + ";\n" + harness],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr + completed.stdout

@@ -3,16 +3,22 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import exists, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from twobrain_rec_server.db.models import (
     DispatchIntent,
     Meeting,
     MeetingOutcomeGenerationAttempt,
+    MeetingOutcomeSet,
+    MeetingSummarySlot,
+    ProcessingResult,
+    Workspace,
 )
 from twobrain_rec_server.processing.fences import meeting_is_deleted_or_deleting
 from twobrain_rec_server.workflows.temporal_client import outcome_generation_workflow_id
@@ -23,6 +29,291 @@ DISPATCH_LEASE = timedelta(seconds=60)
 # Provider start is deterministic by candidate id. Bound the client call so a
 # stalled SDK call cannot outlive its lease and race a maintenance retry.
 DISPATCH_START_TIMEOUT_SECONDS = 45.0
+logger = logging.getLogger(__name__)
+
+
+async def reconcile_missing_summary_defaults(
+    db: AsyncSession,
+    *,
+    limit: int = 25,
+) -> int:
+    """Restore default markers for populated workspace-default slots.
+
+    This is deliberately metadata-only: it never regenerates content, changes
+    an outcome pointer, or replaces an explicit default selected by a user.
+    """
+
+    if limit <= 0:
+        return 0
+    default_slot = aliased(MeetingSummarySlot)
+    default_exists = exists(
+        select(default_slot.id).where(
+            default_slot.workspace_id == MeetingSummarySlot.workspace_id,
+            default_slot.meeting_id == MeetingSummarySlot.meeting_id,
+            default_slot.is_meeting_default.is_(True),
+        )
+    )
+    rows = (
+        await db.execute(
+            select(
+                MeetingSummarySlot.workspace_id,
+                MeetingSummarySlot.meeting_id,
+                MeetingSummarySlot.template_key,
+                Workspace.default_summary_template_version,
+            )
+            .join(Workspace, Workspace.id == MeetingSummarySlot.workspace_id)
+            .join(Meeting, Meeting.id == MeetingSummarySlot.meeting_id)
+            .where(
+                MeetingSummarySlot.template_key == Workspace.default_summary_template_key,
+                MeetingSummarySlot.current_outcome_set_id.is_not(None),
+                MeetingSummarySlot.is_meeting_default.is_(False),
+                Meeting.deleted_at.is_(None),
+                or_(Meeting.deletion_state.is_(None), Meeting.deletion_state == "none"),
+                ~default_exists,
+            )
+            .order_by(MeetingSummarySlot.updated_at.asc(), MeetingSummarySlot.id.asc())
+            .limit(limit)
+            .with_for_update(skip_locked=True, of=MeetingSummarySlot)
+        )
+    ).all()
+    await db.commit()
+
+    if not rows:
+        return 0
+
+    from twobrain_rec_server.outcomes.service import (
+        SummarySlotDefaultConflict,
+        mark_meeting_default_slot,
+    )
+
+    repaired = 0
+    for workspace_id, meeting_id, template_key, template_version in rows:
+        try:
+            await mark_meeting_default_slot(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+                template_key=template_key,
+                resolution_source="workspace",
+                resolution_version=f"workspace-default:{template_key}:v{template_version}",
+                resolved_at=datetime.now(UTC),
+            )
+        except SummarySlotDefaultConflict:
+            # A concurrent explicit choice is authoritative.
+            await db.rollback()
+            continue
+        except Exception:
+            await db.rollback()
+            logger.exception(
+                "missing summary default reconciliation failed",
+                extra={"workspace_id": str(workspace_id), "meeting_id": str(meeting_id)},
+            )
+            continue
+        await db.commit()
+        repaired += 1
+    return repaired
+
+
+async def reconcile_orphaned_summary_candidates(
+    db: AsyncSession,
+    *,
+    limit: int = 25,
+) -> int:
+    """Repair imported AI-only outcome placeholders with no dispatch ledger row.
+
+    A short-lived regression could commit the revision-scoped placeholder before
+    candidate creation. Such rows are not visible to the normal dispatch
+    reconciler because they have no attempt or intent to claim. Re-enqueue the
+    canonical automatic candidate through the same idempotent path used by a
+    fresh import, then quarantine the empty placeholder as stale.
+    """
+
+    if limit <= 0:
+        return 0
+    candidate_has_attempt = exists(
+        select(MeetingOutcomeGenerationAttempt.id).where(
+            MeetingOutcomeGenerationAttempt.workspace_id == MeetingOutcomeSet.workspace_id,
+            MeetingOutcomeGenerationAttempt.candidate_id == MeetingOutcomeSet.candidate_id,
+        )
+    )
+    orphaned = (
+        await db.execute(
+            select(
+                MeetingOutcomeSet.id,
+                MeetingOutcomeSet.workspace_id,
+                MeetingOutcomeSet.meeting_id,
+                MeetingOutcomeSet.candidate_id,
+            )
+            .join(
+                ProcessingResult,
+                ProcessingResult.id == MeetingOutcomeSet.processing_result_id,
+            )
+            .join(Meeting, Meeting.id == MeetingOutcomeSet.meeting_id)
+            .where(
+                MeetingOutcomeSet.candidate_id.is_not(None),
+                MeetingOutcomeSet.media_revision_id.is_not(None),
+                MeetingOutcomeSet.generator_kind == "deterministic_extractive",
+                MeetingOutcomeSet.status == "generating",
+                MeetingOutcomeSet.revision_state == "candidate",
+                ProcessingResult.status == "imported",
+                ProcessingResult.transcript_status == "available",
+                ProcessingResult.segment_count > 0,
+                Meeting.deleted_at.is_(None),
+                or_(Meeting.deletion_state.is_(None), Meeting.deletion_state == "none"),
+                ~candidate_has_attempt,
+            )
+            .order_by(MeetingOutcomeSet.created_at.asc(), MeetingOutcomeSet.id.asc())
+            .limit(limit)
+            .with_for_update(skip_locked=True, of=MeetingOutcomeSet)
+        )
+    ).all()
+    await db.commit()
+
+    if not orphaned:
+        return 0
+
+    # Import lazily: ai_service imports this module for the ordinary dispatch
+    # helpers, so a top-level import would introduce a circular dependency.
+    from twobrain_rec_server.outcomes.ai_service import ensure_automatic_summary_candidate
+
+    repaired = 0
+    for outcome_set_id, workspace_id, meeting_id, candidate_id in orphaned:
+        try:
+            attempt = await ensure_automatic_summary_candidate(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+            )
+            if attempt is None:
+                await db.rollback()
+                continue
+            placeholder = await db.scalar(
+                select(MeetingOutcomeSet)
+                .where(
+                    MeetingOutcomeSet.id == outcome_set_id,
+                    MeetingOutcomeSet.workspace_id == workspace_id,
+                    MeetingOutcomeSet.meeting_id == meeting_id,
+                    MeetingOutcomeSet.candidate_id == candidate_id,
+                )
+                .with_for_update()
+            )
+            if placeholder is not None and placeholder.revision_state == "candidate":
+                placeholder.status = "blocked"
+                placeholder.revision_state = "stale"
+                placeholder.failure_reason = "summary_candidate_orphan_repaired"
+                placeholder.failure_source = "reconciliation"
+            await db.commit()
+            repaired += 1
+        except Exception:
+            await db.rollback()
+            logger.exception(
+                "orphaned summary candidate reconciliation failed",
+                extra={
+                    "workspace_id": str(workspace_id),
+                    "meeting_id": str(meeting_id),
+                    "outcome_set_id": str(outcome_set_id),
+                },
+            )
+    return repaired
+
+
+async def reconcile_unrequested_summary_candidates(
+    db: AsyncSession,
+    *,
+    limit: int = 25,
+) -> int:
+    """Start automatic summaries for ready results imported before AI ran."""
+
+    if limit <= 0:
+        return 0
+    default_slot_has_current = exists(
+        select(MeetingSummarySlot.id).where(
+            MeetingSummarySlot.workspace_id == Workspace.id,
+            MeetingSummarySlot.meeting_id == Meeting.id,
+            MeetingSummarySlot.template_key == Workspace.default_summary_template_key,
+            MeetingSummarySlot.current_outcome_set_id.is_not(None),
+        )
+    )
+    automatic_attempt_exists = exists(
+        select(MeetingOutcomeGenerationAttempt.id).where(
+            MeetingOutcomeGenerationAttempt.workspace_id == ProcessingResult.workspace_id,
+            MeetingOutcomeGenerationAttempt.meeting_id == ProcessingResult.meeting_id,
+            MeetingOutcomeGenerationAttempt.processing_result_id == ProcessingResult.id,
+            MeetingOutcomeGenerationAttempt.request_intent == "automatic_baseline",
+        )
+    )
+    rows = (
+        await db.execute(
+            select(ProcessingResult.workspace_id, ProcessingResult.meeting_id)
+            .join(Meeting, Meeting.id == ProcessingResult.meeting_id)
+            .join(Workspace, Workspace.id == ProcessingResult.workspace_id)
+            .where(
+                ProcessingResult.status == "imported",
+                ProcessingResult.transcript_status == "available",
+                ProcessingResult.summary_status == "not_requested",
+                ProcessingResult.segment_count > 0,
+                ProcessingResult.source_result_hash.is_not(None),
+                Meeting.deleted_at.is_(None),
+                or_(Meeting.deletion_state.is_(None), Meeting.deletion_state == "none"),
+                ~default_slot_has_current,
+                ~automatic_attempt_exists,
+            )
+            .order_by(ProcessingResult.imported_at.asc(), ProcessingResult.id.asc())
+            .limit(max(limit * 2, limit))
+            .with_for_update(skip_locked=True, of=ProcessingResult)
+        )
+    ).all()
+    await db.commit()
+
+    if not rows:
+        return 0
+
+    from twobrain_rec_server.outcomes.ai_service import ensure_automatic_summary_candidate
+
+    selected: set[tuple[UUID, UUID]] = set()
+    backfilled = 0
+    for workspace_id, meeting_id in rows:
+        identity = (workspace_id, meeting_id)
+        if identity in selected or len(selected) >= limit:
+            continue
+        selected.add(identity)
+        try:
+            attempt = await ensure_automatic_summary_candidate(
+                db,
+                workspace_id=workspace_id,
+                meeting_id=meeting_id,
+            )
+            if attempt is not None:
+                backfilled += 1
+            else:
+                await db.rollback()
+        except Exception:
+            await db.rollback()
+            logger.exception(
+                "unrequested summary candidate reconciliation failed",
+                extra={"workspace_id": str(workspace_id), "meeting_id": str(meeting_id)},
+            )
+    return backfilled
+
+
+def _workflow_slot_identity(
+    attempt: MeetingOutcomeGenerationAttempt | None,
+) -> tuple[UUID, UUID | None] | None:
+    if attempt is None:
+        return None
+    metadata = attempt.metadata_json or {}
+    raw_slot_id = metadata.get("summary_slot_id")
+    if not isinstance(raw_slot_id, str) or not raw_slot_id:
+        return None
+    if "expected_current_outcome_set_id" not in metadata:
+        return None
+    raw_expected = metadata.get("expected_current_outcome_set_id")
+    try:
+        slot_id = UUID(raw_slot_id)
+        expected_id = UUID(raw_expected) if isinstance(raw_expected, str) and raw_expected else None
+    except (AttributeError, TypeError, ValueError):
+        return None
+    return slot_id, expected_id
 
 
 async def ensure_dispatch_intent(
@@ -120,7 +411,7 @@ async def mark_dispatch_started(
     workspace_id: UUID,
     idempotency_key: str,
     workflow_id: str,
-    run_id: str,
+    run_id: str | None,
 ) -> DispatchIntent | None:
     seed_intent = await db.scalar(
         select(DispatchIntent).where(
@@ -182,7 +473,8 @@ async def mark_dispatch_started(
     intent.state = "started"
     intent.reconciliation_state = "started"
     intent.external_workflow_id = workflow_id
-    intent.external_run_id = run_id
+    if run_id is not None:
+        intent.external_run_id = run_id
     intent.started_at = intent.started_at or datetime.now(UTC)
     intent.completed_at = None
     # Keep a durable handoff lease after Temporal acknowledges the start. A
@@ -364,6 +656,7 @@ async def reconcile_dispatch_intent(
     if current_intent is None:
         return False
     intent = current_intent
+    workflow_slot_identity = _workflow_slot_identity(attempt)
     if (
         intent.state in {"started", "dispatching"}
         and intent.lease_expires_at is not None
@@ -376,6 +669,7 @@ async def reconcile_dispatch_intent(
         or attempt.candidate_id is None
         or attempt.source_result_id is None
         or attempt.template_key is None
+        or workflow_slot_identity is None
     ):
         await mark_dispatch_failure(
             db,
@@ -442,6 +736,7 @@ async def reconcile_dispatch_intent(
     intent.lease_expires_at = datetime.now(UTC) + DISPATCH_LEASE
     await db.commit()
     try:
+        summary_slot_id, expected_current_outcome_set_id = workflow_slot_identity
         started = await asyncio.wait_for(
             start_outcome_generation_workflow(
                 temporal_client=temporal_client,
@@ -454,14 +749,17 @@ async def reconcile_dispatch_intent(
                 template_version=attempt.template_version or 1,
                 prompt_name=attempt.prompt_name or "graf-summary",
                 requested_by_user_id=attempt.requested_by_user_id,
+                summary_slot_id=summary_slot_id,
+                expected_current_outcome_set_id=expected_current_outcome_set_id,
             ),
             timeout=DISPATCH_START_TIMEOUT_SECONDS,
         )
     except Exception as dispatch_error:
-        await _cancel_started_workflow(
-            temporal_client,
-            outcome_generation_workflow_id(attempt.candidate_id),
-        )
+        if not isinstance(dispatch_error, asyncio.TimeoutError):
+            await _cancel_started_workflow(
+                temporal_client,
+                outcome_generation_workflow_id(attempt.candidate_id),
+            )
         # Temporal start can race with a deletion or a user cancellation after
         # the lease commit. Re-read the authoritative rows before projecting a
         # retryable failure so a stale worker cannot resurrect the attempt.
@@ -536,6 +834,27 @@ async def reconcile_dispatch_intent(
                 await db.commit()
             else:
                 await db.rollback()
+            return False
+        if isinstance(dispatch_error, asyncio.TimeoutError):
+            # wait_for cancelled only the client-side acknowledgement. The
+            # deterministic Temporal start may already be accepted, so keep
+            # the workflow identity and lease for reconciliation instead of
+            # cancelling a possibly running workflow.
+            current_intent.state = "started"
+            current_intent.reconciliation_state = "started"
+            current_intent.external_workflow_id = outcome_generation_workflow_id(
+                attempt.candidate_id
+            )
+            current_intent.lease_expires_at = datetime.now(UTC) + DISPATCH_LEASE
+            current_intent.next_attempt_at = None
+            current_intent.failure_code = None
+            if (
+                current_attempt.status == "queued"
+                and current_attempt.failure_source == "temporal_dispatch"
+            ):
+                current_attempt.failure_code = None
+                current_attempt.failure_source = None
+            await db.commit()
             return False
         failure_intent = await mark_dispatch_failure(
             db,
@@ -656,8 +975,7 @@ async def reconcile_dispatch_intent(
         workflow_id=started.workflow_id,
         run_id=started.run_id
         or current_attempt.workflow_run_id
-        or (current_intent.external_run_id if current_intent is not None else None)
-        or "",
+        or (current_intent.external_run_id if current_intent is not None else None),
     )
     await db.commit()
     return True
