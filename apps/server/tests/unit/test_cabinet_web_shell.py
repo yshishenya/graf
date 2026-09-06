@@ -1,6 +1,5 @@
 import re
 from datetime import UTC, datetime, timedelta
-from html import escape
 from pathlib import Path
 from uuid import UUID, uuid4
 
