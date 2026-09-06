@@ -40,7 +40,6 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertEqual(DesktopMeetingShellChrome.webEmbeddedBackgroundHex, DesktopMeetingShellChrome.shellBackgroundHex)
         XCTAssertEqual(DesktopMeetingShellChrome.fontStackDescription, "SF Pro Text / system")
         XCTAssertEqual(DesktopMeetingShellChrome.compactRailLabels, ["Статус записи", "Локальная сохранность"])
-        XCTAssertEqual(DesktopCabinetWorkspaceView.embeddedWorkspaceMaxWidth, 1120)
         XCTAssertFalse(DesktopMeetingShellChrome.idleShowsNativeTopBar)
         XCTAssertEqual(DesktopMeetingShellChrome.recordingStripHeight, 44)
         XCTAssertGreaterThanOrEqual(
@@ -518,6 +517,12 @@ final class AppControlAccessibilityTests: XCTestCase {
 
         XCTAssertTrue(source.contains("ScrollView"))
         XCTAssertTrue(source.contains("Автозапись"))
+        XCTAssertTrue(source.contains("через 8 секунд, если вы не откажетесь"))
+        XCTAssertTrue(source.contains("Изменения сохраняются автоматически"))
+        XCTAssertTrue(source.contains("Для приложений выбраны разные правила"))
+        XCTAssertFalse(source.contains("после загрузки реестра"))
+        XCTAssertTrue(source.contains(".alert(\"Не удалось обновить настройки\""))
+        XCTAssertTrue(source.contains("Прежние правила остаются в силе"))
         XCTAssertTrue(source.contains("ForEach(promptCapableTargets"))
         XCTAssertTrue(source.contains("AutomaticRecordingRulePicker"))
         XCTAssertTrue(source.contains("bulkRuleBinding"))

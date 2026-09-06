@@ -4,6 +4,7 @@ import TwoBrainRecShared
 
 public struct MeetingDetectionSettingsView: View {
     public static let windowTitle = "Настройки"
+    public static let windowSize = NSSize(width: 820, height: 600)
     public static let sidebarTitle = "Встречи"
     public static let pageTitle = "Автозапись"
     public static let autoRecordSectionTitle = "Приложения"
@@ -37,9 +38,17 @@ public struct MeetingDetectionSettingsView: View {
             Divider()
             content
         }
-        .frame(width: 760, height: 500)
+        .frame(width: Self.windowSize.width, height: Self.windowSize.height)
         .background(Color(nsColor: .windowBackgroundColor))
         .tint(DesktopMeetingShellChrome.shellAccentColor)
+        .alert("Не удалось обновить настройки", isPresented: Binding(
+            get: { saveError != nil },
+            set: { if !$0 { saveError = nil } }
+        )) {
+            Button("Понятно", role: .cancel) { saveError = nil }
+        } message: {
+            Text(saveError ?? "Попробуйте ещё раз.")
+        }
         .onAppear {
             reloadRegistryTargets()
         }
@@ -90,58 +99,65 @@ public struct MeetingDetectionSettingsView: View {
 
     private var content: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
-                Label(Self.pageTitle, systemImage: "dot.radiowaves.left.and.right")
-                    .font(.headline)
+            VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(Self.pageTitle)
+                        .font(.title2.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text("Выберите, как начинать запись встреч в каждом приложении на этом Mac.")
+                    Text("Всегда — без запроса. Спрашивать — показать запрос и начать запись через 8 секунд, если вы не откажетесь. Никогда — не начинать автоматически.")
+                    Text("Изменения сохраняются автоматически. Ручная запись остаётся доступна.")
+                }
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
 
-                Form {
-                    Section(header: Text(Self.autoRecordSectionTitle).fontWeight(.medium)) {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(Self.applyToAllTitle)
-                                .font(.subheadline)
-                                .fontWeight(.medium)
-                            AutomaticRecordingRulePicker(
-                                title: Self.applyToAllTitle,
-                                selection: bulkRuleBinding,
-                                isDisabled: promptCapableTargets.isEmpty
-                            )
-                        }
+                VStack(alignment: .leading, spacing: 16) {
+                    Text(Self.autoRecordSectionTitle)
+                        .font(.headline)
 
-                        if promptCapableTargets.isEmpty {
-                            Text("Список появится после загрузки реестра.")
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(Self.applyToAllTitle)
+                            .fontWeight(.medium)
+                        AutomaticRecordingRulePicker(
+                            title: Self.applyToAllTitle,
+                            selection: bulkRuleBinding,
+                            isDisabled: promptCapableTargets.isEmpty
+                        )
+                        if !promptCapableTargets.isEmpty && bulkRuleBinding.wrappedValue == nil {
+                            Text("Для приложений выбраны разные правила.")
                                 .font(.callout)
                                 .foregroundStyle(.secondary)
-                        } else {
-                            ForEach(promptCapableTargets, id: \.id) { target in
-                                HStack(spacing: 12) {
-                                    Image(systemName: "app.dashed")
-                                        .foregroundStyle(.secondary)
-                                        .frame(width: 20)
-                                    Text(target.displayName)
-                                        .fontWeight(.medium)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                    AutomaticRecordingRulePicker(
-                                        title: target.displayName,
-                                        selection: ruleBinding(for: target.id)
-                                    )
-                                }
+                        }
+                    }
+
+                    Divider()
+                    if promptCapableTargets.isEmpty {
+                        Text("Список приложений пока недоступен. Попробуйте открыть настройки позже.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else {
+                        ForEach(promptCapableTargets, id: \.id) { target in
+                            HStack(spacing: 12) {
+                                Image(systemName: "app.dashed")
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 20)
+                                    .accessibilityHidden(true)
+                                Text(target.displayName)
+                                    .fontWeight(.medium)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                AutomaticRecordingRulePicker(
+                                    title: target.displayName,
+                                    selection: ruleBinding(for: target.id)
+                                )
                             }
                         }
                     }
                 }
-                .formStyle(.grouped)
-
-                if let saveError {
-                    Label(saveError, systemImage: "exclamationmark.triangle.fill")
-                        .font(.callout)
-                        .foregroundStyle(.orange)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Spacer()
             }
-
-
+            .padding(24)
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -182,7 +198,7 @@ public struct MeetingDetectionSettingsView: View {
             saveError = nil
             notificationCenter.post(name: .twoBrainRecMeetingDetectionSettingsDidChange, object: nil)
         } catch {
-            saveError = "Настройки временно не сохранены"
+            saveError = "Изменения не сохранены. Прежние правила остаются в силе. Попробуйте ещё раз."
         }
     }
 
@@ -257,14 +273,14 @@ private struct AutomaticRecordingRulePicker: View {
                     selection = rule
                 } label: {
                     HStack(spacing: 5) {
-                        Image(systemName: rule.symbolName)
+                        Image(systemName: selection == rule ? "checkmark.circle.fill" : rule.symbolName)
                         Text(rule.displayName)
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
                     }
                     .font(.callout)
-                    .frame(width: 112, height: 38)
-                    .foregroundStyle(selection == rule ? .white : .primary)
+                    .frame(width: 104, height: 40)
+                    .foregroundStyle(selection == rule ? Color.black : Color.primary)
                     .background(
                         selection == rule
                             ? DesktopMeetingShellChrome.shellAccentColor
@@ -288,12 +304,14 @@ private struct AutomaticRecordingRulePicker: View {
                 .onHover { isHovering in
                     hoveredRule = isHovering ? rule : nil
                 }
+                .accessibilityLabel("\(title): \(rule.displayName)")
+                .accessibilityHint(isDisabled ? "Недоступно" : "Выберите состояние автозаписи")
                 .accessibilityAddTraits(selection == rule ? .isSelected : [])
             }
         }
+        .accessibilityElement(children: .contain)
         .accessibilityLabel(title)
         .accessibilityValue(selection?.displayName ?? "Разные")
-        .accessibilityHint(isDisabled ? "Недоступно" : "Выберите состояние автозаписи")
     }
 }
 

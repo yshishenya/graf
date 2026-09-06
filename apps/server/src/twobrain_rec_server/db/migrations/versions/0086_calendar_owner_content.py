@@ -3,8 +3,8 @@
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0086_calendar_owner_content"
-down_revision = "0085_merge_summary_mediascribe"
+revision: str = "0086_calendar_owner_content"
+down_revision: str = "0085_merge_summary_mediascribe"
 branch_labels = None
 depends_on = None
 

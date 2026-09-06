@@ -3354,13 +3354,12 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
         }
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 720, height: 480),
+            contentRect: NSRect(origin: .zero, size: MeetingDetectionSettingsView.windowSize),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
         )
         window.title = MeetingDetectionSettingsView.windowTitle
-        window.minSize = NSSize(width: 680, height: 440)
         window.isReleasedWhenClosed = false
         window.isRestorable = false
         window.identifier = NSUserInterfaceItemIdentifier("graf-settings-window")

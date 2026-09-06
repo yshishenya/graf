@@ -2,7 +2,7 @@
 {% import "cabinet/components/primitives.html" as ui %}
 
 {% macro preferences_form(preferences, csrf_token, embedded=False) -%}
-<form class="settings-form" data-settings-form method="post" action="{{ "/desktop/settings/notifications" if embedded else "/settings/notifications" }}">
+<form class="settings-form" data-settings-form data-settings-form-disable-pristine method="post" action="{{ "/desktop/settings/notifications" if embedded else "/settings/notifications" }}">
   {{ sections.csrf_field(csrf_token) }}
   <div class="settings-control-list">
     {{ ui.switch("optional_email_enabled", "Email-подсказки", checked=preferences.optional_email_enabled, description="Новости и советы о GRAF") }}
