@@ -7865,6 +7865,34 @@
   const more = root.querySelector('[data-notification-more]');
   const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
   const embedded = bell.pathname.startsWith('/desktop/');
+  const openedNoticeKey = 'graf-notification-open';
+  const consumeOpenedNotice = async () => {
+    let pending;
+    try {
+      const stored = sessionStorage.getItem(openedNoticeKey);
+      sessionStorage.removeItem(openedNoticeKey);
+      pending = JSON.parse(stored || 'null');
+    } catch (_) { return; }
+    if (!pending || !/^[0-9a-f-]{36}$/.test(pending.id) || !Number.isSafeInteger(pending.revision)
+        || pending.revision < 1 || typeof pending.csrf !== 'string' || !pending.csrf
+        || !Number.isFinite(pending.createdAt) || Date.now() - pending.createdAt < 0
+        || Date.now() - pending.createdAt > 30000
+        || pending.target !== location.pathname + location.search) return;
+    const route = location.pathname.match(/^\/(?:desktop\/)?(?:meetings|shared-meetings)\/([0-9a-f-]{36})$/);
+    const detail = document.querySelector('main#cabinet-main[data-meeting-id]');
+    const shared = location.pathname.startsWith('/shared-meetings/')
+      && document.querySelector('main#cabinet-main .shared-summary');
+    if (!route || !(detail?.dataset.meetingId === route[1] || shared)) return;
+    try {
+      // The source page's token binds this intent to its authenticated session.
+      // The existing endpoint rechecks recipient, workspace and current object access.
+      const response = await fetch('/api/v1/notifications/' + pending.id + '/read', {
+        method:'POST', credentials:'same-origin', headers:{Accept:'application/json','X-CSRF-Token':pending.csrf},
+        body:new URLSearchParams({revision:String(pending.revision)})
+      });
+      if (response.ok && !response.redirected && root.isConnected) await load(false, true);
+    } catch (_) { /* An unconfirmed read remains available through “Просмотрено”. */ }
+  };
   let filter = 'important', next = null, epoch = 0, scopeEpoch = 0, controller = null, pageCount = 1;
   const setDot = value => {
     dot.hidden = !value;
@@ -7883,13 +7911,23 @@
     const card = text('article', ''); card.className = 'notification-card';
     card.dataset.id = item.id; card.dataset.content = JSON.stringify(item);
     card.append(text('h3', item.title), text('p', item.meeting_title), text('p', item.body));
-    const date = new Date(item.created_at);
+    const date = new Date(item.updated_at);
     if (Number.isFinite(date.getTime())) {
       const time = text('time', date.toLocaleString('ru-RU', {day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'}));
-      time.dateTime = item.created_at; card.append(time);
+      time.dateTime = item.updated_at; card.append(time);
     }
     if (item.personal) card.append(text('p', 'Лично вам'));
+    if (item.resolved) card.append(text('p', 'Проблема решена'));
     const link = text('a', 'Открыть встречу'); link.href = (embedded && url.pathname.startsWith('/meetings/') ? '/desktop' : '') + url.pathname + url.search; card.append(link);
+    link.onclick = event => {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      try {
+        sessionStorage.removeItem(openedNoticeKey);
+        if (item.unseen && csrf && card.isConnected) sessionStorage.setItem(openedNoticeKey, JSON.stringify({
+          id:item.id, revision:item.revision, target:link.pathname + link.search, createdAt:Date.now(), csrf
+        }));
+      } catch (_) { /* Navigation remains available when storage is disabled. */ }
+    };
     if (item.requires_action && item.unseen) {
       const read = text('button', 'Просмотрено'); read.type = 'button';
       read.onclick = async () => {
@@ -7900,7 +7938,13 @@
             body:new URLSearchParams({revision:String(item.revision)})
           });
           if (scope !== scopeEpoch || !card.isConnected) return;
-          if (!response.ok || response.redirected) throw new Error('read_failed');
+          if (response.redirected || [401,403,404,410].includes(response.status)) {
+            clear();
+            status.textContent = 'Доступ изменился. Откройте уведомления заново.';
+            heading.focus({preventScroll:true});
+            return;
+          }
+          if (!response.ok) throw new Error('read_failed');
           link.focus({preventScroll:true}); await load();
         } catch (_) {
           if (scope === scopeEpoch && card.isConnected) { status.textContent = 'Не удалось сохранить просмотр. Повторите попытку.'; read.disabled = false; }
@@ -7963,7 +8007,9 @@
   };
   bell.onclick = event => {
     event.preventDefault(); if (!panel.hidden) { close(true); return; }
-    clear(); panel.hidden = false; bell.setAttribute('aria-expanded','true'); heading.focus(); load();
+    clear(); filter = 'important';
+    root.querySelectorAll('[data-notification-filter]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.notificationFilter === filter)));
+    panel.hidden = false; bell.setAttribute('aria-expanded','true'); heading.focus(); load();
   };
   root.querySelector('[data-notification-close]').onclick = () => close(true);
   root.querySelectorAll('[data-notification-filter]').forEach(button => button.onclick = () => {
@@ -7975,15 +8021,17 @@
   document.addEventListener('keydown', event => { if (event.key === 'Escape' && !panel.hidden) { close(true); event.stopPropagation(); } });
   document.addEventListener('click', event => { if (!root.contains(event.target)) close(); });
   document.addEventListener('visibilitychange', () => { clear(); if (!document.hidden) load(); });
-  window.addEventListener('pageshow', () => { clear(); load(); });
+  window.addEventListener('pageshow', () => { clear(); load(); consumeOpenedNotice(); });
   window.addEventListener('pagehide', clear);
   document.addEventListener('htmx:afterRequest', event => {
     const code = event.detail?.xhr?.status;
     if ([401,403,404,410].includes(code)) { clear(); if (!document.hidden) load(); }
   });
   document.addEventListener('htmx:afterSwap', () => { if (root.isConnected && !document.hidden) load(false, true); });
+  document.addEventListener('htmx:afterSettle', consumeOpenedNotice);
   window.setInterval(() => { if (root.isConnected && !document.hidden) load(false, true); }, 30000);
   load();
+  consumeOpenedNotice();
 })();
 
 (() => {

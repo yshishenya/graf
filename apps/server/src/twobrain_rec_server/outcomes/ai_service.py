@@ -2444,14 +2444,10 @@ async def _record_summary_notice(db, meeting, *, source_result_id, completed: bo
     seen = set()
     failure = None
     for attempt in attempts:
-        if attempt.template_key in seen:
-            continue
-        if attempt.status in ACTIVE_CANDIDATE_STATUSES:
+        if attempt.template_key in seen or attempt.status != "failed":
             continue
         seen.add(attempt.template_key)
-        if attempt.status != "failed":
-            continue
-        # A committed replacement of this format resolves its earlier failure.
+        # Only the published slot resolves a failure, not a later candidate's status.
         accepted = await db.scalar(select(MeetingOutcomeSet.accepted_at).join(
             MeetingSummarySlot, MeetingSummarySlot.current_outcome_set_id == MeetingOutcomeSet.id,
         ).where(MeetingSummarySlot.meeting_id == meeting.id,

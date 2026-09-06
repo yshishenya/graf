@@ -8,7 +8,7 @@
       {% if notification_result %}<p class="settings-status" role="status" aria-live="polite">{{ notification_result }}</p>{% endif %}
       <section class="settings-section" aria-labelledby="notification-preferences-title">
         <div class="settings-section__heading">
-          <div><h2 id="notification-preferences-title">Дополнительные уведомления</h2><p class="muted">Эти настройки относятся к аккаунту. Они не управляют записью или уведомлениями macOS.</p></div>
+          <div><h2 id="notification-preferences-title">Дополнительные уведомления</h2><p class="muted">Эти настройки относятся к аккаунту. Они не управляют записью или уведомлениями macOS.</p><p class="muted">Напоминания на Mac: меню GRAF → Настройки → Уведомления на этом Mac.</p></div>
         </div>
         {{ notifications_ui.preferences_form(notification_preferences, csrf_token, embedded=embedded) }}
       </section>

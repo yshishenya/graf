@@ -146,7 +146,12 @@ def test_summary_success_keeps_other_format_failure_until_recovered(client):
     from datetime import UTC, datetime, timedelta
 
     from tests.fixtures.cabinet import create_outcome_ready_meeting
-    from twobrain_rec_server.db.models import MeetingOutcomeGenerationAttempt, ProcessingResult
+    from twobrain_rec_server.db.models import (
+        MeetingOutcomeGenerationAttempt,
+        MeetingOutcomeSet,
+        MeetingSummarySlot,
+        ProcessingResult,
+    )
     from twobrain_rec_server.outcomes.ai_service import _record_summary_notice
 
     meeting_id = create_outcome_ready_meeting(client, 'notification-multiple-formats')
@@ -170,7 +175,19 @@ def test_summary_success_keeps_other_format_failure_until_recovered(client):
             await db.flush()
             await _record_summary_notice(db, meeting, source_result_id=result.id, completed=True)
             assert row.kind == 'summary_failed' and row.revision == shown
-            retry.status = 'accepted'
+            for status in ('candidate', 'expired', 'cancelled', 'accepted'):
+                retry.status = status
+                await db.flush()
+                await _record_summary_notice(db, meeting, source_result_id=result.id, completed=True)
+                assert row.kind == 'summary_failed' and row.revision == shown, status
+            replacement = MeetingOutcomeSet(workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id, processing_result_id=result.id, template_key='meeting_minutes',
+                generator_version='synthetic-replacement', accepted_at=datetime.now(UTC))
+            db.add(replacement)
+            await db.flush()
+            db.add(MeetingSummarySlot(workspace_id=meeting.workspace_id, meeting_id=meeting.id,
+                template_key='meeting_minutes', current_outcome_set_id=replacement.id,
+                current_binding_class='verified_complete'))
             await db.flush()
             await _record_summary_notice(db, meeting, source_result_id=result.id, completed=True)
             assert row.kind == 'result_ready' and not row.requires_action

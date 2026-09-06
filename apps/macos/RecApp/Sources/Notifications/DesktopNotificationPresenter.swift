@@ -37,14 +37,25 @@ public final class DesktopNotificationPreferencesStore {
     public func ownsSession(_ id: String, context: String) -> Bool {
         !context.isEmpty && defaults.string(forKey: key("session:" + id)) == key(context)
     }
-    public func claim(id: String, owner: String, expires: Date, now: Date = Date()) -> Bool {
+    public func claim(id: String, owner: String, expires: Date, scheduledFor: Date? = nil, now: Date = Date()) -> Bool {
         guard !owner.isEmpty, expires > now else { return false }
         let name = key(owner) + ".attempts"
-        var claims = defaults.dictionary(forKey: name) as? [String: Double] ?? [:]
-        claims = claims.filter { $0.value > now.timeIntervalSince1970 }
+        var claims = defaults.dictionary(forKey: name) ?? [:]
+        claims = claims.filter {
+            let expiry = ($0.value as? Double) ?? ($0.value as? [String: Double])?["expires"] ?? 0
+            return expiry > now.timeIntervalSince1970
+        }
         let digest = SHA256.hash(data: Data(id.utf8)).map { String(format: "%02x", $0) }.joined()
-        guard claims[digest] == nil else { return false }
-        claims[digest] = expires.timeIntervalSince1970
+        if let previous = claims[digest] {
+            // A future reservation can be replaced after cancellation/restart. Once
+            // its due time has passed (or with a legacy claim), never deliver again.
+            guard let reservation = previous as? [String: Double],
+                  let due = reservation["scheduledFor"], due > now.timeIntervalSince1970,
+                  scheduledFor != nil else { return false }
+        }
+        var reservation = ["expires": expires.timeIntervalSince1970]
+        if let scheduledFor { reservation["scheduledFor"] = scheduledFor.timeIntervalSince1970 }
+        claims[digest] = reservation
         defaults.set(claims, forKey: name)
         return true
     }
@@ -68,6 +79,8 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
     private var requests: [String: (owner: String, event: DesktopCalendarPromptEvent?)] = [:]
     private var observation: AnyCancellable?
     private var activationObservation: AnyCancellable?
+    private var settingsObservation: AnyCancellable?
+    private var permissionGeneration = 0
     private var lastSnapshot = DesktopControlSnapshot()
     public override init() {
         super.init()
@@ -77,6 +90,9 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
         activationObservation = NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification).sink { [weak self] _ in
             Task { await self?.refreshPermission() }
         }
+        settingsObservation = NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)
+            .filter { ($0.object as? NSWindow)?.identifier?.rawValue == "graf-settings-window" }
+            .sink { [weak self] _ in Task { await self?.refreshPermission() } }
         observation = DesktopControlModel.shared.$snapshot.sink { [weak self] snapshot in
             guard let self, snapshot != self.lastSnapshot else { return }
             let activeChanged = snapshot.active != self.lastSnapshot.active
@@ -119,8 +135,11 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
         Task { await scheduleReminders() }
     }
     public func refreshPermission() async {
+        permissionGeneration += 1
+        let request = permissionGeneration
         let previous = permissionText
         let settings = await center.notificationSettings()
+        guard request == permissionGeneration else { return }
         canRequestPermission = settings.authorizationStatus == .notDetermined
         switch settings.authorizationStatus {
         case .notDetermined: permissionText = "Разрешение ещё не запрашивалось"
@@ -157,6 +176,7 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
         let content = UNMutableNotificationContent()
         content.title = "Проверка уведомлений GRAF"
         content.body = "Это тестовое сообщение. Управление записью всегда доступно в приложении."
+        if preferences.sound && !lastSnapshot.active { content.sound = .default }
         do {
             try await center.add(UNNotificationRequest(identifier: "graf.local.test", content: content, trigger: nil))
             message = "Тест передан macOS. Показ зависит от системных настроек и Фокусирования."
@@ -181,8 +201,6 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
         center.removeDeliveredNotifications(withIdentifiers: obsolete)
         obsolete.forEach { requests.removeValue(forKey: $0) }
         guard !owner.isEmpty, preferences.reminders, !lastSnapshot.active, await allowed(), epoch == generation else { return }
-        let pending = Set(await center.pendingNotificationRequests().map(\.identifier))
-        guard epoch == generation else { return }
         let now = Date()
         for event in calendarEvents {
             guard epoch == generation else { return }
@@ -190,10 +208,11 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
             guard event.joinPromptState.canSurfacePrompt, expires > now else { continue }
             let due = event.startsAt.addingTimeInterval(-Double(preferences.offsetMinutes)*60)
             let id = reminderID(event)
-            guard pending.contains(id) || store.claim(id: id, owner: owner, expires: expires, now: now) else { continue }
+            requests[id] = (owner, event)
+            guard store.claim(id: id, owner: owner, expires: expires, scheduledFor: due, now: now) else { continue }
             let content = UNMutableNotificationContent()
             content.title = preferences.showTitles ? event.safeDisplayTitle() : "Встреча в календаре"
-            content.body = due <= now && now >= event.startsAt ? "Встреча уже началась. Откройте GRAF, чтобы подключиться." : preferences.offsetMinutes == 0 ? "Встреча начинается. Откройте GRAF, чтобы подключиться." : "Встреча начнётся через \(preferences.offsetMinutes) мин. Откройте GRAF, чтобы подключиться."
+            content.body = Self.reminderBody(startsAt: event.startsAt, due: due, offsetMinutes: preferences.offsetMinutes, now: now)
             if preferences.sound { content.sound = .default }
             requests[id] = (owner, event)
             let trigger = UNTimeIntervalNotificationTrigger(timeInterval: max(1, due.timeIntervalSince(now)), repeats: false)
@@ -201,6 +220,10 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
             catch { message = "Напоминание не передано macOS. Встреча доступна в календаре GRAF." }
             if epoch != generation { center.removePendingNotificationRequests(withIdentifiers: [id]); center.removeDeliveredNotifications(withIdentifiers: [id]); return }
         }
+    }
+    public static func reminderBody(startsAt: Date, due: Date, offsetMinutes: Int, now: Date) -> String {
+        let timing = now >= startsAt ? "Встреча уже началась." : due < now ? "Встреча скоро начнётся." : offsetMinutes == 0 ? "Встреча начинается." : "Встреча начнётся через \(offsetMinutes) мин."
+        return timing + " Откройте GRAF, чтобы подключиться."
     }
     private func reminderID(_ event: DesktopCalendarPromptEvent) -> String {
         let raw = context + ":" + event.eventId + ":" + String(event.startsAt.timeIntervalSince1970)
@@ -220,7 +243,7 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
         center.removePendingNotificationRequests(withIdentifiers: obsolete)
         center.removeDeliveredNotifications(withIdentifiers: obsolete)
         obsolete.forEach { requests.removeValue(forKey: $0) }
-        guard !incidents.isEmpty, !owner.isEmpty, await allowed(), epoch == generation, snapshot == lastSnapshot, !NSApp.isActive else { return }
+        guard !incidents.isEmpty, !owner.isEmpty, await allowed(), epoch == generation, snapshot == lastSnapshot, !snapshot.active, !NSApp.isActive else { return }
         for incident in incidents where incident.fresh {
             guard store.claim(id: incident.id, owner: owner, expires: incident.expires) else { continue }
             let content = UNMutableNotificationContent()
@@ -237,17 +260,27 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
         }
     }
     public nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
-        notification.request.identifier == "graf.local.test" ? [.banner, .list] : []
+        guard notification.request.identifier == "graf.local.test" else { return [] }
+        return await MainActor.run {
+            preferences.sound && !lastSnapshot.active ? [.banner, .list, .sound] : [.banner, .list]
+        }
     }
     public nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
         await openResponse(response.notification.request.identifier)
+    }
+    public static func currentMeetingURL(for target: DesktopCalendarPromptEvent,
+                                         events: [DesktopCalendarPromptEvent], now: Date = Date()) -> URL? {
+        guard let event = events.first(where: { $0.eventId == target.eventId && $0.startsAt == target.startsAt }),
+              event.joinPromptState.canSurfacePrompt,
+              min(event.endsAt, event.startsAt.addingTimeInterval(300)) > now,
+              let url = event.openMeetingURL, url.scheme == "https", url.host != nil else { return nil }
+        return url
     }
     private func openResponse(_ id: String) {
         if id == "graf.local.test" { DesktopControlModel.shared.send(.settings); return }
         guard let target = requests[id], target.owner == owner, !owner.isEmpty else { return }
         if let event = target.event {
-            guard event.endsAt > Date(), calendarEvents.contains(where: { $0.eventId == event.eventId && $0.startsAt == event.startsAt }),
-                  let url = event.openMeetingURL, url.scheme == "https", url.host != nil else { return }
+            guard let url = Self.currentMeetingURL(for: event, events: calendarEvents) else { return }
             NSWorkspace.shared.open(url)
         } else { DesktopControlModel.shared.send(.localRecordings) }
     }
@@ -285,6 +318,8 @@ public struct DesktopNotificationsSettingsView: View {
             if presenter.owner.isEmpty { Text("Войдите в GRAF, чтобы сохранить настройки для своего аккаунта.") }
             if presenter.draft != presenter.preferences { Text("Изменения не сохранены. Вы можете вернуться к ним в этом окне или отменить их.").font(.callout) }
             Text(presenter.message).font(.callout)
+            Text("Проверка использует сохранённые настройки. Показ разрешает macOS.")
+                .font(.callout).foregroundStyle(.secondary)
             }
         }.formStyle(.grouped)
         .onAppear { Task { await presenter.refreshPermission() } }

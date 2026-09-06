@@ -537,10 +537,15 @@ private struct ContentView: View {
         var value = DesktopControlSnapshot()
         value.session = captureSession
         value.transitioning = recordingStartInProgress || recordingStopInProgress
+        value.stopping = recordingStopInProgress
         value.startAvailable = CaptureControlView.shouldShowDirectRecordButton(for: captureSession, calendarPrompt: desktopCalendarPrompt) && effectivePermissionOnboardingStatus.isReady && !value.transitioning
         value.blocker = recordingBlocker
         value.microphone = effectivePermissionOnboardingStatus.microphone == .granted ? (captureSession?.state == .paused ? "На паузе" : localRecordingActive ? (liveRecordingLevels.microphoneIsLive() ? "Поступают аудиоданные" : "Нет свежих аудиоданных") : "Доступ разрешён") : "Нужен доступ"
         value.systemAudio = effectivePermissionOnboardingStatus.systemAudio == .granted ? (localRecordingActive ? (liveRecordingLevels.incomingIsLive() ? "Поступают аудиоданные" : "Нет свежих аудиоданных") : "Доступ разрешён") : "Нужен доступ"
+        if recordingStopInProgress {
+            value.microphone = "Завершаем захват"
+            value.systemAudio = "Завершаем захват"
+        }
         value.uploadItems = uploadQueueItems
         return value
     }
@@ -2267,7 +2272,7 @@ private struct ContentView: View {
         }
 
         do {
-            _ = try captureController.requestStop(reason: reason)
+            captureSession = try captureController.requestStop(reason: reason)
             enqueueLocalRecordingAsSaving(directoryURL: recordingDirectory)
             let systemAudioSession = try await systemAudioCaptureService.stop()
             activeMicrophoneSampleSource?.stop()
@@ -3339,6 +3344,7 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
     }
 
     private func presentSettingsWindow(reason: String) {
+        Task { await DesktopNotificationPresenter.shared.refreshPermission() }
         if let settingsWindow {
             if settingsWindow.isMiniaturized {
                 settingsWindow.deminiaturize(nil)

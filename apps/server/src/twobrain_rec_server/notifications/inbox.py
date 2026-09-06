@@ -145,7 +145,8 @@ async def authorized_card(db, row, *, tenant_scope, sessionmaker):
     return dict(id=str(row.id), revision=row.revision, title=title, body=body,
                 meeting_title=meeting.title or 'Встреча', href=path,
                 requires_action=row.requires_action, unseen=row.read_revision < row.revision,
-                personal=row.family == 'share', created_at=row.created_at.isoformat())
+                personal=row.family == 'share', created_at=row.created_at.isoformat(),
+                updated_at=row.updated_at.isoformat(), resolved=row.resolved_at is not None)
 
 
 async def purge_expired(db: AsyncSession, *, limit: int = 1000) -> None:

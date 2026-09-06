@@ -79,4 +79,60 @@ final class DesktopNotificationControlTests: XCTestCase {
         XCTAssertFalse(DesktopNotificationPreferencesStore(defaults: defaults).claim(id: "incident-1", owner: "a", expires: now.addingTimeInterval(30), now: now))
         XCTAssertFalse(first.claim(id: "old", owner: "a", expires: now.addingTimeInterval(-1), now: now))
     }
+    func testCancelledFutureReservationCanBeRestoredButDueAttemptCannotRepeat() throws {
+        let name = "graf-notification-reservation-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let now = Date(timeIntervalSince1970: 1000)
+        let due = now.addingTimeInterval(120)
+        let expiry = due.addingTimeInterval(300)
+        let store = DesktopNotificationPreferencesStore(defaults: defaults)
+        XCTAssertTrue(store.claim(id: "reminder", owner: "a", expires: expiry, scheduledFor: due, now: now))
+        let restored = DesktopNotificationPreferencesStore(defaults: defaults)
+        XCTAssertTrue(restored.claim(id: "reminder", owner: "a", expires: expiry, scheduledFor: due, now: now.addingTimeInterval(60)))
+        XCTAssertFalse(restored.claim(id: "reminder", owner: "a", expires: expiry, scheduledFor: due.addingTimeInterval(60), now: due))
+        XCTAssertTrue(store.claim(id: "immediate", owner: "a", expires: expiry, now: now))
+        XCTAssertFalse(restored.claim(id: "immediate", owner: "a", expires: expiry, scheduledFor: due, now: now))
+        XCTAssertTrue(store.claim(id: "moved", owner: "a", expires: expiry, scheduledFor: due, now: now))
+        XCTAssertTrue(store.claim(id: "moved", owner: "a", expires: expiry, scheduledFor: now, now: now))
+        XCTAssertFalse(restored.claim(id: "moved", owner: "a", expires: expiry, scheduledFor: due, now: now.addingTimeInterval(1)))
+    }
+
+    func testNotificationClickUsesCurrentPermittedUnexpiredMeetingURL() {
+        let now = Date(timeIntervalSince1970: 1000)
+        let old = DesktopCalendarPromptEvent(eventId: "event", startsAt: now, endsAt: now.addingTimeInterval(3600), openMeetingURL: URL(string: "https://example.test/old"))
+        var current = old
+        current.openMeetingURL = URL(string: "https://example.test/current")
+        XCTAssertEqual(DesktopNotificationPresenter.currentMeetingURL(for: old, events: [current], now: now), current.openMeetingURL)
+        XCTAssertNil(DesktopNotificationPresenter.currentMeetingURL(for: old, events: [], now: now))
+        XCTAssertNil(DesktopNotificationPresenter.currentMeetingURL(for: old, events: [current], now: now.addingTimeInterval(300)))
+        current.joinPromptState = .blockedByPolicy
+        XCTAssertNil(DesktopNotificationPresenter.currentMeetingURL(for: old, events: [current], now: now))
+        current.joinPromptState = .notDue
+        current.openMeetingURL = URL(string: "http://example.test/current")
+        XCTAssertNil(DesktopNotificationPresenter.currentMeetingURL(for: old, events: [current], now: now))
+    }
+
+    func testFailedSessionKeepsIndicatorUntilStopCleanupFinishes() {
+        var snapshot = DesktopControlSnapshot()
+        snapshot.session = CaptureSession(id: "stop", mode: .audioRecording, state: .failed,
+            sourceAppEligibility: .eligible, policySnapshotRef: "policy", triggerEvidence: [:],
+            visibleIndicatorState: .error, stopActionAvailable: false,
+            bufferSummaryId: nil, startedAt: Date(), stoppedAt: nil)
+        snapshot.stopping = true
+        XCTAssertTrue(snapshot.active)
+        XCTAssertFalse(snapshot.completedRecording)
+        snapshot.stopping = false
+        XCTAssertFalse(snapshot.active)
+        XCTAssertTrue(snapshot.completedRecording)
+    }
+
+    func testLateReminderDoesNotPromiseOriginalFiveMinutes() {
+        let start = Date(timeIntervalSince1970: 1000)
+        let due = start.addingTimeInterval(-300)
+        XCTAssertTrue(DesktopNotificationPresenter.reminderBody(startsAt: start, due: due, offsetMinutes: 5, now: due).contains("через 5 мин"))
+        XCTAssertTrue(DesktopNotificationPresenter.reminderBody(startsAt: start, due: due, offsetMinutes: 5, now: start.addingTimeInterval(-30)).contains("скоро"))
+        XCTAssertTrue(DesktopNotificationPresenter.reminderBody(startsAt: start, due: due, offsetMinutes: 5, now: start).contains("уже началась"))
+    }
+
 }

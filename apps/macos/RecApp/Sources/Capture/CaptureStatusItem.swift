@@ -227,7 +227,7 @@ public struct CaptureStatusItem: View {
         }
     }
 
-    public static func showsStopButton(for session: CaptureSession) -> Bool {
+    public nonisolated static func showsStopButton(for session: CaptureSession) -> Bool {
         session.state == .starting ||
             session.state == .active ||
             session.state == .paused ||

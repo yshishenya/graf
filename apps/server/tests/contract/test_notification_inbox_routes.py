@@ -49,6 +49,10 @@ def test_authenticated_inbox_http_pagination_csrf_and_read_race(client):
     assert client.post(path, data={'revision':item['revision']}).status_code == 403
     csrf = issue_csrf_token(secret=client.app.state.settings.web_csrf_secret, session_id=session_id)
     headers = {'X-CSRF-Token':csrf, 'Accept':'application/json'}
+    foreign_session_csrf = issue_csrf_token(secret=client.app.state.settings.web_csrf_secret, session_id=uuid4())
+    assert client.post(path, data={'revision':item['revision']}, headers={
+        **headers, 'X-CSRF-Token':foreign_session_csrf,
+    }).status_code == 403
     assert client.post(path, data={'revision':999}, headers=headers).status_code == 422
     async def revise():
         async with client.app_state['sessionmaker']() as db:
@@ -67,6 +71,25 @@ def test_authenticated_inbox_http_pagination_csrf_and_read_race(client):
     assert fallback.status_code == 200 and 'Просмотрено' in fallback.text
     embedded = client.get('/desktop/notifications')
     assert embedded.status_code == 200 and '/desktop/meetings/' in embedded.text
+    older_id = second.json()['items'][0]['id']
+    async def change_older(kind):
+        async with client.app_state['sessionmaker']() as db:
+            await apply_tenant_scope(db, tenant_scope())
+            row = await db.get(ServerNotification, older_id)
+            meeting = await db.get(Meeting, row.meeting_id)
+            await record_event(db, meeting=meeting, kind=kind, source_revision='newer-change')
+            await db.commit()
+    client.portal.call(change_older, 'summary_failed')
+    reordered = client.get('/api/v1/notifications?limit=1').json()
+    assert reordered['items'][0]['id'] == older_id
+    assert reordered['items'][0]['updated_at'] > reordered['items'][0]['created_at']
+    unchanged = reordered['items'][0]['updated_at']
+    client.portal.call(change_older, 'summary_failed')
+    assert client.get('/api/v1/notifications?limit=1').json()['items'][0]['updated_at'] == unchanged
+    client.portal.call(change_older, 'result_ready')
+    resolved = client.get('/api/v1/notifications?filter=history&limit=1').json()['items'][0]
+    assert resolved['id'] == older_id and resolved['resolved'] and not resolved['requires_action']
+    assert 'Проблема решена' in client.get('/notifications?filter=history').text
     async def expire():
         async with client.app_state['sessionmaker']() as db:
             await apply_tenant_scope(db, tenant_scope())

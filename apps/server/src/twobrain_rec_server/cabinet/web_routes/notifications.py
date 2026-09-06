@@ -48,7 +48,7 @@ async def inbox_page(request, db, scope, principal, filter, cursor, limit):
     if db is None:
         raise ProblemDetail(status=503, code='cabinet_store_unavailable', title='Cabinet store unavailable')
     now = datetime.now(UTC)
-    binding = f'{principal.user_id}:{principal.session_id}:{scope.workspace_id}:{filter}'
+    binding = f'{principal.user_id}:{principal.session_id}:{scope.workspace_id}:{filter}:updated-v1'
     secret = request.app.state.settings.web_csrf_secret
     visible_meeting = exists(select(Meeting.id).where(
         Meeting.id == Notice.meeting_id, Meeting.workspace_id == scope.workspace_id,
@@ -72,13 +72,13 @@ async def inbox_page(request, db, scope, principal, filter, cursor, limit):
     last = marker
     # Fetch bounded batches, walking past revoked shares without exposing their titles.
     while len(items) <= limit:
-        batch_query = query.where(tuple_(Notice.created_at, Notice.id) < last) if last else query
-        rows = list(await db.scalars(batch_query.order_by(Notice.created_at.desc(), Notice.id.desc()).limit(limit+1)))
+        batch_query = query.where(tuple_(Notice.updated_at, Notice.id) < last) if last else query
+        rows = list(await db.scalars(batch_query.order_by(Notice.updated_at.desc(), Notice.id.desc()).limit(limit+1)))
         if not rows:
             break
         for row in rows:
             card = await authorized_card(db, row, tenant_scope=scope, sessionmaker=request.app.state.db_sessionmaker)
-            last = (row.created_at, row.id)
+            last = (row.updated_at, row.id)
             if card:
                 items.append((card, last))
                 if len(items) > limit:
