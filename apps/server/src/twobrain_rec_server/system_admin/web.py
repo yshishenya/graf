@@ -26,6 +26,7 @@ from twobrain_rec_server.system_admin.auth import (
     verify_password,
 )
 from twobrain_rec_server.system_admin.permissions import ROLE_PERMISSIONS
+from twobrain_rec_server.system_admin.schemas import CommitOperation, MeetingPreview
 
 router = APIRouter(prefix="/api/system-admin/v1")
 PREAUTH_COOKIE = "__Host-graf_system_preauth"
@@ -642,3 +643,100 @@ async def check_meeting_content_access(request: Request, meeting_id: UUID, paylo
     except PermissionError:
         raise HTTPException(403, "Доступ к содержимому прекращён") from None
     return {"status": "ok"}
+
+
+def _operation_response(result: dict) -> dict:
+    messages = {
+        "access_denied": "Недостаточно прав для этого действия",
+        "step_up_required": "Подтвердите полномочия свежим кодом второго фактора",
+        "preview_expired": "Срок предпросмотра истёк. Получите новый предпросмотр",
+        "version_conflict": "Встреча изменилась. Обновите страницу и проверьте действие снова",
+        "target_unavailable": "Встреча недоступна или уже удаляется",
+        "idempotency_conflict": "Этот ключ уже использован для другого действия",
+    }
+    error = result.get("error")
+    if error:
+        raise HTTPException(403 if error == "access_denied" else 409,
+                            messages.get(error, "Предпросмотр недействителен. Проверьте действие снова"))
+    return result
+
+
+@router.post("/previews")
+async def operation_preview(request: Request, payload: MeetingPreview):
+    from twobrain_rec_server.system_admin.operations import preview_operation
+
+    _, context = await current_admin(request)
+    if not request.app.state.commands_enabled:
+        raise HTTPException(503, "Изменения временно выключены")
+    result = _operation_response(await preview_operation(
+        request.app.state.system_sessions, context, payload.domain_command(),
+    ))
+    deletion = payload.command == "meeting.delete"
+    return {**result, "source_versions": [{"type": "meeting", "id": str(payload.targets[0].id),
+            "version": result["expected_version"]}],
+        "effects": ["Удаление встречи и данных, которыми управляет GRAF" if deletion
+                    else "Новая попытка обработки сохранённого исходника; прежний результат остаётся доступен"],
+        "warnings": (["Удаление необратимо. Скачанные копии и сохранённая диагностика не удаляются этим действием. "
+                      "Состояния резервных и локальных копий будут указаны в отчёте удаления."] if deletion else
+                     ["Запуск проверит доступность исходника и квоту. При невозможности обработки операция завершится отказом."]),
+        "blocked_reasons": [], "requires_step_up": True}
+
+
+@router.post("/operations", status_code=202)
+async def operation_commit(request: Request, payload: CommitOperation):
+    from twobrain_rec_server.system_admin.operations import commit_operation
+
+    _, context = await current_admin(request)
+    if not request.app.state.commands_enabled:
+        raise HTTPException(503, "Изменения временно выключены")
+    try:
+        key = UUID(request.headers.get("idempotency-key", ""))
+    except ValueError:
+        raise HTTPException(422, "Требуется Idempotency-Key в формате UUID") from None
+    result = _operation_response(await commit_operation(request.app.state.system_sessions, context,
+        preview_id=payload.preview_id, expected_preview_hash=payload.expected_preview_hash, idempotency_key=key))
+    return {**result, "status_url": f"/api/system-admin/v1/operations/{result['operation_id']}"}
+
+
+@router.get("/operations/{operation_id}")
+async def operation_status(request: Request, operation_id: UUID):
+    from twobrain_rec_server.system_admin.operations import read_operation
+
+    _, context = await current_admin(request)
+    result = await read_operation(request.app.state.system_sessions, context, operation_id)
+    if result is None:
+        raise HTTPException(404, "Операция недоступна")
+    return result
+
+
+@router.get("/meetings/{meeting_id}")
+async def meeting_overview(request: Request, meeting_id: UUID):
+    from twobrain_rec_server.system_admin.queries import meeting_overview as query
+
+    _, context = await current_admin(request)
+    result = await query(request.app.state.system_sessions, context, meeting_id)
+    if result is None:
+        raise HTTPException(404, "Встреча недоступна")
+    return result
+
+
+@router.get("/meetings/{meeting_id}/processing")
+async def meeting_processing(request: Request, meeting_id: UUID, before: UUID | None = None):
+    from twobrain_rec_server.system_admin.queries import meeting_history
+
+    _, context = await current_admin(request)
+    try:
+        return await meeting_history(request.app.state.system_sessions, context, meeting_id, before=before)
+    except PermissionError:
+        raise HTTPException(403, "История обработки недоступна") from None
+
+
+@router.get("/meetings/{meeting_id}/revisions")
+async def meeting_revision_list(request: Request, meeting_id: UUID, before: int | None = None):
+    from twobrain_rec_server.system_admin.queries import meeting_revisions
+
+    _, context = await current_admin(request)
+    try:
+        return await meeting_revisions(request.app.state.system_sessions, context, meeting_id, before=before)
+    except PermissionError:
+        raise HTTPException(403, "Версии записи недоступны") from None

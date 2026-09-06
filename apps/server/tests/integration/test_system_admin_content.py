@@ -117,3 +117,46 @@ async def test_content_rls_blocks_forged_context_and_revocation_even_with_permis
         await db["owner"].execute("drop policy if exists f254_content_probe on diarization_segments")
         await conn.close()
         await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_metadata_history_is_bounded_and_never_includes_content(system_database, postgres_seeded_database_url):
+    import json
+
+    from twobrain_rec_server.system_admin.queries import (
+        meeting_history,
+        meeting_overview,
+        meeting_revisions,
+    )
+
+    db = system_database
+    meeting, revision, _ = await seed_content(db, postgres_seeded_database_url)
+    engine, sessions = create_system_admin_database(database_url=db["url"])
+    context = context_for(db, meeting)
+    owner_engine = create_async_engine(postgres_seeded_database_url)
+    try:
+        common = await db["owner"].fetchrow("select workspace_id from meetings where id=$1", meeting)
+        async with async_sessionmaker(owner_engine)() as session:
+            session.add_all([ProcessingWorkflow(id=uuid4(), workspace_id=common["workspace_id"],
+                meeting_id=meeting, media_revision_id=revision, workflow_id=str(uuid4()),
+                attempt_ordinal=i+2, status="failed_terminal", last_reason_code="synthetic_failure") for i in range(104)])
+            await session.commit()
+        overview = await meeting_overview(sessions, context, meeting)
+        revisions = await meeting_revisions(sessions, context, meeting)
+        first = await meeting_history(sessions, context, meeting)
+        from uuid import UUID
+        second = await meeting_history(sessions, context, meeting, before=UUID(first["next_cursor"]))
+        assert len(first["items"]) == 100 and len(second["items"]) == 5 and second["next_cursor"] is None
+        assert len({row["id"] for row in first["items"]+second["items"]}) == 105
+        assert revisions["items"][0]["id"] == str(revision)
+        serialized = json.dumps([overview, revisions, first, second])
+        assert "Synthetic private title" not in serialized
+        assert "<script>" not in serialized and "synthetic-storage-secret" not in serialized
+        assert "downloads_json" not in serialized
+        await db["owner"].execute("update system_control.sessions set revoked_at=now()")
+        assert await meeting_overview(sessions, context, meeting) is None
+        with pytest.raises(PermissionError):
+            await meeting_history(sessions, context, meeting)
+    finally:
+        await owner_engine.dispose()
+        await engine.dispose()

@@ -67,7 +67,33 @@ async def test_http_login_cookie_mfa_replay_and_logout(system_database, monkeypa
         meetings = await client.get("/system-admin?section=meetings")
         assert meetings.status_code == 200, meetings.text
         assert "Synthetic private title" not in meetings.text
-        assert (await client.get("/api/system-admin/v1/meetings")).json()["items"]
+        meeting = (await client.get("/api/system-admin/v1/meetings")).json()["items"][0]
+        command = {"command": "meeting.reprocess", "targets": [{"type": "meeting", "id": str(meeting["id"]),
+            "expected_version": meeting["control_version"]}], "parameters": {}, "reason": "Synthetic support recovery"}
+        prefix = "/api/system-admin/v1"
+        overview = await client.get(f"{prefix}/meetings/{meeting['id']}")
+        assert overview.status_code == 200 and "title" not in overview.json()
+        for section in ("processing", "revisions"):
+            history = await client.get(f"{prefix}/meetings/{meeting['id']}/{section}")
+            assert history.status_code == 200 and history.json()["items"] == []
+        assert (await client.post(f"{prefix}/previews", json=command)).status_code == 503
+        app.state.commands_enabled = True
+        assert (await client.post(f"{prefix}/previews", json={**command,"parameters":{"callback":"https://example.invalid"}})).status_code == 422
+        assert (await client.post(f"{prefix}/previews", json={**command,"command":"meeting.delete"})).status_code == 403
+        preview_response = await client.post(f"{prefix}/previews", json=command)
+        assert preview_response.status_code == 200, preview_response.text
+        preview = preview_response.json()
+        commit = {"preview_id":preview["preview_id"], "expected_preview_hash":preview["effect_hash"]}
+        assert (await client.post(f"{prefix}/operations", json=commit)).status_code == 422
+        key = str(uuid4())
+        first = await client.post(f"{prefix}/operations", json=commit, headers={"Idempotency-Key":key})
+        assert first.status_code == 202, first.text
+        repeat = await client.post(f"{prefix}/operations", json=commit, headers={"Idempotency-Key":key})
+        assert repeat.status_code == 202 and repeat.json() == first.json()
+        status = await client.get(first.json()["status_url"])
+        assert status.status_code == 200 and status.json()["state"] == "queued"
+        assert status.json()["actor_id"] == str(db["actor"])
+        assert (await client.get(f"{prefix}/operations/{uuid4()}")).status_code == 404
         assert (await client.get("/system-admin?section=admins")).status_code == 403
         assert (await client.get("/api/system-admin/v1/admins")).status_code == 403
         assert (await client.post("/api/system-admin/v1/auth/mfa", json=payload)).status_code == 401

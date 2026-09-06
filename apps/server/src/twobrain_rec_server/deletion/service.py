@@ -151,7 +151,13 @@ async def request_meeting_deletion(
     local_buffer_expiry_days: int | None = None,
     storage: object | None = None,
     temporal_client: object | None = None,
+    system_operation_id: UUID | None = None,
+    system_request_id: UUID | None = None,
 ) -> DeletionRequestResponse:
+    if (system_operation_id is None) != (system_request_id is None):
+        raise ValueError("system operation and claimed domain reference are required together")
+    if system_operation_id is not None and (actor_user_id is not None or device_id is not None):
+        raise ValueError("a system actor cannot impersonate a product identity")
     if confirmation_boundary != BOUNDED_DELETE_COPY:
         raise ProblemDetail(
             status=422, code="invalid_deletion_confirmation", title="Invalid deletion confirmation"
@@ -198,6 +204,7 @@ async def request_meeting_deletion(
     deletion_fence.requested_at = now
     await _flush_or_fail_closed(db)
     deletion_request = MeetingDeletionRequest(
+        id=system_request_id, system_operation_id=system_operation_id,
         workspace_id=workspace_id,
         meeting_id=meeting_id,
         requested_by_user_id=actor_user_id,

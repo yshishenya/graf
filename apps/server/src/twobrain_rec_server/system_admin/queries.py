@@ -102,3 +102,32 @@ async def check_content_access(sessions, context):
         if not await session.scalar(text("select system_control.meeting_content_allowed(:id)"),
                                     {"id": context.target_id}):
             raise PermissionError("meeting content unavailable")
+
+
+async def meeting_overview(sessions, context, meeting_id: UUID):
+    async with sessions() as session:
+        await apply_system_context(session, replace(context, permission="meetings.metadata",
+                                                    target_type="meeting", target_id=meeting_id))
+        return await session.scalar(text("select system_control.meeting_overview(:id)"), {"id": meeting_id})
+
+
+async def meeting_history(sessions, context, meeting_id: UUID, *, before: UUID | None = None):
+    async with sessions() as session:
+        await apply_system_context(session, replace(context, permission="processing.read",
+                                                    target_type="meeting", target_id=meeting_id))
+        items = await session.scalar(text("select system_control.meeting_history(:id,:before)"),
+                                     {"id": meeting_id, "before": before})
+    if items is None:
+        raise PermissionError("processing metadata denied")
+    return {"items": items[:100], "next_cursor": items[99]["id"] if len(items)>100 else None}
+
+
+async def meeting_revisions(sessions, context, meeting_id: UUID, *, before: int | None = None):
+    async with sessions() as session:
+        await apply_system_context(session, replace(context, permission="meetings.metadata",
+                                                    target_type="meeting", target_id=meeting_id))
+        items = await session.scalar(text("select system_control.meeting_revisions(:id,:before)"),
+                                     {"id": meeting_id, "before": before})
+    if items is None:
+        raise PermissionError("revision metadata denied")
+    return {"items": items[:100], "next_cursor": items[99]["revision_number"] if len(items)>100 else None}

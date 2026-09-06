@@ -1223,6 +1223,8 @@ async def create_processing_attempt(
     expected_media_revision_id: UUID | None = None,
     expected_workflow_id: str | None = None,
     allow_processed: bool = False,
+    system_operation_id: UUID | None = None,
+    workflow_row_id: UUID | None = None,
 ) -> ProcessingAttemptCreation:
     """Admit exactly one fresh attempt after a confirmed terminal failure.
 
@@ -1233,6 +1235,8 @@ async def create_processing_attempt(
     Temporal dispatch can be compensated before the new row becomes visible.
     """
 
+    if (system_operation_id is None) != (workflow_row_id is None):
+        raise ValueError("system operation and claimed domain reference are required together")
     meeting = await lock_meeting_fence(
         db,
         workspace_id=workspace_id,
@@ -1558,6 +1562,7 @@ async def create_processing_attempt(
     from twobrain_rec_server.workflows.temporal_client import processing_workflow_id
 
     workflow = ProcessingWorkflow(
+        id=workflow_row_id, system_operation_id=system_operation_id,
         workspace_id=workspace_id,
         meeting_id=meeting_id,
         media_revision_id=media_revision.id,

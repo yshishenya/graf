@@ -372,8 +372,22 @@ async def test_system_migration_refuses_destructive_downgrade(system_database):
     content_migration = importlib.util.module_from_spec(content_spec)
     content_spec.loader.exec_module(content_migration)
 
+    lineage_spec = importlib.util.spec_from_file_location(
+        "f254_lineage_migration", migration_path.with_name("0093_system_domain_lineage.py"),
+    )
+    lineage_migration = importlib.util.module_from_spec(lineage_spec)
+    lineage_spec.loader.exec_module(lineage_migration)
+
+    overview_spec = importlib.util.spec_from_file_location(
+        "f254_overview_migration", migration_path.with_name("0094_system_meeting_overview.py"),
+    )
+    overview_migration = importlib.util.module_from_spec(overview_spec)
+    overview_spec.loader.exec_module(overview_migration)
+
     def downgrade(connection):
         with Operations.context(MigrationContext.configure(connection)):
+            overview_migration.downgrade()
+            lineage_migration.downgrade()
             content_migration.downgrade()
             projection_migration.downgrade()
             management_migration.downgrade()

@@ -96,6 +96,9 @@ class ProcessingWorkflow(Base):
         UniqueConstraint("workflow_id"),
     )
 
+    system_operation_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("system_control.operations.id"), nullable=True,
+    )
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     meeting_id: Mapped[UUID] = mapped_column(ForeignKey("meetings.id"), nullable=False)
     media_revision_id: Mapped[UUID | None] = mapped_column(ForeignKey("media_revisions.id"))

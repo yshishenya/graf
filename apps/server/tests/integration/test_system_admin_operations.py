@@ -37,8 +37,14 @@ async def _worker(db):
     password = uuid4().hex
     quoted = await db["owner"].fetchval("select quote_literal($1::text)", password)
     await db["owner"].execute(f"alter role twobrain_rec_maintenance login password {quoted}")
+    # Match the production bootstrap; RLS still requires the maintenance context.
+    await db["owner"].execute("grant usage on schema public to twobrain_rec_maintenance")
+    await db["owner"].execute(
+        "grant select,insert,update,delete on all tables in schema public to twobrain_rec_maintenance"
+    )
     url = make_url(db["url"]).set(username="twobrain_rec_maintenance", password=password)
-    return await asyncpg.connect(url.render_as_string(hide_password=False).replace("+asyncpg", ""))
+    db["worker_url"] = url.render_as_string(hide_password=False)
+    return await asyncpg.connect(db["worker_url"].replace("+asyncpg", ""))
 
 
 @pytest.mark.asyncio
@@ -151,3 +157,195 @@ async def test_unknown_parameters_and_delete_permission_fail_closed(system_datab
         ) == 2
     finally:
         await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_domain_effect_is_bound_to_claim_and_resumed_without_changing_actor(system_database):
+    db = system_database
+    conn = await asyncpg.connect(db["url"].replace("+asyncpg", ""))
+    worker = await _worker(db)
+    try:
+        async with conn.transaction():
+            target, preview = await _command(db, conn)
+            operation = await _commit(conn, preview)
+        operation_id = UUID(operation["operation_id"])
+        workspace = await db["owner"].fetchval("select workspace_id from meetings where id=$1", target)
+        async with worker.transaction():
+            claim = json.loads(await worker.fetchval("select system_control.claim_system_operation($1,$2)", operation_id, target))
+            for key,value in {"app.context_kind":"maintenance","app.maintenance_operation":"processing_recovery_reconciliation",
+                              "app.maintenance_actor":"synthetic-worker","app.maintenance_reason":"synthetic-test",
+                              "app.maintenance_feature_area":"system-admin"}.items():
+                await worker.execute("select set_config($1,$2,true)", key, value)
+            insert = """insert into processing_workflows(id,system_operation_id,workspace_id,meeting_id,workflow_id)
+                values($1,$2,$3,$4,$5)"""
+            with pytest.raises(asyncpg.InsufficientPrivilegeError, match="claimed system operation"):
+                async with worker.transaction():
+                    await worker.execute(insert, uuid4(), operation_id, workspace, target, "synthetic-wrong-reference")
+            domain = UUID(claim["domain_ref"])
+            await worker.execute(insert, domain, operation_id, workspace, target, "synthetic-exact-reference")
+        await db["owner"].execute("update system_control.sessions set revoked_at=now()")
+        resume = json.loads(await worker.fetchval("select system_control.resume_system_operation($1,$2)", operation_id, target))
+        assert resume["actor_id"] == str(db["actor"])
+        assert resume["domain_ref"] == str(domain)
+        assert resume["mode"] == "observe"
+        with pytest.raises(asyncpg.InsufficientPrivilegeError):
+            await conn.fetchval("select system_control.resume_system_operation($1,$2)", operation_id, target)
+        with pytest.raises(asyncpg.InsufficientPrivilegeError, match="immutable"):
+            await db["owner"].execute("update processing_workflows set system_operation_id=null where id=$1", domain)
+    finally:
+        await conn.close()
+        await worker.close()
+
+
+@pytest.mark.asyncio
+async def test_dispatcher_records_rejected_admission_without_domain_effect(system_database, test_settings):
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from tests.fakes.fake_temporal import FakeTemporalClient
+    from twobrain_rec_server.db.session import create_sessionmaker
+    from twobrain_rec_server.system_admin.worker import execute_operation
+
+    db = system_database
+    worker = await _worker(db)
+    await worker.close()
+    engine = create_async_engine(db["worker_url"])
+    conn = await asyncpg.connect(db["url"].replace("+asyncpg", ""))
+    try:
+        async with conn.transaction():
+            target, preview = await _command(db, conn)
+            operation = await _commit(conn, preview)
+        async with create_sessionmaker(engine)() as session:
+            await execute_operation(session, operation_id=UUID(operation["operation_id"]),
+                target_id=target, settings=test_settings, temporal_client=FakeTemporalClient(), storage=None)
+        assert await db["owner"].fetchval("select state from system_control.operations") == "failed"
+        assert await db["owner"].fetchval("select count(*) from processing_workflows") == 0
+    finally:
+        await conn.close()
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_dispatcher_commits_deletion_with_real_system_actor(system_database, test_settings):
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from tests.fakes.fake_minio import FakeMinioStorage
+    from tests.fakes.fake_temporal import FakeTemporalClient
+    from twobrain_rec_server.db.session import create_sessionmaker
+    from twobrain_rec_server.system_admin.worker import execute_operation
+
+    db = system_database
+    await db["owner"].execute("update system_control.role_assignments set role='superadmin'")
+    worker = await _worker(db)
+    await worker.close()
+    engine = create_async_engine(db["worker_url"])
+    conn = await asyncpg.connect(db["url"].replace("+asyncpg", ""))
+    try:
+        async with conn.transaction():
+            target, preview = await _command(db, conn, kind="meeting.delete")
+            operation = await _commit(conn, preview)
+        operation_id = UUID(operation["operation_id"])
+        for attempt in range(2):
+            if attempt:
+                await db["owner"].execute("update system_control.sessions set revoked_at=now()")
+            async with create_sessionmaker(engine)() as session:
+                await execute_operation(session, operation_id=operation_id,
+                    target_id=target, settings=test_settings,
+                    temporal_client=FakeTemporalClient(), storage=FakeMinioStorage())
+        rows = await db["owner"].fetch("select * from meeting_deletion_requests where meeting_id=$1", target)
+        assert len(rows) == 1
+        assert rows[0]["system_operation_id"] == operation_id
+        assert rows[0]["requested_by_user_id"] is None
+        assert rows[0]["requested_by_device_id"] is None
+        assert await db["owner"].fetchval("select deleted_at is not null from meetings where id=$1", target)
+    finally:
+        await conn.close()
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_dispatcher_starts_one_real_attempt_and_observes_after_revoke(system_database, client, test_settings):
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from tests.fakes.fake_temporal import FakeTemporalClient
+    from tests.fixtures.processing import create_finalized_meeting
+    from tests.integration.test_processing_attempts import _seed_complete_result
+    from twobrain_rec_server.db.session import create_sessionmaker
+    from twobrain_rec_server.system_admin.worker import execute_operation
+
+    db = system_database
+    finalized = create_finalized_meeting(client, "system-reprocess")
+    target = UUID(finalized["meeting"]["meeting_id"])
+    revision = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
+    workspace = UUID(finalized["meeting"]["workspace_id"])
+    await _seed_complete_result(client, workspace_id=workspace, meeting_id=target, media_revision_id=revision)
+    worker = await _worker(db)
+    await worker.close()
+    engine = create_async_engine(db["worker_url"])
+    conn = await asyncpg.connect(db["url"].replace("+asyncpg", ""))
+    temporal = FakeTemporalClient()
+    try:
+        async with conn.transaction():
+            _, preview = await _command(db, conn, target=target)
+            operation = await _commit(conn, preview)
+        operation_id = UUID(operation["operation_id"])
+        for attempt in range(2):
+            if attempt:
+                await db["owner"].execute("update system_control.sessions set revoked_at=now()")
+            async with create_sessionmaker(engine)() as session:
+                await execute_operation(session, operation_id=operation_id, target_id=target,
+                    settings=test_settings, temporal_client=temporal, storage=client.app_state["storage"])
+        assert len(temporal.starts) == 1, await db["owner"].fetch("select state,error_code from system_control.operation_targets")
+        assert await db["owner"].fetchval("select count(*) from processing_workflows where meeting_id=$1", target) == 2
+        row = await db["owner"].fetchrow("select * from processing_workflows where system_operation_id=$1", operation_id)
+        assert row["attempt_ordinal"] == 2
+        assert row["workflow_run_id"] is not None
+        assert await db["owner"].fetchval("select count(*) from processing_results where meeting_id=$1", target) == 1
+        assert await db["owner"].fetchval("select state from system_control.operations where id=$1", operation_id) == "awaiting_reconciliation"
+        await db["owner"].execute("update processing_workflows set status='processed' where id=$1", row["id"])
+        async with create_sessionmaker(engine)() as session:
+            await execute_operation(session, operation_id=operation_id, target_id=target,
+                settings=test_settings, temporal_client=temporal, storage=client.app_state["storage"])
+        assert await db["owner"].fetchval("select state from system_control.operations where id=$1", operation_id) == "succeeded"
+        assert len(temporal.starts) == 1
+    finally:
+        await conn.close()
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_crash_before_domain_commit_leaves_command_unclaimed(system_database, test_settings, monkeypatch):
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from tests.fakes.fake_minio import FakeMinioStorage
+    from tests.fakes.fake_temporal import FakeTemporalClient
+    from twobrain_rec_server.db.session import create_sessionmaker
+    from twobrain_rec_server.system_admin import worker as dispatcher
+
+    db = system_database
+    await db["owner"].execute("update system_control.role_assignments set role='superadmin'")
+    worker = await _worker(db)
+    await worker.close()
+    engine = create_async_engine(db["worker_url"])
+    conn = await asyncpg.connect(db["url"].replace("+asyncpg", ""))
+    try:
+        async with conn.transaction():
+            target, preview = await _command(db, conn, kind="meeting.delete")
+            operation = await _commit(conn, preview)
+        async def crash(*args, **kwargs):
+            raise RuntimeError("synthetic crash before commit")
+        monkeypatch.setattr(dispatcher, "request_meeting_deletion", crash)
+        with pytest.raises(RuntimeError, match="synthetic crash"):
+            async with create_sessionmaker(engine)() as session:
+                await dispatcher.execute_operation(session, operation_id=UUID(operation["operation_id"]),
+                    target_id=target, settings=test_settings, temporal_client=FakeTemporalClient(), storage=FakeMinioStorage())
+        row = await db["owner"].fetchrow("select state,effect_started_at,domain_ref from system_control.operation_targets")
+        assert row["state"] == "queued" and row["effect_started_at"] is None and row["domain_ref"] is None
+        assert await db["owner"].fetchval("select count(*) from meeting_deletion_requests") == 0
+        await db["owner"].execute("update system_control.sessions set revoked_at=now()")
+        async with create_sessionmaker(engine)() as session:
+            await dispatcher.execute_operation(session, operation_id=UUID(operation["operation_id"]),
+                target_id=target, settings=test_settings, temporal_client=FakeTemporalClient(), storage=FakeMinioStorage())
+        assert await db["owner"].fetchval("select state from system_control.operations") == "cancelled"
+    finally:
+        await conn.close()
+        await engine.dispose()

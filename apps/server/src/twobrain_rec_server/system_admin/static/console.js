@@ -1,10 +1,10 @@
 "use strict";
 let csrf, leaving=false;
 const pageMessage=document.getElementById("message");
-async function command(path, data = {}, method = "POST") {
+async function command(path, data = {}, method = "POST", extraHeaders = {}) {
   if (!csrf && method !== "GET") csrf = (await (await fetch("/api/system-admin/v1/auth/csrf", {cache:"no-store"})).json()).csrf_token;
   const response = await fetch(`/api/system-admin/v1/${path}`, {method,cache:"no-store",
-    headers:{"Content-Type":"application/json",...(csrf ? {"X-CSRF-Token":csrf} : {})},
+    headers:{"Content-Type":"application/json",...extraHeaders,...(csrf ? {"X-CSRF-Token":csrf} : {})},
     ...(method === "GET" ? {} : {body:JSON.stringify(data)})});
   if (response.status === 401) { leaving=true; document.querySelector("main")?.replaceChildren(); location.replace("/system-admin/login"); throw new Error("Сессия завершена"); }
   const result = await response.json();
@@ -189,3 +189,107 @@ document.querySelectorAll("time[datetime]").forEach(element=>{
   const date=new Date(element.dateTime);
   if(!Number.isNaN(date.getTime())) {element.textContent=date.toLocaleString();element.title=`${element.dateTime} (источник)`;}
 });
+
+const operationDialog=document.getElementById("operation-dialog"), operationForm=document.getElementById("operation-preview-form");
+const operationConfirm=document.getElementById("operation-confirm"), operationSubmit=document.getElementById("operation-submit");
+const operationEffects=document.getElementById("operation-effects"), operationRefresh=document.getElementById("operation-refresh");
+const operationStates={queued:"В очереди",running:"Выполняется",awaiting_reconciliation:"Ожидает проверки результата",succeeded:"Выполнено",failed:"Не выполнено",cancelled:"Отменено",partially_succeeded:"Выполнено частично"};
+let operationState=null;
+document.querySelectorAll(".meeting-command").forEach(button=>button.addEventListener("click",()=>{
+  operationForm.reset();operationEffects.replaceChildren();operationConfirm.hidden=true;operationRefresh.hidden=true;
+  operationForm.hidden=false;operationSubmit.disabled=false;document.getElementById("operation-ack").checked=false;
+  operationState={kind:button.dataset.kind,target:button.dataset.id,version:Number(button.dataset.version)};
+  document.getElementById("operation-title").textContent=button.textContent;
+  document.getElementById("operation-target").textContent=`Встреча ${operationState.target}`;
+  operationDialog.querySelector(".dialog-message").textContent="";operationDialog.showModal();
+}));
+operationForm.addEventListener("input",()=>{if(operationState&&!operationState.sent) {operationState.preview=null;operationConfirm.hidden=true;}});
+operationForm.addEventListener("submit",async event=>{
+  event.preventDefault();const state=operationState, button=operationForm.querySelector("button[type=submit]");button.disabled=true;
+  operationForm.elements.reason.readOnly=true;
+  try {
+    const preview=await command("previews",{command:state.kind,targets:[{type:"meeting",id:state.target,expected_version:state.version}],parameters:{},reason:operationForm.elements.reason.value});
+    if(operationState!==state||!operationDialog.open) return;
+    state.preview=preview;state.key=crypto.randomUUID();operationEffects.replaceChildren();
+    for(const line of [`Причина: ${preview.command.reason}`,...preview.effects,...preview.warnings,`Предпросмотр действует до ${new Date(preview.expires_at).toLocaleString()}`]) {
+      const paragraph=document.createElement("p");paragraph.textContent=line;operationEffects.append(paragraph);
+    }
+    document.getElementById("operation-ack").checked=false;operationConfirm.hidden=false;
+    operationDialog.querySelector(".dialog-message").textContent="";
+  }catch(error) {operationDialog.querySelector(".dialog-message").textContent=error.message;}
+  finally {button.disabled=false;operationForm.elements.reason.readOnly=false;}
+});
+async function refreshOperation() {
+  const state=operationState;if(!state?.id) return;
+  try {
+    const result=await command(`operations/${state.id}`,{},"GET");
+    if(operationState!==state||!operationDialog.open) return;
+    operationDialog.querySelector(".dialog-message").textContent=`Операция ${state.id}: ${operationStates[result.state]||result.state}.`;
+    const failureReasons={source_unavailable:"Исходная запись недоступна",source_expired:"Срок хранения исходника истёк",quota_exceeded:"Недостаточно квоты",not_terminal:"Текущую попытку нельзя перезапустить",not_eligible:"Нет завершённого результата для повторной обработки",unknown_outcome:"Результат отправки провайдеру ещё не подтверждён",already_in_flight:"Обработка уже выполняется",configuration_failure:"Нужно проверить настройки обработки",version_conflict:"Встреча изменилась",authority_revoked:"Полномочия отозваны",processing_failed:"Обработка завершилась ошибкой",deletion_failed:"Удаление требует разбора",meeting_not_found:"Встреча не найдена",deletion_closed:"Встреча удаляется или удалена",stale_meeting_view:"Состояние обработки изменилось"};
+    for(const target of result.targets||[]) if(target.error_code) operationDialog.querySelector(".dialog-message").textContent+=` ${failureReasons[target.error_code]||"Нужна проверка состояния встречи"}.`;
+    operationRefresh.hidden=["succeeded","failed","cancelled","partially_succeeded"].includes(result.state);
+  }catch(error) {operationDialog.querySelector(".dialog-message").textContent=error.message;}
+}
+operationSubmit.addEventListener("click",async()=>{
+  const state=operationState;
+  if(!state?.preview||!document.getElementById("operation-ack").checked) {
+    operationDialog.querySelector(".dialog-message").textContent="Проверьте последствия и отметьте подтверждение.";return;
+  }
+  operationSubmit.disabled=true;state.sent=true;operationForm.hidden=true;
+  try {
+    const result=await command("operations",{preview_id:state.preview.preview_id,expected_preview_hash:state.preview.effect_hash},"POST",{"Idempotency-Key":state.key});
+    if(operationState!==state) return;
+    state.id=result.operation_id;operationConfirm.hidden=true;operationRefresh.hidden=false;await refreshOperation();
+  }catch(error) {
+    // Keep the same preview/key after a lost response: a retry observes the
+    // original command, even if the preview has since expired.
+    operationSubmit.disabled=false;operationDialog.querySelector(".dialog-message").textContent=error.message;
+  }
+});
+operationRefresh.addEventListener("click",refreshOperation);
+setInterval(()=>{if(!document.hidden&&operationDialog.open&&!operationRefresh.hidden) refreshOperation();},5000);
+
+const overviewDialog=document.getElementById("overview-dialog");
+let overviewState=null;
+const diagnosticLabels={id:"Идентификатор",workspace_id:"Пространство",created_by_user_id:"Владелец",device_id:"Устройство",status:"Состояние",processing_status:"Обработка",duration_seconds:"Длительность, секунд",created_at:"Создано",started_at:"Начало",ended_at:"Завершение",deletion_state:"Удаление",deletion_epoch:"Версия удаления",version:"Версия состояния",observed_at:"Получено",source:"Источник",request_id:"Запрос удаления",reason_code:"Причина",accepted_at:"Принято",completed_at:"Завершено",system_operation_id:"Административная операция",state:"Состояние",backup_state:"Резервные копии",local_purge_state:"Локальные копии",external_dependency_state:"Внешние системы",generated_at:"Отчёт создан",updated_at:"Обновлено",revision_number:"Версия исходника",source_kind:"Тип источника",immutable:"Исходник зафиксирован",media_revision_id:"Исходник",workflow_id:"Процесс Temporal",workflow_run_id:"Запуск Temporal",stage:"Этап",retry_class:"Тип повтора",retry_count:"Повторов",last_reason_code:"Последняя причина",attempt_ordinal:"Попытка",next_attempt_at:"Следующий повтор",deadline_at:"Предельный срок"};
+const diagnosticStates={graf_database:"База GRAF",processed:"Обработано",failed_terminal:"Завершено с ошибкой",blocked:"Заблокировано",blocked_unknown:"Отправка требует сверки",not_submitted:"Не отправлено",starting:"Подготовка",workflow_started:"Запуск процесса",submitting:"Отправка",submitted:"Отправлено",polling:"Ожидание результата",importing:"Сохранение результата",waiting_retry:"Ожидание повтора",failed_retryable:"Временная ошибка",canceled:"Отменено",none:"Не запрошено",deleting:"Удаляется",complete:"Завершено",pending_expiry:"Ожидает истечения срока",pending_backup_expiry:"Ожидает удаления резервных копий",not_applicable:"Не применяется",unknown:"Нет подтверждения",local_pending:"Ожидает устройство",accepted:"Принято",ready:"Готово",admin:"Администратор"};
+function diagnosticFields(row) {
+  const list=document.createElement("dl");
+  for(const [key,value] of Object.entries(row)) {
+    if(key==="deletion"||key==="report") continue;
+    const term=document.createElement("dt"),description=document.createElement("dd");term.textContent=diagnosticLabels[key]||key;
+    description.textContent=value===null?"Нет данных":typeof value==="boolean"?(value?"Да":"Нет"):key.endsWith("_at")?new Date(value).toLocaleString():diagnosticStates[value]||String(value);
+    list.append(term,description);
+  }
+  return list;
+}
+async function loadOverviewHistory(kind,append=false) {
+  const state=overviewState,container=document.getElementById(`overview-${kind}`),button=document.getElementById(`${kind}-more`);
+  button.disabled=true;
+  try {
+    const cursor=append?state[kind]:null;
+    const result=await command(`meetings/${state.id}/${kind}${cursor!==null?`?before=${encodeURIComponent(cursor)}`:""}`,{},"GET");
+    if(overviewState!==state||!overviewDialog.open) return;
+    if(!append) container.replaceChildren();
+    for(const row of result.items) container.append(diagnosticFields(row));
+    if(!append&&!result.items.length) container.textContent="Сохранённой истории нет.";
+    state[kind]=result.next_cursor;button.hidden=result.next_cursor===null;
+  }catch(error) {if(overviewState===state) {container.textContent=error.message;button.hidden=true;}}
+  finally {button.disabled=false;}
+}
+document.querySelectorAll(".open-overview").forEach(button=>button.addEventListener("click",async()=>{
+  overviewState={id:button.dataset.id,revisions:null,processing:null};const state=overviewState;
+  document.getElementById("overview-fields").replaceChildren();document.getElementById("overview-revisions").replaceChildren();document.getElementById("overview-processing").replaceChildren();
+  document.getElementById("revisions-more").hidden=true;document.getElementById("processing-more").hidden=true;
+  overviewDialog.querySelector(".dialog-message").textContent="Загрузка…";overviewDialog.showModal();
+  try {
+    const row=await command(`meetings/${state.id}`,{},"GET");
+    if(overviewState!==state||!overviewDialog.open) return;
+    const fields=document.getElementById("overview-fields");fields.append(diagnosticFields(row));
+    if(row.deletion) {const heading=document.createElement("h3");heading.textContent="Отчёт удаления";fields.append(heading,diagnosticFields(row.deletion));if(row.deletion.report) fields.append(diagnosticFields(row.deletion.report));}
+    overviewDialog.querySelector(".dialog-message").textContent="Метаданные без содержимого встречи. Время показано в вашем часовом поясе.";
+    await Promise.allSettled([loadOverviewHistory("revisions"),loadOverviewHistory("processing")]);
+  }catch(error) {overviewDialog.querySelector(".dialog-message").textContent=error.message;}
+}));
+for(const kind of ["revisions","processing"]) document.getElementById(`${kind}-more`).addEventListener("click",()=>loadOverviewHistory(kind,true));
+overviewDialog.addEventListener("close",()=>{overviewState=null;});

@@ -7,6 +7,7 @@ import logging
 
 from twobrain_rec_server.calendar.worker import run_calendar_sync_reconciler
 from twobrain_rec_server.config import get_settings
+from twobrain_rec_server.system_admin.worker import run_system_operation_reconciler
 from twobrain_rec_server.workflows.temporal_client import connect_temporal_client
 from twobrain_rec_server.workflows.worker import (
     run_account_closure_reconciler,
@@ -47,6 +48,7 @@ async def _run_temporal_maintenance(settings) -> None:
             tasks = [
                 asyncio.create_task(reconcile(settings, client))
                 for reconcile in (
+                    run_system_operation_reconciler,
                     run_account_closure_reconciler,
                     run_billing_renewal_reconciler,
                     run_billing_reconciliation_reconciler,

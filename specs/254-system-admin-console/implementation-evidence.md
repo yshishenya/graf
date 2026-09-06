@@ -147,3 +147,35 @@ apps/server/scripts/run_local_postgres_tests.sh --focused tests/integration/test
 Playwright/установленный Chrome, отдельный локальный HTTPS harness с синтетической почтой и существующими тестовыми встречами: пароль → TOTP → консоль; приглашение → почтовый сервис принял; причина разбора → текст с таймкодами; literal `%` → пустая выдача; поиск фрагмента → совпадение; экран 375×812; отзыв сессии → очистка и возврат ко входу <=15 секунд. При первом отзыве найдена JS-гонка обновления отсоединённой страницы; исправлена и повторно проверена: переход ко входу выполнен без JS pageerror. Это частичная браузерная проверка, не полная T036/доступность/10 support cases. Снимок узкого экрана сохранён локально вне git.
 
 Ruff, `node --check`, документный validator и project governance проходят. Полный CI, нагрузка/60min outage, Temporal/MinIO административные сценарии, billing/каталог/промокоды, converge и release-ready PR остаются незавершёнными. Нельзя выдавать этот участок за готовую Feature 254.
+
+## Продолжение: выполнение команд и история встречи
+
+Миграции `0093_system_domain_lineage` и `0094_system_meeting_overview` добавляют привязку существующих предметных процессов к системным операциям и ограниченные проекции истории. Это промежуточная реализация T003/T010/T013/T014/T015; фича и PR ещё не готовы к выпуску.
+
+- Исправлено тестовое окружение maintenance: оно воспроизводит штатные public grants bootstrap, сохраняя RLS и настоящий отдельный login. Первое падение проверяло отсутствие grants, а не новый trigger.
+- `processing_workflows` и `meeting_deletion_requests` содержат неизменяемую ссылку на системную операцию. Создание проверяет claim, target, domain_ref и тип команды; системное удаление не допускает подстановки product user/device ни при INSERT, ни при UPDATE.
+- Служебный процесс читает только узкий список системных команд. Claim и предметная запись фиксируются вместе до внешнего эффекта. При откате до commit операция остаётся в очереди и может быть отменена отзывом полномочий. После фиксации повтор наблюдает тот же domain_ref, не создавая новую обработку/удаление.
+- Запуск обработки использует общее ядро допуска и dispatch. Оригинальные owner/device нужны только для исполнения существующего pipeline; инициатор закреплён через system_operation_id. Ошибки допуска сохраняются разрешёнными кодами. Старый опубликованный результат остаётся в БД.
+- Удаление использует существующую saga, отчёт и purge reconciler. Отзыв browser session не мешает завершить уже зафиксированное удаление. Состояния резервных и локальных копий не сводятся к безусловному успеху.
+- Добавлены HTTP preview/commit/status и формы причины, последствий, свежего MFA, подтверждения и просмотра состояния. Повтор после потерянного ответа сохраняет idempotency key. Прямой произвольный callback/SQL/type запрещён.
+- Добавлена карточка метаданных, отдельные постраничные версии и попытки обработки, времена, технические причины и состояния отчёта удаления. Проекции не содержат заголовок, расшифровку, storage keys или provider credentials.
+
+Проверки:
+
+```sh
+apps/server/scripts/run_local_postgres_tests.sh --focused tests/integration/test_system_admin_operations.py tests/integration/test_system_admin_security.py tests/integration/test_system_admin_login.py tests/integration/test_processing_attempts.py tests/integration/test_meeting_deletion_workflow.py -x -q
+# 58 passed: команды/claim, реальная предметная обработка с FakeTemporal, удаления,
+# crash до commit, отзыв до/после эффекта, старые processing/deletion сценарии; схема до 0093.
+
+apps/server/scripts/run_local_postgres_tests.sh --focused tests/integration/test_system_admin_login.py tests/contract/test_system_admin_app.py -x -q
+# 16 passed: HTTP preview/commit/idempotency/status, отключённые команды, cookie/CSRF.
+
+apps/server/scripts/run_local_postgres_tests.sh --focused tests/integration/test_system_admin_login.py tests/integration/test_system_admin_security.py -x -q
+# 28 passed: миграция 0094, downgrade, bootstrap и вход.
+
+apps/server/scripts/run_local_postgres_tests.sh --focused tests/integration/test_system_admin_content.py tests/integration/test_system_admin_login.py -x -q
+# 12 passed: карточка, HTTP история и 105 попыток без пропусков/дубликатов;
+# отсутствие содержимого и storage secret в метаданных, отзыв доступа.
+```
+
+Это не реальный Temporal/MinIO прогон и не полная браузерная приёмка новых форм. Аудио/экспорт/retained diagnostics, account closure, полный billing/тарифы/акции, телеметрия, метрики и общие release gates остаются обязательной работой. Реальные письма, платежи и production действия не выполнялись.
