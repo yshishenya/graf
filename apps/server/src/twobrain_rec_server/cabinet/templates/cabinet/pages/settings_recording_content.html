@@ -6,25 +6,41 @@
         <h1>Запись встреч</h1>
       </div>
     </header>
-    <section class="settings-section" aria-labelledby="recording-handoff-title" data-recording-handoff>
+    {% if embedded %}
+    <section class="settings-section" aria-labelledby="recording-rules-title" data-recording-settings>
       <span class="settings-scope-badge">На этом Mac</span>
-      <h2 id="recording-handoff-title">Настройка записи находится в приложении GRAF</h2>
-      <p>Эти настройки действуют только на этом Mac.</p>
-      <ul class="settings-boundary-list">
-        <li><strong>Обнаружение встреч</strong><span>Настраивается в приложении.</span></li>
-        <li><strong>Ручная запись</strong><span>Старт и стоп доступны всегда.</span></li>
-        <li><strong>Веб</strong><span>Показывает записи, но не управляет аудио.</span></li>
-      </ul>
-      {% if embedded %}
-        <a class="button quiet" href="/desktop/settings/meeting-detection">Открыть настройки записи в приложении</a>
-      {% endif %}
+      <h2 id="recording-rules-title">Автозапись</h2>
+      <p>Выберите, когда GRAF должен записывать встречи в каждом приложении.</p>
+      <p class="muted">«Спрашивать» показывает предложение с отсчётом 8 секунд. Если ничего не выбрать, запись начнётся автоматически.</p>
+      <div data-recording-settings-controls hidden>
+        <label class="settings-control-row">
+          <span class="settings-control-row__copy"><span class="settings-control-row__title">Для всех приложений</span><span class="settings-control-row__description">Применить к приложениям в этом списке.</span></span>
+          <select data-recording-settings-all aria-label="Автозапись для всех приложений">
+            <option value="" disabled>Разные настройки</option>
+            <option value="always">Всегда</option><option value="ask">Спрашивать</option><option value="never">Никогда</option>
+          </select>
+        </label>
+        <div data-recording-settings-targets></div>
+      </div>
+      <template data-recording-settings-select><select><option value="always">Всегда</option><option value="ask">Спрашивать</option><option value="never">Никогда</option></select></template>
+      <p class="muted" role="status" aria-live="polite" data-recording-settings-status>Загрузка настроек этого Mac…</p>
+      <button type="button" class="button quiet" data-recording-settings-retry hidden>Повторить загрузку</button>
+      <a class="button quiet" href="/desktop/settings/meeting-detection">Открыть локальные настройки</a>
     </section>
-
+    {% else %}
+    <section class="settings-section" aria-labelledby="recording-handoff-title" data-recording-handoff>
+      <h2 id="recording-handoff-title">Настройка записи находится в приложении GRAF</h2>
+      <p>Откройте GRAF на нужном Mac и выберите «Настройки → Запись».</p>
+      <ul class="settings-boundary-list">
+        <li><strong>Автозапись</strong><span>Правила действуют только на выбранном Mac.</span></li>
+        <li><strong>Ручная запись</strong><span>Старт и стоп доступны всегда.</span></li>
+      </ul>
+    </section>
     <section class="settings-section" aria-labelledby="recording-unavailable-title">
       <h2 id="recording-unavailable-title">Нет приложения GRAF?</h2>
-      <p class="muted">Скачайте приложение для macOS, чтобы управлять записями.</p>
-      {% if not embedded %}<p class="muted">Ссылка на скачивание находится в нижней части боковой панели.</p>{% endif %}
+      <p class="muted">Скачайте приложение для macOS, чтобы управлять записями. Ссылка на скачивание находится в нижней части боковой панели.</p>
     </section>
+    {% endif %}
     </div>
   </div>
 </main>

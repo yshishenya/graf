@@ -5038,6 +5038,112 @@
     }, Math.min(delay, 2147483647));
   };
 
+  let recordingSettingsNonce = null;
+  const initRecordingSettings = () => {
+    const root = document.querySelector('[data-recording-settings]');
+    if (!root || root.dataset.ready === 'true') return;
+    root.dataset.ready = 'true';
+    const controls = root.querySelector('[data-recording-settings-controls]');
+    const list = root.querySelector('[data-recording-settings-targets]');
+    const all = root.querySelector('[data-recording-settings-all]');
+    const status = root.querySelector('[data-recording-settings-status]');
+    const retry = root.querySelector('[data-recording-settings-retry]');
+    const template = root.querySelector('[data-recording-settings-select]');
+    const rows = new Map();
+    let busy = false;
+    let refreshPending = false;
+    let confirmed = null;
+
+    const render = (snapshot) => {
+      const ids = new Set(snapshot.targets.map((target) => target.id));
+      for (const [id, row] of rows) {
+        if (!ids.has(id)) { row.remove(); rows.delete(id); }
+      }
+      for (const [index, target] of snapshot.targets.entries()) {
+        let row = rows.get(target.id);
+        if (!row) {
+          row = document.createElement('label');
+          row.className = 'settings-control-row';
+          const name = document.createElement('span');
+          name.className = 'settings-control-row__title';
+          const select = template.content.firstElementChild.cloneNode(true);
+          select.dataset.recordingTarget = target.id;
+          row.append(name, select);
+          rows.set(target.id, row);
+        }
+        if (list.children[index] !== row) list.insertBefore(row, list.children[index] || null);
+        row.firstElementChild.textContent = target.name;
+        const select = row.querySelector('select');
+        select.setAttribute('aria-label', `Автозапись: ${target.name}`);
+        select.value = target.rule;
+      }
+      const rules = new Set(snapshot.targets.map((target) => target.rule));
+      all.value = rules.size === 1 ? snapshot.targets[0].rule : '';
+      all.disabled = busy || snapshot.targets.length === 0;
+      controls.hidden = false;
+      status.textContent = snapshot.error || (snapshot.targets.length ? '' : 'Приложения для автозаписи пока недоступны.');
+    };
+
+    const request = async (action = 'read', fields = {}) => {
+      if (busy) { if (action === 'read') refreshPending = true; return; }
+      const bridge = window.webkit?.messageHandlers?.grafRecordingSettings;
+      if (!bridge || !recordingSettingsNonce) {
+        status.textContent = 'Откройте локальные настройки. Для настройки на этой странице может потребоваться обновление GRAF.';
+        retry.hidden = false;
+        return;
+      }
+      busy = true;
+      const nonce = recordingSettingsNonce;
+      const focused = root.contains(document.activeElement) ? document.activeElement : null;
+      status.textContent = action === 'read' ? 'Загрузка настроек…' : 'Сохранение…';
+      retry.hidden = true;
+      controls.querySelectorAll('select').forEach((select) => { select.disabled = true; });
+      let timer;
+      try {
+        const snapshot = await Promise.race([
+          bridge.postMessage({ version: 1, nonce, action, ...fields }),
+          new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('timeout')), 5000); }),
+        ]);
+        if (!root.isConnected || nonce !== recordingSettingsNonce) return;
+        if (snapshot?.version !== 1 || !Array.isArray(snapshot.targets) ||
+            snapshot.targets.some((target) => typeof target.id !== 'string' || typeof target.name !== 'string' || !['always', 'ask', 'never'].includes(target.rule))) {
+          throw new Error('unsupported');
+        }
+        confirmed = snapshot;
+        render(snapshot);
+        if (!snapshot.error && snapshot.targets.length) status.textContent = action === 'read' ? 'Настройки этого Mac загружены.' : 'Сохранено на этом Mac.';
+        retry.hidden = !snapshot.error;
+      } catch {
+        if (!root.isConnected || nonce !== recordingSettingsNonce) return;
+        if (confirmed) render(confirmed);
+        status.textContent = action === 'read'
+          ? 'Не удалось загрузить настройки. Повторите загрузку или откройте локальные настройки.'
+          : 'Не удалось подтвердить сохранение. Повторите загрузку, чтобы проверить текущие настройки.';
+        retry.hidden = false;
+      } finally {
+        clearTimeout(timer);
+        busy = false;
+        if (root.isConnected) {
+          controls.querySelectorAll('select').forEach((select) => { select.disabled = false; });
+          all.disabled = !confirmed?.targets.length;
+          if (focused?.isConnected && document.activeElement === document.body) focused.focus({ preventScroll: true });
+          if (refreshPending) { refreshPending = false; request(); }
+        }
+      }
+    };
+    root.addEventListener('change', (event) => {
+      if (event.target === all) request('setAll', { rule: all.value });
+      else if (event.target?.dataset.recordingTarget) request('set', { targetID: event.target.dataset.recordingTarget, rule: event.target.value });
+    });
+    retry.addEventListener('click', () => request());
+    root.addEventListener('graf:recording-settings-refresh', () => request());
+    request();
+  };
+  window.GRAFRecordingSettings = {
+    connect(nonce) { recordingSettingsNonce = nonce; initRecordingSettings(); this.refresh(); },
+    refresh() { document.querySelector('[data-recording-settings]')?.dispatchEvent(new Event('graf:recording-settings-refresh')); },
+  };
+
   const initSettingsFormState = () => {
     document.querySelectorAll("[data-settings-form]").forEach((form) => {
       if (form.dataset.settingsFormReady === "true") return;
@@ -7147,6 +7253,7 @@
     initCalendarSettings();
     initCalendarUpcomingRefresh();
     initSettingsFormState();
+    initRecordingSettings();
     initAccountPreferences();
     initSettingsConfirmations();
     initShareInvitationAutoAccept();
