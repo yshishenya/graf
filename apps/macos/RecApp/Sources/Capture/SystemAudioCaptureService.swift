@@ -56,19 +56,18 @@ public struct CoreGraphicsSystemAudioPermissionAuthorizer: SystemAudioPermission
 
     public func verifyCurrentPermission() async -> CapturePermissionState {
         let observedState = currentPermissionState()
+        // SCShareableContent can present a system prompt. Never call it before consent.
+        guard observedState == .granted else { return observedState }
         #if canImport(ScreenCaptureKit)
-        do {
-            let content = try await SCShareableContent.excludingDesktopWindows(
-                false,
-                onScreenWindowsOnly: true
-            )
-            guard content.displays.first != nil else {
-                return observedState == .granted ? .stale : observedState
+        let available = await SystemAudioPermissionProbe.check { completion in
+            SCShareableContent.getExcludingDesktopWindows(false, onScreenWindowsOnly: true) { content, error in
+                completion(error == nil && content?.displays.first != nil)
             }
-            return .granted
-        } catch {
-            return observedState == .granted ? .stale : observedState
         }
+        // A revocation during the asynchronous probe takes precedence over its result.
+        let currentState = currentPermissionState()
+        guard currentState == .granted else { return currentState }
+        return available ? .granted : .stale
         #else
         return observedState
         #endif
@@ -85,6 +84,39 @@ public struct CoreGraphicsSystemAudioPermissionAuthorizer: SystemAudioPermission
         #else
         return .unknown
         #endif
+    }
+}
+
+// Like RuntimeStartCompletion below, this releases the caller even when a native
+// callback never arrives. A late callback cannot complete a newer check.
+final class SystemAudioPermissionProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Bool, Never>?
+
+    private init(_ continuation: CheckedContinuation<Bool, Never>) {
+        self.continuation = continuation
+    }
+
+    static func check(
+        timeoutSeconds: TimeInterval = 8,
+        start: @Sendable (@escaping @Sendable (Bool) -> Void) -> Void
+    ) async -> Bool {
+        await withCheckedContinuation { continuation in
+            let probe = SystemAudioPermissionProbe(continuation)
+            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + timeoutSeconds) {
+                probe.complete(false)
+            }
+            start { probe.complete($0) }
+        }
+    }
+
+    private func complete(_ result: Bool) {
+        let pending = lock.withLock {
+            let pending = continuation
+            continuation = nil
+            return pending
+        }
+        pending?.resume(returning: result)
     }
 }
 

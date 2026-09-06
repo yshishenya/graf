@@ -1,5 +1,7 @@
 import Foundation
-import TwoBrainRecAppCore
+import SwiftUI
+import AppKit
+@testable import TwoBrainRecAppCore
 import TwoBrainRecShared
 
 #if canImport(XCTest)
@@ -17,34 +19,40 @@ final class SystemAudioPermissionUXTests: XCTestCase {
         XCTAssertNil(result.presentation)
     }
 
-    func testManualSystemAudioGrantRequiresRestartAfterObservedUnreadyState() {
-        XCTAssertFalse(
-            DesktopPermissionOnboardingStatus.systemAudioPermissionTransitionRequiresRestart(
-                from: nil,
-                to: .granted
-            )
-        )
-        XCTAssertTrue(
-            DesktopPermissionOnboardingStatus.systemAudioPermissionTransitionRequiresRestart(
-                from: .unknown,
-                to: .granted
-            )
-        )
-        XCTAssertTrue(
-            DesktopPermissionOnboardingStatus.systemAudioPermissionTransitionRequiresRestart(
-                from: .denied,
-                to: .granted
-            )
-        )
-        XCTAssertFalse(
-            DesktopPermissionOnboardingStatus.systemAudioPermissionTransitionRequiresRestart(
-                from: .granted,
-                to: .granted
-            )
-        )
+    func testNextPermissionSkipsGrantedStepsAndHistoryNeverGrantsAccess() {
+        XCTAssertEqual(DesktopPermissionOnboardingStatus.unknown.nextPermission, .microphone)
+        var state = DesktopPermissionOnboardingStatus(microphone: .granted, systemAudio: .unknown)
+        XCTAssertEqual(state.nextPermission, .systemAudio)
+        XCTAssertEqual(state.completedCount, 1)
+        XCTAssertFalse(state.isReady)
+        XCTAssertFalse(DesktopPermissionOnboardingStatus.needsSettings(state: .unknown, attempted: false))
+        XCTAssertTrue(DesktopPermissionOnboardingStatus.needsSettings(state: .unknown, attempted: true))
+        XCTAssertTrue(DesktopPermissionOnboardingStatus.needsSettings(state: .denied, attempted: false))
+        XCTAssertFalse(DesktopPermissionOnboardingStatus.needsSettings(state: .granted, attempted: true))
+        state.systemAudio = .granted
+        XCTAssertTrue(state.isReady)
+        XCTAssertNil(state.nextPermission)
+        XCTAssertEqual(state.completedCount, 2)
+        state.microphone = .denied
+        XCTAssertFalse(state.isReady)
+        XCTAssertEqual(state.nextPermission, .microphone)
     }
 
-    func testObservedSystemAudioGrantStaysBlockedUntilRestart() {
+    func testProbeTimesOutAndIgnoresLateOrDuplicateCompletion() async {
+        let timedOut = await SystemAudioPermissionProbe.check(timeoutSeconds: 0.01) { completion in
+            DispatchQueue.global().asyncAfter(deadline: .now() + 0.04) { completion(true) }
+        }
+        XCTAssertFalse(timedOut)
+        let nextResult = await SystemAudioPermissionProbe.check(timeoutSeconds: 0.1) { completion in
+            completion(true)
+            completion(false)
+        }
+        XCTAssertTrue(nextResult)
+        try? await Task.sleep(for: .milliseconds(60))
+        XCTAssertFalse(timedOut)
+    }
+
+    func testUnverifiedSystemAudioBlocksRecordingUntilRecovery() {
         let result = SystemAudioPermissionGate().evaluate(
             microphone: .granted,
             systemAudio: .stale
@@ -97,6 +105,79 @@ final class SystemAudioPermissionUXTests: XCTestCase {
         let devCopy = DesktopPermissionOnboardingView.systemAudioStepDetail(for: "GRAF Dev")
         XCTAssertTrue(devCopy.contains("GRAF Dev"))
         XCTAssertTrue(devCopy.contains("отдельно"))
+    }
+
+    func testRenderSyntheticPermissionStates() throws {
+        guard let directory = ProcessInfo.processInfo.environment["GRAF_PERMISSION_PREVIEW_DIR"] else {
+            throw XCTSkip("Set GRAF_PERMISSION_PREVIEW_DIR to render synthetic native permission previews")
+        }
+        let app = NSApplication.shared
+        let originalIcon = app.applicationIconImage
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent()
+        app.applicationIconImage = NSImage(contentsOf: root.appendingPathComponent("RecApp/Resources/AppIcon.icns"))
+        defer { app.applicationIconImage = originalIcon }
+        try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+        let scenarios: [(String, DesktopPermissionOnboardingStatus)] = [
+            ("initial", .unknown),
+            ("system-audio", .init(microphone: .granted, systemAudio: .unknown)),
+            ("settings", .init(microphone: .granted, systemAudio: .denied)),
+            ("compact-settings", .init(microphone: .granted, systemAudio: .denied)),
+            ("restricted", .init(microphone: .restricted, systemAudio: .unknown)),
+            ("recovery", .init(microphone: .granted, systemAudio: .stale)),
+            ("ready", .init(microphone: .granted, systemAudio: .granted)),
+        ]
+        for scheme in [ColorScheme.light, .dark] {
+            for (name, state) in scenarios {
+                let view = DesktopPermissionOnboardingView(
+                    status: state, applicationName: "GRAF Dev", isRequesting: false,
+                    recoverySuggested: state.systemAudio == .stale,
+                    onRequestMicrophone: {}, onRequestSystemAudio: {},
+                    onOpenMicrophoneSettings: {}, onOpenSystemAudioSettings: {},
+                    onRefresh: {}, onDismiss: {}, onFinish: {}, onRestart: {}
+                )
+                .environment(\.colorScheme, scheme)
+                .background(scheme == .dark ? Color(nsColor: .init(white: 0.12, alpha: 1)) : .white)
+                let png: Data
+                if name == "compact-settings" {
+                    // ImageRenderer does not render the AppKit scroll view; exercise an actual host.
+                    let host = NSHostingView(rootView: view)
+                    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 380),
+                        styleMask: [.borderless], backing: .buffered, defer: false)
+                    window.isReleasedWhenClosed = false
+                    window.contentView = host
+                    window.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
+                    host.frame = NSRect(x: 0, y: 0, width: 520, height: 380)
+                    host.layoutSubtreeIfNeeded()
+                    let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+                    host.cacheDisplay(in: host.bounds, to: bitmap)
+                    png = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+                    func findScrollView(_ view: NSView) -> NSScrollView? {
+                        if let scroll = view as? NSScrollView { return scroll }
+                        return view.subviews.lazy.compactMap { findScrollView($0) }.first
+                    }
+                    let scroll = try XCTUnwrap(findScrollView(host))
+                    let document = try XCTUnwrap(scroll.documentView)
+                    XCTAssertGreaterThan(document.bounds.height, scroll.contentView.bounds.height)
+                    scroll.contentView.scroll(to: NSPoint(x: 0, y: document.isFlipped ? document.bounds.height - scroll.contentView.bounds.height : 0))
+                    scroll.reflectScrolledClipView(scroll.contentView)
+                    host.layoutSubtreeIfNeeded()
+                    let bottom = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+                    host.cacheDisplay(in: host.bounds, to: bottom)
+                    let bottomPNG = try XCTUnwrap(bottom.representation(using: .png, properties: [:]))
+                    try bottomPNG.write(to: URL(fileURLWithPath: directory).appendingPathComponent("compact-bottom-\(scheme == .dark ? "dark" : "light").png"))
+                    window.close()
+                } else {
+                    let renderer = ImageRenderer(content: view)
+                    renderer.scale = 2
+                    let image = try XCTUnwrap(renderer.cgImage)
+                    XCTAssertGreaterThan(image.height, 200)
+                    XCTAssertLessThanOrEqual(image.height, 1400)
+                    png = try XCTUnwrap(NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]))
+                }
+                try png.write(to: URL(fileURLWithPath: directory).appendingPathComponent("\(name)-\(scheme == .dark ? "dark" : "light").png"))
+            }
+        }
     }
 
     func testDetectorAssistedPreparingDoesNotStartRecordingAutomatically() throws {

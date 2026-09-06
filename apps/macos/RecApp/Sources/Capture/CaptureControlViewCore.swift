@@ -115,8 +115,8 @@ public struct CaptureControlView: View {
                 }
 
                 if Self.shouldShowDirectRecordButton(for: session, calendarPrompt: calendarPrompt) {
-                    Button(action: onRecord) {
-                        Label(SystemAudioStatusLabels.recordButtonTitle, systemImage: "record.circle")
+                    Button(action: readinessStatus.isReady ? onRecord : onPermissionRecovery) {
+                        Label(readinessStatus.isReady ? SystemAudioStatusLabels.recordButtonTitle : "Подготовить запись", systemImage: readinessStatus.isReady ? "record.circle" : "slider.horizontal.3")
                             .lineLimit(1)
                             .frame(maxWidth: .infinity)
                     }
@@ -124,9 +124,9 @@ public struct CaptureControlView: View {
                     .frame(maxWidth: .infinity, minHeight: DesktopMeetingShellChrome.controlHeight)
                     .disabled(!Self.shouldEnableRecordButton(for: session, recordDisabled: recordDisabled))
                     .keyboardShortcut("r", modifiers: [.command, .shift])
-                    .accessibilityLabel(SystemAudioStatusLabels.recordButtonAccessibilityLabel)
+                    .accessibilityLabel(readinessStatus.isReady ? SystemAudioStatusLabels.recordButtonAccessibilityLabel : "Подготовить запись: настроить микрофон и звук собеседников")
                     .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.recordButton)
-                    .help(SystemAudioStatusLabels.recordButtonAccessibilityLabel)
+                    .help(readinessStatus.isReady ? SystemAudioStatusLabels.recordButtonAccessibilityLabel : "Настроить разрешения macOS для записи")
                 }
 
                 if session.map({ CaptureStatusItem.showsStopButton(for: $0) }) != true,
@@ -140,7 +140,7 @@ public struct CaptureControlView: View {
                         .foregroundStyle(readinessStatus.isReady ? secondaryTextColor : Color.orange)
                         .accessibilityLabel(readinessSummary)
 
-                        if !readinessStatus.isReady {
+                        if !readinessStatus.isReady && !Self.shouldShowDirectRecordButton(for: session, calendarPrompt: calendarPrompt) {
                             Spacer(minLength: 4)
                             Button("Настроить доступы", action: onPermissionRecovery)
                                 .buttonStyle(DesktopWebButtonStyle(.secondary))

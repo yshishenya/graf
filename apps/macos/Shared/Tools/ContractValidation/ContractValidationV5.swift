@@ -842,33 +842,42 @@ func validateAppStopFailureFailClosedSourceInvariant() throws {
         "App stop failure logging must include the classified failure category"
     )
     try require(
-        source.contains("private func presentPermissionRecoveryAfterSystemAudioRuntimeFailure(_ error: Error)") &&
-            source.contains("captureError == .runtimeStartFailed") &&
-            source.contains("systemAudioPermissionAuthorizer.currentPermissionState() == .granted") &&
-            source.contains("presentPermissionRecoveryAfterSystemAudioRuntimeFailure(error)"),
-        "A granted-but-failed system-audio runtime must offer relaunch recovery"
+        source.contains("refreshPermissionOnboardingWithFunctionalProbe(reason: \"recording_start_failed\")") &&
+            source.contains("permissionRecoverySuggested = verifiedState == .stale") &&
+            source.contains("guard !protectedUpdateWork.isProtected, !permissionOperationInProgress"),
+        "Runtime failure must verify access before offering protected relaunch recovery"
     )
     try require(
         permissionSource.contains("func verifyCurrentPermission() async -> CapturePermissionState") &&
-            permissionSource.contains("SCShareableContent.excludingDesktopWindows") &&
+            permissionSource.contains("guard observedState == .granted else { return observedState }") &&
+            permissionSource.contains("SCShareableContent.getExcludingDesktopWindows") &&
             permissionSource.contains("return await verifyCurrentPermission()"),
-        "System-audio permission recovery must verify the functional ScreenCaptureKit path"
+        "System-audio recovery must check consent before the functional ScreenCaptureKit probe"
     )
 
-    guard let clearBlockerRange = source.range(of: "recordingBlocker = nil"),
-          let beginPreparingRange = source.range(of: "let preparing = if let meetingDetectionTarget"),
-          let microphonePromptRange = source.range(of: "let microphoneSession = await microphoneCaptureService.requestPermissionAndPreflight"),
-          let systemAudioPromptRange = source.range(of: "let observedSystemAudioPermissionState = await systemAudioPermissionAuthorizer.requestPermission()"),
-          source.contains("try captureController.beginDetectorAssistedPreparing"),
-          source.contains("try captureController.beginPreparing")
+    guard let startRange = source.range(of: "private func startManualRecording("),
+          let stopRange = source.range(of: "private func stopManualRecording(", range: startRange.upperBound..<source.endIndex)
     else {
-        throw ValidationError(description: "App start path must expose blocker clearing, preparing state, and permission prompts")
+        throw ValidationError(description: "App start and stop boundaries are missing")
+    }
+    let startBody = source[startRange.lowerBound..<stopRange.lowerBound]
+    guard let readinessRange = startBody.range(of: "guard effectivePermissionOnboardingStatus.isReady"),
+          let clearBlockerRange = startBody.range(of: "recordingBlocker = nil"),
+          let beginPreparingRange = startBody.range(of: "let preparing = if let meetingDetectionTarget"),
+          let microphoneCheckRange = startBody.range(of: "let microphoneSession = microphoneCaptureService.preflight"),
+          let systemAudioCheckRange = startBody.range(of: "let observedSystemAudioPermissionState = systemAudioPermissionAuthorizer.currentPermissionState()"),
+          startBody.contains("try captureController.beginDetectorAssistedPreparing"),
+          startBody.contains("try captureController.beginPreparing")
+    else {
+        throw ValidationError(description: "App start must expose permission readiness, preparing state and passive preflight")
     }
     try require(
-        clearBlockerRange.lowerBound < beginPreparingRange.lowerBound &&
-            beginPreparingRange.lowerBound < microphonePromptRange.lowerBound &&
-            microphonePromptRange.lowerBound < systemAudioPromptRange.lowerBound,
-        "App start path must clear stale blockers and show preparing state before permission prompts"
+        readinessRange.lowerBound < clearBlockerRange.lowerBound &&
+            clearBlockerRange.lowerBound < beginPreparingRange.lowerBound &&
+            beginPreparingRange.lowerBound < microphoneCheckRange.lowerBound &&
+            microphoneCheckRange.lowerBound < systemAudioCheckRange.lowerBound &&
+            !startBody.contains("requestPermission"),
+        "App start must gate readiness before preparing and recheck permissions without requesting them"
     )
 }
 
