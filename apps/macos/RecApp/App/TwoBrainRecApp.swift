@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import Network
 import SwiftUI
 import TwoBrainRecAppCore
@@ -32,7 +33,7 @@ private enum TwoBrainRecAppMain {
             keyEquivalent: ""
         )
         let updateItem = appMenu.addItem(
-            withTitle: "Check for Updates…",
+            withTitle: "Проверить обновления…",
             action: #selector(AppLifecycleDelegate.checkForUpdates(_:)),
             keyEquivalent: ""
         )
@@ -390,6 +391,12 @@ private struct ContentView: View {
                     restartGRAFAfterPermissionChange()
                 }
             )
+        }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            AppUpdateNotice(presentation: appUpdateController.presentation,
+                            isActionEnabled: appUpdateController.isManualCheckActionEnabled) {
+                (NSApp.delegate as? AppLifecycleDelegate)?.checkForUpdates(nil)
+            }
         }
         .onAppear {
             AppLog.writeRaw(
@@ -3026,6 +3033,7 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
     private var calendarTrayController: CalendarTrayController?
     private let workspaceZoomStore = WorkspaceZoomStore()
     private let appUpdateController: AppUpdateController
+    private var appUpdateSubscription: AnyCancellable?
     private var terminationReplyPending = false
     private var relaunchAfterTermination = false
 
@@ -3086,9 +3094,15 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
         calendarTrayController = CalendarTrayController(
             model: trayModel,
             onOpenCalendar: { [weak self] in self?.openCalendarFromTray() },
-            onOpenMeetings: { [weak self] in self?.openMeetingsFromTray() }
+            onOpenMeetings: { [weak self] in self?.openMeetingsFromTray() },
+            onUpdate: { [weak self] in self?.checkForUpdates(nil) }
         )
         calendarTrayController?.start()
+        appUpdateSubscription = appUpdateController.$presentation
+            .combineLatest(appUpdateController.$isManualCheckActionEnabled)
+            .sink { [weak self] presentation, enabled in
+                self?.calendarTrayController?.showUpdate(presentation, actionEnabled: enabled)
+            }
         appUpdateController.start()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             self.logWindowVisibility()
@@ -3319,6 +3333,8 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         guard menuItem.action == #selector(checkForUpdates(_:)) else { return true }
+        menuItem.title = appUpdateController.presentation.availableVersion.map { "Обновить GRAF до \($0)…" }
+            ?? "Проверить обновления…"
         return appUpdateController.isManualCheckActionEnabled
     }
 

@@ -312,7 +312,7 @@ if [ -n "$UPDATE_FEED_URL" ]; then
   /usr/bin/plutil -insert SUFeedURL -string "$UPDATE_FEED_URL" "$APP_BUNDLE/Contents/Info.plist"
   /usr/bin/plutil -insert SUPublicEDKey -string "$SPARKLE_PUBLIC_ED_KEY" "$APP_BUNDLE/Contents/Info.plist"
   /usr/bin/plutil -insert SUEnableAutomaticChecks -bool YES "$APP_BUNDLE/Contents/Info.plist"
-  /usr/bin/plutil -insert SUScheduledCheckInterval -integer 86400 "$APP_BUNDLE/Contents/Info.plist"
+  /usr/bin/plutil -insert SUScheduledCheckInterval -integer 14400 "$APP_BUNDLE/Contents/Info.plist"
   /usr/bin/plutil -insert SUAutomaticallyUpdate -bool NO "$APP_BUNDLE/Contents/Info.plist"
   /usr/bin/plutil -insert SUAllowsAutomaticUpdates -bool NO "$APP_BUNDLE/Contents/Info.plist"
   /usr/bin/plutil -insert SUEnableSystemProfiling -bool NO "$APP_BUNDLE/Contents/Info.plist"
