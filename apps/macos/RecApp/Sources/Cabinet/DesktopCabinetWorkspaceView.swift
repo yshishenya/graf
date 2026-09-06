@@ -249,6 +249,7 @@ public struct DesktopCabinetWorkspaceView: View {
                     if snapshot.commands.contains("quit") { Button("Закрыть GRAF") { shellBridge.perform("quit") } }
                 } label: {
                     Label(snapshot.name.isEmpty ? "Профиль" : snapshot.name, systemImage: "person.crop.circle")
+                        .foregroundStyle(.primary)
                         .lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .menuStyle(.borderlessButton)

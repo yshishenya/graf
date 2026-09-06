@@ -75,4 +75,4 @@ Umbrella/reservation: #6752. Task ownership синхронизировано 202
 
 ## Промежуточное состояние реализации
 
-Код T003–T010 реализован и прошёл профильные проверки, но задачи с обязательной runtime приёмкой сохраняют `[ ]` до полного evidence. См. `validation/acceptance.md`, `validation/cleanup.md` и `validation/convergence.md`. Коммит `c6bbcf3` содержит документы; implementation commit, Dev promotion, PR и выпуск ещё не выполнены.
+Код T003–T010 реализован и прошёл профильные проверки, но задачи с обязательной runtime приёмкой сохраняют `[ ]` до полного evidence. См. `validation/acceptance.md`, `validation/cleanup.md` и `validation/convergence.md`. Коммит `c6bbcf3` содержит документы; реализация закоммичена в `1614e6787`, создан draft PR #6766 и штатный Dev-кандидат. Продвижение в установленный Dev и выпуск ещё не выполнены; см. `validation/dev-preparation.md`.

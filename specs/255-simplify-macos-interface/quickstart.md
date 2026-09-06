@@ -19,6 +19,7 @@ python3 scripts/check_spec_kit_governance.py
 PYTHONPATH=apps/server/src apps/server/.venv/bin/python -m pytest \
   apps/server/tests/unit/test_cabinet_navigation_model.py \
   apps/server/tests/unit/test_cabinet_web_shell.py \
+  apps/server/tests/unit/test_cabinet_template_sections.py \
   apps/server/tests/contract/test_cabinet_shell_response_contract.py
 swift test --package-path apps/macos --filter 'DesktopCabinet|EmbeddedCabinet|DesktopMeetingShellWebViewBoundary'
 swift build --package-path apps/macos --product TwoBrainRecApp
