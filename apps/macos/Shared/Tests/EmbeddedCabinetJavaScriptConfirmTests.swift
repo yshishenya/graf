@@ -41,22 +41,25 @@ final class EmbeddedCabinetJavaScriptConfirmTests: XCTestCase {
         // An HTTP document supplies a real WKFrameInfo URL; loadHTMLString does not.
         let parameters = NWParameters.tcp
         parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
+        FileHandle.standardError.write(Data("f243_stage=listener-create\n".utf8))
         let listener = try NWListener(using: parameters)
         let listening = expectation(description: "loopback fixture ready")
         listener.stateUpdateHandler = { state in
             if case .ready = state { listening.fulfill() }
         }
         listener.newConnectionHandler = { connection in
-            connection.start(queue: .main)
+            connection.start(queue: .global())
             connection.receive(minimumIncompleteLength: 1, maximumLength: 4096) { _, _, _, _ in
                 let html = "<!doctype html><title>Synthetic confirmation</title><p>GRAF test</p>"
                 let response = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: \(html.utf8.count)\r\nConnection: close\r\n\r\n\(html)"
                 connection.send(content: Data(response.utf8), completion: .contentProcessed { _ in connection.cancel() })
             }
         }
-        listener.start(queue: .main)
+        listener.start(queue: .global())
         defer { listener.cancel() }
+        FileHandle.standardError.write(Data("f243_stage=listener-await\n".utf8))
         await fulfillment(of: [listening], timeout: 5)
+        FileHandle.standardError.write(Data("f243_stage=listener-ready\n".utf8))
         let port = try XCTUnwrap(listener.port)
         let localOrigin = try XCTUnwrap(URL(string: "http://127.0.0.1:\(port.rawValue)"))
         let (view, window, coordinator) = makeCabinet(realDocument: true, baseURL: localOrigin)
@@ -69,14 +72,17 @@ final class EmbeddedCabinetJavaScriptConfirmTests: XCTestCase {
         view.navigationDelegate = coordinator
         view.uiDelegate = coordinator
         let documentURL = localOrigin.appendingPathComponent("desktop/settings/account")
+        FileHandle.standardError.write(Data("f243_stage=document-load\n".utf8))
         view.load(URLRequest(url: documentURL))
         for _ in 0..<100 {
             if !view.isLoading && view.url == documentURL { break }
             try await Task.sleep(for: .milliseconds(30))
         }
+        FileHandle.standardError.write(Data("f243_stage=document-loaded\n".utf8))
         XCTAssertEqual(view.url, documentURL)
         for key in ["\r", "\u{1b}"] {
             let replied = expectation(description: "real JavaScript completes after cancellation")
+            FileHandle.standardError.write(Data("f243_stage=js-confirm\n".utf8))
             view.evaluateJavaScript("window.protectedAction = false; if (confirm('Synthetic action')) window.protectedAction = true; window.protectedAction") { result, error in
                 XCTAssertNil(error)
                 XCTAssertEqual(result as? Bool, false)

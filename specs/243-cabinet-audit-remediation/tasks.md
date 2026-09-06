@@ -72,4 +72,4 @@ Umbrella: https://github.com/yshishenya/graf/issues/6567.
 
 ## Phase 8: Release regression
 
-- [ ] T017 Выполнять callbacks синтетического NWListener на главной очереди, соответствующей MainActor теста подтверждения; повторить локальную проверку и macos-diagnostic со Swift6.0.3 без пропуска теста. (Issue #6578)
+- [ ] T017 Найти и устранить аварийное завершение теста подтверждения в Swift6.0.3; сохранить реальный JavaScript и проверки отмены, повторить macos-diagnostic без пропуска теста. (Issue #6578)
