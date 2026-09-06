@@ -140,7 +140,8 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertTrue(source.contains(".accessibilityElement(children: .contain)"))
         XCTAssertTrue(source.contains(".accessibilityElement(children: .combine)"))
         XCTAssertTrue(source.contains(".accessibilityIdentifier(SystemAudioAccessibilityIdentifier.statusSurface)"))
-        XCTAssertTrue(source.contains(".lineLimit(1)"))
+        XCTAssertFalse(source.contains(".lineLimit(1)"), "Capture actions must not truncate in the narrow widget")
+        XCTAssertTrue(source.contains(".fixedSize(horizontal: false, vertical: true)"))
         XCTAssertTrue(source.contains(".accessibilityRemoveTraits(.isSelected)"))
         XCTAssertTrue(source.contains("VStack(alignment: .leading, spacing: 8)"))
         XCTAssertGreaterThanOrEqual(

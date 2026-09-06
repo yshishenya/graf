@@ -73,7 +73,9 @@ public struct DesktopControlPanel: View {
             }
             if !compact || model.snapshot.active {
                 Label("Микрофон: \(model.snapshot.microphone)", systemImage: "mic")
+                    .fixedSize(horizontal: false, vertical: true)
                 Label("Системный звук: \(model.snapshot.systemAudio)", systemImage: "speaker.wave.2")
+                    .fixedSize(horizontal: false, vertical: true)
                 if let blocker = model.snapshot.blocker, !blocker.isEmpty {
                     Text(blocker).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     Button("Проверить запись") { model.send(.permissions) }

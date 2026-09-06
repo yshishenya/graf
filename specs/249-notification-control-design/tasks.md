@@ -26,7 +26,7 @@
 Проверка: одна встреча с напоминанием, ask/always/never, отсутствием сети, terminal failure и готовностью.
 
 - [X] T009 [US2] Расширить `apps/macos/Shared/Tests/MeetingDetectionCountdownTests.swift` и `MeetingDetectionRecordingLifecycleTests.swift`: истечение не запоминает, отказ, гонка Start/Stop, повторное событие. [FR-004]
-- [X] T010 [US2] Реализовать presenter только локальных событий/напоминаний и дедупликацию в `apps/macos/RecApp/Sources/Notifications/DesktopNotificationPresenter.swift`, подключить через `App/TwoBrainRecApp.swift`; OS permission, Focus, возраст события и приоритет активной записи; получение/показ при закрытом окне и без загруженного WKWebView. [FR-005/006/011/012/019/020]
+- [ ] T010 [US2] Реализовать presenter только локальных событий/напоминаний и дедупликацию в `apps/macos/RecApp/Sources/Notifications/DesktopNotificationPresenter.swift`, подключить через `App/TwoBrainRecApp.swift`; OS permission, Focus, возраст события и приоритет активной записи; получение/показ при закрытом окне и без загруженного WKWebView. [FR-005/006/011/012/019/020]
 - [X] T011 [US2] Подключить реальные committed result/sharing producers к `apps/server/src/twobrain_rec_server/notifications/inbox.py`, покрыть end-to-end в `apps/server/tests/integration/test_notification_inbox_flow.py`; контракт источников/получателей/разрешения — `producer-contract.md`, N16/N17/N19 сохраняют существующий контекст без фиктивных producers; точки: `processing/store.py:persist_processing_result/set_workflow_status`, `outcomes/ai_service.py:_cas_summary_slot`, `cabinet/access.py:create_scoped_share_grant/accept_share_invitation`; транзакционные владельцы и ограничения — в `research.md`. [FR-005/007/016]
 
 ## Phase 5 — US3: inbox
@@ -43,14 +43,14 @@
 
 - [X] T015 [US4] Расширить `apps/server/tests/unit/test_notification_preferences.py` и `tests/contract/test_settings_ui_contract.py` миграцией false, missing old form fields, mandatory delivery и version conflict. [FR-010/012]
 - [X] T016 [US4] Расширить `apps/server/src/twobrain_rec_server/billing/notification_preferences.py`, `cabinet/web_routes/settings.py`, `templates/cabinet/pages/settings_notifications_content.html`, сохранив старые optional поля и отдельную серверную форму; не занимать `components/notifications.html`, где уже живёт форма, новым несовместимым назначением: новый inbox component `components/notification_inbox.html`. [FR-010/012]
-- [X] T017 [US4] Подключить Mac-owned preferences/permission/test notification к `apps/macos/RecApp/Sources/Notifications/DesktopNotificationPresenter.swift`; owner+device storage, отмена pending/delivered при logout/scope/disable/calendar change; старую автозапись не дублировать. [FR-004/010/011/012]
+- [ ] T017 [US4] Подключить Mac-owned preferences/permission/test notification к `apps/macos/RecApp/Sources/Notifications/DesktopNotificationPresenter.swift`; owner+device storage, отмена pending/delivered при logout/scope/disable/calendar change; старую автозапись не дублировать. [FR-004/010/011/012]
 
 ## Phase 7 — US5: compatibility and cleanup
 
 Проверка: old config + local queue + upgrade + fallback + rollback.
 
 - [ ] T018 [US5] Добавить upgrade/rollback/local-mode проверки в `apps/macos/Shared/Tests/DesktopCabinetWorkspaceTests.swift`; сохранить проверки `DesktopCabinetUploadLinkTests.swift`, `DesktopUploadQueueV5Tests.swift`, `DesktopMeetingShellWebViewBoundaryTests.swift`; зафиксировать все callers compact queue в `specs/249-notification-control-design/research.md`. [FR-015]
-- [X] T019 [US5] После T018 удалить только доказанно недостижимую embedded queue ветку в `apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift` и уточнить footer в `Sources/Calendar/CalendarTray.swift`; сохранить decoder и автономный список. [FR-014/015/016]
+- [ ] T019 [US5] После T018 удалить только доказанно недостижимую embedded queue ветку в `apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift` и уточнить footer в `Sources/Calendar/CalendarTray.swift`; сохранить decoder и автономный список. [FR-014/015/016]
 
 ## Phase 8 — Validation and closeout
 
@@ -91,6 +91,7 @@ T001→T002 обязательны для всей реализации. T003→
 - T021: https://github.com/yshishenya/graf/issues/6690
 - T022: https://github.com/yshishenya/graf/issues/6691
 - T023: https://github.com/yshishenya/graf/issues/6709
+- T024: https://github.com/yshishenya/graf/issues/6711
 
 Setup evidence: independent UX 13/13 and security 9/9; analyze.md critical/high 0; base a389657e6; 22/22 tasks have open owners. Feature249 canon 23/23 PASS. Global canon hook failed only unrelated #6684 (feature253, area label and Spec tasks field); global sync success is not claimed.
 
@@ -113,4 +114,14 @@ Runtime выявил HIGH/contradicts по FR-002/004, US1/AC4 и принцип
 новый виджет ошибочно обещает остановку системного звука на паузе микрофона.
 Независимый reviewer подтвердил сохранение семантики Feature 022.
 
-- [ ] T023 Исправить общие нативные подписи паузы микрофона, отображение обоих источников и непрерывный таймер; согласовать spec/experience/quickstart/макет с существующим V5LocalRecordingWriter, добавить тест времени и повторить GRAF Dev. [FR-002/004; US1/AC4; contradicts]
+- [X] T023 Исправить общие нативные подписи паузы микрофона, отображение обоих источников и непрерывный таймер; согласовать spec/experience/quickstart/макет с существующим V5LocalRecordingWriter, добавить тест времени и повторить GRAF Dev. [FR-002/004; US1/AC4; contradicts]
+
+
+## Phase 10: Convergence
+
+- [ ] T024 Устранить обрезание кнопок и источников в `apps/macos/RecApp/Sources/Capture/CaptureStatusItem.swift` и `Sources/Notifications/DesktopControlPanel.swift`; проверить реальный виджет GRAF Dev шириной 290 px в записи и паузе. [FR-013/017; SC-006; partial]
+
+T010/T017: код и автоматические проверки выполнены, запрос принят macOS;
+видимая системная доставка/полная матрица ещё не приняты. T019: удаление и
+регрессии выполнены, окончательное закрытие зависит от upgrade/rollback T018.
+Поэтому эти задачи возвращены в открытые, соответствующие issues остаются открытыми.

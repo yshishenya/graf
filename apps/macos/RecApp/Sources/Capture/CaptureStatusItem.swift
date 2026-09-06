@@ -44,8 +44,7 @@ public struct CaptureStatusItem: View {
                     .foregroundStyle(color(for: session))
                 Text(Self.statusLabel(for: session))
                     .font(.caption)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.85)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .accessibilityElement(children: .combine)
             .accessibilityLabel(Self.accessibilityLabel(for: session))
@@ -53,11 +52,11 @@ public struct CaptureStatusItem: View {
             .accessibilityRemoveTraits(.isSelected)
 
             if showsStopAction {
-                HStack(spacing: 8) {
+                VStack(spacing: 8) {
                     if Self.showsPauseButton(for: session) {
                         Button(action: onPause) {
                             Label(SystemAudioStatusLabels.pauseButtonTitle, systemImage: "pause.fill")
-                                .lineLimit(1)
+                                .fixedSize(horizontal: false, vertical: true)
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(DesktopWebButtonStyle(.secondary))
@@ -71,7 +70,7 @@ public struct CaptureStatusItem: View {
                     if Self.showsResumeButton(for: session) {
                         Button(action: onResume) {
                             Label(SystemAudioStatusLabels.resumeButtonTitle, systemImage: "play.fill")
-                                .lineLimit(1)
+                                .fixedSize(horizontal: false, vertical: true)
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(DesktopWebButtonStyle(.secondary))
@@ -84,7 +83,7 @@ public struct CaptureStatusItem: View {
 
                     Button(action: onStop) {
                         Label(SystemAudioStatusLabels.stopButtonTitle, systemImage: "stop.fill")
-                            .lineLimit(1)
+                            .fixedSize(horizontal: false, vertical: true)
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(DesktopWebButtonStyle(.destructive))
