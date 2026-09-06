@@ -195,5 +195,5 @@ def test_owner_all_day_date_is_not_shifted_by_display_timezone():
 
     from twobrain_rec_server.cabinet.rendering import _home_upcoming_time_label
     start = datetime(2026, 9, 6, tzinfo=UTC)
-    assert _home_upcoming_time_label(start, "America/Los_Angeles", all_day=True) == "06.09, весь день"
-    assert _home_upcoming_time_label(start, "Asia/Yekaterinburg", all_day=True) == "06.09, весь день"
+    assert _home_upcoming_time_label(start, "America/Los_Angeles", all_day=True) == "06.09.2026, весь день"
+    assert _home_upcoming_time_label(start, "Asia/Yekaterinburg", all_day=True) == "06.09.2026, весь день"

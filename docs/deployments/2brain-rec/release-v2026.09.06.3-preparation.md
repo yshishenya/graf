@@ -71,6 +71,9 @@
 - Изолированная GRAF Local: `test-permission-restart.py` — два штатных Quit/reopen
   с восстановлением немодальной страницы настройки. Это не выдача TCC.
 - Ruff, JavaScript syntax, Spec Kit governance и whitespace — PASS.
+- Первый GitHub governance-fast общего SHA: 1507 unit tests passed, один failed —
+  ожидание старого формата даты без года. Ожидание согласовано с F252;
+  окончательный результат нового SHA фиксируется в PR.
 
 Все проверки используют синтетические данные и временные среды. Локальные
 результаты не являются authoritative Full CI или разрешением публикации.
