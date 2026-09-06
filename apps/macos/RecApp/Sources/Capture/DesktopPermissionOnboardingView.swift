@@ -140,6 +140,8 @@ public struct DesktopPermissionOnboardingView: View {
         }
     }
 
+    private var supportingTextColor: Color { .primary.opacity(0.75) }
+
     private var currentState: CapturePermissionState {
         status.nextPermission == .microphone ? status.microphone : status.systemAudio
     }
@@ -162,7 +164,7 @@ public struct DesktopPermissionOnboardingView: View {
                     .font(.system(size: 26, weight: .semibold))
                     .accessibilityAddTraits(.isHeader)
                 Text(status.isReady ? Self.startStepDetail : (status.nextPermission == .microphone ? Self.subtitle : Self.systemAudioStepDetail))
-                    .font(.body).foregroundStyle(.secondary)
+                    .font(.body).foregroundStyle(supportingTextColor)
                     .fixedSize(horizontal: false, vertical: true)
             }
             if isRequesting {
@@ -172,24 +174,24 @@ public struct DesktopPermissionOnboardingView: View {
                         Text(isChecking ? "Проверяем, всё ли готово…" : "Ответьте на запрос macOS")
                             .font(.body.weight(.medium))
                         Text(isChecking ? "Это займёт несколько секунд." : "Выберите «Разрешить» в системном окне, чтобы продолжить настройку.")
-                            .font(.callout).foregroundStyle(.secondary)
+                            .font(.callout).foregroundStyle(supportingTextColor)
                     }
                 }
                 .accessibilityElement(children: .combine)
             } else if currentState == .restricted {
-                Text(Self.microphoneRestrictedDetail).font(.body).foregroundStyle(.secondary)
+                Text(Self.microphoneRestrictedDetail).font(.body).foregroundStyle(supportingTextColor)
             } else if let step = visibleSettingsHelp {
                 settingsGuide(step)
             } else if currentState == .stale {
                 Text("Пока не удалось проверить разрешение. Попробуем ещё раз — повторно выдавать доступ не нужно.")
-                    .font(.body).foregroundStyle(.secondary)
+                    .font(.body).foregroundStyle(supportingTextColor)
             } else if !status.isReady {
                 Label("После «Продолжить» macOS попросит разрешение для «\(applicationName)».", systemImage: "macwindow")
-                    .font(.callout).foregroundStyle(.secondary)
+                    .font(.callout).foregroundStyle(supportingTextColor)
             }
             if let settingsError {
                 Label(settingsError, systemImage: "exclamationmark.triangle")
-                    .font(.callout).foregroundStyle(.secondary)
+                    .font(.callout).foregroundStyle(supportingTextColor)
             }
             if let step = status.nextPermission {
                 DisclosureGroup("Не получается?", isExpanded: $helpExpanded) {
@@ -225,7 +227,7 @@ public struct DesktopPermissionOnboardingView: View {
             }
             if !status.isReady {
                 Text(Self.recordingBoundaryDetail)
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.caption).foregroundStyle(supportingTextColor)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -262,7 +264,7 @@ public struct DesktopPermissionOnboardingView: View {
             }
             Text(title).font(.callout.weight(active ? .semibold : .regular))
         }
-        .foregroundStyle(active ? Color.primary : .secondary)
+        .foregroundStyle(active ? Color.primary : supportingTextColor)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(10)
         .background(active ? DesktopMeetingShellChrome.shellAccentColor.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 10))
@@ -290,7 +292,7 @@ public struct DesktopPermissionOnboardingView: View {
             Text("Включите «\(applicationName)» в настройках")
                 .font(.body.weight(.medium))
             Text("Конфиденциальность и безопасность → \(step == .microphone ? "Микрофон" : "Запись экрана и системного звука")")
-                .font(.callout).foregroundStyle(.secondary)
+                .font(.callout).foregroundStyle(supportingTextColor)
             HStack(spacing: 10) {
                 Image(nsImage: NSApplication.shared.applicationIconImage).resizable().frame(width: 28, height: 28)
                 Text(applicationName).font(.callout.weight(.medium))
@@ -304,10 +306,10 @@ public struct DesktopPermissionOnboardingView: View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Пример: включите переключатель рядом с \(applicationName) в системных настройках")
             Text("Пример в настройках macOS. Затем вернитесь сюда — мы проверим доступ автоматически.")
-                .font(.callout).foregroundStyle(.secondary)
+                .font(.callout).foregroundStyle(supportingTextColor)
             if step == .systemAudio {
                 Text("macOS просит «Завершить и открыть снова»? Подтвердите — после запуска вы продолжите с этого места.")
-                    .font(.callout).foregroundStyle(.secondary)
+                    .font(.callout).foregroundStyle(supportingTextColor)
             }
         }
     }
@@ -315,7 +317,7 @@ public struct DesktopPermissionOnboardingView: View {
     private func help(_ step: DesktopPermissionStep) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Уже включили доступ? Проверим ещё раз.")
-                .foregroundStyle(.secondary)
+                .foregroundStyle(supportingTextColor)
             Button(Self.retryTitle, action: onRefresh).disabled(isRequesting)
             if !needsSettings && currentState != .restricted {
                 Button(Self.openSettingsTitle) { openSettings(step) }.disabled(isRequesting)
@@ -323,21 +325,21 @@ public struct DesktopPermissionOnboardingView: View {
             let attempted = step == .microphone ? microphoneAttempted : systemAudioAttempted
             if currentState == .unknown && attempted {
                 Text("Не видите «\(applicationName)» в списке? Повторите запрос, чтобы приложение появилось в настройках.")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(supportingTextColor)
                 Button("Повторить запрос", action: step == .microphone ? onRequestMicrophone : onRequestSystemAudio)
                     .disabled(isRequesting)
             }
             if step == .systemAudio && (recoverySuggested || visibleSettingsHelp != nil) {
-                Text(Self.restartDetail).foregroundStyle(.secondary)
+                Text(Self.restartDetail).foregroundStyle(supportingTextColor)
                 Button("Перезапустить \(applicationName)", action: onRestart)
                     .disabled(isRequesting || !restartAvailable)
                     .accessibilityIdentifier(DesktopPermissionOnboardingAccessibilityIdentifier.restartButton)
                 if !restartAvailable {
-                    Text("Сначала дождитесь окончания записи и сохранения файла.").foregroundStyle(.secondary)
+                    Text("Сначала дождитесь окончания записи и сохранения файла.").foregroundStyle(supportingTextColor)
                 }
             }
-            Text(Self.systemAudioStepDetail(for: applicationName)).foregroundStyle(.secondary)
-            Text("Название раздела может немного отличаться в вашей версии macOS.").foregroundStyle(.secondary)
+            Text(Self.systemAudioStepDetail(for: applicationName)).foregroundStyle(supportingTextColor)
+            Text("Название раздела может немного отличаться в вашей версии macOS.").foregroundStyle(supportingTextColor)
         }
     }
 }
