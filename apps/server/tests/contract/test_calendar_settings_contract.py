@@ -296,11 +296,9 @@ def test_meeting_home_names_credential_recovery_without_false_freshness() -> Non
     )
 
     assert "Нужно переподключить календарь" in page
-    assert "Календарь нужно переподключить" in page
-    assert "Ручная запись по-прежнему доступна" in page
     assert "Календарь обновляется" not in page
-    assert snapshot.title not in page
-    assert f"/api/v1/calendar/events/{snapshot.id}/open" not in page
+    assert snapshot.title in page
+    assert f"/api/v1/calendar/events/{snapshot.id}/open" in page
 
 
 def test_calendar_settings_disconnect_confirmation_copy_is_truthful_and_safe() -> None:
@@ -432,7 +430,7 @@ def test_calendar_settings_accessibility_contract_for_states_and_controls(client
     assert "Если настройка ограничена политикой организации" in html
     assert "Во время загрузки настроек ручная запись остается доступной" in html
     assert "Если настройки календарей временно недоступны" in html
-    assert "Приватные события и события только со статусом занятости" in html
+    assert "Только занятость" in html
     assert "onclick=" not in html
     assert "onkeydown=" not in html
     assert "summary:focus-visible" in css

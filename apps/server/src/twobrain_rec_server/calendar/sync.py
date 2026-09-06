@@ -9,7 +9,7 @@ from functools import partial
 from typing import Any
 from uuid import UUID
 
-from cryptography.fernet import InvalidToken
+from cryptography.fernet import Fernet, InvalidToken
 from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,6 +21,12 @@ from twobrain_rec_server.calendar.credentials import (
     unseal_credential,
 )
 from twobrain_rec_server.calendar.normalize import NormalizedCalendarEvent
+from twobrain_rec_server.calendar.owner_content import (
+    OWNER_CONTENT_ENVELOPE_KEY,
+    OWNER_CONTENT_VERSION,
+    plaintext_owner_text,
+    seal_owner_event_content,
+)
 from twobrain_rec_server.calendar.providers import (
     MAX_PROVIDER_PAGES,
     CalendarCatalogEntry,
@@ -57,8 +63,10 @@ async def run_calendar_provider_sync(
     provider: CalendarProvider,
     credential_encryption_key: bytes,
     now: datetime | None = None,
+    expected_claim: datetime | None = None,
 ) -> CalendarSyncRunResult:
-    """Run one bounded provider sync using the existing snapshot persistence."""
+    """Read first, then atomically publish only the still-current source claim."""
+    from twobrain_rec_server.calendar.service import replace_calendar_catalog
 
     source = await db.scalar(
         select(CalendarSource).where(
@@ -69,12 +77,24 @@ async def run_calendar_provider_sync(
     )
     if source is None:
         return CalendarSyncRunResult("not_found", safe_reason_code="calendar_source_not_found")
-    if source.disconnected_at is not None or source.connection_state == "disconnected":
-        source.sync_state = "failed_closed"
+    claim = source.last_sync_started_at if expected_claim is None else expected_claim
+    if source.last_sync_started_at != claim:
+        return CalendarSyncRunResult("superseded")
+    if source.disconnected_at is not None or source.connection_state != "active":
         return CalendarSyncRunResult("failed_closed", safe_reason_code="source_disconnected")
     if source.credential_state != "sealed":
-        source.sync_state = "failed_closed"
         return CalendarSyncRunResult("failed_closed", safe_reason_code="invalid_credentials")
+
+    async def fail(code: str) -> CalendarSyncRunResult:
+        current = await _lock_sync_source(db, tenant_scope, source_id, expected_claim=claim)
+        if current is None:
+            return CalendarSyncRunResult("failed_closed", safe_reason_code="source_disconnected")
+        current.last_sync_finished_at = now or datetime.now(UTC)
+        current.last_safe_error_code = code
+        current.sync_state = "stale" if current.last_successful_sync_at else "failed"
+        if code in {"invalid_credentials", "revoked_access"}:
+            current.credential_state = "invalid"
+        return CalendarSyncRunResult("failed", safe_reason_code=code)
 
     envelope = await db.scalar(
         select(CalendarCredentialEnvelope).where(
@@ -84,104 +104,69 @@ async def run_calendar_provider_sync(
         )
     )
     if envelope is None or not envelope.sealed_payload:
-        source.sync_state = "failed_closed"
-        source.credential_state = "invalid"
-        source.last_safe_error_code = "invalid_credentials"
-        return CalendarSyncRunResult("failed", safe_reason_code="invalid_credentials")
+        return await fail("invalid_credentials")
     try:
         credential = unseal_credential(envelope.sealed_payload, credential_encryption_key)
     except (InvalidToken, UnicodeDecodeError, ValueError):
-        source.sync_state = "failed_closed"
-        source.credential_state = "invalid"
-        source.last_safe_error_code = "invalid_credentials"
-        return CalendarSyncRunResult("failed", safe_reason_code="invalid_credentials")
+        return await fail("invalid_credentials")
 
-    finished_at = now or datetime.now(UTC)
-    horizon_start, horizon_end = future_sync_horizon(finished_at)
-    calendars = list(
-        await db.scalars(
-            select(ExternalCalendar).where(
-                ExternalCalendar.calendar_source_id == source.id,
-                ExternalCalendar.workspace_id == tenant_scope.workspace_id,
-                ExternalCalendar.selected.is_(True),
-                ExternalCalendar.visibility.in_({"available", "selected", "shared", "delegated"}),
+    started_at = now or datetime.now(UTC)
+    horizon_start, horizon_end = future_sync_horizon(started_at)
+    # Existing Google cursors would never recover previously discarded owner fields.
+    try:
+        last_full_sync = datetime.fromisoformat(
+            (source.capabilities_json or {}).get("last_full_sync_at", "")
+        )
+    except (TypeError, ValueError):
+        last_full_sync = None
+    force_full = source.provider_family == "google_calendar" and (
+        (source.capabilities_json or {}).get("owner_content_version") != OWNER_CONTENT_VERSION
+        or last_full_sync is None
+        or started_at - last_full_sync >= timedelta(days=1)
+    )
+    pending_results = []
+    try:
+        catalog: list[CalendarCatalogEntry] = []
+        page_token = None
+        seen_tokens: set[str] = set()
+        for _ in range(MAX_PROVIDER_PAGES):
+            entries, page_token = await _retry_provider_read(
+                partial(provider.list_calendars, credential, page_token=page_token)
+            )
+            catalog.extend(entries)
+            if not page_token:
+                break
+            if page_token in seen_tokens:
+                raise CalendarProviderError("invalid_payload")
+            seen_tokens.add(page_token)
+        else:
+            raise CalendarProviderError("invalid_payload")
+        catalog_ids = {
+            entry.provider_calendar_id
+            for entry in catalog
+            if entry.visibility in {"available", "selected", "private", "shared", "delegated"}
+        }
+        calendars = list(
+            await db.scalars(
+                select(ExternalCalendar).where(
+                    ExternalCalendar.calendar_source_id == source.id,
+                    ExternalCalendar.workspace_id == tenant_scope.workspace_id,
+                    ExternalCalendar.selected.is_(True),
+                    ExternalCalendar.provider_calendar_id.in_(catalog_ids),
+                )
             )
         )
-    )
-    if not calendars:
-        try:
-            catalog: list[CalendarCatalogEntry] = []
-            page_token: str | None = None
-            seen_page_tokens: set[str] = set()
-            for _ in range(MAX_PROVIDER_PAGES):
-                entries, page_token = await _retry_provider_read(
-                    partial(provider.list_calendars, credential, page_token=page_token)
-                )
-                catalog.extend(entries)
-                if not page_token:
-                    break
-                if page_token in seen_page_tokens:
-                    raise CalendarProviderError("invalid_payload")
-                seen_page_tokens.add(page_token)
-            else:
-                raise CalendarProviderError("invalid_payload")
-        except CalendarProviderError as error:
-            source = await _lock_sync_source(db, tenant_scope, source_id)
-            if source is None:
-                return CalendarSyncRunResult(
-                    "failed_closed", safe_reason_code="source_disconnected"
-                )
-            source.sync_state = "failed"
-            source.last_sync_finished_at = finished_at
-            source.last_safe_error_code = error.safe_code
-            if error.safe_code in {"invalid_credentials", "revoked_access"}:
-                source.credential_state = "invalid"
-            return CalendarSyncRunResult("failed", safe_reason_code=error.safe_code)
-        except Exception:
-            source = await _lock_sync_source(db, tenant_scope, source_id)
-            if source is None:
-                return CalendarSyncRunResult(
-                    "failed_closed", safe_reason_code="source_disconnected"
-                )
-            source.sync_state = "failed"
-            source.last_sync_finished_at = finished_at
-            source.last_safe_error_code = "provider_unavailable"
-            return CalendarSyncRunResult("failed", safe_reason_code="provider_unavailable")
-        if not catalog:
-            source = await _lock_sync_source(db, tenant_scope, source_id)
-            if source is None:
-                return CalendarSyncRunResult(
-                    "failed_closed", safe_reason_code="source_disconnected"
-                )
-            source.sync_state = "failed"
-            source.last_sync_finished_at = finished_at
-            source.last_safe_error_code = "calendar_catalog_empty"
-            return CalendarSyncRunResult("failed", safe_reason_code="calendar_catalog_empty")
-        source = await _lock_sync_source(db, tenant_scope, source_id)
-        if source is None:
-            return CalendarSyncRunResult("failed_closed", safe_reason_code="source_disconnected")
-        await _replace_calendar_catalog(db, source, catalog)
-        source.last_sync_started_at = finished_at
-        source.sync_horizon_start = horizon_start
-        source.sync_horizon_end = horizon_end
-        source.sync_state = "never_synced"
-        source.last_sync_finished_at = finished_at
-        return CalendarSyncRunResult("catalog_updated", calendar_count=len(catalog))
-
-    total_events = 0
-    pending_results: list[
-        tuple[ExternalCalendar, list[NormalizedCalendarEvent], str | None, bool]
-    ] = []
-    try:
         for calendar in calendars:
-            page_token: str | None = None
-            sync_token = calendar.sync_token
+            sync_token = None if force_full else calendar.sync_token
             retried_full = False
             while True:
-                events: list[Any] = []
-                next_sync_token: str | None = sync_token
+                events: list[NormalizedCalendarEvent] = []
+                deleted_ids: list[str] = []
+                deleted_uids: list[str] = []
+                page_token = None
+                next_sync_token = sync_token
+                seen_tokens = set()
                 try:
-                    seen_page_tokens: set[str] = set()
                     for _ in range(MAX_PROVIDER_PAGES):
                         page: CalendarEventPage = await _retry_provider_read(
                             partial(
@@ -195,56 +180,50 @@ async def run_calendar_provider_sync(
                             )
                         )
                         events.extend(page.events)
+                        deleted_ids.extend(page.deleted_event_ids)
+                        deleted_uids.extend(page.deleted_ical_uids)
                         next_sync_token = page.next_sync_token or next_sync_token
                         page_token = page.next_page_token
                         if not page_token:
                             break
-                        if page_token in seen_page_tokens:
+                        if page_token in seen_tokens:
                             raise CalendarProviderError("invalid_payload")
-                        seen_page_tokens.add(page_token)
+                        seen_tokens.add(page_token)
                     else:
                         raise CalendarProviderError("invalid_payload")
                 except CalendarProviderError as error:
                     if error.safe_code == "cursor_invalid" and sync_token and not retried_full:
                         sync_token = None
-                        page_token = None
                         retried_full = True
                         continue
                     raise
                 if any(not isinstance(event, NormalizedCalendarEvent) for event in events):
                     raise CalendarProviderError("invalid_payload")
-                normalized_events = list(events)
                 pending_results.append(
-                    (calendar, normalized_events, next_sync_token, sync_token is None)
+                    (
+                        calendar,
+                        events,
+                        next_sync_token,
+                        sync_token is None,
+                        deleted_ids,
+                        deleted_uids,
+                    )
                 )
-                total_events += len(normalized_events)
                 break
     except CalendarProviderError as error:
-        source = await _lock_sync_source(db, tenant_scope, source_id)
-        if source is None:
-            return CalendarSyncRunResult("failed_closed", safe_reason_code="source_disconnected")
-        source.last_sync_finished_at = finished_at
-        source.last_safe_error_code = error.safe_code
-        source.sync_state = "stale" if source.last_successful_sync_at else "failed"
-        if error.safe_code in {"invalid_credentials", "revoked_access"}:
-            source.credential_state = "invalid"
-        return CalendarSyncRunResult("failed", total_events, len(calendars), error.safe_code)
+        return await fail(error.safe_code)
     except Exception:
-        source = await _lock_sync_source(db, tenant_scope, source_id)
-        if source is None:
-            return CalendarSyncRunResult("failed_closed", safe_reason_code="source_disconnected")
-        source.last_sync_finished_at = finished_at
-        source.last_safe_error_code = "provider_unavailable"
-        source.sync_state = "stale" if source.last_successful_sync_at else "failed"
-        return CalendarSyncRunResult("failed", total_events, len(calendars), "provider_unavailable")
+        return await fail("provider_unavailable")
 
-    source = await _lock_sync_source(db, tenant_scope, source_id)
+    source = await _lock_sync_source(db, tenant_scope, source_id, expected_claim=claim)
     if source is None:
         return CalendarSyncRunResult("failed_closed", safe_reason_code="source_disconnected")
-    source.last_sync_started_at = finished_at
+    # No catalog mutation happens before this fence; selection changes invalidate claim.
+    await replace_calendar_catalog(db, source, catalog)
     source.sync_horizon_start = horizon_start
     source.sync_horizon_end = horizon_end
-    for calendar, events, next_sync_token, full_sync in pending_results:
+    finished_at = now or datetime.now(UTC)
+    for calendar, events, next_sync_token, full_sync, deleted_ids, deleted_uids in pending_results:
         await apply_calendar_sync_result(
             db,
             tenant_scope=tenant_scope,
@@ -256,12 +235,35 @@ async def run_calendar_provider_sync(
             full_sync=full_sync,
             credential_encryption_key=credential_encryption_key,
         )
+        if deleted_ids or deleted_uids:
+            from sqlalchemy import or_
 
+            await db.execute(
+                update(CalendarEventSnapshot)
+                .where(
+                    CalendarEventSnapshot.workspace_id == tenant_scope.workspace_id,
+                    CalendarEventSnapshot.calendar_source_id == source.id,
+                    CalendarEventSnapshot.external_calendar_id == calendar.id,
+                    or_(
+                        CalendarEventSnapshot.provider_event_id.in_(deleted_ids),
+                        CalendarEventSnapshot.ical_uid.in_(deleted_uids),
+                    ),
+                )
+                .values(source_status="cancelled", source_deleted_at=finished_at)
+            )
     source.last_sync_finished_at = finished_at
     source.last_successful_sync_at = finished_at
     source.sync_state = "synced"
     source.last_safe_error_code = None
-    return CalendarSyncRunResult("synced", total_events, len(calendars))
+    source.capabilities_json = dict(source.capabilities_json or {}) | {
+        "owner_content_version": OWNER_CONTENT_VERSION,
+        **({"last_full_sync_at": finished_at.isoformat()} if force_full else {}),
+    }
+    return CalendarSyncRunResult(
+        "synced" if calendars else "catalog_updated",
+        sum(len(result[1]) for result in pending_results),
+        len(catalog),
+    )
 
 
 async def _retry_provider_read(call: Callable[[], Awaitable[Any]]) -> Any:
@@ -276,7 +278,11 @@ async def _retry_provider_read(call: Callable[[], Awaitable[Any]]) -> Any:
 
 
 async def _lock_sync_source(
-    db: AsyncSession, tenant_scope: TenantScope, source_id: UUID
+    db: AsyncSession,
+    tenant_scope: TenantScope,
+    source_id: UUID,
+    *,
+    expected_claim: datetime | None,
 ) -> CalendarSource | None:
     source = await db.scalar(
         select(CalendarSource)
@@ -288,57 +294,13 @@ async def _lock_sync_source(
         .with_for_update()
         .execution_options(populate_existing=True)
     )
-    if source is None:
+    if source is None or source.last_sync_started_at != expected_claim:
         return None
-    if source.disconnected_at is not None or source.connection_state == "disconnected":
-        source.sync_state = "failed_closed"
+    if source.disconnected_at is not None or source.connection_state != "active":
         return None
     if source.credential_state != "sealed":
-        source.sync_state = "failed_closed"
         return None
     return source
-
-
-async def _replace_calendar_catalog(
-    db: AsyncSession,
-    source: CalendarSource,
-    entries: list[CalendarCatalogEntry],
-) -> None:
-    existing = {
-        calendar.provider_calendar_id: calendar
-        for calendar in await db.scalars(
-            select(ExternalCalendar).where(ExternalCalendar.calendar_source_id == source.id)
-        )
-    }
-    seen: set[str] = set()
-    for entry in entries:
-        seen.add(entry.provider_calendar_id)
-        calendar = existing.get(entry.provider_calendar_id)
-        if calendar is None:
-            calendar = ExternalCalendar(
-                calendar_source_id=source.id,
-                workspace_id=source.workspace_id,
-                provider_calendar_id=entry.provider_calendar_id,
-                display_label=entry.display_label,
-                visibility=entry.visibility,
-            )
-            db.add(calendar)
-        else:
-            calendar.display_label = entry.display_label
-            calendar.visibility = entry.visibility
-    for provider_id, calendar in existing.items():
-        if provider_id not in seen:
-            calendar.selected = False
-            calendar.visibility = "removed"
-    await db.flush()
-    source.selected_calendar_count = sum(
-        1
-        for calendar in await db.scalars(
-            select(ExternalCalendar).where(ExternalCalendar.calendar_source_id == source.id)
-        )
-        if calendar.selected
-        and calendar.visibility in {"available", "selected", "shared", "delegated"}
-    )
 
 
 def future_sync_horizon(now: datetime | None = None) -> tuple[datetime, datetime]:
@@ -367,6 +329,9 @@ async def upsert_event_snapshot(
     event: NormalizedCalendarEvent,
     credential_encryption_key: bytes | None = None,
 ) -> CalendarEventSnapshot:
+    if not credential_encryption_key:
+        raise ValueError("calendar owner content encryption key is required")
+    Fernet(credential_encryption_key)
     existing = await db.scalar(
         select(CalendarEventSnapshot).where(
             CalendarEventSnapshot.workspace_id == tenant_scope.workspace_id,
@@ -402,9 +367,9 @@ async def upsert_event_snapshot(
     snapshot.transparency = event.transparency
     snapshot.recurrence_rule_json = event.recurrence_rule
     snapshot.recurrence_exceptions_json = event.recurrence_exceptions
-    snapshot.title = event.title
-    snapshot.description = event.description
-    snapshot.location = event.location
+    snapshot.title = plaintext_owner_text(event.title)
+    snapshot.description = plaintext_owner_text(event.description)
+    snapshot.location = plaintext_owner_text(event.location)
     snapshot.privacy_class = event.privacy_class
     bounded_conference_links = _bounded_conference_links(event.conference_links)
     snapshot.conference_summary_json = {
@@ -414,8 +379,19 @@ async def upsert_event_snapshot(
         ),
         "url_hashes": [link["url_hash"] for link in bounded_conference_links],
     }
-    sealed_open_url = _sealed_open_meeting_url(bounded_conference_links, credential_encryption_key)
-    snapshot.provider_extras_json = event.provider_extras | {
+    sealed_open_url = _sealed_open_meeting_url(event.conference_links, credential_encryption_key)
+    snapshot.provider_extras_json = {
+        **(
+            {
+                OWNER_CONTENT_ENVELOPE_KEY: seal_owner_event_content(
+                    event, credential_encryption_key
+                ),
+                "owner_content_version": OWNER_CONTENT_VERSION,
+            }
+            if credential_encryption_key
+            else {}
+        ),
+        "location_present": bool(event.location),
         "recipient_candidate_count": sum(
             1
             for participant in event.participants
@@ -428,9 +404,9 @@ async def upsert_event_snapshot(
         "title_state": event.title_state,
         **({"sealed_open_meeting_url": sealed_open_url} if sealed_open_url else {}),
     }
-    snapshot.safe_to_show_in_list = event.title_state == "available"
+    snapshot.safe_to_show_in_list = event.privacy_class not in {"free_busy", "free_busy_only"}
     snapshot.safe_to_use_as_title = event.title_state == "available"
-    snapshot.attachments_metadata_json = event.attachments_metadata
+    snapshot.attachments_metadata_json = []
     snapshot.sensitivity_reasons_json = [
         field
         for field, state in event.limitation_states.items()
@@ -459,7 +435,7 @@ async def upsert_event_snapshot(
                 response_status=participant["response_status"],
                 email=participant.get("email"),
                 email_hash=participant.get("email_hash"),
-                display_name=participant.get("display_name"),
+                display_name=plaintext_owner_text(participant.get("display_name")),
                 workspace_relation=participant.get("workspace_relation", "unknown"),
                 recipient_candidate_class=participant.get("recipient_candidate_class", "unknown"),
             )
@@ -547,7 +523,9 @@ async def apply_calendar_sync_result(
         CalendarEventSnapshot.workspace_id == tenant_scope.workspace_id,
         CalendarEventSnapshot.calendar_source_id == source.id,
         CalendarEventSnapshot.external_calendar_id == calendar.id,
-        CalendarEventSnapshot.starts_at >= (source.sync_horizon_start or finished_at),
+        CalendarEventSnapshot.ends_at > (source.sync_horizon_start or finished_at),
+        CalendarEventSnapshot.starts_at
+        < (source.sync_horizon_end or finished_at + timedelta(days=365)),
         CalendarEventSnapshot.source_deleted_at.is_(None),
     ]
     if seen_ids:

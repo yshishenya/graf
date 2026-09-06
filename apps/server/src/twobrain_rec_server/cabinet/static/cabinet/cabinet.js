@@ -4881,13 +4881,14 @@
         status.textContent = `Можно выбрать до ${selectionLimit} календарей.`;
         status.hidden = false;
       };
-      form.addEventListener("submit", (event) => {
+      form.addEventListener("submit", async (event) => {
         if (Number.isFinite(selectionLimit) && selectedCalendarCount() > selectionLimit) {
           event.preventDefault();
           showSelectionLimit();
           status?.focus?.({ preventScroll: true });
           return;
         }
+        if (kind === "sync") event.preventDefault();
         form.dataset.state = "submitting";
         form.setAttribute("aria-busy", "true");
         if (submit) {
@@ -4898,6 +4899,32 @@
         if (status) {
           status.textContent = mutationCopy[kind] || "Выполняем…";
           status.hidden = false;
+        }
+        if (kind === "sync") {
+          const controller = new AbortController();
+          const timeout = window.setTimeout(() => controller.abort(), 10000);
+          try {
+            const response = await fetch(form.action, {
+              method: "POST", body: new FormData(form), credentials: "same-origin", signal: controller.signal,
+              headers: { "Accept": "text/html" },
+            });
+            if (!response.ok || (response.redirected && !new URL(response.url).pathname.endsWith("/settings/integrations/calendar"))) throw new Error("calendar_sync_failed");
+            const result = new DOMParser().parseFromString(await response.text(), "text/html");
+            if (status) status.textContent = result.querySelector(".calendar-notice")?.textContent?.trim()
+              || "Синхронизация запрошена. Состояние обновится автоматически.";
+            form.dataset.syncPending = "true";
+          } catch (_) {
+            if (status) status.textContent = "Не удалось запросить синхронизацию. Повторите попытку.";
+          } finally {
+            window.clearTimeout(timeout);
+            form.dataset.state = "idle";
+            form.removeAttribute("aria-busy");
+            if (submit) {
+              submit.disabled = false;
+              submit.textContent = submit.dataset.originalLabel || "Синхронизировать";
+            }
+            void refreshCalendarDisplay();
+          }
         }
       });
       form.addEventListener("invalid", () => {
@@ -4934,27 +4961,9 @@
     };
     document.querySelectorAll("[data-calendar-mutation]").forEach(initCalendarMutation);
     const resultRegion = document.querySelector("[data-calendar-has-result='true'] .calendar-notice");
-    if (resultRegion && window.location.search) {
+    if (resultRegion && window.location.search && !resultRegion.dataset.focused) {
+      resultRegion.dataset.focused = "true";
       window.setTimeout(() => resultRegion.focus({ preventScroll: true }), 0);
-    }
-    const pendingSyncForm = [...document.querySelectorAll("[data-calendar-mutation='sync']")]
-      .find((form) => form.querySelector("button[type='submit']:disabled"));
-    const syncRefreshKey = `graf-calendar-sync-refresh:${window.location.pathname}`;
-    if (pendingSyncForm) {
-      const refreshAttempt = Number.parseInt(sessionStorage.getItem(syncRefreshKey) || "0", 10);
-      if (refreshAttempt < 4) {
-        sessionStorage.setItem(syncRefreshKey, String(refreshAttempt + 1));
-        window.setTimeout(() => window.location.reload(), 15000);
-      } else {
-        sessionStorage.removeItem(syncRefreshKey);
-        const status = pendingSyncForm.querySelector("[data-calendar-mutation-status]");
-        if (status) {
-          status.textContent = "Синхронизация занимает больше обычного. Обновите страницу позже.";
-          status.hidden = false;
-        }
-      }
-    } else {
-      sessionStorage.removeItem(syncRefreshKey);
     }
     const dialogOpeners = new WeakMap();
     const restoreDialogFocus = (dialog) => {
@@ -5022,20 +5031,113 @@
     });
   };
 
-  const initCalendarUpcomingRefresh = () => {
-    if (calendarUpcomingRefreshTimer !== null) {
-      window.clearTimeout(calendarUpcomingRefreshTimer);
-      calendarUpcomingRefreshTimer = null;
+  let calendarRefreshInFlight = false;
+  let calendarRefreshListenersReady = false;
+
+  // Only server-rendered display regions are replaced. Forms and dialogs retain
+  // their DOM identity, entered values and focus while a provider is syncing.
+  const refreshCalendarDisplay = async () => {
+    if (calendarRefreshInFlight || document.hidden || !navigator.onLine) return;
+    if (!document.querySelector("[data-calendar-live]")) return;
+    calendarRefreshInFlight = true;
+    const pageURL = window.location.href;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 10000);
+    try {
+      const response = await fetch(pageURL, {
+        credentials: "same-origin", cache: "no-store", signal: controller.signal,
+        headers: { "Accept": "text/html" },
+      });
+      if (window.location.href !== pageURL) return;
+      if (!response.ok || response.redirected) throw new Error("calendar_refresh_failed");
+      const next = new DOMParser().parseFromString(await response.text(), "text/html");
+      document.querySelectorAll("[data-calendar-live]").forEach((region) => {
+        const replacement = [...next.querySelectorAll("[data-calendar-live]")]
+          .find((item) => item.dataset.calendarLive === region.dataset.calendarLive);
+        if (!replacement) return;
+        const active = document.activeElement;
+        const focusedLink = region.contains(active) && active instanceof HTMLAnchorElement
+          ? active.getAttribute("href") : null;
+        // Preserve the details element itself (and its open state).
+        if (active === region.querySelector(":scope > summary")) {
+          active.innerHTML = replacement.querySelector(":scope > summary")?.innerHTML || active.innerHTML;
+          [...region.children].filter((child) => child.tagName !== "SUMMARY").forEach((child) => child.remove());
+          [...replacement.children].filter((child) => child.tagName !== "SUMMARY").forEach((child) => region.append(child.cloneNode(true)));
+        } else {
+          region.innerHTML = replacement.innerHTML;
+        }
+        if (focusedLink) {
+          const link = [...region.querySelectorAll("a[href]")]
+            .find((item) => item.getAttribute("href") === focusedLink);
+          (link || region.querySelector("summary"))?.focus({ preventScroll: true });
+        }
+      });
+      document.querySelectorAll("[data-calendar-source]").forEach((source) => {
+        const replacement = [...next.querySelectorAll("[data-calendar-source]")]
+          .find((item) => item.dataset.calendarSource === source.dataset.calendarSource);
+        if (!replacement) return;
+        source.dataset.state = replacement.dataset.state;
+        const sync = source.querySelector("[data-calendar-mutation='sync'] button[type='submit']");
+        const nextSync = replacement.querySelector("[data-calendar-mutation='sync'] button[type='submit']");
+        if (sync && nextSync && sync.form?.dataset.state !== "submitting") {
+          sync.disabled = nextSync.disabled;
+          sync.setAttribute("aria-disabled", String(nextSync.disabled));
+          sync.textContent = nextSync.textContent;
+          if (sync.form?.dataset.syncPending === "true" && !["queued", "syncing"].includes(replacement.dataset.syncState)) {
+            const status = sync.form.querySelector("[data-calendar-mutation-status]");
+            if (status) status.textContent = replacement.dataset.syncState === "synced"
+              ? "Календарь обновлён."
+              : replacement.querySelector(".calendar-source-card__states")?.textContent?.trim() || "Проверьте состояние подключения.";
+            delete sync.form.dataset.syncPending;
+          }
+        }
+        const form = source.querySelector(".calendar-selection-form");
+        const nextForm = replacement.querySelector(".calendar-selection-form");
+        if ((!form || (form.dataset.state === "pristine" && !form.contains(document.activeElement))) && Boolean(form) !== Boolean(nextForm)) {
+          const pickerRegion = source.querySelector("[data-calendar-picker-region]");
+          const nextPickerRegion = replacement.querySelector("[data-calendar-picker-region]");
+          if (pickerRegion && nextPickerRegion) pickerRegion.innerHTML = nextPickerRegion.innerHTML;
+        }
+        if (form && nextForm && form.dataset.state === "pristine" && !form.contains(document.activeElement)) {
+          const picker = form.querySelector(".calendar-picker");
+          const nextPicker = nextForm.querySelector(".calendar-picker");
+          if (picker && nextPicker && picker.innerHTML !== nextPicker.innerHTML) {
+            picker.innerHTML = nextPicker.innerHTML;
+            // Reset baseline after a provider catalog update, without replacing the form.
+            form.dispatchEvent(new CustomEvent("calendar:baseline"));
+          }
+        }
+      });
+      initCalendarSettings();
+      initSettingsFormState();
+      document.querySelectorAll("[data-calendar-refresh-status]").forEach((status) => { status.hidden = true; });
+    } catch (_) {
+      document.querySelectorAll("[data-calendar-refresh-status]").forEach((status) => {
+        status.textContent = "Не удалось обновить календарь. Проверьте соединение или вход в GRAF. Повторим автоматически.";
+        status.hidden = false;
+      });
+    } finally {
+      window.clearTimeout(timeout);
+      calendarRefreshInFlight = false;
     }
-    const upcoming = document.querySelector("[data-calendar-upcoming-refresh-at]");
-    if (!upcoming) return;
-    const endsAt = Date.parse(upcoming.dataset.calendarUpcomingRefreshAt || "");
-    if (!Number.isFinite(endsAt)) return;
-    const delay = Math.max(0, endsAt - Date.now() + 1000);
-    calendarUpcomingRefreshTimer = window.setTimeout(() => {
+  };
+
+  const initCalendarUpcomingRefresh = () => {
+    if (calendarUpcomingRefreshTimer !== null) window.clearTimeout(calendarUpcomingRefreshTimer);
+    calendarUpcomingRefreshTimer = null;
+    if (!document.querySelector("[data-calendar-live]")) return;
+    if (!calendarRefreshListenersReady) {
+      calendarRefreshListenersReady = true;
+      document.addEventListener("visibilitychange", () => {
+        if (!document.hidden) void refreshCalendarDisplay();
+      });
+      window.addEventListener("online", () => { void refreshCalendarDisplay(); });
+    }
+    calendarUpcomingRefreshTimer = window.setTimeout(async () => {
       calendarUpcomingRefreshTimer = null;
-      window.location.reload();
-    }, Math.min(delay, 2147483647));
+      await refreshCalendarDisplay();
+      initCalendarUpcomingRefresh();
+    }, 30000);
   };
 
   const initSettingsFormState = () => {
@@ -5064,6 +5166,7 @@
           if (reset) reset.disabled = !dirty;
         }
       };
+      form.addEventListener("calendar:baseline", () => { initial = snapshot(); update(); });
       form.addEventListener("input", update);
       form.addEventListener("change", update);
       form.addEventListener("reset", () => window.setTimeout(update, 0));

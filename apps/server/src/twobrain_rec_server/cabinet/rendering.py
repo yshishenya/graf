@@ -1765,12 +1765,12 @@ def _render_home_upcoming(
     else:
         state_copy = "Из выбранных календарей"
 
-    if credential_issue:
+    if credential_issue and not preview:
         body = (
             '<div class="calendar-home-upcoming__empty"><strong>Календарь нужно переподключить</strong>'
             "<p>Откройте настройки и восстановите доступ. Ручная запись по-прежнему доступна.</p></div>"
         )
-    elif provider_issue:
+    elif provider_issue and not preview:
         body = (
             '<div class="calendar-home-upcoming__empty"><strong>Календарный сервис недоступен</strong>'
             "<p>Попробуйте позже. GRAF не показывает устаревшее событие как актуальное.</p></div>"
@@ -1779,10 +1779,10 @@ def _render_home_upcoming(
         rows = "".join(
             f"""
             <article class="calendar-home-upcoming__row">
-              {f'<time datetime="{escape(item.starts_at.isoformat())}">{escape(_home_upcoming_time_label(item.starts_at, display_timezone))}</time>' if calendar_surface.preferences.show_upcoming_time else '<span class="calendar-home-upcoming__time-hidden">Время скрыто настройкой</span>'}
+              {f'<time datetime="{escape(item.starts_at.isoformat())}">{escape(_home_upcoming_time_label(item.starts_at, display_timezone, all_day=item.all_day))}</time>' if calendar_surface.preferences.show_upcoming_time else '<span class="calendar-home-upcoming__time-hidden">Время скрыто настройкой</span>'}
               <div>
                 <strong>{escape(item.title if calendar_surface.preferences.show_upcoming_title else "Название скрыто настройкой")}</strong>
-                <small>{"Есть ссылка на встречу" if item.meeting_link_present else "Без ссылки на встречу"}</small>
+                <small>{"Есть ссылка на встречу" if item.meeting_link_present else "Без ссылки на встречу"}{" · данные могут быть устаревшими" if item.sync_confidence_state == "stale" else " · обновляется" if item.sync_confidence_state == "updating" else ""}</small>
               </div>
               {f'<a class="button quiet calendar-home-upcoming__join" href="/api/v1/calendar/events/{escape(item.event_id)}/open">Подключиться</a>' if item.open_meeting_available else ""}
             </article>
@@ -1809,7 +1809,7 @@ def _render_home_upcoming(
         )
 
     return f"""
-      <details class="calendar-home-upcoming" open{f' data-calendar-upcoming-refresh-at="{escape(upcoming_refresh_at.isoformat())}"' if upcoming_refresh_at is not None else ''}>
+      <details class="calendar-home-upcoming" data-calendar-live="upcoming" open{f' data-calendar-upcoming-refresh-at="{escape(upcoming_refresh_at.isoformat())}"' if upcoming_refresh_at is not None else ''}>
         <summary>
           <span>Ближайшие встречи</span>
           <small>{escape(state_copy)}</small>
@@ -1817,11 +1817,12 @@ def _render_home_upcoming(
         {body}
         {recurring_content}
         <a class="calendar-home-upcoming__settings" href="{settings_href}">Настроить календарь</a>
+        <p data-calendar-refresh-status role="status" aria-live="polite" hidden></p>
       </details>
     """
 
 
-def _home_upcoming_time_label(value: datetime, timezone_name: str) -> str:
+def _home_upcoming_time_label(value: datetime, timezone_name: str, *, all_day: bool = False) -> str:
     try:
         target_timezone = ZoneInfo(timezone_name)
     except ZoneInfoNotFoundError:
@@ -1837,6 +1838,8 @@ def _home_upcoming_time_label(value: datetime, timezone_name: str) -> str:
         if localized.date() == today + timedelta(days=1)
         else localized.strftime("%d.%m")
     )
+    if all_day:
+        return f"{value.strftime('%d.%m')}, весь день"
     return f"{day_label}, {localized.strftime('%H:%M')}"
 
 

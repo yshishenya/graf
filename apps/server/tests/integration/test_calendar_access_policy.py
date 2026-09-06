@@ -480,6 +480,7 @@ def _seed_calendar_event_with_roster(
                 source=source,
                 calendar=calendar,
                 event=normalize_calendar_event(event_payload),
+                credential_encryption_key=client.app.state.credential_encryption_key,
             )
             await session.commit()
             return str(snapshot.id)

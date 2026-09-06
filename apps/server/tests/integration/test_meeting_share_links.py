@@ -493,6 +493,7 @@ def _seed_calendar_event_with_external_attendee(
                         participants=participants,
                     )
                 ),
+                credential_encryption_key=client.app.state.credential_encryption_key,
             )
             await session.commit()
             return str(snapshot.id)

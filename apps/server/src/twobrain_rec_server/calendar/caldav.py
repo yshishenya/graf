@@ -14,8 +14,8 @@ from urllib.parse import quote, urljoin, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 from xml.etree import ElementTree
 
+from twobrain_rec_server.calendar.caldav_parse import expand_caldav_resources
 from twobrain_rec_server.calendar.credentials import _safe_caldav_url
-from twobrain_rec_server.calendar.normalize import normalize_icalendar_event
 from twobrain_rec_server.calendar.providers import (
     CalendarCatalogEntry,
     CalendarEventPage,
@@ -188,19 +188,11 @@ class CalDAVAdapter:
             responses = _xml_responses(payload)
         except ElementTree.ParseError as exc:
             raise CalendarProviderError("invalid_payload") from exc
-        events = []
-        for response in responses:
-            icalendar_text = response.get("calendar_data")
-            if not icalendar_text:
-                continue
-            events.append(
-                normalize_icalendar_event(
-                    icalendar_text,
-                    provider_family=self.provider_family,
-                    provider_calendar_id=calendar_id,
-                )
-            )
-        return CalendarEventPage(events=tuple(events))
+        return await expand_caldav_resources(
+            [str(response["calendar_data"]) for response in responses if response.get("calendar_data")],
+            provider_family=self.provider_family, calendar_id=calendar_id,
+            time_min=time_min, time_max=time_max,
+        )
 
     async def _catalog(self, credential: str) -> tuple[str, list[CalendarCatalogEntry]]:
         config = _credential_config(credential, provider_family=self.provider_family)
@@ -259,10 +251,7 @@ def _credential_config(value: str, *, provider_family: str | None = None) -> dic
         raise CalendarProviderError("invalid_credentials") from exc
     if not isinstance(config, dict):
         raise CalendarProviderError("invalid_credentials")
-    result = {
-        key: config.get(key, "")
-        for key in ("caldav_url", "username", "credential_input")
-    }
+    result = {key: config.get(key, "") for key in ("caldav_url", "username", "credential_input")}
     if not all(isinstance(value, str) for value in result.values()):
         raise CalendarProviderError("invalid_credentials")
     if not result["username"].strip() or not result["credential_input"].strip():
@@ -302,14 +291,10 @@ def _require_public_destination(url: str) -> None:
     if _safe_caldav_url(url) is None or not parsed.hostname:
         raise CalendarProviderError("provider_policy_denied")
     try:
-        addresses = socket.getaddrinfo(
-            parsed.hostname, parsed.port or 443, type=socket.SOCK_STREAM
-        )
+        addresses = socket.getaddrinfo(parsed.hostname, parsed.port or 443, type=socket.SOCK_STREAM)
     except OSError as exc:
         raise CalendarProviderError("provider_unavailable", retryable=True) from exc
-    if not addresses or any(
-        not ipaddress.ip_address(item[4][0]).is_global for item in addresses
-    ):
+    if not addresses or any(not ipaddress.ip_address(item[4][0]).is_global for item in addresses):
         raise CalendarProviderError("provider_policy_denied")
 
 
@@ -326,14 +311,13 @@ def _calendar_query_body(time_min: Any, time_max: Any) -> str:
     time_range = ""
     if time_min is not None and time_max is not None:
         time_range = (
-            f'<c:time-range start="{_ical_datetime(time_min)}" '
-            f'end="{_ical_datetime(time_max)}"/>'
+            f'<c:time-range start="{_ical_datetime(time_min)}" end="{_ical_datetime(time_max)}"/>'
         )
     return (
         '<?xml version="1.0" encoding="utf-8" ?>'
         '<c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">'
         "<d:prop><d:getetag/><c:calendar-data/></d:prop>"
-        f"<c:filter><c:comp-filter name=\"VCALENDAR\"><c:comp-filter name=\"VEVENT\">"
+        f'<c:filter><c:comp-filter name="VCALENDAR"><c:comp-filter name="VEVENT">'
         f"{time_range}</c:comp-filter></c:comp-filter></c:filter></c:calendar-query>"
     )
 
@@ -344,7 +328,9 @@ def _ical_datetime(value: Any) -> str:
 
 def _require_success(status: int) -> None:
     if status in {401, 403}:
-        raise CalendarProviderError("invalid_credentials" if status == 401 else "provider_policy_denied")
+        raise CalendarProviderError(
+            "invalid_credentials" if status == 401 else "provider_policy_denied"
+        )
     if status == 429:
         raise CalendarProviderError("rate_limited", retryable=True)
     if status >= 500:
@@ -387,7 +373,7 @@ def _catalog_entries(
         calendars.append(
             CalendarCatalogEntry(
                 provider_calendar_id=_require_same_origin(base_url, str(response["href"])),
-                display_label=(response.get("display_name") or "CalDAV calendar")[:240],
+                display_label=str(response.get("display_name") or "CalDAV calendar"),
                 access_role="reader",
                 primary=not calendars,
             )

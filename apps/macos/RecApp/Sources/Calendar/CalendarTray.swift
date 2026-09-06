@@ -119,8 +119,8 @@ public struct CalendarTrayView: View {
                 Image(systemName: "arrow.clockwise")
             }
             .buttonStyle(.borderless)
-            .help("Обновить календарь")
-            .accessibilityLabel("Обновить календарь")
+            .help("Обновить список. Google и Яндекс синхронизируются автоматически каждую минуту.")
+            .accessibilityLabel("Обновить список")
             .disabled(model.state == .loading)
         }
         .padding(16)
@@ -241,6 +241,12 @@ public struct CalendarTrayView: View {
     }
 
     private func timeText(for event: DesktopCalendarPromptEvent) -> String {
+        if event.allDay == true {
+            let formatter = DateFormatter()
+            formatter.dateStyle = .medium
+            formatter.timeZone = TimeZone(secondsFromGMT: 0)
+            return "\(formatter.string(from: event.startsAt)) · Весь день"
+        }
         let start = event.startsAt.formatted(date: .abbreviated, time: .shortened)
         let endDateStyle: Date.FormatStyle.DateStyle = Calendar.current.isDate(
             event.startsAt,
@@ -350,7 +356,7 @@ public final class CalendarTrayController: NSObject {
         refreshTask = Task { [weak self] in
             while !Task.isCancelled {
                 self?.refreshNow()
-                try? await Task.sleep(for: .seconds(60))
+                try? await Task.sleep(for: .seconds(30))
             }
         }
         refreshNow()
