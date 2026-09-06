@@ -1,0 +1,25 @@
+# Миграция, включение и откат
+
+## Порядок
+
+1. Зафиксировать актуальные base SHA/Alembic heads и состояния bootstrap runtime roles. Создать backup и проверить restore на изолированной копии. Синтетические fixtures включают Free/trial, legacy month/year, бонусы, storage addons, paid/ambiguous/pending платежи и promo reservations. Production данные не копируются в evidence.
+2. Additive migration: system_control, новая system role без BYPASSRLS и членств, ограниченные RLS helpers и обязательные restrictive policies для system role поверх существующих permissive PUBLIC policies; приложение/maintenance/media не получают системные таблицы. Повторный bootstrap ролей не возвращает blanket public grants на system_control. Создание секретов операторское; console feature flag выключен, первый superadmin не создаётся миграцией.
+3. Additive billing migration: plans, prices, nullable pinned refs, adjustments, transitions, promo versions/codes/ledger, индексы. Старые колонки пока сохраняются. Backfill возобновляемыми пакетами по ID с checkpoint; нет пересоздания invoice/payment IDs.
+4. Exact historical backfill: цены копируются из существующей конкретной версии, subscription pin из подтверждённого invoice/operation snapshot. Несовпадение/неизвестная ссылка остаётся legacy_pinned с полным прежним snapshot и статусом требует разбора; latest никогда не подставляется. Старые коды/версии не меняются. Согласия, paid dates/amounts/provider IDs/bonuses и storage semantics сравниваются до/после.
+5. Promo migration: legacy one-code campaign → та же identity, version и code с прежним hash; каждый существующий redemption сохраняет ID/счёт/state. Сверить counters с ledger, включая историческое переиспользование released/expired; расхождение блокирует включение новых продаж этой кампании до доказанного пересчёта. Замена trigger охватывает все разрешённые переходы; старый checkout не должен продолжать переиспользовать строки.
+6. Развернуть совместимые reader/writer всех billing consumers до публикации новых кодов; запретить одновременное обслуживание новым catalog writer и старым checkout/renewal writer. На короткий переход выключить создание checkout/promo и планирование новых renewal через существующий launch gate; входящие подтверждения и reconciliation продолжаются совместимым worker. Дождаться отсутствия старых workers/HTTP writers, проверить SHA. Предыдущий backfill предварительный: после writer barrier выполнить обязательный catch-up pinned refs, adjustments и promo counters по version watermark под теми же доменными locks; события совместимого webhook учитываются в catch-up. Пока lag!=0 или counters/snapshots не совпали, catalog/promo writers не включаются. Gift schedule version не заменяет consent version.
+7. Включить console в staging, создать первого тестового superadmin через одноразовый bootstrap, второго пригласить и активировать штатной процедурой, negative RLS/auth matrix и доменные AC. Сначала read-only глобальные проекции, затем команды по отдельному флагу; публичные продажи новых plan codes включаются только после полного жизненного цикла SC-011. Это этап rollout, не право исключить FR из release.
+8. Выпустить совместимый macOS клиент; endpoint принимает старый support v2 и новый event protocol. Не включать внешнюю продуктовую аналитику. Отсутствующая история/охват видны. Сохранить native capture/stop и notarization gates.
+9. Контролируемое включение после review и release evidence: auth/audit errors, RLS denials, reconciliation gaps, promo counters, queue age, пользовательский latency. Настройки/тарифы/акции production создаются отдельными бизнес-действиями, не seed migration.
+
+## Откат
+
+Выключение console routes/command admission немедленно прекращает новые административные действия; уже отправленные платежи и начатое удаление продолжают reconciliation/purge, audit остаётся. Системные sessions отзываются; роли БД не передаются обычному серверу.
+
+После публикации нового произвольного plan code нельзя откатывать billing на бинарник, понимающий только free/trial/personal. Откат приложения допустим только к подготовленной совместимой версии, которая читает новые схемы/снимки. Иначе freeze новых продаж/назначений + forward-fix; пользовательские оплаченные права и обязательная сверка сохраняются. Возврат публичного предложения — смена sales pointer, не переписывание уже созданных invoice.
+
+Destructive downgrade схемы после записей не выполняется; additive таблицы и audit остаются. Restore из backup не является автоматическим откатом финансовой БД: сначала сверка всех внешних результатов после backup point, исключение повторного списания и повторного promo/gift. Проверка восстановления — отдельное evidence, не только факт backup.
+
+## Приёмка миграции
+
+Сохранены все исходные IDs, суммы, валюты, плательщики, consent versions, intervals и статусы; orphan refs=0; не появилось ни одного системного администратора; latest backfill=0; promo counters сходятся с ledger; ordinary роли не видят system secrets после повторного bootstrap. Downgrade rehearsal доказывает запрет несовместимого binary, а не успешный запуск старого кода на новом каталоге.
