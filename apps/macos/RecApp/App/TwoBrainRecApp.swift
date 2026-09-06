@@ -429,7 +429,9 @@ private struct ContentView: View {
             startUploadQueueNetworkMonitorIfNeeded()
             startMeetingDetectionIfNeeded()
             appUpdateController.updateProtectedWork(protectedUpdateWork)
+            syncControlPanel()
         }
+        .onChange(of: controlPanelSnapshot) { _, _ in syncControlPanel() }
         .onChange(of: protectedUpdateWork) { _, work in
             appUpdateController.updateProtectedWork(work)
         }
@@ -527,11 +529,39 @@ private struct ContentView: View {
             Task { await uploadMeetingDetectionTelemetry(reason: "system_wake") }
             restartMeetingDetectionObservation(reason: "system_wake")
         }
-        .onDisappear {
-            guard !terminationCleanupInProgress else { return }
-            stopMeetingDetection()
-            Task { await releaseCaptureResourcesForAppExit() }
+        // Closing/hiding the cabinet must not end capture. The application
+        // termination notification above owns the awaited resource cleanup.
+    }
+
+    private var controlPanelSnapshot: DesktopControlSnapshot {
+        var value = DesktopControlSnapshot()
+        value.session = captureSession
+        value.transitioning = recordingStartInProgress || recordingStopInProgress
+        value.startAvailable = CaptureControlView.shouldShowDirectRecordButton(for: captureSession, calendarPrompt: desktopCalendarPrompt) && effectivePermissionOnboardingStatus.isReady && !value.transitioning
+        value.blocker = recordingBlocker
+        value.microphone = effectivePermissionOnboardingStatus.microphone == .granted ? (captureSession?.state == .paused ? "На паузе" : localRecordingActive ? (liveRecordingLevels.microphoneIsLive() ? "Поступает звук" : "Нет свежих аудиоданных") : "Доступ разрешён") : "Нужен доступ"
+        value.systemAudio = effectivePermissionOnboardingStatus.systemAudio == .granted ? (captureSession?.state == .paused ? "На паузе" : localRecordingActive ? (liveRecordingLevels.incomingIsLive() ? "Поступает звук" : "Нет свежих аудиоданных") : "Доступ разрешён") : "Нужен доступ"
+        value.uploadItems = uploadQueueItems
+        return value
+    }
+
+    private func syncControlPanel() {
+        DesktopControlModel.shared.onAction = { action in
+            switch action {
+            case .start: Task { await startManualRecording() }
+            case .pause: Task { await pauseManualRecording() }
+            case .resume: Task { await resumeManualRecording() }
+            case .stop: Task { await stopManualRecording() }
+            case .settings: (NSApp.delegate as? AppLifecycleDelegate)?.openSettings(nil)
+            case .localRecordings:
+                (NSApp.delegate as? AppLifecycleDelegate)?.openMeetingsFromTray()
+                NotificationCenter.default.post(name: .grafOpenLocalRecordingControls, object: nil)
+            case .permissions:
+                (NSApp.delegate as? AppLifecycleDelegate)?.openMeetingsFromTray()
+                permissionOnboardingPresented = true
+            }
         }
+        DesktopControlModel.shared.update(controlPanelSnapshot)
     }
 
     private var protectedUpdateWork: ProtectedUpdateWork {
@@ -2998,6 +3028,7 @@ private struct MeetingDetectionPromptView: View {
 private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var mainWindow: NSWindow?
     private var settingsWindow: NSWindow?
+    private var recordingWidget: DesktopRecordingWidget?
     private var calendarTrayController: CalendarTrayController?
     private let workspaceZoomStore = WorkspaceZoomStore()
     private let appUpdateController: AppUpdateController
@@ -3071,6 +3102,7 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
             .sink { [weak self] presentation, enabled in
                 self?.calendarTrayController?.showUpdate(presentation, actionEnabled: enabled)
             }
+        recordingWidget = DesktopRecordingWidget(model: .shared)
         appUpdateController.start()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             self.logWindowVisibility()
@@ -3274,7 +3306,7 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
         }
     }
 
-    private func openMeetingsFromTray() {
+    func openMeetingsFromTray() {
         presentMainWindow(reason: "calendar_tray")
         DispatchQueue.main.async {
             NotificationCenter.default.post(name: .twoBrainRecOpenMeetingsFromTray, object: nil)
@@ -3328,10 +3360,16 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
             defer: false
         )
         window.title = MeetingDetectionSettingsView.windowTitle
+        window.minSize = NSSize(width: 780, height: 560)
         window.isReleasedWhenClosed = false
         window.isRestorable = false
         window.identifier = NSUserInterfaceItemIdentifier("graf-settings-window")
-        window.contentViewController = NSHostingController(rootView: MeetingDetectionSettingsView())
+        window.contentViewController = NSHostingController(rootView:
+            TabView {
+                MeetingDetectionSettingsView().tabItem { Text("Автозапись") }
+                DesktopNotificationsSettingsView().tabItem { Text("Уведомления на этом Mac") }
+            }.frame(width: 780, height: 560)
+        )
         window.center()
         settingsWindow = window
         AppLog.writeRaw(

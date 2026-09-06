@@ -1,3 +1,5 @@
+> Путь запуска обновлён: используйте единственный `/Applications/GRAF Dev.app` через `infra/scripts/dev-harness.sh`; см. [действующую инструкцию](/docs/agent-guidance/local-development.md). Старые отдельные приложения больше не собираются.
+
 # Quickstart: Деликатный индикатор источника записи
 
 ## Prerequisites
@@ -21,13 +23,13 @@ all pass.
 
 ## Local app smoke
 
-Build the native app on a macOS host:
+Проверьте текущий Dev-стенд:
 
 ```sh
-apps/macos/Scripts/build-local-app.sh
+infra/scripts/dev-harness.sh status --json
 ```
 
-In the local GRAF app, inspect an active recording in these states:
+После build/promote/smoke выбранного SHA в `/Applications/GRAF Dev.app` проверьте an active recording in these states:
 
 1. A verified meeting app: the single upper capsule shows the recording state
    and a quiet `Источник · <app>` label.

@@ -327,6 +327,8 @@ class DesktopCalendarPromptEvent(CalendarEventSummary):
 
 
 class DesktopCalendarPromptResponse(BaseModel):
+    notification_owner_id: str | None = None
+    notification_workspace_id: str | None = None
     show_upcoming_time: bool = True
     show_upcoming_title: bool = True
     events: list[DesktopCalendarPromptEvent] = Field(default_factory=list)

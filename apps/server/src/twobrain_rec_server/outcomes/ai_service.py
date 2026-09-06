@@ -2364,6 +2364,7 @@ async def finalize_candidate_generation_failure(
                 outcome="failed",
                 failure_code=preserved_code,
             )
+            await _record_failed_summary_notice(db, meeting, attempt)
             await db.commit()
             return
         if attempt.status not in ACTIVE_CANDIDATE_STATUSES:
@@ -2380,6 +2381,7 @@ async def finalize_candidate_generation_failure(
             outcome="failed",
             failure_code=preserved_code,
         )
+        await _record_failed_summary_notice(db, meeting, attempt)
         await db.commit()
 
 
@@ -2400,6 +2402,10 @@ async def mark_candidate_generation_terminal_failure(
     """
     async with sessionmaker() as db:
         await _apply_worker_workspace(db, workspace_id)
+        seed = await _candidate_attempt(db, workspace_id, candidate_id)
+        meeting = await lock_meeting_fence(db, workspace_id=workspace_id, meeting_id=seed.meeting_id)
+        if meeting is None or meeting_is_deleted_or_deleting(meeting):
+            return
         attempt = await _candidate_attempt(db, workspace_id, candidate_id, for_update=True)
         if attempt.outcome_set_id is not None or attempt.status not in {
             "queued",
@@ -2410,7 +2416,55 @@ async def mark_candidate_generation_terminal_failure(
         attempt.status = "failed"
         attempt.failure_code = failure_code[:120]
         attempt.ended_at = datetime.now(UTC)
+        await _record_failed_summary_notice(db, meeting, attempt)
         await db.commit()
+
+
+async def _record_failed_summary_notice(db, meeting, attempt) -> None:
+    source = await _current_source_identity(db, workspace_id=meeting.workspace_id, meeting_id=meeting.id)
+    if source is None or attempt.processing_result_id != source[1]:
+        return
+    latest = await db.scalar(select(MeetingOutcomeGenerationAttempt.id).where(
+        MeetingOutcomeGenerationAttempt.meeting_id == meeting.id,
+        MeetingOutcomeGenerationAttempt.workspace_id == meeting.workspace_id,
+        MeetingOutcomeGenerationAttempt.template_key == attempt.template_key,
+        MeetingOutcomeGenerationAttempt.processing_result_id == source[1],
+    ).order_by(MeetingOutcomeGenerationAttempt.created_at.desc(), MeetingOutcomeGenerationAttempt.id.desc()).limit(1))
+    if latest == attempt.id:
+        await _record_summary_notice(db, meeting, source_result_id=source[1], completed=False)
+
+
+async def _record_summary_notice(db, meeting, *, source_result_id, completed: bool) -> None:
+    """A successful format must not hide a current failure in another format."""
+    attempts = await db.scalars(select(MeetingOutcomeGenerationAttempt).where(
+        MeetingOutcomeGenerationAttempt.meeting_id == meeting.id,
+        MeetingOutcomeGenerationAttempt.workspace_id == meeting.workspace_id,
+        MeetingOutcomeGenerationAttempt.processing_result_id == source_result_id,
+    ).order_by(MeetingOutcomeGenerationAttempt.created_at.desc(), MeetingOutcomeGenerationAttempt.id.desc()))
+    seen = set()
+    failure = None
+    for attempt in attempts:
+        if attempt.template_key in seen:
+            continue
+        if attempt.status in ACTIVE_CANDIDATE_STATUSES:
+            continue
+        seen.add(attempt.template_key)
+        if attempt.status != "failed":
+            continue
+        # A committed replacement of this format resolves its earlier failure.
+        accepted = await db.scalar(select(MeetingOutcomeSet.accepted_at).join(
+            MeetingSummarySlot, MeetingSummarySlot.current_outcome_set_id == MeetingOutcomeSet.id,
+        ).where(MeetingSummarySlot.meeting_id == meeting.id,
+            MeetingSummarySlot.workspace_id == meeting.workspace_id,
+            MeetingSummarySlot.template_key == attempt.template_key,
+            MeetingOutcomeSet.accepted_at >= (attempt.ended_at or attempt.created_at)))
+        if accepted is None:
+            failure = attempt
+            break
+    if failure is not None or completed:
+        from twobrain_rec_server.notifications.inbox import record_event
+        await record_event(db, meeting=meeting, kind="summary_failed" if failure else "result_ready",
+                           source_revision=str(failure.id if failure else source_result_id))
 
 
 async def _cas_summary_slot(
@@ -2564,6 +2618,7 @@ async def _cas_summary_slot(
     slot.legacy_migration_proof_hash = None
     advance_summary_slot_state_version(slot)
     await db.flush()
+    await _record_summary_notice(db, meeting, source_result_id=replacement.processing_result_id, completed=True)
     return slot
 
 

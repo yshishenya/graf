@@ -203,23 +203,6 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
             retryMode: .terminal,
             createdAt: Date(timeIntervalSince1970: 40)
         )
-        let serverConfirmed = makeQueueItem(
-            id: "server-confirmed",
-            state: .uploaded,
-            retryMode: .terminal,
-            meetingId: "meeting-033",
-            serverTruth: ServerTruthFingerprint(meetingId: "meeting-033"),
-            createdAt: Date(timeIntervalSince1970: 50)
-        )
-
-        let cabinetRows = DesktopMeetingShellLocalQueuePolicy.rowsNeedingNativeVisibility([
-            localQueued,
-            localUploadedWithoutServerTruth,
-            serverConfirmed
-        ])
-
-        XCTAssertTrue(cabinetRows.isEmpty)
-
         let localRows = DesktopMeetingShellLocalQueuePolicy.allRowsForLocalMode([
             localQueued,
             localUploadedWithoutServerTruth

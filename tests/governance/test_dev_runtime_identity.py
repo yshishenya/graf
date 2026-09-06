@@ -37,3 +37,17 @@ def test_dev_presentation_is_fixed_and_distinct_from_production():
     assert 'grep -Fxq "dev"' in builder
     assert "cmp -s" in builder
     assert "cmp -s" in installer
+
+
+def test_retired_launchers_refuse_without_creating_an_app(tmp_path):
+    import subprocess
+
+    for name in ("build-local-app.sh", "run-local-app.sh"):
+        result = subprocess.run(
+            ["sh", str(ROOT / "apps/macos/Scripts" / name), "--open"],
+            cwd=tmp_path, capture_output=True, text=True, check=False,
+        )
+        assert result.returncode == 1
+        assert "/Applications/GRAF Dev.app" in result.stderr
+        assert "dev-harness.sh" in result.stderr
+    assert list(tmp_path.iterdir()) == []

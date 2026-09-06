@@ -1286,6 +1286,8 @@ async def run_deletion_purge_reconciler(settings: Any, temporal_client: object) 
                         storage=storage,
                         limit=20,
                     )
+                    from twobrain_rec_server.notifications.inbox import purge_expired
+                    await purge_expired(db)
                     if settings.retention_source_audio_days is not None:
                         await reconcile_source_retention_purges(
                             db,

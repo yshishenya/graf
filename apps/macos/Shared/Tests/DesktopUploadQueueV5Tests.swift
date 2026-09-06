@@ -239,7 +239,7 @@ final class DesktopUploadQueueTests: XCTestCase {
         XCTAssertEqual(silentSummary.detail, "микрофон был слишком тихим или пустым; отправим как есть")
     }
 
-    func testCabinetMeetingListDoesNotRenderLocalCustodyRows() {
+    func testLocalControlKeepsBlockedUploadButExcludesServerAcceptedRecording() {
         let blockedLocal = makeQueueItem(
             id: "blocked-local",
             state: .blocked,
@@ -255,12 +255,10 @@ final class DesktopUploadQueueTests: XCTestCase {
             updatedAt: Date(timeIntervalSince1970: 50)
         )
 
-        let rows = DesktopMeetingShellLocalQueuePolicy.rowsNeedingNativeVisibility([
-            uploadedServerVisible,
-            blockedLocal
-        ])
-
-        XCTAssertTrue(rows.isEmpty)
+        var snapshot = DesktopControlSnapshot()
+        snapshot.uploadItems = [uploadedServerVisible, blockedLocal]
+        XCTAssertFalse(snapshot.localIssues.contains { $0.primaryItem.id == uploadedServerVisible.id })
+        XCTAssertTrue(snapshot.localIssues.contains { $0.primaryItem.id == blockedLocal.id })
     }
 
     func testLocalModeMeetingListPrioritizesNewestLocalOnlyRecording() {

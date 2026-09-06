@@ -5911,3 +5911,32 @@ body {
 .meeting-title-error { margin: 8px 0 0; color: var(--danger-text); font-size: 13px; overflow-wrap: anywhere; }
 
 .meeting-detail-header.meeting-title-header-scrolls { position: static; }
+/* Quiet account inbox. Device/capture controls stay in the native shell. */
+.notification-entry { position: fixed; top: 38px; right: 50px; z-index: 65; }
+.cabinet-topbar { padding-right: 56px; }
+.notification-bell { position: relative; display: grid; place-items: center; width: 40px; height: 40px; border: 1px solid var(--line); border-radius: 10px; color: var(--text); background: var(--surface-2); }
+.notification-dot { position: absolute; top: 6px; right: 6px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+.notification-panel { position: absolute; top: 48px; right: 0; display: flex; flex-direction: column; width: min(400px, calc(100vw - 32px)); max-height: calc(100dvh - 116px); overflow: hidden; padding: 18px; color: var(--text); background: var(--surface-2); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 12px 40px #0002; }
+.notification-panel[hidden] { display: none; }
+.notification-panel header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.notification-panel h2 { margin: 0; font-size: 17px; }
+.notification-panel nav { display: flex; gap: 8px; margin: 16px 0 0; }
+.notification-panel button { min-height: 36px; }
+.notification-panel [aria-pressed=true] { font-weight: 650; color: var(--accent); background: var(--surface-3); }
+[data-notification-items] { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+[data-notification-status]:empty { display: none; }
+.notification-card { padding: 16px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.notification-card h3 { margin: 0 0 6px; font-size: 15px; }
+.notification-card p { margin: 6px 0; }
+.notification-card time { display: block; margin: 10px 0; color: var(--muted); font-size: 12px; }
+.notification-card > a { display: inline-block; margin-top: 4px; text-decoration: underline; text-underline-offset: 3px; }
+.notification-card button { display: block; margin-top: 10px; }
+.notification-panel footer { margin-top: 16px; }
+.notification-history { max-width: 680px; margin: 32px auto; padding: 20px; }
+.notification-bell:focus-visible, .notification-panel :focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 3px; }
+@media (max-width: 1000px) { .notification-entry { right: 24px; } }
+@media (max-width: 600px) {
+  .notification-entry { right: 12px; top: 12px; }
+  .notification-panel { width: calc(100vw - 24px); max-height: calc(100dvh - 80px); }
+  .notification-panel button, .notification-bell { min-height: 44px; }
+}

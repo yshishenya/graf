@@ -1,5 +1,37 @@
 # Local Development
 
+## Один установленный GRAF Dev
+
+Ручные проверки интерфейса, записи, устройств, разрешений, уведомлений и
+встроенного кабинета выполняются только в `/Applications/GRAF Dev.app` с
+bundle ID `pro.2brain.graf.dev`. Автоматические тесты без установки приложения
+могут выполняться в worktree. Production GRAF не используется для проверки
+незавершённых изменений.
+
+Перед изменением стенда выполни `infra/scripts/dev-harness.sh status --json`:
+проверь активный manifest/SHA и согласуй занятость общего стенда с текущей
+работой. Далее используй `build → promote → status → smoke` из
+[инструкции стенда](../../infra/dev/README.md). Установка и запуск сериализованы
+существующей блокировкой. Сборочные артефакты и резервная копия для отката
+допустимы внутри harness; самостоятельно регистрировать или запускать их нельзя.
+
+Сохраняй путь, bundle ID, signing identity, designated requirement и entitlements.
+Не меняй подпись на ad hoc, не сбрасывай TCC, не редактируй plist/launcher
+установленного приложения вручную. При dirty checkout сначала заверши доступные
+тесты и авторизованный коммит; не обходи проверку SHA и чистоты checkout.
+Ошибка сборки, подписи, разрешений или занятость стенда не разрешает создавать
+GRAF Local/Preview/Test или запускать бинарник через `swift run`. Зафиксируй
+причину и исправь существующий путь. Отдельная копия допустима только по прямому
+указанию пользователя именно на отдельную копию; согласие на запись/уведомление
+не отменяет правило единственного Dev-приложения.
+
+`build-local-app.sh` и `run-local-app.sh` оставлены как отказ с понятным
+переходом на harness: они не создают и не запускают приложение. Старые временные
+копии удаляй только при доказанном владении текущей задачей; чужие приложения,
+данные и разрешения не трогай.
+
+## Стенд и его жизненный цикл
+
 The active Dev path is `infra/scripts/start-dev-runtime.sh` through
 `infra/scripts/dev-harness.sh`; it owns one `graf-dev` Compose project with
 loopback-only API/frontend `http://127.0.0.1:8081`, PostgreSQL `54329`, MinIO
@@ -25,3 +57,15 @@ worker pollers still start and are readiness-testable; an actual processing
 activity fails closed with `blocked_config` and makes no provider request until
 an operator supplies the server-side provider configuration. This exception is
 development/test-only; production provider configuration remains mandatory.
+
+## Имена совместимости
+
+`GRAF Local Code Signing` — имя уже используемого сертификата GRAF Dev,
+а не отдельное приложение. Не переименовывай и не заменяй его: это нарушит
+сохранение разрешений. `GRAF_LOCAL_APP` пока остаётся внутренним признаком
+ограничения адресов loopback для Dev и старых конфигураций; это не команда
+создания приложения. Исторические release/evidence документы сохраняют
+фактические названия проверявшихся сборок. Старый канал `disposableLocal`
+сохранён только для чтения прежней конфигурации; новых сборщиков для него нет.
+Имена `local` в записи, очереди, email тестового аккаунта и подписи релиза
+не означают отдельный тестовый продукт и не подлежат механической замене.

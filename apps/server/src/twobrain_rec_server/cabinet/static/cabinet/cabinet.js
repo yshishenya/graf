@@ -7851,3 +7851,174 @@
     detail.headers["X-CSRF-Token"] = csrfToken;
   });
 })();
+
+// Server events only. No browser push, sound, toasts or native event forwarding.
+(() => {
+  const root = document.querySelector('[data-notification-inbox]');
+  if (!root) return;
+  const bell = root.querySelector('[data-notification-bell]');
+  const panel = root.querySelector('[data-notification-panel]');
+  const heading = panel.querySelector('h2');
+  const dot = root.querySelector('[data-notification-dot]');
+  const list = root.querySelector('[data-notification-items]');
+  const status = root.querySelector('[data-notification-status]');
+  const more = root.querySelector('[data-notification-more]');
+  const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
+  const embedded = bell.pathname.startsWith('/desktop/');
+  let filter = 'important', next = null, epoch = 0, scopeEpoch = 0, controller = null, pageCount = 1;
+  const setDot = value => {
+    dot.hidden = !value;
+    bell.setAttribute('aria-label', value ? 'Есть новое важное уведомление' : 'Важное и история');
+  };
+  const clear = () => {
+    epoch++; scopeEpoch++; controller?.abort(); list.replaceChildren(); setDot(false);
+    next = null; more.hidden = true; pageCount = 1; status.textContent = '';
+  };
+  const close = (restore = false) => { panel.hidden = true; bell.setAttribute('aria-expanded', 'false'); if (restore) bell.focus(); };
+  const text = (tag, value) => { const node = document.createElement(tag); node.textContent = value; return node; };
+  bell.setAttribute('aria-controls', panel.id); bell.setAttribute('aria-expanded', 'false');
+  const cardFor = item => {
+    const url = new URL(item.href, location.origin);
+    if (url.origin !== location.origin || !/^\/(meetings|shared-meetings)\/[0-9a-f-]+$/.test(url.pathname)) return null;
+    const card = text('article', ''); card.className = 'notification-card';
+    card.dataset.id = item.id; card.dataset.content = JSON.stringify(item);
+    card.append(text('h3', item.title), text('p', item.meeting_title), text('p', item.body));
+    const date = new Date(item.created_at);
+    if (Number.isFinite(date.getTime())) {
+      const time = text('time', date.toLocaleString('ru-RU', {day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'}));
+      time.dateTime = item.created_at; card.append(time);
+    }
+    if (item.personal) card.append(text('p', 'Лично вам'));
+    const link = text('a', 'Открыть встречу'); link.href = (embedded && url.pathname.startsWith('/meetings/') ? '/desktop' : '') + url.pathname + url.search; card.append(link);
+    if (item.requires_action && item.unseen) {
+      const read = text('button', 'Просмотрено'); read.type = 'button';
+      read.onclick = async () => {
+        const scope = scopeEpoch; read.disabled = true;
+        try {
+          const response = await fetch('/api/v1/notifications/' + item.id + '/read', {
+            method:'POST', credentials:'same-origin', headers:{Accept:'application/json','X-CSRF-Token':csrf},
+            body:new URLSearchParams({revision:String(item.revision)})
+          });
+          if (scope !== scopeEpoch || !card.isConnected) return;
+          if (!response.ok || response.redirected) throw new Error('read_failed');
+          link.focus({preventScroll:true}); await load();
+        } catch (_) {
+          if (scope === scopeEpoch && card.isConnected) { status.textContent = 'Не удалось сохранить просмотр. Повторите попытку.'; read.disabled = false; }
+        }
+      }; card.append(read);
+    } else if (item.requires_action) card.append(text('p', 'Просмотрено · Требует действия'));
+    return card;
+  };
+  // Revalidate every loaded page and reuse unchanged nodes, preserving keyboard focus.
+  const render = items => {
+    const existing = new Map(Array.from(list.children).map(node => [node.dataset.id, node]));
+    const keep = new Set();
+    let index = 0;
+    for (const item of items) {
+      const old = existing.get(item.id);
+      const node = old?.dataset.content === JSON.stringify(item) ? old : cardFor(item);
+      if (!node || keep.has(item.id)) continue;
+      keep.add(item.id);
+      const hadFocus = old?.contains(document.activeElement);
+      const position = list.children[index] || null;
+      if (node !== position) list.insertBefore(node, position);
+      index++;
+      if (old && old !== node) { old.remove(); if (hadFocus) node.querySelector('a').focus({preventScroll:true}); }
+    }
+    Array.from(list.children).forEach(node => {
+      if (!keep.has(node.dataset.id)) { const focused = node.contains(document.activeElement); node.remove(); if (focused) heading.focus({preventScroll:true}); }
+    });
+    if (!keep.size) list.append(text('p', filter === 'important'
+      ? 'Сейчас ничего не требует вашего действия. Готовые результаты — в списке встреч и истории.'
+      : 'Здесь появятся готовые результаты и встречи, которыми с вами поделились.'));
+  };
+  const load = async (append = false, background = false) => {
+    const generation = ++epoch;
+    controller?.abort(); controller = new AbortController();
+    const wanted = pageCount + (append ? 1 : 0);
+    if (!background && !panel.hidden) status.textContent = 'Проверяем…';
+    try {
+      const items = []; let cursor = null, data, fetched = 0;
+      do {
+        const params = new URLSearchParams({filter: panel.hidden ? 'important' : filter, limit: panel.hidden ? '1' : '30'});
+        if (cursor) params.set('cursor', cursor);
+        const response = await fetch('/api/v1/notifications?' + params, {credentials:'same-origin',cache:'no-store',signal:controller.signal,headers:{Accept:'application/json'}});
+        if (!response.ok || response.redirected) throw new Error('unavailable');
+        data = await response.json();
+        if (generation !== epoch) return;
+        items.push(...data.items); cursor = data.next_cursor; fetched++;
+      } while (!panel.hidden && cursor && fetched < wanted);
+      setDot(data.has_unseen_action_required); status.textContent = '';
+      if (!panel.hidden) { render(items); next = cursor; pageCount = fetched; more.hidden = !next; }
+    } catch (error) {
+      if (generation !== epoch || error.name === 'AbortError') return;
+      // Unverified private content never remains visible after an access/network failure.
+      clear();
+      if (!panel.hidden) {
+        status.textContent = 'Не удалось проверить уведомления.';
+        const retry = text('button', 'Повторить'); retry.type = 'button'; retry.onclick = () => load(); list.append(retry);
+        if (!root.contains(document.activeElement)) heading.focus({preventScroll:true});
+      }
+    }
+  };
+  bell.onclick = event => {
+    event.preventDefault(); if (!panel.hidden) { close(true); return; }
+    clear(); panel.hidden = false; bell.setAttribute('aria-expanded','true'); heading.focus(); load();
+  };
+  root.querySelector('[data-notification-close]').onclick = () => close(true);
+  root.querySelectorAll('[data-notification-filter]').forEach(button => button.onclick = () => {
+    if (filter === button.dataset.notificationFilter) return;
+    clear(); filter = button.dataset.notificationFilter;
+    root.querySelectorAll('[data-notification-filter]').forEach(b => b.setAttribute('aria-pressed', String(b === button))); load();
+  });
+  more.onclick = () => load(true);
+  document.addEventListener('keydown', event => { if (event.key === 'Escape' && !panel.hidden) { close(true); event.stopPropagation(); } });
+  document.addEventListener('click', event => { if (!root.contains(event.target)) close(); });
+  document.addEventListener('visibilitychange', () => { clear(); if (!document.hidden) load(); });
+  window.addEventListener('pageshow', () => { clear(); load(); });
+  window.addEventListener('pagehide', clear);
+  document.addEventListener('htmx:afterRequest', event => {
+    const code = event.detail?.xhr?.status;
+    if ([401,403,404,410].includes(code)) { clear(); if (!document.hidden) load(); }
+  });
+  document.addEventListener('htmx:afterSwap', () => { if (root.isConnected && !document.hidden) load(false, true); });
+  window.setInterval(() => { if (root.isConnected && !document.hidden) load(false, true); }, 30000);
+  load();
+})();
+
+(() => {
+  const form=document.querySelector('[data-notification-settings]'); if(!form)return;
+  const save=form.querySelector('[type=submit]'), reset=form.querySelector('[type=reset]'), status=form.querySelector('[data-settings-form-status]');
+  const snapshot=()=>new URLSearchParams(new FormData(form)).toString(); let initial=snapshot(), saving=false;
+  const changed=()=>{const dirty=snapshot()!==initial;save.disabled=saving||!dirty;reset.disabled=saving||!dirty;form.dataset.state=dirty?'dirty':'pristine';};
+  form.addEventListener('change',changed); form.addEventListener('reset',()=>setTimeout(()=>{status.hidden=true;changed();},0));
+  window.addEventListener('beforeunload',event=>{if(!saving&&snapshot()!==initial){event.preventDefault();event.returnValue='';}});
+  form.addEventListener('submit',async event=>{
+    event.preventDefault(); if(saving)return; const submitted=new FormData(form); saving=true; changed(); form.querySelectorAll('input[type=checkbox]').forEach(input=>input.disabled=true); status.hidden=false;status.textContent='Сохраняем…';
+    try {
+      const response=await fetch(form.action,{method:'POST',credentials:'same-origin',body:new URLSearchParams(submitted),headers:{Accept:'text/html'}});
+      if(!response.ok){
+        if(response.status===409){
+          const latest=await fetch(form.action,{credentials:'same-origin',cache:'no-store'});
+          const documentCopy=new DOMParser().parseFromString(await latest.text(),'text/html');
+          const current=documentCopy.querySelector('[data-notification-settings]');
+          if(!latest.ok||!current)throw new Error('unavailable');
+          const enabled=name=>current.querySelector(`input[type=checkbox][name="${name}"]`)?.checked ? 'включены':'выключены';
+          status.textContent=`Настройки изменены на другом устройстве. На сервере: письма ${enabled('optional_email_enabled')}, подсказки ${enabled('optional_in_app_enabled')}. Ваш выбор остался в форме. `;
+          const useMine=document.createElement('button');useMine.type='button';useMine.textContent='Сохранить мой выбор';
+          useMine.onclick=()=>{form.elements.namedItem('version').value=current.elements.namedItem('version').value;form.requestSubmit();};status.append(useMine);
+          return;
+        }
+        throw new Error('save_failed');
+      }
+      const page=new DOMParser().parseFromString(await response.text(),'text/html');
+      const saved=page.querySelector('[data-notification-settings]');if(!saved)throw new Error('unavailable');
+      form.elements.namedItem('version').value=saved.elements.namedItem('version').value;
+      form.elements.namedItem('version').defaultValue=form.elements.namedItem('version').value;
+      submitted.set('version',form.elements.namedItem('version').value);
+      form.querySelectorAll('input[type=checkbox]').forEach(input=>{input.defaultChecked=input.checked;});
+      initial=new URLSearchParams(submitted).toString();status.textContent='Настройки сохранены';
+    }catch(_){status.textContent='Не удалось сохранить. Ваш выбор остался в форме. Попробуйте ещё раз.';}
+    finally{saving=false;form.querySelectorAll('input[type=checkbox]').forEach(input=>input.disabled=false);changed();}
+  }); changed();
+})();

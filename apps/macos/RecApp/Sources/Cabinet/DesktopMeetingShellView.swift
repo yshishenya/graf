@@ -160,13 +160,6 @@ public struct DesktopWebButtonStyle: ButtonStyle {
 }
 
 public enum DesktopMeetingShellLocalQueuePolicy {
-    public static func rowsNeedingNativeVisibility(
-        _ items: [DesktopUploadQueueItem],
-        limit: Int = 12
-    ) -> [DesktopUploadQueueItem] {
-        []
-    }
-
     public static func allRowsForLocalMode(
         _ items: [DesktopUploadQueueItem],
         limit: Int = 12
@@ -324,6 +317,10 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                 attentionExpansionDismissed = false
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .grafOpenLocalRecordingControls)) { _ in
+            inspectorExpanded = true
+            attentionExpansionDismissed = false
+        }
         .accessibilityIdentifier("desktop-meeting-shell")
     }
 
@@ -342,16 +339,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     }
 
     private var cabinetMeetingsWorkspace: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if !localQueueRows.isEmpty {
-                localQueueCompactPanel
-                    .padding(.horizontal, 14)
-                    .padding(.top, 12)
-                    .padding(.bottom, 10)
-            }
-            meetingsWorkspace
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        }
+        meetingsWorkspace.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private var localMeetingsWorkspace: some View {
@@ -479,9 +467,6 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     }
 
     private var localQueueRows: [DesktopUploadQueueItem] {
-        if cabinetConfigured {
-            return DesktopMeetingShellLocalQueuePolicy.rowsNeedingNativeVisibility(uploadQueueItems)
-        }
         return DesktopMeetingShellLocalQueuePolicy.allRowsForLocalMode(uploadQueueItems)
     }
 
@@ -510,41 +495,6 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
             summary.primaryProjection.custodyState == .cannotSend ||
                 summary.primaryProjection.custodyState == .terminalUndelivered
         }
-    }
-
-    private var localQueueCompactPanel: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Label("Локально на этом Mac", systemImage: "internaldrive")
-                    .font(.caption)
-                    .fontWeight(.semibold)
-                Spacer()
-                Text("\(localQueueRows.count)")
-                    .font(.caption2.monospacedDigit())
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Capsule().fill(DesktopMeetingShellChrome.shellAccentColor.opacity(0.22)))
-            }
-            VStack(spacing: 0) {
-                ForEach(localQueueRows.prefix(3)) { item in
-                    localRecordingRow(item)
-                    if item.id != localQueueRows.prefix(3).last?.id {
-                        Divider()
-                            .padding(.leading, 42)
-                    }
-                }
-            }
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 9)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(DesktopMeetingShellChrome.shellSurfaceColor)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(shellStrokeColor, lineWidth: 1)
-        )
     }
 
     private func localRecordingRow(_ item: DesktopUploadQueueItem) -> some View {

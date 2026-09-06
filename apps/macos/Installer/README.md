@@ -1,5 +1,11 @@
 # GRAF macOS Installer
 
+> Проверки разработки выполняются только в `/Applications/GRAF Dev.app` через
+> `infra/scripts/dev-harness.sh`: [инструкция](/docs/agent-guidance/local-development.md).
+> Команды Installer ниже предназначены для подготовки и проверки релизных
+> артефактов; они не заменяют Dev-стенд и не разрешают устанавливать ещё одну
+> тестовую копию приложения.
+
 This directory owns the local app-only macOS installer package.
 
 ## MVP Scope

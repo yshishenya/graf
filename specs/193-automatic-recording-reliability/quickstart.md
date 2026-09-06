@@ -1,3 +1,5 @@
+> Путь запуска обновлён: используйте единственный `/Applications/GRAF Dev.app` через `infra/scripts/dev-harness.sh`; см. [действующую инструкцию](/docs/agent-guidance/local-development.md). Старые отдельные приложения больше не собираются.
+
 # Quickstart: Verify Automatic Recording Reliability
 
 Use synthetic targets/metadata only. Do not record private content, change
@@ -58,11 +60,11 @@ infra/scripts/ci-local.sh --fast
 infra/scripts/ci-local.sh --full
 ```
 
-## 7. Separate dev build
+## 7. Единый GRAF Dev
 
 ```sh
-sh apps/macos/Scripts/build-local-app.sh --open
+infra/scripts/dev-harness.sh status --json
 ```
 
-Verify the dev app only. Production policy/deploy/signing/release remain outside
+Выполните build/promote/smoke выбранного SHA по действующей инструкции. Verify the dev app only. Production policy/deploy/signing/release remain outside
 this feature and require a separate approval gate.

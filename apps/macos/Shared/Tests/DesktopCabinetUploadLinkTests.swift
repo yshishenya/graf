@@ -139,24 +139,6 @@ final class DesktopCabinetUploadLinkTests: XCTestCase {
         XCTAssertEqual(link.reason, "server_meeting_processing")
     }
 
-    func testCabinetModeDoesNotCreateNativeRowsForLocalCustody() {
-        let localQueued = uploadItem(state: .queued, meetingId: nil, serverTruth: ServerTruthFingerprint())
-        let localBlocked = uploadItem(state: .blocked, meetingId: nil, serverTruth: ServerTruthFingerprint())
-        let serverKnown = uploadItem(
-            state: .uploaded,
-            meetingId: nil,
-            serverTruth: ServerTruthFingerprint(meetingId: "server-meeting-known", processingStatus: "processed")
-        )
-
-        let rows = DesktopMeetingShellLocalQueuePolicy.rowsNeedingNativeVisibility([
-            localQueued,
-            localBlocked,
-            serverKnown
-        ])
-
-        XCTAssertTrue(rows.isEmpty)
-    }
-
     func testLocalModeStillCanListLocalCustodyRows() {
         let newer = uploadItem(state: .blocked, meetingId: nil, serverTruth: ServerTruthFingerprint())
         let older = uploadItem(state: .queued, meetingId: nil, serverTruth: ServerTruthFingerprint())

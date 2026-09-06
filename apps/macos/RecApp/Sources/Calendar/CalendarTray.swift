@@ -27,6 +27,16 @@ public final class CalendarTrayModel: ObservableObject {
 
     private let load: @Sendable () async throws -> DesktopCalendarPromptResponse
     private var refreshGeneration = 0
+    public var onAuthInvalidated: (() -> Void)?
+    public var onProjection: ((DesktopCalendarPromptResponse?) -> Void)?
+    public func invalidate() {
+        refreshGeneration += 1
+        events = []
+        lastUpdatedAt = nil
+        state = .needsSignIn
+        onProjection?(nil)
+        onAuthInvalidated?()
+    }
 
     public init(
         load: @escaping @Sendable () async throws -> DesktopCalendarPromptResponse
@@ -51,18 +61,21 @@ public final class CalendarTrayModel: ObservableObject {
                 .map { $0 }
             state = events.isEmpty ? .empty : .loaded
             lastUpdatedAt = Date()
+            onProjection?(response)
         } catch let error as DesktopUploadClientError {
             guard generation == refreshGeneration else { return }
+            events = []
+            onProjection?(nil)
             if error.failureCategory == .authSession {
-                state = .needsSignIn
-            } else if events.isEmpty {
-                state = .unavailable
+                invalidate()
             } else {
-                state = .stale
+                state = .unavailable
             }
         } catch {
             guard generation == refreshGeneration else { return }
-            state = events.isEmpty ? .unavailable : .stale
+            events = []
+            onProjection?(nil)
+            state = .unavailable
         }
     }
 }
@@ -97,9 +110,11 @@ public struct CalendarTrayView: View {
         VStack(alignment: .leading, spacing: 0) {
             AppUpdateNotice(presentation: model.appUpdatePresentation,
                             isActionEnabled: model.canCheckForUpdates, onUpdate: onUpdate)
+            DesktopControlPanel(model: .shared)
+            Divider()
             header
             Divider()
-            content
+            ScrollView { content }.frame(maxHeight: 280)
             Divider()
             footer
         }
@@ -221,7 +236,7 @@ public struct CalendarTrayView: View {
 
     private var footer: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Календарь используется только для контекста. GRAF не изменяет события и не начинает запись сам.")
+            Text("Календарь используется только для контекста. GRAF не изменяет события. Открытие ссылки не запускает запись; автозапись настраивается отдельно.")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -284,6 +299,7 @@ public final class CalendarTrayController: NSObject {
     private let onOpenCalendar: () -> Void
     private let onOpenMeetings: () -> Void
     private let onUpdate: () -> Void
+    private var captureObservation: AnyCancellable?
     private var refreshTask: Task<Void, Never>?
     private var observers: [(NotificationCenter, NSObjectProtocol)] = []
 
@@ -298,6 +314,11 @@ public final class CalendarTrayController: NSObject {
         self.onOpenMeetings = onOpenMeetings
         self.onUpdate = onUpdate
         super.init()
+        model.onAuthInvalidated = { DesktopNotificationPresenter.shared.invalidate() }
+        model.onProjection = { response in
+            if let response { DesktopNotificationPresenter.shared.updateCalendar(response) }
+            else { DesktopNotificationPresenter.shared.clearCalendar() }
+        }
     }
 
     public convenience init(
@@ -323,6 +344,14 @@ public final class CalendarTrayController: NSObject {
         button.action = #selector(togglePopover(_:))
         button.setAccessibilityLabel("Ближайшие встречи GRAF")
         button.setAccessibilityRole(.button)
+        captureObservation = DesktopControlModel.shared.$snapshot.sink { [weak button] snapshot in
+            let label = snapshot.session.map { CaptureStatusItem.statusLabel(for: $0) } ?? "Готово к записи"
+            button?.image = NSImage(systemSymbolName: snapshot.active ? (snapshot.session?.state == .paused ? "pause.circle.fill" : "record.circle") : "waveform", accessibilityDescription: "")
+            button?.image?.isTemplate = true
+            button?.title = snapshot.active ? (snapshot.session?.state == .paused ? " Пауза" : " Запись") : ""
+            button?.toolTip = "GRAF · " + label
+            button?.setAccessibilityLabel("GRAF. " + label + ". Открыть управление")
+        }
 
         popover.behavior = .transient
         popover.animates = true
@@ -353,7 +382,7 @@ public final class CalendarTrayController: NSObject {
                 object: nil,
                 queue: .main
             ) { [weak self] _ in
-                Task { @MainActor in self?.refreshNow() }
+                Task { @MainActor in self?.model.invalidate(); self?.refreshNow() }
             }),
             (NSWorkspace.shared.notificationCenter, NSWorkspace.shared.notificationCenter.addObserver(
                 forName: NSWorkspace.didWakeNotification,

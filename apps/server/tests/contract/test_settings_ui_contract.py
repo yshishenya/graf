@@ -228,7 +228,8 @@ def test_settings_binary_controls_use_shared_switches_and_segmented_theme() -> N
     assert 'name="optional_email_enabled"' in notifications
     assert 'name="optional_in_app_enabled"' in notifications
     assert notifications.count('class="settings-control-row"') == 2
-    assert "Важные системные сообщения всегда включены." in notifications
+    assert "Эти настройки относятся к аккаунту." in notifications
+    assert "Готовые результаты доступны в списке встреч и тихой истории." in notifications
 
 
 def test_profile_menu_uses_semantic_disabled_actions_and_native_quit_marker() -> None:
