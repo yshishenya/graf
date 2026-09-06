@@ -1,6 +1,6 @@
 # F247: Понятная подготовка записи в macOS
 
-Дата: 2026-09-06. Ветка: `codex/247-macos-permission-journey`. Статус: реализовано локально; итоговая проверка T005 ожидает commit/CI.
+Дата: 2026-09-06. Ветка: `codex/247-macos-permission-journey`. Статус: реализовано; implementation CI пройден, PR #6613 открыт.
 Источник: пользователь поручил выбрать и реализовать понятный красивый путь без тупиков.
 Risk lane: high-risk-product (permissions, capture, onboarding). Umbrella: #6598.
 

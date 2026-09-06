@@ -38,3 +38,9 @@ $speckit-converge: buildable требования FR-001–010 покрыты; �
 Расширенная диагностика: 224 governance tests passed; 796 macOS XCTest tests, 1 skipped, 0 failures; Swift build passed. Найден и исправлен устаревший ContractValidation, требовавший прежних permission prompts после preparing и безусловного restart. После исправления `swift run --package-path apps/macos ContractValidation`: PASS. Задача T006 и issue #6612 отражают это дополнение; продуктовые требования не менялись.
 
 Собрана отдельная `apps/macos/.build/permission-journey/GRAF Local.app`; `codesign --verify --deep --strict` passed. Это локальная сборка с адресом кабинета http://127.0.0.1:8081, не публичный релиз. Существующая установленная GRAF не заменялась. После коммита требуется authoritative GitHub governance-fast; T005/T006 остаются открыты до его результата.
+
+## Итоговый CI и convergence
+
+GitHub `governance-fast`: SUCCESS, implementation SHA `6e457dfe34f1c82270204b61579c1bcd19f74fe1`, длительность job 1m1s. Run: https://github.com/yshishenya/graf/actions/runs/34017555088. PR: https://github.com/yshishenya/graf/pull/6613.
+
+T005/T006 завершены. После исправления старого тестового контракта обязательных нереализованных требований не осталось; T001–T006 отмечены выполненными. Локальная подпись приложения и штатная сборка проверены. Слияние и публикация не выполнялись. Результат CodeRabbit означает skipped/manual review required, а не пройденный автоматический code review. Перед выпуском по-прежнему необходима реальная TCC/MDM/VoiceOver приемка на тестовом Mac.

@@ -23,7 +23,7 @@ Prerequisites: spec/clarify, plan/research/data-model/contracts/quickstart, revi
 
 ## Phase 5 — Validation
 
-- [ ] T005 Проверить нативные состояния/темы, focused Swift tests/build и high-risk fast gate; записать convergence/ограничения в specs/247-macos-permission-journey/validation.md и changes/unreleased/F247.yaml (SC-001–003, FR-009/010).
+- [X] T005 Проверить нативные состояния/темы, focused Swift tests/build и high-risk fast gate; записать convergence/ограничения в specs/247-macos-permission-journey/validation.md и changes/unreleased/F247.yaml (SC-001–003, FR-009/010).
 
 ## Dependencies / Strategy
 
@@ -44,8 +44,12 @@ T005 остается открытой: fast gate отказал до запус
 
 ## Convergence — 2026-09-06, повторная проверка
 
-- [ ] T006 [US3] Обновить устаревшие проверки запуска и восстановления в apps/macos/Shared/Tools/ContractValidation/ContractValidationV5.swift: права проверяются до preparing без запроса, runtime error запускает проверку доступности вместо безусловного restart (FR-005–008); выполнить ContractValidation и fast CI.
+- [X] T006 [US3] Обновить устаревшие проверки запуска и восстановления в apps/macos/Shared/Tools/ContractValidation/ContractValidationV5.swift: права проверяются до preparing без запроса, runtime error запускает проверку доступности вместо безусловного restart (FR-005–008); выполнить ContractValidation и fast CI.
 
 Зависимость: T004 → T006 → завершение T005. Найдено при расширенной проверке: полный набор 796 macOS tests проходит, отдельный ContractValidation пока требует прежнего поведения. Анализ: новые требования не добавляются; прежняя проверка противоречит FR-005–008, обновляется только тестовый контракт.
 
 - T006: #6612
+
+## Итог реализации
+
+Все T001–T006 выполнены. GitHub governance-fast успешно завершен для implementation SHA `6e457dfe34f1c82270204b61579c1bcd19f74fe1`: https://github.com/yshishenya/graf/actions/runs/34017555088. PR: https://github.com/yshishenya/graf/pull/6613. Предыдущие записи об ожидании отражают ход проверки; блокировка снята. Изменения этого раздела документируют результат; CI итогового PR HEAD проверяется отдельно. Issues закрываются при слиянии PR, release acceptance остается отдельным этапом.
