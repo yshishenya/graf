@@ -5,7 +5,6 @@ from typing import Any
 import pytest
 
 from twobrain_rec_server.outcomes.generator import LiteLLMError, LiteLLMGateway
-from twobrain_rec_server.outcomes.prompt_bundle import route_binding_hash
 from twobrain_rec_server.outcomes.prompts import outcome_config, validate_prompt_snapshot
 
 
@@ -23,7 +22,7 @@ def _snapshot():
             },
             {"role": "user", "content": "{{transcript_json}}"},
         ],
-        config=outcome_config(schema_name="graf_meeting_outcome_auto_v1"),
+        config={**outcome_config(schema_name="graf_meeting_outcome_auto_v1"), "model": "synthetic-route", "temperature": 0},
     )
 
 
@@ -92,36 +91,16 @@ async def test_gateway_projects_only_pinned_config_and_does_not_retry(monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_gateway_requires_echoed_route_binding_and_allowlisted_pair(monkeypatch) -> None:
-    import dataclasses
+async def test_gateway_accepts_plain_authenticated_response_without_route_contract(monkeypatch) -> None:
+    from types import SimpleNamespace
 
     import httpx
 
-    descriptor = {
-        "alias": "gpt-5.6-luna",
-        "binding_version": "graf-litellm-route-v1",
-        "allowed_provider_models": [{"provider": "provider-a", "model": "provider-model"}],
-        "request_compiler_hash": "b" * 64,
-        "request_compiler_version": "graf-chat-compiler-v1",
-    }
-    binding = {**descriptor, "binding_hash": route_binding_hash(descriptor)}
-    snapshot = dataclasses.replace(
-        _snapshot(),
-        root_bundle_hash="c" * 64,
-        root_prompt_version=7,
-        route_binding_hash=binding["binding_hash"],
-        route_binding=binding,
+    pinned = _snapshot()
+    snapshot = SimpleNamespace(
+        config=pinned.config, litellm_request=pinned.litellm_request,
     )
-
-    class BoundResponse(_Response):
-        headers = {"X-GRAF-Route-Binding-Hash": binding["binding_hash"]}
-
-    class BoundClient(_AsyncClient):
-        async def post(self, *args, **kwargs):
-            self.requests.append({"url": args[0], "headers": kwargs["headers"], "json": kwargs["json"]})
-            return BoundResponse()
-
-    monkeypatch.setattr(httpx, "AsyncClient", BoundClient)
+    monkeypatch.setattr(httpx, "AsyncClient", _AsyncClient)
     _AsyncClient.requests.clear()
     result = await LiteLLMGateway(
         base_url="https://litellm.example/v1",
@@ -129,43 +108,36 @@ async def test_gateway_requires_echoed_route_binding_and_allowlisted_pair(monkey
         timeout_seconds=19,
     ).generate(snapshot=snapshot, messages=[{"role": "user", "content": "full"}])
     assert result.actual_model == "provider-model"
-    assert _AsyncClient.requests[0]["headers"]["X-GRAF-Route-Binding-Hash"] == binding["binding_hash"]
+    assert _AsyncClient.requests[0]["headers"] == {
+        "Authorization": "Bearer secret", "Content-Type": "application/json",
+    }
 
 
 @pytest.mark.asyncio
-async def test_gateway_accepts_provider_provenance_from_bound_response_headers(monkeypatch) -> None:
-    import dataclasses
-
+@pytest.mark.parametrize(
+    ("reported", "expected"),
+    [
+        ({}, (None, None)),
+        ({"model": "other-model"}, ("other-model", None)),
+        ({"model": "other-model", "provider": "other-provider"}, ("other-model", "other-provider")),
+        ({"_hidden_params": {"custom_llm_provider": "reported-provider"}}, (None, "reported-provider")),
+        ({"model": 42, "provider": False}, (None, None)),
+    ],
+)
+async def test_gateway_uses_only_reported_body_provenance(monkeypatch, reported, expected) -> None:
     import httpx
-
-    descriptor = {
-        "alias": "gpt-5.6-luna",
-        "binding_version": "graf-litellm-route-v1",
-        "allowed_provider_models": [{"provider": "openai", "model": "gpt-5.6-luna"}],
-        "request_compiler_hash": "b" * 64,
-        "request_compiler_version": "graf-chat-compiler-v1",
-    }
-    binding = {**descriptor, "binding_hash": route_binding_hash(descriptor)}
-    snapshot = dataclasses.replace(
-        _snapshot(),
-        root_bundle_hash="c" * 64,
-        root_prompt_version=7,
-        route_binding_hash=binding["binding_hash"],
-        route_binding=binding,
-    )
 
     class HeaderOnlyResponse(_Response):
         headers = {
-            "X-GRAF-Route-Binding-Hash": binding["binding_hash"],
-            "X-GRAF-Actual-Provider": "openai",
-            "X-GRAF-Actual-Model": "gpt-5.6-luna",
+            "X-Provider": "ignored-header-provider",
+            "X-Model": "ignored-header-model",
         }
 
         def json(self) -> dict[str, Any]:
             value = super().json()
             value.pop("provider")
-            value["model"] = None
-            return value
+            value.pop("model")
+            return {**value, **reported}
 
     class HeaderOnlyClient(_AsyncClient):
         async def post(self, *args, **kwargs):
@@ -178,10 +150,11 @@ async def test_gateway_accepts_provider_provenance_from_bound_response_headers(m
         base_url="https://litellm.example/v1",
         api_key="secret",
         timeout_seconds=19,
-    ).generate(snapshot=snapshot, messages=[{"role": "user", "content": "full"}])
+    ).generate(snapshot=_snapshot(), messages=[{"role": "user", "content": "full"}])
 
-    assert result.actual_provider == "openai"
-    assert result.actual_model == "gpt-5.6-luna"
+    assert (result.actual_model, result.actual_provider) == expected
+    assert result.raw_response == HeaderOnlyResponse().json()
+    assert len(_AsyncClient.requests) == 1
 
 
 @pytest.mark.asyncio

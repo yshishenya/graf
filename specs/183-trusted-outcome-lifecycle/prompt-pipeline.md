@@ -1,5 +1,14 @@
 # Prompt Pipeline Contract
 
+**Уточнение Feature 239 от 2026-09-06:** требования ниже к единственному
+`model_route=gpt-5.6-luna`, gateway route descriptor/hash, compiler attestation,
+actual provider/model allowlist и специальным заголовкам отменены решением
+владельца. Текущий договор — [Feature 239](../239-full-meeting-minutes/contracts/meeting-protocol.md):
+модель/параметры каждой стадии принадлежат exact Langfuse config; сохраняются
+авторизация gateway, source/access/publication и целостность provenance.
+Остальная программа 183 этим уточнением не переопределяется; прежние поля
+ниже описывают историческую редакцию, не обязательства нового runtime.
+
 This is a design draft for Feature 194/195, not a promoted Langfuse prompt. Exact runtime text must be versioned, evaluated and promoted through Feature 200.
 
 ## Why not one master prompt

@@ -9,7 +9,7 @@ from typing import Final, Literal
 
 from twobrain_rec_server.outcomes.templates import OUTCOME_CATEGORIES
 
-CONFIG_CONTRACT_VERSION: Final = 1
+CONFIG_CONTRACT_VERSION: Final = 5
 PROMPT_LABEL: Final = "production"
 CONTROL_GATE_CONFIG_KEY: Final = "graf_control_gate"
 MAX_PROMPT_BYTES: Final = 65_536
@@ -23,18 +23,13 @@ GENERIC_OWNER_LABEL_RE = re.compile(
     r"^(?:UNKNOWN|REMOTE|LOCAL|SPEAKER(?:[_ -]?[A-Z0-9]+)?|SPEAKER\s+\d+)$",
     re.IGNORECASE,
 )
-OUTCOME_CONFIG_KEYS_WITH_LIMIT: Final = {
-    "config_contract_version",
-    "model",
+MODEL_PARAMETER_KEYS: Final = {
     "temperature",
-    "response_format",
-}
-OUTCOME_CONFIG_KEYS_WITHOUT_LIMIT: Final = OUTCOME_CONFIG_KEYS_WITH_LIMIT - {
-    "max_completion_tokens"
-}
-REFLECTION_CONFIG_KEYS: Final = OUTCOME_CONFIG_KEYS_WITHOUT_LIMIT - {"response_format"}
-REFLECTION_CONFIG_KEYS_WITHOUT_LIMIT: Final = OUTCOME_CONFIG_KEYS_WITHOUT_LIMIT - {
-    "response_format"
+    "top_p",
+    "reasoning_effort",
+    "max_tokens",
+    "max_completion_tokens",
+    "seed",
 }
 OUTCOME_VARIABLES: Final = {
     "transcript_json",
@@ -135,11 +130,10 @@ def judge_schema() -> dict[str, object]:
     }
 
 
-def outcome_config(*, schema_name: str, model: str = "gpt-5.6-luna") -> dict[str, object]:
+def outcome_config(*, schema_name: str) -> dict[str, object]:
+    """Schema template only; execution settings must come from Langfuse."""
     return {
-        "config_contract_version": 2,
-        "model": model,
-        "temperature": 1,
+        "config_contract_version": CONFIG_CONTRACT_VERSION,
         "response_format": {
             "type": "json_schema",
             "json_schema": {"name": schema_name, "strict": True, "schema": outcome_schema()},
@@ -147,10 +141,8 @@ def outcome_config(*, schema_name: str, model: str = "gpt-5.6-luna") -> dict[str
     }
 
 
-def judge_config(*, schema_name: str, model: str = "gpt-5.6-luna") -> dict[str, object]:
-    config = outcome_config(schema_name=schema_name, model=model)
-    config["config_contract_version"] = 3
-    config["temperature"] = 1
+def judge_config(*, schema_name: str) -> dict[str, object]:
+    config = outcome_config(schema_name=schema_name)
     config["response_format"] = {
         "type": "json_schema",
         "json_schema": {"name": schema_name, "strict": True, "schema": judge_schema()},
@@ -173,28 +165,35 @@ class PromptSnapshot:
     # bundle. A child prompt without these bindings is not production-ready.
     root_bundle_hash: str | None = None
     root_prompt_version: int | None = None
-    route_binding_hash: str | None = None
-    route_binding: dict[str, object] | None = None
 
     @property
     def model(self) -> str:
         return str(self.config["model"])
 
+    @property
+    def model_parameters(self) -> dict[str, object]:
+        return model_parameters(self.config)
+
     def litellm_request(self, messages: Sequence[Mapping[str, str]]) -> dict[str, object]:
-        request: dict[str, object] = {
+        return {
             "model": self.model,
             "messages": [dict(message) for message in messages],
-            "temperature": self.config["temperature"],
+            **self.model_parameters,
         }
-        if "max_completion_tokens" in self.config:
-            request["max_completion_tokens"] = self.config["max_completion_tokens"]
-        if "response_format" in self.config:
-            request["response_format"] = self.config["response_format"]
-        return request
+
+
+def model_parameters(config: Mapping[str, object]) -> dict[str, object]:
+    return {
+        key: config[key]
+        for key in sorted(MODEL_PARAMETER_KEYS | {"response_format"})
+        if key in config
+    }
 
 
 def canonical_json(value: object) -> str:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False
+    )
 
 
 def prompt_variables(value: str) -> list[str]:
@@ -245,7 +244,7 @@ def validate_prompt_snapshot(
     config: Mapping[str, object],
     source: str = "langfuse_production",
 ) -> PromptSnapshot:
-    if version < 1:
+    if type(version) is not int or version < 1:
         raise ValueError("prompt version must be positive")
     if source not in {
         "langfuse_production",
@@ -534,44 +533,43 @@ def _validate_json_limits(config: Mapping[str, object]) -> None:
 
 def _validate_base_config(
     config: Mapping[str, object],
-    expected_keys: set[str],
     *,
-    contract_versions: Sequence[int] = (1,),
+    structured: bool,
 ) -> None:
+    required = {"config_contract_version", "model"}
+    if structured:
+        required.add("response_format")
     if (
-        set(config) != expected_keys
-        or config.get("config_contract_version") not in contract_versions
+        not required <= set(config) <= required | MODEL_PARAMETER_KEYS
+        or type(config.get("config_contract_version")) is not int
+        or config["config_contract_version"] != CONFIG_CONTRACT_VERSION
     ):
-        contract_label = (
-            "contract v1" if tuple(contract_versions) == (1,) else "judge contract v1 or v2"
-        )
-        raise ValueError(f"prompt config does not match {contract_label}")
+        raise ValueError("prompt config does not match contract v5")
     model = config.get("model")
-    temperature = config.get("temperature")
     if not isinstance(model, str) or not ALLOWED_MODEL_RE.fullmatch(model):
         raise ValueError("model route is invalid")
-    if (
-        isinstance(temperature, bool)
-        or not isinstance(temperature, int | float)
-        or not 0 <= temperature <= 2
-    ):
-        raise ValueError("temperature is invalid")
-    if "max_completion_tokens" in config:
-        max_tokens = config["max_completion_tokens"]
-        if (
-            isinstance(max_tokens, bool)
-            or not isinstance(max_tokens, int)
-            or not 1 <= max_tokens <= 8192
+    for key, maximum in (("temperature", 2), ("top_p", 1)):
+        if key in config and (
+            type(config[key]) not in (int, float) or not 0 <= config[key] <= maximum
         ):
-            raise ValueError("max_completion_tokens is invalid")
+            raise ValueError(f"{key} is invalid")
+    for key in ("max_tokens", "max_completion_tokens"):
+        if key in config and (type(config[key]) is not int or config[key] < 1):
+            raise ValueError(f"{key} is invalid")
+    if "max_tokens" in config and "max_completion_tokens" in config:
+        raise ValueError("only one token limit may be set")
+    if "seed" in config and (
+        type(config["seed"]) is not int or not -(2**63) <= config["seed"] < 2**63
+    ):
+        raise ValueError("seed is invalid")
+    if "reasoning_effort" in config and (
+        not isinstance(config["reasoning_effort"], str)
+        or config["reasoning_effort"] not in {"none", "minimal", "low", "medium", "high", "xhigh"}
+    ):
+        raise ValueError("reasoning_effort is invalid")
 
 def _validate_outcome_config(config: Mapping[str, object], *, judge: bool) -> None:
-    version = config.get("config_contract_version")
-    _validate_base_config(
-        config,
-        OUTCOME_CONFIG_KEYS_WITHOUT_LIMIT,
-        contract_versions={1, 2, 3} if judge else {1, 2},
-    )
+    _validate_base_config(config, structured=True)
     response_format = config.get("response_format")
     if not isinstance(response_format, dict) or set(response_format) != {"type", "json_schema"}:
         raise ValueError("response_format must be an inline strict JSON schema")
@@ -590,10 +588,6 @@ def _validate_outcome_config(config: Mapping[str, object], *, judge: bool) -> No
     expected_schema = judge_schema() if judge else outcome_schema()
     if descriptor.get("schema") != expected_schema:
         raise ValueError("response schema does not match the closed contract v1")
-    if judge:
-        expected_temperature = 0 if version == 1 else 1
-        if config["temperature"] != expected_temperature:
-            raise ValueError("judge settings do not match the config contract")
 
 
 def _validate_reflection_prompt(
@@ -601,7 +595,7 @@ def _validate_reflection_prompt(
 ) -> None:
     if prompt_type != "text" or not isinstance(prompt, str):
         raise ValueError("reflection prompt must be text")
-    _validate_base_config(config, REFLECTION_CONFIG_KEYS)
+    _validate_base_config(config, structured=False)
     for variable in ("<curr_param>", "<side_info>"):
         if prompt.count(variable) != 1:
             raise ValueError(f"reflection prompt must contain {variable} exactly once")

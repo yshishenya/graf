@@ -10,6 +10,7 @@ import pytest
 from sqlalchemy import func, select
 
 from tests.fixtures.cabinet import create_outcome_ready_meeting
+from tests.fixtures.outcome_prompts import outcome_config, pin_model_settings
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.db.models import (
     GenerationCall,
@@ -24,12 +25,13 @@ from twobrain_rec_server.outcomes.ai_service import (
     OutcomeGenerationDependencyError,
     _candidate_segments,
     _content_hash,
+    _template_sections,
     ensure_automatic_summary_candidate,
     execute_candidate_generation,
     publish_model_generated_outcome,
 )
-from twobrain_rec_server.outcomes.generator import canonical_transcript
-from twobrain_rec_server.outcomes.prompts import outcome_config, prompt_snapshot_hash
+from twobrain_rec_server.outcomes.generator import canonical_transcript, compile_prompt_messages
+from twobrain_rec_server.outcomes.prompts import prompt_snapshot_hash
 from twobrain_rec_server.outcomes.templates import OUTCOME_CATEGORIES
 from twobrain_rec_server.workflows.temporal_client import (
     outcome_generation_workflow_id,
@@ -389,7 +391,13 @@ def test_generation_activity_replay_returns_matching_published_result(client, mo
             outcome_set.content_hash = validated_hash
             now = datetime.now(UTC)
             raw_response = {"choices": []}
-            request = {"messages": []}
+            snapshot = pin_model_settings(attempt)
+            sections = _template_sections(attempt)
+            request = snapshot.litellm_request(compile_prompt_messages(
+                snapshot, transcript_json=transcript,
+                output_language=attempt.output_language or "ru",
+                detail_level=attempt.detail_level or "standard", template_sections=sections,
+            ))
             call = GenerationCall(
                 workspace_id=meeting.workspace_id,
                 meeting_id=meeting.id,
@@ -495,6 +503,7 @@ def test_missing_provider_config_does_not_reserve_generation_call(client) -> Non
             transcript_hash = sha256(transcript.encode("utf-8")).hexdigest()
             attempt.temporal_transcript_hash = transcript_hash
             attempt.status = "generating"
+            pin_model_settings(attempt)
             candidate_id = attempt.candidate_id
             workspace_id = meeting.workspace_id
             await db.commit()

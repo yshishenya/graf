@@ -12,7 +12,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from twobrain_rec_server.cli.langfuse_prompts import desired_prompts
+from tests.fixtures.outcome_prompts import desired_prompts
 from twobrain_rec_server.outcomes.prompt_optimization import (
     OPTIMIZATION_HISTORY_MAX_BYTES,
     CallReservation,
