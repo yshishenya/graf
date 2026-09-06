@@ -4977,7 +4977,7 @@ async def test_session_client_activity_and_revoke_use_request_rls_context(
 
 @pytest.mark.asyncio
 async def test_independent_billing_handoff_crosses_rls_contexts_atomically(
-    rls_engine: AsyncEngine, app_rls_engine: AsyncEngine,
+    rls_engine: AsyncEngine,
     migrated_postgres_urls: MigratedPostgresUrls, tmp_path,
 ) -> None:
     from cryptography.fernet import Fernet
@@ -5001,8 +5001,12 @@ async def test_independent_billing_handoff_crosses_rls_contexts_atomically(
     settings = Settings(database_url=migrated_postgres_urls.app_url,
                         web_login_workspace_id=ids['workspace_b'], credential_encryption_key_file=key_file)
     request = _email_auth_request(settings, path='/billing/handoff')
-    sessionmaker = async_sessionmaker(app_rls_engine, expire_on_commit=False)
-    async with sessionmaker() as db:
+    # The preceding downgrade test recreates tables and drops their old role grants.
+    # Build the existing non-bypass test role against the current migrated schema.
+    async with (
+        _exact_app_role_engine(migrated_postgres_urls.migration_url) as app_engine,
+        async_sessionmaker(app_engine, expire_on_commit=False)() as db,
+    ):
         context = TenantDatabaseContext(organization_id=ids['org_a'],
             workspace_id=ids['workspace_a'], user_id=ids['user_a'])
         await apply_tenant_context(db, context)

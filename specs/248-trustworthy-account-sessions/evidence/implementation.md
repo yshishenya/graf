@@ -2,7 +2,7 @@
 
 Дата: 2026-09-06. Ветка: `codex/248-trustworthy-account-sessions`.
 Исходный HEAD: `6ff8db3ee18dc7faf52fd8a31c8bade97c5ca548`.
-Lane: high-risk-feature (авторизация, жизненный цикл сеансов, интерфейс).
+Lane: high-risk-product (авторизация, жизненный цикл сеансов, интерфейс).
 Итоговый SHA и обязательный GitHub governance-fast фиксируются в PR. Это отчёт об изменениях, а не разрешение на релиз.
 
 ## Причины и исправления
@@ -42,7 +42,7 @@ swift test --package-path apps/macos --filter DesktopCabinetWorkspaceTests
 ```
 RLS: **2 passed**, 2.90 s / 7 s phase в финальном повторе новых client/activity/revoke и независимого billing callback; ранее ещё проверены email и workspace переходы под ролью приложения (общая группа 4 passed). Swift: **47 passed**. Новый тест использует production EmbeddedCabinetWebView внутри NSHostingView и живой loopback HTTP-сервер: GET → form POST → 303 → GET, во всех запросах WebKit и GRAFDesktop marker. До фикса этот тест дал три ожидаемые ошибки отсутствующего marker.
 
-Ruff по всем изменённым Python файлам: PASS. `git diff --check`: PASS. `python3 scripts/check_spec_kit_governance.py`: PASS; повтор перед PR. Changelog fragment и описание PR проходят штатные валидаторы.
+Ruff по всем изменённым Python файлам: PASS. `git diff --check`: PASS. `python3 scripts/check_spec_kit_governance.py`: PASS; повтор перед PR. Changelog fragment и описание PR проходят штатные валидаторы. Дополнительный `check-development-process.py --pr-body ... --pr-title ...`: PASS после уточнения категории `high-risk-product`, owned_paths и текущего SHA в локальном ignored context; явная классификация Legacy Impact добавлена в spec.
 
 ## Интерфейс
 
@@ -61,3 +61,10 @@ Preview сервер используется только для проверк
 FR-001–012, SC-001–004, три пользовательских сценария, решения plan о моделях/сроках/RLS/UI/зависимостях и применимые принципы конституции проверены. Реализация согласована с требованиями; незакрытый этап T009 — создание PR и обязательная проверка GitHub на точном SHA. Дополнительные задачи реализации не требуются.
 
 Legacy Impact: untouched; нового legacy path нет. БД, зависимости, секреты, сбор контента/геолокации, capture и локальное удаление не меняются. Публичный релиз, full CI, notarization/stapling/Sparkle и deployment не запускались и остаются отдельными релизными этапами. Для появления новой классификации у пользователя требуются обновлённые сервер/macOS клиент и новый вход; старые сведения остаются честно неопределёнными.
+
+## Первая проверка GitHub
+
+PR: https://github.com/yshishenya/graf/pull/6626.
+Запуск https://github.com/yshishenya/graf/actions/runs/34019284631 на `085a8e39ea75d718b2d37186f88ddd4c27a2ca5b`: **FAIL**, не считается обязательным успешным gate.
+
+Прошли 224 governance tests и 1413 fast server tests; в группе изменённых тестов 276 passed, 1 failed. Единственный отказ — новый строгий RLS billing handoff test: `permission denied for table account_merge_intents` при совместном запуске. Причина: предшествующий тест откатывает схему до 0022 и пересоздаёт account_merge_intents, лишая ранее созданную module-scoped тестовую роль grants. Новый тест использует существующий `_exact_app_role_engine` для свежей роли без superuser/BYPASSRLS на текущей схеме. Production grants и политики не менялись. Полный модуль в исходном порядке: 35 passed / 1 failed до исправления → **36 passed**, 10.77 s после. Команда: `apps/server/scripts/run_local_postgres_tests.sh --focused tests/integration/test_rls_postgres_policies.py -q`. Ruff PASS. Отдельный запуск этих RLS тестов ранее проходил.

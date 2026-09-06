@@ -9,7 +9,7 @@
 **Primary Dependencies**: FastAPI, SQLAlchemy, Jinja, WebKit, существующие pytest/XCTest.
 **Storage**: существующий PostgreSQL, таблицы auth_sessions, registered_devices, auth_session_device_bindings.
 **Testing**: pytest + изолированный PostgreSQL RLS; Swift tests и живой WKWebView; браузерная проверка синтетических данных.
-**Risk / Validation Lane**: high-risk-feature — auth, session/device lifecycle, UX.
+**Risk / Validation Lane**: high-risk-product — auth, session/device lifecycle, UX.
 **Release Gate**: no deploy; PR governance-fast на exact SHA. Full CI, notarization и deployment — при отдельном релизе.
 **Target Platform**: macOS, веб-браузеры, Linux backend.
 **Project Type**: desktop + server-rendered web.
