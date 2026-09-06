@@ -340,7 +340,14 @@ def test_candidate_review_has_named_region_and_separate_live_actions() -> None:
     assert template.index(live) < template.index(actions)
     assert "data-summary-candidate-preview" not in template
     assert "data-summary-comparison" not in template
-    assert "data-summary-current-result" not in template
+    # The current result is the focus target after accepting a candidate;
+    # it remains outside the candidate's live announcement region.
+    result = template.split("data-summary-current-result", 1)
+    assert len(result) == 2
+    assert 'id="detail-panel-outcomes"' in result[0].rsplit("<section", 1)[1]
+    assert 'tabindex="-1"' in result[1].split(">", 1)[0]
+    assert template.count("data-summary-current-result") == 1
+    assert template.index("data-summary-current-result") < template.index(live)
 
 
 def test_pending_format_is_visual_only_and_uses_the_candidate_live_region() -> None:

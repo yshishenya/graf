@@ -287,3 +287,8 @@ JavaScript confirm, Return/Escape и protectedAction assertions сохранен
 - Временные маркеры удалены. Сетевые очереди исходные. Реальный регрессионный тест сохраняет HTTP, WKFrameInfo, JS confirm и Return/Escape. Требуется повторная диагностика Swift 6.0.3.
 - Локальный regression run: 39 XCTest PASS, 8.031s (`EmbeddedCabinet|DesktopMeetingShellWebViewBoundary`); обновлено устаревшее source assertion на тот же guard с optional адресом. Governance и whitespace PASS.
 - Ponytail review: временная диагностика workflow удалена после получения стека; один getter для восьми потребителей, без новых зависимостей.
+
+- Диагностика 34000870450 устранила crash и выполнила 801 XCTest, но реальный confirm не вызывал delegate: Swift 6.0.3 предупреждал `nearly matches optional requirement` из-за новых `@MainActor @Sendable` аннотаций completionHandler. Применён существующий в этом файле шаблон typealias для старого/нового Swift, как у navigation и file picker. Обход или исключение теста не используется.
+- Серверный Full CI 33999768481: 3900 PASS, 5 FAIL, 36 skipped. Причины: старые подписи календаря, запрет нового focus target итогов, удалённый неиспользуемый privacy macro, старое CSS-ожидание 46px. Проверка аналитики теперь использует реально отрисованный body с четырьмя masking attributes и разрешённым autocapture; runtime evidence проверяет действующие вкладки >=44px вместо наличия произвольного 46px в файле. Это актуализация проверок принятого F240/F243, не изменение производственного server-кода.
+
+- Итоговые focused проверки: 63 server tests PASS в изолированной PostgreSQL, 68.73s; контейнер удалён. 39 macOS tests PASS, 7.964s. Новая диагностика старого Swift и authoritative Full CI остаются обязательными.

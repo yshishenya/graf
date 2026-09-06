@@ -60,16 +60,18 @@ def test_public_cabinet_and_admin_templates_include_provider_config_and_private_
     assert 'data-yandex-state="blocked"' in admin_base
 
 
-def test_primitives_have_provider_private_attributes_without_disabling_posthog_autocapture() -> None:
-    primitives = (
-        REPO_ROOT / "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/components/primitives.html"
-    ).read_text(encoding="utf-8")
-    provider_macro = primitives.split("{% macro provider_private_attrs() -%}", maxsplit=1)[1]
-
-    assert "provider_private_attrs" in primitives
-    assert 'data-ph-mask="true"' in provider_macro
-    assert 'data-ym-hide-content="true"' in provider_macro
-    assert 'data-ph-no-capture="true"' not in provider_macro
+def test_rendered_cabinet_masks_content_without_disabling_posthog_autocapture(client) -> None:
+    response = client.get("/meetings", headers=auth_headers())
+    assert response.status_code == 200
+    body = response.text.split("<body", 1)[1].split(">", 1)[0]
+    for attribute in (
+        'data-graf-analytics-private="true"',
+        'data-ph-mask="true"',
+        'data-ym-hide-content="true"',
+        'data-ym-disable-keys="true"',
+    ):
+        assert attribute in body
+    assert 'data-ph-no-capture="true"' not in body
 
 
 def test_rendered_public_pages_exclude_product_provider_and_product_pages_include_it(
