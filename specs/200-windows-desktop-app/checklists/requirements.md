@@ -19,7 +19,7 @@
 - [X] CHK007 Формулировка «approved route» связана с конкретным origin, route kinds и правилами для redirect, auth и внешнего браузера. [Clarity, Spec §FR-003, §FR-005]
 - [X] CHK008 Определены границы слов «normal», «trusted segment», «degraded» и «protected-audio limitation», включая допустимое содержимое manifest. [Clarity, Spec §FR-010–FR-017]
 - [X] CHK009 Все временные пороги, размеры очередей, лимиты bridge payload и критерии drift либо заданы в требованиях, либо имеют ссылку на утверждённый contract. [Measurability, Spec §FR-009, §FR-018, §SC-001, §SC-003]
-- [X] CHK010 Сформулировано, что считается готовностью Record и какие именно prerequisites блокируют старт. [Clarity, Spec §FR-004, §FR-007–FR-010]
+- [x] CHK010 Сформулировано, что считается готовностью Record и какие именно prerequisites блокируют старт. [Clarity, Spec §FR-004, §FR-007–FR-010]
 
 ## Согласованность
 

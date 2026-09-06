@@ -1,8 +1,10 @@
 #include "DesktopUploadQueueService.h"
+#include "DesktopApiClient.h"
 
 #include "../Storage/AtomicFileStore.h"
 
 #include <cctype>
+#include <algorithm>
 #include <fstream>
 #include <iterator>
 #include <limits>
@@ -111,7 +113,13 @@ bool DesktopUploadQueueService::load() {
     std::string json;
     {
         std::ifstream input(ledgerPath_, std::ios::binary);
-        if (!input) return true;
+        if (!input) {
+            std::error_code error;
+            const bool exists = std::filesystem::exists(ledgerPath_, error);
+            quarantined_ = exists || static_cast<bool>(error);
+            if (!quarantined_) quarantined_ = std::filesystem::exists(ledgerPath_.string() + ".quarantine", error) || error;
+            return !quarantined_;
+        }
         json.assign(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
     }
     const auto quarantine = [this] {
@@ -134,6 +142,23 @@ bool DesktopUploadQueueService::load() {
         const auto end = objectEnd(json, cursor);
         if (end == std::string_view::npos) return quarantine();
         const auto object = std::string_view(json).substr(cursor, end - cursor + 1);
+        const auto fields = DesktopApiClient::jsonObjectFields(object);
+        if (!fields) return quarantine();
+        const auto user = fields->find("owner_user_id");
+        const auto workspace = fields->find("owner_workspace_id");
+        std::string ownerUser, ownerWorkspace;
+        if (user != fields->end() || workspace != fields->end()) {
+            if (user == fields->end() || workspace == fields->end()) return quarantine();
+            const auto ownerField = [](std::string_view value, std::string& output) {
+                if (value.size() < 2 || value.front() != '"' || value.back() != '"') return false;
+                value.remove_prefix(1); value.remove_suffix(1);
+                if (!value.empty() && !DesktopApiClient::accountId(value)) return false;
+                output = value;
+                return true;
+            };
+            if (!ownerField(user->second, ownerUser) || !ownerField(workspace->second, ownerWorkspace) ||
+                ownerUser.empty() != ownerWorkspace.empty()) return quarantine();
+        }
         const auto id = stringField(object, "local_recording_id");
         const auto directoryId = stringField(object, "directory_id");
         const auto sessionId = stringField(object, "session_id");
@@ -152,6 +177,7 @@ bool DesktopUploadQueueService::load() {
         item.localRecordingId = *id; item.directoryId = *directoryId; item.sessionId = *sessionId;
         item.packageDirectory = *packageDirectory; item.status = static_cast<UploadQueueStatus>(*status);
         item.acceptedBytes = *accepted; item.attempts = static_cast<std::uint32_t>(*attempts); item.safeReason = *safeReason;
+        item.ownerUserId = std::move(ownerUser); item.ownerWorkspaceId = std::move(ownerWorkspace);
         items_.push_back(std::move(item)); cursor = end + 1;
     }
     while (cursor < json.size() && std::isspace(static_cast<unsigned char>(json[cursor]))) ++cursor;
@@ -160,9 +186,11 @@ bool DesktopUploadQueueService::load() {
 }
 
 bool DesktopUploadQueueService::enqueue(UploadCustodyItem item) {
-    if (!validIdentity(item.localRecordingId) || !validIdentity(item.directoryId) || !validIdentity(item.sessionId) ||
+    if (quarantined_ || !validIdentity(item.localRecordingId) || !validIdentity(item.directoryId) || !validIdentity(item.sessionId) ||
         item.packageDirectory.empty() || !AtomicFileStore::isWithinRoot(custodyRoot_, item.packageDirectory) ||
         find(item.localRecordingId) != nullptr) return false;
+    if ((!item.ownerUserId.empty() || !item.ownerWorkspaceId.empty()) &&
+        (!DesktopApiClient::accountId(item.ownerUserId) || !DesktopApiClient::accountId(item.ownerWorkspaceId))) return false;
     items_.push_back(std::move(item));
     return persist();
 }
@@ -181,9 +209,26 @@ bool DesktopUploadQueueService::markRetry(std::string_view id, std::string reaso
     item->status = UploadQueueStatus::retry; ++item->attempts; item->safeReason = std::move(reason); return persist();
 }
 
-bool DesktopUploadQueueService::markNeedsAuth(std::string_view id) {
-    auto* item = find(id); if (!item) return false;
-    item->status = UploadQueueStatus::needsAuth; item->safeReason = "auth_required"; return persist();
+bool DesktopUploadQueueService::markNeedsAuth(std::string_view id, std::string reason) {
+    auto* item = find(id); if (quarantined_ || !item || reason.empty() || !validSafeReason(reason)) return false;
+    item->status = UploadQueueStatus::needsAuth; item->safeReason = std::move(reason); return persist();
+}
+
+bool DesktopUploadQueueService::assignOwner(std::string_view id, const DesktopAccountIdentity& identity) {
+    auto* item = find(id);
+    if (quarantined_ || !item || !item->ownerUserId.empty() || !item->ownerWorkspaceId.empty() ||
+        item->status == UploadQueueStatus::quarantined || item->status == UploadQueueStatus::uploaded ||
+        !DesktopApiClient::accountId(identity.userId) || !DesktopApiClient::accountId(identity.workspaceId)) return false;
+    const auto previous = *item;
+    item->ownerUserId = identity.userId;
+    item->ownerWorkspaceId = identity.workspaceId;
+    if (item->status == UploadQueueStatus::needsAuth) {
+        item->status = UploadQueueStatus::pending;
+        item->safeReason.clear();
+    }
+    if (persist()) return true;
+    *item = previous; // Failed durable claim is never usable by a worker.
+    return false;
 }
 
 bool DesktopUploadQueueService::requeueNeedsAuth() {
@@ -207,7 +252,61 @@ bool DesktopUploadQueueService::markUploaded(std::string_view id) {
     item->status = UploadQueueStatus::uploaded; return persist();
 }
 
+LocalCopyRemovalResult DesktopUploadQueueService::removeLocalCopy(
+    std::string_view id, LocalPurgeProof proof,
+    const std::function<bool(const std::filesystem::path&)>& recycle) {
+    if (proof != LocalPurgeProof::userConfirmedLocalCopy) return LocalCopyRemovalResult::confirmationRequired;
+    if (quarantined_) return LocalCopyRemovalResult::ledgerFailure;
+    const std::string localId(id);
+    auto* item = find(localId);
+    if (!item) return LocalCopyRemovalResult::unknownRecording;
+    const auto package = item->packageDirectory;
+    const DesktopLocalPurgeService purge(custodyRoot_);
+    if (!purge.isSafePackageDirectory(package, true) || AtomicFileStore::isWithinRoot(package, ledgerPath_))
+        return LocalCopyRemovalResult::unsafePath;
+    std::error_code error;
+    const auto target = std::filesystem::weakly_canonical(package, error);
+    if (error) return LocalCopyRemovalResult::unsafePath;
+    for (const auto& other : items_) {
+        if (other.localRecordingId == localId) continue;
+        const auto otherTarget = std::filesystem::weakly_canonical(other.packageDirectory, error);
+        if (error || otherTarget == target) return LocalCopyRemovalResult::unsafePath;
+    }
+    // Persist the intent before invoking an OS operation. After a crash/recycle
+    // success + ledger failure this row stays quarantined, never uploadable.
+    item->status = UploadQueueStatus::quarantined;
+    item->safeReason = "local_delete_pending";
+    if (!persist()) {
+        quarantined_ = true;
+        return LocalCopyRemovalResult::ledgerFailure;
+    }
+    const auto exists = std::filesystem::exists(package, error);
+    if (error) return LocalCopyRemovalResult::recycleFailed;
+    if (exists) {
+        if (!purge.isSafePackageDirectory(package) || !recycle) return LocalCopyRemovalResult::recycleFailed;
+        try {
+            if (!recycle(package)) return LocalCopyRemovalResult::recycleFailed;
+        } catch (...) {
+            return LocalCopyRemovalResult::recycleFailed;
+        }
+    }
+    const auto status = std::filesystem::symlink_status(package, error);
+    if (status.type() != std::filesystem::file_type::not_found ||
+        (error && error != std::errc::no_such_file_or_directory)) return LocalCopyRemovalResult::recycleFailed;
+    auto retained = items_;
+    items_.erase(std::remove_if(items_.begin(), items_.end(), [&](const auto& value) {
+        return value.localRecordingId == localId;
+    }), items_.end());
+    if (!persist()) {
+        items_ = std::move(retained);
+        quarantined_ = true;
+        return LocalCopyRemovalResult::ledgerFailure;
+    }
+    return LocalCopyRemovalResult::removed;
+}
+
 std::optional<UploadCustodyItem> DesktopUploadQueueService::nextPending() const {
+    if (quarantined_) return std::nullopt;
     for (const auto& item : items_) {
         if (item.status == UploadQueueStatus::pending || item.status == UploadQueueStatus::retry) return item;
     }
@@ -216,6 +315,7 @@ std::optional<UploadCustodyItem> DesktopUploadQueueService::nextPending() const 
 
 std::vector<UploadCustodyItem> DesktopUploadQueueService::pendingItems(std::size_t limit) const {
     std::vector<UploadCustodyItem> result;
+    if (quarantined_) return result;
     result.reserve(std::min(limit, items_.size()));
     for (const auto& item : items_) {
         if (item.status != UploadQueueStatus::pending && item.status != UploadQueueStatus::retry) continue;
@@ -225,8 +325,11 @@ std::vector<UploadCustodyItem> DesktopUploadQueueService::pendingItems(std::size
     return result;
 }
 
-bool DesktopUploadQueueService::persist() const {
-    return AtomicFileStore::writeWithinRoot(custodyRoot_, ledgerPath_, serialize(items_), 4 * 1024 * 1024).ok();
+bool DesktopUploadQueueService::persist() {
+    if (quarantined_) return false;
+    if (AtomicFileStore::writeWithinRoot(custodyRoot_, ledgerPath_, serialize(items_), 4 * 1024 * 1024).ok()) return true;
+    quarantined_ = true;
+    return false;
 }
 
 std::string DesktopUploadQueueService::serialize(const std::vector<UploadCustodyItem>& items) {
@@ -241,7 +344,9 @@ std::string DesktopUploadQueueService::serialize(const std::vector<UploadCustody
             ",\"accepted_bytes\":[" + std::to_string(items[index].acceptedBytes[0]) + "," +
             std::to_string(items[index].acceptedBytes[1]) + "," + std::to_string(items[index].acceptedBytes[2]) +
             "],\"attempts\":" + std::to_string(items[index].attempts) +
-            ",\"safe_reason\":\"" + jsonEscape(items[index].safeReason) + "\"}";
+            ",\"safe_reason\":\"" + jsonEscape(items[index].safeReason) +
+            "\",\"owner_user_id\":\"" + jsonEscape(items[index].ownerUserId) +
+            "\",\"owner_workspace_id\":\"" + jsonEscape(items[index].ownerWorkspaceId) + "\"}";
     }
     return json + "]}";
 }

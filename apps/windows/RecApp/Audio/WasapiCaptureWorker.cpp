@@ -5,10 +5,8 @@
 
 #include <algorithm>
 #include <atomic>
-#include <condition_variable>
 #include <cmath>
 #include <limits>
-#include <mutex>
 #include <thread>
 
 #ifdef _WIN32
@@ -19,15 +17,6 @@
 #include <windows.h>
 
 namespace {
-std::wstring utf8ToWide(const std::string& value) {
-    if (value.empty()) return {};
-    const int length = MultiByteToWideChar(CP_UTF8, 0, value.c_str(), -1, nullptr, 0);
-    if (length <= 1) return {};
-    std::wstring result(static_cast<std::size_t>(length - 1), L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, value.c_str(), -1, result.data(), static_cast<int>(result.size()));
-    return result;
-}
-
 struct PcmFormat {
     bool float32 = false;
     bool pcm16 = false;
@@ -61,50 +50,58 @@ PcmFormat inspectFormat(const WAVEFORMATEX& format) {
 
 namespace graf::windows {
 
+#ifdef _WIN32
+std::wstring WasapiCaptureWorker::utf8ToWide(const std::string& value) {
+    if (value.empty() || value.size() > static_cast<std::size_t>(std::numeric_limits<int>::max()) ||
+        value.find('\0') != std::string::npos) return {};
+    const auto bytes = static_cast<int>(value.size());
+    const int length = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(), bytes, nullptr, 0);
+    if (length <= 0) return {};
+    std::wstring result(static_cast<std::size_t>(length), L'\0');
+    if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(), bytes, result.data(), length) != length)
+        return {};
+    return result;
+}
+#endif
+
 struct WasapiCaptureWorker::Impl {
     WasapiEndpointSnapshot endpoint;
     bool renderLoopback = false;
     CaptureWorkerConfig config;
     CaptureBatchCallback callback;
     std::atomic_bool running{false};
+    std::atomic_bool ready{false};
+    std::atomic_bool finished{true};
     std::atomic<CaptureWorkerError> error{CaptureWorkerError::none};
     std::thread thread;
-    std::mutex startupMutex;
-    std::condition_variable startupCondition;
-    bool startupComplete = false;
-    CaptureWorkerError startupError = CaptureWorkerError::initializationFailed;
-
-    void reportStartup(CaptureWorkerError result) {
-        {
-            std::lock_guard<std::mutex> lock(startupMutex);
-            startupError = result;
-            startupComplete = true;
-        }
-        startupCondition.notify_one();
-    }
-
     void run() {
 #ifndef _WIN32
         error.store(CaptureWorkerError::unsupportedPlatform);
-        reportStartup(CaptureWorkerError::unsupportedPlatform);
-        running.store(false);
 #else
         HRESULT init = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
         if (FAILED(init)) {
             error.store(CaptureWorkerError::initializationFailed);
-            reportStartup(CaptureWorkerError::initializationFailed);
-            running.store(false);
             return;
         }
-        const bool uninitialize = true;
+        struct NativeResources {
+            HANDLE eventHandle = nullptr;
+            WAVEFORMATEX* format = nullptr;
+            ~NativeResources() {
+                if (format != nullptr) CoTaskMemFree(format);
+                if (eventHandle != nullptr) CloseHandle(eventHandle);
+                CoUninitialize();
+            }
+        } resources;
+        // Declared after the apartment guard so COM interfaces release first,
+        // including allocation/normalization exceptions during capture.
         Microsoft::WRL::ComPtr<IMMDeviceEnumerator> enumerator;
         Microsoft::WRL::ComPtr<IMMDevice> device;
         Microsoft::WRL::ComPtr<IAudioClient> client;
         Microsoft::WRL::ComPtr<IAudioCaptureClient> capture;
-        HANDLE eventHandle = nullptr;
-        WAVEFORMATEX* format = nullptr;
-        bool startupReported = false;
+        auto& eventHandle = resources.eventHandle;
+        auto& format = resources.format;
         do {
+            if (!running.load()) break;
             LARGE_INTEGER qpcFrequency{};
             if (!QueryPerformanceFrequency(&qpcFrequency) || qpcFrequency.QuadPart <= 0) {
                 error.store(CaptureWorkerError::initializationFailed);
@@ -112,13 +109,19 @@ struct WasapiCaptureWorker::Impl {
             }
             if (FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
                                         IID_PPV_ARGS(&enumerator)))) { error = CaptureWorkerError::initializationFailed; break; }
-            const auto id = utf8ToWide(endpoint.stableId);
-            if (endpoint.stableId.empty() || FAILED(enumerator->GetDevice(id.c_str(), &device))) {
+            if (!running.load()) break;
+            const auto id = WasapiCaptureWorker::utf8ToWide(endpoint.stableId);
+            if (id.empty() || FAILED(enumerator->GetDevice(id.c_str(), &device))) {
                 error = CaptureWorkerError::invalidEndpoint; break;
             }
+            if (!running.load()) break;
             if (FAILED(device->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr,
-                                        reinterpret_cast<void**>(client.GetAddressOf()))) ||
-                FAILED(client->GetMixFormat(&format))) { error = CaptureWorkerError::initializationFailed; break; }
+                                        reinterpret_cast<void**>(client.GetAddressOf())))) {
+                error = CaptureWorkerError::initializationFailed; break;
+            }
+            if (!running.load()) break;
+            if (FAILED(client->GetMixFormat(&format))) { error = CaptureWorkerError::initializationFailed; break; }
+            if (!running.load()) break;
             const auto pcmFormat = inspectFormat(*format);
             if (!pcmFormat.float32 && !pcmFormat.pcm16) {
                 error.store(CaptureWorkerError::unsupportedFormat);
@@ -130,20 +133,24 @@ struct WasapiCaptureWorker::Impl {
             DWORD flags = AUDCLNT_STREAMFLAGS_EVENTCALLBACK;
             if (renderLoopback) flags |= AUDCLNT_STREAMFLAGS_LOOPBACK;
             if (FAILED(client->Initialize(AUDCLNT_SHAREMODE_SHARED, flags, bufferDuration, 0,
-                                           format, nullptr)) || FAILED(client->SetEventHandle(eventHandle))) {
+                                           format, nullptr))) {
                 error = CaptureWorkerError::initializationFailed; break;
             }
+            if (!running.load()) break;
+            if (FAILED(client->SetEventHandle(eventHandle))) { error = CaptureWorkerError::initializationFailed; break; }
+            if (!running.load()) break;
             if (FAILED(client->GetService(IID_PPV_ARGS(&capture)))) {
                 error.store(CaptureWorkerError::initializationFailed);
                 break;
             }
+            if (!running.load()) break;
             if (FAILED(client->Start())) { error.store(CaptureWorkerError::initializationFailed); break; }
-            reportStartup(CaptureWorkerError::none);
-            startupReported = true;
+            ready.store(true);
             ClockMapper clockMapper(static_cast<std::uint64_t>(qpcFrequency.QuadPart));
             AudioNormalizer normalizer(config.maxBatchFrames * 6);
-            while (running.load()) {
+            while (running.load() && error.load() == CaptureWorkerError::none) {
                 if (WaitForSingleObject(eventHandle, 500) == WAIT_TIMEOUT) continue;
+                if (!running.load()) break;
                 UINT32 frames = 0;
                 if (FAILED(client->GetCurrentPadding(&frames))) { error.store(CaptureWorkerError::deviceInvalidated); break; }
                 while (frames > 0 && running.load()) {
@@ -207,7 +214,7 @@ struct WasapiCaptureWorker::Impl {
                                                           : CaptureWorkerError::unsupportedFormat);
                         break;
                     }
-                    if (!normalized.samples.empty()) {
+                    if (running.load() && !normalized.samples.empty()) {
                         try {
                             if (!callback(std::move(normalized))) {
                                 error.store(CaptureWorkerError::bufferOverflow);
@@ -225,15 +232,8 @@ struct WasapiCaptureWorker::Impl {
             }
             client->Stop();
         } while (false);
-        if (!startupReported) {
-            const auto startupResult = error.load() == CaptureWorkerError::none
-                ? CaptureWorkerError::initializationFailed : error.load();
-            reportStartup(startupResult);
-        }
-        if (format != nullptr) CoTaskMemFree(format);
-        if (eventHandle != nullptr) CloseHandle(eventHandle);
-        if (uninitialize) CoUninitialize();
-        running.store(false);
+        // All native resources must be released before the outer thread wrapper
+        // publishes finished; UI finalization relies on that completion fence.
 #endif
     }
 };
@@ -246,11 +246,16 @@ WasapiCaptureWorker::WasapiCaptureWorker(WasapiEndpointSnapshot endpoint, bool r
     impl_->config = config;
 }
 
-WasapiCaptureWorker::~WasapiCaptureWorker() { stop(); }
+WasapiCaptureWorker::~WasapiCaptureWorker() {
+    stop();
+    // Destruction is the final ownership fence, not a cancellable UI operation.
+    // A driver/COM call cannot safely be force-terminated or detached with its sink.
+    if (impl_->thread.joinable()) impl_->thread.join();
+}
 
 CaptureWorkerError WasapiCaptureWorker::start(CaptureBatchCallback callback) {
     if (!callback) return CaptureWorkerError::initializationFailed;
-    if (impl_->running.exchange(true)) return CaptureWorkerError::alreadyRunning;
+    if (!finished()) return CaptureWorkerError::alreadyRunning;
     if (impl_->endpoint.stableId.empty() || impl_->endpoint.channels == 0 ||
         (impl_->renderLoopback && impl_->endpoint.flow != WasapiDataFlow::render) ||
         (!impl_->renderLoopback && !WasapiEndpointEnumerator::isAllowedMicrophone(impl_->endpoint))) {
@@ -261,20 +266,25 @@ CaptureWorkerError WasapiCaptureWorker::start(CaptureBatchCallback callback) {
     if (impl_->thread.joinable()) impl_->thread.join();
     impl_->callback = std::move(callback);
     impl_->error.store(CaptureWorkerError::none);
-    {
-        std::lock_guard<std::mutex> lock(impl_->startupMutex);
-        impl_->startupComplete = false;
-        impl_->startupError = CaptureWorkerError::initializationFailed;
-    }
-    impl_->thread = std::thread([this] { impl_->run(); });
-    std::unique_lock<std::mutex> lock(impl_->startupMutex);
-    impl_->startupCondition.wait(lock, [this] { return impl_->startupComplete; });
-    const auto startupError = impl_->startupError;
-    lock.unlock();
-    if (startupError != CaptureWorkerError::none) {
+    impl_->ready.store(false);
+    impl_->running.store(true);
+    impl_->finished.store(false);
+    try {
+        impl_->thread = std::thread([this] {
+            try {
+                if (impl_->running.load()) {
+                    if (deviceRunForTesting_) deviceRunForTesting_(impl_->running, impl_->ready, impl_->callback);
+                    else impl_->run();
+                }
+            } catch (...) { impl_->error.store(CaptureWorkerError::initializationFailed); }
+            impl_->running.store(false);
+            impl_->finished.store(true, std::memory_order_release);
+        });
+    } catch (...) {
+        impl_->error.store(CaptureWorkerError::initializationFailed);
         impl_->running.store(false);
-        if (impl_->thread.joinable()) impl_->thread.join();
-        return startupError;
+        impl_->finished.store(true, std::memory_order_release);
+        return CaptureWorkerError::initializationFailed;
     }
     return CaptureWorkerError::none;
 }
@@ -282,8 +292,11 @@ CaptureWorkerError WasapiCaptureWorker::start(CaptureBatchCallback callback) {
 void WasapiCaptureWorker::stop() noexcept {
     if (impl_ == nullptr) return;
     impl_->running.store(false);
-    if (impl_->thread.joinable()) impl_->thread.join();
 }
+
+bool WasapiCaptureWorker::ready() const noexcept { return impl_->ready.load() && impl_->running.load(); }
+
+bool WasapiCaptureWorker::finished() const noexcept { return impl_->finished.load(std::memory_order_acquire); }
 
 bool WasapiCaptureWorker::running() const noexcept { return impl_ != nullptr && impl_->running.load(); }
 

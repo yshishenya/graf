@@ -53,7 +53,6 @@ public:
 
     [[nodiscard]] bool healthy() const noexcept { return fault_ == TimelineFault::none; }
     [[nodiscard]] TimelineFault fault() const noexcept { return fault_; }
-    [[nodiscard]] std::uint64_t droppedFrames() const noexcept { return droppedFrames_; }
     [[nodiscard]] std::uint64_t processedFrames() const noexcept { return processedFrames_; }
     [[nodiscard]] std::int64_t nextFramePts() const noexcept { return nextFramePts_; }
 
@@ -76,7 +75,6 @@ private:
     std::uint64_t systemRouteGeneration_ = 0;
     std::uint64_t microphoneRouteGeneration_ = 0;
     std::uint64_t clockDomain_ = 0;
-    std::uint64_t droppedFrames_ = 0;
     std::uint64_t processedFrames_ = 0;
     bool microphonePaused_ = false;
     TimelineFault fault_ = TimelineFault::none;

@@ -1,50 +1,37 @@
 <!--
 Sync Impact Report
-Version change: 5.0.0 -> 6.0.0
+Version change: 6.0.0 -> 7.0.0
+Authority: explicit product-owner decision on 2026-09-06 to remove legal/notice
+recording prerequisites and keep Windows behavior aligned with current macOS.
+Validation lane: high-risk governance, constitution-only stage.
 Modified principles:
-- Visible Consent And User Control: per-application automatic-recording choice
-  is now a local three-state client preference (`Всегда`, `Спрашивать`,
-  `Никогда`) with `Спрашивать` as the installation default; the server no
-  longer authorizes, acknowledges, stores, or controls that preference.
-- External AI Boundaries And Prompt Control: exactly one logical Generation
-  Call remains authoritative, while Langfuse delivery is explicitly at-least-
-  observable rather than falsely claimed exactly-once; ambiguous OTLP delivery
-  never repeats inference or uses duplicate ingest as an upsert.
-- Spec-Driven Delivery With Testable Gates: high-risk reference-fidelity UX
-  replaces the former brand-distance gate and remains subject to accessibility,
-  privacy, security, validation and release evidence.
+- II. Visible Consent And User Control -> Visible Capture And User Control:
+  remove workspace notice/legal-policy setup, participant-notice declarations
+  and legal-consent verification as recording prerequisites for all users.
+- VII. Reference-Fidelity Product Design: refer to user control rather than
+  reintroducing the removed recording-consent gate through reference review.
 Added sections:
-- Automatic-recording preference ownership: prompt remembrance, eight-second
-  expiry, bulk application and staged removal of the obsolete server contract
-  are defined without weakening visible capture, Stop, consent or storage
-  gates.
-- Reference-Fidelity Product Design: the product owner explicitly authorizes
-  faithful, including literal, reproduction of observable Krisp UX/UI/IA,
-  including screen composition, navigation, interaction states, control
-  placement and functional visible wording, while requiring independently
-  written code and licensed or GRAF-owned assets.
-- Prompt-control promotion: clarified that expected-source safety is a composed
-  GRAF writer/lock/read-compare/qualification/label-move/read-back/event-binding
-  protocol, not a claimed native Langfuse CAS primitive or bare-digest lookup.
+- Principle II separates native recording prerequisites from deferred user-
+  agreement work; no additional legal-policy dialog or server permission is
+  required to start recording.
 Removed sections:
-- Original-design and first-glance brand-distance requirements.
-Templates requiring updates:
-- ✅ reviewed `.specify/templates`; no server-owned automatic-recording
-  preference is embedded.
-- ✅ updated `docs/agent-guidance/product-gates.md` and
-  `docs/prd-voice-layer-final.md` for the local three-state contract.
-- ✅ recorded Feature 214 planning in `docs/current-product-status.md` and
-  `CHANGELOG.md`; historical release evidence remains unchanged.
-- ✅ reviewed `.specify/templates`; no brand-distance requirement is embedded.
-- ✅ updated `AGENTS.md`, `docs/agent-guidance/README.md`,
-  `docs/agent-guidance/product-gates.md` and
-  `docs/agent-guidance/spec-kit-flow.md`.
-- ✅ updated `docs/prd-voice-layer-final.md` design and clean-room boundaries.
-- ✅ propagated the decision through Feature 183 program, UX checklist and
-  Krisp parity artifacts; implementation remains a later approved slice.
-- ✅ recorded the amendment in `docs/current-product-status.md` and
-  `CHANGELOG.md` without rewriting historical release evidence.
+- External/customer workspace legal-policy prerequisite and the internal-team
+  exception; general workspace recording/consent is no longer a start gate.
+Template review:
+- Active constitution template resolved successfully; its generic scaffold
+  contains no participant-notice or workspace legal-policy requirement.
+- No template source, feature artifact, application code or public agreement
+  is changed by this constitution-only stage.
 Follow-up items:
+- Follow-up implementation on 2026-09-06 synchronized product-gates, active PRD
+  and Feature 200 requirements/plan/contracts/checklists/tasks with Principle II.
+  Independent requirements review CHK024/CHK025 passed; historical release and
+  validation evidence remains historical.
+- Windows obsolete runtime blockers are removed, not replaced with fabricated
+  approvals. Current build/test evidence belongs in Feature 200 validation;
+  native audio, user-control, access, storage, signing and release checks remain.
+- User-agreement wording is deferred to a separate approved legal-document
+  task; this amendment neither edits public terms nor changes applicable law.
 - Feature 214 must ship a client that ignores the obsolete server assisted
   auto-start preference before that server field, configuration and tests are
   removed, so older installed clients are not broken mid-rollout.
@@ -86,12 +73,13 @@ produced repeated CoreAudio hangs and CPU runaway during `019` validation. If
 the audio layer is unreliable, silent, looped, overheated, or opaque,
 downstream transcription and notes cannot be trusted.
 
-### II. Visible Consent And User Control
+### II. Visible Capture And User Control
 
 Active capture MUST always have a persistent local visible indicator and a
 one-action stop path. The product MUST NOT provide user or admin settings that
-make active capture invisible. Manual start/stop MUST remain available whenever
-workspace policy permits recording.
+make active capture invisible. Manual start MUST remain available whenever
+native capture prerequisites are satisfied; one-action Stop MUST remain
+available throughout active capture, including after a prerequisite fails.
 
 The approved target-scoped automatic-recording flow is a required product
 capability, not removable legacy. Settings MUST expose the complete allowlist
@@ -116,8 +104,8 @@ required to read or update these three states. Server connectivity and the
 obsolete assisted-auto-start policy/acknowledgement MUST NOT be prerequisites
 for a locally allowed start. Automatic start MUST still pass current meeting
 confidence, approved-target, microphone/system-audio authorization, local
-storage, suppression, general workspace recording/consent, visible indicator,
-and one-action Stop gates. A cleanup, refactor, or UX simplification MUST NOT
+storage, suppression, visible indicator, and one-action Stop gates.
+A cleanup, refactor, or UX simplification MUST NOT
 remove the timer, three-state application choice, remembrance control, or
 application allowlist. Removing or narrowing this contract requires a new
 approved Spec Kit feature, compatibility and migration notes, updated tests,
@@ -126,12 +114,29 @@ and an explicit product-owner decision.
 Automatic recording MUST be limited to approved meeting targets or explicit
 user-selected capture scopes and MUST NOT start from arbitrary system audio,
 media playback, notifications, music, videos, or non-approved apps.
-Internal-team MVP may operate without participant-facing notice, but
-external/customer workspaces MUST select a notice/legal policy before
-recording, transcript-only capture, or automatic start can be enabled.
+
+Manual recording, transcript-only capture and target-scoped automatic start
+MUST NOT require workspace jurisdiction/notice/legal-policy setup, an
+administrator's legal approval, participant-notice declarations, or collection
+or verification of a legal basis or participant consent. Missing such data
+MUST NOT block starting or continuing capture. This rule applies equally to
+internal-team and external/customer workspaces on macOS and Windows. Clients
+MUST NOT add a legal-confirmation dialog or depend on a server recording-policy
+acknowledgement before capture. Obsolete checks MUST be removed, not satisfied
+by fabricated consent records or policy approvals.
+
+Legal-basis, participant-notification and consent obligations belong to
+separately approved user-agreement work, not this constitution's capture
+prerequisites. This separation does not change applicable law or establish
+that any participant was notified or consented. It MUST NOT weaken operating-
+system permissions, the local three-state recording choice, approved-target
+verification, visible capture, one-action Stop, authentication, workspace data
+access, storage integrity, external-data boundaries or truthful deletion.
 
 Rationale: botless capture is powerful and sensitive. Trust depends on visible
-state, immediate control, clear policy, and no surprise recording.
+state, immediate control and explicit local recording preferences. Recording
+readiness MUST reflect actual native capability, not an unimplemented legal-
+policy setup or a platform-specific approval workflow.
 
 ### III. Plaintext Observability For Internal MVP
 
@@ -331,7 +336,7 @@ or interaction microcopy is expressly permitted; no paraphrase, redesign or
 brand-distance rewrite is required merely because the result matches Krisp.
 
 Reference fidelity MUST NOT weaken GRAF's own accessibility, localization,
-privacy, consent, security, deletion truth, platform integrity or error-state
+privacy, user control, security, deletion truth, platform integrity or error-state
 requirements. A documented deviation is required when literal reproduction
 would copy a known defect, create misleading state, violate an applicable GRAF
 gate, or prevent WCAG 2.2 AA and equivalent embedded-macOS operation.
@@ -470,4 +475,4 @@ Amendment procedure:
 - Every implementation review MUST verify that tasks and code preserve the
   applicable constitution gates.
 
-**Version**: 6.0.0 | **Ratified**: 2026-05-27 | **Last Amended**: 2026-08-30
+**Version**: 7.0.0 | **Ratified**: 2026-05-27 | **Last Amended**: 2026-09-06

@@ -1,18 +1,38 @@
 #include "WindowsCaptureSessionController.h"
 
 namespace graf::windows {
+namespace {
+
+ReasonCode workerReason(CaptureWorkerError error) noexcept {
+    switch (error) {
+    case CaptureWorkerError::none: return ReasonCode::none;
+    case CaptureWorkerError::unsupportedFormat: return ReasonCode::formatNormalizationUnavailable;
+    case CaptureWorkerError::bufferOverflow: return ReasonCode::queueOverflow;
+    default: return ReasonCode::endpointInvalidated;
+    }
+}
+
+} // namespace
 
 WindowsCaptureSessionController::WindowsCaptureSessionController(std::string sessionId, BatchSink batchSink,
                                                                  Finalizer finalizer,
                                                                  MicrophonePauseHandler microphonePauseHandler)
     : session_(std::move(sessionId)), batchSink_(std::move(batchSink)), finalizer_(std::move(finalizer)),
       microphonePauseHandler_(std::move(microphonePauseHandler)),
-      indicator_([this] { handleStop(); }) {}
+      indicator_([this] { (void)stop(); }) {}
 
-WindowsCaptureSessionController::~WindowsCaptureSessionController() { stopWorkers(); }
+WindowsCaptureSessionController::~WindowsCaptureSessionController() {
+    stopWorkers();
+    // Join while the callback fence/mutex/sink still exist. Normally UI polling
+    // has already observed completion; forced destruction can wait for native COM.
+    renderWorker_.reset();
+    microphoneWorker_.reset();
+}
 
 void WindowsCaptureSessionController::setEndpoints(WasapiEndpointSnapshot render,
                                                     WasapiEndpointSnapshot microphone) {
+    // A second Record must not replace live workers before readiness rejects it.
+    if (session_.state() != SessionState::idle) return;
     renderWorker_ = std::make_unique<WasapiCaptureWorker>(std::move(render), true);
     microphoneWorker_ = std::make_unique<WasapiCaptureWorker>(std::move(microphone), false);
 }
@@ -26,24 +46,17 @@ TransitionResult WindowsCaptureSessionController::record(const ReadinessInputs& 
         indicator_.publish(session_.state(), session_.reason());
         return blocked;
     }
-    captureFaulted_.store(false);
-    if (!session_.markReady().accepted() || !session_.beginStart().accepted() || !startWorkers() ||
-        captureFaulted_.load()) {
-        stopWorkers();
-        const auto failed = session_.fail(startFailureReason());
-        indicator_.publish(session_.state(), session_.reason());
-        return failed;
-    }
-    TransitionResult started;
-    {
-        std::lock_guard<std::mutex> lock(captureMutex_);
-        started = session_.startRecording();
-    }
+    (void)session_.markReady();
+    const auto starting = session_.beginStart();
     indicator_.publish(session_.state(), session_.reason());
-    return started;
+    acceptingBatches_.store(false);
+    startupDeadline_ = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    if (!startWorkers()) return stop();
+    return starting;
 }
 
 TransitionResult WindowsCaptureSessionController::pause() {
+    (void)pollHealth();
     std::lock_guard<std::mutex> lock(captureMutex_);
     const auto result = session_.pause();
     if (result.accepted()) {
@@ -54,6 +67,7 @@ TransitionResult WindowsCaptureSessionController::pause() {
 }
 
 TransitionResult WindowsCaptureSessionController::resume() {
+    (void)pollHealth();
     std::lock_guard<std::mutex> lock(captureMutex_);
     const auto result = session_.resume();
     if (result.accepted()) {
@@ -63,108 +77,131 @@ TransitionResult WindowsCaptureSessionController::resume() {
     return result;
 }
 
+TransitionResult WindowsCaptureSessionController::pollHealth() {
+    const auto state = session_.state();
+    if (state == SessionState::stopping || state == SessionState::finalizing) return finishStop();
+    if (state == SessionState::starting || state == SessionState::recording ||
+        state == SessionState::paused || state == SessionState::degraded) {
+        auto failure = captureFailureReason();
+        if (failure == ReasonCode::none && state == SessionState::starting &&
+            std::chrono::steady_clock::now() >= startupDeadline_) failure = ReasonCode::endpointInvalidated;
+        if (failure != ReasonCode::none) {
+            latchFault(failure);
+            (void)session_.markDegraded(failure);
+            indicator_.publish(session_.state(), session_.reason());
+            return stop();
+        }
+        if (state == SessionState::starting && renderWorker_->ready() && microphoneWorker_->ready()) {
+            const auto started = session_.startRecording();
+            indicator_.publish(session_.state(), session_.reason());
+            acceptingBatches_.store(true);
+            return started;
+        }
+    }
+    return {TransitionStatus::idempotent, session_.state(), session_.reason()};
+}
+
 TransitionResult WindowsCaptureSessionController::stop() {
-    TransitionResult requested;
-    {
-        std::lock_guard<std::mutex> lock(captureMutex_);
-        requested = session_.stop();
-        if (requested.status == TransitionStatus::accepted) captureFaulted_.store(true);
-    }
-    if (requested.status == TransitionStatus::rejected) return requested;
-    if (requested.status == TransitionStatus::idempotent) return requested;
-    stopWorkers();
+    const auto beforeStop = captureFailureReason();
+    const auto requested = session_.stop();
+    if (requested.status != TransitionStatus::accepted) return requested;
     indicator_.publish(session_.state(), session_.reason());
-    if (!session_.beginFinalizing().accepted()) return {TransitionStatus::rejected, session_.state(), session_.reason()};
-    const auto captureFailure = captureFailureReason();
-    if (captureFailure != ReasonCode::none) {
-        const auto failed = session_.fail(captureFailure);
-        indicator_.publish(session_.state(), session_.reason());
-        return failed;
+    // Latch unexpected worker termination before the deliberate shutdown.
+    if (beforeStop != ReasonCode::none) latchFault(beforeStop);
+    stopWorkers();
+    const auto result = finishStop();
+    return {TransitionStatus::accepted, result.state, result.reason};
+}
+
+TransitionResult WindowsCaptureSessionController::finishStop() {
+    if (pollingFinalizer_) return {TransitionStatus::idempotent, session_.state(), session_.reason()};
+    for (const auto* worker : {renderWorker_.get(), microphoneWorker_.get()}) {
+        if (worker && !worker->finished()) return {TransitionStatus::idempotent, session_.state(), session_.reason()};
     }
-    const auto finalized = finalizer_ ? finalizer_() : CaptureFinalization{};
-    const auto result = finalized.savedLocal ? session_.saveLocal() : session_.fail(
-        finalized.reason == ReasonCode::none ? ReasonCode::finalizationFailed : finalized.reason);
+    // Also fence direct/synthetic producers, without making UI Stop wait on a
+    // sink. A later poll retries after its in-flight call returns.
+    std::unique_lock<std::mutex> lock(captureMutex_, std::try_to_lock);
+    if (!lock.owns_lock()) return {TransitionStatus::idempotent, session_.state(), session_.reason()};
+    const auto failure = captureFailureReason();
+    if (session_.state() == SessionState::stopping) {
+        (void)session_.beginFinalizing();
+        indicator_.publish(session_.state(), session_.reason());
+    }
+    pollingFinalizer_ = true;
+    try {
+        const auto result = finalizer_ ? finalizer_(failure) : std::optional<CaptureFinalization>{CaptureFinalization{}};
+        if (!result) {
+            pollingFinalizer_ = false;
+            return {TransitionStatus::idempotent, session_.state(), session_.reason()};
+        }
+        finalization_ = *result;
+    } catch (...) {
+        finalization_ = {false, ReasonCode::finalizationFailed};
+    }
+    pollingFinalizer_ = false;
+    if (failure != ReasonCode::none) {
+        finalization_.savedLocal = false;
+        if (finalization_.reason == ReasonCode::none) finalization_.reason = failure;
+    }
+    const auto result = finalization_.savedLocal && finalization_.reason == ReasonCode::none
+        ? session_.saveLocal()
+        : session_.fail(finalization_.reason == ReasonCode::none
+            ? ReasonCode::finalizationFailed : finalization_.reason);
     indicator_.publish(session_.state(), session_.reason());
     return result;
 }
 
 bool WindowsCaptureSessionController::startWorkers() {
-    startError_ = CaptureWorkerError::none;
-    if (!renderWorker_ || !microphoneWorker_) {
-        startError_ = CaptureWorkerError::invalidEndpoint;
+    if (!renderWorker_ || !microphoneWorker_ || !batchSink_) {
+        latchFault(ReasonCode::endpointInvalidated);
         return false;
     }
     const auto callback = [this](AudioBatch batch) { return handleBatch(std::move(batch)); };
-    startError_ = renderWorker_->start(callback);
-    if (startError_ != CaptureWorkerError::none) return false;
-    if (captureFaulted_.load()) {
-        renderWorker_->stop();
-        startError_ = renderWorker_->lastError();
-        return false;
-    }
-    startError_ = microphoneWorker_->start(callback);
-    if (startError_ != CaptureWorkerError::none) {
-        renderWorker_->stop();
-        return false;
+    for (auto* worker : {renderWorker_.get(), microphoneWorker_.get()}) {
+        const auto error = worker->start(callback);
+        if (error != CaptureWorkerError::none) latchFault(workerReason(error));
+        if (captureFault_.load() != ReasonCode::none) return false;
     }
     return true;
 }
 
-ReasonCode WindowsCaptureSessionController::startFailureReason() const noexcept {
-    switch (startError_) {
-    case CaptureWorkerError::unsupportedFormat:
-        return ReasonCode::formatNormalizationUnavailable;
-    case CaptureWorkerError::bufferOverflow:
-        return ReasonCode::queueOverflow;
-    case CaptureWorkerError::deviceInvalidated:
-    case CaptureWorkerError::invalidEndpoint:
-        return ReasonCode::endpointInvalidated;
-    case CaptureWorkerError::none:
-        return captureFaulted_.load() ? ReasonCode::clockDiscontinuity : ReasonCode::endpointInvalidated;
-    default:
-        return ReasonCode::endpointInvalidated;
-    }
-}
-
 ReasonCode WindowsCaptureSessionController::captureFailureReason() const noexcept {
-    const auto workerError = [](const WasapiCaptureWorker* worker) {
-        return worker == nullptr ? CaptureWorkerError::none : worker->lastError();
-    };
-    const auto renderError = workerError(renderWorker_.get());
-    const auto microphoneError = workerError(microphoneWorker_.get());
-    const auto error = renderError != CaptureWorkerError::none ? renderError : microphoneError;
-    switch (error) {
-    case CaptureWorkerError::unsupportedFormat:
-        return ReasonCode::formatNormalizationUnavailable;
-    case CaptureWorkerError::bufferOverflow:
-        return ReasonCode::queueOverflow;
-    case CaptureWorkerError::deviceInvalidated:
-        return ReasonCode::endpointInvalidated;
-    case CaptureWorkerError::none:
-        return ReasonCode::none;
-    default:
-        return ReasonCode::endpointInvalidated;
+    const auto pending = captureFault_.load();
+    if (pending != ReasonCode::none) return pending;
+    for (const auto* worker : {renderWorker_.get(), microphoneWorker_.get()}) {
+        if (worker == nullptr) continue;
+        const auto error = workerReason(worker->lastError());
+        if (error != ReasonCode::none) return error;
+        const auto state = session_.state();
+        if ((state == SessionState::starting || state == SessionState::recording ||
+             state == SessionState::paused || state == SessionState::degraded) && worker->finished())
+            return ReasonCode::endpointInvalidated;
     }
+    return ReasonCode::none;
 }
 
 void WindowsCaptureSessionController::stopWorkers() noexcept {
+    acceptingBatches_.store(false);
     if (renderWorker_) renderWorker_->stop();
     if (microphoneWorker_) microphoneWorker_->stop();
 }
 
+void WindowsCaptureSessionController::latchFault(ReasonCode reason) noexcept {
+    auto expected = ReasonCode::none;
+    (void)captureFault_.compare_exchange_strong(expected, reason);
+}
+
 bool WindowsCaptureSessionController::handleBatch(AudioBatch batch) {
-    if (captureFaulted_.load()) return false;
+    if (!acceptingBatches_.load() || captureFault_.load() != ReasonCode::none) return true;
     std::lock_guard<std::mutex> lock(captureMutex_);
-    if (captureFaulted_.load()) return false;
-    if (batchSink_ && !batchSink_(std::move(batch))) {
-        captureFaulted_.store(true);
-        (void)session_.markDegraded(ReasonCode::clockDiscontinuity);
-        indicator_.publish(session_.state(), session_.reason());
-        return false;
+    // Do not manufacture a worker overflow for a callback during shutdown.
+    if (!acceptingBatches_.load() || captureFault_.load() != ReasonCode::none) return true;
+    try {
+        if (!batchSink_(std::move(batch))) latchFault(ReasonCode::clockDiscontinuity);
+    } catch (...) {
+        latchFault(ReasonCode::finalizationFailed);
     }
     return true;
 }
-
-void WindowsCaptureSessionController::handleStop() { (void)stop(); }
 
 } // namespace graf::windows

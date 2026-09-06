@@ -4,6 +4,11 @@ Date: 2026-06-04
 Status: Final baseline after 5-agent review, updated with current implementation status
 Owner: Product/Engineering
 
+Recording-start amendment: Constitution 7.0.0 (2026-09-06). Legal-policy setup
+and participant-notice/consent verification are not capture prerequisites for
+internal or external users. User-agreement work is separate; native controls,
+permissions, data access and release validation remain mandatory.
+
 ## 1. Summary
 
 `2brain Rec` is a self-hosted desktop capture layer for organizations that need botless meeting capture, transcription, and AI meeting notes while keeping meeting data inside customer-controlled infrastructure.
@@ -224,11 +229,10 @@ MVP includes:
 - System-audio capture mode for incoming/remote audio.
 - Explicit microphone capture for local speaker audio.
 - Manual recording start/stop.
-- Automatic start for the internal MVP is controlled by a local per-application
+- Automatic start is controlled by a local per-application
   preference and limited to approved meeting targets or explicit user-selected
-  capture scopes. General workspace recording and consent restrictions still
-  apply, but no server assisted-auto-start permission or acknowledgement is
-  required.
+  capture scopes. Native prerequisites still apply; workspace legal-policy
+  setup and server assisted-auto-start permission/acknowledgement are not required.
 - Target-scoped automatic recording for verified native meeting apps: the
   `Автозапись` settings page exposes the complete prompt-capable registry and
   the local `Всегда`, `Спрашивать`, `Никогда` choice for each app, defaulting to
@@ -252,7 +256,7 @@ MVP includes:
 - Provider-neutral user authentication and account/session management, with
   initial provider scope defined by `013-federated-auth-foundation`.
 - Seed admin username: `yshishenya`; password must be supplied as a deployment secret and not stored in the repository or PRD.
-- Basic admin settings for retention, recording mode, consent, downloads, and sharing.
+- Basic admin settings for retention, recording mode, downloads, and sharing.
 - MVP audit events.
 - Docker Compose deployment profile.
 - Light and dark themes.
@@ -300,14 +304,14 @@ Local/native desktop surfaces are authoritative for:
 - offline pending recordings;
 - diagnostics export and local degraded states.
 
-Server-provided general workspace policy, feature flags, approved targets,
-naming policy, consent/legal profile, localization, and non-critical help
+Server-provided workspace data-access policy, feature flags, approved targets,
+naming policy, localization, and non-critical help
 content may constrain or annotate the desktop UI, but MUST NOT be required to
 display active capture truth or to stop active capture. If policy is stale or
 the server is unreachable, the desktop app must keep active capture stoppable,
 show a truthful
-offline or policy-stale state, and preserve the last valid general workspace
-recording/consent restriction. The server does not own or authorize the local
+offline or policy-stale state. Legal-policy/consent state, including missing or
+stale data, must not restrict local capture. The server does not own or authorize the local
 per-application `Всегда`, `Спрашивать`, `Никогда` preference.
 
 Server-driven UI or WebView-rendered remote UI MUST NOT own:
@@ -389,7 +393,7 @@ Required screens:
   awareness, live meters, readiness verification, permissions, test recording,
   test playback, and diagnostic export.
 - Settings: account/workspace, audio capture defaults, recording defaults,
-  local cache, upload queue, privacy/consent, and diagnostics.
+  local cache, upload queue, privacy, and diagnostics.
 
 Settings information architecture:
 
@@ -398,16 +402,16 @@ Settings information architecture:
   speaker/headphones for playback awareness, route/capture test.
 - Recording defaults: default mode, language, manual start behavior, title defaults.
 - Auto-start and auto-stop: local three-state choice per eligible app, bulk
-  application of the same choice, general workspace restriction status and
-  auto-stop duration.
-- Privacy and retention: local buffer retention, transcript-only behavior, deletion policy summary, consent policy summary.
+  application of the same choice and auto-stop duration.
+- Privacy and retention: local buffer retention, transcript-only behavior and deletion policy summary.
 - Local buffer and upload queue: disk usage, queued meetings, retry failed upload, purge eligible local cache.
 - Capture and diagnostics: permission status, source eligibility, current
   capture health, and diagnostic export.
 
 Settings policy conflict UX:
 
-- When local user preference conflicts with workspace policy, workspace policy wins.
+- Workspace data-access/retention policies constrain their corresponding server
+  operations, not local recording start or the local three-state preference.
 - The affected control is disabled or constrained, explains the controlling policy, and shows whether the user can request a change if that workflow exists.
 - Policy constraints are not treated as errors.
 
@@ -449,7 +453,9 @@ Required steps:
 7. Capture verification: verify mic path and incoming/system audio path. Do not
    show fully ready unless both are validated or the missing track is explicitly
    degraded.
-8. Consent and policy: show workspace recording, retention, sharing, deletion, local buffer, and visible indicator policy. Require acceptance.
+8. Storage and controls: explain retention, sharing, deletion, local buffer and
+   the visible indicator. No legal-policy acceptance or participant-notice
+   confirmation is required to finish capture setup.
 
 Acceptance criteria:
 
@@ -473,7 +479,6 @@ Required onboarding failure artifacts:
 - System-audio capture denied, silent, protected, or blocked.
 - Physical speaker test failed for playback awareness.
 - Capture verification failed.
-- Policy/consent not accepted.
 
 Each failure screen must show issue, affected path, recovery action, and whether setup can continue in degraded mode.
 
@@ -1067,7 +1072,6 @@ Core entities:
 - `Embedding`
 - `VocabularyTerm`
 - `ShareGrant`
-- `ConsentEvent`
 - `DeletionRequest`
 - `DeletionArtifact`
 - `LocalPurgeTask`
@@ -1093,7 +1097,8 @@ Requirements:
 - Transcript edits create versions or auditable edit records.
 - AI outputs reference input artifact versions.
 - `ModelRun` stores provider, model, prompt/template version, input artifacts, output artifacts, token counts, latency, status, and trigger.
-- `ConsentEvent` stores policy, user action, timestamp, source app if known, and recording mode.
+- Recording-start evidence stores actual user actions, timestamps, source and
+  recording mode; it must not fabricate participant consent or policy approval.
 - `DeletionRequest` tracks cascade status across metadata, object storage, search, vector index, caches, exports, and backup expiry.
 - `DeletionArtifact` tracks per-artifact deletion state and failure reason.
 - `MediaScribeJob` stores external job ID, status, submitted artifact ID, imported artifact IDs, retry count, and external retention/deletion state.
@@ -1546,7 +1551,8 @@ Acceptance criteria:
 Required screens:
 
 - Overview: storage, processing health, fleet health, failed uploads, policy violations, active users.
-- Policies: recording modes, consent, retention, sharing, downloads, auto-start, local buffering, transcript-only behavior.
+- Policies: recording modes, retention, sharing, downloads, local buffering,
+  transcript-only behavior. Per-app automatic-recording choices remain local.
 - Users and Roles: invite, deactivate, basic admin/non-admin role assignment, permission review.
 - Device Fleet: user, device, OS, app version, capture architecture, last
   check-in, permission/source health, policy assignment, and recent errors.
@@ -1578,24 +1584,27 @@ Acceptance criteria:
 
 ## 25. Security, Privacy, Legal, And Compliance
 
-Consent policy modes:
+Recording/legal boundary:
 
-- User responsible.
-- Pre-meeting confirmation.
-- Visible notice required.
-- Audible notice required.
-- Recording disabled.
+- Legal-basis, notification and participant-consent wording belongs to separate
+  user-agreement work, not application capture prerequisites.
+- No jurisdiction/notice/legal-policy setup, administrator legal approval or
+  participant confirmation is required to enable manual recording,
+  transcript-only capture or target-scoped automatic start.
+- The rule is identical for internal and external users on macOS and Windows.
+  It does not change applicable law or prove that participants were notified.
 
 MVP capture start policy:
 
-- Manual start/stop is the default behavior and is always available when workspace policy permits recording.
+- Manual start is available when native capture prerequisites are satisfied;
+  Stop remains available throughout active capture, including after a failure.
 - Automatic start is controlled by the local per-application choice; no server
   assisted-auto-start policy or acknowledgement is required.
 - New installations set every known application to `Спрашивать`.
 - Assisted auto-start may trigger only for locked MVP approved meeting targets.
 - Assisted auto-start must require an approved meeting target or explicit
-  user-confirmed capture scope, current recording prerequisites, satisfied
-  consent policy, and immediate visible local capture indication.
+  user-confirmed capture scope, current native recording prerequisites and
+  immediate visible local capture indication.
 - For `Спрашивать`, the prompt remains visible during the eight-second
   countdown; `Записать` starts immediately, `Не записывать` suppresses this
   meeting, and timeout starts the current recording. `Запомнить выбор` maps the
@@ -1605,33 +1614,30 @@ MVP capture start policy:
 - Assisted auto-start must never trigger from arbitrary system audio, media playback, notification sounds, music, videos, or non-approved apps.
 - If meeting-like activity is uncertain, the product must remain in `detecting` or ask the user; it must not silently start capture.
 - For MVP, automatic start must use the Feature-214 three-state contract for a
-  verified target; `Всегда` may bypass a new prompt, but never bypasses general
-  workspace consent, prerequisite, visibility, and Stop gates.
+  verified target; `Всегда` may bypass a new prompt, but never bypasses native
+  prerequisites, visibility, and Stop gates.
 - User-controlled private/do-not-record mode must suppress assisted auto-start.
-- Participant-facing notice is not required for internal-team MVP.
 - Silent recording must not be used as a product term or default behavior.
 
-Each meeting stores consent evidence:
+Each meeting stores recording-start evidence:
 
-- Workspace consent policy version.
 - Recording mode.
 - User who started or authorized capture.
 - Start/stop timestamps.
 - Source app if detected.
-- Notice method used.
 - Whether auto-start was used.
 - Automatic-start trigger reason, target validation state, visible-indicator
   state and device ID. The local three-state preference is not server evidence.
-- Whether participant-facing notice was unavailable.
 
-Participant notice requirements:
+Remaining capture safeguards:
 
-- Internal-team MVP does not notify remote participants.
-- No external/customer workspace may enable recording, transcript-only capture, or assisted auto-start until workspace setup selects a jurisdiction/notice policy profile or custom legal policy.
-- If participant-facing notice is required for a later customer deployment but unavailable in botless mode, recording must be blocked or require an admin-approved exception flow.
-- Exception flows record reason, approver, policy version, source app, meeting, user, timestamp, recording mode, whether assisted auto-start was used, and whether participant-facing notice was unavailable.
-- External/customer alpha cannot ship with unresolved consent-gate, participant-notice, invisible-recording, deletion-verification, or secret-handling P0 defects.
-- Where supported in later phases, the product may guide users to add a meeting title suffix, chat notice, calendar notice, or audible tone.
+- Missing legal-policy/consent data must not block recording or create a new
+  approval dialog. Remove obsolete checks instead of writing fictional evidence.
+- Native OS permissions, approved targets, local preferences, storage integrity,
+  persistent indicator and one-action Stop remain required.
+- Invisible-recording, deletion-verification and secret-handling P0 defects
+  remain release-blocking. Automatic participant-notification features and
+  user-agreement changes are separate future work, not current start gates.
 
 Data boundary default:
 
@@ -1698,7 +1704,7 @@ Encryption requirements:
 Backup, restore, and deletion verification:
 
 - Each deployment must define RPO, RTO, backup schedule, backup storage location, encryption method, encryption key owner, retention period, and restore test cadence.
-- Restore tests must verify meetings, artifacts, audit logs, consent evidence, deletion states, and retention policies.
+- Restore tests must verify meetings, artifacts, audit logs, recording-start evidence, deletion states, and retention policies.
 - Deletion requests must expose per-artifact status for Postgres rows, MinIO
   objects, local desktop buffers, worker temp files, retry queues, exports,
   search indexes, vector indexes, model prompts/responses, diagnostic
@@ -1759,7 +1765,6 @@ Required audit events:
 - Retention policy applied.
 - Legal hold applied/released.
 - Admin setting changed.
-- Consent policy changed.
 - Role/permission changed.
 
 Audit fields:
@@ -1772,7 +1777,6 @@ Audit fields:
 - Source IP/user agent where applicable.
 - Object type and object ID.
 - Before/after values for policy changes.
-- Consent policy version where applicable.
 - Model/provider version where applicable.
 - Outcome and failure reason.
 
@@ -1835,7 +1839,7 @@ Enterprise deployments require:
 
 Privileged admin abuse controls:
 
-- The following actions require elevated admin permission: bulk export, audit log export, permanent deletion, retention shortening, legal hold release, public-link enablement, external provider allowlisting, webhook/integration destination approval, participant-notice exception approval, secret rotation, and break-glass access.
+- The following actions require elevated admin permission: bulk export, audit log export, permanent deletion, retention shortening, legal hold release, public-link enablement, external provider allowlisting, webhook/integration destination approval, secret rotation, and break-glass access.
 - For external/customer deployments, high-risk privileged actions should support dual-control approval.
 - High-risk privileged actions must record actor, approver where applicable, before/after values, reason, object scope, timestamp, source IP/user agent where available, and outcome.
 - Bulk download/export activity must be threshold-alerted or rate-limited where supported.
@@ -1848,9 +1852,8 @@ MVP internal admin controls:
 - Basic user management for the internal team.
 - Basic admin vs non-admin role separation only where required for sensitive actions.
 - Recording mode policy.
-- General recording and consent policy; per-application automatic-recording
-  preferences remain local to the desktop client.
-- Consent policy.
+- Per-application automatic-recording preferences remain local to the desktop
+  client; no administrator legal-policy approval is required for capture.
 - Retention policy.
 - Download/share disablement or basic controls if those features remain enabled.
 - Device registration, last-seen status, and basic device health.
@@ -1964,7 +1967,8 @@ Localization:
 - UI locale, transcript language, and notes output language are separate.
 - Locale-aware dates, times, durations, numbers, and time zones.
 - Long translated strings must not clip critical controls.
-- Consent and retention copy is workspace-configurable and localizable.
+- Retention copy is workspace-configurable and localizable. User-agreement
+  wording is separate from capture readiness.
 
 Accessibility/localization acceptance criteria:
 
@@ -2218,7 +2222,7 @@ Phase 0: Feasibility and architecture gates.
 - Validate install, uninstall, permissions, restart behavior.
 - Benchmark STT and deployment requirements.
 - Define ingest protocol, state machines, object lifecycle.
-- Define consent, deletion, and data-boundary policies.
+- Define native recording prerequisites, deletion and data-boundary policies.
 
 Phase 1: Pilot rollout MVP.
 
@@ -2408,7 +2412,8 @@ Dashboard:
 
 Security/privacy:
 
-- Recording cannot start until active workspace consent policy is satisfied.
+- Recording requires native technical readiness, not workspace legal-policy or
+  participant-consent verification.
 - Every capture session has visible local indicator.
 - Local buffers are encrypted.
 - External egress is blocked by default except explicitly configured approved
@@ -2435,7 +2440,8 @@ Required decisions:
 5. MediaScribe authenticated single-WAV job API contract using `X-API-Key`; historic dual-track jobs remain readable only until their documented drain condition is met.
 6. MediaScribe processing capacity, timeout, and retry policy.
 7. Langfuse tracing keys/project setup for project `2brain_rec`.
-8. Consent default for internal team and later customer use.
+8. No legal-policy/notice/consent capture prerequisite for internal or external
+   users (decided by Constitution 7.0.0); agreement wording is separate work.
 9. Sharing default.
 10. Audit scope.
 11. Deployment profile: Docker containers on `2brain.dev`, web/API on `rec.2brain.pro`, dedicated Postgres and MinIO.

@@ -6,9 +6,9 @@
 
 #include <algorithm>
 #include <array>
-#include <cstring>
+#include <cmath>
 #include <fstream>
-#include <memory>
+#include <limits>
 
 #ifdef _WIN32
 #include <mfapi.h>
@@ -121,25 +121,41 @@ V5LocalRecordingWriter::V5LocalRecordingWriter(
 #endif
 }
 
-V5LocalRecordingWriter::~V5LocalRecordingWriter() { abort(); }
+V5LocalRecordingWriter::~V5LocalRecordingWriter() {
+    // Replacing a failed session must not delete its only cleaned audio copy.
+    // No encoding/network work during destruction; retain explicit local recovery truth.
+    if (finalized_ || frameCount_ == 0) return;
+    try {
+        (void)closeCanonical();
+        result_.captureFailure = ReasonCode::finalizationFailed;
+        retainPrefix(result_);
+    } catch (...) {} // Existing bytes remain even when recovery metadata cannot be written.
+}
 
 bool V5LocalRecordingWriter::openIfNeeded() {
-    if (canonicalOutput_ != nullptr) return true;
+    if (canonicalOutput_.is_open()) return true;
     if (!AtomicFileStore::isWithinRoot(custodyRoot_, packageDirectory_)) return false;
     std::error_code error;
     std::filesystem::create_directories(packageDirectory_, error);
     if (error) return false;
-    ownedCanonicalOutput_ = std::make_unique<std::ofstream>(canonicalFloatPath_, std::ios::binary | std::ios::trunc);
-    if (!ownedCanonicalOutput_->is_open()) return false;
-    canonicalOutput_ = ownedCanonicalOutput_.get();
-    return true;
+    // A new instance must never truncate a previously retained session.
+    if (std::filesystem::exists(canonicalFloatPath_, error) || error ||
+        std::filesystem::exists(packageDirectory_ / "manifest.json", error) || error ||
+        std::filesystem::exists(packageDirectory_ / "capture-recovery.json", error) || error) return false;
+    canonicalOutput_.open(canonicalFloatPath_, std::ios::binary | std::ios::trunc);
+    return canonicalOutput_.is_open();
 }
 
 bool V5LocalRecordingWriter::append(const CanonicalAudioFrame& frame) {
-    if (finalized_ || !openIfNeeded()) return false;
-    canonicalOutput_->write(reinterpret_cast<const char*>(frame.mixed.data()),
-                            static_cast<std::streamsize>(frame.mixed.size() * sizeof(float)));
-    if (!canonicalOutput_->good()) return false;
+    if (finalized_ || appendError_ != V5WriterError::none) return false;
+    if (std::any_of(frame.mixed.begin(), frame.mixed.end(), [](float sample) { return !std::isfinite(sample); })) {
+        appendError_ = V5WriterError::integrityFailed;
+        return false;
+    }
+    if (!openIfNeeded()) { appendError_ = V5WriterError::storageUnavailable; return false; }
+    canonicalOutput_.write(reinterpret_cast<const char*>(frame.mixed.data()),
+                           static_cast<std::streamsize>(frame.mixed.size() * sizeof(float)));
+    if (!canonicalOutput_.good()) { appendError_ = V5WriterError::storageUnavailable; return false; }
     ++frameCount_;
     return true;
 }
@@ -151,6 +167,7 @@ bool V5LocalRecordingWriter::writeWav(const std::filesystem::path& path, std::ui
     const auto samples48k = frameCount_ * 480;
     const auto samples16k = samples48k / 3;
     const auto dataBytes = samples16k * sizeof(std::int16_t);
+    if (dataBytes > std::numeric_limits<std::uint32_t>::max() - 36) return false;
     output.write("RIFF", 4); writeU32(output, static_cast<std::uint32_t>(36 + dataBytes)); output.write("WAVE", 4);
     output.write("fmt ", 4); writeU32(output, 16); writeU16(output, 1); writeU16(output, 1);
     writeU32(output, 16'000); writeU32(output, 16'000 * 2); writeU16(output, 2); writeU16(output, 16);
@@ -168,16 +185,12 @@ bool V5LocalRecordingWriter::writeWav(const std::filesystem::path& path, std::ui
     if (!output.good()) return false;
     const auto size = fileSize(path);
     if (byteCount != nullptr) *byteCount = size;
-    return size != 0;
+    return size == 44 + dataBytes;
 }
 
 bool V5LocalRecordingWriter::writePlayback(const std::filesystem::path& path) {
-    if (encoder_) return encoder_(path, canonicalFloatPath_, frameCount_);
-#ifndef _WIN32
-    return false;
-#else
-    return false;
-#endif
+    try { return encoder_ && encoder_(path, canonicalFloatPath_, frameCount_); }
+    catch (...) { return false; }
 }
 
 std::string V5LocalRecordingWriter::manifestJson(const V5WriterResult& result) const {
@@ -185,55 +198,83 @@ std::string V5LocalRecordingWriter::manifestJson(const V5WriterResult& result) c
         "\",\"canonical_mix_profile\":\"" + std::string(kCanonicalMixProfile) +
         "\",\"source_kind\":\"" + std::string(kV5SourceKind) +
         "\",\"media_scribe_source_mode\":\"" + std::string(kV5MediaScribeSourceMode) +
+        "\",\"capture_status\":\"" + (result.captureFailure == ReasonCode::none ? "normal" : "degraded") +
+        "\",\"capture_reason_code\":\"" + std::string(toString(result.captureFailure)) +
         "\",\"duration_ms\":" + std::to_string(result.durationMs) +
         ",\"artifacts\":{\"media\":{\"bytes\":" + std::to_string(result.wavBytes) +
         ",\"sha256\":\"" + result.wavSha256 + "\"},\"playback\":{\"bytes\":" +
         std::to_string(result.playbackBytes) + ",\"sha256\":\"" + result.playbackSha256 + "\"}}}";
 }
 
-V5WriterResult V5LocalRecordingWriter::finalize() {
-    V5WriterResult result;
+bool V5LocalRecordingWriter::closeCanonical() {
+    if (!canonicalOutput_.is_open()) return true;
+    canonicalOutput_.flush();
+    const bool flushed = canonicalOutput_.good();
+    canonicalOutput_.close();
+    return flushed && !canonicalOutput_.fail();
+}
+
+void V5LocalRecordingWriter::retainPrefix(V5WriterResult& result) {
+    const auto bytes = fileSize(canonicalFloatPath_);
+    const auto completeFrames = std::min(frameCount_, bytes / (480 * sizeof(float)));
+    if (completeFrames == 0) return;
+    const auto hash = sha256File(canonicalFloatPath_);
+    if (hash.empty()) return;
+    const auto reason = result.captureFailure == ReasonCode::none
+        ? ReasonCode::finalizationFailed : result.captureFailure;
+    const auto metadata = std::string("{\"capture_status\":\"degraded\",\"capture_reason_code\":\"") +
+        std::string(toString(reason)) + "\",\"trusted_prefix_frames\":" + std::to_string(completeFrames) +
+        ",\"canonical_bytes\":" + std::to_string(bytes) + ",\"canonical_sha256\":\"" + hash + "\"}";
+    result.trustedPrefixRetained = AtomicFileStore::writeWithinRoot(
+        custodyRoot_, packageDirectory_ / "capture-recovery.json", metadata).ok();
+}
+
+V5WriterResult V5LocalRecordingWriter::finalize(ReasonCode captureFailure) {
+    if (finalized_) return result_;
+    finalized_ = true;
+    auto& result = result_;
+    result.captureFailure = captureFailure;
     result.packageDirectory = packageDirectory_;
     result.manifestPath = packageDirectory_ / "manifest.json";
     result.wavPath = packageDirectory_ / "meeting-transcription.wav";
     result.playbackPath = packageDirectory_ / "meeting-review.m4a";
-    if (finalized_) { result.error = V5WriterError::invalidState; return result; }
-    if (canonicalOutput_ == nullptr || frameCount_ == 0) { result.error = V5WriterError::emptyRecording; return result; }
-    canonicalOutput_->flush(); canonicalOutput_->close(); canonicalOutput_ = nullptr;
-    const auto wavTemp = result.wavPath.string() + ".tmp";
-    const auto playbackTemp = result.playbackPath.string() + ".tmp";
-    std::error_code error;
-    if (!writeWav(wavTemp, &result.wavBytes)) {
-        std::filesystem::remove(wavTemp, error);
-        result.error = V5WriterError::storageUnavailable;
+    const bool closed = closeCanonical();
+    if (frameCount_ == 0) { result.error = V5WriterError::emptyRecording; return result; }
+    if (!closed || appendError_ != V5WriterError::none) {
+        result.error = !closed ? V5WriterError::storageUnavailable : appendError_;
+        if (result.captureFailure == ReasonCode::none) result.captureFailure = ReasonCode::storageUnavailable;
+        retainPrefix(result);
         return result;
     }
-    if (!writePlayback(playbackTemp)) {
+    if (captureFailure != ReasonCode::none) retainPrefix(result);
+    const auto wavTemp = packageDirectory_ / "meeting-transcription.tmp.wav";
+    // Sink Writer selects the container from the extension; .m4a.tmp is not M4A.
+    const auto playbackTemp = packageDirectory_ / "meeting-review.tmp.m4a";
+    std::error_code error;
+    const auto fail = [&](V5WriterError failure) {
+        result.error = failure;
         std::filesystem::remove(wavTemp, error);
         std::filesystem::remove(playbackTemp, error);
-        result.error = V5WriterError::aacEncoderUnavailable;
+        retainPrefix(result);
         return result;
+    };
+    if (!writeWav(wavTemp, &result.wavBytes)) {
+        return fail(V5WriterError::storageUnavailable);
+    }
+    if (!writePlayback(playbackTemp)) {
+        return fail(encoder_ ? V5WriterError::encodeFailed : V5WriterError::aacEncoderUnavailable);
     }
     std::filesystem::rename(wavTemp, result.wavPath, error);
     if (error) {
-        std::filesystem::remove(wavTemp, error);
-        std::filesystem::remove(playbackTemp, error);
-        result.error = V5WriterError::storageUnavailable;
-        return result;
+        return fail(V5WriterError::storageUnavailable);
     }
     result.playbackBytes = fileSize(playbackTemp);
     if (result.playbackBytes == 0) {
-        std::filesystem::remove(result.wavPath, error);
-        std::filesystem::remove(playbackTemp, error);
-        result.error = V5WriterError::encodeFailed;
-        return result;
+        return fail(V5WriterError::encodeFailed);
     }
     std::filesystem::rename(playbackTemp, result.playbackPath, error);
     if (error) {
-        std::filesystem::remove(result.wavPath, error);
-        std::filesystem::remove(playbackTemp, error);
-        result.error = V5WriterError::storageUnavailable;
-        return result;
+        return fail(V5WriterError::storageUnavailable);
     }
     result.wavBytes = fileSize(result.wavPath);
     result.playbackBytes = fileSize(result.playbackPath);
@@ -241,24 +282,17 @@ V5WriterResult V5LocalRecordingWriter::finalize() {
     result.playbackSha256 = sha256File(result.playbackPath);
     result.durationMs = (frameCount_ * 1'000) / 100;
     if (result.wavSha256.empty() || result.playbackSha256.empty() || result.wavBytes == 0 || result.playbackBytes == 0) {
-        result.error = V5WriterError::integrityFailed; return result;
+        return fail(V5WriterError::integrityFailed);
     }
     const auto manifest = manifestJson(result);
     if (!AtomicFileStore::writeWithinRoot(custodyRoot_, result.manifestPath, manifest).ok()) {
-        result.error = V5WriterError::storageUnavailable;
-        return result;
+        return fail(V5WriterError::storageUnavailable);
     }
-    std::filesystem::remove(canonicalFloatPath_, error);
-    finalized_ = true;
+    if (result.normalPackage()) {
+        std::filesystem::remove(canonicalFloatPath_, error);
+        if (error) return fail(V5WriterError::storageUnavailable);
+    } else result.trustedPrefixRetained = true;
     return result;
-}
-
-void V5LocalRecordingWriter::abort() noexcept {
-    if (canonicalOutput_ != nullptr) canonicalOutput_->close();
-    canonicalOutput_ = nullptr;
-    ownedCanonicalOutput_.reset();
-    std::error_code error;
-    if (!finalized_) std::filesystem::remove(canonicalFloatPath_, error);
 }
 
 std::int16_t V5LocalRecordingWriter::toPcm16(float value) noexcept {

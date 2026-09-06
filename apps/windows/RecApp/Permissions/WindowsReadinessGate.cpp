@@ -5,9 +5,6 @@ namespace graf::windows {
 ReadinessResult WindowsReadinessGate::evaluate(const ReadinessInputs& inputs) {
     ReadinessResult result;
     result.webViewReady = inputs.webViewRuntimeReady;
-    if (!inputs.recordingPolicyAllowed) {
-        result.addBlocker(ReasonCode::recordingPolicyBlocked);
-    }
     if (!inputs.microphonePermissionGranted) {
         result.addBlocker(ReasonCode::microphonePermissionDenied);
     }

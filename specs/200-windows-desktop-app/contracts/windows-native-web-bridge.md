@@ -1,6 +1,6 @@
 # Contract: Windows WebView2 navigation and native bridge
 
-Дата: 2026-08-23
+Дата: 2026-09-06
 
 ## 1. Trusted origin
 
@@ -42,18 +42,18 @@ For the remote cabinet:
 
 ## 3. Envelope
 
-Every message uses:
+Every web-to-native request uses:
 
 ```json
 {
   "protocol": "graf.desktop.bridge",
   "version": 1,
-  "direction": "native_to_web|web_to_native",
+  "direction": "web_to_native",
   "message_id": 1,
   "nonce": "ephemeral-nonce",
   "origin": "https://rec.2brain.pro",
-  "command": "native_ready|open_native_settings|open_native_diagnostics|request_runtime_repair|request_app_quit|ack",
-  "payload": {},
+  "command": "request_app_quit",
+  "payload": {"action": "quit"},
   "sent_at_monotonic_ms": 12345
 }
 ```
@@ -74,33 +74,25 @@ without a local side effect.
 
 ## 4. Native-to-web events
 
-### `capture_state`
+### `native_ready`
 
-Bounded fields:
+The native host sends the envelope from section 3 with direction
+`native_to_web`, command `native_ready`, message id `1` and an empty payload.
+It supplies the current document nonce after the typed bridge script is ready.
+This is initialization, not authority to record, upload or delete. No
+acknowledgement command is accepted from the web page.
 
-```json
-{
-  "state": "idle|ready|starting|recording|paused|degraded|stopping|finalizing",
-  "indicator": "visible|error|hidden",
-  "stop_available": true,
-  "source_scope": "default_render_mix_plus_microphone",
-  "reason_code": null
-}
-```
+### `local_recordings`
 
-This is a display hint only. WebView cannot make the native state active or
-stopped from this event.
+The native host sends `{"command":"local_recordings","nonce":"...","rows":[]}`
+only to the current approved document. This bounded display message is distinct
+from the web-to-native request envelope; it grants no native authority. The
+page passes the rows to `window.GRAFLocalRecordings.update(rows)` as described
+in section 8. Paths, credentials and recording contents are excluded.
 
-### `custody_summary`
-
-Contains only aggregate counts and product-owned projection states. It does not
-include local paths, raw upload session tokens, signed URLs or private meeting
-content.
-
-### `runtime_state`
-
-Contains WebView/runtime/cabinet health class and safe recovery action, not
-cookies, response bodies or headers.
+Capture, readiness, runtime recovery and aggregate custody state are displayed
+by native controls. The earlier proposed `capture_state`, `custody_summary`
+and `runtime_state` messages are not part of the active protocol.
 
 ## 5. Web-to-native intents
 
@@ -108,15 +100,14 @@ The initial allowlist is intentionally small:
 
 | Type | Effect | Allowed while capture active |
 |---|---|---:|
-| `open_native_settings` | focus/open native permission or capture settings | yes |
-| `open_native_diagnostics` | open bounded diagnostics view | yes |
-| `request_runtime_repair` | show/launch supported WebView2 repair path | yes |
-| `request_app_quit` | close the current desktop shell after exact `{"action":"quit"}` validation | yes |
-| `ack` | acknowledge display delivery only | yes |
+| `request_app_quit` | validate exact `{"action":"quit"}`; stop active capture and wait for native finalization before closing | yes, close waits for finalization |
+| `local_recording` | validate exact `{"action":"open\|send\|delete","id":"known-local-id"}` and the current row capability; see section 8 | only when current native state permits that action; deletion is blocked during capture/upload |
 
-The implementation may accept the older `request_native_settings`,
-`request_diagnostics` and `ack_display` spellings during cabinet rollout, but
-new web code must emit the canonical names above.
+No compatibility aliases are accepted. `open_native_settings`,
+`request_native_settings`, `open_native_diagnostics`, `request_diagnostics`,
+`request_runtime_repair`, `ack` and `ack_display` are rejected. Settings,
+diagnostics and runtime recovery remain available through native controls and
+approved navigation, not dormant bridge handlers.
 
 `start_recording`, `stop_recording`, `pause_recording`, `resume_recording`,
 `read_file`, `write_file`, `run_process`, `set_audio_device`, `get_token`,
@@ -127,8 +118,8 @@ new web code must emit the canonical names above.
 1. On `NavigationStarting`, normalize and evaluate origin/route before allow.
 2. On accepted new document, create a fresh nonce and clear old bridge state.
 3. On `ContentLoading`/document-created, do not inject a generic privileged
-   script; only the reviewed quit bootstrap for the exact trusted origin may
-   be installed.
+   script; only the reviewed typed quit/local-recording bootstrap for the exact
+   trusted origin may be installed.
 4. On auth expiry, route block, WebView recreation or origin change, invalidate
    nonce and stop sending sensitive state.
 5. On `WebMessageReceived`, compare the message source with the current WebView
@@ -150,3 +141,32 @@ The contract is not complete until tests cover:
 - cross-frame/redirect navigation;
 - WebView close/recreate during active recording;
 - missing runtime and runtime repair failure.
+
+## 8. Локальные записи: уточнение паритета от 2026-09-06 (T083/T084)
+
+Windows использует существующий `window.GRAFLocalRecordings.update(rows)`
+кабинета, как macOS. В веб передаются только строки для отображения: непрозрачный
+локальный `id`, фиксированное название записи, время и длительность при наличии,
+состояние, флаги `canOpen`, `canSend`, `canDelete`, `uploadComplete`. Пути,
+учётные данные и содержимое записи в строки не входят. Нет достоверной даты —
+показывается «На этом компьютере», дата не выдумывается.
+
+Единственный новый запрос `local_recording` имеет ровно два строковых поля:
+`{"action":"open|send|delete","id":"known-local-id"}`. Проверяются текущий
+документ/nonce, типы, точные поля, ограничения длины, принадлежность id последнему
+нативному списку и разрешение действия. Перед эффектом нативный владелец повторно
+проверяет актуальное состояние записи и границы хранилища. Запрос не является
+доступом к произвольным файлам и не может выбирать путь.
+
+`open` открывает только проверенный готовый файл прослушивания; повреждённая или
+ещё активная запись не объявляется доступной. `send` запускает существующую
+очередь без повторной отправки завершённого пакета. При отсутствии входа
+открывается вход с возвратом в список. `delete` требует отдельного нативного
+подтверждения конкретной записи; запись/отправка в процессе блокирует удаление.
+Это удаление локальной копии по явному решению пользователя, не серверная команда
+удаления и не подтверждение серверной очистки. Команды очистки сервера остаются
+закрытым условием до появления достоверной авторизации конкретной установки.
+
+Проверки: неизвестный id, подмена действия/лишние поля, смена документа,
+повтор сообщения, устаревшие разрешения, активная запись/отправка, отмена
+подтверждения, ошибка хранилища. Ни одна ошибка не выдаётся за успешное удаление.

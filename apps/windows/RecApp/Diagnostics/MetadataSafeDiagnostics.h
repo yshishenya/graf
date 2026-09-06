@@ -4,7 +4,6 @@
 
 #include <cstdint>
 #include <string>
-#include <string_view>
 
 namespace graf::windows {
 
@@ -14,15 +13,17 @@ struct MetadataSnapshot {
     std::string architecture;
     SessionState state = SessionState::idle;
     ReasonCode reason = ReasonCode::none;
-    std::uint64_t droppedFrames = 0;
-    std::uint64_t overflowCount = 0;
+    // Counts of canonical 480-sample / 10-ms blocks, not individual samples.
+    std::uint64_t processedBlocks = 0;
+    std::uint64_t writtenBlocks = 0;
     std::uint64_t durationMs = 0;
-    std::string endpointFingerprint;
+    std::string endpointIdentity; // Raw native identity; serialization always hashes it.
+    bool trustedPrefixRetained = false;
 };
 
 class MetadataSafeDiagnostics final {
 public:
-    [[nodiscard]] static std::string redactedEndpointFingerprint(std::string_view stableEndpointIdentity);
+    // Fixed allowlisted fields and bounded text keep every report below 1024 bytes.
     [[nodiscard]] static std::string serialize(const MetadataSnapshot& snapshot);
 };
 

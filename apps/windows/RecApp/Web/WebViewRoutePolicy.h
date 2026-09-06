@@ -10,7 +10,9 @@ enum class RouteKind {
     meetingDetail,
     artifactDownload,
     settings,
+    nativeSettings,
     authRecovery,
+    authProvider,
     review,
     deletionReport,
     share,
@@ -31,11 +33,18 @@ struct RouteEvaluation {
     std::string normalizedUrl;
 };
 
+enum class AuthContinuation { none, yandex, vk };
+
 class WebViewRoutePolicy final {
 public:
     explicit WebViewRoutePolicy(std::string trustedOrigin = "https://rec.2brain.pro");
 
-    [[nodiscard]] RouteEvaluation evaluate(std::string_view url, bool topLevel = true) const;
+    // Host grants a short-lived, provider-specific continuation only after an
+    // approved same-origin start route. It never grants bridge permissions.
+    [[nodiscard]] RouteEvaluation evaluate(std::string_view url, bool topLevel = true,
+        AuthContinuation auth = AuthContinuation::none) const;
+    [[nodiscard]] AuthContinuation authContinuationForStart(std::string_view url) const noexcept;
+    [[nodiscard]] bool isAllowedDownload(std::string_view url, std::string_view sourceUrl) const;
     [[nodiscard]] const std::string& trustedOrigin() const noexcept { return trustedOrigin_; }
 
 private:

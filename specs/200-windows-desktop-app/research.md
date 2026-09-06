@@ -78,6 +78,22 @@ surface while C++/WinRT still exposes the Win32/Core Audio APIs directly.
 
 ## Решение 2: граница native и web
 
+### Уточнение T083: первоначальное подтверждение аккаунта
+
+Предыдущий вывод, что для неизвестного пространства нужно менять `/auth/me`,
+был неполным. Действующий `cabinet/web_routes/spaces.py::list_accessible_spaces`
+отдаёт JSON на `/desktop/settings/spaces`. Его `WebTenantDependency` определяет
+текущее пространство сессии, а `auth/workspace_onboarding.py` помечает `active`
+только для него. Контрактный тест `test_auth_contracts.py` проверяет запрос
+без workspace header, единственное активное пространство и исключение
+внутреннего пространства авторизации.
+
+Решение: использовать этот read-only маршрут и затем существующий `/auth/me`
+по правилам `windows-desktop-contract.md` §Local custody and upload. Ни список
+устройств, ни содержимое DOM, ни первый UUID не заменяют подтверждение сессии.
+Привязка отдельной установки для серверной очистки остаётся нерешённым
+контрактом и в это исправление не входит.
+
 ```text
 WinUI 3 / C++/WinRT native shell
 ├── Record / Pause / Resume / Stop
@@ -94,17 +110,20 @@ WinUI 3 / C++/WinRT native shell
 
 The web page never receives a file path, audio buffer, bearer token, cookie,
 device handle, process handle, native object or arbitrary command. The native
-side does not rebuild the cabinet. A bridge event can publish bounded state such
-as `capture_state`, `custody_summary` or `runtime_state`; a request can be an
-allowlisted intent such as `open_native_settings`, never “run this native
-method”.
+side does not rebuild the cabinet. The active bridge sends `native_ready` and
+bounded `local_recordings` display rows; it accepts only `request_app_quit` and
+typed `local_recording` requests. Capture/runtime/custody controls remain native.
+The initial settings/diagnostics/repair/acknowledgement aliases and proposed
+generic state messages have no active consumers and are not retained as a
+compatibility surface. See `contracts/windows-native-web-bridge.md` §§3–5.
 
 The initial handshake is bound to:
 
 1. exact normalized origin and approved route kind;
 2. random per-WebView session nonce held only in memory;
-3. protocol major/minor and maximum JSON payload size;
-4. monotonically increasing message id and bounded acknowledgement timeout.
+3. protocol version and maximum JSON payload size;
+4. monotonically increasing web-to-native message id; no acknowledgement
+   command or timeout is used as authority.
 
 Navigation policy is evaluated before every main-frame and relevant frame
 navigation. On auth expiry or WebView recreation, the session nonce changes and
@@ -203,7 +222,7 @@ but the queue runner never needs the cabinet route open.
 - The packaged app declares the microphone capability appropriate for the
   Windows package, but runtime readiness still checks the user's Windows privacy
   setting and the actual endpoint. Manifest declaration is not treated as proof
-  of consent.
+  of operating-system permission.
 - A visible preflight explains microphone, default output and local storage
   readiness. Record remains blocked until all required gates are true.
 - Register `IMMNotificationClient` for device state, default role and property
@@ -245,15 +264,79 @@ claim. ARM64 is a claim only after its own gates pass.
 
 ## Решение 8: automatic recording and capture scope
 
-Use the existing target-scoped product policy: verified registry, one reversible
-checkbox per target, `Выбрать все`/`Снять все`, eight-second prompt, immediate
-start, skip and “always record this application”. Windows detector evidence must
-contain exact executable identity (for example a verified signed identity or
-approved stable installation identity), not only a friendly process name.
+Уточнение 2026-09-06: действуют [Constitution 7, принцип II](../../.specify/memory/constitution.md)
+и актуальная база в [spec.md](spec.md). Прежняя двоичная настройка заменена
+локальным выбором для каждого подтверждённого приложения:
 
-The detector is a start-policy input, not an audio routing engine. It does not
-make arbitrary render-mix capture safe to start, and it never grants an unknown
-process permission. Process-isolated capture is an independent future feature.
+- `Всегда` — начать без вопроса, только после проверки всех условий записи.
+- `Спрашивать` — значение новой установки и нового приложения; показать вопрос
+  с восьмисекундным таймером. `Записать сейчас` начинает запись немедленно,
+  `Не записывать` подавляет текущую запись, истечение таймера начинает её при
+  сохранении всех условий записи.
+- `Никогда` — не начинать автоматическую запись и не показывать вопрос.
+
+`Запомнить выбор` сохраняет `Всегда` только после явного `Записать сейчас`,
+а `Никогда` — только после явного `Не записывать`. Без галочки настройка не
+меняется; истечение таймера не меняет её даже с галочкой. Все три значения
+доступны и обратимы в настройках. `Для всех приложений` применяет выбранное
+значение только к известным приложениям; `Разные` — отображение смешанных
+значений, а не четвёртое сохраняемое состояние или разрешение любого звука.
+
+Настройкой владеет только клиент. Сервер не хранит и не подтверждает эти
+значения; сеть и устаревшая server-assisted policy/acknowledgement не являются
+условием локально разрешённого старта. Юридическая политика пространства и
+подтверждения уведомления/согласия также не являются условиями старта.
+Подтверждённая текущая встреча, разрешения микрофона и
+системного звука, локальное хранилище, подавление повторного старта, видимый
+индикатор и Stop остаются обязательными. Удаление старого серверного контракта
+не входит в этот срез и допускается только после выпуска совместимого клиента.
+
+Решение T081/T082 после Constitution 7: удалить неиспользуемые поля legal-policy
+readiness и постоянный запрет автозапуска. Новый источник «согласия», API,
+диалог, настройка или фиктивная запись о согласии не нужны. Альтернатива
+проставить true отклонена: она оставляет мёртвый контракт и ложную семантику.
+
+Windows detector подтверждает точную исполняемую программу через проверенную
+подпись либо утверждённую идентичность установки; одного имени процесса
+недостаточно. Неизвестное приложение, музыка или обычное воспроизведение не
+разрешают автозапуск. Детектор выбирает момент старта, но не изолирует звук:
+WASAPI loopback сохраняет общий микс выбранного устройства вывода. Изоляция
+звука процесса остаётся отдельной будущей фичей.
+
+Совместимость уточнена в spec.md 2026-09-06: старый `alwaysRecordTarget_`
+существовал только в памяти, а прежнее поле `user_auto_record_enabled` в модели
+не доказывает существование сохранённой настройки для точного приложения.
+Глобальные HKCU `assisted_auto_start`/`prompt_before_recording` не переносятся
+в `Всегда`/`Никогда`. Отсутствующее или повреждённое локальное значение даёт
+`Спрашивать` (`Ask`). Перед сохранением принимаются только точные три значения
+enum; ошибка сохранения показывается явно и не считается успешной сменой
+правила. Требование определено; его реализация и проверка остаются в T082.
+
+### Фоновый запуск и срок автоматической записи (2026-09-06)
+
+Mac `TwoBrainRecApp.swift` отслеживает активное приложение по bundle ID, а не
+по одному PID; `stopStaleMeetingDetectionRecordingIfNeeded` завершает запись
+после 600 секунд без подтверждения встречи. Windows сохраняет своё точное
+сопоставление подписанного EXE/сертификата/версии реестра, но разрешает смену
+PID в пределах той же проверенной идентичности. Имя процесса не заменяет
+проверку. Порог 15 секунд подтверждённого отсутствия и свежесть 2 секунды
+сохраняются; 600 секунд ограничивают потерю наблюдения, которая раньше могла
+оставлять запись активной неограниченно. Всё время — монотонное.
+
+Существующий `AutomaticRecordingPolicy` владеет этим состоянием с принятого
+native `starting`, а не с поздней публикации `recording`. Новая служба,
+контроллер, таймер и сохраняемая схема не нужны. Ручная запись не отслеживается.
+Существующий CompactOverlay создаётся скрытым при старте GRAF, его Stop
+подготовлен; видимость главного окна не является условием готовности. Перед
+захватом отдельно проверяется фактический показ индикатора и доступность Stop.
+
+Независимое исследование каталога: bundled macOS JSON и миграция сервера
+0030 совпадают, версия `2026.07.21.1`, всего 85 ID; записей Windows и заполненных
+`windowsProcessNames` нет. API реестра уже существует, но не содержит пар
+SHA-256 EXE/DER сертификата для Windows. Установленный пакет MSTeams сам по
+себе такой парой не является. Проверенные Windows-записи, стабильный ключ
+продукта для сохранения Never при обновлении и положительная приёмка встреч
+остаются в T082; синтетические тестовые хеши не попадают в рабочий каталог.
 
 ## Rejected alternatives
 

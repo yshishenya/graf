@@ -19,13 +19,12 @@ struct LocalRecordingPackageSnapshot {
     std::string recordingId;
     PackageIntegrity integrity = PackageIntegrity::missing;
     std::uint64_t durationMs = 0;
-    bool localPurgeRegistered = false;
+    bool playbackAvailable = false;
 };
 
 class LocalRecordingPackage final {
 public:
-    [[nodiscard]] static LocalRecordingPackageSnapshot inspect(const std::filesystem::path& directory);
-    [[nodiscard]] static bool registerLocalPurge(
+    [[nodiscard]] static LocalRecordingPackageSnapshot inspect(
         const std::filesystem::path& directory,
         const std::filesystem::path& custodyRoot = {});
 };

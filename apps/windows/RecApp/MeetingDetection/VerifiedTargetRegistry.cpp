@@ -1,15 +1,41 @@
 #include "VerifiedTargetRegistry.h"
 
+#include <algorithm>
+
 namespace graf::windows {
 
+bool VerifiedTargetRegistry::validIdentity(const VerifiedTargetIdentity& identity) noexcept {
+    const auto digest = [](std::string_view value) {
+        return value.size() == 64 && std::all_of(value.begin(), value.end(), [](char c) {
+            return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+        });
+    };
+    return digest(identity.executableFingerprint) && digest(identity.publisherFingerprint) &&
+        identity.registryVersion != 0 && !identity.displayName.empty() && identity.displayName.size() <= 128 &&
+        std::none_of(identity.displayName.begin(), identity.displayName.end(), [](unsigned char c) {
+            return c < 32 || c == 127;
+        });
+}
+
+std::string VerifiedTargetRegistry::preferenceKey(const VerifiedTargetIdentity& identity) {
+    return std::to_string(identity.registryVersion) + ":" + identity.executableFingerprint + ":" +
+        identity.publisherFingerprint;
+}
+
+const VerifiedTargetIdentity* VerifiedTargetRegistry::find(std::string_view executable,
+                                                          std::string_view publisher) const noexcept {
+    for (const auto& target : targets_) {
+        if (target.executableFingerprint == executable && target.publisherFingerprint == publisher) return &target;
+    }
+    return nullptr;
+}
+
 bool VerifiedTargetRegistry::registerTarget(VerifiedTargetIdentity identity) {
-    if (identity.executableFingerprint.empty() || identity.publisherFingerprint.empty() ||
-        identity.displayName.empty() || identity.registryVersion == 0 ||
-        identity.executableFingerprint.size() > 256 || identity.publisherFingerprint.size() > 256 ||
-        identity.displayName.size() > 128) return false;
+    if (!validIdentity(identity)) return false;
     for (auto& target : targets_) {
         if (target.executableFingerprint == identity.executableFingerprint) { target = std::move(identity); return true; }
     }
+    if (targets_.size() >= maximumTargets) return false;
     targets_.push_back(std::move(identity));
     return true;
 }

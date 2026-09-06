@@ -1,65 +1,60 @@
 #include "MetadataSafeDiagnostics.h"
 
 #include <iomanip>
+#include <locale>
 #include <sstream>
+#include <string_view>
 
 namespace graf::windows {
 namespace {
 
-std::string escapeJson(std::string_view value) {
-    std::string escaped;
-    escaped.reserve(value.size() + 2);
-    for (const unsigned char character : value) {
-        switch (character) {
-        case '"': escaped += "\\\""; break;
-        case '\\': escaped += "\\\\"; break;
-        case '\n': escaped += "\\n"; break;
-        case '\r': escaped += "\\r"; break;
-        case '\t': escaped += "\\t"; break;
-        default:
-            if (character < 0x20) {
-                escaped += "?";
-            } else {
-                escaped += static_cast<char>(character);
-            }
-        }
+bool numericVersion(std::string_view value) {
+    if (value.empty() || value.size() > 32) return false;
+    bool needsDigit = true;
+    for (const char character : value) {
+        if (character >= '0' && character <= '9') needsDigit = false;
+        else if (character == '.' && !needsDigit) needsDigit = true;
+        else return false;
     }
-    return escaped;
+    return !needsDigit;
 }
 
-std::string hex(std::uint64_t value) {
-    std::ostringstream stream;
-    stream << std::hex << std::setfill('0') << std::setw(16) << value;
-    return stream.str();
-}
-
-} // namespace
-
-std::string MetadataSafeDiagnostics::redactedEndpointFingerprint(std::string_view stableEndpointIdentity) {
+std::string redactedEndpointFingerprint(std::string_view stableEndpointIdentity) {
     // FNV-1a is only a bounded redaction, not an authenticity or secrecy proof.
     std::uint64_t hash = 14695981039346656037ull;
     for (const unsigned char character : stableEndpointIdentity) {
         hash ^= character;
         hash *= 1099511628211ull;
     }
-    return "ep_" + hex(hash);
+    std::ostringstream stream;
+    stream.imbue(std::locale::classic());
+    stream << "ep_" << std::hex << std::setfill('0') << std::setw(16) << hash;
+    return stream.str();
 }
 
+} // namespace
+
 std::string MetadataSafeDiagnostics::serialize(const MetadataSnapshot& snapshot) {
-    const auto endpointFingerprint = snapshot.endpointFingerprint.rfind("ep_", 0) == 0
-        ? snapshot.endpointFingerprint
-        : redactedEndpointFingerprint(snapshot.endpointFingerprint);
+    const auto appVersion = numericVersion(snapshot.appVersion) || snapshot.appVersion == "development"
+        ? std::string_view(snapshot.appVersion) : "development";
+    const auto osBuild = numericVersion(snapshot.osBuild) || snapshot.osBuild == "unknown"
+        ? std::string_view(snapshot.osBuild) : "unknown";
+    const auto architecture = snapshot.architecture == "x64" || snapshot.architecture == "ARM64" ||
+        snapshot.architecture == "x86" || snapshot.architecture == "unknown"
+        ? std::string_view(snapshot.architecture) : "unknown";
     std::ostringstream json;
+    json.imbue(std::locale::classic());
     json << "{"
-         << "\"app_version\":\"" << escapeJson(snapshot.appVersion) << "\","
-         << "\"os_build\":\"" << escapeJson(snapshot.osBuild) << "\","
-         << "\"architecture\":\"" << escapeJson(snapshot.architecture) << "\","
+         << "\"app_version\":\"" << appVersion << "\","
+         << "\"os_build\":\"" << osBuild << "\","
+         << "\"architecture\":\"" << architecture << "\","
          << "\"state\":\"" << toString(snapshot.state) << "\","
          << "\"reason_code\":\"" << toString(snapshot.reason) << "\","
-         << "\"dropped_frames\":" << snapshot.droppedFrames << ","
-         << "\"overflow_count\":" << snapshot.overflowCount << ","
+         << "\"processed_blocks\":" << snapshot.processedBlocks << ","
+         << "\"written_blocks\":" << snapshot.writtenBlocks << ","
          << "\"duration_ms\":" << snapshot.durationMs << ","
-         << "\"endpoint_fingerprint\":\"" << escapeJson(endpointFingerprint) << "\""
+         << "\"endpoint_fingerprint\":\"" << redactedEndpointFingerprint(snapshot.endpointIdentity) << "\","
+         << "\"trusted_prefix_retained\":" << (snapshot.trustedPrefixRetained ? "true" : "false")
          << "}";
     return json.str();
 }

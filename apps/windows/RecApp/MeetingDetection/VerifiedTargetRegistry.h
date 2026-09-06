@@ -8,6 +8,8 @@
 namespace graf::windows {
 
 struct VerifiedTargetIdentity {
+    // Lowercase SHA-256 of the approved executable and signer certificate DER.
+    // Registration is an approval boundary, never discovery by process name.
     std::string executableFingerprint;
     std::string publisherFingerprint;
     std::string displayName;
@@ -16,6 +18,11 @@ struct VerifiedTargetIdentity {
 
 class VerifiedTargetRegistry final {
 public:
+    static constexpr std::size_t maximumTargets = 64;
+    [[nodiscard]] static bool validIdentity(const VerifiedTargetIdentity& identity) noexcept;
+    [[nodiscard]] static std::string preferenceKey(const VerifiedTargetIdentity& identity);
+    [[nodiscard]] const VerifiedTargetIdentity* find(std::string_view executableFingerprint,
+                                                    std::string_view publisherFingerprint) const noexcept;
     [[nodiscard]] bool registerTarget(VerifiedTargetIdentity identity);
     [[nodiscard]] bool removeTarget(std::string_view executableFingerprint);
     [[nodiscard]] bool contains(std::string_view executableFingerprint,

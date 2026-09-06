@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 if(WIN32)
-    add_compile_definitions(WIN32_LEAN_AND_MEAN NOMINMAX _WIN32_WINNT=0x0A00)
+    add_compile_definitions(WIN32_LEAN_AND_MEAN NOMINMAX UNICODE _UNICODE _WIN32_WINNT=0x0A00)
 endif()
 
 file(GLOB_RECURSE GRAF_WINDOWS_COMMON CONFIGURE_DEPENDS
@@ -34,7 +34,7 @@ set(GRAF_WINDOWS_TESTS
     "Tests/GrafWindowsPackageTests/DesktopUploadCustodySmokeTests.cpp"
     "Tests/GrafWindowsPackageTests/WindowsHardwareEvidenceSchemaTests.cpp"
     "Tests/GrafWindowsPackageTests/AutomaticRecordingSmokeTests.cpp"
-    "Tests/GrafWindowsPackageTests/AccessibilityAndBrandDistanceTests.cpp")
+    "Tests/GrafWindowsPackageTests/RecordingIndicatorTests.cpp")
 
 enable_testing()
 add_library(graf_windows_common OBJECT ${GRAF_WINDOWS_COMMON})
@@ -42,7 +42,7 @@ target_include_directories(graf_windows_common PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/RecApp"
     "${CMAKE_CURRENT_SOURCE_DIR}/Native/GrafAEC3")
 target_compile_options(graf_windows_common PRIVATE
-    $<$<CXX_COMPILER_ID:MSVC>:/W4;/WX>
+    $<$<CXX_COMPILER_ID:MSVC>:/W4;/WX;/utf-8>
     $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall;-Wextra;-Wpedantic;-Werror>)
 foreach(test_source IN LISTS GRAF_WINDOWS_TESTS)
     get_filename_component(test_name "${test_source}" NAME_WE)
@@ -51,10 +51,10 @@ foreach(test_source IN LISTS GRAF_WINDOWS_TESTS)
         "${CMAKE_CURRENT_SOURCE_DIR}/RecApp"
         "${CMAKE_CURRENT_SOURCE_DIR}/Native/GrafAEC3")
     target_compile_options("${test_name}" PRIVATE
-        $<$<CXX_COMPILER_ID:MSVC>:/W4;/WX>
+        $<$<CXX_COMPILER_ID:MSVC>:/W4;/WX;/utf-8>
         $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall;-Wextra;-Wpedantic;-Werror>)
     if(WIN32)
-        target_link_libraries("${test_name}" PRIVATE mfplat mfreadwrite mfuuid ole32 avrt advapi32 shell32 winhttp)
+        target_link_libraries("${test_name}" PRIVATE mfplat mfreadwrite mfuuid ole32 avrt advapi32 shell32 winhttp wintrust bcrypt)
     endif()
     add_test(NAME "${test_name}" COMMAND "${test_name}")
 endforeach()

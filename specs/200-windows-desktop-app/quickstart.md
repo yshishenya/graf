@@ -37,9 +37,28 @@ pwsh -File apps/windows/scripts/validate-webview-boundary.ps1
 не создаются секретные или content-bearing diagnostics, а bridge policy
 останавливает неразрешённые origin/route/command.
 
+Реальные contract/package tests запускаются через CMake/CTest. Пустые тестовые
+проекты удалены из `GrafWindows.sln`; сборка solution не заменяет запуск тестов.
+
 Portable CMake/CTest на macOS подтверждает только platform-independent contracts.
 Он не заменяет MSBuild/WinUI 3, реальный WebView2 lifecycle, WASAPI capture,
 Media Foundation AAC или signed MSIX evidence.
+
+Проверка Constitution 7 (T081/T082): технически готовый manual Start и
+автоматический countdown проходят без полей legal-policy/consent и без WebView.
+Для каждого оставшегося условия отдельно проверить отказ: microphone privacy,
+input, render, normalization, AEC3, storage, AAC, indicator, Stop, active session,
+suppression; неизвестный target не запускает запись. После удаления bool-полей
+пересобрать все тесты, включая позиционные ReadinessInputs. Реальная запись
+частных разговоров для этой проверки не нужна: использовать synthetic fakes.
+
+Фоновая автозапись T081/T082: проверить отдельный индикатор/Stop до старта при
+свёрнутом главном окне; отказ создания/показа не запускает capture. В
+AutomaticRecordingSmokeTests проверить слежение с `starting`, второй процесс
+той же identity, отсутствие 14/15 секунд, разрыв свежести, повторные/старые/
+будущие снимки, предел 599/600 секунд без подтверждения, ручной Stop и ручную
+запись. Каталог синтетических целей не включать в рабочее приложение; отсутствие
+настоящей встречи/каталога явно ограничивает нативную приёмку.
 
 ## 3. Synthetic audio gate
 
@@ -125,14 +144,23 @@ upload session, когда server truth доступна.
 ## 7. Automatic recording and accessibility gate
 
 ```powershell
-ctest --test-dir apps/windows/out/build/x64/Release -R "Automatic|Accessibility" --output-on-failure
+ctest --test-dir apps/windows/out/build/x64/Release -R "Automatic|RecordingIndicatorTests" --output-on-failure
 pwsh -File apps/windows/scripts/validate-package-smoke.ps1 -UiMatrix
 ```
 
-Проверить verified target, unknown target, ordinary media playback, eight-second
-countdown, «Записать сейчас», «Пропустить», timeout, reversible «Всегда писать
-это приложение», missing prerequisites, keyboard-only, screen reader, High
-Contrast, 200% DPI, narrow window и reduced motion.
+Проверить подтверждённое приложение, неизвестное приложение и обычное
+воспроизведение медиа; режимы «Всегда», «Спрашивать» и «Никогда» с начальным
+значением «Спрашивать». В prompt проверить восьмисекундный отсчёт, действия
+«Записать сейчас» и «Не записывать», а также «Запомнить выбор»: настройка
+сохраняется только при явном действии, не при истечении таймера. Проверить
+автоматическое начало записи после отсчёта, изменение настройки для одного
+приложения и для всех подтверждённых приложений, смешанное состояние и отказ
+при невыполненных условиях начала записи.
+
+`RecordingIndicatorTests` проверяет модель индикатора, а не доступность
+настоящего окна. Отдельно на финальной Windows-сборке проверить управление
+клавиатурой, экранный диктор, High Contrast, масштаб 200%, узкое окно и reduced
+motion. До этой проверки доступность и поведение нативного prompt не подтверждены.
 
 ## 8. MSIX package smoke
 
@@ -148,7 +176,8 @@ readiness; до отдельного approval нельзя публиковат�
 
 ## 9. Repository gate and evidence handoff
 
-Из корня репозитория выполнить:
+Основной PR gate — GitHub Actions `governance-fast` на точном SHA PR.
+Для локальной диагностики из корня репозитория доступен:
 
 ```sh
 infra/scripts/ci-local.sh --fast
@@ -157,10 +186,15 @@ infra/scripts/ci-local.sh --fast
 Этот gate не заменяет Windows build/hardware/package evidence. Перед PR должен
 быть приложен список exact commit, host OS/build, architecture, focused commands,
 pass/fail result, exact supported Windows 11 build set, skipped ARM64 lane (если не заявлен), known limitations и
-отсутствие release/deploy claim. Для Windows behavior/architecture обязательно
-обновить `CHANGELOG.md` на русском.
+отсутствие release/deploy claim. Изменения Windows описываются на русском в
+`changes/unreleased/F200.yaml`. Корневой `CHANGELOG.md` собирает оператор
+выпуска для зафиксированного кандидата; эта задача его не редактирует.
 
-### Текущий implementation evidence
+Актуальные результаты и ограничения находятся в
+`validation-2026-09-06.md`. Прогоны ниже — исторические и не заменяют проверку
+окончательного состояния.
+
+### Исторические результаты до синхронизации 2026-09-06
 
 - Рабочая база: `59803fc1b95e7b76e84d31ee82b7b2cbd24b2a27`; текущий worktree
   содержит незакоммиченный implementation diff и не является release SHA.

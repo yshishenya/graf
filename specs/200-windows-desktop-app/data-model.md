@@ -14,7 +14,7 @@ One active native recording session per user process.
 | `state` | `SessionState` | yes | every transition is explicit and monotonic except `paused`/`recording` |
 | `started_at` / `stopped_at` | ISO-8601 | yes | server-independent local timestamps |
 | `target_evidence` | bounded object | yes | absent for manual start; never guessed from process name |
-| `permission_snapshot` | `PermissionSnapshot` | yes | records observed state, not proof of future consent |
+| `permission_snapshot` | `PermissionSnapshot` | yes | records observed OS/device readiness, not a guarantee of future availability |
 | `system_route_generation` | non-negative integer | yes | changes on endpoint/clock discontinuity |
 | `microphone_route_generation` | non-negative integer | yes | changes on endpoint/clock discontinuity |
 | `capture_health` | `CaptureHealth` | yes | counts/reasons only, no samples |
@@ -53,7 +53,6 @@ hidden.
   "render_endpoint": "ready|missing|unsupported|unknown",
   "storage": "ready|low|full|unavailable",
   "webview_runtime": "ready|missing|repair_required|unknown",
-  "recording_policy": "allowed|blocked|unknown",
   "observed_at": "2026-08-23T00:00:00Z"
 }
 ```
@@ -214,18 +213,19 @@ media revision, upload session and accepted ranges.
 
 ## 8. WebViewBridgeEnvelope
 
-All native↔WebView messages use one JSON shape:
+Web-to-native requests use this JSON shape; native display messages are
+specified separately in `contracts/windows-native-web-bridge.md` §4:
 
 ```json
 {
   "protocol": "graf.desktop.bridge",
   "version": 1,
-  "direction": "native_to_web|web_to_native",
+  "direction": "web_to_native",
   "message_id": 1,
   "nonce": "ephemeral-nonce",
   "origin": "https://rec.2brain.pro",
-  "command": "native_ready|request_native_settings|request_diagnostics|request_runtime_repair|ack_display",
-  "payload": {},
+  "command": "request_app_quit",
+  "payload": {"action": "quit"},
   "sent_at_monotonic_ms": 12345
 }
 ```
@@ -236,12 +236,15 @@ Rules:
   changes;
 - native validates `Source`, exact origin, route kind, version, direction,
   message id, payload size and command-specific payload before action;
-- web receives state events but never file paths, tokens, device handles or raw
-  samples;
+- only `request_app_quit` and `local_recording` are accepted as requests;
+  their exact payloads and current-state checks are defined in the bridge
+  contract; obsolete settings/diagnostics/repair/acknowledgement aliases fail;
+- web receives `native_ready` and bounded `local_recordings` display rows, never
+  file paths, tokens, device handles or raw samples;
 - unknown commands, stale nonce, duplicate id, oversized payload and invalid JSON
   are rejected with a bounded error and no side effect;
-- an acknowledgement is not a claim that audio was saved or uploaded; only local
-  custody/server truth can establish that.
+- no web acknowledgement is accepted or treated as proof that audio was saved,
+  uploaded or removed; only local custody/server truth can establish that.
 
 ## 9. VerifiedTargetIdentity
 
@@ -253,12 +256,59 @@ publisher_or_signature     # approved bounded proof
 installation_scope         # per_user | machine | unknown
 registry_version           # reviewed registry version
 prompt_capable             # bool
-user_auto_record_enabled   # bool, target-scoped and reversible
+auto_record_preference     # always | ask | never; local, target-scoped, reversible
 ```
 
 A friendly process name without the identity proof cannot enable automatic
-recording. Target configuration is scoped to the current user/workspace/device
-and is not a global “record everything” switch.
+recording. Registry identity and the client-owned preference are distinct:
+the server must not store, authorize or acknowledge `auto_record_preference`.
+This is a local model, not a new server or manifest field.
+
+### Актуальный выбор автозаписи (2026-09-06)
+
+| Значение | Название | Поведение при подтверждённой встрече |
+|---|---|---|
+| `always` | `Всегда` | Начать без вопроса, если выполнены все условия записи |
+| `ask` | `Спрашивать` | Показать вопрос с восьмисекундным таймером; истечение запускает текущую запись при выполнении всех условий |
+| `never` | `Никогда` | Не запускать автозапись и не показывать вопрос |
+
+- Новая установка и новое подтверждённое приложение получают `ask`.
+- `Записать сейчас` начинает запись немедленно; `Не записывать` подавляет
+  текущую запись. С `Запомнить выбор` явные действия сохраняют соответственно
+  `always` и `never`. Без галочки, а также при истечении таймера с любым
+  состоянием галочки сохранённое значение не меняется.
+- Галочка и оставшееся время относятся к текущему вопросу, а не к четвёртому
+  значению настройки. `Для всех приложений` меняет только известные приложения;
+  `Разные` вычисляется для отображения и не сохраняется как значение.
+- Локальные настройки относятся к текущему пользователю/рабочему пространству/
+  устройству. Изменение видно и обратимо в настройках; оно не даёт разрешения
+  записывать любое системное аудио и не блокирует разрешённый ручной Record.
+- Сеть и серверное подтверждение настройки не нужны. При старте всё равно
+  проверяются идентичность приложения, текущая встреча, разрешения, устройства,
+  AEC3/AAC, хранилище, подавление, индикатор и Stop. Поля общей правовой политики
+  и подтверждения согласия исключены из readiness по Constitution 7; отсутствие
+  этих данных не блокирует старт, фиктивное согласие не создаётся.
+- Старый `alwaysRecordTarget_` существовал только в памяти; прежнее модельное
+  поле `user_auto_record_enabled` не означает наличие сохранённого выбора
+  точного приложения. Глобальные HKCU `assisted_auto_start` и
+  `prompt_before_recording` не мигрируют в `always`/`never`.
+- Отсутствующее или повреждённое сохранённое значение читается как `ask`
+  (`Ask`). Перед сохранением проверяется точное значение enum; неизвестные
+  значения отклоняются. Ошибка сохранения явно видна пользователю и не
+  подтверждает успешное изменение настройки. Проверки реализации — T082.
+
+Основание: [spec.md, уточнение 2026-09-06](spec.md),
+[research.md, решение 8](research.md#решение-8-automatic-recording-and-capture-scope),
+[Constitution 7, принцип II](../../.specify/memory/constitution.md).
+
+Жизненный цикл автоматической записи хранится только в памяти существующей
+AutomaticRecordingPolicy: точная identity цели принятого старта, время последнего
+положительного подтверждения, время последнего принятого снимка и начало
+непрерывного подтверждённого отсутствия. PID не является ключом продолжения;
+каждый учитываемый процесс отдельно проходит прежнюю проверку идентичности и
+потоков. Пороги — 2 секунды свежести, 15 секунд отсутствия, 600 секунд без
+положительного подтверждения. Ручной Stop/Record и завершение capture очищают
+это слежение, но не меняют сохранённый выбор пользователя.
 
 ## 10. CaptureHealth and reason codes
 

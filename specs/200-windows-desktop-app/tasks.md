@@ -65,9 +65,12 @@ indicator, state machine, package integrity и idempotent finalization.
 
 ## Phase 4: User Story 2 — Тот же кабинет, что на macOS (Priority: P1)
 
-**Goal**: WebView2 загружает server-owned cabinet routes с exact-origin policy,
-а native bridge только показывает bounded state и открывает разрешённые native
-settings/diagnostics.
+**Goal**: WebView2 загружает server-owned cabinet routes с exact-origin policy.
+Мост принимает только `request_app_quit` и действия `local_recording` над
+известной записью с повторной проверкой нативного состояния. В обратном
+направлении передаются `native_ready` и строки `local_recordings`. Настройки,
+диагностика и восстановление доступны через нативные элементы и разрешённую
+навигацию, без устаревших команд моста.
 
 **Independent test**: route/bridge contract matrix сравнивает Windows WebView2 и
 macOS route/state matrix, включая hostile navigation/message cases, без запуска
@@ -82,7 +85,7 @@ capture.
 
 - [X] T029 [US2] Реализовать `apps/windows/RecApp/Web/WebViewRoutePolicy.h` и `.cpp` с normalized exact origin и route-kind allowlist, не используя broad substring matching.
 - [X] T030 [US2] Реализовать `apps/windows/RecApp/Web/WebView2Host.h` и `.cpp` с Evergreen readiness, standard-user settings, disabled generic host objects и lifecycle isolation.
-- [X] T031 [US2] Реализовать `apps/windows/RecApp/Web/WebViewBridge.h` и `.cpp` с versioned JSON envelope, ephemeral nonce, 64 KiB/depth limits, typed allowlist и bounded ack/error.
+- [X] T031 [US2] Реализовать `apps/windows/RecApp/Web/WebViewBridge.h` и `.cpp` с versioned JSON envelope, ephemeral nonce, 64 KiB/depth limits, typed allowlist и ограниченными внутренними кодами отказа проверки. Уточнение T083 от 2026-09-06: `ack`/`ack_display` не поддерживаются и не доказывают сохранение, отправку или удаление.
 - [X] T032 [US2] Подключить `apps/windows/RecApp/Shell/CabinetWindow.h` и `.cpp` к `/desktop/meetings`, detail, settings, auth recovery, review/deletion-report routes без копирования server business logic.
 - [X] T033 [US2] Добавить runtime/unavailable/recovery UI в `apps/windows/RecApp/Web/WebRuntimeState.h` и `.cpp`, сохранив native capture/custody при WebView/network failure.
 - [X] T034 [US2] Добавить parity/route smoke в `apps/windows/Tests/GrafWindowsPackageTests/WebViewCabinetParityTests.cpp` по `specs/200-windows-desktop-app/parity-matrix.md`.
@@ -107,6 +110,15 @@ reconciliation, duplicate prevention и purge semantics.
 - [X] T038 [US3] Реализовать `apps/windows/RecApp/Upload/DesktopUploadQueueService.h` и `.cpp` с existing `desktop-upload-queue.v2`, atomic ledger, quarantine и server-truth reconciliation.
 - [X] T039 [US3] Реализовать `apps/windows/RecApp/Upload/DesktopUploadRecoveryScheduler.h` и `.cpp` для launch, activation, auth/network recovery, wake и scheduled bounded retry без WebView route.
 - [X] T040 [US3] Реализовать `apps/windows/RecApp/Upload/DesktopLocalPurgeService.h` и `.cpp` с deletion/tombstone/unrecoverability gate и безопасной локальной очисткой.
+
+  Историческое уточнение 2026-09-06: `[X]` относится к прежнему локальному
+  прототипу, а не к проверенной серверной очистке. Удалённые API
+  `purge(..., LocalPurgeProof)` и маркер `registerLocalPurge` не доказывали
+  deletion/tombstone/unrecoverability. Серверная очистка и её ACK остаются
+  заблокированы до достоверной авторизации конкретной установки и проверки
+  по T083 (#6640); явное удаление локальной копии пользователем — отдельный
+  сценарий, не подтверждение серверной очистки.
+
 - [X] T041 [US3] Подключить `apps/windows/RecApp/Shell/CustodyStatusProjection.h` и `.cpp` к bounded native/web custody summary без paths, tokens, signed URLs или content.
 - [X] T042 [US3] Добавить package/queue fault smoke в `apps/windows/Tests/GrafWindowsPackageTests/DesktopUploadCustodySmokeTests.cpp` и закрыть сценарии User Story 3.
 
@@ -128,6 +140,17 @@ endpoint, clock, gap, overflow, sleep/wake, protected-audio and disk failures.
 - [X] T045 [US4] Реализовать `apps/windows/RecApp/Audio/ClockMapper.h` и `.cpp` с QPC/WASAPI mapping, monotonicity, route generations, drift/gap validation и no-wall-clock-padding.
 - [X] T046 [US4] Реализовать `apps/windows/RecApp/Capture/CaptureFaultRecovery.h` и `.cpp` для endpoint/service/power transitions, trusted-prefix finalization и explicit safe recovery actions.
 - [X] T047 [US4] Реализовать `apps/windows/RecApp/Diagnostics/CaptureHealthProjection.h` и `.cpp` для bounded counters, safe reason codes и native indicator/bridge state projection.
+
+  Историческое уточнение 2026-09-06: `CaptureHealthProjection.*` удалён как
+  неиспользуемая заготовка. Рабочий путь состояния и причины ошибки:
+  `apps/windows/RecApp/Capture/WindowsCaptureSessionController.cpp`
+  (`record/pause/resume/pollHealth/stop`) →
+  `apps/windows/RecApp/Shell/RecordingIndicator.h` (`snapshot`) и `.cpp`
+  (`publish`) →
+  `apps/windows/RecApp/AppMain.cpp` (`NativeCapture::indicator`, native UI/tray).
+  Наличие этого пути не подтверждает полноту counters/bridge или аппаратную
+  и визуальную приёмку; проверки T081/T084 остаются открытыми.
+
 - [X] T048 [US4] Добавить `apps/windows/scripts/validate-audio-contract.ps1` с synthetic, hardware-matrix, fault-injection и custody modes из quickstart.md.
 - [X] T049 [US4] Добавить `apps/windows/Tests/GrafWindowsPackageTests/WindowsHardwareEvidenceSchemaTests.cpp` для x64 OS matrix, source/device class, state and metadata-only evidence schema.
 
@@ -151,6 +174,10 @@ timeout, saved policy, unknown target, media playback and missing prerequisites.
 - [X] T054 [US5] Реализовать `apps/windows/RecApp/MeetingDetection/AutomaticRecordingPolicy.h` и `.cpp` с 8-second countdown, «Записать сейчас», «Пропустить» и reversible «Всегда писать это приложение».
 - [X] T055 [US5] Реализовать `apps/windows/RecApp/Shell/AutomaticRecordingPrompt.h` и `.cpp` с keyboard/screen-reader accessible actions и тем же readiness/indicator/Stop path, что у manual Record.
 - [X] T056 [US5] Добавить `apps/windows/Tests/GrafWindowsPackageTests/AutomaticRecordingSmokeTests.cpp` с unknown target/media playback zero-start и explicit consent evidence.
+
+Исторический T056 не задаёт текущие условия старта: Constitution 7 отменяет
+проверку согласия. В T082 тесты заменены проверкой технических условий,
+сохранённого выбора и отсутствия запуска для неизвестных приложений.
 
 ## Phase 8: Polish, accessibility, packaging and cross-cutting implementation
 
@@ -286,6 +313,25 @@ WASAPI capture и clean-image evidence отсутствуют.
 - [X] T079 [US2] Исправить exact route classification в `apps/windows/RecApp/Web/WebViewRoutePolicy.cpp` и добавить regressions для meeting share/deletion-report и slash в query; portable contract evidence зафиксирована в quickstart.
 
 ## Phase 11: Closeout — evidence and final review
+
+### Повторное сведение с master от 2026-09-06
+
+Исторические `[X]` выше подтверждают только указанные там прежние этапы.
+Новые расхождения покрыты следующими открытыми задачами до финального closeout.
+
+Текущий срез T081/T082: скрытая подготовка существующего CompactOverlay и
+проверка его показа перед фоновым стартом; перенос слежения за принятой
+авто-записью в `MeetingDetection/AutomaticRecordingPolicy.*` с порогами
+свежести/отсутствия/потери доказательств 2/15/600 секунд. Сначала расширить
+`Tests/GrafWindowsPackageTests/AutomaticRecordingSmokeTests.cpp`, затем удалить
+заменённые поля и ветви `AppMain.cpp`. US5/AC4–6; каталог/миграция предпочтений
+и настоящая аппаратная встреча остаются незакрытыми частями T082/T084.
+
+- [ ] T080 [US2] Восстановить реальный WebView2 lifecycle, безопасный код ошибки, повторный запуск и навигацию в `apps/windows/RecApp/Web/WebView2Host.*` и `apps/windows/RecApp/Shell/CabinetWindow.*`; добавить regressions и проверить installed Runtime + offline/retry (FR-003–006/020, SC-001/006).
+- [ ] T081 [P] [US1] Довести нативные окна и действия до текущей macOS версии в `apps/windows/RecApp/AppMain.cpp` и `apps/windows/RecApp/Shell/WindowsTray.*`: читаемые настройки, двустороннее сворачивание, навигация, микрофон, состояния/таймер/Pause/Resume/Stop, recovery и очередь без статических заглушек (FR-002/004/008/015, SC-002/004/009).
+- [ ] T082 [P] [US5] Перенести локальную трёхрежимную автозапись Constitution 7 в `apps/windows/RecApp/MeetingDetection/`, `apps/windows/RecApp/Shell/AutomaticRecordingPrompt.*` и соответствующие `apps/windows/Tests/`; подключить подтверждённый Windows detector и prompt к shell после T081, сохранить countdown/remember/negative cases (FR-016, SC-007). В совместном с T081 срезе удалить отменённые `recordingPolicyAllowed`/`consentSatisfied`, мёртвые reason/copy в `Permissions/WindowsReadinessGate.*` и `Contracts/WindowsDesktopContracts.h`; до изменения кода скорректировать тесты технических отказов и проверить все позиционные инициализации. Правки AppMain выполнять последовательно с T081.
+- [ ] T083 [P] [US3] Проверить и исправить несовместимость Windows upload/auth/bridge с актуальным master в `apps/windows/RecApp/Upload/`, `apps/windows/RecApp/Web/` и `apps/windows/Tests/GrafWindowsContractTests/`, не меняя server business logic; записать matrix в `specs/200-windows-desktop-app/parity-matrix.md` (FR-003/005/006/011/013/014/022, SC-005/006).
+- [ ] T084 [US2] После T080–T083 собрать и запустить Windows приложение, пройти сценарии из актуального spec.md и `specs/200-windows-desktop-app/quickstart.md`, сохранить безопасные результаты в `specs/200-windows-desktop-app/validation-2026-09-06.md`, обновить `changes/unreleased/F200.yaml`; не закрывать непроверенные auth/hardware/signing сценарии (SC-001–010).
 
 - [ ] T063 После T067/T070/T071/T072/T073/T074/T075 выполнить полный `specs/200-windows-desktop-app/quickstart.md`, Windows x64 hardware/package evidence и `infra/scripts/ci-local.sh --fast`; зафиксировать exact SHA, skipped ARM64 lane и known limitations.
 - [X] T064 Провести финальный review `specs/200-windows-desktop-app/checklists/requirements.md`, `audio-capture.md`, `advanced-routing.md`, `security.md`, `ux.md`, `plan.md` и `tasks.md`; review 2026-08-29: 104/104 checklist items complete, T070/T071/T063 остаются открытыми до signed MSIX/clean-image и hardware/authenticated-cabinet evidence; deploy/release не запускать без отдельного approval.

@@ -40,7 +40,6 @@ enum class SessionState {
 enum class ReasonCode {
     none,
     activeSessionExists,
-    recordingPolicyBlocked,
     microphonePermissionDenied,
     microphoneEndpointUnavailable,
     renderEndpointUnavailable,
@@ -111,7 +110,6 @@ struct TransitionResult {
     switch (reason) {
     case ReasonCode::none: return "none";
     case ReasonCode::activeSessionExists: return "active_session_exists";
-    case ReasonCode::recordingPolicyBlocked: return "recording_policy_blocked";
     case ReasonCode::microphonePermissionDenied: return "microphone_permission_denied";
     case ReasonCode::microphoneEndpointUnavailable: return "microphone_endpoint_unavailable";
     case ReasonCode::renderEndpointUnavailable: return "render_endpoint_unavailable";

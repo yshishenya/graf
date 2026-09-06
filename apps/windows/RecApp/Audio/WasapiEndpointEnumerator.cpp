@@ -29,42 +29,42 @@ bool containsFolded(std::string value, const char* needle) {
 }
 #endif
 
+} // namespace
+
 #ifdef _WIN32
-std::string narrow(const wchar_t* value) {
+std::string WasapiEndpointEnumerator::narrow(const wchar_t* value) {
     if (value == nullptr) return {};
-    const int size = WideCharToMultiByte(CP_UTF8, 0, value, -1, nullptr, 0, nullptr, nullptr);
+    const int size = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, value, -1, nullptr, 0, nullptr, nullptr);
     if (size <= 1) return {};
-    std::string result(static_cast<std::size_t>(size - 1), '\0');
-    WideCharToMultiByte(CP_UTF8, 0, value, -1, result.data(), static_cast<int>(result.size()), nullptr, nullptr);
-    return result;
-}
-
-std::string deviceId(Microsoft::WRL::ComPtr<IMMDevice> device) {
-    LPWSTR raw = nullptr;
-    if (FAILED(device->GetId(&raw)) || raw == nullptr) return {};
-    std::string result = narrow(raw);
-    CoTaskMemFree(raw);
-    return result;
-}
-
-std::string propertyString(Microsoft::WRL::ComPtr<IPropertyStore> properties, REFPROPERTYKEY key) {
-    PROPVARIANT value;
-    PropVariantInit(&value);
-    std::string result;
-    if (SUCCEEDED(properties->GetValue(key, &value)) && value.vt == VT_LPWSTR) {
-        result = narrow(value.pwszVal);
-    }
-    PropVariantClear(&value);
+    // With -1 input the required size includes NUL; reserve it for conversion,
+    // then remove only the terminator from the returned UTF-8 string.
+    std::string result(static_cast<std::size_t>(size), '\0');
+    if (WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, value, -1, result.data(), size, nullptr, nullptr) != size)
+        return {};
+    result.pop_back();
     return result;
 }
 #endif
-
-} // namespace
 
 EndpointEnumerationResult WasapiEndpointEnumerator::snapshot() const {
 #ifndef _WIN32
     return {EndpointEnumerationError::platformUnavailable, {}};
 #else
+    const auto deviceId = [](const Microsoft::WRL::ComPtr<IMMDevice>& device) -> std::string {
+        LPWSTR raw = nullptr;
+        if (FAILED(device->GetId(&raw)) || raw == nullptr) return {};
+        std::string result = narrow(raw);
+        CoTaskMemFree(raw);
+        return result;
+    };
+    const auto propertyString = [](const Microsoft::WRL::ComPtr<IPropertyStore>& properties, REFPROPERTYKEY key) {
+        PROPVARIANT value;
+        PropVariantInit(&value);
+        std::string result;
+        if (SUCCEEDED(properties->GetValue(key, &value)) && value.vt == VT_LPWSTR) result = narrow(value.pwszVal);
+        PropVariantClear(&value);
+        return result;
+    };
     EndpointEnumerationResult result;
     Microsoft::WRL::ComPtr<IMMDeviceEnumerator> enumerator;
     if (FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,

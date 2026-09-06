@@ -8,6 +8,52 @@
 
 ## Summary
 
+### Продолжение 2026-09-06
+
+Активный `high-risk-feature` срез продолжается после merge `bb4fc1fac` из
+`origin/master` `6ff8db3ee`. Приоритет имеет уточнение в spec.md от 2026-09-06
+и Constitution 7: локальная трёхрежимная автозапись, а не прежние checkbox и
+server-assisted policy. Требование отличаться от эталона визуально отменено;
+проверяются сходство с текущим GRAF macOS, доступность и происхождение ресурсов.
+
+Constitution 7.0.0 и прямое решение владельца продукта снимают прежнее
+противоречие внешнего использования: правовая политика и подтверждение
+уведомления/согласия не являются условиями записи. В T081/T082 удалить
+`ReadinessInputs.recordingPolicyAllowed`, `AutomaticRecordingPrerequisites.consentSatisfied`,
+их проверки и неиспользуемые коды/подписи отказа, а не присваивать true.
+Обновить все именованные и позиционные инициализации ReadinessInputs,
+чтобы удаление bool не сдвинуло смысл оставшихся полей. Проверить Start,
+countdown и каждый оставшийся технический отказ; отсутствие WebView/сети
+не блокирует захват. Внешние серверные API, данные и Mac-код не меняются.
+CHK010 теперь однозначен; перед кодом требуется повторная проверка затронутых
+custom checklists и analyze. Это разрешение на реализацию, не готовность выпуска.
+
+Порядок: T080 восстанавливает WebView lifecycle и его повторный запуск;
+параллельно T081 нативный shell и T082 трёхрежимная политика с подтверждённым
+детектором; T083 сверяет действующие серверные контракты без изменения сервера;
+T084 проводит проверку собранного приложения и фиксирует каждый незакрытый путь.
+Асинхронные WebView операции возвращаются на UI-поток, отменённое/старое окно
+не получает callbacks; ошибка bootstrap отделяется от HTTP/auth/network.
+Повторное открытие не стирает WebView профиль, локальные записи или очередь.
+Использовать существующие WinUI/native компоненты без нового UI runtime.
+
+Уточнение T083: первоначальное пространство можно получить без изменения
+сервера через JSON `GET /desktop/settings/spaces`, затем подтвердить владельца
+через `GET /api/v1/auth/me`. Общий Windows WinHTTP transport сохраняет запрет
+редиректов и один снимок сессии. Использовать существующий ограниченный JSON
+reader для массива и объектов, без новой зависимости или второго HTTP-клиента.
+Тестировать именно двухшаговый алгоритм с подменяемым read-only GET: один
+активный UUID, строгие типы/дубликаты/лимиты, отказ/отмена до второго запроса,
+несовпадение пространства и недействительную сессию. Владелец записи, очередь,
+права доступа к серверным данным и полномочия удаления не меняются.
+
+Предыдущие отметки implementation complete не закрывают новые найденные
+расхождения и не заменяют T070/T071/T063. Нужны свежая Release-сборка,
+portable checks, настоящие окна в Parallels, recovery и контрактные сценарии.
+Публичная подпись, physical x64 и отсутствующие устройства остаются отдельными
+гейтами. Без разрешения не выполнять production deploy, публикацию или commit
+новой реализации. Изменения описывать в `changes/unreleased/F200.yaml`.
+
 Добавить Windows desktop shell, который повторяет product semantics macOS,
 загружает существующий серверный кабинет через WebView2 и держит capture/local
 custody в native code. Для аудио используется WASAPI shared-mode render loopback
@@ -98,7 +144,7 @@ server path, x64 first with an explicit ARM64 gate
 | Gate | Status | Plan response |
 |---|---|---|
 | Capture-first Feature 200 integrity | PASS WITH EVIDENCE GATE | Separate Windows native stack uses WASAPI shared loopback + explicit mic; retired/virtual routing is not revived. Implementation is blocked until clock, dropout, endpoint and hardware evidence exists. |
-| Visible consent and user control | PASS | Record/Pause/Resume/Stop remain native; the indicator and one-action Stop survive WebView failure/minimization; target-scoped auto-record keeps countdown/opt-in/allowlist. |
+| Visible capture and user control | PASS | Constitution 7 excludes legal/notice prerequisites; native permissions, indicator/Stop, countdown, local three-state choice and verified targets remain required. |
 | Data boundary and secret discipline | PASS | Desktop uses GRAF APIs only; WebView receives bounded state, not files/tokens/handles; MediaScribe credentials remain server-side. |
 | Deletion truth and lifecycle accounting | PASS | Windows local package/queue/purge use existing custody and deletion semantics; no universal-erasure promise is added. |
 | Spec-driven delivery with testable gates | PASS | New feature has spec, clarification, research, data model, contracts, checklists, quickstart, tasks and analyze gate before implementation. |
@@ -266,6 +312,25 @@ or Stop is visible.
    opt-in with the same Russian product semantics.
 3. Validate that unknown processes, media playback and missing prerequisites do
    not start capture.
+
+Уточнение T081/T082 от 2026-09-06: использовать существующий CompactOverlay,
+подготовив его скрытым вместе с нативной кнопкой Stop. Готовность автоматического
+старта не зависит от IsIconic/IsWindowVisible главного окна; непосредственно
+перед capture отдельное окно должно действительно стать видимым. Не создавать
+ещё один индикатор, фоновую службу или UI runtime.
+
+Перенести слежение за жизненным циклом авто-записи из AppMain в существующую
+AutomaticRecordingPolicy, без нового контроллера. Включать слежение сразу после
+принятого `starting`, не только после `recording`; ручные Record/Stop/Exit
+отменяют его. Продолжение связано с той же проверенной идентичностью приложения,
+не с одним PID. Сохраняется 15 секунд подтверждённого отсутствия; как в текущем
+macOS `stopStaleMeetingDetectionRecordingIfNeeded`, 600 секунд без положительного
+подтверждения завершают авто-запись. Freshness 2 секунды, монотонный порядок и
+повторные снимки проверяются отдельно. Удалить заменённые pending/active/absence
+поля AppMain и дублирующую логику. Сначала детерминированные тесты в существующем
+AutomaticRecordingSmokeTests, затем Windows Release и нативная проверка окна.
+Каталог и миграция предпочтений остаются отдельными незакрытыми частями T082;
+синтетические идентичности не добавлять в рабочий реестр.
 
 ### Phase 6 — Packaging and release readiness
 

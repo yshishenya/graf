@@ -73,9 +73,7 @@
     <ClCompile Include="AppMain.cpp" />
     <ClCompile Include="Core\WindowsDesktopSession.cpp" />
     <ClCompile Include="Diagnostics\MetadataSafeDiagnostics.cpp" />
-    <ClCompile Include="Diagnostics\CaptureHealthProjection.cpp" />
     <ClCompile Include="Permissions\WindowsReadinessGate.cpp" />
-    <ClCompile Include="Permissions\WindowsPermissionRecovery.cpp" />
     <ClCompile Include="Storage\AtomicFileStore.cpp" />
     <ClCompile Include="Storage\Sha256.cpp" />
     <ClCompile Include="Upload\DesktopApiClient.cpp" />
@@ -88,20 +86,16 @@
     <ClCompile Include="Audio\RecordingAudioTimeline.cpp" />
     <ClCompile Include="Audio\WasapiCaptureWorker.cpp" />
     <ClCompile Include="Audio\WasapiEndpointEnumerator.cpp" />
-    <ClCompile Include="Capture\CaptureFaultRecovery.cpp" />
     <ClCompile Include="Capture\WindowsCaptureSessionController.cpp" />
     <ClCompile Include="MeetingDetection\AutomaticRecordingPolicy.cpp" />
     <ClCompile Include="MeetingDetection\VerifiedTargetRegistry.cpp" />
     <ClCompile Include="MeetingDetection\WindowsTargetDetector.cpp" />
     <ClCompile Include="Recording\LocalRecordingPackage.cpp" />
     <ClCompile Include="Recording\V5LocalRecordingWriter.cpp" />
-    <ClCompile Include="Shell\AccessibilityState.cpp" />
     <ClCompile Include="Shell\AutomaticRecordingPrompt.cpp" />
     <ClCompile Include="Shell\CabinetWindow.cpp" />
-    <ClCompile Include="Shell\CustodyStatusProjection.cpp" />
     <ClCompile Include="Shell\RecordingIndicator.cpp" />
     <ClCompile Include="Shell\WindowsTray.cpp" />
-    <ClCompile Include="Web\WebRuntimeState.cpp" />
     <ClCompile Include="Web\WebView2Host.cpp" />
     <ClCompile Include="Web\WebViewBridge.cpp" />
     <ClCompile Include="Web\WebViewRoutePolicy.cpp" />
@@ -119,7 +113,7 @@
       <PreprocessorDefinitions>GRAF_WINDOWS_APP_SDK;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>windowsapp.lib;mfplat.lib;mfreadwrite.lib;mfuuid.lib;ole32.lib;avrt.lib;advapi32.lib;shell32.lib;comdlg32.lib;winhttp.lib;WebView2Loader.dll.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>windowsapp.lib;mfplat.lib;mfreadwrite.lib;mfuuid.lib;ole32.lib;avrt.lib;advapi32.lib;shell32.lib;comdlg32.lib;winhttp.lib;wintrust.lib;bcrypt.lib;WebView2Loader.dll.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>$(GrafWebView2NativeRoot)\$(Platform);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalLibraryDirectories Condition="'$(GrafAEC3Available)' == 'true'">$(GrafAEC3BuildRoot)\webrtc\modules\audio_processing;$(GrafAEC3BuildRoot)\webrtc\api;$(GrafAEC3BuildRoot)\webrtc\common_audio;$(GrafAEC3BuildRoot)\webrtc\rtc_base;$(GrafAEC3BuildRoot)\webrtc\system_wrappers;$(GrafAEC3BuildRoot)\webrtc\modules\third_party\fft;$(GrafAEC3BuildRoot)\webrtc\third_party\pffft;$(GrafAEC3BuildRoot)\webrtc\third_party\rnnoise;$(GrafAEC3BuildRoot)\subprojects\abseil-cpp-20240722.0;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies Condition="'$(GrafAEC3Available)' == 'true'">$(GrafAEC3Library);libwebrtc_audio_processing_privatearch.a;liblibapi.a;libcommon_audio_sse2.a;libcommon_audio_avx.a;libcommon_audio.a;liblibbase.a;libsystem_wrappers.a;liblibfft.a;liblibpffft.a;liblibrnnoise.a;libabsl_base.a;libabsl_container.a;libabsl_crc.a;libabsl_debugging.a;libabsl_flags.a;libabsl_hash.a;libabsl_log.a;libabsl_numeric.a;libabsl_profiling.a;libabsl_random.a;libabsl_status.a;libabsl_strings.a;libabsl_synchronization.a;libabsl_time.a;libabsl_types.a;%(AdditionalDependencies)</AdditionalDependencies>
@@ -133,4 +127,7 @@
     </Content>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ItemGroup>
+    <ResourceCompile Include="GrafWindowsApp.rc" />
+  </ItemGroup>
 </Project>

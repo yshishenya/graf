@@ -22,6 +22,6 @@ int main() {
     assert(session.upload().accepted());
     WindowsDesktopSession second("two");
     assert(second.beginReadinessCheck().accepted());
-    assert(second.block(ReasonCode::recordingPolicyBlocked).accepted());
+    assert(second.block(ReasonCode::microphonePermissionDenied).accepted());
     return 0;
 }

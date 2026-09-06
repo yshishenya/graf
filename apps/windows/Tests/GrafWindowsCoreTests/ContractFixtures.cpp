@@ -13,6 +13,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <utility>
 
 int main() {
     using namespace graf::windows;
@@ -40,19 +41,50 @@ int main() {
     assert(session.queue().accepted());
     assert(session.upload().accepted());
 
-    const auto readiness = WindowsReadinessGate::evaluate({true, true, true, true, true, true, true, false, true});
-    assert(readiness.recordingReady);
-    assert(!readiness.webViewReady);
-    const auto blocked = WindowsReadinessGate::evaluate({true, true, true, true, true, true, true, true, false});
-    assert(!blocked.recordingReady);
-    assert(blocked.blockers[0] == ReasonCode::aacEncoderUnavailable);
+    const std::array<std::pair<bool ReadinessInputs::*, ReasonCode>, 7> required = {{
+        {&ReadinessInputs::microphonePermissionGranted, ReasonCode::microphonePermissionDenied},
+        {&ReadinessInputs::microphoneEndpointReady, ReasonCode::microphoneEndpointUnavailable},
+        {&ReadinessInputs::renderEndpointReady, ReasonCode::renderEndpointUnavailable},
+        {&ReadinessInputs::formatNormalizationReady, ReasonCode::formatNormalizationUnavailable},
+        {&ReadinessInputs::aecReady, ReasonCode::aecUnavailable},
+        {&ReadinessInputs::storageWritable, ReasonCode::storageUnavailable},
+        {&ReadinessInputs::aacEncoderReady, ReasonCode::aacEncoderUnavailable},
+    }};
+    const auto unavailable = WindowsReadinessGate::evaluate({});
+    assert(!unavailable.recordingReady && unavailable.blockerCount == required.size());
+    ReadinessInputs ready;
+    for (const auto& [field, reason] : required) {
+        (void)reason;
+        ready.*field = true;
+    }
+    // Native technical readiness alone permits recording, with or without WebView.
+    for (const bool webReady : {false, true}) {
+        ready.webViewRuntimeReady = webReady;
+        const auto readiness = WindowsReadinessGate::evaluate(ready);
+        assert(readiness.recordingReady && readiness.blockerCount == 0);
+        assert(readiness.webViewReady == webReady);
+        for (const auto& [field, reason] : required) {
+            auto denied = ready;
+            denied.*field = false;
+            const auto blocked = WindowsReadinessGate::evaluate(denied);
+            assert(!blocked.recordingReady && blocked.blockerCount == 1);
+            assert(blocked.blockers[0] == reason);
+        }
+    }
 
     const auto diagnostics = MetadataSafeDiagnostics::serialize({
         "0.1.0", "19045", "x64", SessionState::recording, ReasonCode::none,
-        1, 2, 3000, "endpoint-id",
+        300, 300, 3000, "endpoint-id", false,
     });
     assert(diagnostics.find("endpoint-id") == std::string::npos);
     assert(diagnostics.find("endpoint_fingerprint") != std::string::npos);
+    assert(diagnostics.find("\"processed_blocks\":300") != std::string::npos);
+    assert(diagnostics.find("\"written_blocks\":300") != std::string::npos);
+    assert(diagnostics.find("\"duration_ms\":3000") != std::string::npos);
+    assert(diagnostics.find("\"trusted_prefix_retained\":false") != std::string::npos);
+    assert(diagnostics.find("dropped_frames") == std::string::npos);
+    assert(diagnostics.find("overflow_count") == std::string::npos);
+    assert(diagnostics.size() <= 1024);
 
     const auto path = std::filesystem::temp_directory_path() / "graf-feature-200-contract-fixture.json";
     const auto writeResult = AtomicFileStore::write(path, "{\"state\":\"ready\"}");

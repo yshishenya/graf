@@ -13,12 +13,66 @@ shell, а запись звука, управление, разрешения и
 
 ## Контекст и цель
 
+### Актуальная база после синхронизации 2026-09-06
+
+База сравнения — `origin/master` `6ff8db3ee18dc7faf52fd8a31c8bade97c5ca548`.
+Настоящее уточнение заменяет ниже историческое описание checkbox/opt-in
+автозаписи и требования brand-distance; остальные границы Feature 200 сохраняются.
+Автозапись следует Constitution 7 / Feature 214: локальный выбор для каждого
+подтверждённого приложения `Всегда` / `Спрашивать` / `Никогда`, по умолчанию
+`Спрашивать`. Общий выбор применяет одно из этих значений ко всем известным
+приложениям; смешанные значения отображаются как `Разные`. Вопрос содержит
+восьмисекундный таймер, `Записать сейчас`, `Не записывать`, `Запомнить выбор`.
+Только явное действие с галочкой сохраняет выбор; таймер его не сохраняет.
+Сервер не владеет этими настройками. Проверки разрешений, подтверждённой встречи,
+локальной сохранности, видимого индикатора и Stop остаются.
+Старый Windows `alwaysRecordTarget_` существовал только в памяти. Неиспользуемые
+глобальные `assisted_auto_start`/`prompt_before_recording` не являются разрешением
+для конкретного приложения и не переносятся в `Всегда`/`Никогда`. Отсутствующее
+или повреждённое сохранённое значение конкретного target даёт `Спрашивать`;
+ошибка сохранения явно показывается и не выдаётся за успешную смену правила.
+
+FR-002/003/004/015/020 требуют реальной проверки установленного приложения:
+запуск и повторное открытие кабинета, вход, навигация, восстановление после
+недоступности сети/WebView, разворачивание и сворачивание панели, настройки,
+выбор микрофона, Record/Pause/Resume/Stop, очередь и повторная отправка, tray.
+Белая страница, ложное сообщение об отсутствующем Runtime при установленном
+компоненте, недоступная кнопка восстановления и статическая имитация данных
+являются провалом этих требований. Ошибка WebView содержит безопасный этап и
+код, но не URL с секретами, cookies или текст ответа сервера.
+
+Сходство проверяется с текущим macOS GRAF: одинаковые действия, состояния,
+русские подписи и расположение; системные рамки/меню Windows могут отличаться.
+Веб-кабинет остаётся общим серверным интерфейсом. Проверка существующего
+production кабинета не разрешает deployment локально объединённого сервера.
+ARM64 VM с x64-эмуляцией — отдельное свидетельство, не физический Windows x64.
+
 Windows-клиент должен дать пользователю тот же продуктовый сценарий, что и
 macOS-клиент: открыть кабинет, начать/поставить на паузу/остановить запись,
 видеть честное состояние, сохранить запись локально и автоматически передать её
 в GRAF. Веб-кабинет не должен дублироваться отдельной Windows UI-реализацией, а
 нативная часть не должна передавать удалённой странице контроль над аудио,
 файлами, разрешениями или локальной очередью.
+
+Первая Windows-версия предназначена сразу для внешних клиентов. Решением
+владельца продукта и Constitution 7 отменены условия запуска записи, связанные
+с выбором юридической политики пространства, уведомлением участников,
+подтверждением согласия или законного основания. Отсутствие этих данных не
+блокирует ручную запись, transcript-only capture или автозапись; дополнительные
+диалоги и серверное подтверждение не добавляются. Устаревшие проверки удаляются,
+а не заменяются фиктивным согласием. Пользовательское соглашение — отдельная
+работа, не часть условий готовности Record. Правило одинаково для Mac/Windows
+и внутренних/внешних пользователей; права доступа к серверным данным сохраняются.
+
+Готовность Record определяется разрешением микрофона, доступностью выбранного
+или default input и render endpoint, поддерживаемыми форматами, готовностью
+AEC3 и AAC, возможностью безопасно сохранить пакет, отсутствием другой активной
+сессии и возможностью показать нативный индикатор с Stop до захвата. Сеть,
+WebView, авторизация отправки и юридическая политика не являются условиями
+локального старта. Автозапись дополнительно проверяет подтверждённую текущую
+встречу, локальный выбор приложения и подавление повторов. Технический отказ
+блокирует старт с конкретным действием восстановления; Stop остаётся доступен
+после отказа и при сворачивании главного окна.
 
 Рабочее решение для первого Windows-среза: Windows пишет общий микс звука устройства
 вывода через системный WASAPI loopback и отдельный физический микрофон. Это не
@@ -139,8 +193,8 @@ protected audio и инжектировать разрыв clock; проверя
 meeting-приложений с обратимой настройкой и видимым countdown, чтобы запись не
 запускалась от музыки, видео или произвольного системного звука.
 
-**Why this priority**: Это защищённая продуктовая capability macOS; Windows не
-должен снижать порог согласия ради простоты интеграции.
+**Why this priority**: Это защищённая продуктовая capability macOS; Windows
+сохраняет локальный выбор пользователя, подтверждённый источник и управление записью.
 
 **Independent Test**: В тестовом registry зарегистрировать и удалить target,
 проверить настройки, prompt, `Записать сейчас`, `Пропустить`, timeout и
@@ -158,6 +212,21 @@ meeting-приложений с обратимой настройкой и ви�
 3. **Given** обнаружено неизвестное имя процесса или обычное media playback,
    **When** detector оценивает событие, **Then** запись не запускается и target не
    добавляется в allowlist догадкой.
+4. **Given** главное окно свёрнуто или панель скрыта, **When** подтверждённая
+   встреча допускает локальный автостарт, **Then** окно кабинета не является
+   условием старта: отдельный нативный индикатор с Stop показывается до захвата.
+   Если создать или показать его нельзя, захват не начинается.
+5. **Given** запись началась автоматически, включая состояние `starting`,
+   **When** подтверждённые потоки продолжаются в другом процессе той же точной
+   идентичности приложения, **Then** запись продолжается. Другое приложение,
+   неподтверждённый процесс или одно воспроизведение не продлевают её.
+6. **Given** идёт автоматическая запись, **When** свежие полные снимки непрерывно
+   подтверждают отсутствие её приложения 15 секунд, **Then** запись штатно
+   останавливается и финализируется. Если детектор недоступен, устарел или
+   отвечает с нарушением порядка, отсутствие не считается подтверждённым;
+   через 600 секунд без положительного подтверждения запись останавливается.
+   Отсчёт монотонный; повтор одного снимка не продлевает встречу. Эти правила
+   не останавливают ручную запись и не возобновляют запись после ручного Stop.
 
 ## Edge Cases
 
@@ -232,13 +301,20 @@ meeting-приложений с обратимой настройкой и ви�
 - **FR-004**: Native code MUST own audio capture, capture readiness, permission
   recovery, local recording files, local upload custody, diagnostics, persistent
   indicator and one-action Stop independently of WebView availability.
+  Readiness MUST follow the native conditions above, never require legal-policy
+  setup or participant-consent evidence, and never fabricate such evidence.
 - **FR-005**: WebView navigation MUST be limited to exact approved route kinds on
   the configured origin. Unknown origins, arbitrary file URLs, local paths and
   native-only routes MUST be rejected or opened externally without mutating
   local state.
-- **FR-006**: Native↔WebView communication MUST use a versioned JSON envelope,
+- **FR-006**: Web-to-native requests MUST use a versioned JSON envelope,
   validate source origin, schema, session nonce, command and payload before
   acting, and MUST expose no generic host object or arbitrary script bridge.
+  Native initialization uses the `native_ready` envelope. Native
+  `local_recordings` display messages use the separate `command/nonce/rows`
+  shape, bound to the current approved document and nonce, and grant no native
+  authority. Only typed `request_app_quit` and `local_recording` requests are
+  accepted; no web acknowledgement establishes capture, upload or deletion truth.
 - **FR-007**: The Feature 200 baseline system track MUST use WASAPI shared-mode loopback on the
   current/default render endpoint and MUST NOT require `Stereo Mix`, a hardware
   loopback device, a virtual driver or exclusive mode.
@@ -319,7 +395,10 @@ meeting-приложений с обратимой настройкой и ви�
 - **UploadCustodyItem**: queue projection over the existing v2 ledger with local
   identity, server truth, retry owner/action, accepted ranges and retention state.
 - **WebViewBridgeEnvelope**: version, message id, session nonce, origin-bound
-  direction, command/event name, bounded payload and acknowledgement/error.
+  direction, request name and bounded payload. Used for web-to-native requests
+  and native initialization only; `local_recordings` has its separate display
+  shape. Validation errors are internal refusal results, not web acknowledgements
+  or proof of saving, uploading or deleting.
 - **VerifiedTargetIdentity**: exact Windows target evidence used by auto-record
   policy, including approved executable identity and registry version; process
   name alone is insufficient.
@@ -391,6 +470,12 @@ meeting-приложений с обратимой настройкой и ви�
   release packaging or production distribution.
 
 ## Clarifications
+
+### Session 2026-09-06
+
+- Q: Первая Windows-версия предназначена для внутренней команды или сразу для внешних клиентов? → A: Сразу для внешних клиентов.
+- Q: Нужно ли добавлять отдельную схему разрешений записи для Windows? → A: «Подтверждаю, что нужно сделать абсолютно так же, как в macOS»; отдельная Windows-only схема не согласована.
+- Q: Оставлять ли юридическую политику пространства и подтверждения уведомления/согласия условиями запуска записи? → A: Нет; владелец продукта поручил исключить их, перенести юридические формулировки в отдельную работу над соглашением и реализовать приложение. Решение закреплено в Constitution 7.0.0.
 
 ### Session 2026-08-23
 

@@ -4,9 +4,11 @@
 
 #include <array>
 #include <cstdint>
+#include <map>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace graf::windows {
 
@@ -42,6 +44,13 @@ public:
         std::string_view scope,
         std::string_view directoryId,
         std::string_view sessionId);
+
+    [[nodiscard]] static bool accountId(std::string_view value) noexcept;
+    // Bounded, fully validated root object. Views borrow json; values retain
+    // their JSON quotes/type. Duplicate or escaped keys fail closed at any depth.
+    [[nodiscard]] static std::optional<std::map<std::string_view, std::string_view>> jsonObjectFields(
+        std::string_view json);
+    [[nodiscard]] static std::optional<std::vector<std::string_view>> jsonArrayValues(std::string_view json);
 
 private:
     [[nodiscard]] static bool safeIdentity(std::string_view value) noexcept;

@@ -40,6 +40,12 @@ class WasapiEndpointEnumerator final {
 public:
     [[nodiscard]] EndpointEnumerationResult snapshot() const;
     [[nodiscard]] static bool isAllowedMicrophone(const WasapiEndpointSnapshot& endpoint) noexcept;
+
+private:
+    friend struct CaptureSessionTestPeer;
+#ifdef _WIN32
+    [[nodiscard]] static std::string narrow(const wchar_t* value);
+#endif
 };
 
 } // namespace graf::windows

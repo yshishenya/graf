@@ -7,9 +7,11 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <chrono>
 #include <fstream>
 #include <limits>
 #include <optional>
+#include <set>
 #include <sstream>
 #include <string_view>
 #include <utility>
@@ -24,6 +26,21 @@ namespace graf::windows {
 namespace {
 
 constexpr std::size_t kMaxPartBytes = 16 * 1024 * 1024;
+
+bool cancelled(const DesktopHttpConfig& config) {
+    return config.cancellation && config.cancellation->load();
+}
+
+std::optional<std::string> accountField(
+    const std::map<std::string_view, std::string_view>& fields, std::string_view key) {
+    const auto field = fields.find(key);
+    if (field == fields.end()) return std::nullopt;
+    auto value = field->second;
+    if (value.size() != 38 || value.front() != '"' || value.back() != '"') return std::nullopt;
+    value.remove_prefix(1); value.remove_suffix(1);
+    if (!DesktopApiClient::accountId(value)) return std::nullopt;
+    return std::string(value);
+}
 
 #ifdef _WIN32
 
@@ -44,6 +61,8 @@ std::string jsonEscape(std::string_view value) {
     }
     return result;
 }
+
+#endif
 
 std::optional<std::string> jsonStringField(std::string_view json, std::string_view key) {
     const auto marker = std::string("\"") + std::string(key) + "\":\"";
@@ -86,6 +105,7 @@ std::optional<std::uint64_t> jsonNumberField(std::string_view json, std::string_
     }
 }
 
+#ifdef _WIN32
 std::optional<std::uint64_t> jsonTrackNumber(std::string_view json, std::string_view track,
                                               std::string_view field) {
     const auto marker = std::string("\"") + std::string(track) + "\":{";
@@ -104,6 +124,7 @@ bool isSha256(std::string_view value) noexcept {
     }
     return true;
 }
+#endif
 
 bool isSafeIdentifier(std::string_view value) noexcept {
     if (value.empty() || value.size() > 300) return false;
@@ -114,6 +135,8 @@ bool isSafeIdentifier(std::string_view value) noexcept {
     }
     return true;
 }
+
+#ifdef _WIN32
 
 std::string readBoundedText(const std::filesystem::path& path, std::size_t maxBytes) {
     std::ifstream input(path, std::ios::binary);
@@ -191,14 +214,7 @@ struct ByteRange {
     std::uint64_t end = 0;
 };
 
-struct RemoteUploadState {
-    std::string meetingId;
-    std::string sessionId;
-    std::string sessionStatus;
-    UploadServerTruth truth;
-    bool blockedByConflict = false;
-    bool needsNewUploadSession = false;
-};
+#endif
 
 std::optional<std::string_view> jsonObjectField(std::string_view json, std::string_view key) {
     const auto marker = std::string("\"") + std::string(key) + "\":";
@@ -223,11 +239,14 @@ std::optional<std::string_view> jsonObjectField(std::string_view json, std::stri
     return std::nullopt;
 }
 
+#ifdef _WIN32
 HttpResponse request(const DesktopHttpConfig& config, std::wstring method, std::wstring path,
                      const std::string& body, bool jsonBody, std::string_view idempotencyKey = {},
                      std::optional<std::uint64_t> byteOffset = std::nullopt,
                      std::string_view contentSha256 = {}) {
     HttpResponse result;
+    if (cancelled(config)) { result.transportFailed = true; return result; }
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
     auto url = utf8ToWide(config.baseOrigin);
     if (url.empty()) { result.transportFailed = true; return result; }
     URL_COMPONENTS components{};
@@ -243,8 +262,13 @@ HttpResponse request(const DesktopHttpConfig& config, std::wstring method, std::
     HINTERNET session = WinHttpOpen(L"GRAF/Feature200", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
                                     WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
     if (!session) { result.transportFailed = true; return result; }
-    WinHttpSetTimeouts(session, 15'000, 15'000, 60'000, 60'000);
-    HINTERNET connection = WinHttpConnect(session, components.lpszHostName, components.nPort, 0);
+    if (!WinHttpSetTimeouts(session, 5'000, 5'000, 10'000, 10'000)) {
+        WinHttpCloseHandle(session);
+        result.transportFailed = true;
+        return result;
+    }
+    const std::wstring host(components.lpszHostName, components.dwHostNameLength);
+    HINTERNET connection = WinHttpConnect(session, host.c_str(), components.nPort, 0);
     HINTERNET handle = connection ? WinHttpOpenRequest(connection, method.c_str(), path.c_str(), nullptr,
                                                         WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES,
                                                         WINHTTP_FLAG_SECURE) : nullptr;
@@ -254,29 +278,45 @@ HttpResponse request(const DesktopHttpConfig& config, std::wstring method, std::
         result.transportFailed = true;
         return result;
     }
+    // Native session-header transport does not inherit browser cookies or
+    // follow redirects carrying authentication to another endpoint/origin.
+    DWORD disabled = WINHTTP_DISABLE_REDIRECTS | WINHTTP_DISABLE_COOKIES;
+    if (!WinHttpSetOption(handle, WINHTTP_OPTION_DISABLE_FEATURE, &disabled, sizeof(disabled))) {
+        WinHttpCloseHandle(handle);
+        WinHttpCloseHandle(connection);
+        WinHttpCloseHandle(session);
+        result.transportFailed = true;
+        return result;
+    }
     std::wstring headers = L"Accept: application/json\r\nX-Client-Version: " + utf8ToWide(config.clientVersion) + L"\r\n";
-    if (!config.workspaceId.empty()) headers += L"X-Workspace-Id: " + utf8ToWide(config.workspaceId) + L"\r\n";
-    if (!config.deviceId.empty()) headers += L"X-Device-Id: " + utf8ToWide(config.deviceId) + L"\r\n";
+    if (!config.workspaceId.empty()) {
+        headers += L"X-Workspace-Id: " + utf8ToWide(config.workspaceId) + L"\r\n";
+    }
+    if (!config.workspaceId.empty() && !config.deviceId.empty()) {
+        headers += L"X-Device-Id: " + utf8ToWide(config.deviceId) + L"\r\n";
+    }
     if (!idempotencyKey.empty()) headers += L"Idempotency-Key: " + utf8ToWide(idempotencyKey) + L"\r\n";
     if (byteOffset) headers += L"X-Byte-Offset: " + std::to_wstring(*byteOffset) + L"\r\n";
     if (!contentSha256.empty()) headers += L"X-Content-SHA256: " + utf8ToWide(contentSha256) + L"\r\n";
-    if (config.authSessionToken) {
-        const auto token = config.authSessionToken();
-        if (!token.empty()) headers += L"X-Auth-Session: " + utf8ToWide(token) + L"\r\n";
-    }
+    if (!config.sessionToken.empty()) headers += L"X-Auth-Session: " + utf8ToWide(config.sessionToken) + L"\r\n";
     headers += jsonBody ? L"Content-Type: application/json\r\n" : L"Content-Type: application/octet-stream\r\n";
-    const auto sent = WinHttpSendRequest(handle, headers.c_str(), static_cast<DWORD>(headers.size()),
+    const auto sent = !cancelled(config) && WinHttpSendRequest(handle, headers.c_str(), static_cast<DWORD>(headers.size()),
         body.empty() ? WINHTTP_NO_REQUEST_DATA : const_cast<char*>(body.data()), static_cast<DWORD>(body.size()),
         static_cast<DWORD>(body.size()), 0);
-    if (!sent || !WinHttpReceiveResponse(handle, nullptr)) {
+    if (!sent || cancelled(config) || !WinHttpReceiveResponse(handle, nullptr)) {
         result.transportFailed = true;
     } else {
         DWORD statusSize = sizeof(result.status);
         WinHttpQueryHeaders(handle, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
                             WINHTTP_HEADER_NAME_BY_INDEX, &result.status, &statusSize, WINHTTP_NO_HEADER_INDEX);
         while (result.body.size() < kMaxJsonResponseBytes) {
+            if (cancelled(config) || std::chrono::steady_clock::now() >= deadline) {
+                result.transportFailed = true;
+                break;
+            }
             DWORD available = 0;
-            if (!WinHttpQueryDataAvailable(handle, &available) || available == 0) break;
+            if (!WinHttpQueryDataAvailable(handle, &available)) { result.transportFailed = true; break; }
+            if (available == 0) break;
             const auto remaining = kMaxJsonResponseBytes - result.body.size();
             const auto count = std::min<std::size_t>(available, remaining);
             const auto start = result.body.size();
@@ -289,7 +329,9 @@ HttpResponse request(const DesktopHttpConfig& config, std::wstring method, std::
             result.body.resize(start + read);
             if (read == 0) break;
         }
+        if (result.body.size() == kMaxJsonResponseBytes) result.transportFailed = true;
     }
+    if (cancelled(config)) result.transportFailed = true;
     WinHttpCloseHandle(handle);
     WinHttpCloseHandle(connection);
     WinHttpCloseHandle(session);
@@ -304,6 +346,7 @@ DesktopTransportStatus mapResponse(const HttpResponse& response) {
     if (response.status < 200 || response.status >= 300) return DesktopTransportStatus::serverRejected;
     return DesktopTransportStatus::uploaded;
 }
+#endif
 
 std::size_t trackIndex(std::string_view role) {
     if (role == "manifest") return 0;
@@ -322,6 +365,7 @@ std::optional<std::array<std::uint64_t, 3>> acceptedBytes(std::string_view json)
     return result;
 }
 
+#ifdef _WIN32
 std::optional<std::array<std::vector<ByteRange>, 3>> missingRanges(std::string_view json) {
     const auto object = jsonObjectField(json, "missing_ranges_by_track");
     if (!object) return std::nullopt;
@@ -349,6 +393,7 @@ std::optional<std::array<std::vector<ByteRange>, 3>> missingRanges(std::string_v
     }
     return result;
 }
+#endif
 
 std::optional<std::string> nestedStringField(std::string_view json, std::string_view objectKey,
                                              std::string_view field) {
@@ -357,10 +402,13 @@ std::optional<std::string> nestedStringField(std::string_view json, std::string_
     return jsonStringField(*object, field);
 }
 
-std::optional<RemoteUploadState> parseRemoteState(std::string_view json, std::string_view localRecordingId) {
+} // namespace
+
+std::optional<DesktopRemoteUploadState> DesktopHttpTransport::decodeSyncState(
+    std::string_view json, std::string_view localRecordingId) {
     const auto meetingId = nestedStringField(json, "meeting", "meeting_id");
     if (!meetingId || !isSafeIdentifier(*meetingId)) return std::nullopt;
-    RemoteUploadState result;
+    DesktopRemoteUploadState result;
     result.meetingId = *meetingId;
     result.truth.localRecordingId = std::string(localRecordingId);
     result.truth.meetingExists = true;
@@ -374,14 +422,23 @@ std::optional<RemoteUploadState> parseRemoteState(std::string_view json, std::st
         if (const auto accepted = acceptedBytes(*session)) result.truth.acceptedBytes = *accepted;
     }
     const auto conflictState = nestedStringField(json, "conflict", "state");
-    const auto nextAction = nestedStringField(json, "conflict", "next_action");
-    result.needsNewUploadSession =
-        (conflictState && *conflictState == "upload_session_expired") ||
-        (nextAction && *nextAction == "create_upload_session") ||
-        result.sessionStatus == "expired";
-    result.blockedByConflict = conflictState && *conflictState != "none" && !result.needsNewUploadSession;
+    if (!conflictState) return std::nullopt;
+    const bool finalized = result.truth.uploadSessionExists &&
+        (result.sessionStatus == "finalized" || result.sessionStatus == "degraded");
+    // Processing is a separate lifecycle: a lost finalize response must not
+    // turn already accepted media back into an upload retry.
+    const bool processingOnly = *conflictState == "processing_failed" || *conflictState == "processing_blocked";
+    const bool uploadConflict = *conflictState == "none" || *conflictState == "upload_session_expired";
+    result.needsNewUploadSession = uploadConflict && !finalized &&
+        (*conflictState == "upload_session_expired" || result.sessionStatus == "expired");
+    result.blockedByConflict = *conflictState != "none" &&
+        !result.needsNewUploadSession && !(processingOnly && finalized);
+    result.truth.finalized = finalized && !result.blockedByConflict;
     return result;
 }
+
+namespace {
+#ifdef _WIN32
 
 bool isUnknownRecording(const HttpResponse& response) {
     return response.status == 404 && jsonStringField(response.body, "code") == std::optional<std::string>("recording_not_found");
@@ -396,6 +453,7 @@ DesktopTransportStatus uploadFile(const DesktopHttpConfig& config, const LocalTr
     const auto partSize = std::clamp(config.partSizeBytes, std::size_t(64 * 1024), kMaxPartBytes);
     for (const auto range : ranges) {
         for (std::uint64_t offset = range.start; offset < range.end;) {
+            if (cancelled(config)) return DesktopTransportStatus::retryableFailure;
             const auto length = static_cast<std::size_t>(std::min<std::uint64_t>(partSize, range.end - offset));
             std::string data(length, '\0');
             input.clear();
@@ -428,7 +486,88 @@ DesktopHttpTransport::DesktopHttpTransport(DesktopHttpConfig config)
     config_.partSizeBytes = std::clamp(config_.partSizeBytes, std::size_t(64 * 1024), kMaxPartBytes);
 }
 
+std::optional<DesktopAccountIdentity> DesktopHttpTransport::decodeAccountIdentity(std::string_view json) {
+    const auto fields = DesktopApiClient::jsonObjectFields(json);
+    if (!fields) return std::nullopt;
+    const auto user = accountField(*fields, "user_id"), workspace = accountField(*fields, "workspace_id"),
+               session = accountField(*fields, "active_session_id");
+    if (!user || !workspace || !session) return std::nullopt;
+    return DesktopAccountIdentity{*user, *workspace};
+}
+
+std::optional<std::string> DesktopHttpTransport::decodeActiveWorkspace(std::string_view json) {
+    const auto fields = DesktopApiClient::jsonObjectFields(json);
+    if (!fields) return std::nullopt;
+    const auto spaces = fields->find("spaces");
+    if (spaces == fields->end()) return std::nullopt;
+    const auto rows = DesktopApiClient::jsonArrayValues(spaces->second);
+    if (!rows) return std::nullopt;
+    std::set<std::string> ids;
+    std::optional<std::string> workspace;
+    for (const auto row : *rows) {
+        const auto entry = DesktopApiClient::jsonObjectFields(row);
+        if (!entry) return std::nullopt;
+        const auto id = accountField(*entry, "id");
+        const auto active = entry->find("active");
+        if (!id || !ids.insert(*id).second || active == entry->end() ||
+            (active->second != "true" && active->second != "false")) return std::nullopt;
+        if (active->second == "true") {
+            if (workspace) return std::nullopt;
+            workspace = *id;
+        }
+    }
+    return workspace;
+}
+
+std::optional<DesktopAccountIdentity> DesktopHttpTransport::accountIdentity(const IdentityGet& get) const {
+    if (!get || cancelled(config_) || config_.sessionToken.empty() ||
+        (!config_.workspaceId.empty() && !DesktopApiClient::accountId(config_.workspaceId))) return std::nullopt;
+    auto config = config_;
+    config.deviceId.clear();
+    if (config.workspaceId.empty()) {
+        const auto response = get(config, "/desktop/settings/spaces");
+        if (!response || cancelled(config)) return std::nullopt;
+        const auto workspace = decodeActiveWorkspace(*response);
+        if (!workspace) return std::nullopt;
+        config.workspaceId = *workspace;
+    }
+    if (cancelled(config)) return std::nullopt;
+    const auto response = get(config, "/api/v1/auth/me");
+    if (!response || cancelled(config)) return std::nullopt;
+    auto identity = decodeAccountIdentity(*response);
+    if (identity && identity->workspaceId != config.workspaceId) return std::nullopt;
+    return identity;
+}
+
+std::optional<DesktopAccountIdentity> DesktopHttpTransport::accountIdentity() const {
+    return accountIdentity([](const DesktopHttpConfig& config, std::string_view path) -> std::optional<std::string> {
+#ifdef _WIN32
+        const auto response = request(config, L"GET", utf8ToWide(path), "", true);
+        if (response.transportFailed || response.status != 200 || cancelled(config)) return std::nullopt;
+        return response.body;
+#else
+        (void)config; (void)path;
+        return std::nullopt;
+#endif
+    });
+}
+
+std::string_view DesktopHttpTransport::ownerBlockReason(
+    const UploadCustodyItem& item, const std::optional<DesktopAccountIdentity>& identity) {
+    if (!DesktopApiClient::accountId(item.ownerUserId) || !DesktopApiClient::accountId(item.ownerWorkspaceId))
+        return "local_owner_unclaimed";
+    if (!identity || !DesktopApiClient::accountId(identity->userId) || !DesktopApiClient::accountId(identity->workspaceId))
+        return "account_identity_unavailable";
+    if (item.ownerUserId != identity->userId || item.ownerWorkspaceId != identity->workspaceId)
+        return "account_mismatch";
+    return {};
+}
+
 DesktopTransportResult DesktopHttpTransport::upload(const UploadCustodyItem& item) const {
+    if (cancelled(config_)) return {DesktopTransportStatus::retryableFailure, std::nullopt};
+    if (ownerBlockReason(item, std::nullopt) == "local_owner_unclaimed")
+        return {DesktopTransportStatus::authRequired, std::nullopt, "local_owner_unclaimed"};
+    if (config_.sessionToken.empty()) return {DesktopTransportStatus::authRequired, std::nullopt};
 #ifndef _WIN32
     (void)item;
     return {DesktopTransportStatus::unsupportedPlatform, std::nullopt};
@@ -439,6 +578,10 @@ DesktopTransportResult DesktopHttpTransport::upload(const UploadCustodyItem& ite
         !isSafeIdentifier(item.sessionId)) {
         return {DesktopTransportStatus::invalidPackage, std::nullopt};
     }
+    // Resolve with the same copied session used by every following request.
+    // This precedes sync-state too: recording_not_found is not claim authority.
+    const auto block = ownerBlockReason(item, accountIdentity());
+    if (!block.empty()) return {DesktopTransportStatus::authRequired, std::nullopt, std::string(block)};
     UploadServerTruth truth;
     truth.localRecordingId = item.localRecordingId;
     const auto localRevision = item.directoryId + "--initial";
@@ -446,7 +589,7 @@ DesktopTransportResult DesktopHttpTransport::upload(const UploadCustodyItem& ite
         return DesktopTransportResult{status, truth.meetingExists ? std::optional<UploadServerTruth>(truth) : std::nullopt};
     };
 
-    std::optional<RemoteUploadState> remote;
+    std::optional<DesktopRemoteUploadState> remote;
     const auto syncPath = std::string("/api/v1/desktop/recordings/") + item.directoryId +
         "/sync-state?local_media_revision_id=" + localRevision;
     auto response = request(config_, L"GET", utf8ToWide(syncPath), "", true);
@@ -455,13 +598,11 @@ DesktopTransportResult DesktopHttpTransport::upload(const UploadCustodyItem& ite
     } else {
         const auto syncStatus = mapResponse(response);
         if (syncStatus != DesktopTransportStatus::uploaded) return withTruth(syncStatus);
-        remote = parseRemoteState(response.body, item.localRecordingId);
+        remote = decodeSyncState(response.body, item.localRecordingId);
         if (!remote) return withTruth(DesktopTransportStatus::serverRejected);
         truth = remote->truth;
         if (remote->blockedByConflict) return withTruth(DesktopTransportStatus::serverRejected);
-        if (!remote->needsNewUploadSession &&
-            (remote->sessionStatus == "finalized" || remote->sessionStatus == "degraded")) {
-            truth.finalized = true;
+        if (truth.finalized) {
             return withTruth(DesktopTransportStatus::uploaded);
         }
     }

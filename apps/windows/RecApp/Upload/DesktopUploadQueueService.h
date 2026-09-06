@@ -1,11 +1,13 @@
 #pragma once
 
 #include "../Contracts/WindowsDesktopContracts.h"
+#include "DesktopLocalPurgeService.h"
 
 #include <array>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -21,6 +23,11 @@ enum class UploadQueueStatus {
     quarantined,
 };
 
+struct DesktopAccountIdentity {
+    std::string userId;
+    std::string workspaceId;
+};
+
 struct UploadCustodyItem {
     std::string localRecordingId;
     std::string directoryId;
@@ -30,6 +37,8 @@ struct UploadCustodyItem {
     std::array<std::uint64_t, 3> acceptedBytes{};
     std::uint32_t attempts = 0;
     std::string safeReason;
+    std::string ownerUserId = {};
+    std::string ownerWorkspaceId = {};
 };
 
 struct UploadServerTruth {
@@ -38,6 +47,15 @@ struct UploadServerTruth {
     bool uploadSessionExists = false;
     std::array<std::uint64_t, 3> acceptedBytes{};
     bool finalized = false;
+};
+
+enum class LocalCopyRemovalResult {
+    removed,
+    confirmationRequired,
+    unknownRecording,
+    unsafePath,
+    recycleFailed,
+    ledgerFailure,
 };
 
 class DesktopUploadQueueService final {
@@ -50,17 +68,27 @@ public:
     [[nodiscard]] bool enqueue(UploadCustodyItem item);
     [[nodiscard]] bool reconcile(const UploadServerTruth& truth);
     [[nodiscard]] bool markRetry(std::string_view localRecordingId, std::string reason);
-    [[nodiscard]] bool markNeedsAuth(std::string_view localRecordingId);
+    [[nodiscard]] bool markNeedsAuth(std::string_view localRecordingId, std::string reason = "auth_required");
+    // UI thread, only after explicit native confirmation against the current
+    // account generation. A known owner can never be reassigned, even to itself.
+    [[nodiscard]] bool assignOwner(std::string_view localRecordingId, const DesktopAccountIdentity& identity);
     [[nodiscard]] bool requeueNeedsAuth();
     [[nodiscard]] bool markQuarantined(std::string_view localRecordingId, std::string reason);
     [[nodiscard]] bool markUploaded(std::string_view localRecordingId);
+    // UI thread, after scheduler cancellation/drain (busy == false) and native
+    // confirmation. The callback must recycle, not permanently delete; it must
+    // not mutate this queue. No server operation or purge ACK is performed.
+    [[nodiscard]] LocalCopyRemovalResult removeLocalCopy(
+        std::string_view localRecordingId, LocalPurgeProof proof,
+        const std::function<bool(const std::filesystem::path&)>& recycle);
     [[nodiscard]] std::optional<UploadCustodyItem> nextPending() const;
     [[nodiscard]] std::vector<UploadCustodyItem> pendingItems(std::size_t limit) const;
     [[nodiscard]] const std::vector<UploadCustodyItem>& items() const noexcept { return items_; }
     [[nodiscard]] bool quarantined() const noexcept { return quarantined_; }
+    [[nodiscard]] const std::filesystem::path& ledgerPath() const noexcept { return ledgerPath_; }
 
 private:
-    [[nodiscard]] bool persist() const;
+    [[nodiscard]] bool persist();
     [[nodiscard]] static std::string serialize(const std::vector<UploadCustodyItem>& items);
     [[nodiscard]] static bool validIdentity(std::string_view value) noexcept;
     [[nodiscard]] static bool validSafeReason(std::string_view value) noexcept;
