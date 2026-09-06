@@ -217,7 +217,7 @@ private struct ContentView: View {
     @State private var selectedCabinetRoute: URL?
     @State private var supportIncidentBridge = EmbeddedCabinetSupportIncidentBridge()
     @State private var permissionOnboardingStatus = DesktopPermissionOnboardingStatus.unknown
-    @State private var permissionOnboardingPresented = false
+    @AppStorage("permissionOnboarding.active") private var permissionOnboardingPresented = false
     @State private var permissionOnboardingRequestInProgress = false
     @State private var permissionRecoverySuggested = false
     @AppStorage("permissionOnboarding.microphoneAttempted") private var microphonePermissionAttempted = false
@@ -356,43 +356,58 @@ private struct ContentView: View {
                 }
             )
         }
-        .sheet(isPresented: $permissionOnboardingPresented) {
-            DesktopPermissionOnboardingView(
-                status: effectivePermissionOnboardingStatus,
-                applicationName: currentApplicationDisplayName,
-                isRequesting: permissionOperationInProgress,
-                recoverySuggested: permissionRecoverySuggested,
-                restartAvailable: !protectedUpdateWork.isProtected,
-                microphoneAttempted: microphonePermissionAttempted,
-                systemAudioAttempted: systemAudioPermissionAttempted,
-                settingsError: permissionSettingsError,
-                onRequestMicrophone: {
-                    Task { await requestStartupMicrophonePermission() }
-                },
-                onRequestSystemAudio: {
-                    Task { await requestStartupSystemAudioPermission() }
-                },
-                onOpenMicrophoneSettings: {
-                    openPermissionSettings(DesktopPermissionOnboardingSettings.microphoneURL)
-                },
-                onOpenSystemAudioSettings: {
-                    openPermissionSettings(DesktopPermissionOnboardingSettings.screenAndSystemAudioURL)
-                },
-                onRefresh: {
-                    refreshPermissionOnboarding(reason: "permission_settings_recheck")
-                    Task { await refreshPermissionOnboardingWithFunctionalProbe(reason: "permission_settings_recheck") }
-                },
-                onDismiss: {
-                    permissionOnboardingPresented = false
-                },
-                onFinish: {
-                    guard effectivePermissionOnboardingStatus.isReady else { return }
-                    permissionOnboardingPresented = false
-                },
-                onRestart: {
-                    restartGRAFAfterPermissionChange()
+        .opacity(permissionOnboardingPresented ? 0 : 1)
+        .disabled(permissionOnboardingPresented)
+        .allowsHitTesting(!permissionOnboardingPresented)
+        .accessibilityHidden(permissionOnboardingPresented)
+        .overlay {
+            if permissionOnboardingPresented {
+                DesktopPermissionOnboardingView(
+                    status: effectivePermissionOnboardingStatus,
+                    applicationName: currentApplicationDisplayName,
+                    isRequesting: permissionOperationInProgress,
+                    recoverySuggested: permissionRecoverySuggested,
+                    restartAvailable: !protectedUpdateWork.isProtected,
+                    microphoneAttempted: microphonePermissionAttempted,
+                    systemAudioAttempted: systemAudioPermissionAttempted,
+                    settingsError: permissionSettingsError,
+                    onRequestMicrophone: {
+                        Task { await requestStartupMicrophonePermission() }
+                    },
+                    onRequestSystemAudio: {
+                        Task { await requestStartupSystemAudioPermission() }
+                    },
+                    onOpenMicrophoneSettings: {
+                        openPermissionSettings(DesktopPermissionOnboardingSettings.microphoneURL)
+                    },
+                    onOpenSystemAudioSettings: {
+                        openPermissionSettings(DesktopPermissionOnboardingSettings.screenAndSystemAudioURL)
+                    },
+                    onRefresh: {
+                        refreshPermissionOnboarding(reason: "permission_settings_recheck")
+                        Task { await refreshPermissionOnboardingWithFunctionalProbe(reason: "permission_settings_recheck") }
+                    },
+                    onDismiss: {
+                        permissionOnboardingPresented = false
+                    },
+                    onFinish: {
+                        guard effectivePermissionOnboardingStatus.isReady else { return }
+                        permissionOnboardingPresented = false
+                    },
+                    onRestart: {
+                        restartGRAFAfterPermissionChange()
+                    }
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color(nsColor: .windowBackgroundColor))
+                .onAppear {
+                    NSApp.keyWindow?.makeFirstResponder(nil)
+                    AppLog.writeRaw(
+                        event: "desktop.permission_setup_presented",
+                        detail: "mode=page modal=\(NSApp.modalWindow != nil) sheets=\(NSApp.windows.filter { $0.isSheet }.count)"
+                    )
                 }
-            )
+            }
         }
         .onAppear {
             AppLog.writeRaw(
@@ -446,7 +461,7 @@ private struct ContentView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecApplicationShouldTerminate)) { _ in
-            permissionOnboardingPresented = false
+            // Keep the explicit setup intent across a system-requested quit/reopen.
             permissionOnboardingRequestInProgress = false
             permissionRecoverySuggested = false
             dismissMeetingDetectionPrompt()
@@ -635,7 +650,6 @@ private struct ContentView: View {
             event: "desktop.permission_onboarding_restart_requested",
             detail: "reason=system_audio_permission_recovery"
         )
-        permissionOnboardingPresented = false
         appDelegate.requestRelaunch()
     }
 

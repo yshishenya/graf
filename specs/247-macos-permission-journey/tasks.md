@@ -53,3 +53,15 @@ T005 остается открытой: fast gate отказал до запус
 ## Итог реализации
 
 Все T001–T006 выполнены. GitHub governance-fast успешно завершен для implementation SHA `6e457dfe34f1c82270204b61579c1bcd19f74fe1`: https://github.com/yshishenya/graf/actions/runs/34017555088. PR: https://github.com/yshishenya/graf/pull/6613. Предыдущие записи об ожидании отражают ход проверки; блокировка снята. Изменения этого раздела документируют результат; CI итогового PR HEAD проверяется отдельно. Issues закрываются при слиянии PR, release acceptance остается отдельным этапом.
+
+## Phase 6: Convergence
+
+- [X] T007 [US3] Устранить блокировку системного Quit/Reopen открытой настройкой и продолжить её после запуска в apps/macos/RecApp/App/TwoBrainRecApp.swift и Sources/Capture/DesktopPermissionOnboardingView.swift; проверить границы в apps/macos/Shared/Tests/AppControlAccessibilityTests.swift и реальный процесс через apps/macos/Scripts/test-permission-restart.py; обновить evidence (FR-003/006/008/011, SC-002; partial, HIGH).
+
+Источник: сообщение пользователя о блокировке перезапуска из System Settings. Прежние 119 тестов не проверяли внешний Quit при открытом sheet.
+
+- T007: #6625
+
+T007 также учитывает нативные кнопки заголовка: apps/macos/RecApp/Sources/Cabinet/DesktopCabinetWorkspaceView.swift должен уважать isEnabled скрытого workspace, чтобы Home/Back/Reload не оставались доступными за страницей.
+
+T007: локальная реализация, внешний Quit proof, повторный запуск и нативный UI проверены; новый exact-SHA governance-fast обязателен перед merge. Подробности в validation.md.

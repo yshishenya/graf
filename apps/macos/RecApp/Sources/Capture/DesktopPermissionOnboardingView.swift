@@ -38,7 +38,7 @@ public enum DesktopPermissionOnboardingSettings {
 }
 
 public enum DesktopPermissionOnboardingAccessibilityIdentifier {
-    public static let sheet = "desktop.permissionOnboarding.sheet"
+    public static let page = "desktop.permissionOnboarding.page"
     public static let microphoneButton = "desktop.permissionOnboarding.microphone"
     public static let systemAudioButton = "desktop.permissionOnboarding.systemAudio"
     public static let restartButton = "desktop.permissionOnboarding.restart"
@@ -57,7 +57,7 @@ public struct DesktopPermissionOnboardingView: View {
     public static let restartDetail = "Доступ пока не удалось проверить. Попробуйте ещё раз. Если это не помогло, можно перезапустить приложение."
     public static let microphoneDeniedDetail = "Откройте настройки и включите доступ: повторный запрос после отказа macOS не показывает."
     public static let microphoneRestrictedDetail = "Доступ ограничен на этом Mac. Обратитесь к администратору устройства. GRAF не может обойти это ограничение."
-    public static let recordingBoundaryDetail = "Настройка сама не запускает запись. После закрытия окна автозапись работает по вашим правилам."
+    public static let recordingBoundaryDetail = "Настройка сама не запускает запись. После завершения настройки автозапись работает по вашим правилам."
 
     public static func systemAudioStepDetail(for applicationName: String) -> String {
         "\(systemAudioStepDetail) В настройках выберите «\(applicationName)»: разные копии приложения получают доступ отдельно."
@@ -125,7 +125,7 @@ public struct DesktopPermissionOnboardingView: View {
         .frame(width: 520)
         .frame(maxHeight: min(700, max(320, (NSApp.keyWindow?.screen?.visibleFrame.height ?? 860) - 160)))
         .tint(DesktopMeetingShellChrome.shellAccentColor)
-        .accessibilityIdentifier(DesktopPermissionOnboardingAccessibilityIdentifier.sheet)
+        .accessibilityIdentifier(DesktopPermissionOnboardingAccessibilityIdentifier.page)
     }
 
     private var content: some View {
@@ -302,7 +302,11 @@ public struct DesktopPermissionOnboardingView: View {
             .padding(10).background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Пример: включите переключатель рядом с \(applicationName) в системных настройках")
-            Text("Пример в настройках macOS. Название раздела может отличаться в вашей версии. Вернитесь сюда — статус обновится автоматически.")
+            if step == .systemAudio {
+                Text("Если macOS предложит «Завершить и открыть снова», подтвердите. После запуска вы вернётесь к настройке — уже выданные разрешения проверятся автоматически.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Text("Пример в настройках macOS. Название раздела может отличаться в вашей версии. Если перезапуск не нужен, вернитесь сюда — статус обновится автоматически.")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }

@@ -6,7 +6,7 @@ Branch: `codex/247-macos-permission-journey` | Date: 2026-09-06 | Spec: [spec.md
 Одно нативное окно по запросу, два последовательных разрешения, помощь при возврате из Settings. Обновление состояния отделено от показа окна.
 
 ## Technical Context
-Swift 6, SwiftUI/AppKit, AVFoundation, CoreGraphics, ScreenCaptureKit; macOS 14+. Существующие зависимости; новых нет. UserDefaults/AppStorage только для истории попыток, ОС — источник прав. XCTest в текущем Swift package.
+Swift 6, SwiftUI/AppKit, AVFoundation, CoreGraphics, ScreenCaptureKit; macOS 14+. Существующие зависимости; новых нет. UserDefaults/AppStorage для истории попыток и незавершённой настройки, ОС — источник прав. XCTest в текущем Swift package.
 Risk / Validation Lane: high-risk-product, permissions/capture/UX. Release Gate: no deploy; для публикации отдельный release/full/signing gate и согласование commit.
 Performance: bounded permission probe ≤8 секунд; никакого опроса по таймеру в фоне.
 Scope: DesktopPermissionOnboardingView.swift, TwoBrainRecApp.swift, CaptureControlViewCore.swift, SystemAudioCaptureService.swift и существующие профильные тесты.
@@ -28,3 +28,7 @@ Focused Swift tests: SystemAudioPermissionUXTests, AppControlAccessibilityTests,
 
 ## Complexity Tracking
 Новых архитектурных слоев, библиотек, серверных контрактов нет. Нужен только ограниченный completion для неотменяемого системного вызова; он повторяет существующий native timeout pattern.
+
+## Уточнение реализации: системный Quit/Reopen
+
+Обычная страница в существующем NSWindow вместо SwiftUI sheet. Существующий workspace остаётся смонтированным, но скрыт, недоступен для кликов/клавиатуры/VoiceOver. Один AppStorage Bool сохраняет открытое намерение настройки до Позже/Готово; штатный quit и собственный restart его не очищают. Перед возобновлением detector действуют те же guards. Подсказка заранее объясняет кнопку macOS и возвращение. Проверка: XCTest границ плюс запускаемый сценарий Quit Apple Event → штатная очистка → завершение процесса → повторный запуск отдельной локальной копии. Без TCC reset, захвата и изменения установленного GRAF.

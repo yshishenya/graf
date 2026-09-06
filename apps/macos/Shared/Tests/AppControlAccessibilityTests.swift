@@ -342,8 +342,8 @@ final class AppControlAccessibilityTests: XCTestCase {
             "x-apple.systempreferences"
         )
         XCTAssertEqual(
-            DesktopPermissionOnboardingAccessibilityIdentifier.sheet,
-            "desktop.permissionOnboarding.sheet"
+            DesktopPermissionOnboardingAccessibilityIdentifier.page,
+            "desktop.permissionOnboarding.page"
         )
     }
 
@@ -385,7 +385,7 @@ final class AppControlAccessibilityTests: XCTestCase {
             return String(source[a.lowerBound..<b.lowerBound])
         }
         let refresh = try block("    private func refreshPermissionOnboarding(", "    private func requestStartupMicrophonePermission")
-        XCTAssertFalse(refresh.contains("permissionOnboardingPresented ="), "Refresh must never open or dismiss the sheet")
+        XCTAssertFalse(refresh.contains("permissionOnboardingPresented ="), "Refresh must never open or dismiss setup")
         XCTAssertFalse(refresh.contains("startManualRecording("))
         let setup = try block("    private func presentPermissionSetup()", "    private func refreshPermissionOnboarding(")
         XCTAssertTrue(setup.contains("dismissMeetingDetectionPrompt()"))
@@ -410,14 +410,25 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertLessThan(consent.lowerBound, query.lowerBound)
     }
 
-    func testDesktopAppDismissesPermissionSheetsBeforeTerminationCleanup() throws {
+    func testDesktopAppKeepsSetupIntentAndDismissesOtherSheetsBeforeTerminationCleanup() throws {
         let source = try String(
             contentsOf: Self.repositoryRoot()
                 .appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"),
             encoding: .utf8
         )
 
-        XCTAssertTrue(source.contains("permissionOnboardingPresented = false"))
+        XCTAssertTrue(source.contains("@AppStorage(\"permissionOnboarding.active\") private var permissionOnboardingPresented = false"))
+        XCTAssertFalse(source.contains(".sheet(isPresented: $permissionOnboardingPresented)"))
+        XCTAssertTrue(source.contains(".disabled(permissionOnboardingPresented)"))
+        XCTAssertTrue(source.contains(".accessibilityHidden(permissionOnboardingPresented)"))
+        // Only explicit Later/Done clear intent, never OS Quit or our own relaunch.
+        XCTAssertEqual(source.components(separatedBy: "permissionOnboardingPresented = false").count - 1, 3)
+        let cleanupStart = try XCTUnwrap(source.range(of: ".onReceive(NotificationCenter.default.publisher(for: .twoBrainRecApplicationShouldTerminate))"))
+        let cleanupEnd = try XCTUnwrap(source[cleanupStart.upperBound...].range(of: ".onReceive("))
+        XCTAssertFalse(source[cleanupStart.lowerBound..<cleanupEnd.lowerBound].contains("permissionOnboardingPresented = false"))
+        let restartStart = try XCTUnwrap(source.range(of: "private func restartGRAFAfterPermissionChange()"))
+        let restartEnd = try XCTUnwrap(source[restartStart.upperBound...].range(of: "private func refreshCalendarReminder"))
+        XCTAssertFalse(source[restartStart.lowerBound..<restartEnd.lowerBound].contains("permissionOnboardingPresented = false"))
         XCTAssertTrue(source.contains("permissionOnboardingRequestInProgress = false"))
         XCTAssertTrue(source.contains("dismissMeetingDetectionPrompt()"))
         XCTAssertTrue(source.contains("dismissModalWindowsForTermination()"))
