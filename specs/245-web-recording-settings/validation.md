@@ -1,7 +1,8 @@
 # Validation — Feature 245
 
 Дата: 2026-09-06. Ветка: codex/245-web-recording-settings.
-Base SHA: a553e3dae122084d977e2b6e52bac99354a10df5; изменения пока без commit.
+Исходная база: a553e3dae122084d977e2b6e52bac99354a10df5.
+Перед PR ветка перебазирована на origin/master 6ff8db3ee. Разрешён commit/push/PR.
 Lane: high-risk-feature. Scope: только локальные правила автозаписи в общих настройках.
 
 ## Design gates
@@ -66,6 +67,28 @@ Converge: обязательных незакрытых требований л�
 Код не установлен поверх GRAF/GRAF Dev; реальные записи/настройки не менялись.
 Клики меню/⌘,/шестерёнок в подписанной установленной версии и live capture
 остаются проверкой выпуска; текущая проверка покрывает код/сборку и WebKit.
-Commit, push, PR, governance-fast на точном PR SHA, release-full, notarization,
-публикация клиента и сервера не выполнялись. GitHub issues остаются открытыми
+governance-fast на точном PR SHA проверяется после push; release-full, notarization,
+публикация клиента и сервера остаются за границами этой работы. GitHub issues остаются открытыми
 до review/PR evidence; локальные результаты не представлены как release proof.
+
+## Ревью и повторная проверка перед PR
+
+- Независимое ревью нативного diff: settings_contract_research, PASS на
+  bc957b5d0703d6c557fb07c67f0d40a771ef0a7d. Найденная проблема macOS 14 исправлена:
+  обработчик использует существующий безопасный documentRequestURL вместо
+  безусловного Swift-преобразования WKFrameInfo.request. При завершении
+  WebKit-процесса доступ к настройкам отзывается.
+- Конфликт в отключении WebView разрешён с сохранением отмены подтверждения
+  JavaScript и отзыва доступа к настройкам. Остальные изменения master сохранены.
+- Повтор после rebase: 85 XCTest PASS (добавлена группа
+  EmbeddedCabinetJavaScriptConfirmTests), 96 серверных контрактных тестов PASS,
+  6 integration tests PASS на временном PostgreSQL. Контейнер удалён.
+- node --check, check_spec_kit_governance.py, git diff --check: PASS.
+- Ревью веб-формы: подтверждённые значения, таймаут, повторное чтение,
+  обновление списка и фокуса; новых существенных замечаний нет.
+- Фрагмент выпуска приведён к принятому формату changes/unreleased/F245.yaml.
+- Legacy Impact: untouched. Существующие нативная форма и адрес её открытия
+  остаются действующими возможностями при недоступности веб-кабинета;
+  формат локального хранения и миграции не изменены, новых legacy-путей нет.
+- Коммит и push разрешены пользователем. PR фиксирует окончательный SHA и
+  ссылку на GitHub governance-fast; merge и выпуск не выполняются.
