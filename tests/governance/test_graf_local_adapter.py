@@ -280,7 +280,7 @@ def test_signed_app_identity_is_measured_from_codesign_output(monkeypatch, tmp_p
         return outputs[command[1]]
 
     def fake_run(command, *, cwd, env=None):
-        return outputs["-d"]
+        return outputs["-d"].split("\n", 1)[1]
 
     monkeypatch.setattr(dev_harness, "_run_command_combined", fake_combined)
     monkeypatch.setattr(dev_harness, "_run_command", fake_run)

@@ -14,6 +14,7 @@ import datetime as dt
 import hashlib
 import json
 import os
+import plistlib
 from pathlib import Path
 import re
 import signal
@@ -736,12 +737,18 @@ class GrafLocalAdapter:
         requirement_match = re.search(r"^designated => (.+)$", requirement_output, re.MULTILINE)
         if not requirement_match or not requirement_match.group(1).strip():
             raise HarnessError("signed Dev app has no designated requirement")
-        entitlements = _run_command_combined(
+        # codesign stderr includes the bundle path; identity comes only from the plist.
+        entitlements = _run_command(
             ["codesign", "-d", "--entitlements", ":-", str(app_bundle)], cwd=self.root
         )
-        if "<plist" not in entitlements:
-            raise HarnessError("signed Dev app has no readable entitlements")
-        return authorities[0].strip(), requirement_match.group(1).strip(), _digest(entitlements)
+        try:
+            values = plistlib.loads(entitlements.encode("utf-8"))
+            if not isinstance(values, dict):
+                raise ValueError("entitlements must be a dictionary")
+            canonical = plistlib.dumps(values, sort_keys=True).decode("utf-8")
+        except Exception as exc:
+            raise HarnessError("signed Dev app has no readable entitlements") from exc
+        return authorities[0].strip(), requirement_match.group(1).strip(), _digest(canonical)
 
     def _runtime_record(self) -> Path:
         return self.state / "runtime.json"

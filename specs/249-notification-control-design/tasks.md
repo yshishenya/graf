@@ -92,6 +92,7 @@ T001→T002 обязательны для всей реализации. T003→
 - T022: https://github.com/yshishenya/graf/issues/6691
 - T023: https://github.com/yshishenya/graf/issues/6709
 - T024: https://github.com/yshishenya/graf/issues/6711
+- T025: https://github.com/yshishenya/graf/issues/6751
 
 Setup evidence: independent UX 13/13 and security 9/9; analyze.md critical/high 0; base a389657e6; 22/22 tasks have open owners. Feature249 canon 23/23 PASS. Global canon hook failed only unrelated #6684 (feature253, area label and Spec tasks field); global sync success is not claimed.
 
@@ -125,3 +126,8 @@ T010/T017: код и автоматические проверки выполн�
 видимая системная доставка/полная матрица ещё не приняты. T019: удаление и
 регрессии выполнены, окончательное закрытие зависит от upgrade/rollback T018.
 Поэтому эти задачи возвращены в открытые, соответствующие issues остаются открытыми.
+
+
+## Phase 11: Convergence
+
+- [X] T025 Исправить path-dependent контрольную сумму разрешений в `scripts/dev-harness.py` и добавить регрессию в `tests/governance/test_dev_harness.py`; проверить одинаковые entitlement values двух реальных Dev artifacts без установки. [T022; process: stable Dev identity; contradicts]

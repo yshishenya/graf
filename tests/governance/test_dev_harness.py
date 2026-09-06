@@ -249,3 +249,33 @@ def test_concurrent_promote_is_serialized(tmp_path):
     assert sum(outcome[0] == "pass" for outcome in outcomes) == 1
     assert sum(outcome[0] == "fail" for outcome in outcomes) == 1
     assert run("status", tmp_path)["manifest"]["source_sha"] == "f" * 40
+
+
+def test_signed_app_identity_ignores_paths_and_plist_order_but_detects_changes(monkeypatch, tmp_path):
+    import plistlib
+
+    app = dev_harness.GrafLocalAdapter(ROOT, tmp_path)
+    values = {"com.apple.security.device.audio-input": True, "test": False}
+
+    def command(argv, **_kwargs):
+        if "--entitlements" in argv:
+            # A change of key order must not change the measured identity.
+            content = dict(reversed(list(values.items()))) if "second" in argv[-1] else values
+            stdout = plistlib.dumps(content, sort_keys=False).decode()
+            stderr = f"Executable={argv[-1]}/Contents/MacOS/GRAF"
+        elif "-dr" in argv:
+            stdout, stderr = "", 'designated => identifier "pro.2brain.graf.dev"'
+        else:
+            stdout, stderr = "", "Authority=GRAF Local Code Signing"
+        if _kwargs.get("stderr") == dev_harness.subprocess.STDOUT:
+            stdout += "\n" + stderr
+        return dev_harness.subprocess.CompletedProcess(argv, 0, stdout, stderr)
+
+    monkeypatch.setattr(dev_harness.subprocess, "run", command)
+    first = app._measure_signed_app_identity(tmp_path / "first.app")
+    assert first == app._measure_signed_app_identity(tmp_path / "second.app")
+    values["com.apple.security.device.audio-input"] = False
+    assert first[2] != app._measure_signed_app_identity(tmp_path / "second.app")[2]
+    monkeypatch.setattr(dev_harness, "_run_command", lambda *_args, **_kwargs: "<plist>broken")
+    with pytest.raises(dev_harness.HarnessError, match="no readable entitlements"):
+        app._measure_signed_app_identity(tmp_path / "invalid.app")
