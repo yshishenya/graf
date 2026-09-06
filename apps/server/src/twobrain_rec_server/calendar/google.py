@@ -309,9 +309,9 @@ class GoogleCalendarAdapter:
         for item in items:
             if not isinstance(item, dict) or not item.get("id"):
                 raise CalendarProviderError("invalid_payload")
-            if item.get("status") == "cancelled" and not (
-                item.get("start") or item.get("originalStartTime")
-            ):
+            # Cancelled instances may omit iCalUID even when originalStartTime
+            # is present. Deletion must use the provider id, not the upsert tuple.
+            if item.get("status") == "cancelled":
                 deleted_ids.append(str(item["id"]))
             else:
                 events.append(

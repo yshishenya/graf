@@ -6,3 +6,5 @@
 - T006: https://github.com/yshishenya/graf/issues/6657
 - T007: https://github.com/yshishenya/graf/issues/6658
 - T008: https://github.com/yshishenya/graf/issues/6659
+- T009: https://github.com/yshishenya/graf/issues/6700
+- T010: https://github.com/yshishenya/graf/issues/6701

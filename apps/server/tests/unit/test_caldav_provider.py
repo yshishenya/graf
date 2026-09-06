@@ -388,3 +388,43 @@ def test_pathological_recurrence_is_killed_without_blocking_other_work(monkeypat
     started = time.monotonic()
     asyncio.run(run())
     assert time.monotonic() - started < 5
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failed_response", [
+    '<d:response><d:href>/bad.ics</d:href><d:status>HTTP/1.1 500 Server Error</d:status></d:response>',
+    '<d:response><d:propstat><d:prop><c:calendar-data/></d:prop><d:status>HTTP/1.1 500 Server Error</d:status></d:propstat></d:response>',
+    '<d:response><d:propstat><d:prop><c:calendar-data/></d:prop><d:status>HTTP/1.1 404 Not Found</d:status></d:propstat></d:response>',
+    '<d:response><d:href>/bad.ics</d:href><d:propstat><d:prop><d:getetag>etag</d:getetag></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>',
+])
+async def test_caldav_partial_report_never_becomes_authoritative_snapshot(failed_response):
+    payload = EVENTS_XML.replace(b'</d:multistatus>', failed_response.encode() + b'</d:multistatus>')
+    adapter = CalDAVAdapter('custom_caldav', http=FakeCalDAVHttp([(207, payload, {})]))
+    with pytest.raises(CalendarProviderError):
+        await adapter.list_events(_credential(), calendar_id='https://calendar.example.test/calendars/synthetic/')
+
+
+@pytest.mark.asyncio
+async def test_caldav_non_multistatus_is_not_an_empty_calendar():
+    adapter = CalDAVAdapter('custom_caldav', http=FakeCalDAVHttp([(200, b'<html/>', {})]))
+    with pytest.raises(CalendarProviderError, match='invalid_payload'):
+        await adapter.list_events(_credential(), calendar_id='https://calendar.example.test/calendars/synthetic/')
+
+
+@pytest.mark.asyncio
+async def test_caldav_partial_catalog_does_not_remove_other_calendars():
+    payload = CATALOG_XML.replace(b'</d:multistatus>', b'<d:response><d:status>HTTP/1.1 503 Unavailable</d:status></d:response></d:multistatus>')
+    adapter = CalDAVAdapter('custom_caldav', http=FakeCalDAVHttp([(207, payload, {})]))
+    with pytest.raises(CalendarProviderError, match='provider_unavailable'):
+        await adapter.list_calendars(_credential())
+
+
+@pytest.mark.asyncio
+async def test_caldav_optional_missing_property_and_genuinely_empty_report():
+    payload = EVENTS_XML.replace(b'</d:response>', b'<d:propstat><d:prop><d:getetag/></d:prop><d:status>HTTP/1.1 404 Not Found</d:status></d:propstat></d:response>')
+    empty = b'<d:multistatus xmlns:d="DAV:"/>'
+    adapter = CalDAVAdapter('custom_caldav', http=FakeCalDAVHttp([(207, payload, {}), (207, empty, {})]))
+    page = await adapter.list_events(_credential(), calendar_id='https://calendar.example.test/calendars/synthetic/')
+    assert len(page.events) == 1
+    page = await adapter.list_events(_credential(), calendar_id='https://calendar.example.test/calendars/synthetic/')
+    assert page.events == ()

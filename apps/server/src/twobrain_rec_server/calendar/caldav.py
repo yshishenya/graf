@@ -188,8 +188,11 @@ class CalDAVAdapter:
             responses = _xml_responses(payload)
         except ElementTree.ParseError as exc:
             raise CalendarProviderError("invalid_payload") from exc
+        if any(not response.get("calendar_data") for response in responses):
+            # A partial REPORT must not delete cached events during reconciliation.
+            raise CalendarProviderError("invalid_payload")
         return await expand_caldav_resources(
-            [str(response["calendar_data"]) for response in responses if response.get("calendar_data")],
+            [str(response["calendar_data"]) for response in responses],
             provider_family=self.provider_family, calendar_id=calendar_id,
             time_min=time_min, time_max=time_max,
         )
@@ -343,12 +346,31 @@ def _require_success(status: int) -> None:
 
 def _xml_responses(payload: bytes) -> list[dict[str, str | bool]]:
     root = ElementTree.fromstring(payload)
+    if root.tag != "{DAV:}multistatus":
+        raise CalendarProviderError("invalid_payload")
     responses: list[dict[str, str | bool]] = []
-    for element in root.iter():
-        if _local(element.tag) != "response":
-            continue
+    for element in root.findall("{DAV:}response"):
         row: dict[str, str | bool] = {}
-        for child in element.iter():
+        href = element.findtext("{DAV:}href")
+        if href and href.strip():
+            row["href"] = href.strip()
+        _require_xml_success(element.findtext("{DAV:}status"))
+        properties = []
+        for propstat in element.findall("{DAV:}propstat"):
+            prop = propstat.find("{DAV:}prop")
+            if prop is None:
+                raise CalendarProviderError("invalid_payload")
+            status = propstat.findtext("{DAV:}status")
+            # Optional discovery metadata may be absent; required resource type
+            # and event data cannot be omitted from an authoritative snapshot.
+            if status and status.split()[1:2] == ["404"] and all(
+                _local(child.tag) in {"displayname", "calendar-home-set", "getetag"}
+                for child in prop
+            ):
+                continue
+            _require_xml_success(status)
+            properties.extend(prop.iter())
+        for child in properties:
             local = _local(child.tag)
             text = (child.text or "").strip()
             if local == "href" and text and "href" not in row:
@@ -361,6 +383,15 @@ def _xml_responses(payload: bytes) -> list[dict[str, str | bool]]:
                 row["is_calendar"] = True
         responses.append(row)
     return responses
+
+
+def _require_xml_success(value: str | None) -> None:
+    if value is None:
+        return
+    parts = value.split()
+    if len(parts) < 2 or not parts[1].isdigit():
+        raise CalendarProviderError("invalid_payload")
+    _require_success(int(parts[1]))
 
 
 def _catalog_entries(

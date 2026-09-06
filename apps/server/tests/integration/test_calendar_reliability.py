@@ -443,3 +443,36 @@ def test_policy_disable_during_read_blocks_late_publication(client):
             ).connection_state == "disabled_by_policy"
 
     asyncio.run(run())
+
+
+@pytest.mark.parametrize("safe_code", ["invalid_payload", "provider_unavailable"])
+def test_incomplete_provider_report_preserves_cached_events(client, safe_code):
+    from twobrain_rec_server.calendar.providers import CalendarProviderError
+
+    source_id = _create_selected_source(client)
+    event = normalize_calendar_event(calendar_event_fixture(provider_calendar_id="primary"))
+    now = event.starts_at - timedelta(hours=1)
+
+    async def run():
+        for page, expected in [
+            (CalendarEventPage(events=(event,)), "synced"),
+            (CalendarProviderError(safe_code), "failed"),
+        ]:
+            async with client.app_state["sessionmaker"]() as db:
+                result = await run_calendar_provider_sync(
+                    db, tenant_scope=_tenant_scope(), source_id=source_id,
+                    provider=FixtureProvider([page]), now=now,
+                    credential_encryption_key=client.app.state.credential_encryption_key,
+                )
+                assert result.state == expected
+                await db.commit()
+        async with client.app_state["sessionmaker"]() as db:
+            snapshots = list(await db.scalars(select(CalendarEventSnapshot).where(
+                CalendarEventSnapshot.calendar_source_id == source_id
+            )))
+            assert len(snapshots) == 1
+            assert snapshots[0].provider_event_id == event.provider_event_id
+            assert snapshots[0].source_status != "cancelled"
+            assert snapshots[0].source_deleted_at is None
+
+    asyncio.run(run())

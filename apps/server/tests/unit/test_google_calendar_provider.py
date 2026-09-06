@@ -237,7 +237,7 @@ async def test_google_event_uses_iana_timezone_when_datetime_has_no_offset() -> 
 
 
 @pytest.mark.asyncio
-async def test_google_cancelled_recurring_instance_can_omit_start_and_end() -> None:
+async def test_google_cancelled_recurring_instance_uses_stable_id_without_ical_uid() -> None:
     http = FakeGoogleHttp(
         [
             (
@@ -246,7 +246,6 @@ async def test_google_cancelled_recurring_instance_can_omit_start_and_end() -> N
                     "items": [
                         {
                             "id": "cancelled-instance",
-                            "iCalUID": "series@example.test",
                             "status": "cancelled",
                             "recurringEventId": "series",
                             "originalStartTime": {
@@ -265,10 +264,10 @@ async def test_google_cancelled_recurring_instance_can_omit_start_and_end() -> N
         "fixture-access", calendar_id="primary"
     )
 
-    event = page.events[0]
-    assert event.source_status == "cancelled"
-    assert event.original_start.isoformat() == "2026-08-19T09:00:00+00:00"
-    assert event.recurrence_instance_id == "cancelled-instance"
+    # Google guarantees only id, recurringEventId and originalStartTime for
+    # cancelled instances. Do not upsert a second snapshot with iCalUID=None.
+    assert page.events == ()
+    assert page.deleted_event_ids == ("cancelled-instance",)
 
 
 @pytest.mark.asyncio
