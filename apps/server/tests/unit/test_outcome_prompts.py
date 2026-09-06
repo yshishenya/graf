@@ -4,11 +4,12 @@ from copy import deepcopy
 
 import pytest
 
-from tests.fixtures.outcome_prompts import desired_prompts, judge_config, outcome_config
-from twobrain_rec_server.cli.langfuse_prompts import FORMAT_FOCUS
+from twobrain_rec_server.cli.langfuse_prompts import FORMAT_FOCUS, desired_prompts
 from twobrain_rec_server.outcomes.generator import compile_prompt_messages
 from twobrain_rec_server.outcomes.prompts import (
     canonical_json,
+    judge_config,
+    outcome_config,
     validate_outcome_result,
     validate_prompt_snapshot,
 )
@@ -158,12 +159,12 @@ def test_outcome_prompt_config_is_closed_and_projected_explicitly() -> None:
         "response_format",
     }
     assert snapshot.model == "gpt-5.6-luna"
-    assert snapshot.config["config_contract_version"] == 5
+    assert snapshot.config["config_contract_version"] == 2
     assert "max_completion_tokens" not in snapshot.config
 
     unsafe = deepcopy(config)
     unsafe["base_url"] = "https://example.invalid"
-    with pytest.raises(ValueError, match="contract v5"):
+    with pytest.raises(ValueError, match="contract v1"):
         validate_prompt_snapshot(
             name="graf/meeting-outcome/auto",
             version=7,
@@ -183,65 +184,6 @@ def test_outcome_prompt_config_is_closed_and_projected_explicitly() -> None:
             prompt=OUTCOME_PROMPT,
             config=legacy_capped,
         )
-
-
-@pytest.mark.parametrize("parameters", [
-    {},
-    {"temperature": 0, "top_p": 1, "seed": -(2**63)},
-    {"reasoning_effort": "none", "max_tokens": 16000},
-    {"reasoning_effort": "xhigh", "max_completion_tokens": 50000},
-])
-def test_config_five_preserves_exact_optional_settings(parameters) -> None:
-    config = {
-        **outcome_config(schema_name="test"),
-        "config_contract_version": 5,
-        "model": "gemini/gemini-3.8-flash",
-    }
-    config.pop("temperature", None)
-    config.update(parameters)
-    snapshot = validate_prompt_snapshot(
-        name="graf/meeting-outcome/auto", version=1, prompt_type="chat",
-        prompt=OUTCOME_PROMPT, config=config,
-    )
-    assert snapshot.litellm_request([]) == {
-        "model": config["model"], "messages": [],
-        "response_format": config["response_format"], **parameters,
-    }
-
-
-@pytest.mark.parametrize("override", [
-    {"temperature": True}, {"temperature": float("nan")},
-    {"top_p": float("inf")}, {"top_p": -0.1}, {"top_p": 1.1},
-    {"seed": True}, {"seed": 2**63}, {"seed": -(2**63)-1},
-    {"seed": 1.5}, {"max_tokens": 0}, {"max_tokens": False},
-    {"max_completion_tokens": 1.5},
-    {"max_tokens": 1, "max_completion_tokens": 1},
-    {"reasoning_effort": "auto"}, {"headers": {}}, {"tools": []},
-    {"base_url": "https://example.invalid"}, {"model": ""},
-    {"config_contract_version": True}, {"config_contract_version": 4},
-])
-def test_config_five_rejects_invalid_or_unsafe_settings(override) -> None:
-    config = {
-        **outcome_config(schema_name="test"),
-        "config_contract_version": 5, "model": "synthetic-model", **override,
-    }
-    with pytest.raises(ValueError):
-        validate_prompt_snapshot(
-            name="graf/meeting-outcome/auto", version=1, prompt_type="chat",
-            prompt=OUTCOME_PROMPT, config=config,
-        )
-
-
-def test_prompt_templates_cannot_supply_model_defaults() -> None:
-    from twobrain_rec_server.cli.langfuse_prompts import desired_prompts
-
-    for name, (prompt_type, prompt, template) in desired_prompts().items():
-        assert set(template) <= {"config_contract_version", "response_format"}
-        with pytest.raises(ValueError):
-            validate_prompt_snapshot(
-                name=name, version=1, prompt_type=prompt_type,
-                prompt=prompt, config=template,
-            )
 
 
 def test_prompt_rejects_remote_ref_wrong_variables_and_modified_schema() -> None:
@@ -318,7 +260,7 @@ def test_reflection_and_judges_have_separate_closed_contracts() -> None:
         prompt_type="text",
         prompt=reflection,
         config={
-            "config_contract_version": 5,
+            "config_contract_version": 1,
             "model": "gpt-5.6-luna",
             "temperature": 1,
         },
@@ -628,7 +570,7 @@ def test_all_builtin_formats_have_distinct_explicit_contracts_and_one_call_schem
         assert prompt_type == "chat"
         assert len(prompt) == 2
         assert sum(message["content"].count("{{transcript_json}}") for message in prompt) == 1
-        assert config["config_contract_version"] == 5
+        assert config["config_contract_version"] == 2
         assert "max_completion_tokens" not in config
         schema = config["response_format"]["json_schema"]
         assert schema["name"] == f"graf_meeting_outcome_{key.replace('-', '_')}_v1"

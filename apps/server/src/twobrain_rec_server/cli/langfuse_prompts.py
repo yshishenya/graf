@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import argparse
 import json
+from contextlib import suppress
 from pathlib import Path
 
 from twobrain_rec_server.outcomes.prompt_bundle import (
     ROOT_BUNDLE_PROMPT_NAME,
-    ROOT_BUNDLE_SCHEMA_VERSION,
     build_root_bundle_document,
     promote_root_bundle_label,
 )
@@ -15,12 +15,8 @@ from twobrain_rec_server.outcomes.prompt_optimization import (
     promote_control_prompt,
 )
 from twobrain_rec_server.outcomes.prompts import (
-    CONFIG_CONTRACT_VERSION,
-    CONTROL_GATE_CONFIG_KEY,
-    MODEL_PARAMETER_KEYS,
     judge_config,
     langfuse_prompt_payload,
-    normalize_langfuse_prompt,
     outcome_config,
     validate_prompt_snapshot,
 )
@@ -187,7 +183,9 @@ CONTROL_PROMPTS: dict[str, tuple[str, object, dict[str, object]]] = {
             "non-whitespace character is ]."
         ),
         {
-            "config_contract_version": CONFIG_CONTRACT_VERSION,
+            "config_contract_version": 1,
+            "model": "gpt-5.6-luna",
+            "temperature": 1,
         },
     ),
     "graf/evaluation/meeting-outcome-faithfulness": (
@@ -304,17 +302,9 @@ def desired_prompts() -> dict[str, tuple[str, object, dict[str, object]]]:
     return prompts
 
 
-def sync_prompts(
-    *, base_url: str, public_key: str, secret_key: str,
-    apply: bool, source_versions: dict[str, int],
-) -> list[str]:
+def sync_prompts(*, base_url: str, public_key: str, secret_key: str, apply: bool) -> list[str]:
     from langfuse import Langfuse
 
-    definitions = desired_prompts()
-    if not isinstance(source_versions, dict) or set(source_versions) != set(definitions) or any(
-        type(version) is not int or version < 1 for version in source_versions.values()
-    ):
-        raise ValueError("sync requires an exact positive source version for every prompt")
     client = Langfuse(
         base_url=base_url.rstrip("/"),
         public_key=public_key,
@@ -324,53 +314,37 @@ def sync_prompts(
     )
     outcomes: list[str] = []
     try:
-        candidates = []
-        for name, (prompt_type, prompt, template) in definitions.items():
-            current = client.get_prompt(
-                name, version=source_versions[name], type=prompt_type,
-                cache_ttl_seconds=0, max_retries=0, fetch_timeout_seconds=10,
-            )
-            if type(current.version) is not int or current.version != source_versions[name]:
-                raise ValueError("source prompt version mismatch")
-            source_config = current.config
-            if not isinstance(source_config, dict) or set(source_config) - (
-                MODEL_PARAMETER_KEYS | {
-                    "model", "config_contract_version", "response_format", CONTROL_GATE_CONFIG_KEY,
-                }
-            ) or type(source_config.get("config_contract_version")) is not int or (
-                source_config["config_contract_version"] not in {1, 2, 3, 4, CONFIG_CONTRACT_VERSION}
-            ):
-                raise ValueError("source prompt config is invalid")
-            config = {
-                **template,
-                **{key: value for key, value in source_config.items() if key in MODEL_PARAMETER_KEYS | {"model"}},
-            }
+        for name, (prompt_type, prompt, config) in desired_prompts().items():
             desired = validate_prompt_snapshot(
                 name=name,
                 version=1,
                 prompt_type=prompt_type,
                 prompt=prompt,
                 config=config,
-                source="langfuse_evaluation",
             )
-            unchanged = normalize_langfuse_prompt(current.prompt) == desired.prompt and {
-                key: value for key, value in source_config.items() if key != CONTROL_GATE_CONFIG_KEY
-            } == desired.config
-            if unchanged:
-                validate_prompt_snapshot(
-                    name=name, version=current.version, prompt_type=prompt_type,
-                    prompt=current.prompt, config=source_config,
+            current = None
+            with suppress(Exception):
+                current = client.get_prompt(
+                    name,
+                    label="production",
+                    type=prompt_type,
+                    cache_ttl_seconds=0,
+                    max_retries=0,
+                    fetch_timeout_seconds=10,
                 )
-            candidates.append((desired, unchanged))
-        # Fetch and validate the entire set before creating its first version.
-        for desired, unchanged in candidates:
-            name, prompt_type, prompt, config = (
-                desired.name, desired.prompt_type, desired.prompt, desired.config,
-            )
-            if unchanged:
-                status = "control-gate-required" if name in CONTROL_PROMPTS else "verified"
-                outcomes.append(f"{status}:{name}:v{source_versions[name]}")
-                continue
+            if current is not None:
+                with suppress(ValueError):
+                    current_snapshot = validate_prompt_snapshot(
+                        name=name,
+                        version=int(current.version),
+                        prompt_type=prompt_type,
+                        prompt=current.prompt,
+                        config=current.config or {},
+                    )
+                    if current_snapshot.canonical_hash == desired.canonical_hash:
+                        status = "control-gate-required" if name in CONTROL_PROMPTS else "verified"
+                        outcomes.append(f"{status}:{name}:v{current.version}")
+                        continue
             if not apply:
                 outcomes.append(f"change-required:{name}")
                 continue
@@ -386,9 +360,9 @@ def sync_prompts(
                 type=prompt_type,
                 config=config,
                 commit_message=(
-                    "Feature 239 control candidate; requires fresh gate and operator promotion"
+                    "Feature 121 control candidate; requires offline gate and operator promotion"
                     if name in CONTROL_PROMPTS
-                    else "Feature 239 outcome candidate; preserves exact Langfuse model settings"
+                    else "Feature 181 outcome candidate; requires held-out gate and operator promotion"
                 ),
             )
             state = (
@@ -409,6 +383,7 @@ def create_root_bundle_candidate(
     public_key: str,
     secret_key: str,
     child_versions: dict[str, int],
+    route_binding: dict[str, object],
 ) -> dict[str, object]:
     """Create an unlabelled root candidate pinned to exact child versions."""
 
@@ -426,7 +401,7 @@ def create_root_bundle_candidate(
         child_names = [definition.prompt_name for definition in BUILT_IN_TEMPLATES]
         child_names.append("graf/meeting-outcome/custom")
         if set(child_versions) != set(child_names) or any(
-            type(version) is not int or version < 1 for version in child_versions.values()
+            not isinstance(version, int) or version < 1 for version in child_versions.values()
         ):
             raise ValueError("root bundle requires one positive version for every outcome prompt")
         for name in child_names:
@@ -439,8 +414,6 @@ def create_root_bundle_candidate(
                 max_retries=0,
                 fetch_timeout_seconds=10,
             )
-            if type(child.version) is not int or child.version != child_version:
-                raise ValueError("root child source version mismatch")
             children[name] = validate_prompt_snapshot(
                 name=name,
                 version=int(child.version),
@@ -448,12 +421,12 @@ def create_root_bundle_candidate(
                 prompt=child.prompt,
                 config=child.config or {},
             )
-        document = build_root_bundle_document(children)
+        document = build_root_bundle_document(children, route_binding)
         created = client.create_prompt(
             name=ROOT_BUNDLE_PROMPT_NAME,
             prompt=json.dumps(document, ensure_ascii=False, sort_keys=True),
             labels=[],
-            tags=["graf", "recording-workflows", ROOT_BUNDLE_SCHEMA_VERSION],
+            tags=["graf", "recording-workflows", "root-bundle-v1"],
             type="text",
             config={},
             commit_message=(
@@ -464,6 +437,7 @@ def create_root_bundle_candidate(
             "prompt_name": ROOT_BUNDLE_PROMPT_NAME,
             "root_prompt_version": int(created.version),
             "bundle_hash": document["bundle_hash"],
+            "route_binding_hash": route_binding["binding_hash"],
             "child_versions": dict(sorted(child_versions.items())),
         }
     finally:
@@ -500,6 +474,7 @@ def promote_root_bundle_candidate(
             "prompt_name": ROOT_BUNDLE_PROMPT_NAME,
             "root_prompt_version": promoted.root.root_prompt_version,
             "bundle_hash": promoted.root.bundle_hash,
+            "route_binding_hash": promoted.root.route_binding_hash,
             "child_versions": sorted(
                 {version for version, _digest in promoted.root.children.values()}
             ),
@@ -579,10 +554,6 @@ def main() -> None:
     parser.add_argument("--public-key-file", type=Path, required=True)
     parser.add_argument("--secret-key-file", type=Path, required=True)
     parser.add_argument("--apply", action="store_true")
-    parser.add_argument(
-        "--source-versions", type=json.loads,
-        help="JSON object mapping every synced prompt to its exact Langfuse source version",
-    )
     parser.add_argument("--promote-control", choices=sorted(CONTROL_PROMPTS))
     parser.add_argument("--candidate-version", type=int)
     parser.add_argument("--expected-source-version", type=int)
@@ -595,6 +566,7 @@ def main() -> None:
         type=json.loads,
         help="JSON object mapping every outcome prompt name to its exact version",
     )
+    parser.add_argument("--root-route-binding-file", type=Path)
     parser.add_argument("--promote-root-bundle-version", type=int)
     parser.add_argument("--expected-root-source-version", type=int)
     args = parser.parse_args()
@@ -602,11 +574,12 @@ def main() -> None:
     secret_key = args.secret_key_file.read_text(encoding="utf-8").strip()
     if args.create_root_bundle:
         if (
-            (args.root_child_version is None and args.root_child_versions is None)
+            args.root_route_binding_file is None
+            or (args.root_child_version is None and args.root_child_versions is None)
             or (args.root_child_version is not None and args.root_child_versions is not None)
         ):
             parser.error(
-                "root bundle creation requires exactly one child version input"
+                "root bundle creation requires exactly one child version input and route binding file"
             )
         child_versions = args.root_child_versions
         if child_versions is None:
@@ -620,6 +593,9 @@ def main() -> None:
             public_key=public_key,
             secret_key=secret_key,
             child_versions=child_versions,
+            route_binding=json.loads(
+                args.root_route_binding_file.read_text(encoding="utf-8")
+            ),
         )
         print(json.dumps(result, ensure_ascii=False, sort_keys=True))
     elif args.promote_root_bundle_version is not None:
@@ -652,7 +628,6 @@ def main() -> None:
             public_key=public_key,
             secret_key=secret_key,
             apply=args.apply,
-            source_versions=args.source_versions,
         )
         for result in results:
             print(result)

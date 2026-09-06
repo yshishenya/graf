@@ -2380,6 +2380,7 @@ class _ProductionModelExecutor:
             base_url=str(settings.litellm_base_url),
             api_key=settings.litellm_api_key_file.read_text(encoding="utf-8").strip(),
             timeout_seconds=settings.litellm_request_timeout_seconds,
+            require_route_binding=True,
         )
 
     def __call__(
@@ -3493,10 +3494,7 @@ def _publish_optimization_observation(
     snapshot = value["snapshot"]
     phase = str(value["phase"])
     call_key = str(value["call_key"])
-    from twobrain_rec_server.observability.langfuse import (
-        _model_parameters,
-        deterministic_observation_scope,
-    )
+    from twobrain_rec_server.observability.langfuse import deterministic_observation_scope
 
     linked_prompt = client.get_prompt(
         snapshot.name,
@@ -3537,12 +3535,15 @@ def _publish_optimization_observation(
                 "prompt_version": snapshot.version,
                 "actual_model": value.get("actual_model"),
                 "actual_provider": value.get("actual_provider"),
-                "selected_model": value["request"].get("model"),
                 "config_hash": prompt_config_hash(snapshot.config),
                 "optimizer_version": OPTIMIZER_VERSION,
             },
-            model=value.get("actual_model"),
-            model_parameters=_model_parameters(value["request"]),
+            model=str(value.get("actual_model") or snapshot.model),
+            model_parameters={
+                key: snapshot.config[key]
+                for key in ("temperature", "max_completion_tokens")
+                if key in snapshot.config
+            },
             prompt=linked_prompt,
             usage_details=usage_details or None,
             cost_details=cost_details or None,

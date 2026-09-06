@@ -4,7 +4,6 @@ import json
 
 import pytest
 
-from tests.fixtures.outcome_prompts import outcome_config
 from twobrain_rec_server.outcomes.prompt_bundle import (
     ROOT_BUNDLE_PROMPT_NAME,
     ROOT_BUNDLE_SCHEMA_VERSION,
@@ -14,11 +13,13 @@ from twobrain_rec_server.outcomes.prompt_bundle import (
     fetch_root_bundle_by_label,
     load_root_export_bytes,
     promote_root_bundle_label,
+    route_binding_hash,
     snapshot_bundle_metadata,
     validate_root_bundle_document,
 )
 from twobrain_rec_server.outcomes.prompts import (
     canonical_json,
+    outcome_config,
     validate_prompt_snapshot,
 )
 from twobrain_rec_server.outcomes.templates import BUILT_IN_TEMPLATES
@@ -51,6 +52,14 @@ def _bundle() -> ResolvedPromptBundle:
     children["graf/meeting-outcome/custom"] = _child(
         "graf/meeting-outcome/custom", len(children) + 1
     )
+    descriptor = {
+        "alias": "gpt-5.6-luna",
+        "binding_version": "graf-litellm-route-v1",
+        "allowed_provider_models": [{"provider": "openai", "model": "gpt-5.6-luna"}],
+        "request_compiler_hash": "a" * 64,
+        "request_compiler_version": "graf-chat-compiler-v1",
+    }
+    binding = {**descriptor, "binding_hash": route_binding_hash(descriptor)}
     refs = {
         name: (snapshot.version, snapshot.canonical_hash)
         for name, snapshot in children.items()
@@ -60,6 +69,7 @@ def _bundle() -> ResolvedPromptBundle:
             {"hash": digest, "name": name, "version": version}
             for name, (version, digest) in sorted(refs.items())
         ],
+        "route_binding": binding,
         "schema_version": ROOT_BUNDLE_SCHEMA_VERSION,
     }
     document = {
@@ -81,6 +91,7 @@ def test_root_export_round_trip_preserves_exact_children_and_binding() -> None:
     assert set(restored.children) == set(bundle.children)
     assert all(
         snapshot.root_bundle_hash == bundle.root.bundle_hash
+        and snapshot.route_binding_hash == bundle.root.route_binding_hash
         for snapshot in restored.children.values()
     )
     assert snapshot_bundle_metadata(restored.child("graf/meeting-outcome/auto"))["root_prompt_version"] == 42
@@ -88,8 +99,7 @@ def test_root_export_round_trip_preserves_exact_children_and_binding() -> None:
 
 def test_build_root_bundle_document_pins_exact_child_hashes() -> None:
     bundle = _bundle()
-    document = build_root_bundle_document(bundle.children)
-    assert set(document) == {"bundle_hash", "children", "schema_version"}
+    document = build_root_bundle_document(bundle.children, bundle.root.route_binding)
 
     assert document["bundle_hash"] == bundle.root.bundle_hash
     assert {
@@ -128,6 +138,7 @@ def test_root_bundle_promotion_bootstraps_when_production_label_is_absent(
                         {"name": n, "version": v, "hash": h}
                         for n, (v, h) in sorted(bundle.root.children.items())
                     ],
+                    "route_binding": bundle.root.route_binding,
                 }), {})
             if name == ROOT_BUNDLE_PROMPT_NAME:
                 document = {
@@ -137,6 +148,7 @@ def test_root_bundle_promotion_bootstraps_when_production_label_is_absent(
                         {"name": n, "version": v, "hash": h}
                         for n, (v, h) in sorted(bundle.root.children.items())
                     ],
+                    "route_binding": bundle.root.route_binding,
                 }
                 return Prompt(42, json.dumps(document), {})
             child = bundle.children[name]
@@ -174,6 +186,7 @@ def test_langfuse_root_fetch_reads_children_by_numeric_version() -> None:
             {"name": name, "version": version, "hash": digest}
             for name, (version, digest) in sorted(bundle.root.children.items())
         ],
+        "route_binding": bundle.root.route_binding,
     }
 
     class Prompt:
@@ -210,31 +223,3 @@ def test_root_bundle_rejects_changed_child_hash() -> None:
 
     with pytest.raises(ValueError, match="child_hash_mismatch|child_mismatch"):
         load_root_export_bytes(canonical_json(changed).encode())
-
-
-def test_root_export_rejects_unknown_bundle_fields() -> None:
-    _, payload, _ = build_root_export(_bundle())
-    changed = json.loads(payload)
-    changed["bundle"]["unexpected"] = {}
-    with pytest.raises(ValueError, match="export_invalid"):
-        load_root_export_bytes(canonical_json(changed).encode())
-
-
-def test_root_round_trip_preserves_different_child_models() -> None:
-    from dataclasses import replace
-
-    children = dict(_bundle().children)
-    name = "graf/meeting-outcome/custom"
-    child = children[name]
-    children[name] = validate_prompt_snapshot(
-        name=name, version=22, prompt_type=child.prompt_type, prompt=child.prompt,
-        config={**child.config, "model": "gemini/gemini-3.8-flash", "top_p": 0.6},
-    )
-    document = build_root_bundle_document(children)
-    bundle = replace(_bundle(), children=children, root=validate_root_bundle_document(
-        document, root_prompt_version=43,
-    ))
-    _, payload, _ = build_root_export(bundle)
-    restored = load_root_export_bytes(payload)
-    assert restored.child(name).litellm_request([]) == children[name].litellm_request([])
-    assert restored.child(name).model != restored.child("graf/meeting-outcome/auto").model

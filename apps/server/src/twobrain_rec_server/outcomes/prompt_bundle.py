@@ -22,11 +22,13 @@ from twobrain_rec_server.outcomes.prompts import (
 from twobrain_rec_server.outcomes.templates import BUILT_IN_TEMPLATES
 
 ROOT_BUNDLE_PROMPT_NAME = "graf/meeting-outcome/root-bundle"
-ROOT_BUNDLE_SCHEMA_VERSION = "graf-outcome-root-bundle-v2"
-ROOT_BUNDLE_EXPORT_SCHEMA_VERSION = "graf-outcome-root-bundle-export-v2"
+ROOT_BUNDLE_SCHEMA_VERSION = "graf-outcome-root-bundle-v1"
+ROOT_BUNDLE_EXPORT_SCHEMA_VERSION = "graf-outcome-root-bundle-export-v1"
 ROOT_BUNDLE_LABEL = "production"
 ROOT_BUNDLE_OBJECT_PREFIX = "_system/prompts/verified-production-root"
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
+_MODEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$")
+_BINDING_VERSION = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 
 OUTCOME_PROMPT_NAMES = frozenset(
     [definition.prompt_name for definition in BUILT_IN_TEMPLATES]
@@ -43,6 +45,11 @@ class RootBundle:
     root_prompt_version: int
     bundle_hash: str
     children: dict[str, tuple[int, str]]
+    route_binding: dict[str, object]
+
+    @property
+    def route_binding_hash(self) -> str:
+        return str(self.route_binding["binding_hash"])
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,6 +65,70 @@ class ResolvedPromptBundle:
             raise PromptBundleError("root_bundle_child_missing") from exc
 
 
+def route_binding_hash(descriptor: Mapping[str, object]) -> str:
+    return sha256(canonical_json(dict(descriptor)).encode("utf-8")).hexdigest()
+
+
+def _validate_route_binding(value: object) -> dict[str, object]:
+    if not isinstance(value, Mapping):
+        raise PromptBundleError("root_bundle_route_binding_invalid")
+    expected = {
+        "alias",
+        "binding_hash",
+        "binding_version",
+        "allowed_provider_models",
+        "request_compiler_hash",
+        "request_compiler_version",
+    }
+    if set(value) != expected:
+        raise PromptBundleError("root_bundle_route_binding_invalid")
+    alias = value.get("alias")
+    binding_version = value.get("binding_version")
+    compiler_version = value.get("request_compiler_version")
+    compiler_hash = value.get("request_compiler_hash")
+    allowed = value.get("allowed_provider_models")
+    if (
+        not isinstance(alias, str)
+        or not _MODEL.fullmatch(alias)
+        or not isinstance(binding_version, str)
+        or not _BINDING_VERSION.fullmatch(binding_version)
+        or not isinstance(compiler_version, str)
+        or not _BINDING_VERSION.fullmatch(compiler_version)
+        or not isinstance(compiler_hash, str)
+        or not _HEX64.fullmatch(compiler_hash)
+        or not isinstance(allowed, list)
+        or not allowed
+    ):
+        raise PromptBundleError("root_bundle_route_binding_invalid")
+    pairs: list[dict[str, str]] = []
+    for pair in allowed:
+        if not isinstance(pair, Mapping) or set(pair) != {"provider", "model"}:
+            raise PromptBundleError("root_bundle_route_binding_invalid")
+        provider = pair.get("provider")
+        model = pair.get("model")
+        if (
+            not isinstance(provider, str)
+            or not _MODEL.fullmatch(provider)
+            or not isinstance(model, str)
+            or not _MODEL.fullmatch(model)
+        ):
+            raise PromptBundleError("root_bundle_route_binding_invalid")
+        pairs.append({"provider": provider, "model": model})
+    descriptor = {
+        "alias": alias,
+        "binding_version": binding_version,
+        "allowed_provider_models": pairs,
+        "request_compiler_hash": compiler_hash,
+        "request_compiler_version": compiler_version,
+    }
+    binding_hash = value.get("binding_hash")
+    if not isinstance(binding_hash, str) or not _HEX64.fullmatch(binding_hash):
+        raise PromptBundleError("root_bundle_route_binding_invalid")
+    if route_binding_hash(descriptor) != binding_hash:
+        raise PromptBundleError("root_bundle_route_binding_hash_mismatch")
+    return {**descriptor, "binding_hash": binding_hash}
+
+
 def validate_root_bundle_document(
     document: object,
     *,
@@ -66,10 +137,10 @@ def validate_root_bundle_document(
 ) -> RootBundle:
     if not isinstance(document, Mapping):
         raise PromptBundleError("root_bundle_invalid")
-    expected = {"bundle_hash", "children", "schema_version"}
+    expected = {"bundle_hash", "children", "route_binding", "schema_version"}
     if set(document) != expected or document.get("schema_version") != ROOT_BUNDLE_SCHEMA_VERSION:
         raise PromptBundleError("root_bundle_invalid")
-    if type(root_prompt_version) is not int or root_prompt_version < 1:
+    if not isinstance(root_prompt_version, int) or root_prompt_version < 1:
         raise PromptBundleError("root_bundle_version_invalid")
     children = document.get("children")
     if not isinstance(children, list) or len(children) != len(expected_children):
@@ -85,7 +156,7 @@ def validate_root_bundle_document(
             not isinstance(name, str)
             or name not in expected_children
             or name in refs
-            or type(version) is not int
+            or not isinstance(version, int)
             or version < 1
             or not isinstance(digest, str)
             or not _HEX64.fullmatch(digest)
@@ -94,11 +165,13 @@ def validate_root_bundle_document(
         refs[name] = (version, digest)
     if set(refs) != set(expected_children):
         raise PromptBundleError("root_bundle_children_invalid")
+    route_binding = _validate_route_binding(document.get("route_binding"))
     body = {
         "children": [
             {"hash": digest, "name": name, "version": version}
             for name, (version, digest) in sorted(refs.items())
         ],
+        "route_binding": route_binding,
         "schema_version": ROOT_BUNDLE_SCHEMA_VERSION,
     }
     bundle_hash = document.get("bundle_hash")
@@ -110,11 +183,13 @@ def validate_root_bundle_document(
         root_prompt_version=root_prompt_version,
         bundle_hash=bundle_hash,
         children=refs,
+        route_binding=route_binding,
     )
 
 
 def build_root_bundle_document(
     children: Mapping[str, PromptSnapshot],
+    route_binding: Mapping[str, object],
     *,
     expected_children: frozenset[str] = OUTCOME_PROMPT_NAMES,
 ) -> dict[str, object]:
@@ -122,6 +197,7 @@ def build_root_bundle_document(
 
     if set(children) != set(expected_children):
         raise PromptBundleError("root_bundle_children_invalid")
+    binding = _validate_route_binding(route_binding)
     refs = {
         name: (snapshot.version, snapshot.canonical_hash)
         for name, snapshot in children.items()
@@ -131,6 +207,7 @@ def build_root_bundle_document(
             {"hash": digest, "name": name, "version": version}
             for name, (version, digest) in sorted(refs.items())
         ],
+        "route_binding": binding,
         "schema_version": ROOT_BUNDLE_SCHEMA_VERSION,
     }
     document = {
@@ -193,6 +270,8 @@ def _bind(snapshot: PromptSnapshot, root: RootBundle) -> PromptSnapshot:
         snapshot,
         root_bundle_hash=root.bundle_hash,
         root_prompt_version=root.root_prompt_version,
+        route_binding_hash=root.route_binding_hash,
+        route_binding=root.route_binding,
     )
 
 
@@ -202,19 +281,26 @@ def snapshot_bundle_metadata(snapshot: PromptSnapshot) -> dict[str, object] | No
     values = (
         snapshot.root_bundle_hash,
         snapshot.root_prompt_version,
+        snapshot.route_binding_hash,
+        snapshot.route_binding,
     )
     if all(value is None for value in values):
         return None
     if (
         not isinstance(snapshot.root_bundle_hash, str)
         or not _HEX64.fullmatch(snapshot.root_bundle_hash)
-        or type(snapshot.root_prompt_version) is not int
+        or not isinstance(snapshot.root_prompt_version, int)
         or snapshot.root_prompt_version < 1
+        or not isinstance(snapshot.route_binding_hash, str)
+        or not _HEX64.fullmatch(snapshot.route_binding_hash)
+        or not isinstance(snapshot.route_binding, Mapping)
     ):
         raise PromptBundleError("root_bundle_binding_invalid")
     return {
         "root_bundle_hash": snapshot.root_bundle_hash,
         "root_prompt_version": snapshot.root_prompt_version,
+        "route_binding_hash": snapshot.route_binding_hash,
+        "route_binding": dict(snapshot.route_binding),
     }
 
 
@@ -224,21 +310,31 @@ def bind_snapshot_from_metadata(snapshot: PromptSnapshot, value: object) -> Prom
     if not isinstance(value, Mapping) or set(value) != {
         "root_bundle_hash",
         "root_prompt_version",
+        "route_binding_hash",
+        "route_binding",
     }:
         raise PromptBundleError("root_bundle_binding_invalid")
     root_bundle_hash = value["root_bundle_hash"]
     root_prompt_version = value["root_prompt_version"]
+    route_hash = value["route_binding_hash"]
     if (
         not isinstance(root_bundle_hash, str)
         or not _HEX64.fullmatch(root_bundle_hash)
-        or type(root_prompt_version) is not int
+        or not isinstance(root_prompt_version, int)
         or root_prompt_version < 1
+        or not isinstance(route_hash, str)
+        or not _HEX64.fullmatch(route_hash)
     ):
+        raise PromptBundleError("root_bundle_binding_invalid")
+    route = _validate_route_binding(value["route_binding"])
+    if route["binding_hash"] != route_hash:
         raise PromptBundleError("root_bundle_binding_invalid")
     return replace(
         snapshot,
         root_bundle_hash=root_bundle_hash,
         root_prompt_version=root_prompt_version,
+        route_binding_hash=route_hash,
+        route_binding=route,
     )
 
 
@@ -250,6 +346,7 @@ def build_root_export(bundle: ResolvedPromptBundle) -> tuple[str, bytes, str]:
                 {"hash": digest, "name": name, "version": version}
                 for name, (version, digest) in sorted(bundle.root.children.items())
             ],
+            "route_binding": bundle.root.route_binding,
             "root_prompt_version": bundle.root.root_prompt_version,
             "schema_version": ROOT_BUNDLE_SCHEMA_VERSION,
         },
@@ -328,15 +425,14 @@ def _load_export(
     if payload["schema_version"] != ROOT_BUNDLE_EXPORT_SCHEMA_VERSION:
         raise PromptBundleError("root_bundle_export_invalid")
     document = payload["bundle"]
-    if not isinstance(document, Mapping) or set(document) != {
-        "bundle_hash", "children", "root_prompt_version", "schema_version",
-    }:
+    if not isinstance(document, Mapping):
         raise PromptBundleError("root_bundle_export_invalid")
     root_version = document.get("root_prompt_version")
     root = validate_root_bundle_document(
         {
             "bundle_hash": document.get("bundle_hash"),
             "children": document.get("children"),
+            "route_binding": document.get("route_binding"),
             "schema_version": document.get("schema_version"),
         },
         root_prompt_version=root_version if isinstance(root_version, int) else 0,
