@@ -510,6 +510,10 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertTrue(source.contains("bulkRuleBinding"))
         XCTAssertTrue(source.contains("rule.displayName"))
         XCTAssertTrue(source.contains("selection?.displayName ?? \"Разные\""))
+        // A group label without containment was inherited by all three buttons
+        // in the installed app, hiding which recording rule each one selects.
+        XCTAssertTrue(source.contains(".accessibilityElement(children: .contain)"))
+        XCTAssertTrue(source.contains(".accessibilityLabel(rule.displayName)"))
         XCTAssertTrue(source.contains(".accessibilityLabel(title)"))
         XCTAssertTrue(source.contains(".accessibilityValue"))
         XCTAssertTrue(source.contains(".accessibilityHint"))
