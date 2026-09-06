@@ -177,11 +177,8 @@ public struct MeetingDetectionSettingsView: View {
     }
 
     private func updateSettings(_ transform: (inout MeetingDetectionSettings) -> Void) {
-        var draft = settings
-        transform(&draft)
         do {
-            try store.save(draft)
-            settings = draft
+            settings = try store.update(transform)
             saveError = nil
             notificationCenter.post(name: .twoBrainRecMeetingDetectionSettingsDidChange, object: nil)
         } catch {

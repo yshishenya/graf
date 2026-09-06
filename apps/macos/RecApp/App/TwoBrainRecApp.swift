@@ -180,6 +180,7 @@ private struct ContentView: View {
     @State private var activeCalendarMatchLocalRecordingId: String?
     @State private var meetingDetectionSettingsStore = MeetingDetectionSettingsStore()
     @State private var meetingDetectionSettings = MeetingDetectionSettings()
+    @State private var openingRecordingSettings = false
     @State private var meetingDetectionRegistryStore: MeetingTargetRegistryStore?
     @State private var meetingDetectionRegistry: MeetingTargetRegistryDocument?
     @State private var meetingDetectionRegistryRequiresRemoteRefresh = false
@@ -343,7 +344,7 @@ private struct ContentView: View {
                     (NSApp.delegate as? AppLifecycleDelegate)?.checkForUpdates(nil)
                 },
                 onOpenMeetingDetectionSettings: {
-                    (NSApp.delegate as? AppLifecycleDelegate)?.openSettings(nil)
+                    (NSApp.delegate as? AppLifecycleDelegate)?.openLocalRecordingSettings()
                 },
                 supportIncidentBridge: supportIncidentBridge,
                 localRecordingRows: EmbeddedCabinetLocalRecordingRow.rows(
@@ -460,6 +461,22 @@ private struct ContentView: View {
             refreshUploadQueueAndProcess(reason: "desktop_auth_session_changed")
             Task { await refreshCalendarReminder(reason: "desktop_auth_session_changed") }
             Task { await refreshMeetingDetectionRegistry(reason: "desktop_auth_session_changed") }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecOpenRecordingSettings)) { _ in
+            guard let configuration = desktopCabinetConfiguration, desktopCabinetState == .ready else {
+                (NSApp.delegate as? AppLifecycleDelegate)?.openLocalRecordingSettings()
+                return
+            }
+            let route = configuration.baseURL.appending(path: "desktop/settings/recording")
+            openingRecordingSettings = selectedCabinetRoute != route
+            selectedCabinetRoute = route
+        }
+        .onChange(of: desktopCabinetState) { _, state in
+            guard openingRecordingSettings, state != .loading else { return }
+            openingRecordingSettings = false
+            if state != .ready {
+                (NSApp.delegate as? AppLifecycleDelegate)?.openLocalRecordingSettings()
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecOpenCalendarSettingsFromTray)) { _ in
             guard let configuration = desktopCabinetConfiguration else { return }
@@ -1520,10 +1537,7 @@ private struct ContentView: View {
     ) {
         let decision = MeetingDetectionPromptDecision(action: .skip, rememberChoice: rememberChoice)
         if let rule = decision.persistedRule {
-            let previousSettings = meetingDetectionSettings
-            meetingDetectionSettings.setRecordingRule(rule, for: prompt.targetID)
-            if !saveMeetingDetectionSettings() {
-                meetingDetectionSettings = previousSettings
+            if !saveMeetingDetectionRule(rule, targetID: prompt.targetID) {
                 meetingDetectionStatus = "Выбор не сохранён"
             }
         }
@@ -1602,10 +1616,7 @@ private struct ContentView: View {
             rememberChoice: autoRecordOptIn
         )
         if let rule = decision.persistedRule {
-            let previousSettings = meetingDetectionSettings
-            meetingDetectionSettings.setRecordingRule(rule, for: prompt.targetID)
-            if !saveMeetingDetectionSettings() {
-                meetingDetectionSettings = previousSettings
+            if !saveMeetingDetectionRule(rule, targetID: prompt.targetID) {
                 meetingDetectionStatus = "Выбор не сохранён"
             }
         }
@@ -1667,9 +1678,11 @@ private struct ContentView: View {
 
     @MainActor
     @discardableResult
-    private func saveMeetingDetectionSettings() -> Bool {
+    private func saveMeetingDetectionRule(_ rule: AutomaticRecordingRule, targetID: String) -> Bool {
         do {
-            try meetingDetectionSettingsStore.save(meetingDetectionSettings)
+            meetingDetectionSettings = try meetingDetectionSettingsStore.update {
+                $0.setRecordingRule(rule, for: targetID)
+            }
             NotificationCenter.default.post(name: .twoBrainRecMeetingDetectionSettingsDidChange, object: nil)
             return true
         } catch {
@@ -3258,7 +3271,14 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
     }
 
     @objc func openSettings(_: Any?) {
-        presentSettingsWindow(reason: "menu")
+        presentMainWindow(reason: "recording_settings")
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: .twoBrainRecOpenRecordingSettings, object: nil)
+        }
+    }
+
+    func openLocalRecordingSettings() {
+        presentSettingsWindow(reason: "local_fallback")
     }
 
     @objc func openCalendarTray(_: Any?) {
@@ -3343,6 +3363,7 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
 private extension Notification.Name {
     static let twoBrainRecApplicationShouldTerminate = Notification.Name("pro.2brain.graf.applicationShouldTerminate")
     static let twoBrainRecApplicationTerminationCleanupFinished = Notification.Name("pro.2brain.graf.applicationTerminationCleanupFinished")
+    static let twoBrainRecOpenRecordingSettings = Notification.Name("pro.2brain.graf.openRecordingSettings")
     static let twoBrainRecOpenCalendarSettingsFromTray = Notification.Name("pro.2brain.graf.openCalendarSettingsFromTray")
     static let twoBrainRecOpenMeetingsFromTray = Notification.Name("pro.2brain.graf.openMeetingsFromTray")
 }

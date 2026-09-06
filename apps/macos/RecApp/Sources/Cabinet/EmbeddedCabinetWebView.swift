@@ -1476,6 +1476,11 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             context.coordinator,
             name: EmbeddedCabinetLocalRecordingBridge.messageHandlerName
         )
+        configuration.userContentController.addScriptMessageHandler(
+            context.coordinator.recordingSettingsBridge,
+            contentWorld: .page,
+            name: EmbeddedCabinetRecordingSettingsBridge.handlerName
+        )
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.wantsLayer = true
         webView.layer?.backgroundColor = DesktopMeetingShellChrome.webEmbeddedBackgroundNSColor.cgColor
@@ -1568,6 +1573,9 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         coordinator.detachSupportIncidentBridge(from: container.webView)
         coordinator.detachNavigationController(from: container.webView)
         container.webView.configuration.userContentController.removeScriptMessageHandler(
+            forName: EmbeddedCabinetRecordingSettingsBridge.handlerName, contentWorld: .page
+        )
+        container.webView.configuration.userContentController.removeScriptMessageHandler(
             forName: EmbeddedCabinetUpdateBridge.messageHandlerName
         )
         container.webView.configuration.userContentController.removeScriptMessageHandler(
@@ -1584,6 +1592,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
     // annotation at this compatibility boundary.
     @MainActor
     public final class Coordinator: NSObject, @preconcurrency WKNavigationDelegate, @preconcurrency WKUIDelegate, @preconcurrency WKScriptMessageHandler, @preconcurrency WKDownloadDelegate {
+        let recordingSettingsBridge: EmbeddedCabinetRecordingSettingsBridge
         private let routePolicy: DesktopCabinetRoutePolicy
         private let desktopHeaders: [String: String]
         private let navigationRequestPolicy: DesktopCabinetNavigationRequestPolicy
@@ -1619,6 +1628,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             navigationController: EmbeddedCabinetNavigationController
         ) {
             self.routePolicy = routePolicy
+            recordingSettingsBridge = EmbeddedCabinetRecordingSettingsBridge(routePolicy: routePolicy)
             self.desktopHeaders = desktopHeaders
             navigationRequestPolicy = DesktopCabinetNavigationRequestPolicy(
                 routePolicy: routePolicy,
@@ -1677,6 +1687,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         public func detachNavigationController(from webView: WKWebView) {
             isActive = false
             cancelJavaScriptConfirmation()
+            recordingSettingsBridge.invalidate()
             navigationController.detach(webView: webView)
         }
 
@@ -2149,6 +2160,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             cabinetState = finishedState
             applyUpdateVisibility(to: webView)
             applyLocalRecordingRows(to: webView)
+            recordingSettingsBridge.activate(webView)
             logNavigationEvent(
                 "cabinet_navigation_finished",
                 detail: "state=\(finishedState.rawValue) \(urlLogDetail(url))"
@@ -2228,6 +2240,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         @MainActor
         public func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
             guard navigationController.isAttached(to: webView) else { return }
+            recordingSettingsBridge.invalidate()
             navigationController.navigationDidStart(webView: webView, navigation: navigation)
             cancelJavaScriptConfirmation()
         }
@@ -2235,6 +2248,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
             guard navigationController.isAttached(to: webView) else { return }
             webContentProcessTerminated = true
+            recordingSettingsBridge.invalidate()
             cancelJavaScriptConfirmation()
             navigationController.cancelPendingNavigation(webView: webView)
             cabinetState = .malformedResponse
@@ -2409,7 +2423,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
     }
 }
 
-private extension WKFrameInfo {
+extension WKFrameInfo {
     var documentRequestURL: URL? {
         // macOS 14 can return nil before a frame has a document despite the
         // nonnull SDK declaration. Read the Objective-C property without

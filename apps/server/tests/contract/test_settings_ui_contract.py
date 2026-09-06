@@ -251,10 +251,14 @@ def test_recording_settings_keep_native_boundary_copy_compact() -> None:
     assert 'data-sidebar-download href="/download"' in page
     assert page.count("data-sidebar-download") == 1
     assert "data-sidebar-download" not in embedded_page
-    assert (
-        '/desktop/settings/meeting-detection">Открыть настройки записи в приложении'
-        in embedded_page
-    )
+    assert 'href="/desktop/settings/meeting-detection"' in embedded_page
+    assert "Открыть локальные настройки" in embedded_page
+    assert "data-recording-settings" in embedded_page
+    assert "data-recording-settings-controls hidden" in embedded_page
+    assert "data-recording-settings" not in page
+    assert "Всегда" in embedded_page and "Спрашивать" in embedded_page and "Никогда" in embedded_page
+    assert 'aria-live="polite"' in embedded_page
+
 
 
 def test_settings_account_close_phrase_is_described_to_confirmation_field() -> None:
