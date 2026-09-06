@@ -213,7 +213,7 @@ def test_session_surface_separates_effective_access_and_uses_local_time() -> Non
     assert [s.session_id for s in surface.active_sessions] == [current.id, unbound.id]
     assert surface.active_sessions[0].client_label == 'GRAF для macOS'
     assert surface.active_sessions[0].last_seen_label == '06.09.2026, 16:57 (Asia/Yekaterinburg)'
-    assert surface.active_sessions[1].client_label == 'Клиент не зарегистрирован'
+    assert surface.active_sessions[1].client_label == 'Устройство не подключено'
     assert {s.status_label for s in surface.session_history} == {'Срок истёк', 'Завершён', 'Доступ заблокирован'}
     assert all(not s.can_revoke for s in surface.session_history)
     assert surface.has_other_sessions
@@ -232,7 +232,24 @@ def test_old_client_metadata_is_not_invented_or_rendered_raw() -> None:
                           device_id=device.id, provider='email', status='active', expires_at=now+timedelta(hours=1))
     binding = AuthSessionDeviceBinding(auth_session_id=session.id, registered_device_id=device.id, device_state='trusted')
     view = account_settings_surface(devices=(device,), sessions=(session,), bindings=(binding,), now=now).sessions[0]
-    assert view.client_label == 'Клиент не определён'
+    assert view.client_label == 'Неизвестный вход'
     assert view.last_seen_label == 'Нет данных'
     assert 'email-login' not in repr(view)
     assert 'browser-email' not in repr(view)
+
+
+def test_session_compact_time_uses_local_calendar_without_claiming_online() -> None:
+    from twobrain_rec_server.cabinet.view_models import _session_time
+
+    now = datetime(2026, 1, 1, 20, tzinfo=UTC)  # January 2 in the profile zone.
+    cases = [
+        (datetime(2026, 1, 1, 19, 30, tzinfo=UTC), "Asia/Yekaterinburg", "сегодня, 00:30"),
+        (datetime(2026, 1, 1, 18, 59, tzinfo=UTC), "Asia/Yekaterinburg", "вчера, 23:59"),
+        (datetime(2025, 12, 31, 18, tzinfo=UTC), "Asia/Yekaterinburg", "31.12.2025, 23:00"),
+        (datetime(2026, 1, 1, 20, 1, tzinfo=UTC), "UTC", "01.01.2026, 20:01"),
+        (datetime(2026, 1, 1, 19, 30), "invalid/zone", "сегодня, 19:30"),
+        (None, "UTC", "Нет данных"),
+    ]
+    for value, zone, expected in cases:
+        assert _session_time(value, zone, relative_to=now) == expected
+    assert _session_time(cases[0][0], "Asia/Yekaterinburg") == "02.01.2026, 00:30 (Asia/Yekaterinburg)"

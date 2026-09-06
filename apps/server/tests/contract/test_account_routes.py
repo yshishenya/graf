@@ -835,12 +835,12 @@ def test_account_security_renders_exact_bulk_and_per_session_actions() -> None:
     session = AuthSession(id=uuid4(), provider="email", status="active", expires_at=datetime.now(UTC)+timedelta(hours=1))
     surface = account_settings_surface(sessions=(session,))
     page = render_settings_page(category="account", csrf_token="safe-csrf", account_surface=surface)
-    assert "Устройства и сеансы" in page
-    assert "Завершить остальные сеансы" in page
+    assert "Где вы вошли" in page
+    assert "Выйти из остальных" in page
     assert "Выйти на всех устройствах" not in page
     assert 'action="/settings/account/sessions/revoke-others"' in page
     assert 'action="/settings/account/devices/revoke-others"' not in page
-    assert "текущем рабочем пространстве" in page
+    assert "Показаны входы в текущее рабочее пространство." in page
     assert "фоновую работу" in page
     empty = render_settings_page(category="account", csrf_token="safe-csrf")
     assert 'action="/settings/account/sessions/revoke-others"' not in empty
@@ -850,12 +850,14 @@ def test_account_security_renders_exact_bulk_and_per_session_actions() -> None:
 def test_session_confirmation_is_explicit_accessible_and_works_without_javascript(embedded) -> None:
     action = ("/desktop" if embedded else "") + "/settings/account/sessions/revoke-others"
     page = render_settings_page(category="account", csrf_token="safe-csrf", embedded=embedded,
-                                session_confirmation={"title": "Завершить остальные сеансы?", "detail": "Этот сеанс останется действующим.", "action": action})
+                                session_confirmation={"title": "Выйти из остальных?", "detail": "Здесь вы останетесь в аккаунте.", "action": action})
     assert f'action="{action}"' in page
     assert 'name="confirm" value="1"' in page
     assert 'name="csrf_token"' in page
     assert "Отмена" in page
-    assert "не удаляет локальные" in page
+    assert "Файлы на устройстве останутся" in page
+    assert 'data-outcome-focus autofocus href=' in page
+    assert 'aria-labelledby="session-confirmation-title" tabindex' not in page
     assert 'data-confirm=' not in page
     assert 'id="session-confirmation-title"' in page
 
@@ -907,7 +909,7 @@ def test_account_security_renders_bulk_result_as_persistent_status() -> None:
     )
 
     assert "Доступ на остальных устройствах завершён. Текущее устройство остаётся активным." in page
-    assert "Остальные сеансы в этом рабочем пространстве завершены. Этот сеанс сохранён." in page
+    assert "Другие входы в этом рабочем пространстве завершены. Здесь вы остались в аккаунте." in page
 
 
 def test_account_ia_aliases_cover_profile_security_and_notifications() -> None:
@@ -1020,3 +1022,30 @@ def test_account_and_notifications_keep_no_js_and_recovery_safe_copy() -> None:
     assert 'method="post"' in account
     assert "<noscript>" in notifications
     assert 'method="post"' in notifications
+
+
+@pytest.mark.parametrize("embedded", [False, True])
+def test_session_current_hierarchy_details_and_exit_order(embedded) -> None:
+    from twobrain_rec_server.cabinet.view_models import account_settings_surface
+    from twobrain_rec_server.db.models import AuthSession
+
+    now = datetime.now(UTC)
+    current, other, expired = [AuthSession(id=uuid4(), provider="email", status="active",
+        issued_at=now-timedelta(days=1), last_seen_at=now,
+        expires_at=now+timedelta(hours=1 if i < 2 else -1)) for i in range(3)]
+    surface = account_settings_surface(sessions=(other, expired, current), current_session_id=current.id, now=now)
+    page = render_settings_page(category="account", csrf_token="safe-csrf", embedded=embedded, account_surface=surface)
+    prefix = "/desktop" if embedded else ""
+    assert page.index("Вы здесь") < page.index('aria-label="Другие входы"') < page.index("Выйти из остальных")
+    assert f'/sessions/{current.id}/revoke' not in page
+    assert f'/sessions/{expired.id}/revoke' not in page
+    assert f'action="{prefix}/settings/account/sessions/{other.id}/revoke"' in page
+    assert 'aria-label="Выйти: Устройство не подключено, вход ' in page
+    assert "Последняя активность: сегодня," in page
+    assert "Предыдущие входы (1)" in page
+    # Exact date and zone remain in native, initially collapsed details.
+    assert '<details class="session-details">' in page
+    assert surface.active_sessions[0].last_seen_label in page
+    alone = render_settings_page(category="account", account_surface=account_settings_surface(sessions=(current,), current_session_id=current.id))
+    assert "Других входов нет." in alone
+    assert "Выйти из остальных" not in alone

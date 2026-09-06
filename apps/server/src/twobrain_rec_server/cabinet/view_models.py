@@ -190,11 +190,12 @@ class AccountSessionView:
     current: bool
     can_revoke: bool
 
-    client_label: str = "Клиент не определён"
+    client_label: str = "Неизвестный вход"
     client_detail: str = ""
     issued_label: str = "Нет данных"
     last_seen_label: str = "Нет данных"
     expires_label: str = "Нет данных"
+    last_seen_short: str = "Нет данных"
     active: bool = False
 
 
@@ -272,7 +273,7 @@ def account_device_view(
     )
 
 
-def _session_time(value: datetime | None, timezone_name: str) -> str:
+def _session_time(value: datetime | None, timezone_name: str, *, relative_to: datetime | None = None) -> str:
     if value is None:
         return "Нет данных"
     try:
@@ -280,25 +281,32 @@ def _session_time(value: datetime | None, timezone_name: str) -> str:
     except (ValueError, ZoneInfoNotFoundError):
         zone = ZoneInfo("UTC")
     aware = value.replace(tzinfo=UTC) if value.tzinfo is None else value
-    return f"{aware.astimezone(zone):%d.%m.%Y, %H:%M} ({zone.key})"
+    local = aware.astimezone(zone)
+    if relative_to is not None:
+        reference = relative_to.replace(tzinfo=UTC) if relative_to.tzinfo is None else relative_to
+        days = (reference.astimezone(zone).date() - local.date()).days
+        if days in (0, 1) and aware <= reference:
+            return f"{'сегодня' if days == 0 else 'вчера'}, {local:%H:%M}"
+        return f"{local:%d.%m.%Y, %H:%M}"
+    return f"{local:%d.%m.%Y, %H:%M} ({zone.key})"
 
 
 def _session_client(device: RegisteredDevice | None) -> tuple[str, str]:
     if device is None:
-        return "Клиент не зарегистрирован", "Вход выполнен, устройство ещё не подключено"
+        return "Устройство не подключено", "Вы вошли в аккаунт, но устройство ещё не подключено. Доступ к данным ограничен."
     if device.platform == "macos":
         version = device.client_version or ""
         detail = f"Версия {version}" if re.fullmatch(r"[0-9]+(?:\.[0-9]+){1,3}", version) else "Версия приложения неизвестна"
         return "GRAF для macOS", detail
     metadata = (device.client_version or "").split(":")
-    browsers = {"chrome": "Chrome", "edge": "Edge", "firefox": "Firefox", "safari": "Safari", "unknown": "Клиент не определён"}
+    browsers = {"chrome": "Chrome", "edge": "Edge", "firefox": "Firefox", "safari": "Safari", "unknown": "Неизвестный вход"}
     systems = {"macos": "macOS", "windows": "Windows", "linux": "Linux", "ios": "iOS", "android": "Android", "unknown": ""}
     if (device.platform == "web" and (device.device_public_id or "").startswith("login:")
             and len(metadata) == 3 and metadata[0] == "browser"
             and metadata[1] in browsers and metadata[2] in systems):
         system = systems[metadata[2]]
         return browsers[metadata[1]] + (f" на {system}" if system else ""), ""
-    return "Клиент не определён", "Для этого входа сведения о приложении или браузере не сохранились"
+    return "Неизвестный вход", "Для этого входа сведения о приложении или браузере не сохранились"
 
 
 def account_session_view(
@@ -312,13 +320,14 @@ def account_session_view(
 ) -> AccountSessionView:
     from twobrain_rec_server.auth.sessions import is_session_token_valid
 
-    active = is_session_token_valid(session, now or datetime.now(UTC)) and access_allowed
+    now = now or datetime.now(UTC)
+    active = is_session_token_valid(session, now) and access_allowed
     status_label = {"revoked": "Завершён", "expired": "Срок истёк", "replaced": "Заменён новым входом"}.get(session.status, "Состояние неизвестно")
     if session.status == "active":
         status_label = "Действует" if active else ("Доступ заблокирован" if not access_allowed else "Срок истёк")
     client_label, client_detail = _session_client(device)
     if not access_allowed and device is None:
-        client_label, client_detail = "Клиент не определён", "Связь с устройством недоступна"
+        client_label, client_detail = "Неизвестный вход", "Связь с устройством недоступна"
     current = session.id == current_session_id
     return AccountSessionView(
         session_id=session.id,
@@ -332,6 +341,7 @@ def account_session_view(
         client_detail=client_detail,
         issued_label=_session_time(session.issued_at, timezone_name),
         last_seen_label=_session_time(session.last_seen_at, timezone_name),
+        last_seen_short=_session_time(session.last_seen_at, timezone_name, relative_to=now),
         expires_label=_session_time(session.expires_at, timezone_name),
         active=active,
     )

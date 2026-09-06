@@ -74,3 +74,23 @@ PR: https://github.com/yshishenya/graf/pull/6626.
 `governance-fast`: **PASS**, https://github.com/yshishenya/graf/actions/runs/34019926551, SHA `49f5293f05c8b43dbd22db9d4e9206d8919fc861`, job 9m30s. Все обязательные шаги, включая тесты и проверку итоговых доказательств, успешны. CodeRabbit: SUCCESS, замечаний к строкам diff нет.
 
 T001–T009 выполнены; каждая строка tasks.md содержит связь с issue. Документальный closeout не меняет production code; новый SHA также обязан получить успешный governance-fast. Итоговый run URL и точный SHA хранятся в завершающем комментарии PR #6626 и комментариях задач. Umbrella #6614 остаётся открытой до отдельного merge closeout; релиз и deployment не входят в запрос.
+
+
+## Пользовательская подача: T010–T011
+
+Повторные clarify/analyze и независимый UX gate приняты до реализации. Раздел называется «Где вы вошли»: текущая карточка выделена фоном, рамкой и меткой «Вы здесь», остальные входы идут отдельной группой. Короткая последняя активность заменяет повторяющиеся точные даты; календарный день определяется в зоне профиля, будущие значения не выдаются за «сейчас». Точное время, зона, способ и срок входа остаются в native details. Других входов может не быть; неизвестные данные не выдаются за чужой доступ. Кнопка выхода из остальных находится после списка. Подтверждение называет цель и последствия; первоначальный фокус на отмене, включая режим без JavaScript.
+
+Изменения ограничены представлением, formatter и микротекстами. Проверки доступа, CSRF, confirm=1, область пространства, API и БД не меняются. Повторно использованы существующие CSS tokens, Jinja macro, native details и механизм фокуса. Новых зависимостей, активов интерфейса или JavaScript нет.
+
+Локальные проверки продолжения:
+- `apps/server/scripts/run_local_postgres_tests.sh --focused tests/integration/test_account_lifecycle.py tests/contract/test_account_routes.py tests/contract/test_settings_ui_contract.py tests/unit/test_settings_view_models.py`: **110 passed**, 31.12 s. Настоящие single/bulk confirmation и сохранение текущего доступа проходят на изолированном PostgreSQL. Новые проверки покрывают календарные дни/переход года/UTC fallback/future/unknown, структуру текущего входа, точные подробности и доступные имена.
+- После уточнения подписей раскрытий повторены `tests/contract/test_account_routes.py tests/contract/test_settings_ui_contract.py tests/unit/test_settings_view_models.py` через тот же изолированный runner: **92 passed**, 0.40 s.
+- Ruff изменённых Python файлов: **PASS**. `check_spec_kit_governance.py`: **PASS**. `git diff --check`: **PASS**.
+- In-app Chromium: 375/768/1280 px без горизонтального переполнения; визуально просмотрены тёмная и светлая темы, текущая карточка, подробности, предыдущие входы, пояснения, подтверждение/отмена с клавиатуры и ошибка через role=alert.
+- Повторный WebKit: 375/768/1280 px — currentFirst=true, keyboardDetails=true, overflow=false; подтверждение и фокус отмены PASS. Отдельный context с javaScriptEnabled=false: confirmation=true, cancel=true, safeFocus=true. Проверено на production HTML/CSS с синтетической поверхностью; preview не эмулирует реальные изменения доступа.
+- Независимый reviewer: окончательные снимки 375/768/1280, светлая тема, подтверждение и diff — **PASS**; Ponytail: **Lean already. Ship**. Evidence рецензента: `../checklists/ux.md`.
+
+![Узкий экран, синтетические данные](ux-375.png)
+![Широкий экран, синтетические данные](ux-1280.png)
+
+Convergence продолжения: FR-013–016, SC-005–006 и сохранение FR-004/006/007/010–012 проверены; новых пробелов реализации нет. T010/T011 закрываются по локальному результату. Обязательный governance-fast нового SHA — отдельное условие PR, фиксируется в комментарии после push. Релиз, deployment и проверка приватного аккаунта остаются за пределами этого этапа.

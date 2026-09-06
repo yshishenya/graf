@@ -24,3 +24,10 @@ Independent test: current/other/expired/revoked/unknown UI, timezone, no-JS по
 
 ## Dependencies
 T001 → T002 → T003; T004 после T001 (отдельные Swift файлы). T005 → T006 после T003; T007 → T008 после T006; T009 после всех реализаций. Сначала тесты, затем соответствующий код. Checklist state принадлежит рецензенту, не реализации. Tasks отмечать только после evidence.
+
+## Phase 6 — Пользовательская подача по обратной связи
+Independent test: пользователь различает текущий и другие входы по визуальной и текстовой иерархии; короткие строки не скрывают точные данные и последствия выхода.
+- [X] T010 [US3] Уточнить пользовательскую подачу и принять независимый UX gate в specs/248-trustworthy-account-sessions/spec.md, plan.md, research.md, contracts/sessions.md и checklists/ux.md; повторить analyze и синхронизировать задачи. [FR-013–016,SC-005–006] (Issue #6628)
+- [X] T011 [US3] Реализовать понятный список/подробности/подтверждение в apps/server/src/twobrain_rec_server/cabinet/view_models.py, rendering.py, web_routes/settings.py, templates/cabinet/pages/settings_account_content.html и static/cabinet/cabinet.css; проверить целевые unit/route/UI tests, browser/WebKit 375/768/1280/no-JS/keyboard и независимый review; дополнить specs/248-trustworthy-account-sessions/evidence/implementation.md и changes/unreleased/F248.yaml. [FR-004,006,007,010–016,SC-005–006] (Issue #6629)
+
+T010 → T011; первый этап T001–T009 не переоткрывается. Новый exact-SHA governance-fast — обязательный внешний PR closeout после завершения T011 и итогового коммита, отдельно от локального checkbox.

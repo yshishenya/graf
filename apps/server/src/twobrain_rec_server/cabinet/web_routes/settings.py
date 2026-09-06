@@ -1134,12 +1134,12 @@ async def _session_revoke_action(
                 target = next((row for row in surface.sessions if row.session_id == session_id), None)
                 if target is None:
                     raise ProblemDetail(status=404, code="auth_session_not_found", title="Сеанс не найден")
-                title = f"Завершить сеанс «{target.client_label}»?"
-                detail = f"Вход выполнен: {target.issued_label}. Последняя связь: {target.last_seen_label}. Этот сеанс останется действующим."
+                title = f"Выйти из «{target.client_label}»?"
+                detail = f"Вход выполнен: {target.issued_label}. Последняя активность: {target.last_seen_label}."
                 action = f"{base}/sessions/{session_id}/revoke"
             else:
-                title = "Завершить остальные сеансы?"
-                detail = f"Сеансов для завершения: {sum(row.can_revoke for row in surface.sessions)}. Этот сеанс останется действующим. Действие касается текущего рабочего пространства."
+                title = "Выйти из остальных?"
+                detail = f"Других входов: {sum(row.can_revoke for row in surface.sessions)}. Вы выйдете из них в текущем рабочем пространстве."
                 action = f"{base}/sessions/revoke-others"
             return await _render_settings(
                 request, category="account", embedded=embedded, tenant_scope=tenant_scope,
