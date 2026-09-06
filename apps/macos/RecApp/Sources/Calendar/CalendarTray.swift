@@ -22,6 +22,8 @@ public final class CalendarTrayModel: ObservableObject {
     @Published public private(set) var lastUpdatedAt: Date?
     @Published public private(set) var showUpcomingTime = true
     @Published public private(set) var showUpcomingTitle = true
+    @Published public var appUpdatePresentation: AppUpdatePresentation = .idle
+    @Published public var canCheckForUpdates = false
 
     private let load: @Sendable () async throws -> DesktopCalendarPromptResponse
     private var refreshGeneration = 0
@@ -72,23 +74,28 @@ public struct CalendarTrayView: View {
     private let onOpenMeetings: () -> Void
     private let onOpenMeetingLink: (URL) -> Void
     private let onRefresh: () -> Void
+    private let onUpdate: () -> Void
 
     public init(
         model: CalendarTrayModel,
         onOpenCalendar: @escaping () -> Void,
         onOpenMeetings: @escaping () -> Void,
         onOpenMeetingLink: @escaping (URL) -> Void,
-        onRefresh: @escaping () -> Void
+        onRefresh: @escaping () -> Void,
+        onUpdate: @escaping () -> Void = {}
     ) {
         self.model = model
         self.onOpenCalendar = onOpenCalendar
         self.onOpenMeetings = onOpenMeetings
         self.onOpenMeetingLink = onOpenMeetingLink
         self.onRefresh = onRefresh
+        self.onUpdate = onUpdate
     }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            AppUpdateNotice(presentation: model.appUpdatePresentation,
+                            isActionEnabled: model.canCheckForUpdates, onUpdate: onUpdate)
             header
             Divider()
             content
@@ -274,17 +281,20 @@ public final class CalendarTrayController: NSObject {
     private let popover = NSPopover()
     private let onOpenCalendar: () -> Void
     private let onOpenMeetings: () -> Void
+    private let onUpdate: () -> Void
     private var refreshTask: Task<Void, Never>?
     private var observers: [(NotificationCenter, NSObjectProtocol)] = []
 
     public init(
         model: CalendarTrayModel,
         onOpenCalendar: @escaping () -> Void,
-        onOpenMeetings: @escaping () -> Void
+        onOpenMeetings: @escaping () -> Void,
+        onUpdate: @escaping () -> Void = {}
     ) {
         self.model = model
         self.onOpenCalendar = onOpenCalendar
         self.onOpenMeetings = onOpenMeetings
+        self.onUpdate = onUpdate
         super.init()
     }
 
@@ -320,7 +330,11 @@ public final class CalendarTrayController: NSObject {
                 onOpenCalendar: { [weak self] in self?.openCalendar() },
                 onOpenMeetings: { [weak self] in self?.openMeetings() },
                 onOpenMeetingLink: { [weak self] url in self?.openMeetingLink(url) },
-                onRefresh: { [weak self] in self?.refreshNow() }
+                onRefresh: { [weak self] in self?.refreshNow() },
+                onUpdate: { [weak self] in
+                    self?.popover.performClose(nil)
+                    self?.onUpdate()
+                }
             )
         )
 
@@ -362,6 +376,21 @@ public final class CalendarTrayController: NSObject {
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         popover.contentViewController?.view.window?.makeKey()
         refreshNow()
+    }
+
+    public func showUpdate(_ presentation: AppUpdatePresentation, actionEnabled: Bool) {
+        model.appUpdatePresentation = presentation
+        model.canCheckForUpdates = actionEnabled
+        let version = presentation.showsSidebarBadge ? presentation.availableVersion : nil
+        let label = version.map { "GRAF — доступна версия \($0). Ближайшие встречи." }
+            ?? "Ближайшие встречи GRAF"
+        statusItem.button?.image = NSImage(
+            systemSymbolName: version == nil ? "calendar.badge.clock" : "arrow.down.circle.fill",
+            accessibilityDescription: nil
+        )
+        statusItem.button?.image?.isTemplate = true
+        statusItem.button?.toolTip = label
+        statusItem.button?.setAccessibilityLabel(label)
     }
 
     @objc private func togglePopover(_ sender: Any?) {
