@@ -147,3 +147,13 @@ T029: https://github.com/yshishenya/graf/issues/6761
 
 Пользователь уточнил метод T021: пять независимых субагентов вместо отсутствующих
 наблюдений людей. Их выводы сведены в agent-study.md; p95 этим не измерен.
+
+## Phase 13: Convergence
+
+- [ ] T030 Добавить штатный переход между версиями управляющего кода в `scripts/dev-harness.py`: проверять чистый checkout прежнего полного SHA и его runtime digest до любых изменений, восстанавливать прежний runtime прежним кодом при отказе, поддержать симметричный rollback через проверенный target checkout. Сохранить блокировку, единственный GRAF Dev, данные и проверки идентичности; добавить регрессии и выполнить живой переход. [T022; process: single GRAF Dev; partial]
+
+T030: https://github.com/yshishenya/graf/issues/6763
+
+- [ ] T031 Устранить повторные сигналы одной записи при ошибке Stop и подавлять баннер поверх видимого результата; назвать переход в общий список «Открыть локальные записи» в `DesktopNotificationPresenter.swift` и `DesktopControlPanel.swift`, добавить регрессии. [FR-002/005/019; expert pass 5; contradicts]
+
+T031: https://github.com/yshishenya/graf/issues/6764

@@ -122,6 +122,7 @@ def test_live_rollback_publishes_pointer_only_after_verified_adapter(monkeypatch
             return {"mode": "live", "checks": {"backend_health": "pass"}}
 
     monkeypatch.setattr(dev_harness, "GrafLocalAdapter", FakeAdapter)
+    monkeypatch.setattr(dev_harness, "state_dir", lambda **_: tmp_path)
     result = run("rollback", tmp_path, manifest_id=None, dry_run=False, live=True)
 
     after = json.loads((tmp_path / "active-manifest.json").read_text(encoding="utf-8"))
@@ -279,3 +280,22 @@ def test_signed_app_identity_ignores_paths_and_plist_order_but_detects_changes(m
     monkeypatch.setattr(dev_harness, "_run_command", lambda *_args, **_kwargs: "<plist>broken")
     with pytest.raises(dev_harness.HarnessError, match="no readable entitlements"):
         app._measure_signed_app_identity(tmp_path / "invalid.app")
+
+
+def test_live_publication_failure_requires_recovery(monkeypatch, tmp_path):
+    item = build(tmp_path, "e" * 40)
+    original = dev_harness._write_json
+    def fail_pointer(path, payload):
+        if path.name == "active-manifest.json":
+            raise OSError("injected pointer write failure")
+        original(path, payload)
+    monkeypatch.setattr(dev_harness, "_write_json", fail_pointer)
+    with pytest.raises(dev_harness.HarnessError, match="publication failed"):
+        dev_harness._publish_active(tmp_path, item, "live")
+    assert run("status", tmp_path)["status"] == "rollback_required"
+    assert json.loads((tmp_path / "rollback-required.json").read_text())["source_sha"] == item["source_sha"]
+
+
+def test_live_rollback_rejects_isolated_state_directory(tmp_path):
+    with pytest.raises(dev_harness.HarnessError, match="repository-global"):
+        run("rollback", tmp_path, manifest_id=None, dry_run=False, live=True)

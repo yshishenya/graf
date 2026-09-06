@@ -37,6 +37,21 @@ public final class DesktopNotificationPreferencesStore {
     public func ownsSession(_ id: String, context: String) -> Bool {
         !context.isEmpty && defaults.string(forKey: key("session:" + id)) == key(context)
     }
+    // Share the old capture claim and every related legacy upload claim. Updating
+    // them together also prevents repeat delivery when rolling back to old code.
+    func claimLocalIncident(_ incident: DesktopLocalNotificationIncident, owner: String, now: Date) -> Bool {
+        guard !owner.isEmpty, incident.expires > now else { return false }
+        let name = key(owner) + ".attempts"
+        var claims = (defaults.dictionary(forKey: name) as? [String: Double] ?? [:])
+            .filter { $0.value > now.timeIntervalSince1970 }
+        let ids = [incident.id] + incident.itemIDs.map { "graf.local.incident." + $0 }
+        let digests = ids.map { SHA256.hash(data: Data($0.utf8)).map { String(format: "%02x", $0) }.joined() }
+        let previous = digests.compactMap { claims[$0] }.max()
+        let expires = max(previous ?? 0, incident.expires.timeIntervalSince1970)
+        for digest in digests { claims[digest] = expires }
+        defaults.set(claims, forKey: name)
+        return previous == nil
+    }
     public func claim(id: String, owner: String, expires: Date, scheduledFor: Date? = nil, now: Date = Date()) -> Bool {
         guard !owner.isEmpty, expires > now else { return false }
         let name = key(owner) + ".attempts"
@@ -64,6 +79,48 @@ public final class DesktopNotificationPreferencesStore {
     }
 }
 
+struct DesktopLocalNotificationIncident {
+    var sessionID: String
+    var itemIDs: [String]
+    var expires: Date
+    var fresh: Bool
+    var id: String { "graf.local.capture." + sessionID }
+
+    static func incidents(in snapshot: DesktopControlSnapshot, now: Date) -> [Self] {
+        var grouped: [String: Self] = [:]
+        for issue in snapshot.localIssues {
+            let item = issue.primaryItem
+            let previous = grouped[item.sessionId]
+            grouped[item.sessionId] = Self(sessionID: item.sessionId,
+                itemIDs: snapshot.uploadItems.filter { $0.sessionId == item.sessionId }.map(\.id),
+                expires: max(previous?.expires ?? item.retentionDeadline, item.retentionDeadline),
+                fresh: previous?.fresh == true || (0..<300).contains(now.timeIntervalSince(item.updatedAt)))
+        }
+        if let session = snapshot.session, snapshot.blocker?.isEmpty == false {
+            if var incident = grouped[session.id] {
+                incident.fresh = true
+                grouped[session.id] = incident
+            } else {
+                grouped[session.id] = Self(sessionID: session.id,
+                    itemIDs: snapshot.uploadItems.filter { $0.sessionId == session.id }.map(\.id),
+                    expires: now.addingTimeInterval(86400), fresh: true)
+            }
+        }
+        return grouped.values.sorted { $0.sessionID < $1.sessionID }
+    }
+
+    func claimForDelivery(store: DesktopNotificationPreferencesStore, owner: String,
+                          visibleResultSessionID: String?, now: Date) -> Bool {
+        // Only this recording was shown; another recording must keep its own
+        // attention path even while this result is visible.
+        if visibleResultSessionID == sessionID {
+            _ = store.claimLocalIncident(self, owner: owner, now: now)
+            return false
+        }
+        return store.claimLocalIncident(self, owner: owner, now: now)
+    }
+}
+
 @MainActor
 public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNUserNotificationCenterDelegate {
     public static let shared = DesktopNotificationPresenter()
@@ -81,6 +138,7 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
     private var calendarEvents: [DesktopCalendarPromptEvent] = []
     private var requests: [String: (owner: String, event: DesktopCalendarPromptEvent?)] = [:]
     private var observation: AnyCancellable?
+    private var resultVisibilityObservation: AnyCancellable?
     private var activationObservation: AnyCancellable?
     private var settingsObservation: AnyCancellable?
     private var permissionGeneration = 0
@@ -96,6 +154,11 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
         settingsObservation = NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)
             .filter { ($0.object as? NSWindow)?.identifier?.rawValue == "graf-settings-window" }
             .sink { [weak self] _ in Task { await self?.refreshPermission() } }
+        resultVisibilityObservation = DesktopControlModel.shared.$visibleResultSessionID.removeDuplicates().sink { [weak self] _ in
+            guard let self else { return }
+            self.generation += 1
+            Task { await self.refreshLocal(self.lastSnapshot) }
+        }
         observation = DesktopControlModel.shared.$snapshot.sink { [weak self] snapshot in
             guard let self, snapshot != self.lastSnapshot else { return }
             let activeChanged = snapshot.active != self.lastSnapshot.active
@@ -234,21 +297,23 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
     }
     private func refreshLocal(_ snapshot: DesktopControlSnapshot) async {
         let epoch = generation
-        let issues = snapshot.localIssues.filter { store.ownsSession($0.primaryItem.sessionId, context: context) }
-        var incidents = issues.map { (id: "graf.local.incident." + $0.primaryItem.id,
-            expires: $0.primaryItem.retentionDeadline, fresh: (0..<300).contains(Date().timeIntervalSince($0.primaryItem.updatedAt))) }
-        if let session = snapshot.session, store.ownsSession(session.id, context: context),
-           snapshot.blocker?.isEmpty == false {
-            incidents.append((id: "graf.local.capture." + session.id, expires: Date().addingTimeInterval(86400), fresh: true))
-        }
+        let incidents = DesktopLocalNotificationIncident.incidents(in: snapshot, now: Date())
+            .filter { store.ownsSession($0.sessionID, context: context) }
         let desired = Set(incidents.map(\.id))
         let obsolete = requests.filter { $0.value.event == nil && !desired.contains($0.key) }.map(\.key)
         center.removePendingNotificationRequests(withIdentifiers: obsolete)
         center.removeDeliveredNotifications(withIdentifiers: obsolete)
         obsolete.forEach { requests.removeValue(forKey: $0) }
-        guard !incidents.isEmpty, !owner.isEmpty, await allowed(), epoch == generation, snapshot == lastSnapshot, !snapshot.active, !NSApp.isActive else { return }
+        guard !incidents.isEmpty, !owner.isEmpty, epoch == generation, snapshot == lastSnapshot, !snapshot.active else { return }
+        // A visible result is already communicated, including when macOS delivery
+        // is denied or GRAF is foreground. Do not replay it after hiding the panel.
+        for incident in incidents where incident.fresh && incident.sessionID == DesktopControlModel.shared.visibleResultSessionID {
+            _ = store.claimLocalIncident(incident, owner: owner, now: Date())
+        }
+        guard await allowed(), epoch == generation, snapshot == lastSnapshot, !snapshot.active, !NSApp.isActive else { return }
         for incident in incidents where incident.fresh {
-            guard store.claim(id: incident.id, owner: owner, expires: incident.expires) else { continue }
+            guard incident.claimForDelivery(store: store, owner: owner,
+                visibleResultSessionID: DesktopControlModel.shared.visibleResultSessionID, now: Date()) else { continue }
             let content = UNMutableNotificationContent()
             content.title = "Запись требует вашего внимания"
             content.body = "Откройте локальные записи в GRAF, чтобы проверить запись, отправку и восстановление."

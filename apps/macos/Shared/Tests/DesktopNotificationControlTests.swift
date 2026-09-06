@@ -1,6 +1,6 @@
 import Foundation
 import XCTest
-import TwoBrainRecAppCore
+@testable import TwoBrainRecAppCore
 import TwoBrainRecShared
 
 @MainActor
@@ -135,6 +135,67 @@ final class DesktopNotificationControlTests: XCTestCase {
         XCTAssertTrue(DesktopNotificationPresenter.reminderBody(startsAt: start, due: due, offsetMinutes: 5, now: due).contains("через 5 мин"))
         XCTAssertTrue(DesktopNotificationPresenter.reminderBody(startsAt: start, due: due, offsetMinutes: 5, now: start.addingTimeInterval(-30)).contains("скоро"))
         XCTAssertTrue(DesktopNotificationPresenter.reminderBody(startsAt: start, due: due, offsetMinutes: 5, now: start).contains("уже началась"))
+    }
+
+    func testStopAndUploadFailureBecomeOneSessionIncident() {
+        let now = Date()
+        let item = custodyFixtureQueueItem(id: "stopped", state: .failed,
+            retentionDeadline: now.addingTimeInterval(3600), updatedAt: now)
+        var snapshot = DesktopControlSnapshot()
+        snapshot.uploadItems = [item]
+        snapshot.session = CaptureSession(id: item.sessionId, mode: .audioRecording, state: .failed,
+            sourceAppEligibility: .eligible, policySnapshotRef: "policy", triggerEvidence: [:],
+            visibleIndicatorState: .error, stopActionAvailable: false,
+            bufferSummaryId: nil, startedAt: now.addingTimeInterval(-60), stoppedAt: now)
+        snapshot.blocker = "Не удалось завершить запись"
+        let incidents = DesktopLocalNotificationIncident.incidents(in: snapshot, now: now)
+        XCTAssertEqual(incidents.count, 1)
+        XCTAssertEqual(incidents.first?.sessionID, item.sessionId)
+        XCTAssertEqual(incidents.first?.itemIDs, [item.id])
+        XCTAssertEqual(incidents.first?.fresh, true)
+    }
+
+    func testLegacyClaimsPreventDuplicateAfterUpgradeAndRollback() throws {
+        let now = Date()
+        let incident = DesktopLocalNotificationIncident(sessionID: "session", itemIDs: ["item"],
+            expires: now.addingTimeInterval(3600), fresh: true)
+        for legacyID in ["graf.local.capture.session", "graf.local.incident.item"] {
+            let name = "graf-notification-upgrade-\(UUID())"
+            let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+            defer { defaults.removePersistentDomain(forName: name) }
+            let store = DesktopNotificationPreferencesStore(defaults: defaults)
+            XCTAssertTrue(store.claim(id: legacyID, owner: "owner", expires: incident.expires, now: now))
+            XCTAssertFalse(store.claimLocalIncident(incident, owner: "owner", now: now))
+            let restored = DesktopNotificationPreferencesStore(defaults: defaults)
+            XCTAssertFalse(restored.claim(id: "graf.local.capture.session", owner: "owner", expires: incident.expires, now: now))
+            XCTAssertFalse(restored.claim(id: "graf.local.incident.item", owner: "owner", expires: incident.expires, now: now))
+            XCTAssertFalse(restored.claimLocalIncident(incident, owner: "owner", now: now))
+        }
+    }
+
+    func testVisibleStopResultConsumesOnlyItsIncidentWithoutLosingOtherRecording() throws {
+        let name = "graf-notification-visible-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let store = DesktopNotificationPreferencesStore(defaults: defaults)
+        let now = Date()
+        let shown = DesktopLocalNotificationIncident(sessionID: "shown", itemIDs: ["a"],
+            expires: now.addingTimeInterval(3600), fresh: true)
+        let other = DesktopLocalNotificationIncident(sessionID: "other", itemIDs: ["b"],
+            expires: now.addingTimeInterval(3600), fresh: true)
+        let model = DesktopControlModel()
+        model.setVisibleResultSessionID("shown")
+        XCTAssertFalse(shown.claimForDelivery(store: store, owner: "owner",
+            visibleResultSessionID: model.visibleResultSessionID, now: now))
+        XCTAssertTrue(other.claimForDelivery(store: store, owner: "owner",
+            visibleResultSessionID: model.visibleResultSessionID, now: now))
+        model.setVisibleResultSessionID(nil)
+        XCTAssertFalse(shown.claimForDelivery(store: store, owner: "owner",
+            visibleResultSessionID: model.visibleResultSessionID, now: now.addingTimeInterval(8)))
+        XCTAssertFalse(other.claimForDelivery(store: store, owner: "owner",
+            visibleResultSessionID: model.visibleResultSessionID, now: now.addingTimeInterval(8)))
+        XCTAssertFalse(other.claimForDelivery(store: store, owner: "owner",
+            visibleResultSessionID: nil, now: now.addingTimeInterval(9)))
     }
 
 }

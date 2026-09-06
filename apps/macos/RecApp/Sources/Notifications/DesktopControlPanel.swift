@@ -34,6 +34,8 @@ public struct DesktopControlSnapshot: Equatable {
 public final class DesktopControlModel: ObservableObject {
     public static let shared = DesktopControlModel()
     @Published public private(set) var snapshot = DesktopControlSnapshot()
+    @Published private(set) var visibleResultSessionID: String?
+    func setVisibleResultSessionID(_ id: String?) { visibleResultSessionID = id }
     public var onAction: (DesktopControlAction) -> Void = { _ in }
     public init() {}
     public func update(_ value: DesktopControlSnapshot) { snapshot = value }
@@ -82,7 +84,7 @@ public struct DesktopControlPanel: View {
                     } else {
                         Text("Проверьте локальную копию в списке записей.").foregroundStyle(.secondary)
                     }
-                    Button("Открыть запись") { model.send(.localRecordings) }
+                    Button("Открыть локальные записи") { model.send(.localRecordings) }
                 } else {
                     Text(model.snapshot.transitioning ? "Подготавливаем запись…" : model.snapshot.startAvailable ? "Готово к записи" : "Проверьте доступ к записи")
                 }
@@ -147,12 +149,17 @@ public final class DesktopRecordingWidget {
             guard let self else { return }
             if snapshot.active {
                 self.hideCompletion?.cancel()
+                model.setVisibleResultSessionID(nil)
                 self.keepVisible()
                 self.panel.orderFrontRegardless()
             } else if self.wasActive {
                 // Keep the confirmed local result visible without a system banner.
                 self.keepVisible()
-                let hide = DispatchWorkItem { [weak self] in self?.panel.orderOut(nil) }
+                model.setVisibleResultSessionID(self.panel.isVisible ? snapshot.session?.id : nil)
+                let hide = DispatchWorkItem { [weak self, weak model] in
+                    self?.panel.orderOut(nil)
+                    model?.setVisibleResultSessionID(nil)
+                }
                 self.hideCompletion = hide
                 DispatchQueue.main.asyncAfter(deadline: .now() + 8, execute: hide)
             }

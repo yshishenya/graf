@@ -24,6 +24,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import types
 from typing import Any, Dict, Iterator, Optional
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
@@ -471,8 +472,6 @@ class GrafLocalAdapter:
 
     def _assert_runtime_definition_compatible(self, record: Dict[str, Any]) -> None:
         expected = str(record.get("runtime_definition_digest", ""))
-        # ponytail: fail closed on orchestration drift; persist a tracked runtime
-        # snapshot if promotions across definition revisions become necessary.
         if not re.fullmatch(r"sha256:[0-9a-fA-F]{64}", expected):
             raise HarnessError(
                 "active Dev runtime predates runtime-definition binding; explicit operator cutover required"
@@ -481,6 +480,73 @@ class GrafLocalAdapter:
             raise HarnessError(
                 "active Dev runtime definition differs from checkout; explicit operator cutover required"
             )
+
+    def _checkout_adapter(self, checkout: Path, manifest: Dict[str, Any], record=None):
+        """Load only clean, exact-SHA tooling from this repository, before mutation."""
+        checkout = checkout.resolve()
+        probe = GrafLocalAdapter(checkout, self.state)
+        probe._assert_source_matches_checkout(manifest)
+        def common_dir(root):
+            return (root / _run_command(["git", "rev-parse", "--git-common-dir"], cwd=root)).resolve()
+        if common_dir(checkout) != common_dir(self.root):
+            raise HarnessError("transition checkout must belong to this Git repository")
+        if record is not None:
+            probe._assert_runtime_definition_compatible(record)
+        # Read tracked bytes explicitly: status can hide assume-unchanged files,
+        # and import loaders may execute an ignored stale __pycache__.
+        sources = {}
+        for relative in RUNTIME_DEFINITION_PATHS:
+            path = checkout / relative
+            if not path.is_file() or not path.resolve().is_relative_to(checkout):
+                raise HarnessError(f"transition input is not a checkout file: {relative}")
+            source = path.read_bytes()
+            expected = subprocess.check_output(
+                ["git", "show", f"{manifest['source_sha']}:{relative}"], cwd=checkout
+            )
+            if source != expected:
+                raise HarnessError(f"transition input differs from committed bytes: {relative}")
+            sources[relative] = source
+        source_path = checkout / "scripts" / "dev-harness.py"
+        module = types.ModuleType("graf_dev_transition")
+        module.__file__ = str(source_path)
+        exec(compile(sources["scripts/dev-harness.py"], str(source_path), "exec"), module.__dict__)
+        module.HarnessError = HarnessError
+        if module.RUNTIME_DEFINITION_PATHS != RUNTIME_DEFINITION_PATHS:
+            raise HarnessError("transition runtime-definition contract is unsupported")
+        adapter = module.GrafLocalAdapter(checkout, self.state)
+        adapter._assert_supported()
+        adapter._assert_source_matches_checkout(manifest)
+        if record is not None:
+            adapter._assert_runtime_definition_compatible(record)
+        return adapter
+
+    def _previous_adapter(self, record, manifest, checkout):
+        if checkout is not None:
+            return self._checkout_adapter(Path(checkout), manifest, record)
+        self._assert_runtime_definition_compatible(record)
+        return self
+
+    @staticmethod
+    def _assert_transition_compatible(previous, target):
+        # This lane changes tooling/app code, not persistent service formats.
+        if previous["migration_head"] != target["migration_head"] or any(
+            previous["components"][key]["digest"] != target["components"][key]["digest"]
+            for key in ("database", "storage", "temporal")
+        ):
+            raise HarnessError("cross-definition transition requires matching database schema and stateful images")
+
+    @staticmethod
+    def _assert_transition_smoke(checks, *, app_was_running=True):
+        required = {
+            "backend_health", "frontend_reachability", "auth_session_bootstrap",
+            "representative_api", "processing_worker_readiness", "media_worker_readiness",
+            "database_readiness", "storage_readiness", "temporal_readiness",
+            "migration_readiness", "exact_source_sha", "app_identity", "app_presentation",
+        }
+        if not app_was_running:
+            required.remove("app_presentation")
+        if not required.issubset(checks) or any(checks[key] != "pass" for key in required):
+            raise HarnessError("cross-definition transition smoke is incomplete or failed")
 
     def _assert_supported(self) -> None:
         if sys.platform != "darwin":
@@ -1084,7 +1150,6 @@ class GrafLocalAdapter:
             "checks": {"compensation": "fail"},
         }
         _validate_manifest(blocked)
-        _write_json(_manifest_path(self.state, str(blocked["manifest_id"])), blocked)
         _write_json(
             self.state / "rollback-required.json",
             {
@@ -1095,8 +1160,9 @@ class GrafLocalAdapter:
                 "checked_at": now(),
             },
         )
+        _write_json(_manifest_path(self.state, str(blocked["manifest_id"])), blocked)
 
-    def promote(self, manifest: Dict[str, Any]) -> Dict[str, str]:
+    def promote(self, manifest: Dict[str, Any], *, previous_checkout=None) -> Dict[str, str]:
         self._assert_supported()
         self._assert_source_matches_checkout(manifest)
         env = self._env(manifest)
@@ -1112,12 +1178,16 @@ class GrafLocalAdapter:
             and previous_runtime.get("source_sha") != previous_manifest.get("source_sha")
         ):
             raise HarnessError("previous Dev runtime does not match the active manifest")
+        previous_adapter = self
         if previous_was_live and previous_runtime is not None:
-            self._assert_runtime_definition_compatible(previous_runtime)
+            previous_adapter = self._previous_adapter(previous_runtime, previous_manifest, previous_checkout)
+        if previous_adapter is not self:
+            self._assert_transition_compatible(previous_manifest, manifest)
         self._assert_manifest_images(manifest, env)
         if previous_was_live and previous_manifest is not None:
-            previous_env = self._env(previous_manifest)
-            self._assert_manifest_images(previous_manifest, previous_env)
+            previous_env = previous_adapter._env(previous_manifest)
+            previous_adapter._compose_config(previous_env)
+            previous_adapter._assert_manifest_images(previous_manifest, previous_env)
         app_destination = Path(os.environ.get("GRAF_DEV_INSTALL_PATH", "/Applications/GRAF Dev.app"))
         previous_app_was_running = self._app_is_running(app_destination)
         app_backup = self._snapshot_app()
@@ -1128,6 +1198,8 @@ class GrafLocalAdapter:
             self._start_backend(manifest, env)
             self._launch_dev_app(app_destination)
             checks = self.smoke(manifest)
+            if previous_adapter is not self:
+                self._assert_transition_smoke(checks)
             if any(value != "pass" for key, value in checks.items() if key != "mode"):
                 raise HarnessError("live promotion smoke failed")
         except BaseException as failure:
@@ -1137,7 +1209,10 @@ class GrafLocalAdapter:
             except Exception as exc:  # pragma: no cover - defensive path
                 compensation_errors.append(f"app restore failed: {exc}")
             try:
-                self._restore_runtime(previous_runtime, previous_manifest, previous_was_live)
+                # Stop candidate with its controller; restart predecessor with its own tooling.
+                if previous_adapter is not self:
+                    self._stop_previous()
+                previous_adapter._restore_runtime(previous_runtime, previous_manifest, previous_was_live)
             except Exception as exc:  # pragma: no cover - defensive path
                 compensation_errors.append(f"runtime restore failed: {exc}")
             if previous_app_was_running and app_backup is not None:
@@ -1148,42 +1223,55 @@ class GrafLocalAdapter:
             if compensation_errors:
                 self._mark_rollback_required(previous_manifest or manifest)
                 raise HarnessError("live promotion failed; compensation failed: " + "; ".join(compensation_errors)) from failure
+            if previous_adapter is not self:
+                try:
+                    self._assert_transition_smoke(previous_adapter.smoke(previous_manifest), app_was_running=previous_app_was_running)
+                except Exception as exc:
+                    self._mark_rollback_required(previous_manifest)
+                    raise HarnessError(f"live promotion failed; compensation verification failed: {exc}") from failure
             raise
         else:
             if app_backup is not None:
                 shutil.rmtree(app_backup)
         return {"mode": "live", "backend": "started", "app": "installed", "checks": checks}
 
-    def rollback(self, active: Dict[str, Any], target: Dict[str, Any]) -> Dict[str, Any]:
+    def rollback(self, active: Dict[str, Any], target: Dict[str, Any], *, previous_checkout=None, target_checkout=None) -> Dict[str, Any]:
         """Restore one previously built Dev target and prove it before commit."""
         self._assert_supported()
-        # start-local.sh resolves backend code from its checkout. A rollback
-        # target may be older than the active runtime, so validating only the
-        # active manifest could start the target with the wrong backend code.
-        # Require the operator to check out the target SHA before touching the
-        # live runtime so app, backend and manifest share one source identity.
-        self._assert_source_matches_checkout(target)
-        env = self._env(target)
-        self._compose_config(env)
+        # Explicit target tooling lets the current controller retain compensation
+        # even when the target predates cross-definition transitions.
+        target_adapter = self._checkout_adapter(Path(target_checkout), target) if target_checkout else self
+        if target_checkout:
+            self._assert_source_matches_checkout(active)
+        target_adapter._assert_source_matches_checkout(target)
+        env = target_adapter._env(target)
+        target_adapter._compose_config(env)
         previous_runtime = _read_json(self._runtime_record()) if self._runtime_record().exists() else None
         previous_was_live = self._runtime_is_live(previous_runtime)
         if not previous_was_live:
             raise HarnessError("live rollback requires an owned active Dev backend")
         if previous_runtime.get("source_sha") != active.get("source_sha"):
             raise HarnessError("active Dev runtime does not match the active manifest")
-        self._assert_runtime_definition_compatible(previous_runtime)
-        self._assert_manifest_images(target, env)
-        self._assert_manifest_images(active, self._env(active))
+        previous_adapter = self._previous_adapter(previous_runtime, active, previous_checkout)
+        cross_definition = previous_adapter is not self or target_adapter is not self
+        if cross_definition:
+            self._assert_transition_compatible(active, target)
+        target_adapter._assert_manifest_images(target, env)
+        previous_env = previous_adapter._env(active)
+        previous_adapter._compose_config(previous_env)
+        previous_adapter._assert_manifest_images(active, previous_env)
         app_destination = Path(os.environ.get("GRAF_DEV_INSTALL_PATH", "/Applications/GRAF Dev.app"))
         previous_app_was_running = self._app_is_running(app_destination)
         app_backup = self._snapshot_app()
         try:
             self._stop_previous()
             self._terminate_dev_app(app_destination)
-            self._install_app(target, env)
-            self._start_backend(target, env)
+            target_adapter._install_app(target, env)
+            target_adapter._start_backend(target, env)
             self._launch_dev_app(app_destination)
-            checks = self.smoke(target)
+            checks = target_adapter.smoke(target)
+            if cross_definition:
+                self._assert_transition_smoke(checks)
             if any(value != "pass" for key, value in checks.items() if key != "mode"):
                 raise HarnessError("live rollback smoke failed")
         except BaseException as failure:
@@ -1193,7 +1281,9 @@ class GrafLocalAdapter:
             except Exception as exc:  # pragma: no cover - defensive path
                 compensation_errors.append(f"app restore failed: {exc}")
             try:
-                self._restore_runtime(previous_runtime, active, previous_was_live)
+                if cross_definition:
+                    self._stop_previous()
+                previous_adapter._restore_runtime(previous_runtime, active, previous_was_live)
             except Exception as exc:  # pragma: no cover - defensive path
                 compensation_errors.append(f"runtime restore failed: {exc}")
             if previous_app_was_running and app_backup is not None:
@@ -1204,6 +1294,12 @@ class GrafLocalAdapter:
             if compensation_errors:
                 self._mark_rollback_required(active)
                 raise HarnessError("live rollback failed; compensation failed: " + "; ".join(compensation_errors)) from failure
+            if cross_definition:
+                try:
+                    self._assert_transition_smoke(previous_adapter.smoke(active), app_was_running=previous_app_was_running)
+                except Exception as exc:
+                    self._mark_rollback_required(active)
+                    raise HarnessError(f"live rollback failed; compensation verification failed: {exc}") from failure
             raise
         else:
             if app_backup is not None:
@@ -1518,6 +1614,22 @@ def operation_build(args: argparse.Namespace) -> Dict[str, Any]:
         return {"operation": "build", "dry_run": bool(args.dry_run), "adapter": adapter_info, "manifest": manifest}
 
 
+def _publish_active(root: Path, manifest: Dict[str, Any], mode: str) -> None:
+    try:
+        _mkdirs(root)
+        _write_json(_manifest_path(root, manifest["manifest_id"]), manifest)
+        _write_json(root / "active-manifest.json", {
+            "schema_version": POINTER_VERSION, "manifest_id": manifest["manifest_id"],
+            "runtime_mode": mode, "updated_at": now(),
+        })
+        with contextlib.suppress(FileNotFoundError):
+            (root / "rollback-required.json").unlink()
+    except OSError as exc:
+        if mode == "live":
+            GrafLocalAdapter(_repo_root(), root)._mark_rollback_required(manifest)
+        raise HarnessError("active Dev metadata publication failed; recovery required") from exc
+
+
 def operation_promote(args: argparse.Namespace) -> Dict[str, Any]:
     _assert_dev_environment()
     root = state_dir(live=bool(getattr(args, "live", False)))
@@ -1553,7 +1665,8 @@ def operation_promote(args: argparse.Namespace) -> Dict[str, Any]:
         _validate_manifest(promoted)
         adapter_info: Dict[str, str] = {"mode": "metadata-only"}
         if getattr(args, "live", False) and not args.dry_run:
-            adapter_info = GrafLocalAdapter(_repo_root(), root).promote(promoted)
+            options = {"previous_checkout": args.previous_checkout} if getattr(args, "previous_checkout", None) else {}
+            adapter_info = GrafLocalAdapter(_repo_root(), root).promote(promoted, **options)
             checks = adapter_info.get("checks", {})
             promoted["health"] = {
                 "result": "pass" if checks and all(value == "pass" for value in checks.values()) else "fail",
@@ -1562,17 +1675,7 @@ def operation_promote(args: argparse.Namespace) -> Dict[str, Any]:
             }
             _validate_manifest(promoted)
         if not args.dry_run:
-            _mkdirs(root)
-            _write_json(_manifest_path(root, promoted["manifest_id"]), promoted)
-            pointer = {
-                "schema_version": POINTER_VERSION,
-                "manifest_id": promoted["manifest_id"],
-                "runtime_mode": adapter_info["mode"],
-                "updated_at": now(),
-            }
-            _write_json(root / "active-manifest.json", pointer)
-            with contextlib.suppress(FileNotFoundError):
-                (root / "rollback-required.json").unlink()
+            _publish_active(root, promoted, adapter_info["mode"])
     return {"operation": "promote", "dry_run": bool(args.dry_run), "status": "ready" if args.dry_run else "active", "adapter": adapter_info, "manifest": promoted}
 
 
@@ -1656,7 +1759,7 @@ def operation_rollback(args: argparse.Namespace) -> Dict[str, Any]:
     _assert_dev_environment()
     # Rollback may inspect an explicitly isolated fixture; live promotion/build
     # remain pinned to the repository-global runtime state.
-    root = state_dir()
+    root = state_dir(live=bool(getattr(args, "live", False)))
     with state_lock(root):
         active = _load_active(root)
         if active is None:
@@ -1679,7 +1782,8 @@ def operation_rollback(args: argparse.Namespace) -> Dict[str, Any]:
         _validate_manifest(target)
         adapter_info: Dict[str, Any] = {"mode": "metadata-only"}
         if getattr(args, "live", False) and not args.dry_run:
-            adapter_info = GrafLocalAdapter(_repo_root(), root).rollback(active, target)
+            options = {key: getattr(args, key) for key in ("previous_checkout", "target_checkout") if getattr(args, key, None)}
+            adapter_info = GrafLocalAdapter(_repo_root(), root).rollback(active, target, **options)
         if not args.dry_run:
             target = dict(target)
             target["status"] = "active"
@@ -1690,18 +1794,7 @@ def operation_rollback(args: argparse.Namespace) -> Dict[str, Any]:
                     "checked_at": now(),
                     "checks": adapter_info.get("checks", {}),
                 }
-            _write_json(_manifest_path(root, target["manifest_id"]), target)
-            _write_json(
-                root / "active-manifest.json",
-                {
-                    "schema_version": POINTER_VERSION,
-                    "manifest_id": target["manifest_id"],
-                    "runtime_mode": adapter_info["mode"],
-                    "updated_at": now(),
-                },
-            )
-            with contextlib.suppress(FileNotFoundError):
-                (root / "rollback-required.json").unlink()
+            _publish_active(root, target, adapter_info["mode"])
     return {
         "operation": "rollback",
         "dry_run": bool(args.dry_run),
@@ -1749,6 +1842,7 @@ def parser() -> argparse.ArgumentParser:
     promote.add_argument("--manifest", required=True)
     promote.add_argument("--dry-run", action="store_true")
     promote.add_argument("--live", action="store_true", help="explicitly start the local stack and install GRAF Dev")
+    promote.add_argument("--previous-checkout", help="clean exact-SHA checkout of the active runtime for verified compensation")
     rehydrate = sub.add_parser("rehydrate")
     rehydrate.add_argument("--manifest", required=True)
     status = sub.add_parser("status")
@@ -1761,6 +1855,8 @@ def parser() -> argparse.ArgumentParser:
     rollback.add_argument("--manifest-id")
     rollback.add_argument("--dry-run", action="store_true")
     rollback.add_argument("--live", action="store_true", help="explicitly restore the local live Dev target")
+    rollback.add_argument("--previous-checkout", help="clean exact-SHA checkout of the active runtime for verified compensation")
+    rollback.add_argument("--target-checkout", help="clean exact-SHA checkout of the rollback target; run controller from the active SHA")
     reset = sub.add_parser("reset-data")
     reset.add_argument("--confirm-dev-reset", action="store_true")
     reset.add_argument("--dry-run", action="store_true")
@@ -1779,7 +1875,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         print(json.dumps({"status": "blocked", "error": str(exc)}, ensure_ascii=False), file=sys.stderr)
         return 2
     print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
-    if args.operation == "status" and result.get("status") == "blocked":
+    if args.operation == "status" and result.get("status") in {"blocked", "rollback_required"}:
         return 1
     if args.operation == "smoke" and result.get("status") != "pass":
         return 1
