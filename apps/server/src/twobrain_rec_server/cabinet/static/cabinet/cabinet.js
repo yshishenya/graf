@@ -2053,6 +2053,16 @@
     projection,
     { resetRetryBudget = false } = {},
   ) => {
+    if (titleEditorActive()) {
+      if (!detail.dataset.titleRefreshDeferred) {
+        detail.dataset.titleRefreshDeferred = "true";
+        window.setTimeout(() => {
+          delete detail.dataset.titleRefreshDeferred;
+          if (detail.isConnected) void refreshProcessingDetailContentOnce(detail, projection);
+        }, 2000);
+      }
+      return false;
+    }
     if (resetRetryBudget) delete detail.dataset.processingContentRefreshRetryCount;
     const transcriptReady = processingTranscriptReady(projection);
     const summaryReady = processingSummaryState(projection).toLowerCase() === "available";
@@ -2068,6 +2078,7 @@
     if (!refreshTranscript && !refreshSummary && !refreshReplacement) return false;
     const pollUrl = detail.dataset.playbackPollUrl;
     if (!pollUrl) return false;
+    const titleVersion = detail.querySelector("[name='expected_version']")?.value;
     const refreshGeneration = processingRecoveryGeneration;
     const refreshScheduleGeneration = detail.dataset.processingScheduleGeneration || "0";
     const refreshClaim = [
@@ -2152,6 +2163,10 @@
         nextDetail.dataset.processingPublishedAttempt = String(attemptOrdinal);
       }
       if (discardStaleRefresh()) return false;
+      if (titleEditorActive() || titleVersion !== detail.querySelector("[name='expected_version']")?.value) {
+        retryFragmentRefresh();
+        return false;
+      }
       releaseRefreshClaim();
       stopProcessingRecoveryCountdown();
       stopProcessingRecoveryPolling();
@@ -7117,7 +7132,255 @@
     });
   };
 
+  let meetingTitleEditor = null;
+  let meetingTitleHeaderObserver = null;
+  const titleEditorActive = () => meetingTitleEditor?.active() || false;
+
+  const initMeetingTitleEditor = () => {
+    const form = document.querySelector("[data-meeting-title-form]");
+    if (form?.dataset.ready === "true") return;
+    meetingTitleHeaderObserver?.disconnect();
+    if (!form) return;
+    form.dataset.ready = "true";
+    const header = form.closest("[data-meeting-detail-header]");
+    const headerObserver = new ResizeObserver(() => {
+      if (!form.isConnected) { headerObserver.disconnect(); return; }
+      header.classList.toggle("meeting-title-header-scrolls", header.offsetHeight > window.innerHeight / 2);
+    });
+    headerObserver.observe(header);
+    headerObserver.observe(document.documentElement);
+    meetingTitleHeaderObserver = headerObserver;
+    const input = form.querySelector("[data-meeting-title-input]");
+    const display = form.querySelector("[data-meeting-title-open]");
+    const version = form.elements.expected_version;
+    const error = form.querySelector("#meeting-title-error");
+    const status = form.querySelector("[data-meeting-title-status]");
+    const detail = form.closest("[data-meeting-id]");
+    let confirmed = form.dataset.confirmedTitle;
+    let editing = !error.hidden;
+    let pending = null;
+    let uncertain = false;
+    let terminal = false;
+    let needsExplicitRetry = editing;
+    const current = () => form.isConnected && detail === document.querySelector("#cabinet-main");
+    const dirty = () => input.value.trim() !== confirmed;
+    const showError = (message) => {
+      error.textContent = message;
+      error.hidden = !message;
+      input.setAttribute("aria-invalid", String(Boolean(message)));
+    };
+    const showEditor = (open, focus = false) => {
+      editing = open;
+      input.hidden = !open;
+      display.hidden = open;
+      if (focus) (open ? input : display).focus({ preventScroll: true });
+      if (open && focus) input.select();
+    };
+    const accept = (title, token) => {
+      confirmed = title;
+      form.dataset.confirmedTitle = title;
+      version.value = token;
+      input.value = title;
+      display.textContent = title;
+      display.setAttribute("aria-label", `Переименовать встречу: ${title}`);
+      document.title = `${title} - GRAF`;
+      uncertain = false;
+      needsExplicitRetry = false;
+      showError("");
+      clearMeetingHistoryCache();
+    };
+    const recover = async (response, code = "") => {
+      if (!current()) return true;
+      if (code === "meeting_deletion_active") {
+        terminal = true;
+        renderMeetingDetailRecovery(detail, "unavailable");
+        return true;
+      }
+      if (await recoverMeetingDetailFromResponse(response)) {
+        terminal = true;
+        return true;
+      }
+      if ([401, 403, 404, 410].includes(response.status)) {
+        terminal = true;
+        input.readOnly = true;
+        showError("Сессия страницы устарела. Обновите страницу.");
+        return true;
+      }
+      return false;
+    };
+    const finish = () => {
+      if (!current()) return;
+      input.readOnly = terminal;
+      form.removeAttribute("aria-busy");
+      pending = null;
+    };
+    const save = (explicit = false) => {
+      if (terminal || !current()) return Promise.resolve(true);
+      if (pending) return pending;
+      if (needsExplicitRetry && !explicit) return Promise.resolve(false);
+      if (!dirty() && !uncertain) {
+        showError("");
+        showEditor(false, document.activeElement === input);
+        return Promise.resolve(true);
+      }
+      if (!input.value.trim() || Array.from(input.value.trim()).length > 500) {
+        showError(!input.value.trim() ? "Введите название встречи" : "Название должно содержать не больше 500 символов");
+        needsExplicitRetry = true;
+        return Promise.resolve(false);
+      }
+      input.readOnly = true;
+      form.setAttribute("aria-busy", "true");
+      const controller = new AbortController();
+      const timer = window.setTimeout(() => controller.abort(), 15000);
+      pending = (async () => {
+        try {
+          const response = await fetch(form.action, {
+            method: "POST", body: new FormData(form), credentials: "same-origin",
+            headers: { Accept: "application/json" }, signal: controller.signal,
+          });
+          if (!current()) return false;
+          const data = await response.clone().json().catch(() => ({}));
+          if (await recover(response, data.code)) return terminal;
+          if (!current()) return false;
+          if (!response.ok) {
+            needsExplicitRetry = true;
+            if (data.code === "meeting_title_conflict" && typeof data.title_version === "string") {
+              confirmed = data.title;
+              version.value = data.title_version;
+              uncertain = false;
+              showError(`${data.message}. Текущее название: ${data.title}`);
+            } else {
+              uncertain = response.status >= 500;
+              showError(data.message || "Не удалось подтвердить сохранение. Нажмите Enter, чтобы повторить, или Esc, чтобы проверить название.");
+            }
+            return false;
+          }
+          if (data.meeting_id !== detail.dataset.meetingId || typeof data.title !== "string" || !data.title_version) throw new Error("Unexpected title response");
+          const focus = document.activeElement === input;
+          accept(data.title, data.title_version);
+          showEditor(false, focus);
+          status.textContent = "Название сохранено";
+          return true;
+        } catch {
+          if (current()) {
+            uncertain = true;
+            needsExplicitRetry = true;
+            showError("Не удалось подтвердить сохранение. Нажмите Enter, чтобы повторить, или Esc, чтобы проверить название.");
+          }
+          return false;
+        } finally {
+          window.clearTimeout(timer);
+          finish();
+        }
+      })();
+      return pending;
+    };
+    const cancel = async () => {
+      if (pending || terminal) return;
+      if (!uncertain) {
+        accept(confirmed, version.value);
+        showEditor(false, true);
+        return;
+      }
+      // After an ambiguous response only the server can confirm the current name.
+      input.readOnly = true;
+      form.setAttribute("aria-busy", "true");
+      const controller = new AbortController();
+      const timer = window.setTimeout(() => controller.abort(), 15000);
+      pending = (async () => {
+        try {
+          const response = await fetch(form.action.replace(/\/title$/, ""), {
+            credentials: "same-origin", cache: "no-store", signal: controller.signal,
+            headers: { "HX-Request": "true" },
+          });
+          if (await recover(response)) return;
+          if (!response.ok) throw new Error("Title refresh failed");
+          const page = new DOMParser().parseFromString(await response.text(), "text/html");
+          const fresh = page.querySelector("[data-meeting-title-form]");
+          if (!fresh || fresh.closest("[data-meeting-id]")?.dataset.meetingId !== detail.dataset.meetingId) throw new Error("Missing title");
+          if (!current()) return;
+          accept(fresh.dataset.confirmedTitle, fresh.elements.expected_version.value);
+          showEditor(false, true);
+        } catch {
+          if (current()) showError("Не удалось проверить название. Проверьте соединение и нажмите Esc ещё раз.");
+        } finally {
+          window.clearTimeout(timer);
+          finish();
+        }
+      })();
+      await pending;
+    };
+    display.addEventListener("click", () => showEditor(true, true));
+    form.addEventListener("submit", (event) => { event.preventDefault(); void save(true); });
+    input.addEventListener("keydown", (event) => {
+      if (event.isComposing || event.keyCode === 229) return;
+      if (event.key === "Escape") { event.preventDefault(); void cancel(); }
+      if (event.key === "Enter") { event.preventDefault(); void save(true); }
+    });
+    input.addEventListener("blur", () => { if (editing) void save(); });
+    input.addEventListener("paste", (event) => {
+      if (/[\x00-\x1f\x7f-\x9f\u2028\u2029]/.test(event.clipboardData?.getData("text") || "")) {
+        event.preventDefault();
+        showError("Название должно быть одной строкой");
+      }
+    });
+    showEditor(editing);
+    meetingTitleEditor = {
+      active: () => current() && !terminal && (editing || Boolean(pending)),
+      blocksNavigation: () => current() && !terminal && (dirty() || uncertain || Boolean(pending)),
+      save,
+      focus: () => input.focus({ preventScroll: true }),
+    };
+  };
+
+  document.addEventListener("click", (event) => {
+    const editor = meetingTitleEditor;
+    const link = event.target.closest?.("a[href]");
+    if (!editor?.blocksNavigation() || !link || event.defaultPrevented || event.button !== 0
+      || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey
+      || link.hasAttribute("download") || (link.target && link.target !== "_self")) return;
+    const url = new URL(link.href, location.href);
+    if (url.origin !== location.origin || (url.pathname === location.pathname && url.search === location.search && url.hash)) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    void editor.save().then((saved) => {
+      if (saved) location.assign(url.href);
+      else editor.focus();
+    });
+  }, true);
+  document.addEventListener("htmx:confirm", (event) => {
+    const editor = meetingTitleEditor;
+    const target = event.detail?.target;
+    const form = document.querySelector("[data-meeting-title-form]");
+    if (!editor?.blocksNavigation() || !form || !target?.contains?.(form)) return;
+    event.preventDefault();
+    void editor.save().then((saved) => {
+      if (saved) event.detail.issueRequest(true);
+      else editor.focus();
+    });
+  });
+  document.addEventListener("htmx:beforeRequest", (event) => {
+    const form = document.querySelector("[data-meeting-title-form]");
+    if (form && event.detail?.target?.contains?.(form)) {
+      event.detail.xhr.grafTitleVersion = form.elements.expected_version.value;
+    }
+  });
+  document.addEventListener("htmx:beforeSwap", (event) => {
+    const form = document.querySelector("[data-meeting-title-form]");
+    if (!form || !event.detail?.target?.contains?.(form)) return;
+    const requestedVersion = event.detail.xhr?.grafTitleVersion;
+    if (titleEditorActive() || (requestedVersion && requestedVersion !== form.elements.expected_version.value)) {
+      event.detail.shouldSwap = false;
+    }
+  });
+  window.addEventListener("beforeunload", (event) => {
+    if (!meetingTitleEditor?.blocksNavigation()) return;
+    event.preventDefault();
+    event.returnValue = "";
+  });
+
   const initCabinet = () => {
+    initMeetingTitleEditor();
     initAuthTransition();
     initCabinetRail();
     initCabinetProfileMenus();
@@ -7268,7 +7531,10 @@
     initCabinet();
   });
 
-  window.addEventListener("pageshow", updateSelection);
+  window.addEventListener("pageshow", (event) => {
+    updateSelection();
+    if (event.persisted) refreshMeetingList();
+  });
 
   document.body.addEventListener("htmx:configRequest", (event) => {
     const detail = event.detail || {};

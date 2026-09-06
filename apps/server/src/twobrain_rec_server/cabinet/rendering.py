@@ -950,6 +950,7 @@ def render_meeting_detail_page(
     product_analytics_provider: dict[str, object] | None = None,
     profile=None,
     shared_workspace_id: UUID | None = None,
+    title_edit: dict[str, str] | None = None,
 ) -> str:
     content = _render_meeting_detail_content(
         review,
@@ -957,6 +958,7 @@ def render_meeting_detail_page(
         csrf_token=csrf_token,
         poll_url=poll_url,
         shared_workspace_id=shared_workspace_id,
+        title_edit=title_edit,
     )
     return _page_shell(
         review.meeting.title,
@@ -1002,6 +1004,7 @@ def _render_meeting_detail_content(
     focus_calendar_context: bool = False,
     poll_url: str | None = None,
     shared_workspace_id: UUID | None = None,
+    title_edit: dict[str, str] | None = None,
 ) -> str:
     transcript_rows = (
         review.transcript.speaker_turns or review.transcript.segments
@@ -1092,6 +1095,9 @@ def _render_meeting_detail_content(
         embedded=embedded,
         base_path=_base_path(embedded),
         meeting_title=review.meeting.title,
+        title_version=review.meeting.title_version if shared_workspace_id is None else None,
+        title_edit=title_edit or {},
+        title_csrf_token=csrf_token or "",
         meeting_date=cabinet_view_models.date_label(review.meeting),
         meeting_duration=cabinet_view_models.format_duration(review.meeting.duration_seconds),
         status_label=_ui_text(review.meeting.status_label),

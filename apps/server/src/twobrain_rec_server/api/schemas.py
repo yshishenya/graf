@@ -2187,6 +2187,7 @@ class PlaybackPreparationState(BaseModel):
 class MeetingListItem(BaseModel):
     meeting_id: UUID
     title: str
+    title_version: str | None = None
     started_at: datetime | None = None
     uploaded_at: datetime | None = None
     ended_at: datetime | None = None

@@ -150,8 +150,10 @@ async def create_or_get_meeting(
         else:
             request_conflicts = (
                 persisted.duration_seconds != duration_seconds
-                or persisted.title != title
-                or persisted.title_source != normalized_title_source
+                or (
+                    persisted.title_source != "user_confirmed"
+                    and (persisted.title != title or persisted.title_source != normalized_title_source)
+                )
                 or not same_optional_instant(persisted.started_at, started_at)
                 or not same_optional_instant(persisted.ended_at, ended_at)
                 or persisted.recording_display_timezone_offset_minutes
