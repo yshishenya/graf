@@ -44,7 +44,7 @@ final class EmbeddedCabinetUpdateBridgeTests: XCTestCase {
         )
 
         XCTAssertTrue(source.contains("message.frameInfo.isMainFrame"))
-        XCTAssertTrue(source.contains("let sourceURL = message.frameInfo.request.url"))
+        XCTAssertTrue(source.contains("let sourceURL = message.frameInfo.documentRequestURL"))
         XCTAssertTrue(source.contains("routePolicy.decision(for: sourceURL).decision == .allow"))
     }
 

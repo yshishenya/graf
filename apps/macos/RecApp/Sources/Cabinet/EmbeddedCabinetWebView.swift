@@ -1683,7 +1683,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             completionHandler: @escaping @MainActor @Sendable (Bool) -> Void
         ) {
             requestJavaScriptConfirmation(
-                in: webView, message: message, frameURL: frame.request.url,
+                in: webView, message: message, frameURL: frame.documentRequestURL,
                 frameIsMainFrame: frame.isMainFrame, completionHandler: completionHandler
             )
         }
@@ -1769,7 +1769,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             if message.name == EmbeddedCabinetLocalRecordingBridge.messageHandlerName {
                 guard isActive,
                       message.frameInfo.isMainFrame,
-                      let sourceURL = message.frameInfo.request.url,
+                      let sourceURL = message.frameInfo.documentRequestURL,
                       routePolicy.decision(for: sourceURL).route.kind == .meetingList,
                       let action = EmbeddedCabinetLocalRecordingBridge.allowedAction(
                         from: message.body,
@@ -1786,7 +1786,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                     isActive,
                     EmbeddedCabinetQuitBridge.isAllowedMessageBody(message.body),
                     message.frameInfo.isMainFrame,
-                    let sourceURL = message.frameInfo.request.url,
+                    let sourceURL = message.frameInfo.documentRequestURL,
                     routePolicy.decision(for: sourceURL).decision == .allow
                 else {
                     return
@@ -1799,7 +1799,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                 message.name == EmbeddedCabinetUpdateBridge.messageHandlerName,
                 EmbeddedCabinetUpdateBridge.isAllowedMessageBody(message.body),
                 message.frameInfo.isMainFrame,
-                let sourceURL = message.frameInfo.request.url,
+                let sourceURL = message.frameInfo.documentRequestURL,
                 routePolicy.decision(for: sourceURL).decision == .allow
             else {
                 return
@@ -1847,7 +1847,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             if EmbeddedCabinetWebView.allowsBlobDownload(
                 requested: navigationAction.shouldPerformDownload,
                 targetURL: url,
-                sourceURL: navigationAction.sourceFrame.request.url,
+                sourceURL: navigationAction.sourceFrame.documentRequestURL,
                 sourceIsMainFrame: navigationAction.sourceFrame.isMainFrame,
                 routePolicy: routePolicy
             ) {
@@ -1880,7 +1880,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
 
             let allowExternalPaymentProvider = paymentProviderNavigationActive
                 || isBillingCheckoutRoute(webView.url)
-                || isBillingCheckoutRoute(navigationAction.sourceFrame.request.url)
+                || isBillingCheckoutRoute(navigationAction.sourceFrame.documentRequestURL)
             let decision = routePolicy.decision(
                 for: url,
                 allowExternalAuthProvider: authContinuationActive || isAuthRoute(webView.url),
@@ -2068,7 +2068,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             }
             guard EmbeddedCabinetWebView.allowsFilePicker(
                 webViewURL: webView.url,
-                frameURL: initiatedByFrame.request.url,
+                frameURL: initiatedByFrame.documentRequestURL,
                 frameIsMainFrame: initiatedByFrame.isMainFrame,
                 routePolicy: routePolicy
             ) else {
@@ -2337,7 +2337,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             for navigationAction: WKNavigationAction,
             webViewURL: URL?
         ) -> URL? {
-            if let sourceURL = navigationAction.sourceFrame.request.url {
+            if let sourceURL = navigationAction.sourceFrame.documentRequestURL {
                 let sourceDecision = routePolicy.decision(for: sourceURL)
                 if sourceDecision.decision == .allow,
                    sourceDecision.route.kind == .meetingDetail {
@@ -2404,6 +2404,15 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         }
     }
 }
+private extension WKFrameInfo {
+    var documentRequestURL: URL? {
+        // macOS 14 can return nil before a frame has a document despite the
+        // nonnull SDK declaration. Read the Objective-C property without
+        // Swift's unconditional URLRequest bridge; absent provenance stays nil.
+        (value(forKey: #keyPath(WKFrameInfo.request)) as? NSURLRequest)?.url
+    }
+}
+
 #else
 @MainActor
 public final class EmbeddedCabinetSupportIncidentBridge: DesktopSupportIncidentSubmitting {

@@ -52,30 +52,3 @@ jobs:
           swift build --package-path apps/macos
           bash apps/macos/Scripts/run-swift-tests.sh
           swift run --package-path apps/macos ContractValidation
-
-      - name: Report crash symbols without private process data
-        if: failure()
-        shell: bash
-        run: |
-          python3 - <<'PYCODE'
-          import json
-          import time
-          from pathlib import Path
-          directory = Path.home() / "Library/Logs/DiagnosticReports"
-          reports = []
-          for _ in range(10):
-              reports = [p for p in directory.glob("*.ips") if "xctest" in p.name.lower() or "twobrain" in p.name.lower()]
-              if reports:
-                  break
-              time.sleep(2)
-          for path in sorted(reports, key=lambda p: p.stat().st_mtime)[-3:]:
-              source = path.read_text()
-              first, end = json.JSONDecoder().raw_decode(source)
-              data = json.loads(source[end:]) if source[end:].strip() else first
-              threads = data.get("threads", [])
-              fault = data.get("faultingThread", 0)
-              frames = threads[fault].get("frames", []) if fault < len(threads) else []
-              print(json.dumps({"exception": data.get("exception"), "termination": data.get("termination"), "symbols": [f.get("symbol") for f in frames[:30]]}))
-          if not reports:
-              print("crash_symbols=unavailable")
-          PYCODE
