@@ -50,6 +50,7 @@ from twobrain_rec_server.api.schemas import (
 )
 from twobrain_rec_server.cabinet.access import owner_access_state
 from twobrain_rec_server.cabinet.constants import DELETION_TRUTH_COPY
+from twobrain_rec_server.cabinet.meeting_titles import meeting_title_version
 from twobrain_rec_server.calendar.service import (
     SELECTABLE_CALENDAR_VISIBILITIES,
     calendar_duplicate_group_key,
@@ -2491,6 +2492,7 @@ def build_list_item(
     item = MeetingListItem(
         meeting_id=meeting.id,
         title=safe_title(meeting, source=source),
+        title_version=meeting_title_version(meeting) if access_state.state == "owner" else None,
         started_at=meeting.started_at,
         uploaded_at=meeting.created_at,
         ended_at=meeting.ended_at,

@@ -377,7 +377,9 @@ async def build_export_snapshot(
     return ExportSnapshot(
         selection=selection,
         meeting_id=str(meeting.id),
-        meeting_title=_safe_title(meeting.title),
+        meeting_title=(meeting.title or "Встреча GRAF")
+        if meeting.title_source == "user_confirmed"
+        else _safe_title(meeting.title),
         language=metadata_result.language,
         duration_seconds=max(meeting.duration_seconds, 0),
         processing_result_id=str(metadata_result.id),
