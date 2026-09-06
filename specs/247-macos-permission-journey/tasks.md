@@ -65,3 +65,11 @@ T005 остается открытой: fast gate отказал до запус
 T007 также учитывает нативные кнопки заголовка: apps/macos/RecApp/Sources/Cabinet/DesktopCabinetWorkspaceView.swift должен уважать isEnabled скрытого workspace, чтобы Home/Back/Reload не оставались доступными за страницей.
 
 T007: локальная реализация, внешний Quit proof, повторный запуск и нативный UI проверены; новый exact-SHA governance-fast обязателен перед merge. Подробности в validation.md.
+
+## Phase 7: UX refinement
+
+- [X] T008 [US1] Сделать настройку ориентированной на запись разговора: один текущий шаг, компактный прогресс, короткие тексты, контекстная помощь и различимые busy/restricted состояния в apps/macos/RecApp/Sources/Capture/DesktopPermissionOnboardingView.swift; передать признак проверки из apps/macos/RecApp/App/TwoBrainRecApp.swift, обновить профильные UX/accessibility tests, native screenshots и evidence (FR-001/003/004/009/011/012).
+
+- T008: https://github.com/yshishenya/graf/issues/6627
+
+T008: локальные тесты/рендеры/нативный путь пройдены, ограничения записаны в validation.md. Новый exact-SHA governance-fast обязателен перед merge.

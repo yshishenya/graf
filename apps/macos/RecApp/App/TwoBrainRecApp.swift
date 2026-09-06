@@ -293,7 +293,7 @@ private struct ContentView: View {
                 meetingDetectionStatus: meetingDetectionStatus,
                 readinessStatus: effectivePermissionOnboardingStatus,
                 recordingLevels: liveRecordingLevels,
-                recordDisabled: recordingStartInProgress || recordingStopInProgress || permissionOperationInProgress,
+                recordDisabled: recordingStartInProgress || recordingStopInProgress || (permissionOperationInProgress && effectivePermissionOnboardingStatus.isReady),
                 stopDisabled: recordingStartInProgress || recordingStopInProgress,
                 pauseDisabled: recordingStartInProgress || recordingStopInProgress,
                 onRecord: {
@@ -366,6 +366,7 @@ private struct ContentView: View {
                     status: effectivePermissionOnboardingStatus,
                     applicationName: currentApplicationDisplayName,
                     isRequesting: permissionOperationInProgress,
+                    isChecking: permissionFunctionalProbeInProgress,
                     recoverySuggested: permissionRecoverySuggested,
                     restartAvailable: !protectedUpdateWork.isProtected,
                     microphoneAttempted: microphonePermissionAttempted,

@@ -46,26 +46,27 @@ public enum DesktopPermissionOnboardingAccessibilityIdentifier {
 }
 
 public struct DesktopPermissionOnboardingView: View {
-    public static var title: String { "Подготовим \(GrafAppChannel.current.displayName) к записи" }
-    public static let subtitle = "Два разрешения macOS, чтобы в записи были слышны вы и собеседники."
-    public static let systemAudioStepDetail = "Звук, который воспроизводится на Mac. GRAF не сохраняет видео экрана."
+    public static let title = "Чтобы вас было слышно"
+    public static let subtitle = "Разрешите доступ к микрофону, чтобы ваш голос попал в запись встречи."
+    public static let systemAudioStepDetail = "Так в записи будут слышны собеседники. GRAF получает звук с Mac и не сохраняет видео экрана."
     public static let startStepTitle = "Всё готово к записи"
-    public static let startStepDetail = "Используйте кнопку записи. Автозапись работает по вашим правилам."
-    public static let openSettingsTitle = "Открыть настройки macOS"
-    public static let retryTitle = "Проверить снова"
+    public static let startStepDetail = "Когда начнётся встреча, нажмите кнопку записи. Автозапись работает по вашим правилам."
+    public static let openSettingsTitle = "Открыть настройки"
+    public static let retryTitle = "Проверить ещё раз"
     public static var restartTitle: String { "Перезапустить \(GrafAppChannel.current.displayName)" }
-    public static let restartDetail = "Доступ пока не удалось проверить. Попробуйте ещё раз. Если это не помогло, можно перезапустить приложение."
-    public static let microphoneDeniedDetail = "Откройте настройки и включите доступ: повторный запрос после отказа macOS не показывает."
-    public static let microphoneRestrictedDetail = "Доступ ограничен на этом Mac. Обратитесь к администратору устройства. GRAF не может обойти это ограничение."
-    public static let recordingBoundaryDetail = "Настройка сама не запускает запись. После завершения настройки автозапись работает по вашим правилам."
+    public static let restartDetail = "Если доступ включён, но проверка не помогает, можно перезапустить приложение. Вы вернётесь к этому шагу."
+    public static let microphoneDeniedDetail = "Откройте настройки и включите доступ для приложения."
+    public static let microphoneRestrictedDetail = "Настройки этого Mac не позволяют включить доступ. Попросите администратора разрешить его для приложения."
+    public static let recordingBoundaryDetail = "Пока настраиваем звук, запись не идёт. После выхода действуют ваши правила автозаписи."
 
     public static func systemAudioStepDetail(for applicationName: String) -> String {
-        "\(systemAudioStepDetail) В настройках выберите «\(applicationName)»: разные копии приложения получают доступ отдельно."
+        "В настройках выберите «\(applicationName)» — то же имя, что в заголовке этого окна."
     }
 
     private let status: DesktopPermissionOnboardingStatus
     private let applicationName: String
     private let isRequesting: Bool
+    private let isChecking: Bool
     private let recoverySuggested: Bool
     private let restartAvailable: Bool
     private let microphoneAttempted: Bool
@@ -80,11 +81,13 @@ public struct DesktopPermissionOnboardingView: View {
     private let onFinish: () -> Void
     private let onRestart: () -> Void
     @State private var settingsHelp: DesktopPermissionStep?
+    @State private var helpExpanded = false
 
     public init(
         status: DesktopPermissionOnboardingStatus,
         applicationName: String = "GRAF",
         isRequesting: Bool,
+        isChecking: Bool = false,
         recoverySuggested: Bool,
         restartAvailable: Bool = true,
         microphoneAttempted: Bool = false,
@@ -102,6 +105,7 @@ public struct DesktopPermissionOnboardingView: View {
         self.status = status
         self.applicationName = applicationName
         self.isRequesting = isRequesting
+        self.isChecking = isChecking
         self.recoverySuggested = recoverySuggested
         self.restartAvailable = restartAvailable
         self.microphoneAttempted = microphoneAttempted
@@ -118,166 +122,162 @@ public struct DesktopPermissionOnboardingView: View {
     }
 
     public var body: some View {
-        ViewThatFits(in: .vertical) {
-            content
-            ScrollView { content }
+        VStack(spacing: 0) {
+            ViewThatFits(in: .vertical) {
+                content
+                ScrollView { content }
+            }
+            footer
         }
         .frame(width: 520)
         .frame(maxHeight: min(700, max(320, (NSApp.keyWindow?.screen?.visibleFrame.height ?? 860) - 160)))
         .tint(DesktopMeetingShellChrome.shellAccentColor)
         .accessibilityIdentifier(DesktopPermissionOnboardingAccessibilityIdentifier.page)
+        .onExitCommand(perform: onDismiss)
+        .onChange(of: status.nextPermission) { _, _ in
+            helpExpanded = false
+            settingsHelp = nil
+        }
+    }
+
+    private var currentState: CapturePermissionState {
+        status.nextPermission == .microphone ? status.microphone : status.systemAudio
     }
 
     private var content: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            HStack(alignment: .top, spacing: 14) {
-                Image(systemName: status.isReady ? "checkmark.circle.fill" : "waveform")
-                    .font(.system(size: 26, weight: .medium))
+        VStack(alignment: .leading, spacing: 24) {
+            HStack(spacing: 12) {
+                progressStep(.microphone, title: "Ваш голос", number: "1", state: status.microphone)
+                Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary).accessibilityHidden(true)
+                progressStep(.systemAudio, title: "Собеседники", number: "2", state: status.systemAudio)
+            }
+            VStack(alignment: .leading, spacing: 12) {
+                Image(systemName: status.isReady ? "checkmark" : (status.nextPermission == .microphone ? "mic" : "speaker.wave.2"))
+                    .font(.system(size: 28, weight: .medium))
                     .foregroundStyle(status.isReady ? Color.green : DesktopMeetingShellChrome.shellAccentColor)
-                    .frame(width: 48, height: 48)
-                    .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 14))
+                    .frame(width: 60, height: 60)
+                    .background(DesktopMeetingShellChrome.shellAccentColor.opacity(0.08), in: RoundedRectangle(cornerRadius: 18))
                     .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(status.isReady ? Self.startStepTitle : "Подготовим \(applicationName) к записи")
-                        .font(.title2.weight(.semibold))
-                        .accessibilityAddTraits(.isHeader)
-                    Text(status.isReady ? Self.startStepDetail : Self.subtitle)
-                        .font(.callout).foregroundStyle(.secondary)
-                }
-            }
-            HStack {
-                Text("Разрешения macOS").font(.callout.weight(.medium))
-                Spacer()
-                Text("\(status.completedCount) из 2 готовы").font(.caption).foregroundStyle(.secondary)
-            }
-            VStack(spacing: 10) {
-                permissionRow(.microphone, title: "Ваш голос", detail: "Доступ к микрофону", icon: "mic", state: status.microphone)
-                permissionRow(.systemAudio, title: "Голоса собеседников", detail: Self.systemAudioStepDetail, icon: "speaker.wave.2", state: status.systemAudio)
+                Text(status.isReady ? Self.startStepTitle : (status.nextPermission == .microphone ? Self.title : "Теперь — собеседников"))
+                    .font(.system(size: 26, weight: .semibold))
+                    .accessibilityAddTraits(.isHeader)
+                Text(status.isReady ? Self.startStepDetail : (status.nextPermission == .microphone ? Self.subtitle : Self.systemAudioStepDetail))
+                    .font(.body).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             if isRequesting {
-                HStack(spacing: 10) {
+                HStack(alignment: .top, spacing: 12) {
                     ProgressView().controlSize(.small)
-                    Text("Ожидаем macOS… Если появилось системное окно, выберите действие в нём.")
-                        .font(.caption).foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(isChecking ? "Проверяем, всё ли готово…" : "Ответьте на запрос macOS")
+                            .font(.body.weight(.medium))
+                        Text(isChecking ? "Это займёт несколько секунд." : "Выберите «Разрешить» в системном окне, чтобы продолжить настройку.")
+                            .font(.callout).foregroundStyle(.secondary)
+                    }
                 }
                 .accessibilityElement(children: .combine)
-            }
-            if let step = visibleSettingsHelp {
+            } else if currentState == .restricted {
+                Text(Self.microphoneRestrictedDetail).font(.body).foregroundStyle(.secondary)
+            } else if let step = visibleSettingsHelp {
                 settingsGuide(step)
+            } else if currentState == .stale {
+                Text("Пока не удалось проверить разрешение. Попробуем ещё раз — повторно выдавать доступ не нужно.")
+                    .font(.body).foregroundStyle(.secondary)
+            } else if !status.isReady {
+                Label("После «Продолжить» macOS попросит разрешение для «\(applicationName)».", systemImage: "macwindow")
+                    .font(.callout).foregroundStyle(.secondary)
             }
             if let settingsError {
                 Label(settingsError, systemImage: "exclamationmark.triangle")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.callout).foregroundStyle(.secondary)
             }
-            if recoverySuggested {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(Self.restartDetail).font(.caption).foregroundStyle(.secondary)
-                    Button("Перезапустить \(applicationName)", action: onRestart)
-                        .buttonStyle(DesktopWebButtonStyle(.secondary))
-                        .disabled(!restartAvailable || isRequesting)
-                        .accessibilityIdentifier(DesktopPermissionOnboardingAccessibilityIdentifier.restartButton)
-                    if !restartAvailable {
-                        Text("Перезапуск станет доступен после завершения записи и сохранения файла.")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
+            if let step = status.nextPermission {
+                DisclosureGroup("Не получается?", isExpanded: $helpExpanded) {
+                    help(step).padding(.top, 10)
                 }
+                .font(.callout)
             }
-            Divider()
-            Text(Self.recordingBoundaryDetail).font(.caption).foregroundStyle(.secondary)
-            HStack {
-                if !status.isReady {
-                    Button("Позже", action: onDismiss).keyboardShortcut(.cancelAction)
+        }
+        .padding(.horizontal, 26)
+        .padding(.top, 26)
+        .padding(.bottom, 8)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var footer: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 12) {
+                if !status.isReady && currentState != .restricted {
+                    Button(action: onDismiss) {
+                        Text("Настроить позже").frame(minHeight: 44).contentShape(Rectangle())
+                    }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("desktop.permissionOnboarding.later")
                 }
                 Spacer()
-                if status.isReady {
-                    Button("Готово", action: onFinish)
-                        .buttonStyle(DesktopWebButtonStyle(.primary))
-                        .keyboardShortcut(.defaultAction)
-                        .disabled(isRequesting)
-                        .accessibilityIdentifier(DesktopPermissionOnboardingAccessibilityIdentifier.finishButton)
+                Button(action: performPrimaryAction) {
+                    Text(primaryActionTitle).frame(minHeight: 44)
                 }
+                    .buttonStyle(DesktopWebButtonStyle(.primary))
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(isRequesting)
+                    .accessibilityIdentifier(status.isReady ? DesktopPermissionOnboardingAccessibilityIdentifier.finishButton : (status.nextPermission == .microphone ? DesktopPermissionOnboardingAccessibilityIdentifier.microphoneButton : DesktopPermissionOnboardingAccessibilityIdentifier.systemAudioButton))
+            }
+            if !status.isReady {
+                Text(Self.recordingBoundaryDetail)
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(26)
         .fixedSize(horizontal: false, vertical: true)
     }
 
-    private func permissionRow(_ step: DesktopPermissionStep, title: String, detail: String, icon: String, state: CapturePermissionState) -> some View {
+    private var primaryActionTitle: String {
+        if isRequesting { return isChecking ? "Проверяем…" : "Ожидаем ответа…" }
+        if status.isReady { return "Готово" }
+        if currentState == .restricted { return "Вернуться в GRAF" }
+        if needsSettings { return Self.openSettingsTitle }
+        return currentState == .unknown ? "Продолжить" : Self.retryTitle
+    }
+
+    private func performPrimaryAction() {
+        if status.isReady { onFinish() }
+        else if currentState == .restricted { onDismiss() }
+        else if needsSettings, let step = status.nextPermission { openSettings(step) }
+        else if currentState == .unknown {
+            if status.nextPermission == .microphone { onRequestMicrophone() } else { onRequestSystemAudio() }
+        } else { onRefresh() }
+    }
+
+    private func progressStep(_ step: DesktopPermissionStep, title: String, number: String, state: CapturePermissionState) -> some View {
         let active = status.nextPermission == step
-        let attempted = step == .microphone ? microphoneAttempted : systemAudioAttempted
-        let needsSettings = DesktopPermissionOnboardingStatus.needsSettings(state: state, attempted: attempted)
-        return HStack(alignment: .top, spacing: 12) {
-            Image(systemName: state == .granted ? "checkmark.circle.fill" : icon)
-                .font(.title3).foregroundStyle(state == .granted ? Color.green : .secondary)
-                .frame(width: 26, height: 26).accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Text(title).font(.callout.weight(.semibold))
-                    Spacer()
-                    if state == .granted { Text("Готово").font(.caption).foregroundStyle(.secondary) }
-                }
-                Text(state == .restricted ? Self.microphoneRestrictedDetail : detail)
-                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                if active {
-                    if state == .unknown && !attempted {
-                        Text("Нажмите «Продолжить», затем ответьте на запрос macOS.")
-                            .font(.caption).foregroundStyle(.secondary)
-                    } else if needsSettings {
-                        Text("Включите доступ для «\(applicationName)» в настройках macOS.")
-                            .font(.caption).foregroundStyle(.secondary)
-                    } else if state == .stale {
-                        Text("Не удалось проверить доступ. Попробуйте ещё раз.")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                    HStack {
-                        Button(needsSettings ? Self.openSettingsTitle : (state == .unknown ? "Продолжить" : Self.retryTitle)) {
-                            if needsSettings { openSettings(step) }
-                            else if state == .unknown {
-                                if step == .microphone { onRequestMicrophone() } else { onRequestSystemAudio() }
-                            } else { onRefresh() }
-                        }
-                        .buttonStyle(DesktopWebButtonStyle(.primary))
-                        .disabled(isRequesting)
-                        .keyboardShortcut(.defaultAction)
-                        .accessibilityIdentifier(step == .microphone ? DesktopPermissionOnboardingAccessibilityIdentifier.microphoneButton : DesktopPermissionOnboardingAccessibilityIdentifier.systemAudioButton)
-                        if needsSettings {
-                            Button(Self.retryTitle, action: onRefresh)
-                                .buttonStyle(DesktopWebButtonStyle(.secondary)).disabled(isRequesting)
-                        }
-                    }
-                    DisclosureGroup("Нужна помощь?") {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Если запрос не появился или доступ уже включён, откройте настройки и найдите «\(applicationName)». Проверьте, что настраиваете именно запущенную копию приложения.")
-                                .font(.caption).foregroundStyle(.secondary)
-                            Button(Self.openSettingsTitle) { openSettings(step) }
-                                .disabled(isRequesting)
-                            if state == .unknown && attempted {
-                                Text("Если «\(applicationName)» нет в списке, повторите системный запрос доступа.")
-                                    .font(.caption).foregroundStyle(.secondary)
-                                Button("Запросить доступ ещё раз", action: step == .microphone ? onRequestMicrophone : onRequestSystemAudio)
-                                    .disabled(isRequesting)
-                            }
-                            if needsSettings && step == .systemAudio {
-                                Text("Доступ уже включён, но статус не изменился? Нажмите «Проверить снова». Если macOS ещё не применила доступ к запущенному приложению, может помочь перезапуск.")
-                                    .font(.caption).foregroundStyle(.secondary)
-                                Button("Перезапустить \(applicationName)", action: onRestart)
-                                    .disabled(isRequesting || !restartAvailable)
-                            }
-                        }.padding(.top, 6)
-                    }.font(.caption)
-                }
+        return HStack(spacing: 8) {
+            if state == .granted {
+                Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+            } else {
+                Text(number).font(.caption.weight(.semibold))
+                    .frame(width: 22, height: 22)
+                    .background(Color.primary.opacity(0.06), in: Circle())
             }
+            Text(title).font(.callout.weight(active ? .semibold : .regular))
         }
-        .padding(14)
-        .background(Color.primary.opacity(active ? 0.055 : 0.025), in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(active ? DesktopMeetingShellChrome.shellAccentColor.opacity(0.4) : Color.primary.opacity(0.08)))
+        .foregroundStyle(active ? Color.primary : .secondary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(10)
+        .background(active ? DesktopMeetingShellChrome.shellAccentColor.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 10))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(title): \(state == .granted ? "готово" : (active ? "текущий шаг" : "следующий шаг"))")
+    }
+
+    private var needsSettings: Bool {
+        let attempted = status.nextPermission == .microphone ? microphoneAttempted : systemAudioAttempted
+        return DesktopPermissionOnboardingStatus.needsSettings(state: currentState, attempted: attempted)
     }
 
     private var visibleSettingsHelp: DesktopPermissionStep? {
         guard let step = status.nextPermission else { return nil }
-        let state = step == .microphone ? status.microphone : status.systemAudio
-        let attempted = step == .microphone ? microphoneAttempted : systemAudioAttempted
-        return settingsHelp == step || DesktopPermissionOnboardingStatus.needsSettings(state: state, attempted: attempted) ? step : nil
+        return settingsHelp == step || needsSettings ? step : nil
     }
 
     private func openSettings(_ step: DesktopPermissionStep) {
@@ -286,10 +286,11 @@ public struct DesktopPermissionOnboardingView: View {
     }
 
     private func settingsGuide(_ step: DesktopPermissionStep) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Включите «\(applicationName)»").font(.callout.weight(.semibold))
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Включите «\(applicationName)» в настройках")
+                .font(.body.weight(.medium))
             Text("Конфиденциальность и безопасность → \(step == .microphone ? "Микрофон" : "Запись экрана и системного звука")")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.callout).foregroundStyle(.secondary)
             HStack(spacing: 10) {
                 Image(nsImage: NSApplication.shared.applicationIconImage).resizable().frame(width: 28, height: 28)
                 Text(applicationName).font(.callout.weight(.medium))
@@ -299,15 +300,44 @@ public struct DesktopPermissionOnboardingView: View {
                     .background(Color.green, in: Capsule())
                 Text("Вкл.").font(.caption)
             }
-            .padding(10).background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
+            .padding(12).background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 10))
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Пример: включите переключатель рядом с \(applicationName) в системных настройках")
+            Text("Пример в настройках macOS. Затем вернитесь сюда — мы проверим доступ автоматически.")
+                .font(.callout).foregroundStyle(.secondary)
             if step == .systemAudio {
-                Text("Если macOS предложит «Завершить и открыть снова», подтвердите. После запуска вы вернётесь к настройке — уже выданные разрешения проверятся автоматически.")
-                    .font(.caption).foregroundStyle(.secondary)
+                Text("macOS просит «Завершить и открыть снова»? Подтвердите — после запуска вы продолжите с этого места.")
+                    .font(.callout).foregroundStyle(.secondary)
             }
-            Text("Пример в настройках macOS. Название раздела может отличаться в вашей версии. Если перезапуск не нужен, вернитесь сюда — статус обновится автоматически.")
-                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private func help(_ step: DesktopPermissionStep) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Уже включили доступ? Проверим ещё раз.")
+                .foregroundStyle(.secondary)
+            Button(Self.retryTitle, action: onRefresh).disabled(isRequesting)
+            if !needsSettings && currentState != .restricted {
+                Button(Self.openSettingsTitle) { openSettings(step) }.disabled(isRequesting)
+            }
+            let attempted = step == .microphone ? microphoneAttempted : systemAudioAttempted
+            if currentState == .unknown && attempted {
+                Text("Не видите «\(applicationName)» в списке? Повторите запрос, чтобы приложение появилось в настройках.")
+                    .foregroundStyle(.secondary)
+                Button("Повторить запрос", action: step == .microphone ? onRequestMicrophone : onRequestSystemAudio)
+                    .disabled(isRequesting)
+            }
+            if step == .systemAudio && (recoverySuggested || visibleSettingsHelp != nil) {
+                Text(Self.restartDetail).foregroundStyle(.secondary)
+                Button("Перезапустить \(applicationName)", action: onRestart)
+                    .disabled(isRequesting || !restartAvailable)
+                    .accessibilityIdentifier(DesktopPermissionOnboardingAccessibilityIdentifier.restartButton)
+                if !restartAvailable {
+                    Text("Сначала дождитесь окончания записи и сохранения файла.").foregroundStyle(.secondary)
+                }
+            }
+            Text(Self.systemAudioStepDetail(for: applicationName)).foregroundStyle(.secondary)
+            Text("Название раздела может немного отличаться в вашей версии macOS.").foregroundStyle(.secondary)
         }
     }
 }

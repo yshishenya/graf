@@ -89,11 +89,11 @@ final class SystemAudioPermissionUXTests: XCTestCase {
     }
 
     func testPermissionRecoveryActionsStaySeparateAndRussian() {
-        XCTAssertEqual(DesktopPermissionOnboardingView.openSettingsTitle, "Открыть настройки macOS")
-        XCTAssertEqual(DesktopPermissionOnboardingView.retryTitle, "Проверить снова")
+        XCTAssertEqual(DesktopPermissionOnboardingView.openSettingsTitle, "Открыть настройки")
+        XCTAssertEqual(DesktopPermissionOnboardingView.retryTitle, "Проверить ещё раз")
         XCTAssertEqual(DesktopPermissionOnboardingView.restartTitle, "Перезапустить GRAF")
-        XCTAssertTrue(DesktopPermissionOnboardingView.microphoneDeniedDetail.contains("повторный запрос"))
-        XCTAssertTrue(DesktopPermissionOnboardingView.microphoneRestrictedDetail.contains("не может обойти"))
+        XCTAssertTrue(DesktopPermissionOnboardingView.microphoneDeniedDetail.contains("включите доступ"))
+        XCTAssertTrue(DesktopPermissionOnboardingView.microphoneRestrictedDetail.contains("администратора"))
         XCTAssertNotEqual(
             DesktopPermissionOnboardingAccessibilityIdentifier.microphoneButton,
             DesktopPermissionOnboardingAccessibilityIdentifier.systemAudioButton
@@ -104,7 +104,7 @@ final class SystemAudioPermissionUXTests: XCTestCase {
         )
         let devCopy = DesktopPermissionOnboardingView.systemAudioStepDetail(for: "GRAF Dev")
         XCTAssertTrue(devCopy.contains("GRAF Dev"))
-        XCTAssertTrue(devCopy.contains("отдельно"))
+        XCTAssertTrue(devCopy.contains("то же имя"))
     }
 
     func testRenderSyntheticPermissionStates() throws {
@@ -120,6 +120,8 @@ final class SystemAudioPermissionUXTests: XCTestCase {
         try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
         let scenarios: [(String, DesktopPermissionOnboardingStatus)] = [
             ("initial", .unknown),
+            ("waiting", .unknown),
+            ("checking", .init(microphone: .granted, systemAudio: .unknown)),
             ("system-audio", .init(microphone: .granted, systemAudio: .unknown)),
             ("settings", .init(microphone: .granted, systemAudio: .denied)),
             ("compact-settings", .init(microphone: .granted, systemAudio: .denied)),
@@ -130,7 +132,9 @@ final class SystemAudioPermissionUXTests: XCTestCase {
         for scheme in [ColorScheme.light, .dark] {
             for (name, state) in scenarios {
                 let view = DesktopPermissionOnboardingView(
-                    status: state, applicationName: "GRAF Dev", isRequesting: false,
+                    status: state, applicationName: "GRAF Dev",
+                    isRequesting: name == "waiting" || name == "checking",
+                    isChecking: name == "checking",
                     recoverySuggested: state.systemAudio == .stale,
                     onRequestMicrophone: {}, onRequestSystemAudio: {},
                     onOpenMicrophoneSettings: {}, onOpenSystemAudioSettings: {},
@@ -138,20 +142,20 @@ final class SystemAudioPermissionUXTests: XCTestCase {
                 )
                 .environment(\.colorScheme, scheme)
                 .background(scheme == .dark ? Color(nsColor: .init(white: 0.12, alpha: 1)) : .white)
-                let png: Data
+                // Render the actual AppKit host for every state, including scroll content.
+                let host = NSHostingView(rootView: view)
+                let height: CGFloat = name == "compact-settings" ? 380 : 700
+                let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: height),
+                    styleMask: [.borderless], backing: .buffered, defer: false)
+                window.isReleasedWhenClosed = false
+                window.contentView = host
+                window.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
+                host.frame = NSRect(x: 0, y: 0, width: 520, height: height)
+                host.layoutSubtreeIfNeeded()
+                let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+                host.cacheDisplay(in: host.bounds, to: bitmap)
+                let png = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
                 if name == "compact-settings" {
-                    // ImageRenderer does not render the AppKit scroll view; exercise an actual host.
-                    let host = NSHostingView(rootView: view)
-                    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 380),
-                        styleMask: [.borderless], backing: .buffered, defer: false)
-                    window.isReleasedWhenClosed = false
-                    window.contentView = host
-                    window.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
-                    host.frame = NSRect(x: 0, y: 0, width: 520, height: 380)
-                    host.layoutSubtreeIfNeeded()
-                    let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-                    host.cacheDisplay(in: host.bounds, to: bitmap)
-                    png = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
                     func findScrollView(_ view: NSView) -> NSScrollView? {
                         if let scroll = view as? NSScrollView { return scroll }
                         return view.subviews.lazy.compactMap { findScrollView($0) }.first
@@ -159,6 +163,9 @@ final class SystemAudioPermissionUXTests: XCTestCase {
                     let scroll = try XCTUnwrap(findScrollView(host))
                     let document = try XCTUnwrap(scroll.documentView)
                     XCTAssertGreaterThan(document.bounds.height, scroll.contentView.bounds.height)
+                    // The footer remains outside the scroll view at both positions.
+                    let viewport = scroll.convert(scroll.bounds, to: host)
+                    XCTAssertGreaterThan(host.bounds.height - viewport.height, 100)
                     scroll.contentView.scroll(to: NSPoint(x: 0, y: document.isFlipped ? document.bounds.height - scroll.contentView.bounds.height : 0))
                     scroll.reflectScrolledClipView(scroll.contentView)
                     host.layoutSubtreeIfNeeded()
@@ -166,15 +173,8 @@ final class SystemAudioPermissionUXTests: XCTestCase {
                     host.cacheDisplay(in: host.bounds, to: bottom)
                     let bottomPNG = try XCTUnwrap(bottom.representation(using: .png, properties: [:]))
                     try bottomPNG.write(to: URL(fileURLWithPath: directory).appendingPathComponent("compact-bottom-\(scheme == .dark ? "dark" : "light").png"))
-                    window.close()
-                } else {
-                    let renderer = ImageRenderer(content: view)
-                    renderer.scale = 2
-                    let image = try XCTUnwrap(renderer.cgImage)
-                    XCTAssertGreaterThan(image.height, 200)
-                    XCTAssertLessThanOrEqual(image.height, 1400)
-                    png = try XCTUnwrap(NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]))
                 }
+                window.close()
                 try png.write(to: URL(fileURLWithPath: directory).appendingPathComponent("\(name)-\(scheme == .dark ? "dark" : "light").png"))
             }
         }

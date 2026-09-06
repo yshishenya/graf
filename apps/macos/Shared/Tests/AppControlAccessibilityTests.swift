@@ -356,12 +356,12 @@ final class AppControlAccessibilityTests: XCTestCase {
             DesktopPermissionOnboardingView.startStepDetail
         ]
 
-        XCTAssertTrue(DesktopPermissionOnboardingView.recordingBoundaryDetail.contains("сама не запускает запись"))
+        XCTAssertTrue(DesktopPermissionOnboardingView.recordingBoundaryDetail.contains("запись не идёт"))
         XCTAssertTrue(DesktopPermissionOnboardingView.systemAudioStepDetail.contains("не сохраняет видео экрана"))
         XCTAssertTrue(DesktopPermissionOnboardingView.restartDetail.contains("можно перезапустить"))
         XCTAssertTrue(DesktopPermissionOnboardingView.startStepDetail.contains("кнопку записи"))
-        XCTAssertEqual(DesktopPermissionOnboardingView.openSettingsTitle, "Открыть настройки macOS")
-        XCTAssertEqual(DesktopPermissionOnboardingView.retryTitle, "Проверить снова")
+        XCTAssertEqual(DesktopPermissionOnboardingView.openSettingsTitle, "Открыть настройки")
+        XCTAssertEqual(DesktopPermissionOnboardingView.retryTitle, "Проверить ещё раз")
         XCTAssertEqual(DesktopPermissionOnboardingView.restartTitle, "Перезапустить GRAF")
         XCTAssertTrue(DesktopPermissionOnboardingView.microphoneDeniedDetail.contains("Откройте настройки"))
         XCTAssertEqual(
@@ -396,6 +396,7 @@ final class AppControlAccessibilityTests: XCTestCase {
         let preparing = try XCTUnwrap(start.range(of: "captureController.beginPreparing("))
         XCTAssertLessThan(preflight.lowerBound, preparing.lowerBound)
         XCTAssertTrue(start.contains("guard !permissionSetupBlocksRecording"))
+        XCTAssertTrue(source.contains("permissionOperationInProgress && effectivePermissionOnboardingStatus.isReady"), "Pending permission work must block Record, but leave the separate setup entry available")
         let restart = try block("    private func restartGRAFAfterPermissionChange()", "    private func refreshCalendarReminder(")
         XCTAssertTrue(restart.contains("guard !protectedUpdateWork.isProtected, !permissionOperationInProgress"))
         XCTAssertFalse(source.contains("systemAudioPermissionTransitionRequiresRestart"))
