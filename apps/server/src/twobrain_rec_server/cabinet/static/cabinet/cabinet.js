@@ -135,21 +135,58 @@
 
   const currentList = () => document.querySelector("[data-meeting-list]");
   const allRows = () => Array.from(currentList()?.querySelectorAll("[data-meeting-row]") || []);
-  const SHORT_MEETING_MONTH_LABELS = ["", "янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
   const GENERATED_CAPTURE_TITLE_RE = /^(?:current(?: display)? system audio|system audio|yandex telemost|zoom(?:\.us)?|meeting)\s*[-—]\s*\d{4}-\d{2}-\d{2}(?:[ T]\d{1,2}:\d{2})?$/i;
-  const GENERATED_CAPTURE_TITLE_SUFFIX_RE = /\s*[-—]\s*\d{4}-\d{2}-\d{2}(?:[ T]\d{1,2}:\d{2})?$/;
-  const formatMeetingListDate = (value) => {
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return "На этом Mac";
-    const pad = (part) => String(part).padStart(2, "0");
-    return `${date.getDate()} ${SHORT_MEETING_MONTH_LABELS[date.getMonth() + 1]}, ${pad(date.getHours())}:${pad(date.getMinutes())}`;
-  };
+  const formatMeetingListDate = (value) => window.GRAFTime.format(value);
   const localRecordingDisplayTitle = (item) => {
     const rawTitle = (item.title || "").trim();
+    if (typeof item.generatedTitlePrefix === "string") {
+      return `${item.generatedTitlePrefix}${formatMeetingListDate(item.startedAt)}`;
+    }
     if (!GENERATED_CAPTURE_TITLE_RE.test(rawTitle)) return rawTitle || "Запись";
-    const sourceTitle = rawTitle.replace(GENERATED_CAPTURE_TITLE_SUFFIX_RE, "").trim();
     const date = formatMeetingListDate(item.startedAt);
-    return date === "На этом Mac" ? rawTitle : `${sourceTitle} — ${date}`;
+    return date === "Без даты" ? "Запись" : `Запись ${date}`;
+  };
+  const meetingListSort = () => document.querySelector("#meeting-sort")?.value || "started_desc";
+  const sortMeetingRows = (list) => {
+    const sort = meetingListSort();
+    const key = sort.startsWith("updated") ? "sortUpdated" : sort.startsWith("duration") ? "sortDuration" : "sortStarted";
+    const value = (row) => {
+      if (sort === "title_asc") return (row.dataset.sortTitle || "").toLowerCase();
+      const raw = row.dataset[key];
+      if (!raw) return null;
+      const number = key === "sortDuration" ? Number(raw) : Date.parse(raw);
+      return Number.isFinite(number) ? number : null;
+    };
+    Array.from(list.querySelectorAll("[data-meeting-row]")).sort((left, right) => {
+      const a = value(left), b = value(right);
+      if (a === null && b !== null) return 1;
+      if (a !== null && b === null) return -1;
+      const order = a === b ? 0 : a < b ? -1 : 1;
+      if (order) return order * (sort.endsWith("_desc") ? -1 : 1);
+      const leftId = left.dataset.meetingId || left.dataset.grafLocalRecordingId || "";
+      const rightId = right.dataset.meetingId || right.dataset.grafLocalRecordingId || "";
+      return leftId < rightId ? -1 : leftId > rightId ? 1 : 0;
+    }).forEach((row) => list.append(row));
+  };
+  const localRecordingMatches = (item) => {
+    const access = document.querySelector("#meeting-access")?.value;
+    const status = document.querySelector("#meeting-status")?.value;
+    // Local custody does not prove server processing/readiness or team access.
+    if ((access && access !== "owner") || status) return false;
+    const query = (document.querySelector("#meeting-search")?.value || "").trim().toLowerCase().replace(/\s+/g, " ");
+    if (!query) return true;
+    const title = localRecordingDisplayTitle(item);
+    const duration = window.GRAFTime.formatDuration(item.durationSeconds);
+    const time = formatMeetingListDate(meetingListSort().startsWith("updated") ? item.updatedAt : item.startedAt);
+    return [title, duration, time, `${title} ${duration}`, `${title} ${time}`, `${duration} ${time}`, `${title} ${duration} ${time}`]
+      .some((text) => text.toLowerCase().replace(/\s+/g, " ").includes(query));
+  };
+  const updateMixedResultCount = () => {
+    const count = document.querySelector("[data-meeting-result-count]");
+    if (count) {
+      const incomplete = document.querySelector('[data-meeting-result-complete="false"]');
+      count.textContent = `Найдено: ${incomplete ? "больше " : ""}${allRows().length}`;
+    }
   };
   let localRecordingRows = [];
   const renderLocalRecordingRows = () => {
@@ -157,6 +194,7 @@
     if (!host) return;
     host.querySelectorAll("[data-graf-local-recording-row]").forEach((row) => row.remove());
     const localOnly = localRecordingRows.filter((item) => {
+      if (!localRecordingMatches(item)) return false;
       if (!item.meetingId) return true;
       const serverRow = allRows().find((row) => row.dataset.meetingId === item.meetingId);
       if (!serverRow || item.uploadComplete !== true) return true;
@@ -167,6 +205,7 @@
     if (!localOnly.length) {
       host.querySelector("ol[data-graf-local-recording-list]")?.remove();
       if (emptyState) emptyState.hidden = false;
+      updateMixedResultCount();
       return;
     }
     if (!list) {
@@ -178,12 +217,15 @@
       host.append(list);
     }
     if (emptyState) emptyState.hidden = true;
-    localOnly.slice().reverse().forEach((item) => {
+    localOnly.forEach((item) => {
       const row = document.createElement("li");
       row.className = "meeting-row cabinet-row is-local-recording";
       row.dataset.meetingRow = "";
       row.dataset.grafLocalRecordingRow = "";
       row.dataset.grafLocalRecordingId = item.id;
+      row.dataset.sortStarted = item.startedAt || "";
+      row.dataset.sortUpdated = item.updatedAt || "";
+      row.dataset.sortDuration = String(item.durationSeconds);
 
       const selection = document.createElement("span");
       selection.className = "row-select-hit row-contextual-placeholder";
@@ -200,6 +242,7 @@
       const title = document.createElement(item.canOpen ? "button" : "strong");
       title.className = `meeting-title row-title${item.canOpen ? " local-recording-open" : ""}`;
       const displayTitle = localRecordingDisplayTitle(item);
+      row.dataset.sortTitle = displayTitle;
       title.textContent = displayTitle;
       if (item.canOpen) {
         title.type = "button";
@@ -210,11 +253,7 @@
       }
       const duration = document.createElement("span");
       duration.className = "meeting-duration muted";
-      const durationLabel = (value) => {
-        const minutes = Math.floor(value / 60);
-        const seconds = value % 60;
-        return minutes ? `${minutes} мин ${seconds ? `${seconds} с` : ""}`.trim() : `${seconds} с`;
-      };
+      const durationLabel = window.GRAFTime.formatDuration;
       duration.textContent = item.showsPartialDuration
         ? `Сохранено ${durationLabel(item.durationSeconds)} из ${durationLabel(item.sessionDurationSeconds)}`
         : durationLabel(item.durationSeconds);
@@ -244,12 +283,18 @@
         remove.dataset.grafLocalRecordingId = item.id;
         actions.append(remove);
       }
-      const time = document.createElement("span");
+      const time = document.createElement("time");
       time.className = "meeting-date";
-      time.textContent = formatMeetingListDate(item.startedAt);
+      time.id = `graf-local-time-${item.id}`;
+      if (item.canOpen) title.setAttribute("aria-describedby", time.id);
+      const timeValue = meetingListSort().startsWith("updated") ? item.updatedAt : item.startedAt;
+      if (timeValue && Number.isFinite(Date.parse(timeValue))) time.dateTime = timeValue;
+      time.textContent = `${timeValue && meetingListSort().startsWith("updated") ? "Обновлено " : ""}${formatMeetingListDate(timeValue)}`;
       row.append(selection, icon, content, actions, time);
-      list.prepend(row);
+      list.append(row);
     });
+    sortMeetingRows(list);
+    updateMixedResultCount();
   };
   window.GRAFLocalRecordings = {
     update(rows) {
@@ -1547,10 +1592,7 @@
 
   const processingCountdownCopy = (seconds, source, nextAttemptAt = null, replacement = false) => {
     if (replacement && Number.isFinite(seconds) && processingTimestamp(nextAttemptAt) !== null) {
-      const time = new Intl.DateTimeFormat("ru-RU", {
-        hour: "2-digit",
-        minute: "2-digit",
-      }).format(new Date(nextAttemptAt));
+      const time = window.GRAFTime.format(nextAttemptAt, { showZone: true });
       return `GRAF повторит попытку автоматически в ${time} (через ${processingCountdownDuration(seconds)}).`;
     }
     const prefix = source === "server_fallback" ? "Примерно через" : "Следующая проверка через";
@@ -4846,18 +4888,8 @@
   };
 
   const initCalendarSettings = () => {
-    const localDateTime = new Intl.DateTimeFormat("ru-RU", {
-      dateStyle: "medium",
-      timeStyle: "short",
-    });
-    const localTime = new Intl.DateTimeFormat("ru-RU", { timeStyle: "short" });
     document.querySelectorAll("[data-calendar-local-datetime], [data-calendar-local-time]").forEach((element) => {
-      const value = element.getAttribute("datetime");
-      const date = value ? new Date(value) : null;
-      if (!date || Number.isNaN(date.getTime())) return;
-      element.textContent = element.hasAttribute("data-calendar-local-time")
-        ? localTime.format(date)
-        : localDateTime.format(date);
+      element.textContent = window.GRAFTime.format(element.getAttribute("datetime"));
     });
     const mutationCopy = {
       connect: "Проверяем доступ…",
@@ -5068,7 +5100,7 @@
       form.addEventListener("change", update);
       form.addEventListener("reset", () => window.setTimeout(update, 0));
       form.addEventListener("submit", () => {
-        initial = snapshot();
+        if (!form.hasAttribute("data-account-preferences")) initial = snapshot();
         form.dataset.state = "saving";
         if (status) {
           status.textContent = "Сохраняем…";
@@ -5097,15 +5129,79 @@
           if (form.dataset.accountPreferencesAutoSave === "true") form.requestSubmit();
         }
       });
-      form.addEventListener("submit", () => {
-        // Keep the native POST/no-JS path authoritative; preview is local only until the server confirms.
+      const timezoneSelect = form.querySelector("[data-timezone-select]");
+      const search = form.querySelector("[data-timezone-search]");
+      const preview = form.querySelector("[data-timezone-preview]");
+      const result = form.querySelector("[data-timezone-search-result]");
+      const initialTimezone = timezoneSelect?.value;
+      const options = timezoneSelect ? Array.from(timezoneSelect.options).map(option => option.cloneNode(true)) : [];
+      const normalizeSearch = (value) => value.toLowerCase().normalize("NFKC").replace(/[−–]/g, "-").replace(/\s+/g, " ").trim();
+      const filterTimezones = () => {
+        if (!timezoneSelect || !search) return;
+        const selected = timezoneSelect.value;
+        const query = normalizeSearch(search.value);
+        const matches = options.filter(option => normalizeSearch(`${option.textContent} ${option.value}`).includes(query));
+        // Keep the draft selection while searching; typing alone never changes the setting.
+        timezoneSelect.replaceChildren(...options.filter(option => option.value === selected || matches.includes(option)).map(option => option.cloneNode(true)));
+        timezoneSelect.value = selected;
+        if (result) {
+          result.hidden = !query;
+          result.textContent = matches.length ? `Найдено: ${matches.length}` : "Совпадений нет. Измените запрос; выбранный пояс сохранён в поле.";
+        }
+      };
+      const updateTimezonePreview = () => {
+        if (!timezoneSelect || !preview) return;
+        preview.hidden = false;
+        preview.textContent = `Сейчас: ${window.GRAFTime.format(new Date(), { timeZone: timezoneSelect.value, showZone: true })}`;
+      };
+      form.querySelector("[data-timezone-search-wrap]")?.removeAttribute("hidden");
+      search?.addEventListener("input", filterTimezones);
+      timezoneSelect?.addEventListener("change", updateTimezonePreview);
+      updateTimezonePreview();
+      let saving = false;
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        if (saving) return;
+        saving = true;
         const status = form.querySelector("[data-settings-form-status]");
+        const body = new FormData(form);
+        const controls = Array.from(form.elements).filter(control => !control.disabled);
+        controls.forEach(control => { control.disabled = true; });
         if (status) { status.textContent = "Сохраняем настройки…"; status.hidden = false; }
-        const submit = form.querySelector("button[type='submit']");
-        if (submit) submit.disabled = false;
+        try {
+          const response = await fetch(form.action, {
+            method: "POST", body, credentials: "same-origin", redirect: "follow",
+            headers: csrfToken ? { "X-CSRF-Token": csrfToken } : {},
+          });
+          if (!response.ok || !response.redirected) throw new Error(response.status === 422 ? "invalid_preferences" : "preferences_save_failed");
+          const destination = new URL(response.url, location.href);
+          if (destination.origin !== location.origin) throw new Error("preferences_save_failed");
+          window.location.assign(destination.href);
+        } catch (error) {
+          form.dataset.state = "error";
+          if (status) {
+            status.textContent = error.message === "invalid_preferences"
+              ? "Проверьте часовой пояс и остальные настройки, затем сохраните ещё раз."
+              : "Не удалось сохранить настройки. Проверьте соединение и повторите отправку.";
+            status.hidden = false;
+          }
+        } finally {
+          saving = false;
+          controls.forEach(control => { control.disabled = false; });
+          const submit = form.querySelector("button[type='submit']");
+          if (submit) submit.disabled = false;
+        }
       });
       form.addEventListener("reset", () => window.setTimeout(() => {
         applyTheme(form.elements.namedItem("theme")?.value || "system");
+        if (timezoneSelect) {
+          timezoneSelect.replaceChildren(...options.map(option => option.cloneNode(true)));
+          timezoneSelect.value = initialTimezone;
+        }
+        if (search) search.value = "";
+        filterTimezones();
+        updateTimezonePreview();
+        form.dispatchEvent(new Event("change", { bubbles: true }));
       }, 0));
     });
   };
@@ -6818,7 +6914,7 @@
           outcome_unknown: "Письмо не подтверждено — не отправляйте повторно сразу"
         }[invitation.status] || invitation.status || "Готовится к отправке";
         const scopeLabel = invitation.content_scope === "full_meeting" ? "запись" : "итоги";
-        status.textContent = `${statusLabel} · ${scopeLabel}${expiresAt && !Number.isNaN(expiresAt.valueOf()) ? ` · до ${expiresAt.toLocaleDateString("ru-RU")}` : ""}`;
+        status.textContent = `${statusLabel} · ${scopeLabel}${expiresAt && !Number.isNaN(expiresAt.valueOf()) ? ` · до ${window.GRAFTime.format(invitation.expires_at, { showZone: true })}` : ""}`;
         identity.append(label, status);
         const revoke = document.createElement("button");
         revoke.type = "button";

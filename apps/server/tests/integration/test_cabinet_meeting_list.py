@@ -18,6 +18,7 @@ from tests.fixtures.cabinet_access import (
 )
 from twobrain_rec_server.cabinet.templates import CABINET_STATIC_URL
 from twobrain_rec_server.db.models import (
+    MediaRevision,
     Meeting,
     RecordingCalendarContextLink,
     UploadSession,
@@ -636,7 +637,7 @@ def test_cabinet_list_search_filter_sort_and_limit(client) -> None:
     titles = [item["title"] for item in title_sorted.json()["items"]]
     assert titles == sorted(titles)
     assert "aaa-visible-fallback" not in titles
-    assert "Запись 26 июн, 08:00" in titles
+    assert "Запись 26.06.2026, 08:00 (UTC)" in titles
     assert "bbb-visible-title" in titles
 
 
@@ -860,41 +861,37 @@ def test_web_visible_title_prefilter_is_a_superset_of_safe_projection(client) ->
 
     client.portal.call(seed_projected_search_rows)
 
-    whitespace = client.get(
-        "/meetings", params={"q": "Quarterly sync"}, headers=auth_headers()
-    )
+    whitespace = client.get("/meetings", params={"q": "Quarterly sync"}, headers=auth_headers())
     filename = client.get(
-        "/meetings", params={"q": "Release review 14 июл"}, headers=auth_headers()
+        "/meetings", params={"q": "Release review 14.07.2026"}, headers=auth_headers()
     )
-    unsafe = client.get(
-        "/meetings", params={"q": "Запись 14 июл"}, headers=auth_headers()
-    )
+    unsafe = client.get("/meetings", params={"q": "Запись 14.07.2026"}, headers=auth_headers())
     prefixed_title = client.get(
         "/meetings",
-        params={"q": "Zoom - quarterly sync 14 июл"},
+        params={"q": "Zoom - quarterly sync 14.07.2026"},
         headers=auth_headers(),
     )
     compact_generated = client.get(
-        "/meetings", params={"q": "Запись 14 июл"}, headers=auth_headers()
+        "/meetings", params={"q": "Запись 14.07.2026"}, headers=auth_headers()
     )
     manual_prefix_title = client.get(
         "/meetings",
-        params={"q": "manual-upload-project planning 14 июл"},
+        params={"q": "manual-upload-project planning 14.07.2026"},
         headers=auth_headers(),
     )
     domain_boundary_title = client.get(
         "/meetings",
-        params={"q": "project_foo.com/path 14 июл"},
+        params={"q": "project_foo.com/path 14.07.2026"},
         headers=auth_headers(),
     )
     empty_cleaned_filename = client.get(
         "/meetings",
-        params={"q": "Загруженная запись 14 июл"},
+        params={"q": "Загруженная запись 14.07.2026"},
         headers=auth_headers(),
     )
     fallback_looking_title = client.get(
         "/meetings",
-        params={"q": "Запись 1 мин 14 июл"},
+        params={"q": "Запись 1 мин 14.07.2026"},
         headers=auth_headers(),
     )
 
@@ -925,6 +922,7 @@ def test_web_visible_title_prefilter_is_a_superset_of_safe_projection(client) ->
 
 
 def test_web_search_keeps_generated_recording_visible_date_and_time_searchable(client) -> None:
+    client.cookies.set("graf_timezone", "Europe/Moscow")
     meeting_id = uuid4()
     named_meeting_id = uuid4()
 
@@ -966,24 +964,24 @@ def test_web_search_keeps_generated_recording_visible_date_and_time_searchable(c
 
     client.portal.call(seed_generated_recording)
 
-    for query in ("14", "июл", "02:30"):
+    for query in ("14.07.2026", "2026", "02:30"):
         page = client.get("/meetings", params={"q": query}, headers=auth_headers())
 
         assert page.status_code == 200
         assert f'href="/meetings/{meeting_id}"' in page.text
-        assert ">Запись 14 июл, 02:30<" in page.text
-        assert "14 июл, 02:30" in page.text
+        assert ">Запись 14.07.2026, 02:30<" in page.text
+        assert "14.07.2026, 02:30" in page.text
         if query == "02:30":
             assert f'href="/meetings/{named_meeting_id}"' in page.text
 
     combined = client.get(
         "/meetings",
-        params={"q": "Запись 14 июл"},
+        params={"q": "Запись 14.07.2026"},
         headers=auth_headers(),
     )
     named_time = client.get(
         "/meetings",
-        params={"q": "Проектный синк 14 июл"},
+        params={"q": "Проектный синк 14.07.2026"},
         headers=auth_headers(),
     )
 
@@ -1004,7 +1002,7 @@ def test_web_search_keeps_generated_recording_visible_date_and_time_searchable(c
     )
     named_duration_time = client.get(
         "/meetings",
-        params={"q": "Проектный синк 1 ч 14 мин 14 июл"},
+        params={"q": "Проектный синк 1 ч 14 мин 14.07.2026"},
         headers=auth_headers(),
     )
 
@@ -1068,7 +1066,8 @@ def test_cabinet_list_and_detail_use_recording_date_with_legacy_fallback(client)
     assert "Без даты" in legacy_web.text
 
 
-def test_cabinet_list_uses_recording_display_timezone_offset_for_date_label(client) -> None:
+def test_cabinet_list_uses_viewer_timezone_for_date_label(client) -> None:
+    client.cookies.set("graf_timezone", "Europe/Moscow")
     response = client.post(
         "/api/v1/meetings",
         headers=auth_headers(),
@@ -1085,8 +1084,8 @@ def test_cabinet_list_uses_recording_display_timezone_offset_for_date_label(clie
     page = client.get("/meetings", headers=auth_headers())
 
     assert page.status_code == 200
-    assert 'aria-label="Открыть встречу Запись 14 июл, 02:30"' in page.text
-    assert "14 июл, 02:30" in page.text
+    assert 'aria-label="Открыть встречу Запись 14.07.2026, 02:30"' in page.text
+    assert "14.07.2026, 02:30" in page.text
     assert "timezone-crossing-visible-day" not in page.text
 
 
@@ -1127,7 +1126,7 @@ def test_cabinet_list_humanizes_generated_capture_and_manual_upload_titles(clien
     )
     generated_visible_search = client.get(
         "/api/v1/cabinet/meetings",
-        params={"q": "Current display system audio — 13 июл, 12:14"},
+        params={"q": "Current display system audio — 13.07.2026, 09:14 (UTC)"},
         headers=auth_headers(),
     )
     manual_visible_search = client.get(
@@ -1138,7 +1137,10 @@ def test_cabinet_list_humanizes_generated_capture_and_manual_upload_titles(clien
     page = client.get("/desktop/meetings", headers=auth_headers())
 
     assert generated_list.status_code == 200
-    assert generated_list.json()["items"][0]["title"] == "Current display system audio — 13 июл, 12:14"
+    assert (
+        generated_list.json()["items"][0]["title"]
+        == "Current display system audio — 13.07.2026, 09:14 (UTC)"
+    )
     assert manual_list.status_code == 200
     assert manual_list.json()["items"][0]["title"] == "Загруженная запись"
     assert generated_visible_search.status_code == 200
@@ -1151,8 +1153,11 @@ def test_cabinet_list_humanizes_generated_capture_and_manual_upload_titles(clien
     ]
     assert generated_title not in page.text
     assert manual_title not in page.text
-    assert 'aria-label="Открыть встречу Current display system audio — 13 июл, 12:14"' in page.text
-    assert "13 июл, 12:14" in page.text
+    assert (
+        'aria-label="Открыть встречу Current display system audio — 13.07.2026, 09:14 (UTC)"'
+        in page.text
+    )
+    assert "13.07.2026, 09:14 (UTC)" in page.text
     assert "Загруженная запись" in page.text
     assert "27 с" in page.text
     assert "1 ч 14 мин" in page.text
@@ -1322,17 +1327,11 @@ def test_098_ambiguous_owner_list_has_compact_choose_action_in_web_and_embedded(
     for surface, response in responses.items():
         assert response.status_code == 200, surface
         assert response.text.count("Нужен выбор") == 1, surface
-        assert (
-            response.text.count(
-                'class="mini-link calendar-context-list-action"'
-            )
-            == 1
-        ), surface
-        assert '>Выбрать встречу</a>' in response.text, surface
+        assert response.text.count('class="mini-link calendar-context-list-action"') == 1, surface
+        assert ">Выбрать встречу</a>" in response.text, surface
         assert (
             'aria-label="Выбрать встречу t050-owner-ambiguous-list, '
-            '13 июл, 09:10"'
-            in response.text
+            '13.07.2026, 09:10 (UTC)"' in response.text
         ), surface
         assert 'data-status-kind="calendar_choice"' in response.text, surface
         assert "Synthetic hidden candidate A" not in response.text
@@ -1508,3 +1507,93 @@ def _upcoming_section(html: str) -> str:
     section, closing, _ = after.partition("</section>")
     assert closing == "</section>"
     return section
+
+
+def test_mixed_meeting_chronology_and_local_date_search(client) -> None:
+    """F252: sorting, display and SQL search share the same effective instant."""
+    client.cookies.set("graf_timezone", "Asia/Yekaterinburg")
+    ids = [UUID(int=252000 + i) for i in range(5)]
+    old = datetime(2025, 12, 31, 21, 30, tzinfo=UTC)
+    recent = datetime(2026, 12, 31, 21, 30, tzinfo=UTC)
+
+    async def seed() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            for index, meeting_id in enumerate(ids):
+                db.add(
+                    Meeting(
+                        id=meeting_id,
+                        workspace_id=WORKSPACE_ID,
+                        created_by_user_id=USER_ID,
+                        device_id=DEVICE_ID,
+                        local_recording_id=f"synthetic-time-252-{index}",
+                        title=f"Synthetic time 252 {index}",
+                        title_source="user_confirmed",
+                        started_at=old if index in (0, 4) else recent if index == 1 else None,
+                        created_at=recent,
+                        recording_display_timezone_offset_minutes=-420,
+                        duration_seconds=60,
+                        status=MeetingStatus.DRAFT.value,
+                        processing_status=ProcessingStatus.NOT_SUBMITTED.value,
+                    )
+                )
+            await db.flush()
+            # An upload without a known beginning uses its receipt time.
+            for index in (2, 4):
+                db.add(
+                    MediaRevision(
+                        id=uuid4(),
+                        workspace_id=WORKSPACE_ID,
+                        meeting_id=ids[index],
+                        local_media_revision_id=f"synthetic-upload-252-{index}",
+                        revision_number=1,
+                        source_kind="manual_upload",
+                        status="accepted",
+                    )
+                )
+            # A pending replacement cannot change the accepted source or visible chronology.
+            db.add(MediaRevision(
+                id=uuid4(), workspace_id=WORKSPACE_ID, meeting_id=ids[2],
+                local_media_revision_id="synthetic-pending-252", revision_number=2,
+                source_kind="initial_recording", status="pending_upload",
+            ))
+            await db.commit()
+
+    client.portal.call(seed)
+    for direction, expected in (("desc", [1, 2, 0, 4, 3]), ("asc", [0, 4, 1, 2, 3])):
+        response = client.get(
+            "/api/v1/cabinet/meetings",
+            params={"sort": f"started_{direction}"},
+            headers=auth_headers(),
+        )
+        assert response.status_code == 200
+        assert [item["meeting_id"] for item in response.json()["items"]] == [
+            str(ids[i]) for i in expected
+        ]
+    page = client.get("/meetings", params={"q": "01.01.2027"}, headers=auth_headers())
+    assert page.status_code == 200
+    assert f'data-meeting-id="{ids[1]}"' in page.text
+    assert f'data-meeting-id="{ids[2]}"' in page.text
+    assert f'data-meeting-id="{ids[3]}"' not in page.text
+    assert f'data-meeting-id="{ids[4]}"' not in page.text
+    assert "01.01.2027, 02:30" in page.text
+    assert "Загружено <time" in page.text
+    assert "data-sort-started" in page.text
+    missing = client.get("/meetings", params={"q": "Без даты"}, headers=auth_headers())
+    assert f'data-meeting-id="{ids[3]}"' in missing.text
+    assert f'data-meeting-id="{ids[2]}"' not in missing.text
+
+    async def select_account_timezone() -> None:
+        from twobrain_rec_server.db.models import UserIdentity
+        async with client.app_state["sessionmaker"]() as db:
+            user = await db.get(UserIdentity, USER_ID)
+            user.timezone = "America/New_York"
+            await db.commit()
+
+    client.portal.call(select_account_timezone)
+    # Saved preference wins over the device cookie even before the SQL date filter.
+    shifted = client.get("/meetings", params={"q": "31.12.2026"}, headers=auth_headers())
+    assert shifted.status_code == 200
+    assert f'data-meeting-id="{ids[1]}"' in shifted.text
+    assert "31.12.2026, 16:30" in shifted.text
+    previous_day = client.get("/meetings", params={"q": "01.01.2027"}, headers=auth_headers())
+    assert f'data-meeting-id="{ids[1]}"' not in previous_day.text

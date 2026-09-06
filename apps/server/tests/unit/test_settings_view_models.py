@@ -88,7 +88,7 @@ def test_account_profile_projection_defaults_to_bounded_preferences() -> None:
     profile = AccountProfileView(display_name="Тест")
 
     assert profile.locale == "ru-RU"
-    assert profile.timezone == "Europe/Moscow"
+    assert profile.timezone is None
     assert profile.theme == "system"
 
 

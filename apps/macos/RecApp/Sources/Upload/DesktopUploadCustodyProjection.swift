@@ -615,7 +615,11 @@ public struct DesktopUploadCustodySummary: Equatable, Sendable {
     }
 
     public var detail: String {
-        DesktopUploadCustodyCopy.detail(copyKey: copyKey, count: pendingCount, deadline: primaryProjection.retentionDeadline)
+        detail(timeZone: .autoupdatingCurrent)
+    }
+
+    public func detail(timeZone: TimeZone) -> String {
+        DesktopUploadCustodyCopy.detail(copyKey: copyKey, count: pendingCount, deadline: primaryProjection.retentionDeadline, timeZone: timeZone)
     }
 
     public var ownerLabel: String {
@@ -1934,7 +1938,7 @@ public enum DesktopUploadCustodyCopy {
         }
     }
 
-    public static func detail(copyKey: String, count: Int, deadline: Date?) -> String {
+    public static func detail(copyKey: String, count: Int, deadline: Date?, timeZone: TimeZone = .autoupdatingCurrent) -> String {
         switch copyKey {
         case "custody.uploading":
             return count > 1
@@ -1952,7 +1956,7 @@ public enum DesktopUploadCustodyCopy {
             return "Локальная копия сохранена на этом Mac. Свяжитесь с поддержкой, если проблема повторится."
         case "custody.retention_warning":
             if let deadline {
-                return "Локальная копия сохранена до \(dateText(deadline)) по политике хранения."
+                return "Локальная копия сохранена до \(UserTime.format(deadline, showZone: true, timeZone: timeZone)) по политике хранения."
             }
             return "Локальная копия сохранена до срока политики хранения."
         case "custody.terminal_undelivered":
@@ -1964,11 +1968,4 @@ public enum DesktopUploadCustodyCopy {
         }
     }
 
-    private static func dateText(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "ru_RU")
-        formatter.setLocalizedDateFormatFromTemplate("d MMMM")
-        formatter.timeStyle = .none
-        return formatter.string(from: date)
-    }
 }

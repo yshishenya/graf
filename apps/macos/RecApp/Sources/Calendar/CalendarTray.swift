@@ -67,6 +67,7 @@ public final class CalendarTrayModel: ObservableObject {
 
 @MainActor
 public struct CalendarTrayView: View {
+    @ObservedObject private var userTimeContext = DesktopUserTimeContext.shared
     @ObservedObject private var model: CalendarTrayModel
     private let onOpenCalendar: () -> Void
     private let onOpenMeetings: () -> Void
@@ -241,13 +242,7 @@ public struct CalendarTrayView: View {
     }
 
     private func timeText(for event: DesktopCalendarPromptEvent) -> String {
-        let start = event.startsAt.formatted(date: .abbreviated, time: .shortened)
-        let endDateStyle: Date.FormatStyle.DateStyle = Calendar.current.isDate(
-            event.startsAt,
-            inSameDayAs: event.endsAt
-        ) ? .omitted : .abbreviated
-        let end = event.endsAt.formatted(date: endDateStyle, time: .shortened)
-        return "\(start) — \(end)"
+        UserTime.interval(start: event.startsAt, end: event.endsAt, timeZone: userTimeContext.timeZone)
     }
 
     private func safeMeetingLink(for event: DesktopCalendarPromptEvent) -> URL? {

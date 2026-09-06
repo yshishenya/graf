@@ -4,7 +4,7 @@ import re
 from collections import defaultdict
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING, Literal, cast
 from uuid import UUID
@@ -49,6 +49,7 @@ from twobrain_rec_server.api.schemas import (
 )
 from twobrain_rec_server.cabinet.access import owner_access_state
 from twobrain_rec_server.cabinet.constants import DELETION_TRUTH_COPY
+from twobrain_rec_server.cabinet.user_time import format_user_datetime
 from twobrain_rec_server.calendar.service import (
     SELECTABLE_CALENDAR_VISIBILITIES,
     calendar_duplicate_group_key,
@@ -194,7 +195,7 @@ class AccountProfileView:
     display_name: str
     primary_email: str | None = None
     locale: str = "ru-RU"
-    timezone: str = "Europe/Moscow"
+    timezone: str | None = None
     theme: str = "system"
 
 
@@ -327,22 +328,6 @@ SORT_LABELS: dict[str, str] = {
     "duration_asc": "Сначала короткие",
     "title_asc": "По названию",
 }
-SHORT_MONTH_LABELS = (
-    "",
-    "янв",
-    "фев",
-    "мар",
-    "апр",
-    "май",
-    "июн",
-    "июл",
-    "авг",
-    "сен",
-    "окт",
-    "ноя",
-    "дек",
-)
-
 MeetingListTimeBasis = Literal["meeting", "updated", "upload"]
 
 
@@ -1709,12 +1694,7 @@ def format_duration(seconds: int) -> str:
 
 
 def date_label(item: MeetingListItem) -> str:
-    if item.started_at is None:
-        return meeting_time_label(item, time_basis="meeting")
-    return short_date_label(
-        item.started_at,
-        timezone_offset_minutes=item.recording_display_timezone_offset_minutes,
-    )
+    return meeting_time_label(item, time_basis="meeting")
 
 
 def meeting_list_time_label(
@@ -1725,27 +1705,26 @@ def meeting_list_time_label(
 ) -> str:
     if value is None:
         return "Без даты"
-    localized = _localized_datetime(
-        value,
-        timezone_offset_minutes=timezone_offset_minutes,
-    )
     prefix = (
         "Обновлено " if time_basis == "updated" else "Загружено " if time_basis == "upload" else ""
     )
-    return f"{prefix}{localized.day} {SHORT_MONTH_LABELS[localized.month]}, {localized:%H:%M}"
+    return f"{prefix}{format_user_datetime(value)}"
+
+
+def meeting_time_value(
+    item: MeetingListItem, *, time_basis: MeetingListTimeBasis
+) -> datetime | None:
+    if time_basis == "updated":
+        return item.updated_at
+    if time_basis == "upload":
+        return item.uploaded_at
+    return item.started_at or (item.uploaded_at if item.source == "manual_upload" else None)
 
 
 def meeting_time_label(item: MeetingListItem, *, time_basis: MeetingListTimeBasis) -> str:
-    if time_basis == "updated":
-        value = item.updated_at
-    elif time_basis == "upload":
-        value = item.uploaded_at
-    else:
-        value = item.started_at
-        if value is None and item.source == "manual_upload":
-            value = item.uploaded_at
-            if value is not None:
-                time_basis = "upload"
+    value = meeting_time_value(item, time_basis=time_basis)
+    if time_basis == "meeting" and item.started_at is None and item.source == "manual_upload":
+        time_basis = "upload"
     return meeting_list_time_label(
         value,
         timezone_offset_minutes=item.recording_display_timezone_offset_minutes,
@@ -1753,27 +1732,12 @@ def meeting_time_label(item: MeetingListItem, *, time_basis: MeetingListTimeBasi
     )
 
 
-def _localized_datetime(
-    value: datetime,
-    *,
-    timezone_offset_minutes: int | None,
-) -> datetime:
-    localized = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
-    if timezone_offset_minutes is not None and -14 * 60 <= timezone_offset_minutes <= 14 * 60:
-        localized = localized.astimezone(timezone(timedelta(minutes=timezone_offset_minutes)))
-    return localized
-
-
 def short_date_label(
     value: datetime,
     *,
     timezone_offset_minutes: int | None = None,
 ) -> str:
-    localized = _localized_datetime(
-        value,
-        timezone_offset_minutes=timezone_offset_minutes,
-    )
-    return f"{localized.day} {SHORT_MONTH_LABELS[localized.month]}"
+    return format_user_datetime(value)
 
 
 def normalize_meeting_list_sort(
@@ -1929,7 +1893,9 @@ def meeting_media_label(item: MeetingListItem) -> str:
     }[meeting_media_kind(item)]
 
 
-def meeting_list_title(meeting: Meeting, *, source: str | None = None) -> str:
+def meeting_list_title(
+    meeting: Meeting, *, source: str | None = None, include_recording_time: bool = True
+) -> str:
     title = safe_title_candidate(meeting.title)
     if (
         title
@@ -1937,7 +1903,9 @@ def meeting_list_title(meeting: Meeting, *, source: str | None = None) -> str:
         and MEDIA_FILENAME_EXTENSION_RE.search(title)
     ):
         return _clean_file_title(title)
-    projected = recording_display_title(meeting, source=source)
+    projected = recording_display_title(
+        meeting, source=source, include_recording_time=include_recording_time
+    )
     if (
         projected == "Запись без названия"
         and meeting.title_source not in AUTHORITATIVE_TITLE_SOURCES

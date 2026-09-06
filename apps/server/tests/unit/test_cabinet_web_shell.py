@@ -536,8 +536,8 @@ def test_meeting_list_rows_render_only_projected_exception_status_and_trusted_ti
         assert list_region.count("Не удалось обработать") == 1
         assert list_region.count('data-status-kind="failed"') == 1
         assert "Расшифровка и итоги пока недоступны" in list_region
-        assert 'aria-label="Выбрать встречу Проектный синк, 16 июн, 08:00"' in list_region
-        assert "16 июн, 08:00" in list_region
+        assert 'aria-label="Выбрать встречу Проектный синк, 16.06.2026, 08:00 (UTC)"' in list_region
+        assert "16.06.2026, 08:00 (UTC)" in list_region
         assert "Открыть встречу Проектный синк" in list_region
 
 
@@ -587,19 +587,19 @@ def test_meeting_list_uses_ordered_rows_with_separate_open_select_and_delete_con
     assert 'type="checkbox" tabindex="-1"' not in list_region
     assert 'data-row-delete aria-label="Удалить встречу' in list_region
     assert 'data-row-delete aria-hidden="true"' not in list_region
-    assert 'aria-label="Выбрать встречу Проектный синк, 16 июн, 08:00"' in list_region
-    assert 'aria-label="Удалить встречу Проектный синк, 16 июн, 08:00"' in list_region
-    assert 'aria-label="Выбрать встречу Запись, 16 июн, 08:00"' in list_region
-    assert 'aria-label="Удалить встречу Запись, 16 июн, 08:00"' in list_region
+    assert 'aria-label="Выбрать встречу Проектный синк, 16.06.2026, 08:00 (UTC)"' in list_region
+    assert 'aria-label="Удалить встречу Проектный синк, 16.06.2026, 08:00 (UTC)"' in list_region
+    assert 'aria-label="Выбрать встречу Запись, 16.06.2026, 08:00 (UTC)"' in list_region
+    assert 'aria-label="Удалить встречу Запись, 16.06.2026, 08:00 (UTC)"' in list_region
     assert 'aria-label="Встреча Проектный синк"' not in list_region
     second_id = str(second.meeting_id)
     assert (
-        f'aria-label="Открыть встречу Запись, 16 июн, 08:00" '
+        f'aria-label="Открыть встречу Запись, 16.06.2026, 08:00 (UTC)" '
         f'aria-describedby="meeting-{second_id}-duration meeting-{second_id}-readiness"'
         in list_region
     )
     assert (
-        f'<li class="meeting-row cabinet-row" data-meeting-row data-meeting-id="{second_id}">'
+        f'<li class="meeting-row cabinet-row" data-meeting-row data-meeting-id="{second_id}" '
         in list_region
     )
 
@@ -719,11 +719,11 @@ def test_meeting_list_marks_exceptional_rows_and_keeps_full_safe_accessible_desc
 
     assert (
         f'<li class="meeting-row cabinet-row" data-meeting-row '
-        f'data-meeting-id="{ready_id}">' in page
+        f'data-meeting-id="{ready_id}" ' in page
     )
     assert (
         f'<li class="meeting-row cabinet-row has-status" data-meeting-row '
-        f'data-meeting-id="{exceptional_id}">' in page
+        f'data-meeting-id="{exceptional_id}" ' in page
     )
     assert f'data-meeting-id="{ready_id}" tabindex=' not in page
     assert f'data-meeting-id="{exceptional_id}" tabindex=' not in page
@@ -825,7 +825,7 @@ def test_meeting_list_renders_exact_waiting_progress_action_and_empty_states() -
     assert "Отправлено" not in page
     assert page.count(">Нужен выбор</span>") == 1
     assert page.count(">Выбрать встречу</a>") == 1
-    assert 'aria-label="Выбрать встречу Календарный выбор, 16 июн, 08:00"' in page
+    assert 'aria-label="Выбрать встречу Календарный выбор, 16.06.2026, 08:00 (UTC)"' in page
     assert page.count(">Аудио готовится</span>") == 1
     assert page.count(">Без аудио</span>") == 1
     assert page.count(">Не удалось обработать</span>") == 1
@@ -1221,7 +1221,8 @@ def test_meeting_detail_page_uses_manual_upload_receipt_date() -> None:
 
     page = render_meeting_detail_page(review)
 
-    assert "Загружено 26 июн, 21:30" in page
+    assert "26.06.2026, 21:30 (UTC)" in page
+    assert "Загружено <time" in page
     assert "Без даты" not in page
 
 

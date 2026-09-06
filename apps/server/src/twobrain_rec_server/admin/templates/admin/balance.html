@@ -21,7 +21,7 @@
       <div><dt>Хранилище, байт</dt><dd>{{ view.usage.totals.storage_bytes }}</dd></div>
       <div><dt>Задачи обработки</dt><dd>{{ view.usage.totals.processing_jobs }}</dd></div>
       <div><dt>Свежесть</dt><dd>{{ view.usage.totals.freshness }}</dd></div>
-      <div><dt>Окно дат</dt><dd>{{ view.usage.totals.date_window['from'] or "нет данных" }} - {{ view.usage.totals.date_window['to'] or "нет данных" }}</dd></div>
+      <div><dt>Окно дат</dt><dd>{{ format_user_datetime(view.usage.totals.date_window['from'], date_only=True) if view.usage.totals.date_window['from'] else "нет данных" }} - {{ format_user_datetime(view.usage.totals.date_window['to'], date_only=True) if view.usage.totals.date_window['to'] else "нет данных" }}</dd></div>
     </dl>
   </section>
   <section class="admin-panel">

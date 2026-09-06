@@ -10,6 +10,14 @@ from jinja2 import Environment
 from markupsafe import Markup
 from starlette.responses import HTMLResponse
 
+from twobrain_rec_server.cabinet.user_time import (
+    display_timezone_name,
+    format_user_datetime,
+    time_reload_allowed,
+    timezone_options,
+    user_time_element,
+    viewer_time_context,
+)
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.product_analytics.browser_context import build_browser_provider_context
 from twobrain_rec_server.templates import (
@@ -87,6 +95,12 @@ def render_template(template_name: str, **context: Any) -> str:
     return render_template_from(
         get_cabinet_templates(),
         template_name,
+        format_user_datetime=format_user_datetime,
+        user_time_element=user_time_element,
+        display_timezone_name=display_timezone_name,
+        time_reload_allowed=time_reload_allowed,
+        viewer_time_context=viewer_time_context,
+        timezone_options=timezone_options,
         cabinet_static_asset_url=cabinet_static_asset_url,
         cabinet_static_url=CABINET_STATIC_URL,
         public_static_asset_url=public_static_asset_url,

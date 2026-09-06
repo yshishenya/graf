@@ -693,7 +693,7 @@ def test_cabinet_and_embedded_detail_share_calendar_recording_title(client) -> N
         response = client.get(path, headers=auth_headers())
 
         assert response.status_code == 200, path
-        assert "Планирование релиза — 16 июн, 11:00" in response.text
+        assert "Планирование релиза — 16.06.2026, 08:00 (UTC)" in response.text
 
 
 def test_cabinet_embedded_ready_detail_keeps_playback_and_seek_controls(client) -> None:
@@ -772,8 +772,8 @@ def test_098_ambiguous_owner_detail_renders_safe_chooser_with_web_embedded_parit
         assert response.text.count("Synthetic Design Review") == 1
         assert response.text.count("Synthetic Planning Review") == 1
         assert response.text.count("Synthetic Work Calendar") == 2
-        assert "12:00" in response.text
-        assert "13:30" in response.text
+        assert "13.07.2026, 09:00 (UTC)" in response.text
+        assert "13.07.2026, 10:30 (UTC)" in response.text
         assert "Сохранить выбор" in response.text
         assert "Продолжить без календаря" in response.text
         assert 'aria-live="polite"' in response.text
@@ -925,7 +925,8 @@ def test_098_owner_can_reopen_safe_correction_chooser_in_web_and_embedded_review
     assert corrected.status_code == 200
     assert 'data-calendar-context-state="matched_user"' in corrected.text
     assert "Synthetic Planning Review" in corrected.text
-    assert "12:05–13:05" in corrected.text
+    assert "13.07.2026, 09:05 (UTC)" in corrected.text
+    assert "13.07.2026, 10:05 (UTC)" in corrected.text
     assert "Контекст и список приглашённых исчезнут" in corrected.text
 
     api_context = client.get(
@@ -1012,7 +1013,7 @@ def test_098_authorized_recurring_pointer_reuses_context_block_with_web_embedded
         assert response.status_code == 200, surface
         assert response.text.count('class="calendar-context"') == 1
         assert response.text.count("В серии") == 1
-        assert response.text.count("Предыдущая встреча · 6 июл") == 1
+        assert response.text.count("Предыдущая встреча · 06.07.2026, 09:00 (UTC)") == 1
         assert response.text.count("Обрабатывается") == 1
         assert f'href="{previous_href}"' in response.text
         pointer_tags = [
@@ -1024,7 +1025,7 @@ def test_098_authorized_recurring_pointer_reuses_context_block_with_web_embedded
         pointer_tag = pointer_tags[0]
         assert 'aria-label="' in pointer_tag
         assert "Synthetic Previous Planning" in pointer_tag
-        assert "6 июл" in pointer_tag
+        assert "06.07.2026, 09:00 (UTC)" in pointer_tag
         assert "Обрабатывается" in pointer_tag
 
         assert "Synthetic Current Planning" in response.text

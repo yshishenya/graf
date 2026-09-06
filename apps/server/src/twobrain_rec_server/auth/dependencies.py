@@ -14,6 +14,7 @@ from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, DeviceContext, TenantScope
 from twobrain_rec_server.auth.csrf import CSRF_FORM_FIELD_NAME, CSRF_HEADER_NAME, require_csrf_token
 from twobrain_rec_server.auth.sessions import decode_session_token, is_session_token_valid
+from twobrain_rec_server.cabinet.user_time import apply_user_time_preference
 from twobrain_rec_server.db.models import (
     AuthSession,
     AuthSessionDeviceBinding,
@@ -335,6 +336,7 @@ async def _principal_from_session_token(request: Request, token: str) -> Authent
                 if request.url.path.startswith("/desktop/")
                 else None,
             )
+        apply_user_time_preference(user_id=user.id, session_id=session.id, timezone=user.timezone)
         return AuthenticatedPrincipal(
             user_id=user.id,
             organization_id=user.organization_id,
@@ -756,6 +758,7 @@ async def _validate_tenant_scope(
                     title="Device is not trusted for this session",
                 )
 
+    apply_user_time_preference(user_id=user.id, session_id=principal.session_id, timezone=user.timezone)
     return TenantScope(
         organization_id=principal.organization_id,
         workspace_id=workspace_id,

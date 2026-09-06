@@ -1124,3 +1124,38 @@ def test_theme_only_form_survives_reload_without_changing_locale_or_timezone(cli
                 assert (user.locale, user.timezone, user.theme) == ("en-US", "UTC", "light")
 
         asyncio.run(persisted())
+
+
+def test_account_timezone_overrides_device_on_web_desktop_and_rejects_invalid_atomically(client):
+    workspace_id, device_id = asyncio.run(_seed_personal_workspace(client))
+    token, session_id = asyncio.run(
+        _issue_web_session(client, user_id=USER_ID, workspace_id=workspace_id, device_id=device_id)
+    )
+    headers = _bind_web_session(client, token=token, session_id=session_id)
+    client.cookies.set("graf_timezone", "Asia/Yekaterinburg")
+    for path in ("/settings/account", "/desktop/settings/account"):
+        response = client.get(path, headers=headers)
+        assert response.status_code == 200
+        assert '<meta name="graf-time-preferred" content="">' in response.text
+        assert '<meta name="graf-timezone" content="Asia/Yekaterinburg">' in response.text
+    saved = client.post("/settings/account/preferences", headers=headers,
+                        data={"timezone": "Asia/Kathmandu"}, follow_redirects=False)
+    assert saved.status_code == 303
+    for path in ("/settings/account", "/desktop/settings/account", "/meetings"):
+        response = client.get(path, headers=headers)
+        assert response.status_code == 200
+        assert '<meta name="graf-time-preferred" content="Asia/Kathmandu">' in response.text
+        assert '<meta name="graf-timezone" content="Asia/Kathmandu">' in response.text
+        assert f'<meta name="graf-time-user" content="{USER_ID}">' in response.text
+        assert f'<meta name="graf-time-session" content="{session_id}">' in response.text
+    invalid = client.post("/settings/account/preferences", headers=headers,
+                          data={"timezone": "Bad/Zone", "theme": "dark"}, follow_redirects=False)
+    assert invalid.status_code == 422
+    async def load():
+        async with client.app_state["sessionmaker"]() as db:
+            user = await db.get(UserIdentity, USER_ID)
+            return user.timezone, user.theme
+    assert asyncio.run(load()) == ("Asia/Kathmandu", "system")
+    client.cookies.set("graf_timezone", "UTC")
+    response = client.get("/settings/account", headers=headers)
+    assert '<meta name="graf-timezone" content="Asia/Kathmandu">' in response.text

@@ -39,7 +39,7 @@
           <div class="share-viewer-row" data-share-viewer-row>
             <span>
               <strong>{{ grant.display_name }}</strong>
-              <small class="muted">{% if grant.content_scope == "full_meeting" %}Запись{% else %}Итоги{% endif %}{% if grant.expires_at %} · до {{ grant.expires_at.strftime("%d.%m.%Y") }}{% else %} · без срока{% endif %}</small>
+              <small class="muted">{% if grant.content_scope == "full_meeting" %}Запись{% else %}Итоги{% endif %}{% if grant.expires_at %} · до {{ user_time_element(grant.expires_at, show_zone=True) }}{% else %} · без срока{% endif %}</small>
             </span>
             <span class="share-viewer-row__actions">
               <button type="button" data-share-copy-button data-share-rotate-url="/api/v1/cabinet/meetings/{{ meeting_id }}/shares/{{ grant.grant_id }}/rotate">Создать и скопировать новую ссылку</button>
@@ -60,7 +60,7 @@
               {% elif invitation.status == "sent" %}Письмо передано в отправку
               {% elif invitation.status == "outcome_unknown" %}Письмо не подтверждено — не отправляйте повторно сразу
               {% else %}{{ invitation.status }}{% endif %}
-              · {% if invitation.content_scope == "full_meeting" %}запись{% else %}итоги{% endif %} · до {{ invitation.expires_at.strftime("%d.%m.%Y") }}
+              · {% if invitation.content_scope == "full_meeting" %}запись{% else %}итоги{% endif %} · до {{ user_time_element(invitation.expires_at, show_zone=True) }}
             </small>
           </span>
           <button type="button" data-share-invitation-revoke-url="/api/v1/cabinet/meetings/{{ meeting_id }}/share-invitations/{{ invitation.invitation_id }}">Отменить</button>

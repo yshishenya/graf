@@ -41,6 +41,7 @@ from twobrain_rec_server.cabinet.queries import (
     get_calendar_settings_surface,
     list_cabinet_meetings,
     list_shared_with_me_meetings,
+    shared_meeting_display_metadata,
 )
 from twobrain_rec_server.cabinet.rendering import (
     render_meeting_detail_fragment,
@@ -196,9 +197,11 @@ async def _render_shared_summary_for_grant(
         duration_seconds=meeting.duration_seconds,
         summary_sections=[{"category": item.category, "text": item.text or ""} for item in items],
     )
+    display_title, display_time, uploaded = await shared_meeting_display_metadata(session, meeting=meeting)
     return render_shared_meeting_summary_page(
-        meeting_title=str(projection["meeting_label"]),
-        occurred_at=projection["occurred_at"],
+        meeting_title=display_title,
+        occurred_at=display_time,
+        time_is_upload=uploaded,
         duration_seconds=int(projection["duration_seconds"]),
         summary_sections=projection["summary_sections"],
         authenticated=True,
@@ -709,7 +712,8 @@ async def share_invitation_accept_page(
                 _csrf_token_for_principal(request, principal) if principal is not None else None
             ),
             meeting_title=preview.meeting_title if preview else None,
-            meeting_occurred_at=preview.occurred_at if preview else None,
+            meeting_occurred_at=preview.display_occurred_at if preview else None,
+            meeting_time_is_upload=preview.display_time_is_upload if preview else False,
             meeting_duration_seconds=preview.duration_seconds if preview else None,
             invitation_expires_at=preview.expires_at if preview else None,
             content_scope=preview.content_scope if preview else "summary_only",

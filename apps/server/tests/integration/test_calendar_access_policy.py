@@ -108,7 +108,8 @@ def test_098_auto_context_uses_immutable_roster_and_renders_web_embedded_parity(
         else:
             assert response.text.count("Подобрано автоматически") == 1, surface
             assert response.text.count("Synthetic Planning Sync") >= 1, surface
-            assert "09:00–10:00" in response.text
+            assert "09:00 (UTC)" in response.text
+            assert "10:00 (UTC)" in response.text
         assert "mutable-provider@example.test" not in response.text
         assert "immutable-owner@example.test" not in response.text
 
