@@ -4875,8 +4875,7 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
 }
 
 @media (prefers-contrast: more) {
-  :root,
-  :root[data-theme] {
+  :root {
     --line-soft: currentColor;
     --line: currentColor;
   }
