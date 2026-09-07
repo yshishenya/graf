@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pytest
-
 from twobrain_rec_server.api.cabinet import (
     _SUMMARY_PUBLIC_REASON_ALIASES,
     _raise_summary_problem,
@@ -76,6 +75,8 @@ def test_internal_aliases_only_target_contract_codes() -> None:
         "summary_result_invalid",
         "summary_prompt_revoked",
         "summary_dependency_unavailable",
+        "commercial_ai_generation_denied",
+        "billing_access_unavailable",
         "meeting_deleting",
         "summary_current_revision_missing",
         "summary_default_missing",

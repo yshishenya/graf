@@ -1,7 +1,6 @@
 from uuid import uuid4
 
 import pytest
-
 from twobrain_rec_server.auth.account_merge import (
     AccountMergeError,
     MergeEntityCounts,
@@ -25,6 +24,7 @@ USER_IDENTITY_FK_DISPOSITIONS = {
     ("billing_notification_deliveries", "recipient_id"): "historical_only",
     ("billing_notification_preferences", "user_id"): "transfer_or_deduplicate",
     ("billing_payment_methods", "owner_user_id"): "blocking",
+    ("billing_access_adjustments", "subject_user_id"): "transfer_or_deduplicate",
     ("calendar_audit_events", "actor_user_id"): "historical_only",
     ("calendar_settings_preferences", "owner_user_id"): "transfer_or_deduplicate",
     ("calendar_sources", "owner_user_id"): "blocking",
@@ -52,7 +52,10 @@ USER_IDENTITY_FK_DISPOSITIONS = {
     ("meeting_speaker_names", "updated_by_user_id"): "historical_only",
     ("meeting_target_registry_versions", "published_by_user_id"): "historical_only",
     ("meetings", "created_by_user_id"): "transfer_or_deduplicate",
+    ("principals", "linked_user_id"): "historical_only",
     ("playback_normalization_jobs", "requested_by_user_id"): "historical_only",
+    ("promotion_campaigns", "target_user_id"): "transfer_or_deduplicate",
+    ("promotion_codes", "target_user_id"): "transfer_or_deduplicate",
     ("processing_audit_events", "actor_user_id"): "historical_only",
     ("recording_calendar_match_attempts", "owner_user_id"): "historical_only",
     ("referral_attributions", "invitee_user_id"): "lineage_aware",
