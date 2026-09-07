@@ -228,7 +228,10 @@ submenu.getBoundingClientRect = () => classes.has('is-flipped')
 const details = {open: true, isConnected: true, querySelector: () => submenu,
   classList: {remove: (...names) => names.forEach(name => classes.delete(name)),
     toggle: (name, on) => on ? classes.add(name) : classes.delete(name)}};
-vm.runInThisContext(source.slice(source.indexOf('      const syncDisclosurePosition ='), source.indexOf('      disclosures.forEach((details) =>')));
+vm.runInThisContext(source.slice(
+    source.indexOf('      const syncDisclosurePosition ='),
+    source.indexOf('      let hoveredDisclosure = null;'),
+));
 window.innerWidth = 550;
 syncDisclosurePosition(details);
 assert.ok(classes.has('is-inline'), 'neither side fits at 550px');
