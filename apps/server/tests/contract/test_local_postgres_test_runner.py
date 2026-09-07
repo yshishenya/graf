@@ -102,8 +102,9 @@ def test_full_runner_keeps_strict_rls_tests_and_uses_a_bounded_parallel_lane() -
     assert "awk '/^tests\\// { print $1 }'" not in script
     assert "if run_phase focused" in script
     assert "postgres_test_phase=%s status=fail" in script
-    assert 'if [[ "$requested_mode" == "full" && "$mode" == "focused" ]]; then' in script
-    assert "refusing --full with a focused pytest selection" in script
+    assert 'if [[ "$requested_mode" == "fast" && "$mode" == "focused" ]]; then' in script
+    assert "refusing --fast with a focused pytest selection" in script
+    assert 'if [[ "$requested_mode" == "full" && "$mode" == "focused" ]]; then' not in script
 
 
 def test_runner_exposes_a_fast_unit_lane_without_replacing_full_coverage() -> None:

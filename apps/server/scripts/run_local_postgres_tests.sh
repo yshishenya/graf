@@ -154,10 +154,6 @@ if [[ "$requested_mode" == "fast" && "$mode" == "focused" ]]; then
   printf '%s\n' 'refusing --fast with a focused pytest selection; run the focused selection directly' >&2
   exit 2
 fi
-if [[ "$requested_mode" == "full" && "$mode" == "focused" ]]; then
-  printf '%s\n' 'refusing --full with a focused pytest selection' >&2
-  exit 2
-fi
 if [[ -n "$requested_mode" ]]; then
   mode="$requested_mode"
 fi
