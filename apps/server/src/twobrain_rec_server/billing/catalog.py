@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.db.models.billing import (
+    BillingPlan,
     BillingPlanPrice,
     BillingPlanVersion,
     WorkspaceSubscription,
@@ -345,3 +346,66 @@ async def read_pinned_subscription_catalog(
         )
     except (CatalogNotApproved, ValueError):
         return None
+
+
+async def read_public_catalog(
+    db: AsyncSession, *, now: datetime, plan_code: str | None = None,
+) -> dict[str, dict[str, PlanCatalogSnapshot]]:
+    """Public offers follow the sales pointer, never the highest version number.
+
+    This read is suitable for presentation. A checkout must revalidate its exact
+    submitted offer before issuing an invoice; a displayed price is not admission.
+    """
+    query = (
+        select(BillingPlan, BillingPlanVersion, BillingPlanPrice)
+        .join(BillingPlanVersion, BillingPlanVersion.id == BillingPlan.current_version_id)
+        .join(BillingPlanPrice, BillingPlanPrice.version_id == BillingPlanVersion.id)
+        .where(BillingPlan.sales_state == "open", BillingPlan.code.not_in(("free", "trial")))
+        .order_by(BillingPlan.code, BillingPlanPrice.cycle)
+    )
+    if plan_code is not None:
+        query = query.where(BillingPlan.code == plan_code)
+    offers: dict[str, dict[str, PlanCatalogSnapshot]] = {}
+    invalid = set()
+    for plan, version, price in (await db.execute(query)).all():
+        try:
+            snapshot = validate_plan_version(version, price=price, now=now)
+            if version.plan_id != plan.id or version.plan_code != plan.code:
+                raise CatalogNotApproved("sales pointer does not match plan")
+            if snapshot.display_terms["audience"] != "public":
+                continue
+            if price.cycle in offers.get(plan.code, {}):
+                raise CatalogNotApproved("ambiguous public price")
+            offers.setdefault(plan.code, {})[price.cycle] = snapshot
+        except ValueError:
+            invalid.add(plan.code)
+    offers = {code: prices for code, prices in offers.items()
+        if code not in invalid and prices.keys() == {"month", "year"}}
+
+    # Until the first managed publication, keep the existing legacy store.
+    # A closed/archived managed pointer must never revive an older legacy offer.
+    if plan_code not in (None, "personal"):
+        return offers
+    personal = await db.scalar(select(BillingPlan).where(BillingPlan.code == "personal"))
+    if personal is not None and (personal.current_version_id is not None or personal.sales_state == "archived"):
+        return offers
+    if await db.scalar(select(BillingPlanVersion.id).where(
+        BillingPlanVersion.plan_code == "personal",
+        BillingPlanVersion.status.in_(("published", "retired")),
+    ).limit(1)) is not None:
+        return offers
+    legacy = await db.scalars(select(BillingPlanVersion).where(
+        BillingPlanVersion.plan_code == "personal", BillingPlanVersion.status == "legacy",
+        BillingPlanVersion.cycle.in_(("month", "year")),
+    ).order_by(BillingPlanVersion.version.desc()))
+    prices = {}
+    for version in legacy:
+        if version.cycle in prices:
+            continue
+        try:
+            prices[version.cycle] = validate_plan_version(version, now=now)
+        except ValueError:
+            continue
+    if prices:
+        offers["personal"] = prices
+    return offers

@@ -34,6 +34,7 @@ from twobrain_rec_server.billing.catalog import (
     classify_storage_threshold,
     plan_descriptor,
     read_pinned_subscription_catalog,
+    read_public_catalog,
     validate_plan_version,
 )
 from twobrain_rec_server.billing.checkout import (
@@ -807,23 +808,7 @@ async def _approved_personal_catalog(
     """Read the same approved catalog authority used by checkout UI and POST."""
     if db is None:
         return {}
-    rows = await db.scalars(
-        select(BillingPlanVersion)
-        .where(
-            BillingPlanVersion.plan_code == "personal",
-            BillingPlanVersion.cycle.in_(("month", "year")),
-        )
-        .order_by(BillingPlanVersion.version.desc())
-    )
-    approved: dict[str, object] = {}
-    for row in rows:
-        if row.cycle in approved:
-            continue
-        try:
-            approved[row.cycle] = validate_plan_version(row, now=now)
-        except (CatalogNotApproved, ValueError):
-            continue
-    return approved
+    return (await read_public_catalog(db, now=now, plan_code="personal")).get("personal", {})
 
 
 async def _load_checkout_promo(

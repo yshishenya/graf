@@ -939,3 +939,105 @@ async def test_billing_wait_does_not_hold_payment_rows_before_workspace(postgres
             with suppress(asyncio.CancelledError):
                 await pending
         await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_public_catalog_uses_current_complete_public_offer_and_never_revives_legacy(postgres_seeded_database_url):
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from tests.integration.test_rls_postgres_policies import _exact_app_role_engine
+    from twobrain_rec_server.billing.catalog import read_public_catalog
+    from twobrain_rec_server.db.models import BillingPlan, Workspace
+    from twobrain_rec_server.db.tenant_context import (
+        TenantDatabaseContext,
+        apply_tenant_context_to_connection,
+    )
+
+    engine = create_async_engine(postgres_seeded_database_url)
+    now = datetime.now(UTC)
+    try:
+        async with async_sessionmaker(engine,expire_on_commit=False)() as db:
+            async def version(plan, number, *, audience="public", annual=True, future=False):
+                row=BillingPlanVersion(id=uuid4(),plan_id=plan.id,plan_code=plan.code,version=number,
+                    status="draft",capability_schema_version=1,capabilities=_capabilities(),
+                    display_terms={"name":"Synthetic public offer","description":"","audience":audience,"trial_days":0},
+                    cycle="none",currency="RUB",storage_bytes=4000000000,processing_mode="unlimited",
+                    policy_snapshot={"offer_version":f"synthetic-v{number}"},
+                    effective_from=now+timedelta(days=1) if future else None)
+                db.add(row)
+                await db.flush()
+                for cycle,amount in (("month",number*1000),("year",number*10000)):
+                    if cycle == "year" and not annual:
+                        continue
+                    db.add(BillingPlanPrice(id=uuid4(),version_id=row.id,cycle=cycle,currency="RUB",amount_minor=amount))
+                await db.flush()
+                row.status="published"
+                row.enabled_for_checkout=True
+                await db.flush()
+                return row
+
+            plan=BillingPlan(id=uuid4(),code="public_plus",display_name="Synthetic public")
+            db.add(plan)
+            await db.flush()
+            first=await version(plan,1)
+            newer=await version(plan,2)
+            plan.current_version_id=first.id
+            plan.sales_state="open"
+            for code,options in (("private_plus",{"audience":"admin"}),
+                ("invitation_plus",{"audience":"invitation"}),("partial_plus",{"annual":False}),
+                ("future_plus",{"future":True})):
+                other=BillingPlan(id=uuid4(),code=code,display_name="Synthetic excluded")
+                db.add(other)
+                await db.flush()
+                other.current_version_id=(await version(other,1,**options)).id
+                other.sales_state="open"
+            await db.commit()
+            offers=await read_public_catalog(db,now=now)
+            assert set(offers) == {plan.code}
+            assert offers[plan.code]["month"].amount_minor==1000
+            assert {snapshot.plan_version_id for snapshot in offers[plan.code].values()}=={first.id}
+            assert await read_public_catalog(db,now=now,plan_code="invitation_plus")=={}
+            organization=(await db.get(Workspace,PERSONAL_WORKSPACE_ID)).organization_id
+            async with _exact_app_role_engine(postgres_seeded_database_url) as app, app.connect() as conn:
+                await apply_tenant_context_to_connection(conn,TenantDatabaseContext(
+                    organization_id=organization,workspace_id=PERSONAL_WORKSPACE_ID,user_id=USER_ID))
+                assert await conn.scalar(text("select session_user"))=="twobrain_rec_app"
+                async with AsyncSession(bind=conn) as reader:
+                    public=await read_public_catalog(reader,now=now)
+                    assert set(public)=={plan.code}
+                    assert public[plan.code]["month"].plan_version_id==first.id
+            plan.sales_state="closed"
+            await db.commit()
+            assert await read_public_catalog(db,now=now,plan_code=plan.code)=={}
+            plan.current_version_id=newer.id
+            plan.sales_state="open"
+            await db.commit()
+            assert (await read_public_catalog(db,now=now,plan_code=plan.code))[plan.code]["year"].amount_minor==20000
+            newer.effective_until=now
+            await db.commit()
+            assert await read_public_catalog(db,now=now,plan_code=plan.code)=={}
+
+            # A managed publication permanently ends the legacy fallback even
+            # when sales close and the current pointer is explicitly cleared.
+            personal=await db.scalar(select(BillingPlan).where(BillingPlan.code=="personal"))
+            if personal is None:
+                personal=BillingPlan(id=uuid4(),code="personal",display_name="Synthetic legacy")
+                db.add(personal)
+                await db.flush()
+            for number,cycle in ((700,"month"),(701,"year")):
+                db.add(BillingPlanVersion(id=uuid4(),plan_id=personal.id,plan_code="personal",version=number,
+                    status="legacy",cycle=cycle,amount_minor=123400,currency="RUB",storage_bytes=2000000000,
+                    processing_mode="unlimited",enabled_for_checkout=True,policy_snapshot={"offer_version":"synthetic-legacy"}))
+            await db.commit()
+            assert set((await read_public_catalog(db,now=now,plan_code="personal"))["personal"])=={"month","year"}
+            published=await version(personal,800)
+            personal.current_version_id=published.id
+            personal.sales_state="open"
+            await db.commit()
+            assert (await read_public_catalog(db,now=now,plan_code="personal"))["personal"]["month"].plan_version_id==published.id
+            personal.sales_state="closed"
+            personal.current_version_id=None
+            await db.commit()
+            assert await read_public_catalog(db,now=now,plan_code="personal")=={}
+    finally:
+        await engine.dispose()
