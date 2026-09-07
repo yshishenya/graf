@@ -106,3 +106,30 @@ T017, полная матрица доступности/ОС, Full CI, notariza
 GRAF Dev установлен из `e8193d7ba85004ef3cc8c912e97b7bf5fd082698`, manifest `dev-e8193d7ba850`; текущий `status --json` подтвердил identity компонентов. CUA на macOS 26.5 получил native-контролы главного окна и снимок. Доступ к окну сейчас есть; историческое ожидание разблокировки больше не описывает текущее состояние. Этот короткий проход не закрывает полную UI-матрицу.
 
 Повторный GitHub-запрос: все девять перечисленных F245–F253 PR остаются OPEN. Проверка валидатора Dev после удаления привязки к закрытой F229 проходит в рамках T010. Новый коммит проверки не является новым установленным app-кандидатом. Обязательные открытые сценарии T016/T017 сохраняются.
+
+## Решение владельца от 2026-09-08: проверка macOS 14
+
+Владелец сообщил: «У меня нет макос 14. Давай без него если невозможно так протестировать. Доводи до готовности к мерджу и релизу».
+Для F255 отсутствие ручной проверки на macOS 14.5 принимается как явное ограничение выпуска, а не блокирующий пункт и не PASS. Минимальная поддерживаемая версия не повышается; сохраняются deployment target и проверки совместимости API при сборке. Матрица на доступной macOS 26.5, доступность, совместимость и остальные проверки остаются обязательными. Это решение не отменяет Full CI, подписывание, нотариализацию или контроль точного SHA.
+
+Статус: `not_run_owner_accepted`; область: только ручная runtime-проверка macOS 14.5; approved_by: владелец GRAF (прямое сообщение в текущей задаче); approved_at: 2026-09-08.
+
+Дополнительное решение владельца 2026-09-08: «Да но давай VoicOver не будем проверять. Все остальное сделай». Ручной VoiceOver: `not_run_owner_accepted`; автоматические AX/клавиатурные контракты сохраняются. Временное переключение остальных параметров доступности разрешено с восстановлением исходного состояния. Короткая тестовая запись разрешена отдельным ответом владельца.
+
+## Совместные проверки 2026-09-08
+
+Продуктовые исходники соответствуют `e386d826e1355b0b48ebb13efede3c556e7b6b57`; изменения этого прохода пока только документируют решения владельца.
+
+| Проверка | Результат | Граница доказательства |
+|---|---|---|
+| PostgreSQL: account lifecycle, settings IA, calendar flow, admin browser, recording share UI | 64 PASS | Реальная изолированная БД, synthetic external provider; контейнер удалён |
+| Сохранение темы, локали и timezone после reload; отказ неверного timezone и подтверждение завершения других сеансов | PASS в account lifecycle | Реальные серверные POST/сессии/БД |
+| Timezone browser и mixed meeting list | PASS | Chromium: поиск/ошибки/повтор/Cancel/no-JS, семь сортировок и фильтры |
+| Settings visual-check | 180 вариантов PASS | Production templates; светлая/тёмная, 320–1440, web/embedded, 200%, клавиатура, forced colors, формы/ошибки/no-JS |
+| Общая surface matrix | 1620 PASS в каждом из Chromium и WebKit | Список/детали/ошибки/настройки/общий доступ/auth/billing, две системные темы × три темы профиля × web/embedded × пять ширин |
+| Computed contrast | 3048 измерений в каждом движке, 0 failures | Обычный текст 4.5:1, крупный 3:1; synthetic data |
+| JavaScript pageerror | 0 в обоих движках | Проверенная браузерная матрица |
+
+Команды: `apps/server/scripts/run_local_postgres_tests.sh --focused tests/integration/test_account_lifecycle.py tests/integration/test_settings_ia_flow.py tests/integration/test_calendar_settings_flow.py tests/contract/test_admin_browser_contract.py tests/contract/test_recording_share_ui_contract.py`; существующие `tests/browser/timezone-settings.test.cjs`, `mixed-meeting-list.test.cjs`, `specs/246-settings-experience/visual-check.cjs`, `specs/240-cabinet-ux-overhaul/validation/{surface-matrix,computed-contrast}.js`. Использован уже установленный Playwright, Browser plugin не предоставлен; локальные тестовые серверы отдельны от GRAF Dev. Новых зависимостей нет.
+
+Непроведённое не засчитывается: ручной macOS 14.5 и VoiceOver приняты владельцем как исключения. Нативные системные переключатели и короткая запись/Stop разрешены, но не выполнены в этом проходе: подключение инструмента CUA стало недоступно; обычный node_repl отвечает `cua is not defined`. Исходное состояние системных настроек не менялось: Reduce Transparency включён, Reduce Motion/Increase Contrast не заданы, VoiceOver выключен. Оставшиеся native/mixed-version проверки T016/T017 остаются открытыми до фактического evidence.
