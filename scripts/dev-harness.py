@@ -2076,7 +2076,10 @@ def operation_promote(args: argparse.Namespace) -> Dict[str, Any]:
         _assert_no_schema_transition(root)
         active = _load_active(root)
         expected_parent = candidate.get("parent_manifest_id")
-        if active and expected_parent != active["manifest_id"]:
+        same_active = active is not None and candidate["manifest_id"] == active["manifest_id"]
+        if same_active and candidate != active:
+            raise HarnessError("active manifest identity must not be changed")
+        if active and not same_active and expected_parent != active["manifest_id"]:
             raise HarnessError("candidate parent manifest is stale; rebuild from current active Dev manifest")
         if active is None and expected_parent is not None:
             raise HarnessError("candidate parent manifest is unavailable")
@@ -2097,7 +2100,7 @@ def operation_promote(args: argparse.Namespace) -> Dict[str, Any]:
         promoted = dict(candidate)
         promoted["status"] = "active"
         promoted["promoted_at"] = now()
-        promoted["parent_manifest_id"] = active["manifest_id"] if active else None
+        promoted["parent_manifest_id"] = expected_parent if same_active else active["manifest_id"] if active else None
         _validate_manifest(promoted)
         adapter_info: Dict[str, str] = {"mode": "metadata-only"}
         if getattr(args, "live", False) and not args.dry_run:

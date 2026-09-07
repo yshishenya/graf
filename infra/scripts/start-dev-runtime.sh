@@ -67,10 +67,13 @@ compose() { docker compose -p "$PROJECT" -f "$COMPOSE_FILE" "$@"; }
 cleanup() {
   status=$?
   trap - 0 2 15
+  printf 'GRAF Dev runtime stopped: reason=%s exit=%s\n' "${1:-exit}" "$status"
   compose stop >/dev/null 2>&1 || true
   exit "$status"
 }
-trap cleanup 0 2 15
+trap 'cleanup exit' 0
+trap 'cleanup interrupt' 2
+trap 'cleanup terminate' 15
 
 # Config is the first safety gate: it resolves the explicit namespace and
 # ensures no inherited production endpoint or secret is accepted.
@@ -96,6 +99,18 @@ printf '%s\n' "GRAF Dev runtime ready: project=$PROJECT sha=$SOURCE_SHA"
 # Keep a parent process with a verifiable command/start token.  The cleanup
 # trap above stops the exact Compose project and never touches another
 # worktree or production.
-while compose ps --services --filter status=running 2>/dev/null | grep -q .; do
+empty_observations=0
+while :; do
+  if SERVICES=$(compose ps --services --filter status=running 2>/dev/null); then
+    if [ -n "$SERVICES" ]; then
+      empty_observations=0
+    else
+      empty_observations=$((empty_observations + 1))
+      [ "$empty_observations" -lt 2 ] || break
+    fi
+  else
+    empty_observations=0
+    echo 'GRAF Dev runtime: service inspection failed; retrying' >&2
+  fi
   sleep 2
 done

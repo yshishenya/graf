@@ -11,7 +11,6 @@ public enum CalendarTrayState: Equatable, Sendable {
     case empty
     case needsSignIn
     case unavailable
-    case stale
 }
 
 /// The menu-bar surface intentionally owns only a short-lived safe projection.
@@ -169,13 +168,6 @@ public struct CalendarTrayView: View {
                 stateRow("Нет ближайших встреч", systemImage: "calendar")
             } else {
                 VStack(alignment: .leading, spacing: 0) {
-                    if model.state == .stale {
-                        Label("Показаны последние данные", systemImage: "clock.arrow.circlepath")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 16)
-                            .padding(.top, 12)
-                    }
                     ForEach(model.events) { event in
                         eventRow(event)
                     }

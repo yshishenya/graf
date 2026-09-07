@@ -282,7 +282,6 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
             content.title = preferences.showTitles ? event.safeDisplayTitle() : "Встреча в календаре"
             content.body = Self.reminderBody(startsAt: event.startsAt, due: due, offsetMinutes: preferences.offsetMinutes, now: now)
             if preferences.sound { content.sound = .default }
-            requests[id] = (owner, event)
             let trigger = UNTimeIntervalNotificationTrigger(timeInterval: max(1, due.timeIntervalSince(now)), repeats: false)
             do { try await center.add(UNNotificationRequest(identifier: id, content: content, trigger: trigger)) }
             catch { message = "Напоминание не передано macOS. Встреча доступна в календаре GRAF." }

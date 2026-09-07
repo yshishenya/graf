@@ -144,6 +144,29 @@ def test_build_same_active_sha_is_idempotent_and_preserves_active_record(tmp_pat
     assert run("status", tmp_path)["manifest"]["status"] == "active"
 
 
+def test_repromote_active_manifest_recovers_stopped_runtime_without_self_parent(tmp_path, monkeypatch):
+    first = build(tmp_path, "a" * 40)
+    path = tmp_path / "manifests" / f"{first['manifest_id']}.json"
+    run("promote", tmp_path, manifest=str(path), dry_run=False)
+    assert run("promote", tmp_path, manifest=str(path), dry_run=False)["idempotent"]
+    monkeypatch.setattr(dev_harness, "state_dir", lambda **_: tmp_path)
+    monkeypatch.setattr(dev_harness.GrafLocalAdapter, "_runtime_is_live", lambda *a: False)
+    calls = []
+    def restart(self, manifest, **kwargs):
+        calls.append(manifest["source_sha"])
+        return {"mode": "live", "checks": {"backend_health": "pass"}}
+    monkeypatch.setattr(dev_harness.GrafLocalAdapter, "promote", restart)
+    result = run("promote", tmp_path, manifest=str(path), dry_run=False, live=True)
+    assert calls == ["a" * 40]
+    assert result["manifest"]["parent_manifest_id"] is None
+    altered = dict(result["manifest"], operator="changed")
+    alternate = tmp_path / "altered.json"
+    alternate.write_text(json.dumps(altered))
+    with pytest.raises(dev_harness.HarnessError, match="active manifest identity"):
+        run("promote", tmp_path, manifest=str(alternate), dry_run=False, live=True)
+    assert calls == ["a" * 40]
+
+
 def test_build_requires_or_resolves_feature_identity(tmp_path, monkeypatch):
     monkeypatch.delenv("GRAF_FEATURE_ID", raising=False)
     monkeypatch.setattr(dev_harness, "_repo_root", lambda: tmp_path / "repo")
