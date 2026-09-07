@@ -52,10 +52,11 @@ def test_every_compose_service_has_an_explicit_manifest_image_override():
         assert variable in COMPOSE
 
 
-def test_direct_runtime_start_rejects_mutable_image_defaults():
+def test_direct_runtime_start_rejects_mutable_image_defaults(tmp_path):
     startup = ROOT / "infra" / "scripts" / "start-dev-runtime.sh"
     env = os.environ.copy()
     env["GRAF_DEV_SOURCE_SHA"] = "a" * 40
+    env["GRAF_DEV_STATE_ROOT"] = str(tmp_path)
     env.pop("GRAF_DEV_API_IMAGE", None)
 
     result = subprocess.run(

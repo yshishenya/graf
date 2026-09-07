@@ -333,3 +333,17 @@ def test_startup_refuses_orphaned_controller(tmp_path, monkeypatch):
     monkeypatch.setattr(h.GrafLocalAdapter, '_pid_alive', lambda *a: False)
     with pytest.raises(h.HarnessError, match='startup blocked'):
         h._schema_start_guard(tmp_path, journal['target']['source_sha'])
+
+
+def test_installer_diagnostics_expose_only_fixed_source_messages(tmp_path, monkeypatch):
+    installer = tmp_path / 'apps/macos/Scripts/install-dev-app.sh'
+    installer.parent.mkdir(parents=True)
+    installer.write_text('fail "Dev app is running"\nfail "missing bundle: $SOURCE_BUNDLE"\n')
+    monkeypatch.setattr(h.subprocess, 'run', lambda *a, **kw: subprocess.CompletedProcess(a[0], 1, '', 'GRAF Dev install: Dev app is running\nPRIVATE_VALUE'))
+    with pytest.raises(h.HarnessError, match='Dev app is running') as error:
+        h._run_command(['sh', str(installer)], cwd=tmp_path)
+    assert 'PRIVATE_VALUE' not in str(error.value)
+    monkeypatch.setattr(h.subprocess, 'run', lambda *a, **kw: subprocess.CompletedProcess(a[0], 1, '', 'GRAF Dev install: missing bundle: PRIVATE_VALUE'))
+    with pytest.raises(h.HarnessError) as error:
+        h._run_command(['sh', str(installer)], cwd=tmp_path)
+    assert 'PRIVATE_VALUE' not in str(error.value)

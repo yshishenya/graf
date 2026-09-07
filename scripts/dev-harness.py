@@ -267,8 +267,16 @@ def _run_command(command: list[str], *, cwd: Path, env: Optional[Dict[str, str]]
     except OSError as exc:
         raise HarnessError(f"adapter command unavailable ({command[0]}): {exc}") from exc
     if completed.returncode:
+        detail = ""
+        installer = cwd / "apps/macos/Scripts/install-dev-app.sh"
+        if command[:2] == ["sh", str(installer)] and installer.is_file():
+            # Only exact fixed diagnostics from trusted source; never arbitrary
+            # stderr, interpolated paths, URLs or credential-bearing tool output.
+            safe = {"GRAF Dev install: " + value for value in re.findall(r'\bfail "([^"$`]+)"', installer.read_text())}
+            detail = next((line for line in completed.stderr.splitlines() if line in safe), "")
         raise HarnessError(
             f"adapter command failed ({command[0]}), exit={completed.returncode}"
+            + (": " + detail if detail else "")
         )
     return completed.stdout.strip()
 
