@@ -13,7 +13,7 @@
 - [X] T004 [P] [US3] Согласовать размеры и пояснения в `apps/macos/RecApp/Sources/MeetingDetection/MeetingDetectionSettingsView.swift`, `apps/macos/RecApp/App/TwoBrainRecApp.swift`; удалить мёртвую константу `apps/macos/RecApp/Sources/Cabinet/DesktopCabinetWorkspaceView.swift` с проверкой, выполнить связанные Swift tests.
 
 ## Phase 5 — Проверка и завершение
-- [ ] T005 Выполнить synthetic visual/functional matrix, профильные suites, independent review и convergence; записать evidence в `specs/246-settings-experience/quickstart.md` и `changes/unreleased/F246.yaml`.
+- [X] T005 Выполнить synthetic visual/functional matrix, профильные suites, independent review и convergence; записать evidence в `specs/246-settings-experience/quickstart.md` и `changes/unreleased/F246.yaml`.
 
 ## Dependencies
 T001 → T002/T003/T004 → T005. T003/T004 независимы и владеют отдельными файлами; T002/CSS и визуальная проверка последовательны. Каждый US имеет independent test в spec. Начать с центрирования, затем выполнить весь согласованный объём.
@@ -31,3 +31,12 @@ Umbrella: #6597. Связи зарегистрированы до реализа
 
 ## Локальное выполнение — 2026-09-06
 T002–T004 реализованы и прошли профильные проверки, evidence в quickstart.md. T005: автоматическая матрица, suites, независимый review и convergence выполнены; проверка нативной ошибки и AX выполнена после master sync; остаётся звуковой прогон VoiceOver. Сохраняемый preview: `apps/server/tests/fixtures/settings_visual_ui_harness.py`; браузерная проверка: `specs/246-settings-experience/visual-check.cjs`. Issues не закрываются без полного acceptance/PR evidence.
+
+## Ручная приёмка — 2026-09-07
+
+Владелец проверил VoiceOver в GRAF Release QA и подтвердил: «проверил. Все нормально».
+Проверены озвучка приложения/действия/выбранного правила и возврат без мыши.
+Это закрывает оставшуюся проверку T005; источник — подтверждение человека.
+Evidence: https://github.com/yshishenya/graf/pull/6762#issuecomment-5565072923.
+Проверяемый нативный состав: `ae593ee63d64a70809c5b254299a1f7dba1bd979`.
+Подтверждение не закрывает отдельную матрицу разрешений F247 или выпуск.
