@@ -4876,8 +4876,8 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
 
 @media (prefers-contrast: more) {
   :root {
-    --line-soft: currentColor;
-    --line: currentColor;
+    --line-soft: currentColor !important;
+    --line: currentColor !important;
   }
   .cabinet-search-control input,
   .cabinet-control-disclosure > .icon-control,
