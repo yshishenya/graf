@@ -131,7 +131,7 @@ final class DesktopUserTimeContextTests: XCTestCase {
 }
 
 @MainActor
-private final class TimeContextNavigationDelegate: NSObject, WKNavigationDelegate {
+private final class TimeContextNavigationDelegate: NSObject, @preconcurrency WKNavigationDelegate {
     let loaded: XCTestExpectation
     init(loaded: XCTestExpectation) { self.loaded = loaded }
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { loaded.fulfill() }

@@ -146,6 +146,7 @@ public struct DesktopPermissionOnboardingView: View {
         status.nextPermission == .microphone ? status.microphone : status.systemAudio
     }
 
+    @MainActor
     private var content: some View {
         VStack(alignment: .leading, spacing: 24) {
             HStack(spacing: 12) {
@@ -287,6 +288,7 @@ public struct DesktopPermissionOnboardingView: View {
         if step == .microphone { onOpenMicrophoneSettings() } else { onOpenSystemAudioSettings() }
     }
 
+    @MainActor
     private func settingsGuide(_ step: DesktopPermissionStep) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Включите «\(applicationName)» в настройках")
