@@ -378,3 +378,59 @@ def test_legacy_personal_catalog_remains_payable_with_new_consent_form(checkout)
     _, invoices = client.portal.call(lambda: _state(client))
     assert invoices[0].plan_snapshot["plan_code"] == "personal"
     assert "plan_version_id" not in invoices[0].plan_snapshot["catalog_snapshot"]
+
+
+def test_anonymous_public_offer_cannot_revive_legacy_prices_after_managed_close(checkout):
+    from twobrain_rec_server.public.offers import PUBLIC_APPROVED_OFFER_VERSION
+
+    client, _, _, _, _, _ = checkout
+    plan_id, version_id = uuid4(), uuid4()
+    async def seed():
+        async with client.app_state["sessionmaker"]() as db:
+            plan = BillingPlan(id=plan_id, code="personal", display_name="Личный")
+            db.add(plan)
+            await db.flush()
+            for number, cycle, amount in ((1, "month", 100000), (2, "year", 1000000)):
+                db.add(BillingPlanVersion(
+                    id=uuid4(), plan_id=plan.id, plan_code="personal", version=number, status="legacy",
+                    cycle=cycle, amount_minor=amount, currency="RUB", storage_bytes=2000000000,
+                    processing_mode="unlimited", enabled_for_checkout=True,
+                    policy_snapshot={"offer_version": PUBLIC_APPROVED_OFFER_VERSION},
+                ))
+            version = BillingPlanVersion(
+                id=version_id, plan_id=plan.id, plan_code="personal", version=3, status="draft",
+                capability_schema_version=1, capabilities={**_capabilities(), "storage_bytes": 2000000000},
+                display_terms={"name": "Личный", "description": "", "audience": "public", "trial_days": 0},
+                cycle="none", currency="RUB", storage_bytes=2000000000, processing_mode="unlimited",
+                policy_snapshot={"offer_version": PUBLIC_APPROVED_OFFER_VERSION},
+            )
+            db.add(version)
+            await db.flush()
+            db.add_all([BillingPlanPrice(
+                id=uuid4(), version_id=version.id, cycle=cycle, amount_minor=amount, currency="RUB",
+            ) for cycle, amount in (("month", 100000), ("year", 1000000))])
+            await db.flush()
+            version.status = "published"
+            version.enabled_for_checkout = True
+            await db.flush()
+            plan.current_version_id = version.id
+            plan.sales_state = "open"
+            await db.commit()
+    client.portal.call(seed)
+    client.cookies.clear()
+    available = client.get("/")
+    assert available.status_code == 200 and 'id="price"' in available.text
+    assert "10\u00a0000 ₽" in available.text
+    async def close():
+        async with client.app_state["sessionmaker"]() as db:
+            plan = await db.get(BillingPlan, plan_id)
+            plan.sales_state = "closed"
+            await db.commit()
+    client.portal.call(close)
+    unavailable = client.get("/")
+    assert unavailable.status_code == 200 and 'id="price"' not in unavailable.text
+    offer = client.get("/offer")
+    assert offer.status_code == 200
+    assert "Условия публичного предложения сейчас недоступны" in offer.text
+    assert 'href="/billing/plans"' in offer.text
+    assert "ГРАФ не принимает" not in offer.text

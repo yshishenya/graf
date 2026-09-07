@@ -27,6 +27,7 @@ from twobrain_rec_server.auth.sessions import (
     resolve_session_device,
 )
 from twobrain_rec_server.billing.catalog import (
+    ADDON_CAPACITY_BYTES,
     FREE_PROCESSING_SECONDS,
     FREE_STORAGE_BYTES,
     PlanCatalogSnapshot,
@@ -2533,6 +2534,9 @@ async def billing_storage_page(
         return cabinet_html_response(content)
     subscription = None
     if db is not None:
+        await db.scalar(select(Workspace.id).where(
+            Workspace.id == tenant_scope.workspace_id,
+        ).with_for_update(read=True))
         subscription = await db.scalar(
             select(WorkspaceSubscription).where(
                 WorkspaceSubscription.workspace_id == tenant_scope.workspace_id
@@ -2542,22 +2546,15 @@ async def billing_storage_page(
     if not _can_manage_billing(role=role, subscription=subscription, principal=principal):
         return RedirectResponse("/billing?result=owner_only", status_code=303)
     now = datetime.now(UTC)
-    effective_plan = (
-        effective_plan_code(
-            plan_code=subscription.plan_code,
-            state=subscription.state,
-            now=now,
-            paid_through=subscription.paid_through,
-            trial_ends_at=subscription.trial_ends_at,
-        )
-        if subscription is not None
-        else "free"
-    )
-    current_capacity = (
-        subscription.capacity_bytes
-        if subscription is not None and effective_plan in {"trial", "personal"}
-        else FREE_STORAGE_BYTES
-    )
+    try:
+        access = await resolve_entitlements(db, workspace_id=tenant_scope.workspace_id,
+            subject_user_id=principal.user_id, now=now)
+    except ValueError:
+        return _billing_access_unavailable(request)
+    current_capacity = access.capabilities["storage_bytes"]
+    eligible = bool(subscription is not None and subscription.plan_code not in {"free", "trial"}
+        and subscription.paid_through is not None and subscription.paid_through > now)
+    addon_options = tuple(value for value in ADDON_CAPACITY_BYTES if value > current_capacity)
     content = _page_shell(
         "Увеличение хранилища",
         embedded=_is_embedded_request(request),
@@ -2571,12 +2568,12 @@ async def billing_storage_page(
         content_template="cabinet/pages/billing_storage_content.html",
         current_capacity=current_capacity,
         current_capacity_label=_capacity_label(current_capacity),
-        addon_options=(5_000_000_000, 20_000_000_000, 100_000_000_000, 500_000_000_000),
+        addon_options=addon_options,
         capacity_labels=tuple(
             _capacity_label(value)
-            for value in (5_000_000_000, 20_000_000_000, 100_000_000_000, 500_000_000_000)
+            for value in addon_options
         ),
-        eligible=effective_plan == "personal",
+        eligible=eligible,
         billing_enabled=bool(request.app.state.settings.billing_checkout_enabled),
         result=request.query_params.get("result"),
     )

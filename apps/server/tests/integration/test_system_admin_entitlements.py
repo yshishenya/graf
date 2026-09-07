@@ -107,6 +107,10 @@ def test_profile_uses_catalog_assignments_and_hides_member_usage(client, source,
     assert "Без лимита по минутам и встречам" not in overview.text
     if role == "owner":
         assert "498 мин 0 сек" in overview.text
+        storage_page = client.get("/billing/storage", headers=headers)
+        assert storage_page.status_code == 200 and "5 GB" in storage_page.text
+        assert "с учётом тарифа и индивидуальных назначений" in storage_page.text
+        assert "250 MB" not in storage_page.text
         subscription_page = client.get("/billing/subscription", headers=headers)
         assert subscription_page.status_code == 200, subscription_page.text
         assert "Synthetic Research" in subscription_page.text
@@ -116,6 +120,8 @@ def test_profile_uses_catalog_assignments_and_hides_member_usage(client, source,
             assert "назначенный доступ" in overview.text
     else:
         assert "498 мин 0 сек" not in overview.text
+        storage_page = client.get("/billing/storage", headers=headers, follow_redirects=False)
+        assert storage_page.status_code == 303 and "owner_only" in storage_page.headers["location"]
 
     async def revoke():
         async with client.app_state["sessionmaker"]() as db:
@@ -151,7 +157,7 @@ def test_profile_uses_catalog_assignments_and_hides_member_usage(client, source,
         unavailable = client.get("/api/v1/auth/me", headers=headers)
         assert unavailable.status_code == 503
         assert unavailable.json()["code"] == "billing_entitlements_unavailable"
-        for path in ("/billing", "/billing/usage", "/billing/subscription"):
+        for path in ("/billing", "/billing/usage", "/billing/subscription", "/billing/storage"):
             unavailable_page = client.get(path, headers=headers)
             assert unavailable_page.status_code == 503
             assert "Условия тарифа временно недоступны" in unavailable_page.text
