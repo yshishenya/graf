@@ -9,3 +9,5 @@
 5. В установленном Dev: основные разделы и старый профиль снизу; нажатие открывает прежние команды и подменю, Escape закрывает. Навигация к настройкам и назад; правая запись видима. Автозапись28 pt без заглушек. Не менять пользовательские правила и не начинать запись без необходимости.
 6. Остальная матрица остаётся открытой: macOS14.5/26, светлая/тёмная/system, Reduce Transparency/Motion, Increase Contrast, VoiceOver, 200%, минимальное окно, активная запись/Stop, реальные соседние фичи/admin/public/no-JS. Текущий возврат не доказывает Liquid Glass.
 7. PR governance-fast на точном SHA. Full CI/notarization/production — отдельный frozen release candidate; этот Dev проход их не заменяет.
+
+T021: `swift test --package-path apps/macos --parallel --num-workers 1 --filter CabinetSidebarRuntimeTests`; в профиле проверить hover одного подменю, переход внутрь через зазор, смену строки, уход, keyboard/touch/Escape. Проверить светлую/тёмную тему и компактное окно: подпункты видимы внутри меню. Evidence — `validation/profile-hover.md`.
