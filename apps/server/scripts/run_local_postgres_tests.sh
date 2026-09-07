@@ -215,10 +215,23 @@ metadata_directory="$(mktemp -d "${TMPDIR:-/tmp}/graf-postgres-test.XXXXXX")"
 
 collect_node_ids() {
   local destination="$1"
+  local collect_status
   shift
-  PYTHONPATH=src uv run --extra dev --extra evaluation pytest --collect-only "$@" \
+  if PYTHONPATH=src uv run --extra dev --extra evaluation pytest --collect-only "$@" \
     | awk '/^tests\// { print }' \
-    | LC_ALL=C sort -u > "$destination"
+    | LC_ALL=C sort -u > "$destination"; then
+    return 0
+  else
+    collect_status=$?
+  fi
+  # Pytest uses exit code 5 for a valid marker slice with no matching tests.
+  # The full runner must still execute the other slices and compare their
+  # union with the baseline collection.
+  if [[ "$collect_status" -eq 5 ]]; then
+    : > "$destination"
+    return 0
+  fi
+  return "$collect_status"
 }
 
 run_phase() {
