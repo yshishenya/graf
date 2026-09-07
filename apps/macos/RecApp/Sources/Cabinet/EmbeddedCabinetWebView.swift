@@ -1596,7 +1596,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
     // coordinator's UI state on MainActor while deferring that stale SDK
     // annotation at this compatibility boundary.
     @MainActor
-    public final class Coordinator: NSObject, @preconcurrency WKNavigationDelegate, @preconcurrency WKUIDelegate, @preconcurrency WKScriptMessageHandler, @preconcurrency WKDownloadDelegate, WKHTTPCookieStoreObserver {
+    public final class Coordinator: NSObject, @preconcurrency WKNavigationDelegate, @preconcurrency WKUIDelegate, @preconcurrency WKScriptMessageHandler, @preconcurrency WKDownloadDelegate, @preconcurrency WKHTTPCookieStoreObserver {
         let recordingSettingsBridge: EmbeddedCabinetRecordingSettingsBridge
         private let routePolicy: DesktopCabinetRoutePolicy
         private let desktopHeaders: [String: String]
