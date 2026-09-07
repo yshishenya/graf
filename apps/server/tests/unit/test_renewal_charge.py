@@ -596,3 +596,53 @@ async def test_schedule_change_cancels_stale_operation_without_provider_call(
     assert result.status == "canceled"
     assert operation.state == "canceled"
     assert provider.calls == []
+
+
+@pytest.mark.parametrize("change", [None, "due", "price", "consent", "provider", "partial_pin", "invoice"])
+def test_legacy_schedule_pin_requires_untouched_exact_pre_cutoff_terms(tmp_path, change):
+    from copy import deepcopy
+    from uuid import uuid4
+
+    from twobrain_rec_server.billing.catalog import PlanCatalogSnapshot
+    from twobrain_rec_server.billing.renewal_charge import _pin_legacy_schedule, _snapshot
+
+    _settings(tmp_path)
+    subscription, operation, invoice, _ = _rows(tmp_path)
+    subscription.pin_state = "pinned"
+    subscription.pinned_plan_version_id = uuid4()
+    subscription.pinned_price_id = uuid4()
+    subscription.capacity_bytes = 2_000_000_000
+    operation.idempotency_key = renewal_operation_key(workspace_id=WORKSPACE_ID, paid_through=PAID_THROUGH)
+    catalog = PlanCatalogSnapshot("personal", 7, "month", 79000, "RUB", 2_000_000_000,
+        "unlimited", "synthetic-v7", {"offer_version":"synthetic-v7"})
+    snapshot = _snapshot(subscription=subscription, catalog=catalog)
+    for key in ("pinned_plan_version_id", "pinned_price_id", "schedule_version"):
+        snapshot.pop(key)
+    operation.request_snapshot = deepcopy(snapshot)
+    invoice.plan_snapshot = deepcopy(snapshot)
+    now = PAID_THROUGH-timedelta(hours=1)
+    if change == "due":
+        now = PAID_THROUGH
+    elif change == "price":
+        operation.request_snapshot["payable_amount_minor"] = 99000
+    elif change == "consent":
+        subscription.recurring_allowed = False
+    elif change == "provider":
+        operation.provider_id = "synthetic-already-sent"
+    elif change == "partial_pin":
+        operation.request_snapshot["schedule_version"] = None
+    elif change == "invoice":
+        invoice.plan_snapshot["catalog_snapshot"]["catalog_version"] = 8
+    original_operation = deepcopy(operation.request_snapshot)
+    original_invoice = deepcopy(invoice.plan_snapshot)
+    db = FakeDb([])
+    result = _pin_legacy_schedule(db, subscription=subscription, operation=operation,
+        invoice=invoice, catalog=catalog, now=now)
+    assert result == (change is None)
+    assert invoice.plan_snapshot == original_invoice
+    if result:
+        assert operation.request_snapshot["schedule_version"] == subscription.schedule_version
+        assert all(operation.request_snapshot[key] == value for key,value in original_operation.items())
+        assert len(db.added) == 1
+    else:
+        assert operation.request_snapshot == original_operation and db.added == []

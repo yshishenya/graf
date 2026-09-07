@@ -8,6 +8,7 @@ worker restart cannot create a second charge for the same paid interval.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import NAMESPACE_URL, UUID, uuid5
@@ -169,6 +170,53 @@ def _snapshot(
     }
 
 
+def _pin_legacy_schedule(
+    db: AsyncSession, *, subscription: WorkspaceSubscription, operation: BillingOperation,
+    invoice: BillingInvoice | None, catalog: PlanCatalogSnapshot, now: datetime,
+) -> bool:
+    """Add schedule metadata only while an old writer could not yet send the charge.
+
+    A legacy scheduled row after cutoff may have survived a crash after POST.
+    Its lack of a provider ID is not proof that it was never sent.
+    The caller owns the subscription, operation and invoice locks and commit.
+    """
+    pins = {"pinned_plan_version_id", "pinned_price_id", "schedule_version"}
+    snapshot = operation.request_snapshot
+    due = subscription.paid_through
+    if (
+        not isinstance(snapshot, dict) or pins.intersection(snapshot)
+        or due is None or _utc(now) >= _utc(due)
+        or operation.kind != "renewal" or operation.state != "scheduled"
+        or operation.provider_id is not None
+        or operation.workspace_id != subscription.workspace_id
+        or operation.idempotency_key != renewal_operation_key(workspace_id=subscription.workspace_id, paid_through=due)
+        or operation.provider_key_expires_at is None
+        or _utc(operation.provider_key_expires_at) != _utc(due)+RENEWAL_PROVIDER_WINDOW
+        or subscription.recurring_allowed is not True or subscription.pin_state != "pinned"
+        or subscription.pinned_plan_version_id is None or subscription.pinned_price_id is None
+        or invoice is None or invoice.status != "pending" or invoice.operation_id != operation.id
+        or invoice.workspace_id != subscription.workspace_id
+        or invoice.amount_minor != catalog.amount_minor or invoice.currency != catalog.currency
+        or not isinstance(invoice.plan_snapshot, dict)
+    ):
+        return False
+    expected = _snapshot(subscription=subscription, catalog=catalog)
+    financial = {key:value for key,value in expected.items() if key not in pins}
+    # JSON equality also rejects bool/int and float/int substitutions in nested snapshots.
+    canonical = json.dumps(financial, sort_keys=True, allow_nan=False)
+    for source in (snapshot, invoice.plan_snapshot):
+        if json.dumps({key:source.get(key) for key in financial}, sort_keys=True, allow_nan=False) != canonical:
+            return False
+    operation.request_snapshot = {**snapshot, **{key:expected[key] for key in pins}}
+    db.add(BillingAuditEvent(
+        workspace_id=subscription.workspace_id, actor_user_id=subscription.billing_owner_id,
+        action="renewal.legacy_schedule_pinned", target_kind="billing_operation",
+        target_ref=invoice.safe_number, outcome="scheduled",
+        reason_code="pre_cutoff_exact_terms_verified", metadata_json={"state":"scheduled"},
+    ))
+    return True
+
+
 async def plan_due_renewals(
     db: AsyncSession,
     *,
@@ -284,6 +332,15 @@ async def plan_due_renewals(
         )
         if existing is not None:
             if existing.state in RENEWAL_CANDIDATE_STATES and existing.provider_id is None:
+                if "schedule_version" not in existing.request_snapshot:
+                    invoice = await db.scalar(select(BillingInvoice).where(
+                        BillingInvoice.operation_id == existing.id,
+                        BillingInvoice.workspace_id == subscription.workspace_id,
+                    ).with_for_update().execution_options(populate_existing=True))
+                    if not _pin_legacy_schedule(db, subscription=subscription, operation=existing,
+                        invoice=invoice, catalog=catalog, now=current):
+                        subscription.renewal_resolution = "catalog_not_approved"
+                        continue
                 planned.append(existing.id)
             continue
         operation_id = uuid5(NAMESPACE_URL, f"graf:renewal-operation:{key}")

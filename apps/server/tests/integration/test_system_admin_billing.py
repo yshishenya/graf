@@ -156,6 +156,30 @@ async def test_historical_pin_never_selects_latest_and_catchup_preserves_money(
             assert renewal.amount_minor == 79000
             assert renewal.plan_snapshot["pinned_plan_version_id"] == str(old_id)
             assert renewal.plan_snapshot["schedule_version"] == subscription.schedule_version
+            # Simulate a pre-migration scheduled operation. Only operation metadata
+            # is bound; the existing financial invoice snapshot remains untouched.
+            scheduled = await db.get(BillingOperation, planned[0])
+            pins = {"pinned_plan_version_id", "pinned_price_id", "schedule_version"}
+            legacy_snapshot = {key:value for key,value in scheduled.request_snapshot.items() if key not in pins}
+            scheduled.request_snapshot = dict(legacy_snapshot)
+            renewal.plan_snapshot = dict(legacy_snapshot)
+            await db.commit()
+            assert await plan_due_renewals(db, now=grant.ends_at-timedelta(hours=24)) == planned
+            await db.commit()
+            await db.refresh(scheduled)
+            await db.refresh(renewal)
+            assert scheduled.request_snapshot["schedule_version"] == subscription.schedule_version
+            assert scheduled.request_snapshot["pinned_plan_version_id"] == str(old_id)
+            assert renewal.plan_snapshot == legacy_snapshot
+            assert await plan_due_renewals(db, now=grant.ends_at-timedelta(hours=12)) == planned
+            await db.commit()
+            from sqlalchemy import func
+
+            from twobrain_rec_server.db.models import BillingAuditEvent
+            assert await db.scalar(select(func.count()).select_from(BillingAuditEvent).where(
+                BillingAuditEvent.action=="renewal.legacy_schedule_pinned",
+                BillingAuditEvent.workspace_id==PERSONAL_WORKSPACE_ID,
+            )) == 1
             from twobrain_rec_server.billing.renewal_charge import project_renewal_cutoffs
 
             scheduled_version = subscription.schedule_version
