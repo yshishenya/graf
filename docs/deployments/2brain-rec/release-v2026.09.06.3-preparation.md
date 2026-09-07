@@ -172,3 +172,19 @@ TimeContextNavigationDelegate в DesktopUserTimeContextTests. Для него д
 Повторные 6 DesktopUserTimeContextTests локально прошли. Governance-fast
 `34087532131` прошёл на промежуточном `4a926cde879a8cdb078cc94279519fdc66e391f8`;
 после тестового исправления нужны новые проверки точного SHA PR #6784.
+
+
+Окончательная диагностика исправленного кода: macos-diagnostic `34087908315`
+на `3ecc2ce49af0cf906f389d823b1f842af71b366a` — SUCCESS, macOS 14 / Swift 6.0.3,
+830 tests, 1 opt-in render skipped, 0 failures; ContractValidation PASS.
+Opt-in render выполнен отдельно локально, как указано выше. Governance-fast
+`34087892111` на этом же SHA — SUCCESS. Это диагностическое доказательство
+исправления SDK, не авторитетный Full CI и не разрешение публикации.
+
+F247 VoiceOver подтверждён владельцем: «VoiceOver страницы — нормально».
+Сценарий включал текущий шаг «Собеседники», подсказку, кнопки и навигацию
+Control+Option. Звук проверен человеком, не агентом. System Settings после
+проверки показывает VoiceOver OFF. Ручные результаты и единственное исключение
+MDM записаны в https://github.com/yshishenya/graf/pull/6762#issuecomment-5565662565.
+Этот раздел уточняет устаревшие статусы выше; ограничения F247 в changelog и
+fragment согласованы. Публикация всё ещё ожидает новый master/full и F250.
