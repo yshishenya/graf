@@ -1014,9 +1014,19 @@ def test_account_security_bulk_actions_revoke_only_other_sessions_and_devices(cl
 
     headers = _bind_web_session(client, token=current_token, session_id=current_session_id)
 
+    confirmation = client.post(
+        "/settings/account/sessions/revoke-others", headers=headers, follow_redirects=False,
+    )
+    assert confirmation.status_code == 200
+    assert 'name="confirm" value="1"' in confirmation.text
+    assert "Отмена" in confirmation.text
+    async def assert_confirmation_did_not_revoke() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            assert (await db.get(AuthSession, other_session_id)).status == "active"
+    asyncio.run(assert_confirmation_did_not_revoke())
     sessions_response = client.post(
         "/settings/account/sessions/revoke-others",
-        headers=headers,
+        headers=headers, data={"confirm": "1"},
         follow_redirects=False,
     )
     assert sessions_response.status_code == 303
@@ -1124,3 +1134,116 @@ def test_theme_only_form_survives_reload_without_changing_locale_or_timezone(cli
                 assert (user.locale, user.timezone, user.theme) == ("en-US", "UTC", "light")
 
         asyncio.run(persisted())
+
+
+@pytest.mark.parametrize('prefix', ['', '/desktop'])
+def test_session_confirmation_preserves_access_until_confirm_and_protects_current(client, prefix) -> None:
+    workspace_id, device_id = asyncio.run(_seed_personal_workspace(client))
+    token, current_id = asyncio.run(_issue_web_session(client, user_id=USER_ID, workspace_id=workspace_id, device_id=device_id))
+    other_token, other_id = asyncio.run(_issue_web_session(client, user_id=USER_ID, workspace_id=workspace_id, device_id=device_id))
+    headers = _bind_web_session(client, token=token, session_id=current_id)
+    path = f'{prefix}/settings/account/sessions/{other_id}/revoke'
+    assert client.post(path, data={'confirm': '1'}, follow_redirects=False).status_code == 403
+    confirmation = client.post(path, headers=headers, follow_redirects=False)
+    assert confirmation.status_code == 200 and 'name="confirm" value="1"' in confirmation.text
+    client.cookies.clear()
+    assert client.get('/api/v1/auth/me', headers={'X-Auth-Session': other_token, 'X-Workspace-Id': str(workspace_id)}).status_code == 200
+    headers = _bind_web_session(client, token=token, session_id=current_id)
+    assert client.get(f'{prefix}/settings/account', headers=headers).status_code == 200
+    for _ in range(2):
+        assert client.post(path, headers=headers, data={'confirm': '1'}, follow_redirects=False).status_code == 303
+    client.cookies.clear()
+    assert client.get('/api/v1/auth/me', headers={'X-Auth-Session': other_token, 'X-Workspace-Id': str(workspace_id)}).status_code == 401
+    headers = _bind_web_session(client, token=token, session_id=current_id)
+    assert client.get('/api/v1/auth/me', headers={'X-Workspace-Id': str(workspace_id)}).status_code == 200
+    for target in [f'sessions/{current_id}', f'devices/{device_id}']:
+        response = client.post(f'{prefix}/settings/account/{target}/revoke', headers=headers, data={'confirm': '1'}, follow_redirects=False)
+        assert response.status_code == 422
+    assert client.post(f'{prefix}/settings/account/sessions/{uuid4()}/revoke', headers=headers, data={'confirm': '1'}, follow_redirects=False).status_code == 404
+
+
+def test_bulk_device_revoke_and_activity_use_same_lock_order(client, monkeypatch) -> None:
+    from twobrain_rec_server.auth.sessions import record_session_activity
+    from twobrain_rec_server.cabinet.web_routes import settings
+
+    async def run() -> None:
+        workspace_id, device_id = await _seed_personal_workspace(client)
+        _, session_id = await _issue_web_session(
+            client, user_id=USER_ID, workspace_id=workspace_id, device_id=device_id,
+        )
+        selected = asyncio.Event()
+        original = settings.revoke_registered_devices
+
+        async def after_device_selection(*args, **kwargs):
+            selected.set()
+            return await original(*args, **kwargs)
+
+        monkeypatch.setattr(settings, 'revoke_registered_devices', after_device_selection)
+        scope = TenantScope(organization_id=ORG_ID, workspace_id=workspace_id,
+                            user_id=USER_ID, device_id=uuid4(), auth_session_id=uuid4())
+        principal = AuthenticatedPrincipal(user_id=USER_ID, organization_id=ORG_ID,
+                                           workspace_ids=frozenset({workspace_id}), subject=str(USER_ID))
+
+        async with client.app_state['sessionmaker']() as activity_db:
+            session = await activity_db.scalar(select(AuthSession).where(
+                AuthSession.id == session_id).with_for_update())
+            device = await activity_db.get(RegisteredDevice, device_id)
+            session.last_seen_at = datetime.now(UTC) - timedelta(hours=1)
+            await activity_db.flush()
+
+            async def revoke():
+                async with client.app_state['sessionmaker']() as revoke_db:
+                    return await settings._revoke_other_account_devices(
+                        revoke_db, tenant_scope=scope, principal=principal,
+                    )
+
+            revocation = asyncio.create_task(revoke())
+            try:
+                await asyncio.wait_for(selected.wait(), timeout=5)
+                # Revocation has selected devices and now waits for our session.
+                await asyncio.wait_for(record_session_activity(activity_db, session, device), timeout=5)
+                await activity_db.commit()
+                counts = await asyncio.wait_for(revocation, timeout=5)
+                assert counts[0] >= 1 and counts[1] == 1
+            finally:
+                if not revocation.done():
+                    revocation.cancel()
+                await asyncio.gather(revocation, return_exceptions=True)
+        async with client.app_state['sessionmaker']() as db:
+            assert (await db.get(AuthSession, session_id)).status == 'revoked'
+            assert (await db.get(RegisteredDevice, device_id)).status == 'revoked'
+
+    asyncio.run(run())
+def test_account_timezone_overrides_device_on_web_desktop_and_rejects_invalid_atomically(client):
+    workspace_id, device_id = asyncio.run(_seed_personal_workspace(client))
+    token, session_id = asyncio.run(
+        _issue_web_session(client, user_id=USER_ID, workspace_id=workspace_id, device_id=device_id)
+    )
+    headers = _bind_web_session(client, token=token, session_id=session_id)
+    client.cookies.set("graf_timezone", "Asia/Yekaterinburg")
+    for path in ("/settings/account", "/desktop/settings/account"):
+        response = client.get(path, headers=headers)
+        assert response.status_code == 200
+        assert '<meta name="graf-time-preferred" content="">' in response.text
+        assert '<meta name="graf-timezone" content="Asia/Yekaterinburg">' in response.text
+    saved = client.post("/settings/account/preferences", headers=headers,
+                        data={"timezone": "Asia/Kathmandu"}, follow_redirects=False)
+    assert saved.status_code == 303
+    for path in ("/settings/account", "/desktop/settings/account", "/meetings"):
+        response = client.get(path, headers=headers)
+        assert response.status_code == 200
+        assert '<meta name="graf-time-preferred" content="Asia/Kathmandu">' in response.text
+        assert '<meta name="graf-timezone" content="Asia/Kathmandu">' in response.text
+        assert f'<meta name="graf-time-user" content="{USER_ID}">' in response.text
+        assert f'<meta name="graf-time-session" content="{session_id}">' in response.text
+    invalid = client.post("/settings/account/preferences", headers=headers,
+                          data={"timezone": "Bad/Zone", "theme": "dark"}, follow_redirects=False)
+    assert invalid.status_code == 422
+    async def load():
+        async with client.app_state["sessionmaker"]() as db:
+            user = await db.get(UserIdentity, USER_ID)
+            return user.timezone, user.theme
+    assert asyncio.run(load()) == ("Asia/Kathmandu", "system")
+    client.cookies.set("graf_timezone", "UTC")
+    response = client.get("/settings/account", headers=headers)
+    assert '<meta name="graf-timezone" content="Asia/Kathmandu">' in response.text

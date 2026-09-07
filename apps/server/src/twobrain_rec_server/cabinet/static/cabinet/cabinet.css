@@ -2097,9 +2097,9 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
   display: grid;
   align-content: start;
   gap: var(--settings-gap);
-}
-.settings-page > .settings-page__content {
+  grid-template-columns: minmax(0, 1fr);
   width: min(var(--settings-content-width), 100%);
+  margin-inline: auto;
 }
 .settings-section {
   width: 100%;
@@ -2112,14 +2112,21 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
 }
 .settings-section > .button { align-self: flex-start; }
 .settings-section__heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
   margin-bottom: 8px;
 }
 .settings-section__heading h2 {
   font-size: var(--font-size-section);
   font-weight: 600;
-  margin-bottom: 4px;
+  margin: 0 0 4px;
 }
 .settings-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
   background: var(--surface-2);
   border: 1px solid var(--line);
   border-radius: var(--radius-compact);
@@ -2193,7 +2200,19 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
 .settings-overview-card p { margin: 0; overflow-wrap: anywhere; }
 .settings-overview-card h3 { font-size: var(--font-size-subtitle); font-weight: 650; }
 .settings-overview-card__link { margin-top: auto; color: var(--accent); font-size: var(--font-size-helper); font-weight: 650; }
-.settings-page__topbar { align-items: flex-start; }
+.settings-page__topbar,
+.calendar-settings__topbar {
+  align-items: flex-start;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.settings-page .settings-page__topbar,
+.calendar-settings .calendar-settings__topbar { margin-bottom: 0; }
+.settings-page__content { overflow-wrap: anywhere; }
+.settings-page .button,
+.calendar-settings .button { white-space: normal; max-width: 100%; min-height: 40px; }
+.settings-page input,
+.settings-page select { min-width: 0; max-width: 100%; }
 .settings-page__topbar .page-title { min-width: 0; }
 .account-navigation { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 4px; }
 .account-navigation a { min-height: 40px; padding: 9px 12px; border: 1px solid var(--line-soft); border-radius: 8px; color: var(--muted); }
@@ -2210,7 +2229,7 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
 .account-profile-form__actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .field-label { color: var(--muted); font-size: var(--font-size-helper); line-height: var(--line-height-helper); font-weight: 650; }
 .settings-field { display: grid; gap: 6px; min-width: 0; }
-.settings-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.settings-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 12px; }
 .account-email-form { display: grid; gap: 6px; max-width: 640px; }
 .account-email-form__heading { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
 .account-email-form__controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
@@ -2247,8 +2266,6 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
   background: var(--surface-2);
   font: 500 var(--font-size-caption) var(--font-family-ui);
 }
-.settings-section__heading { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
-.settings-section__heading h2 { margin: 0 0 4px; }
 .settings-section__heading .button { flex: 0 0 auto; }
 .settings-boundary-card,
 .settings-unavailable-card { background: rgba(140,115,255,.06); border-color: rgba(140,115,255,.25); }
@@ -2303,6 +2320,7 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
 .settings-form { display: grid; gap: 12px; max-width: 640px; }
 .settings-form-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .settings-status { padding: 10px 12px; border: 1px solid var(--success-border); border-radius: var(--radius-panel); color: var(--green); background: var(--success-surface); }
+.settings-status--warning { border-color: var(--amber); color: var(--text); background: var(--surface-2); }
 .settings-status--error { border-color: var(--danger-border); color: var(--danger-text); background: var(--danger-surface); }
 .settings-status h2, .settings-status p { margin: 0; }
 .settings-status h2 { font-size: var(--font-size-subtitle); }
@@ -2642,7 +2660,6 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
   .meeting-row.cabinet-row .row-delete-form { grid-column: 4; }
   .meeting-row.cabinet-row .row-delete { opacity: 1; }
   .meeting-toolbar { align-items: flex-start; flex-wrap: wrap; }
-  .settings-section { grid-template-columns: 1fr; }
   .settings-actions { justify-content: flex-start; }
   .meeting-row > .state-list, .meeting-row > .row-actions { grid-column: 2; justify-self: start; }
   .segment { display: block; }
@@ -2991,12 +3008,6 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
   display: grid;
   gap: var(--settings-gap);
   max-width: none;
-}
-
-.calendar-settings__topbar {
-  align-items: flex-start;
-  padding-bottom: 14px;
-  border-bottom: 1px solid var(--line);
 }
 
 .calendar-settings__topbar h1 {
@@ -5662,12 +5673,7 @@ body {
   color: var(--muted);
 }
 
-.settings-page > .settings-page__content {
-  width: min(900px, 100%);
-}
-
 .settings-section {
-  max-width: 900px;
   gap: 10px;
   padding-bottom: 24px;
 }
@@ -5881,3 +5887,54 @@ body {
     min-width: var(--app-sidebar-width);
   }
 }
+
+/* Account access: clear current location, progressive disclosure, native forms. */
+.settings-session-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+#account-sessions-title { scroll-margin-block-start: 76px; }
+.session-card { display: flex; align-items: flex-start; gap: 16px; padding: 18px; border: 1px solid var(--line); border-radius: 12px; }
+.session-card--current { background: var(--accent-surface); border-color: var(--accent-border); }
+.session-card__content { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.session-card__heading { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; }
+.session-card__title { font-weight: 600; }
+.session-current-badge { display: inline-flex; padding: 3px 9px; border-radius: 20px; background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: 600; }
+.session-card__activity { margin: 6px 0 0; color: var(--muted); font-size: 13px; }
+.session-card .button, .session-bulk-action .button { min-height: 44px; }
+.session-group-title { margin: 24px 0 12px; font-size: 14px; font-weight: 600; }
+.session-details { margin-top: 8px; font-size: 13px; }
+.session-details > summary, .session-help > summary { width: fit-content; cursor: pointer; padding-block: 8px; }
+.session-details p { margin: 8px 0 0; }
+.session-bulk-action { margin-top: 18px; }
+.session-bulk-action p, .session-empty { margin: 10px 0 0; }
+.session-scope { margin: 24px 0 12px; font-size: 13px; }
+.session-help { border-top: 1px solid var(--line-soft); padding-block: 6px; font-size: 13px; }
+.session-help p { margin: 10px 0; }
+@media (max-width: 480px) {
+  .session-card { padding: 14px; gap: 10px; flex-wrap: wrap; }
+  .session-card__content { flex-basis: 100%; }
+}
+
+/* The heading itself is the edit control; feedback appears only on failure. */
+.meeting-title-editor { margin: 0; min-width: 0; }
+.meeting-title-editor h1 { min-width: 0; }
+.meeting-title-display,
+.meeting-title-input {
+  box-sizing: border-box;
+  max-width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: 3px 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-align: start;
+}
+.meeting-title-display { cursor: text; white-space: normal; overflow-wrap: anywhere; }
+.meeting-title-display:hover { background: var(--line-soft); }
+.meeting-title-input { width: 100%; outline: 2px solid var(--accent); outline-offset: 2px; }
+.meeting-title-display:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.meeting-title-error { margin: 8px 0 0; color: var(--danger-text); font-size: 13px; overflow-wrap: anywhere; }
+
+.meeting-detail-header.meeting-title-header-scrolls { position: static; }

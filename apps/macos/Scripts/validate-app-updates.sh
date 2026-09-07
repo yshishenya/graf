@@ -173,7 +173,11 @@ elif [ -n "$FEED_URL" ] && [ -n "$PUBLIC_KEY" ]; then
   assert_plist_value SUVerifyUpdateBeforeExtraction true
   assert_plist_value SUSignedFeedFailureExpirationInterval 0
   assert_plist_value SUEnableAutomaticChecks true
-  assert_plist_value SUScheduledCheckInterval 86400
+  # Keep previously published daily-check apps valid for update continuity checks.
+  case "$(plist_read SUScheduledCheckInterval "$INFO_PLIST")" in
+    14400|86400) ;;
+    *) fail "SUScheduledCheckInterval must be 14400 (or legacy 86400)" ;;
+  esac
   assert_plist_value SUAutomaticallyUpdate false
   assert_plist_value SUAllowsAutomaticUpdates false
   assert_plist_value SUEnableSystemProfiling false

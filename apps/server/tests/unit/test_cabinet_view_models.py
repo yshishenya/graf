@@ -395,13 +395,13 @@ def test_meeting_list_row_presentation_is_immutable_and_keeps_one_status_slot() 
 
     assert presentation.display_title == "Запись"
     assert presentation.duration_label == "1 мин"
-    assert presentation.time_label == "16 июн, 08:00"
+    assert presentation.time_label == "16.06.2026, 08:00 (UTC)"
     assert presentation.status_kind is None
     assert presentation.status_label is None
     assert presentation.progress_percent is None
     assert presentation.content_readiness_label == "Расшифровка и итоги пока недоступны"
-    assert presentation.open_accessible_name == "Открыть встречу Запись, 16 июн, 08:00"
-    assert updated.time_label == "Обновлено 16 июн, 11:30"
+    assert presentation.open_accessible_name == "Открыть встречу Запись, 16.06.2026, 08:00 (UTC)"
+    assert updated.time_label == "Обновлено 16.06.2026, 11:30 (UTC)"
     with pytest.raises(FrozenInstanceError):
         presentation.display_title = "Другое"  # type: ignore[misc]
 
@@ -450,7 +450,10 @@ def test_recording_display_title_uses_calendar_title_and_recording_time_without_
     meeting.title_source = "calendar"
     meeting.recording_display_timezone_offset_minutes = 180
 
-    assert view_models.recording_display_title(meeting) == "Планирование релиза — 16 июн, 11:00"
+    assert (
+        view_models.recording_display_title(meeting)
+        == "Планирование релиза — 16.06.2026, 08:00 (UTC)"
+    )
     assert meeting.title == "Планирование релиза"
 
 
@@ -465,8 +468,8 @@ def test_recording_display_title_uses_app_context_then_generic_fallback() -> Non
     generic.title_source = "generic"
     generic.recording_display_timezone_offset_minutes = 180
 
-    assert view_models.recording_display_title(app_context) == "Zoom — 16 июн, 11:00"
-    assert view_models.recording_display_title(generic) == "Запись 16 июн, 11:00"
+    assert view_models.recording_display_title(app_context) == "Zoom — 16.06.2026, 08:00 (UTC)"
+    assert view_models.recording_display_title(generic) == "Запись 16.06.2026, 08:00 (UTC)"
 
 
 def test_recording_display_title_preserves_authoritative_user_title() -> None:
@@ -488,7 +491,7 @@ def test_meeting_list_title_neutralizes_generated_capture_without_rewriting_sour
     derived.title = "Quarterly_sync.mp3"
     derived.title_source = "file_name_derived"
 
-    assert view_models.meeting_list_title(generated) == "Запись 13 июл, 12:14"
+    assert view_models.meeting_list_title(generated) == "Запись 13.07.2026, 09:14 (UTC)"
     assert view_models.meeting_list_title(upload, source="manual_upload") == "Загруженная запись"
     assert view_models.meeting_list_title(derived, source="manual_upload") == "Quarterly sync"
     assert generated.title == "Current display system audio - 2026-07-13 12:14"
@@ -503,7 +506,7 @@ def test_meeting_list_title_preserves_authoritative_fallback_looking_title(
     meeting.title_source = title_source
 
     expected = (
-        "Запись без названия — 16 июн, 08:00"
+        "Запись без названия — 16.06.2026, 08:00 (UTC)"
         if title_source == "calendar"
         else "Запись без названия"
     )
@@ -744,14 +747,23 @@ def test_recording_time_labels_use_started_at_with_truthful_fallbacks() -> None:
         uploaded_at=datetime(2026, 6, 26, 21, 30, tzinfo=UTC),
     )
 
-    assert view_models.meeting_time_label(recorded, time_basis="meeting") == "26 июн, 23:30"
-    assert view_models.meeting_time_label(timezone_shifted, time_basis="meeting") == "27 июн, 02:30"
-    assert view_models.meeting_time_label(offset_shifted, time_basis="meeting") == "27 июн, 00:30"
+    assert (
+        view_models.meeting_time_label(recorded, time_basis="meeting") == "26.06.2026, 23:30 (UTC)"
+    )
+    assert (
+        view_models.meeting_time_label(timezone_shifted, time_basis="meeting")
+        == "26.06.2026, 23:30 (UTC)"
+    )
+    assert (
+        view_models.meeting_time_label(offset_shifted, time_basis="meeting")
+        == "26.06.2026, 21:30 (UTC)"
+    )
     assert view_models.meeting_time_label(legacy, time_basis="meeting") == "Без даты"
     assert (
-        view_models.meeting_time_label(uploaded, time_basis="meeting") == "Загружено 26 июн, 21:30"
+        view_models.meeting_time_label(uploaded, time_basis="meeting")
+        == "Загружено 26.06.2026, 21:30 (UTC)"
     )
-    assert view_models.date_label(uploaded) == "Загружено 26 июн, 21:30"
+    assert view_models.date_label(uploaded) == "Загружено 26.06.2026, 21:30 (UTC)"
     assert view_models.date_label(legacy) == "Без даты"
     assert view_models.meeting_time_label(recorded, time_basis="upload") == "Без даты"
 
@@ -765,7 +777,7 @@ def test_meeting_list_time_label_is_shared_with_visible_search_projection() -> N
             timezone_offset_minutes=180,
             time_basis="meeting",
         )
-        == "14 июл, 02:30"
+        == "13.07.2026, 23:30 (UTC)"
     )
     assert (
         view_models.meeting_list_time_label(
@@ -773,7 +785,7 @@ def test_meeting_list_time_label_is_shared_with_visible_search_projection() -> N
             timezone_offset_minutes=180,
             time_basis="updated",
         )
-        == "Обновлено 14 июл, 02:30"
+        == "Обновлено 13.07.2026, 23:30 (UTC)"
     )
 
 
@@ -782,7 +794,7 @@ def test_safe_title_uses_legacy_local_recording_fallback_without_control_charact
     meeting.title = "\x00"
     meeting.local_recording_id = "legacy-no-title"
 
-    assert view_models.safe_title(meeting) == "Запись 16 июн, 08:00"
+    assert view_models.safe_title(meeting) == "Запись 16.06.2026, 08:00 (UTC)"
 
 
 def test_safe_title_suppresses_legacy_url_or_email_title() -> None:
@@ -790,7 +802,7 @@ def test_safe_title_suppresses_legacy_url_or_email_title() -> None:
     meeting.title = "https://meet.example.com/private john@example.com"
     meeting.local_recording_id = "legacy-unsafe-title"
 
-    assert view_models.safe_title(meeting) == "Запись 16 июн, 08:00"
+    assert view_models.safe_title(meeting) == "Запись 16.06.2026, 08:00 (UTC)"
 
 
 def test_safe_title_suppresses_legacy_bare_meeting_link_title() -> None:
@@ -798,7 +810,7 @@ def test_safe_title_suppresses_legacy_bare_meeting_link_title() -> None:
     meeting.title = "meet.example.test/abc-defg-hij"
     meeting.local_recording_id = "legacy-bare-link-title"
 
-    assert view_models.safe_title(meeting) == "Запись 16 июн, 08:00"
+    assert view_models.safe_title(meeting) == "Запись 16.06.2026, 08:00 (UTC)"
 
 
 def test_safe_title_suppresses_unsafe_fallback_identity() -> None:
@@ -806,7 +818,7 @@ def test_safe_title_suppresses_unsafe_fallback_identity() -> None:
     meeting.title = "meet.example.test/abc-defg-hij"
     meeting.local_recording_id = "john@example.com"
 
-    assert view_models.safe_title(meeting) == "Запись 16 июн, 08:00"
+    assert view_models.safe_title(meeting) == "Запись 16.06.2026, 08:00 (UTC)"
 
 
 def test_safe_title_does_not_suppress_normal_words_that_contain_sk_dash() -> None:
@@ -872,7 +884,7 @@ def test_meeting_list_presentation_humanizes_generated_titles_files_and_duration
     file_title = _meeting()
     file_title.title = "4p_12_01 PM - Встреча с Технониколь_Инфобез.mp3"
 
-    assert view_models.safe_title(generated) == "Запись 13 июл, 12:14"
+    assert view_models.safe_title(generated) == "Запись 13.07.2026, 09:14 (UTC)"
     assert view_models.safe_title(generated_without_time) == "Запись без названия"
     assert view_models.safe_title(manual, source="manual_upload") == "Загруженная запись"
     assert view_models.safe_title(file_title) == "4p 12 01 PM - Встреча с Технониколь Инфобез"
@@ -898,7 +910,9 @@ def test_safe_title_preserves_authoritative_calendar_user_and_upload_titles() ->
     derived.title = "Quarterly_sync.mp3"
     derived.title_source = "file_name_derived"
 
-    assert view_models.safe_title(calendar) == "Meeting - 2026-07-13 12:14 — 16 июн, 08:00"
+    assert (
+        view_models.safe_title(calendar) == "Meeting - 2026-07-13 12:14 — 16.06.2026, 08:00 (UTC)"
+    )
     assert view_models.safe_title(user) == "Roadmap.mp3"
     assert view_models.safe_title(upload) == "Quarterly_sync.mp3"
     assert view_models.safe_title(derived) == "Quarterly sync"
@@ -3042,3 +3056,57 @@ def test_canonical_provider_turns_preserve_unknown_rows_as_singletons() -> None:
         "unconfirmed 0",
         "unconfirmed 1",
     ]
+
+
+@pytest.mark.parametrize(
+    "zone, expected",
+    [
+        ("Asia/Yekaterinburg", "01.01.2027, 02:30"),
+        ("America/New_York", "31.12.2026, 16:30"),
+        ("Asia/Kathmandu", "01.01.2027, 03:15"),
+    ],
+)
+def test_meeting_date_uses_viewer_zone_for_list_detail_and_title(zone, expected):
+    from twobrain_rec_server.cabinet.user_time import _display_timezone
+
+    token = _display_timezone.set(zone)
+    try:
+        item = _list_item(
+            started_at=datetime(2026, 12, 31, 21, 30, tzinfo=UTC),
+            recording_display_timezone_offset_minutes=-420,
+        )
+        assert view_models.meeting_time_label(item, time_basis="meeting") == expected
+        assert view_models.date_label(item) == expected
+        shifted = item.model_copy(
+            update={"started_at": item.started_at.astimezone(timezone(timedelta(hours=3)))}
+        )
+        assert view_models.date_label(shifted) == expected
+        item.started_at = None
+        assert view_models.date_label(item) == "Без даты"
+    finally:
+        _display_timezone.reset(token)
+
+
+def test_upcoming_relative_day_uses_viewer_calendar_and_keeps_label_compact(monkeypatch):
+    from twobrain_rec_server.cabinet import rendering
+    from twobrain_rec_server.cabinet.user_time import _display_timezone
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 12, 31, 21, 30, tzinfo=UTC)
+
+    token = _display_timezone.set("Asia/Yekaterinburg")
+    monkeypatch.setattr(rendering, "datetime", Clock)
+    try:
+        assert rendering._home_upcoming_time_label(
+            datetime(2026, 12, 31, 22, tzinfo=UTC), "UTC"
+        ) == "Сегодня, 03:00"
+        assert rendering._home_upcoming_time_label(
+            datetime(2027, 1, 1, 22, tzinfo=UTC), "UTC"
+        ) == "Завтра, 03:00"
+        assert rendering._home_upcoming_time_label(
+            datetime(2027, 1, 2, 22, tzinfo=UTC), "UTC"
+        ) == "03.01.2027, 03:00"
+    finally:
+        _display_timezone.reset(token)

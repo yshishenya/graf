@@ -9,9 +9,10 @@ from uuid import UUID
 
 import pytest
 
-from tests.fixtures.outcome_prompts import desired_prompts
 from twobrain_rec_server.cli.langfuse_prompts import (
+    CONTROL_PROMPTS,
     create_root_bundle_candidate,
+    desired_prompts,
     promote_control_prompt_version,
     sync_prompts,
 )
@@ -57,11 +58,6 @@ from twobrain_rec_server.outcomes.prompts import (
     canonical_json,
     validate_prompt_snapshot,
 )
-
-CONTROL_PROMPTS = {
-    name: value for name, value in desired_prompts().items()
-    if not name.startswith("graf/meeting-outcome/")
-}
 
 
 @pytest.mark.anyio
@@ -856,15 +852,8 @@ def test_prompt_sync_creates_only_unlabelled_candidates(monkeypatch) -> None:
         def __init__(self) -> None:
             self.created = []
 
-        def get_prompt(self, name, **kwargs):
-            assert "label" not in kwargs
-            assert kwargs["version"] == 7
-            return Mock(version=7, prompt="previous prompt", config={
-                "config_contract_version": 3,
-                "model": "gemini/gemini-3.8-flash",
-                "top_p": 0.7, "max_tokens": 12000,
-                CONTROL_GATE_CONFIG_KEY: {"old_evidence": "must-not-be-carried"},
-            })
+        def get_prompt(self, *_args, **_kwargs):
+            raise RuntimeError("not seeded")
 
         def create_prompt(self, **kwargs):
             self.created.append(kwargs)
@@ -884,7 +873,6 @@ def test_prompt_sync_creates_only_unlabelled_candidates(monkeypatch) -> None:
         public_key="pk-test",
         secret_key="sk-test",
         apply=True,
-        source_versions={name: 7 for name in desired_prompts()},
     )
 
     control_creates = [row for row in client.created if row["name"] in CONTROL_PROMPTS]
@@ -897,33 +885,25 @@ def test_prompt_sync_creates_only_unlabelled_candidates(monkeypatch) -> None:
     )
     assert sum(value.startswith("created-control-candidate:") for value in outcomes) == 4
     assert sum(value.startswith("created-outcome-candidate:") for value in outcomes) == 10
-    assert all(row["config"]["model"] == "gemini/gemini-3.8-flash" for row in client.created)
-    assert all(row["config"]["top_p"] == 0.7 for row in client.created)
-    assert all(row["config"]["max_tokens"] == 12000 for row in client.created)
-    assert all("temperature" not in row["config"] for row in client.created)
-    assert all("reasoning_effort" not in row["config"] for row in client.created)
-    assert all(CONTROL_GATE_CONFIG_KEY not in row["config"] for row in client.created)
 
 
-@pytest.mark.parametrize("failure", ["missing-model", "wrong-version", "unknown-field"])
-def test_prompt_sync_validates_all_exact_sources_before_any_write(monkeypatch, failure) -> None:
+def test_prompt_sync_treats_an_older_production_contract_as_change_required(
+    monkeypatch,
+) -> None:
     import langfuse
 
-    class Client:
-        create_prompt = Mock()
+    prompt_name = "graf/meeting-outcome/auto"
+    prompt_type, prompt, _config = desired_prompts()[prompt_name]
 
-        def get_prompt(self, name, **kwargs):
-            assert "label" not in kwargs
-            config = {"config_contract_version": 1, "model": "test-model"}
-            version = kwargs["version"]
-            if name == list(desired_prompts())[-1]:
-                if failure == "missing-model":
-                    del config["model"]
-                elif failure == "wrong-version":
-                    version += 1
-                else:
-                    config["base_url"] = "https://example.invalid"
-            return Mock(version=version, prompt="previous prompt", config=config)
+    class Client:
+        def get_prompt(self, name, **_kwargs):
+            if name == prompt_name:
+                return Mock(
+                    version=3,
+                    prompt=prompt,
+                    config={"config_contract_version": 1},
+                )
+            raise RuntimeError("not seeded")
 
         def flush(self) -> None:
             pass
@@ -931,14 +911,16 @@ def test_prompt_sync_validates_all_exact_sources_before_any_write(monkeypatch, f
         def shutdown(self) -> None:
             pass
 
-    client = Client()
-    monkeypatch.setattr(langfuse, "Langfuse", lambda **_kwargs: client)
-    with pytest.raises(ValueError):
-        sync_prompts(
-            base_url="https://langfuse.invalid", public_key="pk-test", secret_key="sk-test",
-            apply=True, source_versions={name: 7 for name in desired_prompts()},
-        )
-    client.create_prompt.assert_not_called()
+    monkeypatch.setattr(langfuse, "Langfuse", lambda **_kwargs: Client())
+
+    outcomes = sync_prompts(
+        base_url="https://langfuse.invalid",
+        public_key="pk-test",
+        secret_key="sk-test",
+        apply=False,
+    )
+
+    assert f"change-required:{prompt_name}" in outcomes
 
 
 def test_root_bundle_candidate_accepts_exact_version_per_prompt(monkeypatch) -> None:
@@ -966,11 +948,22 @@ def test_root_bundle_candidate_accepts_exact_version_per_prompt(monkeypatch) -> 
             pass
 
     monkeypatch.setattr(langfuse, "Langfuse", lambda **_kwargs: Client())
+    descriptor = {
+        "alias": "gpt-5.6-luna",
+        "binding_version": "graf-litellm-route-v1",
+        "allowed_provider_models": [{"provider": "openai", "model": "gpt-5.6-luna"}],
+        "request_compiler_hash": "a" * 64,
+        "request_compiler_version": "graf-chat-compiler-v1",
+    }
+    from twobrain_rec_server.outcomes.prompt_bundle import route_binding_hash
+
+    route_binding = {**descriptor, "binding_hash": route_binding_hash(descriptor)}
     result = create_root_bundle_candidate(
         base_url="https://langfuse.invalid",
         public_key="pk-test",
         secret_key="sk-test",
         child_versions=versions,
+        route_binding=route_binding,
     )
 
     assert result["root_prompt_version"] == 31
@@ -978,13 +971,25 @@ def test_root_bundle_candidate_accepts_exact_version_per_prompt(monkeypatch) -> 
     assert sorted(calls) == sorted(versions.items())
 
 
-def test_optimizer_snapshot_and_candidate_retain_root_binding() -> None:
+def test_optimizer_snapshot_and_candidate_retain_route_binding() -> None:
     source = _source()
+    descriptor = {
+        "alias": "gpt-5.6-luna",
+        "binding_version": "graf-litellm-route-v1",
+        "allowed_provider_models": [{"provider": "openai", "model": "gpt-5.6-luna"}],
+        "request_compiler_hash": "a" * 64,
+        "request_compiler_version": "graf-chat-compiler-v1",
+    }
+    from twobrain_rec_server.outcomes.prompt_bundle import route_binding_hash
+
+    binding = {**descriptor, "binding_hash": route_binding_hash(descriptor)}
     bound = bind_snapshot_from_metadata(
         source,
         {
             "root_bundle_hash": "b" * 64,
             "root_prompt_version": 3,
+            "route_binding_hash": binding["binding_hash"],
+            "route_binding": binding,
         },
     )
 
@@ -995,7 +1000,7 @@ def test_optimizer_snapshot_and_candidate_retain_root_binding() -> None:
     assert snapshot_bundle_metadata(candidate) == snapshot_bundle_metadata(bound)
 
 
-def test_production_optimizer_uses_secret_file_and_standard_gateway(
+def test_production_optimizer_uses_secret_file_and_requires_route_binding(
     monkeypatch, tmp_path
 ) -> None:
     from twobrain_rec_server.outcomes import generator as generator_module
@@ -1022,6 +1027,7 @@ def test_production_optimizer_uses_secret_file_and_standard_gateway(
         "base_url": "https://litellm.pro-4.ru",
         "api_key": "luna-key",
         "timeout_seconds": 120,
+        "require_route_binding": True,
     }
 
 

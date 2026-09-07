@@ -10340,6 +10340,42 @@ components:
       title: CalendarDisconnectResponse
     CalendarEventSummary:
       properties:
+        all_day:
+          type: boolean
+          title: All Day
+          default: false
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        location:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Location
+        participants:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Participants
+        attachments:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Attachments
+        conference_links:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Conference Links
+        provider_extras:
+          additionalProperties: true
+          type: object
+          title: Provider Extras
         event_id:
           type: string
           format: uuid
@@ -11552,6 +11588,42 @@ components:
       title: DeletionVerificationReport
     DesktopCalendarPromptEvent:
       properties:
+        all_day:
+          type: boolean
+          title: All Day
+          default: false
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        location:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Location
+        participants:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Participants
+        attachments:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Attachments
+        conference_links:
+          items:
+            additionalProperties: true
+            type: object
+          type: array
+          title: Conference Links
+        provider_extras:
+          additionalProperties: true
+          type: object
+          title: Provider Extras
         event_id:
           type: string
           format: uuid
@@ -13265,6 +13337,11 @@ components:
       title: MeetingFilterState
     MeetingListItem:
       properties:
+        title_version:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Title Version
         meeting_id:
           type: string
           format: uuid

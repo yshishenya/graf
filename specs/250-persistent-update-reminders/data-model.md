@@ -1,0 +1,5 @@
+# Данные и переходы
+
+KnownAppUpdate: buildVersion, displayVersion, installedVersion, feedURL, publicEDKey, systemVersion. Один объект UserDefaults в домене приложения. Версии обязаны быть валидным CalVer; buildVersion строго новее installedVersion по SUStandardVersionComparator. Размер данных ограничен 4096 байт при чтении. Поврежденный объект/смена привязки удаляется. Метаданные исчезают после установки или подтвержденного отзыва, не содержат сведений пользователя/встреч, приватных URL, полномочий на установку или секретов.
+
+AppUpdatePresentation продолжает быть единственной наблюдаемой проекцией. availableVersion остается во время failure/checking/download/install/skip; no-update не очищает его без доказательства. Восстановленный кэш показывает просьбу проверить и установить. protectedWork меняет возможность перезапуска; состояние кэша ее не меняет. Signed feed только сверяет известную сборку, Sparkle выбирает новую. Несовместимость очищает известную версию только если latest item относится к той же сборке.

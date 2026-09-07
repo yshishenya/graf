@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from html import escape
 from urllib.parse import urlencode
 from uuid import UUID
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from twobrain_rec_server.api.schemas import (
     MeetingListItem,
@@ -55,6 +54,11 @@ from twobrain_rec_server.cabinet.templates import (
     render_icon,
     render_template,
     trusted_component_html,
+)
+from twobrain_rec_server.cabinet.user_time import (
+    format_user_datetime,
+    local_datetime,
+    user_time_element,
 )
 from twobrain_rec_server.deletion.report import BOUNDED_DELETE_COPY
 from twobrain_rec_server.domain.media_filenames import MANUAL_MEDIA_UPLOAD_ACCEPT
@@ -350,6 +354,7 @@ def render_share_invitation_accept_page(
     csrf_token: str | None,
     meeting_title: str | None = None,
     meeting_occurred_at: datetime | None = None,
+    meeting_time_is_upload: bool = False,
     meeting_duration_seconds: int | None = None,
     invitation_expires_at: datetime | None = None,
     content_scope: str = "summary_only",
@@ -372,6 +377,7 @@ def render_share_invitation_accept_page(
         meeting_list_href=_base_path(False),
         meeting_title=meeting_title,
         meeting_occurred_at=meeting_occurred_at,
+        meeting_time_is_upload=meeting_time_is_upload,
         meeting_duration_seconds=meeting_duration_seconds,
         invitation_expires_at=invitation_expires_at,
         content_scope=content_scope,
@@ -387,9 +393,10 @@ def render_share_invitation_accept_page(
 def render_shared_meeting_summary_page(
     *,
     meeting_title: str,
-    occurred_at: datetime,
+    occurred_at: datetime | None,
     duration_seconds: int,
     summary_sections: list[dict[str, object]],
+    time_is_upload: bool = False,
     authenticated: bool = False,
     embedded: bool = False,
 ) -> str:
@@ -399,6 +406,7 @@ def render_shared_meeting_summary_page(
         content_template="cabinet/pages/shared_meeting_summary_content.html",
         meeting_title=meeting_title,
         occurred_at=occurred_at,
+        time_is_upload=time_is_upload,
         duration_seconds=duration_seconds,
         summary_sections=_localized_shared_summary_sections(summary_sections),
         authenticated=authenticated,
@@ -457,6 +465,7 @@ def render_settings_page(
     provider_link_result: str | None = None,
     device_revoke_result: str | None = None,
     session_result: str | None = None,
+    session_confirmation: dict[str, str] | None = None,
     notification_result: str | None = None,
     account_close_result: str | None = None,
     profile_result: str | None = None,
@@ -475,11 +484,18 @@ def render_settings_page(
         "activated": "Текущее пространство изменено. Новые встречи сохранятся здесь.",
     }.get(workspace_switch_result)
     provider_link_outcome = _provider_link_outcome(provider_link_result)
-    provider_link_result_copy = provider_link_outcome["detail"] if provider_link_outcome else None
     provider_unlink_outcome = _PROVIDER_UNLINK_OUTCOMES.get(provider_unlink_result or "")
-    provider_unlink_result_copy = (
-        provider_unlink_outcome["detail"] if provider_unlink_outcome else None
+    requires_account_reauth = "reauth_required" in (
+        provider_link_result,
+        provider_unlink_result,
+        device_revoke_result,
+        session_result,
+        account_close_result,
     )
+    if provider_link_result == "reauth_required":
+        provider_link_outcome = {**provider_link_outcome, "kind": "warning"}
+    if provider_unlink_result == "reauth_required":
+        provider_unlink_outcome = {**provider_unlink_outcome, "kind": "warning"}
     device_revoke_result_copy = {
         "revoked": "Устройство отозвано. Его активные сессии больше не действуют.",
         "others_revoked": "Доступ на остальных устройствах завершён. Текущее устройство остаётся активным.",
@@ -489,11 +505,11 @@ def render_settings_page(
     other_account_result = " ".join(
         message
         for message in (
-            provider_unlink_result_copy,
             device_revoke_result_copy,
             {
-                "revoked": "Сеанс завершён.",
-                "others_revoked": "Остальные сеансы завершены. Текущая сессия остаётся активной.",
+                "revoked": "В том приложении или браузере потребуется войти снова. Здесь вы остались в аккаунте.",
+                "failed": "Не удалось выйти. Попробуйте ещё раз.",
+                "others_revoked": "Другие входы в этом рабочем пространстве завершены. Здесь вы остались в аккаунте.",
                 "reauth_required": "Для управления сессиями войдите через подтверждённую веб-сессию и повторите попытку.",
             }.get(session_result),
             {
@@ -504,18 +520,34 @@ def render_settings_page(
         )
         if message
     )
-    account_outcome = (
-        provider_link_outcome
-        or provider_unlink_outcome
-        or (
+    other_account_kind = (
+        "error"
+        if "failed" in (device_revoke_result, session_result)
+        else "warning"
+        if "reauth_required" in (device_revoke_result, session_result, account_close_result)
+        else "success"
+    )
+    account_outcomes = (
+        provider_link_outcome,
+        provider_unlink_outcome,
+        (
             {
-                "title": "Настройки обновлены",
+                "title": {
+                    "error": "Не удалось изменить настройки",
+                    "warning": "Нужно войти снова",
+                    "success": "Настройки обновлены",
+                }[other_account_kind],
                 "detail": other_account_result,
-                "kind": "success",
+                "kind": other_account_kind,
             }
             if other_account_result
             else None
-        )
+        ),
+    )
+    account_outcome = max(
+        (outcome for outcome in account_outcomes if outcome),
+        key=lambda outcome: {"success": 0, "warning": 1, "error": 2}[outcome["kind"]],
+        default=None,
     )
     content_templates = {
         "overview": "cabinet/pages/settings_content.html",
@@ -551,29 +583,16 @@ def render_settings_page(
         if embedded
         else "/settings/join-offers",
         "summary_formats": BUILT_IN_TEMPLATES,
+        "session_confirmation": session_confirmation,
         "account_surface": account_surface or cabinet_view_models.AccountSettingsSurface(),
-        "provider_link_result": provider_link_result_copy,
         "account_outcome": account_outcome,
-        "requires_account_reauth": provider_link_result == "reauth_required"
-        or provider_unlink_result == "reauth_required",
+        "requires_account_reauth": requires_account_reauth,
         "account_reauth_action": "/desktop/meetings" if embedded else "/logout",
         "account_reauth_next": "/login?next="
         + ("/desktop/settings/account" if embedded else "/settings/account"),
-        "provider_unlink_result": provider_unlink_result_copy,
-        "device_revoke_result": device_revoke_result_copy,
-        "session_result": {
-            "revoked": "Сеанс завершён.",
-            "others_revoked": "Остальные сеансы завершены. Текущая сессия остаётся активной.",
-            "reauth_required": "Для управления сессиями войдите через подтверждённую веб-сессию и повторите попытку.",
-        }.get(session_result),
         "notification_result": {"saved": "Настройки уведомлений сохранены."}.get(
             notification_result
         ),
-        "account_close_result": {
-            "scheduled": "Закрытие аккаунта запланировано. До даты отмены доступ и данные сохраняются, будущие списания отключены.",
-            "canceled": "Закрытие аккаунта отменено.",
-            "reauth_required": "Для закрытия аккаунта войдите через подтверждённую веб-сессию и повторите попытку.",
-        }.get(account_close_result),
         "profile_result": {"saved": "Профиль сохранён."}.get(profile_result),
         "preferences_result": {"saved": "Настройки языка, часового пояса и темы сохранены."}.get(
             preferences_result
@@ -950,6 +969,7 @@ def render_meeting_detail_page(
     product_analytics_provider: dict[str, object] | None = None,
     profile=None,
     shared_workspace_id: UUID | None = None,
+    title_edit: dict[str, str] | None = None,
 ) -> str:
     content = _render_meeting_detail_content(
         review,
@@ -957,6 +977,7 @@ def render_meeting_detail_page(
         csrf_token=csrf_token,
         poll_url=poll_url,
         shared_workspace_id=shared_workspace_id,
+        title_edit=title_edit,
     )
     return _page_shell(
         review.meeting.title,
@@ -1002,6 +1023,7 @@ def _render_meeting_detail_content(
     focus_calendar_context: bool = False,
     poll_url: str | None = None,
     shared_workspace_id: UUID | None = None,
+    title_edit: dict[str, str] | None = None,
 ) -> str:
     transcript_rows = (
         review.transcript.speaker_turns or review.transcript.segments
@@ -1092,7 +1114,19 @@ def _render_meeting_detail_content(
         embedded=embedded,
         base_path=_base_path(embedded),
         meeting_title=review.meeting.title,
-        meeting_date=cabinet_view_models.date_label(review.meeting),
+        title_version=review.meeting.title_version if shared_workspace_id is None else None,
+        title_edit=title_edit or {},
+        title_csrf_token=csrf_token or "",
+        meeting_date=(
+            "Загружено "
+            if review.meeting.started_at is None
+            and review.meeting.source == "manual_upload"
+            and review.meeting.uploaded_at is not None
+            else ""
+        )
+        + user_time_element(
+            cabinet_view_models.meeting_time_value(review.meeting, time_basis="meeting")
+        ),
         meeting_duration=cabinet_view_models.format_duration(review.meeting.duration_seconds),
         status_label=_ui_text(review.meeting.status_label),
         media_revision_id=(
@@ -1634,8 +1668,20 @@ def _render_meeting_row(
         if can_manage_lifecycle
         else '<span class="row-delete-form row-contextual-placeholder" aria-hidden="true"></span>'
     )
+    time_value = cabinet_view_models.meeting_time_value(item, time_basis=time_basis)
+    start_value = cabinet_view_models.meeting_time_value(item, time_basis="meeting")
+
+    def instant_attribute(value: datetime | None) -> str:
+        return (value if value.tzinfo else value.replace(tzinfo=UTC)).isoformat() if value else ""
+
+    time_prefix = (
+        "Обновлено "
+        if time_basis == "updated"
+        else ("Загружено " if item.started_at is None and item.source == "manual_upload" else "")
+    )
+    time_markup = f"{time_prefix}{user_time_element(time_value)}" if time_value else "Без даты"
     return f"""
-      <li class="meeting-row cabinet-row{row_state_classes}" data-meeting-row data-meeting-id="{item.meeting_id}">
+      <li class="meeting-row cabinet-row{row_state_classes}" data-meeting-row data-meeting-id="{item.meeting_id}" data-sort-started="{instant_attribute(start_value)}" data-sort-updated="{instant_attribute(item.updated_at)}" data-sort-duration="{item.duration_seconds}" data-sort-title="{title}">
         {selection_control}
         <span class="row-icon" data-media-kind="{source_label}" aria-hidden="true">{source_icon}</span>
         <div class="meeting-content">
@@ -1646,7 +1692,7 @@ def _render_meeting_row(
           {meta_html}
         </div>
         {delete_control}
-        <span class="meeting-date" id="{time_id}">{escape(presentation.time_label)}</span>
+        <span class="meeting-date" id="{time_id}">{time_markup}</span>
       </li>
     """
 
@@ -1765,12 +1811,12 @@ def _render_home_upcoming(
     else:
         state_copy = "Из выбранных календарей"
 
-    if credential_issue:
+    if credential_issue and not preview:
         body = (
             '<div class="calendar-home-upcoming__empty"><strong>Календарь нужно переподключить</strong>'
             "<p>Откройте настройки и восстановите доступ. Ручная запись по-прежнему доступна.</p></div>"
         )
-    elif provider_issue:
+    elif provider_issue and not preview:
         body = (
             '<div class="calendar-home-upcoming__empty"><strong>Календарный сервис недоступен</strong>'
             "<p>Попробуйте позже. GRAF не показывает устаревшее событие как актуальное.</p></div>"
@@ -1779,10 +1825,10 @@ def _render_home_upcoming(
         rows = "".join(
             f"""
             <article class="calendar-home-upcoming__row">
-              {f'<time datetime="{escape(item.starts_at.isoformat())}">{escape(_home_upcoming_time_label(item.starts_at, display_timezone))}</time>' if calendar_surface.preferences.show_upcoming_time else '<span class="calendar-home-upcoming__time-hidden">Время скрыто настройкой</span>'}
+              {f'<time datetime="{escape(item.starts_at.isoformat())}" title="{escape(format_user_datetime(item.starts_at.date() if item.all_day else item.starts_at, show_zone=True))}" aria-label="{escape(format_user_datetime(item.starts_at.date() if item.all_day else item.starts_at, show_zone=True))}">{escape(_home_upcoming_time_label(item.starts_at, display_timezone, all_day=item.all_day))}</time>' if calendar_surface.preferences.show_upcoming_time else '<span class="calendar-home-upcoming__time-hidden">Время скрыто настройкой</span>'}
               <div>
                 <strong>{escape(item.title if calendar_surface.preferences.show_upcoming_title else "Название скрыто настройкой")}</strong>
-                <small>{"Есть ссылка на встречу" if item.meeting_link_present else "Без ссылки на встречу"}</small>
+                <small>{"Есть ссылка на встречу" if item.meeting_link_present else "Без ссылки на встречу"}{" · данные могут быть устаревшими" if item.sync_confidence_state == "stale" else " · обновляется" if item.sync_confidence_state == "updating" else ""}</small>
               </div>
               {f'<a class="button quiet calendar-home-upcoming__join" href="/api/v1/calendar/events/{escape(item.event_id)}/open">Подключиться</a>' if item.open_meeting_available else ""}
             </article>
@@ -1809,7 +1855,7 @@ def _render_home_upcoming(
         )
 
     return f"""
-      <details class="calendar-home-upcoming" open{f' data-calendar-upcoming-refresh-at="{escape(upcoming_refresh_at.isoformat())}"' if upcoming_refresh_at is not None else ''}>
+      <details class="calendar-home-upcoming" data-calendar-live="upcoming" open{f' data-calendar-upcoming-refresh-at="{escape(upcoming_refresh_at.isoformat())}"' if upcoming_refresh_at is not None else ''}>
         <summary>
           <span>Ближайшие встречи</span>
           <small>{escape(state_copy)}</small>
@@ -1817,27 +1863,27 @@ def _render_home_upcoming(
         {body}
         {recurring_content}
         <a class="calendar-home-upcoming__settings" href="{settings_href}">Настроить календарь</a>
+        <p data-calendar-refresh-status role="status" aria-live="polite" hidden></p>
       </details>
     """
 
 
-def _home_upcoming_time_label(value: datetime, timezone_name: str) -> str:
-    try:
-        target_timezone = ZoneInfo(timezone_name)
-    except ZoneInfoNotFoundError:
-        target_timezone = UTC
-    localized = (value if value.tzinfo is not None else value.replace(tzinfo=UTC)).astimezone(
-        target_timezone
-    )
-    today = datetime.now(target_timezone).date()
+def _home_upcoming_time_label(value: datetime, timezone_name: str, *, all_day: bool = False) -> str:
+    if all_day:
+        return f"{format_user_datetime(value.date())}, весь день"
+    localized = local_datetime(value)
+    today = local_datetime(datetime.now(UTC)).date()
     day_label = (
         "Сегодня"
         if localized.date() == today
         else "Завтра"
         if localized.date() == today + timedelta(days=1)
-        else localized.strftime("%d.%m")
+        else ""
     )
-    return f"{day_label}, {localized.strftime('%H:%M')}"
+    return (
+        f"{day_label}, {format_user_datetime(value, time_only=True)}"
+        if day_label else format_user_datetime(value)
+    )
 
 
 def _render_previous_recurring_pointer(
@@ -2082,9 +2128,7 @@ def _render_calendar_context(
 
 
 def _calendar_context_time(value, timezone_offset_minutes: int) -> str:
-    display_timezone = timezone(timedelta(minutes=timezone_offset_minutes))
-    localized = value.replace(tzinfo=UTC) if value.tzinfo is None else value
-    return localized.astimezone(display_timezone).strftime("%H:%M")
+    return str(user_time_element(value))
 
 
 def _calendar_context_csrf_field(csrf_token: str | None) -> str:

@@ -50,7 +50,6 @@ from twobrain_rec_server.outcomes.generator import (
     LiteLLMGateway,
     canonical_transcript,
     compile_prompt_messages,
-    reported_model_provenance,
 )
 from twobrain_rec_server.outcomes.models import OutcomeSourceReference, OutcomeTranscriptSegment
 from twobrain_rec_server.outcomes.prompt_bundle import (
@@ -215,7 +214,6 @@ async def publish_model_generated_outcome(
         raise OutcomeGenerationTerminalError("summary_publication_proof_invalid")
     try:
         _verify_generation_call_hashes(call)
-        _verify_generation_call_execution(attempt, call)
     except OutcomeGenerationTerminalError as exc:
         raise OutcomeGenerationTerminalError("summary_publication_proof_invalid") from exc
     try:
@@ -1042,6 +1040,15 @@ async def resolve_candidate_prompt(
         except ValueError as exc:
             raise OutcomeGenerationTerminalError("summary_prompt_snapshot_corrupt") from exc
         if stored is not None:
+            attempt.generator_config_hash = _ai_generator_config_hash(
+                template_id=attempt.template_id,
+                template_key=attempt.template_key,
+                template_version=attempt.template_version,
+                template_sections=_template_sections(attempt),
+                output_language=attempt.output_language,
+                detail_level=attempt.detail_level,
+                snapshot=stored,
+            )
             await db.commit()
             return _prompt_result(stored)
         prompt_name = attempt.prompt_name
@@ -1123,6 +1130,15 @@ async def resolve_candidate_prompt(
         if concurrent is not None:
             if concurrent.canonical_hash != snapshot.canonical_hash:
                 raise OutcomeGenerationTerminalError("summary_prompt_resolution_conflict")
+            attempt.generator_config_hash = _ai_generator_config_hash(
+                template_id=attempt.template_id,
+                template_key=attempt.template_key,
+                template_version=attempt.template_version,
+                template_sections=_template_sections(attempt),
+                output_language=attempt.output_language,
+                detail_level=attempt.detail_level,
+                snapshot=concurrent,
+            )
             await db.commit()
             return _prompt_result(concurrent)
         attempt.prompt_version = snapshot.version
@@ -1134,7 +1150,14 @@ async def resolve_candidate_prompt(
             snapshot.config["response_format"]["json_schema"]["name"]
         )
         attempt.model_route = snapshot.model
-        attempt.model_parameters = snapshot.model_parameters
+        attempt.model_parameters = {
+            "temperature": snapshot.config["temperature"],
+            "response_format": snapshot.config["response_format"],
+        }
+        if "max_completion_tokens" in snapshot.config:
+            attempt.model_parameters["max_completion_tokens"] = snapshot.config[
+                "max_completion_tokens"
+            ]
         metadata = dict(attempt.metadata_json or {})
         bundle_metadata = snapshot_bundle_metadata(snapshot)
         if bundle_metadata is None:
@@ -1208,6 +1231,15 @@ async def execute_candidate_generation(
         snapshot = _stored_prompt_snapshot(attempt)
         if snapshot is None or attempt.source_result_id is None:
             raise OutcomeGenerationTerminalError("summary_prompt_not_pinned")
+        attempt.generator_config_hash = _ai_generator_config_hash(
+            template_id=attempt.template_id,
+            template_key=attempt.template_key,
+            template_version=attempt.template_version,
+            template_sections=_template_sections(attempt),
+            output_language=attempt.output_language,
+            detail_level=attempt.detail_level,
+            snapshot=snapshot,
+        )
         if meeting is None or meeting_is_deleted_or_deleting(meeting):
             raise OutcomeGenerationTerminalError("meeting_deleting")
         if attempt.status == "accepted":
@@ -1265,7 +1297,6 @@ async def execute_candidate_generation(
             ):
                 raise OutcomeGenerationTerminalError("summary_candidate_terminal")
             _verify_generation_call_hashes(existing)
-            _verify_generation_call_execution(attempt, existing)
             await finalize_dispatch_for_candidate(
                 db,
                 workspace_id=workspace_id,
@@ -1487,6 +1518,7 @@ async def execute_candidate_generation(
         base_url=str(settings.litellm_base_url),
         api_key=api_key,
         timeout_seconds=settings.litellm_request_timeout_seconds,
+        require_route_binding=True,
     )
     async with sessionmaker() as db:
         await _apply_worker_workspace(db, workspace_id)
@@ -1599,7 +1631,6 @@ async def execute_candidate_generation(
             if attempt.status not in ACTIVE_CANDIDATE_STATUSES:
                 call.completed_at = completed_at
                 call.raw_response_json = exc.raw_response
-                call.actual_model, call.actual_provider = reported_model_provenance(exc.raw_response)
                 call.raw_response_hash = (
                     _content_hash(exc.raw_response) if exc.raw_response is not None else None
                 )
@@ -1623,7 +1654,6 @@ async def execute_candidate_generation(
                 }
             call.completed_at = completed_at
             call.raw_response_json = exc.raw_response
-            call.actual_model, call.actual_provider = reported_model_provenance(exc.raw_response)
             call.raw_response_hash = (
                 _content_hash(exc.raw_response) if exc.raw_response is not None else None
             )
@@ -1803,11 +1833,17 @@ async def execute_candidate_generation(
             }
             validation_failure = "summary_response_invalid"
         completed_at = datetime.now(UTC)
-        _complete_generation_call_with_response(
-            call, response=response, validated_result=validated, completed_at=completed_at,
-        )
-        if call.validated_result_json != validated:
-            validation_failure = "generation_call_provenance_mismatch"
+        call.call_state = "completed"
+        call.completed_at = completed_at
+        call.actual_model = response.actual_model
+        call.actual_provider = response.actual_provider
+        call.provider_request_id = response.provider_request_id
+        call.token_usage = response.token_usage
+        call.cost_details = response.cost_details
+        call.raw_response_json = response.raw_response
+        call.validated_result_json = validated
+        call.raw_response_hash = _content_hash(response.raw_response)
+        call.validated_result_hash = _content_hash(validated)
         if validation_failure is not None:
             attempt.status = "failed"
             attempt.failure_code = validation_failure
@@ -1999,9 +2035,8 @@ async def publish_generation_call(
             call.last_export_error_code = "meeting_deleting"
             await db.commit()
             return
-        # Observation-only delivery must survive config/root upgrades. The retained
-        # call hashes, not today's execution contract, authorize this delivery.
-        if attempt.prompt_name is None or attempt.prompt_version is None:
+        snapshot = _stored_prompt_snapshot(attempt)
+        if snapshot is None or attempt.prompt_name is None or attempt.prompt_version is None:
             raise OutcomeGenerationTerminalError("summary_prompt_not_pinned")
         _verify_generation_call_hashes(call)
         claim_started_at = now
@@ -2013,7 +2048,7 @@ async def publish_generation_call(
         await db.commit()
         prompt_name = attempt.prompt_name
         prompt_version = attempt.prompt_version
-        selected_model = call.request_json.get("model")
+        selected_model = attempt.model_route or snapshot.model
         requested_by = attempt.requested_by_user_id
     client = create_langfuse_client(settings)
     try:
@@ -2240,15 +2275,12 @@ def _complete_generation_call_with_response(
 ) -> None:
     call.call_state = "completed"
     call.completed_at = completed_at
+    call.actual_model = getattr(response, "actual_model", None)
+    call.actual_provider = getattr(response, "actual_provider", None)
     call.provider_request_id = getattr(response, "provider_request_id", None)
     call.token_usage = getattr(response, "token_usage", None)
     call.cost_details = getattr(response, "cost_details", None)
     call.raw_response_json = getattr(response, "raw_response", None)
-    call.actual_model, call.actual_provider = reported_model_provenance(call.raw_response_json)
-    if (getattr(response, "actual_model", None), getattr(response, "actual_provider", None)) != (
-        call.actual_model, call.actual_provider,
-    ):
-        validated_result = {"validation_error": {"code": "generation_call_provenance_mismatch"}}
     call.validated_result_json = validated_result
     call.raw_response_hash = _content_hash(call.raw_response_json)
     call.validated_result_hash = _content_hash(validated_result)
@@ -2835,18 +2867,6 @@ def _stored_prompt_snapshot(
             raise OutcomeGenerationTerminalError("summary_prompt_snapshot_corrupt") from exc
     elif snapshot.source == "langfuse_production":
         raise OutcomeGenerationTerminalError("summary_prompt_snapshot_corrupt")
-    expected_generator_hash = _ai_generator_config_hash(
-        template_id=attempt.template_id, template_key=attempt.template_key,
-        template_version=attempt.template_version, template_sections=_template_sections(attempt),
-        output_language=attempt.output_language, detail_level=attempt.detail_level,
-        snapshot=snapshot,
-    )
-    if (
-        attempt.model_route != snapshot.model
-        or canonical_json(attempt.model_parameters) != canonical_json(snapshot.model_parameters)
-        or attempt.generator_config_hash != expected_generator_hash
-    ):
-        raise OutcomeGenerationTerminalError("generation_call_request_mismatch")
     return snapshot
 
 
@@ -2902,12 +2922,19 @@ def _ai_generator_config_hash(
         prompt_version = snapshot.version
         prompt_hash = snapshot.canonical_hash
         model_route = snapshot.model
-        model_parameters = snapshot.model_parameters
         response_format = snapshot.config.get("response_format")
         if isinstance(response_format, dict):
             json_schema = response_format.get("json_schema")
             if isinstance(json_schema, dict):
                 output_schema_version = str(json_schema.get("name") or "")
+            model_parameters = {
+                "temperature": snapshot.config.get("temperature"),
+                "response_format": response_format,
+            }
+            if "max_completion_tokens" in snapshot.config:
+                model_parameters["max_completion_tokens"] = snapshot.config[
+                    "max_completion_tokens"
+                ]
     return _content_hash(
         {
             "generator_version": AI_GENERATOR_VERSION,
@@ -2941,25 +2968,6 @@ def _generation_call_is_retryable(call: GenerationCall) -> bool:
         and error.get("retryable_classification") is True
         and error.get("egress_state") in {"not_sent", "response_received"}
     )
-
-
-def _verify_generation_call_execution(
-    attempt: MeetingOutcomeGenerationAttempt, call: GenerationCall,
-) -> None:
-    """New publication/reuse only; never apply this to historical observation delivery."""
-    if (call.actual_model, call.actual_provider) != reported_model_provenance(call.raw_response_json):
-        raise OutcomeGenerationTerminalError("generation_call_provenance_mismatch")
-    snapshot = _stored_prompt_snapshot(attempt)
-    if snapshot is None:
-        raise OutcomeGenerationTerminalError("summary_prompt_not_pinned")
-    sections = _template_sections(attempt)
-    expected_request = snapshot.litellm_request(compile_prompt_messages(
-        snapshot, transcript_json=call.transcript_text,
-        output_language=attempt.output_language or "ru",
-        detail_level=attempt.detail_level or "standard", template_sections=sections,
-    ))
-    if canonical_json(call.request_json) != canonical_json(expected_request):
-        raise OutcomeGenerationTerminalError("generation_call_request_mismatch")
 
 
 def _verify_generation_call_hashes(call: GenerationCall) -> None:

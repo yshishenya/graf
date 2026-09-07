@@ -8,7 +8,14 @@ from starlette.responses import HTMLResponse
 
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal
 from twobrain_rec_server.auth.csrf import CSRF_FORM_FIELD_NAME, issue_csrf_token
-from twobrain_rec_server.cabinet.templates import CABINET_STATIC_URL
+from twobrain_rec_server.cabinet.templates import CABINET_STATIC_URL, cabinet_static_asset_url
+from twobrain_rec_server.cabinet.user_time import (
+    display_timezone_name,
+    format_user_datetime,
+    time_reload_allowed,
+    user_time_element,
+    viewer_time_context,
+)
 from twobrain_rec_server.product_analytics.browser_context import (
     build_request_browser_provider_context,
 )
@@ -53,6 +60,12 @@ def render_template(template_name: str, **context: Any) -> str:
     return render_template_from(
         get_admin_templates(),
         template_name,
+        format_user_datetime=format_user_datetime,
+        user_time_element=user_time_element,
+        display_timezone_name=display_timezone_name,
+        time_reload_allowed=time_reload_allowed,
+        viewer_time_context=viewer_time_context,
+        cabinet_static_asset_url=cabinet_static_asset_url,
         admin_static_url=ADMIN_STATIC_URL,
         cabinet_static_url=CABINET_STATIC_URL,
         public_static_asset_url=public_static_asset_url,

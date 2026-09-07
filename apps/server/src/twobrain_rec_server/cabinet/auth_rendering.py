@@ -85,6 +85,7 @@ def render_login_page(
     error: str | None = None,
     invitation_flow: bool = False,
     recovery_mode: bool = False,
+    email_value: str | None = None,
     product_analytics_provider: dict[str, object] | None = None,
 ) -> str:
     safe_next = _safe_browser_next_path(next_path)
@@ -108,6 +109,7 @@ def render_login_page(
         invitation_flow=invitation_flow,
         recovery_mode=recovery_mode,
         embedded=embedded,
+        email_value=email_value or "",
         error_message=_login_error_message(error),
         message_kind="success" if success_result else "error",
         message_heading=message_heading,
@@ -122,6 +124,7 @@ def render_signup_page(
     next_path: str = "/meetings",
     error: str | None = None,
     mode: str | None = None,
+    email_value: str | None = None,
     product_analytics_provider: dict[str, object] | None = None,
 ) -> str:
     safe_next = _safe_browser_next_path(next_path)
@@ -132,6 +135,7 @@ def render_signup_page(
         providers=_login_provider_actions(providers, next_path=safe_next),
         next_path=safe_next,
         email_mode=email_mode,
+        email_value=email_value or "",
         error_message=_login_error_message(error),
         login_href=f"/login?{urlencode({'next': safe_next})}",
         signup_href=f"/sign-up?{urlencode({'next': safe_next})}",
@@ -291,7 +295,7 @@ def _login_error_message(error: str | None, *, link_flow: bool = False) -> str |
         "email_invalid": "Введите корректный email.",
         "ambiguous_email_recovery_required": "Этот email связан с несколькими профилями. Вход по коду заблокирован, чтобы не открыть чужие встречи. Войдите ниже через уже подключённый Яндекс ID или VK: GRAF откроет настройки, где можно безопасно подключить email.",
         "ambiguous_email_recovery_unavailable": "Этот email связан с несколькими профилями, поэтому вход по коду заблокирован. Яндекс ID и VK сейчас недоступны — обратитесь к администратору GRAF, чтобы безопасно восстановить доступ.",
-        "email_start_unavailable": "Не удалось отправить код. Проверьте email и попробуйте снова.",
+        "email_start_unavailable": "Не удалось начать вход по email. Проверьте адрес, выберите другой способ входа или зарегистрируйтесь.",
         "email_delivery_unavailable": "Почтовая доставка временно недоступна. Попробуйте запросить код еще раз.",
         "auth_rate_limited": "Слишком много попыток. Попробуйте снова через несколько минут.",
         "email_code_wrong": "Проверьте цифры и попробуйте ещё раз. После трёх неверных попыток код блокируется.",

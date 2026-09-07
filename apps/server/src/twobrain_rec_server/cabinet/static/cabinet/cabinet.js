@@ -135,21 +135,58 @@
 
   const currentList = () => document.querySelector("[data-meeting-list]");
   const allRows = () => Array.from(currentList()?.querySelectorAll("[data-meeting-row]") || []);
-  const SHORT_MEETING_MONTH_LABELS = ["", "янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
   const GENERATED_CAPTURE_TITLE_RE = /^(?:current(?: display)? system audio|system audio|yandex telemost|zoom(?:\.us)?|meeting)\s*[-—]\s*\d{4}-\d{2}-\d{2}(?:[ T]\d{1,2}:\d{2})?$/i;
-  const GENERATED_CAPTURE_TITLE_SUFFIX_RE = /\s*[-—]\s*\d{4}-\d{2}-\d{2}(?:[ T]\d{1,2}:\d{2})?$/;
-  const formatMeetingListDate = (value) => {
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return "На этом Mac";
-    const pad = (part) => String(part).padStart(2, "0");
-    return `${date.getDate()} ${SHORT_MEETING_MONTH_LABELS[date.getMonth() + 1]}, ${pad(date.getHours())}:${pad(date.getMinutes())}`;
-  };
+  const formatMeetingListDate = (value) => window.GRAFTime.format(value);
   const localRecordingDisplayTitle = (item) => {
     const rawTitle = (item.title || "").trim();
+    if (typeof item.generatedTitlePrefix === "string") {
+      return `${item.generatedTitlePrefix}${formatMeetingListDate(item.startedAt)}`;
+    }
     if (!GENERATED_CAPTURE_TITLE_RE.test(rawTitle)) return rawTitle || "Запись";
-    const sourceTitle = rawTitle.replace(GENERATED_CAPTURE_TITLE_SUFFIX_RE, "").trim();
     const date = formatMeetingListDate(item.startedAt);
-    return date === "На этом Mac" ? rawTitle : `${sourceTitle} — ${date}`;
+    return date === "Без даты" ? "Запись" : `Запись ${date}`;
+  };
+  const meetingListSort = () => document.querySelector("#meeting-sort")?.value || "started_desc";
+  const sortMeetingRows = (list) => {
+    const sort = meetingListSort();
+    const key = sort.startsWith("updated") ? "sortUpdated" : sort.startsWith("duration") ? "sortDuration" : "sortStarted";
+    const value = (row) => {
+      if (sort === "title_asc") return (row.dataset.sortTitle || "").toLowerCase();
+      const raw = row.dataset[key];
+      if (!raw) return null;
+      const number = key === "sortDuration" ? Number(raw) : Date.parse(raw);
+      return Number.isFinite(number) ? number : null;
+    };
+    Array.from(list.querySelectorAll("[data-meeting-row]")).sort((left, right) => {
+      const a = value(left), b = value(right);
+      if (a === null && b !== null) return 1;
+      if (a !== null && b === null) return -1;
+      const order = a === b ? 0 : a < b ? -1 : 1;
+      if (order) return order * (sort.endsWith("_desc") ? -1 : 1);
+      const leftId = left.dataset.meetingId || left.dataset.grafLocalRecordingId || "";
+      const rightId = right.dataset.meetingId || right.dataset.grafLocalRecordingId || "";
+      return leftId < rightId ? -1 : leftId > rightId ? 1 : 0;
+    }).forEach((row) => list.append(row));
+  };
+  const localRecordingMatches = (item) => {
+    const access = document.querySelector("#meeting-access")?.value;
+    const status = document.querySelector("#meeting-status")?.value;
+    // Local custody does not prove server processing/readiness or team access.
+    if ((access && access !== "owner") || status) return false;
+    const query = (document.querySelector("#meeting-search")?.value || "").trim().toLowerCase().replace(/\s+/g, " ");
+    if (!query) return true;
+    const title = localRecordingDisplayTitle(item);
+    const duration = window.GRAFTime.formatDuration(item.durationSeconds);
+    const time = formatMeetingListDate(meetingListSort().startsWith("updated") ? item.updatedAt : item.startedAt);
+    return [title, duration, time, `${title} ${duration}`, `${title} ${time}`, `${duration} ${time}`, `${title} ${duration} ${time}`]
+      .some((text) => text.toLowerCase().replace(/\s+/g, " ").includes(query));
+  };
+  const updateMixedResultCount = () => {
+    const count = document.querySelector("[data-meeting-result-count]");
+    if (count) {
+      const incomplete = document.querySelector('[data-meeting-result-complete="false"]');
+      count.textContent = `Найдено: ${incomplete ? "больше " : ""}${allRows().length}`;
+    }
   };
   let localRecordingRows = [];
   const renderLocalRecordingRows = () => {
@@ -157,6 +194,7 @@
     if (!host) return;
     host.querySelectorAll("[data-graf-local-recording-row]").forEach((row) => row.remove());
     const localOnly = localRecordingRows.filter((item) => {
+      if (!localRecordingMatches(item)) return false;
       if (!item.meetingId) return true;
       const serverRow = allRows().find((row) => row.dataset.meetingId === item.meetingId);
       if (!serverRow || item.uploadComplete !== true) return true;
@@ -167,6 +205,7 @@
     if (!localOnly.length) {
       host.querySelector("ol[data-graf-local-recording-list]")?.remove();
       if (emptyState) emptyState.hidden = false;
+      updateMixedResultCount();
       return;
     }
     if (!list) {
@@ -178,12 +217,15 @@
       host.append(list);
     }
     if (emptyState) emptyState.hidden = true;
-    localOnly.slice().reverse().forEach((item) => {
+    localOnly.forEach((item) => {
       const row = document.createElement("li");
       row.className = "meeting-row cabinet-row is-local-recording";
       row.dataset.meetingRow = "";
       row.dataset.grafLocalRecordingRow = "";
       row.dataset.grafLocalRecordingId = item.id;
+      row.dataset.sortStarted = item.startedAt || "";
+      row.dataset.sortUpdated = item.updatedAt || "";
+      row.dataset.sortDuration = String(item.durationSeconds);
 
       const selection = document.createElement("span");
       selection.className = "row-select-hit row-contextual-placeholder";
@@ -200,6 +242,7 @@
       const title = document.createElement(item.canOpen ? "button" : "strong");
       title.className = `meeting-title row-title${item.canOpen ? " local-recording-open" : ""}`;
       const displayTitle = localRecordingDisplayTitle(item);
+      row.dataset.sortTitle = displayTitle;
       title.textContent = displayTitle;
       if (item.canOpen) {
         title.type = "button";
@@ -210,11 +253,7 @@
       }
       const duration = document.createElement("span");
       duration.className = "meeting-duration muted";
-      const durationLabel = (value) => {
-        const minutes = Math.floor(value / 60);
-        const seconds = value % 60;
-        return minutes ? `${minutes} мин ${seconds ? `${seconds} с` : ""}`.trim() : `${seconds} с`;
-      };
+      const durationLabel = window.GRAFTime.formatDuration;
       duration.textContent = item.showsPartialDuration
         ? `Сохранено ${durationLabel(item.durationSeconds)} из ${durationLabel(item.sessionDurationSeconds)}`
         : durationLabel(item.durationSeconds);
@@ -244,12 +283,18 @@
         remove.dataset.grafLocalRecordingId = item.id;
         actions.append(remove);
       }
-      const time = document.createElement("span");
+      const time = document.createElement("time");
       time.className = "meeting-date";
-      time.textContent = formatMeetingListDate(item.startedAt);
+      time.id = `graf-local-time-${item.id}`;
+      if (item.canOpen) title.setAttribute("aria-describedby", time.id);
+      const timeValue = meetingListSort().startsWith("updated") ? item.updatedAt : item.startedAt;
+      if (timeValue && Number.isFinite(Date.parse(timeValue))) time.dateTime = timeValue;
+      time.textContent = `${timeValue && meetingListSort().startsWith("updated") ? "Обновлено " : ""}${formatMeetingListDate(timeValue)}`;
       row.append(selection, icon, content, actions, time);
-      list.prepend(row);
+      list.append(row);
     });
+    sortMeetingRows(list);
+    updateMixedResultCount();
   };
   window.GRAFLocalRecordings = {
     update(rows) {
@@ -1547,10 +1592,7 @@
 
   const processingCountdownCopy = (seconds, source, nextAttemptAt = null, replacement = false) => {
     if (replacement && Number.isFinite(seconds) && processingTimestamp(nextAttemptAt) !== null) {
-      const time = new Intl.DateTimeFormat("ru-RU", {
-        hour: "2-digit",
-        minute: "2-digit",
-      }).format(new Date(nextAttemptAt));
+      const time = window.GRAFTime.format(nextAttemptAt, { showZone: true });
       return `GRAF повторит попытку автоматически в ${time} (через ${processingCountdownDuration(seconds)}).`;
     }
     const prefix = source === "server_fallback" ? "Примерно через" : "Следующая проверка через";
@@ -2053,6 +2095,16 @@
     projection,
     { resetRetryBudget = false } = {},
   ) => {
+    if (titleEditorActive()) {
+      if (!detail.dataset.titleRefreshDeferred) {
+        detail.dataset.titleRefreshDeferred = "true";
+        window.setTimeout(() => {
+          delete detail.dataset.titleRefreshDeferred;
+          if (detail.isConnected) void refreshProcessingDetailContentOnce(detail, projection);
+        }, 2000);
+      }
+      return false;
+    }
     if (resetRetryBudget) delete detail.dataset.processingContentRefreshRetryCount;
     const transcriptReady = processingTranscriptReady(projection);
     const summaryReady = processingSummaryState(projection).toLowerCase() === "available";
@@ -2068,6 +2120,7 @@
     if (!refreshTranscript && !refreshSummary && !refreshReplacement) return false;
     const pollUrl = detail.dataset.playbackPollUrl;
     if (!pollUrl) return false;
+    const titleVersion = detail.querySelector("[name='expected_version']")?.value;
     const refreshGeneration = processingRecoveryGeneration;
     const refreshScheduleGeneration = detail.dataset.processingScheduleGeneration || "0";
     const refreshClaim = [
@@ -2152,6 +2205,10 @@
         nextDetail.dataset.processingPublishedAttempt = String(attemptOrdinal);
       }
       if (discardStaleRefresh()) return false;
+      if (titleEditorActive() || titleVersion !== detail.querySelector("[name='expected_version']")?.value) {
+        retryFragmentRefresh();
+        return false;
+      }
       releaseRefreshClaim();
       stopProcessingRecoveryCountdown();
       stopProcessingRecoveryPolling();
@@ -4846,18 +4903,8 @@
   };
 
   const initCalendarSettings = () => {
-    const localDateTime = new Intl.DateTimeFormat("ru-RU", {
-      dateStyle: "medium",
-      timeStyle: "short",
-    });
-    const localTime = new Intl.DateTimeFormat("ru-RU", { timeStyle: "short" });
     document.querySelectorAll("[data-calendar-local-datetime], [data-calendar-local-time]").forEach((element) => {
-      const value = element.getAttribute("datetime");
-      const date = value ? new Date(value) : null;
-      if (!date || Number.isNaN(date.getTime())) return;
-      element.textContent = element.hasAttribute("data-calendar-local-time")
-        ? localTime.format(date)
-        : localDateTime.format(date);
+      element.textContent = window.GRAFTime.format(element.getAttribute("datetime"));
     });
     const mutationCopy = {
       connect: "Проверяем доступ…",
@@ -4881,13 +4928,14 @@
         status.textContent = `Можно выбрать до ${selectionLimit} календарей.`;
         status.hidden = false;
       };
-      form.addEventListener("submit", (event) => {
+      form.addEventListener("submit", async (event) => {
         if (Number.isFinite(selectionLimit) && selectedCalendarCount() > selectionLimit) {
           event.preventDefault();
           showSelectionLimit();
           status?.focus?.({ preventScroll: true });
           return;
         }
+        if (kind === "sync") event.preventDefault();
         form.dataset.state = "submitting";
         form.setAttribute("aria-busy", "true");
         if (submit) {
@@ -4898,6 +4946,32 @@
         if (status) {
           status.textContent = mutationCopy[kind] || "Выполняем…";
           status.hidden = false;
+        }
+        if (kind === "sync") {
+          const controller = new AbortController();
+          const timeout = window.setTimeout(() => controller.abort(), 10000);
+          try {
+            const response = await fetch(form.action, {
+              method: "POST", body: new FormData(form), credentials: "same-origin", signal: controller.signal,
+              headers: { "Accept": "text/html" },
+            });
+            if (!response.ok || (response.redirected && !new URL(response.url).pathname.endsWith("/settings/integrations/calendar"))) throw new Error("calendar_sync_failed");
+            const result = new DOMParser().parseFromString(await response.text(), "text/html");
+            if (status) status.textContent = result.querySelector(".calendar-notice")?.textContent?.trim()
+              || "Синхронизация запрошена. Состояние обновится автоматически.";
+            form.dataset.syncPending = "true";
+          } catch (_) {
+            if (status) status.textContent = "Не удалось запросить синхронизацию. Повторите попытку.";
+          } finally {
+            window.clearTimeout(timeout);
+            form.dataset.state = "idle";
+            form.removeAttribute("aria-busy");
+            if (submit) {
+              submit.disabled = false;
+              submit.textContent = submit.dataset.originalLabel || "Синхронизировать";
+            }
+            void refreshCalendarDisplay();
+          }
         }
       });
       form.addEventListener("invalid", () => {
@@ -4934,27 +5008,9 @@
     };
     document.querySelectorAll("[data-calendar-mutation]").forEach(initCalendarMutation);
     const resultRegion = document.querySelector("[data-calendar-has-result='true'] .calendar-notice");
-    if (resultRegion && window.location.search) {
+    if (resultRegion && window.location.search && !resultRegion.dataset.focused) {
+      resultRegion.dataset.focused = "true";
       window.setTimeout(() => resultRegion.focus({ preventScroll: true }), 0);
-    }
-    const pendingSyncForm = [...document.querySelectorAll("[data-calendar-mutation='sync']")]
-      .find((form) => form.querySelector("button[type='submit']:disabled"));
-    const syncRefreshKey = `graf-calendar-sync-refresh:${window.location.pathname}`;
-    if (pendingSyncForm) {
-      const refreshAttempt = Number.parseInt(sessionStorage.getItem(syncRefreshKey) || "0", 10);
-      if (refreshAttempt < 4) {
-        sessionStorage.setItem(syncRefreshKey, String(refreshAttempt + 1));
-        window.setTimeout(() => window.location.reload(), 15000);
-      } else {
-        sessionStorage.removeItem(syncRefreshKey);
-        const status = pendingSyncForm.querySelector("[data-calendar-mutation-status]");
-        if (status) {
-          status.textContent = "Синхронизация занимает больше обычного. Обновите страницу позже.";
-          status.hidden = false;
-        }
-      }
-    } else {
-      sessionStorage.removeItem(syncRefreshKey);
     }
     const dialogOpeners = new WeakMap();
     const restoreDialogFocus = (dialog) => {
@@ -5022,20 +5078,219 @@
     });
   };
 
-  const initCalendarUpcomingRefresh = () => {
-    if (calendarUpcomingRefreshTimer !== null) {
-      window.clearTimeout(calendarUpcomingRefreshTimer);
-      calendarUpcomingRefreshTimer = null;
+  let calendarRefreshInFlight = false;
+  let calendarRefreshListenersReady = false;
+
+  // Only server-rendered display regions are replaced. Forms and dialogs retain
+  // their DOM identity, entered values and focus while a provider is syncing.
+  const refreshCalendarDisplay = async () => {
+    if (calendarRefreshInFlight || document.hidden || !navigator.onLine) return;
+    if (!document.querySelector("[data-calendar-live]")) return;
+    calendarRefreshInFlight = true;
+    const pageURL = window.location.href;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 10000);
+    try {
+      const response = await fetch(pageURL, {
+        credentials: "same-origin", cache: "no-store", signal: controller.signal,
+        headers: { "Accept": "text/html" },
+      });
+      if (window.location.href !== pageURL) return;
+      if (!response.ok || response.redirected) throw new Error("calendar_refresh_failed");
+      const next = new DOMParser().parseFromString(await response.text(), "text/html");
+      document.querySelectorAll("[data-calendar-live]").forEach((region) => {
+        const replacement = [...next.querySelectorAll("[data-calendar-live]")]
+          .find((item) => item.dataset.calendarLive === region.dataset.calendarLive);
+        if (!replacement) return;
+        const active = document.activeElement;
+        const focusedLink = region.contains(active) && active instanceof HTMLAnchorElement
+          ? active.getAttribute("href") : null;
+        // Preserve the details element itself (and its open state).
+        if (active === region.querySelector(":scope > summary")) {
+          active.innerHTML = replacement.querySelector(":scope > summary")?.innerHTML || active.innerHTML;
+          [...region.children].filter((child) => child.tagName !== "SUMMARY").forEach((child) => child.remove());
+          [...replacement.children].filter((child) => child.tagName !== "SUMMARY").forEach((child) => region.append(child.cloneNode(true)));
+        } else {
+          region.innerHTML = replacement.innerHTML;
+        }
+        if (focusedLink) {
+          const link = [...region.querySelectorAll("a[href]")]
+            .find((item) => item.getAttribute("href") === focusedLink);
+          (link || region.querySelector("summary"))?.focus({ preventScroll: true });
+        }
+      });
+      document.querySelectorAll("[data-calendar-source]").forEach((source) => {
+        const replacement = [...next.querySelectorAll("[data-calendar-source]")]
+          .find((item) => item.dataset.calendarSource === source.dataset.calendarSource);
+        if (!replacement) return;
+        source.dataset.state = replacement.dataset.state;
+        const sync = source.querySelector("[data-calendar-mutation='sync'] button[type='submit']");
+        const nextSync = replacement.querySelector("[data-calendar-mutation='sync'] button[type='submit']");
+        if (sync && nextSync && sync.form?.dataset.state !== "submitting") {
+          sync.disabled = nextSync.disabled;
+          sync.setAttribute("aria-disabled", String(nextSync.disabled));
+          sync.textContent = nextSync.textContent;
+          if (sync.form?.dataset.syncPending === "true" && !["queued", "syncing"].includes(replacement.dataset.syncState)) {
+            const status = sync.form.querySelector("[data-calendar-mutation-status]");
+            if (status) status.textContent = replacement.dataset.syncState === "synced"
+              ? "Календарь обновлён."
+              : replacement.querySelector(".calendar-source-card__states")?.textContent?.trim() || "Проверьте состояние подключения.";
+            delete sync.form.dataset.syncPending;
+          }
+        }
+        const form = source.querySelector(".calendar-selection-form");
+        const nextForm = replacement.querySelector(".calendar-selection-form");
+        if ((!form || (form.dataset.state === "pristine" && !form.contains(document.activeElement))) && Boolean(form) !== Boolean(nextForm)) {
+          const pickerRegion = source.querySelector("[data-calendar-picker-region]");
+          const nextPickerRegion = replacement.querySelector("[data-calendar-picker-region]");
+          if (pickerRegion && nextPickerRegion) pickerRegion.innerHTML = nextPickerRegion.innerHTML;
+        }
+        if (form && nextForm && form.dataset.state === "pristine" && !form.contains(document.activeElement)) {
+          const picker = form.querySelector(".calendar-picker");
+          const nextPicker = nextForm.querySelector(".calendar-picker");
+          if (picker && nextPicker && picker.innerHTML !== nextPicker.innerHTML) {
+            picker.innerHTML = nextPicker.innerHTML;
+            // Reset baseline after a provider catalog update, without replacing the form.
+            form.dispatchEvent(new CustomEvent("calendar:baseline"));
+          }
+        }
+      });
+      initCalendarSettings();
+      initSettingsFormState();
+      document.querySelectorAll("[data-calendar-refresh-status]").forEach((status) => { status.hidden = true; });
+    } catch (_) {
+      document.querySelectorAll("[data-calendar-refresh-status]").forEach((status) => {
+        status.textContent = "Не удалось обновить календарь. Проверьте соединение или вход в GRAF. Повторим автоматически.";
+        status.hidden = false;
+      });
+    } finally {
+      window.clearTimeout(timeout);
+      calendarRefreshInFlight = false;
     }
-    const upcoming = document.querySelector("[data-calendar-upcoming-refresh-at]");
-    if (!upcoming) return;
-    const endsAt = Date.parse(upcoming.dataset.calendarUpcomingRefreshAt || "");
-    if (!Number.isFinite(endsAt)) return;
-    const delay = Math.max(0, endsAt - Date.now() + 1000);
-    calendarUpcomingRefreshTimer = window.setTimeout(() => {
+  };
+
+  const initCalendarUpcomingRefresh = () => {
+    if (calendarUpcomingRefreshTimer !== null) window.clearTimeout(calendarUpcomingRefreshTimer);
+    calendarUpcomingRefreshTimer = null;
+    if (!document.querySelector("[data-calendar-live]")) return;
+    if (!calendarRefreshListenersReady) {
+      calendarRefreshListenersReady = true;
+      document.addEventListener("visibilitychange", () => {
+        if (!document.hidden) void refreshCalendarDisplay();
+      });
+      window.addEventListener("online", () => { void refreshCalendarDisplay(); });
+    }
+    calendarUpcomingRefreshTimer = window.setTimeout(async () => {
       calendarUpcomingRefreshTimer = null;
-      window.location.reload();
-    }, Math.min(delay, 2147483647));
+      await refreshCalendarDisplay();
+      initCalendarUpcomingRefresh();
+    }, 30000);
+  };
+
+  let recordingSettingsNonce = null;
+  const initRecordingSettings = () => {
+    const root = document.querySelector('[data-recording-settings]');
+    if (!root || root.dataset.ready === 'true') return;
+    root.dataset.ready = 'true';
+    const controls = root.querySelector('[data-recording-settings-controls]');
+    const list = root.querySelector('[data-recording-settings-targets]');
+    const all = root.querySelector('[data-recording-settings-all]');
+    const status = root.querySelector('[data-recording-settings-status]');
+    const retry = root.querySelector('[data-recording-settings-retry]');
+    const template = root.querySelector('[data-recording-settings-select]');
+    const rows = new Map();
+    let busy = false;
+    let refreshPending = false;
+    let confirmed = null;
+
+    const render = (snapshot) => {
+      const ids = new Set(snapshot.targets.map((target) => target.id));
+      for (const [id, row] of rows) {
+        if (!ids.has(id)) { row.remove(); rows.delete(id); }
+      }
+      for (const [index, target] of snapshot.targets.entries()) {
+        let row = rows.get(target.id);
+        if (!row) {
+          row = document.createElement('label');
+          row.className = 'settings-control-row';
+          const name = document.createElement('span');
+          name.className = 'settings-control-row__title';
+          const select = template.content.firstElementChild.cloneNode(true);
+          select.dataset.recordingTarget = target.id;
+          row.append(name, select);
+          rows.set(target.id, row);
+        }
+        if (list.children[index] !== row) list.insertBefore(row, list.children[index] || null);
+        row.firstElementChild.textContent = target.name;
+        const select = row.querySelector('select');
+        select.setAttribute('aria-label', `Автозапись: ${target.name}`);
+        select.value = target.rule;
+      }
+      const rules = new Set(snapshot.targets.map((target) => target.rule));
+      all.value = rules.size === 1 ? snapshot.targets[0].rule : '';
+      all.disabled = busy || snapshot.targets.length === 0;
+      controls.hidden = false;
+      status.textContent = snapshot.error || (snapshot.targets.length ? '' : 'Приложения для автозаписи пока недоступны.');
+    };
+
+    const request = async (action = 'read', fields = {}) => {
+      if (busy) { if (action === 'read') refreshPending = true; return; }
+      const bridge = window.webkit?.messageHandlers?.grafRecordingSettings;
+      if (!bridge || !recordingSettingsNonce) {
+        status.textContent = 'Откройте локальные настройки. Для настройки на этой странице может потребоваться обновление GRAF.';
+        retry.hidden = false;
+        return;
+      }
+      busy = true;
+      const nonce = recordingSettingsNonce;
+      const focused = root.contains(document.activeElement) ? document.activeElement : null;
+      status.textContent = action === 'read' ? 'Загрузка настроек…' : 'Сохранение…';
+      retry.hidden = true;
+      controls.querySelectorAll('select').forEach((select) => { select.disabled = true; });
+      let timer;
+      try {
+        const snapshot = await Promise.race([
+          bridge.postMessage({ version: 1, nonce, action, ...fields }),
+          new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('timeout')), 5000); }),
+        ]);
+        if (!root.isConnected || nonce !== recordingSettingsNonce) return;
+        if (snapshot?.version !== 1 || !Array.isArray(snapshot.targets) ||
+            snapshot.targets.some((target) => typeof target.id !== 'string' || typeof target.name !== 'string' || !['always', 'ask', 'never'].includes(target.rule))) {
+          throw new Error('unsupported');
+        }
+        confirmed = snapshot;
+        render(snapshot);
+        if (!snapshot.error && snapshot.targets.length) status.textContent = action === 'read' ? 'Настройки этого Mac загружены.' : 'Сохранено на этом Mac.';
+        retry.hidden = !snapshot.error;
+      } catch {
+        if (!root.isConnected || nonce !== recordingSettingsNonce) return;
+        if (confirmed) render(confirmed);
+        status.textContent = action === 'read'
+          ? 'Не удалось загрузить настройки. Повторите загрузку или откройте локальные настройки.'
+          : 'Не удалось подтвердить сохранение. Повторите загрузку, чтобы проверить текущие настройки.';
+        retry.hidden = false;
+      } finally {
+        clearTimeout(timer);
+        busy = false;
+        if (root.isConnected) {
+          controls.querySelectorAll('select').forEach((select) => { select.disabled = false; });
+          all.disabled = !confirmed?.targets.length;
+          if (focused?.isConnected && document.activeElement === document.body) focused.focus({ preventScroll: true });
+          if (refreshPending) { refreshPending = false; request(); }
+        }
+      }
+    };
+    root.addEventListener('change', (event) => {
+      if (event.target === all) request('setAll', { rule: all.value });
+      else if (event.target?.dataset.recordingTarget) request('set', { targetID: event.target.dataset.recordingTarget, rule: event.target.value });
+    });
+    retry.addEventListener('click', () => request());
+    root.addEventListener('graf:recording-settings-refresh', () => request());
+    request();
+  };
+  window.GRAFRecordingSettings = {
+    connect(nonce) { recordingSettingsNonce = nonce; initRecordingSettings(); this.refresh(); },
+    refresh() { document.querySelector('[data-recording-settings]')?.dispatchEvent(new Event('graf:recording-settings-refresh')); },
   };
 
   const initSettingsFormState = () => {
@@ -5064,11 +5319,12 @@
           if (reset) reset.disabled = !dirty;
         }
       };
+      form.addEventListener("calendar:baseline", () => { initial = snapshot(); update(); });
       form.addEventListener("input", update);
       form.addEventListener("change", update);
       form.addEventListener("reset", () => window.setTimeout(update, 0));
       form.addEventListener("submit", () => {
-        initial = snapshot();
+        if (!form.hasAttribute("data-account-preferences")) initial = snapshot();
         form.dataset.state = "saving";
         if (status) {
           status.textContent = "Сохраняем…";
@@ -5103,6 +5359,38 @@
           if (autoSave && !saveInFlight) form.requestSubmit();
         }
       });
+
+      const timezoneSelect = form.querySelector("[data-timezone-select]");
+      const search = form.querySelector("[data-timezone-search]");
+      const preview = form.querySelector("[data-timezone-preview]");
+      const result = form.querySelector("[data-timezone-search-result]");
+      const initialTimezone = timezoneSelect?.value;
+      const options = timezoneSelect ? Array.from(timezoneSelect.options).map(option => option.cloneNode(true)) : [];
+      const normalizeSearch = (value) => value.toLowerCase().normalize("NFKC").replace(/[−–]/g, "-").replace(/\s+/g, " ").trim();
+      const filterTimezones = () => {
+        if (!timezoneSelect || !search) return;
+        const selected = timezoneSelect.value;
+        const query = normalizeSearch(search.value);
+        const matches = options.filter(option => normalizeSearch(`${option.textContent} ${option.value}`).includes(query));
+        // Keep the draft selection while searching; typing alone never changes the setting.
+        timezoneSelect.replaceChildren(...options.filter(option => option.value === selected || matches.includes(option)).map(option => option.cloneNode(true)));
+        timezoneSelect.value = selected;
+        if (result) {
+          result.hidden = !query;
+          result.textContent = matches.length ? `Найдено: ${matches.length}` : "Совпадений нет. Измените запрос; выбранный пояс сохранён в поле.";
+        }
+      };
+      const updateTimezonePreview = () => {
+        if (!timezoneSelect || !preview) return;
+        preview.hidden = false;
+        preview.textContent = `Сейчас: ${window.GRAFTime.format(new Date(), { timeZone: timezoneSelect.value, showZone: true })}`;
+      };
+      form.querySelector("[data-timezone-search-wrap]")?.removeAttribute("hidden");
+      search?.addEventListener("input", filterTimezones);
+      timezoneSelect?.addEventListener("change", updateTimezonePreview);
+      updateTimezonePreview();
+
+      let saving = false;
       form.addEventListener("submit", async (event) => {
         if (autoSave) {
           event.preventDefault();
@@ -5120,9 +5408,7 @@
               redirect: "follow",
             });
             const responsePath = new URL(response.url || window.location.href, window.location.href).pathname;
-            if (!response.ok || responsePath.startsWith("/login")) {
-              throw new Error("account_preferences_save_failed");
-            }
+            if (!response.ok || responsePath.startsWith("/login")) throw new Error("account_preferences_save_failed");
             persistedTheme = form.elements.namedItem("theme")?.value || persistedTheme;
             form.dataset.state = "saved";
             if (status) status.textContent = "Тема сохранена";
@@ -5140,14 +5426,49 @@
           }
           return;
         }
-        // Keep the native POST/no-JS path authoritative; preview is local only until the server confirms.
+
+        event.preventDefault();
+        if (saving) return;
+        saving = true;
         const settingsStatus = form.querySelector("[data-settings-form-status]");
+        const body = new FormData(form);
+        const controls = Array.from(form.elements).filter(control => !control.disabled);
+        controls.forEach(control => { control.disabled = true; });
         if (settingsStatus) { settingsStatus.textContent = "Сохраняем настройки…"; settingsStatus.hidden = false; }
-        const submit = form.querySelector("button[type='submit']");
-        if (submit) submit.disabled = false;
+        try {
+          const response = await fetch(form.action, {
+            method: "POST", body, credentials: "same-origin", redirect: "follow",
+            headers: csrfToken ? { "X-CSRF-Token": csrfToken } : {},
+          });
+          if (!response.ok || !response.redirected) throw new Error(response.status === 422 ? "invalid_preferences" : "preferences_save_failed");
+          const destination = new URL(response.url, location.href);
+          if (destination.origin !== location.origin) throw new Error("preferences_save_failed");
+          window.location.assign(destination.href);
+        } catch (error) {
+          form.dataset.state = "error";
+          if (settingsStatus) {
+            settingsStatus.textContent = error.message === "invalid_preferences"
+              ? "Проверьте часовой пояс и остальные настройки, затем сохраните ещё раз."
+              : "Не удалось сохранить настройки. Проверьте соединение и повторите отправку.";
+            settingsStatus.hidden = false;
+          }
+        } finally {
+          saving = false;
+          controls.forEach(control => { control.disabled = false; });
+          const submit = form.querySelector("button[type='submit']");
+          if (submit) submit.disabled = false;
+        }
       });
       form.addEventListener("reset", () => window.setTimeout(() => {
         applyTheme(form.elements.namedItem("theme")?.value || "system");
+        if (timezoneSelect) {
+          timezoneSelect.replaceChildren(...options.map(option => option.cloneNode(true)));
+          timezoneSelect.value = initialTimezone;
+        }
+        if (search) search.value = "";
+        filterTimezones();
+        updateTimezonePreview();
+        form.dispatchEvent(new Event("change", { bubbles: true }));
       }, 0));
     });
   };
@@ -6900,7 +7221,7 @@
           outcome_unknown: "Письмо не подтверждено — не отправляйте повторно сразу"
         }[invitation.status] || invitation.status || "Готовится к отправке";
         const scopeLabel = invitation.content_scope === "full_meeting" ? "запись" : "итоги";
-        status.textContent = `${statusLabel} · ${scopeLabel}${expiresAt && !Number.isNaN(expiresAt.valueOf()) ? ` · до ${expiresAt.toLocaleDateString("ru-RU")}` : ""}`;
+        status.textContent = `${statusLabel} · ${scopeLabel}${expiresAt && !Number.isNaN(expiresAt.valueOf()) ? ` · до ${window.GRAFTime.format(invitation.expires_at, { showZone: true })}` : ""}`;
         identity.append(label, status);
         const revoke = document.createElement("button");
         revoke.type = "button";
@@ -7199,7 +7520,255 @@
     });
   };
 
+  let meetingTitleEditor = null;
+  let meetingTitleHeaderObserver = null;
+  const titleEditorActive = () => meetingTitleEditor?.active() || false;
+
+  const initMeetingTitleEditor = () => {
+    const form = document.querySelector("[data-meeting-title-form]");
+    if (form?.dataset.ready === "true") return;
+    meetingTitleHeaderObserver?.disconnect();
+    if (!form) return;
+    form.dataset.ready = "true";
+    const header = form.closest("[data-meeting-detail-header]");
+    const headerObserver = new ResizeObserver(() => {
+      if (!form.isConnected) { headerObserver.disconnect(); return; }
+      header.classList.toggle("meeting-title-header-scrolls", header.offsetHeight > window.innerHeight / 2);
+    });
+    headerObserver.observe(header);
+    headerObserver.observe(document.documentElement);
+    meetingTitleHeaderObserver = headerObserver;
+    const input = form.querySelector("[data-meeting-title-input]");
+    const display = form.querySelector("[data-meeting-title-open]");
+    const version = form.elements.expected_version;
+    const error = form.querySelector("#meeting-title-error");
+    const status = form.querySelector("[data-meeting-title-status]");
+    const detail = form.closest("[data-meeting-id]");
+    let confirmed = form.dataset.confirmedTitle;
+    let editing = !error.hidden;
+    let pending = null;
+    let uncertain = false;
+    let terminal = false;
+    let needsExplicitRetry = editing;
+    const current = () => form.isConnected && detail === document.querySelector("#cabinet-main");
+    const dirty = () => input.value.trim() !== confirmed;
+    const showError = (message) => {
+      error.textContent = message;
+      error.hidden = !message;
+      input.setAttribute("aria-invalid", String(Boolean(message)));
+    };
+    const showEditor = (open, focus = false) => {
+      editing = open;
+      input.hidden = !open;
+      display.hidden = open;
+      if (focus) (open ? input : display).focus({ preventScroll: true });
+      if (open && focus) input.select();
+    };
+    const accept = (title, token) => {
+      confirmed = title;
+      form.dataset.confirmedTitle = title;
+      version.value = token;
+      input.value = title;
+      display.textContent = title;
+      display.setAttribute("aria-label", `Переименовать встречу: ${title}`);
+      document.title = `${title} - GRAF`;
+      uncertain = false;
+      needsExplicitRetry = false;
+      showError("");
+      clearMeetingHistoryCache();
+    };
+    const recover = async (response, code = "") => {
+      if (!current()) return true;
+      if (code === "meeting_deletion_active") {
+        terminal = true;
+        renderMeetingDetailRecovery(detail, "unavailable");
+        return true;
+      }
+      if (await recoverMeetingDetailFromResponse(response)) {
+        terminal = true;
+        return true;
+      }
+      if ([401, 403, 404, 410].includes(response.status)) {
+        terminal = true;
+        input.readOnly = true;
+        showError("Сессия страницы устарела. Обновите страницу.");
+        return true;
+      }
+      return false;
+    };
+    const finish = () => {
+      if (!current()) return;
+      input.readOnly = terminal;
+      form.removeAttribute("aria-busy");
+      pending = null;
+    };
+    const save = (explicit = false) => {
+      if (terminal || !current()) return Promise.resolve(true);
+      if (pending) return pending;
+      if (needsExplicitRetry && !explicit) return Promise.resolve(false);
+      if (!dirty() && !uncertain) {
+        showError("");
+        showEditor(false, document.activeElement === input);
+        return Promise.resolve(true);
+      }
+      if (!input.value.trim() || Array.from(input.value.trim()).length > 500) {
+        showError(!input.value.trim() ? "Введите название встречи" : "Название должно содержать не больше 500 символов");
+        needsExplicitRetry = true;
+        return Promise.resolve(false);
+      }
+      input.readOnly = true;
+      form.setAttribute("aria-busy", "true");
+      const controller = new AbortController();
+      const timer = window.setTimeout(() => controller.abort(), 15000);
+      pending = (async () => {
+        try {
+          const response = await fetch(form.action, {
+            method: "POST", body: new FormData(form), credentials: "same-origin",
+            headers: { Accept: "application/json" }, signal: controller.signal,
+          });
+          if (!current()) return false;
+          const data = await response.clone().json().catch(() => ({}));
+          if (await recover(response, data.code)) return terminal;
+          if (!current()) return false;
+          if (!response.ok) {
+            needsExplicitRetry = true;
+            if (data.code === "meeting_title_conflict" && typeof data.title_version === "string") {
+              confirmed = data.title;
+              version.value = data.title_version;
+              uncertain = false;
+              showError(`${data.message}. Текущее название: ${data.title}`);
+            } else {
+              uncertain = response.status >= 500;
+              showError(data.message || "Не удалось подтвердить сохранение. Нажмите Enter, чтобы повторить, или Esc, чтобы проверить название.");
+            }
+            return false;
+          }
+          if (data.meeting_id !== detail.dataset.meetingId || typeof data.title !== "string" || !data.title_version) throw new Error("Unexpected title response");
+          const focus = document.activeElement === input;
+          accept(data.title, data.title_version);
+          showEditor(false, focus);
+          status.textContent = "Название сохранено";
+          return true;
+        } catch {
+          if (current()) {
+            uncertain = true;
+            needsExplicitRetry = true;
+            showError("Не удалось подтвердить сохранение. Нажмите Enter, чтобы повторить, или Esc, чтобы проверить название.");
+          }
+          return false;
+        } finally {
+          window.clearTimeout(timer);
+          finish();
+        }
+      })();
+      return pending;
+    };
+    const cancel = async () => {
+      if (pending || terminal) return;
+      if (!uncertain) {
+        accept(confirmed, version.value);
+        showEditor(false, true);
+        return;
+      }
+      // After an ambiguous response only the server can confirm the current name.
+      input.readOnly = true;
+      form.setAttribute("aria-busy", "true");
+      const controller = new AbortController();
+      const timer = window.setTimeout(() => controller.abort(), 15000);
+      pending = (async () => {
+        try {
+          const response = await fetch(form.action.replace(/\/title$/, ""), {
+            credentials: "same-origin", cache: "no-store", signal: controller.signal,
+            headers: { "HX-Request": "true" },
+          });
+          if (await recover(response)) return;
+          if (!response.ok) throw new Error("Title refresh failed");
+          const page = new DOMParser().parseFromString(await response.text(), "text/html");
+          const fresh = page.querySelector("[data-meeting-title-form]");
+          if (!fresh || fresh.closest("[data-meeting-id]")?.dataset.meetingId !== detail.dataset.meetingId) throw new Error("Missing title");
+          if (!current()) return;
+          accept(fresh.dataset.confirmedTitle, fresh.elements.expected_version.value);
+          showEditor(false, true);
+        } catch {
+          if (current()) showError("Не удалось проверить название. Проверьте соединение и нажмите Esc ещё раз.");
+        } finally {
+          window.clearTimeout(timer);
+          finish();
+        }
+      })();
+      await pending;
+    };
+    display.addEventListener("click", () => showEditor(true, true));
+    form.addEventListener("submit", (event) => { event.preventDefault(); void save(true); });
+    input.addEventListener("keydown", (event) => {
+      if (event.isComposing || event.keyCode === 229) return;
+      if (event.key === "Escape") { event.preventDefault(); void cancel(); }
+      if (event.key === "Enter") { event.preventDefault(); void save(true); }
+    });
+    input.addEventListener("blur", () => { if (editing) void save(); });
+    input.addEventListener("paste", (event) => {
+      if (/[\x00-\x1f\x7f-\x9f\u2028\u2029]/.test(event.clipboardData?.getData("text") || "")) {
+        event.preventDefault();
+        showError("Название должно быть одной строкой");
+      }
+    });
+    showEditor(editing);
+    meetingTitleEditor = {
+      active: () => current() && !terminal && (editing || Boolean(pending)),
+      blocksNavigation: () => current() && !terminal && (dirty() || uncertain || Boolean(pending)),
+      save,
+      focus: () => input.focus({ preventScroll: true }),
+    };
+  };
+
+  document.addEventListener("click", (event) => {
+    const editor = meetingTitleEditor;
+    const link = event.target.closest?.("a[href]");
+    if (!editor?.blocksNavigation() || !link || event.defaultPrevented || event.button !== 0
+      || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey
+      || link.hasAttribute("download") || (link.target && link.target !== "_self")) return;
+    const url = new URL(link.href, location.href);
+    if (url.origin !== location.origin || (url.pathname === location.pathname && url.search === location.search && url.hash)) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    void editor.save().then((saved) => {
+      if (saved) location.assign(url.href);
+      else editor.focus();
+    });
+  }, true);
+  document.addEventListener("htmx:confirm", (event) => {
+    const editor = meetingTitleEditor;
+    const target = event.detail?.target;
+    const form = document.querySelector("[data-meeting-title-form]");
+    if (!editor?.blocksNavigation() || !form || !target?.contains?.(form)) return;
+    event.preventDefault();
+    void editor.save().then((saved) => {
+      if (saved) event.detail.issueRequest(true);
+      else editor.focus();
+    });
+  });
+  document.addEventListener("htmx:beforeRequest", (event) => {
+    const form = document.querySelector("[data-meeting-title-form]");
+    if (form && event.detail?.target?.contains?.(form)) {
+      event.detail.xhr.grafTitleVersion = form.elements.expected_version.value;
+    }
+  });
+  document.addEventListener("htmx:beforeSwap", (event) => {
+    const form = document.querySelector("[data-meeting-title-form]");
+    if (!form || !event.detail?.target?.contains?.(form)) return;
+    const requestedVersion = event.detail.xhr?.grafTitleVersion;
+    if (titleEditorActive() || (requestedVersion && requestedVersion !== form.elements.expected_version.value)) {
+      event.detail.shouldSwap = false;
+    }
+  });
+  window.addEventListener("beforeunload", (event) => {
+    if (!meetingTitleEditor?.blocksNavigation()) return;
+    event.preventDefault();
+    event.returnValue = "";
+  });
+
   const initCabinet = () => {
+    initMeetingTitleEditor();
     initAuthTransition();
     initCabinetRail();
     initCabinetProfileMenus();
@@ -7229,6 +7798,7 @@
     initCalendarSettings();
     initCalendarUpcomingRefresh();
     initSettingsFormState();
+    initRecordingSettings();
     initAccountPreferences();
     initSettingsConfirmations();
     initShareInvitationAutoAccept();
@@ -7350,7 +7920,10 @@
     initCabinet();
   });
 
-  window.addEventListener("pageshow", updateSelection);
+  window.addEventListener("pageshow", (event) => {
+    updateSelection();
+    if (event.persisted) refreshMeetingList();
+  });
 
   document.body.addEventListener("htmx:configRequest", (event) => {
     const detail = event.detail || {};

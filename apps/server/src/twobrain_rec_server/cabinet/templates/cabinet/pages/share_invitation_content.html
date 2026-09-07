@@ -25,9 +25,9 @@
       <div class="panel compact-panel" aria-label="Сведения о встрече">
         <strong>{{ meeting_title }}</strong>
         <p class="muted">
-          {% if meeting_occurred_at %}{{ meeting_occurred_at.strftime("%d.%m.%Y, %H:%M UTC") }}{% endif %}
+          {% if meeting_time_is_upload %}Загружено {% endif %}{{ user_time_element(meeting_occurred_at, show_zone=True) }}
           {% if meeting_duration_seconds is not none %} · {{ (meeting_duration_seconds // 60) }} мин{% endif %}
-          · Доступ до {{ invitation_expires_at.strftime("%d.%m.%Y") }}
+          · Доступ до {{ user_time_element(invitation_expires_at, show_zone=True) }}
         </p>
       </div>
       {% if content_scope == "full_meeting" %}

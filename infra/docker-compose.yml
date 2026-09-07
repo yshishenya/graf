@@ -793,8 +793,6 @@ services:
         condition: service_healthy
       rec-minio:
         condition: service_healthy
-      rec-temporal:
-        condition: service_healthy
     logging:
       driver: json-file
       options:

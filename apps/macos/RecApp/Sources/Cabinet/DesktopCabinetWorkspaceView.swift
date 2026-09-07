@@ -7,7 +7,6 @@ public struct DesktopCabinetWorkspaceView: View {
     public static let workspaceAccessibilityLabel = "Встречи и обзор записей"
     public static let embeddedSurfaceHeight: CGFloat = 420
     public static let shellEmbeddedSurfaceMinHeight: CGFloat = 520
-    public static let embeddedWorkspaceMaxWidth: CGFloat = 1120
 
     private let configuration: DesktopCabinetConfiguration?
     private let initialRoute: URL?
@@ -352,17 +351,18 @@ public enum DesktopCabinetWorkspacePresentation: Equatable, Sendable {
 }
 
 private struct DesktopCabinetNavigationTitlebarAccessory: NSViewRepresentable {
+    @Environment(\.isEnabled) private var isEnabled
     @ObservedObject var controller: EmbeddedCabinetNavigationController
     let isVisible: Bool
 
     func makeNSView(context _: Context) -> DesktopCabinetNavigationTitlebarAccessoryAnchor {
         let anchor = DesktopCabinetNavigationTitlebarAccessoryAnchor()
-        anchor.update(controller: controller, isVisible: isVisible)
+        anchor.update(controller: controller, isVisible: isVisible && isEnabled)
         return anchor
     }
 
     func updateNSView(_ nsView: DesktopCabinetNavigationTitlebarAccessoryAnchor, context _: Context) {
-        nsView.update(controller: controller, isVisible: isVisible)
+        nsView.update(controller: controller, isVisible: isVisible && isEnabled)
     }
 
     static func dismantleNSView(

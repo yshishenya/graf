@@ -97,7 +97,8 @@ public final class MeetingDetectionSettingsStore: @unchecked Sendable {
     private let settingsURL: URL
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
-    private let queue = DispatchQueue(label: "pro.2brain.graf.meeting-detection-settings", qos: .utility)
+    // ponytail: one queue for tiny local settings files; split by path only if writes contend.
+    private static let queue = DispatchQueue(label: "pro.2brain.graf.meeting-detection-settings", qos: .utility)
 
     public init(
         settingsURL: URL? = nil,
@@ -115,18 +116,28 @@ public final class MeetingDetectionSettingsStore: @unchecked Sendable {
     }
 
     public func load() throws -> MeetingDetectionSettings {
-        try queue.sync { try loadLocked() }
+        try Self.queue.sync { try loadLocked() }
     }
 
     public func save(_ settings: MeetingDetectionSettings) throws {
-        try queue.sync { try saveLocked(settings) }
+        try Self.queue.sync { try saveLocked(settings) }
+    }
+
+    /// Patch the latest persisted state so another settings surface cannot lose changes.
+    public func update(_ transform: (inout MeetingDetectionSettings) -> Void) throws -> MeetingDetectionSettings {
+        try Self.queue.sync {
+            var settings = try loadLocked()
+            transform(&settings)
+            try saveLocked(settings)
+            return settings
+        }
     }
 
     /// Adds only missing verified applications as `ask` and preserves every
     /// existing explicit rule. This also creates the first-install document.
     public func applyFirstInstallDefaults(targetIDs: Set<String>) throws -> MeetingDetectionSettings? {
         guard !targetIDs.isEmpty else { return nil }
-        return try queue.sync {
+        return try Self.queue.sync {
             let current = try loadLocked()
             var updated = current
             for targetID in targetIDs where updated.automaticRecordingRules[targetID] == nil {

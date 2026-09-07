@@ -133,6 +133,7 @@ from twobrain_rec_server.cabinet.queries import (
     get_cabinet_meeting_review,
     latest_processing_result,
     list_cabinet_meetings,
+    shared_meeting_display_metadata,
 )
 from twobrain_rec_server.cabinet.rendering import render_shared_meeting_summary_page
 from twobrain_rec_server.cabinet.speakers import candidate_speaker_attribution_is_current
@@ -2588,12 +2589,17 @@ async def resolve_login_required_share_link_route(
                 {"category": item.category, "text": item.text or ""} for item in items
             ],
         )
+        if "text/html" in request.headers.get("accept", "").lower():
+            display_title, display_time, uploaded = await shared_meeting_display_metadata(
+                db, meeting=meeting
+            )
         await db.commit()
         if "text/html" in request.headers.get("accept", "").lower():
             response = cabinet_html_response(
                 render_shared_meeting_summary_page(
-                    meeting_title=str(projection["meeting_label"]),
-                    occurred_at=projection["occurred_at"],
+                    meeting_title=display_title,
+                    occurred_at=display_time,
+                    time_is_upload=uploaded,
                     duration_seconds=int(projection["duration_seconds"]),
                     summary_sections=projection["summary_sections"],
                     authenticated=True,
@@ -2694,12 +2700,17 @@ async def resolve_public_meeting_share_route(
         summary_sections=[{"category": item.category, "text": item.text or ""} for item in items],
     )
     grant.last_used_at = datetime.now(UTC)
+    if "text/html" in request.headers.get("accept", "").lower():
+        display_title, display_time, uploaded = await shared_meeting_display_metadata(
+            db, meeting=meeting
+        )
     await db.commit()
     if "text/html" in request.headers.get("accept", "").lower():
         response = cabinet_html_response(
             render_shared_meeting_summary_page(
-                meeting_title=str(projection["meeting_label"]),
-                occurred_at=projection["occurred_at"],
+                meeting_title=display_title,
+                occurred_at=display_time,
+                time_is_upload=uploaded,
                 duration_seconds=int(projection["duration_seconds"]),
                 summary_sections=projection["summary_sections"],
                 authenticated=False,
@@ -2790,11 +2801,15 @@ async def accept_meeting_share_invitation_route(
                 {"category": item.category, "text": item.text or ""} for item in items
             ],
         )
+        display_title, display_time, uploaded = await shared_meeting_display_metadata(
+            db, meeting=meeting
+        )
         await db.commit()
         html_response = cabinet_html_response(
             render_shared_meeting_summary_page(
-                meeting_title=str(projection["meeting_label"]),
-                occurred_at=projection["occurred_at"],
+                meeting_title=display_title,
+                occurred_at=display_time,
+                time_is_upload=uploaded,
                 duration_seconds=int(projection["duration_seconds"]),
                 summary_sections=projection["summary_sections"],
                 authenticated=True,

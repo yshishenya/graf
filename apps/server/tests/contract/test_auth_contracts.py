@@ -1081,6 +1081,8 @@ def test_throttled_browser_provider_start_precedes_state_growth_and_adapter(
     assert response.status_code == 429
     assert response.headers["retry-after"] == "60"
     assert "Слишком много попыток" in response.text
+    assert '<a class="auth-provider" href="/login/yandex/start?next=%2Fmeetings">' in response.text
+    assert '<a class="auth-provider" href="/login/vk/start?next=%2Fmeetings">' in response.text
     assert asyncio.run(count_states()) == before
     assert captured_scopes == [
         (
@@ -2071,7 +2073,6 @@ def test_provider_link_confirmation_requires_the_initiating_session(
                 db,
                 user_id=UUID(login.json()["user_id"]),
                 workspace_id=login_workspace_id,
-                device_id=DEVICE_ID,
                 provider="yandex",
             )
             await db.commit()
@@ -3186,8 +3187,9 @@ def test_auth_device_register_revoke_blocks_session_bound_ingest(
         headers=session_headers | {"X-Device-Id": device_payload["device_id"]},
         json={"local_recording_id": "revoked-session-device", "duration_seconds": 60},
     )
-    assert denied.status_code == 403
-    assert denied.json()["code"] == "device_revoked"
+    assert denied.status_code == 401
+    assert denied.json()["code"] == "auth_session_invalid"
+    assert client.get("/api/v1/auth/me", headers=session_headers).status_code == 401
 
     events = _load_auth_audit_events(client)
     event_types = [event.event_type for event in events]

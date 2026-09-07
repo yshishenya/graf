@@ -620,6 +620,7 @@ def test_settings_provider_link_callback_keeps_browser_nonce_binding(
 
 
 def test_browser_provider_callback_keeps_only_authorized_detail_return(monkeypatch, client) -> None:
+    client.headers["User-Agent"] = "GRAFDesktop/2026.09.06.1"
     seeds = seed_cabinet_meetings(client)
     _patch_browser_provider_callbacks(monkeypatch)
     client.portal.call(lambda: _link_owner_yandex_identity(client, subject="browser-yandex-owner"))
@@ -639,6 +640,14 @@ def test_browser_provider_callback_keeps_only_authorized_detail_return(monkeypat
     assert allowed_callback.status_code == 303
     assert allowed_callback.headers["location"] == "/meetings"
     assert f"{AUTH_SESSION_COOKIE_NAME}=" in allowed_callback.headers["set-cookie"]
+
+    async def verify_native_oauth():
+        async with client.app_state["sessionmaker"]() as db:
+            row = await db.scalar(select(AuthSession).where(AuthSession.session_token_hash ==
+                                  hash_token(client.cookies.get(AUTH_SESSION_COOKIE_NAME))))
+            device = await db.get(RegisteredDevice, row.device_id)
+            assert device.platform == "macos" and device.client_version == "2026.09.06.1"
+    client.portal.call(verify_native_oauth)
 
     client.cookies.clear()
     client.portal.call(_set_workspace_self_enrollment_policy, client, True)
@@ -707,6 +716,8 @@ def test_browser_telegram_provider_login_route_remains_stub(client) -> None:
     assert response.status_code == 501
     assert "Этот способ входа появится позже" in response.text
     assert "location" not in response.headers
+    assert '<a class="auth-provider" href="/login/yandex/start?next=%2Fmeetings">' in response.text
+    assert '<a class="auth-provider" href="/login/vk/start?next=%2Fmeetings">' in response.text
 
 
 def test_browser_yandex_disabled_hides_action_and_fails_closed(client) -> None:
@@ -721,6 +732,7 @@ def test_browser_yandex_disabled_hides_action_and_fails_closed(client) -> None:
     assert start.status_code == 403
     assert "Этот способ входа выключен политикой кабинета" in unescape(start.text)
     assert 'action="/login/email/start"' in start.text
+    assert '<a class="auth-provider" href="/login/vk/start?next=%2Fmeetings">' in start.text
 
 
 def test_browser_vk_disabled_hides_action_and_fails_closed(client) -> None:
@@ -735,6 +747,19 @@ def test_browser_vk_disabled_hides_action_and_fails_closed(client) -> None:
     assert start.status_code == 403
     assert "Этот способ входа выключен политикой кабинета" in unescape(start.text)
     assert 'action="/login/email/start"' in start.text
+    assert '<a class="auth-provider" href="/login/yandex/start?next=%2Fmeetings">' in start.text
+
+
+def test_browser_missing_provider_adapter_keeps_other_login_actions(monkeypatch, client) -> None:
+    def missing_adapter(_provider: str):
+        raise ValueError("synthetic missing adapter")
+
+    monkeypatch.setattr(auth_routes, "get_provider_adapter", missing_adapter)
+    response = client.get("/login/yandex/start?next=/meetings", follow_redirects=False)
+
+    assert response.status_code == 403
+    assert "Этот способ входа не настроен" in response.text
+    assert '<a class="auth-provider" href="/login/vk/start?next=%2Fmeetings">' in response.text
 
 
 def test_browser_email_login_ignores_public_workspace_id_and_uses_internal_bootstrap(
@@ -753,14 +778,86 @@ def test_browser_email_login_ignores_public_workspace_id_and_uses_internal_boots
 
 
 def test_browser_email_login_start_rejects_unknown_email_without_code(client) -> None:
+    async def auth_state_counts() -> tuple[int, int]:
+        async with client.app_state["sessionmaker"]() as db:
+            callbacks = list(await db.scalars(select(AuthCallbackState)))
+            sessions = list(await db.scalars(select(AuthSession)))
+            return len(callbacks), len(sessions)
+
+    before = client.portal.call(auth_state_counts)
     response = client.post(
         "/login/email/start",
         data={"email": "missing-owner@example.test", "next": "/meetings"},
     )
 
     assert response.status_code == 400
-    assert "Не удалось отправить код. Проверьте email и попробуйте снова." in response.text
+    assert "Не удалось начать вход по email." in response.text
+    assert "выберите другой способ входа или зарегистрируйтесь" in response.text
     assert "Код для локальной проверки" not in response.text
+    assert 'value="missing-owner@example.test"' in response.text
+    assert '<a class="auth-provider" href="/login/yandex/start?next=%2Fmeetings">' in response.text
+    assert '<a class="auth-provider" href="/login/vk/start?next=%2Fmeetings">' in response.text
+    assert client.portal.call(auth_state_counts) == before
+
+
+def test_browser_email_login_error_normalizes_email_and_preserves_embedded_providers(client) -> None:
+    response = client.post(
+        "/login/email/start",
+        data={"email": "  Missing-Desktop@Example.Test  ", "next": "/desktop/meetings"},
+    )
+
+    assert response.status_code == 400
+    assert 'value="missing-desktop@example.test"' in response.text
+    assert "/download" not in response.text
+    assert (
+        '<a class="auth-provider" href="/login/yandex/start?next=%2Fdesktop%2Fmeetings">'
+        in response.text
+    )
+    assert (
+        '<a class="auth-provider" href="/login/vk/start?next=%2Fdesktop%2Fmeetings">'
+        in response.text
+    )
+
+
+def test_browser_email_login_invalid_html_like_input_is_not_reflected(client) -> None:
+    unsafe_email = '<img src=x onerror=alert(1)>'
+    response = client.post(
+        "/login/email/start",
+        data={"email": unsafe_email, "next": "/meetings"},
+    )
+
+    assert response.status_code == 400
+    assert "Введите корректный email" in response.text
+    assert unsafe_email not in response.text
+    assert "&lt;img src=x" not in response.text
+    assert '<a class="auth-provider" href="/login/yandex/start?next=%2Fmeetings">' in response.text
+    assert '<a class="auth-provider" href="/login/vk/start?next=%2Fmeetings">' in response.text
+
+
+@pytest.mark.parametrize(
+    ("disabled_provider", "hidden_path", "visible_path"),
+    [
+        ("yandex", "/login/yandex/start?", "/login/vk/start?next=%2Fmeetings"),
+        ("vk", "/login/vk/start?", "/login/yandex/start?next=%2Fmeetings"),
+    ],
+)
+def test_browser_email_login_error_respects_partially_disabled_provider_policy(
+    client,
+    disabled_provider: str,
+    hidden_path: str,
+    visible_path: str,
+) -> None:
+    setter = _set_workspace_yandex_policy if disabled_provider == "yandex" else _set_workspace_vk_policy
+    client.portal.call(setter, client, False)
+
+    response = client.post(
+        "/login/email/start",
+        data={"email": "missing-policy-owner@example.test", "next": "/meetings"},
+    )
+
+    assert response.status_code == 400
+    assert f'href="{hidden_path}' not in response.text
+    assert f'href="{visible_path}' in response.text
 
 
 def test_browser_email_login_start_is_durably_rate_limited(client) -> None:
@@ -775,11 +872,77 @@ def test_browser_email_login_start_is_durably_rate_limited(client) -> None:
     assert blocked.status_code == 429
     assert blocked.headers["Retry-After"]
     assert "Слишком много попыток" in blocked.text
+    assert 'value="rate-limited-owner@example.test"' in blocked.text
+    assert '<a class="auth-provider" href="/login/yandex/start?next=%2Fmeetings">' in blocked.text
+    assert '<a class="auth-provider" href="/login/vk/start?next=%2Fmeetings">' in blocked.text
 
 
-def test_browser_email_login_flow_sets_cookie_binds_browser_device_and_opens_meetings(
-    client,
+def test_browser_email_signup_rate_limit_preserves_email_and_providers(monkeypatch, client) -> None:
+    async def limited(*_args, **_kwargs) -> int:
+        return 60
+
+    monkeypatch.setattr(auth_routes, "enforce_auth_rate_limits", limited)
+    response = client.post(
+        "/sign-up/email/start",
+        data={"email": "  New-Owner@Example.Test  ", "next": "/meetings"},
+    )
+
+    assert response.status_code == 429
+    assert response.headers["Retry-After"] == "60"
+    assert "Слишком много попыток" in response.text
+    assert 'value="new-owner@example.test"' in response.text
+    assert 'action="/sign-up/email/start"' in response.text
+    assert '<a class="auth-provider" href="/login/yandex/start?next=%2Fmeetings">' in response.text
+    assert '<a class="auth-provider" href="/login/vk/start?next=%2Fmeetings">' in response.text
+
+
+def test_browser_email_signup_invalid_input_keeps_form_and_providers(client) -> None:
+    unsafe_email = '<script>alert(1)</script>'
+    response = client.post(
+        "/sign-up/email/start",
+        data={"email": unsafe_email, "next": "/meetings"},
+    )
+
+    assert response.status_code == 400
+    assert "Введите корректный email" in response.text
+    assert unsafe_email not in response.text
+    assert "&lt;script&gt;" not in response.text
+    assert 'action="/sign-up/email/start"' in response.text
+    assert '<a class="auth-provider" href="/login/yandex/start?next=%2Fmeetings">' in response.text
+    assert '<a class="auth-provider" href="/login/vk/start?next=%2Fmeetings">' in response.text
+
+
+def test_browser_email_error_fails_closed_when_provider_snapshot_is_unavailable(
+    monkeypatch, client
 ) -> None:
+    async def unavailable(*_args, **_kwargs):
+        raise auth_routes.ProblemDetail(
+            status=503,
+            code="auth_dependency_unavailable",
+            title="provider policy unavailable",
+        )
+
+    monkeypatch.setattr(auth_routes, "_load_browser_login_providers", unavailable)
+    response = client.post(
+        "/login/email/start",
+        data={"email": "missing-policy@example.test", "next": "/meetings"},
+    )
+
+    assert response.status_code == 400
+    assert "Сервис входа временно недоступен" in response.text
+    assert 'href="/login/yandex/start?' not in response.text
+    assert 'href="/login/vk/start?' not in response.text
+    assert 'value="missing-policy@example.test"' in response.text
+
+
+@pytest.mark.parametrize(("agent", "platform", "version"), (
+    ("GRAFDesktop/2026.09.06.1", "macos", "2026.09.06.1"),
+    ("Mozilla/5.0 (Macintosh) Chrome/130 Safari/537", "web", "browser:chrome:macos"),
+))
+def test_browser_email_login_flow_sets_cookie_binds_browser_device_and_opens_meetings(
+    client, agent, platform, version,
+) -> None:
+    client.headers["User-Agent"] = agent
     seed_cabinet_meetings(client)
     client.portal.call(_link_owner_email_identity, client)
 
@@ -829,6 +992,15 @@ def test_browser_email_login_flow_sets_cookie_binds_browser_device_and_opens_mee
     assert meetings.status_code == 200
     assert "Проектный синк" not in meetings.text
     assert "missing_auth_context" not in meetings.text
+
+    async def verify_client():
+        async with client.app_state["sessionmaker"]() as db:
+            session = await db.scalar(select(AuthSession).where(
+                AuthSession.session_token_hash == hash_token(session_cookie)))
+            device = await db.get(RegisteredDevice, session.device_id)
+            assert device.platform == platform and device.client_version == version
+            assert device.device_public_id.startswith("login:")
+    client.portal.call(verify_client)
 
 
 @pytest.mark.parametrize("cookie_mode", ("missing", "wrong"))
@@ -2391,6 +2563,31 @@ def test_browser_email_login_production_delivery_failure_fails_closed(monkeypatc
     assert response.status_code == 503
     assert "Почтовая доставка временно недоступна" in response.text
     assert "Код для локальной проверки" not in response.text
+    assert f'value="{BROWSER_OWNER_EMAIL}"' in response.text
+    assert '<a class="auth-provider" href="/login/yandex/start?next=%2Fmeetings">' in response.text
+    assert '<a class="auth-provider" href="/login/vk/start?next=%2Fmeetings">' in response.text
+
+
+def test_browser_email_signup_production_delivery_failure_preserves_recovery(
+    monkeypatch, client
+) -> None:
+    client.app.state.settings.env = "production"
+
+    async def fail_send_email_login_code(**_kwargs):
+        raise email_delivery.EmailLoginDeliveryError("postal_request_failed")
+
+    monkeypatch.setattr(email_delivery, "send_email_login_code", fail_send_email_login_code)
+    response = client.post(
+        "/sign-up/email/start",
+        data={"email": "new-delivery@example.test", "next": "/meetings"},
+    )
+
+    assert response.status_code == 503
+    assert "Почтовая доставка временно недоступна" in response.text
+    assert 'value="new-delivery@example.test"' in response.text
+    assert 'action="/sign-up/email/start"' in response.text
+    assert '<a class="auth-provider" href="/login/yandex/start?next=%2Fmeetings">' in response.text
+    assert '<a class="auth-provider" href="/login/vk/start?next=%2Fmeetings">' in response.text
 
 
 def test_meetings_page_rejects_missing_web_session_without_legacy_headers(client) -> None:
@@ -2682,6 +2879,24 @@ def test_desktop_billing_handoff_sets_browser_session_once(client, tmp_path) -> 
     assert handoff.status_code == 303
     assert handoff.headers["location"] == "/billing"
     assert f"{AUTH_SESSION_COOKIE_NAME}=" in handoff.headers["set-cookie"]
+    browser_token = client.cookies.get(AUTH_SESSION_COOKIE_NAME)
+    assert browser_token != OWNER_REVIEW_TEST_TOKEN
+
+    async def verify_independent_sessions():
+        async with client.app_state["sessionmaker"]() as db:
+            source = await db.scalar(select(AuthSession).where(
+                AuthSession.session_token_hash == hash_token(OWNER_REVIEW_TEST_TOKEN)))
+            browser = await db.scalar(select(AuthSession).where(
+                AuthSession.session_token_hash == hash_token(browser_token)))
+            assert browser is not None and source is not None
+            assert browser.id != source.id and browser.device_id != source.device_id
+            assert browser.expires_at == source.expires_at
+            assert source.status == "active"
+            browser.status = "revoked"
+            await db.commit()
+    client.portal.call(verify_independent_sessions)
+    assert client.get("/api/v1/auth/me", headers={"X-Auth-Session": OWNER_REVIEW_TEST_TOKEN,
+                      "X-Workspace-Id": str(WORKSPACE_ID)}).status_code == 200
 
     async def read_state() -> tuple[str, str | None]:
         async with client.app_state["sessionmaker"]() as db:
@@ -2738,3 +2953,77 @@ def test_meetings_page_rejects_denied_owner_session_device_binding(client) -> No
 
     assert response.status_code == 403
     assert response.json()["code"] == "device_revoked"
+
+
+@pytest.mark.parametrize('invalid_source', ('revoked', 'expired', 'device_revoked', 'binding_blocked', 'membership_inactive'))
+def test_billing_handoff_rechecks_source_and_does_not_issue_session(client, tmp_path, invalid_source):
+    source = client.portal.call(_seed_owner_review_session, client)
+    key_file = tmp_path / 'handoff-encryption-key'
+    key_file.write_bytes(Fernet.generate_key())
+    client.app.state.settings.credential_encryption_key_file = key_file
+    start = client.post('/api/v1/cabinet/billing/handoff',
+                        headers={'X-Auth-Session': OWNER_REVIEW_TEST_TOKEN})
+    assert start.status_code == 200
+    state = start.json()['state']
+    async def invalidate():
+        async with client.app_state['sessionmaker']() as db:
+            session = await db.get(AuthSession, source.id)
+            if invalid_source == 'revoked':
+                session.status = 'revoked'
+            elif invalid_source == 'expired':
+                session.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+            elif invalid_source == 'device_revoked':
+                device = await db.get(RegisteredDevice, session.device_id)
+                device.status = 'revoked'
+            elif invalid_source == 'binding_blocked':
+                binding = await db.scalar(select(AuthSessionDeviceBinding).where(
+                    AuthSessionDeviceBinding.auth_session_id == source.id))
+                binding.device_state = 'blocked'
+            else:
+                membership = await db.scalar(select(WorkspaceMembership).where(
+                    WorkspaceMembership.workspace_id == WORKSPACE_ID,
+                    WorkspaceMembership.user_id == USER_ID))
+                membership.status = 'removed'
+            await db.commit()
+    client.portal.call(invalidate)
+    result = client.get(f'/billing/handoff?state={state}', follow_redirects=False)
+    assert result.status_code == 303
+    assert result.headers['location'].startswith('/login?')
+    assert 'set-cookie' not in result.headers
+    async def verify():
+        async with client.app_state['sessionmaker']() as db:
+            sessions = list(await db.scalars(select(AuthSession)))
+            assert len(sessions) == 1
+            callback = await db.scalar(select(AuthCallbackState).where(AuthCallbackState.state_nonce == state))
+            assert callback.result == 'failed'
+    client.portal.call(verify)
+
+
+@pytest.mark.parametrize('logout_path', ('/logout', '/desktop/meetings'))
+def test_logout_preserves_last_activity_for_session_device_and_binding(client, logout_path):
+    session = client.portal.call(_seed_owner_review_session, client)
+    last_activity = datetime.now(UTC) - timedelta(minutes=20)
+    async def age_activity():
+        async with client.app_state['sessionmaker']() as db:
+            row = await db.get(AuthSession, session.id)
+            device = await db.get(RegisteredDevice, row.device_id)
+            binding = await db.scalar(select(AuthSessionDeviceBinding).where(
+                AuthSessionDeviceBinding.auth_session_id == session.id))
+            row.last_seen_at = device.last_seen_at = binding.last_heartbeat_at = last_activity
+            await db.commit()
+    client.portal.call(age_activity)
+    client.cookies.set(AUTH_SESSION_COOKIE_NAME, OWNER_REVIEW_TEST_TOKEN)
+    response = client.post(logout_path, data={
+        'csrf_token': issue_csrf_token(session_id=session.id, secret=str(client.app.state.web_csrf_secret)),
+        'next': '/login',
+    }, follow_redirects=False)
+    assert response.status_code == 303
+    async def verify():
+        async with client.app_state['sessionmaker']() as db:
+            row = await db.get(AuthSession, session.id)
+            device = await db.get(RegisteredDevice, row.device_id)
+            binding = await db.scalar(select(AuthSessionDeviceBinding).where(
+                AuthSessionDeviceBinding.auth_session_id == session.id))
+            assert row.status == 'revoked' and binding.device_state == 'blocked'
+            assert row.last_seen_at == device.last_seen_at == binding.last_heartbeat_at == last_activity
+    client.portal.call(verify)

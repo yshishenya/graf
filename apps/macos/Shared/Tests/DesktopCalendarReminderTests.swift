@@ -285,7 +285,7 @@ final class DesktopCalendarReminderTests: XCTestCase {
         )
     }
 
-    func testPrivateAndUnsafeTitlesUseGenericCopy() throws {
+    func testExplicitHiddenStateRespectedAndOwnerTitlePreserved() throws {
         let privateEvent = makeEvent(
             startsAt: date(120),
             endsAt: date(300),
@@ -310,12 +310,12 @@ final class DesktopCalendarReminderTests: XCTestCase {
         )
 
         XCTAssertEqual(privatePrompt.title, SystemAudioStatusLabels.calendarGenericMeetingTitle)
-        XCTAssertEqual(unsafePrompt.title, SystemAudioStatusLabels.calendarGenericMeetingTitle)
-        XCTAssertFalse(unsafePrompt.accessibilityLabel.contains("alice@example.test"))
-        XCTAssertFalse(unsafePrompt.accessibilityLabel.localizedCaseInsensitiveContains("passcode"))
+        XCTAssertEqual(unsafePrompt.title, unsafeEvent.title)
+        XCTAssertTrue(unsafePrompt.accessibilityLabel.contains("alice@example.test"))
+        XCTAssertTrue(unsafePrompt.accessibilityLabel.localizedCaseInsensitiveContains("passcode"))
     }
 
-    func testBareMeetingLinksUseGenericPromptTitles() throws {
+    func testProviderAuthorizedLinksRemainInOwnerPromptTitles() throws {
         let googleMeetEvent = makeEvent(
             eventId: "google-meet",
             startsAt: date(120),
@@ -338,12 +338,19 @@ final class DesktopCalendarReminderTests: XCTestCase {
         let googlePrompt = DesktopCalendarReminderService.joinPrompt(for: googleMeetEvent)
         let overlapPrompt = DesktopCalendarReminderService.overlapJoinPrompt(for: [googleMeetEvent, teamsEvent])
 
-        XCTAssertEqual(googlePrompt.title, SystemAudioStatusLabels.calendarGenericMeetingTitle)
-        XCTAssertFalse(googlePrompt.accessibilityLabel.contains("meet.google.com"))
+        XCTAssertEqual(googlePrompt.title, googleMeetEvent.title)
+        XCTAssertTrue(googlePrompt.accessibilityLabel.contains("meet.google.com"))
         XCTAssertEqual(overlapPrompt.choices.map(\.title), [
-            SystemAudioStatusLabels.calendarGenericMeetingTitle,
-            SystemAudioStatusLabels.calendarGenericMeetingTitle
+            googleMeetEvent.title!,
+            teamsEvent.title!
         ])
+    }
+
+    func testMissingOwnerTitleAndVerbatimWhitespace() {
+        let missing = makeEvent(startsAt: date(120), endsAt: date(300), title: nil, titleState: .available)
+        XCTAssertEqual(missing.safeDisplayTitle(), "Без названия")
+        let verbatim = makeEvent(startsAt: date(120), endsAt: date(300), title: "  alice@example.test https://example.test/?password=synthetic  ")
+        XCTAssertEqual(verbatim.safeDisplayTitle(), verbatim.title)
     }
 
     func testOverlappingCurrentEventsFallBackToGenericRecordPrompt() throws {

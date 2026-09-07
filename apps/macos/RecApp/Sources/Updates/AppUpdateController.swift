@@ -34,8 +34,7 @@ public struct AppUpdatePresentation: Equatable, Sendable {
     }
 
     public var showsSidebarBadge: Bool {
-        guard availableVersion != nil else { return false }
-        return phase == .available || phase == .deferredForCapture
+        availableVersion != nil && phase != .unavailable
     }
 
     public static let idle = AppUpdatePresentation(
@@ -78,7 +77,8 @@ public struct ProtectedUpdateWork: Equatable, Sendable {
     public static let idle = ProtectedUpdateWork()
 }
 
-public struct AppUpdateConfiguration: Equatable, Sendable {
+public struct AppUpdateConfiguration: Codable, Equatable, Sendable {
+    public static let checkInterval: TimeInterval = 14_400
     public let feedURL: URL
     public let publicEDKey: String
     public let installedVersion: String
@@ -107,7 +107,7 @@ public struct AppUpdateConfiguration: Equatable, Sendable {
             Self.boolValue(infoDictionary["SUVerifyUpdateBeforeExtraction"]) == true,
             Self.integerValue(infoDictionary["SUSignedFeedFailureExpirationInterval"]) == 0,
             Self.boolValue(infoDictionary["SUEnableAutomaticChecks"]) == true,
-            Self.integerValue(infoDictionary["SUScheduledCheckInterval"]) == 86_400,
+            Self.integerValue(infoDictionary["SUScheduledCheckInterval"]) == Int(Self.checkInterval),
             Self.boolValue(infoDictionary["SUAutomaticallyUpdate"]) == false,
             Self.boolValue(infoDictionary["SUAllowsAutomaticUpdates"]) == false,
             Self.boolValue(infoDictionary["SUEnableSystemProfiling"]) == false,
@@ -167,6 +167,48 @@ public struct AppUpdateConfiguration: Equatable, Sendable {
     }
 }
 
+/// Display-only metadata. Sparkle must validate the current offer again before installation.
+public struct AppUpdateReminder: Codable, Equatable, Sendable {
+    public let buildVersion: String
+    public let displayVersion: String
+    public let configuration: AppUpdateConfiguration
+    public let systemVersion: String
+
+    public init?(
+        buildVersion: String,
+        displayVersion: String,
+        configuration: AppUpdateConfiguration,
+        systemVersion: String = ProcessInfo.processInfo.operatingSystemVersionString
+    ) {
+        guard AppUpdateConfiguration.isValidCalVer(buildVersion),
+              AppUpdateConfiguration.isValidCalVer(displayVersion),
+              SUStandardVersionComparator.default.compareVersion(
+                buildVersion, toVersion: configuration.installedVersion
+              ) == .orderedDescending else { return nil }
+        self.buildVersion = buildVersion
+        self.displayVersion = displayVersion
+        self.configuration = configuration
+        self.systemVersion = systemVersion
+    }
+
+    public static func restore(
+        _ data: Data?,
+        configuration: AppUpdateConfiguration,
+        systemVersion: String = ProcessInfo.processInfo.operatingSystemVersionString
+    ) -> AppUpdateReminder? {
+        guard let data, data.count <= 4096,
+              let saved = try? JSONDecoder().decode(Self.self, from: data),
+              saved.configuration == configuration, saved.systemVersion == systemVersion
+        else { return nil }
+        return Self(buildVersion: saved.buildVersion, displayVersion: saved.displayVersion,
+                    configuration: configuration, systemVersion: systemVersion)
+    }
+
+    public func isWithdrawn(from versions: [String], signatureVerified: Bool) -> Bool {
+        signatureVerified && !versions.contains(buildVersion)
+    }
+}
+
 public enum AppUpdateUserChoice: Equatable, Sendable {
     case install
     case dismiss
@@ -178,11 +220,7 @@ public enum AppUpdatePolicy {
         from current: AppUpdatePresentation,
         userInitiated: Bool
     ) -> AppUpdatePresentation {
-        if current.phase == .available ||
-            current.phase == .deferredForCapture ||
-            current.phase == .downloading ||
-            current.phase == .readyToInstall ||
-            current.phase == .installing {
+        if current.availableVersion != nil {
             return AppUpdatePresentation(
                 phase: current.phase,
                 availableVersion: current.availableVersion,
@@ -215,9 +253,12 @@ public enum AppUpdatePolicy {
 
     public static func noUpdate(
         userInitiated: Bool,
-        incompatible: Bool
+        incompatible: Bool,
+        from current: AppUpdatePresentation = .idle
     ) -> AppUpdatePresentation {
-        AppUpdatePresentation(
+        // A background no-update result also excludes versions the user skipped.
+        if current.availableVersion != nil && !incompatible { return current }
+        return AppUpdatePresentation(
             phase: .current,
             availableVersion: nil,
             isUserInitiated: userInitiated,
@@ -229,11 +270,12 @@ public enum AppUpdatePolicy {
 
     public static func failure(
         userInitiated: Bool,
+        from current: AppUpdatePresentation = .idle,
         message: String = "Не удалось проверить обновления. Повторите позже."
     ) -> AppUpdatePresentation {
         AppUpdatePresentation(
             phase: .failed,
-            availableVersion: nil,
+            availableVersion: current.availableVersion,
             isUserInitiated: userInitiated,
             message: message
         )
@@ -268,9 +310,7 @@ public enum AppUpdatePolicy {
         protectedWork: ProtectedUpdateWork
     ) -> AppUpdatePresentation {
         switch choice {
-        case .skip:
-            return .idle
-        case .dismiss:
+        case .skip, .dismiss:
             return current
         case .install:
             guard let version = current.availableVersion else { return current }
@@ -327,12 +367,13 @@ public final class AppUpdateController: NSObject, ObservableObject {
 
     public private(set) var protectedWork: ProtectedUpdateWork = .idle
 
-    public var isManualCheckActionEnabled: Bool {
-        guard configuration != nil else { return true }
-        return started && updaterController?.updater.canCheckForUpdates == true
-    }
+    @Published public private(set) var isManualCheckActionEnabled = false
 
     private let configuration: AppUpdateConfiguration?
+    private let defaults: UserDefaults
+    private var reminder: AppUpdateReminder?
+    private var checkAvailabilityObservation: NSKeyValueObservation?
+    public static let reminderDefaultsKey = "graf.appUpdate.reminder"
     private let eventLogger: EventLogger?
     private let relaunchGate = AppUpdateRelaunchGate()
     private var updaterController: SPUStandardUpdaterController?
@@ -341,12 +382,22 @@ public final class AppUpdateController: NSObject, ObservableObject {
 
     public init(
         infoDictionary: [String: Any] = Bundle.main.infoDictionary ?? [:],
+        defaults: UserDefaults = .standard,
         eventLogger: EventLogger? = nil
     ) {
         let configuration = AppUpdateConfiguration(infoDictionary: infoDictionary)
         self.configuration = configuration
+        self.defaults = defaults
         self.eventLogger = eventLogger
-        presentation = configuration == nil ? .unavailable : .idle
+        reminder = configuration.flatMap {
+            AppUpdateReminder.restore(defaults.data(forKey: Self.reminderDefaultsKey), configuration: $0)
+        }
+        presentation = reminder.map {
+            AppUpdatePresentation(phase: .available, availableVersion: $0.displayVersion,
+                                  isUserInitiated: false,
+                                  message: "Проверьте и установите обновление. Перед установкой GRAF проверит его доступность.")
+        } ?? (configuration == nil ? .unavailable : .idle)
+        if reminder == nil { defaults.removeObject(forKey: Self.reminderDefaultsKey) }
         super.init()
 
         if configuration != nil {
@@ -355,14 +406,32 @@ public final class AppUpdateController: NSObject, ObservableObject {
                 updaterDelegate: self,
                 userDriverDelegate: self
             )
+            checkAvailabilityObservation = updaterController?.updater.observe(
+                \.canCheckForUpdates, options: [.initial, .new]
+            ) { [weak self] _, change in
+                let enabled = change.newValue == true
+                Task { @MainActor [weak self] in self?.isManualCheckActionEnabled = enabled }
+            }
+        } else {
+            isManualCheckActionEnabled = true
         }
     }
 
     public func start() {
         guard !started, let updaterController else { return }
         started = true
+        let updater = updaterController.updater
+        if !defaults.bool(forKey: "graf.appUpdate.intervalMigrated") {
+            if updater.updateCheckInterval == 86_400 {
+                updater.updateCheckInterval = AppUpdateConfiguration.checkInterval
+            }
+            defaults.set(true, forKey: "graf.appUpdate.intervalMigrated")
+        }
         updaterController.startUpdater()
-        updatePresentation(.idle, event: "app_update.started")
+        log(event: "app_update.started")
+        if updater.automaticallyChecksForUpdates && updater.canCheckForUpdates {
+            updater.checkForUpdatesInBackground()
+        }
     }
 
     @discardableResult
@@ -371,6 +440,7 @@ public final class AppUpdateController: NSObject, ObservableObject {
             updatePresentation(.unavailable, event: "app_update.manual_unavailable")
             return false
         }
+        guard updaterController.updater.canCheckForUpdates else { return true }
 
         updatePresentation(
             AppUpdatePolicy.beginCheck(from: presentation, userInitiated: true),
@@ -410,6 +480,11 @@ public final class AppUpdateController: NSObject, ObservableObject {
         log(event: event, error: error)
     }
 
+    private func clearReminder() {
+        reminder = nil
+        defaults.removeObject(forKey: Self.reminderDefaultsKey)
+    }
+
     private func log(event: String, error: NSError? = nil) {
         var fields = [
             "installedVersion=\(configuration?.installedVersion ?? "unknown")",
@@ -434,7 +509,25 @@ public final class AppUpdateController: NSObject, ObservableObject {
 }
 
 extension AppUpdateController: SPUUpdaterDelegate {
+    public func updater(_ updater: SPUUpdater, didFinishLoading appcast: SUAppcast) {
+        // The signed, complete feed precedes Sparkle's skip/phased-rollout filtering.
+        // Only reconcile an existing offer; never select new offers here.
+        guard let reminder, reminder.isWithdrawn(
+            from: appcast.items.map(\.versionString),
+            signatureVerified: appcast.signingValidationStatus == .succeeded
+        )
+        else { return }
+        clearReminder()
+        updatePresentation(.idle, event: "app_update.offer_withdrawn")
+    }
+
     public func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
+        guard let configuration,
+              let found = AppUpdateReminder(buildVersion: item.versionString,
+                                            displayVersion: item.displayVersionString,
+                                            configuration: configuration) else { return }
+        reminder = found
+        defaults.set(try? JSONEncoder().encode(found), forKey: Self.reminderDefaultsKey)
         let next = AppUpdatePolicy.available(
             version: item.displayVersionString,
             userInitiated: presentation.isUserInitiated,
@@ -454,8 +547,13 @@ extension AppUpdateController: SPUUpdaterDelegate {
         let incompatible = reason.map { incompatibleReasons.contains($0) } ?? false
         let userInitiated = (nsError.userInfo[SPUNoUpdateFoundUserInitiatedKey] as? NSNumber)?.boolValue
             ?? presentation.isUserInitiated
+        let latest = nsError.userInfo[SPULatestAppcastItemFoundKey] as? SUAppcastItem
+        let knownIncompatible = incompatible && latest?.versionString == reminder?.buildVersion
+        if knownIncompatible { clearReminder() }
         updatePresentation(
-            AppUpdatePolicy.noUpdate(userInitiated: userInitiated, incompatible: incompatible),
+            AppUpdatePolicy.noUpdate(userInitiated: userInitiated,
+                                     incompatible: reminder == nil && incompatible,
+                                     from: presentation),
             event: incompatible ? "app_update.incompatible" : "app_update.current"
         )
     }
@@ -519,9 +617,18 @@ extension AppUpdateController: SPUUpdaterDelegate {
 
     public func updater(_ updater: SPUUpdater, failedToDownloadUpdate item: SUAppcastItem, error: Error) {
         updatePresentation(
-            AppUpdatePolicy.failure(userInitiated: presentation.isUserInitiated),
+            AppUpdatePolicy.failure(userInitiated: presentation.isUserInitiated, from: presentation,
+                                    message: "Не удалось загрузить обновление. Повторите попытку."),
             event: "app_update.download_failed",
             error: error as NSError
+        )
+    }
+
+    public func userDidCancelDownload(_ updater: SPUUpdater) {
+        guard let version = presentation.availableVersion else { return }
+        updatePresentation(
+            AppUpdatePolicy.available(version: version, userInitiated: false, protectedWork: protectedWork),
+            event: "app_update.download_cancelled"
         )
     }
 
@@ -564,7 +671,7 @@ extension AppUpdateController: SPUUpdaterDelegate {
             return
         }
         updatePresentation(
-            AppUpdatePolicy.failure(userInitiated: presentation.isUserInitiated),
+            AppUpdatePolicy.failure(userInitiated: presentation.isUserInitiated, from: presentation),
             event: "app_update.failed",
             error: nsError
         )

@@ -17,6 +17,7 @@ from twobrain_rec_server.cabinet.web_routes import (
     spaces,
     speakers,
     static,
+    titles,
 )
 from twobrain_rec_server.product_analytics.events import build_activation_event
 from twobrain_rec_server.product_analytics.milestones import first_value_decision
@@ -34,6 +35,7 @@ router.include_router(account_merge.router)
 router.include_router(referrals.router)
 router.include_router(spaces.router)
 router.include_router(speakers.router)
+router.include_router(titles.router)
 router.include_router(deletion.router)
 router.include_router(desktop.router)
 router.include_router(fair_use.router)

@@ -777,3 +777,31 @@ def test_expired_or_revoked_offer_never_creates_membership(client) -> None:
     assert expired_status == "expired"
     assert revoked_status == "revoked"
     assert membership_count == 0
+
+
+def test_workspace_continuation_preserves_client_and_expiry(client):
+    from twobrain_rec_server.auth.sessions import create_login_device
+    from twobrain_rec_server.db.models import AuthSessionDeviceBinding, RegisteredDevice
+
+    async def exercise():
+        async with client.app_state['sessionmaker']() as db:
+            device = await create_login_device(db, user_id=USER_ID, workspace_id=WORKSPACE_ID,
+                                              user_agent='GRAFDesktop/2026.09.06.1')
+            deadline = datetime.now(UTC) + timedelta(minutes=20)
+            issued = await issue_auth_session(db, user_id=USER_ID, workspace_id=WORKSPACE_ID,
+                device_id=device.id, provider='continuation-test', expires_at=deadline)
+            db.add(AuthSessionDeviceBinding(auth_session_id=issued.id,
+                registered_device_id=device.id, device_state='trusted'))
+            await db.commit()
+            activated = await activate_workspace_session(db, organization_id=ORG_ID,
+                current_workspace_id=WORKSPACE_ID, internal_workspace_id=AUTH_BOOTSTRAP_WORKSPACE_ID,
+                user_id=USER_ID, current_session_id=issued.id,
+                target_workspace_id=PERSONAL_WORKSPACE_ID)
+            replacement = await db.get(AuthSession, activated.issued_session.id)
+            replacement_device = await db.get(RegisteredDevice, replacement.device_id)
+            assert replacement_device.id != device.id
+            assert replacement_device.platform == 'macos'
+            assert replacement_device.client_version == '2026.09.06.1'
+            assert replacement.expires_at == deadline
+            await db.commit()
+    client.portal.call(exercise)

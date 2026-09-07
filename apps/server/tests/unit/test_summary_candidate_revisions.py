@@ -10,7 +10,6 @@ import pytest
 from sqlalchemy import select
 
 from tests.fixtures.cabinet import create_outcome_ready_meeting
-from tests.fixtures.outcome_prompts import outcome_config, pin_model_settings
 from twobrain_rec_server.cabinet.egress import current_outcome_set
 from twobrain_rec_server.cabinet.speakers import save_speaker_name
 from twobrain_rec_server.config import Settings
@@ -45,7 +44,7 @@ from twobrain_rec_server.outcomes.ai_service import (
 )
 from twobrain_rec_server.outcomes.generator import canonical_transcript
 from twobrain_rec_server.outcomes.models import OutcomeTranscriptSegment
-from twobrain_rec_server.outcomes.prompts import prompt_snapshot_hash
+from twobrain_rec_server.outcomes.prompts import outcome_config, prompt_snapshot_hash
 from twobrain_rec_server.processing.store import latest_processing_result as latest_store_result
 from twobrain_rec_server.workflows.outcome_generation_workflow import (
     outcome_generation_retry_policy,
@@ -1666,7 +1665,6 @@ def test_new_source_after_reservation_is_blocked_before_litellm_egress(
             ).hexdigest()
             attempt.temporal_transcript_hash = transcript_hash
             attempt.status = "generating"
-            pin_model_settings(attempt)
             await db.commit()
             source_result_id = source.id
             candidate_id = attempt.candidate_id

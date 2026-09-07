@@ -13,7 +13,6 @@ from sqlalchemy import select
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fakes.auth_contexts import DEVICE_ID, USER_ID, WORKSPACE_ID
 from tests.fixtures.cabinet import create_outcome_ready_meeting
-from tests.fixtures.outcome_prompts import outcome_config
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.cabinet.access import AccessDecision
 from twobrain_rec_server.cabinet.egress import create_content_export, create_export_package
@@ -33,6 +32,7 @@ from twobrain_rec_server.outcomes.ai_service import (
 )
 from twobrain_rec_server.outcomes.prompts import (
     canonical_json,
+    outcome_config,
     prompt_snapshot_hash,
 )
 from twobrain_rec_server.workflows.temporal_client import playback_normalization_workflow_id

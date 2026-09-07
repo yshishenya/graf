@@ -82,14 +82,12 @@ Use this file with `.specify/memory/constitution.md`,
   a bare event digest or label lookup is non-authorizing. The event remains
   outside the already-hashed root/activation body to avoid a digest cycle.
   Mismatch fails closed on last-known-good root + activation + event binding. A
-  mixed partially promoted bundle cannot execute. Each child pins its selected
-  model and request settings in Langfuse; GRAF has no single-model restriction
-  or separate model allowlist. No application/environment/workflow model defaults
-  may override or fill that config. Reported provider/model provenance is
-  nullable and must agree with the retained raw response, not be inferred from
-  the requested alias. Feature 239 retires the special GRAF route descriptor,
-  callback and request/response headers; retained historical records are not
-  rewritten. LiteLLM owns mapping to the approved upstream
+  mixed partially promoted bundle cannot execute. The root also pins a secret-free immutable LiteLLM
+  route-binding descriptor: exact alias, binding version/hash and allowlisted
+  actual provider/model pairs. The gateway MUST compare the expected hash before
+  provider egress and return that hash plus actual provider/model; absence,
+  mismatch or an unallowlisted pair fails closed. Mapping changes require a new
+  evaluated/promoted root. LiteLLM owns mapping to the approved upstream
   provider and upstream secrets; workflow code owns neither.
 - A private Langfuse Cloud EU project with public trace publishing disabled is
   explicitly approved for internal-MVP AI observability and prompt control; each

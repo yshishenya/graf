@@ -211,6 +211,7 @@ def test_calendar_event_snapshot_upsert_and_upcoming_response(client) -> None:
                 source=source,
                 calendar=external_calendar,
                 event=normalize_calendar_event(calendar_event_fixture("caldav_yandex")),
+                credential_encryption_key=client.app.state.credential_encryption_key,
             )
             starts_at = datetime.now(UTC) + timedelta(minutes=5)
             await upsert_event_snapshot(
@@ -227,6 +228,7 @@ def test_calendar_event_snapshot_upsert_and_upcoming_response(client) -> None:
                         ends_at=starts_at + timedelta(hours=1),
                     )
                 ),
+                credential_encryption_key=client.app.state.credential_encryption_key,
             )
             await session.commit()
 
@@ -248,8 +250,8 @@ def test_calendar_event_snapshot_upsert_and_upcoming_response(client) -> None:
     assert body["events"][0]["attendee_count"] == 2
     assert body["events"][0]["roster_state"] == "available"
     assert body["events"][0]["recipient_candidate_count"] == 2
-    assert "organizer@example.test" not in upcoming.text
-    assert "attendee@example.test" not in upcoming.text
+    assert "organizer@example.test" in upcoming.text
+    assert "attendee@example.test" in upcoming.text
 
     desktop = client.get(
         "/api/v1/desktop/calendar/upcoming?before_minutes=15&after_minutes=60",
@@ -383,6 +385,7 @@ def test_desktop_calendar_upcoming_respects_selection_and_prompt_preferences(cli
                             **private_overrides,
                         )
                     ),
+                    credential_encryption_key=client.app.state.credential_encryption_key,
                 )
             session.add(
                 CalendarSettingsPreference(
@@ -616,6 +619,7 @@ END:VCALENDAR
                     provider_family="caldav_yandex",
                     provider_calendar_id="primary",
                 ),
+                credential_encryption_key=client.app.state.credential_encryption_key,
             )
             await upsert_event_snapshot(
                 session,
@@ -637,6 +641,7 @@ END:VCALENDAR
                     provider_family="caldav_yandex",
                     provider_calendar_id="primary",
                 ),
+                credential_encryption_key=client.app.state.credential_encryption_key,
             )
             snapshots = list(
                 await session.scalars(
@@ -780,6 +785,8 @@ def test_calendar_sync_result_updates_token_and_marks_missing_future_events_dele
     async def sync_twice() -> tuple[str, datetime | None, str | None]:
         async with sessionmaker() as session:
             source = await session.get(CalendarSource, source_id)
+            source.sync_horizon_start = datetime(2026, 6, 24, tzinfo=UTC)
+            source.sync_horizon_end = datetime(2027, 7, 1, tzinfo=UTC)
             calendar = await _selected_calendar(session, source.id)
             tenant_scope = client.app_state.get("tenant_scope") or _tenant_scope()
             first = normalize_calendar_event(
@@ -806,6 +813,7 @@ def test_calendar_sync_result_updates_token_and_marks_missing_future_events_dele
                 events=[first, stale],
                 sync_token="token-1",
                 synced_at=datetime(2026, 7, 1, 8, 0, tzinfo=UTC),
+                credential_encryption_key=client.app.state.credential_encryption_key,
             )
             updated = normalize_calendar_event(
                 calendar_event_fixture(
@@ -824,6 +832,7 @@ def test_calendar_sync_result_updates_token_and_marks_missing_future_events_dele
                 events=[updated],
                 sync_token="token-2",
                 synced_at=datetime(2026, 7, 1, 8, 5, tzinfo=UTC),
+                credential_encryption_key=client.app.state.credential_encryption_key,
             )
             missing = await session.scalar(
                 select(CalendarEventSnapshot).where(
@@ -1018,6 +1027,7 @@ def _seed_stable_matched_calendar_context(client, suffix: str) -> dict[str, UUID
                 source=source,
                 calendar=calendar,
                 event=event,
+                credential_encryption_key=client.app.state.credential_encryption_key,
             )
             await session.commit()
             return snapshot.id
@@ -1127,6 +1137,7 @@ def _mutate_matched_provider_event(
                 events=events,
                 sync_token=f"stable-history-{provider_mutation}",
                 synced_at=starts_at - timedelta(hours=1),
+                credential_encryption_key=client.app.state.credential_encryption_key,
             )
             await session.commit()
             updated = await session.get(CalendarEventSnapshot, event_id)
@@ -1237,6 +1248,7 @@ def _seed_calendar_event_at(client, *, starts_at: datetime, ends_at: datetime) -
                         ends_at=ends_at,
                     )
                 ),
+                credential_encryption_key=client.app.state.credential_encryption_key,
             )
             await session.commit()
             return str(snapshot.id)
