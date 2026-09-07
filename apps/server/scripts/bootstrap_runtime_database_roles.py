@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 
 import asyncpg
+
 from twobrain_rec_server.db.rls_validation import SYSTEM_CONTENT_COLUMNS
 
 OWNER_ROLE = "twobrain_rec"

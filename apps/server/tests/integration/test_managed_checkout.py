@@ -8,6 +8,14 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
+
+from tests.fakes.auth_contexts import USER_ID
+from tests.integration.test_account_lifecycle import (
+    _bind_web_session,
+    _issue_web_session,
+    _seed_personal_workspace,
+)
+from tests.integration.test_system_admin_billing import _capabilities
 from twobrain_rec_server.cabinet.web_routes import billing
 from twobrain_rec_server.db.models import ExternalIdentity, UserIdentity
 from twobrain_rec_server.db.models.billing import (
@@ -18,14 +26,6 @@ from twobrain_rec_server.db.models.billing import (
     BillingPlanVersion,
     WorkspaceSubscription,
 )
-
-from tests.fakes.auth_contexts import USER_ID
-from tests.integration.test_account_lifecycle import (
-    _bind_web_session,
-    _issue_web_session,
-    _seed_personal_workspace,
-)
-from tests.integration.test_system_admin_billing import _capabilities
 
 pytestmark = pytest.mark.strict_rls
 
@@ -221,10 +221,10 @@ def test_checkout_rejects_changed_or_unapproved_terms_without_invoice(checkout, 
 @pytest.mark.parametrize("target", ["plan", "version"])
 def test_catalog_close_serializes_with_admission_without_catalog_write_grant(checkout, target):
     from sqlalchemy.exc import DBAPIError
-    from twobrain_rec_server.billing.catalog import lock_checkout_catalog, read_public_catalog
-    from twobrain_rec_server.db.tenant_context import TenantDatabaseContext, apply_tenant_context
 
     from tests.fakes.auth_contexts import ORG_ID
+    from twobrain_rec_server.billing.catalog import lock_checkout_catalog, read_public_catalog
+    from twobrain_rec_server.db.tenant_context import TenantDatabaseContext, apply_tenant_context
 
     client, _, _, workspace, plan_id, versions = checkout
 
