@@ -1,6 +1,6 @@
 # Реализация: первый участок системного доступа
 
-Дата: 2026-09-06. Ветка: `codex/254-system-admin-console`. Уровень риска: `high-risk-product`. Legacy impact: `untouched`.
+Дата: 2026-09-06. Ветка: `codex/254-system-admin-console`. Уровень риска: `high-risk-product`. Legacy impact: `retain-with-exception` (см. `spec.md`, срок пересмотра 2027-03-31).
 
 ## Коммит и готовность к началу
 
@@ -451,3 +451,11 @@ Chromium/Playwright на отдельном synthetic HTTP8102/PostgreSQL55512 �
 Проверка миграционной цепочки после добавления эксплуатационных проекций: `scripts/run_local_postgres_tests.sh --focused tests/integration/test_postgres_migrations.py -x -q` — **16 passed**, без skipped, 54.75 s, runner exit 0; проверены чистое развёртывание, обновление существующих баз, единственная голова `0105_system_admin_observability_console`, безопасное понижение и ограничения длины revision IDs. Одноразовый PostgreSQL контейнер удалён runner. Остались два стандартных предупреждения pytest/httpx, ошибок тестов нет.
 
 После исправления typed metadata в миграциях `0099`, `0101`, `0102`, `0103`, `0104` и сортировки импортов повторён полный связанный набор системной консоли: **136 passed**, без skipped, 100.84 s, runner exit 0; контейнер удалён. `compileall`, `node --check`, `ruff`, `git diff --check`, governance и artifact validator проходят.
+
+## Финальный быстрый контур перед PR — 2026-09-07
+
+После исправления порядка импортов в тестах (коммит `474cfabaf806174930b72483935af6b4c7905755`) повторён `infra/scripts/ci-local.sh --fast`. Контур завершился `ci_local_result=pass`, `run_id=ci-fast-474cfabaf806-725b52695204`, exit 0.
+
+Зафиксированные этапы: development process preflight, Spec Kit governance, **224 governance tests**, portable harness self-test, macOS legacy audio guard, Swift build, **830 macOS tests (1 штатный skip)**, macOS contract validation, **1519 серверных unit-тестов**, **308 изменённых серверных тестов**, server lint, Python compile, shell syntax, **66 CI contracts**, production compose config, deployment evidence scan, diff whitespace и active CI documentation consistency. Runner удалил изолированный PostgreSQL-контейнер; два стандартных предупреждения pytest/httpx сохранены в выводе.
+
+Этот результат подтверждает локальный быстрый контур на точном SHA ветки. Он не заменяет GitHub `governance-fast`, полный `ci-local --full`, браузерный полный набор, нагрузочную проверку, deployment review или release/deploy gates. Reviewer-owned checklist и задачи `tasks.md` исполнитель не закрывает автоматически.
