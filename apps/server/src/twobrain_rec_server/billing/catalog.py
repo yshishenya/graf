@@ -6,7 +6,14 @@ from datetime import UTC, datetime
 from typing import Literal
 from uuid import UUID
 
-from twobrain_rec_server.db.models.billing import BillingPlanPrice, BillingPlanVersion
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from twobrain_rec_server.db.models.billing import (
+    BillingPlanPrice,
+    BillingPlanVersion,
+    WorkspaceSubscription,
+)
 
 PlanCode = str
 CatalogCycle = Literal["none", "month", "year"]
@@ -298,3 +305,43 @@ def validate_display_terms(value: object) -> dict[str, object]:
     if type(value["trial_days"]) is not int or not 0 <= value["trial_days"] <= 365:
         raise CatalogNotApproved("invalid trial duration")
     return dict(value)
+
+
+async def read_pinned_subscription_catalog(
+    db: AsyncSession, *, subscription: WorkspaceSubscription, now: datetime,
+) -> PlanCatalogSnapshot | None:
+    """Read verified subscription terms without backfill or consulting current sale prices."""
+    if subscription.cycle not in {"month", "year"}:
+        return None
+    if subscription.pin_state != "pinned" or subscription.pinned_price_id is None:
+        return None
+    row = await db.scalar(
+        select(BillingPlanVersion).where(
+            BillingPlanVersion.id == subscription.pinned_plan_version_id,
+            BillingPlanVersion.plan_code == subscription.plan_code,
+        )
+    )
+    price = await db.scalar(
+        select(BillingPlanPrice).where(
+            BillingPlanPrice.id == subscription.pinned_price_id,
+            BillingPlanPrice.version_id == subscription.pinned_plan_version_id,
+            BillingPlanPrice.cycle == subscription.cycle,
+        )
+    )
+    if row is None or price is None:
+        return None
+    if row.status in (None, "legacy") and (
+        row.cycle != price.cycle
+        or row.currency != price.currency
+        or row.amount_minor != price.amount_minor
+    ):
+        return None
+    try:
+        return validate_plan_version(
+            row,
+            now=now,
+            for_checkout=False,
+            price=price if row.status not in (None, "legacy") else None,
+        )
+    except (CatalogNotApproved, ValueError):
+        return None

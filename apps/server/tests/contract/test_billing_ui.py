@@ -254,7 +254,7 @@ async def test_scheduled_renewal_uses_persisted_invoice_amount(
 
     class FakeSession:
         def __init__(self) -> None:
-            self.results = iter((subscription, None, 0, invoice, operation, invoice, None, None))
+            self.results = iter((None, subscription, 0, invoice, operation, invoice, None, None))
 
         async def scalar(self, _statement: object) -> object:
             return next(self.results)
@@ -268,6 +268,20 @@ async def test_scheduled_renewal_uses_persisted_invoice_amount(
     async def storage_projection(*_args: object, **_kwargs: object) -> object:
         return SimpleNamespace(used_bytes=0)
 
+    async def access(*_args: object, **_kwargs: object) -> object:
+        return SimpleNamespace(plan_code="personal", plan_label="Личный", base_source="paid",
+            access_until=subscription.paid_through,
+            capabilities={"processing_unlimited":True,"storage_bytes":2000000000})
+
+    async def usage(*_args: object, **_kwargs: object) -> object:
+        return SimpleNamespace(used=0,reserved=0,available=None,limit=None,freshness_state="fresh")
+
+    async def pinned(*_args: object, **_kwargs: object) -> object:
+        return SimpleNamespace(amount_minor=99000,cycle="month")
+
+    monkeypatch.setattr(billing_routes, "resolve_entitlements", access)
+    monkeypatch.setattr(billing_routes, "processing_usage_projection", usage)
+    monkeypatch.setattr(billing_routes, "read_pinned_subscription_catalog", pinned)
     captured: dict[str, object] = {}
 
     def capture_page(_title: str, **context: object) -> str:
@@ -415,6 +429,7 @@ def test_billing_hub_uses_exact_free_copy_and_external_refund_boundary() -> None
         processing_used=0,
         processing_used_label=format_duration(0),
         free_processing_limit_label="300 минут",
+        processing_remaining_label="300 минут",
         storage_capacity_label="250 MB",
         storage_capacity_exact_label="250 000 000",
         processing_threshold="normal",
@@ -449,6 +464,9 @@ def test_subscription_and_usage_surfaces_keep_no_grace_and_unlimited_copy() -> N
             paid_through=datetime(2026, 9, 1, tzinfo=UTC),
             recurring_allowed=False,
             recurring_authority_version=1,
+            pinned_plan_version_id=UUID(int=1),
+            pinned_price_id=UUID(int=2),
+            schedule_version=0,
         ),
         active=True,
         paid_through_label="01.09.2026, 03:00 (МСК)",

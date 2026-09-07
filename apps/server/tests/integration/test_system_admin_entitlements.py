@@ -98,6 +98,25 @@ def test_profile_uses_catalog_assignments_and_hides_member_usage(client, source,
         assert billing["usage_freshness"] == "fresh" and billing["access_until"] is not None
         assert bool(billing["paid_through"]) == (source == "paid")
 
+    from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME
+
+    client.cookies.set(AUTH_SESSION_COOKIE_NAME, token)
+    overview = client.get("/billing", headers=headers)
+    assert overview.status_code == 200, overview.text
+    assert "Synthetic Research" in overview.text
+    assert "Без лимита по минутам и встречам" not in overview.text
+    if role == "owner":
+        assert "498 мин 0 сек" in overview.text
+        subscription_page = client.get("/billing/subscription", headers=headers)
+        assert subscription_page.status_code == 200, subscription_page.text
+        assert "Synthetic Research" in subscription_page.text
+        if source == "paid":
+            assert "1 234 ₽" in subscription_page.text
+        else:
+            assert "назначенный доступ" in overview.text
+    else:
+        assert "498 мин 0 сек" not in overview.text
+
     async def revoke():
         async with client.app_state["sessionmaker"]() as db:
             rows = list(await db.scalars(select(BillingAccessAdjustment).where(
@@ -132,6 +151,12 @@ def test_profile_uses_catalog_assignments_and_hides_member_usage(client, source,
         unavailable = client.get("/api/v1/auth/me", headers=headers)
         assert unavailable.status_code == 503
         assert unavailable.json()["code"] == "billing_entitlements_unavailable"
+        for path in ("/billing", "/billing/usage", "/billing/subscription"):
+            unavailable_page = client.get(path, headers=headers)
+            assert unavailable_page.status_code == 503
+            assert "Условия тарифа временно недоступны" in unavailable_page.text
+            assert unavailable_page.headers["cache-control"] == "private, no-store"
+
 
 
 def test_usage_page_shows_assigned_capacity_and_source_balances(client):
@@ -836,3 +861,102 @@ async def test_expired_hold_cleanup_preserves_other_live_reservations(postgres_s
             assert window.reserved_seconds==60
     finally:
         await engine.dispose()
+
+
+def test_resume_uses_rendered_immutable_terms_and_rejects_stale_schedule(client):
+    import html
+    import re
+
+    from cryptography.fernet import Fernet
+
+    from tests.fakes.auth_contexts import USER_ID
+    from tests.integration.test_account_lifecycle import (
+        _bind_web_session,
+        _issue_web_session,
+        _seed_personal_workspace,
+    )
+    from tests.integration.test_system_admin_billing import _managed_payment
+    from twobrain_rec_server.billing.entitlements import grant_confirmed_payment
+    from twobrain_rec_server.billing.payment_methods import SavedPaymentMethod
+    from twobrain_rec_server.db.models import (
+        WorkspaceSubscription,
+    )
+
+    async def seed():
+        workspace, device = await _seed_personal_workspace(client)
+        token, session_id = await _issue_web_session(client, user_id=USER_ID, workspace_id=workspace, device_id=device)
+        async with client.app_state["sessionmaker"]() as db:
+            version, _, operation, invoice = await _managed_payment(db)
+            await grant_confirmed_payment(db, workspace_id=workspace,
+                provider_payment_id=operation.provider_id, amount_minor=invoice.amount_minor,
+                currency="RUB", paid_at=datetime.now(UTC), recurring_method_confirmed=True,
+                saved_payment_method=SavedPaymentMethod("synthetic-resume", "bank_card", "•••• 0000"),
+                payment_method_key=Fernet.generate_key())
+            subscription = await db.get(WorkspaceSubscription, workspace)
+            subscription.recurring_allowed = False
+            version.status = "retired"
+            version.enabled_for_checkout = False
+            await db.commit()
+            return workspace, token, session_id, version.id
+    workspace, token, session_id, version_id = client.portal.call(seed)
+    headers = _bind_web_session(client,token=token,session_id=session_id)
+
+    def form():
+        response = client.get("/billing/subscription")
+        assert response.status_code == 200
+        assert "1 234 ₽" in response.text and "Возобновить автопродление" in response.text
+        return {name:html.unescape(value) for name,value in re.findall(
+            r'<input type="hidden" name="([^"]+)" value="([^"]*)"',response.text)} | {"resume_consent":"true"}
+
+    original = form()
+    for key in ("expected_price_id", "expected_plan_version_id", "expected_schedule_version", "expected_paid_through"):
+        changed = {k:v for k,v in original.items() if k != key}
+        refused = client.post("/billing/subscription/resume",headers=headers,data=changed,follow_redirects=False)
+        assert refused.status_code == 303 and refused.headers["location"].endswith("result=conflict")
+
+    async def move_schedule():
+        async with client.app_state["sessionmaker"]() as db:
+            subscription = await db.get(WorkspaceSubscription, workspace)
+            subscription.paid_through += timedelta(days=1)
+            subscription.next_charge_at = subscription.paid_through
+            subscription.schedule_version += 1
+            subscription.application_version += 1
+            await db.commit()
+    client.portal.call(move_schedule)
+    stale = client.post("/billing/subscription/resume",headers=headers,data=original,follow_redirects=False)
+    assert stale.headers["location"].endswith("result=conflict")
+    current = form()
+    before = client.portal.call(lambda: _subscription_resume_state(client, workspace))
+    resumed = client.post("/billing/subscription/resume",headers=headers,data=current,follow_redirects=False)
+    assert resumed.headers["location"].endswith("result=resumed")
+    duplicate = client.post("/billing/subscription/resume",headers=headers,data=current,follow_redirects=False)
+    assert duplicate.headers["location"].endswith("result=already_active")
+    after = client.portal.call(lambda: _subscription_resume_state(client, workspace))
+    assert before[0] is False and after[0] is True
+    assert after[1] == before[1]+1 and after[2:] == before[2:]
+    assert str(version_id) == current["expected_plan_version_id"]
+
+    async def remove_pin():
+        async with client.app_state["sessionmaker"]() as db:
+            subscription = await db.get(WorkspaceSubscription, workspace)
+            subscription.recurring_allowed = False
+            subscription.pinned_price_id = None
+            subscription.pinned_plan_version_id = None
+            subscription.pin_state = "pending"
+            await db.commit()
+    client.portal.call(remove_pin)
+    current["expected_authority_version"] = str(after[1])
+    unavailable = client.post("/billing/subscription/resume",headers=headers,data=current,follow_redirects=False)
+    assert unavailable.headers["location"].endswith("result=terms_unavailable")
+    assert client.portal.call(lambda: _subscription_resume_state(client, workspace))[0] is False
+
+
+async def _subscription_resume_state(client, workspace):
+    from twobrain_rec_server.db.models import BillingOperation, WorkspaceSubscription
+
+    async with client.app_state["sessionmaker"]() as db:
+        subscription = await db.get(WorkspaceSubscription, workspace)
+        return (subscription.recurring_allowed, subscription.recurring_authority_version,
+            subscription.paid_through, subscription.schedule_version,
+            await db.scalar(select(func.count()).select_from(BillingInvoice)),
+            await db.scalar(select(func.count()).select_from(BillingOperation)))

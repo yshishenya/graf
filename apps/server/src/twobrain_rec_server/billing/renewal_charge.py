@@ -24,9 +24,8 @@ from twobrain_rec_server.billing.authority import (
 )
 from twobrain_rec_server.billing.catalog import (
     FREE_STORAGE_BYTES,
-    CatalogNotApproved,
     PlanCatalogSnapshot,
-    validate_plan_version,
+    read_pinned_subscription_catalog,
 )
 from twobrain_rec_server.billing.catalog_migration import pin_subscription_history
 from twobrain_rec_server.billing.operations import (
@@ -53,8 +52,6 @@ from twobrain_rec_server.db.models import (
     BillingInvoice,
     BillingOperation,
     BillingPaymentMethod,
-    BillingPlanPrice,
-    BillingPlanVersion,
     Workspace,
     WorkspaceMembership,
     WorkspaceSubscription,
@@ -111,38 +108,7 @@ async def _approved_catalog(
             return None
         await db.flush()
         await db.refresh(subscription)
-    if subscription.pin_state != "pinned" or subscription.pinned_price_id is None:
-        return None
-    row = await db.scalar(
-        select(BillingPlanVersion).where(
-            BillingPlanVersion.id == subscription.pinned_plan_version_id,
-            BillingPlanVersion.plan_code == subscription.plan_code,
-        )
-    )
-    price = await db.scalar(
-        select(BillingPlanPrice).where(
-            BillingPlanPrice.id == subscription.pinned_price_id,
-            BillingPlanPrice.version_id == subscription.pinned_plan_version_id,
-            BillingPlanPrice.cycle == subscription.cycle,
-        )
-    )
-    if row is None or price is None:
-        return None
-    if row.status in (None, "legacy") and (
-        row.cycle != price.cycle
-        or row.currency != price.currency
-        or row.amount_minor != price.amount_minor
-    ):
-        return None
-    try:
-        return validate_plan_version(
-            row,
-            now=now,
-            for_checkout=False,
-            price=price if row.status not in (None, "legacy") else None,
-        )
-    except (CatalogNotApproved, ValueError):
-        return None
+    return await read_pinned_subscription_catalog(db, subscription=subscription, now=now)
 
 
 def _snapshot(

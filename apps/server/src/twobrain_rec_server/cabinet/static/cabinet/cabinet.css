@@ -5354,6 +5354,7 @@ html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned
 .billing-price strong { font-size: 24px; line-height: 1.15; font-weight: 750; letter-spacing: -.02em; white-space: nowrap; }
 .billing-price span { color: var(--muted); font-size: var(--font-size-helper); }
 .billing-summary__description { margin: 18px 0 0; }
+.billing-summary__description a { text-decoration: underline; text-underline-offset: .15em; }
 .billing-inline-facts { display: flex; flex-wrap: wrap; gap: 8px 20px; margin-top: 14px; color: var(--muted); font-size: var(--font-size-helper); }
 .billing-inline-facts span { min-width: 0; overflow-wrap: anywhere; }
 .billing-inline-facts strong { color: var(--text); font-weight: 650; }
