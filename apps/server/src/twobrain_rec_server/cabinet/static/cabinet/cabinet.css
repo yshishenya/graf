@@ -5292,6 +5292,10 @@ html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned
   box-shadow: none;
   background: transparent;
 }
+.sidebar-profile-menu__disclosure.is-inline > .sidebar-profile-menu__submenu::before,
+.cabinet-mobile-nav .sidebar-profile-menu__submenu::before {
+  display: none;
+}
 
 .calendar-provider-dialog.calendar-disconnect-dialog { border-color: var(--danger-border); }
 
