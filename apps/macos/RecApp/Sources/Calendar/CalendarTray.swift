@@ -328,7 +328,9 @@ public final class CalendarTrayController: NSObject, NSPopoverDelegate {
 
         popover.delegate = self
         popover.behavior = .transient
-        popover.animates = true
+        // Показываем управление сразу: анимация NSPopover добавляет ~500 мс
+        // к пользовательскому отклику и не несёт смысловой нагрузки.
+        popover.animates = false
 
         observers = [
             (NotificationCenter.default, NotificationCenter.default.addObserver(
