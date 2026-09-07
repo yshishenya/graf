@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from typing import Literal
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.db.models.billing import (
@@ -409,3 +409,14 @@ async def read_public_catalog(
     if prices:
         offers["personal"] = prices
     return offers
+
+
+async def lock_checkout_catalog(db: AsyncSession, *, plan_code: str) -> bool:
+    """After workspace/subscription locks, hold the selected offer until invoice commit.
+
+    The caller must reread public eligibility after acquiring the lock. No row
+    lock is held across a provider call. Catalog writers lock plan before version.
+    """
+    return bool(await db.scalar(text(
+        "select public.billing_lock_checkout_catalog(:code)"
+    ), {"code": plan_code}))

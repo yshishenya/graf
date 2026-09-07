@@ -29,20 +29,26 @@ from twobrain_rec_server.auth.sessions import (
 from twobrain_rec_server.billing.catalog import (
     FREE_PROCESSING_SECONDS,
     FREE_STORAGE_BYTES,
-    CatalogNotApproved,
+    PlanCatalogSnapshot,
     PlanDescriptor,
     classify_storage_threshold,
+    lock_checkout_catalog,
     plan_descriptor,
     read_pinned_subscription_catalog,
     read_public_catalog,
-    validate_plan_version,
 )
 from twobrain_rec_server.billing.checkout import (
     CheckoutPreview,
     build_checkout_intent,
     checkout_preview,
+    checkout_quote_fingerprint,
+    checkout_request_fingerprint,
 )
-from twobrain_rec_server.billing.entitlements import effective_plan_code, resolve_entitlements
+from twobrain_rec_server.billing.entitlements import (
+    effective_plan_code,
+    resolve_entitlements,
+    validate_paid_catalog,
+)
 from twobrain_rec_server.billing.history import mask_payment_method
 from twobrain_rec_server.billing.operations import (
     CHECKOUT_BLOCKING_STATES,
@@ -121,7 +127,6 @@ from twobrain_rec_server.db.models import (
     BillingInvoice,
     BillingOperation,
     BillingPaymentMethod,
-    BillingPlanVersion,
     ExternalIdentity,
     PromotionCampaign,
     PromotionRedemption,
@@ -290,6 +295,7 @@ def _checkout_result_redirect(
     *,
     promo_code: str | None = None,
     cycle: str | None = None,
+    plan_code: str = "personal",
 ) -> RedirectResponse:
     """Keep only the recoverable checkout field across a result redirect.
 
@@ -300,6 +306,8 @@ def _checkout_result_redirect(
     """
 
     query = {"result": result}
+    if plan_code != "personal":
+        query["plan_code"] = plan_code
     if cycle in {"month", "year"}:
         query["cycle"] = cycle
     response = RedirectResponse(f"/billing/checkout?{urlencode(query)}", status_code=303)
@@ -464,6 +472,7 @@ async def _create_initial_checkout_payment(
     operation: BillingOperation,
     invoice: BillingInvoice,
     return_url: str,
+    db: AsyncSession | None = None,
 ) -> dict[str, object]:
     snapshot = operation.request_snapshot
     if (
@@ -471,7 +480,7 @@ async def _create_initial_checkout_payment(
         or invoice.operation_id != operation.id
         or invoice.workspace_id != operation.workspace_id
         or not isinstance(snapshot, Mapping)
-        or snapshot.get("plan_code") != "personal"
+        or not isinstance(snapshot.get("plan_code"), str)
         or snapshot.get("cycle") not in {"month", "year"}
         or snapshot.get("offer_consent") is not True
         or snapshot.get("recurring_consent") is not True
@@ -480,11 +489,23 @@ async def _create_initial_checkout_payment(
         or invoice.currency != "RUB"
     ):
         raise ValueError("initial checkout snapshot is invalid")
+    catalog = snapshot.get("catalog_snapshot")
+    if db is not None:
+        managed = await validate_paid_catalog(db, snapshot, invoice) is not None
+    else:
+        managed = snapshot["plan_code"] != "personal" or any(
+            isinstance(source, dict) and isinstance(source.get("catalog_snapshot"), dict)
+            and {"plan_version_id", "price_id", "capability_schema_version", "capabilities"}.intersection(source["catalog_snapshot"])
+            for source in (snapshot, invoice.plan_snapshot)
+        )
+        if managed:
+            raise ValueError("managed checkout requires persisted catalog validation")
     receipt_config = snapshot.get("receipt_config")
     if not isinstance(receipt_config, Mapping):
         receipt_config = {}
     cycle = str(snapshot["cycle"])
-    description = f"GRAF Личный, {cycle}"
+    label = catalog["display_terms"]["name"] if managed else "Личный"
+    description = f"GRAF {label}, {cycle}"
     receipt = build_receipt_payload(
         receipt_contact=invoice.receipt_contact_snapshot,
         amount_minor=invoice.amount_minor,
@@ -648,13 +669,14 @@ def _choose_checkout_discount(
     provider_floor_minor: int,
     promo: PromoCode | None,
     referral_candidate: PromoCode | None,
+    plan_code: str = "personal",
 ) -> tuple[PromoCode | None, str | None]:
     candidates = tuple(
         candidate for candidate in (promo, referral_candidate) if candidate is not None
     )
     chosen, _ = choose_best_discount(
         amount_minor=amount_minor,
-        plan_code="personal",
+        plan_code=plan_code,
         cycle=cycle,
         provider_floor_minor=provider_floor_minor,
         candidates=candidates,
@@ -800,15 +822,30 @@ async def _billing_rate_limited_response(
     return response
 
 
-async def _approved_personal_catalog(
+def _checkout_plan_descriptor(catalog: PlanCatalogSnapshot) -> PlanDescriptor:
+    return PlanDescriptor(
+        code=catalog.plan_code,
+        label=catalog.display_terms["name"] if catalog.display_terms else plan_descriptor(catalog.plan_code).label,
+        storage_bytes=catalog.storage_bytes, processing_mode=catalog.processing_mode,
+    )
+
+
+def _checkout_processing_label(catalog: PlanCatalogSnapshot) -> str:
+    if catalog.processing_mode == "unlimited":
+        return "Без лимита по минутам и встречам"
+    return f"{format_duration(catalog.capabilities['processing_seconds'])} в календарный месяц"
+
+
+async def _approved_checkout_catalog(
     db: AsyncSession | None,
     *,
     now: datetime,
-) -> dict[str, object]:
+    plan_code: str = "personal",
+) -> dict[str, PlanCatalogSnapshot]:
     """Read the same approved catalog authority used by checkout UI and POST."""
     if db is None:
         return {}
-    return (await read_public_catalog(db, now=now, plan_code="personal")).get("personal", {})
+    return (await read_public_catalog(db, now=now, plan_code=plan_code)).get(plan_code, {})
 
 
 async def _load_checkout_promo(
@@ -819,6 +856,7 @@ async def _load_checkout_promo(
     cycle: str,
     now: datetime,
     lock: bool = False,
+    plan_code: str = "personal",
 ) -> tuple[PromoCode, PromotionCampaign]:
     """Load and validate one campaign for preview or the final invoice."""
     normalized = normalize_promo(raw_code)
@@ -851,7 +889,7 @@ async def _load_checkout_promo(
     )
     check_eligibility(
         promo=promo,
-        plan_code="personal",
+        plan_code=plan_code,
         cycle=cycle,
         now=now,
         workspace_redemptions=int(used or 0),
@@ -1044,7 +1082,7 @@ def _billing_access_unavailable(request: Request) -> HTMLResponse:
         '<p role="alert">Не удалось подтвердить действующие возможности. Обновите страницу позже; '
         'если ошибка повторяется, обратитесь в поддержку.</p>'
         '<a class="button" href="/billing">Тариф и оплата</a></section></main>',
-        embedded=_is_embedded_request(request), active_nav="settings", settings_active="billing",
+        profile=None, embedded=_is_embedded_request(request), active_nav="settings", settings_active="billing",
     ), status_code=503)
 
 
@@ -1210,7 +1248,7 @@ async def billing_overview_page(
                 )
             )
     paid_through_label = _billing_datetime_label(access.access_until if access else None)
-    approved_catalog = await _approved_personal_catalog(db, now=now)
+    approved_catalog = await _approved_checkout_catalog(db, now=now)
     latest_invoice_summary = None
     pending_invoice_summary = None
     latest_snapshot = (
@@ -1444,20 +1482,26 @@ async def billing_plans_page(
 ) -> HTMLResponse:
     """Show the server-owned plan catalog without inventing checkout prices."""
     subscription = None
+    now = datetime.now(UTC)
     if db is not None:
+        await db.scalar(select(Workspace.id).where(
+            Workspace.id == tenant_scope.workspace_id,
+        ).with_for_update(read=True))
         subscription = await db.scalar(
             select(WorkspaceSubscription).where(
                 WorkspaceSubscription.workspace_id == tenant_scope.workspace_id
             )
         )
-    now = datetime.now(UTC)
-    current_code = effective_plan_code(
-        plan_code=subscription.plan_code if subscription is not None else "free",  # type: ignore[arg-type]
-        state=subscription.state if subscription is not None else "free",
-        now=now,
-        paid_through=subscription.paid_through if subscription is not None else None,
-        trial_ends_at=subscription.trial_ends_at if subscription is not None else None,
-    )
+    try:
+        access = await resolve_entitlements(
+            db, workspace_id=tenant_scope.workspace_id, subject_user_id=principal.user_id, now=now,
+        ) if db else None
+    except ValueError:
+        return _billing_access_unavailable(request)
+    current_code = access.plan_code if access else "free"
+    has_paid_subscription = bool(subscription is not None
+        and subscription.plan_code not in {"free", "trial"}
+        and subscription.paid_through is not None and subscription.paid_through > now)
     role = await _billing_role(db, tenant_scope=tenant_scope, principal=principal)
     billing_owner = _can_manage_billing(role=role, subscription=subscription, principal=principal)
     if role != "owner":
@@ -1473,7 +1517,7 @@ async def billing_plans_page(
         if current_code == "free" and billing_owner
         else "unavailable"
     )
-    catalog = await _approved_personal_catalog(db, now=now)
+    offers = await read_public_catalog(db, now=now) if db is not None else {}
     current_cycle = (
         subscription.cycle
         if subscription is not None and subscription.cycle in {"month", "year"}
@@ -1483,51 +1527,31 @@ async def billing_plans_page(
     selected_cycle = (
         requested_cycle if requested_cycle in {"month", "year"} else current_cycle or "year"
     )
-    monthly_catalog = catalog.get("month")
-    annual_catalog = catalog.get("year")
-    catalog_ready = monthly_catalog is not None and annual_catalog is not None
     plans = []
-    for code in ("free", "trial", "personal"):
-        descriptor = plan_descriptor(code)  # type: ignore[arg-type]
-        monthly_amount = (
-            monthly_catalog.amount_minor
-            if code == "personal" and monthly_catalog is not None
-            else descriptor.monthly_amount_minor
-        )
-        annual_amount = (
-            annual_catalog.amount_minor
-            if code == "personal" and annual_catalog is not None
-            else descriptor.annual_amount_minor
-        )
-        processing_label = (
-            format_duration(FREE_PROCESSING_SECONDS) if code == "free" else "Без лимита"
-        )
-        plans.append(
-            {
-                "code": code,
-                "label": descriptor.label,
-                "processing_mode": descriptor.processing_mode,
-                "processing_label": processing_label,
-                "storage_label": _capacity_label(
-                    monthly_catalog.storage_bytes
-                    if code == "personal" and monthly_catalog is not None
-                    else descriptor.storage_bytes
-                ),
-                "monthly_amount_label": _billing_price_label(monthly_amount)
-                if catalog_ready or code != "personal"
-                else None,
-                "annual_amount_label": _billing_price_label(annual_amount)
-                if catalog_ready or code != "personal"
-                else None,
-                "annual_saving_label": _annual_saving_label(
-                    monthly_amount if catalog_ready or code != "personal" else None,
-                    annual_amount if catalog_ready or code != "personal" else None,
-                ),
-                "is_current": code == current_code
-                and (code != "personal" or selected_cycle == current_cycle),
-                "catalog_ready": catalog_ready if code == "personal" else True,
-            }
-        )
+    for code in ("free", "trial", *offers):
+        catalog = offers.get(code, {})
+        monthly = catalog.get("month")
+        annual = catalog.get("year")
+        descriptor = _checkout_plan_descriptor(monthly) if monthly else plan_descriptor(code)
+        monthly_amount = monthly.amount_minor if monthly else None
+        annual_amount = annual.amount_minor if annual else None
+        processing_label = (_checkout_processing_label(monthly) if monthly else
+            f"{format_duration(FREE_PROCESSING_SECONDS)} в календарный месяц" if code == "free" else
+            "Без лимита по минутам и встречам")
+        plans.append({
+            "code": code, "label": descriptor.label,
+            "processing_mode": descriptor.processing_mode,
+            "processing_label": processing_label,
+            "storage_label": _capacity_label(descriptor.storage_bytes),
+            "monthly_amount_label": _billing_price_label(monthly_amount),
+            "annual_amount_label": _billing_price_label(annual_amount),
+            "annual_saving_label": _annual_saving_label(monthly_amount, annual_amount),
+            "is_current": code == current_code and (
+                code in {"free", "trial"} or not has_paid_subscription
+                or subscription.plan_code != code or selected_cycle == current_cycle
+            ),
+            "catalog_ready": monthly is not None and annual is not None,
+        })
     content = _page_shell(
         "Тарифы",
         embedded=_is_embedded_request(request),
@@ -1542,6 +1566,8 @@ async def billing_plans_page(
         plans=plans,
         selected_cycle=selected_cycle,
         current_plan_code=current_code,
+        current_plan_label=access.plan_label if access else "Бесплатный",
+        has_paid_subscription=has_paid_subscription,
         billing_role=role,
         billing_owner=billing_owner,
         operation_pending=operation_pending,
@@ -1549,7 +1575,7 @@ async def billing_plans_page(
         billing_enabled=bool(request.app.state.settings.billing_checkout_enabled),
         trial_preview_starts_at_label=_billing_datetime_label(now),
         trial_preview_ends_at_label=_billing_datetime_label(now + timedelta(days=TRIAL_DAYS)),
-        catalog_ready=catalog_ready,
+        catalog_ready=bool(offers),
         support_email=request.app.state.settings.billing_support_email,
     )
     return cabinet_html_response(content)
@@ -1987,6 +2013,7 @@ async def continue_billing_checkout(
     try:
         return_url = billing_checkout_return_url(request, safe_invoice_number=invoice.safe_number)
         payment = await _create_initial_checkout_payment(
+            db=db,
             settings=settings,
             operation=operation,
             invoice=invoice,
@@ -2773,7 +2800,7 @@ async def billing_checkout_page(
     checkout_cycle = request.query_params.get("cycle", "month")
     if checkout_cycle not in {"month", "year"}:
         checkout_cycle = "month"
-    descriptor = plan_descriptor("personal")
+    checkout_plan_code = request.query_params.get("plan_code", "personal")
     receipt_contact = (
         await db.scalar(
             select(ExternalIdentity.email)
@@ -2788,19 +2815,21 @@ async def billing_checkout_page(
         if db is not None
         else None
     )
-    catalog = await _approved_personal_catalog(db, now=datetime.now(UTC))
+    catalog = await _approved_checkout_catalog(
+        db, now=datetime.now(UTC), plan_code=checkout_plan_code,
+    )
     monthly_catalog = catalog.get("month")
     annual_catalog = catalog.get("year")
     catalog_ready = monthly_catalog is not None and annual_catalog is not None
     monthly_amount = monthly_catalog.amount_minor if monthly_catalog is not None else None
     annual_amount = annual_catalog.amount_minor if annual_catalog is not None else None
-    catalog_storage = (
-        monthly_catalog.storage_bytes if monthly_catalog is not None else descriptor.storage_bytes
-    )
+    descriptor = _checkout_plan_descriptor(monthly_catalog) if monthly_catalog else None
+    catalog_storage = monthly_catalog.storage_bytes if monthly_catalog else 0
     offer_version = (
         monthly_catalog.offer_version if monthly_catalog is not None else _BILLING_OFFER_VERSION
     )
     checkout_preview_data: dict[str, str] | None = None
+    expected_quote = ""
     promo_preview_error: str | None = None
     selected_catalog = catalog.get(checkout_cycle)
     if (
@@ -2815,6 +2844,7 @@ async def billing_checkout_page(
                     db,
                     workspace_id=tenant_scope.workspace_id,
                     raw_code=checkout_promo_code,
+                    plan_code=checkout_plan_code,
                     cycle=checkout_cycle,
                     now=datetime.now(UTC),
                 )
@@ -2826,19 +2856,20 @@ async def billing_checkout_page(
             )
             chosen, discount_source = _choose_checkout_discount(
                 amount_minor=selected_catalog.amount_minor or 0,
+                plan_code=checkout_plan_code,
                 cycle=checkout_cycle,
                 provider_floor_minor=settings.billing_provider_floor_minor,
                 promo=promo,
                 referral_candidate=referral_candidate,
             )
+            preview = checkout_preview(
+                plan_code=checkout_plan_code, cycle=checkout_cycle, promo=chosen,
+                provider_floor_minor=settings.billing_provider_floor_minor,
+                catalog_snapshot=selected_catalog,
+            )
+            expected_quote = checkout_quote_fingerprint(selected_catalog, preview, chosen)
             checkout_preview_data = checkout_preview_labels(
-                checkout_preview(
-                    plan_code="personal",
-                    cycle=checkout_cycle,
-                    promo=chosen,
-                    provider_floor_minor=settings.billing_provider_floor_minor,
-                    catalog_snapshot=selected_catalog,
-                ),
+                preview,
                 discount_percent=chosen.discount_percent if chosen is not None else None,
                 discount_source=discount_source,
             )
@@ -2862,6 +2893,9 @@ async def billing_checkout_page(
         content_template="cabinet/pages/billing_checkout_content.html",
         billing_enabled=bool(settings.billing_checkout_enabled),
         plan=descriptor,
+        checkout_plan_code=checkout_plan_code,
+        checkout_processing_label=_checkout_processing_label(monthly_catalog) if monthly_catalog else "—",
+        expected_quote=expected_quote,
         monthly_price_label=_billing_price_label(monthly_amount),
         annual_price_label=_billing_price_label(annual_amount),
         annual_saving_label=_annual_saving_label(monthly_amount, annual_amount),
@@ -2892,12 +2926,13 @@ async def preview_billing_checkout(
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
     cycle: str = Form(default="month", max_length=16),
+    plan_code: str = Form(default="personal", max_length=64),
     promo_code: str | None = Form(default=None, max_length=48),
 ) -> RedirectResponse:
     """Validate a promo and show its price without reserving or charging."""
     settings = request.app.state.settings
     if db is None or not settings.billing_checkout_enabled or settings.billing_emergency_stop:
-        return RedirectResponse("/billing/checkout?result=unavailable", status_code=303)
+        return _checkout_result_redirect(request, "unavailable", plan_code=plan_code, cycle=cycle)
     if await _billing_role(db, tenant_scope=tenant_scope, principal=principal) != "owner":
         return RedirectResponse("/billing?result=owner_only", status_code=303)
     limited = await _billing_rate_limited_response(
@@ -2909,18 +2944,19 @@ async def preview_billing_checkout(
     if limited is not None:
         return limited
     if cycle not in {"month", "year"}:
-        return _checkout_result_redirect(request, "promo_invalid", promo_code=promo_code)
+        return _checkout_result_redirect(request, "promo_invalid", plan_code=plan_code, promo_code=promo_code)
     try:
-        catalog = await _approved_personal_catalog(db, now=datetime.now(UTC))
+        catalog = await _approved_checkout_catalog(db, now=datetime.now(UTC), plan_code=plan_code)
         catalog_snapshot = catalog.get(cycle)
         if catalog_snapshot is None:
-            return _checkout_result_redirect(request, "catalog_not_approved", cycle=cycle)
+            return _checkout_result_redirect(request, "catalog_not_approved", plan_code=plan_code, cycle=cycle)
         if not (promo_code or "").strip():
-            return _checkout_result_redirect(request, "promo_applied", cycle=cycle)
+            return _checkout_result_redirect(request, "promo_applied", plan_code=plan_code, cycle=cycle)
         entered_promo, _ = await _load_checkout_promo(
             db,
             workspace_id=tenant_scope.workspace_id,
             raw_code=promo_code or "",
+            plan_code=plan_code,
             cycle=cycle,
             now=datetime.now(UTC),
         )
@@ -2932,13 +2968,14 @@ async def preview_billing_checkout(
         )
         promo, _ = _choose_checkout_discount(
             amount_minor=catalog_snapshot.amount_minor or 0,
+            plan_code=plan_code,
             cycle=cycle,
             provider_floor_minor=settings.billing_provider_floor_minor,
             promo=entered_promo,
             referral_candidate=referral_candidate,
         )
         checkout_preview(
-            plan_code="personal",
+            plan_code=plan_code,
             cycle=cycle,
             promo=promo,
             provider_floor_minor=settings.billing_provider_floor_minor,
@@ -2948,12 +2985,14 @@ async def preview_billing_checkout(
         return _checkout_result_redirect(
             request,
             "promo_invalid",
+            plan_code=plan_code,
             promo_code=promo_code,
             cycle=cycle,
         )
     return _checkout_result_redirect(
         request,
         "promo_applied",
+        plan_code=plan_code,
         promo_code=entered_promo.code,
         cycle=cycle,
     )
@@ -2967,14 +3006,16 @@ async def start_billing_checkout(
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
     cycle: str = Form(default="month", max_length=16),
+    plan_code: str = Form(default="personal", max_length=64),
     idempotency_key: str = Form(default="", max_length=240),
+    expected_quote: str = Form(default="", max_length=64),
     offer_consent: bool = Form(default=False),
     recurring_consent: bool = Form(default=False),
     promo_code: str | None = Form(default=None, max_length=48),
 ) -> RedirectResponse:
     settings = request.app.state.settings
     if db is None:
-        return RedirectResponse("/billing/checkout?result=unavailable", status_code=303)
+        return _checkout_result_redirect(request, "unavailable", plan_code=plan_code, cycle=cycle)
     # Keep the narrow rate-limit transaction ahead of workspace row locks.
     # Otherwise its FK insert can wait on this transaction's FOR UPDATE lock
     # and deadlock the checkout request against itself.
@@ -3004,7 +3045,7 @@ async def start_billing_checkout(
             .with_for_update()
         )
         if membership is None or membership.role != "owner":
-            return RedirectResponse("/billing/checkout?result=owner_only", status_code=303)
+            return _checkout_result_redirect(request, "owner_only", plan_code=plan_code, cycle=cycle)
         receipt_contact = await db.scalar(
             select(ExternalIdentity.email)
             .where(
@@ -3021,12 +3062,16 @@ async def start_billing_checkout(
         )
         key = idempotency_key.strip()
         if not key:
-            return RedirectResponse("/billing/checkout?result=invalid", status_code=303)
+            return _checkout_result_redirect(request, "invalid", plan_code=plan_code, cycle=cycle)
         if not offer_consent:
-            return RedirectResponse("/billing/checkout?result=offer_required", status_code=303)
+            return _checkout_result_redirect(request, "offer_required", plan_code=plan_code, cycle=cycle)
         if not recurring_consent:
-            return RedirectResponse("/billing/checkout?result=consent_required", status_code=303)
+            return _checkout_result_redirect(request, "consent_required", plan_code=plan_code, cycle=cycle)
 
+        request_fingerprint = checkout_request_fingerprint(
+            plan_code=plan_code, cycle=cycle, promo_code=promo_code,
+            expected_quote=expected_quote, actor_id=principal.user_id,
+        )
         # Idempotency recovery must not re-run mutable promo/referral checks.
         # A retried request can carry the same reservation and should recover
         # the original hosted URL even after the campaign window changed.
@@ -3039,6 +3084,10 @@ async def start_billing_checkout(
             .with_for_update()
         )
         if existing is not None:
+            if (existing.kind != "initial_checkout" or existing.request_snapshot.get(
+                "request_fingerprint"
+            ) != request_fingerprint):
+                return _checkout_result_redirect(request, "conflict", plan_code=plan_code, cycle=cycle)
             confirmation_url = existing.request_snapshot.get("confirmation_url")
             if is_allowed_confirmation_url(confirmation_url):
                 return RedirectResponse(confirmation_url, status_code=303)
@@ -3054,35 +3103,19 @@ async def start_billing_checkout(
         now = datetime.now(UTC)
         if (
             subscription is not None
-            and subscription.plan_code == "personal"
+            and subscription.plan_code not in {"free", "trial"}
             and subscription.paid_through is not None
             and subscription.paid_through.astimezone(UTC) > now
         ):
             return RedirectResponse("/billing?result=already_active", status_code=303)
 
-        # New money mutation must use an enabled, effective database catalog
-        # row.  Static descriptors remain useful for read-only copy and unit
-        # tests, but are never a checkout authority once the billing DB is
-        # available.  An absent/stale/disabled row therefore fails closed.
-        catalog_rows = await db.scalars(
-            select(BillingPlanVersion)
-            .where(
-                BillingPlanVersion.plan_code == "personal",
-                BillingPlanVersion.cycle == cycle,
-            )
-            .order_by(BillingPlanVersion.version.desc())
-        )
-        catalog_snapshot = None
-        for catalog_row in catalog_rows:
-            try:
-                catalog_snapshot = validate_plan_version(catalog_row, now=now)
-                break
-            except (CatalogNotApproved, ValueError):
-                continue
+        if not re.fullmatch(r"[a-z][a-z0-9_]{2,31}", plan_code) or not await lock_checkout_catalog(db, plan_code=plan_code):
+            return _checkout_result_redirect(request, "catalog_not_approved", plan_code=plan_code, cycle=cycle)
+        now = datetime.now(UTC)
+        catalog = await _approved_checkout_catalog(db, now=now, plan_code=plan_code)
+        catalog_snapshot = catalog.get(cycle)
         if catalog_snapshot is None:
-            return RedirectResponse(
-                "/billing/checkout?result=catalog_not_approved", status_code=303
-            )
+            return _checkout_result_redirect(request, "catalog_not_approved", plan_code=plan_code, cycle=cycle)
 
         promo: PromoCode | None = None
         promo_campaign: PromotionCampaign | None = None
@@ -3092,6 +3125,7 @@ async def start_billing_checkout(
                     db,
                     workspace_id=tenant_scope.workspace_id,
                     raw_code=promo_code,
+                    plan_code=plan_code,
                     cycle=cycle,
                     now=datetime.now(UTC),
                     lock=True,
@@ -3100,6 +3134,7 @@ async def start_billing_checkout(
                 return _checkout_result_redirect(
                     request,
                     "promo_invalid",
+                    plan_code=plan_code,
                     promo_code=promo_code,
                     cycle=cycle,
                 )
@@ -3118,6 +3153,7 @@ async def start_billing_checkout(
         try:
             chosen, _ = _choose_checkout_discount(
                 amount_minor=catalog_snapshot.amount_minor or 0,
+                plan_code=plan_code,
                 cycle=cycle,
                 provider_floor_minor=settings.billing_provider_floor_minor,
                 promo=promo,
@@ -3128,6 +3164,7 @@ async def start_billing_checkout(
             return _checkout_result_redirect(
                 request,
                 "promo_invalid",
+                plan_code=plan_code,
                 promo_code=promo_code,
                 cycle=cycle,
             )
@@ -3138,6 +3175,18 @@ async def start_billing_checkout(
             # create a redemption against the entered campaign.
             promo_campaign = None
         referral_discount = promo is referral_candidate and referral_candidate is not None
+        preview = checkout_preview(
+            plan_code=plan_code,
+            cycle=cycle,
+            promo=promo,
+            provider_floor_minor=settings.billing_provider_floor_minor,
+            catalog_snapshot=catalog_snapshot,
+        )
+        if not expected_quote or expected_quote != checkout_quote_fingerprint(catalog_snapshot, preview, promo):
+            await db.rollback()
+            return _checkout_result_redirect(
+                request, "terms_changed", plan_code=plan_code, cycle=cycle, promo_code=promo_code,
+            )
         if (
             referral_discount
             and referred is not None
@@ -3162,13 +3211,6 @@ async def start_billing_checkout(
                 )
             finally:
                 await apply_tenant_scope(db, tenant_scope)
-        preview = checkout_preview(
-            plan_code="personal",
-            cycle=cycle,
-            promo=promo,
-            provider_floor_minor=settings.billing_provider_floor_minor,
-            catalog_snapshot=catalog_snapshot,
-        )
         unresolved_payment = await db.scalar(
             _blocking_payment_operation_query(tenant_scope.workspace_id).with_for_update()
         )
@@ -3198,6 +3240,7 @@ async def start_billing_checkout(
             state="scheduled",
             provider_key_expires_at=datetime.now(UTC) + timedelta(hours=24),
             request_snapshot={
+                "request_fingerprint": request_fingerprint,
                 "plan_code": preview.plan_code,
                 "cycle": preview.cycle,
                 "list_amount_minor": preview.list_amount_minor,
@@ -3263,7 +3306,7 @@ async def start_billing_checkout(
             )
             if redemption is not None and redemption.state not in {"released", "expired"}:
                 await db.rollback()
-                return _checkout_result_redirect(request, "promo_invalid", promo_code=promo_code)
+                return _checkout_result_redirect(request, "promo_invalid", plan_code=plan_code, promo_code=promo_code)
             if redemption is None:
                 redemption = PromotionRedemption(
                     campaign_id=promo_campaign.id,
@@ -3292,6 +3335,7 @@ async def start_billing_checkout(
         await db.commit()
         return_url = billing_checkout_return_url(request, safe_invoice_number=intent.invoice_number)
         payment = await _create_initial_checkout_payment(
+            db=db,
             settings=settings,
             operation=operation,
             invoice=invoice,
@@ -3327,6 +3371,10 @@ async def start_billing_checkout(
             else None
         )
         if winner is not None:
+            if (winner.kind != "initial_checkout" or winner.request_snapshot.get(
+                "request_fingerprint"
+            ) != request_fingerprint):
+                return _checkout_result_redirect(request, "conflict", plan_code=plan_code, cycle=cycle)
             winner_url = winner.request_snapshot.get("confirmation_url")
             if is_allowed_confirmation_url(winner_url):
                 return RedirectResponse(winner_url, status_code=303)
@@ -3339,7 +3387,7 @@ async def start_billing_checkout(
                     status_code=303,
                 )
             return RedirectResponse("/billing?result=pending", status_code=303)
-        return RedirectResponse("/billing/checkout?result=unavailable", status_code=303)
+        return _checkout_result_redirect(request, "unavailable", plan_code=plan_code, cycle=cycle)
     except (
         BillingEmergencyStop,
         ValueError,
@@ -3373,7 +3421,7 @@ async def start_billing_checkout(
                         ),
                         status_code=303,
                     )
-        return RedirectResponse("/billing/checkout?result=unavailable", status_code=303)
+        return _checkout_result_redirect(request, "unavailable", plan_code=plan_code, cycle=cycle)
 
 
 @router.get("/billing/checkout/return", name="billing_checkout_return", include_in_schema=False)

@@ -1,10 +1,17 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass
 from uuid import UUID, uuid4
 
 from twobrain_rec_server.billing.catalog import PlanCatalogSnapshot, plan_descriptor
-from twobrain_rec_server.billing.promotions import PromoCode, apply_promo
+from twobrain_rec_server.billing.promotions import (
+    PromoCode,
+    apply_promo,
+    normalize_promo,
+    promo_code_hash,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,3 +71,34 @@ def checkout_preview(
         else amount
     )
     return CheckoutPreview(plan_code, cycle, amount, payable, promo.code if promo else None)
+
+
+def checkout_quote_fingerprint(
+    catalog: PlanCatalogSnapshot, preview: CheckoutPreview, promo: PromoCode | None,
+) -> str:
+    """Bind consent to displayed terms and the winning discount, including its version."""
+    return _fingerprint({
+        "catalog": catalog.as_dict(),
+        "payable_amount_minor": preview.payable_amount_minor,
+        "discount_code_hash": promo_code_hash(promo.code) if promo else None,
+        "discount_percent": promo.discount_percent if promo else None,
+        "campaign_version": promo.campaign_version if promo else None,
+    })
+
+
+def checkout_request_fingerprint(
+    *, plan_code: str, cycle: str, promo_code: str | None, expected_quote: str, actor_id: UUID,
+) -> str:
+    """Compare retries without rerunning mutable campaign/catalog eligibility."""
+    return _fingerprint({
+        "plan_code": plan_code, "cycle": cycle, "quote": expected_quote,
+        "promo_code_hash": promo_code_hash(normalize_promo(promo_code))
+            if promo_code and promo_code.strip() else None,
+        "actor_id": str(actor_id),
+    })
+
+
+def _fingerprint(value: dict[str, object]) -> str:
+    return hashlib.sha256(json.dumps(
+        value, sort_keys=True, separators=(",", ":"), allow_nan=False,
+    ).encode()).hexdigest()

@@ -120,7 +120,14 @@ async def test_billing_routes_render_real_profile_and_persisted_trial_dates(
         scalar=scalar, scalars=AsyncMock(return_value=[]), get=AsyncMock(return_value=user)
     )
     monkeypatch.setattr(billing, "_billing_role", AsyncMock(return_value="owner"))
-    monkeypatch.setattr(billing, "_approved_personal_catalog", AsyncMock(return_value={}))
+    monkeypatch.setattr(billing, "_approved_checkout_catalog", AsyncMock(return_value={}))
+    monkeypatch.setattr(billing, "resolve_entitlements", AsyncMock(return_value=SimpleNamespace(
+        plan_code="trial", plan_label="Пробный", base_source="trial", access_until=trial.ends_at,
+        capabilities={"processing_unlimited": True, "storage_bytes": 500_000_000},
+    )))
+    monkeypatch.setattr(billing, "processing_usage_projection", AsyncMock(return_value=SimpleNamespace(
+        used=0, reserved=0, available=None, limit=None, freshness_state="fresh",
+    )))
     monkeypatch.setattr(
         billing,
         "project_active_playback_storage",
@@ -272,6 +279,7 @@ def test_trial_discloses_terms_before_separate_confirmation(page_name):
                 label="Пробный",
                 is_current=False,
                 processing_mode="unlimited",
+                processing_label="Без лимита по минутам и встречам",
                 storage_label="500 MB",
                 annual_saving_label=None,
             )

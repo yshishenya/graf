@@ -221,7 +221,7 @@ def _snapshot_storage_capacity(snapshot: object, *, fallback: int) -> int:
     return fallback
 
 
-async def _confirmed_catalog(
+async def validate_paid_catalog(
     db: AsyncSession, snapshot: object, invoice: BillingInvoice,
 ) -> tuple[BillingPlanVersion, BillingPlanPrice] | None:
     """Keep legacy invoices payable; managed offers require both exact financial snapshots."""
@@ -372,7 +372,7 @@ async def grant_confirmed_payment(
         return "duplicate"
     snapshot = operation.request_snapshot
     try:
-        catalog = await _confirmed_catalog(db, snapshot, invoice)
+        catalog = await validate_paid_catalog(db, snapshot, invoice)
     except (CatalogNotApproved, ValueError):
         operation.state = "reconciliation_gap"
         return "snapshot_invalid"
@@ -585,7 +585,7 @@ async def grant_confirmed_renewal(
         return "duplicate"
     snapshot = operation.request_snapshot
     try:
-        catalog = await _confirmed_catalog(db, snapshot, invoice)
+        catalog = await validate_paid_catalog(db, snapshot, invoice)
     except (CatalogNotApproved, ValueError):
         operation.state = "reconciliation_gap"
         return "snapshot_invalid"
