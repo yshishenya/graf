@@ -39,7 +39,7 @@ from twobrain_rec_server.billing.payment_methods import (
     read_billing_encryption_key,
 )
 from twobrain_rec_server.billing.provider_events import validate_provider_identifier
-from twobrain_rec_server.billing.storage import lock_storage_workspace
+from twobrain_rec_server.billing.subscription import lock_billing_subscription
 from twobrain_rec_server.billing.yookassa import (
     YooKassaClient,
     YooKassaConfigurationError,
@@ -218,21 +218,6 @@ def _pin_legacy_schedule(
     return True
 
 
-async def _lock_renewal_subscription(
-    db: AsyncSession, workspace_id: UUID,
-) -> tuple[Workspace | None, WorkspaceSubscription | None]:
-    # Match checkout/payment confirmation: domain advisory lock, workspace, then
-    # subscription. Never hold a subscription while waiting for its workspace.
-    await lock_storage_workspace(db, workspace_id)
-    workspace = await db.scalar(select(Workspace).where(
-        Workspace.id == workspace_id,
-    ).with_for_update().execution_options(populate_existing=True))
-    subscription = await db.scalar(select(WorkspaceSubscription).where(
-        WorkspaceSubscription.workspace_id == workspace_id,
-    ).with_for_update().execution_options(populate_existing=True))
-    return workspace, subscription
-
-
 async def plan_due_renewals(
     db: AsyncSession,
     *,
@@ -279,7 +264,7 @@ async def plan_due_renewals(
     candidates = list(await db.scalars(query))
     # Stable ordering when a caller commits a batch of several workspaces.
     for candidate in sorted(candidates, key=lambda row: row.workspace_id):
-        workspace, subscription = await _lock_renewal_subscription(db, candidate.workspace_id)
+        workspace, subscription = await lock_billing_subscription(db, candidate.workspace_id)
         owner = await db.scalar(select(WorkspaceMembership).where(
             WorkspaceMembership.workspace_id == candidate.workspace_id,
             WorkspaceMembership.user_id == (subscription.billing_owner_id if subscription else None),
@@ -525,7 +510,7 @@ async def project_renewal_cutoffs(
     projected = 0
     candidates = list(await db.scalars(query))
     for candidate in sorted(candidates, key=lambda row: row.workspace_id):
-        workspace, subscription = await _lock_renewal_subscription(db, candidate.workspace_id)
+        workspace, subscription = await lock_billing_subscription(db, candidate.workspace_id)
         if (
             subscription is None or subscription.plan_code in {"free", "trial"}
             or subscription.paid_through is None or _utc(subscription.paid_through) > current
@@ -626,7 +611,7 @@ async def charge_renewal_operation(
     """Send one saved-method payment while holding the subscription authority lock."""
     current = _utc(now or datetime.now(UTC))
     await db.rollback()
-    workspace, subscription = await _lock_renewal_subscription(db, workspace_id)
+    workspace, subscription = await lock_billing_subscription(db, workspace_id)
     operation = await db.scalar(
         select(BillingOperation)
         .where(

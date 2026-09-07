@@ -285,6 +285,12 @@ async def test_managed_payment_rejects_inconsistent_financial_snapshot(postgres_
             else:
                 snapshot["billing_actor_user_id"] = str(uuid4())
             operation.request_snapshot = snapshot
+            if mismatch == "boolean_capability":
+                from sqlalchemy.orm.attributes import flag_modified
+
+                # Force the typed corruption into PostgreSQL; ORM equality treats 1 == True.
+                flag_modified(operation, "request_snapshot")
+                flag_modified(invoice, "plan_snapshot")
             await db.commit()
             assert await grant_confirmed_payment(db, workspace_id=PERSONAL_WORKSPACE_ID,
                 provider_payment_id=operation.provider_id, amount_minor=invoice.amount_minor,
@@ -853,18 +859,27 @@ async def test_renewal_dispatch_claim_survives_process_loss(
 
 
 @pytest.mark.asyncio
-async def test_renewal_wait_does_not_hold_subscription_before_workspace(postgres_seeded_database_url):
+@pytest.mark.parametrize("entry", ["lock", "payment", "observation"])
+async def test_billing_wait_does_not_hold_payment_rows_before_workspace(postgres_seeded_database_url, entry, tmp_path):
     import asyncio
     from contextlib import suppress
 
-    from twobrain_rec_server.billing.renewal_charge import _lock_renewal_subscription
+    from twobrain_rec_server.billing.entitlements import grant_confirmed_payment
+    from twobrain_rec_server.billing.subscription import lock_billing_subscription
+    from twobrain_rec_server.billing.webhook_reconciliation import (
+        reconcile_pending_initial_checkout_operations,
+    )
+    from twobrain_rec_server.config import Settings
     from twobrain_rec_server.db.models import Workspace
 
     engine = create_async_engine(postgres_seeded_database_url)
     sessions = async_sessionmaker(engine, expire_on_commit=False)
+    secret = tmp_path / "synthetic-provider"
+    secret.write_text("synthetic-never-sent")
     pending = None
     try:
         async with sessions() as holder:
+            _, _, operation, invoice = await _managed_payment(holder)
             if await holder.get(WorkspaceSubscription, PERSONAL_WORKSPACE_ID) is None:
                 holder.add(WorkspaceSubscription(workspace_id=PERSONAL_WORKSPACE_ID))
                 await holder.commit()
@@ -876,8 +891,20 @@ async def test_renewal_wait_does_not_hold_subscription_before_workspace(postgres
             async def renewal():
                 async with sessions() as db:
                     pid_ready.set_result(await db.scalar(text("select pg_backend_pid()")))
-                    workspace, subscription = await _lock_renewal_subscription(db, PERSONAL_WORKSPACE_ID)
-                    assert workspace is not None and subscription is not None
+                    if entry == "lock":
+                        workspace, subscription = await lock_billing_subscription(db, PERSONAL_WORKSPACE_ID)
+                        assert workspace is not None and subscription is not None
+                    elif entry == "payment":
+                        assert await grant_confirmed_payment(db, workspace_id=PERSONAL_WORKSPACE_ID,
+                            provider_payment_id=operation.provider_id, amount_minor=invoice.amount_minor,
+                            currency="RUB", paid_at=datetime.now(UTC)) == "granted"
+                    else:
+                        counts = await reconcile_pending_initial_checkout_operations(db,
+                            Settings(billing_provider_observation_enabled=True,
+                                billing_yookassa_base_url="https://provider.example.invalid",
+                                billing_yookassa_shop_id="synthetic",
+                                billing_yookassa_secret_file=secret), operation_id=operation.id)
+                        assert counts["processed"] == 0  # The candidate changed while this worker waited.
                     await db.commit()
             pending = asyncio.create_task(renewal())
             pid = await pid_ready
@@ -886,13 +913,24 @@ async def test_renewal_wait_does_not_hold_subscription_before_workspace(postgres
                     while await observer.scalar(text(
                         "select wait_event_type from pg_stat_activity where pid=:pid"
                     ), {"pid":pid}) != "Lock":
+                        if pending.done():
+                            await pending
+                            pytest.fail("billing operation did not wait for the workspace")
                         await asyncio.sleep(0.01)
                 await asyncio.wait_for(wait_until_blocked(), timeout=5)
                 # A reversed lock order would already own this row and fail NOWAIT.
                 assert await observer.scalar(select(WorkspaceSubscription.workspace_id).where(
                     WorkspaceSubscription.workspace_id == PERSONAL_WORKSPACE_ID,
                 ).with_for_update(nowait=True)) == PERSONAL_WORKSPACE_ID
+                assert await observer.scalar(select(BillingOperation.id).where(
+                    BillingOperation.id == operation.id,
+                ).with_for_update(nowait=True)) == operation.id
+                assert await observer.scalar(select(BillingInvoice.id).where(
+                    BillingInvoice.id == invoice.id,
+                ).with_for_update(nowait=True)) == invoice.id
                 await observer.rollback()
+            if entry == "observation":
+                operation.state = "canceled"
             await holder.commit()
             await asyncio.wait_for(pending, timeout=5)
     finally:

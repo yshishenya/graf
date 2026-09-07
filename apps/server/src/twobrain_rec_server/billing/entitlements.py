@@ -32,7 +32,7 @@ from twobrain_rec_server.billing.payment_methods import (
 from twobrain_rec_server.billing.promotions import redeem_invoice_promo
 from twobrain_rec_server.billing.receipts import ReceiptRegistration, merge_receipt_registration
 from twobrain_rec_server.billing.referral_rewards import create_pending_credit
-from twobrain_rec_server.billing.storage import lock_storage_workspace
+from twobrain_rec_server.billing.subscription import lock_billing_subscription
 from twobrain_rec_server.db.models import (
     BillingAuditEvent,
     BillingEntitlementGrant,
@@ -42,7 +42,6 @@ from twobrain_rec_server.db.models import (
     BillingPlan,
     BillingPlanPrice,
     BillingPlanVersion,
-    Workspace,
     WorkspaceMembership,
     WorkspaceSubscription,
 )
@@ -283,14 +282,14 @@ async def grant_confirmed_payment(
     defer_referral_reward: bool = False,
 ) -> str:
     """Grant one immutable invoice only after provider GET confirms its amount."""
-    await lock_storage_workspace(db, workspace_id)
+    workspace, subscription = await lock_billing_subscription(db, workspace_id)
     operation = await db.scalar(
         select(BillingOperation)
         .where(
             BillingOperation.workspace_id == workspace_id,
             BillingOperation.provider_id == provider_payment_id,
         )
-        .with_for_update()
+        .with_for_update().execution_options(populate_existing=True)
     )
     if operation is None:
         return "unmatched"
@@ -300,7 +299,7 @@ async def grant_confirmed_payment(
     invoice = await db.scalar(
         select(BillingInvoice).where(
             BillingInvoice.operation_id == operation.id, BillingInvoice.workspace_id == workspace_id,
-        ).with_for_update()
+        ).with_for_update().execution_options(populate_existing=True)
     )
     if invoice is None or invoice.amount_minor != amount_minor or invoice.currency != currency:
         operation.state = "reconciliation_gap"
@@ -313,7 +312,7 @@ async def grant_confirmed_payment(
             BillingEntitlementGrant.workspace_id == workspace_id,
             BillingEntitlementGrant.invoice_id == invoice.id,
         )
-        .with_for_update()
+        .with_for_update().execution_options(populate_existing=True)
     )
     receipt_became_available = False
     if receipt_registration is not None:
@@ -374,9 +373,6 @@ async def grant_confirmed_payment(
     except (KeyError, TypeError, ValueError):
         operation.state = "reconciliation_gap"
         return "snapshot_invalid"
-    workspace = await db.scalar(
-        select(Workspace).where(Workspace.id == workspace_id).with_for_update()
-    )
     owner = await db.scalar(
         select(WorkspaceMembership)
         .where(
@@ -386,7 +382,7 @@ async def grant_confirmed_payment(
             WorkspaceMembership.role == "owner",
             WorkspaceMembership.status == "active",
         )
-        .with_for_update()
+        .with_for_update().execution_options(populate_existing=True)
     )
     if workspace is None or workspace.kind != "personal" or owner is None:
         operation.state = "reconciliation_gap"
@@ -411,11 +407,6 @@ async def grant_confirmed_payment(
             amount_minor=amount_minor,
             currency=currency,
         )
-    )
-    subscription = await db.scalar(
-        select(WorkspaceSubscription)
-        .where(WorkspaceSubscription.workspace_id == workspace_id)
-        .with_for_update()
     )
     if subscription is None:
         subscription = WorkspaceSubscription(workspace_id=workspace_id)
@@ -444,7 +435,7 @@ async def grant_confirmed_payment(
                 BillingPaymentMethod.workspace_id == workspace_id,
                 BillingPaymentMethod.is_default.is_(True),
             )
-            .with_for_update()
+            .with_for_update().execution_options(populate_existing=True)
         )
         for method in methods:
             method.is_default = False
@@ -548,18 +539,7 @@ async def grant_confirmed_renewal(
     grant_starts_at: datetime,
 ) -> str:
     """Project one GET-confirmed renewal into the append-only entitlement ledger."""
-    await lock_storage_workspace(db, workspace_id)
-    # Keep the row-lock order identical to manual checkout: workspace,
-    # subscription, then operation. This prevents renewal confirmation from
-    # deadlocking with a checkout that already owns the subscription row.
-    workspace = await db.scalar(
-        select(Workspace).where(Workspace.id == workspace_id).with_for_update()
-    )
-    subscription = await db.scalar(
-        select(WorkspaceSubscription)
-        .where(WorkspaceSubscription.workspace_id == workspace_id)
-        .with_for_update()
-    )
+    workspace, subscription = await lock_billing_subscription(db, workspace_id)
     operation = await db.scalar(
         select(BillingOperation)
         .where(
@@ -567,14 +547,14 @@ async def grant_confirmed_renewal(
             BillingOperation.provider_id == provider_payment_id,
             BillingOperation.kind == "renewal",
         )
-        .with_for_update()
+        .with_for_update().execution_options(populate_existing=True)
     )
     if operation is None:
         return "unmatched"
     invoice = await db.scalar(
         select(BillingInvoice).where(
             BillingInvoice.operation_id == operation.id, BillingInvoice.workspace_id == workspace_id,
-        ).with_for_update()
+        ).with_for_update().execution_options(populate_existing=True)
     )
     if invoice is None or invoice.amount_minor != amount_minor or invoice.currency != currency:
         operation.state = "reconciliation_gap"
@@ -589,7 +569,7 @@ async def grant_confirmed_renewal(
             BillingEntitlementGrant.workspace_id == workspace_id,
             BillingEntitlementGrant.invoice_id == invoice.id,
         )
-        .with_for_update()
+        .with_for_update().execution_options(populate_existing=True)
     )
     if existing is not None:
         return "duplicate"
@@ -624,7 +604,7 @@ async def grant_confirmed_renewal(
             WorkspaceMembership.role == "owner",
             WorkspaceMembership.status == "active",
         )
-        .with_for_update()
+        .with_for_update().execution_options(populate_existing=True)
     )
     if (
         workspace is None

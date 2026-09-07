@@ -72,6 +72,7 @@ from twobrain_rec_server.billing.storage import (
 from twobrain_rec_server.billing.subscription import (
     SubscriptionControl,
     cancel_auto_renewal,
+    lock_billing_subscription,
     resume_auto_renewal,
 )
 from twobrain_rec_server.billing.trial import (
@@ -1901,17 +1902,13 @@ async def continue_billing_checkout(
     )
     if limited is not None:
         return limited
+    _, subscription = await lock_billing_subscription(db, tenant_scope.workspace_id)
     invoice = await db.scalar(
         select(BillingInvoice)
         .where(
             BillingInvoice.workspace_id == tenant_scope.workspace_id,
             BillingInvoice.safe_number == safe_number,
         )
-        .with_for_update()
-    )
-    subscription = await db.scalar(
-        select(WorkspaceSubscription)
-        .where(WorkspaceSubscription.workspace_id == tenant_scope.workspace_id)
         .with_for_update()
     )
     if (
@@ -2551,7 +2548,7 @@ async def _billing_owner_subscription(
     tenant_scope: TenantScope,
     principal: AuthenticatedPrincipal,
 ) -> WorkspaceSubscription | None:
-    workspace = await db.get(Workspace, tenant_scope.workspace_id)
+    workspace, subscription = await lock_billing_subscription(db, tenant_scope.workspace_id)
     if (
         workspace is None
         or workspace.kind != "personal"
@@ -2567,11 +2564,6 @@ async def _billing_owner_subscription(
     )
     if membership is None or membership.role != "owner":
         return None
-    subscription = await db.scalar(
-        select(WorkspaceSubscription)
-        .where(WorkspaceSubscription.workspace_id == tenant_scope.workspace_id)
-        .with_for_update()
-    )
     if subscription is None or subscription.billing_owner_id not in {None, principal.user_id}:
         return None
     if subscription.billing_owner_id is None:
@@ -2966,9 +2958,7 @@ async def start_billing_checkout(
     if limited is not None:
         return limited
     try:
-        workspace = await db.scalar(
-            select(Workspace).where(Workspace.id == tenant_scope.workspace_id).with_for_update()
-        )
+        workspace, subscription = await lock_billing_subscription(db, tenant_scope.workspace_id)
         if (
             workspace is None
             or workspace.kind != "personal"
@@ -2982,11 +2972,6 @@ async def start_billing_checkout(
                 WorkspaceMembership.user_id == principal.user_id,
                 WorkspaceMembership.status == "active",
             )
-            .with_for_update()
-        )
-        subscription = await db.scalar(
-            select(WorkspaceSubscription)
-            .where(WorkspaceSubscription.workspace_id == tenant_scope.workspace_id)
             .with_for_update()
         )
         if membership is None or membership.role != "owner":
