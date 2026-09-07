@@ -1652,6 +1652,14 @@ async def _delete_storage_object(storage: object, object_key: str) -> None:
     raise RuntimeError("storage_unavailable")
 
 
+async def _lock_playback_storage_scope(db: AsyncSession, workspace_id: UUID) -> None:
+    # Match subscription writers: legacy storage advisory lock → Workspace.
+    # Acquire both before Meeting/Job so assigned capacity cannot race admission.
+    await lock_storage_workspace(db, workspace_id)
+    if await db.scalar(select(Workspace.id).where(Workspace.id == workspace_id).with_for_update()) is None:
+        raise StorageAdmissionError("storage workspace unavailable")
+
+
 async def _reserve_playback_storage(
     db: AsyncSession,
     *,
@@ -2758,6 +2766,7 @@ async def _execute_normalization_job(
         )
         await _ensure_normalized_output_matches_file(output_path, output)
 
+        await _lock_playback_storage_scope(db, prepared.job.workspace_id)
         # Fence ownership before storage I/O, then commit to release the
         # lifecycle locks. A deletion may race the upload; the post-upload
         # Meeting → Job → Attempt fence below deletes the late object instead
@@ -3088,6 +3097,12 @@ async def publish_uploaded_attempt(
     )
     if job_meeting_id is None:
         raise RuntimeError("database_unavailable")
+    workspace_id = await db.scalar(select(PlaybackNormalizationJob.workspace_id).where(
+        PlaybackNormalizationJob.id == attempt_job_id,
+    ))
+    if workspace_id is None:
+        raise RuntimeError("database_unavailable")
+    await _lock_playback_storage_scope(db, workspace_id)
     meeting = await db.scalar(
         select(Meeting)
         .where(Meeting.id == job_meeting_id)

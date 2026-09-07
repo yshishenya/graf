@@ -984,8 +984,9 @@ async def test_worker_workspace_lock_serializes_quota_without_granting_workspace
     from twobrain_rec_server.db.models import Workspace
     from twobrain_rec_server.db.tenant_context import (
         TenantDatabaseContext,
-        apply_tenant_context_to_connection,
+        apply_tenant_context,
     )
+    from twobrain_rec_server.normalization.service import _lock_playback_storage_scope
 
     @asynccontextmanager
     async def worker_engine():
@@ -1004,13 +1005,14 @@ async def test_worker_workspace_lock_serializes_quota_without_granting_workspace
     try:
         async with owner.connect() as connection:
             organization = await connection.scalar(select(Workspace.organization_id).where(Workspace.id == PERSONAL_WORKSPACE_ID))
-        async with worker_engine() as app, app.connect() as conn:
-            await apply_tenant_context_to_connection(conn, TenantDatabaseContext(
+        async with worker_engine() as app, async_sessionmaker(app, expire_on_commit=False)() as conn:
+            await apply_tenant_context(conn, TenantDatabaseContext(
                 organization_id=organization, workspace_id=PERSONAL_WORKSPACE_ID,
                 user_id=USER_ID, context_kind="worker",
             ))
             assert await conn.scalar(text("select session_user")) == role_name
-            assert await conn.scalar(select(Workspace.id).where(Workspace.id == PERSONAL_WORKSPACE_ID).with_for_update()) == PERSONAL_WORKSPACE_ID
+            await _lock_playback_storage_scope(conn, PERSONAL_WORKSPACE_ID)
+            assert await conn.scalar(select(Workspace.id).where(Workspace.id == PERSONAL_WORKSPACE_ID)) == PERSONAL_WORKSPACE_ID
             assert await conn.scalar(select(Workspace.id).where(Workspace.id != PERSONAL_WORKSPACE_ID).limit(1)) is None
             with pytest.raises(DBAPIError):
                 async with conn.begin_nested():
