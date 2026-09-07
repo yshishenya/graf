@@ -5310,6 +5310,7 @@ html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned
 .billing-page .settings-page { min-width: 0; }
 .billing-page .settings-page__content { width: min(880px, 100%); margin-inline: auto; }
 .billing-page .settings-section.cabinet-card {
+  min-width: 0;
   max-width: none;
   padding: 24px 0;
   border: 0;
@@ -5450,6 +5451,10 @@ html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned
 .billing-comparison { margin-top: 24px; }
 .billing-comparison h2 { margin-bottom: 16px; }
 .billing-comparison__table { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.billing-quota-table { max-width: 100%; overflow-x: auto; }
+.billing-quota-table table { width: 100%; border-collapse: collapse; }
+.billing-quota-table th, .billing-quota-table td { padding: 10px; text-align: left; border-bottom: 1px solid var(--line); }
+.billing-quota-table caption { text-align: left; padding: 10px; font-weight: 600; }
 .billing-comparison__row { display: grid; grid-template-columns: minmax(160px, 1.3fr) repeat(3, minmax(100px, 1fr)); }
 .billing-comparison__row > span { min-width: 0; padding: 12px; border-inline-end: 1px solid var(--line); border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
 .billing-comparison__row > span:last-child { border-inline-end: 0; }

@@ -23,6 +23,86 @@ from twobrain_rec_server.db.models.billing import (
 pytestmark = pytest.mark.strict_rls
 
 
+def test_usage_page_shows_assigned_capacity_and_source_balances(client):
+    from tests.fakes.auth_contexts import USER_ID
+    from tests.integration.test_account_lifecycle import (
+        _bind_web_session,
+        _issue_web_session,
+        _seed_personal_workspace,
+    )
+
+    async def seed():
+        workspace, device = await _seed_personal_workspace(client)
+        token, session_id = await _issue_web_session(client,user_id=USER_ID,workspace_id=workspace,device_id=device)
+        async with client.app_state["sessionmaker"]() as db:
+            for key, value, unit in (("processing_seconds",6000,"seconds"),("storage_bytes",1000000000,"bytes")):
+                await create_adjustment(db,workspace_id=workspace,kind="extra_quota",feature_key=key,
+                    value=value,unit=unit,starts_at=datetime.now(UTC)-timedelta(days=1),
+                    ends_at=datetime.now(UTC)+timedelta(days=1),source_kind="migration",
+                    source_ref=f"synthetic:{uuid4()}",reason="Synthetic billing page")
+            await db.commit()
+        return token, session_id
+    token, session_id = client.portal.call(seed)
+    _bind_web_session(client,token=token,session_id=session_id)
+    response = client.get("/billing/usage")
+    assert response.status_code == 200
+    assert "400 мин 0 сек" in response.text and "100 мин 0 сек" in response.text
+    assert "Дополнительная квота 1" in response.text
+    assert "1,25 GB" in response.text
+
+
+@pytest.mark.asyncio
+async def test_usage_projection_shares_admission_balances_without_resetting_sources(postgres_seeded_database_url):
+    from twobrain_rec_server.billing.entitlements import resolve_entitlements
+    from twobrain_rec_server.billing.usage import (
+        SourceRange,
+        commit_free_usage_ranges,
+        moscow_window_for,
+        processing_usage_projection,
+        reserve_processing_usage,
+    )
+    from twobrain_rec_server.db.models import FreeUsageWindow
+
+    engine = create_async_engine(postgres_seeded_database_url)
+    _, end = moscow_window_for(datetime.now(UTC))
+    now = end-timedelta(days=1)
+    try:
+        async with async_sessionmaker(engine, expire_on_commit=False)() as db:
+            gift = await create_adjustment(db, workspace_id=PERSONAL_WORKSPACE_ID,
+                kind="extra_quota", feature_key="processing_seconds", value=6000, unit="seconds",
+                starts_at=now, ends_at=end+timedelta(days=3), source_kind="migration",
+                source_ref=f"synthetic:{uuid4()}", reason="Synthetic usage projection")
+            reservation = await reserve_processing_usage(db, workspace_id=PERSONAL_WORKSPACE_ID,
+                reservation_key="synthetic:usage-projection", declared_seconds=20000, now=now,
+                expires_at=now+timedelta(minutes=10))
+            assert await commit_free_usage_ranges(db, reservation_id=reservation.id,
+                ranges=[SourceRange("synthetic:projection",0,19000)]) == 19000
+            await db.commit()
+            async def view(at):
+                access = await resolve_entitlements(db, workspace_id=PERSONAL_WORKSPACE_ID,
+                    subject_user_id=None, now=at)
+                return await processing_usage_projection(db, workspace_id=PERSONAL_WORKSPACE_ID,
+                    now=at, access=access)
+            current = await view(now)
+            assert (current.used,current.reserved,current.limit,current.available)==(19000,1000,24000,4000)
+            assert (current.sources[0].used,current.sources[0].reserved)==(18000,0)
+            assert (current.sources[1].source_id,current.sources[1].used,current.sources[1].reserved)==(gift.id,1000,1000)
+            expired = await view(now+timedelta(minutes=11))
+            assert (expired.used,expired.reserved,expired.available)==(19000,0,5000)
+            # A read does not release/renew the persisted reservation or reset counters.
+            window = await db.get(FreeUsageWindow,reservation.window_id)
+            assert window.committed_seconds == 19000 and reservation.state == "active"
+            next_month = await view(end+timedelta(seconds=1))
+            assert (next_month.used,next_month.reserved,next_month.available)==(0,0,23000)
+            assert next_month.sources[1].used == 1000
+            await revoke_adjustment(db,workspace_id=PERSONAL_WORKSPACE_ID,adjustment_id=gift.id,
+                source_kind="migration",source_ref=f"synthetic:{uuid4()}",reason="Synthetic revoke")
+            revoked = await view(now+timedelta(minutes=11))
+            assert revoked.limit == 18000 and revoked.available == 0 and len(revoked.sources) == 1
+    finally:
+        await engine.dispose()
+
+
 @pytest.mark.asyncio
 async def test_access_sources_are_idempotent_revocable_and_never_paid(postgres_seeded_database_url):
     engine = create_async_engine(postgres_seeded_database_url)

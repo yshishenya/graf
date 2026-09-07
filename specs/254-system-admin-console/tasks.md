@@ -93,6 +93,7 @@
 - [ ] T017 [US5] Реализовать общий расчёт прав, индивидуальные назначения и квоты. Пути: `apps/server/src/twobrain_rec_server/billing/admin_grants.py`; `apps/server/src/twobrain_rec_server/billing/entitlements.py`; `apps/server/src/twobrain_rec_server/billing/usage.py`; `apps/server/src/twobrain_rec_server/billing/storage.py`.
   - Результат: Adjustment ledger без fake invoice, precedence, exact limits/extra allocation, expiry сохраняет admitted reservations, no counter reset, timezones/calendar gifts.
   - Зависимости: T016. Приёмка: AC-016, AC-017, AC-018, AC-041.
+  - В работе: общий resolver и ledger подключены к допуску/расходу обработки, хранению и странице использования. Единый расчёт показывает lifetime остатки дополнительных источников без сброса; профильные PostgreSQL/HTTP/browser проверки записаны в implementation-evidence.md. Остальные окна, lineage, исторический расход и все потребители ещё не завершены.
 
 ## US7
 

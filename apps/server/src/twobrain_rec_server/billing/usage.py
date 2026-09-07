@@ -163,11 +163,46 @@ async def reserve_processing_usage(
     )
 
 
-async def _quota_allocation(
-    db: AsyncSession, *, workspace_id: UUID, window: FreeUsageWindow,
-    existing: UsageReservationRow | None, now: datetime, remaining: int,
+@dataclass(frozen=True, slots=True)
+class QuotaBalance:
+    source_id: UUID | None
+    limit: int | None
+    used: int
+    reserved: int
+    expires_at: datetime
+
+    @property
+    def available(self) -> int | None:
+        return None if self.limit is None else max(0, self.limit-self.used-self.reserved)
+
+
+@dataclass(frozen=True, slots=True)
+class ProcessingUsageProjection:
+    window_start: datetime
+    window_end: datetime
+    used: int
+    reserved: int
+    sources: tuple[QuotaBalance, ...]
+    freshness_state: str
+
+    @property
+    def available(self) -> int | None:
+        if any(source.limit is None for source in self.sources):
+            return None
+        return sum(source.available for source in self.sources)
+
+    @property
+    def limit(self) -> int | None:
+        if any(source.limit is None for source in self.sources):
+            return None
+        return sum(source.limit for source in self.sources)
+
+
+async def _quota_balances(
+    db: AsyncSession, *, workspace_id: UUID, window: FreeUsageWindow | None,
+    existing: UsageReservationRow | None, now: datetime,
     active_reserved: int, access: AccessResolution | None,
-) -> list[tuple[UUID | None, int]]:
+) -> tuple[QuotaBalance, ...]:
     allocation = UsageQuotaAllocation
     active = (
         (UsageReservationRow.state == "active")
@@ -176,32 +211,70 @@ async def _quota_allocation(
     if existing is not None:
         active &= UsageReservationRow.id != existing.id
     held = case((active, allocation.allocated_seconds-allocation.committed_seconds), else_=0)
+    window_id = window.id if window else None
     extras = [source for source in access.extra_quotas if source.feature_key == "processing_seconds"] if access else []
     stats = (await db.execute(
         select(
             allocation.adjustment_id, func.sum(allocation.committed_seconds), func.sum(held),
-            func.sum(case((allocation.window_id == window.id, allocation.committed_seconds), else_=0)),
-            func.sum(case((allocation.window_id == window.id, held), else_=0)),
+            func.sum(case((allocation.window_id == window_id, allocation.committed_seconds), else_=0)),
+            func.sum(case((allocation.window_id == window_id, held), else_=0)),
         )
         .join(UsageReservationRow, UsageReservationRow.id == allocation.reservation_id)
         .where(
             allocation.workspace_id == workspace_id, allocation.adjustment_id.is_not(None),
-            (allocation.window_id == window.id) | allocation.adjustment_id.in_([source.id for source in extras]),
+            (allocation.window_id == window_id) | allocation.adjustment_id.in_([source.id for source in extras]),
         ).group_by(allocation.adjustment_id)
     )).all()
-    used = {row[0]: int(row[1])+int(row[2]) for row in stats}
-    base_used = max(0, window.committed_seconds - sum(int(row[3]) for row in stats))
+    used = {row[0]: (int(row[1]), int(row[2])) for row in stats}
+    base_used = max(0, (window.committed_seconds if window else 0) - sum(int(row[3]) for row in stats))
     base_reserved = max(0, active_reserved - sum(int(row[4]) for row in stats))
-    ceiling = access.capabilities["processing_seconds"] if access else window.included_seconds
-    base = remaining if access and access.capabilities["processing_unlimited"] else min(
-        remaining, max(0, ceiling-base_used-base_reserved),
-    )
-    result = [(None, base)] if base else []
-    remaining -= base
+    ceiling = access.capabilities["processing_seconds"] if access else (window.included_seconds if window else FREE_PROCESSING_SECONDS)
+    if access and access.capabilities["processing_unlimited"]:
+        ceiling = None
+    sources = [QuotaBalance(None, ceiling, base_used, base_reserved, window.window_end if window else moscow_window_for(now)[1])]
     for source in extras:
-        amount = min(remaining, max(0, source.value-used.get(source.id, 0)))
+        consumed, reserved = used.get(source.id, (0, 0))
+        sources.append(QuotaBalance(source.id, source.value, consumed, reserved, source.expires_at))
+    return tuple(sources)
+
+
+async def processing_usage_projection(
+    db: AsyncSession, *, workspace_id: UUID, now: datetime, access: AccessResolution,
+) -> ProcessingUsageProjection:
+    """Read balances without renewing or clearing holds.
+
+    Hold the workspace row lock before resolving access for a coherent projection.
+    """
+    start, end = moscow_window_for(now)
+    window = await db.scalar(select(FreeUsageWindow).where(
+        FreeUsageWindow.workspace_id == workspace_id, FreeUsageWindow.window_start == start,
+    ).execution_options(populate_existing=True))
+    reserved = int(await db.scalar(select(func.coalesce(func.sum(
+        UsageReservationRow.declared_seconds-UsageReservationRow.committed_seconds,
+    ), 0)).where(
+        UsageReservationRow.workspace_id == workspace_id,
+        UsageReservationRow.window_id == (window.id if window else None),
+        UsageReservationRow.state == "active",
+        UsageReservationRow.expires_at.is_(None) | (UsageReservationRow.expires_at > now),
+    )) or 0)
+    sources = await _quota_balances(db, workspace_id=workspace_id, window=window,
+        existing=None, now=now, active_reserved=reserved, access=access)
+    return ProcessingUsageProjection(start, end, window.committed_seconds if window else 0,
+        reserved, sources, window.freshness_state if window else "fresh")
+
+
+async def _quota_allocation(
+    db: AsyncSession, *, workspace_id: UUID, window: FreeUsageWindow,
+    existing: UsageReservationRow | None, now: datetime, remaining: int,
+    active_reserved: int, access: AccessResolution | None,
+) -> list[tuple[UUID | None, int]]:
+    sources = await _quota_balances(db, workspace_id=workspace_id, window=window,
+        existing=existing, now=now, active_reserved=active_reserved, access=access)
+    result = []
+    for source in sources:
+        amount = remaining if source.available is None else min(remaining, source.available)
         if amount:
-            result.append((source.id, amount))
+            result.append((source.source_id, amount))
             remaining -= amount
     if remaining:
         raise QuotaExceeded("processing quota is exhausted")

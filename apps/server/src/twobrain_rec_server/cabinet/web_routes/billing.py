@@ -40,7 +40,7 @@ from twobrain_rec_server.billing.checkout import (
     build_checkout_intent,
     checkout_preview,
 )
-from twobrain_rec_server.billing.entitlements import effective_plan_code
+from twobrain_rec_server.billing.entitlements import effective_plan_code, resolve_entitlements
 from twobrain_rec_server.billing.history import mask_payment_method
 from twobrain_rec_server.billing.operations import (
     CHECKOUT_BLOCKING_STATES,
@@ -82,7 +82,11 @@ from twobrain_rec_server.billing.trial import (
     require_trial_activation,
     trial_used_by_lineage,
 )
-from twobrain_rec_server.billing.usage import format_duration, moscow_window_for
+from twobrain_rec_server.billing.usage import (
+    format_duration,
+    moscow_window_for,
+    processing_usage_projection,
+)
 from twobrain_rec_server.billing.webhook_reconciliation import (
     reconcile_pending_initial_checkout_operations,
 )
@@ -2166,24 +2170,40 @@ async def billing_usage_page(
     subscription = None
     processing_used = 0
     processing_reserved = 0
+    processing_limit = FREE_PROCESSING_SECONDS
+    processing_remaining = 0
+    processing_unlimited = False
+    quota_sources = []
+    access = None
     reserved_bytes = 0
     usage_projection_state = "unavailable" if db is None else "fresh"
     window_start, window_end = moscow_window_for(now)
     if db is not None:
+        # Keep entitlement sources and usage counters coherent while writers wait.
+        await db.scalar(select(Workspace.id).where(
+            Workspace.id == tenant_scope.workspace_id,
+        ).with_for_update(read=True))
         subscription = await db.scalar(
             select(WorkspaceSubscription).where(
                 WorkspaceSubscription.workspace_id == tenant_scope.workspace_id
             )
         )
-        window = await db.scalar(
-            select(FreeUsageWindow).where(
-                FreeUsageWindow.workspace_id == tenant_scope.workspace_id,
-                FreeUsageWindow.window_start == window_start,
-            )
-        )
-        processing_used = window.committed_seconds if window is not None else 0
-        processing_reserved = window.reserved_seconds if window is not None else 0
-        usage_projection_state = window.freshness_state if window is not None else "fresh"
+        access = await resolve_entitlements(db, workspace_id=tenant_scope.workspace_id,
+            subject_user_id=principal.user_id, now=now)
+        usage = await processing_usage_projection(db, workspace_id=tenant_scope.workspace_id,
+            now=now, access=access)
+        processing_used, processing_reserved = usage.used, usage.reserved
+        processing_unlimited = usage.limit is None
+        processing_limit = usage.limit or 0
+        processing_remaining = usage.available or 0
+        usage_projection_state = usage.freshness_state
+        quota_sources = [{
+            "label": "Основная квота" if row.source_id is None else f"Дополнительная квота {index}",
+            "limit": "Без лимита" if row.limit is None else format_duration(row.limit),
+            "used": format_duration(row.used), "reserved": format_duration(row.reserved),
+            "remaining": "Без лимита" if row.available is None else format_duration(row.available),
+            "expires": _billing_datetime_label(row.expires_at),
+        } for index, row in enumerate(usage.sources)]
         reserved = await db.scalar(
             select(
                 func.coalesce(
@@ -2201,14 +2221,10 @@ async def billing_usage_page(
         reserved_bytes = int(reserved or 0)
     capacity = FREE_STORAGE_BYTES
     projection = StorageProjection(0, reserved_bytes, capacity)
-    raw_plan_code = subscription.plan_code if subscription is not None else "free"
-    plan_code = effective_plan_code(
-        plan_code=raw_plan_code,  # type: ignore[arg-type]
-        state=subscription.state if subscription is not None else "free",
-        now=now,
-        paid_through=subscription.paid_through if subscription is not None else None,
-        trial_ends_at=subscription.trial_ends_at if subscription is not None else None,
-    )
+    plan_code = access.plan_code if access else "free"
+    processing_threshold = ("normal" if processing_unlimited else
+        "exhausted" if processing_remaining == 0 else
+        "approaching" if processing_remaining <= processing_limit*0.2 else "normal")
     role = await _billing_role(db, tenant_scope=tenant_scope, principal=principal)
     billing_owner = _can_manage_billing(role=role, subscription=subscription, principal=principal)
     trial_state = (
@@ -2217,8 +2233,8 @@ async def billing_usage_page(
         else "unavailable"
     )
     trial_eligible = trial_state == "eligible"
-    if subscription is not None and plan_code in {"trial", "personal"}:
-        capacity = subscription.capacity_bytes
+    if access is not None:
+        capacity = access.capabilities["storage_bytes"]
     if db is not None:
         projection = await project_active_playback_storage(
             db,
@@ -2242,25 +2258,18 @@ async def billing_usage_page(
         processing_reserved=processing_reserved,
         processing_used_label=format_duration(processing_used),
         processing_reserved_label=format_duration(processing_reserved),
-        free_processing_limit_label="300 минут",
-        processing_threshold=classify_free_processing(
-            committed_seconds=processing_used + processing_reserved
-        ),
-        processing_threshold_label=_processing_threshold_label(
-            classify_free_processing(committed_seconds=processing_used + processing_reserved)
-        ),
-        processing_remaining=max(
-            0, FREE_PROCESSING_SECONDS - processing_used - processing_reserved
-        ),
-        processing_remaining_label=format_duration(
-            max(0, FREE_PROCESSING_SECONDS - processing_used - processing_reserved)
-        ),
+        free_processing_limit_label=format_duration(processing_limit),
+        processing_threshold=processing_threshold,
+        processing_threshold_label=_processing_threshold_label(processing_threshold),
+        processing_remaining=processing_remaining,
+        processing_remaining_label=format_duration(processing_remaining),
+        quota_sources=quota_sources if len(quota_sources) > 1 else [],
         processing_reset_at_label=format_user_datetime(window_end, show_zone=True),
         trial_eligible=trial_eligible,
         billing_owner=billing_owner,
         billing_role=role,
         billing_enabled=bool(request.app.state.settings.billing_checkout_enabled),
-        processing_unlimited=plan_code in {"trial", "personal"},
+        processing_unlimited=processing_unlimited,
         storage_used=projection.used_bytes,
         storage_used_label=_capacity_label(projection.used_bytes),
         storage_reserved=projection.reserved_bytes,
