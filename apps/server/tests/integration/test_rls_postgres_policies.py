@@ -26,7 +26,11 @@ from scripts.cleanup_smoke_artifacts import cleanup_smoke_artifacts
 from scripts.cleanup_smoke_auth_session import cleanup_smoke_auth_session
 from scripts.issue_smoke_auth_session import issue_smoke_auth_session
 from scripts.seed_smoke_identity import seed_identity
-from tests.fixtures.postgres_rls import optional_rls_test_database_url, rls_test_database_url
+from tests.fixtures.postgres_rls import (
+    optional_rls_test_database_url,
+    rls_test_database_url,
+    validate_rls_test_database_url,
+)
 from tests.fixtures.postgres_test_database import ensure_disposable_media_role
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.auth import callbacks as callbacks_module
@@ -181,14 +185,21 @@ async def _create_probe_role(
     *,
     role_name: str,
 ) -> tuple[str, str]:
+    validate_rls_test_database_url(migration_url, variable_name="probe migration URL")
     password = uuid4().hex
     engine = create_async_engine(migration_url, isolation_level="AUTOCOMMIT")
     try:
         async with engine.begin() as conn:
             quoted_role = _quote_identifier(role_name)
+            exists = await conn.scalar(text("select exists(select 1 from pg_roles where rolname=:role)"), {"role":role_name})
+            if exists and role_name != "twobrain_rec_maintenance":
+                pytest.fail("unexpected existing probe role")
+            # Migration 0088 owns this cluster-wide identity. Reuse it only in the
+            # validated disposable test cluster; never drop its cross-database grants.
+            action = "alter" if exists else "create"
             await conn.execute(
                 text(
-                    f"create role {quoted_role} login password {_quote_literal(password)} "
+                    f"{action} role {quoted_role} login password {_quote_literal(password)} "
                     "nosuperuser nocreatedb nocreaterole noinherit noreplication nobypassrls"
                 )
             )
@@ -385,7 +396,7 @@ def migrated_postgres_urls(postgres_advisory_lock: None) -> Iterator[MigratedPos
             media_role_created=media_role_created,
         )
     finally:
-        if probe_role is not None:
+        if probe_role is not None and probe_role != "twobrain_rec_maintenance":
             asyncio.run(_drop_probe_role(url, probe_role))
         if app_role is not None:
             asyncio.run(_drop_probe_role(url, app_role))
