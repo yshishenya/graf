@@ -459,3 +459,24 @@ Chromium/Playwright на отдельном synthetic HTTP8102/PostgreSQL55512 �
 Зафиксированные этапы: development process preflight, Spec Kit governance, **224 governance tests**, portable harness self-test, macOS legacy audio guard, Swift build, **830 macOS tests (1 штатный skip)**, macOS contract validation, **1519 серверных unit-тестов**, **308 изменённых серверных тестов**, server lint, Python compile, shell syntax, **66 CI contracts**, production compose config, deployment evidence scan, diff whitespace и active CI documentation consistency. Runner удалил изолированный PostgreSQL-контейнер; два стандартных предупреждения pytest/httpx сохранены в выводе.
 
 Этот результат подтверждает локальный быстрый контур на точном SHA ветки. Он не заменяет GitHub `governance-fast`, полный `ci-local --full`, браузерный полный набор, нагрузочную проверку, deployment review или release/deploy gates. Reviewer-owned checklist и задачи `tasks.md` исполнитель не закрывает автоматически.
+
+## Исправления по результатам проверки акций — 2026-09-07
+
+Повторная проверка платёжного контура выявила три ошибки уровня P1. Они устранены до обновления PR:
+
+- Выпущенный индивидуальный код записывался в `promotion_codes`, но checkout искал только хеш кода кампании. Загрузка кампании теперь сначала ищет собственный хеш индивидуального кода, проверяет его состояние и сохраняет идентификатор кода в неизменяемой модели оформления.
+- Подарочная кампания проходила через скидочную модель с нулевой скидкой и отклонялась общей проверкой. Введён отдельный `benefit_kind=gift` с ограниченным числом дней; подарочное оформление не создаёт счёт, платёж или обязательное согласие на автопродление.
+- При оформлении повторно не проверялись аудитория кампании, назначенный пользователь и бюджет. Checkout заново проверяет категории `all`, `selected`, `never_paid`, `first_purchase`, `former_paid`, активный платный доступ, историю оплат и доступный бюджет с учётом резервов и округления суммы выгоды.
+
+Для подарочного доступа обычной роли приложения не выдан прямой `INSERT` в `billing_access_adjustments`. Миграция `0106_promotion_gift_redemptions` добавляет узкую `SECURITY DEFINER` функцию `public.billing_redeem_promotion_access(...)`: она принимает только запросный контекст настоящего `twobrain_rec_app`, сверяет tenant, блокирует пространство и делает идемпотентную запись источника `promotion`. Bootstrap выдаёт приложению только `EXECUTE` этой функции и отзывает прямую вставку. Тестовый probe-role получает те же ограничения после создания, при этом `USAGE` системной схемы не появляется.
+
+Состояния индивидуального кода синхронизированы с резервированием: `available → reserved → redeemed`, а отменённые и истёкшие резервы возвращают код в `available`. Погашение кампании без индивидуального кода сохраняет прежний путь по хешу кампании. Бюджет учитывает полную каталожную стоимость подарка и только фактическую скидку для скидочного кода; повторное применение защищено блокировками и идемпотентностью.
+
+Проверки после исправлений:
+
+- `scripts/run_local_postgres_tests.sh --focused tests/integration/test_promo_checkout.py tests/integration/test_managed_checkout.py -x -q` — **23 passed**, 35.95 s, exit 0.
+- `scripts/run_local_postgres_tests.sh --focused tests/integration/test_managed_checkout.py -k 'gift_promo or promo_audience' -q` — **2 passed**, 17 deselected, exit 0.
+- `scripts/run_local_postgres_tests.sh --focused tests/integration/test_postgres_migrations.py -x -q` — **16 passed**, 31.92 s, exit 0; единственная голова — `0106_promotion_gift_redemptions`, downgrade не удаляет подарочные погашения молча.
+- `scripts/run_local_postgres_tests.sh --focused tests/integration/test_system_admin_security.py tests/integration/test_rls_postgres_policies.py -x -q` — целевые проверки границы прошли; полный файл RLS — **36 passed**, 15.01 s, exit 0. Проверены отсутствие `USAGE` системной схемы и отсутствие прямой вставки приложения.
+
+Рабочая голова миграций теперь `0106_promotion_gift_redemptions`. В PR сохранены отдельные ограничения по браузерному/e2e, rehearsal, нагрузке и release-full; эти проверки не объявляются выполненными этим разделом.

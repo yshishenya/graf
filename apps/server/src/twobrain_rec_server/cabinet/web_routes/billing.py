@@ -10,7 +10,7 @@ from uuid import UUID, uuid4
 import httpx
 from fastapi import APIRouter, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import case, func, select, update
+from sqlalchemy import case, func, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,6 +26,7 @@ from twobrain_rec_server.auth.sessions import (
     issue_auth_session,
     resolve_session_device,
 )
+from twobrain_rec_server.billing.admin_grants import add_calendar_days
 from twobrain_rec_server.billing.catalog import (
     ADDON_CAPACITY_BYTES,
     FREE_PROCESSING_SECONDS,
@@ -64,6 +65,8 @@ from twobrain_rec_server.billing.promotions import (
     choose_best_discount,
     normalize_promo,
     promo_code_hash,
+    promotion_cost_minor,
+    redeem_gift_promo,
 )
 from twobrain_rec_server.billing.provider_events import validate_provider_identifier
 from twobrain_rec_server.billing.receipts import (
@@ -124,12 +127,14 @@ from twobrain_rec_server.db.models import (
     AuthCallbackState,
     AuthSession,
     AuthSessionDeviceBinding,
+    BillingAccessAdjustment,
     BillingAuditEvent,
     BillingInvoice,
     BillingOperation,
     BillingPaymentMethod,
     ExternalIdentity,
     PromotionCampaign,
+    PromotionCode,
     PromotionRedemption,
     ReferralAttribution,
     StorageReservation,
@@ -645,11 +650,15 @@ def checkout_preview_labels(
     *,
     discount_percent: int | None = None,
     discount_source: str | None = None,
+    benefit_kind: str | None = None,
+    gift_days: int | None = None,
 ) -> dict[str, str]:
     """Build safe Russian labels for the server-calculated checkout summary."""
     discount_minor = preview.list_amount_minor - preview.payable_amount_minor
     discount_label = "Без скидки"
-    if discount_minor > 0 and discount_percent is not None:
+    if benefit_kind == "gift" and gift_days is not None:
+        discount_label = f"Подарок: {gift_days} дн. доступа"
+    elif discount_minor > 0 and discount_percent is not None:
         source_label = "реферальная скидка, " if discount_source == "referral" else ""
         discount_label = (
             f"−{_billing_price_label(discount_minor)} ({source_label}{discount_percent}%)"
@@ -853,18 +862,28 @@ async def _load_checkout_promo(
     db: AsyncSession,
     *,
     workspace_id: UUID,
+    subject_user_id: UUID,
     raw_code: str,
     cycle: str,
     now: datetime,
     lock: bool = False,
     plan_code: str = "personal",
+    budget_amount_minor: int = 0,
 ) -> tuple[PromoCode, PromotionCampaign]:
-    """Load and validate one campaign for preview or the final invoice."""
+    """Load one campaign or issued code and re-evaluate its audience."""
     normalized = normalize_promo(raw_code)
-    query = select(PromotionCampaign).where(
-        PromotionCampaign.code_hash == promo_code_hash(normalized),
-        PromotionCampaign.enabled.is_(True),
+    code_hash = promo_code_hash(normalized)
+    issued_code = await db.scalar(
+        select(PromotionCode).where(PromotionCode.code_hash == code_hash)
+        .with_for_update() if lock else select(PromotionCode).where(PromotionCode.code_hash == code_hash)
     )
+    query = select(PromotionCampaign).where(PromotionCampaign.enabled.is_(True))
+    if issued_code is not None:
+        if issued_code.state != "available":
+            raise PromoError("Промокод уже использован или отозван", code="promo_exhausted")
+        query = query.where(PromotionCampaign.id == issued_code.campaign_id)
+    else:
+        query = query.where(PromotionCampaign.code_hash == code_hash)
     if lock:
         query = query.with_for_update()
     campaign = await db.scalar(query)
@@ -874,8 +893,44 @@ async def _load_checkout_promo(
         select(func.count(PromotionRedemption.id)).where(
             PromotionRedemption.workspace_id == workspace_id,
             PromotionRedemption.campaign_id == campaign.id,
-            PromotionRedemption.state == "redeemed",
+            PromotionRedemption.state.in_(("reserved", "redeemed")),
         )
+    )
+    paid_rows = await db.execute(
+        select(BillingInvoice.plan_snapshot)
+        .join(WorkspaceMembership, WorkspaceMembership.workspace_id == BillingInvoice.workspace_id)
+        .where(
+            WorkspaceMembership.user_id == subject_user_id,
+            WorkspaceMembership.role == "owner",
+            BillingInvoice.status == "succeeded",
+        )
+    )
+    paid_snapshots = [row[0] for row in paid_rows]
+    has_paid_purchase = bool(paid_snapshots)
+    has_paid_plan_purchase = any(
+        isinstance(snapshot, dict)
+        and (snapshot.get("plan_code") == campaign.plan_code
+             or isinstance(snapshot.get("catalog_snapshot"), dict)
+             and snapshot["catalog_snapshot"].get("plan_code") == campaign.plan_code)
+        for snapshot in paid_snapshots
+    )
+    subscription = await db.scalar(
+        select(WorkspaceSubscription).where(WorkspaceSubscription.workspace_id == workspace_id)
+    )
+    active_paid_access = bool(
+        subscription is not None
+        and subscription.plan_code not in {"free", "trial"}
+        and subscription.paid_through is not None
+        and subscription.paid_through.astimezone(UTC) > now.astimezone(UTC)
+    )
+    reserved_budget = await db.scalar(
+        select(func.coalesce(func.sum(PromotionRedemption.list_amount_minor - PromotionRedemption.payable_amount_minor), 0))
+        .where(PromotionRedemption.campaign_id == campaign.id, PromotionRedemption.state == "reserved")
+    )
+    target_user_id = (
+        issued_code.target_user_id
+        if issued_code is not None and issued_code.target_user_id is not None
+        else campaign.target_user_id
     )
     promo = PromoCode(
         code=normalized,
@@ -887,6 +942,13 @@ async def _load_checkout_promo(
         campaign_version=campaign.campaign_version,
         starts_at=campaign.starts_at,
         ends_at=campaign.ends_at,
+        benefit_kind=campaign.benefit_kind,
+        gift_days=campaign.gift_days,
+        audience=campaign.audience,
+        target_user_id=target_user_id,
+        budget_minor=campaign.budget_minor,
+        budget_used_minor=campaign.budget_used_minor,
+        code_id=issued_code.id if issued_code is not None else None,
     )
     check_eligibility(
         promo=promo,
@@ -895,8 +957,100 @@ async def _load_checkout_promo(
         now=now,
         workspace_redemptions=int(used or 0),
         active_reservations=campaign.reserved_count,
+        subject_user_id=subject_user_id,
+        has_paid_purchase=has_paid_purchase,
+        has_paid_plan_purchase=has_paid_plan_purchase,
+        active_paid_access=active_paid_access,
+        budget_reserved_minor=int(reserved_budget or 0),
+        budget_cost_minor=promotion_cost_minor(amount_minor=budget_amount_minor, promo=promo)
+        if budget_amount_minor > 0 else 0,
     )
     return promo, campaign
+
+
+async def _apply_gift_promo(
+    db: AsyncSession,
+    *,
+    campaign: PromotionCampaign,
+    promo: PromoCode,
+    workspace_id: UUID,
+    subject_user_id: UUID,
+    plan_version_id: UUID | None,
+    list_amount_minor: int,
+    now: datetime,
+) -> str:
+    """Grant a gift interval exactly once and leave payment history untouched."""
+    if promo.benefit_kind != "gift" or promo.gift_days is None or plan_version_id is None:
+        raise PromoError("Подарочный тариф временно недоступен", code="promo_invalid")
+    subscription = await db.scalar(
+        select(WorkspaceSubscription)
+        .where(WorkspaceSubscription.workspace_id == workspace_id)
+        .with_for_update()
+    )
+    current = now.astimezone(UTC)
+    timezone = (subscription.timezone or "UTC") if subscription is not None else "UTC"
+    existing_end = await db.scalar(
+        select(func.max(BillingAccessAdjustment.ends_at)).where(
+            BillingAccessAdjustment.workspace_id == workspace_id,
+            BillingAccessAdjustment.kind == "plan_interval",
+            BillingAccessAdjustment.ends_at > current,
+        )
+    )
+    starts = max(
+        current,
+        subscription.paid_through.astimezone(UTC)
+        if subscription is not None and subscription.paid_through is not None
+        and subscription.paid_through.astimezone(UTC) > current
+        else current,
+        existing_end.astimezone(UTC) if existing_end is not None else current,
+    )
+    ends = add_calendar_days(starts, days=promo.gift_days, timezone=timezone)
+    source_ref = f"promotion:{campaign.id}:{promo_code_hash(promo.code)}:{workspace_id}"
+    existing = await db.scalar(
+        select(BillingAccessAdjustment).where(
+            BillingAccessAdjustment.source_kind == "promotion",
+            BillingAccessAdjustment.source_ref == source_ref,
+        )
+    )
+    if existing is not None:
+        return "duplicate"
+    await db.scalar(
+        text(
+            "select public.billing_redeem_promotion_access("
+            ":workspace_id, :subject_user_id, :plan_version_id, :starts_at, :ends_at, "
+            ":timezone, :source_ref, :reason)"
+        ),
+        {
+            "workspace_id": workspace_id,
+            "subject_user_id": subject_user_id,
+            "plan_version_id": plan_version_id,
+            "starts_at": starts,
+            "ends_at": ends,
+            "timezone": timezone,
+            "source_ref": source_ref,
+            "reason": "Подарочный доступ по опубликованной акции",
+        },
+    )
+    await redeem_gift_promo(
+        db,
+        campaign_id=campaign.id,
+        code_hash=promo_code_hash(promo.code),
+        workspace_id=workspace_id,
+        reservation_key=source_ref,
+        list_amount_minor=list_amount_minor,
+        now=current,
+    )
+    db.add(BillingAuditEvent(
+        workspace_id=workspace_id,
+        actor_user_id=subject_user_id,
+        action="promotion.redeem_gift",
+        target_kind="promotion_campaign",
+        target_ref=str(campaign.id),
+        outcome="success",
+        reason_code="gift_redeemed",
+        metadata_json={"days": promo.gift_days, "plan_version_id": str(plan_version_id)},
+    ))
+    return "redeemed"
 
 
 async def _billing_role(
@@ -2828,6 +2982,8 @@ async def billing_checkout_page(
     checkout_preview_data: dict[str, str] | None = None
     expected_quote = ""
     promo_preview_error: str | None = None
+    chosen: PromoCode | None = None
+    discount_source: str | None = None
     selected_catalog = catalog.get(checkout_cycle)
     if (
         not checkout_blocked
@@ -2840,10 +2996,12 @@ async def billing_checkout_page(
                 promo, _ = await _load_checkout_promo(
                     db,
                     workspace_id=tenant_scope.workspace_id,
+                    subject_user_id=principal.user_id,
                     raw_code=checkout_promo_code,
                     plan_code=checkout_plan_code,
                     cycle=checkout_cycle,
                     now=datetime.now(UTC),
+                    budget_amount_minor=selected_catalog.amount_minor or 0,
                 )
             referral_candidate, _, _ = await _checkout_referral_candidate(
                 db,
@@ -2869,6 +3027,8 @@ async def billing_checkout_page(
                 preview,
                 discount_percent=chosen.discount_percent if chosen is not None else None,
                 discount_source=discount_source,
+                benefit_kind=chosen.benefit_kind if chosen is not None else None,
+                gift_days=chosen.gift_days if chosen is not None else None,
             )
         except PromoError as exc:
             promo_preview_error = str(exc)
@@ -2906,6 +3066,8 @@ async def billing_checkout_page(
         checkout_promo_code=checkout_promo_code,
         checkout_cycle=checkout_cycle,
         checkout_preview=checkout_preview_data,
+        checkout_benefit_kind=chosen.benefit_kind if chosen is not None else None,
+        checkout_gift_days=chosen.gift_days if chosen is not None else None,
         promo_preview_error=promo_preview_error,
         receipt_contact_label=_masked_receipt_contact(receipt_contact),
     )
@@ -2952,10 +3114,12 @@ async def preview_billing_checkout(
         entered_promo, _ = await _load_checkout_promo(
             db,
             workspace_id=tenant_scope.workspace_id,
+            subject_user_id=principal.user_id,
             raw_code=promo_code or "",
             plan_code=plan_code,
             cycle=cycle,
             now=datetime.now(UTC),
+            budget_amount_minor=catalog_snapshot.amount_minor or 0,
         )
         referral_candidate, _, _ = await _checkout_referral_candidate(
             db,
@@ -3062,8 +3226,6 @@ async def start_billing_checkout(
             return _checkout_result_redirect(request, "invalid", plan_code=plan_code, cycle=cycle)
         if not offer_consent:
             return _checkout_result_redirect(request, "offer_required", plan_code=plan_code, cycle=cycle)
-        if not recurring_consent:
-            return _checkout_result_redirect(request, "consent_required", plan_code=plan_code, cycle=cycle)
 
         request_fingerprint = checkout_request_fingerprint(
             plan_code=plan_code, cycle=cycle, promo_code=promo_code,
@@ -3098,14 +3260,6 @@ async def start_billing_checkout(
                 )
             return RedirectResponse("/billing?result=pending", status_code=303)
         now = datetime.now(UTC)
-        if (
-            subscription is not None
-            and subscription.plan_code not in {"free", "trial"}
-            and subscription.paid_through is not None
-            and subscription.paid_through.astimezone(UTC) > now
-        ):
-            return RedirectResponse("/billing?result=already_active", status_code=303)
-
         if not re.fullmatch(r"[a-z][a-z0-9_]{2,31}", plan_code) or not await lock_checkout_catalog(db, plan_code=plan_code):
             return _checkout_result_redirect(request, "catalog_not_approved", plan_code=plan_code, cycle=cycle)
         now = datetime.now(UTC)
@@ -3121,10 +3275,12 @@ async def start_billing_checkout(
                 promo, promo_campaign = await _load_checkout_promo(
                     db,
                     workspace_id=tenant_scope.workspace_id,
+                    subject_user_id=principal.user_id,
                     raw_code=promo_code,
                     plan_code=plan_code,
                     cycle=cycle,
                     now=datetime.now(UTC),
+                    budget_amount_minor=catalog_snapshot.amount_minor or 0,
                     lock=True,
                 )
             except (PromoError, ValueError):
@@ -3135,6 +3291,15 @@ async def start_billing_checkout(
                     promo_code=promo_code,
                     cycle=cycle,
                 )
+        if (
+            subscription is not None
+            and subscription.plan_code not in {"free", "trial"}
+            and subscription.paid_through is not None
+            and subscription.paid_through.astimezone(UTC) > now
+            and (promo is None or promo.benefit_kind != "gift")
+        ):
+            await db.rollback()
+            return RedirectResponse("/billing?result=already_active", status_code=303)
         # Referral attribution belongs to the inviter's workspace, while the
         # invitee is now paying from a different personal workspace. The
         # helper restores the request tenant context before any mutation.
@@ -3224,6 +3389,32 @@ async def start_billing_checkout(
                     status_code=303,
                 )
             return RedirectResponse("/billing?result=pending", status_code=303)
+        if promo is not None and promo.benefit_kind == "gift":
+            if promo_campaign is None:
+                await db.rollback()
+                return _checkout_result_redirect(
+                    request, "promo_invalid", plan_code=plan_code, cycle=cycle,
+                )
+            if not offer_consent:
+                await db.rollback()
+                return _checkout_result_redirect(
+                    request, "offer_required", plan_code=plan_code, cycle=cycle,
+                )
+            gift_state = await _apply_gift_promo(
+                db,
+                campaign=promo_campaign,
+                promo=promo,
+                workspace_id=tenant_scope.workspace_id,
+                subject_user_id=principal.user_id,
+                plan_version_id=catalog_snapshot.plan_version_id,
+                list_amount_minor=catalog_snapshot.amount_minor or 0,
+                now=datetime.now(UTC),
+            )
+            await db.commit()
+            return RedirectResponse(f"/billing?result=gift_{gift_state}", status_code=303)
+        if not recurring_consent:
+            await db.rollback()
+            return _checkout_result_redirect(request, "consent_required", plan_code=plan_code, cycle=cycle)
         provider_environment(settings.billing_yookassa_environment)
         intent = build_checkout_intent(
             workspace_id=tenant_scope.workspace_id, idempotency_key=key, preview=preview
@@ -3329,6 +3520,17 @@ async def start_billing_checkout(
                 redemption.expires_at = datetime.now(UTC) + timedelta(minutes=15)
                 redemption.released_at = None
                 redemption.redeemed_at = None
+            if promo.code_id is not None:
+                issued_code = await db.scalar(
+                    select(PromotionCode).where(PromotionCode.id == promo.code_id).with_for_update()
+                )
+                if issued_code is None or issued_code.state != "available":
+                    await db.rollback()
+                    return _checkout_result_redirect(
+                        request, "promo_invalid", plan_code=plan_code, promo_code=promo_code,
+                    )
+                issued_code.state = "reserved"
+                issued_code.reserved_at = datetime.now(UTC)
         await db.commit()
         return_url = billing_checkout_return_url(request, safe_invoice_number=intent.invoice_number)
         payment = await _create_initial_checkout_payment(

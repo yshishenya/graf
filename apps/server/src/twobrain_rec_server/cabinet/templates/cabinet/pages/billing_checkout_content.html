@@ -3,8 +3,8 @@
 {% set checkout_result = checkout_result|default(None) %}
 {% set checkout_blocked = checkout_blocked|default(checkout_result == "pending") %}
 {% set checkout_available = billing_enabled and catalog_ready|default(True) %}
-{% set selected_price_label = annual_price_label|default("Цена недоступна", true) if checkout_cycle == "year" else monthly_price_label|default("Цена недоступна", true) %}
-{% if checkout_preview|default(None) %}{% set selected_price_label = checkout_preview.payable_amount_label %}{% endif %}
+{% set selected_price_label = "Бесплатно" if checkout_benefit_kind|default(None) == "gift" else (annual_price_label|default("Цена недоступна", true) if checkout_cycle == "year" else monthly_price_label|default("Цена недоступна", true)) %}
+{% if checkout_preview|default(None) and checkout_benefit_kind|default(None) != "gift" %}{% set selected_price_label = checkout_preview.payable_amount_label %}{% endif %}
 <main id="cabinet-main" class="cabinet-main billing-page billing-checkout-page" tabindex="-1">
   <div class="cabinet-workspace settings-page">
     <div class="settings-page__content billing-page__content">
@@ -13,7 +13,7 @@
       <section class="billing-checkout-card" aria-labelledby="billing-checkout-title">
         <div class="billing-checkout-card__heading">
           <div><span class="settings-scope-badge">Тариф</span><h2 id="billing-checkout-title">{{ plan.label if plan else "Тариф недоступен" }}</h2></div>
-          {% if checkout_available and not checkout_blocked %}<p class="billing-price"><strong>{{ selected_price_label }}</strong><span>{% if checkout_cycle == "year" %}в год{% else %}в месяц{% endif %}</span></p>{% endif %}
+          {% if checkout_available and not checkout_blocked %}<p class="billing-price"><strong>{{ selected_price_label }}</strong><span>{% if checkout_benefit_kind|default(None) == "gift" %}подарочный доступ{% elif checkout_cycle == "year" %}в год{% else %}в месяц{% endif %}</span></p>{% endif %}
         </div>
         <p class="muted">{{ checkout_processing_label|default("Условия обработки по тарифу") }} · {{ catalog_storage_label|default("утверждённая ёмкость") }} хранения.</p>
 
@@ -38,7 +38,7 @@
         {% if checkout_available and not checkout_blocked %}<dl class="billing-order-summary">
           {% if checkout_preview|default(None) %}<div><dt>Цена по каталогу</dt><dd>{{ checkout_preview.list_amount_label }}</dd></div><div><dt>Скидка</dt><dd>{{ checkout_preview.discount_label }}</dd></div>{% endif %}
           <div class="billing-order-summary__total"><dt>К оплате сегодня</dt><dd><strong>{{ selected_price_label }}</strong></dd></div>
-          <div><dt>Следующее списание</dt><dd>{% if checkout_preview|default(None) %}{{ checkout_preview.next_amount_label }} за {{ checkout_preview.cycle_label }}{% else %}{{ selected_price_label }} за {% if checkout_cycle == "year" %}год{% else %}месяц{% endif %}{% endif %}, пока автопродление не отключено</dd></div>
+          <div><dt>Следующее списание</dt><dd>{% if checkout_benefit_kind|default(None) == "gift" %}Не создаётся: подарок не является оплатой{% elif checkout_preview|default(None) %}{{ checkout_preview.next_amount_label }} за {{ checkout_preview.cycle_label }}, пока автопродление не отключено{% else %}{{ selected_price_label }} за {% if checkout_cycle == "year" %}год{% else %}месяц{% endif %}, пока автопродление не отключено{% endif %}</dd></div>
           {% if receipt_contact_label|default(None) %}<div><dt>Чек отправится на</dt><dd>{{ receipt_contact_label }}</dd></div>{% endif %}
         </dl>{% endif %}
 
@@ -52,7 +52,7 @@
             <input id="billing-promo" name="promo_code" type="text" inputmode="latin" autocomplete="off" maxlength="48" value="{{ checkout_promo_code|default('') }}"{% if checkout_result == "promo_invalid" or promo_preview_error|default(None) %} aria-describedby="billing-checkout-error" aria-invalid="true"{% endif %}>
             <button class="button quiet" type="submit">Применить</button>
           </form>
-          {% if checkout_preview|default(None) %}<p class="muted" role="status">Применяется только одна скидка. Итог повторно проверится перед оплатой.</p>{% endif %}
+          {% if checkout_preview|default(None) %}<p class="muted" role="status">{% if checkout_benefit_kind|default(None) == "gift" %}Подарок на {{ checkout_gift_days }} дн. доступа. Он будет выдан один раз после подтверждения.{% else %}Применяется только одна скидка. Итог повторно проверится перед оплатой.{% endif %}</p>{% endif %}
         </details>
 
         <form action="/billing/checkout/start" method="post" class="billing-checkout-form">
@@ -62,8 +62,8 @@
           <input type="hidden" name="promo_code" value="{{ checkout_promo_code|default('') }}">
           <input type="hidden" name="cycle" value="{{ checkout_cycle }}">
           <label class="billing-consent"><input type="checkbox" name="offer_consent" value="true" required> <span>Принимаю <a href="/offer" target="_blank" rel="noopener">оферту</a> версии {{ offer_version_label|default("billing-personal-v1") }}.</span></label>
-          <label class="billing-consent"><input type="checkbox" name="recurring_consent" value="true" required> <span>Согласен на регулярное списание до отключения автопродления.</span></label>
-          <button class="button billing-checkout-form__submit" data-billing-primary type="submit"{% if promo_preview_error|default(None) %} disabled{% endif %}>Оплатить {{ selected_price_label }} в YooKassa — {% if checkout_cycle == "year" %}год{% else %}месяц{% endif %}</button>
+          {% if checkout_benefit_kind|default(None) != "gift" %}<label class="billing-consent"><input type="checkbox" name="recurring_consent" value="true" required> <span>Согласен на регулярное списание до отключения автопродления.</span></label>{% endif %}
+          <button class="button billing-checkout-form__submit" data-billing-primary type="submit"{% if promo_preview_error|default(None) %} disabled{% endif %}>{% if checkout_benefit_kind|default(None) == "gift" %}Получить подарок{% else %}Оплатить {{ selected_price_label }} в YooKassa — {% if checkout_cycle == "year" %}год{% else %}месяц{% endif %}{% endif %}</button>
         </form>
         {% elif not billing_enabled %}<p role="status">Оплата пока недоступна: магазин не включён.</p>
         {% elif not catalog_ready|default(True) %}<p role="status">Оплата пока недоступна: версия тарифа ещё не утверждена.</p>{% endif %}

@@ -20,18 +20,6 @@ from sqlalchemy import select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
-
-import scripts.cleanup_smoke_artifacts as cleanup_smoke_artifacts_module
-from scripts.cleanup_smoke_artifacts import cleanup_smoke_artifacts
-from scripts.cleanup_smoke_auth_session import cleanup_smoke_auth_session
-from scripts.issue_smoke_auth_session import issue_smoke_auth_session
-from scripts.seed_smoke_identity import seed_identity
-from tests.fixtures.postgres_rls import (
-    optional_rls_test_database_url,
-    rls_test_database_url,
-    validate_rls_test_database_url,
-)
-from tests.fixtures.postgres_test_database import ensure_disposable_media_role
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.auth import callbacks as callbacks_module
 from twobrain_rec_server.auth.account_closure import (
@@ -103,6 +91,18 @@ from twobrain_rec_server.db.tenant_context import (
     apply_tenant_context_to_connection,
 )
 from twobrain_rec_server.deployment import build_smoke_identity_seed
+
+import scripts.cleanup_smoke_artifacts as cleanup_smoke_artifacts_module
+from scripts.cleanup_smoke_artifacts import cleanup_smoke_artifacts
+from scripts.cleanup_smoke_auth_session import cleanup_smoke_auth_session
+from scripts.issue_smoke_auth_session import issue_smoke_auth_session
+from scripts.seed_smoke_identity import seed_identity
+from tests.fixtures.postgres_rls import (
+    optional_rls_test_database_url,
+    rls_test_database_url,
+    validate_rls_test_database_url,
+)
+from tests.fixtures.postgres_test_database import ensure_disposable_media_role
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 MEDIA_READ_ONLY_TABLES = (
@@ -196,7 +196,7 @@ async def _create_probe_role(
         async with engine.begin() as conn:
             quoted_role = _quote_identifier(role_name)
             exists = await conn.scalar(text("select exists(select 1 from pg_roles where rolname=:role)"), {"role":role_name})
-            if exists and role_name != "twobrain_rec_maintenance":
+            if exists and role_name not in {"twobrain_rec_maintenance", "twobrain_rec_app"}:
                 pytest.fail("unexpected existing probe role")
             # Migration 0088 owns this cluster-wide identity. Reuse it only in the
             # validated disposable test cluster; never drop its cross-database grants.
@@ -223,7 +223,13 @@ async def _create_probe_role(
             )
             if role_name == "twobrain_rec_app":
                 await conn.execute(text(
+                    "revoke insert on public.billing_access_adjustments from twobrain_rec_app"
+                ))
+                await conn.execute(text(
                     "grant execute on function rec_share_recipient_is_member(uuid,uuid) to twobrain_rec_app"
+                ))
+                await conn.execute(text(
+                    "grant execute on function billing_redeem_promotion_access(uuid,uuid,uuid,timestamptz,timestamptz,text,text,text) to twobrain_rec_app"
                 ))
     finally:
         await engine.dispose()
@@ -320,6 +326,14 @@ async def _drop_probe_role(migration_url: str, role_name: str) -> None:
             if not exists:
                 return
             quoted_role = _quote_identifier(role_name)
+            # The system-security module deliberately bootstraps the
+            # production-named app login and leaves its grants in place for
+            # later tests. It cannot be dropped safely from an owner-only
+            # connection because those ACLs are shared dependencies; disable
+            # login and reuse the isolated role instead.
+            if role_name == "twobrain_rec_app":
+                await conn.execute(text(f"alter role {quoted_role} nologin"))
+                return
             await conn.execute(text(f"drop owned by {quoted_role}"))
             await conn.execute(text(f"drop role if exists {quoted_role}"))
     finally:
@@ -5007,7 +5021,6 @@ async def test_independent_billing_handoff_crosses_rls_contexts_atomically(
     migrated_postgres_urls: MigratedPostgresUrls, tmp_path,
 ) -> None:
     from cryptography.fernet import Fernet
-
     from twobrain_rec_server.auth.browser_handoff import (
         DESKTOP_BILLING_HANDOFF_PROVIDER,
         seal_desktop_billing_session,

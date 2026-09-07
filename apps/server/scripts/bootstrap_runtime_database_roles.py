@@ -6,7 +6,6 @@ import re
 from pathlib import Path
 
 import asyncpg
-
 from twobrain_rec_server.db.rls_validation import SYSTEM_CONTENT_COLUMNS
 
 OWNER_ROLE = "twobrain_rec"
@@ -387,6 +386,7 @@ async def _bootstrap() -> None:
                 f"grant usage on schema public to {APP_ROLE}, {MAINTENANCE_ROLE}, {MEDIA_ROLE}",
                 "grant select, insert, update, delete on all tables in schema public "
                 f"to {APP_ROLE}, {MAINTENANCE_ROLE}",
+                f"revoke insert on public.billing_access_adjustments from {APP_ROLE}",
                 "grant usage, select on all sequences in schema public "
                 f"to {APP_ROLE}, {MAINTENANCE_ROLE}",
                 "grant execute on function "
@@ -394,6 +394,7 @@ async def _bootstrap() -> None:
                 f"to {APP_ROLE}, {MAINTENANCE_ROLE}",
                 f"grant execute on function public.billing_lock_checkout_catalog(text) to {APP_ROLE}",
                 f"grant execute on function public.rec_share_recipient_is_member(uuid,uuid) to {APP_ROLE}",
+                f"grant execute on function public.billing_redeem_promotion_access(uuid,uuid,uuid,timestamptz,timestamptz,text,text,text) to {APP_ROLE}",
                 f"alter default privileges for role {OWNER_ROLE} in schema public "
                 "grant select, insert, update, delete on tables "
                 f"to {APP_ROLE}, {MAINTENANCE_ROLE}",

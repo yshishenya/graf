@@ -152,7 +152,8 @@ class PromotionRedemption(Base):
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     campaign_id: Mapped[UUID] = mapped_column(ForeignKey("promotion_campaigns.id"), nullable=False)
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
-    invoice_id: Mapped[UUID] = mapped_column(ForeignKey("billing_invoices.id"), nullable=False)
+    # Gift redemptions are access grants without a monetary invoice.
+    invoice_id: Mapped[UUID | None] = mapped_column(ForeignKey("billing_invoices.id"))
     reservation_key: Mapped[str] = mapped_column(String(240), nullable=False)
     code_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     list_amount_minor: Mapped[int] = mapped_column(BigInteger, nullable=False)

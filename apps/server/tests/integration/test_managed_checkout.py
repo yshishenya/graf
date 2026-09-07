@@ -8,16 +8,8 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
-
-from tests.fakes.auth_contexts import USER_ID
-from tests.integration.test_account_lifecycle import (
-    _bind_web_session,
-    _issue_web_session,
-    _seed_personal_workspace,
-)
-from tests.integration.test_system_admin_billing import _capabilities
 from twobrain_rec_server.cabinet.web_routes import billing
-from twobrain_rec_server.db.models import ExternalIdentity
+from twobrain_rec_server.db.models import ExternalIdentity, UserIdentity
 from twobrain_rec_server.db.models.billing import (
     BillingInvoice,
     BillingOperation,
@@ -26,6 +18,14 @@ from twobrain_rec_server.db.models.billing import (
     BillingPlanVersion,
     WorkspaceSubscription,
 )
+
+from tests.fakes.auth_contexts import USER_ID
+from tests.integration.test_account_lifecycle import (
+    _bind_web_session,
+    _issue_web_session,
+    _seed_personal_workspace,
+)
+from tests.integration.test_system_admin_billing import _capabilities
 
 pytestmark = pytest.mark.strict_rls
 
@@ -221,10 +221,10 @@ def test_checkout_rejects_changed_or_unapproved_terms_without_invoice(checkout, 
 @pytest.mark.parametrize("target", ["plan", "version"])
 def test_catalog_close_serializes_with_admission_without_catalog_write_grant(checkout, target):
     from sqlalchemy.exc import DBAPIError
-
-    from tests.fakes.auth_contexts import ORG_ID
     from twobrain_rec_server.billing.catalog import lock_checkout_catalog, read_public_catalog
     from twobrain_rec_server.db.tenant_context import TenantDatabaseContext, apply_tenant_context
+
+    from tests.fakes.auth_contexts import ORG_ID
 
     client, _, _, workspace, plan_id, versions = checkout
 
@@ -348,6 +348,158 @@ def test_managed_promo_changed_discount_requires_new_confirmation_and_reserves_o
     reserved, count, snapshot = client.portal.call(counters)
     assert reserved == count == 1
     assert snapshot["campaign_version"] == "synthetic-v2" and snapshot["discount_percent"] == 10
+
+
+def test_issued_promo_code_is_accepted_and_consumed_after_payment(checkout):
+    from twobrain_rec_server.billing.promotions import promo_code_hash
+    from twobrain_rec_server.db.models import PromotionCampaign, PromotionCode, PromotionRedemption
+
+    client, headers, calls, workspace, _, _ = checkout
+    plaintext = "BATCH-ISSUED-01"
+    campaign_id = uuid4()
+
+    async def seed_campaign():
+        async with client.app_state["sessionmaker"]() as db:
+            db.add(PromotionCampaign(
+                id=campaign_id, code_hash=promo_code_hash("BATCH-CAMPAIGN"),
+                campaign_version="batch-v1", plan_code="research_plus", cycle="month",
+                discount_percent=20, max_redemptions=10, audience="selected",
+                target_user_id=USER_ID, enabled=True, status="active",
+            ))
+            db.add(PromotionCode(
+                id=uuid4(), campaign_id=campaign_id, code_hash=promo_code_hash(plaintext),
+            ))
+            await db.commit()
+    client.portal.call(seed_campaign)
+
+    applied = client.post("/billing/checkout/preview", data={
+        "plan_code": "research_plus", "cycle": "month", "promo_code": plaintext,
+    }, headers=headers, follow_redirects=False)
+    assert "promo_applied" in applied.headers["location"]
+    form = _form(client) | {"promo_code": plaintext}
+    response = client.post("/billing/checkout/start", data=form, headers=headers, follow_redirects=False)
+    assert response.headers["location"] == "https://yookassa.ru/checkout/synthetic-managed"
+    assert len(calls) == 1 and calls[0]["amount_minor"] == 98720
+
+    async def confirm():
+        from twobrain_rec_server.billing.entitlements import grant_confirmed_payment
+
+        async with client.app_state["sessionmaker"]() as db:
+            invoice = await db.scalar(select(BillingInvoice))
+            result = await grant_confirmed_payment(
+                db, workspace_id=workspace, provider_payment_id="synthetic-managed-payment",
+                amount_minor=invoice.amount_minor, currency="RUB", paid_at=datetime.now(UTC),
+            )
+            await db.commit()
+            code = await db.scalar(select(PromotionCode))
+            redemption = await db.scalar(select(PromotionRedemption))
+            campaign = await db.scalar(select(PromotionCampaign))
+            return result, code.state, redemption.state, campaign.redeemed_count
+
+    assert client.portal.call(confirm) == ("granted", "redeemed", "redeemed", 1)
+
+
+def test_gift_promo_code_grants_access_without_invoice_or_recurring_consent(checkout):
+    from twobrain_rec_server.billing.promotions import promo_code_hash
+    from twobrain_rec_server.db.models import (
+        BillingAccessAdjustment,
+        PromotionCampaign,
+        PromotionCode,
+        PromotionRedemption,
+    )
+
+    client, headers, calls, workspace, _, versions = checkout
+    plaintext = "BATCH-GIFT-01"
+    campaign_id = uuid4()
+
+    async def seed_campaign():
+        async with client.app_state["sessionmaker"]() as db:
+            db.add(PromotionCampaign(
+                id=campaign_id, code_hash=promo_code_hash("GIFT-CAMPAIGN"),
+                campaign_version="gift-v1", plan_code="research_plus", cycle="month",
+                discount_percent=0, gift_days=7, benefit_kind="gift", max_redemptions=10,
+                enabled=True, status="active",
+            ))
+            db.add(PromotionCode(
+                id=uuid4(), campaign_id=campaign_id, code_hash=promo_code_hash(plaintext),
+            ))
+            await db.commit()
+    client.portal.call(seed_campaign)
+
+    applied = client.post("/billing/checkout/preview", data={
+        "plan_code": "research_plus", "cycle": "month", "promo_code": plaintext,
+    }, headers=headers, follow_redirects=False)
+    assert "promo_applied" in applied.headers["location"]
+    page = client.get(applied.headers["location"])
+    assert "Подарок: 7 дн. доступа" in page.text
+    fields = {name: html.unescape(value) for name, value in re.findall(
+        r'<input type="hidden" name="([^"]+)" value="([^"]*)"', page.text,
+    )}
+    form = fields | {"offer_consent": "true"}
+    assert "recurring_consent" not in form
+    response = client.post("/billing/checkout/start", data=form, headers=headers, follow_redirects=False)
+    assert response.headers["location"] == "/billing?result=gift_redeemed"
+    assert calls == []
+
+    async def state():
+        async with client.app_state["sessionmaker"]() as db:
+            return (
+                len(list(await db.scalars(select(BillingInvoice)))),
+                (await db.scalar(select(BillingAccessAdjustment))).plan_version_id,
+                (await db.scalar(select(BillingAccessAdjustment))).ends_at,
+                (await db.scalar(select(PromotionRedemption))).invoice_id,
+                (await db.scalar(select(PromotionCode))).state,
+            )
+
+    invoice_count, plan_version_id, gift_end, invoice_id, code_state = client.portal.call(state)
+    assert invoice_count == 0
+    assert plan_version_id == versions[0]
+    assert gift_end > datetime.now(UTC)
+    assert invoice_id is None and code_state == "redeemed"
+
+
+def test_promo_audience_and_budget_are_rechecked_at_checkout(checkout):
+    from twobrain_rec_server.billing.promotions import promo_code_hash
+    from twobrain_rec_server.db.models import PromotionCampaign
+
+    client, headers, _, _, _, _ = checkout
+    campaign_id = uuid4()
+    budget_campaign_id = uuid4()
+    selected_user_id = uuid4()
+
+    async def seed_campaign():
+        async with client.app_state["sessionmaker"]() as db:
+            subject = await db.get(UserIdentity, USER_ID)
+            assert subject is not None
+            db.add(UserIdentity(
+                id=selected_user_id,
+                organization_id=subject.organization_id,
+                external_subject="synthetic-selected-promo-user",
+                display_name="Selected Promo User",
+            ))
+            await db.flush()
+            db.add(PromotionCampaign(
+                id=campaign_id, code_hash=promo_code_hash("NEW-ONLY"), campaign_version="new-only-v1",
+                plan_code="research_plus", cycle="month", discount_percent=20, max_redemptions=10,
+                audience="selected", target_user_id=selected_user_id, budget_minor=1000000,
+                enabled=True, status="active",
+            ))
+            db.add(PromotionCampaign(
+                id=budget_campaign_id, code_hash=promo_code_hash("BUDGET-LOW"), campaign_version="budget-v1",
+                plan_code="research_plus", cycle="month", discount_percent=20, max_redemptions=10,
+                audience="all", budget_minor=1000, enabled=True, status="active",
+            ))
+            await db.commit()
+    client.portal.call(seed_campaign)
+
+    response = client.post("/billing/checkout/preview", data={
+        "plan_code": "research_plus", "cycle": "month", "promo_code": "NEW-ONLY",
+    }, headers=headers, follow_redirects=False)
+    assert "result=promo_invalid" in response.headers["location"]
+    response = client.post("/billing/checkout/preview", data={
+        "plan_code": "research_plus", "cycle": "month", "promo_code": "BUDGET-LOW",
+    }, headers=headers, follow_redirects=False)
+    assert "result=promo_invalid" in response.headers["location"]
 
 
 def test_legacy_personal_catalog_remains_payable_with_new_consent_form(checkout):

@@ -14,13 +14,14 @@ from hashlib import sha256
 from typing import Literal
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.db.models import (
     BillingInvoice,
     BillingOperation,
     PromotionCampaign,
+    PromotionCode,
     PromotionRedemption,
 )
 
@@ -48,6 +49,13 @@ class PromoCode:
     starts_at: datetime | None = None
     ends_at: datetime | None = None
     max_per_workspace: int = 1
+    benefit_kind: Literal["discount", "gift"] = "discount"
+    gift_days: int | None = None
+    audience: str = "all"
+    target_user_id: UUID | None = None
+    budget_minor: int | None = None
+    budget_used_minor: int = 0
+    code_id: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,6 +64,8 @@ class PromoEligibility:
     code_hash: str
     discount_percent: int
     campaign_version: str
+    benefit_kind: Literal["discount", "gift"] = "discount"
+    gift_days: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,6 +76,16 @@ class PromoReservation:
     list_amount_minor: int
     payable_amount_minor: int
     state: PromoState = "reserved"
+
+
+def promotion_cost_minor(*, amount_minor: int, promo: PromoCode) -> int:
+    """Return the monetary budget consumed by one accepted application."""
+    if amount_minor < 0:
+        raise PromoError("Сумма акции недоступна", code="promo_invalid")
+    if promo.benefit_kind == "gift":
+        return amount_minor
+    payable = amount_minor * (100 - promo.discount_percent) // 100
+    return amount_minor - payable
 
 
 _DASH_TRANSLATION = str.maketrans({char: "-" for char in "‐‑‒–—﹘﹣－"})
@@ -102,13 +122,39 @@ def check_eligibility(
     now: datetime,
     workspace_redemptions: int = 0,
     active_reservations: int = 0,
+    subject_user_id: UUID | None = None,
+    has_paid_purchase: bool | None = None,
+    has_paid_plan_purchase: bool | None = None,
+    active_paid_access: bool | None = None,
+    budget_reserved_minor: int = 0,
+    budget_cost_minor: int = 0,
 ) -> PromoEligibility:
     """Validate scope, window and caps before an invoice is created."""
     normalized = normalize_promo(promo.code)
     if promo.plan_code != plan_code or (promo.cycle is not None and promo.cycle != cycle):
         raise PromoError("Промокод недоступен для этого тарифа", code="promo_not_eligible")
-    if not 1 <= promo.discount_percent <= 99 or promo.max_redemptions < 1:
+    if promo.max_redemptions < 1:
         raise PromoError("Промокод имеет неверные условия", code="promo_invalid")
+    if promo.benefit_kind not in {"discount", "gift"}:
+        raise PromoError("Промокод имеет неверные условия", code="promo_invalid")
+    if promo.benefit_kind == "discount" and not 1 <= promo.discount_percent <= 99:
+        raise PromoError("Промокод имеет неверные условия", code="promo_invalid")
+    if promo.benefit_kind == "gift" and (promo.gift_days is None or not 1 <= promo.gift_days <= 365):
+        raise PromoError("Промокод имеет неверные условия", code="promo_invalid")
+    if promo.audience not in {"all", "never_paid", "first_purchase", "selected", "former_paid"}:
+        raise PromoError("Промокод имеет неверные условия", code="promo_invalid")
+    if promo.target_user_id is not None and promo.target_user_id != subject_user_id:
+        raise PromoError("Промокод предназначен для другого пользователя", code="promo_not_eligible")
+    if promo.audience == "selected" and promo.target_user_id != subject_user_id:
+        raise PromoError("Промокод предназначен для выбранных пользователей", code="promo_not_eligible")
+    if promo.audience == "never_paid" and has_paid_purchase is True:
+        raise PromoError("Промокод доступен только новым плательщикам", code="promo_not_eligible")
+    if promo.audience == "first_purchase" and has_paid_plan_purchase is True:
+        raise PromoError("Промокод доступен только для первой покупки тарифа", code="promo_not_eligible")
+    if promo.audience == "former_paid" and (has_paid_purchase is not True or active_paid_access is True):
+        raise PromoError("Промокод доступен бывшим платным пользователям", code="promo_not_eligible")
+    if promo.budget_minor is not None and promo.budget_used_minor + budget_reserved_minor + budget_cost_minor > promo.budget_minor:
+        raise PromoError("Бюджет акции исчерпан", code="promo_budget_exhausted")
     if promo.redeemed >= promo.max_redemptions or workspace_redemptions >= promo.max_per_workspace:
         raise PromoError("Лимит промокода уже исчерпан", code="promo_exhausted")
     if active_reservations >= promo.max_redemptions - promo.redeemed:
@@ -118,7 +164,7 @@ def check_eligibility(
         raise PromoError("Промокод ещё не действует", code="promo_not_started")
     if promo.ends_at is not None and current >= _aware(promo.ends_at):
         raise PromoError("Срок действия промокода закончился", code="promo_expired")
-    return PromoEligibility(normalized, promo_code_hash(normalized), promo.discount_percent, promo.campaign_version)
+    return PromoEligibility(normalized, promo_code_hash(normalized), promo.discount_percent, promo.campaign_version, promo.benefit_kind, promo.gift_days)
 
 
 def apply_promo(
@@ -133,6 +179,12 @@ def apply_promo(
         raise PromoError("Сумма платежа недоступна", code="promo_invalid")
     # Keep the historical helper deterministic; window/cap checks belong to
     # check_eligibility where the authoritative clock and counters are known.
+    if promo.benefit_kind == "gift":
+        if promo.plan_code != plan_code or (promo.cycle is not None and cycle is not None and promo.cycle != cycle):
+            raise PromoError("Промокод недоступен для этого тарифа", code="promo_not_eligible")
+        if promo.gift_days is None or not 1 <= promo.gift_days <= 365:
+            raise PromoError("Промокод имеет неверные условия", code="promo_invalid")
+        return 0
     if (
         promo.plan_code != plan_code
         or promo.redeemed >= promo.max_redemptions
@@ -172,7 +224,7 @@ def choose_best_discount(
     best: tuple[PromoCode, int] | None = None
     for index, candidate in enumerate(candidates):
         try:
-            payable = apply_promo(
+            payable = 0 if candidate.benefit_kind == "gift" else apply_promo(
                 amount_minor=amount_minor,
                 promo=candidate,
                 plan_code=plan_code,
@@ -200,7 +252,7 @@ def reserve_promo(
     """Create an immutable invoice snapshot; persistence/uniqueness is DB-owned."""
     if not reservation_key.strip() or len(reservation_key) > 240:
         raise PromoError("Идентификатор оплаты недействителен", code="promo_invalid")
-    payable = apply_promo(
+    payable = 0 if promo.benefit_kind == "gift" else apply_promo(
         amount_minor=list_amount_minor,
         promo=promo,
         plan_code=promo.plan_code,
@@ -225,9 +277,105 @@ async def redeem_invoice_promo(db: AsyncSession, *, invoice_id: UUID, now: datet
     if campaign is None or campaign.redeemed_count >= campaign.max_redemptions:
         row.state = "released"
         row.released_at = _aware(now)
+        code = await db.scalar(select(PromotionCode).where(PromotionCode.code_hash == row.code_hash).with_for_update())
+        if code is not None and code.state == "reserved":
+            code.state = "available"
+            code.reserved_at = None
+        await db.flush()
         return "none"
     row.state = "redeemed"
     row.redeemed_at = _aware(now)
+    code = await db.scalar(select(PromotionCode).where(
+        PromotionCode.campaign_id == row.campaign_id, PromotionCode.code_hash == row.code_hash
+    ).with_for_update())
+    if code is not None:
+        if code.state == "redeemed":
+            return "duplicate"
+        if code.state == "reserved":
+            code.state = "redeemed"
+            code.redeemed_at = _aware(now)
+    if campaign.budget_minor is not None:
+        # The immutable redemption stores the effective benefit type in the
+        # campaign row; gifts consume their catalog value, discounts consume
+        # only the discount amount.
+        campaign.budget_used_minor += (
+            row.list_amount_minor
+            if campaign.benefit_kind == "gift"
+            else max(0, row.list_amount_minor - row.payable_amount_minor)
+        )
+    await db.flush()
+    return "redeemed"
+
+
+async def redeem_gift_promo(
+    db: AsyncSession,
+    *,
+    campaign_id: UUID,
+    code_hash: str,
+    workspace_id: UUID,
+    reservation_key: str,
+    list_amount_minor: int,
+    now: datetime,
+) -> Literal["redeemed", "duplicate"]:
+    """Atomically consume a gift code without creating an invoice."""
+    current = _aware(now)
+    campaign = await db.scalar(
+        select(PromotionCampaign).where(PromotionCampaign.id == campaign_id).with_for_update()
+    )
+    if campaign is None:
+        raise PromoError("Промокод не распознан")
+    existing = await db.scalar(
+        select(PromotionRedemption).where(
+            PromotionRedemption.workspace_id == workspace_id,
+            PromotionRedemption.code_hash == code_hash,
+            PromotionRedemption.state == "redeemed",
+        ).with_for_update()
+    )
+    if existing is not None:
+        return "duplicate"
+    if campaign.redeemed_count + campaign.reserved_count >= campaign.max_redemptions:
+        raise PromoError("Лимит акции уже исчерпан", code="promo_exhausted")
+    if campaign.budget_minor is not None:
+        reserved = await db.scalar(
+            select(func.coalesce(func.sum(PromotionRedemption.list_amount_minor), 0)).where(
+                PromotionRedemption.campaign_id == campaign_id,
+                PromotionRedemption.state == "reserved",
+            )
+        )
+        if campaign.budget_used_minor + int(reserved or 0) + list_amount_minor > campaign.budget_minor:
+            raise PromoError("Бюджет акции исчерпан", code="promo_budget_exhausted")
+    code = await db.scalar(
+        select(PromotionCode).where(
+            PromotionCode.campaign_id == campaign_id,
+            PromotionCode.code_hash == code_hash,
+        ).with_for_update()
+    )
+    if code is not None:
+        if code.state != "available":
+            raise PromoError("Промокод уже использован или отозван", code="promo_exhausted")
+        code.state = "reserved"
+        code.reserved_at = current
+    redemption = PromotionRedemption(
+        campaign_id=campaign_id,
+        workspace_id=workspace_id,
+        invoice_id=None,
+        reservation_key=reservation_key,
+        code_hash=code_hash,
+        list_amount_minor=list_amount_minor,
+        payable_amount_minor=0,
+        discount_percent=0,
+        state="reserved",
+        expires_at=current,
+    )
+    db.add(redemption)
+    await db.flush()
+    redemption.state = "redeemed"
+    redemption.redeemed_at = current
+    if code is not None:
+        code.state = "redeemed"
+        code.redeemed_at = current
+    if campaign.budget_minor is not None:
+        campaign.budget_used_minor += list_amount_minor
     await db.flush()
     return "redeemed"
 
@@ -241,6 +389,12 @@ async def release_invoice_promo(db: AsyncSession, *, invoice_id: UUID, now: date
         return False
     row.state = "released"
     row.released_at = _aware(now)
+    code = await db.scalar(select(PromotionCode).where(
+        PromotionCode.campaign_id == row.campaign_id, PromotionCode.code_hash == row.code_hash
+    ).with_for_update())
+    if code is not None and code.state == "reserved":
+        code.state = "available"
+        code.reserved_at = None
     await db.flush()
     return True
 
@@ -287,6 +441,12 @@ async def expire_promo_reservations(db: AsyncSession, *, now: datetime) -> int:
     for row, _operation, _campaign in rows:
         row.state = "expired"
         row.released_at = current
+        code = await db.scalar(select(PromotionCode).where(
+            PromotionCode.campaign_id == row.campaign_id, PromotionCode.code_hash == row.code_hash
+        ).with_for_update())
+        if code is not None and code.state == "reserved":
+            code.state = "available"
+            code.reserved_at = None
         expired += 1
     await db.flush()
     return expired

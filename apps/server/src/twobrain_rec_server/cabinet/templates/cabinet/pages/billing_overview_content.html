@@ -33,6 +33,8 @@
         {% elif billing_result == "returned" %}<p class="notice" role="status" aria-live="polite">Вы вернулись из ЮKassa. Доступ включится только после подтверждения платежа.</p>
         {% elif billing_result == "already_active" %}<p class="notice" role="status" aria-live="polite">Тариф «{{ plan.label }}» уже активен до {{ paid_through_label|default("указанной даты", true) }}. Повторная оплата не создана.</p>
         {% elif billing_result == "unavailable" %}<p class="notice" role="alert">Не удалось открыть оплату. Проверьте историю платежей или повторите позже.</p>
+        {% elif billing_result == "gift_redeemed" %}<p class="notice" role="status" aria-live="polite">Подарочный доступ включён. Платёж и чек не создавались.</p>
+        {% elif billing_result == "gift_duplicate" %}<p class="notice" role="status" aria-live="polite">Этот подарок уже был применён.</p>
         {% elif billing_result == "owner_only" %}<p class="notice" role="status">Оплатой и платежными данными управляет владелец пространства.</p>
         {% elif billing_result == "personal_only" %}<p class="notice" role="status">Личный тариф оформляется для «Моего пространства». <a href="/settings/workspace">Выбрать Моё пространство</a></p>{% endif %}
 

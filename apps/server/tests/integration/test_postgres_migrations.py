@@ -11,8 +11,6 @@ from alembic.config import Config
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-
-from tests.fakes.fake_minio import FakeMinioStorage
 from twobrain_rec_server.config import Settings, get_settings
 from twobrain_rec_server.db.models import (
     Organization,
@@ -22,6 +20,8 @@ from twobrain_rec_server.db.models import (
     WorkspaceMembership,
 )
 from twobrain_rec_server.main import create_app
+
+from tests.fakes.fake_minio import FakeMinioStorage
 
 ROOT = Path(__file__).parents[4]
 ORG_ID = UUID("10000000-0000-0000-0000-000000000001")
@@ -248,7 +248,7 @@ def test_production_share_head_upgrades_to_regeneration_merge(
         promotion_counter_function,
         promotion_counter_config,
     ) = asyncio.run(inspect_schema())
-    assert versions == ["0105_system_admin_observability_console"]
+    assert versions == ["0106_promotion_gift_redemptions"]
     assert "public.promotion_campaigns" in promotion_counter_function
     assert "search_path=pg_catalog, pg_temp" in promotion_counter_config
     assert {
@@ -826,6 +826,7 @@ def test_alembic_revision_ids_fit_default_version_table_length() -> None:
         "0103_system_admin_billing_console",
         "0104_system_admin_subscription_commands",
         "0105_system_admin_observability_console",
+        "0106_promotion_gift_redemptions",
     }
 
     for migration_path in versions.glob("*.py"):

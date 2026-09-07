@@ -60,13 +60,13 @@ def checkout_preview(
     if amount is None:
         raise ValueError("selected plan is not payable")
     payable = (
-        apply_promo(
+        (0 if promo.benefit_kind == "gift" else apply_promo(
             amount_minor=amount,
             promo=promo,
             plan_code=plan_code,
             provider_floor_minor=provider_floor_minor,
             cycle=cycle,
-        )
+        ))
         if promo
         else amount
     )
@@ -83,6 +83,10 @@ def checkout_quote_fingerprint(
         "discount_code_hash": promo_code_hash(promo.code) if promo else None,
         "discount_percent": promo.discount_percent if promo else None,
         "campaign_version": promo.campaign_version if promo else None,
+        "benefit_kind": promo.benefit_kind if promo else None,
+        "gift_days": promo.gift_days if promo else None,
+        "audience": promo.audience if promo else None,
+        "target_user_id": str(promo.target_user_id) if promo and promo.target_user_id else None,
     })
 
 
