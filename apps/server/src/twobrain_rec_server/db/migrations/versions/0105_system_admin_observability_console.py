@@ -7,10 +7,10 @@ result set; raw reports, credentials and payloads stay outside the console.
 
 from alembic import op
 
-revision = "0105_system_admin_observability_console"
-down_revision = "0104_system_admin_subscription_commands"
-branch_labels = None
-depends_on = None
+revision: str = "0105_system_admin_observability_console"
+down_revision: str | None = "0104_system_admin_subscription_commands"
+branch_labels: str | None = None
+depends_on: str | None = None
 
 AUTHORITY = "twobrain_rec_system_authority"
 SYSTEM = "twobrain_rec_system"
