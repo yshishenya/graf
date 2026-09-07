@@ -527,7 +527,7 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertTrue(source.contains(".accessibilityValue"))
         XCTAssertTrue(source.contains(".accessibilityHint"))
         XCTAssertTrue(source.contains(".accessibilityAddTraits(selection == rule ? .isSelected : [])"))
-        XCTAssertTrue(source.contains(".frame(width: 20)"))
+        XCTAssertFalse(source.contains("app.dashed"))
         XCTAssertTrue(source.contains(".disabled(isDisabled)"))
         XCTAssertFalse(source.contains(".disabled(currentPolicy?.isActive() != true)"))
         XCTAssertFalse(source.contains("settings.detectionMode"))

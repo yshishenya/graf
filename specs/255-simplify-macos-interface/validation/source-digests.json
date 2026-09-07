@@ -1,6 +1,6 @@
 {
   "status": "scoped validation before follow-up commit; exact candidate identity is recorded in PR",
-  "base_sha": "c8ac11778a7d86adf638e75bf32bb2d6177d6b7e",
+  "base_sha": "8de8f2ba3635d11963f2ee415a7652731644afe2",
   "sha256": {
     "apps/macos/RecApp/Sources/Cabinet/DesktopCabinetWorkspaceView.swift": "4845bbd7a37784d77233298afe14464463c7371714de0f1e65c6c65c910b5034",
     "apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift": "cbe56d1588d29f082dde547c900f9a702ac299c8fea03607b67d4c33151cf4b0",
@@ -12,6 +12,8 @@
     "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/components/sections.html": "9fcc8b8c2ed07be9e7594a882882cba4d72b20cb4eace25228e85be8cae4f71c",
     "apps/server/tests/contract/test_settings_ui_contract.py": "9d85323443c5905069a6b2c3cfa9167ab89fb668942e16573630a0fa502b74ab",
     "apps/server/tests/unit/test_cabinet_web_shell.py": "f08d09ec3b27e9de91842c0cd58f419bbec1d2728af5acf575bffa16b4fa0dc8",
-    "apps/server/tests/unit/test_cabinet_template_sections.py": "becd1e7d749ad95bca672a8f499cd9c16f420dec38618c1a2089b6331cf32dce"
+    "apps/server/tests/unit/test_cabinet_template_sections.py": "becd1e7d749ad95bca672a8f499cd9c16f420dec38618c1a2089b6331cf32dce",
+    "apps/macos/RecApp/Sources/MeetingDetection/MeetingDetectionSettingsView.swift": "3ca7f19e7537950cb698be568b9bc67089bb3bd2891392471872159733092439",
+    "apps/macos/Shared/Tests/AppControlAccessibilityTests.swift": "9f6c8f8bd0e833336b6119760409ac65dcb1afdc4986a2f82e65460a99a427a6"
   }
 }
