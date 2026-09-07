@@ -417,7 +417,7 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
         try await load("""
             <!doctype html><html><head><style>\(css)</style></head><body>
             <div data-profile-menu-root>
-              <button id="profile" data-profile-menu-trigger>Профиль</button>
+              <button id="profile" data-profile-menu-trigger style="position:fixed;bottom:16px">Профиль</button>
               <div class="sidebar-profile-menu" data-profile-menu popover="manual" hidden>
                 <details id="theme" class="sidebar-profile-menu__disclosure">
                   <summary>Вид</summary><div class="sidebar-profile-menu__submenu" data-profile-menu-submenu>
@@ -452,6 +452,15 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
             const hoverOpened = opened();
             theme.querySelector('summary').dispatchEvent(new MouseEvent('click', {bubbles:true, cancelable:true, detail:1}));
             const clickKeptOpen = opened();
+            await pause();
+            const summaryRect = theme.querySelector('summary').getBoundingClientRect();
+            const submenuRect = theme.querySelector('[data-profile-menu-submenu]').getBoundingClientRect();
+            const paddingHit = document.elementFromPoint(
+              (summaryRect.right + submenuRect.left) / 2, summaryRect.top + summaryRect.height / 2);
+            over(paddingHit);
+            await pause();
+            const paddingKeptOpen = opened();
+            const paddingHitsMenu = paddingHit === menu;
             over(resources.querySelector('summary'));
             const switched = opened();
             over(settings);
@@ -475,12 +484,12 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
             const row = theme.querySelector('.theme-picker__option > span');
             const rowBorder = getComputedStyle(row).borderTopWidth;
             document.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape', bubbles:true}));
-            return {hoverOpened, clickKeptOpen, switched, ordinaryRowClosed, gapKeptOpen, leaveClosed,
+            return {hoverOpened, clickKeptOpen, paddingKeptOpen, paddingHitsMenu, switched, ordinaryRowClosed, gapKeptOpen, leaveClosed,
               touchDidNotHover, touchClickOpened, keyboardExclusive, rowBorder,
               closed:menu.hidden, focus:document.activeElement.id};
             """, arguments: [:], in: nil, contentWorld: .page)
         let state = try XCTUnwrap(result as? [String: Any])
-        for key in ["hoverOpened", "clickKeptOpen", "gapKeptOpen", "keyboardExclusive"] {
+        for key in ["hoverOpened", "clickKeptOpen", "paddingKeptOpen", "gapKeptOpen", "keyboardExclusive"] {
             XCTAssertEqual(state[key] as? String, "theme", key)
         }
         for key in ["switched", "touchClickOpened"] {
@@ -490,6 +499,7 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
             XCTAssertEqual(state[key] as? String, "", key)
         }
         XCTAssertEqual(state["rowBorder"] as? String, "0px")
+        XCTAssertEqual(state["paddingHitsMenu"] as? Bool, true)
         XCTAssertEqual(state["closed"] as? Bool, true)
         XCTAssertEqual(state["focus"] as? String, "profile")
 

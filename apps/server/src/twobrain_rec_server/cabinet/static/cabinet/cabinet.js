@@ -5898,6 +5898,7 @@
       menu.addEventListener("pointerover", (event) => {
         if (event.pointerType !== "mouse" || !(event.target instanceof Element)) return;
         window.clearTimeout(disclosureCloseTimer);
+        if (event.target === menu) return; // Padding connects the row to its submenu.
         hoveredDisclosure = event.target.closest(".sidebar-profile-menu__disclosure");
         closeDisclosures(hoveredDisclosure);
         if (hoveredDisclosure) hoveredDisclosure.open = true;
