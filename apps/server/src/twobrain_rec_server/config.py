@@ -157,7 +157,7 @@ class Settings(BaseSettings):
     outcome_evaluation_workdir: Path | None = None
     litellm_base_url: AnyUrl | None = None
     litellm_api_key_file: Path | None = None
-    litellm_request_timeout_seconds: PositiveInt = Field(default=600)
+    litellm_request_timeout_seconds: PositiveInt = Field(default=900)
     outcome_transcript_chunk_bytes: PositiveInt = Field(default=196_608)
     outcome_temporal_payload_bytes: PositiveInt = Field(default=262_144)
     outcome_transcript_max_bytes: PositiveInt = Field(default=8_388_608)

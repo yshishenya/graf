@@ -115,11 +115,11 @@ def test_resolved_generation_parameters_match_request_and_hash(client, monkeypat
         )
         first = await ai_service.resolve_candidate_prompt(sessionmaker, **kwargs)
         reused = await ai_service.resolve_candidate_prompt(sessionmaker, **kwargs)
-        assert first["generation_timeout_seconds"] == reused["generation_timeout_seconds"] == 1920
+        assert first["generation_timeout_seconds"] == reused["generation_timeout_seconds"] == 2820
         custom = await ai_service.resolve_candidate_prompt(sessionmaker, **{
-            **kwargs, "settings": kwargs["settings"].model_copy(update={"litellm_request_timeout_seconds": 900}),
+            **kwargs, "settings": kwargs["settings"].model_copy(update={"litellm_request_timeout_seconds": 600}),
         })
-        assert custom["generation_timeout_seconds"] == 2820
+        assert custom["generation_timeout_seconds"] == 1920
         async with sessionmaker() as db:
             attempt = await ai_service._candidate_attempt(db, workspace_id, candidate_id)
             snapshot = ai_service._stored_prompt_snapshot(attempt)
