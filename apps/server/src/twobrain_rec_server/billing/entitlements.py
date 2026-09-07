@@ -18,8 +18,10 @@ from twobrain_rec_server.billing.catalog import (
     FREE_PROCESSING_SECONDS,
     CatalogNotApproved,
     PlanCode,
+    plan_descriptor,
     storage_capacity_bytes,
     validate_capabilities,
+    validate_display_terms,
 )
 from twobrain_rec_server.billing.catalog_migration import exact_snapshot_version
 from twobrain_rec_server.billing.events import enqueue_billing_notification
@@ -133,14 +135,22 @@ async def resolve_entitlements(
         db, workspace_id=workspace_id, subject_user_id=subject_user_id,
         base_capabilities=capabilities, now=now, hard_denies=hard_denies,
     )
+    display_version = version
     if access.plan_version_id is not None:
         gift = await db.get(BillingPlanVersion, access.plan_version_id)
         code = gift.plan_code
+        display_version = gift
+    label = (
+        validate_display_terms(display_version.display_terms)["name"]
+        if display_version is not None and display_version.status not in (None, "legacy")
+        else plan_descriptor(code).label
+    )
     return replace(
         access, plan_code=code,
         base_source="gift" if access.plan_version_id else ("paid" if code not in {"free", "trial"} else code),
         base_plan_version_id=version.id if version is not None else None,
         access_until=access.plan_ends_at or access_until,
+        plan_label=label,
     )
 
 

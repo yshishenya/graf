@@ -230,6 +230,7 @@ class AccessResolution:
     base_source: str = "free"
     base_plan_version_id: UUID | None = None
     access_until: datetime | None = None
+    plan_label: str = "Free"
 
 
 async def resolve_adjustments(

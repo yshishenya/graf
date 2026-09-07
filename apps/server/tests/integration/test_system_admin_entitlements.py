@@ -23,6 +23,117 @@ from twobrain_rec_server.db.models.billing import (
 pytestmark = pytest.mark.strict_rls
 
 
+@pytest.mark.parametrize("source,role", [("paid", "owner"), ("gift", "owner"), ("gift", "member")])
+def test_profile_uses_catalog_assignments_and_hides_member_usage(client, source, role):
+    from tests.fakes.auth_contexts import DEVICE_ID, USER_ID, WORKSPACE_ID
+    from tests.integration.test_account_lifecycle import (
+        _issue_web_session,
+        _seed_personal_workspace,
+    )
+    from tests.integration.test_system_admin_billing import _managed_payment
+    from twobrain_rec_server.billing.entitlements import grant_confirmed_payment
+    from twobrain_rec_server.billing.usage import (
+        SourceRange,
+        commit_free_usage_ranges,
+        reserve_processing_usage,
+    )
+    from twobrain_rec_server.db.models import WorkspaceMembership
+
+    now = datetime.now(UTC)
+
+    async def seed():
+        workspace, device = await _seed_personal_workspace(client)
+        if role == "member":
+            workspace, device = WORKSPACE_ID, DEVICE_ID
+        async with client.app_state["sessionmaker"]() as db:
+            version, _, operation, invoice = await _managed_payment(db)
+            if source == "paid":
+                assert await grant_confirmed_payment(db, workspace_id=workspace,
+                    provider_payment_id=operation.provider_id, amount_minor=invoice.amount_minor,
+                    currency="RUB", paid_at=now) == "granted"
+            else:
+                await create_adjustment(db, workspace_id=workspace, kind="plan_interval",
+                    plan_version_id=version.id, plan_mode="overlay", starts_at=now-timedelta(seconds=1),
+                    ends_at=now+timedelta(days=2), source_kind="migration",
+                    source_ref=f"synthetic:{uuid4()}", reason="Synthetic profile gift")
+            for feature,kind,value,unit in (("processing_seconds","extra_quota",6000,"seconds"),
+                ("storage_bytes","extra_quota",1000000000,"bytes"),
+                ("audio_download","deny",False,"boolean")):
+                await create_adjustment(db, workspace_id=workspace, kind=kind, feature_key=feature,
+                    value=value, unit=unit, starts_at=now-timedelta(seconds=1), ends_at=now+timedelta(days=2),
+                    source_kind="migration", source_ref=f"synthetic:{uuid4()}", reason="Synthetic profile assignment")
+            reservation = await reserve_processing_usage(db, workspace_id=workspace,
+                subject_user_id=USER_ID, reservation_key="synthetic:profile", declared_seconds=120,
+                now=now, expires_at=now+timedelta(hours=1))
+            await commit_free_usage_ranges(db, reservation_id=reservation.id,
+                ranges=[SourceRange("synthetic:profile",0,60)])
+            if role == "member":
+                membership = await db.get(WorkspaceMembership, {"workspace_id":workspace,"user_id":USER_ID})
+                membership.role = "member"
+            await db.commit()
+        token, _ = await _issue_web_session(client,user_id=USER_ID,workspace_id=workspace,device_id=device)
+        return workspace, token
+
+    workspace, token = client.portal.call(seed)
+    headers = {"X-Workspace-Id":str(workspace), "Authorization":f"Bearer {token}"}
+    response = client.get("/api/v1/auth/me", headers=headers)
+    assert response.status_code == 200, response.text
+    billing = response.json()["billing"]
+    assert billing["plan_code"] == "research_plus" and billing["access_source"] == source
+    assert billing["plan_label"] == "Synthetic Research"
+    assert billing["processing_unlimited"] is False
+    assert billing["commercial_capabilities"]["audio_download"] is False
+    assert billing["commercial_capabilities"]["export_formats"] == ["md","txt"]
+    assert "storage_bytes" not in billing["commercial_capabilities"]
+    if role == "member":
+        for key in ("storage_used_bytes","storage_capacity_bytes","processing_used_seconds",
+            "processing_reserved_seconds","processing_available_seconds","processing_window_start",
+            "processing_window_end","access_until","paid_through","bonus_until","renewal_resolution","usage_freshness"):
+            assert billing[key] is None, key
+        assert billing["state"] == "active"
+    else:
+        assert billing["storage_capacity_bytes"] == 5000000000
+        assert (billing["processing_used_seconds"],billing["processing_reserved_seconds"],
+            billing["processing_available_seconds"]) == (60,60,29880)
+        assert billing["usage_freshness"] == "fresh" and billing["access_until"] is not None
+        assert bool(billing["paid_through"]) == (source == "paid")
+
+    async def revoke():
+        async with client.app_state["sessionmaker"]() as db:
+            rows = list(await db.scalars(select(BillingAccessAdjustment).where(
+                BillingAccessAdjustment.workspace_id == workspace)))
+            for row in rows:
+                await revoke_adjustment(db,workspace_id=workspace,adjustment_id=row.id,
+                    source_kind="migration",source_ref=f"synthetic:{uuid4()}",reason="Synthetic profile revoke")
+            await db.commit()
+    client.portal.call(revoke)
+    refreshed = client.get("/api/v1/auth/me",headers=headers).json()["billing"]
+    assert refreshed["plan_code"] == ("research_plus" if source == "paid" else "free")
+    assert refreshed["commercial_capabilities"]["audio_download"] is True
+    if role == "owner":
+        assert refreshed["processing_available_seconds"] == (23880 if source == "paid" else 17880)
+    if source == "paid":
+        async def update_subscription(*, missing_pin=False):
+            from twobrain_rec_server.db.models import WorkspaceSubscription
+
+            async with client.app_state["sessionmaker"]() as db:
+                subscription = await db.get(WorkspaceSubscription, workspace)
+                subscription.paid_through = now+timedelta(days=1) if missing_pin else now-timedelta(seconds=1)
+                if missing_pin:
+                    subscription.pinned_price_id = None
+                    subscription.pinned_plan_version_id = None
+                    subscription.pin_state = "pending"
+                await db.commit()
+        client.portal.call(update_subscription)
+        expired = client.get("/api/v1/auth/me", headers=headers).json()["billing"]
+        assert expired["plan_code"] == "free" and expired["paid_through"] is None
+        assert expired["processing_available_seconds"] == 17880
+        client.portal.call(lambda: update_subscription(missing_pin=True))
+        unavailable = client.get("/api/v1/auth/me", headers=headers)
+        assert unavailable.status_code == 503
+        assert unavailable.json()["code"] == "billing_entitlements_unavailable"
+
+
 def test_usage_page_shows_assigned_capacity_and_source_balances(client):
     from tests.fakes.auth_contexts import USER_ID
     from tests.integration.test_account_lifecycle import (
