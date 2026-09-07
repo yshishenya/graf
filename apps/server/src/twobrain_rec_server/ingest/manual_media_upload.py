@@ -15,7 +15,7 @@ from twobrain_rec_server.config import Settings
 from twobrain_rec_server.db.models import RecordingCalendarContextLink
 from twobrain_rec_server.domain.media_filenames import media_filename_leaf
 from twobrain_rec_server.domain.statuses import MediaRevisionSourceKind, TrackRole
-from twobrain_rec_server.ingest.finalize import finalize_upload
+from twobrain_rec_server.ingest.finalize import finalize_upload, require_audio_archive_access
 from twobrain_rec_server.ingest.meetings import create_or_get_meeting
 from twobrain_rec_server.ingest.parts import accept_part
 from twobrain_rec_server.ingest.policy import IngestLimitViolation
@@ -166,6 +166,8 @@ async def accept_manual_media_upload(
     )
 
     try:
+        if archive_audio:
+            await require_audio_archive_access(db, tenant_scope)
         meeting = await create_or_get_meeting(
             settings=settings,
             tenant_scope=tenant_scope,
@@ -241,6 +243,8 @@ async def accept_manual_media_upload(
             title="Ingest limit exceeded",
             detail=f"{exc.limit_name}={exc.limit_value}, actual={exc.actual_value}",
         ) from exc
+    finally:
+        file.stream.close()
 
     await dispatch_normalization_after_accepted_commit(
         db=db,

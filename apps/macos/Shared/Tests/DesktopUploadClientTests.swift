@@ -961,6 +961,10 @@ final class DesktopUploadClientTests: XCTestCase {
             .storageQuota
         )
         XCTAssertEqual(
+            DesktopUploadClientError.failureCategory(forHTTPStatus: 403, code: "commercial_audio_archive_denied"),
+            .storageQuota
+        )
+        XCTAssertEqual(
             DesktopUploadClientError.failureCategory(forHTTPStatus: 409, code: "range_conflict"),
             .serverValidation
         )

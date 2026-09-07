@@ -221,6 +221,10 @@ async def _create_probe_role(
                     f"grant execute on function rec_account_merge_context_valid() to {quoted_role}"
                 )
             )
+            if role_name == "twobrain_rec_app":
+                await conn.execute(text(
+                    "grant execute on function rec_share_recipient_is_member(uuid,uuid) to twobrain_rec_app"
+                ))
     finally:
         await engine.dispose()
     return role_name, password

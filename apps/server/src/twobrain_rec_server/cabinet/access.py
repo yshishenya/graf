@@ -36,7 +36,6 @@ from twobrain_rec_server.db.models import (
     MeetingShareRateLimitBucket,
     RecordingCalendarContextLink,
     UserIdentity,
-    Workspace,
     WorkspaceMembership,
 )
 from twobrain_rec_server.db.tenant_context import TenantDatabaseContext, apply_tenant_context
@@ -502,6 +501,10 @@ async def decide_meeting_access(
     )
     role = membership.role if membership is not None else None
     privileged = role in PRIVILEGED_ROLES
+    active_member = membership is not None or bool(
+        recipient_proof and recipient_proof.user_is_active
+        and recipient_proof.workspace_membership_is_active
+    )
 
     if meeting.created_by_user_id == viewer_user_id:
         return AccessDecision(
@@ -516,7 +519,7 @@ async def decide_meeting_access(
             role=role,
         )
 
-    if membership is not None and (meeting.visibility or "").lower() in TEAM_VISIBLE_VALUES:
+    if active_member and (meeting.visibility or "").lower() in TEAM_VISIBLE_VALUES:
         return AccessDecision(
             state="team",
             label="Team",
@@ -556,7 +559,7 @@ async def decide_meeting_access(
                 reason="Access was granted with a login-required share.",
             )
 
-    if membership is not None:
+    if active_member:
         workspace_grant = await db.scalar(
             select(MeetingShareGrant).where(
                 MeetingShareGrant.workspace_id == workspace_id,
@@ -924,28 +927,17 @@ async def create_scoped_share_grant(
             device_id=device_id,
             action_key="grant",
         )
-        workspace = await db.get(Workspace, workspace_id)
-        grantee = await db.get(UserIdentity, audience_id)
-        membership = await db.scalar(
-            select(WorkspaceMembership).where(
-                WorkspaceMembership.workspace_id == workspace_id,
-                WorkspaceMembership.user_id == audience_id,
-                WorkspaceMembership.status == "active",
-            )
-        )
-        if (
-            workspace is None
-            or grantee is None
-            or grantee.status != "active"
-            or grantee.organization_id != workspace.organization_id
-            or membership is None
-        ):
+        is_member = await db.scalar(select(func.rec_share_recipient_is_member(meeting.id, audience_id)))
+        if not is_member:
             raise ProblemDetail(status=404, code="grantee_not_found", title="Grantee not found")
         existing_decision = await decide_meeting_access(
             db,
             meeting,
             workspace_id=workspace_id,
             viewer_user_id=audience_id,
+            recipient_proof=ShareRecipientAccessProof(
+                user_is_active=True, workspace_membership_is_active=True,
+            ),
         )
         if existing_decision.can_view:
             raise ProblemDetail(
@@ -1221,8 +1213,6 @@ async def search_share_recipients(
     workspace_users = (
         await db.scalars(
             select(UserIdentity)
-            .join(WorkspaceMembership, WorkspaceMembership.user_id == UserIdentity.id)
-            .join(Workspace, Workspace.id == WorkspaceMembership.workspace_id)
             .outerjoin(
                 ExternalIdentity,
                 and_(
@@ -1232,10 +1222,7 @@ async def search_share_recipients(
                 ),
             )
             .where(
-                WorkspaceMembership.workspace_id == workspace_id,
-                WorkspaceMembership.status == "active",
-                UserIdentity.status == "active",
-                UserIdentity.organization_id == Workspace.organization_id,
+                func.rec_share_recipient_is_member(meeting_id, UserIdentity.id),
                 or_(
                     UserIdentity.display_name.ilike(pattern, escape="\\"),
                     ExternalIdentity.email.ilike(pattern, escape="\\"),
@@ -1289,8 +1276,6 @@ async def search_share_recipients(
     calendar_users = (
         await db.execute(
             select(UserIdentity, ExternalIdentity.email)
-            .join(WorkspaceMembership, WorkspaceMembership.user_id == UserIdentity.id)
-            .join(Workspace, Workspace.id == WorkspaceMembership.workspace_id)
             .join(
                 ExternalIdentity,
                 and_(
@@ -1300,10 +1285,7 @@ async def search_share_recipients(
                 ),
             )
             .where(
-                WorkspaceMembership.workspace_id == workspace_id,
-                WorkspaceMembership.status == "active",
-                UserIdentity.status == "active",
-                UserIdentity.organization_id == Workspace.organization_id,
+                func.rec_share_recipient_is_member(meeting_id, UserIdentity.id),
                 func.lower(ExternalIdentity.email).in_(participant_emails),
                 *((UserIdentity.id != viewer_user_id,) if viewer_user_id is not None else ()),
             )

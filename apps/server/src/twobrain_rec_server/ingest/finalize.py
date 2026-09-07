@@ -12,8 +12,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.api.schemas import TrackDescriptor
 from twobrain_rec_server.auth.context import TenantScope
+from twobrain_rec_server.billing.catalog import CatalogNotApproved
+from twobrain_rec_server.billing.entitlements import resolve_entitlements
 from twobrain_rec_server.db.models import Meeting as MeetingModel
-from twobrain_rec_server.db.models import ProcessingPlaceholder
+from twobrain_rec_server.db.models import ProcessingPlaceholder, Workspace
 from twobrain_rec_server.db.models import UploadSession as UploadSessionModel
 from twobrain_rec_server.domain.statuses import (
     MediaRevisionStatus,
@@ -446,6 +448,24 @@ async def _materialize_track_object(
     return object_key, byte_length, digest.hexdigest()
 
 
+async def require_audio_archive_access(db: AsyncSession | None, tenant_scope: TenantScope) -> None:
+    if db is None:
+        return
+    try:
+        access = await resolve_entitlements(
+            db, workspace_id=tenant_scope.workspace_id, subject_user_id=tenant_scope.user_id,
+            now=datetime.now(UTC),
+        )
+    except (CatalogNotApproved, ValueError) as exc:
+        raise ProblemDetail(status=503, code="billing_access_unavailable", title="Access terms unavailable") from exc
+    if not access.capabilities["audio_archive"]:
+        raise ProblemDetail(
+            status=403, code="commercial_audio_archive_denied",
+            title="Сохранение аудио недоступно по условиям доступа",
+            detail="Выберите обработку без сохранения аудио или измените тариф.",
+        )
+
+
 async def finalize_upload(
     *,
     tenant_scope: TenantScope,
@@ -458,11 +478,13 @@ async def finalize_upload(
     processing_requested: bool = False,
 ) -> tuple[object, object]:
     # Read a stable snapshot for validation/materialization. Final mutation
-    # takes Meeting → MediaRevision → UploadSession locks after storage I/O.
+    # takes Workspace → Meeting → MediaRevision → UploadSession locks after storage I/O.
     session = await get_session_for_tenant(session_id, tenant_scope, db)
     await ensure_upload_session_mutable(db=db, session=session, event_type="expired")
     session_parts_snapshot = dict(session.parts)
     meeting = store_module.store.meetings[session.meeting_id]
+    if archive_audio:
+        await require_audio_archive_access(db, tenant_scope)
     deletion_epoch_at_start: int | None = None
     if db is not None:
         persisted_meeting = await db.scalar(
@@ -652,6 +674,15 @@ async def finalize_upload(
         finalized_track_object_keys[role] = object_key
 
     try:
+        if archive_audio and db is not None:
+            # The accepted archive choice is durable. Later processing retries
+            # keep it; only new admissions compete with entitlement writers.
+            workspace = await db.scalar(select(Workspace.id).where(
+                Workspace.id == tenant_scope.workspace_id,
+            ).with_for_update(read=True))
+            if workspace is None:
+                raise ProblemDetail(status=503, code="billing_access_unavailable", title="Access terms unavailable")
+            await require_audio_archive_access(db, tenant_scope)
         persisted_meeting = await _lock_finalize_lifecycle_fence(
             db,
             meeting_id=meeting.id,

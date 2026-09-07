@@ -5458,7 +5458,8 @@
   const uploadFailureMessage = (code) => ({
     empty_media_upload: "Файл пустой",
     upload_part_bytes_exceeded: "Файл слишком большой",
-    unsafe_meeting_title: "Измените название"
+    unsafe_meeting_title: "Измените название",
+    commercial_audio_archive_denied: "Сохранение аудио недоступно по тарифу. Для обработки без архива снимите флажок сохранения аудио."
   })[code] || "Не удалось загрузить";
 
   const formatBytes = (value) => {
@@ -5626,6 +5627,7 @@
         activity.recoverButton.hidden = state !== "failed" || activity.recoveryMode === null;
         if (activity.recoveryMode === "auth") activity.recoverButton.textContent = "Обновить страницу";
         if (activity.recoveryMode === "conflict") activity.recoverButton.textContent = "Выбрать другой файл";
+        if (activity.recoveryMode === "archive") activity.recoverButton.textContent = "Изменить условия загрузки";
       }
       if (activity.resumeButton) activity.resumeButton.hidden = state !== "canceled";
       if (activity.detailLink) activity.detailLink.hidden = !activity.detailHref;
@@ -5772,7 +5774,7 @@
         activity.meta.textContent = `${file.name || "Файл"} · ${formatBytes(file.size)} · ${duration} сек.`;
       }
       activeUploadActivities.add(activity);
-      row.addEventListener("click", (event) => {
+      row.addEventListener("click", async (event) => {
         if (!(event.target instanceof Element)) return;
         if (event.target.closest("[data-upload-activity-cancel]")) {
           if (activity.xhr && !activity.accepted) activity.xhr.abort();
@@ -5788,6 +5790,13 @@
           } else if (activity.recoveryMode === "conflict") {
             resetDraft();
             openDialog(lastTrigger);
+          } else if (activity.recoveryMode === "archive") {
+            resetDraft();
+            openDialog(lastTrigger);
+            await setSelectedFile(activity.file);
+            if (titleInput) titleInput.value = activity.title;
+            setValidation(uploadFailureMessage("commercial_audio_archive_denied"), "error");
+            focusDialogElement(archiveInput);
           }
           return;
         }
@@ -5864,7 +5873,8 @@
         }
         activity.recoveryMode = authUploadFailure(failureCode)
           ? "auth"
-          : conflictUploadFailure(failureCode) ? "conflict" : null;
+          : conflictUploadFailure(failureCode) ? "conflict"
+          : failureCode === "commercial_audio_archive_denied" ? "archive" : null;
         setActivityState(activity, "failed", uploadFailureMessage(failureCode), "error");
       };
       xhr.onerror = () => {

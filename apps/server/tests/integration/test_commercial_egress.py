@@ -314,3 +314,183 @@ def test_sharing_deny_prevents_external_invitation_and_dispatch(commercial, monk
         async with client.app_state["sessionmaker"]() as db:
             return await db.scalar(select(func.count()).select_from(MeetingShareInvitation))
     assert client.portal.call(count) == 0
+
+
+def test_internal_invitation_search_create_duplicate_and_recipient_access(commercial):
+    from sqlalchemy import select
+
+    from twobrain_rec_server.db.models import ExternalIdentity, MeetingShareGrant
+
+    client, meeting = commercial
+    path = f"/api/v1/cabinet/meetings/{meeting}"
+
+    async def seed():
+        async with client.app_state["sessionmaker"]() as db:
+            db.add(ExternalIdentity(user_id=SHARED_USER_ID, provider="synthetic",
+                provider_subject="share-lookup", email="lookup@example.invalid", is_verified=True))
+            grant = await db.scalar(select(MeetingShareGrant.id).where(MeetingShareGrant.meeting_id == meeting))
+            await db.commit()
+            return grant
+    prior = client.portal.call(seed)
+    assert client.delete(path+f"/shares/{prior}", headers=auth_headers()).status_code == 204
+    search = client.get(path+"/share-recipients", headers=auth_headers(), params={"query":"lookup@example.invalid"})
+    assert search.status_code == 200, search.text
+    assert [item["user_id"] for item in search.json()["items"]] == [str(SHARED_USER_ID)]
+    assert "lookup@example.invalid" not in search.text
+    payload = {"audience_type":"user", "audience_id":str(SHARED_USER_ID), "content_scope":"full_meeting"}
+    created = client.post(path+"/shares", headers=auth_headers(), json=payload)
+    assert created.status_code == 201, created.text
+    duplicate = client.post(path+"/shares", headers=auth_headers(), json=payload)
+    assert duplicate.status_code == 409 and duplicate.json()["code"] == "grantee_already_has_access"
+    resolved = client.get(created.json()["share_url"], headers=auth_headers_for(), follow_redirects=False)
+    assert resolved.status_code == 302, resolved.text
+    assert client.get(path, headers=auth_headers_for()).status_code == 200
+
+
+def test_share_membership_lookup_is_scoped_and_does_not_open_rls(commercial):
+    from tests.fakes.auth_contexts import DEVICE_ID, ORG_ID
+    from twobrain_rec_server.db.tenant_context import TenantDatabaseContext, apply_tenant_context
+
+    client, meeting = commercial
+
+    async def probe():
+        async with client.app.state.db_sessionmaker() as db:
+            async def check(*, actor=USER_ID, workspace=WORKSPACE_ID, context="request", target=SHARED_USER_ID, mid=meeting):
+                await apply_tenant_context(db, TenantDatabaseContext(organization_id=ORG_ID,
+                    workspace_id=workspace, user_id=actor, device_id=DEVICE_ID, context_kind=context))
+                return await db.scalar(text("select rec_share_recipient_is_member(:m,:u)"), {"m":mid,"u":target})
+            assert await check() is True
+            assert await db.scalar(text("select count(*) from workspace_memberships where user_id=:u"),
+                {"u":SHARED_USER_ID}) == 0
+            assert await check(actor=SHARED_USER_ID, target=USER_ID) is False
+            assert await check(workspace=uuid4()) is False
+            assert await check(mid=uuid4()) is False
+            assert await check(target=uuid4()) is False
+            assert await check(context="worker") is False
+            await db.execute(text("select set_config('app.context_kind','',true)"))
+            assert await db.scalar(text("select rec_share_recipient_is_member(:m,:u)"),
+                {"m":meeting,"u":SHARED_USER_ID}) is False
+    client.portal.call(probe)
+
+
+@pytest.mark.parametrize("blocked", ["membership", "identity", "organization", "deletion"])
+def test_share_lookup_excludes_inactive_or_unrelated_recipients(commercial, blocked):
+    client, meeting = commercial
+    async def mutate():
+        async with client.app_state["sessionmaker"]() as db:
+            if blocked == "membership":
+                await db.execute(text("update workspace_memberships set status='removed' where user_id=:u"), {"u":SHARED_USER_ID})
+            elif blocked == "identity":
+                await db.execute(text("update user_identities set status='disabled' where id=:u"), {"u":SHARED_USER_ID})
+            elif blocked == "organization":
+                other_org = uuid4()
+                await db.execute(text("insert into organizations(id,slug,name) values (:id,:slug,'Synthetic')"),
+                    {"id":other_org,"slug":str(other_org)})
+                await db.execute(text("update user_identities set organization_id=:org where id=:u"),
+                    {"u":SHARED_USER_ID,"org":other_org})
+            else:
+                await db.execute(text("update meetings set deletion_state='requested' where id=:m"), {"m":meeting})
+            await db.commit()
+    client.portal.call(mutate)
+    path = f"/api/v1/cabinet/meetings/{meeting}"
+    found = client.get(path+"/share-recipients", headers=auth_headers(), params={"query":"Shared"})
+    assert found.status_code == 404 if blocked == "deletion" else found.status_code == 200 and not found.json()["items"]
+    created = client.post(path+"/shares", headers=auth_headers(), json={"audience_type":"user",
+        "audience_id":str(SHARED_USER_ID),"content_scope":"full_meeting"})
+    assert created.status_code == 404, created.text
+
+
+@pytest.mark.parametrize("subject", [None, USER_ID])
+def test_archive_deny_preserves_upload_and_explicit_no_archive_processing(commercial, subject):
+    from uuid import UUID
+
+    from tests.fakes.fake_temporal import FakeTemporalClient
+    from tests.integration.test_finalize_integrity import _create_session_with_parts
+    from twobrain_rec_server.db.models import UploadSession
+
+    client, _meeting = commercial
+    session_id, tracks = _create_session_with_parts(client)
+    client.portal.call(lambda: _deny(client, "audio_archive", subject=subject))
+    client.app.state.settings.processing_enabled = True
+    client.app.state.temporal_client = FakeTemporalClient()
+    path = f"/api/v1/upload-sessions/{session_id}/finalize"
+    payload = {"manifest_sha256":tracks[0]["sha256"], "tracks":tracks, "archive_audio":True}
+    objects_before = dict(client.app_state["storage"].objects)
+    rejected = client.post(path, headers=auth_headers(), json=payload)
+    assert rejected.status_code == 403 and rejected.json()["code"] == "commercial_audio_archive_denied"
+    assert client.app_state["storage"].objects == objects_before
+    accepted = client.post(path, headers=auth_headers(), json=payload | {"archive_audio":False})
+    assert accepted.status_code == 200, accepted.text
+    assert accepted.json()["upload_session"]["status"] == "finalized"
+    async def choice():
+        async with client.app_state["sessionmaker"]() as db:
+            return (await db.get(UploadSession, UUID(session_id))).archive_audio
+    assert client.portal.call(choice) is False
+
+    async def retry_choice():
+        from tests.fakes.auth_contexts import DEVICE_ID, ORG_ID
+        from twobrain_rec_server.db.tenant_context import (
+            TenantDatabaseContext,
+            apply_tenant_context,
+        )
+        from twobrain_rec_server.processing.pickup import _archive_audio_for_meeting
+        async with client.app.state.db_sessionmaker() as db:
+            await apply_tenant_context(db, TenantDatabaseContext(organization_id=ORG_ID,
+                workspace_id=WORKSPACE_ID, user_id=USER_ID, device_id=DEVICE_ID))
+            # A later deny/override cannot rewrite either previously admitted choice.
+            assert await _archive_audio_for_meeting(db, workspace_id=WORKSPACE_ID,
+                meeting_id=_meeting, requested=False) is True
+            assert await _archive_audio_for_meeting(db, workspace_id=WORKSPACE_ID,
+                meeting_id=UUID(accepted.json()["meeting"]["meeting_id"]), requested=True) is False
+    client.portal.call(retry_choice)
+
+
+def test_manual_archive_deny_precedes_storage_and_keeps_explicit_choice(commercial, monkeypatch):
+    from tests.fakes.fake_temporal import FakeTemporalClient
+    from tests.fixtures.artifacts import deterministic_wav_bytes
+    from twobrain_rec_server.api import ingest
+
+    client, _meeting = commercial
+    client.portal.call(lambda: _deny(client, "audio_archive"))
+    client.app.state.settings.processing_enabled = True
+    client.app.state.settings.playback_normalization_enabled = True
+    client.app.state.temporal_client = FakeTemporalClient()
+    streams = []
+    original = ingest.read_manual_media_upload_body
+    async def read(*args, **kwargs):
+        upload = await original(*args, **kwargs)
+        streams.append(upload.file.stream)
+        return upload
+    monkeypatch.setattr(ingest, "read_manual_media_upload_body", read)
+    objects_before = dict(client.app_state["storage"].objects)
+    data = {"duration_seconds":"60", "local_recording_id":"synthetic-denied-archive", "archive_audio":"true"}
+    files = {"file":("synthetic.wav", deterministic_wav_bytes(128), "audio/wav")}
+    denied = client.post("/api/v1/media-uploads", headers=auth_headers(), data=data, files=files)
+    assert denied.status_code == 403 and denied.json()["code"] == "commercial_audio_archive_denied"
+    assert client.app_state["storage"].objects == objects_before
+    assert streams[0].closed
+    accepted = client.post("/api/v1/media-uploads", headers=auth_headers(), data=data | {"archive_audio":"false"}, files=files)
+    assert accepted.status_code == 202, accepted.text
+    assert streams[1].closed
+
+
+def test_archive_restriction_during_materialization_wins_admission(commercial, monkeypatch):
+    from tests.integration.test_finalize_integrity import _create_session_with_parts
+    from twobrain_rec_server.ingest import finalize
+
+    client, _meeting = commercial
+    session_id, tracks = _create_session_with_parts(client)
+    original = finalize._materialize_track_object
+    restricted = False
+    async def materialize(*args, **kwargs):
+        nonlocal restricted
+        result = await original(*args, **kwargs)
+        if not restricted:
+            restricted = True
+            await _deny(client, "audio_archive")
+        return result
+    monkeypatch.setattr(finalize, "_materialize_track_object", materialize)
+    denied = client.post(f"/api/v1/upload-sessions/{session_id}/finalize", headers=auth_headers(),
+        json={"manifest_sha256":tracks[0]["sha256"], "tracks":tracks,"archive_audio":True})
+    assert restricted
+    assert denied.status_code == 403 and denied.json()["code"] == "commercial_audio_archive_denied"

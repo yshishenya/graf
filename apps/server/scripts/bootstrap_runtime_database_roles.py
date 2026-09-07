@@ -391,6 +391,7 @@ async def _bootstrap() -> None:
                 "public.rec_account_merge_context_valid() "
                 f"to {APP_ROLE}, {MAINTENANCE_ROLE}",
                 f"grant execute on function public.billing_lock_checkout_catalog(text) to {APP_ROLE}",
+                f"grant execute on function public.rec_share_recipient_is_member(uuid,uuid) to {APP_ROLE}",
                 f"alter default privileges for role {OWNER_ROLE} in schema public "
                 "grant select, insert, update, delete on tables "
                 f"to {APP_ROLE}, {MAINTENANCE_ROLE}",
