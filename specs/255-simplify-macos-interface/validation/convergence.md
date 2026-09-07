@@ -26,3 +26,19 @@ T015–T017 уточняют остающиеся проверки T002/T008–T
 Convergence получил подтверждение инфраструктурной части T015: `dev-46d693849973` собран/установлен на SHA `46d6938499730af3712e31e52abd227268cdf19c`, migration `0087_merge_calendar_timezone`; `status` и `smoke --live` — PASS, 13/13. Исправление Compose-проброса ожидаемой migration head покрыто `22 passed`.
 
 Обязательный остаток не исчез: CUA не смог выполнить визуальный проход, поскольку Mac заблокирован. T016 (полная accessibility/размеры/темы/запись) и T017 (совместные F245–F253/admin/public/no-JS сценарии) остаются открытыми; этот smoke не превращается в приёмку UI.
+
+## После release-prep SHA 2026-09-07
+
+Кандидат `dev-db25b6df5c43` установлен из exact SHA
+`db25b6df5c4324164bec657d88b2e30f54b7ce2d`; migration
+`0087_merge_calendar_timezone`; build/promote/status/smoke и 13/13 live checks
+PASS. Коммит меняет только release-документы, поэтому ранее проверенный
+продуктовый код не изменился, но строгая граница evidence всё равно требует
+повторного CUA на текущем SHA.
+
+C1 остаётся partial до этого прохода. C2 (полная матрица macOS 14.5/26,
+тем, прозрачности, движения, контраста, VoiceOver, 200% и активной записи/Stop)
+и C3/T017 (согласованная F245–F253, admin/public, no-JS, account-save и mixed
+versions) остаются HIGH и блокируют выпуск. Следующий converge допустим только
+после обновлённого exact-SHA evidence; задачи не закрываются по документу или
+наличию smoke.

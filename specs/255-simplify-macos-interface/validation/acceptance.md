@@ -83,3 +83,20 @@ admin/public и mixed versions) требуют отдельных условий
 закрытыми этим проходом. Текущий установленный bundle всё ещё собран из
 `dev-46d693849973`; после release-prep-коммита его нужно пересобрать на новом
 exact SHA.
+
+## Exact-SHA release-prep candidate 2026-09-07
+
+После release-prep-коммита установлен штатный кандидат `dev-db25b6df5c43` из
+точного SHA `db25b6df5c4324164bec657d88b2e30f54b7ce2d`. Manifest:
+`/Users/yshishenya/Library/Application Support/GRAF Dev/crisp/harness/manifests/dev-db25b6df5c43.json`.
+Bundle `pro.2brain.graf.dev`, канал `dev`, migration head
+`0087_merge_calendar_timezone`, подпись `GRAF Local Code Signing`. Build,
+promote dry-run/live, status и smoke завершились успешно; все 13 live checks
+имеют `pass`, включая `app_presentation`, `migration_readiness` и
+`exact_source_sha`.
+
+Этот коммит меняет только release-документы и не меняет продуктовый код. Тем
+не менее строгая приёмка должна быть привязана к этому SHA: повторный CUA
+проход окна ожидает ручной разблокировки Mac. До него T015/T016 не закрываются;
+T017, полная матрица доступности/ОС, Full CI, notarization, Sparkle и production
+также остаются открытыми.

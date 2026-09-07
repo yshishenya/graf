@@ -52,3 +52,12 @@ T021 завершён по совокупности исходников, WKWebV
 ## Exact-SHA Dev handoff 2026-09-07
 
 Проверен установленный кандидат `dev-46d693849973` на `46d6938499730af3712e31e52abd227268cdf19c`: build/promote/status/smoke, 13/13 live checks PASS; migration `0087_merge_calendar_timezone`. Повторный физический hover в окне этого exact-SHA кандидата ожидает разблокировки Mac. WKWebView и браузерные проверки остаются действующим автоматическим evidence.
+
+## Exact-SHA release-prep candidate 2026-09-07
+
+Кандидат `dev-db25b6df5c43` установлен из
+`db25b6df5c4324164bec657d88b2e30f54b7ce2d`; migration
+`0087_merge_calendar_timezone`, status/smoke 13/13 PASS. Release-prep меняет
+только документы, но повторный физический hover на exact SHA обязателен для
+закрытия T015/T016. CUA сообщает, что Mac заблокирован; автоматические
+WKWebView/браузерные проверки не подменяют этот проход.

@@ -63,3 +63,16 @@ Playwright: login/code/signup-email, истёкшее приглашение, о
 разблокировки, но не заменяют повторный exact-SHA build после release-prep и
 отдельные проверки macOS 14.5, 200%, VoiceOver, активной записи/Stop и
 публичного пакета.
+
+## Release-prep candidate
+
+- Exact source SHA: `db25b6df5c4324164bec657d88b2e30f54b7ce2d`.
+- Manifest: `dev-db25b6df5c43` в штатном каталоге GRAF Dev.
+- Bundle/channel: `pro.2brain.graf.dev` / `dev`.
+- Migration head: `0087_merge_calendar_timezone`.
+- Build, promote dry-run/live, status и smoke: PASS, 13/13 live checks.
+
+Этот кандидат отличается от визуально проверенного `dev-46d693849973` только
+release-документами. Для exact-SHA evidence всё равно нужен короткий повторный
+CUA проход; он заблокирован состоянием Mac и будет выполнен после ручной
+разблокировки. До этого не объявляются закрытыми T015/T016.

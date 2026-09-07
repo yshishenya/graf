@@ -48,3 +48,16 @@ T002 не закрыта: повторить композицию и сцена�
 профиль снизу слева, меню по клику, hover-подменю и переход по зазору. Это
 визуальная проверка exact-SHA Dev-кода с синтетическим содержимым; она не
 закрывает macOS 14.5, accessibility-настройки, 200% и реальную сессию.
+
+## Exact-SHA release-prep candidate 2026-09-07
+
+После release-prep установлен только `GRAF Dev`: manifest `dev-db25b6df5c43`,
+source SHA `db25b6df5c4324164bec657d88b2e30f54b7ce2d`, Feature `255`, migration
+head `0087_merge_calendar_timezone`. Build, promote dry-run/live, status и
+smoke прошли; 13/13 live checks — `pass`, включая app identity/presentation и
+`exact_source_sha`.
+
+Новый кандидат содержит только release-документы поверх ранее проверенного
+продуктового кода. Повторный физический осмотр установленного окна на этом
+точном SHA ещё не выполнен: CUA сообщает о блокировке Mac. GRAF Local не
+использовался и не засчитывается как замена этого прохода.

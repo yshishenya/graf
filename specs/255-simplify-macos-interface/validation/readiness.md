@@ -38,3 +38,11 @@
 ## Exact-SHA runtime readiness 2026-09-07
 
 `GRAF Dev` manifest `dev-46d693849973` на SHA `46d6938499730af3712e31e52abd227268cdf19c` успешно прошёл build/promote/status/smoke в свежем Dev namespace с подтверждённой migration head `0087_merge_calendar_timezone`; 13/13 live checks PASS. Исправлен проброс `GRAF_DEV_EXPECTED_MIGRATION_HEAD` в `docker-compose.dev.yml`, регрессия — `22 passed`. Это подтверждает готовность среды для следующего визуального прохода, но не заменяет его.
+
+## Release-prep SHA
+
+После подготовки релизных документов новый штатный кандидат `dev-db25b6df5c43`
+собран из `db25b6df5c4324164bec657d88b2e30f54b7ce2d`; build/promote/status/smoke
+и 13/13 live checks PASS. Release-prep-коммит не меняет продуктовый код, но
+визуальное evidence и полный release gate должны быть привязаны к этому SHA.
+CUA в текущем сеансе не получил доступ к окну из-за блокировки Mac.

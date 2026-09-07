@@ -44,3 +44,12 @@
 `calendar_visual_ui_harness` с теми же production templates/assets. После
 прохода штатный `graf-dev-api-1` восстановлен. Экран встречи и полная матрица
 системных параметров остаются отдельными строками T016.
+
+## Exact-SHA release-prep candidate 2026-09-07
+
+`GRAF Dev` пересобран и установлен как `dev-db25b6df5c43` из
+`db25b6df5c4324164bec657d88b2e30f54b7ce2d`; штатные build/promote/status/smoke
+и 13/13 live checks PASS. Release-prep-коммит не меняет Swift/CSS/JS, но
+визуальное evidence должно быть повторено на этом exact SHA. CUA пока
+заблокирован системой; macOS 14.5, accessibility matrix, 200% и запись/Stop
+по-прежнему не засчитаны.
