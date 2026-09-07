@@ -1,7 +1,7 @@
 import asyncio
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fakes.fake_mediascribe import FakeMediaScribeClient
@@ -12,6 +12,7 @@ from tests.fixtures.processing import create_finalized_meeting, create_finalized
 from twobrain_rec_server.db.models import (
     DiarizationSegment,
     MediaScribeJob,
+    Meeting,
     MeetingOutcomeGenerationAttempt,
     MeetingOutcomeSet,
     ProcessingAuditEvent,
@@ -19,6 +20,7 @@ from twobrain_rec_server.db.models import (
     ProcessingResult,
     ProcessingWorkflow,
     TranscriptSegment,
+    Workspace,
 )
 from twobrain_rec_server.domain.statuses import (
     MediaScribeJobStatus,
@@ -69,6 +71,18 @@ def test_processing_happy_path_imports_transcript_and_diarization(client) -> Non
             ],
         ),
     )
+
+    original_fetch = fake_client.fetch_result
+
+    async def fetch_without_database_locks(external_job_id):
+        async with client.app_state["sessionmaker"]() as observer:
+            await observer.execute(text("set local lock_timeout='500ms'"))
+            assert await observer.scalar(select(Workspace.id).where(Workspace.id == workspace_id).with_for_update()) == workspace_id
+            assert await observer.scalar(select(Meeting.id).where(Meeting.id == meeting_id).with_for_update()) == meeting_id
+            await observer.rollback()
+        return await original_fetch(external_job_id)
+
+    fake_client.fetch_result = fetch_without_database_locks
 
     async def run_pipeline() -> tuple[str, int, int, str, str]:
         async with client.app_state["sessionmaker"]() as db:

@@ -966,3 +966,74 @@ async def _subscription_resume_state(client, workspace):
             subscription.paid_through, subscription.schedule_version,
             await db.scalar(select(func.count()).select_from(BillingInvoice)),
             await db.scalar(select(func.count()).select_from(BillingOperation)))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("role_name", ["twobrain_rec_app", "twobrain_rec_media"])
+async def test_worker_workspace_lock_serializes_quota_without_granting_workspace_updates(
+    postgres_seeded_database_url, role_name,
+):
+    import asyncio
+    from contextlib import asynccontextmanager
+
+    from sqlalchemy.exc import DBAPIError
+
+    from tests.conftest import USER_ID
+    from tests.fixtures.postgres_test_database import ensure_disposable_media_role
+    from tests.integration.test_rls_postgres_policies import _exact_app_role_engine
+    from twobrain_rec_server.db.models import Workspace
+    from twobrain_rec_server.db.tenant_context import (
+        TenantDatabaseContext,
+        apply_tenant_context_to_connection,
+    )
+
+    @asynccontextmanager
+    async def worker_engine():
+        if role_name == "twobrain_rec_app":
+            async with _exact_app_role_engine(postgres_seeded_database_url) as engine:
+                yield engine
+        else:
+            url = await ensure_disposable_media_role(postgres_seeded_database_url)
+            engine = create_async_engine(url)
+            try:
+                yield engine
+            finally:
+                await engine.dispose()
+
+    owner = create_async_engine(postgres_seeded_database_url)
+    try:
+        async with owner.connect() as connection:
+            organization = await connection.scalar(select(Workspace.organization_id).where(Workspace.id == PERSONAL_WORKSPACE_ID))
+        async with worker_engine() as app, app.connect() as conn:
+            await apply_tenant_context_to_connection(conn, TenantDatabaseContext(
+                organization_id=organization, workspace_id=PERSONAL_WORKSPACE_ID,
+                user_id=USER_ID, context_kind="worker",
+            ))
+            assert await conn.scalar(text("select session_user")) == role_name
+            assert await conn.scalar(select(Workspace.id).where(Workspace.id == PERSONAL_WORKSPACE_ID).with_for_update()) == PERSONAL_WORKSPACE_ID
+            assert await conn.scalar(select(Workspace.id).where(Workspace.id != PERSONAL_WORKSPACE_ID).limit(1)) is None
+            with pytest.raises(DBAPIError):
+                async with conn.begin_nested():
+                    await conn.execute(text("update workspaces set name='Forbidden synthetic update' where id=:w"), {"w":PERSONAL_WORKSPACE_ID})
+            with pytest.raises(DBAPIError):
+                async with conn.begin_nested():
+                    await conn.execute(text("update workspaces set id=id where id=:w"), {"w":PERSONAL_WORKSPACE_ID})
+            # A concurrent entitlement writer must wait for this actual lock.
+            async def writer():
+                async with owner.begin() as mutation:
+                    await mutation.execute(text("set local lock_timeout='3s'"))
+                    await mutation.execute(select(Workspace.id).where(Workspace.id == PERSONAL_WORKSPACE_ID).with_for_update())
+                    return True
+            task = asyncio.create_task(writer())
+            try:
+                with pytest.raises(TimeoutError):
+                    await asyncio.wait_for(asyncio.shield(task), timeout=0.15)
+                await conn.commit()
+                assert await asyncio.wait_for(task, timeout=3)
+            finally:
+                await conn.rollback()
+                if not task.done():
+                    task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+    finally:
+        await owner.dispose()

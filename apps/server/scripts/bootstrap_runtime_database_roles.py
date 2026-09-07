@@ -41,6 +41,7 @@ MEDIA_INSERT_ONLY_TABLES = ("ingest_audit_events",)
 MEDIA_LOCK_COLUMNS = (
     ("meetings", "updated_at"),
     ("media_revisions", "updated_at"),
+    ("workspaces", "id"),
 )
 
 
@@ -239,9 +240,10 @@ async def _verify_runtime_roles(
             column_name,
         )
         has_business_column = await connection.fetchval(
-            "select has_column_privilege($1::name, $2::text, 'status', 'UPDATE')",
+            "select has_column_privilege($1::name, $2::text, $3::text, 'UPDATE')",
             MEDIA_ROLE,
             f"public.{table_name}",
+            "name" if table_name == "workspaces" else "status",
         )
         if not has_lock_column or has_business_column:
             raise RuntimeError("media database role lock privileges are unsafe")

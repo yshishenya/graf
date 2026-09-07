@@ -69,7 +69,7 @@ from twobrain_rec_server.normalization.statuses import (
 )
 from twobrain_rec_server.processing.audit import safe_audit_metadata
 from twobrain_rec_server.processing.fences import (
-    lock_meeting_fence,
+    lock_processing_meeting_fence,
     meeting_is_deleted_or_deleting,
     record_stale_lifecycle_event,
 )
@@ -319,7 +319,7 @@ async def claim_processing_manual_check(
     multipart upload.
     """
 
-    meeting = await lock_meeting_fence(
+    meeting = await lock_processing_meeting_fence(
         db,
         workspace_id=workspace_id,
         meeting_id=meeting_id,
@@ -940,7 +940,7 @@ async def prepare_closed_workflow_same_job_recovery(
 ) -> ProcessingWorkflow | None:
     """Create the next attempt while preserving an already-submitted provider job."""
 
-    meeting = await lock_meeting_fence(
+    meeting = await lock_processing_meeting_fence(
         db,
         workspace_id=workflow.workspace_id,
         meeting_id=workflow.meeting_id,
@@ -1073,6 +1073,11 @@ async def reconcile_closed_processing_workflow_result(
     workflow: ProcessingWorkflow,
 ) -> ProcessingWorkflow:
     """Make a closed Temporal execution actionable instead of retrying forever."""
+
+    if await lock_processing_meeting_fence(
+        db, workspace_id=workflow.workspace_id, meeting_id=workflow.meeting_id,
+    ) is None:
+        return workflow
 
     current = await db.scalar(
         select(ProcessingWorkflow)
@@ -1207,7 +1212,7 @@ async def create_processing_attempt(
 
     if (system_operation_id is None) != (workflow_row_id is None):
         raise ValueError("system operation and claimed domain reference are required together")
-    meeting = await lock_meeting_fence(
+    meeting = await lock_processing_meeting_fence(
         db,
         workspace_id=workspace_id,
         meeting_id=meeting_id,
@@ -1612,6 +1617,13 @@ async def fail_processing_attempt_dispatch(
 ) -> bool:
     """Clear a pre-dispatch ``starting`` row without reopening terminal data."""
 
+    target = await db.get(ProcessingWorkflow, workflow_id)
+    if target is None or await lock_processing_meeting_fence(
+        db, workspace_id=target.workspace_id, meeting_id=target.meeting_id,
+    ) is None:
+        await db.rollback()
+        return False
+
     workflow = await db.scalar(
         select(ProcessingWorkflow)
         .where(ProcessingWorkflow.id == workflow_id)
@@ -1787,7 +1799,7 @@ async def cancel_stale_revision_workflows(
     reason_code: str = "processing_source_revision_stale",
 ) -> int:
     """Terminalize active workflows whose revision is no longer accepted."""
-    meeting = await lock_meeting_fence(db, workspace_id=workspace_id, meeting_id=meeting_id)
+    meeting = await lock_processing_meeting_fence(db, workspace_id=workspace_id, meeting_id=meeting_id)
     if meeting is None:
         return 0
     latest_revision = await latest_media_revision_for_meeting(
@@ -1854,7 +1866,7 @@ async def upsert_processing_workflow(
     deadline_seconds: int | None = None,
 ) -> ProcessingWorkflow:
     now = datetime.now(UTC)
-    meeting = await lock_meeting_fence(db, workspace_id=workspace_id, meeting_id=meeting_id)
+    meeting = await lock_processing_meeting_fence(db, workspace_id=workspace_id, meeting_id=meeting_id)
     if meeting is None:
         raise ProcessingLifecycleBlocked("meeting_not_found")
     if meeting_is_deleted_or_deleting(meeting):
@@ -2026,7 +2038,7 @@ async def set_workflow_status(
     terminal: bool = False,
     deadline_seconds: int | None = None,
 ) -> ProcessingWorkflow:
-    meeting = await lock_meeting_fence(
+    meeting = await lock_processing_meeting_fence(
         db, workspace_id=workflow.workspace_id, meeting_id=workflow.meeting_id
     )
     if meeting is None or meeting_is_deleted_or_deleting(meeting):
@@ -2327,7 +2339,7 @@ async def claim_mediascribe_submission(
     job: MediaScribeJob,
 ) -> str | None:
     """Claim one provider POST without holding a database lock over network I/O."""
-    meeting = await lock_meeting_fence(db, workspace_id=job.workspace_id, meeting_id=job.meeting_id)
+    meeting = await lock_processing_meeting_fence(db, workspace_id=job.workspace_id, meeting_id=job.meeting_id)
     if meeting is None or meeting_is_deleted_or_deleting(meeting):
         raise ProcessingLifecycleBlocked("meeting_deleting")
     current = await db.scalar(
@@ -2417,7 +2429,7 @@ async def release_mediascribe_submission_claim(
     job: MediaScribeJob,
     claim_token: str,
 ) -> None:
-    meeting = await lock_meeting_fence(db, workspace_id=job.workspace_id, meeting_id=job.meeting_id)
+    meeting = await lock_processing_meeting_fence(db, workspace_id=job.workspace_id, meeting_id=job.meeting_id)
     if meeting is None or meeting_is_deleted_or_deleting(meeting):
         await db.rollback()
         return
@@ -2451,7 +2463,7 @@ async def mark_mediascribe_submission_unknown(
     *,
     error_message: str,
 ) -> None:
-    meeting = await lock_meeting_fence(db, workspace_id=job.workspace_id, meeting_id=job.meeting_id)
+    meeting = await lock_processing_meeting_fence(db, workspace_id=job.workspace_id, meeting_id=job.meeting_id)
     current = await db.scalar(
         select(MediaScribeJob)
         .where(MediaScribeJob.id == job.id)
@@ -2488,7 +2500,7 @@ async def persist_mediascribe_submission(
     provider_next_retry_at: datetime | None = None,
     request_id: str | None = None,
 ) -> MediaScribeJob:
-    meeting = await lock_meeting_fence(db, workspace_id=job.workspace_id, meeting_id=job.meeting_id)
+    meeting = await lock_processing_meeting_fence(db, workspace_id=job.workspace_id, meeting_id=job.meeting_id)
     if meeting is None or meeting_is_deleted_or_deleting(meeting):
         current = await db.scalar(
             select(MediaScribeJob)
@@ -2609,7 +2621,7 @@ async def update_mediascribe_job_status(
     provider_max_attempts: int | None = None,
     request_id: str | None = None,
 ) -> MediaScribeJob:
-    meeting = await lock_meeting_fence(db, workspace_id=job.workspace_id, meeting_id=job.meeting_id)
+    meeting = await lock_processing_meeting_fence(db, workspace_id=job.workspace_id, meeting_id=job.meeting_id)
     if meeting is None or meeting_is_deleted_or_deleting(meeting):
         current = await db.scalar(
             select(MediaScribeJob)
@@ -2714,7 +2726,7 @@ async def persist_processing_result(
     result: MediaScribeResult,
     source_result_hash: str,
 ) -> ProcessingResult:
-    meeting = await lock_meeting_fence(db, workspace_id=job.workspace_id, meeting_id=job.meeting_id)
+    meeting = await lock_processing_meeting_fence(db, workspace_id=job.workspace_id, meeting_id=job.meeting_id)
     if meeting is None:
         raise ProcessingLifecycleBlocked("meeting_not_found")
     if meeting_is_deleted_or_deleting(meeting):

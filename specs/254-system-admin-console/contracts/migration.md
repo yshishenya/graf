@@ -23,3 +23,7 @@ Destructive downgrade схемы после записей не выполняе
 ## Приёмка миграции
 
 Сохранены все исходные IDs, суммы, валюты, плательщики, consent versions, intervals и статусы; orphan refs=0; не появилось ни одного системного администратора; latest backfill=0; promo counters сходятся с ledger; ordinary роли не видят system secrets после повторного bootstrap. Downgrade rehearsal доказывает запрет несовместимого binary, а не успешный запуск старого кода на новом каталоге.
+
+## Рабочие блокировки пространства (0102)
+
+Роли `twobrain_rec_app` и `twobrain_rec_media` в worker context получают SELECT только текущего Workspace и UPDATE-policy с `WITH CHECK(false)` для блокировки. Изменение значений, включая `SET id=id`, запрещено. Media получает точное `UPDATE(id)`; bootstrap нужно повторить после миграции. Допуск, импорт и освобождение квоты обработки используют Workspace → Meeting → Workflow/MediaRevision, включая сбой запуска и повтор удаления. Maintenance discovery освобождает свои блокировки и повторяет проверку под тем же порядком; занятые пространства/встречи пропускаются. Чтение результата MediaScribe проходит без Workspace/Meeting lock с повторной проверкой перед импортом. Эта миграция не завершает общий барьер старых billing writers из пункта 6.

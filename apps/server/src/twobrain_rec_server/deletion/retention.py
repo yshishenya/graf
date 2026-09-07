@@ -30,7 +30,10 @@ from twobrain_rec_server.domain.statuses import (
     RetentionPolicySource,
     RetentionPolicyState,
 )
-from twobrain_rec_server.processing.fences import meeting_is_deleted_or_deleting
+from twobrain_rec_server.processing.fences import (
+    lock_processing_meeting_fence,
+    meeting_is_deleted_or_deleting,
+)
 
 PROCESSING_BLOCKING_STATES = {
     ProcessingStatus.PENDING_PROCESSING.value,
@@ -135,11 +138,8 @@ async def run_retention_scan(
         # Retention eligibility is a destructive decision. Re-read and lock
         # the Meeting before checking processing status so a worker cannot
         # start processing between the scan snapshot and the tombstone fence.
-        meeting = await db.scalar(
-            select(Meeting)
-            .where(Meeting.workspace_id == workspace_id, Meeting.id == candidate_id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
+        meeting = await lock_processing_meeting_fence(
+            db, workspace_id=workspace_id, meeting_id=candidate_id,
         )
         if meeting is None:
             continue

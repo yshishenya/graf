@@ -494,3 +494,54 @@ def test_archive_restriction_during_materialization_wins_admission(commercial, m
         json={"manifest_sha256":tracks[0]["sha256"], "tracks":tracks,"archive_audio":True})
     assert restricted
     assert denied.status_code == 403 and denied.json()["code"] == "commercial_audio_archive_denied"
+
+
+@pytest.mark.parametrize("action", ["admission", "dispatch_failure", "closed_workflow"])
+def test_processing_admission_waits_for_workspace_before_locking_meeting(commercial, action):
+    import asyncio
+
+    from sqlalchemy import select
+
+    from tests.fakes.auth_contexts import DEVICE_ID, ORG_ID
+    from twobrain_rec_server.db.models import Meeting, ProcessingWorkflow, Workspace
+    from twobrain_rec_server.db.tenant_context import TenantDatabaseContext, apply_tenant_context
+    from twobrain_rec_server.processing import store
+
+    client, meeting = commercial
+    async def race():
+        async with client.app_state["sessionmaker"]() as writer:
+            await writer.execute(text("set local lock_timeout='1s'"))
+            await writer.scalar(select(Workspace.id).where(Workspace.id == WORKSPACE_ID).with_for_update())
+            async def admission():
+                async with client.app.state.db_sessionmaker() as worker:
+                    await apply_tenant_context(worker, TenantDatabaseContext(organization_id=ORG_ID,
+                        workspace_id=WORKSPACE_ID,user_id=USER_ID,device_id=DEVICE_ID,context_kind="worker"))
+                    if action == "admission":
+                        result = await store.create_processing_attempt(worker, workspace_id=WORKSPACE_ID,
+                            meeting_id=meeting,owner_user_id=USER_ID,allow_processed=True)
+                    else:
+                        workflow = await worker.scalar(select(ProcessingWorkflow).where(
+                            ProcessingWorkflow.meeting_id == meeting))
+                        assert workflow is not None
+                        if action == "dispatch_failure":
+                            result = await store.fail_processing_attempt_dispatch(worker, workflow_id=workflow.id)
+                        else:
+                            result = await store.reconcile_closed_processing_workflow_result(worker, workflow=workflow)
+                    await worker.rollback()
+                    return result
+            task = asyncio.create_task(admission())
+            try:
+                with pytest.raises(TimeoutError):
+                    await asyncio.wait_for(asyncio.shield(task),timeout=0.15)
+                # The waiting processing request must not own Meeting already.
+                assert await writer.scalar(select(Meeting.id).where(Meeting.id == meeting).with_for_update()) == meeting
+                assert await writer.scalar(select(ProcessingWorkflow.id).where(
+                    ProcessingWorkflow.meeting_id == meeting).with_for_update()) is not None
+                await writer.commit()
+                assert await asyncio.wait_for(task,timeout=3) is not None
+            finally:
+                await writer.rollback()
+                if not task.done():
+                    task.cancel()
+                await asyncio.gather(task,return_exceptions=True)
+    client.portal.call(race)
