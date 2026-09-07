@@ -460,7 +460,7 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
             over(paddingHit);
             await pause();
             const paddingKeptOpen = opened();
-            const paddingHitsMenu = paddingHit === menu;
+            const paddingHitsMenu = paddingHit === menu || menu.contains(paddingHit);
             over(resources.querySelector('summary'));
             const switched = opened();
             over(settings);
@@ -470,6 +470,12 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
             over(theme.querySelector('[data-profile-menu-submenu]'));
             await pause();
             const gapKeptOpen = opened();
+            menu.dispatchEvent(new PointerEvent('pointerleave', {
+              pointerType: 'mouse',
+              relatedTarget: theme.querySelector('[data-profile-menu-submenu]')
+            }));
+            await pause();
+            const relatedTargetKeptOpen = opened();
             menu.dispatchEvent(new PointerEvent('pointerleave', {pointerType:'mouse'}));
             await pause();
             const leaveClosed = opened();
@@ -484,12 +490,12 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
             const row = theme.querySelector('.theme-picker__option > span');
             const rowBorder = getComputedStyle(row).borderTopWidth;
             document.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape', bubbles:true}));
-            return {hoverOpened, clickKeptOpen, paddingKeptOpen, paddingHitsMenu, switched, ordinaryRowClosed, gapKeptOpen, leaveClosed,
+            return {hoverOpened, clickKeptOpen, paddingKeptOpen, paddingHitsMenu, switched, ordinaryRowClosed, gapKeptOpen, relatedTargetKeptOpen, leaveClosed,
               touchDidNotHover, touchClickOpened, keyboardExclusive, rowBorder,
               closed:menu.hidden, focus:document.activeElement.id};
             """, arguments: [:], in: nil, contentWorld: .page)
         let state = try XCTUnwrap(result as? [String: Any])
-        for key in ["hoverOpened", "clickKeptOpen", "paddingKeptOpen", "gapKeptOpen", "keyboardExclusive"] {
+        for key in ["hoverOpened", "clickKeptOpen", "paddingKeptOpen", "gapKeptOpen", "relatedTargetKeptOpen", "keyboardExclusive"] {
             XCTAssertEqual(state[key] as? String, "theme", key)
         }
         for key in ["switched", "touchClickOpened"] {

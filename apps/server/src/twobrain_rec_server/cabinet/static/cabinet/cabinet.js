@@ -5947,10 +5947,15 @@
       });
       menu.addEventListener("pointerleave", (event) => {
         if (event.pointerType !== "mouse") return;
+        if (event.relatedTarget instanceof Node && menu.contains(event.relatedTarget)) {
+          window.clearTimeout(disclosureCloseTimer);
+          return;
+        }
         hoveredDisclosure = null;
         // Let the pointer cross the gap into the child panel without closing it.
         disclosureCloseTimer = window.setTimeout(() => {
-          if (!menu.querySelector(":focus-visible")) closeDisclosures();
+          if (menu.matches(":hover") || menu.querySelector(":focus-visible")) return;
+          closeDisclosures();
         }, 150);
       });
       menu.addEventListener("focusin", (event) => {

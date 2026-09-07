@@ -24,12 +24,12 @@ from twobrain_rec_server.auth.dependencies import (
     auth_session_cookie_secure,
     is_web_cookie_session,
 )
-from twobrain_rec_server.auth.redirects import safe_first_party_path
 from twobrain_rec_server.auth.provider_links import (
     RECOVERY_CAPABLE_PROVIDERS,
     recovery_safe_unlink_allowed,
 )
 from twobrain_rec_server.auth.rate_limit import enforce_auth_rate_limits
+from twobrain_rec_server.auth.redirects import safe_first_party_path
 from twobrain_rec_server.auth.sessions import fingerprint_identity
 from twobrain_rec_server.auth.workspace_onboarding import (
     list_active_workspaces,

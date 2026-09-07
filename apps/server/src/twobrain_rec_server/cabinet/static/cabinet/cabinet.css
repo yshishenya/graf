@@ -5197,9 +5197,20 @@ html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned
   background: var(--panel);
   box-shadow: 0 14px 28px rgba(0,0,0,.28);
 }
+.sidebar-profile-menu__submenu::before {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: -10px;
+  width: 10px;
+}
 .sidebar-profile-menu__disclosure.is-flipped > .sidebar-profile-menu__submenu {
   inset-inline-start: auto;
   inset-inline-end: calc(100% + 8px);
+}
+.sidebar-profile-menu__disclosure.is-flipped > .sidebar-profile-menu__submenu::before {
+  inset-inline-start: auto;
+  inset-inline-end: -10px;
 }
 .sidebar-profile-menu__item,
 .sidebar-profile-menu > a,
