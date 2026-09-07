@@ -2,6 +2,7 @@
 
 import base64
 import hmac
+import json
 import secrets
 import time
 from typing import Annotated, Literal
@@ -543,6 +544,42 @@ class CampaignCodesInput(BaseModel):
     target_user_ids: list[UUID | None] | None = None
 
 
+class SubscriptionAdjustmentInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["subscription.adjust", "subscription.adjustment.revoke"] = "subscription.adjust"
+    adjustment_kind: Literal["plan_interval", "allow", "deny", "extra_quota", "exact_limit"] | None = None
+    adjustment_id: UUID | None = None
+    subject_user_id: UUID | None = None
+    feature_key: str | None = Field(default=None, max_length=40)
+    value: object | None = None
+    unit: str | None = Field(default=None, max_length=16)
+    plan_version_id: UUID | None = None
+    plan_mode: Literal["append", "overlay"] | None = None
+    starts_at: AwareDatetime | None = None
+    ends_at: AwareDatetime | None = None
+    timezone: str = "UTC"
+    source_ref: Annotated[str, Field(pattern=r"^[A-Za-z0-9:_-]{1,160}$")]
+    reason: Annotated[str, Field(min_length=10, max_length=500)]
+    expected_version: Annotated[int, Field(strict=True, ge=1)]
+
+    @model_validator(mode="after")
+    def validate_shape(self):
+        if self.kind == "subscription.adjust":
+            if self.adjustment_kind is None or self.adjustment_id is not None or self.starts_at is None or self.ends_at is None:
+                raise ValueError("для назначения нужны вид, срок и интервал")
+            if self.ends_at <= self.starts_at:
+                raise ValueError("окончание должно быть позже начала")
+        elif self.adjustment_id is None or self.adjustment_kind is not None:
+            raise ValueError("для отзыва нужно существующее назначение")
+        return self
+
+
+class SubscriptionOperationCommit(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    preview_id: UUID
+    expected_preview_hash: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+
+
 def _catalog_error(result: dict) -> None:
     error = result.get("error")
     if not error:
@@ -601,6 +638,82 @@ async def billing_refunds(request: Request, after: UUID | None = None, workspace
     if items is None:
         raise HTTPException(403, "Недостаточно прав")
     return {"items": items[:100], "next_cursor": str(items[99]["id"]) if len(items)>100 else None}
+
+
+@router.get("/subscriptions/{workspace_id}/adjustments")
+async def subscription_adjustments(request: Request, workspace_id: UUID, after: UUID | None = None):
+    from dataclasses import replace
+
+    from twobrain_rec_server.db.tenant_context import apply_system_context
+    _, context = await current_admin(request)
+    async with request.app.state.system_sessions() as session:
+        await apply_system_context(session, replace(context, permission="billing.read"))
+        items = await session.scalar(text("select system_control.list_subscription_adjustments(:after,:workspace)"),
+                                     {"after": after, "workspace": workspace_id})
+    if items is None:
+        raise HTTPException(403, "Недостаточно прав")
+    return {"items": items[:100], "next_cursor": str(items[99]["id"]) if len(items)>100 else None}
+
+
+def _subscription_command(payload: SubscriptionAdjustmentInput, workspace_id: UUID) -> dict:
+    values = payload.model_dump(exclude={"kind", "reason", "expected_version"}, mode="json")
+    values["workspace_id"] = str(workspace_id)
+    return {"kind": payload.kind, "target_id": str(workspace_id), "expected_version": payload.expected_version,
+            "reason": payload.reason.strip(), "parameters": values}
+
+
+@router.post("/subscriptions/{workspace_id}/adjustments/preview")
+async def subscription_adjustment_preview(request: Request, workspace_id: UUID, payload: SubscriptionAdjustmentInput):
+    from dataclasses import replace
+
+    from twobrain_rec_server.db.tenant_context import apply_system_context
+    if not request.app.state.commands_enabled:
+        raise HTTPException(503, "Изменения временно отключены оператором")
+    _, context = await current_admin(request)
+    command = _subscription_command(payload, workspace_id)
+    async with request.app.state.system_sessions() as session:
+        await apply_system_context(session, replace(context, permission="billing.manage", target_type="subscription", target_id=workspace_id))
+        result = await session.scalar(text("select system_control.preview_subscription_operation(cast(:command as jsonb))"),
+                                      {"command": json.dumps(command, default=str)})
+        await session.commit()
+    result = dict(result or {})
+    error = result.get("error")
+    if error:
+        status = 403 if error == "access_denied" else 409 if error == "version_conflict" else 422
+        raise HTTPException(status, {"invalid_command":"Проверьте параметры назначения", "invalid_target":"Пространство не найдено",
+                                     "version_conflict":"Подписка изменилась. Обновите карточку", "access_denied":"Недостаточно прав"}.get(error, "Предпросмотр недоступен"))
+    result["effects"] = ["Будет добавлено неизменяемое назначение доступа" if payload.kind == "subscription.adjust" else "Будет создана запись отзыва назначения",
+                          "Тариф, квота и оплаченные события не изменяются"]
+    result["warnings"] = ["После запуска действие попадёт в очередь системного исполнителя"]
+    result["requires_step_up"] = True
+    return result
+
+
+@router.post("/subscriptions/{workspace_id}/adjustments", status_code=202)
+async def subscription_adjustment_commit(request: Request, workspace_id: UUID, payload: SubscriptionOperationCommit):
+    from dataclasses import replace
+
+    from twobrain_rec_server.db.tenant_context import apply_system_context
+    if not request.app.state.commands_enabled:
+        raise HTTPException(503, "Изменения временно отключены оператором")
+    try:
+        key = UUID(request.headers.get("idempotency-key", ""))
+    except ValueError:
+        raise HTTPException(422, "Требуется Idempotency-Key в формате UUID") from None
+    _, context = await current_admin(request)
+    async with request.app.state.system_sessions() as session:
+        await apply_system_context(session, replace(context, permission="billing.manage", target_type="subscription", target_id=workspace_id))
+        result = await session.scalar(text("select system_control.commit_subscription_operation(:preview,:hash,:key)"),
+                                      {"preview": payload.preview_id, "hash": payload.expected_preview_hash, "key": key})
+        await session.commit()
+    result = dict(result or {})
+    error = result.get("error")
+    if error:
+        status = 403 if error in {"access_denied", "step_up_required"} else 409
+        raise HTTPException(status, {"preview_expired":"Предпросмотр истёк", "step_up_required":"Подтвердите полномочия свежим кодом второго фактора",
+                                     "version_conflict":"Подписка изменилась. Обновите карточку", "idempotency_conflict":"Ключ уже использован для другого действия",
+                                     "preview_consumed":"Предпросмотр уже применён", "access_denied":"Недостаточно прав"}.get(error, "Действие недоступно"))
+    return {**result, "status_url": f"/api/system-admin/v1/operations/{result['operation_id']}"}
 
 
 @router.get("/plans")

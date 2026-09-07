@@ -7,13 +7,20 @@ reconcilers recover the committed domain effect; this loop never resubmits it.
 
 import asyncio
 import logging
+from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.problems import ProblemDetail
+from twobrain_rec_server.billing.admin_grants import create_adjustment, revoke_adjustment
 from twobrain_rec_server.db.models import Meeting, MeetingDeletionRequest, ProcessingWorkflow
+from twobrain_rec_server.db.models.billing import (
+    BillingAccessAdjustment,
+    BillingAccessRevocation,
+    WorkspaceSubscription,
+)
 from twobrain_rec_server.db.session import create_engine, create_sessionmaker
 from twobrain_rec_server.db.tenant_context import MaintenanceTenantContext, apply_tenant_context
 from twobrain_rec_server.deletion.service import BOUNDED_DELETE_COPY, request_meeting_deletion
@@ -66,13 +73,28 @@ async def execute_operation(
     settings, temporal_client, storage,
 ) -> None:
     parameters = {"id": operation_id, "target": target_id}
-    claim = await db.scalar(text("select system_control.claim_system_operation(:id,:target)"), parameters)
+    # Route billing commands through their dedicated claim first. The generic
+    # meeting claim intentionally rejects unknown kinds and would otherwise
+    # cancel a valid subscription command as ``authority_revoked``.
+    claim = await db.scalar(text("select system_control.claim_subscription_operation(:id,:target)"), parameters)
+    if claim is None:
+        claim = await db.scalar(text("select system_control.claim_system_operation(:id,:target)"), parameters)
     if claim is None:
         claim = await db.scalar(text("select system_control.resume_system_operation(:id,:target)"), parameters)
         if claim is None:
             await db.commit()  # Includes any cancellation/version-conflict decision.
             return
-    command = decode_command(claim["command"])
+    raw_command = claim["command"]
+    if isinstance(raw_command, str):
+        import json
+        raw_command = json.loads(raw_command)
+    if raw_command.get("kind") in {"subscription.adjust", "subscription.adjustment.revoke"}:
+        if claim["mode"] != "start":
+            await _observe_subscription_operation(db, claim, raw_command)
+            return
+        await _execute_subscription_operation(db, claim)
+        return
+    command = decode_command(raw_command)
     await apply_tenant_context(db, MaintenanceTenantContext(
         operation_name=("processing_recovery_reconciliation" if command.kind == "meeting.reprocess"
                         else "deletion_purge_reconciliation"),
@@ -150,6 +172,9 @@ async def run_system_operation_reconciler(settings, temporal_client) -> None:
                     pending = (await db.execute(text(
                         "select * from system_control.pending_system_operations()"
                     ))).all()
+                    pending += (await db.execute(text(
+                        "select * from system_control.pending_subscription_operations()"
+                    ))).all()
                 for operation_id, target_id in pending:
                     try:
                         async with sessions() as db:
@@ -172,3 +197,61 @@ async def run_system_operation_reconciler(settings, temporal_client) -> None:
             result = close()
             if asyncio.iscoroutine(result):
                 await result
+
+
+async def _execute_subscription_operation(db: AsyncSession, claim: dict) -> None:
+    """Apply one immutable access ledger change after the maintenance claim."""
+    import json
+
+    raw = claim["command"]
+    if isinstance(raw, str):
+        raw = json.loads(raw)
+    parameters = raw.get("parameters") or {}
+    operation_id = UUID(claim["operation_id"])
+    workspace_id = UUID(claim["target_id"])
+    domain_ref = UUID(claim["domain_ref"])
+    await apply_tenant_context(db, MaintenanceTenantContext(
+        operation_name="system_billing_adjustment", actor_id="graf-system-billing-worker",
+        reason_category="durable_system_operation", feature_area="system_admin",
+    ))
+    try:
+        async with db.begin_nested():
+            if raw.get("kind") == "subscription.adjust":
+                await create_adjustment(
+                    db,
+                    workspace_id=workspace_id,
+                    subject_user_id=UUID(parameters["subject_user_id"]) if parameters.get("subject_user_id") else None,
+                    kind=parameters["adjustment_kind"], feature_key=parameters.get("feature_key"),
+                    value=parameters.get("value"), unit=parameters.get("unit"),
+                    plan_version_id=UUID(parameters["plan_version_id"]) if parameters.get("plan_version_id") else None,
+                    plan_mode=parameters.get("plan_mode"),
+                    starts_at=datetime.fromisoformat(parameters["starts_at"]),
+                    ends_at=datetime.fromisoformat(parameters["ends_at"]), timezone=parameters["timezone"],
+                    source_kind="admin", source_ref=parameters["source_ref"], reason=raw["reason"],
+                    admin_operation_id=operation_id, adjustment_id=domain_ref,
+                )
+            else:
+                await revoke_adjustment(
+                    db, workspace_id=workspace_id, adjustment_id=UUID(parameters["adjustment_id"]),
+                    source_kind="admin", source_ref=parameters["source_ref"], reason=raw["reason"],
+                    admin_operation_id=operation_id, revocation_id=domain_ref,
+                )
+            subscription = await db.get(WorkspaceSubscription, workspace_id, populate_existing=True)
+            if subscription is not None:
+                subscription.application_version = max(1, subscription.application_version + 1)
+            await db.flush()
+    except Exception:
+        # The maintenance role may mutate the domain ledger only through its
+        # guarded helper. Record a terminal, fenced result through the
+        # system-control function instead of writing operation tables directly.
+        await _result(db, claim, "failed", error="processing_failed")
+        return
+    await _result(db, claim, "succeeded")
+
+
+async def _observe_subscription_operation(db: AsyncSession, claim: dict, command: dict) -> None:
+    """Resolve a crash after the claim without issuing a second ledger row."""
+    domain_ref = UUID(claim["domain_ref"])
+    model = BillingAccessAdjustment if command.get("kind") == "subscription.adjust" else BillingAccessRevocation
+    row = await db.get(model, domain_ref)
+    await _result(db, claim, "succeeded" if row is not None else "awaiting_reconciliation")

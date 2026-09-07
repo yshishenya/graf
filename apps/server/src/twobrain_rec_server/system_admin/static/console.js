@@ -121,6 +121,55 @@ setInterval(async()=>{
 },10000);
 addEventListener("pageshow",event=>{if(event.persisted) location.reload();});
 
+// Billing catalog controls are intentionally small native forms.  The server
+// remains the source of truth for capability and money validation.
+const planDialog=document.getElementById("plan-dialog"), planForm=document.getElementById("plan-form");
+document.getElementById("create-plan")?.addEventListener("click",()=>{planForm.reset();planDialog.querySelector(".dialog-message").textContent="";planDialog.showModal();});
+const reasonDialog=document.getElementById("reason-dialog"), reasonForm=document.getElementById("reason-form");
+let reasonAction=null;
+function openReasonAction(button,path,data,label,method="POST") {
+  reasonAction={button,path,data,method}; reasonForm.reset();
+  document.getElementById("reason-title").textContent=label;
+  reasonDialog.querySelector(".dialog-message").textContent=""; reasonDialog.showModal();
+  reasonForm.elements.reason.focus();
+}
+reasonForm?.addEventListener("submit",async event=>{
+  event.preventDefault(); if(!reasonAction) return;
+  const action=reasonAction, submit=reasonForm.querySelector("button[type=submit]");
+  submit.disabled=true; action.button.disabled=true;
+  try {await command(action.path,{...action.data,reason:reasonForm.elements.reason.value},action.method); reasonDialog.close(); location.reload();}
+  catch(error) {reasonDialog.querySelector(".dialog-message").textContent=error.message; action.button.disabled=false;}
+  finally {submit.disabled=false;}
+});
+planForm?.addEventListener("submit",async event=>{
+  event.preventDefault(); const values=Object.fromEntries(new FormData(planForm)); const button=planForm.querySelector("button[type=submit]"); button.disabled=true;
+  try {
+    const result=await command("plans",{code:values.code,display_name:values.display_name,capabilities:JSON.parse(values.capabilities),display_terms:JSON.parse(values.display_terms),monthly_amount_minor:values.monthly_amount_minor?Number(values.monthly_amount_minor):null,annual_amount_minor:values.annual_amount_minor?Number(values.annual_amount_minor):null,reason:values.reason});
+    planDialog.querySelector(".dialog-message").textContent=`Черновик сохранён: ${result.code||values.code}`;
+  } catch(error) {planDialog.querySelector(".dialog-message").textContent=error.message;} finally {button.disabled=false;}
+});
+document.querySelectorAll(".publish-plan").forEach(button=>button.addEventListener("click",async()=>{
+  openReasonAction(button, `plans/${button.dataset.id}/publish`, {version_id:button.dataset.versionId}, "Опубликовать тариф");
+}));
+document.querySelectorAll(".close-plan").forEach(button=>button.addEventListener("click",async()=>{
+  openReasonAction(button, `plans/${button.dataset.id}/state`, {state:"closed"}, "Закрыть продажи тарифа", "PATCH");
+}));
+const campaignDialog=document.getElementById("campaign-dialog"), campaignForm=document.getElementById("campaign-form");
+document.getElementById("create-campaign")?.addEventListener("click",()=>{campaignForm.reset();campaignForm.elements.max_redemptions.value=1;campaignDialog.querySelector(".dialog-message").textContent="";campaignDialog.showModal();});
+campaignForm?.addEventListener("submit",async event=>{
+  event.preventDefault(); const values=Object.fromEntries(new FormData(campaignForm)); const numberOrNull=name=>values[name]?Number(values[name]):null; const button=campaignForm.querySelector("button[type=submit]"); button.disabled=true;
+  try {const result=await command("campaigns",{code:values.code,campaign_version:values.campaign_version,plan_code:values.plan_code,cycle:values.cycle||null,benefit_kind:values.benefit_kind,discount_percent:numberOrNull("discount_percent"),gift_days:numberOrNull("gift_days"),audience:"all",target_user_id:null,max_redemptions:Number(values.max_redemptions),budget_minor:numberOrNull("budget_minor"),starts_at:null,ends_at:null,display_name:values.display_name||null,reason:values.reason}); campaignDialog.querySelector(".dialog-message").textContent=`Черновик сохранён: ${result.id||"готово"}`;} catch(error) {campaignDialog.querySelector(".dialog-message").textContent=error.message;} finally {button.disabled=false;}
+});
+document.querySelectorAll(".campaign-state").forEach(button=>button.addEventListener("click",async()=>{
+  openReasonAction(button, `campaigns/${button.dataset.id}/state`, {state:button.dataset.state}, "Изменить состояние акции", "PATCH");
+}));
+const codesDialog=document.getElementById("codes-dialog"), codesForm=document.getElementById("codes-form");
+document.querySelectorAll(".issue-codes").forEach(button=>button.addEventListener("click",()=>{codesForm.reset();codesForm.elements.campaign_id.value=button.dataset.id;codesForm.elements.prefix.value="GRAF";codesDialog.querySelector(".dialog-message").textContent="";codesDialog.showModal();}));
+codesForm?.addEventListener("submit",async event=>{
+  event.preventDefault(); const values=Object.fromEntries(new FormData(codesForm)); const button=codesForm.querySelector("button[type=submit]"); button.disabled=true;
+  try {const result=await command(`campaigns/${values.campaign_id}/codes`,{idempotency_key:crypto.randomUUID(),count:Number(values.count),prefix:values.prefix}); document.getElementById("codes-output").textContent=result.codes?.join("\n")||"Партия создана. Открытые значения уже недоступны.";} catch(error) {document.getElementById("codes-output").textContent=error.message;} finally {button.disabled=false;}
+});
+
 const contentDialog=document.getElementById("content-dialog"),caseForm=document.getElementById("content-case-form"),contentText=document.getElementById("content-text");
 let contentState=null;
 function clearContent() {

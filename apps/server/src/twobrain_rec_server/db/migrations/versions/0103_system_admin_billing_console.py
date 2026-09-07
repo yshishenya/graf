@@ -117,8 +117,8 @@ def upgrade() -> None:
           select coalesce(jsonb_agg(to_jsonb(rows)),'[]'::jsonb) into result from (
             select i.id,i.safe_number,i.workspace_id,i.operation_id,i.amount_minor,i.currency,i.status,
               i.created_at, o.kind operation_kind,o.state operation_state,
-              case when i.plan_snapshot ? 'catalog_snapshot' then i.plan_snapshot->'catalog_snapshot'->>'plan_code'
-                   else i.plan_snapshot->>'plan_code' end plan_code
+              case when i.plan_snapshot::jsonb ? 'catalog_snapshot' then i.plan_snapshot::jsonb->'catalog_snapshot'->>'plan_code'
+                   else i.plan_snapshot::jsonb->>'plan_code' end plan_code
             from public.billing_invoices i join public.billing_operations o on o.id=i.operation_id
             where (p_after is null or i.id>p_after) and (p_workspace is null or i.workspace_id=p_workspace)
               and (p_status is null or i.status=p_status)
@@ -278,7 +278,11 @@ def downgrade() -> None:
         "list_billing_invoices(uuid,uuid,text)", "list_billing_subscriptions(uuid,text,text)",
     ):
         op.execute(f"drop function if exists system_control.{signature}")
-    op.execute("drop policy if exists system_admin_authority_read on promotion_codes")
+    for table in ("billing_plans", "billing_plan_versions", "billing_plan_prices", "promotion_campaigns",
+                  "promotion_codes", "promotion_redemptions", "promotion_code_batches",
+                  "billing_invoices", "billing_operations", "billing_entitlement_grants",
+                  "observed_provider_refunds", "workspace_subscriptions"):
+        op.execute(f"drop policy if exists system_admin_authority_read on {table}")
     for table in ("billing_plans", "billing_plan_versions", "billing_plan_prices", "promotion_campaigns", "promotion_codes", "promotion_code_batches"):
         op.execute(f"drop policy if exists system_admin_authority_write on {table}")
     op.execute("drop table if exists promotion_code_batches")

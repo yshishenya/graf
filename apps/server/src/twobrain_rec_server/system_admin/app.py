@@ -216,7 +216,12 @@ def create_app() -> FastAPI:
             raise
         permissions = ROLE_PERMISSIONS[identity["role"]]
         sections = {"home": (None, "Мой доступ"), "meetings": ("meetings.metadata", "Встречи"),
-                    "users": ("users.read", "Пользователи"), "admins": ("admins.manage", "Администраторы"), "audit": ("audit.read", "Журнал действий")}
+                    "users": ("users.read", "Пользователи"),
+                    "subscriptions": ("billing.read", "Подписки"),
+                    "payments": ("billing.read", "Платежи"),
+                    "plans": ("catalog.read", "Тарифы"),
+                    "campaigns": ("promotions.read", "Акции"),
+                    "admins": ("admins.manage", "Администраторы"), "audit": ("audit.read", "Журнал действий")}
         if section not in sections:
             raise HTTPException(404, "Раздел не найден")
         permission, title = sections[section]
@@ -241,6 +246,64 @@ def create_app() -> FastAPI:
                         value=row[name]
                         row[name]=(f"{value//100:,}".replace(",", " ")+f",{value%100:02d} ₽") if value is not None else None
                 columns += [("paid_amount_minor_rub","Оплачено, ₽"),("refunded_amount_minor_rub","Возвращено, ₽")]
+        elif section == "subscriptions":
+            from dataclasses import replace
+
+            from sqlalchemy import text
+
+            from twobrain_rec_server.db.tenant_context import apply_system_context
+            async with request.app.state.system_sessions() as session:
+                await apply_system_context(session, replace(context, permission="billing.read"))
+                result = await session.scalar(text("select system_control.list_billing_subscriptions(:after,null,null)"), {"after": after})
+            rows = result[:100] if result else []
+            next_cursor = rows[-1].get("workspace_id") if result and len(result) > 100 else None
+            columns = [("workspace_id","Пространство"),("billing_owner_id","Плательщик"),("state","Состояние"),
+                       ("plan_code","Тариф"),("cycle","Период"),("paid_through","Доступ до"),
+                       ("invoice_count","Счетов"),("paid_amount_minor_rub","Оплачено, ₽"),
+                       ("refunded_amount_minor_rub","Возвращено, ₽"),("last_payment_at","Последняя оплата")]
+        elif section == "payments":
+            from dataclasses import replace
+
+            from sqlalchemy import text
+
+            from twobrain_rec_server.db.tenant_context import apply_system_context
+            async with request.app.state.system_sessions() as session:
+                await apply_system_context(session, replace(context, permission="billing.read"))
+                result = await session.scalar(text("select system_control.list_billing_invoices(:after,null,null)"), {"after": after})
+            rows = result[:100] if result else []
+            next_cursor = rows[-1].get("id") if result and len(result) > 100 else None
+            columns = [("safe_number","Счёт"),("workspace_id","Пространство"),("plan_code","Тариф"),
+                       ("amount_minor","Сумма, коп."),("currency","Валюта"),("status","Состояние"),
+                       ("created_at","Создан")]
+        elif section == "plans":
+            from dataclasses import replace
+
+            from sqlalchemy import text
+
+            from twobrain_rec_server.db.tenant_context import apply_system_context
+            async with request.app.state.system_sessions() as session:
+                await apply_system_context(session, replace(context, permission="catalog.read"))
+                result = await session.scalar(text("select system_control.list_catalog_plans(:after)"), {"after": after})
+            rows = result[:100] if result else []
+            next_cursor = rows[-1].get("id") if result and len(result) > 100 else None
+            columns = [("code","Код"),("display_name","Название"),("sales_state","Продажи"),
+                       ("version_number","Версия"),("version_status","Состояние версии"),
+                       ("enabled_for_checkout","Доступен в покупке"),("prices","Цены")]
+        elif section == "campaigns":
+            from dataclasses import replace
+
+            from sqlalchemy import text
+
+            from twobrain_rec_server.db.tenant_context import apply_system_context
+            async with request.app.state.system_sessions() as session:
+                await apply_system_context(session, replace(context, permission="promotions.read"))
+                result = await session.scalar(text("select system_control.list_campaigns(:after)"), {"after": after})
+            rows = result[:100] if result else []
+            next_cursor = rows[-1].get("id") if result and len(result) > 100 else None
+            columns = [("display_name","Название"),("plan_code","Тариф"),("cycle","Период"),
+                       ("benefit_kind","Выгода"),("discount_percent","Скидка, %"),("gift_days","Дней"),
+                       ("audience","Аудитория"),("status","Состояние"),("redeemed_count","Использовано"),
+                       ("max_redemptions","Лимит"),("code_count","Кодов"),("starts_at","Начало"),("ends_at","Окончание")]
         elif section == "admins":
             rows = (await administrators(request, after))["items"]
             next_cursor = rows[-1]["id"] if len(rows)==100 else None
