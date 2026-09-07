@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+
 from twobrain_rec_server.api.cabinet import (
     _SUMMARY_PUBLIC_REASON_ALIASES,
     _raise_summary_problem,

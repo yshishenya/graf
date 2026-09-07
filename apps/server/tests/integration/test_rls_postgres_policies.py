@@ -20,6 +20,18 @@ from sqlalchemy import select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
+
+import scripts.cleanup_smoke_artifacts as cleanup_smoke_artifacts_module
+from scripts.cleanup_smoke_artifacts import cleanup_smoke_artifacts
+from scripts.cleanup_smoke_auth_session import cleanup_smoke_auth_session
+from scripts.issue_smoke_auth_session import issue_smoke_auth_session
+from scripts.seed_smoke_identity import seed_identity
+from tests.fixtures.postgres_rls import (
+    optional_rls_test_database_url,
+    rls_test_database_url,
+    validate_rls_test_database_url,
+)
+from tests.fixtures.postgres_test_database import ensure_disposable_media_role
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.auth import callbacks as callbacks_module
 from twobrain_rec_server.auth.account_closure import (
@@ -91,18 +103,6 @@ from twobrain_rec_server.db.tenant_context import (
     apply_tenant_context_to_connection,
 )
 from twobrain_rec_server.deployment import build_smoke_identity_seed
-
-import scripts.cleanup_smoke_artifacts as cleanup_smoke_artifacts_module
-from scripts.cleanup_smoke_artifacts import cleanup_smoke_artifacts
-from scripts.cleanup_smoke_auth_session import cleanup_smoke_auth_session
-from scripts.issue_smoke_auth_session import issue_smoke_auth_session
-from scripts.seed_smoke_identity import seed_identity
-from tests.fixtures.postgres_rls import (
-    optional_rls_test_database_url,
-    rls_test_database_url,
-    validate_rls_test_database_url,
-)
-from tests.fixtures.postgres_test_database import ensure_disposable_media_role
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 MEDIA_READ_ONLY_TABLES = (
@@ -5007,6 +5007,7 @@ async def test_independent_billing_handoff_crosses_rls_contexts_atomically(
     migrated_postgres_urls: MigratedPostgresUrls, tmp_path,
 ) -> None:
     from cryptography.fernet import Fernet
+
     from twobrain_rec_server.auth.browser_handoff import (
         DESKTOP_BILLING_HANDOFF_PROVIDER,
         seal_desktop_billing_session,

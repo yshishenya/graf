@@ -1,6 +1,7 @@
 from uuid import uuid4
 
 import pytest
+
 from twobrain_rec_server.auth.account_merge import (
     AccountMergeError,
     MergeEntityCounts,
