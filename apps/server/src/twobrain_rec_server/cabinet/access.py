@@ -41,6 +41,7 @@ from twobrain_rec_server.db.models import (
 )
 from twobrain_rec_server.db.tenant_context import TenantDatabaseContext, apply_tenant_context
 from twobrain_rec_server.domain.statuses import DeletionState
+from twobrain_rec_server.outcomes.models import protocol_without_evidence
 from twobrain_rec_server.outcomes.service import (
     load_egress_default_outcome,
     load_meeting_default_slot,
@@ -127,15 +128,21 @@ def effective_grant_capabilities(
 def narrow_summary_projection(
     *,
     meeting_label: str,
-    occurred_at: datetime,
+    occurred_at: datetime | None,
     duration_seconds: int,
-    summary_sections: list[dict[str, object]],
+    protocol: dict[str, object] | None,
 ) -> dict[str, object]:
+    if protocol is not None:
+        header = protocol["header"]
+        meeting_label = str(header.get("title") or "Встреча")
+        started_at = header.get("started_at")
+        occurred_at = datetime.fromisoformat(started_at) if isinstance(started_at, str) else None
+        duration_seconds = int(header.get("duration_seconds") or 0)
     return {
         "meeting_label": meeting_label[:160],
         "occurred_at": occurred_at,
         "duration_seconds": max(0, duration_seconds),
-        "summary_sections": summary_sections,
+        "protocol": protocol_without_evidence(protocol),
     }
 
 

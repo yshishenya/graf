@@ -2281,9 +2281,10 @@ async def _purge_server_controlled_content(
             .where(MeetingOutcomeGenerationAttempt.meeting_id == meeting.id)
         )
     ).all()
+    header_materialized = any(attempt.header_snapshot_json is not None for attempt in generation_attempts)
     if outcome_sets or generation_attempts:
         await _purge_meeting_outcomes(db, meeting=meeting)
-    if outcome_sets:
+    if outcome_sets or header_materialized:
         result.materialized_classes.add(DeletionArtifactClass.NOTES_SUMMARY)
         result.purged_classes.add(DeletionArtifactClass.NOTES_SUMMARY)
     if generation_attempts:
@@ -2440,6 +2441,8 @@ async def _purge_meeting_outcomes(db: AsyncSession, *, meeting: Meeting) -> None
         outcome_set.lifecycle_state = OutcomeLifecycleState.DELETED.value
         outcome_set.failure_reason = "meeting_deleted"
         outcome_set.content_hash = None
+        outcome_set.protocol_json = None
+        outcome_set.protocol_state = "unavailable"
 
     outcome_items = (
         await db.scalars(
@@ -2464,10 +2467,17 @@ async def _purge_meeting_outcomes(db: AsyncSession, *, meeting: Meeting) -> None
     for attempt in generation_attempts:
         attempt.status = "cancelled"
         attempt.failure_code = "meeting_deleted"
+        attempt.header_snapshot_json = None
         # Prompt snapshots are template/provider provenance (not meeting text)
         # and are required to deliver an already-completed GenerationCall to
         # observability after deletion. Keep them immutable for that handoff.
-        attempt.metadata_json = {"purged_for_deletion": True}
+        metadata = attempt.metadata_json or {}
+        attempt.metadata_json = {
+            "purged_for_deletion": True,
+            **{key: metadata[key] for key in (
+                "extractor_prompt", "verifier_prompt", "pipeline", "execution_authority",
+            ) if key in metadata},
+        }
 
 
 def _initial_artifact_states(

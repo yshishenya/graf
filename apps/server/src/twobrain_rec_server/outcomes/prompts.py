@@ -7,41 +7,48 @@ from dataclasses import dataclass
 from hashlib import sha256
 from typing import Final, Literal
 
-from twobrain_rec_server.outcomes.templates import OUTCOME_CATEGORIES
+from pydantic import BaseModel, ValidationError
 
-CONFIG_CONTRACT_VERSION: Final = 1
+from twobrain_rec_server.outcomes.models import (
+    PROTOCOL_SECTIONS,
+    FactualExtraction,
+    MeetingProtocol,
+    OutcomeTranscriptSegment,
+    ProtocolVerification,
+)
+
+CONFIG_CONTRACT_VERSION: Final = 5
 PROMPT_LABEL: Final = "production"
+VERIFIER_PROMPT_NAME: Final = "graf/meeting-outcome/verify"
+EXTRACTOR_PROMPT_NAME: Final = "graf/meeting-outcome/extract"
 CONTROL_GATE_CONFIG_KEY: Final = "graf_control_gate"
 MAX_PROMPT_BYTES: Final = 65_536
 MAX_CONFIG_BYTES: Final = 65_536
 MAX_SCHEMA_BYTES: Final = 49_152
-MAX_CONFIG_DEPTH: Final = 12
-MAX_CONFIG_NODES: Final = 256
+MAX_CONFIG_DEPTH: Final = 20
+MAX_CONFIG_NODES: Final = 2048
 ALLOWED_MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$")
 PROMPT_VARIABLE_RE = re.compile(r"\{\{([a-z][a-z0-9_]*)\}\}")
 GENERIC_OWNER_LABEL_RE = re.compile(
-    r"^(?:UNKNOWN|REMOTE|LOCAL|SPEAKER(?:[_ -]?[A-Z0-9]+)?|SPEAKER\s+\d+)$",
+    r"^(?:UNKNOWN|REMOTE|LOCAL|SPEAKER(?:[_ -]?[A-Z0-9]+)?|SPEAKER\s+\d+|(?:УЧАСТНИК|СПИКЕР)(?:[_ -]?[\w]+)?)$",
     re.IGNORECASE,
 )
-OUTCOME_CONFIG_KEYS_WITH_LIMIT: Final = {
-    "config_contract_version",
-    "model",
+MODEL_PARAMETER_KEYS: Final = {
     "temperature",
-    "response_format",
+    "top_p",
+    "reasoning_effort",
+    "max_tokens",
+    "max_completion_tokens",
+    "seed",
 }
-OUTCOME_CONFIG_KEYS_WITHOUT_LIMIT: Final = OUTCOME_CONFIG_KEYS_WITH_LIMIT - {
-    "max_completion_tokens"
-}
-REFLECTION_CONFIG_KEYS: Final = OUTCOME_CONFIG_KEYS_WITHOUT_LIMIT - {"response_format"}
-REFLECTION_CONFIG_KEYS_WITHOUT_LIMIT: Final = OUTCOME_CONFIG_KEYS_WITHOUT_LIMIT - {
-    "response_format"
-}
-OUTCOME_VARIABLES: Final = {
+SOURCE_VARIABLES: Final = {
     "transcript_json",
     "output_language",
     "detail_level",
     "template_sections_json",
 }
+OUTCOME_VARIABLES: Final = SOURCE_VARIABLES | {"extraction_json"}
+VERIFIER_VARIABLES: Final = SOURCE_VARIABLES | {"draft_json"}
 JUDGE_VARIABLES: Final = {
     "graf/evaluation/meeting-outcome-faithfulness": {
         "source_segments_json",
@@ -59,67 +66,39 @@ JUDGE_VARIABLES: Final = {
 }
 
 
+def _inline_schema(model: type[BaseModel]) -> dict[str, object]:
+    # Only expand our own generated schema; untrusted prompt configs forbid refs.
+    schema = model.model_json_schema()
+    definitions = schema.pop("$defs", {})
+
+    def expand(value):
+        if isinstance(value, list):
+            return [expand(child) for child in value]
+        if isinstance(value, dict):
+            if "$ref" in value:
+                return expand(definitions[value["$ref"].removeprefix("#/$defs/")])
+            return {
+                key: {name: expand(field) for name, field in child.items()}
+                if key == "properties" else expand(child)
+                # Large nested maxItems make Gemini reject the schema before
+                # generation. Pydantic still enforces every local array limit.
+                for key, child in value.items() if key not in {"title", "maxItems"}
+            }
+        return value
+
+    return expand(schema)
+
+
 def outcome_schema() -> dict[str, object]:
-    states = {
-        category: {"type": "string", "enum": ["available", "not_found", "not_inferable"]}
-        for category in OUTCOME_CATEGORIES
-    }
-    return {
-        "type": "object",
-        "properties": {
-            "category_states": {
-                "type": "object",
-                "properties": states,
-                "required": list(OUTCOME_CATEGORIES),
-                "additionalProperties": False,
-            },
-            "items": {
-                "type": "array",
-                "maxItems": 100,
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "category": {"type": "string", "enum": list(OUTCOME_CATEGORIES)},
-                        "sequence": {"type": "integer", "minimum": 0, "maximum": 99},
-                        "text": {"type": "string", "minLength": 1, "maxLength": 4000},
-                        "owner_text": {
-                            "anyOf": [{"type": "string", "maxLength": 240}, {"type": "null"}]
-                        },
-                        "due_date_text": {
-                            "anyOf": [{"type": "string", "maxLength": 120}, {"type": "null"}]
-                        },
-                        "truth_label": {"type": "string", "enum": ["supported"]},
-                        "source_refs": {
-                            "type": "array",
-                            "minItems": 1,
-                            "maxItems": 8,
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "transcript_segment_id": {"type": "string", "format": "uuid"},
-                                    "sequence": {"type": "integer", "minimum": 0},
-                                },
-                                "required": ["transcript_segment_id", "sequence"],
-                                "additionalProperties": False,
-                            },
-                        },
-                    },
-                    "required": [
-                        "category",
-                        "sequence",
-                        "text",
-                        "owner_text",
-                        "due_date_text",
-                        "truth_label",
-                        "source_refs",
-                    ],
-                    "additionalProperties": False,
-                },
-            },
-        },
-        "required": ["category_states", "items"],
-        "additionalProperties": False,
-    }
+    return _inline_schema(MeetingProtocol)
+
+
+def verification_schema() -> dict[str, object]:
+    return _inline_schema(ProtocolVerification)
+
+
+def extraction_schema() -> dict[str, object]:
+    return _inline_schema(FactualExtraction)
 
 
 def judge_schema() -> dict[str, object]:
@@ -135,11 +114,10 @@ def judge_schema() -> dict[str, object]:
     }
 
 
-def outcome_config(*, schema_name: str, model: str = "gpt-5.6-luna") -> dict[str, object]:
+def outcome_config(*, schema_name: str) -> dict[str, object]:
+    """Schema template only; execution settings must come from Langfuse."""
     return {
-        "config_contract_version": 2,
-        "model": model,
-        "temperature": 1,
+        "config_contract_version": CONFIG_CONTRACT_VERSION,
         "response_format": {
             "type": "json_schema",
             "json_schema": {"name": schema_name, "strict": True, "schema": outcome_schema()},
@@ -147,14 +125,24 @@ def outcome_config(*, schema_name: str, model: str = "gpt-5.6-luna") -> dict[str
     }
 
 
-def judge_config(*, schema_name: str, model: str = "gpt-5.6-luna") -> dict[str, object]:
-    config = outcome_config(schema_name=schema_name, model=model)
-    config["config_contract_version"] = 3
-    config["temperature"] = 1
+def judge_config(*, schema_name: str) -> dict[str, object]:
+    config = outcome_config(schema_name=schema_name)
     config["response_format"] = {
         "type": "json_schema",
         "json_schema": {"name": schema_name, "strict": True, "schema": judge_schema()},
     }
+    return config
+
+
+def verification_config() -> dict[str, object]:
+    config = outcome_config(schema_name="graf_meeting_protocol_verification")
+    config["response_format"]["json_schema"]["schema"] = verification_schema()
+    return config
+
+
+def extraction_config() -> dict[str, object]:
+    config = outcome_config(schema_name="graf_meeting_factual_extraction")
+    config["response_format"]["json_schema"]["schema"] = extraction_schema()
     return config
 
 
@@ -173,28 +161,51 @@ class PromptSnapshot:
     # bundle. A child prompt without these bindings is not production-ready.
     root_bundle_hash: str | None = None
     root_prompt_version: int | None = None
-    route_binding_hash: str | None = None
-    route_binding: dict[str, object] | None = None
+    root_document: dict[str, object] | None = None
 
     @property
     def model(self) -> str:
         return str(self.config["model"])
 
+    @property
+    def model_parameters(self) -> dict[str, object]:
+        return model_parameters(self.config)
+
     def litellm_request(self, messages: Sequence[Mapping[str, str]]) -> dict[str, object]:
-        request: dict[str, object] = {
+        return {
             "model": self.model,
             "messages": [dict(message) for message in messages],
-            "temperature": self.config["temperature"],
+            **self.model_parameters,
         }
-        if "max_completion_tokens" in self.config:
-            request["max_completion_tokens"] = self.config["max_completion_tokens"]
-        if "response_format" in self.config:
-            request["response_format"] = self.config["response_format"]
-        return request
+
+
+def model_parameters(config: Mapping[str, object]) -> dict[str, object]:
+    return {
+        key: _ordered_schema(config[key]) if key == "response_format" else config[key]
+        for key in sorted(MODEL_PARAMETER_KEYS | {"response_format"})
+        if key in config
+    }
+
+
+def _ordered_schema(value):
+    """Recover generation order after JSON storage without changing canonical hashes."""
+    if isinstance(value, list):
+        return [_ordered_schema(child) for child in value]
+    if isinstance(value, dict):
+        result = {key: _ordered_schema(child) for key, child in value.items()}
+        properties = result.get("properties")
+        if isinstance(properties, dict):
+            result["properties"] = {
+                key: properties[key] for key in result["required"]
+            }
+        return result
+    return value
 
 
 def canonical_json(value: object) -> str:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False
+    )
 
 
 def prompt_variables(value: str) -> list[str]:
@@ -245,7 +256,7 @@ def validate_prompt_snapshot(
     config: Mapping[str, object],
     source: str = "langfuse_production",
 ) -> PromptSnapshot:
-    if version < 1:
+    if type(version) is not int or version < 1:
         raise ValueError("prompt version must be positive")
     if source not in {
         "langfuse_production",
@@ -269,8 +280,11 @@ def validate_prompt_snapshot(
         _validate_outcome_config(config_copy, judge=True)
         _validate_prompt_variables(prompt, JUDGE_VARIABLES[name])
     elif name.startswith("graf/meeting-outcome/"):
-        _validate_outcome_config(config_copy, judge=False)
-        _validate_prompt_variables(prompt, OUTCOME_VARIABLES)
+        verifier = name == VERIFIER_PROMPT_NAME
+        extractor = name == EXTRACTOR_PROMPT_NAME
+        _validate_outcome_config(config_copy, judge=False, verifier=verifier, extractor=extractor)
+        variables = SOURCE_VARIABLES if extractor else VERIFIER_VARIABLES if verifier else OUTCOME_VARIABLES
+        _validate_prompt_variables(prompt, variables)
         if prompt_type != "chat":
             raise ValueError("outcome prompt must be chat")
     else:
@@ -348,160 +362,112 @@ def _validate_control_gate_config(name: str, value: object) -> None:
         raise ValueError("control prompt gate config is invalid")
 
 
-def validate_outcome_result(
+def _validated_document(model: type[BaseModel], result: object) -> dict[str, object]:
+    try:
+        return model.model_validate(result).model_dump(mode="json")
+    except ValidationError:
+        # Pydantic errors contain the rejected input: never leak meeting content.
+        raise ValueError("protocol_shape_invalid") from None
+
+
+def _validate_document_refs(
+    document: dict[str, object], segments: Sequence[OutcomeTranscriptSegment]
+) -> None:
+    by_sequence = {segment.sequence: segment for segment in segments}
+    if (
+        not segments
+        or len({segment.segment_id for segment in segments}) != len(segments)
+        or len(by_sequence) != len(segments)
+        or any(
+            type(segment.sequence) is not int
+            or segment.sequence < 0
+            or not segment.start_seconds.is_finite()
+            or not segment.end_seconds.is_finite()
+            or not 0 <= segment.start_seconds <= segment.end_seconds
+            for segment in segments
+        )
+    ):
+        raise ValueError("protocol_source_invalid")
+
+    def visit(value: object) -> None:
+        if isinstance(value, list):
+            for child in value:
+                visit(child)
+        elif isinstance(value, dict):
+            for key, child in value.items():
+                if key.endswith("source_refs"):
+                    seen: set[int] = set()
+                    for ref in child:
+                        sequence = ref["sequence"]
+                        segment = by_sequence.get(sequence)
+                        if segment is None:
+                            raise ValueError("protocol_reference_invalid")
+                        if sequence in seen:
+                            raise ValueError("protocol_reference_duplicate")
+                        seen.add(sequence)
+                        quote = ref["quote"]
+                        if quote is not None and (not quote.strip() or quote not in segment.text):
+                            raise ValueError("protocol_quote_invalid")
+                else:
+                    visit(child)
+
+    visit(document)
+
+
+def validate_protocol_result(
     result: object,
     *,
-    allowed_categories: Sequence[str],
-    allowed_segment_ids: set[str],
-    allowed_segment_sequences: Mapping[str, int] | None = None,
-    repair_source_refs: bool = False,
+    segments: Sequence[OutcomeTranscriptSegment],
+    sections: Sequence[str] = PROTOCOL_SECTIONS,
 ) -> dict[str, object]:
-    if not isinstance(result, dict) or set(result) != {"category_states", "items"}:
-        raise ValueError("outcome result must contain category_states and items only")
-    states = result["category_states"]
-    items = result["items"]
-    categories = tuple(allowed_categories)
-    if not categories or any(category not in OUTCOME_CATEGORIES for category in categories):
-        raise ValueError("unsupported outcome category")
-    if not isinstance(states, dict) or set(states) != set(OUTCOME_CATEGORIES):
-        raise ValueError("category states do not match the closed outcome schema")
-    allowed_states = {"available", "not_found", "not_inferable"}
-    if any(state not in allowed_states for state in states.values()):
-        raise ValueError("invalid category state")
-    if not isinstance(items, list) or len(items) > 100:
-        raise ValueError("outcome items must be a bounded list")
-    seen: set[tuple[str, int]] = set()
-    counts = {category: 0 for category in OUTCOME_CATEGORIES}
-    normalized_items: list[dict[str, object]] = []
-    sequence_to_segment: dict[int, str] = {}
-    duplicate_sequences: set[int] = set()
-    if allowed_segment_sequences is not None:
-        for segment_id, segment_sequence in allowed_segment_sequences.items():
-            if segment_sequence in sequence_to_segment:
-                duplicate_sequences.add(segment_sequence)
-            else:
-                sequence_to_segment[segment_sequence] = segment_id
-        for segment_sequence in duplicate_sequences:
-            sequence_to_segment.pop(segment_sequence, None)
-    for item in items:
-        if not isinstance(item, dict):
-            raise ValueError("outcome item must be an object")
-        required = {
-            "category",
-            "sequence",
-            "text",
-            "owner_text",
-            "due_date_text",
-            "truth_label",
-            "source_refs",
-        }
-        if set(item) != required:
-            raise ValueError("outcome item has unknown or missing fields")
-        category = item["category"]
-        sequence = item["sequence"]
-        if (
-            category not in categories
-            or not isinstance(sequence, int)
-            or isinstance(sequence, bool)
-            or not 0 <= sequence <= 99
-        ):
-            raise ValueError("outcome item category or sequence is invalid")
-        key = (category, sequence)
-        if key in seen:
-            raise ValueError("outcome item category/sequence must be unique")
-        seen.add(key)
-        text = item["text"]
-        if not isinstance(text, str) or not 1 <= len(text) <= 4000:
-            raise ValueError("outcome item text is invalid")
-        if item["truth_label"] != "supported":
-            raise ValueError("outcome item must be supported")
-        owner_text = item["owner_text"] if category == "action_items" else None
-        due_date_text = item["due_date_text"] if category == "action_items" else None
-        if isinstance(owner_text, str) and GENERIC_OWNER_LABEL_RE.fullmatch(
-            owner_text.strip()
-        ):
-            raise ValueError("generic speaker label cannot be an action owner")
-        refs = item["source_refs"]
-        if not isinstance(refs, list) or len(refs) > 8:
-            raise ValueError("outcome item requires at least one source reference")
-        normalized_refs: list[dict[str, object]] = []
-        seen_refs: set[tuple[str, int]] = set()
-        for ref in refs:
-            if not isinstance(ref, dict) or set(ref) != {"transcript_segment_id", "sequence"}:
-                if repair_source_refs:
-                    continue
-                raise ValueError("source reference is invalid")
-            segment_id = str(ref["transcript_segment_id"])
-            if (
-                not isinstance(ref["sequence"], int)
-                or isinstance(ref["sequence"], bool)
-                or ref["sequence"] < 0
-            ):
-                if repair_source_refs:
-                    continue
-                raise ValueError("source reference sequence is invalid")
-            provided_sequence = int(ref["sequence"])
-            canonical_sequence = provided_sequence
-            if allowed_segment_sequences is not None:
-                canonical_sequence = allowed_segment_sequences.get(segment_id)
-                if canonical_sequence is None:
-                    if repair_source_refs:
-                        # Some gateways preserve the segment position but
-                        # rewrite or omit the UUID. Recover only when that
-                        # position maps to exactly one pinned segment; never
-                        # invent evidence for an unknown position.
-                        segment_id = sequence_to_segment.get(provided_sequence)
-                        if segment_id is None:
-                            continue
-                        canonical_sequence = provided_sequence
-                    else:
-                        raise ValueError("source reference is outside the pinned transcript")
-                elif provided_sequence != canonical_sequence and not repair_source_refs:
-                    raise ValueError("source reference sequence does not match pinned transcript")
-            elif segment_id not in allowed_segment_ids:
-                if repair_source_refs:
-                    continue
-                raise ValueError("source reference is outside the pinned transcript")
-            ref_key = (segment_id, canonical_sequence)
-            if ref_key in seen_refs:
-                if repair_source_refs:
-                    continue
-                raise ValueError("source references must be unique")
-            seen_refs.add(ref_key)
-            normalized_refs.append(
-                {
-                    "transcript_segment_id": segment_id,
-                    "sequence": canonical_sequence,
-                    "evidence_kind": "segment",
-                }
-            )
-        if not normalized_refs:
-            if repair_source_refs:
-                # A model item without a verifiable source is not safe to
-                # publish. Keep the rest of the response when possible.
-                continue
-            raise ValueError("outcome item requires at least one source reference")
-        normalized_items.append(
-            {
-                **item,
-                "owner_text": owner_text,
-                "due_date_text": due_date_text,
-                "source_refs": normalized_refs,
-            }
-        )
-        counts[category] += 1
-    if repair_source_refs:
-        normalized_states = dict(states)
-        for category in OUTCOME_CATEGORIES:
-            if counts[category] > 0:
-                normalized_states[category] = "available"
-            elif normalized_states[category] == "available":
-                normalized_states[category] = "not_inferable"
-        return {"category_states": normalized_states, "items": normalized_items}
-    for category, state in states.items():
-        if (state == "available") != (counts[category] > 0):
-            raise ValueError("category state and item count disagree")
-    return {"category_states": dict(states), "items": normalized_items}
+    document = _validated_document(MeetingProtocol, result)
+    selected = set(sections)
+    uncertain = document["uncertain_sections"]
+    if (
+        not selected
+        or selected - set(PROTOCOL_SECTIONS)
+        or len(selected) != len(sections)
+        or len(set(uncertain)) != len(uncertain)
+        or set(uncertain) - selected
+        or any(document[section] for section in set(PROTOCOL_SECTIONS) - selected)
+    ):
+        raise ValueError("protocol_sections_invalid")
+    for core in ("executive_summary", "topics"):
+        if core in selected and not document[core] and core not in uncertain:
+            raise ValueError("protocol_core_empty")
+    count = sum(len(document[section]) for section in PROTOCOL_SECTIONS if section != "topics")
+    count += sum(
+        len(topic[field])
+        for topic in document["topics"]
+        for field in ("context", "discussion", "proposals_and_alternatives", "outcome")
+    )
+    if count > 500:
+        raise ValueError("protocol_statement_limit")
+    for action in document["action_items"]:
+        if action["owner_text"] and GENERIC_OWNER_LABEL_RE.fullmatch(action["owner_text"]):
+            raise ValueError("protocol_generic_owner")
+    _validate_document_refs(document, segments)
+    return document
+
+
+def validate_protocol_verification(
+    result: object, *, segments: Sequence[OutcomeTranscriptSegment]
+) -> dict[str, object]:
+    document = _validated_document(ProtocolVerification, result)
+    _validate_document_refs(document, segments)
+    return document
+
+
+def validate_factual_extraction(
+    result: object, *, segments: Sequence[OutcomeTranscriptSegment]
+) -> dict[str, object]:
+    document = _validated_document(FactualExtraction, result)
+    _validate_document_refs(document, segments)
+    for action in document["actions"]:
+        if action["owner_text"] and GENERIC_OWNER_LABEL_RE.fullmatch(action["owner_text"]):
+            raise ValueError("protocol_generic_owner")
+    return document
+
 
 
 def _validate_json_limits(config: Mapping[str, object]) -> None:
@@ -534,44 +500,45 @@ def _validate_json_limits(config: Mapping[str, object]) -> None:
 
 def _validate_base_config(
     config: Mapping[str, object],
-    expected_keys: set[str],
     *,
-    contract_versions: Sequence[int] = (1,),
+    structured: bool,
 ) -> None:
+    required = {"config_contract_version", "model"}
+    if structured:
+        required.add("response_format")
     if (
-        set(config) != expected_keys
-        or config.get("config_contract_version") not in contract_versions
+        not required <= set(config) <= required | MODEL_PARAMETER_KEYS
+        or type(config.get("config_contract_version")) is not int
+        or config["config_contract_version"] != CONFIG_CONTRACT_VERSION
     ):
-        contract_label = (
-            "contract v1" if tuple(contract_versions) == (1,) else "judge contract v1 or v2"
-        )
-        raise ValueError(f"prompt config does not match {contract_label}")
+        raise ValueError("prompt config does not match contract v5")
     model = config.get("model")
-    temperature = config.get("temperature")
     if not isinstance(model, str) or not ALLOWED_MODEL_RE.fullmatch(model):
         raise ValueError("model route is invalid")
-    if (
-        isinstance(temperature, bool)
-        or not isinstance(temperature, int | float)
-        or not 0 <= temperature <= 2
-    ):
-        raise ValueError("temperature is invalid")
-    if "max_completion_tokens" in config:
-        max_tokens = config["max_completion_tokens"]
-        if (
-            isinstance(max_tokens, bool)
-            or not isinstance(max_tokens, int)
-            or not 1 <= max_tokens <= 8192
+    for key, maximum in (("temperature", 2), ("top_p", 1)):
+        if key in config and (
+            type(config[key]) not in (int, float) or not 0 <= config[key] <= maximum
         ):
-            raise ValueError("max_completion_tokens is invalid")
+            raise ValueError(f"{key} is invalid")
+    for key in ("max_tokens", "max_completion_tokens"):
+        if key in config and (type(config[key]) is not int or config[key] < 1):
+            raise ValueError(f"{key} is invalid")
+    if "max_tokens" in config and "max_completion_tokens" in config:
+        raise ValueError("only one token limit may be set")
+    if "seed" in config and (
+        type(config["seed"]) is not int or not -(2**63) <= config["seed"] < 2**63
+    ):
+        raise ValueError("seed is invalid")
+    if "reasoning_effort" in config and (
+        not isinstance(config["reasoning_effort"], str)
+        or config["reasoning_effort"] not in {"none", "minimal", "low", "medium", "high", "xhigh"}
+    ):
+        raise ValueError("reasoning_effort is invalid")
 
-def _validate_outcome_config(config: Mapping[str, object], *, judge: bool) -> None:
-    version = config.get("config_contract_version")
-    _validate_base_config(
-        config,
-        OUTCOME_CONFIG_KEYS_WITHOUT_LIMIT,
-        contract_versions={1, 2, 3} if judge else {1, 2},
-    )
+def _validate_outcome_config(
+    config: Mapping[str, object], *, judge: bool, verifier: bool = False, extractor: bool = False
+) -> None:
+    _validate_base_config(config, structured=True)
     response_format = config.get("response_format")
     if not isinstance(response_format, dict) or set(response_format) != {"type", "json_schema"}:
         raise ValueError("response_format must be an inline strict JSON schema")
@@ -587,13 +554,12 @@ def _validate_outcome_config(config: Mapping[str, object], *, judge: bool) -> No
         raise ValueError("json_schema name is invalid")
     if len(canonical_json(descriptor.get("schema")).encode("utf-8")) > MAX_SCHEMA_BYTES:
         raise ValueError("response schema exceeds 48 KiB")
-    expected_schema = judge_schema() if judge else outcome_schema()
+    expected_schema = (
+        judge_schema() if judge else extraction_schema() if extractor
+        else verification_schema() if verifier else outcome_schema()
+    )
     if descriptor.get("schema") != expected_schema:
         raise ValueError("response schema does not match the closed contract v1")
-    if judge:
-        expected_temperature = 0 if version == 1 else 1
-        if config["temperature"] != expected_temperature:
-            raise ValueError("judge settings do not match the config contract")
 
 
 def _validate_reflection_prompt(
@@ -601,7 +567,7 @@ def _validate_reflection_prompt(
 ) -> None:
     if prompt_type != "text" or not isinstance(prompt, str):
         raise ValueError("reflection prompt must be text")
-    _validate_base_config(config, REFLECTION_CONFIG_KEYS)
+    _validate_base_config(config, structured=False)
     for variable in ("<curr_param>", "<side_info>"):
         if prompt.count(variable) != 1:
             raise ValueError(f"reflection prompt must contain {variable} exactly once")

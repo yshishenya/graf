@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Final
 
+# Stable personal section selections; the protocol contract maps these keys
+# to nested fields. They are not a registry of legacy outcome payloads.
 OUTCOME_CATEGORIES: Final[tuple[str, ...]] = (
     "summary",
     "key_points",
@@ -25,86 +27,75 @@ class SummaryTemplateDefinition:
     purpose: str
     sections: tuple[str, ...]
     prompt_name: str
-    version: int = 1
+    version: int = 2
 
 
 def _built_in(
     key: str,
     name: str,
     purpose: str,
-    sections: tuple[str, ...],
 ) -> SummaryTemplateDefinition:
     return SummaryTemplateDefinition(
+        # The suffix is part of the stable identity, not the definition version.
         key=f"graf-{key}-v1",
         name=name,
         purpose=purpose,
-        sections=sections,
+        sections=OUTCOME_CATEGORIES,
         prompt_name=f"graf/meeting-outcome/{key}",
     )
 
 
-_BUILT_IN_TEMPLATE_CATALOG_V1: Final[tuple[SummaryTemplateDefinition, ...]] = (
+BUILT_IN_TEMPLATES: Final[tuple[SummaryTemplateDefinition, ...]] = (
     _built_in(
         "auto",
         "Авто",
-        "Главное после встречи: решения, действия, риски и открытые вопросы",
-        OUTCOME_CATEGORIES,
+        "Полный протокол с учётом типа встречи: темы, решения, задачи, риски и открытые вопросы",
     ),
     _built_in(
         "outline",
         "По темам",
-        "Темы разговора по порядку и вывод по каждой",
-        ("summary", "key_points", "evidence"),
+        "Полный протокол по темам разговора: контекст, обсуждение, варианты и итог каждой темы",
     ),
     _built_in(
         "meeting-minutes",
         "Протокол встречи",
-        "Цель, принятые решения, обязательства и следующие шаги",
-        ("summary", "decisions", "action_items", "followups", "evidence"),
+        "Полный протокол с акцентом на принятые решения, обязательства и согласованные следующие шаги",
     ),
     _built_in(
         "project-sync",
         "Синхронизация проекта",
-        "Прогресс проекта, вехи, блокеры, зависимости и запросы",
-        ("summary", "key_points", "decisions", "action_items", "risks"),
+        "Полный протокол проекта: прогресс, вехи, препятствия, зависимости и договорённости",
     ),
     _built_in(
         "weekly-team-meeting",
         "Еженедельная встреча команды",
-        "Изменения за неделю, приоритеты, блокеры и командные действия",
-        ("summary", "key_points", "action_items", "risks", "questions"),
+        "Полный протокол команды: изменения за неделю, приоритеты, препятствия и совместные действия",
     ),
     _built_in(
         "one-to-one",
         "Один на один",
-        "Темы сотрудника, нагрузка, обратная связь и взаимные договорённости",
-        ("summary", "key_points", "action_items", "followups", "questions"),
+        "Полный протокол личной рабочей встречи: темы сотрудника, нагрузка, поддержка и взаимные договорённости",
     ),
     _built_in(
         "client-status-update",
         "Статус для клиента",
-        "Достигнутая ценность, подтверждённый прогресс, риски и следующие шаги",
-        ("summary", "key_points", "decisions", "action_items", "risks"),
+        "Полный протокол для клиента: подтверждённый прогресс, потребности, риски и согласованные шаги",
     ),
     _built_in(
         "interview",
         "Интервью с кандидатом",
-        "Вопросы, фактические ответы кандидата и темы для уточнения",
-        ("summary", "key_points", "questions", "evidence"),
+        "Полный протокол интервью: темы вопросов, фактические ответы и уточнения без домыслов о кандидате",
     ),
     _built_in(
         "sales-discovery",
         "Выявление потребностей",
-        "Потребности клиента, влияние, ограничения и согласованный следующий шаг",
-        ("summary", "key_points", "action_items", "risks", "questions", "evidence"),
+        "Полный протокол о потребностях клиента: критерии, возражения, ограничения и согласованный следующий шаг",
     ),
 )
 
-# Keep this immutable v1 fixture separate from the mutable current catalog
-# alias.  A future catalog release appends new versioned definitions without
-# rewriting the historical rows used by existing outcomes.
-BUILT_IN_VERSIONED_TEMPLATES: Final[tuple[SummaryTemplateDefinition, ...]] = _BUILT_IN_TEMPLATE_CATALOG_V1
-BUILT_IN_TEMPLATES: Final[tuple[SummaryTemplateDefinition, ...]] = _BUILT_IN_TEMPLATE_CATALOG_V1
+# Existing API names expose only the current definitions. Historical snapshots
+# stay in storage; no retired definition is available for generation/rendering.
+BUILT_IN_VERSIONED_TEMPLATES: Final[tuple[SummaryTemplateDefinition, ...]] = BUILT_IN_TEMPLATES
 BUILT_IN_TEMPLATE_REGISTRY: Final = MappingProxyType(
     {(template.key, template.version): template for template in BUILT_IN_VERSIONED_TEMPLATES}
 )
@@ -123,13 +114,7 @@ def built_in_template_for_version(
 
 
 def built_in_template_for_key(template_key: str) -> SummaryTemplateDefinition | None:
-    current = BUILT_IN_BY_KEY.get(template_key)
-    if current is not None:
-        return current
-    return next(
-        (template for template in BUILT_IN_VERSIONED_TEMPLATES if template.key == template_key),
-        None,
-    )
+    return BUILT_IN_BY_KEY.get(template_key)
 
 
 def prompt_name_for_template(template_key: str, *, built_in: bool) -> str:

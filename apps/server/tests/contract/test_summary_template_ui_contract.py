@@ -8,14 +8,17 @@ from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fakes.auth_contexts import USER_ID, WORKSPACE_ID
 from tests.fakes.fake_temporal import FakeTemporalClient
 from tests.fixtures.cabinet import create_outcome_ready_meeting, seed_cabinet_meetings
+from tests.fixtures.meeting_protocol import (
+    protocol_outcome,
+    protocol_result,
+    seed_accepted_protocol,
+)
 from twobrain_rec_server.api.cabinet import _summary_candidate_projection
 from twobrain_rec_server.db.models import (
-    DiarizationSegment,
     DispatchIntent,
     MediaScribeJob,
     Meeting,
     MeetingOutcomeGenerationAttempt,
-    MeetingOutcomeItem,
     MeetingOutcomeSet,
     MeetingSummarySlot,
     ProcessingResult,
@@ -24,7 +27,10 @@ from twobrain_rec_server.db.models import (
     Workspace,
     WorkspaceMembership,
 )
+from twobrain_rec_server.outcomes import service as outcome_service
 from twobrain_rec_server.outcomes.ai_service import (
+    _content_hash,
+    _enrich_protocol,
     create_summary_candidate,
 )
 from twobrain_rec_server.outcomes.dispatch import ensure_dispatch_intent
@@ -43,6 +49,31 @@ SETTINGS_TEMPLATE = (
 )
 
 
+async def _protocol_row(db, **fields) -> MeetingOutcomeSet:
+    """Full synthetic content for DB-only lifecycle tests, not publication proof."""
+    result = await db.get(ProcessingResult, fields["processing_result_id"])
+    meeting = await db.get(Meeting, fields["meeting_id"])
+    assert result is not None and meeting is not None
+    outcome = protocol_outcome()
+    outcome.source_result_hash = result.source_result_hash
+    outcome.media_revision_id = result.media_revision_id
+    outcome.deletion_epoch_at_start = meeting.deletion_epoch or 0
+    outcome.template_key = "graf-auto-v1"
+    outcome.template_version = 2
+    for key, value in fields.items():
+        setattr(outcome, key, value)
+    if outcome.revision_state == "accepted":
+        outcome.accepted_at = datetime.now(UTC)
+    segments = await outcome_service.load_outcome_transcript_segments(db, result=result)
+    header = {
+        **outcome.protocol_json["header"], "source_result_id": str(result.id),
+        "template_key": outcome.template_key, "template_version": outcome.template_version,
+    }
+    outcome.protocol_json = _enrich_protocol(protocol_result(segments), header, segments)
+    outcome.content_hash = _content_hash(outcome.protocol_json)
+    return outcome
+
+
 def test_summary_selector_keeps_auto_four_recommendations_and_all_formats(client) -> None:
     meeting_id = seed_cabinet_meetings(client).ready_id
 
@@ -54,6 +85,7 @@ def test_summary_selector_keeps_auto_four_recommendations_and_all_formats(client
     assert 'data-summary-format-button aria-haspopup="listbox"' in html
     assert 'data-summary-format-listbox data-recommended-limit="4" role="listbox"' in html
     assert listbox.count("data-summary-format-option") == 4
+    assert listbox.count('data-template-version="2"') == 4
     assert "<strong>Авто</strong>" in listbox
     assert "<span>" in listbox
     assert listbox.count("Ожидаемые разделы:") == 4
@@ -75,50 +107,25 @@ def test_meeting_detail_renders_the_selected_summary_slot_after_reload(client) -
                 select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
             )
             assert meeting is not None and result is not None
-            auto = await ensure_outcomes_for_processing_result(db, result=result)
-            auto.template_key = "graf-auto-v1"
-            auto.template_version = 1
-            auto.revision_state = "accepted"
-            auto.accepted_at = auto.generated_at or datetime.now(UTC)
-            meeting.current_outcome_set_id = auto.id
-            db.add(
-                MeetingSummarySlot(
-                    workspace_id=meeting.workspace_id,
-                    meeting_id=meeting.id,
-                    template_key="graf-auto-v1",
-                    is_meeting_default=True,
-                    current_outcome_set_id=auto.id,
-                    current_binding_class="verified_complete",
-                    default_resolution_source="explicit_meeting",
-                    default_resolution_version="selected-slot-test-v1",
-                    default_resolved_at=datetime.now(UTC),
-                )
-            )
-            await db.flush()
-            minutes = MeetingOutcomeSet(
+            await seed_accepted_protocol(db, meeting_id)
+            minutes = await _protocol_row(db,
                 workspace_id=meeting.workspace_id,
                 meeting_id=meeting.id,
                 media_revision_id=result.media_revision_id,
                 processing_result_id=result.id,
                 status="available",
-                summary_state="available",
-                key_points_state="not_found",
-                decisions_state="not_found",
-                action_items_state="not_found",
-                followups_state="not_found",
-                risks_state="not_found",
-                questions_state="not_found",
-                evidence_state="not_found",
                 source_kind="litellm",
                 generator_kind="litellm",
                 generator_version="selected-slot-test-v1",
                 source_result_hash=result.source_result_hash,
                 template_key="graf-meeting-minutes-v1",
-                template_version=1,
+                template_version=2,
                 revision_state="accepted",
                 generated_at=datetime.now(UTC),
                 accepted_at=datetime.now(UTC),
             )
+            minutes.protocol_json["executive_summary"][0]["text"] = "Протокольный результат выбранного формата."
+            minutes.content_hash = _content_hash(minutes.protocol_json)
             db.add(minutes)
             await db.flush()
             db.add(
@@ -131,20 +138,9 @@ def test_meeting_detail_renders_the_selected_summary_slot_after_reload(client) -
                     current_binding_class="verified_complete",
                 )
             )
-            db.add(
-                MeetingOutcomeItem(
-                    workspace_id=meeting.workspace_id,
-                    meeting_id=meeting.id,
-                    outcome_set_id=minutes.id,
-                    category="summary",
-                    sequence=0,
-                    state="available",
-                    text="Протокольный результат выбранного формата.",
-                    truth_label="supported",
-                    source_refs_json=[],
-                )
-            )
             await db.commit()
+            await db.refresh(minutes)
+            assert minutes.content_hash == _content_hash(minutes.protocol_json)
             return minutes.id
 
     selected_outcome_set_id = client.portal.call(seed_selected_slot)
@@ -191,6 +187,7 @@ def test_full_format_catalog_marks_and_describes_current_format_after_quick_four
         'data-summary-personal-options', 1
     )[0]
     assert dialog.count("data-summary-format-option") == 9
+    assert dialog.count('data-template-version="2"') == 9
     assert dialog.count("Ожидаемые разделы:") == 9
     current_key = 'data-template-key="graf-weekly-team-meeting-v1"'
     key_index = dialog.index(current_key)
@@ -306,7 +303,8 @@ def test_candidate_content_is_not_rendered_in_the_meeting_shell() -> None:
     assert "control.dataset.sourceSegment" in script
     assert "turn.dataset.sourceSegments" in script
     assert ".includes(sourceSegment)" in script
-    assert "const target = exactTarget ||" in script
+    assert "const target = sourceSegment ? exactTarget :" in script
+    assert "const target = exactTarget ||" not in script
     assert "target.focus({ preventScroll: true })" in script
     assert '${item.category || "Итог"}' not in script
     assert "window.location.reload()" in script
@@ -424,6 +422,15 @@ def test_source_navigation_preserves_return_tab_player_and_focus_contract() -> N
     assert "target.focus({ preventScroll: true })" in source_navigation
     assert "target?.focus({ preventScroll: true })" in source_navigation
     assert "Открыт источник ${formatTime(seconds)}" in source_navigation
+    missing_source_guard = source_navigation[
+        source_navigation.index("if (sourceJump && sourceSegment && !exactTarget)") :
+        source_navigation.index("if (sourceJump) {")
+    ]
+    assert "Источник недоступен в этой версии расшифровки." in missing_source_guard
+    assert "return;" in missing_source_guard
+    assert source_navigation.index(missing_source_guard) < source_navigation.index("player.currentTime =")
+    assert "const target = sourceSegment ? exactTarget :" in source_navigation
+    assert "const target = exactTarget ||" not in source_navigation
 
 
 def test_mobile_summary_actions_are_one_column_and_full_width() -> None:
@@ -487,7 +494,7 @@ def test_candidate_list_hides_candidates_from_an_older_processing_result(client)
                 requested_by_user_id=USER_ID,
                 template_key="graf-meeting-minutes-v1",
                 template_id=None,
-                template_version=1,
+                template_version=2,
                 expected_current_outcome_set_id=None,
             )
             candidate.status = "candidate"
@@ -526,17 +533,21 @@ def test_candidate_list_hides_candidates_from_an_older_processing_result(client)
     }
 
 
-def test_summary_candidate_uses_effective_complete_result_while_newer_result_is_partial(
+def test_summary_candidate_uses_latest_partial_speech_instead_of_older_complete_result(
     client,
 ) -> None:
-    meeting_id = create_outcome_ready_meeting(client, "effective-summary-candidate-source")
+    meeting_id = create_outcome_ready_meeting(client, "latest-partial-summary-candidate-source")
 
-    async def create_candidate_after_partial_import() -> tuple[UUID, UUID]:
+    async def create_candidate_after_partial_import() -> tuple[UUID, UUID, UUID]:
         async with client.app_state["sessionmaker"]() as db:
             current = await db.scalar(
                 select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
             )
             assert current is not None
+            segments = (await db.scalars(select(TranscriptSegment).where(
+                TranscriptSegment.processing_result_id == current.id,
+            ))).all()
+            assert segments
             partial = ProcessingResult(
                 workspace_id=current.workspace_id,
                 meeting_id=current.meeting_id,
@@ -549,12 +560,24 @@ def test_summary_candidate_uses_effective_complete_result_while_newer_result_is_
                 diarization_status="unavailable",
                 summary_status=current.summary_status,
                 language=current.language,
-                segment_count=current.segment_count,
+                segment_count=len(segments),
                 diarization_segment_count=0,
-                source_result_hash="partial-result-must-not-drive-summary",
+                source_result_hash="attested-latest-partial-summary-source",
                 imported_at=datetime.now(UTC) + timedelta(seconds=1),
             )
             db.add(partial)
+            await db.flush()
+            db.add_all(TranscriptSegment(
+                workspace_id=partial.workspace_id,
+                meeting_id=partial.meeting_id,
+                processing_result_id=partial.id,
+                sequence=segment.sequence,
+                start_seconds=segment.start_seconds,
+                end_seconds=segment.end_seconds,
+                text=segment.text,
+                source_role=segment.source_role,
+                source_role_original=segment.source_role_original,
+            ) for segment in segments)
             await db.flush()
             candidate = await create_summary_candidate(
                 db,
@@ -563,18 +586,22 @@ def test_summary_candidate_uses_effective_complete_result_while_newer_result_is_
                 requested_by_user_id=USER_ID,
                 template_key="graf-auto-v1",
                 template_id=None,
-                template_version=1,
+                template_version=2,
                 expected_current_outcome_set_id=None,
             )
             await db.commit()
             assert candidate.source_result_id is not None
-            return current.id, candidate.source_result_id
+            assert candidate.processing_result_id == partial.id
+            assert candidate.source_result_hash == partial.source_result_hash
+            assert candidate.failure_code is None
+            return current.id, partial.id, candidate.source_result_id
 
-    effective_result_id, candidate_source_id = client.portal.call(
+    older_complete_id, latest_partial_id, candidate_source_id = client.portal.call(
         create_candidate_after_partial_import
     )
 
-    assert candidate_source_id == effective_result_id
+    assert candidate_source_id == latest_partial_id
+    assert candidate_source_id != older_complete_id
 
 
 def test_candidate_list_hides_superseded_accepted_attempts(client) -> None:
@@ -594,10 +621,10 @@ def test_candidate_list_hides_superseded_accepted_attempts(client) -> None:
                 requested_by_user_id=USER_ID,
                 template_key="graf-auto-v1",
                 template_id=None,
-                template_version=1,
+                template_version=2,
                 expected_current_outcome_set_id=None,
             )
-            first_set = MeetingOutcomeSet(
+            first_set = await _protocol_row(db,
                 workspace_id=WORKSPACE_ID,
                 meeting_id=meeting_id,
                 media_revision_id=result.media_revision_id,
@@ -624,11 +651,11 @@ def test_candidate_list_hides_superseded_accepted_attempts(client) -> None:
                 requested_by_user_id=USER_ID,
                 template_key="graf-meeting-minutes-v1",
                 template_id=None,
-                template_version=1,
+                template_version=2,
                 expected_current_outcome_set_id=None,
                 request_intent="manual_format",
             )
-            second_set = MeetingOutcomeSet(
+            second_set = await _protocol_row(db,
                 workspace_id=WORKSPACE_ID,
                 meeting_id=meeting_id,
                 media_revision_id=result.media_revision_id,
@@ -676,17 +703,12 @@ def test_candidate_list_hides_superseded_accepted_attempts(client) -> None:
 def test_temporal_dispatch_failure_acknowledges_durable_candidate_and_current_summary(client) -> None:
     meeting_id = create_outcome_ready_meeting(client, "temporal-dispatch-retry")
 
-    async def generate_baseline():
+    async def seed_current_summary():
         async with client.app_state["sessionmaker"]() as db:
-            result = await db.scalar(
-                select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
-            )
-            assert result is not None
-            outcome_set = await ensure_outcomes_for_processing_result(db, result=result)
-            await db.commit()
-            return outcome_set.id
+            outcome, _ = await seed_accepted_protocol(db, meeting_id)
+            return outcome.id, outcome.content_hash
 
-    client.portal.call(generate_baseline)
+    current_id, current_hash = client.portal.call(seed_current_summary)
 
     class FailingTemporalClient:
         async def start_workflow(self, *_args, **_kwargs):
@@ -700,7 +722,7 @@ def test_temporal_dispatch_failure_acknowledges_durable_candidate_and_current_su
         json={
             "template_key": "graf-meeting-minutes-v1",
             "template_id": None,
-            "template_version": 1,
+            "template_version": 2,
             "expected_current_outcome_set_id": None,
         },
     )
@@ -741,6 +763,20 @@ def test_temporal_dispatch_failure_acknowledges_durable_candidate_and_current_su
     assert projection["next_action"] == "retry"
 
 
+    async def assert_current_preserved():
+        async with client.app_state["sessionmaker"]() as db:
+            outcome = await db.get(MeetingOutcomeSet, current_id)
+            slot = await db.scalar(select(MeetingSummarySlot).where(
+                MeetingSummarySlot.meeting_id == meeting_id,
+                MeetingSummarySlot.template_key == "graf-auto-v1",
+            ))
+            assert slot.current_outcome_set_id == current_id
+            assert outcome.revision_state == "accepted" and outcome.protocol_state == "available"
+            assert outcome.content_hash == current_hash == _content_hash(outcome.protocol_json)
+
+    client.portal.call(assert_current_preserved)
+
+
 def test_worker_failure_wins_when_temporal_dispatch_ack_races(client) -> None:
     meeting_id = create_outcome_ready_meeting(client, "temporal-dispatch-worker-race")
 
@@ -757,7 +793,7 @@ def test_worker_failure_wins_when_temporal_dispatch_ack_races(client) -> None:
                 requested_by_user_id=USER_ID,
                 template_key="graf-meeting-minutes-v1",
                 template_id=None,
-                template_version=1,
+                template_version=2,
                 expected_current_outcome_set_id=None,
             )
             await db.commit()
@@ -789,7 +825,7 @@ def test_worker_failure_wins_when_temporal_dispatch_ack_races(client) -> None:
         json={
             "template_key": "graf-meeting-minutes-v1",
             "template_id": None,
-            "template_version": 1,
+            "template_version": 2,
             "expected_current_outcome_set_id": None,
         },
     )
@@ -832,7 +868,7 @@ def test_worker_failure_wins_when_temporal_dispatch_ack_races(client) -> None:
         json={
             "template_key": "graf-meeting-minutes-v1",
             "template_id": None,
-            "template_version": 1,
+            "template_version": 2,
             "expected_current_outcome_set_id": None,
         },
     )
@@ -856,7 +892,7 @@ def test_ready_candidate_is_reused_without_a_second_temporal_dispatch(client) ->
                 requested_by_user_id=USER_ID,
                 template_key="graf-meeting-minutes-v1",
                 template_id=None,
-                template_version=1,
+                template_version=2,
                 expected_current_outcome_set_id=None,
             )
             attempt.status = "candidate"
@@ -877,7 +913,7 @@ def test_ready_candidate_is_reused_without_a_second_temporal_dispatch(client) ->
         json={
             "template_key": "graf-meeting-minutes-v1",
             "template_id": None,
-            "template_version": 1,
+            "template_version": 2,
             "expected_current_outcome_set_id": None,
         },
     )
@@ -899,7 +935,7 @@ def test_retryable_failed_candidate_reuses_identity_and_replaces_run_id(client) 
                 requested_by_user_id=USER_ID,
                 template_key="graf-meeting-minutes-v1",
                 template_id=None,
-                template_version=1,
+                template_version=2,
                 expected_current_outcome_set_id=None,
                 request_intent="manual_format",
             )
@@ -932,7 +968,7 @@ def test_retryable_failed_candidate_reuses_identity_and_replaces_run_id(client) 
         json={
             "template_key": "graf-meeting-minutes-v1",
             "template_id": None,
-            "template_version": 1,
+            "template_version": 2,
             "expected_current_outcome_set_id": None,
         },
     )
@@ -987,7 +1023,7 @@ def test_active_candidate_blocks_a_different_format(client) -> None:
                 requested_by_user_id=USER_ID,
                 template_key="graf-meeting-minutes-v1",
                 template_id=None,
-                template_version=1,
+                template_version=2,
                 expected_current_outcome_set_id=None,
             )
             await db.commit()
@@ -1002,7 +1038,7 @@ def test_active_candidate_blocks_a_different_format(client) -> None:
         json={
             "template_key": "graf-outline-v1",
             "template_id": None,
-            "template_version": 1,
+            "template_version": 2,
             "expected_current_outcome_set_id": None,
         },
     )
@@ -1027,7 +1063,7 @@ def test_already_started_dispatch_does_not_clear_existing_run_id(client) -> None
                 requested_by_user_id=USER_ID,
                 template_key="graf-meeting-minutes-v1",
                 template_id=None,
-                template_version=1,
+                template_version=2,
                 expected_current_outcome_set_id=None,
             )
             attempt.workflow_run_id = "existing-temporal-run"
@@ -1051,7 +1087,7 @@ def test_already_started_dispatch_does_not_clear_existing_run_id(client) -> None
         json={
             "template_key": "graf-meeting-minutes-v1",
             "template_id": None,
-            "template_version": 1,
+            "template_version": 2,
             "expected_current_outcome_set_id": None,
         },
     )
@@ -1099,7 +1135,7 @@ def test_format_selection_uses_the_slot_revision_and_starts_temporal(client) -> 
         json={
             "template_key": "graf-meeting-minutes-v1",
             "template_id": None,
-            "template_version": 1,
+            "template_version": 2,
             "expected_current_outcome_set_id": None,
         },
     )
@@ -1121,241 +1157,93 @@ def test_candidate_content_is_not_exposed_to_the_cabinet(client) -> None:
     assert "/summary-candidates/${candidate.candidate_id}/preview" not in CABINET_JS.read_text(
         encoding="utf-8"
     )
-    return
-
-    meeting_id = create_outcome_ready_meeting(client)
-    created = client.post(
-        "/api/v1/cabinet/summary-templates",
-        headers=auth_headers(),
-        json={
-            "name": "Мой формат для проверки",
-            "purpose": "Проверка предпросмотра",
-            "sections": ["summary"],
-            "output_language": "ru",
-            "detail_level": "standard",
-        },
-    )
-    assert created.status_code == 201
-    template = created.json()
+    meeting_id = create_outcome_ready_meeting(client, "private-protocol-candidate")
+    private_text = "Синтетическое содержимое неопубликованного полного протокола."
 
     async def seed_candidate():
         async with client.app_state["sessionmaker"]() as db:
-            meeting = await db.get(Meeting, meeting_id)
-            result = await db.scalar(
-                select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
-            )
-            assert meeting is not None and result is not None
-            segments = (
-                await db.scalars(
-                    select(TranscriptSegment)
-                    .where(TranscriptSegment.processing_result_id == result.id)
-                    .order_by(TranscriptSegment.sequence)
-                )
-            ).all()
-            assert len(segments) == 2
-            provider_turns = (
-                await db.scalars(
-                    select(DiarizationSegment)
-                    .where(DiarizationSegment.processing_result_id == result.id)
-                    .order_by(DiarizationSegment.sequence)
-                )
-            ).all()
-            assert len(provider_turns) == 2
-            legacy_refs = [
-                {
-                    "transcript_segment_id": str(segments[index % len(segments)].id),
-                    "sequence": segments[index % len(segments)].sequence,
-                    "start_seconds": 999,
-                    "end_seconds": 1000,
-                    "source_role": "untrusted",
-                    "evidence_kind": "segment",
-                }
-                for index in range(40)
-            ]
             attempt = await create_summary_candidate(
-                db,
-                workspace_id=WORKSPACE_ID,
-                meeting_id=meeting_id,
-                requested_by_user_id=USER_ID,
-                template_key=template["template_key"],
-                template_id=template["template_id"],
-                template_version=template["version"],
-                expected_current_outcome_set_id=None,
+                db, workspace_id=WORKSPACE_ID, meeting_id=meeting_id,
+                requested_by_user_id=USER_ID, template_key="graf-meeting-minutes-v1",
+                template_id=None, template_version=2, expected_current_outcome_set_id=None,
             )
-            outcome_set = MeetingOutcomeSet(
-                workspace_id=WORKSPACE_ID,
-                meeting_id=meeting_id,
-                media_revision_id=attempt.media_revision_id,
-                processing_result_id=result.id,
-                status="available",
-                source_kind="litellm",
-                generator_kind="litellm",
-                generator_version="test-preview",
-                template_id=template["template_id"],
-                template_key=template["template_key"],
-                template_version=template["version"],
+            outcome = await _protocol_row(
+                db, workspace_id=WORKSPACE_ID, meeting_id=meeting_id,
+                processing_result_id=attempt.processing_result_id, candidate_id=attempt.candidate_id,
+                template_key=attempt.template_key, template_version=attempt.template_version,
                 revision_state="candidate",
             )
-            db.add(outcome_set)
+            outcome.protocol_json["executive_summary"][0]["text"] = private_text
+            outcome.content_hash = _content_hash(outcome.protocol_json)
+            db.add(outcome)
             await db.flush()
-            db.add_all(
-                [
-                    MeetingOutcomeItem(
-                        workspace_id=WORKSPACE_ID,
-                        meeting_id=meeting_id,
-                        outcome_set_id=outcome_set.id,
-                        category="summary",
-                        sequence=sequence,
-                        state="available",
-                        text="Пункт предпросмотра",
-                        owner_text="",
-                        due_date_text="",
-                        truth_label="supported",
-                        source_refs_json=legacy_refs,
-                    )
-                    for sequence in range(205)
-                ]
-                + [
-                    MeetingOutcomeItem(
-                        workspace_id=WORKSPACE_ID,
-                        meeting_id=meeting_id,
-                        outcome_set_id=outcome_set.id,
-                        category="legacy_unknown",
-                        sequence=0,
-                        state="available",
-                        text="Legacy category",
-                        owner_text="",
-                        due_date_text="",
-                        truth_label="supported",
-                        source_refs_json=["legacy-unknown"],
-                    )
-                ]
-            )
-            attempt.outcome_set_id = outcome_set.id
+            attempt.outcome_set_id = outcome.id
             attempt.status = "candidate"
             await db.commit()
-            return attempt.candidate_id, {
-                str(turn.id): {
-                    "sequence": turn.sequence,
-                    "start_seconds": float(turn.start_seconds),
-                    "end_seconds": float(turn.end_seconds),
-                    "source_role": turn.source_role,
-                }
-                for turn in provider_turns
-            }
+            return attempt.candidate_id, outcome.id
 
-    candidate_id, canonical_segments = client.portal.call(seed_candidate)
-    preview = client.get(
-        f"/api/v1/cabinet/meetings/{meeting_id}/summary-candidates/{candidate_id}/preview",
-        headers=auth_headers(),
-    )
-    assert preview.status_code == 200
-    assert preview.headers["cache-control"] == "private, no-store"
-    assert preview.headers["pragma"] == "no-cache"
-    assert preview.json()["template_key"] == template["template_key"]
-    assert preview.json()["items"][0]["category"] == "summary"
-    assert len(preview.json()["items"]) == 200
-    assert all(item["category"] == "summary" for item in preview.json()["items"])
-    assert all(len(item["source_refs"]) == 2 for item in preview.json()["items"])
-    first_ref = preview.json()["items"][0]["source_refs"][0]
-    assert first_ref["transcript_segment_id"] in canonical_segments
-    assert {
-        "sequence": first_ref["sequence"],
-        "start_seconds": first_ref["start_seconds"],
-        "end_seconds": first_ref["end_seconds"],
-        "source_role": first_ref["source_role"],
-    } == canonical_segments[first_ref["transcript_segment_id"]]
-    assert first_ref["seekable"] is True
-    listed = client.get(
-        f"/api/v1/cabinet/meetings/{meeting_id}/summary-candidates",
-        headers=auth_headers(),
-    )
-    assert listed.status_code == 200
-    listed_candidate = next(
-        item for item in listed.json()["candidates"] if item["candidate_id"] == str(candidate_id)
-    )
-    assert listed_candidate["template_name"] == template["name"]
+    candidate_id, outcome_id = client.portal.call(seed_candidate)
+    candidate_url = f"/api/v1/cabinet/meetings/{meeting_id}/summary-candidates/{candidate_id}"
 
-    async def expire_candidate() -> None:
+    def assert_preview_retired():
+        preview = client.get(f"{candidate_url}/preview", headers=auth_headers())
+        assert preview.status_code == 410
+        assert preview.json()["code"] == "summary_candidate_deprecated"
+        assert private_text not in preview.text
+        assert "protocol_json" not in preview.json() and "items" not in preview.json()
+
+    assert_preview_retired()
+    candidate = client.get(candidate_url, headers=auth_headers())
+    assert candidate.status_code == 200 and candidate.json()["state"] == "ready"
+    assert private_text not in candidate.text
+    assert not ({"preview", "items", "protocol_json", "raw_response"} & candidate.json().keys())
+    listed = client.get(f"/api/v1/cabinet/meetings/{meeting_id}/summary-candidates", headers=auth_headers())
+    assert listed.status_code == 200 and private_text not in listed.text
+    assert any(row["candidate_id"] == str(candidate_id) for row in listed.json()["candidates"])
+    page = client.get(f"/meetings/{meeting_id}", headers=auth_headers())
+    assert page.status_code == 200 and private_text not in page.text
+
+    async def expire_candidate():
         async with client.app_state["sessionmaker"]() as db:
-            attempt = await db.scalar(
-                select(MeetingOutcomeGenerationAttempt).where(
-                    MeetingOutcomeGenerationAttempt.candidate_id == candidate_id
-                )
-            )
-            assert attempt is not None
+            attempt = await db.scalar(select(MeetingOutcomeGenerationAttempt).where(
+                MeetingOutcomeGenerationAttempt.candidate_id == candidate_id,
+            ))
             attempt.expires_at = datetime.now(UTC) - timedelta(seconds=1)
             await db.commit()
 
     client.portal.call(expire_candidate)
-    expired_candidate = client.get(
-        f"/api/v1/cabinet/meetings/{meeting_id}/summary-candidates/{candidate_id}",
-        headers=auth_headers(),
-    )
-    assert expired_candidate.status_code == 200
-    assert expired_candidate.json()["state"] == "expired"
-    assert expired_candidate.json()["preview"] == []
-    expired_preview = client.get(
-        f"/api/v1/cabinet/meetings/{meeting_id}/summary-candidates/{candidate_id}/preview",
-        headers=auth_headers(),
-    )
-    assert expired_preview.status_code == 410
-    assert expired_preview.json()["code"] == "summary_candidate_deprecated"
+    expired = client.get(candidate_url, headers=auth_headers())
+    assert expired.status_code == 200 and expired.json()["state"] == "expired"
+    assert private_text not in expired.text
+    assert_preview_retired()
 
-    async def reopen_expiry_window() -> None:
+    async def replace_source():
         async with client.app_state["sessionmaker"]() as db:
-            attempt = await db.scalar(
-                select(MeetingOutcomeGenerationAttempt).where(
-                    MeetingOutcomeGenerationAttempt.candidate_id == candidate_id
-                )
-            )
-            assert attempt is not None
+            attempt = await db.scalar(select(MeetingOutcomeGenerationAttempt).where(
+                MeetingOutcomeGenerationAttempt.candidate_id == candidate_id,
+            ))
+            current = await db.get(ProcessingResult, attempt.processing_result_id)
             attempt.expires_at = datetime.now(UTC) + timedelta(hours=1)
+            db.add(ProcessingResult(
+                workspace_id=current.workspace_id, meeting_id=current.meeting_id,
+                media_revision_id=current.media_revision_id, mediascribe_job_id=current.mediascribe_job_id,
+                processing_workflow_id=current.processing_workflow_id, result_version=current.result_version + 1,
+                status=current.status, transcript_status=current.transcript_status,
+                diarization_status=current.diarization_status, summary_status=current.summary_status,
+                language=current.language, segment_count=current.segment_count,
+                diarization_segment_count=current.diarization_segment_count,
+                source_result_hash="newer-result-for-stale-candidate",
+                imported_at=datetime.now(UTC) + timedelta(seconds=1),
+            ))
             await db.commit()
+            outcome = await db.get(MeetingOutcomeSet, outcome_id)
+            assert outcome.revision_state == "candidate" and outcome.accepted_at is None
 
-    client.portal.call(reopen_expiry_window)
-
-    async def seed_newer_result() -> None:
-        async with client.app_state["sessionmaker"]() as db:
-            current = await db.scalar(
-                select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
-            )
-            assert current is not None
-            db.add(
-                ProcessingResult(
-                    workspace_id=current.workspace_id,
-                    meeting_id=current.meeting_id,
-                    media_revision_id=current.media_revision_id,
-                    mediascribe_job_id=current.mediascribe_job_id,
-                    processing_workflow_id=current.processing_workflow_id,
-                    result_version=current.result_version + 1,
-                    status=current.status,
-                    transcript_status=current.transcript_status,
-                    diarization_status=current.diarization_status,
-                    summary_status=current.summary_status,
-                    language=current.language,
-                    segment_count=current.segment_count,
-                    diarization_segment_count=current.diarization_segment_count,
-                    source_result_hash="newer-result-for-stale-candidate",
-                    imported_at=current.imported_at - timedelta(minutes=1),
-                )
-            )
-            await db.commit()
-
-    client.portal.call(seed_newer_result)
-    stale_preview = client.get(
-        f"/api/v1/cabinet/meetings/{meeting_id}/summary-candidates/{candidate_id}/preview",
-        headers=auth_headers(),
-    )
-    assert stale_preview.status_code == 410
-    assert stale_preview.json()["code"] == "summary_candidate_deprecated"
-    stale_candidate = client.get(
-        f"/api/v1/cabinet/meetings/{meeting_id}/summary-candidates/{candidate_id}",
-        headers=auth_headers(),
-    )
-    assert stale_candidate.status_code == 409
-    assert stale_candidate.json()["code"] == "summary_source_revision_stale"
-
+    client.portal.call(replace_source)
+    assert_preview_retired()
+    stale = client.get(candidate_url, headers=auth_headers())
+    assert stale.status_code == 409 and stale.json()["code"] == "summary_source_revision_stale"
+    assert private_text not in stale.text
     foreign_headers = {
         **auth_headers(),
         "X-Organization-Id": "10000000-0000-0000-0000-000000000016",
@@ -1363,11 +1251,9 @@ def test_candidate_content_is_not_exposed_to_the_cabinet(client) -> None:
         "X-User-Id": "30000000-0000-0000-0000-000000000016",
         "X-Device-Id": "40000000-0000-0000-0000-000000000016",
     }
-    hidden = client.get(
-        f"/api/v1/cabinet/meetings/{meeting_id}/summary-candidates/{candidate_id}/preview",
-        headers=foreign_headers,
-    )
+    hidden = client.get(candidate_url, headers=foreign_headers)
     assert hidden.status_code in {403, 404}
+    assert private_text not in hidden.text
 
 
 def test_candidate_ui_restores_template_provenance_before_retry() -> None:
@@ -1512,7 +1398,7 @@ def test_workspace_default_format_is_persisted_and_returned_by_list_api(client) 
         json={
             "template_key": "graf-meeting-minutes-v1",
             "template_id": None,
-            "template_version": 1,
+            "template_version": 2,
         },
     )
     reloaded = client.get("/api/v1/cabinet/summary-templates", headers=headers)
@@ -1531,7 +1417,7 @@ def test_workspace_default_format_is_persisted_and_returned_by_list_api(client) 
     workspace = client.portal.call(load_workspace)
     assert workspace.default_summary_template_key == "graf-meeting-minutes-v1"
     assert workspace.default_summary_template_id is None
-    assert workspace.default_summary_template_version == 1
+    assert workspace.default_summary_template_version == 2
 
 
 def test_only_workspace_owner_can_change_default_format(client) -> None:
@@ -1554,7 +1440,7 @@ def test_only_workspace_owner_can_change_default_format(client) -> None:
         json={
             "template_key": "graf-outline-v1",
             "template_id": None,
-            "template_version": 1,
+            "template_version": 2,
         },
     )
 

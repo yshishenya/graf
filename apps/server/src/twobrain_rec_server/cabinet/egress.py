@@ -45,6 +45,7 @@ from twobrain_rec_server.cabinet.exports import (
 )
 from twobrain_rec_server.cabinet.view_models import (
     format_timestamp,
+    meeting_protocol_view,
     playback_reason_copy,
     playback_terminal_reason,
 )
@@ -65,7 +66,6 @@ from twobrain_rec_server.db.models import (
 from twobrain_rec_server.domain.statuses import (
     DeletionState,
     MediaRevisionStatus,
-    OutcomeSetStatus,
     ProcessingAvailabilityStatus,
     ProcessingResultStatus,
     TrackRole,
@@ -245,7 +245,7 @@ async def content_export_capabilities(
             duration_seconds=max(meeting.duration_seconds, 0),
         )
 
-    result = await _effective_complete_result(db, meeting=meeting)
+    result = await _effective_complete_result(db, meeting=meeting, allow_summary_source=True)
 
     policy = await resolve_artifact_policy(
         db, workspace_id=meeting.workspace_id, meeting_id=meeting.id
@@ -294,7 +294,6 @@ async def content_export_capabilities(
             workspace_id=meeting.workspace_id,
             meeting_id=meeting.id,
             processing_result_id=None,
-            include_non_publishable=True,
         )
     else:
         pinned_template_key, pinned_outcome_id = pinned_summary_revision
@@ -313,7 +312,7 @@ async def content_export_capabilities(
         summary = ContentExportReadiness(state="missing", reason="stored_summary_missing")
     elif outcome_set.status in {"available", "partial"} and not outcome_set.content_hash:
         summary = ContentExportReadiness(state="failed", reason="stored_summary_revision_unpinned")
-    elif outcome_set.status in {"available", "partial"}:
+    elif meeting_protocol_view(outcome_set) is not None:
         summary_stale = bool(
             result is not None
             and (
@@ -322,7 +321,7 @@ async def content_export_capabilities(
             )
         )
         summary = ContentExportReadiness(
-            state="available" if outcome_set.status == "available" else "partial",
+            state="available",
             reason=(
                 "stored_summary_revision_stale"
                 if summary_stale
@@ -364,7 +363,7 @@ async def content_export_capabilities(
     published_outcome_set_id = (
         outcome_set.id
         if outcome_set is not None
-        and outcome_set.status in {"available", "partial"}
+        and summary.state == "available"
         else None
     )
     return ContentExportCapabilityResponse(
@@ -394,6 +393,7 @@ async def create_content_export(
     device_id: UUID,
     recipient_proof: ShareRecipientAccessProof | None = None,
     pinned_summary_revision: tuple[str, UUID] | None = None,
+    source_base_url: str | None = None,
 ) -> GeneratedContentExport:
     artifact_class: ArtifactClass = (
         "transcript"
@@ -447,7 +447,9 @@ async def create_content_export(
         raise ProblemDetail(
             status=409, code="meeting_deletion_active", title="Meeting deletion is in progress"
         )
-    result = await _effective_complete_result(db, meeting=meeting)
+    result = await _effective_complete_result(
+        db, meeting=meeting, allow_summary_source=selection.content_scope == "summary",
+    )
     if result is None or result.id != selection.processing_result_id:
         await _record_content_export_denied(
             db,
@@ -515,6 +517,7 @@ async def create_content_export(
             result=result,
             selection=selection,
             pinned_summary_revision=pinned_summary_revision,
+            source_base_url=source_base_url if access.can_view_full_meeting else None,
         )
         generated = await to_thread.run_sync(render_content_export, snapshot)
     except ProblemDetail as exc:
@@ -626,6 +629,9 @@ async def create_content_export(
     elif final_readiness.state == "denied":
         denial = (403, "export_policy_denied", "Export policy denied")
         denial_reason = "export_policy_denied"
+    elif not revision_current or not selected_outcome_current:
+        denial = (409, "export_revision_stale", "Export revision is stale")
+        denial_reason = "export_revision_stale"
     elif not _content_export_readiness_allows(selection.content_scope, final_readiness.state):
         denial = (409, "export_unavailable", "Export unavailable")
         denial_reason = (
@@ -635,9 +641,6 @@ async def create_content_export(
             and not selected_outcome_current
             else final_readiness.reason or "export_unavailable"
         )
-    elif not revision_current or not selected_outcome_current:
-        denial = (409, "export_revision_stale", "Export revision is stale")
-        denial_reason = "export_revision_stale"
     if denial is not None:
         status, code, title = denial
         await _record_content_export_denied(
@@ -681,9 +684,7 @@ async def current_outcome_set(
     workspace_id: UUID,
     meeting_id: UUID,
     processing_result_id: UUID | None,
-    include_non_publishable: bool = False,
     template_key: str | None = None,
-    allow_legacy_read_only: bool = True,
 ) -> MeetingOutcomeSet | None:
     meeting = await db.scalar(
         select(Meeting).where(
@@ -702,68 +703,15 @@ async def current_outcome_set(
     else:
         slot_query = slot_query.where(MeetingSummarySlot.template_key == template_key)
     slot = await db.scalar(slot_query)
-    if slot is None:
-        any_slot = await db.scalar(
-            select(MeetingSummarySlot.id).where(
-                MeetingSummarySlot.workspace_id == workspace_id,
-                MeetingSummarySlot.meeting_id == meeting_id,
-            )
-        )
-        if any_slot is not None:
-            # Once slots exist, an absent requested/default slot is an honest
-            # no-result state. Never infer another type from the legacy pointer.
-            return None
-    outcome_id = slot.current_outcome_set_id if slot is not None else None
-    resolved_template_key = template_key or (slot.template_key if slot is not None else None)
-    if outcome_id is None:
+    if slot is None or slot.current_outcome_set_id is None or slot.current_binding_class != "verified_complete":
         return None
-    outcome = await db.scalar(
-        select(MeetingOutcomeSet)
-        .where(
-            MeetingOutcomeSet.id == outcome_id,
-            MeetingOutcomeSet.workspace_id == workspace_id,
-            MeetingOutcomeSet.meeting_id == meeting_id,
-            MeetingOutcomeSet.lifecycle_state == "active",
-        )
-        .execution_options(populate_existing=True)
+    outcome = await load_pinned_egress_outcome(
+        db, meeting=meeting, template_key=slot.template_key,
+        outcome_set_id=slot.current_outcome_set_id,
     )
-    if resolved_template_key is not None and (
-        outcome is None or outcome.template_key != resolved_template_key
+    if outcome is None or outcome.revision_state != "accepted" or (
+        processing_result_id is not None and outcome.processing_result_id != processing_result_id
     ):
-        return None
-    if outcome is None:
-        return None
-    if slot is not None and slot.current_binding_class == "migrated_legacy_read_only" and not allow_legacy_read_only:
-        return None
-    if outcome.revision_state not in (None, "accepted"):
-        return None
-    result = await db.scalar(
-        select(ProcessingResult).where(
-            ProcessingResult.id == outcome.processing_result_id,
-            ProcessingResult.workspace_id == workspace_id,
-            ProcessingResult.meeting_id == meeting_id,
-            ProcessingResult.status == ProcessingResultStatus.IMPORTED.value,
-        )
-    )
-    if result is None:
-        return None
-    if processing_result_id is not None and result.id != processing_result_id:
-        return None
-    if outcome.media_revision_id != result.media_revision_id:
-        return None
-    # Legacy rows may predate the source-result hash. Keep the fallback local:
-    # GET paths must not mutate immutable accepted history or flush synthetic
-    # values as a side effect of rendering/exporting a meeting.
-    result_source_hash = result.source_result_hash or sha256(
-        f"legacy-processing-result:{result.id}".encode()
-    ).hexdigest()
-    outcome_source_hash = outcome.source_result_hash or result_source_hash
-    if outcome_source_hash != result_source_hash:
-        return None
-    if not include_non_publishable and outcome.status not in {
-        OutcomeSetStatus.AVAILABLE.value,
-        OutcomeSetStatus.PARTIAL.value,
-    }:
         return None
     return outcome
 
@@ -790,6 +738,7 @@ async def _effective_complete_result(
     db: AsyncSession,
     *,
     meeting: Meeting,
+    allow_summary_source: bool = False,
 ) -> ProcessingResult | None:
     latest_revision = await db.scalar(
         select(MediaRevision)
@@ -804,13 +753,19 @@ async def _effective_complete_result(
     )
     if latest_revision is None:
         return None
-    return await db.scalar(
+    result = await db.scalar(
         effective_processing_result_query(
             workspace_id=meeting.workspace_id,
             meeting_id=meeting.id,
             media_revision_id=latest_revision.id,
         ).execution_options(populate_existing=True)
     )
+    if result is None and allow_summary_source:
+        slot = await load_meeting_default_slot(db, workspace_id=meeting.workspace_id, meeting_id=meeting.id)
+        outcome = await load_egress_default_outcome(db, meeting=meeting, slot=slot)
+        if outcome is not None and outcome.media_revision_id == latest_revision.id:
+            result = await db.get(ProcessingResult, outcome.processing_result_id, populate_existing=True)
+    return result
 
 
 async def _record_content_export_denied(

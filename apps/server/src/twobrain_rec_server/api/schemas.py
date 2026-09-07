@@ -37,6 +37,7 @@ from twobrain_rec_server.domain.statuses import (
     UploadSessionStatus,
     UploadStrategy,
 )
+from twobrain_rec_server.outcomes.models import ProtocolSection
 
 
 class HealthResponse(BaseModel):
@@ -1708,7 +1709,7 @@ class SummaryTypeReadResponse(SummaryStateEventV1):
     model_config = ConfigDict(extra="forbid")
 
     outcome_set_id: UUID | None = None
-    items: list["OutcomeItemView"] = Field(default_factory=list, max_length=256)
+    protocol: "MeetingProtocolView | None" = None
     attempt: SummaryTypeAttemptStateV1 | None = None
 
 
@@ -1844,9 +1845,9 @@ class ShareRecipientListResponse(BaseModel):
 
 class PublicShareSummaryResponse(BaseModel):
     meeting_label: str
-    occurred_at: datetime
+    occurred_at: datetime | None
     duration_seconds: int = Field(ge=0)
-    summary_sections: list[dict[str, object]] = Field(default_factory=list, max_length=100)
+    protocol: dict[str, object] | None = None
 
 
 class MeetingAccessState(BaseModel):
@@ -2094,7 +2095,6 @@ NotesActionSourceBasis = Literal[
     "blocked",
 ]
 NotesActionReadinessImpact = Literal["closes_gap", "keeps_gap_open", "non_blocking"]
-OutcomeTruthLabel = Literal["supported", "not_found", "not_inferable", "unsafe", "blocked"]
 OutcomeEvidenceKind = Literal["segment", "timestamp", "category_state", "source_hint"]
 
 
@@ -2107,16 +2107,89 @@ class OutcomeSourceReferenceView(BaseModel):
     source_role: str | None = None
     evidence_kind: OutcomeEvidenceKind
     seekable: bool = False
+    quote: str | None = None
 
 
-class OutcomeItemView(BaseModel):
-    category: str
-    sequence: int = Field(ge=0)
-    text: str | None = None
-    owner_text: str | None = None
-    due_date_text: str | None = None
-    truth_label: OutcomeTruthLabel
+class ProtocolStatementView(BaseModel):
+    text: str
     source_refs: list[OutcomeSourceReferenceView] = Field(default_factory=list)
+
+
+class ProtocolDecisionView(ProtocolStatementView):
+    acceptance_source_refs: list[OutcomeSourceReferenceView] = Field(default_factory=list)
+
+
+class ProtocolActionView(BaseModel):
+    task: str
+    owner_text: str | None
+    due_date_text: str | None
+    task_source_refs: list[OutcomeSourceReferenceView] = Field(default_factory=list)
+    owner_source_refs: list[OutcomeSourceReferenceView] = Field(default_factory=list)
+    due_date_source_refs: list[OutcomeSourceReferenceView] = Field(default_factory=list)
+
+
+class ProtocolTopicView(BaseModel):
+    title: str
+    context: list[ProtocolStatementView]
+    discussion: list[ProtocolStatementView]
+    proposals_and_alternatives: list[ProtocolStatementView]
+    outcome: list[ProtocolStatementView]
+
+
+class ProtocolParticipantView(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    label: str
+    speaker_key: str | None = None
+    attribution_state: str | None = None
+
+
+class ProtocolHeaderView(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    title: str | None
+    started_at: str | None
+    ended_at: str | None
+    duration_seconds: int = Field(default=0, ge=0)
+    timezone_offset_minutes: int | None = Field(ge=-840, le=840)
+    input_type: Literal["transcript"]
+    participants: list[ProtocolParticipantView]
+    output_language: SummaryOutputLanguage
+    sections: list[ProtocolSection]
+    # These server provenance fields are omitted from summary-only projections.
+    source_result_id: str | None = None
+    detail_level: SummaryDetailLevel | None = None
+    template_key: str | None = None
+    template_version: int | None = Field(default=None, ge=1)
+    template_name: str | None = None
+
+    @field_validator("started_at", "ended_at")
+    @classmethod
+    def valid_recorded_time(cls, value):
+        if value is not None:
+            datetime.fromisoformat(value)
+        return value
+
+
+class MeetingProtocolView(BaseModel):
+    schema_version: Literal["graf-meeting-protocol-v2"]
+    header: dict[str, object]
+    meeting_type: str
+    executive_summary: list[ProtocolStatementView]
+    objectives: list[ProtocolStatementView]
+    topics: list[ProtocolTopicView]
+    decisions: list[ProtocolDecisionView]
+    action_items: list[ProtocolActionView]
+    open_questions: list[ProtocolStatementView]
+    next_steps: list[ProtocolStatementView]
+    risks_and_constraints: list[ProtocolStatementView]
+    notes: list[ProtocolStatementView]
+    uncertain_sections: list[str]
+
+    @field_validator("header")
+    @classmethod
+    def valid_frozen_header(cls, value):
+        return ProtocolHeaderView.model_validate(value).model_dump(exclude_unset=True)
 
 
 class OutcomeProvenanceView(BaseModel):
@@ -2137,15 +2210,19 @@ def _default_deferred_notes_category() -> "NotesActionCategoryState":
 
 
 class NotesActionCategoryState(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     state: NotesActionAvailabilityState
     label: str
     reason: str
     readiness_impact: NotesActionReadinessImpact
     copy_key: str
-    items: list[OutcomeItemView] = Field(default_factory=list)
 
 
 class NotesActionTruthState(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    protocol: MeetingProtocolView | None = None
     summary: NotesActionCategoryState
     key_points: NotesActionCategoryState = Field(default_factory=_default_deferred_notes_category)
     decisions: NotesActionCategoryState

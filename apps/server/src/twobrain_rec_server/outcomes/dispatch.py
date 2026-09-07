@@ -15,7 +15,6 @@ from twobrain_rec_server.db.models import (
     DispatchIntent,
     Meeting,
     MeetingOutcomeGenerationAttempt,
-    MeetingOutcomeSet,
     MeetingSummarySlot,
     ProcessingResult,
     Workspace,
@@ -111,109 +110,6 @@ async def reconcile_missing_summary_defaults(
             continue
         await db.commit()
         repaired += 1
-    return repaired
-
-
-async def reconcile_orphaned_summary_candidates(
-    db: AsyncSession,
-    *,
-    limit: int = 25,
-) -> int:
-    """Repair imported AI-only outcome placeholders with no dispatch ledger row.
-
-    A short-lived regression could commit the revision-scoped placeholder before
-    candidate creation. Such rows are not visible to the normal dispatch
-    reconciler because they have no attempt or intent to claim. Re-enqueue the
-    canonical automatic candidate through the same idempotent path used by a
-    fresh import, then quarantine the empty placeholder as stale.
-    """
-
-    if limit <= 0:
-        return 0
-    candidate_has_attempt = exists(
-        select(MeetingOutcomeGenerationAttempt.id).where(
-            MeetingOutcomeGenerationAttempt.workspace_id == MeetingOutcomeSet.workspace_id,
-            MeetingOutcomeGenerationAttempt.candidate_id == MeetingOutcomeSet.candidate_id,
-        )
-    )
-    orphaned = (
-        await db.execute(
-            select(
-                MeetingOutcomeSet.id,
-                MeetingOutcomeSet.workspace_id,
-                MeetingOutcomeSet.meeting_id,
-                MeetingOutcomeSet.candidate_id,
-            )
-            .join(
-                ProcessingResult,
-                ProcessingResult.id == MeetingOutcomeSet.processing_result_id,
-            )
-            .join(Meeting, Meeting.id == MeetingOutcomeSet.meeting_id)
-            .where(
-                MeetingOutcomeSet.candidate_id.is_not(None),
-                MeetingOutcomeSet.media_revision_id.is_not(None),
-                MeetingOutcomeSet.generator_kind == "deterministic_extractive",
-                MeetingOutcomeSet.status == "generating",
-                MeetingOutcomeSet.revision_state == "candidate",
-                ProcessingResult.status == "imported",
-                ProcessingResult.transcript_status == "available",
-                ProcessingResult.segment_count > 0,
-                Meeting.deleted_at.is_(None),
-                or_(Meeting.deletion_state.is_(None), Meeting.deletion_state == "none"),
-                ~candidate_has_attempt,
-            )
-            .order_by(MeetingOutcomeSet.created_at.asc(), MeetingOutcomeSet.id.asc())
-            .limit(limit)
-            .with_for_update(skip_locked=True, of=MeetingOutcomeSet)
-        )
-    ).all()
-    await db.commit()
-
-    if not orphaned:
-        return 0
-
-    # Import lazily: ai_service imports this module for the ordinary dispatch
-    # helpers, so a top-level import would introduce a circular dependency.
-    from twobrain_rec_server.outcomes.ai_service import ensure_automatic_summary_candidate
-
-    repaired = 0
-    for outcome_set_id, workspace_id, meeting_id, candidate_id in orphaned:
-        try:
-            attempt = await ensure_automatic_summary_candidate(
-                db,
-                workspace_id=workspace_id,
-                meeting_id=meeting_id,
-            )
-            if attempt is None:
-                await db.rollback()
-                continue
-            placeholder = await db.scalar(
-                select(MeetingOutcomeSet)
-                .where(
-                    MeetingOutcomeSet.id == outcome_set_id,
-                    MeetingOutcomeSet.workspace_id == workspace_id,
-                    MeetingOutcomeSet.meeting_id == meeting_id,
-                    MeetingOutcomeSet.candidate_id == candidate_id,
-                )
-                .with_for_update()
-            )
-            if placeholder is not None and placeholder.revision_state == "candidate":
-                placeholder.status = "blocked"
-                placeholder.revision_state = "stale"
-                placeholder.failure_reason = "summary_candidate_orphan_repaired"
-                placeholder.failure_source = "reconciliation"
-            await db.commit()
-            repaired += 1
-        except Exception:
-            await db.rollback()
-            logger.exception(
-                "orphaned summary candidate reconciliation failed",
-                extra={
-                    "workspace_id": str(workspace_id),
-                    "meeting_id": str(meeting_id),
-                    "outcome_set_id": str(outcome_set_id),
-                },
-            )
     return repaired
 
 

@@ -19,6 +19,7 @@ from tests.fixtures.cabinet_access import (
     auth_headers_for,
     set_artifact_policy,
 )
+from tests.fixtures.meeting_protocol import seed_accepted_protocol
 from twobrain_rec_server.auth.dependencies import AUTH_SESSION_COOKIE_NAME
 from twobrain_rec_server.cabinet import egress as egress_module
 from twobrain_rec_server.cabinet.access import (
@@ -30,15 +31,12 @@ from twobrain_rec_server.cabinet.access import (
 from twobrain_rec_server.db.models import (
     ExternalIdentity,
     Meeting,
-    MeetingOutcomeItem,
-    MeetingOutcomeSet,
     MeetingShareGrant,
     MeetingShareInvitation,
     MeetingSummarySlot,
     ProcessingResult,
     RecordingCalendarContextLink,
     RegisteredDevice,
-    TranscriptSegment,
     UserIdentity,
     Workspace,
     WorkspaceMembership,
@@ -86,7 +84,7 @@ def test_summary_only_user_cannot_open_full_meeting_routes(client) -> None:
         "meeting_label",
         "occurred_at",
         "duration_seconds",
-        "summary_sections",
+        "protocol",
     }
     access = client.get(
         f"/api/v1/cabinet/meetings/{seeds.ready_id}/access",
@@ -139,43 +137,12 @@ def test_summary_only_share_never_discloses_an_unaccepted_candidate(client) -> N
                 select(ProcessingResult).where(ProcessingResult.meeting_id == seeds.ready_id)
             )
             assert meeting is not None and result is not None
-            candidate = MeetingOutcomeSet(
-                workspace_id=meeting.workspace_id,
-                meeting_id=meeting.id,
-                media_revision_id=result.media_revision_id,
-                processing_result_id=result.id,
-                candidate_id=uuid4(),
-                status="available",
-                summary_state="available",
-                key_points_state="not_found",
-                decisions_state="not_found",
-                action_items_state="not_found",
-                followups_state="not_found",
-                risks_state="not_found",
-                questions_state="not_found",
-                evidence_state="not_found",
-                source_kind="litellm",
-                generator_kind="litellm",
-                generator_version="fixture-private-candidate-v1",
-                lifecycle_state="active",
-                revision_state="candidate",
-                generated_at=datetime.now(UTC),
+            candidate, _ = await seed_accepted_protocol(
+                db, meeting.id, text="Непринятый приватный вариант.", make_default=False,
             )
-            db.add(candidate)
-            await db.flush()
-            db.add(
-                MeetingOutcomeItem(
-                    workspace_id=meeting.workspace_id,
-                    meeting_id=meeting.id,
-                    outcome_set_id=candidate.id,
-                    category="summary",
-                    sequence=0,
-                    state="available",
-                    text="Непринятый приватный вариант.",
-                    truth_label="supported",
-                    source_refs_json=[],
-                )
-            )
+            candidate.candidate_id = uuid4()
+            candidate.revision_state = "candidate"
+            candidate.accepted_at = None
             await db.commit()
 
     asyncio.run(seed_candidate())
@@ -354,6 +321,14 @@ def test_public_summary_link_rotation_and_revocation_invalidate_old_tokens(clien
         )
         assert revoked.status_code == 204
         assert client.get(new_url).status_code == 404
+        unavailable = client.get(new_url, headers={"Accept": "text/html"})
+        assert unavailable.status_code == 404
+        assert unavailable.headers["content-type"].startswith("text/html")
+        assert "Встреча больше недоступна" in unavailable.text
+        assert "Запись удалена или доступ закрыт." in unavailable.text
+        assert unavailable.headers["cache-control"] == "private, no-store"
+        assert unavailable.headers["referrer-policy"] == "no-referrer"
+        assert unavailable.headers["x-robots-tag"] == "noindex, nofollow, noarchive"
     finally:
         settings.share_public_links_enabled = previous
         settings.share_public_links_abuse_gate_approved = previous_abuse_gate
@@ -398,45 +373,13 @@ def test_public_summary_link_pins_default_revision_across_refresh(client) -> Non
                     select(ProcessingResult).where(ProcessingResult.meeting_id == seeds.ready_id)
                 )
                 assert meeting is not None and result is not None
-                refreshed = MeetingOutcomeSet(
-                    workspace_id=meeting.workspace_id,
-                    meeting_id=meeting.id,
-                    media_revision_id=result.media_revision_id,
-                    processing_result_id=result.id,
-                    status="available",
-                    summary_state="available",
-                    key_points_state="not_found",
-                    decisions_state="not_found",
-                    action_items_state="not_found",
-                    followups_state="not_found",
-                    risks_state="not_found",
-                    questions_state="not_found",
-                    evidence_state="available",
-                    source_kind="extractive_generator",
-                    generator_kind="deterministic_extractive",
-                    generator_version="fixture-share-refresh-v2",
-                    template_key="graf-auto-v1",
-                    template_version=1,
-                    content_hash="fixture-share-refresh-hash-v2",
-                    lifecycle_state="active",
-                    revision_state="accepted",
-                    generated_at=datetime.now(UTC),
+                refreshed, _ = await seed_accepted_protocol(
+                    db, meeting.id, text="Обновлённый итог.", make_default=False,
                 )
-                db.add(refreshed)
-                await db.flush()
-                db.add(
-                    MeetingOutcomeItem(
-                        workspace_id=meeting.workspace_id,
-                        meeting_id=meeting.id,
-                        outcome_set_id=refreshed.id,
-                        category="summary",
-                        sequence=0,
-                        state="available",
-                        text="Обновлённый итог.",
-                        truth_label="supported",
-                        source_refs_json=[],
-                    )
-                )
+                slot = await db.scalar(select(MeetingSummarySlot).where(
+                    MeetingSummarySlot.meeting_id == meeting.id, MeetingSummarySlot.is_meeting_default.is_(True),
+                ))
+                slot.current_outcome_set_id = refreshed.id
                 meeting.current_outcome_set_id = refreshed.id
                 await db.commit()
                 return refreshed.id
@@ -459,7 +402,7 @@ def test_public_summary_link_pins_default_revision_across_refresh(client) -> Non
 
         slot = asyncio.run(default_slot())
         assert slot is not None
-        assert str(slot.current_outcome_set_id) == pinned_id
+        assert slot.current_outcome_set_id == refreshed_id
     finally:
         settings.share_public_links_enabled = previous_enabled
         settings.share_public_links_abuse_gate_approved = previous_gate
@@ -832,7 +775,7 @@ def test_external_invitation_accepts_from_another_workspace_and_resolves_share(
         "meeting_label",
         "occurred_at",
         "duration_seconds",
-        "summary_sections",
+        "protocol",
     }
     replay = client.post(
         f"/api/v1/cabinet/share-invitations/{api_raw_token}/accept",
@@ -1016,7 +959,8 @@ def test_external_full_invitation_opens_recording_package_and_rechecks_revoke(
         summary_download="allowed",
         package_export="allowed",
     )
-    asyncio.run(_seed_external_full_summary(client, seeds.ready_id))
+    outcome_id, source_id = asyncio.run(_seed_external_full_summary(client, seeds.ready_id))
+    source_url = f"/cabinet/meetings/{seeds.ready_id}/sources/{outcome_id}/{source_id}?workspace_id={WORKSPACE_ID}"
 
     async def seed_calendar_context() -> None:
         async with client.app_state["sessionmaker"]() as db:
@@ -1110,6 +1054,10 @@ def test_external_full_invitation_opens_recording_package_and_rechecks_revoke(
     assert "desktop-embedded" in desktop_page.text
     assert 'href="/desktop/meetings"' in desktop_page.text
     assert f"/api/v1/cabinet/shared-meetings/{seeds.ready_id}/playback" in desktop_page.text
+    source_page = client.get(source_url, headers={"Accept": "text/html"})
+    assert source_page.status_code == 200
+    assert f'data-initial-source-segment="{source_id}"' in source_page.text
+    assert f"/api/v1/cabinet/shared-meetings/{seeds.ready_id}/playback" in source_page.text
 
     capabilities = client.get(
         f"/api/v1/cabinet/shared-meetings/{seeds.ready_id}/content-exports",
@@ -1237,6 +1185,9 @@ def test_external_full_invitation_opens_recording_package_and_rechecks_revoke(
             await db.commit()
 
     asyncio.run(revoke_grant())
+    refused_source = client.get(source_url, headers={"Accept": "text/html"})
+    assert refused_source.status_code == 404
+    assert "data-transcript-turn" not in refused_source.text
     assert client.get(shared_url, headers={"Accept": "text/html"}).status_code == 404
     assert (
         client.get(
@@ -1247,83 +1198,10 @@ def test_external_full_invitation_opens_recording_package_and_rechecks_revoke(
     )
 
 
-async def _seed_external_full_summary(client, meeting_id) -> None:
+async def _seed_external_full_summary(client, meeting_id):
     async with client.app_state["sessionmaker"]() as db:
-        result = await db.scalar(
-            select(ProcessingResult).where(
-                ProcessingResult.meeting_id == meeting_id,
-                ProcessingResult.status == "imported",
-            )
-        )
-        meeting = await db.get(Meeting, meeting_id)
-        segment = await db.scalar(
-            select(TranscriptSegment)
-            .where(TranscriptSegment.meeting_id == meeting_id)
-            .order_by(TranscriptSegment.sequence.asc())
-        )
-        assert result is not None and meeting is not None and segment is not None
-        outcome_set = MeetingOutcomeSet(
-            workspace_id=meeting.workspace_id,
-            meeting_id=meeting_id,
-            media_revision_id=result.media_revision_id,
-            processing_result_id=result.id,
-            status="available",
-            summary_state="available",
-            key_points_state="not_found",
-            decisions_state="available",
-            action_items_state="available",
-            followups_state="not_found",
-            risks_state="not_found",
-            questions_state="not_found",
-            evidence_state="available",
-            source_kind="extractive_generator",
-            generator_kind="deterministic_extractive",
-            generator_version="fixture-share-egress-v1",
-            template_key="graf-auto-v1",
-            template_version=1,
-            content_hash="fixture-share-egress-summary-hash",
-            lifecycle_state="active",
-            generated_at=datetime.now(UTC),
-            revision_state="accepted",
-        )
-        db.add(outcome_set)
-        await db.flush()
-        outcome_set.accepted_at = outcome_set.generated_at
-        meeting.current_outcome_set_id = outcome_set.id
-        slot = MeetingSummarySlot(
-            workspace_id=meeting.workspace_id,
-            meeting_id=meeting_id,
-            template_key="graf-auto-v1",
-            current_outcome_set_id=outcome_set.id,
-            current_binding_class="verified_complete",
-            is_meeting_default=True,
-            default_resolution_source="explicit_meeting",
-            default_resolution_version="slot-fixture-v1",
-            default_resolved_at=datetime.now(UTC),
-        )
-        db.add(slot)
-        db.add(
-            MeetingOutcomeItem(
-                workspace_id=meeting.workspace_id,
-                meeting_id=meeting_id,
-                outcome_set_id=outcome_set.id,
-                category="summary",
-                sequence=0,
-                state="available",
-                text="Сохранённый итог.",
-                truth_label="supported",
-                source_refs_json=[
-                    {
-                        "transcript_segment_id": str(segment.id),
-                        "sequence": segment.sequence,
-                        "start_seconds": float(segment.start_seconds),
-                        "end_seconds": float(segment.end_seconds),
-                        "evidence_kind": "segment",
-                    }
-                ],
-            )
-        )
-        await db.commit()
+        outcome, segments = await seed_accepted_protocol(db, meeting_id, text="Сохранённый итог.")
+        return outcome.id, segments[0].segment_id
 
 
 def test_account_created_notification_failure_cannot_break_committed_acceptance(

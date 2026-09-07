@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+from tests.fixtures.outcome_prompts import outcome_config
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.observability.langfuse import (
     _should_export_langfuse_span,
@@ -10,7 +11,6 @@ from twobrain_rec_server.observability.langfuse import (
 )
 from twobrain_rec_server.outcomes.prompts import (
     langfuse_prompt_payload,
-    outcome_config,
     validate_prompt_snapshot,
 )
 
@@ -93,7 +93,7 @@ def test_langfuse_v4_chat_wire_type_round_trips_to_stable_prompt_contract() -> N
         {
             "type": "message",
             "role": "user",
-            "content": "{{output_language}} {{detail_level}} {{template_sections_json}}",
+            "content": "{{output_language}} {{detail_level}} {{template_sections_json}} {{extraction_json}}",
         },
     ]
     config = outcome_config(schema_name="test")

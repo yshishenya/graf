@@ -208,30 +208,6 @@ class OutcomeSetStatus(StrEnum):
     UNSAFE = "unsafe"
 
 
-class OutcomeSourceKind(StrEnum):
-    STORED_OUTPUT = "stored_output"
-    EXTRACTIVE_GENERATOR = "extractive_generator"
-    MEDIASCRIBE_SUMMARY = "mediascribe_summary"
-    PROVIDER_OUTPUT = "provider_output"
-    NOT_INFERABLE = "not_inferable"
-    BLOCKED = "blocked"
-
-
-class OutcomeGeneratorKind(StrEnum):
-    DETERMINISTIC_EXTRACTIVE = "deterministic_extractive"
-    MEDIASCRIBE_SUMMARY = "mediascribe_summary"
-    LLM_PROVIDER = "llm_provider"
-    MANUAL_FIXTURE = "manual_fixture"
-
-
-class OutcomeTruthLabel(StrEnum):
-    SUPPORTED = "supported"
-    NOT_FOUND = "not_found"
-    NOT_INFERABLE = "not_inferable"
-    UNSAFE = "unsafe"
-    BLOCKED = "blocked"
-
-
 class OutcomeLifecycleState(StrEnum):
     ACTIVE = "active"
     DELETING = "deleting"

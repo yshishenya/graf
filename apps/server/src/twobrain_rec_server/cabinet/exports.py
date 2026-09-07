@@ -4,9 +4,11 @@ import csv
 import io
 import json
 import re
+from copy import deepcopy
 from dataclasses import asdict, dataclass, replace
-from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Literal
+from urllib.parse import quote, urlsplit
 from uuid import UUID
 
 from openpyxl import Workbook
@@ -17,14 +19,17 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.problems import ProblemDetail
-from twobrain_rec_server.api.schemas import CONTENT_EXPORT_FORMATS_BY_SCOPE
+from twobrain_rec_server.api.schemas import CONTENT_EXPORT_FORMATS_BY_SCOPE, MeetingProtocolView
 from twobrain_rec_server.cabinet.speakers import speaker_names_for_result
-from twobrain_rec_server.cabinet.view_models import source_role_label
+from twobrain_rec_server.cabinet.view_models import (
+    meeting_protocol_view,
+    protocol_header_rows,
+    source_role_label,
+)
 from twobrain_rec_server.db.models import (
     DiarizationSegment,
     MediaRevision,
     Meeting,
-    MeetingOutcomeItem,
     MeetingOutcomeSet,
     MeetingSpeakerName,
     MeetingSummarySlot,
@@ -41,6 +46,12 @@ from twobrain_rec_server.domain.statuses import (
     ProcessingAvailabilityStatus,
     ProcessingResultStatus,
 )
+from twobrain_rec_server.outcomes.models import (
+    PROTOCOL_LABELS,
+    PROTOCOL_SECTIONS,
+    SPEAKER_IDENTITY_NOTE,
+    protocol_without_evidence,
+)
 from twobrain_rec_server.outcomes.service import (
     load_egress_default_outcome,
     load_pinned_egress_outcome,
@@ -52,7 +63,7 @@ ExportFormat = Literal["txt", "md", "csv", "xlsx", "json", "srt", "vtt"]
 AttributionState = Literal["confirmed", "unconfirmed", "unknown", "mixed", "uncertain"]
 
 SCHEMA_VERSION = "graf.transcript-export.v2"
-RENDERER_VERSION = "export-v1"
+RENDERER_VERSION = "meeting-protocol-export-v2"
 TURN_POLICY_VERSION = "canonical-provider-turns-v4"
 UNKNOWN_SPEAKER_LABEL = "Спикер не определён"
 FORMAT_COMPATIBILITY = CONTENT_EXPORT_FORMATS_BY_SCOPE
@@ -84,26 +95,6 @@ CSV_COLUMNS = (
     "processing_result_id",
     "turn_policy_version",
 )
-SUMMARY_CATEGORY_ORDER = (
-    "summary",
-    "key_points",
-    "decisions",
-    "action_items",
-    "followups",
-    "risks",
-    "questions",
-    "evidence",
-)
-SUMMARY_CATEGORY_LABELS = {
-    "summary": "Итоги",
-    "key_points": "Ключевые моменты",
-    "decisions": "Решения",
-    "action_items": "Задачи",
-    "followups": "Следующие шаги",
-    "risks": "Риски",
-    "questions": "Вопросы",
-    "evidence": "Основания",
-}
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,31 +145,16 @@ class CanonicalExportTurn:
 
 
 @dataclass(frozen=True, slots=True)
-class SummaryExportItem:
-    category: str
-    sequence: int
-    state: str
-    text: str | None
-    owner: str | None
-    due_date: str | None
-    truth_label: str
-    source_references: tuple[dict[str, object], ...]
-    evidence_turn_ids: tuple[str, ...]
-    unresolved_references: tuple[dict[str, object], ...]
-
-
-@dataclass(frozen=True, slots=True)
 class SummaryExportRevision:
     outcome_set_id: str
     processing_result_id: str
     revision_token: str
     status: str
-    category_states: dict[str, str]
     source_kind: str
     generator_kind: str
     generator_version: str
     content_hash: str | None
-    items: tuple[SummaryExportItem, ...]
+    protocol: dict[str, object]
 
 
 @dataclass(frozen=True, slots=True)
@@ -194,6 +170,8 @@ class ExportSnapshot:
     raw_segments: tuple[RawExportSegment, ...]
     canonical_turns: tuple[CanonicalExportTurn, ...]
     summary: SummaryExportRevision | None
+    source_base_url: str | None = None
+    source_workspace_id: str | None = None
     attribution_result_state: Literal["accepted", "degraded_provider_result"] = "accepted"
     attribution_reason_codes: tuple[str, ...] = ()
     schema_version: str = SCHEMA_VERSION
@@ -235,6 +213,7 @@ async def build_export_snapshot(
     result: ProcessingResult,
     selection: ExportSelection,
     pinned_summary_revision: tuple[str, UUID] | None = None,
+    source_base_url: str | None = None,
 ) -> ExportSnapshot:
     validate_export_selection(selection)
     selection = _effective_export_selection(selection)
@@ -260,8 +239,10 @@ async def build_export_snapshot(
         result.id != selection.processing_result_id
         or result.workspace_id != meeting.workspace_id
         or result.meeting_id != meeting.id
-        or effective_result is None
-        or effective_result.id != result.id
+        or current_revision is None
+        or result.media_revision_id != current_revision.id
+        or result.processing_workflow_id is None
+        or (transcript_requested and (effective_result is None or effective_result.id != result.id))
         or result.status != ProcessingResultStatus.IMPORTED.value
         or (
             transcript_requested
@@ -355,7 +336,6 @@ async def build_export_snapshot(
         meeting=meeting,
         result=result,
         outcome_set_id=selection.outcome_set_id,
-        turns=turns,
         pinned_summary_revision=pinned_summary_revision,
         require_matching_result=selection.content_scope == "combined",
     )
@@ -390,6 +370,11 @@ async def build_export_snapshot(
         raw_segments=raw_segments,
         canonical_turns=turns,
         summary=summary,
+        source_base_url=(
+            source_base_url if transcript_visible and summary is not None
+            and summary.processing_result_id == str(result.id) else None
+        ),
+        source_workspace_id=str(meeting.workspace_id),
         attribution_result_state=model.result_state,
         attribution_reason_codes=model.diagnostics.reason_codes,
     )
@@ -480,7 +465,6 @@ async def _load_summary_revision(
     meeting: Meeting,
     result: ProcessingResult,
     outcome_set_id: UUID | None,
-    turns: tuple[CanonicalExportTurn, ...],
     pinned_summary_revision: tuple[str, UUID] | None = None,
     require_matching_result: bool = False,
 ) -> SummaryExportRevision | None:
@@ -538,104 +522,14 @@ async def _load_summary_revision(
         require_matching_result and outcome_set.processing_result_id != result.id
     ):
         raise _stale_selection()
-    rows = list(
-        (
-            await db.scalars(
-                select(MeetingOutcomeItem)
-                .where(
-                    MeetingOutcomeItem.workspace_id == meeting.workspace_id,
-                    MeetingOutcomeItem.meeting_id == meeting.id,
-                    MeetingOutcomeItem.outcome_set_id == outcome_set.id,
-                )
-                .order_by(MeetingOutcomeItem.category.asc(), MeetingOutcomeItem.sequence.asc())
-            )
-        ).all()
-    )
-    category_order = {category: index for index, category in enumerate(SUMMARY_CATEGORY_ORDER)}
-    rows.sort(
-        key=lambda row: (
-            category_order.get(row.category, len(category_order)),
-            row.sequence,
-        )
-    )
-    turn_by_segment = {
-        segment_id: turn.turn_id for turn in turns for segment_id in turn.source_segment_ids
-    }
-    items: list[SummaryExportItem] = []
-    for row in rows:
-        references = tuple(ref for ref in row.source_refs_json if isinstance(ref, dict))
-        resolved: list[str] = []
-        unresolved: list[dict[str, object]] = []
-        for reference in references:
-            turn_ids = _reference_turn_ids(reference, turns, turn_by_segment)
-            if not turn_ids:
-                unresolved.append(reference)
-                continue
-            for turn_id in turn_ids:
-                if turn_id not in resolved:
-                    resolved.append(turn_id)
-        items.append(
-            SummaryExportItem(
-                category=row.category,
-                sequence=row.sequence,
-                state=row.state,
-                text=row.text,
-                owner=row.owner_text,
-                due_date=row.due_date_text,
-                truth_label=row.truth_label,
-                source_references=references,
-                evidence_turn_ids=tuple(resolved),
-                unresolved_references=tuple(unresolved),
-            )
-        )
-    category_states = {
-        category: str(getattr(outcome_set, f"{category}_state"))
-        for category in SUMMARY_CATEGORY_ORDER
-    }
-    revision_token = ":".join(
-        (
-            str(outcome_set.id),
-            outcome_set.content_hash or "no-content-hash",
-            outcome_set.generator_version,
-        )
-    )
+    if meeting_protocol_view(outcome_set) is None:
+        raise ProblemDetail(status=409, code="summary_protocol_unavailable", title="Сформируйте новую версию итогов")
     return SummaryExportRevision(
-        outcome_set_id=str(outcome_set.id),
-        processing_result_id=str(outcome_set.processing_result_id),
-        revision_token=revision_token,
-        status=outcome_set.status,
-        category_states=category_states,
-        source_kind=outcome_set.source_kind,
-        generator_kind=outcome_set.generator_kind,
-        generator_version=outcome_set.generator_version,
-        content_hash=outcome_set.content_hash,
-        items=tuple(items),
-    )
-
-
-def _reference_turn_ids(
-    reference: dict[str, object],
-    turns: tuple[CanonicalExportTurn, ...],
-    turn_by_segment: dict[str, str],
-) -> tuple[str, ...]:
-    raw_id = reference.get("transcript_segment_id")
-    direct = turn_by_segment.get(str(raw_id)) if raw_id is not None else None
-    if direct is not None:
-        return (direct,)
-    try:
-        start_ms = _milliseconds(Decimal(str(reference["start_seconds"])))
-        end_ms = _milliseconds(Decimal(str(reference["end_seconds"])))
-    except (KeyError, TypeError, ValueError, InvalidOperation):
-        return ()
-    if end_ms <= start_ms:
-        return ()
-    raw_role = reference.get("source_role")
-    role = source_role_label(str(raw_role)) if raw_role else None
-    return tuple(
-        turn.turn_id
-        for turn in turns
-        if (role is None or turn.source_role == role)
-        and min(end_ms, turn.end_ms) > max(start_ms, turn.start_ms)
+        outcome_set_id=str(outcome_set.id), processing_result_id=str(outcome_set.processing_result_id),
+        revision_token=f"{outcome_set.id}:{outcome_set.content_hash}:{outcome_set.generator_version}",
+        status=outcome_set.status, source_kind=outcome_set.source_kind,
+        generator_kind=outcome_set.generator_kind, generator_version=outcome_set.generator_version,
+        content_hash=outcome_set.content_hash, protocol=deepcopy(outcome_set.protocol_json),
     )
 
 
@@ -684,6 +578,12 @@ def render_content_export(snapshot: ExportSnapshot) -> GeneratedContentExport:
 
 
 def _render_txt(snapshot: ExportSnapshot) -> bytes:
+    if snapshot.selection.content_scope in {"summary", "combined"}:
+        lines = _summary_lines(snapshot, markdown=False)
+        if snapshot.selection.content_scope == "combined":
+            lines.extend(("Транскрипт", "===========", ""))
+            lines.extend(_human_transcript_lines(snapshot, markdown=False))
+        return ("\n".join(lines).rstrip() + "\n").encode("utf-8")
     lines = [
         snapshot.meeting_title,
         f"Состав: {_scope_label(snapshot.selection.content_scope)}",
@@ -693,18 +593,17 @@ def _render_txt(snapshot: ExportSnapshot) -> bytes:
         f"Разделение по спикерам: {_attribution_status_label(snapshot)}",
         "",
     ]
-    if snapshot.selection.content_scope in {"transcript", "combined"}:
-        if snapshot.selection.content_scope == "combined":
-            lines.extend(("Расшифровка", "===========", ""))
-        lines.extend(_human_transcript_lines(snapshot, markdown=False))
-    if snapshot.selection.content_scope in {"summary", "combined"}:
-        if snapshot.selection.content_scope == "combined":
-            lines.extend(("", "Итоги", "=======", ""))
-        lines.extend(_summary_lines(snapshot, markdown=False))
+    lines.extend(_human_transcript_lines(snapshot, markdown=False))
     return ("\n".join(lines).rstrip() + "\n").encode("utf-8")
 
 
 def _render_markdown(snapshot: ExportSnapshot) -> bytes:
+    if snapshot.selection.content_scope in {"summary", "combined"}:
+        lines = _summary_lines(snapshot, markdown=True)
+        if snapshot.selection.content_scope == "combined":
+            lines.extend(("## Транскрипт", ""))
+            lines.extend(_human_transcript_lines(snapshot, markdown=True))
+        return ("\n".join(lines).rstrip() + "\n").encode("utf-8")
     lines = [
         f"# {_markdown_escape(snapshot.meeting_title)}",
         "",
@@ -715,14 +614,7 @@ def _render_markdown(snapshot: ExportSnapshot) -> bytes:
         f"- Разделение по спикерам: {_markdown_escape(_attribution_status_label(snapshot))}",
         "",
     ]
-    if snapshot.selection.content_scope in {"transcript", "combined"}:
-        if snapshot.selection.content_scope == "combined":
-            lines.extend(("## Расшифровка", ""))
-        lines.extend(_human_transcript_lines(snapshot, markdown=True))
-    if snapshot.selection.content_scope in {"summary", "combined"}:
-        if snapshot.selection.content_scope == "combined":
-            lines.extend(("", "## Итоги", ""))
-        lines.extend(_summary_lines(snapshot, markdown=True))
+    lines.extend(_human_transcript_lines(snapshot, markdown=True))
     return ("\n".join(lines).rstrip() + "\n").encode("utf-8")
 
 
@@ -779,56 +671,109 @@ def human_display_groups(
     return tuple(tuple(group) for group in groups)
 
 
+def _protocol_evidence(snapshot, refs, *, markdown):
+    if not snapshot.selection.include_evidence or not snapshot.selection.include_timestamps:
+        return ""
+    values = []
+    seen = set()
+    for ref in refs:
+        key = ref.transcript_segment_id
+        if key in seen or ref.start_seconds is None:
+            continue
+        seen.add(key)
+        total = int(ref.start_seconds)
+        hours, rest = divmod(total, 3600)
+        minutes, seconds = divmod(rest, 60)
+        time = f"{hours:02}:{minutes:02}:{seconds:02}" if hours else f"{minutes:02}:{seconds:02}"
+        label = f"[{time}]"
+        if markdown and snapshot.source_base_url and snapshot.summary and key:
+            base = urlsplit(snapshot.source_base_url)
+            if base.scheme == "https" and base.netloc and not base.username and not base.password and not base.query and not base.fragment:
+                path = "/cabinet/meetings/" + quote(snapshot.meeting_id, safe="") + "/sources/" + quote(snapshot.summary.outcome_set_id, safe="") + "/" + quote(str(key), safe="")
+                if snapshot.source_workspace_id:
+                    path += "?workspace_id=" + quote(snapshot.source_workspace_id, safe="")
+                    label += f"({base.scheme}://{base.netloc}{path})"
+        values.append(label)
+    return " ".join(values)
+
+
 def _summary_lines(snapshot: ExportSnapshot, *, markdown: bool) -> list[str]:
-    summary = snapshot.summary
-    if summary is None:
-        return ["Сохранённые итоги недоступны."]
-    lines = [
-        (
-            f"Статус сохраненной ревизии: {_markdown_escape(summary.status)}"
-            if markdown
-            else f"Статус сохраненной ревизии: {summary.status}"
-        ),
-        (
-            "Источник сохраненной ревизии: " + _markdown_escape(summary.source_kind)
-            if markdown
-            else f"Источник сохраненной ревизии: {summary.source_kind}"
-        ),
-        (
-            "Генератор: "
-            + _markdown_escape(f"{summary.generator_kind} {summary.generator_version}")
-            if markdown
-            else f"Генератор: {summary.generator_kind} {summary.generator_version}"
-        ),
-        "",
-    ]
-    by_category = {
-        category: [item for item in summary.items if item.category == category]
-        for category in SUMMARY_CATEGORY_ORDER
-    }
-    for category in SUMMARY_CATEGORY_ORDER:
-        label = SUMMARY_CATEGORY_LABELS[category]
-        state = summary.category_states[category]
-        lines.append(f"### {label}" if markdown else label)
-        if not markdown:
-            lines.append("-" * len(label))
-        items = by_category[category]
-        if not items:
-            lines.append(f"Состояние: {state}")
-        for item in items:
-            text = item.text or f"Состояние: {item.state}"
-            text = _markdown_escape(text) if markdown else text
-            lines.append(f"- {text}")
-            if item.owner:
-                owner = _markdown_escape(item.owner) if markdown else item.owner
-                lines.append(f"  Ответственный: {owner}")
-            if item.due_date:
-                due = _markdown_escape(item.due_date) if markdown else item.due_date
-                lines.append(f"  Срок: {due}")
-            if snapshot.selection.include_evidence and item.evidence_turn_ids:
-                lines.append(f"  Основания: {', '.join(item.evidence_turn_ids)}")
+    if snapshot.summary is None:
+        return ["Нужно сформировать новую версию итогов."]
+    protocol = MeetingProtocolView.model_validate(snapshot.summary.protocol)
+    language = int(protocol.header.get("output_language") == "en")
+    literal = _markdown_escape if markdown else str
+    lines = []
+
+    def heading(text, level=2):
+        lines.extend((f"{'#' * level} {literal(text)}" if markdown else text, ""))
+
+    def statement(row):
+        refs = row.source_refs + getattr(row, "acceptance_source_refs", [])
+        return f"{literal(row.text)} {_protocol_evidence(snapshot, refs, markdown=markdown)}".strip()
+
+    header = protocol_header_rows(protocol)
+    heading(header[0][1], 1)
+    for label, value in header[1:]:
+        lines.append(f"{literal(label)}: {literal(value)}")
+    lines.append("")
+    selected = [key for key in protocol.header.get("sections", PROTOCOL_SECTIONS) if key in PROTOCOL_SECTIONS]
+    if "notes" not in selected:
+        selected.append("notes")
+    for key in selected:
+        heading(PROTOCOL_LABELS[key][language])
+        rows = getattr(protocol, key)
+        uncertain = key in protocol.uncertain_sections
+        missing = ("Не удалось надёжно установить по доступной расшифровке.", "Cannot reliably establish from the available transcript.")[language] if uncertain else ("Не зафиксировано.", "Not recorded.")[language]
+        if key == "topics":
+            for topic in rows:
+                heading(topic.title, 3)
+                for part in ("context", "discussion", "proposals_and_alternatives", "outcome"):
+                    values = getattr(topic, part)
+                    if values:
+                        heading(PROTOCOL_LABELS[part][language], 4)
+                        lines.extend(f"- {statement(row)}" for row in values)
+                        lines.append("")
+            if not rows:
+                lines.append(missing)
+        elif key == "action_items":
+            columns = ("Задача", "Ответственный", "Срок") if language == 0 else ("Task", "Owner", "Deadline")
+            lines.append("| " + " | ".join(columns) + " |")
+            if markdown:
+                lines.append("| --- | --- | --- |")
+            for task in rows:
+                cells = []
+                for text, refs in (
+                    (task.task, task.task_source_refs),
+                    (task.owner_text or ("Не назначен", "Not assigned")[language], task.owner_source_refs),
+                    (task.due_date_text or ("Не указан", "Not specified")[language], task.due_date_source_refs),
+                ):
+                    value = literal(" ".join(text.splitlines()))
+                    if markdown:
+                        value = value.replace("|", "\\|")
+                    cells.append(f"{value} {_protocol_evidence(snapshot, refs, markdown=markdown)}".strip())
+                lines.append("| " + " | ".join(cells) + " |")
+            if not rows:
+                text = missing if uncertain else ("Задачи не зафиксированы", "No action items recorded")[language]
+                lines.append(f"| {text} | {('Не назначен', 'Not assigned')[language]} | {('Не указан', 'Not specified')[language]} |")
+        elif key == "executive_summary":
+            lines.append(" ".join(statement(row) for row in rows) if rows else missing)
+        elif key == "notes":
+            lines.extend(f"- {statement(row)}" for row in rows)
+            lines.append(SPEAKER_IDENTITY_NOTE[language])
+        else:
+            lines.extend(f"- {statement(row)}" for row in rows)
+            if not rows:
+                if not uncertain:
+                    missing = {
+                        "decisions": ("Принятые решения в расшифровке не зафиксированы.", "No adopted decisions recorded."),
+                        "open_questions": ("Открытые вопросы не зафиксированы.", "No open questions recorded."),
+                    }.get(key, (missing, missing))[language]
+                lines.append(missing)
         lines.append("")
     return lines
+
+
 
 
 def _render_csv(snapshot: ExportSnapshot) -> bytes:
@@ -853,10 +798,7 @@ def _render_json(snapshot: ExportSnapshot) -> bytes:
     if snapshot.selection.content_scope in {"summary", "combined"} and snapshot.summary:
         summary = asdict(snapshot.summary)
         if not snapshot.selection.include_evidence:
-            for item in summary["items"]:
-                item["source_references"] = ()
-                item["evidence_turn_ids"] = ()
-                item["unresolved_references"] = ()
+            summary["protocol"] = protocol_without_evidence(summary["protocol"])
     payload = {
         "schema_version": snapshot.schema_version,
         "renderer_version": snapshot.renderer_version,
@@ -928,103 +870,48 @@ def _render_xlsx(snapshot: ExportSnapshot) -> bytes:
         status_row["turn_id"] = "status:not_selected"
         status_row["text"] = "not_selected"
         _append_sheet_row(transcript, [status_row[column] for column in CSV_COLUMNS])
-    summary_columns = (
-        "category",
-        "sequence",
-        "state",
-        "text",
-        "truth_label",
-        "evidence_turn_ids",
-        "source_references",
-        "unresolved_references",
-    )
-    _configure_sheet(summary_sheet, summary_columns)
-    action_columns = (
-        "sequence",
-        "state",
-        "text",
-        "owner",
-        "due_date",
-        "truth_label",
-        "evidence_turn_ids",
-        "source_references",
-        "unresolved_references",
-    )
-    _configure_sheet(action_items, action_columns)
+    _configure_sheet(summary_sheet, ("section", "topic", "part", "text", "source_refs"))
+    _configure_sheet(action_items, ("task", "owner", "deadline", "task_sources", "owner_sources", "deadline_sources"))
+
+    def evidence(refs):
+        return json.dumps([ref.model_dump(mode="json") for ref in refs], ensure_ascii=False) if snapshot.selection.include_evidence else "[]"
+
     if snapshot.summary is None:
-        _append_sheet_row(
-            summary_sheet,
-            ("status", "", "not_selected", "", "", "", "", ""),
-        )
-        _append_sheet_row(
-            action_items,
-            ("", "not_selected", "", "", "", "", "", "", ""),
-        )
+        _append_sheet_row(summary_sheet, ("status", "", "", "not_selected", "[]"))
+        _append_sheet_row(action_items, ("not_selected", "", "", "[]", "[]", "[]"))
     else:
-        items_by_category = {
-            category: [item for item in snapshot.summary.items if item.category == category]
-            for category in SUMMARY_CATEGORY_ORDER
-        }
-        for category in SUMMARY_CATEGORY_ORDER:
-            items = items_by_category[category]
-            if category == "action_items":
-                if not items:
-                    _append_sheet_row(
-                        action_items,
-                        (
-                            "",
-                            snapshot.summary.category_states[category],
-                            "",
-                            "",
-                            "",
-                            "",
-                            "",
-                            "",
-                            "",
-                        ),
-                    )
-                for item in items:
-                    evidence = _xlsx_evidence_values(snapshot, item)
-                    _append_sheet_row(
-                        action_items,
-                        (
-                            item.sequence,
-                            item.state,
-                            item.text,
-                            item.owner,
-                            item.due_date,
-                            item.truth_label,
-                            *evidence,
-                        ),
-                    )
-                continue
-            if not items:
-                _append_sheet_row(
-                    summary_sheet,
-                    (
-                        category,
-                        "",
-                        snapshot.summary.category_states[category],
-                        "",
-                        "",
-                        "",
-                        "",
-                        "",
-                    ),
-                )
-            for item in items:
-                evidence = _xlsx_evidence_values(snapshot, item)
-                _append_sheet_row(
-                    summary_sheet,
-                    (
-                        category,
-                        item.sequence,
-                        item.state,
-                        item.text,
-                        item.truth_label,
-                        *evidence,
-                    ),
-                )
+        protocol = MeetingProtocolView.model_validate(snapshot.summary.protocol)
+        language = int(protocol.header.get("output_language") == "en")
+        for title, text in protocol_header_rows(protocol):
+            _append_sheet_row(summary_sheet, ("header", "", title, text, "[]"))
+        selected = [key for key in protocol.header.get("sections", PROTOCOL_SECTIONS) if key in PROTOCOL_SECTIONS]
+        for section in selected:
+            rows = getattr(protocol, section)
+            if section == "topics":
+                for topic in rows:
+                    for part in ("context", "discussion", "proposals_and_alternatives", "outcome"):
+                        for row in getattr(topic, part):
+                            _append_sheet_row(summary_sheet, (section, topic.title, part, row.text, evidence(row.source_refs)))
+            elif section == "action_items":
+                for task in rows:
+                    _append_sheet_row(action_items, (
+                        task.task, task.owner_text or ("Не назначен", "Not assigned")[language],
+                        task.due_date_text or ("Не указан", "Not specified")[language],
+                        evidence(task.task_source_refs), evidence(task.owner_source_refs), evidence(task.due_date_source_refs),
+                    ))
+                if not rows:
+                    _append_sheet_row(action_items, (
+                        (("Не удалось надёжно установить по доступной расшифровке.", "Cannot reliably establish from the available transcript.")
+                         if section in protocol.uncertain_sections else ("Задачи не зафиксированы", "No action items recorded"))[language],
+                        ("Не назначен", "Not assigned")[language], ("Не указан", "Not specified")[language], "[]", "[]", "[]",
+                    ))
+            else:
+                for row in rows:
+                    _append_sheet_row(summary_sheet, (section, "", "", row.text, evidence(row.source_refs + getattr(row, "acceptance_source_refs", []))))
+            if not rows and section != "action_items":
+                state = "not_inferable" if section in protocol.uncertain_sections else "not_found"
+                _append_sheet_row(summary_sheet, (section, "", state, "", "[]"))
+        _append_sheet_row(summary_sheet, ("notes", "", "system", SPEAKER_IDENTITY_NOTE[language], "[]"))
     _configure_sheet(metadata, ("key", "value"))
     metadata_rows = (
         ("schema_version", snapshot.schema_version),
@@ -1047,8 +934,8 @@ def _render_xlsx(snapshot: ExportSnapshot) -> bytes:
         ),
         ("summary_content_hash", snapshot.summary.content_hash or "" if snapshot.summary else ""),
         (
-            "summary_category_states",
-            json.dumps(snapshot.summary.category_states, ensure_ascii=False, sort_keys=True)
+            "protocol_schema_version",
+            snapshot.summary.protocol["schema_version"]
             if snapshot.summary
             else "",
         ),
@@ -1095,17 +982,6 @@ def _configure_sheet(sheet: object, columns: tuple[str, ...]) -> None:
     sheet.append(cells)
 
 
-def _xlsx_evidence_values(
-    snapshot: ExportSnapshot,
-    item: SummaryExportItem,
-) -> tuple[str, str, str]:
-    evidence_turn_ids = item.evidence_turn_ids if snapshot.selection.include_evidence else ()
-    source_references = item.source_references if snapshot.selection.include_evidence else ()
-    unresolved = item.unresolved_references if snapshot.selection.include_evidence else ()
-    return tuple(
-        json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-        for value in (evidence_turn_ids, source_references, unresolved)
-    )
 
 
 def _append_sheet_row(sheet: object, values: object) -> None:
@@ -1155,7 +1031,13 @@ def _safe_spreadsheet_text(value: str | None) -> str:
 
 def _markdown_escape(value: str) -> str:
     value = value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-    return re.sub(r"([!\"#$%\'()*+,./:=?@\\\[\]^_`{|}~-])", r"\\\1", value)
+    value = re.sub(r"([\\\[\]*_`~])", r"\\\1", value)
+    value = re.sub(r"(?m)^(\s{0,3})([#>+\-])(?=\s)", r"\1\\\2", value)
+    value = re.sub(r"(?m)^(\s{0,3}\d+)([.)])(?=\s)", r"\1\\\2", value)
+    # Keep source URLs inert without escaping ordinary sentence punctuation.
+    value = re.sub(r"(?i)\b(https?|ftp|mailto):", r"\1\\:", value)
+    value = re.sub(r"(?i)\bwww\.", r"www\\.", value)
+    return re.sub(r"(?<=\w)@(?=\w)", r"\\@", value)
 
 
 def _subtitle_literal(value: str) -> str:

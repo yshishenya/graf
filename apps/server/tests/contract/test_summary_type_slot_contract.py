@@ -25,11 +25,16 @@ MEETING_ID = UUID("50000000-0000-0000-0000-000000000001")
 QUERY_OWNER_CLASSES = {
     "apps/server/scripts/cleanup_smoke_artifacts.py": "test_cleanup",
     "apps/server/src/twobrain_rec_server/cli/summary_slots.py": "operator_metadata_reconciliation",
+    # Read-only source + isolated evaluation data; no accepted-slot publication.
+    # These owners remain subject to the same closed inventory and query scan.
+    "apps/server/src/twobrain_rec_server/cli/meeting_protocol_eval.py": "isolated_evaluator",
+    "apps/server/src/twobrain_rec_server/cli/meeting_protocol_eval_runtime.py": "isolated_evaluator",
     "apps/server/src/twobrain_rec_server/api/cabinet.py": "api_read_and_candidate_compatibility",
     "apps/server/src/twobrain_rec_server/api/schemas.py": "api_contract",
     "apps/server/src/twobrain_rec_server/cabinet/egress.py": "egress_read",
     "apps/server/src/twobrain_rec_server/cabinet/exports.py": "export_read",
     "apps/server/src/twobrain_rec_server/cabinet/queries.py": "cabinet_read",
+    "apps/server/src/twobrain_rec_server/cabinet/web_routes/browser.py": "authorized_pinned_source_read",
     "apps/server/src/twobrain_rec_server/cabinet/rendering.py": "render_read",
     "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js": "ui_contract",
     "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/meeting_detail_content.html": "ui_contract",

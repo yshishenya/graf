@@ -125,7 +125,7 @@ if workflow is not None:
                     start_to_close_timeout=timedelta(minutes=2),
                     retry_policy=prompt_optimization_retry_policy(),
                 )
-            approval_expires_at = workflow.now() + timedelta(days=APPROVAL_MAX_DAYS)
+            candidates_only = workflow.patched("prompt-optimization-candidates-only-v1")
             candidate = await workflow.execute_activity(
                 "publish_prompt_candidate_activity",
                 {
@@ -133,13 +133,26 @@ if workflow is not None:
                     "resolved_contract": resolved,
                     "optimization_result": optimized_for_next,
                     "heldout_result": heldout_for_next,
-                    "approval_expires_at": approval_expires_at.isoformat(),
+                    **({} if candidates_only else {
+                        "approval_expires_at": (
+                            workflow.now() + timedelta(days=APPROVAL_MAX_DAYS)
+                        ).isoformat(),
+                    }),
                 },
                 start_to_close_timeout=timedelta(minutes=5),
                 retry_policy=prompt_optimization_retry_policy(),
                 cancellation_type=ActivityCancellationType.WAIT_CANCELLATION_COMPLETED,
             )
             self._candidate_ready = True
+            if candidates_only:
+                return await workflow.execute_activity(
+                    "finalize_prompt_optimization_activity",
+                    {**payload, "status": "completed"},
+                    start_to_close_timeout=timedelta(minutes=2),
+                    retry_policy=prompt_optimization_retry_policy(),
+                )
+            # Replay the recorded commands of completed pre-F239 histories only.
+            # The registered authorization/mutation activities now deny execution.
             self._approval_state = "awaiting_human"
             self._approval_expires_at = datetime.fromisoformat(
                 str(candidate["approval_expires_at"])
@@ -217,6 +230,8 @@ if workflow is not None:
 
         @workflow.update
         async def decide(self, payload: dict[str, str]) -> str:
+            if not workflow.unsafe.is_replaying():
+                return "denied"
             action_id = payload["action_id"]
             decision = payload["decision"]
             authorized = await workflow.execute_activity(
@@ -233,6 +248,8 @@ if workflow is not None:
 
         @decide.validator
         def decide_validator(self, payload: dict[str, str]) -> None:
+            if not workflow.unsafe.is_replaying():
+                raise ValueError("root promotion required; child approval is retired")
             if not self._candidate_ready or self._approval_state != "awaiting_human":
                 raise ValueError("prompt optimization is not awaiting approval")
             if set(payload) != {"action_id", "decision"}:

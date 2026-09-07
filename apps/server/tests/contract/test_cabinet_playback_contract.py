@@ -114,3 +114,4 @@ def test_browser_and_embedded_keep_the_same_persistent_timeline_fixture(client) 
         assert html.count("data-transcript-turn") == 2
         assert all(f'data-speaker-key="{key}"' in html for key in browser_speaker_keys)
         assert html.index('data-detail-panel="recording"') < html.index("data-playback-shell")
+        assert html.index('data-detail-panel="recording"') < html.index("data-source-return") < html.index("data-playback-transcript")

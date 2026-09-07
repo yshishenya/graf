@@ -3,11 +3,13 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import logging
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
 from uuid import UUID, uuid4
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete
 
 from twobrain_rec_server.config import Settings, get_settings
 from twobrain_rec_server.db.models import PromptOptimizationCallLedger, PromptOptimizationRun
@@ -17,7 +19,6 @@ from twobrain_rec_server.db.session import (
 )
 from twobrain_rec_server.observability.langfuse import create_langfuse_client, shutdown_langfuse
 from twobrain_rec_server.outcomes.prompt_bundle import (
-    bind_snapshot_from_metadata,
     fetch_root_bundle_by_label,
     snapshot_bundle_metadata,
 )
@@ -28,23 +29,21 @@ from twobrain_rec_server.outcomes.prompt_optimization import (
     OPTIMIZATION_HISTORY_STAGING_KEY,
     OPTIMIZER_VERSION,
     PromptOptimizationError,
+    _snapshot_payload,
     prompt_config_hash,
     required_control_prompt_gate,
     required_judge_calibration,
     validate_history_materialization_certificate,
 )
-from twobrain_rec_server.outcomes.prompts import validate_prompt_snapshot
+from twobrain_rec_server.outcomes.prompts import EXTRACTOR_PROMPT_NAME, validate_prompt_snapshot
 from twobrain_rec_server.storage.minio_client import get_storage
-from twobrain_rec_server.workflows.prompt_optimization_workflow import PromptOptimizationWorkflow
 from twobrain_rec_server.workflows.temporal_client import (
     connect_temporal_client,
     prompt_optimization_workflow_id,
-    prompt_rollback_workflow_id,
     start_prompt_optimization_workflow,
-    start_prompt_rollback_workflow,
 )
 
-TERMINAL_RUN_STATUSES = {"rejected", "expired", "failed", "cancelled", "rolled_back"}
+TERMINAL_RUN_STATUSES = {"rejected", "expired", "failed", "cancelled", "rolled_back", "completed"}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -61,22 +60,21 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("--max-tokens", required=True, type=int)
     start.add_argument("--max-cost", required=True, type=Decimal)
     start.add_argument("--deadline-hours", type=int, default=24)
-    start.add_argument("--protected-label-capability-verified", action="store_true")
 
     inspect_parser = subparsers.add_parser("inspect")
     inspect_parser.add_argument("run_id", type=UUID)
-    for command in ("approve", "reject"):
-        decision = subparsers.add_parser(command)
-        decision.add_argument("run_id", type=UUID)
-        decision.add_argument("--actor-id", required=True)
-    expire = subparsers.add_parser("expire")
-    expire.add_argument("run_id", type=UUID)
-    rollback = subparsers.add_parser("rollback")
-    rollback.add_argument("run_id", type=UUID)
-    rollback.add_argument("--actor-id", required=True)
     purge = subparsers.add_parser("purge")
     purge.add_argument("run_id", type=UUID)
     purge.add_argument("--confirm", action="store_true")
+    promote = subparsers.add_parser("promote-root", help="Admit one fully evaluated root; never a child prompt")
+    promote.add_argument("--actor-id", required=True)
+    promote.add_argument("--operation-id", required=True, type=UUID)
+    promote.add_argument("--run-id", required=True, type=UUID)
+    promote.add_argument("--expected-source-version", required=True, type=int)
+    promote.add_argument("--workdir", type=Path, help="Required for a new operation, not a completed replay")
+    promote.add_argument("--source-host")
+    promote.add_argument("--source-container")
+    promote.add_argument("--confirm", action="store_true")
     return parser
 
 
@@ -84,7 +82,9 @@ async def run_command(
     args: argparse.Namespace, *, settings: Settings | None = None
 ) -> dict[str, object]:
     settings = settings or get_settings()
-    if not settings.prompt_optimization_enabled:
+    if args.command == "promote-root" and not args.confirm:
+        raise RuntimeError("root_promotion_confirmation_required")
+    if args.command != "promote-root" and not settings.prompt_optimization_enabled:
         raise RuntimeError("prompt optimization is disabled")
     actor_id = str(getattr(args, "actor_id", None) or "graf-prompt-optimization-cli")[:120]
     engine, sessionmaker = create_prompt_optimization_database(
@@ -94,6 +94,8 @@ async def run_command(
     )
     try:
         await verify_prompt_optimization_database_identity(sessionmaker)
+        if args.command == "promote-root":
+            return await _promote_root(args, settings=settings, sessionmaker=sessionmaker)
         if args.command == "start":
             return await _start(args, settings=settings, sessionmaker=sessionmaker)
         if args.command == "inspect":
@@ -102,30 +104,6 @@ async def run_command(
                 if run is None:
                     raise RuntimeError("optimization run not found")
                 return _run_metadata(run)
-        if args.command in {"approve", "reject"}:
-            return await _decide(
-                args,
-                settings=settings,
-                sessionmaker=sessionmaker,
-                decision="approved" if args.command == "approve" else "rejected",
-            )
-        if args.command == "expire":
-            async with sessionmaker() as db:
-                run = await db.scalar(
-                    select(PromptOptimizationRun)
-                    .where(PromptOptimizationRun.id == args.run_id)
-                    .with_for_update()
-                )
-                if run is None or run.approval_expires_at is None:
-                    raise RuntimeError("optimization run is not awaiting approval")
-                if datetime.now(UTC) < run.approval_expires_at:
-                    raise RuntimeError("optimization approval has not expired")
-                run.approval_state = "expired"
-                run.status = "expired"
-                await db.commit()
-                return _run_metadata(run)
-        if args.command == "rollback":
-            return await _rollback(args, settings=settings, sessionmaker=sessionmaker)
         if args.command == "purge":
             return await _purge(args, settings=settings, sessionmaker=sessionmaker)
         raise RuntimeError("unsupported optimizer command")
@@ -133,11 +111,55 @@ async def run_command(
         await engine.dispose()
 
 
+async def _promote_root(args, *, settings, sessionmaker):
+    from twobrain_rec_server.cli.meeting_protocol_eval import PrivateWorkdir, SourceReader
+    from twobrain_rec_server.db.models import PromptRootPromotion
+    from twobrain_rec_server.db.session import create_engine, create_sessionmaker
+    from twobrain_rec_server.outcomes.prompt_bundle import promote_root_bundle
+
+    # The writer still verifies the complete historical receipt under its lock.
+    # This read only avoids requiring cleaned-up private inputs for a completed replay.
+    async with sessionmaker() as db:
+        previous = await db.get(PromptRootPromotion, args.operation_id)
+        completed = previous is not None and previous.state == "succeeded"
+    workdir = evaluation_settings = evaluation_sessions = reader = engine = client = None
+    checks = {"approved_at": "", "protected_label": {}, "sole_mutation_credential": {}}
+    try:
+        if not completed:
+            if not args.workdir or not args.source_host or not args.source_container:
+                raise RuntimeError("root_operator_arguments_invalid")
+            workdir = PrivateWorkdir(args.workdir)
+            evaluation_settings = Settings(**workdir.read_json("evaluation-settings.json"))
+            checks = workdir.read_json("operator-checks.json")
+            if set(checks) != {"approved_at", "protected_label", "sole_mutation_credential"}:
+                raise RuntimeError("root_operator_evidence_invalid")
+            engine = create_engine(evaluation_settings)
+            evaluation_sessions = create_sessionmaker(engine)
+            reader = SourceReader(args.source_host, args.source_container)
+            client = create_langfuse_client(settings)
+        event = await promote_root_bundle(
+            sessionmaker, settings=settings, client=client, operation_id=args.operation_id,
+            expected_source_version=args.expected_source_version, operator_actor=args.actor_id,
+            approved_at=checks["approved_at"], protected_label=checks["protected_label"],
+            sole_mutation_credential=checks["sole_mutation_credential"],
+            evaluation_settings=evaluation_settings, evaluation_sessionmaker=evaluation_sessions,
+            source_reader=reader,
+            workdir=workdir, run_id=args.run_id,
+        )
+        return {"state": "succeeded", "operation_id": event.operation_id,
+                "root_version": event.target.root_version, "root_export_hash": event.target.root_export.hash}
+    finally:
+        try:
+            if client is not None:
+                shutdown_langfuse(client)
+        finally:
+            if engine is not None:
+                await engine.dispose()
+
+
 async def _start(
     args: argparse.Namespace, *, settings: Settings, sessionmaker
 ) -> dict[str, object]:
-    if not args.protected_label_capability_verified:
-        raise RuntimeError("protected production-label capability is required")
     refs = {split: getattr(args, f"{split}_ref") for split in ("train", "development", "heldout")}
     if any(not value.startswith("synthetic://") for value in refs.values()):
         raise RuntimeError("only synthetic dataset references are accepted")
@@ -154,15 +176,10 @@ async def _start(
         source = root_bundle.child(args.prompt_name)
         bundle_metadata = snapshot_bundle_metadata(source)
         if bundle_metadata is None:
-            raise RuntimeError("production root bundle has no route binding")
-        reflection = bind_snapshot_from_metadata(
-            _fetch_snapshot(client, "graf/prompt-optimization/reflection", "text"),
-            bundle_metadata,
-        )
-        judges = [
-            bind_snapshot_from_metadata(_fetch_snapshot(client, name, "chat"), bundle_metadata)
-            for name in JUDGE_NAMES
-        ]
+            raise RuntimeError("production root bundle metadata is missing")
+        extractor = root_bundle.child(EXTRACTOR_PROMPT_NAME)
+        reflection = _fetch_snapshot(client, "graf/prompt-optimization/reflection", "text")
+        judges = [_fetch_snapshot(client, name, "chat") for name in JUDGE_NAMES]
     finally:
         shutdown_langfuse(client)
     judge_gates = {
@@ -184,9 +201,9 @@ async def _start(
         "max_calls": args.max_calls,
         "max_tokens": args.max_tokens,
         "max_cost": str(args.max_cost),
-        "protected_label_capability_verified": True,
         "reflection_control_gate": reflection_gate,
         "root_bundle_binding": bundle_metadata,
+        "extractor_prompt": _snapshot_payload(extractor),
     }
     async with sessionmaker() as db:
         run = PromptOptimizationRun(
@@ -261,75 +278,6 @@ async def _start(
             await db.commit()
             return _run_metadata(run)
     raise RuntimeError("optimization run disappeared")
-
-
-async def _decide(
-    args: argparse.Namespace,
-    *,
-    settings: Settings,
-    sessionmaker,
-    decision: str,
-) -> dict[str, object]:
-    action_id = uuid4()
-    async with sessionmaker() as db:
-        run = await db.scalar(
-            select(PromptOptimizationRun)
-            .where(PromptOptimizationRun.id == args.run_id)
-            .with_for_update()
-        )
-        if run is None or run.status != "candidate" or run.approval_state != "awaiting_human":
-            raise RuntimeError("optimization run is not awaiting approval")
-        if run.approval_expires_at is None or datetime.now(UTC) >= run.approval_expires_at:
-            raise RuntimeError("optimization approval expired")
-        run.approval_action_id = action_id
-        run.approved_by_actor_id = args.actor_id
-        await db.commit()
-        workflow_id = run.workflow_id
-    temporal = await connect_temporal_client(settings, outcome_tracing=True)
-    handle = temporal.get_workflow_handle(workflow_id)
-    result = await handle.execute_update(
-        PromptOptimizationWorkflow.decide,
-        {"action_id": str(action_id), "decision": decision},
-    )
-    return {"run_id": str(args.run_id), "action_id": str(action_id), "decision": result}
-
-
-async def _rollback(
-    args: argparse.Namespace, *, settings: Settings, sessionmaker
-) -> dict[str, object]:
-    action_id = uuid4()
-    async with sessionmaker() as db:
-        run = await db.get(PromptOptimizationRun, args.run_id, with_for_update=True)
-        if run is None or run.status != "promoted" or run.candidate_prompt_version is None:
-            raise RuntimeError("optimization run is not rollbackable")
-        budget = dict(run.budget)
-        budget["rollback_action"] = {
-            "action_id": str(action_id),
-            "actor_id": args.actor_id,
-            "consumed": False,
-        }
-        run.budget = budget
-        await db.commit()
-        payload = {
-            "run_id": str(run.id),
-            "action_id": str(action_id),
-            "prompt_name": run.prompt_name,
-            "expected_current_version": run.candidate_prompt_version,
-            "rollback_prompt_version": run.rollback_prompt_version,
-        }
-        workflow_id = prompt_rollback_workflow_id(str(run.id), run.rollback_prompt_version)
-    temporal = await connect_temporal_client(settings, outcome_tracing=True)
-    started = await start_prompt_rollback_workflow(
-        temporal_client=temporal,
-        settings=settings,
-        workflow_id=workflow_id,
-        payload=payload,
-    )
-    return {
-        "run_id": str(args.run_id),
-        "workflow_id": workflow_id,
-        "run_id_temporal": started.run_id,
-    }
 
 
 async def _purge(
@@ -444,7 +392,24 @@ def _run_metadata(run: PromptOptimizationRun) -> dict[str, object]:
 
 
 def main() -> None:
-    result = asyncio.run(run_command(build_parser().parse_args()))
+    args = build_parser().parse_args()
+    if args.command == "promote-root":
+        # Qualification reads private meetings. Do not expose SDK/SQL validation inputs.
+        logging.disable(logging.CRITICAL)
+        try:
+            result = asyncio.run(run_command(args))
+        except Exception as exc:
+            from twobrain_rec_server.outcomes.prompt_bundle import PromptBundleError
+
+            code = str(exc) if isinstance(exc, PromptBundleError) and str(exc) in {
+                "root_promotion_reconciliation_required", "root_bundle_source_conflict",
+                "root_operation_conflict", "root_qualification_incomplete", "root_operator_evidence_invalid",
+            } else "root_promotion_command_failed"
+            state = "reconciliation_required" if code == "root_promotion_reconciliation_required" else "failed"
+            print(json.dumps({"state": state, "failure_code": code}))
+            raise SystemExit(1) from None
+    else:
+        result = asyncio.run(run_command(args))
     print(json.dumps(result, ensure_ascii=False, sort_keys=True))
 
 

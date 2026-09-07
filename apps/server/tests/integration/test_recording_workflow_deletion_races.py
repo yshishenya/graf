@@ -221,6 +221,7 @@ async def _seed_race_rows(client, meeting_id: UUID) -> _SeededRows:
             candidate_id=candidate_id,
             status="generating",
             generator_version="outcomes-ai-v1",
+            provider_kind="litellm",
             prompt_name="graf/meeting-outcome/auto",
             prompt_version=1,
             # This fixture stores the exact prompt body on the attempt and is

@@ -335,7 +335,7 @@ def publish_completed_generation(
                 "validated_result": call.validated_result_json,
             },
             metadata=metadata,
-            model=call.actual_model or context.selected_model,
+            model=call.actual_model,
             model_parameters=_model_parameters(call.request_json),
             usage_details=usage_details or None,
             cost_details=cost_details or None,
@@ -423,8 +423,9 @@ def _float_mapping(value: Mapping[str, object] | None) -> dict[str, float]:
     }
 
 
-def _model_parameters(request: object) -> dict[str, str | int | float | bool | list[str] | None]:
+def _model_parameters(request: object) -> dict[str, object]:
+    from twobrain_rec_server.outcomes.prompts import model_parameters
+
     if not isinstance(request, Mapping):
         return {}
-    allowed = {"temperature"}
-    return {key: value for key, value in request.items() if key in allowed}  # type: ignore[return-value]
+    return model_parameters(request)

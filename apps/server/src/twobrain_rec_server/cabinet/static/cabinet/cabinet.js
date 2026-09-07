@@ -2308,7 +2308,9 @@
     );
     const summaryStatus = detail.querySelector("[data-processing-summary-status]");
     if (summaryStatus) {
-      summaryStatus.hidden = !summaryCopy;
+      summaryStatus.hidden = !summaryCopy || (
+        summaryState === "available" && Boolean(detail.querySelector("[data-protocol-version]"))
+      );
       summaryStatus.textContent = summaryCopy?.[0] || "";
       summaryStatus.dataset.state = summaryCopy?.[1] || "";
     }
@@ -4559,14 +4561,28 @@
       const target = sourceReturnTarget;
       activateDetailTab("outcomes");
       clearSourceReturn();
-      window.requestAnimationFrame(() => target?.focus({ preventScroll: true }));
+      window.requestAnimationFrame(() => {
+        target?.scrollIntoView({ block: "center" });
+        target?.focus({ preventScroll: true });
+      });
     });
-    document.addEventListener("click", (event) => {
-      const control = event.target.closest?.("[data-seek-seconds]");
+    const navigateSource = (control, play = true) => {
       if (!control) return;
       const seconds = Number.parseFloat(control.dataset.seekSeconds || "0");
       if (!Number.isFinite(seconds)) return;
       const sourceJump = control.hasAttribute("data-source-segment");
+      const sourceSegment = (control.dataset.sourceSegment || "").trim();
+      const turns = Array.from(document.querySelectorAll("[data-transcript-turn]"));
+      const exactTarget = sourceSegment
+        ? turns.find((turn) => (
+            (turn.dataset.sourceSegments || "").split(/\s+/).includes(sourceSegment)
+          ))
+        : null;
+      if (sourceJump && sourceSegment && !exactTarget) {
+        const live = document.querySelector("[data-playback-live-status]");
+        if (live) live.textContent = "Источник недоступен в этой версии расшифровки.";
+        return;
+      }
       if (sourceJump) {
         sourceReturnTarget = control;
         if (returnButton) returnButton.hidden = false;
@@ -4576,20 +4592,13 @@
       if (player) {
         try {
           player.currentTime = Math.max(0, seconds);
-          void player.play().catch(() => reportPlaybackFailure(player));
+          if (play) void player.play().catch(() => reportPlaybackFailure(player));
         } catch (_error) {
           reportPlaybackFailure(player);
         }
       }
       if (!sourceJump) return;
-      const turns = Array.from(document.querySelectorAll("[data-transcript-turn]"));
-      const sourceSegment = (control.dataset.sourceSegment || "").trim();
-      const exactTarget = sourceSegment
-        ? turns.find((turn) => (
-            (turn.dataset.sourceSegments || "").split(/\s+/).includes(sourceSegment)
-          ))
-        : null;
-      const target = exactTarget || turns.reduce((match, turn) => {
+      const target = sourceSegment ? exactTarget : turns.reduce((match, turn) => {
         const start = Number.parseFloat(turn.dataset.startSeconds || "0");
         return Number.isFinite(start) && start <= seconds ? turn : match;
       }, turns[0] || null);
@@ -4600,7 +4609,16 @@
         const live = document.querySelector("[data-playback-live-status]");
         if (live) live.textContent = `Открыт источник ${formatTime(seconds)} в расшифровке.`;
       });
+    };
+    document.addEventListener("click", (event) => {
+      navigateSource(event.target.closest?.("[data-seek-seconds]"));
     });
+    const initialSource = document.querySelector("[data-initial-source-segment]")?.dataset.initialSourceSegment;
+    if (initialSource) {
+      const control = Array.from(document.querySelectorAll("[data-source-segment]"))
+        .find((node) => node.dataset.sourceSegment === initialSource);
+      if (control) navigateSource(control, false);
+    }
   };
 
   const DEFAULT_TIMELINE_HEIGHT = 120;

@@ -9,8 +9,8 @@ from uuid import UUID
 from twobrain_rec_server.api.schemas import (
     MeetingListItem,
     MeetingListResponse,
+    MeetingProtocolView,
     MeetingReviewResponse,
-    NotesActionCategoryState,
     PreviousRecurringMeetingView,
     SpeakerLane,
     TranscriptSegmentView,
@@ -62,11 +62,15 @@ from twobrain_rec_server.cabinet.user_time import (
 )
 from twobrain_rec_server.deletion.report import BOUNDED_DELETE_COPY
 from twobrain_rec_server.domain.media_filenames import MANUAL_MEDIA_UPLOAD_ACCEPT
+from twobrain_rec_server.outcomes.models import (
+    PROTOCOL_LABELS,
+    PROTOCOL_SECTIONS,
+    SPEAKER_IDENTITY_NOTE,
+    TEMPLATE_PROTOCOL_SECTIONS,
+)
 from twobrain_rec_server.outcomes.templates import (
     BUILT_IN_BY_KEY,
     BUILT_IN_TEMPLATES,
-    OUTCOME_CATEGORIES,
-    built_in_template_for_version,
 )
 
 
@@ -325,6 +329,7 @@ def render_meeting_unavailable_page(
     csrf_token: str | None = None,
     product_analytics_provider: dict[str, object] | None = None,
     profile=None,
+    source_unavailable: bool = False,
 ) -> str:
     return _page_shell(
         "Встреча больше недоступна",
@@ -334,6 +339,11 @@ def render_meeting_unavailable_page(
         profile=profile,
         content_template="cabinet/pages/meeting_unavailable_content.html",
         meeting_list_href=_base_path(embedded),
+        unavailable_title="Источник недоступен" if source_unavailable else "Встреча больше недоступна",
+        unavailable_reason=(
+            "Эта версия итогов или расшифровки больше недоступна. Переход к другой версии не выполнен."
+            if source_unavailable else "Запись удалена или доступ закрыт."
+        ),
     )
 
 
@@ -395,58 +405,21 @@ def render_shared_meeting_summary_page(
     meeting_title: str,
     occurred_at: datetime | None,
     duration_seconds: int,
-    summary_sections: list[dict[str, object]],
+    protocol: dict[str, object] | None,
     time_is_upload: bool = False,
     authenticated: bool = False,
     embedded: bool = False,
 ) -> str:
+    document = MeetingProtocolView.model_validate(protocol) if protocol is not None else None
     return _page_shell(
         "Итоги встречи",
         embedded=embedded,
         content_template="cabinet/pages/shared_meeting_summary_content.html",
         meeting_title=meeting_title,
-        occurred_at=occurred_at,
-        time_is_upload=time_is_upload,
-        duration_seconds=duration_seconds,
-        summary_sections=_localized_shared_summary_sections(summary_sections),
+        protocol_html=trusted_component_html(render_meeting_protocol(document), source="meeting_detail.outcomes") if document is not None else None,
         authenticated=authenticated,
         meeting_list_href=_base_path(embedded),
     )
-
-
-SUMMARY_SECTION_LABELS = {
-    "summary": "Кратко",
-    "action_items": "Действия",
-    "decisions": "Решения",
-    "key_points": "Ключевые пункты",
-    "followups": "Следующие шаги",
-    "risks": "Риски",
-    "questions": "Вопросы",
-    "evidence": "Подтверждения",
-}
-
-
-def _localized_shared_summary_sections(
-    rows: list[dict[str, object]],
-) -> list[dict[str, object]]:
-    grouped: dict[str, list[dict[str, str]]] = {key: [] for key in SUMMARY_SECTION_LABELS}
-    for row in rows[:100]:
-        category = str(row.get("category") or "")
-        text = str(row.get("text") or "").strip()
-        if category not in grouped or not text:
-            continue
-        grouped[category].append(
-            {
-                "text": text,
-                "owner_text": str(row.get("owner_text") or "").strip(),
-                "due_date_text": str(row.get("due_date_text") or "").strip(),
-            }
-        )
-    return [
-        {"label": label, "items": grouped[category]}
-        for category, label in SUMMARY_SECTION_LABELS.items()
-        if grouped[category]
-    ]
 
 
 def render_settings_page(
@@ -970,6 +943,7 @@ def render_meeting_detail_page(
     profile=None,
     shared_workspace_id: UUID | None = None,
     title_edit: dict[str, str] | None = None,
+    initial_source_segment_id: UUID | None = None,
 ) -> str:
     content = _render_meeting_detail_content(
         review,
@@ -978,6 +952,7 @@ def render_meeting_detail_page(
         poll_url=poll_url,
         shared_workspace_id=shared_workspace_id,
         title_edit=title_edit,
+        initial_source_segment_id=initial_source_segment_id,
     )
     return _page_shell(
         review.meeting.title,
@@ -1024,6 +999,7 @@ def _render_meeting_detail_content(
     poll_url: str | None = None,
     shared_workspace_id: UUID | None = None,
     title_edit: dict[str, str] | None = None,
+    initial_source_segment_id: UUID | None = None,
 ) -> str:
     transcript_rows = (
         review.transcript.speaker_turns or review.transcript.segments
@@ -1158,6 +1134,7 @@ def _render_meeting_detail_content(
         transcript_available=review.transcript.available,
         transcript_degraded_reason=review.transcript.degraded_reason or "",
         stored_outcomes_available=review.notes_action_truth.source_basis == "stored_output",
+        initial_source_segment_id=initial_source_segment_id,
         playback_live_label=review.playback.label,
         top_actions=trusted_component_html(
             _render_meeting_workspace_actions(
@@ -1174,9 +1151,13 @@ def _render_meeting_detail_content(
         meeting_id=review.meeting.meeting_id,
         summary_lifecycle=summary_lifecycle,
         summary_source_stale=summary_source_stale,
-        summary_section_labels=SUMMARY_SECTION_LABELS,
+        summary_section_labels={
+            key: ", ".join(PROTOCOL_LABELS[section][0] for section in sections)
+            for key, sections in TEMPLATE_PROTOCOL_SECTIONS.items()
+        },
         summary_controls_available=bool(
-            review.access is not None
+            shared_workspace_id is None
+            and review.access is not None
             and review.access.state == "owner"
             and review.transcript.available
         ),
@@ -1568,30 +1549,6 @@ def _speaker_attribution_notice(review: MeetingReviewResponse) -> tuple[str, str
         "Текст записи сохранён",
         "Надёжно разделить голоса не удалось, поэтому реплики показаны без имён.",
     )
-
-
-def _notes_source_label(source_basis: str) -> str:
-    return {
-        "blocked": "заблокировано",
-        "not_supported": "не поддерживается",
-        "policy_deferral": "отложено политикой",
-        "transcript_only": "только расшифровка",
-        "processing_status": "статус обработки",
-        "stored_output": "сохраненные итоги",
-    }.get(source_basis, _ui_text(source_basis))
-
-
-def _notes_title(title: str) -> str:
-    return {
-        "Summary": "Кратко",
-        "Key points": "Ключевое",
-        "Decisions": "Решения",
-        "Action Items": "Действия",
-        "Follow-ups": "Продолжение",
-        "Risks": "Риски",
-        "Questions": "Вопросы",
-        "Evidence": "Фрагменты",
-    }.get(title, _ui_text(title))
 
 
 def _ui_icon(name: str) -> str:
@@ -2429,250 +2386,138 @@ def _render_revision_status(review: MeetingReviewResponse) -> str:
 
 
 def _render_notes_outcomes(review: MeetingReviewResponse) -> str:
-    rows = {
-        "summary": ("summary", "Summary", review.notes_action_truth.summary),
-        "key_points": ("key_points", "Key points", review.notes_action_truth.key_points),
-        "decisions": ("decisions", "Decisions", review.notes_action_truth.decisions),
-        "action_items": (
-            "action_items",
-            "Action Items",
-            review.notes_action_truth.action_items,
-        ),
-        "followups": ("followups", "Follow-ups", review.notes_action_truth.followups),
-        "risks": ("risks", "Risks", review.notes_action_truth.risks),
-        "questions": ("questions", "Questions", review.notes_action_truth.questions),
-        "evidence": ("evidence", "Evidence", review.notes_action_truth.evidence),
-    }
-    definition = built_in_template_for_version(
-        review.template.reason,
-        review.template.template_version or 1,
-    )
-    # Personal and historical unknown templates use the stable canonical order.
-    section_order = definition.sections if definition is not None else OUTCOME_CATEGORIES
-    ordered = [rows[category] for category in section_order]
-    primary, secondary = ordered[:4], ordered[4:]
-    aggregate_states = {"processing", "blocked", "unavailable", "deferred", "unsafe"}
-    aggregate_candidates = [
-        state for _, _, state in primary + secondary if state.state in aggregate_states
-    ]
-    priority = {"blocked": 0, "unsafe": 1, "processing": 2, "deferred": 3, "unavailable": 4}
-    aggregate = min(
-        aggregate_candidates,
-        key=lambda state: priority.get(state.state, len(priority)),
-        default=None,
-    )
-    fully_empty = aggregate is None and all(
-        state.state in {"not_found", "not_inferable"} and not any(
-            item.text for item in state.items
+    protocol = review.notes_action_truth.protocol
+    if protocol is None:
+        state = review.notes_action_truth.summary
+        label = {
+            "processing": "Итоги готовятся", "deferred": "Итоги не запрошены",
+        }.get(state.state, "Итоги недоступны")
+        return (
+            '<section class="notes" aria-labelledby="meeting-outcomes-title" '
+            f'data-outcome-source-basis="{escape(review.notes_action_truth.source_basis)}">'
+            '<h3 id="meeting-outcomes-title">Итоги встречи</h3>'
+            f'<div class="notes-aggregate-state" data-outcome-state="{escape(state.state)}" role="status">'
+            f'<strong>{label}</strong><p>{escape(_ui_text(state.reason))}</p></div></section>'
         )
-        for _, _, state in primary + secondary
-    )
-    if fully_empty:
-        primary = []
-        secondary = []
-    else:
-        hidden_empty_states = aggregate_states | {"not_found", "not_inferable"}
-        primary = [
-            row
-            for row in primary
-            if row[2].state not in hidden_empty_states or bool(row[2].items)
-        ]
-        secondary = [
-            row
-            for row in secondary
-            if row[2].state not in hidden_empty_states or bool(row[2].items)
-        ]
-    source_destination_available = review.transcript.available and (
-        review.playback.can_play
-        or bool(review.transcript.speaker_turns or review.transcript.segments)
-    )
-    primary_rows = "".join(
-        _render_notes_outcome_row(
-            category,
-            title,
-            state,
-            source_destination_available=source_destination_available,
-        )
-        for category, title, state in primary
-    )
-    secondary_rows = "".join(
-        _render_notes_outcome_row(
-            category,
-            title,
-            state,
-            source_destination_available=source_destination_available,
-        )
-        for category, title, state in secondary
-    )
-    source = escape(_notes_source_label(review.notes_action_truth.source_basis))
-    source_basis = escape(review.notes_action_truth.source_basis)
-    secondary_count = sum(
-        state.state == "available" and any(item.text for item in state.items)
-        for _, _, state in secondary
-    )
-    secondary_label = "Дополнительные разделы"
-    if secondary_count:
-        secondary_label += f" ({secondary_count})"
-    aggregate_html = ""
-    if fully_empty:
-        aggregate_html = (
-            '<div class="notes-aggregate-state" data-outcome-state="empty" role="status">'
-            "<strong>Полезных итогов не найдено</strong>"
-            "<p>В разговоре нет достаточно подтверждённых решений, действий "
-            "или других результатов для выбранного формата.</p>"
-            "</div>"
-        )
-    elif aggregate is not None:
-        reason = _ui_text(aggregate.reason)
-        label = "Итоги готовятся" if aggregate.state == "processing" else _ui_text(
-            aggregate.label
-        )
-        aggregate_html = (
-            f'<div class="notes-aggregate-state" data-outcome-state="{escape(aggregate.state)}" '
-            'role="status">'
-            f"<strong>{escape(label)}</strong>"
-            + (f"<p>{escape(reason)}</p>" if reason else "")
-            + "</div>"
-        )
-    secondary_html = (
-        f"""
-        <details class="notes-more">
-          <summary>{secondary_label}</summary>
-          <div class="notes-outcomes notes-secondary-outcomes" aria-label="Дополнительные разделы">
-            {secondary_rows}
-          </div>
-        </details>
-        """
-        if secondary_rows
-        else ""
-    )
-    return f"""
-      <section class="notes" data-outcome-source-basis="{source_basis}" aria-labelledby="meeting-outcomes-title">
-        <div class="notes-header">
-          <div class="notes-header-copy">
-            <h3 id="meeting-outcomes-title">{escape(_ui_text("Итоги встречи"))}</h3>
-            <p class="notes-source-line">Источник: {source}</p>
-          </div>
-        </div>
-        {aggregate_html}
-        <div class="notes-outcomes notes-primary-outcomes">
-          {primary_rows}
-        </div>
-        {secondary_html}
-      </section>
-    """
+    allowed_ids = set()
+    if review.transcript.available and review.access is not None and review.access.can_view_full_meeting:
+        for row in review.transcript.speaker_turns or review.transcript.segments:
+            if str(row.processing_result_id) == protocol.header.get("source_result_id"):
+                allowed_ids.update(_transcript_source_segment_ids(row).split())
+    return render_meeting_protocol(protocol, source_segment_ids=allowed_ids)
 
 
-def _render_notes_outcome_row(
-    category: str,
-    title: str,
-    state: NotesActionCategoryState,
-    *,
-    source_destination_available: bool,
-) -> str:
-    state_name = escape(state.state)
-    item_html = (
-        "".join(
-            _render_outcome_item(
-                item,
-                source_destination_available=source_destination_available,
-            )
-            for item in state.items
-            if item.text
-        )
-        if state.state == "available"
-        else ""
-    )
-    items = f'<div class="notes-items">{item_html}</div>' if item_html else ""
-    state_reason = "" if state.state == "available" else _ui_text(state.reason)
-    state_html = (
-        f'<span class="notes-state-label">{escape(_ui_text(state.label))}</span>'
-        if state.state != "available"
-        else ""
-    )
-    reason_html = f'<p class="notes-state-copy">{escape(state_reason)}</p>' if state_reason else ""
-    return f"""
-      <section class="notes-outcome-row notes-section" data-outcome-category="{escape(category)}" data-outcome-state="{state_name}">
-        <div class="notes-section-header">
-          <div class="notes-section-title">
-            <h4>{escape(_notes_title(title))}</h4>
-            {reason_html}
-          </div>
-          {state_html}
-        </div>
-        {items}
-      </section>
-    """
-
-
-def _render_outcome_item(item, *, source_destination_available: bool) -> str:
-    text = escape(item.text or "")
-    if not text:
-        return ""
-    owner = escape((item.owner_text or "").strip())
-    due_date = escape((item.due_date_text or "").strip())
-    metadata = []
-    if owner:
-        metadata.append(f'<span class="notes-item-meta">Ответственный: {owner}</span>')
-    if due_date:
-        metadata.append(f'<span class="notes-item-meta">Срок: {due_date}</span>')
-
-    truth_label = getattr(item, "truth_label", "")
-    truth_copy = {
-        "supported": "Подтверждено расшифровкой",
-        "not_found": "Не найдено",
-        "not_inferable": "Не удалось определить",
-        "unsafe": "Нужна проверка",
-        "blocked": "Заблокировано",
-    }.get(truth_label, _ui_text(truth_label))
-    if truth_copy and truth_label != "supported":
-        metadata.append(
-            f'<span class="notes-item-meta notes-item-truth" data-outcome-truth-label="{escape(truth_label)}">{escape(truth_copy)}</span>'
-        )
-
-    source_controls = []
-    for ref in item.source_refs:
-        if not source_destination_available or not ref.seekable or ref.start_seconds is None:
+def _protocol_sources(refs, allowed_ids):
+    controls = []
+    seen = set()
+    for ref in refs:
+        segment_id = str(ref.transcript_segment_id or "")
+        if ref.start_seconds is None or segment_id in seen:
             continue
-        seconds = escape(str(ref.start_seconds))
-        timestamp = _timecode(int(ref.start_seconds))
-        source_label = f"Источник: {timestamp}"
-        segment_id = escape(str(ref.transcript_segment_id or ""))
-        source_controls.append(
-            f'<button type="button" class="notes-source-link" data-seek-seconds="{seconds}" '
-            f'data-source-segment="{segment_id}" '
-            f'data-source-label="{escape(source_label)}" '
-            f'aria-label="Открыть источник {escape(timestamp)} в расшифровке">{escape(timestamp)}</button>'
+        seen.add(segment_id)
+        seconds = int(ref.start_seconds)
+        hours, remainder = divmod(seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        time = f"{hours:02}:{minutes:02}:{seconds:02}" if hours else f"{minutes:02}:{seconds:02}"
+        if segment_id not in allowed_ids:
+            controls.append(f'<span class="notes-source-time">[{time}]</span>')
+            continue
+        controls.append(
+            f'<button type="button" class="notes-source-link" data-seek-seconds="{ref.start_seconds}" '
+            f'data-source-segment="{escape(segment_id)}" data-source-label="Источник: {time}" '
+            f'aria-label="Открыть источник {time} в расшифровке">[{time}]</button>'
         )
-    if source_controls:
-        overflow_count = max(0, len(source_controls) - 2)
-        source_noun = (
-            "источник"
-            if overflow_count == 1
-            else "источника"
-            if overflow_count < 5
-            else "источников"
+    return " ".join(controls)
+
+
+def render_meeting_protocol(protocol, *, source_segment_ids=frozenset()) -> str:
+    en = protocol.header.get("output_language") == "en"
+    language = int(en)
+
+    def label(key):
+        return PROTOCOL_LABELS[key][language]
+
+    def statement(row):
+        refs = row.source_refs + getattr(row, "acceptance_source_refs", [])
+        return f'{escape(row.text)} {_protocol_sources(refs, source_segment_ids)}'.strip()
+
+    def statements(rows, *, paragraph=False):
+        if paragraph:
+            return '<p class="protocol-summary">' + " ".join(statement(row) for row in rows) + "</p>"
+        return "<ul>" + "".join(f"<li>{statement(row)}</li>" for row in rows) + "</ul>"
+
+    def empty(section):
+        if section in protocol.uncertain_sections:
+            return "Cannot reliably establish from the available transcript." if en else "Не удалось надёжно установить по доступной расшифровке."
+        return {
+            "decisions": ("Принятые решения в расшифровке не зафиксированы.", "No adopted decisions recorded."),
+            "open_questions": ("Открытые вопросы не зафиксированы.", "No open questions recorded."),
+        }.get(section, ("Не зафиксировано.", "Not recorded."))[language]
+
+    def section_html(key, body):
+        return (
+            f'<section class="protocol-section" data-protocol-section="{key}">'
+            f"<h4>{escape(label(key))}</h4>{body}</section>"
         )
-        overflow_html = (
-            f'<details class="notes-source-more"><summary aria-label="Показать ещё {overflow_count} {source_noun}">'
-            f"Ещё {overflow_count}</summary>{''.join(source_controls[2:])}</details>"
-            if overflow_count
-            else ""
-        )
-        source_html = (
-            '<div class="notes-item-sources"><span class="notes-source-label">Источник:</span>'
-            + "".join(source_controls[:2])
-            + overflow_html
-            + "</div>"
-        )
-    else:
-        source_html = ""
-    metadata_html = (
-        f'<div class="notes-item-meta-row">{"".join(metadata)}</div>' if metadata else ""
+
+    header_rows = cabinet_view_models.protocol_header_rows(protocol)
+    header_html = (
+        f'<h3 id="meeting-outcomes-title">{escape(header_rows[0][1])}</h3>'
+        '<dl class="protocol-header">'
+        + "".join(f"<dt>{escape(key)}</dt><dd>{escape(value)}</dd>" for key, value in header_rows[1:])
+        + "</dl>"
     )
+    selected = list(protocol.header.get("sections") or PROTOCOL_LABELS.keys())
+    selected = [key for key in selected if key in PROTOCOL_SECTIONS]
+    if "notes" not in selected:
+        selected.append("notes")
+    sections = []
+    for key in selected:
+        rows = getattr(protocol, key)
+        if key == "topics":
+            topics = []
+            for topic in rows:
+                parts = "".join(
+                    f'<div class="protocol-topic-part"><h6>{escape(label(part))}</h6>{statements(getattr(topic, part))}</div>'
+                    for part in ("context", "discussion", "proposals_and_alternatives", "outcome")
+                    if getattr(topic, part)
+                )
+                topics.append(f'<article class="protocol-topic"><h5>{escape(topic.title)}</h5>{parts}</article>')
+            body = "".join(topics) or f"<p>{empty(key)}</p>"
+        elif key == "action_items":
+            headers = ("Task", "Owner", "Deadline") if en else ("Задача", "Ответственный", "Срок")
+            cells = []
+            for task in rows:
+                values = (
+                    (task.task, task.task_source_refs),
+                    (task.owner_text or ("Not assigned" if en else "Не назначен"), task.owner_source_refs),
+                    (task.due_date_text or ("Not specified" if en else "Не указан"), task.due_date_source_refs),
+                )
+                cells.append("<tr>" + "".join(
+                    f"<td>{escape(text)} {_protocol_sources(refs, source_segment_ids)}</td>"
+                    for text, refs in values
+                ) + "</tr>")
+            if not cells:
+                message = empty(key) if key in protocol.uncertain_sections else ("No action items recorded" if en else "Задачи не зафиксированы")
+                cells.append(
+                    f"<tr><td>{message}</td><td>{'Not assigned' if en else 'Не назначен'}</td>"
+                    f"<td>{'Not specified' if en else 'Не указан'}</td></tr>"
+                )
+            body = (
+                '<div class="protocol-table-scroll" tabindex="0" role="region" '
+                f'aria-label="{escape(label(key))}"><table class="protocol-tasks"><thead><tr>'
+                + "".join(f'<th scope="col">{text}</th>' for text in headers)
+                + "</tr></thead><tbody>" + "".join(cells) + "</tbody></table></div>"
+            )
+        else:
+            body = statements(rows, paragraph=key == "executive_summary") if rows else f"<p>{empty(key)}</p>"
+        if key == "notes":
+            body = (statements(rows) if rows else "") + f'<p class="protocol-system-note">{escape(SPEAKER_IDENTITY_NOTE[language])}</p>'
+        sections.append(section_html(key, body))
     return (
-        f'<article class="outcome-item" data-outcome-truth-label="{escape(truth_label)}">'
-        f'<p class="outcome-item-text">{text}</p>{metadata_html}{source_html}</article>'
+        '<section class="notes meeting-protocol" data-protocol-version="graf-meeting-protocol-v2" '
+        'data-outcome-source-basis="stored_output" aria-labelledby="meeting-outcomes-title">'
+        + header_html + "".join(sections) + "</section>"
     )
 
 

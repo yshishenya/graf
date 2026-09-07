@@ -124,3 +124,23 @@ def test_meetings_auth_failure_contract_is_unchanged() -> None:
 
     assert response.status_code == 401
     assert response.media_type == "application/problem+json"
+
+
+@pytest.mark.parametrize("accept", ["text/html", "application/json"])
+def test_unavailable_public_summary_uses_readable_html_only_for_browser(accept):
+    response = asyncio.run(problem_exception_handler(
+        _request("/api/v1/cabinet/public-shares/synthetic-token?workspace_id=synthetic", accept=accept),
+        ProblemDetail(status=404, code="share_not_found", title="Share not found"),
+    ))
+    assert response.status_code == 404
+    if accept == "text/html":
+        assert response.media_type == "text/html"
+        assert "Встреча больше недоступна" in response.body.decode()
+        assert "Запись удалена или доступ закрыт." in response.body.decode()
+        assert "synthetic-token" not in response.body.decode()
+        assert response.headers["cache-control"] == "private, no-store"
+        assert response.headers["referrer-policy"] == "no-referrer"
+        assert response.headers["x-robots-tag"] == "noindex, nofollow, noarchive"
+    else:
+        assert response.media_type == "application/problem+json"
+        assert b'"code":"share_not_found"' in response.body

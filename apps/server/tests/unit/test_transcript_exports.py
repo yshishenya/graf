@@ -3,14 +3,19 @@ from __future__ import annotations
 import csv
 import io
 import json
+import re
+from collections import Counter
+from copy import deepcopy
 from dataclasses import replace
 from decimal import Decimal
+from html import escape
 from uuid import uuid4
 
 import pytest
 from openpyxl import load_workbook
 
 from tests.fixtures.cabinet_exports import SyntheticExportFixture
+from tests.fixtures.meeting_protocol import protocol_outcome, protocol_result
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.cabinet.exports import (
     CSV_COLUMNS,
@@ -19,9 +24,7 @@ from twobrain_rec_server.cabinet.exports import (
     CanonicalExportTurn,
     ExportSelection,
     ExportSnapshot,
-    SummaryExportItem,
     SummaryExportRevision,
-    _reference_turn_ids,
     canonical_export_turns,
     canonical_raw_segments,
     human_display_groups,
@@ -50,51 +53,19 @@ def _snapshot(
     outcome_set_id = None
     if scope in {"summary", "combined"}:
         outcome_set_id = uuid4()
+        document = protocol_outcome().protocol_json
+        ref = document["executive_summary"][0]["source_refs"][0]
+        ref.update(transcript_segment_id=raw[0].segment_id, start_seconds=12.5, end_seconds=18.0)
+        document["executive_summary"][0]["text"] = "Сохранённое саммари: аргументы, варианты и ограничения."
+        document["action_items"] = [{
+            "task": "@подготовить отчёт", "owner_text": "=Иван", "due_date_text": "2026-07-30",
+            "task_source_refs": [ref], "owner_source_refs": [ref], "due_date_source_refs": [ref],
+        }]
         summary = SummaryExportRevision(
-            outcome_set_id=str(outcome_set_id),
-            processing_result_id=str(fixture.result_id),
-            revision_token=f"{outcome_set_id}:hash:fixture-v1",
-            status="available",
-            category_states={
-                "summary": "available",
-                "key_points": "available",
-                "decisions": "not_found",
-                "action_items": "available",
-                "followups": "not_found",
-                "risks": "not_found",
-                "questions": "not_found",
-                "evidence": "available",
-            },
-            source_kind="extractive_generator",
-            generator_kind="deterministic_extractive",
-            generator_version="fixture-v1",
-            content_hash="fixture-content-hash",
-            items=(
-                SummaryExportItem(
-                    category="summary",
-                    sequence=0,
-                    state="available",
-                    text="Сохранённое саммари.",
-                    owner=None,
-                    due_date=None,
-                    truth_label="supported",
-                    source_references=({"transcript_segment_id": raw[0].segment_id},),
-                    evidence_turn_ids=(turns[0].turn_id,),
-                    unresolved_references=(),
-                ),
-                SummaryExportItem(
-                    category="action_items",
-                    sequence=0,
-                    state="available",
-                    text="@подготовить отчёт",
-                    owner="=Иван",
-                    due_date="2026-07-30",
-                    truth_label="supported",
-                    source_references=(),
-                    evidence_turn_ids=(),
-                    unresolved_references=({"sequence": 999},),
-                ),
-            ),
+            outcome_set_id=str(outcome_set_id), processing_result_id=str(fixture.result_id),
+            revision_token=f"{outcome_set_id}:hash:protocol", status="available",
+            source_kind="litellm", generator_kind="litellm", generator_version="meeting-protocol-v2",
+            content_hash="fixture-content-hash", protocol=document,
         )
     return ExportSnapshot(
         selection=ExportSelection(
@@ -187,10 +158,23 @@ def test_markdown_neutralizes_line_markers_links_and_raw_html(export_fixture) ->
     assert "\\# Заголовок" in body
     assert "\\- список" in body
     assert "1\\. пункт" in body
-    assert "\\[ссылка\\]\\(https\\:\\/\\/example\\.test\\)" in body
-    assert "&lt;script&gt;x&lt;\\/script&gt;" in body
+    assert "\\[ссылка\\](https\\://example.test)" in body
+    assert "&lt;script&gt;x&lt;/script&gt;" in body
     assert "\n# Заголовок" not in body
     assert "\n- список" not in body
+
+
+@pytest.mark.parametrize("scope", ["summary", "combined"])
+def test_protocol_markdown_keeps_tilde_fences_inside_literal_text(export_fixture, scope):
+    snapshot = _snapshot(export_fixture, format="md", scope=scope)
+    document = snapshot.summary.protocol
+    document["executive_summary"][0]["text"] = "Первый итог.\n\n~~~python\nВторой итог."
+
+    body = render_content_export(snapshot).body.decode()
+
+    assert not re.search(r"(?m)^ {0,3}~{3,}", body)
+    assert "Второй итог." in body
+    assert "\n## Принятые решения\n" in body
 
 
 def test_csv_has_stable_columns_crlf_bom_and_inert_formula_cells(export_fixture) -> None:
@@ -286,25 +270,17 @@ def test_xlsx_has_fixed_safe_sheets_columns_and_literal_cells(export_fixture) ->
     assert transcript["M2"].alignment.wrap_text is True
     assert transcript["M3"].value.startswith("'=")
     summary = workbook["Summary"]
-    assert [cell.value for cell in summary["A"][1:]] == [
-        "summary",
-        "key_points",
-        "decisions",
-        "followups",
-        "risks",
-        "questions",
-        "evidence",
-    ]
-    assert summary["C3"].value == "available"
-    assert summary["C4"].value == "not_found"
+    assert tuple(cell.value for cell in summary[1]) == ("section", "topic", "part", "text", "source_refs")
+    assert "topics" in [cell.value for cell in summary["A"][1:]]
+    assert "executive_summary" in [cell.value for cell in summary["A"][1:]]
     action = workbook["Action Items"]
-    assert action["C2"].value.startswith("'@")
-    assert action["D2"].value.startswith("'=")
+    assert action["A2"].value.startswith("'@")
+    assert action["B2"].value.startswith("'=")
     metadata = {row[0].value: row[1].value for row in workbook["Metadata"].iter_rows(min_row=2)}
     assert metadata["summary_revision_token"]
-    assert metadata["summary_source_kind"] == "extractive_generator"
-    assert metadata["summary_generator_version"] == "fixture-v1"
-    assert json.loads(metadata["summary_category_states"])["summary"] == "available"
+    assert metadata["summary_source_kind"] == "litellm"
+    assert metadata["summary_generator_version"] == "meeting-protocol-v2"
+    assert metadata["protocol_schema_version"] == "graf-meeting-protocol-v2"
     assert not any(
         isinstance(cell.value, str) and cell.value.startswith("=")
         for sheet in workbook.worksheets
@@ -328,9 +304,31 @@ def test_xlsx_marks_unselected_sheets_and_honors_evidence_option(export_fixture)
     transcript = workbook["Transcript"]
     assert transcript["B2"].value == "status:not_selected"
     summary = workbook["Summary"]
-    assert summary["F2"].value == "[]"
-    assert summary["G2"].value == "[]"
-    assert summary["H2"].value == "[]"
+    assert all(cell.value == "[]" for cell in summary["E"][1:])
+    assert all(cell.value == "[]" for row in workbook["Action Items"].iter_rows(min_row=2, min_col=4) for cell in row)
+
+
+@pytest.mark.parametrize("scope", ["summary", "combined"])
+@pytest.mark.parametrize("language", ["ru", "en"])
+@pytest.mark.parametrize("uncertain", [False, True])
+def test_xlsx_preserves_unknown_versus_absent_tasks(export_fixture, scope, language, uncertain):
+    snapshot = _snapshot(export_fixture, format="xlsx", scope=scope)
+    snapshot = replace(snapshot, selection=replace(snapshot.selection, include_evidence=False))
+    document = snapshot.summary.protocol
+    document["header"]["output_language"] = language
+    document["action_items"] = []
+    document["uncertain_sections"] = ["action_items"] if uncertain else []
+
+    workbook = load_workbook(io.BytesIO(render_content_export(snapshot).body))
+    row = tuple(workbook["Action Items"].values)[1]
+    expected = (
+        ("Не удалось надёжно установить по доступной расшифровке.", "Cannot reliably establish from the available transcript.")
+        if uncertain else ("Задачи не зафиксированы", "No action items recorded")
+    )[language == "en"]
+    assert row[0] == expected
+    assert row[3:] == ("[]", "[]", "[]")
+    markdown = render_content_export(replace(snapshot, selection=replace(snapshot.selection, format="md"))).body.decode()
+    assert expected in markdown
 
 
 def test_xlsx_neutralizes_formula_prefixes_in_summary_metadata(export_fixture) -> None:
@@ -360,51 +358,135 @@ def test_summary_only_and_combined_do_not_regenerate_or_invent_fields(export_fix
     ).body.decode()
 
     assert summary_json["transcript"] is None
-    assert summary_json["summary"]["generator_version"] == "fixture-v1"
-    assert summary_json["summary"]["items"][1]["owner"] == "=Иван"
-    assert "Расшифровка" in combined
-    assert "Итоги" in combined
-    assert "Сохранённое саммари." in combined
+    assert summary_json["summary"]["generator_version"] == "meeting-protocol-v2"
+    assert summary_json["summary"]["protocol"]["action_items"][0]["owner_text"] == "=Иван"
+    assert "Транскрипт" in combined
+    assert "Ключевые итоги" in combined
+    assert "Сохранённое саммари:" in combined
 
 
-def test_legacy_asr_reference_resolves_to_every_overlapping_canonical_turn() -> None:
-    first = CanonicalExportTurn(
-        turn_id="turn-a",
-        sequence=0,
-        start_ms=0,
-        end_ms=1000,
-        text="one",
-        speaker_key="speaker-a",
-        speaker_label="A",
-        attribution_state="confirmed",
-        source_role="canonical_mixed",
-        source_segment_ids=("provider-a",),
-        overlap=False,
+def test_protocol_markdown_is_a_readable_document_with_inline_timestamps(export_fixture):
+    snapshot = _snapshot(export_fixture, format="md", scope="summary")
+    body = render_content_export(snapshot).body.decode()
+    assert "## Ключевые итоги" in body and "## Ключевые обсуждения" in body
+    assert "Сохранённое саммари: аргументы, варианты и ограничения." in body
+    assert "[00:12]" in body
+    assert "| Задача | Ответственный | Срок |" in body
+    assert "Генератор:" not in body and "Статус сохраненной ревизии" not in body
+    assert "\\," not in body and "\\." not in body and "\\:" not in body
+
+
+@pytest.mark.parametrize("format", ["json", "txt", "md"])
+def test_protocol_preserves_llm_words_through_validation_render_and_export(export_fixture, format):
+    from twobrain_rec_server.api.schemas import MeetingProtocolView
+    from twobrain_rec_server.cabinet.rendering import render_meeting_protocol
+    from twobrain_rec_server.outcomes.ai_service import _enrich_protocol
+    from twobrain_rec_server.outcomes.models import (
+        OutcomeTranscriptSegment,
+        protocol_without_evidence,
     )
-    second = replace(
-        first,
-        turn_id="turn-b",
-        sequence=1,
-        start_ms=1000,
-        end_ms=2000,
-        text="two",
-        speaker_key="speaker-b",
-        speaker_label="B",
-        source_segment_ids=("provider-b",),
-    )
+    from twobrain_rec_server.outcomes.prompts import validate_protocol_result
 
-    resolved = _reference_turn_ids(
-        {
-            "transcript_segment_id": "legacy-asr",
-            "start_seconds": 0,
-            "end_seconds": 2,
-            "source_role": "mixed",
-        },
-        (first, second),
-        {"provider-a": "turn-a", "provider-b": "turn-b"},
+    snapshot = _snapshot(export_fixture, format=format, scope="summary")
+    source = OutcomeTranscriptSegment(
+        segment_id=uuid4(), sequence=0, start_seconds=Decimal("12.5"), end_seconds=Decimal("18"),
+        speaker_label="Участник 1", source_role="incoming_system",
+        text="Наверное, завтра — если получится. Не утвердили: обсуждаем.",
     )
+    draft = deepcopy(protocol_result([source]))
+    statement = draft["executive_summary"][0]
+    ref = statement["source_refs"][0]
+    # Repetition and awkward wording belong to the LLM, not a server editor.
+    draft["executive_summary"].append(deepcopy(statement))
+    for section in ("objectives", "open_questions", "next_steps", "risks_and_constraints", "notes"):
+        draft[section] = [{"text": f"{section}: возможно, но не подтверждено.", "source_refs": [ref]}]
+    topic = draft["topics"][0]
+    topic["title"] = "Пилот «А» & «Б»: стоимость < 2,5 млн ₽?"
+    for part in ("context", "proposals_and_alternatives", "outcome"):
+        topic[part] = [{"text": f"{part}: это лишь вариант, не обязательство.", "source_refs": [ref]}]
+    draft["decisions"] = [{
+        "text": "Решили не запускать второй этап без отдельного согласования.",
+        "source_refs": [ref], "acceptance_source_refs": [ref],
+    }]
+    draft["action_items"] = [{
+        "task": "Уточнить предел бюджета.\nНе заказывать второй этап.",
+        "owner_text": "Анна-Мария", "due_date_text": "после ответа, не раньше пятницы",
+        "task_source_refs": [ref], "owner_source_refs": [ref], "due_date_source_refs": [ref],
+    }, {
+        "task": "Запросить условия пилота, не подписывать договор.",
+        "owner_text": None, "due_date_text": None,
+        "task_source_refs": [ref], "owner_source_refs": [], "due_date_source_refs": [],
+    }]
+    original = deepcopy(draft)
+    validated = validate_protocol_result(draft, segments=[source])
+    assert validated == original
+    enriched = _enrich_protocol(validated, snapshot.summary.protocol["header"], [source])
+    view = MeetingProtocolView.model_validate(enriched)
+    for document in (enriched, view.model_dump(mode="json")):
+        assert protocol_without_evidence({key: document[key] for key in draft}) == protocol_without_evidence(original)
 
-    assert resolved == ("turn-a", "turn-b")
+    def text_fields(value):
+        if isinstance(value, list):
+            for child in value:
+                yield from text_fields(child)
+        elif isinstance(value, dict):
+            for key, child in value.items():
+                if key in {"text", "title", "task", "owner_text", "due_date_text"} and child is not None:
+                    yield child
+                elif not key.endswith("source_refs"):
+                    yield from text_fields(child)
+
+    page = render_meeting_protocol(view, source_segment_ids={str(source.segment_id)})
+    for text, count in Counter(text_fields(original)).items():
+        assert page.count(escape(text)) == count
+    without_controls = re.sub(r'<button type="button" class="notes-source-link"[^>]*>[^<]*</button>', "", page)
+    assert f'<li>{escape(original["decisions"][0]["text"])} </li>' in without_controls
+    action = original["action_items"][0]
+    assert (
+        "<tr>" + "".join(f"<td>{escape(action[field])} </td>" for field in ("task", "owner_text", "due_date_text")) + "</tr>"
+    ) in without_controls
+    assert 'data-seek-seconds="12.5"' in page
+    assert "Не назначен" in page and "Не указан" in page
+
+    exported = replace(snapshot, summary=replace(snapshot.summary, protocol=enriched))
+    body = render_content_export(exported).body.decode()
+    if format == "json":
+        assert json.loads(body)["summary"]["protocol"] == enriched
+    else:
+        for text, count in Counter(text_fields(original)).items():
+            # Only table line breaks and safe markup encoding may differ.
+            expected = " ".join(text.splitlines())
+            if format == "md":
+                expected = escape(expected, quote=False).replace("_", "\\_")
+            assert body.count(expected) == count
+        assert "Не назначен" in body and "Не указан" in body
+        assert "[00:12]" in body
+    assert draft == original
+
+
+def test_protocol_json_evidence_off_removes_every_nested_source_without_mutation(export_fixture):
+    snapshot = _snapshot(export_fixture, format="json", scope="summary")
+    original = json.dumps(snapshot.summary.protocol, sort_keys=True)
+    hidden = replace(snapshot, selection=replace(snapshot.selection, include_evidence=False))
+    payload = json.loads(render_content_export(hidden).body)
+    document = json.dumps(payload["summary"]["protocol"])
+    assert "source_refs" not in document and "quote" not in document
+    assert "source_result_id" not in document and "transcript_segment_id" not in document
+    assert "start_seconds" not in document
+    assert json.dumps(snapshot.summary.protocol, sort_keys=True) == original
+
+
+def test_protocol_export_links_use_only_authorized_server_origin(export_fixture):
+    snapshot = _snapshot(export_fixture, format="md", scope="summary")
+    linked = replace(snapshot, source_base_url="https://graf.example", source_workspace_id=str(uuid4()))
+    body = render_content_export(linked).body.decode()
+    assert "[00:12](https://graf.example/cabinet/meetings/" in body
+    hidden = replace(linked, selection=replace(linked.selection, include_evidence=False))
+    hidden_body = render_content_export(hidden).body.decode()
+    assert "/sources/" not in hidden_body and "[00:12]" not in hidden_body
+    assert "?workspace_id=" in render_content_export(linked).body.decode("utf-8")
+    unsafe = replace(linked, source_base_url="javascript:alert(1)")
+    assert "javascript:" not in render_content_export(unsafe).body.decode()
 
 
 def test_presentation_options_do_not_change_machine_formats(export_fixture) -> None:

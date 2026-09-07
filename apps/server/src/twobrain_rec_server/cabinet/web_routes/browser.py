@@ -36,6 +36,8 @@ from twobrain_rec_server.cabinet.access import (
     share_invitation_recipient_address,
 )
 from twobrain_rec_server.cabinet.queries import (
+    _latest_media_revision,
+    _latest_result,
     get_account_profile_view,
     get_cabinet_meeting_review,
     get_calendar_settings_surface,
@@ -56,6 +58,10 @@ from twobrain_rec_server.cabinet.rendering import (
 from twobrain_rec_server.cabinet.review_policy_rendering import render_meeting_share_fragment
 from twobrain_rec_server.cabinet.templates import (
     cabinet_html_response,
+)
+from twobrain_rec_server.cabinet.view_models import (
+    meeting_protocol_view,
+    stored_outcome_truth_state,
 )
 from twobrain_rec_server.cabinet.web_routes.auth_email_flow import (
     _ensure_email_registration_user,
@@ -84,7 +90,7 @@ from twobrain_rec_server.db.models import (
     AuthSessionDeviceBinding,
     ExternalIdentity,
     Meeting,
-    MeetingOutcomeItem,
+    MeetingOutcomeSet,
     MeetingShareGrant,
     MeetingShareInvitation,
 )
@@ -92,6 +98,7 @@ from twobrain_rec_server.db.tenant_context import (
     TenantDatabaseContext,
     apply_tenant_context,
 )
+from twobrain_rec_server.outcomes.models import protocol_source_refs
 from twobrain_rec_server.outcomes.service import (
     load_egress_default_outcome,
     load_meeting_default_slot,
@@ -176,26 +183,11 @@ async def _render_shared_summary_for_grant(
             meeting_id=meeting.id,
         )
         outcome = await load_egress_default_outcome(session, meeting=meeting, slot=slot)
-    items = (
-        (
-            await session.scalars(
-                select(MeetingOutcomeItem)
-                .where(
-                    MeetingOutcomeItem.workspace_id == workspace_id,
-                    MeetingOutcomeItem.outcome_set_id == outcome.id,
-                    MeetingOutcomeItem.state == "available",
-                )
-                .order_by(MeetingOutcomeItem.category, MeetingOutcomeItem.sequence)
-            )
-        ).all()
-        if outcome is not None
-        else []
-    )
     projection = narrow_summary_projection(
         meeting_label=meeting.title or "Встреча",
-        occurred_at=meeting.started_at or meeting.created_at,
+        occurred_at=meeting.started_at,
         duration_seconds=meeting.duration_seconds,
-        summary_sections=[{"category": item.category, "text": item.text or ""} for item in items],
+        protocol=(outcome.protocol_json if outcome is not None and meeting_protocol_view(outcome) is not None else None),
     )
     display_title, display_time, uploaded = await shared_meeting_display_metadata(session, meeting=meeting)
     return render_shared_meeting_summary_page(
@@ -203,7 +195,7 @@ async def _render_shared_summary_for_grant(
         occurred_at=display_time,
         time_is_upload=uploaded,
         duration_seconds=int(projection["duration_seconds"]),
-        summary_sections=projection["summary_sections"],
+        protocol=projection["protocol"],
         authenticated=True,
         embedded=embedded,
     )
@@ -950,6 +942,94 @@ async def meeting_detail_page(
             ),
         )
     )
+
+
+@router.get(
+    "/cabinet/meetings/{meeting_id}/sources/{outcome_set_id}/{segment_id}",
+    response_class=HTMLResponse, include_in_schema=False,
+)
+async def meeting_protocol_source_page(
+    request: Request,
+    meeting_id: UUID,
+    outcome_set_id: UUID,
+    segment_id: UUID,
+    workspace_id: Annotated[UUID, Query()],
+    tenant_scope: TenantScope = WebTenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    storage: object = StorageDependency,
+    db: AsyncSession | None = PublicShareDbDependency,
+) -> Response:
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    # Same cross-workspace identity proof as the ordinary shared meeting page.
+    recipient_proof = await _recipient_share_access_proof(
+        request, recipient_scope=tenant_scope, owner_workspace_id=workspace_id,
+    )
+    review = await get_cabinet_meeting_review(
+        db, workspace_id=workspace_id, meeting_id=meeting_id,
+        viewer_user_id=principal.user_id, storage=storage, recipient_proof=recipient_proof,
+    )
+    if review is None or review.access is None or not review.access.can_view_full_meeting:
+        return _meeting_unavailable_response(request, csrf_token=_csrf_token_for_principal(request, principal))
+    meeting = await db.get(Meeting, meeting_id)
+    outcome = await db.scalar(select(MeetingOutcomeSet).where(
+        MeetingOutcomeSet.id == outcome_set_id, MeetingOutcomeSet.workspace_id == workspace_id,
+        MeetingOutcomeSet.meeting_id == meeting_id,
+    ))
+    if outcome is not None:
+        outcome = await load_pinned_egress_outcome(
+            db, meeting=meeting, template_key=outcome.template_key, outcome_set_id=outcome.id,
+        )
+    protocol = meeting_protocol_view(outcome) if outcome is not None else None
+    target = next((
+        segment for segment in review.transcript.speaker_turns or review.transcript.segments
+        if str(segment_id) in getattr(segment, "source_segment_ids", [getattr(segment, "segment_id", "")])
+        and outcome is not None and segment.processing_result_id == outcome.processing_result_id
+    ), None)
+    referenced_ids = {
+        ref["transcript_segment_id"] for ref in protocol_source_refs(outcome.protocol_json)
+    } if protocol is not None else set()
+    if protocol is None or target is None or str(segment_id) not in referenced_ids or protocol.header.get("source_result_id") != str(outcome.processing_result_id):
+        return cabinet_html_response(
+            render_meeting_unavailable_page(
+                source_unavailable=True, csrf_token=_csrf_token_for_principal(request, principal),
+            ),
+            status_code=409,
+        )
+    review.notes_action_truth = stored_outcome_truth_state(outcome)
+    response = cabinet_html_response(render_meeting_detail_page(
+        review, csrf_token=_csrf_token_for_principal(request, principal),
+        initial_source_segment_id=segment_id,
+        shared_workspace_id=workspace_id if workspace_id != tenant_scope.workspace_id else None,
+    ))
+    # Recheck after rendering; a revoked grant/deletion must not release the buffered page.
+    expected_hash = outcome.content_hash
+    await db.refresh(meeting)
+    recipient_proof = await _recipient_share_access_proof(
+        request, recipient_scope=tenant_scope, owner_workspace_id=workspace_id,
+    )
+    access = await decide_meeting_access(
+        db, meeting, workspace_id=workspace_id, viewer_user_id=principal.user_id,
+        recipient_proof=recipient_proof,
+    )
+    current = await load_pinned_egress_outcome(
+        db, meeting=meeting, template_key=outcome.template_key, outcome_set_id=outcome.id,
+    )
+    if not access.can_view_full_meeting or current is None or current.content_hash != expected_hash:
+        return _meeting_unavailable_response(request, csrf_token=_csrf_token_for_principal(request, principal))
+    revision = await _latest_media_revision(db, workspace_id=workspace_id, meeting_id=meeting_id)
+    source = await _latest_result(
+        db, workspace_id=workspace_id, meeting_id=meeting_id,
+        media_revision_id=revision.id if revision else None,
+    )
+    if source is None or source.id != outcome.processing_result_id:
+        return cabinet_html_response(
+            render_meeting_unavailable_page(
+                source_unavailable=True, csrf_token=_csrf_token_for_principal(request, principal),
+            ), status_code=409,
+        )
+    response.headers.update({"Cache-Control": "private, no-store", "Referrer-Policy": "no-referrer"})
+    return response
 
 
 @router.get("/shared-meetings/{meeting_id}", response_class=HTMLResponse, include_in_schema=False)

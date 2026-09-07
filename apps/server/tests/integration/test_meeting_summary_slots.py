@@ -12,14 +12,17 @@ from alembic.config import Config
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from sqlalchemy import func, select
+from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
 
 from tests.fixtures.cabinet import create_outcome_ready_meeting
+from tests.fixtures.meeting_protocol import protocol_outcome, protocol_result
 from twobrain_rec_server.cabinet import queries
 from twobrain_rec_server.cabinet.egress import (
     _processing_result_is_current,
     current_outcome_set,
 )
+from twobrain_rec_server.config import get_settings
 from twobrain_rec_server.db.base import Base
 from twobrain_rec_server.db.models import (
     Meeting,
@@ -31,6 +34,8 @@ from twobrain_rec_server.outcomes import service as outcome_service
 from twobrain_rec_server.outcomes.ai_service import (
     SummarySlotCASConflict,
     _cas_summary_slot,
+    _content_hash,
+    _enrich_protocol,
     create_summary_candidate,
 )
 from twobrain_rec_server.outcomes.service import (
@@ -41,6 +46,31 @@ from twobrain_rec_server.outcomes.service import (
 )
 
 
+async def _protocol_row(db, **fields) -> MeetingOutcomeSet:
+    """Full synthetic content for DB-only lifecycle tests, not publication proof."""
+    result = await db.get(ProcessingResult, fields["processing_result_id"])
+    meeting = await db.get(Meeting, fields["meeting_id"])
+    assert result is not None and meeting is not None
+    outcome = protocol_outcome()
+    outcome.source_result_hash = result.source_result_hash
+    outcome.media_revision_id = result.media_revision_id
+    outcome.deletion_epoch_at_start = meeting.deletion_epoch or 0
+    outcome.template_key = "graf-auto-v1"
+    outcome.template_version = 2
+    for key, value in fields.items():
+        setattr(outcome, key, value)
+    if outcome.revision_state == "accepted":
+        outcome.accepted_at = datetime.now(UTC)
+    segments = await outcome_service.load_outcome_transcript_segments(db, result=result)
+    header = {
+        **outcome.protocol_json["header"], "source_result_id": str(result.id),
+        "template_key": outcome.template_key, "template_version": outcome.template_version,
+    }
+    outcome.protocol_json = _enrich_protocol(protocol_result(segments), header, segments)
+    outcome.content_hash = _content_hash(outcome.protocol_json)
+    return outcome
+
+
 async def _seed_model_candidate(
     db,
     *,
@@ -49,6 +79,7 @@ async def _seed_model_candidate(
     expected_current_outcome_set_id: UUID | None = None,
     access_policy_epoch: int = 7,
 ) -> tuple[MeetingOutcomeSet, object]:
+    # The slot primitive tests non-model fences; this fixture is not a publication receipt.
     attempt = await create_summary_candidate(
         db,
         workspace_id=meeting.workspace_id,
@@ -56,11 +87,11 @@ async def _seed_model_candidate(
         requested_by_user_id=meeting.created_by_user_id,
         template_key=template_key,
         template_id=None,
-        template_version=1,
+        template_version=2,
         expected_current_outcome_set_id=expected_current_outcome_set_id,
     )
     assert attempt.candidate_id is not None
-    candidate = MeetingOutcomeSet(
+    candidate = await _protocol_row(db,
         workspace_id=meeting.workspace_id,
         meeting_id=meeting.id,
         media_revision_id=attempt.media_revision_id,
@@ -72,7 +103,7 @@ async def _seed_model_candidate(
         source_fingerprint=attempt.source_fingerprint,
         deletion_epoch_at_start=attempt.deletion_epoch_at_start,
         template_key=template_key,
-        template_version=1,
+        template_version=2,
         revision_state="candidate",
     )
     db.add(candidate)
@@ -217,19 +248,38 @@ def test_mapped_metadata_create_all_is_compatible_with_migrated_slot_schema(clie
     asyncio.run(run())
 
 
+@pytest.mark.parametrize("stale_settings_cache", [False, True])
 def test_slot_migration_head_is_idempotent(
     postgres_schema_database_url: str,
     monkeypatch: pytest.MonkeyPatch,
+    stale_settings_cache: bool,
 ) -> None:
-    monkeypatch.setenv("TWOBRAIN_DATABASE_URL", postgres_schema_database_url)
     server_root = Path(__file__).resolve().parents[2]
     config = Config(str(server_root / "alembic.ini"))
     config.set_main_option(
         "script_location",
         str(server_root / "src/twobrain_rec_server/db/migrations"),
     )
-    command.upgrade(config, "head")
-    command.upgrade(config, "head")
+    get_settings.cache_clear()
+    try:
+        if stale_settings_cache:
+            # Same disposable endpoint, but a database that was never created.
+            stale_url = make_url(postgres_schema_database_url).set(
+                database=f"twobrain_rec_test_stale_{uuid4().hex}"
+            ).render_as_string(hide_password=False)
+            monkeypatch.setenv("TWOBRAIN_DATABASE_URL", stale_url)
+            cached = get_settings()
+            assert cached.database_url == stale_url
+        monkeypatch.setenv("TWOBRAIN_DATABASE_URL", postgres_schema_database_url)
+        if stale_settings_cache:
+            assert get_settings() is cached
+        # Alembic reads cached application settings, not Config.sqlalchemy.url.
+        get_settings.cache_clear()
+        assert get_settings().database_url == postgres_schema_database_url
+        command.upgrade(config, "head")
+        command.upgrade(config, "head")
+    finally:
+        get_settings.cache_clear()
 
 
 def test_legacy_backfill_only_materializes_the_explicit_meeting_pointer(client) -> None:
@@ -325,7 +375,7 @@ def test_browser_processing_read_uses_default_slot_when_legacy_pointer_is_null(c
                 select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
             )
             assert meeting is not None and result is not None
-            outcome = MeetingOutcomeSet(
+            outcome = await _protocol_row(db,
                 workspace_id=meeting.workspace_id,
                 meeting_id=meeting.id,
                 media_revision_id=result.media_revision_id,
@@ -403,7 +453,7 @@ def test_default_read_does_not_fall_back_to_legacy_pointer_when_slots_have_no_de
                 select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
             )
             assert meeting is not None and result is not None
-            outcome = MeetingOutcomeSet(
+            outcome = await _protocol_row(db,
                 workspace_id=meeting.workspace_id,
                 meeting_id=meeting.id,
                 media_revision_id=result.media_revision_id,
@@ -472,7 +522,7 @@ def test_current_outcome_pointer_is_bound_to_the_same_meeting_and_type(client) -
                 select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
             )
             assert meeting is not None and result is not None
-            outcome = MeetingOutcomeSet(
+            outcome = await _protocol_row(db,
                 workspace_id=meeting.workspace_id,
                 meeting_id=meeting.id,
                 processing_result_id=result.id,
@@ -501,7 +551,7 @@ def test_current_outcome_pointer_is_bound_to_the_same_meeting_and_type(client) -
     asyncio.run(run())
 
 
-def test_complete_and_grandfathered_bindings_keep_type_specific_current_reads(client) -> None:
+def test_only_complete_protocol_is_readable_while_migrated_binding_is_retained(client) -> None:
     meeting_id = create_outcome_ready_meeting(client, "summary-slot-binding-classes")
 
     async def run() -> None:
@@ -512,7 +562,7 @@ def test_complete_and_grandfathered_bindings_keep_type_specific_current_reads(cl
             )
             assert meeting is not None and result is not None
             outcomes = [
-                MeetingOutcomeSet(
+                await _protocol_row(db,
                     workspace_id=meeting.workspace_id,
                     meeting_id=meeting.id,
                     media_revision_id=result.media_revision_id,
@@ -528,6 +578,11 @@ def test_complete_and_grandfathered_bindings_keep_type_specific_current_reads(cl
                 )
                 for template_key in ("graf-auto-v1", "meeting_minutes")
             ]
+            # The migrated binding is retained history, never converted into a protocol.
+            outcomes[1].protocol_json = None
+            outcomes[1].protocol_state = "unavailable"
+            outcomes[1].protocol_schema_version = None
+            outcomes[1].content_hash = None
             db.add_all(outcomes)
             await db.flush()
             db.add_all(
@@ -564,17 +619,19 @@ def test_complete_and_grandfathered_bindings_keep_type_specific_current_reads(cl
                 processing_result_id=result.id,
                 template_key="meeting_minutes",
             )
-            grandfathered_egress = await current_outcome_set(
-                db,
-                workspace_id=meeting.workspace_id,
-                meeting_id=meeting.id,
-                processing_result_id=result.id,
-                template_key="meeting_minutes",
-                allow_legacy_read_only=False,
-            )
             assert complete is not None and complete.id == outcomes[0].id
-            assert grandfathered is not None and grandfathered.id == outcomes[1].id
-            assert grandfathered_egress is None
+            assert grandfathered is None
+            assert complete.protocol_state == "available" and complete.protocol_json
+            legacy = await db.get(MeetingOutcomeSet, outcomes[1].id)
+            assert legacy.protocol_json is None
+            assert legacy.protocol_state == "unavailable" and legacy.revision_state == "accepted"
+            legacy_slot = await db.scalar(select(MeetingSummarySlot).where(
+                MeetingSummarySlot.meeting_id == meeting_id,
+                MeetingSummarySlot.template_key == "meeting_minutes",
+            ))
+            assert legacy_slot.current_outcome_set_id == legacy.id
+            assert legacy_slot.current_binding_class == "migrated_legacy_read_only"
+            assert legacy_slot.legacy_migration_proof_hash == "a" * 64
 
     asyncio.run(run())
 
@@ -592,7 +649,7 @@ def test_db_only_cas_operations_are_isolated_by_summary_type(client) -> None:
             source_fingerprint = f"result:{result.id}"
 
             async def seed_type(template_key: str) -> tuple[MeetingSummarySlot, MeetingOutcomeSet]:
-                old = MeetingOutcomeSet(
+                old = await _protocol_row(db,
                     id=uuid4(),
                     workspace_id=meeting.workspace_id,
                     meeting_id=meeting.id,
@@ -616,7 +673,7 @@ def test_db_only_cas_operations_are_isolated_by_summary_type(client) -> None:
 
             first_slot, first_old = await seed_type("graf-auto-v1")
             second_slot, second_old = await seed_type("graf-outline-v1")
-            first_new = MeetingOutcomeSet(
+            first_new = await _protocol_row(db,
                 workspace_id=meeting.workspace_id,
                 meeting_id=meeting.id,
                 processing_result_id=result.id,
@@ -627,7 +684,7 @@ def test_db_only_cas_operations_are_isolated_by_summary_type(client) -> None:
                 source_fingerprint=source_fingerprint,
                 deletion_epoch_at_start=meeting.deletion_epoch,
             )
-            second_new = MeetingOutcomeSet(
+            second_new = await _protocol_row(db,
                 workspace_id=meeting.workspace_id,
                 meeting_id=meeting.id,
                 processing_result_id=result.id,
@@ -681,7 +738,7 @@ def test_db_only_cas_rejects_deletion_epoch_change_and_keeps_current(client) -> 
             )
             assert meeting is not None and result is not None
             source_fingerprint = f"result:{result.id}"
-            old = MeetingOutcomeSet(
+            old = await _protocol_row(db,
                 id=uuid4(),
                 workspace_id=meeting.workspace_id,
                 meeting_id=meeting.id,
@@ -693,7 +750,7 @@ def test_db_only_cas_rejects_deletion_epoch_change_and_keeps_current(client) -> 
                 source_fingerprint=source_fingerprint,
                 deletion_epoch_at_start=meeting.deletion_epoch,
             )
-            replacement = MeetingOutcomeSet(
+            replacement = await _protocol_row(db,
                 id=uuid4(),
                 workspace_id=meeting.workspace_id,
                 meeting_id=meeting.id,
@@ -748,7 +805,7 @@ def test_same_type_cas_race_has_one_winner_and_keeps_other_replacement_unpublish
             )
             assert meeting is not None and result is not None
             source_fingerprint = f"result:{result.id}"
-            old = MeetingOutcomeSet(
+            old = await _protocol_row(db,
                 id=uuid4(),
                 workspace_id=meeting.workspace_id,
                 meeting_id=meeting.id,
@@ -761,7 +818,7 @@ def test_same_type_cas_race_has_one_winner_and_keeps_other_replacement_unpublish
                 deletion_epoch_at_start=meeting.deletion_epoch,
             )
             replacements = [
-                MeetingOutcomeSet(
+                await _protocol_row(db,
                     id=uuid4(),
                     workspace_id=meeting.workspace_id,
                     meeting_id=meeting.id,
@@ -827,6 +884,13 @@ def test_same_type_cas_race_has_one_winner_and_keeps_other_replacement_unpublish
             ]
             assert persisted_slot is not None and persisted_old is not None
             assert all(replacement is not None for replacement in persisted_replacements)
+            assert persisted_old.revision_state == "superseded"
+            assert sorted(row.revision_state for row in persisted_replacements) == ["accepted", "candidate"]
+            winner = next(row for row in persisted_replacements if row.revision_state == "accepted")
+            loser = next(row for row in persisted_replacements if row.revision_state == "candidate")
+            assert persisted_slot.current_outcome_set_id == winner.id
+            assert winner.supersedes_outcome_set_id == old.id
+            assert loser.accepted_at is None
             return (
                 results[0],
                 results[1],
@@ -998,7 +1062,7 @@ def test_model_cas_source_change_keeps_prior_current_and_candidate_unpublished(c
                 select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
             )
             assert meeting is not None and result is not None
-            prior = MeetingOutcomeSet(
+            prior = await _protocol_row(db,
                 workspace_id=meeting.workspace_id,
                 meeting_id=meeting.id,
                 processing_result_id=result.id,

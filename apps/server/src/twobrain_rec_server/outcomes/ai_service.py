@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
@@ -22,14 +24,19 @@ from twobrain_rec_server.db.models import (
     MediaRevision,
     Meeting,
     MeetingOutcomeGenerationAttempt,
-    MeetingOutcomeItem,
     MeetingOutcomeSet,
     MeetingSummarySlot,
     ProcessingResult,
     SummaryTemplate,
+    UserIdentity,
     Workspace,
+    WorkspaceMembership,
 )
-from twobrain_rec_server.db.tenant_context import TenantDatabaseContext, apply_tenant_context
+from twobrain_rec_server.db.tenant_context import (
+    TenantDatabaseContext,
+    apply_tenant_context,
+    rehydrate_tenant_context,
+)
 from twobrain_rec_server.domain.speaker_turns import canonical_speech_available
 from twobrain_rec_server.ingest.media_revisions import source_fingerprint_for_revision
 from twobrain_rec_server.observability.langfuse import (
@@ -37,7 +44,6 @@ from twobrain_rec_server.observability.langfuse import (
     create_langfuse_client,
     deterministic_observation_id,
     deterministic_trace_id,
-    fetch_prompt_by_label,
     publish_completed_generation,
     shutdown_langfuse,
 )
@@ -50,25 +56,30 @@ from twobrain_rec_server.outcomes.generator import (
     LiteLLMGateway,
     canonical_transcript,
     compile_prompt_messages,
+    model_transcript,
+    reported_model_provenance,
 )
-from twobrain_rec_server.outcomes.models import OutcomeSourceReference, OutcomeTranscriptSegment
+from twobrain_rec_server.outcomes.models import (
+    PROTOCOL_SCHEMA_VERSION,
+    TEMPLATE_PROTOCOL_SECTIONS,
+    OutcomeTranscriptSegment,
+)
 from twobrain_rec_server.outcomes.prompt_bundle import (
     PromptBundleError,
     bind_snapshot_from_metadata,
-    fetch_root_bundle_by_label,
-    load_last_known_good_root_bundle,
-    persist_root_bundle,
+    load_execution_authority,
     snapshot_bundle_metadata,
 )
-from twobrain_rec_server.outcomes.prompt_optimization import (
-    PromptOptimizationError,
-    load_verified_promoted_snapshot,
-)
 from twobrain_rec_server.outcomes.prompts import (
+    EXTRACTOR_PROMPT_NAME,
+    VERIFIER_PROMPT_NAME,
     PromptSnapshot,
     canonical_json,
-    validate_outcome_result,
+    prompt_snapshot_hash,
+    validate_factual_extraction,
     validate_prompt_snapshot,
+    validate_protocol_result,
+    validate_protocol_verification,
 )
 from twobrain_rec_server.outcomes.service import (
     SummarySlotDefaultConflict,
@@ -78,10 +89,10 @@ from twobrain_rec_server.outcomes.service import (
     load_summary_slot,
     mark_meeting_default_slot,
 )
-from twobrain_rec_server.outcomes.store import set_outcome_category_states
 from twobrain_rec_server.outcomes.templates import (
     BUILT_IN_BY_KEY,
     OUTCOME_CATEGORIES,
+    built_in_template_for_key,
     built_in_template_for_version,
     prompt_name_for_template,
 )
@@ -92,17 +103,16 @@ from twobrain_rec_server.processing.fences import (
     normalize_db_timestamp,
 )
 from twobrain_rec_server.processing.results import (
-    effective_processing_result_query,
     latest_processing_result_query,
+    result_source_hash_is_attested,
 )
-from twobrain_rec_server.storage.minio_client import get_storage
 from twobrain_rec_server.workflows.outcome_generation_workflow import (
     TranscriptSnapshotError,
     split_plaintext_transcript,
 )
 from twobrain_rec_server.workflows.temporal_client import outcome_generation_workflow_id
 
-AI_GENERATOR_VERSION = "outcomes-ai-v1"
+AI_GENERATOR_VERSION = "meeting-protocol-v2"
 ZERO_UUID = UUID(int=0)
 _ACTIVE_CANDIDATE_STATUSES = ("queued", "generating", "blocked_dependency")
 _RETRYABLE_CANDIDATE_FAILURES = frozenset(
@@ -137,6 +147,40 @@ class SummarySlotCASConflict(OutcomeGenerationTerminalError):
         self.reason = reason
 
 
+def _protocol_publication_proof(attempt, extract_call, draft_call, verify_call):
+    if extract_call is None or draft_call is None or verify_call is None:
+        raise OutcomeGenerationTerminalError("summary_publication_proof_invalid")
+    envelope = verify_call.validated_result_json
+    if not isinstance(envelope, dict) or "protocol" not in envelope:
+        raise OutcomeGenerationTerminalError("summary_publication_proof_invalid")
+    snapshot = _stored_prompt_snapshot(attempt)
+    if snapshot is None:
+        raise OutcomeGenerationTerminalError("summary_publication_proof_invalid")
+    return {
+        "extraction_call_id": str(extract_call.id),
+        "extraction_hash": extract_call.validated_result_hash,
+        "draft_call_id": str(draft_call.id), "verification_call_id": str(verify_call.id),
+        "draft_hash": draft_call.validated_result_hash,
+        "verification_result_hash": verify_call.validated_result_hash,
+        "protocol_hash": _content_hash(envelope["protocol"]),
+        "transcript_hash": draft_call.transcript_hash,
+        "root_bundle_hash": snapshot.root_bundle_hash,
+        "execution_authority_hash": extract_call.execution_authority_hash,
+        "header_snapshot_hash": extract_call.header_snapshot_hash,
+        "outcome_set_id": str(attempt.outcome_set_id),
+    }
+
+
+def _call_output(call):
+    try:
+        choice = call.raw_response_json["choices"][0]
+        if choice.get("finish_reason") != "stop" or choice["message"].get("refusal"):
+            raise ValueError("incomplete_response")
+        return json.loads(choice["message"]["content"])
+    except (KeyError, IndexError, TypeError, ValueError):
+        raise OutcomeGenerationTerminalError("summary_publication_proof_invalid") from None
+
+
 async def publish_model_generated_outcome(
     db: AsyncSession,
     *,
@@ -144,78 +188,70 @@ async def publish_model_generated_outcome(
     meeting_id: UUID,
     candidate_id: UUID,
     expected_current_outcome_set_id: UUID | str | None,
+    settings: Settings,
     publication_proof: object | None = None,
+    validate_only: bool = False,
 ) -> MeetingOutcomeSet:
-    """Publish one already persisted, schema-valid model result.
-
-    The provider call is the durable proof boundary for the current runtime:
-    raw and validated response hashes must already be stored before this
-    function can move the type slot.  No user accept/reject action is involved;
-    the slot CAS keeps the previous revision readable if any fence fails.
-    """
-
+    """Publish only the exact full document backed by all three retained calls."""
     if not isinstance(publication_proof, dict):
         raise OutcomeGenerationTerminalError("summary_publication_proof_missing")
-    call_id_value = publication_proof.get("generation_call_id")
-    try:
-        call_id = UUID(str(call_id_value))
-    except (AttributeError, ValueError):
-        raise OutcomeGenerationTerminalError("summary_publication_proof_invalid") from None
-
+    if not {"extraction_call_id", "draft_call_id", "verification_call_id"} <= publication_proof.keys():
+        raise OutcomeGenerationTerminalError("summary_publication_proof_invalid")
     meeting, attempt = await _lock_candidate_meeting_and_attempt(
-        db,
-        workspace_id=workspace_id,
-        candidate_id=candidate_id,
+        db, workspace_id=workspace_id, candidate_id=candidate_id,
     )
+    if bool((attempt.metadata_json or {}).get("evaluation_only")) != validate_only:
+        raise OutcomeGenerationTerminalError("summary_evaluation_not_publishable")
     if (
-        meeting is None
-        or meeting.id != meeting_id
-        or meeting_is_deleted_or_deleting(meeting)
-        or attempt.status not in {"candidate", "accepted"}
-        or attempt.outcome_set_id is None
+        meeting is None or meeting.id != meeting_id or meeting_is_deleted_or_deleting(meeting)
+        or attempt.status not in {"candidate", "accepted"} or attempt.outcome_set_id is None
     ):
         raise OutcomeGenerationTerminalError("summary_publication_fence_failed")
-    call = await db.scalar(
-        select(GenerationCall)
-        .where(
-            GenerationCall.id == call_id,
-            GenerationCall.workspace_id == workspace_id,
-            GenerationCall.meeting_id == meeting_id,
-            GenerationCall.candidate_id == candidate_id,
-            GenerationCall.call_sequence == 1,
-        )
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
+    await _ensure_candidate_access(db, meeting, attempt)
+    await _ensure_execution_authority(db, attempt, settings)
+    calls = [await _latest_protocol_call(db, attempt, sequence) for sequence in (1, 2, 3)]
+    extract_call, draft_call, verify_call = calls
     outcome_set = await db.scalar(
-        select(MeetingOutcomeSet)
-        .where(
+        select(MeetingOutcomeSet).where(
             MeetingOutcomeSet.id == attempt.outcome_set_id,
-            MeetingOutcomeSet.workspace_id == workspace_id,
-            MeetingOutcomeSet.meeting_id == meeting_id,
-            MeetingOutcomeSet.candidate_id == candidate_id,
-            MeetingOutcomeSet.template_key == attempt.template_key,
+            MeetingOutcomeSet.workspace_id == workspace_id, MeetingOutcomeSet.meeting_id == meeting_id,
+            MeetingOutcomeSet.candidate_id == candidate_id, MeetingOutcomeSet.template_key == attempt.template_key,
             MeetingOutcomeSet.lifecycle_state == "active",
-        )
-        .with_for_update()
-        .execution_options(populate_existing=True)
+        ).with_for_update().execution_options(populate_existing=True)
     )
-    expected_hash = str(publication_proof.get("validated_result_hash") or "")
-    if (
-        call is None
-        or outcome_set is None
-        or not _generation_call_is_publishable(call)
-        or call.call_state != "completed"
-        or not call.validated_result_hash
-        or expected_hash != call.validated_result_hash
-        or outcome_set.content_hash != call.validated_result_hash
-        or publication_proof.get("outcome_set_id") not in {None, str(outcome_set.id)}
-    ):
-        raise OutcomeGenerationTerminalError("summary_publication_proof_invalid")
     try:
-        _verify_generation_call_hashes(call)
-    except OutcomeGenerationTerminalError as exc:
-        raise OutcomeGenerationTerminalError("summary_publication_proof_invalid") from exc
+        if (
+            any(call is None for call in calls) or outcome_set is None
+            or outcome_set.protocol_state != "available"
+            or outcome_set.protocol_schema_version != PROTOCOL_SCHEMA_VERSION
+            or attempt.header_snapshot_json is None
+            or publication_proof != _protocol_publication_proof(attempt, *calls)
+        ):
+            raise ValueError("incomplete_proof")
+        segments = await _candidate_segments(db, attempt)
+        transcript = canonical_transcript(segments)
+        transcript_hash = sha256(transcript.encode("utf-8")).hexdigest()
+        _, _, envelope = _validate_protocol_chain(attempt, calls, segments, transcript)
+        protocol = envelope["protocol"]
+        if (
+            outcome_set.protocol_json != protocol
+            or outcome_set.content_hash != _content_hash(protocol)
+            or attempt.temporal_transcript_hash != transcript_hash
+        ):
+            raise ValueError("document_mismatch")
+    except (KeyError, TypeError, ValueError, OutcomeGenerationTerminalError):
+        raise OutcomeGenerationTerminalError("summary_publication_proof_invalid") from None
+    if validate_only:
+        await _ensure_candidate_fence(db, attempt)
+        identity = await _current_source_identity(db, workspace_id=workspace_id, meeting_id=meeting_id)
+        if identity != (
+            attempt.media_revision_id, attempt.source_result_id,
+            attempt.source_result_hash, attempt.source_fingerprint,
+        ) or not await candidate_speaker_attribution_is_current(db, attempt):
+            raise OutcomeGenerationTerminalError("summary_source_revision_stale")
+        if is_expired(attempt.expires_at) or is_expired(outcome_set.expires_at):
+            raise OutcomeGenerationTerminalError("summary_candidate_expired")
+        return outcome_set
     try:
         expected_current_id = (
             expected_current_outcome_set_id
@@ -339,7 +375,7 @@ async def create_summary_candidate(
     )
     result = (
         await db.scalar(
-            effective_processing_result_query(
+            latest_processing_result_query(
                 workspace_id=workspace_id,
                 meeting_id=meeting_id,
                 media_revision_id=latest_revision.id,
@@ -350,7 +386,7 @@ async def create_summary_candidate(
     )
     if not canonical_speech_available(result):
         raise OutcomeGenerationTerminalError("summary_transcript_unavailable")
-    if result.source_result_hash is None:
+    if not result_source_hash_is_attested(result):
         raise OutcomeGenerationTerminalError("summary_source_revision_unavailable")
     source_fingerprint = f"result:{result.id}"
     if latest_revision is not None:
@@ -391,7 +427,7 @@ async def create_summary_candidate(
             raise OutcomeGenerationTerminalError("summary_template_unavailable")
         prompt_name = definition.prompt_name
         output_language = "ru"
-        detail_level = "standard"
+        detail_level = "detailed"
         template_sections = definition.sections
     if request_intent == "manual_refresh" and request_intent_id is None:
         raise OutcomeGenerationTerminalError("summary_refresh_intent_missing")
@@ -915,12 +951,12 @@ async def ensure_automatic_summary_candidate(
         or meeting_is_deleted_or_deleting(meeting)
     ):
         return None
-    definition = built_in_template_for_version(
-        workspace.default_summary_template_key,
-        workspace.default_summary_template_version,
-    )
-    if definition is None:
+    definition = built_in_template_for_key(workspace.default_summary_template_key)
+    template_id = workspace.default_summary_template_id
+    if definition is None and template_id is None:
         return None
+    template_key = workspace.default_summary_template_key
+    template_version = definition.version if template_id is None else workspace.default_summary_template_version
     with suppress(SummarySlotDefaultConflict):
         # The workspace automatic format is the product default for a meeting.
         # Persist that fact before creating the candidate so fresh imports and
@@ -930,16 +966,16 @@ async def ensure_automatic_summary_candidate(
             db,
             workspace_id=workspace_id,
             meeting_id=meeting_id,
-            template_key=definition.key,
+            template_key=template_key,
             resolution_source="workspace",
-            resolution_version=f"workspace-default:{definition.key}:v{definition.version}",
+            resolution_version=f"workspace-default:{template_key}:v{template_version}",
             resolved_at=datetime.now(UTC),
         )
     slot = await ensure_summary_slot(
         db,
         workspace_id=workspace_id,
         meeting_id=meeting_id,
-        template_key=definition.key,
+        template_key=template_key,
     )
     try:
         attempt = await create_summary_candidate(
@@ -947,9 +983,9 @@ async def ensure_automatic_summary_candidate(
             workspace_id=workspace_id,
             meeting_id=meeting_id,
             requested_by_user_id=meeting.created_by_user_id,
-            template_key=definition.key,
-            template_id=None,
-            template_version=definition.version,
+            template_key=template_key,
+            template_id=template_id,
+            template_version=template_version,
             expected_current_outcome_set_id=slot.current_outcome_set_id,
         )
     except OutcomeGenerationTerminalError:
@@ -1031,7 +1067,9 @@ async def resolve_candidate_prompt(
 ) -> dict[str, Any]:
     async with sessionmaker() as db:
         await _apply_worker_workspace(db, workspace_id)
-        attempt = await _candidate_attempt(db, workspace_id, candidate_id)
+        _, attempt = await _lock_candidate_meeting_and_attempt(
+            db, workspace_id=workspace_id, candidate_id=candidate_id,
+        )
         attempt = await _ensure_candidate_source_or_mark_stale(db, attempt)
         if attempt.prompt_name is None:
             raise OutcomeGenerationTerminalError("summary_prompt_not_selected")
@@ -1040,107 +1078,16 @@ async def resolve_candidate_prompt(
         except ValueError as exc:
             raise OutcomeGenerationTerminalError("summary_prompt_snapshot_corrupt") from exc
         if stored is not None:
-            attempt.generator_config_hash = _ai_generator_config_hash(
-                template_id=attempt.template_id,
-                template_key=attempt.template_key,
-                template_version=attempt.template_version,
-                template_sections=_template_sections(attempt),
-                output_language=attempt.output_language,
-                detail_level=attempt.detail_level,
-                snapshot=stored,
-            )
+            await _ensure_execution_authority(db, attempt, settings)
             await db.commit()
-            return _prompt_result(stored)
-        prompt_name = attempt.prompt_name
-    client = create_langfuse_client(settings)
-    try:
-        if settings.outcome_prompt_label == "production":
-            try:
-                bundle = await asyncio.to_thread(fetch_root_bundle_by_label, client)
-                snapshot = bundle.child(prompt_name)
-                await asyncio.to_thread(persist_root_bundle, get_storage(settings), bundle)
-            except Exception as live_exc:
-                try:
-                    bundle = await asyncio.to_thread(
-                        load_last_known_good_root_bundle,
-                        get_storage(settings),
-                    )
-                    snapshot = bundle.child(prompt_name)
-                except PromptBundleError as fallback_exc:
-                    if isinstance(live_exc, PromptBundleError):
-                        raise OutcomeGenerationTerminalError(
-                            "summary_prompt_snapshot_invalid"
-                        ) from live_exc
-                    raise OutcomeGenerationDependencyError(
-                        "langfuse_prompt_unavailable"
-                    ) from fallback_exc
-                except Exception as fallback_exc:
-                    raise OutcomeGenerationDependencyError(
-                        "langfuse_prompt_unavailable"
-                    ) from fallback_exc
-        else:
-            try:
-                remote = await asyncio.to_thread(
-                    fetch_prompt_by_label,
-                    client,
-                    name=prompt_name,
-                    prompt_type="chat",
-                    label=settings.outcome_prompt_label,
-                )
-                snapshot = validate_prompt_snapshot(
-                    name=prompt_name,
-                    version=int(remote.version),
-                    prompt_type="chat",
-                    prompt=remote.prompt,
-                    config=remote.config or {},
-                    source="langfuse_evaluation",
-                )
-            except ValueError as exc:
-                raise OutcomeGenerationTerminalError("summary_prompt_snapshot_invalid") from exc
-            except Exception:
-                try:
-                    snapshot = await asyncio.to_thread(
-                        load_verified_promoted_snapshot,
-                        get_storage(settings),
-                        prompt_name=prompt_name,
-                    )
-                except (PromptOptimizationError, ValueError) as fallback_exc:
-                    raise OutcomeGenerationTerminalError(
-                        "summary_prompt_snapshot_corrupt"
-                    ) from fallback_exc
-                except Exception as fallback_exc:
-                    raise OutcomeGenerationDependencyError(
-                        "langfuse_prompt_unavailable"
-                    ) from fallback_exc
-        async with sessionmaker() as guard_db:
-            await _apply_worker_workspace(guard_db, workspace_id)
-            guard_attempt = await _candidate_attempt(guard_db, workspace_id, candidate_id)
-            await _ensure_candidate_source_or_mark_stale(guard_db, guard_attempt)
-    finally:
-        shutdown_langfuse(client)
-    async with sessionmaker() as db:
-        await _apply_worker_workspace(db, workspace_id)
-        _, attempt = await _lock_candidate_meeting_and_attempt(
-            db,
-            workspace_id=workspace_id,
-            candidate_id=candidate_id,
-        )
-        attempt = await _ensure_candidate_source_or_mark_stale(db, attempt)
-        concurrent = _stored_prompt_snapshot(attempt)
-        if concurrent is not None:
-            if concurrent.canonical_hash != snapshot.canonical_hash:
-                raise OutcomeGenerationTerminalError("summary_prompt_resolution_conflict")
-            attempt.generator_config_hash = _ai_generator_config_hash(
-                template_id=attempt.template_id,
-                template_key=attempt.template_key,
-                template_version=attempt.template_version,
-                template_sections=_template_sections(attempt),
-                output_language=attempt.output_language,
-                detail_level=attempt.detail_level,
-                snapshot=concurrent,
-            )
-            await db.commit()
-            return _prompt_result(concurrent)
+            return _prompt_result(stored, settings)
+        try:
+            bundle, authority = await load_execution_authority(db, settings)
+            snapshot = bundle.child(attempt.prompt_name)
+        except PromptBundleError:
+            raise OutcomeGenerationDependencyError("summary_execution_authority_unavailable") from None
+        extractor = bundle.child(EXTRACTOR_PROMPT_NAME)
+        verifier = bundle.child(VERIFIER_PROMPT_NAME)
         attempt.prompt_version = snapshot.version
         attempt.prompt_source = snapshot.source
         attempt.prompt_definition = snapshot.prompt
@@ -1150,20 +1097,18 @@ async def resolve_candidate_prompt(
             snapshot.config["response_format"]["json_schema"]["name"]
         )
         attempt.model_route = snapshot.model
-        attempt.model_parameters = {
-            "temperature": snapshot.config["temperature"],
-            "response_format": snapshot.config["response_format"],
-        }
-        if "max_completion_tokens" in snapshot.config:
-            attempt.model_parameters["max_completion_tokens"] = snapshot.config[
-                "max_completion_tokens"
-            ]
+        attempt.model_parameters = snapshot.model_parameters
         metadata = dict(attempt.metadata_json or {})
-        bundle_metadata = snapshot_bundle_metadata(snapshot)
-        if bundle_metadata is None:
-            metadata.pop("prompt_bundle", None)
-        else:
-            metadata["prompt_bundle"] = bundle_metadata
+        metadata["prompt_bundle"] = snapshot_bundle_metadata(snapshot)
+        metadata["execution_authority"] = authority
+        metadata["pipeline"] = "extract-synthesize-verify-v1"
+        metadata["evaluation_only"] = authority["kind"] == "evaluation"
+        for key, child in (("extractor_prompt", extractor), ("verifier_prompt", verifier)):
+            metadata[key] = {
+                "name": child.name, "version": child.version,
+                "prompt": child.prompt, "config": child.config,
+                "hash": child.canonical_hash, "source": child.source,
+            }
         attempt.metadata_json = metadata
         attempt.generator_config_hash = _ai_generator_config_hash(
             template_id=attempt.template_id,
@@ -1176,7 +1121,27 @@ async def resolve_candidate_prompt(
         )
         attempt.status = "generating"
         await db.commit()
-    return _prompt_result(snapshot)
+    return _prompt_result(snapshot, settings)
+
+
+async def _ensure_execution_authority(db, attempt, settings):
+    metadata = attempt.metadata_json or {}
+    pinned = metadata.get("execution_authority")
+    if not isinstance(pinned, dict) or metadata.get("pipeline") != "extract-synthesize-verify-v1":
+        raise OutcomeGenerationTerminalError("summary_execution_authority_missing")
+    try:
+        bundle, authority = await load_execution_authority(db, settings, pinned=pinned)
+        for sequence in (1, 2, 3):
+            stored = _stage_snapshot(attempt, sequence)
+            expected = bundle.child(stored.name)
+            if (stored.version != expected.version or stored.canonical_hash != expected.canonical_hash
+                    or snapshot_bundle_metadata(stored) != snapshot_bundle_metadata(expected)):
+                raise ValueError
+        if bool(metadata.get("evaluation_only")) != (authority["kind"] == "evaluation"):
+            raise ValueError
+        return authority
+    except (PromptBundleError, ValueError):
+        raise OutcomeGenerationTerminalError("summary_execution_authority_invalid") from None
 
 
 async def snapshot_candidate_transcript(
@@ -1220,748 +1185,412 @@ async def execute_candidate_generation(
     candidate_id: UUID,
     expected_snapshot_hash: str,
     settings: Settings,
+    evaluation_source_guard: Callable[[], Awaitable[None]] | None = None,
 ) -> dict[str, Any]:
-    started_at = datetime.now(UTC)
+    """Extract, synthesize and verify through independently durable zero-replay calls."""
+    if (settings.env == "protocol-evaluation") != (evaluation_source_guard is not None):
+        raise OutcomeGenerationTerminalError("summary_evaluation_isolation_required")
     async with sessionmaker() as db:
         await _apply_worker_workspace(db, workspace_id)
-        attempt = await _candidate_attempt(db, workspace_id, candidate_id)
-        meeting_id = attempt.meeting_id
-        meeting = await lock_meeting_fence(db, workspace_id=workspace_id, meeting_id=meeting_id)
-        attempt = await _candidate_attempt(db, workspace_id, candidate_id, for_update=True)
-        snapshot = _stored_prompt_snapshot(attempt)
-        if snapshot is None or attempt.source_result_id is None:
-            raise OutcomeGenerationTerminalError("summary_prompt_not_pinned")
-        attempt.generator_config_hash = _ai_generator_config_hash(
-            template_id=attempt.template_id,
-            template_key=attempt.template_key,
-            template_version=attempt.template_version,
-            template_sections=_template_sections(attempt),
-            output_language=attempt.output_language,
-            detail_level=attempt.detail_level,
-            snapshot=snapshot,
+        meeting, attempt = await _lock_candidate_meeting_and_attempt(
+            db, workspace_id=workspace_id, candidate_id=candidate_id,
         )
         if meeting is None or meeting_is_deleted_or_deleting(meeting):
             raise OutcomeGenerationTerminalError("meeting_deleting")
-        if attempt.status == "accepted":
-            segments = await _candidate_segments(db, attempt)
-            transcript_hash = sha256(canonical_transcript(segments).encode("utf-8")).hexdigest()
-            if (
-                transcript_hash != expected_snapshot_hash
-                or transcript_hash != attempt.temporal_transcript_hash
-            ):
+        authority = await _ensure_execution_authority(db, attempt, settings)
+        evaluation_only = authority["kind"] == "evaluation"
+        if evaluation_only != (evaluation_source_guard is not None):
+            raise OutcomeGenerationTerminalError("summary_evaluation_source_guard_required")
+        await _check_evaluation_source(evaluation_source_guard)
+        if attempt.status in {"candidate", "accepted"}:
+            if attempt.temporal_transcript_hash != expected_snapshot_hash:
                 raise OutcomeGenerationTerminalError("summary_transcript_changed")
-            existing = await db.scalar(
-                select(GenerationCall)
-                .where(
-                    GenerationCall.workspace_id == workspace_id,
-                    GenerationCall.candidate_id == candidate_id,
-                    GenerationCall.call_sequence == 1,
-                )
-                .order_by(GenerationCall.provider_attempt.desc())
-                .with_for_update()
-                .execution_options(populate_existing=True)
-            )
-            outcome_set = await db.scalar(
-                select(MeetingOutcomeSet)
-                .where(
-                    MeetingOutcomeSet.workspace_id == workspace_id,
-                    MeetingOutcomeSet.meeting_id == meeting_id,
-                    MeetingOutcomeSet.id == attempt.outcome_set_id,
-                    MeetingOutcomeSet.candidate_id == candidate_id,
-                    MeetingOutcomeSet.lifecycle_state == "active",
-                )
-                .with_for_update()
-                .execution_options(populate_existing=True)
-            )
-            slot = await load_summary_slot(
-                db,
-                workspace_id=workspace_id,
-                meeting_id=meeting_id,
-                template_key=attempt.template_key,
-                for_update=True,
-            )
-            validated_hash = (
-                existing.validated_result_hash
-                if existing is not None and existing.validated_result_json is not None
-                else None
-            )
-            if (
-                existing is None
-                or existing.call_state != "completed"
-                or validated_hash is None
-                or outcome_set is None
-                or outcome_set.revision_state != "accepted"
-                or outcome_set.content_hash != validated_hash
-                or slot is None
-                or slot.current_outcome_set_id != outcome_set.id
-            ):
-                raise OutcomeGenerationTerminalError("summary_candidate_terminal")
-            _verify_generation_call_hashes(existing)
-            await finalize_dispatch_for_candidate(
-                db,
-                workspace_id=workspace_id,
-                candidate_id=candidate_id,
-                outcome="completed",
+            calls = [await _latest_protocol_call(db, attempt, sequence) for sequence in (1, 2, 3)]
+            verify_call = calls[2]
+            outcome = await publish_model_generated_outcome(
+                db, workspace_id=workspace_id, meeting_id=meeting.id, candidate_id=candidate_id,
+                expected_current_outcome_set_id=(
+                    attempt.outcome_set_id if attempt.status == "accepted"
+                    else (attempt.metadata_json or {}).get("expected_current_outcome_set_id")
+                ),
+                publication_proof=_protocol_publication_proof(attempt, *calls), settings=settings,
+                validate_only=evaluation_only,
             )
             await db.commit()
+            return _execution_result(attempt, verify_call, reused=True, outcome_id=outcome.id)
+    for sequence in (1, 2, 3):
+        result = await _execute_protocol_call(
+            sessionmaker, workspace_id=workspace_id, candidate_id=candidate_id,
+            expected_snapshot_hash=expected_snapshot_hash, settings=settings, sequence=sequence,
+            evaluation_source_guard=evaluation_source_guard,
+        )
+        if result["state"] != "stage_ready":
+            return result
+    raise OutcomeGenerationTerminalError("summary_verification_missing")
+
+
+async def _latest_protocol_call(db, attempt, sequence):
+    return await db.scalar(
+        select(GenerationCall).where(
+            GenerationCall.workspace_id == attempt.workspace_id,
+            GenerationCall.meeting_id == attempt.meeting_id,
+            GenerationCall.candidate_id == attempt.candidate_id,
+            GenerationCall.call_sequence == sequence,
+        ).order_by(GenerationCall.provider_attempt.desc()).with_for_update()
+        .execution_options(populate_existing=True)
+    )
+
+
+def _execution_result(attempt, call, *, reused=False, outcome_id=None):
+    return {
+        "candidate_id": str(attempt.candidate_id),
+        "generation_call_id": str(call.id) if call is not None else None,
+        "outcome_set_id": str(outcome_id or attempt.outcome_set_id) if outcome_id or attempt.outcome_set_id else None,
+        "state": attempt.status, "failure_code": attempt.failure_code, "reused": reused,
+    }
+
+
+def _protocol_sections(attempt):
+    return tuple(section for category in _template_sections(attempt) for section in TEMPLATE_PROTOCOL_SECTIONS[category])
+
+
+def _freeze_protocol_header(meeting, attempt, segments):
+    participants = {}
+    for segment in segments:
+        key = segment.speaker_key or segment.speaker_label
+        participants.setdefault(key, {
+            "speaker_key": key, "label": segment.speaker_label,
+            "attribution_state": segment.attribution_state,
+        })
+    return {
+        "title": meeting.title,
+        "started_at": meeting.started_at.isoformat() if meeting.started_at else None,
+        "ended_at": meeting.ended_at.isoformat() if meeting.ended_at else None,
+        "duration_seconds": meeting.duration_seconds,
+        "timezone_offset_minutes": meeting.recording_display_timezone_offset_minutes,
+        "input_type": "transcript", "participants": list(participants.values()),
+        "output_language": attempt.output_language, "detail_level": attempt.detail_level,
+        "template_key": attempt.template_key, "template_version": attempt.template_version,
+        "template_name": attempt.display_format_name, "sections": list(_protocol_sections(attempt)),
+        "source_result_id": str(attempt.source_result_id),
+    }
+
+
+def _enrich_protocol(draft, header, segments):
+    by_sequence = {segment.sequence: segment for segment in segments}
+
+    def enrich(value):
+        if isinstance(value, list):
+            return [enrich(child) for child in value]
+        if not isinstance(value, dict):
+            return value
+        if "sequence" in value and "quote" in value:
+            segment = by_sequence[value["sequence"]]
             return {
-                "candidate_id": str(candidate_id),
-                "generation_call_id": str(existing.id),
-                "outcome_set_id": str(outcome_set.id),
-                "state": "accepted",
-                "failure_code": None,
-                "reused": True,
+                **value, "transcript_segment_id": str(segment.segment_id),
+                "start_seconds": float(segment.start_seconds),
+                "end_seconds": float(segment.end_seconds), "speaker_label": segment.speaker_label,
+                "source_role": segment.source_role, "evidence_kind": "segment",
             }
-        try:
-            attempt = await _ensure_candidate_source_fence(db, attempt)
-        except OutcomeGenerationTerminalError as exc:
-            if str(exc) != "summary_source_revision_stale":
-                raise
-            attempt.status = "stale"
-            attempt.failure_code = "summary_source_revision_stale"
-            attempt.ended_at = datetime.now(UTC)
-            await db.commit()
-            raise
+        return {key: enrich(child) for key, child in value.items()}
+
+    return {"schema_version": PROTOCOL_SCHEMA_VERSION, "header": header, **enrich(draft)}
+
+
+def _protocol_messages(snapshot, attempt, transcript, draft=None, *, extraction=None):
+    return compile_prompt_messages(
+        snapshot, transcript_json=model_transcript(transcript), output_language=attempt.output_language or "ru",
+        detail_level=attempt.detail_level or "detailed", template_sections=_template_sections(attempt),
+        draft_json=canonical_json(draft) if draft is not None else None,
+        extraction_json=canonical_json(extraction) if extraction is not None else None,
+    )
+
+
+async def _finish_protocol_failure(db, attempt, code, *, status="failed"):
+    attempt.status = status
+    attempt.failure_code = code
+    attempt.failure_reason = code
+    attempt.ended_at = datetime.now(UTC)
+    await finalize_dispatch_for_candidate(
+        db, workspace_id=attempt.workspace_id, candidate_id=attempt.candidate_id,
+        outcome="cancelled" if status in {"stale", "cancelled", "expired"} else "failed",
+        failure_code=code,
+    )
+
+
+async def _check_evaluation_source(guard):
+    if guard is None:
+        return
+    try:
+        await guard()
+    except OutcomeGenerationTerminalError as exc:
+        if str(exc) == "evaluation_source_read_failed":
+            raise OutcomeGenerationDependencyError("evaluation_source_read_failed") from None
+        raise
+
+
+async def _execute_protocol_call(
+    sessionmaker, *, workspace_id, candidate_id, expected_snapshot_hash, settings, sequence,
+    evaluation_source_guard=None,
+):
+    started_at = datetime.now(UTC)
+    await _check_evaluation_source(evaluation_source_guard)
+    async with sessionmaker() as db:
+        await _apply_worker_workspace(db, workspace_id)
+        meeting, attempt = await _lock_candidate_meeting_and_attempt(
+            db, workspace_id=workspace_id, candidate_id=candidate_id,
+        )
+        attempt = await _ensure_candidate_source_or_mark_stale(db, attempt)
         if is_expired(attempt.expires_at):
             _expire_candidate_attempt(attempt)
             await db.commit()
             raise OutcomeGenerationTerminalError("summary_candidate_expired")
+        authority = await _ensure_execution_authority(db, attempt, settings)
+        evaluation_only = authority["kind"] == "evaluation"
+        if evaluation_only != (evaluation_source_guard is not None):
+            raise OutcomeGenerationTerminalError("summary_evaluation_source_guard_required")
+        snapshot = _stage_snapshot(attempt, sequence)
         segments = await _candidate_segments(db, attempt)
         transcript = canonical_transcript(segments)
         transcript_hash = sha256(transcript.encode("utf-8")).hexdigest()
-        if (
-            transcript_hash != expected_snapshot_hash
-            or transcript_hash != attempt.temporal_transcript_hash
-        ):
+        if transcript_hash != expected_snapshot_hash or transcript_hash != attempt.temporal_transcript_hash:
             raise OutcomeGenerationTerminalError("summary_transcript_changed")
-        existing = await db.scalar(
-            select(GenerationCall)
-            .where(
-                GenerationCall.workspace_id == workspace_id,
-                GenerationCall.candidate_id == candidate_id,
-                GenerationCall.call_sequence == 1,
-            )
-            .order_by(GenerationCall.provider_attempt.desc())
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
+        sections = _protocol_sections(attempt)
+        prior_calls = [await _latest_protocol_call(db, attempt, index) for index in range(1, sequence)]
+        prior_outputs = _validate_protocol_chain(attempt, prior_calls, segments, transcript) if prior_calls else []
+        extraction = prior_outputs[0] if sequence > 1 else None
+        draft = prior_outputs[1] if sequence == 3 else None
+        predecessor = prior_calls[-1] if prior_calls else None
+        existing = await _latest_protocol_call(db, attempt, sequence)
         provider_attempt = 1
         if existing is not None:
-            if existing.call_state == "completed" and existing.validated_result_json is not None:
-                state = "candidate" if attempt.status == "candidate" else "failed"
-                if state == "candidate" and attempt.outcome_set_id is not None:
-                    try:
-                        await publish_model_generated_outcome(
-                            db,
-                            workspace_id=workspace_id,
-                            meeting_id=meeting_id,
-                            candidate_id=candidate_id,
-                            expected_current_outcome_set_id=(
-                                (attempt.metadata_json or {}).get(
-                                    "expected_current_outcome_set_id"
-                                )
-                            ),
-                            publication_proof={
-                                "generation_call_id": str(existing.id),
-                                "outcome_set_id": str(attempt.outcome_set_id),
-                                "validated_result_hash": existing.validated_result_hash,
-                            },
-                        )
-                        await db.commit()
-                        return {
-                            "candidate_id": str(candidate_id),
-                            "generation_call_id": str(existing.id),
-                            "outcome_set_id": str(attempt.outcome_set_id),
-                            "state": "accepted",
-                            "failure_code": None,
-                            "reused": True,
-                        }
-                    except OutcomeGenerationTerminalError as exc:
-                        candidate_set = await db.scalar(
-                            select(MeetingOutcomeSet)
-                            .where(
-                                MeetingOutcomeSet.workspace_id == workspace_id,
-                                MeetingOutcomeSet.meeting_id == meeting_id,
-                                MeetingOutcomeSet.candidate_id == candidate_id,
-                                MeetingOutcomeSet.lifecycle_state == "active",
-                            )
-                            .with_for_update()
-                            .execution_options(populate_existing=True)
-                        )
-                        if candidate_set is not None:
-                            candidate_set.status = "blocked"
-                            candidate_set.failure_reason = str(exc)[:240]
-                            candidate_set.failure_source = "publication"
-                            set_outcome_category_states(candidate_set, "blocked")
-                        attempt.status = "failed"
-                        attempt.failure_code = str(exc)[:120]
-                        attempt.failure_reason = str(exc)[:240]
-                        attempt.ended_at = attempt.ended_at or datetime.now(UTC)
-                        await finalize_dispatch_for_candidate(
-                            db,
-                            workspace_id=workspace_id,
-                            candidate_id=candidate_id,
-                            outcome="failed",
-                            failure_code=attempt.failure_code,
-                        )
-                        await db.commit()
-                        return {
-                            "candidate_id": str(candidate_id),
-                            "generation_call_id": str(existing.id),
-                            "outcome_set_id": str(attempt.outcome_set_id),
-                            "state": "failed",
-                            "failure_code": attempt.failure_code,
-                            "reused": True,
-                        }
-                if state == "failed":
-                    generation_error = (
-                        existing.validated_result_json.get("generation_error")
-                        if isinstance(existing.validated_result_json, dict)
-                        else None
-                    )
-                    projection_failure = attempt.failure_code or (
-                        str(generation_error.get("code"))
-                        if isinstance(generation_error, dict) and generation_error.get("code")
-                        else "summary_generation_projection_missing"
-                    )
-                    failure_source = "provider" if generation_error is not None else "system"
-                    candidate_set = await db.scalar(
-                        select(MeetingOutcomeSet)
-                        .where(
-                            MeetingOutcomeSet.workspace_id == workspace_id,
-                            MeetingOutcomeSet.meeting_id == meeting_id,
-                            MeetingOutcomeSet.candidate_id == candidate_id,
-                            MeetingOutcomeSet.lifecycle_state == "active",
-                        )
-                        .with_for_update()
-                        .execution_options(populate_existing=True)
-                    )
-                    if candidate_set is not None:
-                        candidate_set.status = "failed"
-                        candidate_set.failure_reason = projection_failure
-                        candidate_set.failure_source = failure_source
-                        set_outcome_category_states(candidate_set, "blocked")
-                    attempt.status = "failed"
-                    attempt.failure_code = projection_failure
-                    attempt.failure_reason = projection_failure
-                    attempt.ended_at = datetime.now(UTC)
-                await finalize_dispatch_for_candidate(
-                    db,
-                    workspace_id=workspace_id,
-                    candidate_id=candidate_id,
-                    outcome="completed" if state == "candidate" else "failed",
-                    failure_code=attempt.failure_code,
+            if existing.call_state == "completed":
+                _validate_protocol_chain(attempt, [*prior_calls, existing], segments, transcript)
+                if sequence < 3:
+                    return {**_execution_result(attempt, existing, reused=True), "state": "stage_ready"}
+                return await _project_protocol_outcome(
+                    db, attempt, [*prior_calls, existing], settings=settings,
+                    validate_only=evaluation_only, reused=True,
                 )
-                await db.commit()
-                return {
-                    "candidate_id": str(candidate_id),
-                    "generation_call_id": str(existing.id),
-                    "state": state,
-                    "failure_code": attempt.failure_code,
-                    "reused": True,
-                }
-            if existing.call_state == "reserved":
-                _complete_generation_call_without_response(existing, call_state="ambiguous")
-                attempt.status = "failed"
-                attempt.failure_code = "summary_provider_outcome_ambiguous"
+            if existing.call_state in {"reserved", "ambiguous"}:
+                if existing.call_state == "reserved":
+                    _complete_generation_call_without_response(existing, call_state="ambiguous")
+                await _finish_protocol_failure(db, attempt, "summary_provider_outcome_ambiguous")
                 await db.commit()
                 raise OutcomeGenerationTerminalError("summary_provider_outcome_ambiguous")
-            if existing.call_state == "ambiguous":
-                raise OutcomeGenerationTerminalError("summary_provider_outcome_ambiguous")
-            if existing.call_state != "failed" or not _generation_call_is_retryable(existing):
+            if not _generation_call_is_retryable(existing):
                 raise OutcomeGenerationTerminalError("summary_provider_attempt_not_retryable")
             provider_attempt = existing.provider_attempt + 1
         if settings.litellm_base_url is None:
             raise OutcomeGenerationDependencyError("litellm_endpoint_unavailable")
         api_key = _read_secret(settings.litellm_api_key_file)
-        sections = _template_sections(attempt)
-        messages = compile_prompt_messages(
-            snapshot,
-            transcript_json=transcript,
-            output_language=attempt.output_language or "ru",
-            detail_level=attempt.detail_level or "standard",
-            template_sections=sections,
+        if attempt.header_snapshot_json is None:
+            if sequence != 1 or existing is not None:
+                raise OutcomeGenerationTerminalError("summary_header_snapshot_missing")
+            attempt.header_snapshot_json = _freeze_protocol_header(meeting, attempt, segments)
+        header = attempt.header_snapshot_json
+        messages = _protocol_messages(
+            snapshot, attempt, transcript, draft, extraction=extraction if sequence == 2 else None,
         )
         request = snapshot.litellm_request(messages)
         call = GenerationCall(
-            workspace_id=workspace_id,
-            meeting_id=attempt.meeting_id,
-            candidate_id=candidate_id,
-            provider_attempt=provider_attempt,
-            call_sequence=1,
+            workspace_id=workspace_id, meeting_id=attempt.meeting_id, candidate_id=candidate_id,
+            provider_attempt=provider_attempt, call_sequence=sequence,
             trace_id=attempt.langfuse_trace_id or deterministic_trace_id(candidate_id),
-            observation_id=deterministic_observation_id(
-                candidate_id, provider_attempt=provider_attempt, call_sequence=1
-            ),
-            call_state="reserved",
-            started_at=started_at,
-            request_json=request,
-            transcript_text=transcript,
-            request_hash=_content_hash(request),
-            transcript_hash=transcript_hash,
-            export_status="pending",
+            observation_id=deterministic_observation_id(candidate_id, provider_attempt=provider_attempt, call_sequence=sequence),
+            call_state="reserved", started_at=started_at, request_json=request, transcript_text=transcript,
+            request_hash=_content_hash(request), transcript_hash=transcript_hash, export_status="pending",
+            execution_authority_json=authority, execution_authority_hash=_content_hash(authority),
+            predecessor_call_id=predecessor.id if predecessor else None,
+            predecessor_result_hash=predecessor.validated_result_hash if predecessor else None,
+            header_snapshot_hash=_content_hash(header),
         )
         db.add(call)
         attempt.attempt_count += 1
+        attempt.status = "generating"
         await db.commit()
         call_id = call.id
-        meeting_id = attempt.meeting_id
-        source_result_id = attempt.source_result_id
-        media_revision_id = attempt.media_revision_id
-        template_id = attempt.template_id
-        template_key = attempt.template_key
-        template_version = attempt.template_version
-        output_language = attempt.output_language
-        detail_level = attempt.detail_level
-        requested_by_user_id = attempt.requested_by_user_id
+        # Each logical stage has its own provider idempotency identity.
+        idempotency_key = f"{attempt.idempotency_key}:call:{sequence}"
+
     gateway = LiteLLMGateway(
         base_url=str(settings.litellm_base_url),
         api_key=api_key,
         timeout_seconds=settings.litellm_request_timeout_seconds,
-        require_route_binding=True,
     )
     async with sessionmaker() as db:
         await _apply_worker_workspace(db, workspace_id)
-        meeting, attempt = await _lock_candidate_meeting_and_attempt(
-            db,
-            workspace_id=workspace_id,
-            candidate_id=candidate_id,
-        )
-        attempt = await _candidate_attempt(db, workspace_id, candidate_id, for_update=True)
-        call = await db.scalar(
-            select(GenerationCall)
-            .where(GenerationCall.id == call_id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-        if (
-            call is None
-            or meeting is None
-            or meeting_is_deleted_or_deleting(meeting)
-            or int(meeting.deletion_epoch or 0) != int(attempt.deletion_epoch_at_start or 0)
-        ):
-            if call is not None:
-                _complete_generation_call_without_response(call, call_state="failed")
-            attempt.status = "cancelled"
-            attempt.failure_code = "meeting_deleted"
-            await db.commit()
-            raise OutcomeGenerationTerminalError("meeting_deleting")
+        _, attempt = await _lock_candidate_meeting_and_attempt(db, workspace_id=workspace_id, candidate_id=candidate_id)
         try:
-            attempt = await _ensure_candidate_source_fence(db, attempt)
-        except OutcomeGenerationTerminalError as exc:
-            if str(exc) != "summary_source_revision_stale":
-                raise
+            await _ensure_candidate_source_fence(db, attempt)
+            await _ensure_execution_authority(db, attempt, settings)
+            await _check_evaluation_source(evaluation_source_guard)
+        except OutcomeGenerationDependencyError as exc:
+            # The provider was not called: a later attempt is safe, not ambiguous.
+            call = await db.get(GenerationCall, call_id, with_for_update=True)
             _complete_generation_call_without_response(call, call_state="failed")
-            attempt.status = "stale"
-            attempt.failure_code = "summary_source_revision_stale"
-            attempt.ended_at = datetime.now(UTC)
+            call.validated_result_json = {"generation_error": {
+                "code": str(exc), "retryable_classification": True,
+                "egress_state": "not_sent", "response_received": False,
+            }}
+            call.validated_result_hash = _content_hash(call.validated_result_json)
             await db.commit()
             raise
-        # Reserve and commit before network egress. A source can change after
-        # this point; the post-egress fence retains the provider call but blocks
-        # stale projection into a new outcome set.
-        await db.commit()
-        try:
-            # Re-check in a fresh transaction immediately before provider egress.
-            # The lock is released before the network call so deletion and source
-            # updates are never held behind a provider timeout; the post-egress
-            # fence remains authoritative for the unavoidable final race.
-            _, attempt = await _lock_candidate_meeting_and_attempt(
-                db,
-                workspace_id=workspace_id,
-                candidate_id=candidate_id,
-            )
-            attempt = await _ensure_candidate_source_fence(db, attempt)
         except OutcomeGenerationTerminalError as exc:
-            call = await db.scalar(
-                select(GenerationCall)
-                .where(GenerationCall.id == call_id)
-                .with_for_update()
-                .execution_options(populate_existing=True)
+            call = await db.get(GenerationCall, call_id, with_for_update=True)
+            _complete_generation_call_without_response(call, call_state="failed")
+            await _finish_protocol_failure(
+                db, attempt, str(exc), status="stale" if str(exc) == "summary_source_revision_stale" else "cancelled",
             )
-            if call is not None:
-                _complete_generation_call_without_response(call, call_state="failed")
-            if str(exc) == "summary_source_revision_stale":
-                attempt.status = "stale"
-                attempt.failure_code = "summary_source_revision_stale"
-            elif str(exc) == "meeting_deleting":
-                attempt.status = "cancelled"
-                attempt.failure_code = "meeting_deleted"
-            if str(exc) in {"summary_source_revision_stale", "meeting_deleting"}:
-                attempt.ended_at = datetime.now(UTC)
             await db.commit()
             raise
+        # Release the fence before network I/O so source changes and deletion never wait on the provider.
         await db.commit()
+        response = None
+        error = None
         try:
-            response = await gateway.generate(
-                snapshot=snapshot,
-                messages=messages,
-                idempotency_key=attempt.idempotency_key,
-            )
+            response = await gateway.generate(snapshot=snapshot, messages=messages, idempotency_key=idempotency_key)
         except LiteLLMError as exc:
-            meeting = await lock_meeting_fence(db, workspace_id=workspace_id, meeting_id=meeting_id)
-            attempt = await _candidate_attempt(db, workspace_id, candidate_id, for_update=True)
-            call = await db.scalar(
-                select(GenerationCall)
-                .where(GenerationCall.id == call_id)
-                .with_for_update()
-                .execution_options(populate_existing=True)
-            )
-            if (
-                meeting is None
-                or call is None
-                or meeting_is_deleted_or_deleting(meeting)
-                or int(meeting.deletion_epoch or 0) != int(attempt.deletion_epoch_at_start or 0)
-            ):
-                if call is not None:
-                    _complete_generation_call_without_response(call, call_state="failed")
-                attempt.status = "cancelled"
-                attempt.failure_code = "meeting_deleted"
-                await db.commit()
-                raise OutcomeGenerationTerminalError("meeting_deleting") from exc
-            completed_at = datetime.now(UTC)
-            validation_result = {
-                "generation_error": {
-                    "code": exc.code,
-                    "response_received": exc.raw_response is not None,
-                    "retryable_classification": exc.retryable,
-                    "egress_state": exc.egress_state,
-                }
-            }
-            if attempt.status not in ACTIVE_CANDIDATE_STATUSES:
-                call.completed_at = completed_at
-                call.raw_response_json = exc.raw_response
-                call.raw_response_hash = (
-                    _content_hash(exc.raw_response) if exc.raw_response is not None else None
-                )
-                if exc.egress_state == "unknown":
-                    call.call_state = "ambiguous"
-                    call.validated_result_json = None
-                    call.validated_result_hash = None
-                    call.export_status = "not_required"
-                else:
-                    call.call_state = "failed"
-                    call.validated_result_json = validation_result
-                    call.validated_result_hash = _content_hash(validation_result)
-                    call.export_status = "not_required"
-                await db.commit()
-                return {
-                    "candidate_id": str(candidate_id),
-                    "generation_call_id": str(call_id),
-                    "state": attempt.status,
-                    "failure_code": attempt.failure_code,
-                    "reused": False,
-                }
+            error = exc
+        meeting, attempt = await _lock_candidate_meeting_and_attempt(db, workspace_id=workspace_id, candidate_id=candidate_id)
+        call = await db.get(GenerationCall, call_id, with_for_update=True, populate_existing=True)
+        if call is None:
+            raise OutcomeGenerationTerminalError("summary_generation_call_missing")
+        completed_at = datetime.now(UTC)
+        validation_failure = None
+        if error is not None:
             call.completed_at = completed_at
-            call.raw_response_json = exc.raw_response
-            call.raw_response_hash = (
-                _content_hash(exc.raw_response) if exc.raw_response is not None else None
-            )
-            if exc.egress_state == "unknown":
-                call.call_state = "ambiguous"
-                call.validated_result_json = None
-                call.validated_result_hash = None
-                call.export_status = "not_required"
-                attempt.status = "failed"
-                attempt.failure_code = "summary_provider_outcome_ambiguous"
-                attempt.ended_at = completed_at
+            call.raw_response_json = error.raw_response
+            call.actual_model, call.actual_provider = reported_model_provenance(error.raw_response)
+            call.raw_response_hash = _content_hash(error.raw_response) if error.raw_response is not None else None
+            call.validated_result_json = {"generation_error": {
+                "code": error.code, "retryable_classification": error.retryable,
+                "egress_state": error.egress_state, "response_received": error.raw_response is not None,
+            }}
+            call.validated_result_hash = _content_hash(call.validated_result_json)
+            call.call_state = "ambiguous" if error.egress_state == "unknown" else "failed" if error.retryable else "completed"
+            call.export_status = "pending" if error.raw_response is not None else "not_required"
+            validation_failure = "summary_provider_outcome_ambiguous" if error.egress_state == "unknown" else error.code
+        else:
+            try:
+                if sequence == 1:
+                    validated = validate_factual_extraction(response.parsed_content, segments=segments)
+                elif sequence == 2:
+                    validated = validate_protocol_result(response.parsed_content, segments=segments, sections=sections)
+                else:
+                    verification = validate_protocol_verification(response.parsed_content, segments=segments)
+                    if verification["verdict"] != "pass":
+                        validated = {"verification": verification, "draft_hash": predecessor.validated_result_hash,
+                                     "extraction_hash": prior_calls[0].validated_result_hash}
+                        validation_failure = "summary_verification_failed"
+                    else:
+                        validated = {
+                            "verification": verification, "draft_hash": predecessor.validated_result_hash,
+                            "extraction_hash": prior_calls[0].validated_result_hash,
+                            "protocol": _enrich_protocol(draft, header, segments),
+                        }
+            except ValueError:
+                validated = {"validation_error": {"code": "summary_response_invalid"}}
+                validation_failure = "summary_response_invalid"
+            _complete_generation_call_with_response(call, response=response, validated_result=validated, completed_at=completed_at)
+            if call.validated_result_json != validated:
+                validation_failure = "generation_call_provenance_mismatch"
+
+        # Always retain completed response truth, even if deletion/cancellation won the race.
+        if evaluation_source_guard is not None:
+            try:
+                await _check_evaluation_source(evaluation_source_guard)
+            except OutcomeGenerationDependencyError:
+                # Capture precedes source recheck. Preserve completed response truth
+                # and the active candidate so retry can validate/project without inference.
+                if (
+                    attempt.status in ACTIVE_CANDIDATE_STATUSES
+                    and validation_failure
+                    and not (error is not None and error.retryable)
+                ):
+                    await _finish_protocol_failure(db, attempt, validation_failure)
                 await db.commit()
-                raise OutcomeGenerationTerminalError("summary_provider_outcome_ambiguous") from exc
-            call.validated_result_json = validation_result
-            call.validated_result_hash = _content_hash(validation_result)
-            if exc.raw_response is None:
-                call.export_status = "not_required"
-            if exc.retryable:
-                call.call_state = "failed"
-                attempt.status = "generating"
-                attempt.failure_code = exc.code
+                raise
+            except OutcomeGenerationTerminalError as exc:
+                await _finish_protocol_failure(db, attempt, str(exc), status="cancelled")
                 await db.commit()
-                raise OutcomeGenerationDependencyError(exc.code) from exc
-            call.call_state = "completed"
-            attempt.status = "failed"
-            attempt.failure_code = exc.code
-            attempt.failure_reason = attempt.failure_reason or exc.code
-            attempt.ended_at = completed_at
-            await finalize_dispatch_for_candidate(
-                db,
-                workspace_id=workspace_id,
-                candidate_id=candidate_id,
-                outcome="failed",
-                failure_code=exc.code,
-            )
-            await db.commit()
-            return {
-                "candidate_id": str(candidate_id),
-                "generation_call_id": str(call_id),
-                "state": "failed",
-                "failure_code": exc.code,
-                "reused": False,
-            }
-        meeting = await lock_meeting_fence(db, workspace_id=workspace_id, meeting_id=meeting_id)
-        attempt = await _candidate_attempt(db, workspace_id, candidate_id, for_update=True)
-        call = await db.scalar(
-            select(GenerationCall)
-            .where(GenerationCall.id == call_id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-        if meeting is None or call is None:
-            raise OutcomeGenerationTerminalError("meeting_deleting")
+                raise
         if attempt.status not in ACTIVE_CANDIDATE_STATUSES:
-            try:
-                terminal_validated = validate_outcome_result(
-                    response.parsed_content,
-                    allowed_categories=sections,
-                    allowed_segment_ids={str(segment.segment_id) for segment in segments},
-                )
-            except ValueError:
-                terminal_validated = {"validation_error": {"code": "summary_response_invalid"}}
-            _complete_generation_call_with_response(
-                call,
-                response=response,
-                validated_result=terminal_validated,
-                completed_at=datetime.now(UTC),
-            )
             await db.commit()
-            return {
-                "candidate_id": str(candidate_id),
-                "generation_call_id": str(call_id),
-                "state": attempt.status,
-                "failure_code": attempt.failure_code,
-                "reused": False,
-            }
-        if meeting_is_deleted_or_deleting(meeting) or int(meeting.deletion_epoch or 0) != int(
-            attempt.deletion_epoch_at_start or 0
-        ):
-            try:
-                deleted_validated = validate_outcome_result(
-                    response.parsed_content,
-                    allowed_categories=sections,
-                    allowed_segment_ids={str(segment.segment_id) for segment in segments},
-                )
-            except ValueError:
-                deleted_validated = {"validation_error": {"code": "summary_response_invalid"}}
-            deleted_at = datetime.now(UTC)
-            _complete_generation_call_with_response(
-                call,
-                response=response,
-                validated_result=deleted_validated,
-                completed_at=deleted_at,
-            )
-            attempt.status = "cancelled"
-            attempt.failure_code = "meeting_deleting"
-            attempt.ended_at = deleted_at
-            await finalize_dispatch_for_candidate(
-                db,
-                workspace_id=workspace_id,
-                candidate_id=candidate_id,
-                outcome="cancelled",
-                failure_code="meeting_deleting",
-            )
+            return _execution_result(attempt, call)
+        if meeting is None or meeting_is_deleted_or_deleting(meeting) or int(meeting.deletion_epoch or 0) != int(attempt.deletion_epoch_at_start or 0):
+            await _finish_protocol_failure(db, attempt, "meeting_deleting", status="cancelled")
             await db.commit()
             raise OutcomeGenerationTerminalError("meeting_deleting")
         if is_expired(attempt.expires_at):
-            expired_at = datetime.now(UTC)
-            call.call_state = "failed"
-            call.completed_at = expired_at
-            call.export_status = "not_required"
-            _expire_candidate_attempt(attempt, ended_at=expired_at)
+            _expire_candidate_attempt(attempt, ended_at=completed_at)
             await db.commit()
             raise OutcomeGenerationTerminalError("summary_candidate_expired")
         try:
-            attempt = await _ensure_candidate_source_fence(db, attempt)
+            await _ensure_candidate_source_fence(db, attempt)
+            await _ensure_execution_authority(db, attempt, settings)
         except OutcomeGenerationTerminalError as exc:
-            if str(exc) != "summary_source_revision_stale":
-                raise
-            try:
-                stale_validated = validate_outcome_result(
-                    response.parsed_content,
-                    allowed_categories=sections,
-                    allowed_segment_ids={str(segment.segment_id) for segment in segments},
-                )
-            except ValueError as validation_exc:
-                stale_validated = {
-                    "validation_error": {
-                        "code": "summary_response_invalid",
-                        "message": str(validation_exc),
-                    }
-                }
-            completed_at = datetime.now(UTC)
-            _complete_generation_call_with_response(
-                call,
-                response=response,
-                validated_result=stale_validated,
-                completed_at=completed_at,
-            )
-            attempt.status = "stale"
-            attempt.failure_code = "summary_source_revision_stale"
-            attempt.ended_at = completed_at
-            await finalize_dispatch_for_candidate(
-                db,
-                workspace_id=workspace_id,
-                candidate_id=candidate_id,
-                outcome="cancelled",
-                failure_code="summary_source_revision_stale",
-            )
-            # Keep the completed call publishable for the approved observability
-            # retention path, but never project its stale result into a set.
+            await _finish_protocol_failure(db, attempt, str(exc), status="stale")
             await db.commit()
-            return {
-                "candidate_id": str(candidate_id),
-                "generation_call_id": str(call_id),
-                "state": "stale",
-                "failure_code": "summary_source_revision_stale",
-                "reused": False,
-            }
-        validation_failure: str | None = None
-        try:
-            validated = validate_outcome_result(
-                response.parsed_content,
-                allowed_categories=sections,
-                allowed_segment_ids={str(segment.segment_id) for segment in segments},
-                allowed_segment_sequences={
-                    str(segment.segment_id): segment.sequence for segment in segments
-                },
-                repair_source_refs=True,
-            )
-        except ValueError as exc:
-            validated = {
-                "validation_error": {
-                    "code": "summary_response_invalid",
-                    "message": str(exc),
-                }
-            }
-            validation_failure = "summary_response_invalid"
-        completed_at = datetime.now(UTC)
-        call.call_state = "completed"
-        call.completed_at = completed_at
-        call.actual_model = response.actual_model
-        call.actual_provider = response.actual_provider
-        call.provider_request_id = response.provider_request_id
-        call.token_usage = response.token_usage
-        call.cost_details = response.cost_details
-        call.raw_response_json = response.raw_response
-        call.validated_result_json = validated
-        call.raw_response_hash = _content_hash(response.raw_response)
-        call.validated_result_hash = _content_hash(validated)
-        if validation_failure is not None:
-            attempt.status = "failed"
-            attempt.failure_code = validation_failure
-            attempt.failure_reason = validation_failure
-            attempt.ended_at = completed_at
-            await finalize_dispatch_for_candidate(
-                db,
-                workspace_id=workspace_id,
-                candidate_id=candidate_id,
-                outcome="failed",
-                failure_code=validation_failure,
-            )
+            return _execution_result(attempt, call)
+        if validation_failure:
+            if error is not None and error.retryable:
+                attempt.failure_code = error.code
+                await db.commit()
+                raise OutcomeGenerationDependencyError(error.code)
+            await _finish_protocol_failure(db, attempt, validation_failure)
             await db.commit()
-            return {
-                "candidate_id": str(candidate_id),
-                "generation_call_id": str(call_id),
-                "state": "failed",
-                "failure_code": validation_failure,
-                "reused": False,
-            }
-        outcome_set = MeetingOutcomeSet(
-            workspace_id=workspace_id,
-            meeting_id=meeting_id,
-            media_revision_id=media_revision_id,
-            processing_result_id=source_result_id,
-            candidate_id=candidate_id,
-            status="available",
-            source_kind="litellm",
-            generator_kind="litellm",
-            generator_version=AI_GENERATOR_VERSION,
-            source_result_hash=attempt.source_result_hash or transcript_hash,
-            source_fingerprint=attempt.source_fingerprint or attempt.source_result_hash,
-            deletion_epoch_at_start=attempt.deletion_epoch_at_start,
-            expires_at=attempt.expires_at,
-            content_hash=_content_hash(validated),
-            template_id=template_id,
-            template_key=template_key,
-            template_version=template_version,
-            generator_config_hash=attempt.generator_config_hash,
-            output_language=output_language,
-            detail_level=detail_level,
-            revision_state="candidate",
-            requested_by_user_id=requested_by_user_id,
-            started_at=started_at,
-            generated_at=completed_at,
-            latency_ms=max(0, int((completed_at - started_at).total_seconds() * 1000)),
+            return _execution_result(attempt, call)
+        if sequence < 3:
+            await db.commit()
+            return {**_execution_result(attempt, call), "state": "stage_ready"}
+        return await _project_protocol_outcome(
+            db, attempt, [*prior_calls, call], settings=settings, validate_only=evaluation_only,
         )
-        for category, state in validated["category_states"].items():
-            setattr(outcome_set, f"{category}_state", state)
-        db.add(outcome_set)
-        await db.flush()
-        for item in validated["items"]:
-            db.add(
-                MeetingOutcomeItem(
-                    workspace_id=workspace_id,
-                    meeting_id=meeting_id,
-                    outcome_set_id=outcome_set.id,
-                    category=item["category"],
-                    sequence=item["sequence"],
-                    state="available",
-                    text=item["text"],
-                    owner_text=item["owner_text"],
-                    due_date_text=item["due_date_text"],
-                    truth_label=item["truth_label"],
-                    source_refs_json=_canonical_source_refs(item["source_refs"], segments),
-                )
-            )
-        attempt.outcome_set_id = outcome_set.id
-        attempt.status = "candidate"
-        attempt.ended_at = completed_at
-        attempt.failure_code = None
-        try:
-            await publish_model_generated_outcome(
-                db,
-                workspace_id=workspace_id,
-                meeting_id=meeting_id,
-                candidate_id=candidate_id,
-                expected_current_outcome_set_id=(
-                    (attempt.metadata_json or {}).get("expected_current_outcome_set_id")
-                ),
-                publication_proof={
-                    "generation_call_id": str(call_id),
-                    "outcome_set_id": str(outcome_set.id),
-                    "validated_result_hash": call.validated_result_hash,
-                },
-            )
-        except OutcomeGenerationTerminalError as exc:
-            outcome_set.status = "blocked"
-            outcome_set.failure_reason = str(exc)[:240]
-            outcome_set.failure_source = "publication"
-            set_outcome_category_states(outcome_set, "blocked")
-            attempt.status = "failed"
-            attempt.failure_code = str(exc)[:120]
-            attempt.failure_reason = str(exc)[:240]
-            await finalize_dispatch_for_candidate(
-                db,
-                workspace_id=workspace_id,
-                candidate_id=candidate_id,
-                outcome="failed",
-                failure_code=attempt.failure_code,
-            )
-            await db.commit()
-            return {
-                "candidate_id": str(candidate_id),
-                "generation_call_id": str(call_id),
-                "outcome_set_id": str(outcome_set.id),
-                "state": "failed",
-                "failure_code": attempt.failure_code,
-                "reused": False,
-            }
-        await db.commit()
-        return {
-            "candidate_id": str(candidate_id),
-            "generation_call_id": str(call_id),
-            "outcome_set_id": str(outcome_set.id),
-            "state": "accepted",
-            "reused": False,
-        }
+
+
+async def _project_protocol_outcome(db, attempt, calls, *, settings, validate_only, reused=False):
+    """Rebuild only the local projection; publication revalidates all retained calls."""
+    extract_call, _, call = calls
+    envelope = call.validated_result_json
+    if not isinstance(envelope, dict) or "protocol" not in envelope or call.completed_at is None:
+        raise OutcomeGenerationTerminalError("summary_publication_proof_invalid")
+    protocol = envelope["protocol"]
+    completed_at = normalize_db_timestamp(call.completed_at)
+    workspace_id, candidate_id = attempt.workspace_id, attempt.candidate_id
+    outcome = MeetingOutcomeSet(
+        workspace_id=workspace_id, meeting_id=attempt.meeting_id, media_revision_id=attempt.media_revision_id,
+        processing_result_id=attempt.source_result_id, candidate_id=candidate_id,
+        status="available", protocol_state="available", protocol_schema_version=PROTOCOL_SCHEMA_VERSION,
+        protocol_json=protocol, source_kind="litellm", generator_kind="litellm", generator_version=AI_GENERATOR_VERSION,
+        source_result_hash=attempt.source_result_hash, source_fingerprint=attempt.source_fingerprint,
+        deletion_epoch_at_start=attempt.deletion_epoch_at_start, expires_at=attempt.expires_at,
+        content_hash=_content_hash(protocol), template_id=attempt.template_id, template_key=attempt.template_key,
+        template_version=attempt.template_version, generator_config_hash=attempt.generator_config_hash,
+        output_language=attempt.output_language, detail_level=attempt.detail_level, revision_state="candidate",
+        requested_by_user_id=attempt.requested_by_user_id, started_at=extract_call.started_at, generated_at=completed_at,
+        latency_ms=max(0, int((completed_at - normalize_db_timestamp(extract_call.started_at)).total_seconds() * 1000)),
+    )
+    db.add(outcome)
+    await db.flush()
+    attempt.outcome_set_id = outcome.id
+    attempt.status = "candidate"
+    attempt.failure_code = None
+    try:
+        await publish_model_generated_outcome(
+            db, workspace_id=workspace_id, meeting_id=attempt.meeting_id, candidate_id=candidate_id,
+            expected_current_outcome_set_id=(attempt.metadata_json or {}).get("expected_current_outcome_set_id"),
+            publication_proof=_protocol_publication_proof(attempt, *calls), settings=settings,
+            validate_only=validate_only,
+        )
+    except OutcomeGenerationTerminalError as exc:
+        outcome.status = "blocked"
+        outcome.protocol_state = "blocked"
+        outcome.failure_reason = str(exc)
+        outcome.failure_source = "publication"
+        await _finish_protocol_failure(db, attempt, str(exc))
+    await db.commit()
+    return _execution_result(attempt, call, outcome_id=outcome.id, reused=reused)
 
 
 async def publish_generation_call(
@@ -2035,9 +1664,9 @@ async def publish_generation_call(
             call.last_export_error_code = "meeting_deleting"
             await db.commit()
             return
-        snapshot = _stored_prompt_snapshot(attempt)
-        if snapshot is None or attempt.prompt_name is None or attempt.prompt_version is None:
-            raise OutcomeGenerationTerminalError("summary_prompt_not_pinned")
+        # Observability replays immutable provenance, never an executable old
+        # generator. It must remain deliverable after deletion or a code upgrade.
+        prompt_name, prompt_version, prompt_hash, selected_model = _observation_prompt_identity(attempt, call.call_sequence)
         _verify_generation_call_hashes(call)
         claim_started_at = now
         call.export_status = "publishing"
@@ -2046,9 +1675,6 @@ async def publish_generation_call(
         call.next_export_attempt_at = None
         call.last_export_error_code = None
         await db.commit()
-        prompt_name = attempt.prompt_name
-        prompt_version = attempt.prompt_version
-        selected_model = attempt.model_route or snapshot.model
         requested_by = attempt.requested_by_user_id
     client = create_langfuse_client(settings)
     try:
@@ -2075,7 +1701,7 @@ async def publish_generation_call(
                 selected_model=selected_model,
                 prompt_name=prompt_name,
                 prompt_version=prompt_version,
-                prompt_hash=attempt.prompt_hash,
+                prompt_hash=prompt_hash,
                 user_id=str(requested_by) if requested_by else None,
                 session_id=str(call.meeting_id),
                 activity_attempt=activity_attempt,
@@ -2257,7 +1883,7 @@ def _generation_call_is_publishable(call: GenerationCall) -> bool:
         or call.validated_result_json is None
     ):
         return False
-    return call.call_state in {"completed", "failed"}
+    return call.call_state in {"completed", "failed", "ambiguous"}
 
 
 def _complete_generation_call_without_response(call: GenerationCall, *, call_state: str) -> None:
@@ -2275,12 +1901,15 @@ def _complete_generation_call_with_response(
 ) -> None:
     call.call_state = "completed"
     call.completed_at = completed_at
-    call.actual_model = getattr(response, "actual_model", None)
-    call.actual_provider = getattr(response, "actual_provider", None)
     call.provider_request_id = getattr(response, "provider_request_id", None)
     call.token_usage = getattr(response, "token_usage", None)
     call.cost_details = getattr(response, "cost_details", None)
     call.raw_response_json = getattr(response, "raw_response", None)
+    call.actual_model, call.actual_provider = reported_model_provenance(call.raw_response_json)
+    if (getattr(response, "actual_model", None), getattr(response, "actual_provider", None)) != (
+        call.actual_model, call.actual_provider,
+    ):
+        validated_result = {"validation_error": {"code": "generation_call_provenance_mismatch"}}
     call.validated_result_json = validated_result
     call.raw_response_hash = _content_hash(call.raw_response_json)
     call.validated_result_hash = _content_hash(validated_result)
@@ -2683,6 +2312,50 @@ async def _ensure_candidate_fence(
         raise OutcomeGenerationTerminalError("meeting_deleting")
 
 
+async def _ensure_candidate_access(db, meeting, attempt):
+    """Reauthorize the owner-only generation contract under existing request RLS.
+
+    Worker RLS cannot see identity/membership rows. Use only the locked meeting's
+    exact owner/workspace, read status (no profiles), then restore the caller.
+    Shared locks serialize publication with deactivation/membership revocation;
+    pre-egress transactions release them before any provider I/O.
+    """
+    owner_id = meeting.created_by_user_id
+    if owner_id is None or attempt.requested_by_user_id != owner_id:
+        raise OutcomeGenerationTerminalError("summary_source_access_revoked")
+    previous = db.info.get("tenant_context")
+    try:
+        await apply_tenant_context(db, TenantDatabaseContext(
+            organization_id=ZERO_UUID, workspace_id=meeting.workspace_id,
+            user_id=owner_id, context_kind="request",
+        ))
+        organization_id = await db.scalar(select(Workspace.organization_id).where(
+            Workspace.id == meeting.workspace_id,
+        ))
+        if organization_id is None:
+            raise OutcomeGenerationTerminalError("summary_source_access_revoked")
+        await apply_tenant_context(db, TenantDatabaseContext(
+            organization_id=organization_id, workspace_id=meeting.workspace_id,
+            user_id=owner_id, context_kind="request",
+        ))
+        active_owner = await db.scalar(
+            select(UserIdentity.id).join(WorkspaceMembership, WorkspaceMembership.user_id == UserIdentity.id)
+            .where(
+                UserIdentity.id == owner_id, UserIdentity.status == "active",
+                WorkspaceMembership.workspace_id == meeting.workspace_id,
+                WorkspaceMembership.status == "active",
+            ).with_for_update(read=True)
+        )
+        if active_owner is None:
+            raise OutcomeGenerationTerminalError("summary_source_access_revoked")
+    finally:
+        if previous is None:
+            await _apply_worker_workspace(db, meeting.workspace_id)
+        else:
+            db.info["tenant_context"] = previous
+            await rehydrate_tenant_context(db)
+
+
 async def _ensure_candidate_source_fence(
     db: AsyncSession,
     attempt: MeetingOutcomeGenerationAttempt,
@@ -2722,6 +2395,7 @@ async def _ensure_candidate_source_fence(
         or int(meeting.deletion_epoch or 0) != int(attempt.deletion_epoch_at_start or 0)
     ):
         raise OutcomeGenerationTerminalError("meeting_deleting")
+    await _ensure_candidate_access(db, meeting, attempt)
     if attempt.source_result_id is None or (
         attempt.media_revision_id is None and attempt.source_fingerprint is None
     ):
@@ -2766,7 +2440,7 @@ async def _ensure_candidate_source_fence(
         or attempt.processing_result_id != latest_result.id
         or attempt.source_result_id != latest_result.id
         or attempt.source_result_hash is None
-        or latest_result.source_result_hash is None
+        or not result_source_hash_is_attested(latest_result)
         or attempt.source_result_hash != latest_result.source_result_hash
         or attempt.source_fingerprint != expected_source_fingerprint
         or not speaker_attribution_current
@@ -2813,26 +2487,6 @@ async def _candidate_segments(
     return segments
 
 
-def _canonical_source_refs(
-    source_refs: list[dict[str, object]],
-    segments: list[OutcomeTranscriptSegment],
-) -> list[dict[str, object]]:
-    segments_by_id = {str(segment.segment_id): segment for segment in segments}
-    canonical_refs = []
-    for ref in source_refs:
-        segment = segments_by_id[str(ref["transcript_segment_id"])]
-        canonical_refs.append(
-            OutcomeSourceReference(
-                transcript_segment_id=segment.segment_id,
-                sequence=segment.sequence,
-                start_seconds=float(segment.start_seconds),
-                end_seconds=float(segment.end_seconds),
-                speaker_label=segment.speaker_label,
-                source_role=segment.source_role,
-                evidence_kind=str(ref["evidence_kind"]),
-            ).as_json()
-        )
-    return canonical_refs
 
 
 def _stored_prompt_snapshot(
@@ -2867,15 +2521,85 @@ def _stored_prompt_snapshot(
             raise OutcomeGenerationTerminalError("summary_prompt_snapshot_corrupt") from exc
     elif snapshot.source == "langfuse_production":
         raise OutcomeGenerationTerminalError("summary_prompt_snapshot_corrupt")
+    expected_generator_hash = _ai_generator_config_hash(
+        template_id=attempt.template_id, template_key=attempt.template_key,
+        template_version=attempt.template_version, template_sections=_template_sections(attempt),
+        output_language=attempt.output_language, detail_level=attempt.detail_level,
+        snapshot=snapshot,
+    )
+    if (
+        attempt.model_route != snapshot.model
+        or canonical_json(attempt.model_parameters) != canonical_json(snapshot.model_parameters)
+        or attempt.generator_config_hash != expected_generator_hash
+    ):
+        raise OutcomeGenerationTerminalError("generation_call_request_mismatch")
     return snapshot
 
 
-def _prompt_result(snapshot: PromptSnapshot) -> dict[str, object]:
+def _observation_prompt_identity(attempt, sequence):
+    metadata = attempt.metadata_json or {}
+    # Historical observation delivery has its retained stage layout, never execution authority.
+    three_stage = metadata.get("pipeline") == "extract-synthesize-verify-v1"
+    if sequence == (2 if three_stage else 1):
+        name, version, prompt, config, digest = (
+            attempt.prompt_name, attempt.prompt_version, attempt.prompt_definition,
+            attempt.prompt_config, attempt.prompt_hash,
+        )
+    elif sequence == (3 if three_stage else 2) or (three_stage and sequence == 1):
+        value = metadata.get("extractor_prompt" if sequence == 1 else "verifier_prompt") or {}
+        name, version, prompt, config, digest = (value.get(key) for key in ("name", "version", "prompt", "config", "hash"))
+    else:
+        raise OutcomeGenerationTerminalError("summary_prompt_not_pinned")
+    if (
+        not isinstance(name, str) or type(version) is not int or version < 1
+        or not isinstance(config, dict) or prompt is None
+        or prompt_snapshot_hash(prompt=prompt, config=config) != digest
+        or not isinstance(config.get("model"), str)
+    ):
+        raise OutcomeGenerationTerminalError("summary_prompt_snapshot_corrupt")
+    return name, version, digest, config["model"]
+
+
+def _stored_verifier_snapshot(attempt: MeetingOutcomeGenerationAttempt) -> PromptSnapshot:
+    return _stored_stage_child(attempt, "verifier_prompt", VERIFIER_PROMPT_NAME)
+
+
+def _stored_stage_child(attempt, key, name):
+    value = (attempt.metadata_json or {}).get(key)
+    try:
+        if not isinstance(value, dict) or value["name"] != name:
+            raise ValueError("stage_missing")
+        snapshot = validate_prompt_snapshot(
+            name=value["name"], version=value["version"], prompt_type="chat",
+            prompt=value["prompt"], config=value["config"], source=value["source"],
+        )
+        if snapshot.canonical_hash != value["hash"]:
+            raise ValueError("verifier_hash_mismatch")
+        return bind_snapshot_from_metadata(snapshot, (attempt.metadata_json or {}).get("prompt_bundle"))
+    except (KeyError, TypeError, ValueError):
+        raise OutcomeGenerationTerminalError("summary_stage_snapshot_corrupt") from None
+
+
+def _stage_snapshot(attempt, sequence):
+    if sequence == 1:
+        return _stored_stage_child(attempt, "extractor_prompt", EXTRACTOR_PROMPT_NAME)
+    if sequence == 2:
+        snapshot = _stored_prompt_snapshot(attempt)
+        if snapshot is not None:
+            return snapshot
+    if sequence == 3:
+        return _stored_verifier_snapshot(attempt)
+    raise OutcomeGenerationTerminalError("summary_prompt_not_pinned")
+
+
+def _prompt_result(snapshot: PromptSnapshot, settings: Settings) -> dict[str, object]:
     return {
         "prompt_name": snapshot.name,
         "prompt_version": snapshot.version,
         "prompt_hash": snapshot.canonical_hash,
         "model_route": snapshot.model,
+        # Extraction, synthesis, verification plus source checks and durable storage.
+        "generation_timeout_seconds": 3 * settings.litellm_request_timeout_seconds + 120,
     }
 
 
@@ -2922,19 +2646,12 @@ def _ai_generator_config_hash(
         prompt_version = snapshot.version
         prompt_hash = snapshot.canonical_hash
         model_route = snapshot.model
+        model_parameters = snapshot.model_parameters
         response_format = snapshot.config.get("response_format")
         if isinstance(response_format, dict):
             json_schema = response_format.get("json_schema")
             if isinstance(json_schema, dict):
                 output_schema_version = str(json_schema.get("name") or "")
-            model_parameters = {
-                "temperature": snapshot.config.get("temperature"),
-                "response_format": response_format,
-            }
-            if "max_completion_tokens" in snapshot.config:
-                model_parameters["max_completion_tokens"] = snapshot.config[
-                    "max_completion_tokens"
-                ]
     return _content_hash(
         {
             "generator_version": AI_GENERATOR_VERSION,
@@ -2950,6 +2667,7 @@ def _ai_generator_config_hash(
                 "name": prompt_name,
                 "version": prompt_version,
                 "hash": prompt_hash,
+                "root_bundle": snapshot_bundle_metadata(snapshot) if snapshot else None,
             },
             "model_route": model_route,
             "model_parameters": model_parameters,
@@ -2968,6 +2686,67 @@ def _generation_call_is_retryable(call: GenerationCall) -> bool:
         and error.get("retryable_classification") is True
         and error.get("egress_state") in {"not_sent", "response_received"}
     )
+
+
+def _verify_generation_call_execution(
+    attempt: MeetingOutcomeGenerationAttempt, call: GenerationCall, *, draft=None, extraction=None,
+) -> None:
+    """New publication/reuse only; never apply this to historical observation delivery."""
+    if (call.actual_model, call.actual_provider) != reported_model_provenance(call.raw_response_json):
+        raise OutcomeGenerationTerminalError("generation_call_provenance_mismatch")
+    if ((call.call_sequence == 2) != (extraction is not None)
+            or (call.call_sequence == 3) != (draft is not None)):
+        raise OutcomeGenerationTerminalError("generation_call_request_mismatch")
+    snapshot = _stage_snapshot(attempt, call.call_sequence)
+    expected_request = snapshot.litellm_request(
+        _protocol_messages(snapshot, attempt, call.transcript_text, draft, extraction=extraction)
+    )
+    if canonical_json(call.request_json) != canonical_json(expected_request):
+        raise OutcomeGenerationTerminalError("generation_call_request_mismatch")
+
+
+def _validate_protocol_chain(attempt, calls, segments, transcript):
+    """Reparse every retained prefix; never repair output or trust a stored PASS alone."""
+    if not 1 <= len(calls) <= 3:
+        raise OutcomeGenerationTerminalError("summary_publication_proof_invalid")
+    authority = (attempt.metadata_json or {}).get("execution_authority")
+    if not isinstance(authority, dict) or attempt.header_snapshot_json is None:
+        raise OutcomeGenerationTerminalError("summary_execution_authority_missing")
+    outputs = []
+    previous = None
+    for sequence, call in enumerate(calls, 1):
+        if (call is None or call.call_sequence != sequence or call.call_state != "completed"
+                or call.transcript_text != transcript
+                or call.execution_authority_json != authority
+                or call.execution_authority_hash != _content_hash(authority)
+                or call.header_snapshot_hash != _content_hash(attempt.header_snapshot_json)
+                or call.predecessor_call_id != (previous.id if previous else None)
+                or call.predecessor_result_hash != (previous.validated_result_hash if previous else None)):
+            raise OutcomeGenerationTerminalError("summary_call_chain_invalid")
+        _verify_generation_call_hashes(call)
+        _verify_generation_call_execution(
+            attempt, call, extraction=outputs[0] if sequence == 2 else None,
+            draft=outputs[1] if sequence == 3 else None,
+        )
+        raw = _call_output(call)
+        if sequence == 1:
+            validated = validate_factual_extraction(raw, segments=segments)
+        elif sequence == 2:
+            validated = validate_protocol_result(raw, segments=segments, sections=_protocol_sections(attempt))
+        else:
+            verification = validate_protocol_verification(raw, segments=segments)
+            if verification != {"verdict": "pass", "findings": []}:
+                raise OutcomeGenerationTerminalError("summary_verification_failed")
+            validated = {
+                "verification": verification, "draft_hash": _content_hash(outputs[1]),
+                "extraction_hash": _content_hash(outputs[0]),
+                "protocol": _enrich_protocol(outputs[1], attempt.header_snapshot_json, segments),
+            }
+        if call.validated_result_json != validated:
+            raise OutcomeGenerationTerminalError("summary_call_chain_invalid")
+        outputs.append(validated)
+        previous = call
+    return outputs
 
 
 def _verify_generation_call_hashes(call: GenerationCall) -> None:

@@ -156,7 +156,7 @@ def test_user_share_rotation_returns_recipient_bound_url_and_invalidates_old_tok
         "meeting_label",
         "occurred_at",
         "duration_seconds",
-        "summary_sections",
+        "protocol",
     }
 
 

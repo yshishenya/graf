@@ -1,230 +1,70 @@
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
-from datetime import datetime
-from uuid import UUID
-
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from twobrain_rec_server.db.models import (
-    MeetingOutcomeGenerationAttempt,
-    MeetingOutcomeItem,
-    MeetingOutcomeSet,
-)
-from twobrain_rec_server.domain.statuses import (
-    OutcomeGenerationAttemptStatus,
-    OutcomeGeneratorKind,
-    OutcomeSetStatus,
-)
-from twobrain_rec_server.processing.fences import is_expired
+from twobrain_rec_server.db.models import Meeting, MeetingOutcomeSet, ProcessingResult
+from twobrain_rec_server.outcomes.models import PROTOCOL_SCHEMA_VERSION
 
-OUTCOME_GENERATOR_VERSION = "outcomes-extractive-v1"
-
-REUSABLE_OUTCOME_SET_STATUSES = {
-    OutcomeSetStatus.AVAILABLE.value,
-    OutcomeSetStatus.PARTIAL.value,
-    OutcomeSetStatus.UNSAFE.value,
-    OutcomeSetStatus.QUEUED.value,
-    OutcomeSetStatus.GENERATING.value,
-}
+# Public provenance name retained for callers; this path stores state, not content.
+OUTCOME_GENERATOR_VERSION = "meeting-protocol-wait-v2"
 
 
-async def get_current_outcome_set(
+async def project_protocol_wait(
     session: AsyncSession,
     *,
-    workspace_id: UUID,
-    meeting_id: UUID,
-    media_revision_id: UUID | None,
-    processing_result_id: UUID,
-    candidate_id: UUID | None = None,
-    generator_version: str = OUTCOME_GENERATOR_VERSION,
-    generator_config_hash: str | None = None,
-) -> MeetingOutcomeSet | None:
-    conditions = [
-        MeetingOutcomeSet.workspace_id == workspace_id,
-        MeetingOutcomeSet.meeting_id == meeting_id,
-        MeetingOutcomeSet.media_revision_id == media_revision_id,
-        MeetingOutcomeSet.processing_result_id == processing_result_id,
-        MeetingOutcomeSet.generator_version == generator_version,
-        MeetingOutcomeSet.candidate_id == candidate_id,
-    ]
-    if generator_config_hash is not None:
-        conditions.append(
-            (MeetingOutcomeSet.generator_config_hash == generator_config_hash)
-            | MeetingOutcomeSet.generator_config_hash.is_(None)
-        )
-    result = await session.execute(select(MeetingOutcomeSet).where(*conditions))
-    return result.scalar_one_or_none()
-
-
-async def create_outcome_set(
-    session: AsyncSession,
-    *,
-    workspace_id: UUID,
-    meeting_id: UUID,
-    media_revision_id: UUID | None,
-    processing_result_id: UUID,
-    candidate_id: UUID | None = None,
-    source_result_hash: str | None = None,
-    source_fingerprint: str | None = None,
-    generator_config_hash: str | None = None,
-    deletion_epoch_at_start: int | None = None,
-    generator_version: str = OUTCOME_GENERATOR_VERSION,
-    status: str = OutcomeSetStatus.QUEUED.value,
-    started_at: datetime | None = None,
-    expires_at: datetime | None = None,
+    meeting: Meeting,
+    result: ProcessingResult,
+    source_fingerprint: str,
+    ai_dispatch_planned: bool,
+    transcript_available: bool,
 ) -> MeetingOutcomeSet:
-    current = await get_current_outcome_set(
-        session,
-        workspace_id=workspace_id,
-        meeting_id=meeting_id,
-        media_revision_id=media_revision_id,
-        processing_result_id=processing_result_id,
-        candidate_id=candidate_id,
-        generator_version=generator_version,
-        generator_config_hash=generator_config_hash,
-    )
-    if current is not None:
-        return current
-    outcome_set = MeetingOutcomeSet(
-        workspace_id=workspace_id,
-        meeting_id=meeting_id,
-        media_revision_id=media_revision_id,
-        processing_result_id=processing_result_id,
-        candidate_id=candidate_id,
-        source_result_hash=source_result_hash,
-        source_fingerprint=source_fingerprint,
-        generator_config_hash=generator_config_hash,
-        deletion_epoch_at_start=deletion_epoch_at_start,
-        generator_version=generator_version,
-        status=status,
-        started_at=started_at,
-        expires_at=expires_at,
-    )
-    session.add(outcome_set)
-    await session.flush()
-    return outcome_set
+    """Project processing state under the caller's Meeting/source fence.
 
-
-async def replace_outcome_items(
-    session: AsyncSession,
-    *,
-    outcome_set: MeetingOutcomeSet,
-    items: Iterable[Mapping[str, object]],
-) -> list[MeetingOutcomeItem]:
-    await session.execute(delete(MeetingOutcomeItem).where(MeetingOutcomeItem.outcome_set_id == outcome_set.id))
-    rows: list[MeetingOutcomeItem] = []
-    for item in items:
-        row = MeetingOutcomeItem(
-            workspace_id=outcome_set.workspace_id,
-            meeting_id=outcome_set.meeting_id,
-            outcome_set_id=outcome_set.id,
-            category=str(item["category"]),
-            sequence=int(item.get("sequence", len(rows))),
-            state=str(item.get("state", "available")),
-            text=item.get("text") if item.get("text") is None else str(item.get("text")),
-            owner_text=item.get("owner_text") if item.get("owner_text") is None else str(item.get("owner_text")),
-            due_date_text=item.get("due_date_text") if item.get("due_date_text") is None else str(item.get("due_date_text")),
-            truth_label=str(item.get("truth_label", "supported")),
-            source_refs_json=list(item.get("source_refs_json", [])),
+    Real model candidates and immutable documents belong to ai_service. This
+    record has no candidate identity, model attempt, items, or published slot.
+    """
+    outcome = await session.scalar(
+        select(MeetingOutcomeSet).where(
+            MeetingOutcomeSet.workspace_id == meeting.workspace_id,
+            MeetingOutcomeSet.meeting_id == meeting.id,
+            MeetingOutcomeSet.processing_result_id == result.id,
+            MeetingOutcomeSet.media_revision_id == result.media_revision_id,
+            MeetingOutcomeSet.source_result_hash == result.source_result_hash,
+            MeetingOutcomeSet.source_fingerprint == source_fingerprint,
+            MeetingOutcomeSet.deletion_epoch_at_start == int(meeting.deletion_epoch or 0),
+            MeetingOutcomeSet.generator_version == OUTCOME_GENERATOR_VERSION,
+            MeetingOutcomeSet.candidate_id.is_(None),
+            MeetingOutcomeSet.revision_state == "candidate",
+            MeetingOutcomeSet.lifecycle_state == "active",
+            MeetingOutcomeSet.protocol_json.is_(None),
+            MeetingOutcomeSet.content_hash.is_(None),
         )
-        session.add(row)
-        rows.append(row)
-    await session.flush()
-    return rows
-
-
-async def record_generation_attempt(
-    session: AsyncSession,
-    *,
-    workspace_id: UUID,
-    meeting_id: UUID,
-    media_revision_id: UUID | None,
-    processing_result_id: UUID,
-    outcome_set_id: UUID | None = None,
-    status: str = OutcomeGenerationAttemptStatus.QUEUED.value,
-    provider_kind: str = OutcomeGeneratorKind.DETERMINISTIC_EXTRACTIVE.value,
-    generator_version: str = OUTCOME_GENERATOR_VERSION,
-    started_at: datetime | None = None,
-    ended_at: datetime | None = None,
-    latency_ms: int | None = None,
-    failure_reason: str | None = None,
-    failure_source: str | None = None,
-    metadata_json: dict | None = None,
-    candidate_id: UUID | None = None,
-    idempotency_key: str | None = None,
-    request_intent: str = "automatic_baseline",
-    source_result_id: UUID | None = None,
-    source_result_hash: str | None = None,
-    source_fingerprint: str | None = None,
-    generator_config_hash: str | None = None,
-    deletion_epoch_at_start: int | None = None,
-    expires_at: datetime | None = None,
-    display_format_name: str | None = None,
-    template_key: str | None = None,
-    template_version: int | None = None,
-) -> MeetingOutcomeGenerationAttempt:
-    attempt = MeetingOutcomeGenerationAttempt(
-        workspace_id=workspace_id,
-        meeting_id=meeting_id,
-        media_revision_id=media_revision_id,
-        processing_result_id=processing_result_id,
-        outcome_set_id=outcome_set_id,
-        status=status,
-        provider_kind=provider_kind,
-        generator_version=generator_version,
-        started_at=started_at,
-        ended_at=ended_at,
-        latency_ms=latency_ms,
-        failure_reason=failure_reason,
-        failure_source=failure_source,
-        metadata_json=metadata_json or {},
-        candidate_id=candidate_id,
-        idempotency_key=idempotency_key,
-        request_intent=request_intent,
-        source_result_id=source_result_id,
-        source_result_hash=source_result_hash,
-        source_fingerprint=source_fingerprint,
-        generator_config_hash=generator_config_hash,
-        deletion_epoch_at_start=deletion_epoch_at_start,
-        expires_at=expires_at,
-        display_format_name=display_format_name,
-        template_key=template_key,
-        template_version=template_version,
     )
-    session.add(attempt)
+    if outcome is None:
+        outcome = MeetingOutcomeSet(
+            workspace_id=meeting.workspace_id,
+            meeting_id=meeting.id,
+            processing_result_id=result.id,
+            media_revision_id=result.media_revision_id,
+            source_result_hash=result.source_result_hash,
+            source_fingerprint=source_fingerprint,
+            deletion_epoch_at_start=int(meeting.deletion_epoch or 0),
+            generator_version=OUTCOME_GENERATOR_VERSION,
+            generator_kind="none",
+            source_kind="processing_state",
+            revision_state="candidate",
+            protocol_schema_version=PROTOCOL_SCHEMA_VERSION,
+        )
+        session.add(outcome)
+    waiting = transcript_available and ai_dispatch_planned
+    outcome.status = "generating" if waiting else "blocked"
+    outcome.protocol_state = "processing" if waiting else "unavailable"
+    outcome.failure_reason = (
+        None if waiting
+        else "summary_generation_unavailable" if transcript_available
+        else result.failure_reason or "outcomes_transcript_unavailable"
+    )
+    outcome.failure_source = None if transcript_available else result.failure_source
     await session.flush()
-    return attempt
-
-
-def category_states(outcome_set: MeetingOutcomeSet) -> dict[str, str]:
-    return {
-        "summary": outcome_set.summary_state,
-        "key_points": outcome_set.key_points_state,
-        "decisions": outcome_set.decisions_state,
-        "action_items": outcome_set.action_items_state,
-        "followups": outcome_set.followups_state,
-        "risks": outcome_set.risks_state,
-        "questions": outcome_set.questions_state,
-        "evidence": outcome_set.evidence_state,
-    }
-
-
-def should_reuse_outcome_set(outcome_set: MeetingOutcomeSet, *, transcript_is_available: bool) -> bool:
-    if is_expired(outcome_set.expires_at):
-        return False
-    if outcome_set.status in REUSABLE_OUTCOME_SET_STATUSES:
-        return True
-    return not transcript_is_available
-
-
-def set_outcome_category_states(outcome_set: MeetingOutcomeSet, state: str) -> None:
-    outcome_set.summary_state = state
-    outcome_set.key_points_state = state
-    outcome_set.decisions_state = state
-    outcome_set.action_items_state = state
-    outcome_set.followups_state = state
-    outcome_set.risks_state = state
-    outcome_set.questions_state = state
-    outcome_set.evidence_state = state
+    return outcome

@@ -131,8 +131,7 @@ from twobrain_rec_server.domain.statuses import (
     MediaRevisionStatus,
     UploadSessionStatus,
 )
-from twobrain_rec_server.outcomes.service import load_outcome_items
-from twobrain_rec_server.outcomes.templates import built_in_template_for_version
+from twobrain_rec_server.outcomes.templates import built_in_template_for_key
 from twobrain_rec_server.processing.results import (
     effective_processing_result_query,
     result_is_complete,
@@ -530,7 +529,6 @@ async def list_cabinet_meetings(
             access=decision.to_schema(),
             artifacts=artifacts,
             outcome_set=outcome_set,
-            outcome_items=[],
             upload=upload_progress,
             calendar_context=calendar_context,
             previous_recurring_meeting=previous_recurring_meeting,
@@ -1112,11 +1110,10 @@ async def get_cabinet_meeting_review(
         meeting_id=meeting_id,
         media_revision_id=media_revision_id,
     )
-    result = await _latest_result(
+    result = await latest_processing_result(
         db,
         workspace_id=workspace_id,
         meeting_id=meeting_id,
-        media_revision_id=media_revision_id,
     )
     transcript_segments: list[TranscriptSegment] = []
     diarization_segments: list[DiarizationSegment] = []
@@ -1186,10 +1183,7 @@ async def get_cabinet_meeting_review(
     default_summary_template_name = None
     workspace = await db.scalar(select(Workspace).where(Workspace.id == workspace_id))
     if workspace is not None:
-        default_definition = built_in_template_for_version(
-            workspace.default_summary_template_key,
-            workspace.default_summary_template_version,
-        )
+        default_definition = built_in_template_for_key(workspace.default_summary_template_key)
         if workspace.default_summary_template_id is None and default_definition is not None:
             default_summary_template_key = default_definition.key
         elif workspace.default_summary_template_id is not None:
@@ -1295,7 +1289,6 @@ async def get_cabinet_meeting_review(
         outcome_template_name=outcome_template_name,
         default_summary_template_key=default_summary_template_key,
         default_summary_template_name=default_summary_template_name,
-        outcome_items=await load_outcome_items(db, outcome_set=outcome_set),
         speaker_names=speaker_names,
         can_rename_speakers=decision.state == "owner" or decision.role in {"owner", "admin"},
         reprocess_available=reprocess_available,

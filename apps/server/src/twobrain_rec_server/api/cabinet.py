@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime
-from hashlib import sha256
 from typing import Annotated
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
@@ -51,8 +49,6 @@ from twobrain_rec_server.api.schemas import (
     MeetingReviewResponse,
     MeetingReviewStatus,
     MeetingShareInvitationResponse,
-    OutcomeItemView,
-    OutcomeSourceReferenceView,
     PublicShareSummaryResponse,
     RefreshSummaryTypeRequest,
     RetentionRunRequest,
@@ -138,13 +134,13 @@ from twobrain_rec_server.cabinet.queries import (
 from twobrain_rec_server.cabinet.rendering import render_shared_meeting_summary_page
 from twobrain_rec_server.cabinet.speakers import candidate_speaker_attribution_is_current
 from twobrain_rec_server.cabinet.templates import cabinet_html_response
+from twobrain_rec_server.cabinet.view_models import meeting_protocol_view
 from twobrain_rec_server.db.models import (
     AuthCallbackState,
     ExternalIdentity,
     MediaRevision,
     Meeting,
     MeetingOutcomeGenerationAttempt,
-    MeetingOutcomeItem,
     MeetingOutcomeSet,
     MeetingShareGrant,
     MeetingSummarySlot,
@@ -185,13 +181,11 @@ from twobrain_rec_server.outcomes.dispatch import (
 from twobrain_rec_server.outcomes.service import (
     load_egress_default_outcome,
     load_meeting_default_slot,
-    load_outcome_items,
     load_pinned_egress_outcome,
 )
 from twobrain_rec_server.outcomes.templates import (
     BUILT_IN_BY_KEY,
     BUILT_IN_TEMPLATES,
-    built_in_template_for_version,
 )
 from twobrain_rec_server.processing.fences import (
     lock_meeting_fence,
@@ -629,7 +623,6 @@ async def get_shared_meeting_summary_route(
         meeting_id=meeting_id,
         viewer_user_id=principal.user_id,
     )
-    items = []
     grant = await db.scalar(
         select(MeetingShareGrant).where(
             MeetingShareGrant.workspace_id == tenant_scope.workspace_id,
@@ -640,28 +633,14 @@ async def get_shared_meeting_summary_route(
         )
     )
     outcome_set = await _shared_summary_outcome(db, meeting=meeting, grant=grant)
-    if outcome_set is not None:
-        items = (
-            await db.scalars(
-                select(MeetingOutcomeItem)
-                .where(
-                    MeetingOutcomeItem.workspace_id == tenant_scope.workspace_id,
-                    MeetingOutcomeItem.outcome_set_id == outcome_set.id,
-                    MeetingOutcomeItem.state == "available",
-                )
-                .order_by(MeetingOutcomeItem.category, MeetingOutcomeItem.sequence)
-            )
-        ).all()
     if not decision.can_view:
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
     return PublicShareSummaryResponse.model_validate(
         narrow_summary_projection(
             meeting_label=meeting.title or "Встреча",
-            occurred_at=meeting.started_at or meeting.created_at,
+            occurred_at=meeting.started_at,
             duration_seconds=meeting.duration_seconds,
-            summary_sections=[
-                {"category": item.category, "text": item.text or ""} for item in items
-            ],
+            protocol=(outcome_set.protocol_json if outcome_set is not None and meeting_protocol_view(outcome_set) is not None else None),
         )
     )
 
@@ -1381,10 +1360,7 @@ async def list_summary_templates_route(
     )
     default_template_key = "graf-auto-v1"
     if workspace is not None:
-        definition = built_in_template_for_version(
-            workspace.default_summary_template_key,
-            workspace.default_summary_template_version,
-        )
+        definition = BUILT_IN_BY_KEY.get(workspace.default_summary_template_key)
         if workspace.default_summary_template_id is None and definition is not None:
             default_template_key = definition.key
         elif workspace.default_summary_template_id is not None:
@@ -2558,7 +2534,6 @@ async def resolve_login_required_share_link_route(
         recipient_proof=recipient_proof,
     )
     if not decision.can_view_full_meeting:
-        items = []
         grant = await db.scalar(
             select(MeetingShareGrant).where(
                 MeetingShareGrant.workspace_id == workspace_id,
@@ -2569,25 +2544,11 @@ async def resolve_login_required_share_link_route(
             )
         )
         outcome_set = await _shared_summary_outcome(db, meeting=meeting, grant=grant)
-        if outcome_set is not None:
-            items = (
-                await db.scalars(
-                    select(MeetingOutcomeItem)
-                    .where(
-                        MeetingOutcomeItem.workspace_id == workspace_id,
-                        MeetingOutcomeItem.outcome_set_id == outcome_set.id,
-                        MeetingOutcomeItem.state == "available",
-                    )
-                    .order_by(MeetingOutcomeItem.category, MeetingOutcomeItem.sequence)
-                )
-            ).all()
         projection = narrow_summary_projection(
             meeting_label=meeting.title or "Встреча",
-            occurred_at=meeting.started_at or meeting.created_at,
+            occurred_at=meeting.started_at,
             duration_seconds=meeting.duration_seconds,
-            summary_sections=[
-                {"category": item.category, "text": item.text or ""} for item in items
-            ],
+            protocol=(outcome_set.protocol_json if outcome_set is not None and meeting_protocol_view(outcome_set) is not None else None),
         )
         if "text/html" in request.headers.get("accept", "").lower():
             display_title, display_time, uploaded = await shared_meeting_display_metadata(
@@ -2601,7 +2562,7 @@ async def resolve_login_required_share_link_route(
                     occurred_at=display_time,
                     time_is_upload=uploaded,
                     duration_seconds=int(projection["duration_seconds"]),
-                    summary_sections=projection["summary_sections"],
+                    protocol=projection["protocol"],
                     authenticated=True,
                 )
             )
@@ -2679,25 +2640,12 @@ async def resolve_public_meeting_share_route(
     )
     if grant is None:
         raise ProblemDetail(status=404, code="share_not_found", title="Share not found")
-    items = []
     outcome_set = await _shared_summary_outcome(db, meeting=meeting, grant=grant)
-    if outcome_set is not None:
-        items = (
-            await db.scalars(
-                select(MeetingOutcomeItem)
-                .where(
-                    MeetingOutcomeItem.workspace_id == workspace_id,
-                    MeetingOutcomeItem.outcome_set_id == outcome_set.id,
-                    MeetingOutcomeItem.state == "available",
-                )
-                .order_by(MeetingOutcomeItem.category, MeetingOutcomeItem.sequence)
-            )
-        ).all()
     projection = narrow_summary_projection(
         meeting_label=meeting.title or "Встреча",
-        occurred_at=meeting.started_at or meeting.created_at,
+        occurred_at=meeting.started_at,
         duration_seconds=meeting.duration_seconds,
-        summary_sections=[{"category": item.category, "text": item.text or ""} for item in items],
+        protocol=(outcome_set.protocol_json if outcome_set is not None and meeting_protocol_view(outcome_set) is not None else None),
     )
     grant.last_used_at = datetime.now(UTC)
     if "text/html" in request.headers.get("accept", "").lower():
@@ -2712,7 +2660,7 @@ async def resolve_public_meeting_share_route(
                 occurred_at=display_time,
                 time_is_upload=uploaded,
                 duration_seconds=int(projection["duration_seconds"]),
-                summary_sections=projection["summary_sections"],
+                protocol=projection["protocol"],
                 authenticated=False,
             )
         )
@@ -2774,32 +2722,12 @@ async def accept_meeting_share_invitation_route(
                 url=(f"/shared-meetings/{meeting.id}?workspace_id={workspace_id}"),
                 status_code=303,
             )
-        outcome_set = await current_outcome_set(
-            db,
-            workspace_id=workspace_id,
-            meeting_id=meeting.id,
-            processing_result_id=None,
-        )
-        items = []
-        if outcome_set is not None:
-            items = (
-                await db.scalars(
-                    select(MeetingOutcomeItem)
-                    .where(
-                        MeetingOutcomeItem.workspace_id == workspace_id,
-                        MeetingOutcomeItem.outcome_set_id == outcome_set.id,
-                        MeetingOutcomeItem.state == "available",
-                    )
-                    .order_by(MeetingOutcomeItem.category, MeetingOutcomeItem.sequence)
-                )
-            ).all()
+        outcome_set = await _shared_summary_outcome(db, meeting=meeting, grant=grant)
         projection = narrow_summary_projection(
             meeting_label=meeting.title or "Встреча",
-            occurred_at=meeting.started_at or meeting.created_at,
+            occurred_at=meeting.started_at,
             duration_seconds=meeting.duration_seconds,
-            summary_sections=[
-                {"category": item.category, "text": item.text or ""} for item in items
-            ],
+            protocol=(outcome_set.protocol_json if outcome_set is not None and meeting_protocol_view(outcome_set) is not None else None),
         )
         display_title, display_time, uploaded = await shared_meeting_display_metadata(
             db, meeting=meeting
@@ -2811,7 +2739,7 @@ async def accept_meeting_share_invitation_route(
                 occurred_at=display_time,
                 time_is_upload=uploaded,
                 duration_seconds=int(projection["duration_seconds"]),
-                summary_sections=projection["summary_sections"],
+                protocol=projection["protocol"],
                 authenticated=True,
             )
         )
@@ -3166,6 +3094,7 @@ async def create_shared_meeting_content_export_route(
         device_id=device.device_id,
         recipient_proof=recipient_proof,
         pinned_summary_revision=pinned_summary_revision,
+        source_base_url=str(request.app.state.settings.public_base_url),
     )
     await db.commit()
     return Response(
@@ -3232,6 +3161,7 @@ async def get_meeting_content_export_capabilities_route(
     dependencies=[PrincipalDependency, DeviceDependency, WebCSRFDependency],
 )
 async def create_meeting_content_export_route(
+    request: Request,
     meeting_id: UUID,
     payload: ContentExportSelectionRequest,
     tenant_scope: TenantScope = TenantDependency,
@@ -3276,6 +3206,7 @@ async def create_meeting_content_export_route(
         ),
         actor_user_id=principal.user_id,
         device_id=device.device_id,
+        source_base_url=str(request.app.state.settings.public_base_url),
     )
     await db.commit()
     filename = generated.filename
@@ -3737,10 +3668,6 @@ async def _summary_type_entry(
             )
         )
     current_builtin = BUILT_IN_BY_KEY.get(template_key)
-    historical_builtin = built_in_template_for_version(
-        template_key,
-        outcome.template_version if outcome is not None and outcome.template_version else 1,
-    )
     personal = await db.scalar(
         select(SummaryTemplate)
         .where(
@@ -3750,17 +3677,17 @@ async def _summary_type_entry(
         )
         .order_by(SummaryTemplate.version.desc())
     )
-    definition = current_builtin or historical_builtin
+    definition = current_builtin
     if definition is None and personal is None and outcome is None:
         return None
     is_personal = definition is None
     version = (
         personal.version
         if is_personal and personal is not None
-        else outcome.template_version
-        if outcome is not None and outcome.template_version is not None
         else definition.version
         if definition is not None
+        else outcome.template_version
+        if outcome is not None and outcome.template_version is not None
         else 1
     )
     if is_personal:
@@ -3886,50 +3813,14 @@ async def _summary_type_catalog_entries(
     )
 
 
-def _summary_type_item_view(item: MeetingOutcomeItem) -> OutcomeItemView:
-    refs = []
-    for raw_ref in item.source_refs_json or []:
-        if isinstance(raw_ref, dict):
-            refs.append(
-                OutcomeSourceReferenceView(
-                    **{
-                        **raw_ref,
-                        "evidence_kind": raw_ref.get("evidence_kind") or "segment",
-                        "seekable": raw_ref.get("start_seconds") is not None,
-                    }
-                )
-            )
-    return OutcomeItemView(
-        category=item.category,
-        sequence=item.sequence,
-        text=item.text,
-        owner_text=item.owner_text,
-        due_date_text=item.due_date_text,
-        truth_label=item.truth_label,
-        source_refs=refs,
-    )
-
-
 def _summary_copy_capability(
-    *,
-    outcome: MeetingOutcomeSet | None,
-    items: list[OutcomeItemView],
+    *, outcome: MeetingOutcomeSet | None,
 ) -> SummaryCopyCapabilityV1:
-    if outcome is None:
+    if outcome is None or meeting_protocol_view(outcome) is None:
         return SummaryCopyCapabilityV1(authorized=False, reason_code="summary_not_ready")
-    content_hash = outcome.content_hash
-    if not content_hash:
-        content_hash = sha256(
-            json.dumps(
-                [item.model_dump(mode="json") for item in items],
-                ensure_ascii=False,
-                sort_keys=True,
-                separators=(",", ":"),
-            ).encode("utf-8")
-        ).hexdigest()
     return SummaryCopyCapabilityV1(
         outcome_set_id=outcome.id,
-        outcome_content_hash=content_hash,
+        outcome_content_hash=outcome.content_hash,
         displayed_revision=outcome.id,
     )
 
@@ -3985,9 +3876,7 @@ async def _summary_type_read_response(
         processing_result_id=None,
         template_key=template_key,
     )
-    items = [
-        _summary_type_item_view(item) for item in await load_outcome_items(db, outcome_set=outcome)
-    ]
+    protocol = meeting_protocol_view(outcome) if outcome is not None else None
     attempt = None
     if entry.attempt_id is not None:
         attempt = SummaryTypeAttemptStateV1(
@@ -4022,12 +3911,12 @@ async def _summary_type_read_response(
         state_version=state_version,
         current_outcome_set_id=current_outcome_set_id,
         catalog_entry=entry,
-        copy_capability=_summary_copy_capability(outcome=outcome, items=items),
+        copy_capability=_summary_copy_capability(outcome=outcome),
     )
     return SummaryTypeReadResponse(
         **event.model_dump(),
         outcome_set_id=current_outcome_set_id,
-        items=items,
+        protocol=protocol,
         attempt=attempt,
     )
 
@@ -4041,7 +3930,7 @@ def _built_in_template_view(definition) -> SummaryTemplateView:
         purpose=definition.purpose,
         sections=list(definition.sections),
         output_language="ru",
-        detail_level="standard",
+        detail_level="detailed",
         version=definition.version,
         status="active",
         can_edit=False,

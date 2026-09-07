@@ -437,6 +437,8 @@ def test_personal_merge_moves_audio_transcript_and_summary_rows(client) -> None:
                 media_revision_id=media.id,
                 processing_result_id=result.id,
                 generator_version="graph-test-v1",
+                source_kind="synthetic",
+                generator_kind="synthetic",
                 status="completed",
                 summary_state="available",
             )

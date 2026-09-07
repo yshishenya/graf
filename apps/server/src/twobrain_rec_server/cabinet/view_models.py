@@ -4,11 +4,14 @@ import re
 from collections import defaultdict
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
+from hashlib import sha256
 from typing import TYPE_CHECKING, Literal, cast
 from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from pydantic import ValidationError
 
 from twobrain_rec_server.api.schemas import (
     ArtifactEgressState,
@@ -22,6 +25,7 @@ from twobrain_rec_server.api.schemas import (
     MeetingCalendarContextResponse,
     MeetingCalendarContextSummary,
     MeetingListItem,
+    MeetingProtocolView,
     MeetingProvenance,
     MeetingReviewResponse,
     MeetingReviewStatus,
@@ -29,9 +33,7 @@ from twobrain_rec_server.api.schemas import (
     NotesActionCategoryState,
     NotesActionTruthState,
     NotesReviewState,
-    OutcomeItemView,
     OutcomeProvenanceView,
-    OutcomeSourceReferenceView,
     PlaybackPreparationReasonCode,
     PlaybackPreparationState,
     PlaybackReviewState,
@@ -69,7 +71,6 @@ from twobrain_rec_server.db.models import (
     ExternalIdentity,
     MediaRevision,
     Meeting,
-    MeetingOutcomeItem,
     MeetingOutcomeSet,
     ProcessingDependencyState,
     ProcessingResult,
@@ -99,7 +100,13 @@ from twobrain_rec_server.domain.statuses import (
     ProcessingStatus,
     SummaryStatus,
 )
-from twobrain_rec_server.outcomes.templates import built_in_template_for_version
+from twobrain_rec_server.outcomes.models import (
+    MEETING_TYPE_LABELS,
+    PROTOCOL_SCHEMA_VERSION,
+    TEMPLATE_PROTOCOL_SECTIONS,
+)
+from twobrain_rec_server.outcomes.prompts import canonical_json
+from twobrain_rec_server.outcomes.templates import built_in_template_for_key
 from twobrain_rec_server.processing.fences import meeting_is_deleted_or_deleting
 from twobrain_rec_server.processing.reasons import MEDIASCRIBE_MALFORMED_RESPONSE
 from twobrain_rec_server.processing.results import (
@@ -2398,12 +2405,7 @@ def summary_template_slot(
         if outcome_set is not None and outcome_set.template_key
         else default_template_key
     )
-    definition = built_in_template_for_version(
-        template_key,
-        outcome_set.template_version
-        if outcome_set is not None and outcome_set.template_version is not None
-        else 1,
-    )
+    definition = built_in_template_for_key(template_key)
     return SlotState(
         state="available",
         label=(
@@ -2415,17 +2417,17 @@ def summary_template_slot(
         template_id=outcome_set.template_id if outcome_set is not None else None,
         outcome_set_id=outcome_set.id if outcome_set is not None else None,
         version=(
-            outcome_set.template_version
-            if outcome_set is not None and outcome_set.template_version is not None
-            else definition.version
+            definition.version
             if definition is not None
+            else outcome_set.template_version
+            if outcome_set is not None
             else None
         ),
         template_version=(
-            outcome_set.template_version
-            if outcome_set is not None and outcome_set.template_version is not None
-            else definition.version
+            definition.version
             if definition is not None
+            else outcome_set.template_version
+            if outcome_set is not None
             else None
         ),
     )
@@ -2440,7 +2442,6 @@ def build_list_item(
     access: MeetingAccessState | None = None,
     artifacts: list[ArtifactEgressState] | None = None,
     outcome_set: MeetingOutcomeSet | None = None,
-    outcome_items: list[MeetingOutcomeItem] | None = None,
     upload: MeetingUploadProgressState | None = None,
     calendar_context: RecordingCalendarContextLink | None = None,
     previous_recurring_meeting: PreviousRecurringMeetingView | None = None,
@@ -2457,7 +2458,7 @@ def build_list_item(
     access_state = access or owner_access_state()
     artifact_states = artifacts or []
     notes_truth = notes_action_truth_state(
-        status=status, result=result, outcome_set=outcome_set, outcome_items=outcome_items or []
+        status=status, result=result, outcome_set=outcome_set
     )
     item = MeetingListItem(
         meeting_id=meeting.id,
@@ -3103,7 +3104,6 @@ def _notes_action_category(
     reason: str,
     readiness_impact: str,
     copy_key: str,
-    items: list[OutcomeItemView] | None = None,
 ) -> NotesActionCategoryState:
     return NotesActionCategoryState(
         state=state,
@@ -3111,7 +3111,6 @@ def _notes_action_category(
         reason=reason,
         readiness_impact=readiness_impact,
         copy_key=copy_key,
-        items=items or [],
     )
 
 
@@ -3120,10 +3119,9 @@ def notes_action_truth_state(
     status: MeetingReviewStatus,
     result: ProcessingResult | None,
     outcome_set: MeetingOutcomeSet | None = None,
-    outcome_items: list[MeetingOutcomeItem] | None = None,
 ) -> NotesActionTruthState:
     if outcome_set is not None and status in {"ready", "partial"}:
-        return stored_outcome_truth_state(outcome_set, outcome_items or [])
+        return stored_outcome_truth_state(outcome_set)
     if status in {"processing", "submitted", "uploading"}:
         category = _notes_action_category(
             state="processing",
@@ -3270,75 +3268,85 @@ def notes_action_truth_state(
     )
 
 
+def protocol_header_rows(protocol: MeetingProtocolView) -> list[tuple[str, str]]:
+    header = protocol.header
+    en = header.get("output_language") == "en"
+    missing = "Not specified" if en else "Не указано"
+    date_text = missing
+    if isinstance(header.get("started_at"), str):
+        try:
+            value = datetime.fromisoformat(header["started_at"])
+            offset = header.get("timezone_offset_minutes")
+            if type(offset) is int and -840 <= offset <= 840 and value.tzinfo:
+                value = value.astimezone(timezone(timedelta(minutes=offset)))
+            date_text = value.strftime("%d.%m.%Y, %H:%M %z").strip()
+        except ValueError:
+            pass
+    names = ", ".join(
+        str(row.get("label") or "") for row in header.get("participants", [])
+        if isinstance(row, dict) and row.get("label")
+    )
+    return [
+        ("Meeting / project" if en else "Название встречи / проекта", str(header.get("title") or missing)),
+        ("Date and time" if en else "Дата и время", date_text),
+        ("Source type" if en else "Тип входных данных", "Transcript" if en else "Транскрипт"),
+        ("Meeting type" if en else "Тип встречи", MEETING_TYPE_LABELS.get(protocol.meeting_type, MEETING_TYPE_LABELS["mixed_or_unknown"])[int(en)]),
+        ("Participants" if en else "Участники", names or missing),
+    ]
+
+
+def meeting_protocol_view(outcome_set: MeetingOutcomeSet) -> MeetingProtocolView | None:
+    document = outcome_set.protocol_json
+    if (
+        outcome_set.lifecycle_state != "active" or outcome_set.status != "available"
+        or outcome_set.protocol_state != "available"
+        or outcome_set.protocol_schema_version != PROTOCOL_SCHEMA_VERSION
+        or not isinstance(document, dict)
+        or sha256(canonical_json(document).encode("utf-8")).hexdigest() != outcome_set.content_hash
+    ):
+        return None
+    try:
+        return MeetingProtocolView.model_validate(document)
+    except ValidationError:
+        return None
+
+
 def stored_outcome_truth_state(
     outcome_set: MeetingOutcomeSet,
-    outcome_items: list[MeetingOutcomeItem],
 ) -> NotesActionTruthState:
-    by_category: dict[str, list[OutcomeItemView]] = defaultdict(list)
-    if outcome_set.status in {"available", "partial"}:
-        for item in sorted(outcome_items, key=lambda row: (row.category, row.sequence)):
-            by_category[item.category].append(_outcome_item_view(item))
-
-    def category_state(category: str, label: str) -> NotesActionCategoryState:
-        state = getattr(outcome_set, f"{category}_state")
-        return _notes_action_category(
-            state=state,
-            label=_outcome_state_label(state, label),
-            reason=_outcome_state_reason(state),
-            readiness_impact="closes_gap"
-            if state in {"available", "not_found", "not_inferable"}
-            else "keeps_gap_open",
+    # Historical flat rows are data only; never convert or render their items.
+    protocol = meeting_protocol_view(outcome_set)
+    categories = {}
+    for category, sections in TEMPLATE_PROTOCOL_SECTIONS.items():
+        if protocol is not None:
+            state = (
+                "available" if any(getattr(protocol, section) for section in sections)
+                else "not_inferable" if set(sections) & set(protocol.uncertain_sections)
+                else "not_found"
+            )
+            reason = _outcome_state_reason(state)
+        else:
+            state = (
+                "processing" if outcome_set.status in {"queued", "generating"}
+                else "blocked" if outcome_set.status in {"blocked", "failed", "unsafe"}
+                else "unavailable"
+            )
+            reason = (
+                "Нужно сформировать новую версию итогов."
+                if state == "unavailable" else _outcome_state_reason(state)
+            )
+        categories[category] = _notes_action_category(
+            state=state, label=_outcome_state_label(state, "Итоги готовы"), reason=reason,
+            readiness_impact="closes_gap" if protocol is not None else "keeps_gap_open",
             copy_key=f"notes.{category}.{state}",
-            items=by_category.get(category, []),
         )
-
     return NotesActionTruthState(
-        summary=category_state("summary", "Итоги готовы"),
-        key_points=category_state("key_points", "Ключевые пункты"),
-        decisions=category_state("decisions", "Решения"),
-        action_items=category_state("action_items", "Действия"),
-        followups=category_state("followups", "Follow-ups"),
-        risks=category_state("risks", "Риски"),
-        questions=category_state("questions", "Вопросы"),
-        evidence=category_state("evidence", "Evidence"),
-        source_basis=_outcome_source_basis(outcome_set),
+        **categories, protocol=protocol,
+        source_basis="stored_output" if protocol is not None else "processing_status",
         provenance=OutcomeProvenanceView(
-            generator_kind=outcome_set.generator_kind,
-            generator_version=outcome_set.generator_version,
-            generated_at=outcome_set.generated_at,
-            latency_ms=outcome_set.latency_ms,
+            generator_kind=outcome_set.generator_kind, generator_version=outcome_set.generator_version,
+            generated_at=outcome_set.generated_at, latency_ms=outcome_set.latency_ms,
         ),
-    )
-
-
-def _outcome_source_basis(outcome_set: MeetingOutcomeSet) -> str:
-    if outcome_set.status in {"queued", "generating"}:
-        return "processing_status"
-    if outcome_set.status in {"blocked", "failed", "unsafe"}:
-        return "blocked"
-    return "stored_output"
-
-
-def _outcome_item_view(item: MeetingOutcomeItem) -> OutcomeItemView:
-    refs = [
-        OutcomeSourceReferenceView(
-            **{
-                **ref,
-                "evidence_kind": ref.get("evidence_kind") or "segment",
-                "seekable": ref.get("start_seconds") is not None,
-            }
-        )
-        for ref in item.source_refs_json
-        if isinstance(ref, dict)
-    ]
-    return OutcomeItemView(
-        category=item.category,
-        sequence=item.sequence,
-        text=item.text,
-        owner_text=item.owner_text,
-        due_date_text=item.due_date_text,
-        truth_label=item.truth_label,
-        source_refs=refs,
     )
 
 
@@ -3461,7 +3469,6 @@ def build_review_response(
     outcome_template_name: str | None = None,
     default_summary_template_key: str = "graf-auto-v1",
     default_summary_template_name: str | None = None,
-    outcome_items: list[MeetingOutcomeItem] | None = None,
     speaker_names: dict[str, str] | None = None,
     can_rename_speakers: bool = False,
     reprocess_available: bool = False,
@@ -3492,7 +3499,6 @@ def build_review_response(
         and outcome_set.media_revision_id == current_media_revision_id
         else None
     )
-    safe_outcome_items = outcome_items if safe_outcome_set is not None else []
     if current_lineage and result is not None:
         # Query code already pins these rows to ``result.id``.  Keep the
         # invariant at the projection boundary as well so stale/mixed rows
@@ -3540,7 +3546,6 @@ def build_review_response(
         status=content_status,
         result=safe_result,
         outcome_set=safe_outcome_set,
-        outcome_items=safe_outcome_items,
     )
     item.notes_available = notes_truth.summary.state == "available"
     item.notes_action_truth = notes_truth

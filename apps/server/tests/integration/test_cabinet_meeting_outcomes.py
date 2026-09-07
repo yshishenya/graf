@@ -19,6 +19,7 @@ from tests.fixtures.cabinet import (
     SAFE_TRANSCRIPT_TEXT,
     create_outcome_ready_meeting,
 )
+from tests.fixtures.meeting_protocol import seed_accepted_protocol
 from twobrain_rec_server.cabinet import queries
 from twobrain_rec_server.cabinet.egress import current_outcome_set
 from twobrain_rec_server.db.models import (
@@ -36,6 +37,7 @@ from twobrain_rec_server.db.models import (
     TranscriptSegment,
 )
 from twobrain_rec_server.domain.statuses import ProcessingStatus
+from twobrain_rec_server.outcomes.ai_service import _content_hash
 from twobrain_rec_server.outcomes.store import OUTCOME_GENERATOR_VERSION
 from twobrain_rec_server.outcomes.templates import BUILT_IN_BY_KEY
 
@@ -94,7 +96,7 @@ def test_ready_summary_type_read_is_saved_and_does_not_require_ai_dependencies(c
     assert payload["catalog_entry"]["result_state"] == "ready"
     assert payload["catalog_entry"]["source_state"] == "current"
     assert payload["outcome_set_id"]
-    assert payload["items"]
+    assert payload["protocol"]["executive_summary"]
     assert "my_actions" not in payload and "private_self" not in payload
     assert payload["schema_version"] == 1
     assert payload["meeting_id"] == str(meeting_id)
@@ -200,25 +202,13 @@ def test_source_revision_marks_every_saved_type_stale_without_cross_slot_generat
             )
             current_ids: dict[str, UUID] = {}
             for index, template_key in enumerate(active_keys):
-                outcome = MeetingOutcomeSet(
-                    id=uuid4(),
-                    workspace_id=meeting.workspace_id,
-                    meeting_id=meeting.id,
-                    media_revision_id=result.media_revision_id,
-                    processing_result_id=result.id,
-                    status="available",
-                    summary_state="available",
-                    source_kind="db_fixture",
-                    generator_kind="db_fixture",
-                    generator_version=f"fixture-old-{index}",
-                    source_result_hash=result.source_result_hash,
-                    source_fingerprint=f"result:{result.id}",
-                    content_hash=f"summary-hash-{index}",
-                    template_key=template_key,
-                    template_version=1,
-                    revision_state="accepted",
-                )
-                db.add(outcome)
+                outcome, _ = await seed_accepted_protocol(db, meeting_id, make_default=False)
+                outcome.template_key = template_key
+                outcome.protocol_json = {
+                    **outcome.protocol_json,
+                    "header": {**outcome.protocol_json["header"], "template_key": template_key},
+                }
+                outcome.content_hash = _content_hash(outcome.protocol_json)
                 await db.flush()
                 current_ids[template_key] = outcome.id
                 db.add(
@@ -253,26 +243,15 @@ def test_source_revision_marks_every_saved_type_stale_without_cross_slot_generat
             )
             db.add(retired_template)
             await db.flush()
-            retired_outcome = MeetingOutcomeSet(
-                id=uuid4(),
-                workspace_id=meeting.workspace_id,
-                meeting_id=meeting.id,
-                media_revision_id=result.media_revision_id,
-                processing_result_id=result.id,
-                status="available",
-                summary_state="available",
-                source_kind="db_fixture",
-                generator_kind="db_fixture",
-                generator_version="fixture-old-retired",
-                source_result_hash=result.source_result_hash,
-                source_fingerprint=f"result:{result.id}",
-                content_hash="summary-hash-retired",
-                template_id=retired_template.id,
-                template_key=retired_template.template_key,
-                template_version=1,
-                revision_state="accepted",
-            )
-            db.add(retired_outcome)
+            retired_outcome, _ = await seed_accepted_protocol(db, meeting_id, make_default=False)
+            retired_outcome.template_id = retired_template.id
+            retired_outcome.template_key = retired_template.template_key
+            retired_outcome.template_version = 1
+            retired_outcome.protocol_json = {
+                **retired_outcome.protocol_json,
+                "header": {**retired_outcome.protocol_json["header"], "template_key": retired_template.template_key, "template_version": 1},
+            }
+            retired_outcome.content_hash = _content_hash(retired_outcome.protocol_json)
             await db.flush()
             db.add(
                 MeetingSummarySlot(
@@ -480,7 +459,7 @@ def test_refresh_current_summary_type_is_slot_scoped_and_idempotent(client) -> N
         "idempotency_key": "refresh-summary-type-0001",
         "expected_current_outcome_set_id": current,
         "template_id": None,
-        "template_version": 1,
+        "template_version": 2,
         "generation_options": {},
     }
 
@@ -530,7 +509,7 @@ def test_refresh_without_saved_summary_starts_first_generation(client) -> None:
             "idempotency_key": "refresh-summary-first-generation-0001",
             "expected_current_outcome_set_id": None,
             "template_id": None,
-            "template_version": 1,
+            "template_version": 2,
             "generation_options": {},
         },
     )
@@ -565,7 +544,7 @@ def test_refresh_dispatch_failure_returns_deferred_async_state(client) -> None:
             "idempotency_key": "refresh-summary-dispatch-retry-0001",
             "expected_current_outcome_set_id": current,
             "template_id": None,
-            "template_version": 1,
+            "template_version": 2,
             "generation_options": {},
         },
     )
@@ -681,32 +660,8 @@ def test_missing_type_distinguishes_transcript_failure_and_empty_source(client) 
 
 
 async def _generate_and_store(client, meeting_id, service) -> None:
-    outcome_set = await service.ensure_outcomes_for_meeting(
-        client.app_state["sessionmaker"], meeting_id=meeting_id
-    )
     async with client.app_state["sessionmaker"]() as db:
-        meeting = await db.scalar(select(Meeting).where(Meeting.id == meeting_id))
-        assert meeting is not None
-        stored = await db.get(MeetingOutcomeSet, outcome_set.id)
-        assert stored is not None
-        stored.template_key = "graf-auto-v1"
-        stored.template_version = 1
-        stored.revision_state = "accepted"
-        stored.accepted_at = stored.generated_at or datetime.now(UTC)
-        db.add(
-            MeetingSummarySlot(
-                workspace_id=meeting.workspace_id,
-                meeting_id=meeting.id,
-                template_key="graf-auto-v1",
-                is_meeting_default=True,
-                current_outcome_set_id=stored.id,
-                current_binding_class="verified_complete",
-                default_resolution_source="explicit_meeting",
-                default_resolution_version="test-fixture-v1",
-                default_resolved_at=datetime.now(UTC),
-            )
-        )
-        await db.commit()
+        await seed_accepted_protocol(db, meeting_id)
 
 
 def test_cabinet_detail_shows_stored_outcomes_instead_of_deferred_placeholders(client) -> None:
@@ -721,8 +676,8 @@ def test_cabinet_detail_shows_stored_outcomes_instead_of_deferred_placeholders(c
     truth = payload["notes_action_truth"]
     assert truth["source_basis"] == "stored_output"
     assert truth["summary"]["state"] == "available"
-    assert truth["summary"]["items"]
-    assert truth["summary"]["items"][0]["source_refs"]
+    assert truth["protocol"]["executive_summary"]
+    assert truth["protocol"]["executive_summary"][0]["source_refs"]
     assert truth["action_items"]["state"] in {"not_found", "not_inferable"}
     assert payload["meeting"]["notes_available"] is True
     assert payload["transcript"]["available"] is True
@@ -876,9 +831,9 @@ def test_web_and_embedded_keep_previous_outcomes_visible_after_result_replacemen
         },
     )
     assert summary_export.status_code == 200
-    items = summary_export.json()["summary"]["items"]
-    assert items
-    assert all(not item["evidence_turn_ids"] for item in items)
+    protocol = summary_export.json()["summary"]["protocol"]
+    assert protocol["executive_summary"]
+    assert "source_links" not in repr(protocol)
 
 
 def test_pointerless_legacy_outcome_cannot_attach_to_new_revision_result(client) -> None:
@@ -984,7 +939,7 @@ def test_pointerless_generating_outcome_with_items_is_not_egressable(client) -> 
     assert asyncio.run(read_pointerless_outcome()) is None
 
 
-def test_legacy_current_outcome_without_hash_remains_visible_after_lineage_rollout(client) -> None:
+def test_current_outcome_without_source_hash_is_not_readable_or_rebound(client) -> None:
     meeting_id = create_outcome_ready_meeting(client, "legacy-outcome-hash-bind")
     service = _service_module()
     asyncio.run(_generate_and_store(client, meeting_id, service))
@@ -1014,7 +969,7 @@ def test_legacy_current_outcome_without_hash_remains_visible_after_lineage_rollo
     asyncio.run(clear_legacy_hashes())
     response = client.get(f"/api/v1/cabinet/meetings/{meeting_id}", headers=auth_headers())
     assert response.status_code == 200
-    assert response.json()["notes_action_truth"]["source_basis"] == "stored_output"
+    assert response.json()["notes_action_truth"]["protocol"] is None
 
     async def read_bound_hashes() -> tuple[str | None, str | None]:
         async with client.app_state["sessionmaker"]() as db:
@@ -1026,7 +981,8 @@ def test_legacy_current_outcome_without_hash_remains_visible_after_lineage_rollo
                 meeting_id=meeting.id,
                 processing_result_id=None,
             )
-            assert outcome is not None
+            assert outcome is None
+            outcome = await db.get(MeetingOutcomeSet, meeting.current_outcome_set_id)
             result = await db.get(ProcessingResult, outcome.processing_result_id)
             assert result is not None
             return result.source_result_hash, outcome.source_result_hash
@@ -1046,8 +1002,8 @@ def test_cabinet_embedded_route_renders_stored_outcome_categories(client) -> Non
     assert response.status_code == 200
     html = response.text
     assert "Итоги встречи" in html
-    assert 'data-outcome-category="summary"' in html
-    assert 'data-outcome-state="available"' in html
+    assert 'data-protocol-section="executive_summary"' in html
+    assert 'data-protocol-section="topics"' in html
     assert 'data-outcome-source-basis="stored_output"' in html
 
 
@@ -1068,7 +1024,7 @@ def test_cabinet_preserves_transcript_playback_when_outcomes_are_processing(clie
     assert payload["playback"]["available"] is True
     assert payload["notes_action_truth"]["source_basis"] == "transcript_only"
     assert payload["notes_action_truth"]["summary"]["state"] == "deferred"
-    assert payload["notes_action_truth"]["summary"]["items"] == []
+    assert payload["notes_action_truth"]["protocol"] is None
 
 
 def test_cabinet_blocks_outcome_content_without_hiding_review_when_generation_failed(
@@ -1094,10 +1050,10 @@ def test_cabinet_blocks_outcome_content_without_hiding_review_when_generation_fa
     assert payload["notes_action_truth"]["source_basis"] == "transcript_only"
     assert payload["notes_action_truth"]["summary"]["state"] == "deferred"
     assert payload["notes_action_truth"]["decisions"]["state"] == "deferred"
-    assert payload["notes_action_truth"]["summary"]["items"] == []
+    assert payload["notes_action_truth"]["protocol"] is None
 
 
-def test_cabinet_renders_partial_outcome_truth_with_available_items(client) -> None:
+def test_cabinet_never_renders_legacy_partial_outcome_items(client) -> None:
     meeting_id = create_outcome_ready_meeting(client)
     asyncio.run(
         _seed_outcome_set(
@@ -1136,10 +1092,8 @@ def test_cabinet_renders_partial_outcome_truth_with_available_items(client) -> N
 
     assert response.status_code == 200
     truth = response.json()["notes_action_truth"]
-    assert truth["source_basis"] == "stored_output"
-    assert truth["summary"]["state"] == "available"
-    assert truth["summary"]["items"][0]["source_refs"][0]["sequence"] == 0
-    assert truth["action_items"]["state"] == "blocked"
+    assert truth["protocol"] is None
+    assert "Синтетический итог встречи готов." not in str(truth)
 
 
 def test_cabinet_web_renders_processing_and_blocked_outcomes_in_russian_without_content(
@@ -1174,10 +1128,10 @@ def test_cabinet_web_renders_processing_and_blocked_outcomes_in_russian_without_
     assert 'class="notes-aggregate-state"' in processing_notes
     assert "Ключевые пункты" not in processing_notes
     assert "data-outcome-category" not in processing_notes
-    assert "Источник: только расшифровка" in processing_notes
+    assert "Итоги не запрошены" in processing_notes
     assert 'data-outcome-source-basis="transcript_only"' in blocked_notes
     assert 'class="notes-aggregate-state"' in blocked_notes
-    assert "Источник: только расшифровка" in blocked_notes
+    assert SAFE_TRANSCRIPT_TEXT not in blocked_notes
     assert "Синтетический итог встречи готов." not in blocked_notes
 
 
@@ -1232,7 +1186,7 @@ def test_no_accepted_outcome_opens_blocked_error_with_one_safe_action(client) ->
     assert SAFE_TRANSCRIPT_TEXT not in outcomes
 
 
-def test_fully_empty_accepted_ai_outcome_collapses_to_one_meeting_level_explanation(
+def test_empty_accepted_protocol_has_explicit_empty_states_without_invented_content(
     client,
 ) -> None:
     meeting_id = create_outcome_ready_meeting(client, "cabinet-ai-accepted-empty")
@@ -1251,9 +1205,10 @@ def test_fully_empty_accepted_ai_outcome_collapses_to_one_meeting_level_explanat
     assert response.status_code == 200
     assert 'id="detail-tab-outcomes" aria-selected="true"' in response.text
     outcomes = _outcomes_panel(response.text)
-    assert outcomes.count('class="notes-aggregate-state"') == 1
-    assert 'data-outcome-state="empty"' in outcomes
-    assert re.search(r'class="notes-aggregate-state"[^>]*>.*?<p>[^<]+</p>', outcomes, re.DOTALL)
+    assert "Принятые решения в расшифровке не зафиксированы." in outcomes
+    assert "Задачи не зафиксированы" in outcomes
+    assert "Открытые вопросы не зафиксированы." in outcomes
+    assert SAFE_TRANSCRIPT_TEXT not in outcomes
     assert "data-outcome-category" not in outcomes
 
 
@@ -1302,7 +1257,7 @@ def test_accepted_ai_outcome_renders_stored_result_without_deterministic_mock(cl
     assert page.status_code == 200
     truth = api_response.json()["notes_action_truth"]
     assert truth["provenance"]["generator_kind"] == "litellm"
-    assert truth["summary"]["items"][0]["text"] == ai_summary
+    assert truth["protocol"]["executive_summary"][0]["text"] == ai_summary
     assert SAFE_TRANSCRIPT_TEXT not in str(truth)
     outcomes = _outcomes_panel(page.text)
     assert ai_summary in outcomes
@@ -1333,11 +1288,9 @@ def test_cabinet_web_and_embedded_routes_render_matching_outcome_truth(client) -
         assert _outcome_source_basis(embedded.text) == expected_basis
         assert _outcome_states(web.text) == _outcome_states(embedded.text)
         if expected_basis == "stored_output":
-            assert set(_outcome_states(web.text)) == {
-                "summary",
-                "key_points",
-                "evidence",
-            }
+            assert 'data-protocol-section="executive_summary"' in web.text
+            assert 'data-protocol-section="topics"' in web.text
+            assert "data-outcome-category" not in web.text
         else:
             assert _outcome_states(web.text) == {}
             assert 'class="notes-aggregate-state"' in web.text
@@ -1391,14 +1344,10 @@ def _notes_panel(html: str) -> str:
 
 async def _first_outcome_text(client, meeting_id) -> str:
     async with client.app_state["sessionmaker"]() as db:
-        text = await db.scalar(
-            select(MeetingOutcomeItem.text)
-            .where(MeetingOutcomeItem.meeting_id == meeting_id)
-            .where(MeetingOutcomeItem.text.is_not(None))
-            .order_by(MeetingOutcomeItem.category, MeetingOutcomeItem.sequence)
+        outcome = await db.scalar(
+            select(MeetingOutcomeSet).where(MeetingOutcomeSet.meeting_id == meeting_id)
         )
-        assert text is not None
-        return text
+        return outcome.protocol_json["executive_summary"][0]["text"]
 
 
 async def _seed_outcome_set(
@@ -1414,6 +1363,17 @@ async def _seed_outcome_set(
     revision_state: str | None = "candidate",
 ) -> None:
     async with client.app_state["sessionmaker"]() as db:
+        if status == "available" and generator_kind == "litellm":
+            outcome, _ = await seed_accepted_protocol(db, meeting_id)
+            document = dict(outcome.protocol_json)
+            document["topics"] = []
+            document["executive_summary"] = [
+                {**document["executive_summary"][0], "text": item["text"]} for item in items or []
+            ]
+            outcome.protocol_json = document
+            outcome.content_hash = _content_hash(document)
+            await db.commit()
+            return
         result = await db.scalar(
             select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
         )
@@ -1443,6 +1403,7 @@ async def _seed_outcome_set(
             questions_state=states["questions"],
             evidence_state=states["evidence"],
             generator_kind=generator_kind,
+            source_kind="synthetic",
             generator_version=OUTCOME_GENERATOR_VERSION,
             template_key="graf-auto-v1",
             template_version=1,

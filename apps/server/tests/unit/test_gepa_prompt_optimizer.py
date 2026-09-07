@@ -12,7 +12,10 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from twobrain_rec_server.cli.langfuse_prompts import desired_prompts
+from tests.fixtures.meeting_protocol import extraction_result, protocol_bundle, protocol_result
+from tests.fixtures.outcome_prompts import desired_prompts
+from twobrain_rec_server.outcomes.generator import canonical_transcript
+from twobrain_rec_server.outcomes.models import OutcomeTranscriptSegment
 from twobrain_rec_server.outcomes.prompt_optimization import (
     OPTIMIZATION_HISTORY_MAX_BYTES,
     CallReservation,
@@ -35,6 +38,8 @@ from twobrain_rec_server.outcomes.prompt_optimization import (
     validate_heldout_prompt_candidate_activity,
 )
 from twobrain_rec_server.outcomes.prompts import (
+    CONTROL_GATE_CONFIG_KEY,
+    EXTRACTOR_PROMPT_NAME,
     JUDGE_VARIABLES,
     canonical_json,
     validate_prompt_snapshot,
@@ -65,12 +70,12 @@ class _FakeLedger:
         current = self._rows.get(call_key)
         if current and current.reservation.status == "succeeded":
             return current.reservation
-        if current and current.lease_expires_at > now:
+        if current and current.reservation.status == "reserved" and current.lease_expires_at > now:
             raise PromptOptimizationError("optimization_call_in_flight")
         if current:
-            self.expired_calls += 1
-            self.expired_tokens += current.reservation.reserved_tokens
-            self.expired_cost += current.reservation.reserved_cost
+            if current.reservation.status == "reserved":
+                self.fail(call_key=call_key, fence=current.reservation.fence)
+            raise PromptOptimizationError("optimization_call_ambiguous")
         reservation = CallReservation(
             call_key=call_key,
             phase=phase,
@@ -265,6 +270,16 @@ def test_model_result_returned_after_cancel_is_fenced_before_observation() -> No
 
 def _snapshot(name: str):
     prompt_type, prompt, config = desired_prompts()[name]
+    if name in JUDGE_VARIABLES or name == "graf/prompt-optimization/reflection":
+        gate = {
+            "gate_version": 1, "gate": "judge" if name in JUDGE_VARIABLES else "reflection",
+            "passed": True, "operator_approved": True, "operator_actor_id": "synthetic-operator",
+            "evaluator_version": "synthetic-v1", "evidence_hash": "a" * 64,
+        }
+        if name in JUDGE_VARIABLES:
+            gate.update(agreement=1, agreement_threshold=0.9, valid_rows=10,
+                        calibration_manifest_hash="b" * 64)
+        config[CONTROL_GATE_CONFIG_KEY] = gate
     return validate_prompt_snapshot(
         name=name,
         version=1,
@@ -275,18 +290,28 @@ def _snapshot(name: str):
 
 
 def _contract() -> PinnedOptimizationContract:
+    bundle = protocol_bundle()
     return PinnedOptimizationContract(
-        source=_snapshot("graf/meeting-outcome/auto"),
+        source=bundle.child("graf/meeting-outcome/auto"),
+        extractor=bundle.child(EXTRACTOR_PROMPT_NAME),
         reflection=_snapshot("graf/prompt-optimization/reflection"),
         judges={name: _snapshot(name) for name in JUDGE_VARIABLES},
     )
 
 
+def _synthetic_segments():
+    return [OutcomeTranscriptSegment(
+        segment_id=UUID("11111111-1111-4111-8111-111111111111"), sequence=0,
+        start_seconds=Decimal(0), end_seconds=Decimal(10), speaker_label="Участник 1",
+        source_role="incoming_system", text="Synthetic only",
+    )]
+
+
 def _example(split: str) -> SyntheticExample:
     return SyntheticExample(
         id=f"{split}-1",
-        transcript_json='[{"text":"Synthetic only"}]',
-        segment_ids=frozenset(),
+        transcript_json=canonical_transcript(_synthetic_segments()),
+        segment_ids=frozenset({str(_synthetic_segments()[0].segment_id)}),
         required_categories=tuple(OUTCOME_CATEGORIES),
     )
 
@@ -329,7 +354,7 @@ def test_synthetic_splits_are_immutable_disjoint_and_checkpoints_are_verified() 
         assert (Path(target_dir) / "gepa_state.bin").read_bytes() == state_path.read_bytes()
 
 
-def test_fenced_ledger_reuses_success_and_charges_expired_ambiguity() -> None:
+def test_fenced_ledger_never_replaces_expired_ambiguity() -> None:
     ledger = _FakeLedger(lease_seconds=1)
     first = ledger.reserve(
         call_key="call",
@@ -339,14 +364,11 @@ def test_fenced_ledger_reuses_success_and_charges_expired_ambiguity() -> None:
         token_ceiling=100,
         cost_ceiling=Decimal("1"),
     )
-    second = ledger.reserve(
-        call_key="call",
-        phase="task",
-        activity_attempt=2,
-        now=NOW + timedelta(seconds=2),
-        token_ceiling=100,
-        cost_ceiling=Decimal("1"),
-    )
+    with pytest.raises(PromptOptimizationError, match="optimization_call_ambiguous"):
+        ledger.reserve(
+            call_key="call", phase="task", activity_attempt=2,
+            now=NOW + timedelta(seconds=2), token_ceiling=100, cost_ceiling=Decimal("1"),
+        )
     with pytest.raises(PromptOptimizationError, match="optimization_activity_fenced"):
         ledger.succeed(
             call_key="call",
@@ -355,35 +377,17 @@ def test_fenced_ledger_reuses_success_and_charges_expired_ambiguity() -> None:
             actual_tokens=1,
             actual_cost=Decimal("0.1"),
         )
-    result = ModelCall(request={}, raw_response={}, validated_result={})
-    ledger.succeed(
-        call_key="call",
-        fence=second.fence,
-        result=result,
-        actual_tokens=10,
-        actual_cost=Decimal("0.1"),
-    )
-    reused = ledger.reserve(
-        call_key="call",
-        phase="task",
-        activity_attempt=3,
-        now=NOW + timedelta(seconds=3),
-        token_ceiling=100,
-        cost_ceiling=Decimal("1"),
-    )
-    assert reused.result is result
-    assert ledger.charged_totals() == (2, 110, Decimal("1.1"))
+    assert ledger.charged_totals() == (1, 100, Decimal("1"))
 
 
 def test_adapter_uses_strict_shared_validation_and_content_observations() -> None:
     calls: list[dict[str, object]] = []
 
     def executor(**kwargs):
-        if kwargs["phase"] == "task":
-            result = {
-                "category_states": {category: "not_found" for category in OUTCOME_CATEGORIES},
-                "items": [],
-            }
+        if kwargs["phase"] == "extract":
+            result = extraction_result(_synthetic_segments())
+        elif kwargs["phase"] == "task":
+            result = protocol_result(_synthetic_segments())
         elif kwargs["phase"] == "reflection":
             result = f"```{canonical_json(_contract().source.prompt)}```"
         else:
@@ -431,7 +435,8 @@ def test_adapter_uses_strict_shared_validation_and_content_observations() -> Non
         capture_traces=True,
     )
     assert evaluation.scores == [1.0]
-    assert len(calls) == 4
+    assert len(calls) == 5
+    assert evaluation.num_metric_calls == 5
     assert all(call["request"] and call["raw_response"] for call in calls)
     assert all(call["actual_model"] == "provider/model-v2" for call in calls)
     assert all(call["actual_provider"] == "provider" for call in calls)
@@ -460,17 +465,14 @@ def test_adapter_does_not_reuse_judges_when_candidate_output_changes() -> None:
     def executor(**kwargs):
         phase = kwargs["phase"]
         executed_phases.append(phase)
-        if phase == "task":
-            state = "not_inferable" if "Candidate B." in kwargs["prompt_text"] else "not_found"
-            result = {
-                "category_states": {
-                    category: state if category == "summary" else "not_found"
-                    for category in OUTCOME_CATEGORIES
-                },
-                "items": [],
-            }
+        if phase == "extract":
+            result = extraction_result(_synthetic_segments())
+        elif phase == "task":
+            result = protocol_result(_synthetic_segments())
+            if "Candidate B." in kwargs["prompt_text"]:
+                result["uncertain_sections"] = ["objectives"]
         else:
-            changed = "not_inferable" in kwargs["variables"]["candidate_outcome_json"]
+            changed = '"uncertain_sections":["objectives"]' in kwargs["variables"]["candidate_outcome_json"]
             result = {
                 "score": 0 if changed else 1,
                 "verdict": "fail" if changed else "pass",
@@ -515,8 +517,9 @@ def test_adapter_does_not_reuse_judges_when_candidate_output_changes() -> None:
 
     assert first.scores == [1.0]
     assert second.scores == [0.0]
-    assert len(executed_phases) == 8
-    assert len(set(observed_keys)) == 8
+    assert len(executed_phases) == 9
+    assert executed_phases.count("extract") == 1
+    assert len(set(observed_keys)) == 9
 
 
 def test_task_call_resume_key_includes_every_effective_projected_variable() -> None:
@@ -641,7 +644,7 @@ def test_temporal_history_chunks_retain_complete_plaintext_synthetic_content() -
     )
     restored = json.loads(plaintext)
     assert restored["datasets"][0]["examples"][0]["transcript_json"] == (
-        '[{"text":"Synthetic only"}]'
+        canonical_transcript(_synthetic_segments())
     )
     assert restored["model_calls"][0]["request"] == observation["request"]
     assert restored["model_calls"][0]["raw_response"] == observation["raw_response"]

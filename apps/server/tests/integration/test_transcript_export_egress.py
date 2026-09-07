@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+from copy import deepcopy
 from datetime import UTC, datetime
 from unittest.mock import patch
 from uuid import UUID, uuid4
@@ -23,6 +24,7 @@ from tests.fixtures.cabinet_access import (
     set_meeting_deletion_state,
     set_meeting_visibility,
 )
+from tests.fixtures.meeting_protocol import seed_accepted_protocol
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.cabinet import egress as egress_module
 from twobrain_rec_server.db.models import (
@@ -37,6 +39,7 @@ from twobrain_rec_server.db.models import (
     ProcessingResult,
     TranscriptSegment,
 )
+from twobrain_rec_server.outcomes.ai_service import _content_hash
 
 
 def test_implicit_content_policy_is_owner_only_and_explicit_deny_stays_disabled(client) -> None:
@@ -233,7 +236,7 @@ def test_authorized_transcript_formats_share_one_revision_and_safe_headers(clien
         responses[format_name] = response
 
     assert SAFE_TRANSCRIPT_TEXT in responses["txt"].text
-    assert SAFE_TRANSCRIPT_TEXT.replace(".", "\\.") in responses["md"].text
+    assert SAFE_TRANSCRIPT_TEXT in responses["md"].text
     assert SAFE_TRANSCRIPT_TEXT in responses["csv"].content.decode("utf-8-sig")
     assert SAFE_TRANSCRIPT_TEXT in responses["srt"].text
     assert SAFE_TRANSCRIPT_TEXT in responses["vtt"].text
@@ -311,12 +314,11 @@ def test_summary_and_combined_use_current_stored_outcome_without_regeneration(cl
         assert response.status_code == 200, response.text
         payload = response.json()
         assert payload["summary"]["outcome_set_id"] == str(outcome_set_id)
-        assert payload["summary"]["items"][0]["text"] == "Сохранённый итог."
-        assert [item["category"] for item in payload["summary"]["items"]] == [
-            "summary",
-            "decisions",
-            "action_items",
-        ]
+        protocol = payload["summary"]["protocol"]
+        assert protocol["executive_summary"][0]["text"] == "Сохранённый итог."
+        assert protocol["decisions"][0]["text"] == "Сохранённое решение."
+        assert protocol["action_items"][0]["task"] == "Сохранённая задача."
+        assert "items" not in payload["summary"]
         assert (payload["transcript"] is None) == (scope == "summary")
 
 
@@ -360,7 +362,7 @@ def test_combined_policy_is_composed_fail_closed_from_component_policies(
 @pytest.mark.parametrize(
     ("outcome_status", "summary_state", "combined_state"),
     [
-        ("partial", "partial", "available"),
+        ("partial", "missing", "missing"),
         ("generating", "missing", "missing"),
         ("failed", "missing", "missing"),
     ],
@@ -389,10 +391,7 @@ def test_summary_capability_preserves_stored_partial_processing_and_failed_truth
 
     assert capability.status_code == 200
     payload = capability.json()
-    if outcome_status == "partial":
-        assert payload["outcome_set_id"] == str(outcome_set_id)
-    else:
-        assert payload["outcome_set_id"] is None
+    assert payload["outcome_set_id"] is None
     assert payload["summary"]["state"] == summary_state
     assert payload["combined"]["state"] == combined_state
     if outcome_status == "partial":
@@ -403,11 +402,10 @@ def test_summary_capability_preserves_stored_partial_processing_and_failed_truth
                 "content_scope": "summary",
                 "format": "json",
                 "processing_result_id": payload["processing_result_id"],
-                "outcome_set_id": payload["outcome_set_id"],
+                "outcome_set_id": str(outcome_set_id),
             },
         )
-        assert exported.status_code == 200
-        assert exported.json()["summary"]["status"] == "partial"
+        assert exported.status_code == 409
 
 
 def test_unsupported_scope_format_stale_revision_and_policy_fail_closed(client) -> None:
@@ -850,7 +848,7 @@ def test_export_capability_never_pairs_an_accepted_summary_with_a_newer_result(c
         json={
             "template_key": "graf-auto-v1",
             "template_id": None,
-            "template_version": 1,
+            "template_version": 2,
             "expected_current_outcome_set_id": str(accepted_id),
         },
     )
@@ -876,7 +874,8 @@ def test_export_capability_never_pairs_an_accepted_summary_with_a_newer_result(c
         exported_payload["revisions"]["processing_result_id"]
         == summary_payload["processing_result_id"]
     )
-    assert all(not item["evidence_turn_ids"] for item in summary_payload["items"])
+    assert summary_payload["protocol"]["header"]["source_result_id"] == summary_payload["processing_result_id"]
+    assert summary_payload["protocol"]["executive_summary"][0]["source_refs"]
 
 
 def test_export_capability_uses_newest_media_revision_before_summary_acceptance(client) -> None:
@@ -1031,8 +1030,8 @@ def test_summary_without_content_hash_is_not_exportable_as_a_pinned_revision(cli
     ).json()
 
     assert capability["summary"] == {
-        "state": "failed",
-        "reason": "stored_summary_revision_unpinned",
+        "state": "missing",
+        "reason": "stored_summary_missing",
     }
     assert capability["combined"]["state"] == "missing"
 
@@ -1288,122 +1287,30 @@ def test_summary_export_package_manifest_pins_default_revision(client) -> None:
 
 
 async def _seed_stored_summary(
-    client,
-    meeting_id: UUID,
-    *,
-    generator_version: str = "fixture-export-v1",
+    client, meeting_id: UUID, *, generator_version: str = "fixture-protocol-export",
     status: str = "available",
 ) -> UUID:
     async with client.app_state["sessionmaker"]() as db:
-        result = await db.scalar(
-            select(ProcessingResult).where(
-                ProcessingResult.meeting_id == meeting_id,
-                ProcessingResult.status == "imported",
-            )
+        outcome, _ = await seed_accepted_protocol(
+            db, meeting_id, text="Сохранённый итог.", make_default=status in {"available", "partial"},
         )
-        meeting = await db.get(Meeting, meeting_id)
-        segment = await db.scalar(
-            select(TranscriptSegment)
-            .where(TranscriptSegment.meeting_id == meeting_id)
-            .order_by(TranscriptSegment.sequence.asc())
-        )
-        assert result is not None and meeting is not None and segment is not None
-        outcome_set = MeetingOutcomeSet(
-            workspace_id=meeting.workspace_id,
-            meeting_id=meeting_id,
-            media_revision_id=result.media_revision_id,
-            processing_result_id=result.id,
-            status=status,
-            summary_state=status,
-            key_points_state="not_found",
-            decisions_state="available",
-            action_items_state="available",
-            followups_state="not_found",
-            risks_state="not_found",
-            questions_state="not_found",
-            evidence_state="available",
-            source_kind="extractive_generator",
-            generator_kind="deterministic_extractive",
-            generator_version=generator_version,
-            template_key="graf-auto-v1",
-            template_version=1,
-            content_hash=f"fixture-summary-hash-{generator_version}",
-            lifecycle_state="active",
-            generated_at=datetime.now(UTC) if status in {"available", "partial"} else None,
-            revision_state="accepted" if status in {"available", "partial"} else None,
-        )
-        db.add(outcome_set)
-        await db.flush()
-        if status in {"available", "partial"}:
-            outcome_set.accepted_at = outcome_set.generated_at
-            meeting.current_outcome_set_id = outcome_set.id
-            slot = await db.scalar(
-                select(MeetingSummarySlot).where(
-                    MeetingSummarySlot.meeting_id == meeting_id,
-                    MeetingSummarySlot.template_key == "graf-auto-v1",
-                )
-            )
-            if slot is None:
-                slot = MeetingSummarySlot(
-                    workspace_id=meeting.workspace_id,
-                    meeting_id=meeting_id,
-                    template_key="graf-auto-v1",
-                    is_meeting_default=True,
-                    default_resolution_source="explicit_meeting",
-                    default_resolution_version="slot-fixture-v1",
-                    default_resolved_at=datetime.now(UTC),
-                )
-                db.add(slot)
-                await db.flush()
-            slot.current_outcome_set_id = outcome_set.id
-            slot.current_binding_class = "verified_complete"
-        db.add_all(
-            [
-                MeetingOutcomeItem(
-                    workspace_id=meeting.workspace_id,
-                    meeting_id=meeting_id,
-                    outcome_set_id=outcome_set.id,
-                    category="action_items",
-                    sequence=0,
-                    state="available",
-                    text="Сохранённая задача.",
-                    truth_label="supported",
-                    source_refs_json=[],
-                ),
-                MeetingOutcomeItem(
-                    workspace_id=meeting.workspace_id,
-                    meeting_id=meeting_id,
-                    outcome_set_id=outcome_set.id,
-                    category="decisions",
-                    sequence=0,
-                    state="available",
-                    text="Сохранённое решение.",
-                    truth_label="supported",
-                    source_refs_json=[],
-                ),
-                MeetingOutcomeItem(
-                    workspace_id=meeting.workspace_id,
-                    meeting_id=meeting_id,
-                    outcome_set_id=outcome_set.id,
-                    category="summary",
-                    sequence=0,
-                    state="available",
-                    text="Сохранённый итог.",
-                    truth_label="supported",
-                    source_refs_json=[
-                        {
-                            "transcript_segment_id": str(segment.id),
-                            "sequence": segment.sequence,
-                            "start_seconds": float(segment.start_seconds),
-                            "end_seconds": float(segment.end_seconds),
-                            "evidence_kind": "segment",
-                        }
-                    ],
-                ),
-            ]
-        )
+        document = deepcopy(outcome.protocol_json)
+        refs = document["executive_summary"][0]["source_refs"]
+        document["decisions"] = [{
+            "text": "Сохранённое решение.", "source_refs": refs, "acceptance_source_refs": refs,
+        }]
+        document["action_items"] = [{
+            "task": "Сохранённая задача.", "owner_text": None, "due_date_text": None,
+            "task_source_refs": refs, "owner_source_refs": [], "due_date_source_refs": [],
+        }]
+        outcome.protocol_json = document
+        outcome.content_hash = _content_hash(document)
+        outcome.generator_version = generator_version
+        outcome.status = status
+        if status != "available":
+            outcome.protocol_state = "unavailable"
         await db.commit()
-        return outcome_set.id
+        return outcome.id
 
 
 async def _keep_only_provider_turns(client, meeting_id: UUID) -> UUID:

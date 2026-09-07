@@ -4,6 +4,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import (
     JSON,
     BigInteger,
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -102,6 +103,11 @@ class MeetingOutcomeSet(Base):
     )
     candidate_id: Mapped[UUID | None] = mapped_column()
     status: Mapped[str] = mapped_column(String(64), default="queued")
+    protocol_json: Mapped[dict | None] = mapped_column(JSON(none_as_null=True))
+    protocol_schema_version: Mapped[str | None] = mapped_column(String(64))
+    protocol_state: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="unavailable", server_default=text("'unavailable'")
+    )
     summary_state: Mapped[str] = mapped_column(String(64), default="processing")
     key_points_state: Mapped[str] = mapped_column(String(64), default="processing")
     decisions_state: Mapped[str] = mapped_column(String(64), default="processing")
@@ -110,8 +116,8 @@ class MeetingOutcomeSet(Base):
     risks_state: Mapped[str] = mapped_column(String(64), default="processing")
     questions_state: Mapped[str] = mapped_column(String(64), default="processing")
     evidence_state: Mapped[str] = mapped_column(String(64), default="processing")
-    source_kind: Mapped[str] = mapped_column(String(64), default="extractive_generator")
-    generator_kind: Mapped[str] = mapped_column(String(64), default="deterministic_extractive")
+    source_kind: Mapped[str] = mapped_column(String(64), nullable=False)
+    generator_kind: Mapped[str] = mapped_column(String(64), nullable=False)
     generator_version: Mapped[str] = mapped_column(String(120), nullable=False)
     generator_config_hash: Mapped[str | None] = mapped_column(String(64))
     source_result_hash: Mapped[str | None] = mapped_column(String(128))
@@ -302,7 +308,7 @@ class MeetingOutcomeGenerationAttempt(Base):
     )
     outcome_set_id: Mapped[UUID | None] = mapped_column(ForeignKey("meeting_outcome_sets.id"))
     status: Mapped[str] = mapped_column(String(64), default="queued")
-    provider_kind: Mapped[str] = mapped_column(String(64), default="deterministic_extractive")
+    provider_kind: Mapped[str] = mapped_column(String(64), nullable=False)
     generator_version: Mapped[str] = mapped_column(String(120), nullable=False)
     generator_config_hash: Mapped[str | None] = mapped_column(String(64))
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -311,6 +317,7 @@ class MeetingOutcomeGenerationAttempt(Base):
     failure_reason: Mapped[str | None] = mapped_column(String(240))
     failure_source: Mapped[str | None] = mapped_column(String(64))
     metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    header_snapshot_json: Mapped[dict | None] = mapped_column(JSON(none_as_null=True))
     candidate_id: Mapped[UUID | None] = mapped_column()
     idempotency_key: Mapped[str | None] = mapped_column(String(240))
     request_intent: Mapped[str] = mapped_column(String(64), default="automatic_baseline")
@@ -393,6 +400,11 @@ class GenerationCall(Base):
     transcript_hash: Mapped[str | None] = mapped_column(String(64))
     raw_response_hash: Mapped[str | None] = mapped_column(String(64))
     validated_result_hash: Mapped[str | None] = mapped_column(String(64))
+    execution_authority_json: Mapped[dict | None] = mapped_column(JSON(none_as_null=True))
+    execution_authority_hash: Mapped[str | None] = mapped_column(String(64))
+    predecessor_call_id: Mapped[UUID | None] = mapped_column()
+    predecessor_result_hash: Mapped[str | None] = mapped_column(String(64))
+    header_snapshot_hash: Mapped[str | None] = mapped_column(String(64))
     export_status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
     export_attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_export_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -403,6 +415,45 @@ class GenerationCall(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+
+class PromptRootPromotion(Base):
+    """Operator-owned immutable admission; not workspace or meeting content."""
+
+    __tablename__ = "prompt_root_promotions"
+    __table_args__ = (
+        Index("uq_prompt_root_current", "project_id", "root_name", unique=True,
+              postgresql_where=text("is_current")),
+        Index("uq_prompt_root_unfinished", "project_id", "root_name", unique=True,
+              postgresql_where=text("state in ('prepared', 'reconciliation_required')")),
+        CheckConstraint("state in ('prepared', 'reconciliation_required', 'succeeded', 'cancelled')", name="state"),
+        CheckConstraint("operation_kind in ('initial_activation', 'promotion')", name="operation_kind"),
+        CheckConstraint("expected_source_version > 0", name="expected_version"),
+        CheckConstraint("not is_current or state = 'succeeded'", name="current_success"),
+        CheckConstraint(
+            "(state = 'succeeded' and event_json is not null and event_hash is not null) "
+            "or (state <> 'succeeded' and event_json is null and event_hash is null)",
+            name="event_success",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    project_id: Mapped[str] = mapped_column(String(240), nullable=False)
+    root_name: Mapped[str] = mapped_column(String(240), nullable=False)
+    operation_kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    expected_source_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    root_export_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    root_export_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    activation_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    activation_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    qualification_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    qualification_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    event_json: Mapped[dict | None] = mapped_column(JSON(none_as_null=True))
+    event_hash: Mapped[str | None] = mapped_column(String(64))
+    state: Mapped[str] = mapped_column(String(32), nullable=False, default="prepared")
+    failure_code: Mapped[str | None] = mapped_column(String(120))
+    is_current: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class PromptOptimizationRun(Base):

@@ -1128,7 +1128,6 @@ async def poll_and_import_mediascribe_result(
         await ensure_outcomes_for_processing_result(
             db,
             result=result_row,
-            publish_initial_baseline=True,
             ai_dispatch_planned=outcome_generation_enabled,
         )
     except ProcessingLifecycleBlocked as exc:

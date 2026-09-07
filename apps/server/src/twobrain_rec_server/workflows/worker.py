@@ -87,7 +87,6 @@ from twobrain_rec_server.outcomes.dispatch import (
     list_due_dispatch_intents,
     reconcile_dispatch_intent,
     reconcile_missing_summary_defaults,
-    reconcile_orphaned_summary_candidates,
     reconcile_unrequested_summary_candidates,
 )
 from twobrain_rec_server.processing import reasons, store
@@ -1220,12 +1219,6 @@ async def run_dispatch_reconciler(settings: Any, temporal_client: object) -> Non
                             feature_area="content_regeneration",
                         ),
                     )
-                    repaired = await reconcile_orphaned_summary_candidates(db, limit=25)
-                    if repaired:
-                        logger.info(
-                            "reconciled orphaned summary candidates",
-                            extra={"repaired_count": repaired},
-                        )
                     backfilled = await reconcile_unrequested_summary_candidates(db, limit=25)
                     if backfilled:
                         logger.info(

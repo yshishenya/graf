@@ -63,6 +63,8 @@ def test_backfill_executes_twice_and_preserves_legacy_template_provenance(client
                 processing_result_id=result.id,
                 status="available",
                 generator_version="outcomes-extractive-v1",
+                source_kind="extractive_generator",
+                generator_kind="deterministic_extractive",
                 lifecycle_state="active",
                 generated_at=datetime.now(UTC),
             )

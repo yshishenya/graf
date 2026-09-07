@@ -6,10 +6,12 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from time import perf_counter
 
+import pytest
 from sqlalchemy import delete, func, select
 
 from tests.fixtures.cabinet import create_outcome_ready_meeting
 from twobrain_rec_server.db.models import (
+    GenerationCall,
     Meeting,
     MeetingOutcomeItem,
     ProcessingResult,
@@ -24,7 +26,8 @@ def _service_module():
         raise AssertionError("outcome service module is missing") from exc
 
 
-def test_one_hour_outcome_generation_does_not_block_review_budget(client) -> None:
+@pytest.mark.parametrize("ai_dispatch_planned", [False, True])
+def test_one_hour_transcript_state_projection_does_not_block_review_budget(client, ai_dispatch_planned) -> None:
     meeting_id = create_outcome_ready_meeting(client)
     service = _service_module()
 
@@ -64,7 +67,18 @@ def test_one_hour_outcome_generation_does_not_block_review_budget(client) -> Non
         async with client.app_state["sessionmaker"]() as db:
             fresh_result = await db.get(ProcessingResult, result.id)
             assert fresh_result is not None
-            outcome_set = await service.ensure_outcomes_for_processing_result(db, result=fresh_result)
+            outcome_set = await service.ensure_outcomes_for_processing_result(
+                db, result=fresh_result, ai_dispatch_planned=ai_dispatch_planned,
+            )
+            assert outcome_set.protocol_json is None and outcome_set.content_hash is None
+            assert outcome_set.candidate_id is None and outcome_set.accepted_at is None
+            assert outcome_set.protocol_state == ("processing" if ai_dispatch_planned else "unavailable")
+            assert await db.scalar(select(func.count(GenerationCall.id)).where(
+                GenerationCall.meeting_id == meeting_id,
+            )) == 0
+            assert await db.scalar(select(func.count(TranscriptSegment.id)).where(
+                TranscriptSegment.processing_result_id == result.id,
+            )) == 360
             item_count = await db.scalar(
                 select(func.count(MeetingOutcomeItem.id)).where(MeetingOutcomeItem.outcome_set_id == outcome_set.id)
             )
@@ -75,5 +89,5 @@ def test_one_hour_outcome_generation_does_not_block_review_budget(client) -> Non
     elapsed_seconds = perf_counter() - started
 
     assert elapsed_seconds < 30
-    assert status == "available"
-    assert item_count > 0
+    assert status == ("generating" if ai_dispatch_planned else "blocked")
+    assert item_count == 0

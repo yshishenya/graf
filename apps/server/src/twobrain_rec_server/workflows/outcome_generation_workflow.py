@@ -286,7 +286,8 @@ if workflow is not None:
                         "snapshot_hash": metadata["snapshot_hash"],
                         "chunk_count": metadata["chunk_count"],
                     },
-                    start_to_close_timeout=timedelta(minutes=5),
+                    # Recorded pre-upgrade activity results retain their original timeout on replay.
+                    start_to_close_timeout=timedelta(seconds=resolved.get("generation_timeout_seconds", 300)),
                     retry_policy=outcome_generation_retry_policy(),
                 )
             except TranscriptSnapshotError as exc:

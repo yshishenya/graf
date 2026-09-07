@@ -166,6 +166,7 @@ def _custody_default(
 def _is_browser_cabinet_path(path: str) -> bool:
     return (
         path in {"/meetings", "/desktop/meetings"}
+        or (path.startswith("/cabinet/meetings/") and "/sources/" in path)
         or path.startswith(
             (
                 "/meetings/",
@@ -263,6 +264,18 @@ async def problem_exception_handler(
     request: Request,
     exc: ProblemDetail,
 ) -> JSONResponse | HTMLResponse | RedirectResponse:
+    if (
+        request.method in {"GET", "HEAD"}
+        and request.url.path.startswith("/api/v1/cabinet/public-shares/")
+        and _wants_html(request)
+        and exc.status == 404 and exc.code == "share_not_found"
+    ):
+        from twobrain_rec_server.cabinet.rendering import render_meeting_unavailable_page
+        from twobrain_rec_server.cabinet.templates import cabinet_html_response
+
+        response = cabinet_html_response(render_meeting_unavailable_page(), status_code=404)
+        response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive"
+        return response
     if (
         _is_browser_invitation_path(request.url.path)
         and _wants_html(request)

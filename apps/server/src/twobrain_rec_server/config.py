@@ -1,4 +1,3 @@
-import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -150,12 +149,15 @@ class Settings(BaseSettings):
     langfuse_secret_key_file: Path | None = None
     langfuse_environment: str = "development"
     langfuse_release: str | None = None
+    langfuse_project_id: str | None = None
 
     outcome_generation_enabled: bool = False
-    outcome_prompt_label: str = "production"
+    outcome_prompt_label: Literal["production", "dev"] = "production"
+    outcome_root_prompt_version: int | None = None
+    outcome_evaluation_workdir: Path | None = None
     litellm_base_url: AnyUrl | None = None
     litellm_api_key_file: Path | None = None
-    litellm_request_timeout_seconds: PositiveInt = Field(default=120)
+    litellm_request_timeout_seconds: PositiveInt = Field(default=600)
     outcome_transcript_chunk_bytes: PositiveInt = Field(default=196_608)
     outcome_temporal_payload_bytes: PositiveInt = Field(default=262_144)
     outcome_transcript_max_bytes: PositiveInt = Field(default=8_388_608)
@@ -490,8 +492,23 @@ class Settings(BaseSettings):
             raise ValueError("processing recovery must allow at least one attempt")
         return self
 
+    @field_validator("outcome_root_prompt_version", mode="before")
+    @classmethod
+    def validate_numeric_outcome_root(cls, value):
+        if isinstance(value, bool):
+            raise ValueError("numeric outcome root must not be boolean")
+        return value
+
     @model_validator(mode="after")
     def validate_outcome_generation_safety(self) -> "Settings":
+        if self.outcome_prompt_label == "dev" and self.env != "protocol-evaluation":
+            raise ValueError("dev prompt label is evaluation-only")
+        if self.outcome_evaluation_workdir is not None and self.env != "protocol-evaluation":
+            raise ValueError("evaluation snapshots are evaluation-only")
+        if self.outcome_root_prompt_version is not None and (
+            self.outcome_root_prompt_version < 1 or self.env == "production"
+        ):
+            raise ValueError("numeric outcome roots are positive evaluation-only versions")
         if self.outcome_transcript_chunk_bytes != 196_608:
             raise ValueError("outcome transcript chunks must remain exactly 192 KiB")
         if self.outcome_temporal_payload_bytes != 262_144:
@@ -504,13 +521,6 @@ class Settings(BaseSettings):
             )
         if not (self.outcome_generation_enabled or self.prompt_optimization_enabled):
             return self
-        prompt_label = self.outcome_prompt_label.strip()
-        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", prompt_label):
-            raise ValueError("outcome prompt label is invalid")
-        if prompt_label == "latest":
-            raise ValueError("outcome prompt label must pin an explicit deployment label")
-        if self.env == "production" and prompt_label != "production":
-            raise ValueError("production outcome generation requires the production prompt label")
         capability = (
             "outcome generation" if self.outcome_generation_enabled else "prompt optimization"
         )

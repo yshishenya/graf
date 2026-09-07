@@ -4,6 +4,9 @@ from html import escape
 from pathlib import Path
 from uuid import UUID, uuid4
 
+import pytest
+
+from tests.fixtures.meeting_protocol import protocol_outcome
 from twobrain_rec_server.api.schemas import (
     ArtifactDeletionState,
     ArtifactEgressState,
@@ -22,17 +25,19 @@ from twobrain_rec_server.api.schemas import (
     MeetingFilterState,
     MeetingListItem,
     MeetingListResponse,
+    MeetingProtocolView,
     MeetingProvenance,
     MeetingReviewResponse,
     MeetingUploadProgressState,
     NotesActionCategoryState,
     NotesActionTruthState,
     NotesReviewState,
-    OutcomeItemView,
     OutcomeSourceReferenceView,
     PlaybackPreparationState,
     PlaybackReviewState,
     ProcessingReviewState,
+    ProtocolActionView,
+    ProtocolDecisionView,
     SharePanelState,
     SlotState,
     SpeakerLane,
@@ -80,30 +85,27 @@ def _cabinet_js() -> str:
     return CABINET_JS.read_text()
 
 
-def test_shared_summary_localizes_and_orders_accepted_categories() -> None:
+def test_shared_summary_preserves_full_protocol_and_escapes_content() -> None:
+    from tests.fixtures.meeting_protocol import protocol_outcome
+    from twobrain_rec_server.outcomes.models import protocol_without_evidence
+
+    protocol = protocol_outcome().protocol_json
+    protocol["topics"][0]["title"] = "<script>unsafe</script>"
     page = render_shared_meeting_summary_page(
         meeting_title="Синтетическая встреча",
-        occurred_at=datetime(2026, 8, 4, tzinfo=UTC),
+        occurred_at=None,
         duration_seconds=600,
-        summary_sections=[
-            {"category": "decisions", "text": "Решение"},
-            {"category": "summary", "text": "Краткий итог"},
-            {
-                "category": "action_items",
-                "text": "Действие",
-                "owner_text": "Алексей",
-                "due_date_text": "завтра",
-            },
-            {"category": "legacy_internal", "text": "Не показывать"},
-        ],
+        protocol=protocol_without_evidence(protocol),
         authenticated=True,
     )
-
-    assert page.index("Кратко") < page.index("Действия") < page.index("Решения")
-    assert "Ответственный: Алексей" in page
-    assert "Срок: завтра" in page
-    assert "legacy_internal" not in page
-    assert "Не показывать" not in page
+    assert page.index("Ключевые итоги") < page.index("Ключевые обсуждения") < page.index("Принятые решения")
+    assert "Синтетическая тема" not in page
+    assert "&lt;script&gt;unsafe&lt;/script&gt;" in page
+    assert "<script>unsafe" not in page
+    assert "Обсудили ограничения пилота." in page
+    assert "Не указано" in page
+    assert "data-seek-seconds" not in page
+    assert "source_result_id" not in page
 
 
 def _governance() -> GovernanceActionSummary:
@@ -250,6 +252,43 @@ def _review(
         deletion_truth_copy="Files already downloaded or exported are outside GRAF deletion control.",
         assistant=SlotState(state="planned", label="Assistant", reason="future"),
         template=SlotState(state="planned", label="Template", reason="future"),
+    )
+
+
+def _set_protocol(review: MeetingReviewResponse) -> MeetingProtocolView:
+    protocol = cabinet_view_models.meeting_protocol_view(protocol_outcome())
+    assert protocol is not None
+    available = NotesActionCategoryState(
+        state="available", label="Итоги готовы",
+        reason="Проверенный протокол связан с закреплённой расшифровкой.",
+        readiness_impact="closes_gap", copy_key="notes.summary.available",
+    )
+    review.notes_action_truth = NotesActionTruthState(
+        protocol=protocol, summary=available, decisions=available,
+        action_items=available, followups=available, source_basis="stored_output",
+    )
+    return protocol
+
+
+def _set_protocol_source_transcript(
+    review: MeetingReviewResponse, refs: list[OutcomeSourceReferenceView]
+) -> None:
+    """Give source controls real destinations in the protocol's pinned revision."""
+    result_id = UUID(review.notes_action_truth.protocol.header["source_result_id"])
+    review.transcript = TranscriptReviewState(
+        available=True, language="ru", search_enabled=True,
+        segments=[
+            TranscriptSegmentView(
+                segment_id=str(ref.transcript_segment_id), sequence=ref.sequence,
+                processing_result_id=result_id,
+                start_seconds=ref.start_seconds, end_seconds=ref.end_seconds,
+                timestamp_label=f"{int(ref.start_seconds) // 60:02}:{int(ref.start_seconds) % 60:02}",
+                speaker_label=ref.speaker_label or "Участник 1",
+                source_role="incoming_system", text="Синтетический источник для проверки протокола.",
+                seekable=False,
+            )
+            for ref in refs
+        ],
     )
 
 
@@ -1164,6 +1203,24 @@ def test_meeting_detail_page_embeds_shared_runtime_recovery_template() -> None:
     assert 'id="meeting-detail-recovery-title"' in page
     assert 'aria-live="polite" aria-atomic="true"' in page
     assert "new-button" not in page
+
+
+@pytest.mark.parametrize("shared_workspace_id", [None, UUID("30000000-0000-4000-8000-000000000239")])
+def test_source_view_does_not_offer_generation_in_a_different_session_workspace(shared_workspace_id):
+    review = _review()
+    protocol = _set_protocol(review)
+    ref = protocol.executive_summary[0].source_refs[0]
+    _set_protocol_source_transcript(review, [ref])
+    assert review.access.state == "owner"
+    page = render_meeting_detail_page(
+        review, shared_workspace_id=shared_workspace_id,
+        initial_source_segment_id=ref.transcript_segment_id,
+    )
+    assert ("data-summary-format-controls" in page) == (shared_workspace_id is None)
+    assert ("data-summary-refresh-button" in page) == (shared_workspace_id is None)
+    assert protocol.executive_summary[0].text in page
+    assert f'data-initial-source-segment="{ref.transcript_segment_id}"' in page
+    assert "data-transcript-turn" in page
 
 
 def test_terminal_no_speech_detail_does_not_render_processing_transcript_placeholder() -> None:
@@ -2708,9 +2765,15 @@ def test_detail_shell_keeps_simple_outcomes_copy_without_internal_feature_labels
     assert "016-meeting-detail" not in page
 
 
-def test_detail_shell_renders_stored_outcomes_with_long_content_and_playback_spacing() -> None:
+def test_detail_shell_renders_stored_protocol_with_long_content_and_playback_spacing() -> None:
     review = _review()
-    review.transcript = review.transcript.model_copy(update={"available": True, "search_enabled": True})
+    protocol = _set_protocol(review)
+    long_text = (
+        "Синтетический длинный итог встречи сохраняет аргументы, ограничения и следующие шаги. " * 20
+        + "Последний тезис нельзя потерять: <проверка> & конец."
+    )
+    protocol.executive_summary[0].text = long_text
+    _set_protocol_source_transcript(review, protocol.executive_summary[0].source_refs)
     review.playback = PlaybackReviewState(
         available=True,
         duration_seconds=120,
@@ -2721,382 +2784,211 @@ def test_detail_shell_renders_stored_outcomes_with_long_content_and_playback_spa
         source_mode="stored_review_m4a",
         included_sources=["local_microphone", "incoming_system"],
     )
-    summary = NotesActionCategoryState(
-        state="available",
-        label="Итоги готовы",
-        reason="Сохраненный итог доступен и связан с расшифровкой.",
-        readiness_impact="closes_gap",
-        copy_key="notes.summary.available",
-        items=[
-            OutcomeItemView(
-                category="summary",
-                sequence=0,
-                text=(
-                    "Синтетический длинный итог встречи занимает несколько строк, "
-                    "чтобы проверить переносы, ширину карточки и совместимость с нижним плеером."
-                ),
-                truth_label="supported",
-                source_refs=[
-                    OutcomeSourceReferenceView(
-                        sequence=1,
-                        start_seconds=12.5,
-                        end_seconds=20.0,
-                        evidence_kind="segment",
-                        seekable=True,
-                    )
-                ],
-            )
-        ],
-    )
-    deferred = NotesActionCategoryState(
-        state="not_found",
-        label="Не найдено",
-        reason="В расшифровке нет надежной опоры для этой категории.",
-        readiness_impact="closes_gap",
-        copy_key="notes.outcomes.not_found",
-    )
-    review.notes_action_truth = NotesActionTruthState(
-        summary=summary,
-        key_points=deferred,
-        decisions=deferred,
-        action_items=deferred,
-        followups=deferred,
-        risks=deferred,
-        questions=deferred,
-        evidence=summary,
-        source_basis="stored_output",
-    )
 
     page = render_meeting_detail_page(review)
 
     assert 'data-outcome-source-basis="stored_output"' in page
-    assert 'data-outcome-category="summary"' in page
-    assert 'data-outcome-state="available"' in page
-    assert "Синтетический длинный итог встречи" in page
-    assert "Источник: 00:12" in page
-    assert "Ключевое" not in page
-    css = _cabinet_css()
-    assert ".notes-more" in css
-    assert ".notes-primary-outcomes" in css
+    assert 'data-protocol-section="executive_summary"' in page
+    assert 'data-protocol-version="graf-meeting-protocol-v2"' in page
+    assert f'<p class="protocol-summary">{escape(long_text)} ' in page
+    assert "<проверка>" not in page
+    assert 'aria-label="Открыть источник 00:12 в расшифровке"' in page
     assert 'class="playback-bar detail-playback"' in page
+    assert page.index('data-protocol-section="notes"') < page.index("data-playback-shell")
+    css = _cabinet_css()
+    protocol_css = re.search(r"\.meeting-protocol\s*\{([^}]+)\}", css).group(1)
+    assert "overflow-wrap: anywhere" in protocol_css
+    assert "line-clamp" not in protocol_css and "max-height" not in protocol_css
+    assert ".protocol-section" in css
 
 
-def test_detail_shell_renders_simple_outcomes_with_metadata_and_sources() -> None:
+def test_detail_shell_renders_full_protocol_with_metadata_and_sources() -> None:
     review = _review()
-    review.transcript = review.transcript.model_copy(update={"available": True, "search_enabled": True})
+    protocol = _set_protocol(review)
     review.template = SlotState(
-        state="available",
-        label="Протокол встречи",
-        reason="graf-meeting-minutes-v1",
-        template_version=1,
+        state="available", label="Протокол встречи",
+        reason="graf-meeting-minutes-v1", template_version=2,
     )
+    protocol.header.update(
+        title="Проверка следующего шага",
+        started_at="2026-09-06T08:00:00+00:00",
+        timezone_offset_minutes=180,
+        participants=[{"label": "Алексей"}],
+    )
+    base_ref = protocol.executive_summary[0].source_refs[0]
+    refs = [
+        base_ref.model_copy(update={
+            "transcript_segment_id": uuid4(), "sequence": sequence,
+            "start_seconds": start, "end_seconds": end,
+        })
+        for sequence, (start, end) in enumerate(((12.5, 20.0), (24.0, 28.0), (36.0, 40.0), (45.0, 52.0)))
+    ]
+    statement = protocol.executive_summary[0]
+    statement.text = "Команда согласовала следующий шаг."
+    statement.source_refs = refs[:3]
+    topic = protocol.topics[0]
+    topic.title = "Подготовка плана"
+    for field, text in (
+        ("context", "Для запуска нужен план."),
+        ("discussion", "Обсудили зависимости и доступы."),
+        ("proposals_and_alternatives", "Предложили поэтапный запуск."),
+        ("outcome", "Согласовали подготовку плана."),
+    ):
+        setattr(topic, field, [statement.model_copy(update={"text": text, "source_refs": [refs[0]]})])
+    protocol.decisions = [
+        ProtocolDecisionView(
+            text="Проверить план на следующей встрече.",
+            source_refs=[refs[0]], acceptance_source_refs=[refs[1]],
+        ),
+    ]
+    protocol.action_items = [
+        ProtocolActionView(
+            task="Подготовить план миграции.", owner_text="Алексей", due_date_text="до пятницы",
+            task_source_refs=[refs[3]], owner_source_refs=[refs[1]], due_date_source_refs=[refs[2]],
+        ),
+        ProtocolActionView(
+            task="Проверить доступы.", owner_text=None, due_date_text=None, task_source_refs=[refs[0]],
+        ),
+    ]
+    _set_protocol_source_transcript(review, refs)
     review.playback = PlaybackReviewState(
-        available=True,
-        duration_seconds=120,
+        available=True, duration_seconds=120,
         playback_path=f"/api/v1/cabinet/meetings/{review.meeting.meeting_id}/playback",
     )
-
-    def available(
-        label: str, category: str, items: list[OutcomeItemView]
-    ) -> NotesActionCategoryState:
-        return NotesActionCategoryState(
-            state="available",
-            label=label,
-            reason="Сохранённый результат связан с расшифровкой.",
-            readiness_impact="closes_gap",
-            copy_key=f"notes.{category}.available",
-            items=items,
-        )
-
-    empty = NotesActionCategoryState(
-        state="not_found",
-        label="Не найдено",
-        reason="В расшифровке нет надёжной опоры для этой категории.",
-        readiness_impact="closes_gap",
-        copy_key="notes.outcomes.not_found",
-    )
-    review.notes_action_truth = NotesActionTruthState(
-        summary=available(
-            "Итоги готовы",
-            "summary",
-            [
-                OutcomeItemView(
-                    category="summary",
-                    sequence=0,
-                    text="Команда согласовала следующий шаг.",
-                    truth_label="supported",
-                    source_refs=[
-                        OutcomeSourceReferenceView(
-                            sequence=0,
-                            transcript_segment_id=uuid4(),
-                            start_seconds=12.5,
-                            end_seconds=20.0,
-                            evidence_kind="segment",
-                            seekable=True,
-                        ),
-                        OutcomeSourceReferenceView(
-                            sequence=1,
-                            transcript_segment_id=uuid4(),
-                            start_seconds=24.0,
-                            end_seconds=28.0,
-                            evidence_kind="segment",
-                            seekable=True,
-                        ),
-                        OutcomeSourceReferenceView(
-                            sequence=2,
-                            transcript_segment_id=uuid4(),
-                            start_seconds=36.0,
-                            end_seconds=40.0,
-                            evidence_kind="segment",
-                            seekable=True,
-                        ),
-                    ],
-                ),
-            ],
-        ),
-        key_points=empty,
-        decisions=available(
-            "Решения",
-            "decisions",
-            [
-                OutcomeItemView(
-                    category="decisions",
-                    sequence=0,
-                    text="Проверить план на следующей встрече.",
-                    truth_label="supported",
-                ),
-            ],
-        ),
-        action_items=available(
-            "Действия",
-            "action_items",
-            [
-                OutcomeItemView(
-                    category="action_items",
-                    sequence=0,
-                    text="Подготовить план миграции.",
-                    owner_text="Алексей",
-                    due_date_text="до пятницы",
-                    truth_label="supported",
-                    source_refs=[
-                        OutcomeSourceReferenceView(
-                            sequence=1,
-                            start_seconds=45.0,
-                            end_seconds=52.0,
-                            evidence_kind="segment",
-                            seekable=True,
-                        ),
-                    ],
-                ),
-                OutcomeItemView(
-                    category="action_items",
-                    sequence=1,
-                    text="Проверить доступы.",
-                    truth_label="supported",
-                ),
-            ],
-        ),
-        followups=empty,
-        risks=empty,
-        questions=empty,
-        evidence=empty,
-        source_basis="stored_output",
-    )
     review.content_exports = ContentExportCapabilityResponse(
-        processing_result_id=uuid4(),
+        processing_result_id=UUID(protocol.header["source_result_id"]),
         outcome_set_id=uuid4(),
         transcript=ContentExportReadiness(state="available"),
         summary=ContentExportReadiness(state="available"),
         combined=ContentExportReadiness(state="available"),
-        formats={
-            "transcript": ["txt", "md"],
-            "summary": ["txt", "md"],
-            "combined": ["txt", "md"],
-        },
-        defaults=ContentExportDefaults(),
-        language="ru",
-        duration_seconds=120,
+        formats={"transcript": ["txt", "md"], "summary": ["txt", "md"], "combined": ["txt", "md"]},
+        defaults=ContentExportDefaults(), language="ru", duration_seconds=120,
     )
 
     page = render_meeting_detail_page(review)
 
-    assert (
-        page.index('data-outcome-category="summary"')
-        < page.index('data-outcome-category="decisions"')
-        < page.index('data-outcome-category="action_items"')
-    )
-    assert 'data-outcome-category="key_points"' not in page
-    assert 'data-outcome-category="followups"' not in page
-    assert "Алексей" in page
-    assert "до пятницы" in page
-    assert "Ответственный не определён" not in page
-    assert "Срок не определён" not in page
-    assert 'data-outcome-truth-label="supported"' in page
-    assert 'data-seek-seconds="12.5"' in page
-    assert 'data-seek-seconds="24.0"' in page
-    assert 'data-seek-seconds="36.0"' in page
-    assert '<summary aria-label="Показать ещё 1 источник">Ещё 1</summary>' in page
-    assert 'data-seek-seconds="45.0"' in page
-    assert 'aria-label="Открыть источник 00:12 в расшифровке"' in page
+    assert re.findall(r'data-protocol-section="([^"]+)"', page) == [
+        "executive_summary", "objectives", "topics", "decisions", "action_items",
+        "open_questions", "next_steps", "risks_and_constraints", "notes",
+    ]
+    assert '<h3 id="meeting-outcomes-title">Проверка следующего шага</h3>' in page
+    assert "<dt>Дата и время</dt><dd>06.09.2026, 11:00 +0300</dd>" in page
+    assert "<dt>Тип встречи</dt><dd>Рабочая</dd>" in page
+    assert "<dt>Участники</dt><dd>Алексей</dd>" in page
+    assert "<h5>Подготовка плана</h5>" in page
+    assert re.findall(r"<h6>([^<]+)</h6>", page) == [
+        "Контекст", "Обсуждение", "Предложения и альтернативы", "Итог",
+    ]
+    for rows in (topic.context, topic.discussion, topic.proposals_and_alternatives, topic.outcome):
+        assert rows[0].text in page
+    assert "Проверить план на следующей встрече." in page
+    task_table = re.search(r'<table class="protocol-tasks">(.*?)</table>', page, re.S).group(1)
+    assert re.findall(r'<th scope="col">([^<]+)</th>', task_table) == ["Задача", "Ответственный", "Срок"]
+    assert "Подготовить план миграции." in task_table and "Проверить доступы." in task_table
+    assert "Алексей" in task_table and "до пятницы" in task_table
+    assert "Не назначен" in task_table and "Не указан" in task_table
+    task_cells = re.findall(r"<td>(.*?)</td>", task_table, re.S)
+    for cell, ref in zip(task_cells[:3], (refs[3], refs[1], refs[2]), strict=True):
+        assert f'data-source-segment="{ref.transcript_segment_id}"' in cell
+    summary = re.search(r'<p class="protocol-summary">(.*?)</p>', page, re.S).group(1)
+    assert summary.count('class="notes-source-link"') == 3
+    for ref in refs[:3]:
+        assert f'data-source-segment="{ref.transcript_segment_id}"' in summary
+        assert f'data-seek-seconds="{ref.start_seconds}"' in summary
+    assert 'aria-label="Открыть источник 00:12 в расшифровке"' in summary
     assert "data-export-dialog-open" in page
     assert 'data-export-scope="summary"' not in page
-    assert 'class="notes-more"' not in page
+    assert "data-outcome-category=" not in page
 
 
-def test_detail_shell_hides_source_controls_without_a_valid_destination() -> None:
+@pytest.mark.parametrize("destination", ["unavailable", "missing_segment", "wrong_revision", "no_full_access"])
+def test_detail_shell_hides_source_controls_without_a_valid_destination(destination) -> None:
     review = _review()
-    source_segment_id = uuid4()
-    available = NotesActionCategoryState(
-        state="available",
-        label="Итоги готовы",
-        reason="Сохранённый результат связан с расшифровкой.",
-        readiness_impact="closes_gap",
-        copy_key="notes.summary.available",
-        items=[
-            OutcomeItemView(
-                category="summary",
-                sequence=0,
-                text="Команда согласовала следующий шаг.",
-                truth_label="supported",
-                source_refs=[
-                    OutcomeSourceReferenceView(
-                        sequence=0,
-                        transcript_segment_id=source_segment_id,
-                        start_seconds=12.5,
-                        end_seconds=20.0,
-                        evidence_kind="segment",
-                        seekable=True,
-                    )
-                ],
-            )
-        ],
-    )
-    unavailable = NotesActionCategoryState(
-        state="not_found",
-        label="Не найдено",
-        reason="В расшифровке нет надёжной опоры для этой категории.",
-        readiness_impact="closes_gap",
-        copy_key="notes.outcomes.not_found",
-    )
-    review.notes_action_truth = NotesActionTruthState(
-        summary=available,
-        decisions=unavailable,
-        action_items=unavailable,
-        followups=unavailable,
-        source_basis="stored_output",
-    )
+    protocol = _set_protocol(review)
+    protocol.executive_summary[0].text = "Команда согласовала следующий шаг."
+    ref = protocol.executive_summary[0].source_refs[0]
+    if destination != "unavailable":
+        _set_protocol_source_transcript(review, [ref])
+        if destination == "missing_segment":
+            review.transcript.segments[0].segment_id = str(uuid4())
+        elif destination == "wrong_revision":
+            review.transcript.segments[0].processing_result_id = uuid4()
+        else:
+            review.access = review.access.model_copy(update={
+                "content_scope": "summary_only", "can_view_full_meeting": False,
+            })
 
     page = render_meeting_detail_page(review)
 
     assert "Команда согласовала следующий шаг." in page
-    assert f'data-source-segment="{source_segment_id}"' not in page
+    assert 'class="notes-source-link"' not in page
+    assert f'data-source-segment="{ref.transcript_segment_id}"' not in page
     assert 'data-seek-seconds="12.5"' not in page
 
 
 def test_detail_shell_keeps_source_controls_for_provider_only_transcript_turns() -> None:
     review = _review()
-    source_segment_id = uuid4()
+    protocol = _set_protocol(review)
+    protocol.executive_summary[0].text = "Синтетический итог."
+    ref = protocol.executive_summary[0].source_refs[0]
     review.transcript = TranscriptReviewState(
-        available=True,
-        search_enabled=True,
-        segments=[],
+        available=True, search_enabled=True, segments=[],
+        result_state="degraded_provider_result",
         speaker_turns=[
             TranscriptSpeakerTurnView(
-                turn_id="provider-only-turn",
-                sequence=0,
-                start_seconds=12.5,
-                end_seconds=20.0,
-                timestamp_label="00:12",
-                speaker_label="SPEAKER_00",
-                source_role="canonical_mixed",
-                text="Синтетический фрагмент.",
-                source_segment_ids=[str(source_segment_id)],
-                seekable=False,
-            )
+                turn_id="provider-only-turn", sequence=0,
+                processing_result_id=UUID(protocol.header["source_result_id"]),
+                start_seconds=12.5, end_seconds=18.0, timestamp_label="00:12",
+                speaker_label="SPEAKER_00", source_role="canonical_mixed",
+                text="Синтетический фрагмент.", result_state="degraded_provider_result",
+                source_segment_ids=[str(ref.transcript_segment_id)], seekable=False,
+            ),
         ],
-    )
-    available = NotesActionCategoryState(
-        state="available",
-        label="Итоги готовы",
-        reason="Сохранённый результат связан с расшифровкой.",
-        readiness_impact="closes_gap",
-        copy_key="notes.summary.available",
-        items=[
-            OutcomeItemView(
-                category="summary",
-                sequence=0,
-                text="Синтетический итог.",
-                truth_label="supported",
-                source_refs=[
-                    OutcomeSourceReferenceView(
-                        sequence=0,
-                        transcript_segment_id=source_segment_id,
-                        start_seconds=12.5,
-                        end_seconds=20.0,
-                        evidence_kind="segment",
-                        seekable=True,
-                    )
-                ],
-            )
-        ],
-    )
-    unavailable = NotesActionCategoryState(
-        state="not_found",
-        label="Не найдено",
-        reason="В расшифровке нет опоры для этой категории.",
-        readiness_impact="closes_gap",
-        copy_key="notes.outcomes.not_found",
-    )
-    review.notes_action_truth = NotesActionTruthState(
-        summary=available,
-        decisions=unavailable,
-        action_items=unavailable,
-        followups=unavailable,
-        source_basis="stored_output",
     )
 
     page = render_meeting_detail_page(review)
 
-    assert f'data-source-segment="{source_segment_id}"' in page
+    assert "Синтетический итог." in page
+    assert f'data-source-segment="{ref.transcript_segment_id}"' in page
     assert 'data-seek-seconds="12.5"' in page
-    assert f'data-source-segments="{source_segment_id}"' in page
+    assert f'data-source-segments="{ref.transcript_segment_id}"' in page
+    assert 'aria-label="Открыть источник 00:12 в расшифровке"' in page
+    assert 'data-playback-player' not in page
 
 
-def test_detail_shell_does_not_render_non_available_outcome_items() -> None:
+@pytest.mark.parametrize("state", ["processing", "blocked", "unavailable"])
+def test_detail_shell_does_not_render_non_available_protocol_content(state) -> None:
     review = _review()
-    blocked = NotesActionCategoryState(
-        state="blocked",
-        label="Заблокировано",
-        reason="Итоги требуют проверки перед показом.",
-        readiness_impact="keeps_gap_open",
-        copy_key="notes.outcomes.blocked",
-        items=[
-            OutcomeItemView(
-                category="summary",
-                sequence=0,
-                text="Секретный синтетический результат.",
-                truth_label="blocked",
-            )
-        ],
+    outcome = protocol_outcome()
+    outcome.protocol_json["executive_summary"][0]["text"] = "Секретный синтетический результат."
+    # Keep the document internally consistent: state alone must prevent projection.
+    from hashlib import sha256
+
+    from twobrain_rec_server.outcomes.prompts import canonical_json
+
+    outcome.content_hash = sha256(canonical_json(outcome.protocol_json).encode()).hexdigest()
+    assert cabinet_view_models.meeting_protocol_view(outcome) is not None
+    outcome.protocol_state = state
+    outcome.status = {"processing": "generating", "blocked": "blocked", "unavailable": "available"}[state]
+    protocol = cabinet_view_models.meeting_protocol_view(outcome)
+    assert protocol is None
+    category = NotesActionCategoryState(
+        state=state, label="Недоступно", reason="Итоги требуют проверки перед показом.",
+        readiness_impact="keeps_gap_open", copy_key=f"notes.outcomes.{state}",
     )
     review.notes_action_truth = NotesActionTruthState(
-        summary=blocked,
-        key_points=blocked,
-        decisions=blocked,
-        action_items=blocked,
-        followups=blocked,
-        risks=blocked,
-        questions=blocked,
-        evidence=blocked,
-        source_basis="blocked",
+        protocol=protocol, summary=category, decisions=category,
+        action_items=category, followups=category, source_basis="processing_status",
     )
 
     page = render_meeting_detail_page(review)
 
     assert "Секретный синтетический результат." not in page
-    assert 'class="outcome-item"' not in page
-    assert "Заблокировано" in page
-    assert "Источник: заблокировано" in page
+    assert "data-protocol-section=" not in page
+    assert 'class="notes-source-link"' not in page
+    assert f'data-outcome-state="{state}"' in page
+    assert "Итоги требуют проверки перед показом." in page
+    assert ("Итоги готовятся" if state == "processing" else "Итоги недоступны") in page
 
 
 def test_detail_tabs_write_both_supported_url_hashes() -> None:
@@ -3152,31 +3044,18 @@ def test_detail_shell_exposes_active_review_player_timeline_and_mobile_safe_cont
             )
         ],
     )
-    category = NotesActionCategoryState(
-        state="not_found",
-        label="Не найдено",
-        reason="Синтетический review не содержит надежного решения.",
-        readiness_impact="closes_gap",
-        copy_key="notes.outcomes.not_found",
-    )
-    review.notes_action_truth = NotesActionTruthState(
-        summary=category,
-        key_points=category,
-        decisions=category,
-        action_items=category,
-        followups=category,
-        risks=category,
-        questions=category,
-        evidence=category,
-        source_basis="stored_output",
-    )
+    _set_protocol(review)
 
     page = render_meeting_detail_page(review)
 
     assert 'class="tab active" role="tab" id="detail-tab-outcomes"' in page
     assert 'aria-selected="true" aria-controls="detail-panel-outcomes"' in page
     assert 'data-detail-panel="outcomes"' in page
-    assert "Полезных итогов не найдено" in page
+    assert "Обсудили ограничения пилота." in page
+    assert "Принятые решения в расшифровке не зафиксированы." in page
+    assert "Задачи не зафиксированы" in page
+    assert "Открытые вопросы не зафиксированы." in page
+    assert 'class="protocol-tasks"' in page
     assert "data-playback-shell" in page
     assert "data-playback-player" in page
     assert "data-playback-progress" in page
@@ -3220,24 +3099,7 @@ def test_052_owner_review_keeps_recording_playback_timeline_and_outcomes_separat
             )
         ],
     )
-    category = NotesActionCategoryState(
-        state="available",
-        label="Итоги готовы",
-        reason="Сохраненный итог доступен и связан с расшифровкой.",
-        readiness_impact="closes_gap",
-        copy_key="notes.summary.available",
-    )
-    review.notes_action_truth = NotesActionTruthState(
-        summary=category,
-        key_points=category,
-        decisions=category,
-        action_items=category,
-        followups=category,
-        risks=category,
-        questions=category,
-        evidence=category,
-        source_basis="stored_output",
-    )
+    _set_protocol(review)
 
     page = render_meeting_detail_page(review)
 
@@ -3251,7 +3113,17 @@ def test_052_owner_review_keeps_recording_playback_timeline_and_outcomes_separat
     assert 'data-outcome-source-basis="stored_output"' in page
     assert "60%" in page
     assert 'window.location.hash === "#outcomes"' in _cabinet_js()
-    assert page.count("data-outcome-category=") == 8
+    assert re.findall(r'data-protocol-section="([^"]+)"', page) == [
+        "executive_summary", "objectives", "topics", "decisions", "action_items",
+        "open_questions", "next_steps", "risks_and_constraints", "notes",
+    ]
+    outcomes_panel, recording_panel = page.split('id="detail-panel-recording"', 1)
+    assert 'data-protocol-section="executive_summary"' in outcomes_panel
+    assert "Обсудили ограничения пилота." in outcomes_panel
+    assert "data-protocol-section=" not in recording_panel
+    assert "data-playback-shell" not in outcomes_panel
+    assert "data-playback-shell" in recording_panel
+    assert "data-outcome-category=" not in page
 
 
 def test_098_auto_calendar_context_renders_once_in_web_and_embedded_list_and_detail() -> None:

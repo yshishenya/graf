@@ -6,6 +6,8 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from uuid import UUID
 
+import pytest
+
 from twobrain_rec_server.observability.langfuse import (
     GenerationTraceContext,
     _GrafLangfuseIdGenerator,
@@ -119,7 +121,8 @@ def test_terminal_no_response_call_closes_langfuse_export_backlog() -> None:
     assert call.export_status == "not_required"
 
 
-def test_sole_publisher_emits_one_full_content_generation_with_exact_or_unknown_usage() -> None:
+@pytest.mark.parametrize("actual_model", ["actual-model", None])
+def test_sole_publisher_emits_one_full_content_generation_with_exact_or_unknown_usage(actual_model) -> None:
     candidate_id = UUID("11111111-1111-1111-1111-111111111111")
     started = datetime.now(UTC) - timedelta(seconds=2)
     call = _Call(
@@ -134,7 +137,7 @@ def test_sole_publisher_emits_one_full_content_generation_with_exact_or_unknown_
         call_sequence=1,
         started_at=started,
         completed_at=started + timedelta(seconds=1),
-        actual_model="actual-model",
+        actual_model=actual_model,
         actual_provider="provider",
         token_usage={
             "prompt_tokens": 10,
@@ -144,7 +147,12 @@ def test_sole_publisher_emits_one_full_content_generation_with_exact_or_unknown_
             "unknown": "not-fabricated",
         },
         cost_details=None,
-        request_json={"messages": [{"content": "full request"}]},
+        request_json={
+            "model": "selected-route", "messages": [{"content": "full request"}],
+            "temperature": 0, "top_p": 0.8, "reasoning_effort": "high",
+            "max_completion_tokens": 4096,
+            "response_format": {"type": "json_schema", "json_schema": {"name": "synthetic"}},
+        },
         transcript_text="full transcript",
         raw_response_json={"raw": "full response"},
         validated_result_json={"validated": "full result"},
@@ -192,6 +200,12 @@ def test_sole_publisher_emits_one_full_content_generation_with_exact_or_unknown_
     assert generation["metadata"]["temporal_activity_id"] == "publish-observability"
     assert generation["metadata"]["activity_attempt"] == 2
     assert generation["metadata"]["prompt_hash"] == "a" * 64
+    assert generation["model"] == actual_model
+    assert generation["metadata"]["actual_model"] == actual_model
+    assert generation["metadata"]["selected_model"] == "selected-route"
+    assert generation["model_parameters"] == {
+        key: value for key, value in call.request_json.items() if key not in {"model", "messages"}
+    }
     assert client.flush_count == 1
 
 
@@ -214,6 +228,44 @@ def test_langfuse_usage_drops_overlapping_gateway_cache_write_aliases() -> None:
         "total_tokens": 3409,
         "prompt_tokens_details": {"cached_tokens": 0},
         "completion_tokens_details": {"reasoning_tokens": 44},
+    }
+
+
+@pytest.mark.parametrize("actual_model", [None, "historical-header-model"])
+def test_optimizer_observer_preserves_nullable_actual_and_complete_saved_parameters(actual_model):
+    from tests.unit.test_gepa_prompt_optimizer import _contract
+    from twobrain_rec_server.outcomes.prompt_optimization import (
+        ModelCall,
+        _optimization_observation_payload,
+        _publish_optimization_observation,
+        optimization_trace_id,
+    )
+
+    request = {
+        "model": "saved-selected-route", "messages": [{"role": "user", "content": "synthetic"}],
+        "top_p": 0.9, "reasoning_effort": "high", "seed": 17,
+        "max_completion_tokens": 4096, "response_format": {"type": "json_object"},
+    }
+    snapshot = _contract().source
+    client = _Client()
+    client.get_prompt = lambda *_args, **_kwargs: snapshot
+    value = _optimization_observation_payload(
+        run_id=UUID(int=1), call_key="synthetic-call", phase="task", snapshot=snapshot,
+        result=ModelCall(request=request, raw_response={"choices": []}, validated_result={"pass": True},
+                         actual_model=actual_model), project_id="synthetic-project",
+    )
+    _publish_optimization_observation(client, value=value, linked_prompt=snapshot, checkpoint={
+        "trace_id": optimization_trace_id(UUID(int=1)), "observation_id": "a" * 16,
+        "receipt_sha256": "b" * 64, "fence": str(UUID(int=2)),
+    })
+    assert len(client.roots) == 1 and client.flush_count == 1
+    generation = client.roots[0].kwargs
+    assert generation["model"] == actual_model
+    assert generation["metadata"]["actual_model"] == actual_model
+    assert generation["metadata"]["actual_provider"] is None
+    assert generation["metadata"]["selected_model"] == request["model"]
+    assert generation["model_parameters"] == {
+        key: value for key, value in request.items() if key not in {"model", "messages"}
     }
 
 

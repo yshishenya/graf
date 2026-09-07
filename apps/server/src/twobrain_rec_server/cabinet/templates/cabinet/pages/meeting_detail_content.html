@@ -2,6 +2,7 @@
 
 <main data-hx-history="false" id="cabinet-main" class="main detail-page-main" tabindex="-1" data-cabinet-embedded="{{ 'true' if embedded else 'false' }}" data-meeting-id="{{ meeting_id }}" data-media-revision-id="{{ media_revision_id }}" data-local-media-revision-id="{{ local_media_revision_id }}" data-processing-status-url="{% if media_revision_id %}/api/v1/meetings/{{ meeting_id }}/processing{% endif %}" data-processing-check-url="{% if media_revision_id %}/api/v1/meetings/{{ meeting_id }}/processing/check{% endif %}" data-processing-attempt-url="{% if media_revision_id %}/api/v1/meetings/{{ meeting_id }}/processing/attempt{% endif %}" data-processing-reprocess-url="{% if reprocess_available %}/api/v1/meetings/{{ meeting_id }}/processing/reprocess{% endif %}" data-processing-workflow-id="{{ processing_workflow_id }}" data-processing-attempt-ordinal="{{ processing_attempt_ordinal }}" data-processing-reprocess-available="{{ 'true' if reprocess_available else 'false' }}" data-processing-replacement-active="{{ 'true' if replacement_active else 'false' }}" data-processing-published-attempt="{{ processing_published_attempt }}" data-playback-poll-url="{{ playback_poll_url }}" data-playback-poll-active="{{ playback_poll_active }}" data-processing-state="{{ processing_state }}" data-processing-reason-code="{{ processing_reason_code }}" data-stored-outcomes-available="{{ 'true' if stored_outcomes_available else 'false' }}">
   <p class="sr-only" id="playback-live-status" data-playback-live-status role="status" aria-live="polite" aria-atomic="true">{{ playback_live_label }}</p>
+  {% if initial_source_segment_id %}<span hidden data-initial-source-segment="{{ initial_source_segment_id }}"></span>{% endif %}
   <div class="meeting-detail-header" data-meeting-detail-header>
     <div class="topline">
       <div class="page-title">
@@ -91,7 +92,7 @@
           </div>
         </div>
         <button type="button" class="button quiet" data-summary-refresh-button>{% if current_outcome_set_id %}Обновить итоги{% else %}Создать итоги{% endif %}</button>
-        <p class="summary-format-help">{% if current_outcome_set_id %}Выбор другого формата создаст новую версию. Текущие итоги останутся доступны до полной проверки новой версии, после чего она заменит их автоматически.{% else %}Расшифровка уже готова. Создайте итоги — после проверки они появятся здесь автоматически.{% endif %}</p>
+        <p class="summary-format-help">{% if current_outcome_set_id %}Текущие итоги останутся доступны, пока готовится и проверяется новая версия.{% else %}Расшифровка уже готова. Создайте итоги — после проверки они появятся здесь автоматически.{% endif %}</p>
       </div>
       {% else %}
       <h2 class="sr-only">Итоги</h2>
@@ -103,11 +104,11 @@
         <p class="summary-candidate-live" data-summary-candidate-live role="status" aria-live="polite" aria-atomic="true"></p>
         <div class="summary-candidate-actions" data-summary-candidate-actions></div>
       </div>
-      <button type="button" class="source-return" data-source-return hidden>Вернуться к итогам</button>
       <div class="processing-summary-status" data-processing-summary-status role="status" aria-live="off" aria-atomic="true" hidden></div>
       {{ outcomes }}
     </section>
     <section class="tab-panel{% if not outcomes_selected %} active{% endif %}" role="tabpanel" id="detail-panel-recording" aria-labelledby="detail-tab-recording" data-detail-panel="recording"{% if outcomes_selected %} hidden{% endif %}>
+      <button type="button" class="source-return" data-source-return hidden>Вернуться к итогам</button>
       {% if media_revision_id and not transcript_available and processing_state in ["processing", "submitted", "partial"] and processing_reason_code != "no_recognizable_speech" and transcript_degraded_reason in ["diarization_pending", "processing"] %}
       <div class="transcript-processing-placeholder" data-transcript-pending>
         <span>Здесь появится расшифровка.</span>

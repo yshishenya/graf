@@ -114,6 +114,7 @@ from twobrain_rec_server.db.models.outcomes import (
     MeetingSummarySlot,
     PromptOptimizationCallLedger,
     PromptOptimizationRun,
+    PromptRootPromotion,
     SummaryTemplate,
 )
 from twobrain_rec_server.db.models.processing import (
@@ -177,6 +178,7 @@ __all__ = [
     "GenerationCall",
     "PromptOptimizationCallLedger",
     "PromptOptimizationRun",
+    "PromptRootPromotion",
     "SummaryTemplate",
     "MeetingTargetRegistryEntry",
     "MeetingTargetRegistryVersion",

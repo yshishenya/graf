@@ -22,4 +22,5 @@ def test_optimizer_contract_is_gepa_only_synthetic_and_no_auto_promotion() -> No
     assert "import dspy" not in source
     assert "jepa" not in source.lower()
     assert "labels=[]" in source
-    assert 'new_labels=["production"]' in source
+    assert "update_prompt(" not in source
+    assert "_system/prompts/verified-production/" not in source

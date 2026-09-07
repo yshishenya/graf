@@ -11,9 +11,19 @@ from sqlalchemy import delete, func, select
 
 from tests.fakes.auth_contexts import USER_ID, WORKSPACE_ID
 from tests.fixtures.cabinet import create_outcome_ready_meeting
+from tests.fixtures.meeting_protocol import (
+    extraction_result,
+    prepare_protocol_candidate,
+    protocol_gateway_response,
+    protocol_outcome,
+    protocol_result,
+    seed_accepted_protocol,
+)
 from twobrain_rec_server.api.schemas import CreateSummaryCandidateRequest
+from twobrain_rec_server.config import Settings
 from twobrain_rec_server.db.models import (
     DispatchIntent,
+    GenerationCall,
     MediaRevision,
     Meeting,
     MeetingOutcomeGenerationAttempt,
@@ -26,19 +36,51 @@ from twobrain_rec_server.db.models import (
     Workspace,
 )
 from twobrain_rec_server.domain.statuses import ProcessingAvailabilityStatus
+from twobrain_rec_server.outcomes import service as outcome_service
 from twobrain_rec_server.outcomes.ai_service import (
     AI_GENERATOR_VERSION,
     OutcomeGenerationTerminalError,
+    _content_hash,
+    _enrich_protocol,
+    create_summary_candidate,
     ensure_automatic_summary_candidate,
+    execute_candidate_generation,
+    finalize_candidate_generation_failure,
     publish_model_generated_outcome,
 )
 from twobrain_rec_server.outcomes.dispatch import (
     reconcile_missing_summary_defaults,
-    reconcile_orphaned_summary_candidates,
     reconcile_unrequested_summary_candidates,
 )
+from twobrain_rec_server.outcomes.generator import LiteLLMError
+from twobrain_rec_server.outcomes.prompts import EXTRACTOR_PROMPT_NAME, VERIFIER_PROMPT_NAME
 from twobrain_rec_server.outcomes.service import mark_meeting_default_slot
 from twobrain_rec_server.processing.store import ProcessingLifecycleBlocked
+
+
+async def _protocol_row(db, **fields) -> MeetingOutcomeSet:
+    """Full synthetic content for DB-only lifecycle tests, not publication proof."""
+    result = await db.get(ProcessingResult, fields["processing_result_id"])
+    meeting = await db.get(Meeting, fields["meeting_id"])
+    assert result is not None and meeting is not None
+    outcome = protocol_outcome()
+    outcome.source_result_hash = result.source_result_hash
+    outcome.media_revision_id = result.media_revision_id
+    outcome.deletion_epoch_at_start = meeting.deletion_epoch or 0
+    outcome.template_key = "graf-auto-v1"
+    outcome.template_version = 2
+    for key, value in fields.items():
+        setattr(outcome, key, value)
+    if outcome.revision_state == "accepted":
+        outcome.accepted_at = datetime.now(UTC)
+    segments = await outcome_service.load_outcome_transcript_segments(db, result=result)
+    header = {
+        **outcome.protocol_json["header"], "source_result_id": str(result.id),
+        "template_key": outcome.template_key, "template_version": outcome.template_version,
+    }
+    outcome.protocol_json = _enrich_protocol(protocol_result(segments), header, segments)
+    outcome.content_hash = _content_hash(outcome.protocol_json)
+    return outcome
 
 
 def test_feature_183_publication_prerequisite_matrix_is_fail_closed_and_non_mutating(client) -> None:
@@ -99,6 +141,7 @@ def test_feature_183_publication_prerequisite_matrix_is_fail_closed_and_non_muta
                         candidate_id=attempt.candidate_id,
                         expected_current_outcome_set_id=slot.current_outcome_set_id,
                         publication_proof=proof,
+                        settings=Settings(langfuse_project_id="synthetic-project"),
                     )
             after = (
                 slot.current_outcome_set_id,
@@ -132,7 +175,7 @@ def test_feature_183_rejects_subject_scoped_and_unapproved_generation_controls(
     payload = {
         "template_key": "graf-auto-v1",
         "template_id": None,
-        "template_version": 1,
+        "template_version": 2,
         forbidden_field: {},
     }
 
@@ -147,35 +190,70 @@ def _service_module():
         raise AssertionError("outcome service module is missing") from exc
 
 
-def test_outcome_generation_is_idempotent_and_stores_source_evidence(client) -> None:
+def test_outcome_generation_is_idempotent_and_stores_source_evidence(client, monkeypatch) -> None:
     meeting_id = create_outcome_ready_meeting(client)
-    service = _service_module()
+    calls = []
+    monkeypatch.setattr(
+        "twobrain_rec_server.outcomes.ai_service._read_secret", lambda _path: "synthetic-unused",
+    )
 
-    async def generate_twice() -> tuple[int, int, list[MeetingOutcomeItem]]:
-        async with client.app_state["sessionmaker"]() as db:
-            result = await db.scalar(select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id))
-            assert result is not None
-            first = await service.ensure_outcomes_for_processing_result(db, result=result)
-            second = await service.ensure_outcomes_for_processing_result(db, result=result)
-            sets = (await db.scalars(select(MeetingOutcomeSet).where(MeetingOutcomeSet.meeting_id == meeting_id))).all()
-            items = (
-                await db.scalars(
-                    select(MeetingOutcomeItem)
-                    .where(MeetingOutcomeItem.meeting_id == meeting_id)
-                    .order_by(MeetingOutcomeItem.category, MeetingOutcomeItem.sequence)
-                )
-            ).all()
-            await db.commit()
-            assert first.id == second.id
-            return len(sets), len(items), items
+    async def run() -> None:
+        sessionmaker = client.app_state["sessionmaker"]
+        async with sessionmaker() as db:
+            attempt, segments = await prepare_protocol_candidate(db, meeting_id)
+            assert attempt.detail_level == "detailed"
+        draft = protocol_result(segments)
+        draft["uncertain_sections"] = ["action_items"]
 
-    set_count, item_count, items = asyncio.run(generate_twice())
+        async def generate(_self, *, snapshot, messages, **_kwargs):
+            calls.append(snapshot.name)
+            if snapshot.name == EXTRACTOR_PROMPT_NAME:
+                result = extraction_result(segments)
+            elif snapshot.name == VERIFIER_PROMPT_NAME:
+                result = {"verdict": "pass", "findings": []}
+            else:
+                result = draft
+            return protocol_gateway_response(snapshot, messages, result)
 
-    assert set_count == 1
-    assert item_count >= 3
-    assert all(item.workspace_id for item in items)
-    assert all(item.source_refs_json for item in items if item.state == "available")
-    assert {item.category for item in items} >= {"summary", "key_points", "evidence"}
+        monkeypatch.setattr("twobrain_rec_server.outcomes.ai_service.LiteLLMGateway.generate", generate)
+        kwargs = dict(
+            workspace_id=attempt.workspace_id, candidate_id=attempt.candidate_id,
+            expected_snapshot_hash=attempt.temporal_transcript_hash,
+            settings=Settings(litellm_base_url="https://example.invalid", langfuse_project_id="synthetic-project"),
+        )
+        first = await execute_candidate_generation(sessionmaker, **kwargs)
+        second = await execute_candidate_generation(sessionmaker, **kwargs)
+        assert first["state"] == second["state"] == "accepted"
+        assert first["outcome_set_id"] == second["outcome_set_id"]
+        assert second["reused"] is True
+        async with sessionmaker() as db:
+            sets = (await db.scalars(select(MeetingOutcomeSet).where(
+                MeetingOutcomeSet.meeting_id == meeting_id,
+            ))).all()
+            assert len(sets) == 1
+            outcome = sets[0]
+            assert outcome.workspace_id == attempt.workspace_id
+            assert outcome.protocol_state == "available"
+            assert outcome.content_hash == _content_hash(outcome.protocol_json)
+            assert outcome.protocol_json["uncertain_sections"] == ["action_items"]
+            assert outcome.protocol_json["action_items"] == []
+            assert outcome.protocol_json["decisions"] == []
+            ref = outcome.protocol_json["executive_summary"][0]["source_refs"][0]
+            assert ref["transcript_segment_id"] == str(segments[0].segment_id)
+            assert ref["sequence"] == segments[0].sequence
+            assert ref["start_seconds"] == float(segments[0].start_seconds)
+            assert ref["end_seconds"] == float(segments[0].end_seconds)
+            ledger = (await db.scalars(select(GenerationCall).where(
+                GenerationCall.candidate_id == attempt.candidate_id,
+            ).order_by(GenerationCall.call_sequence))).all()
+            assert [call.call_sequence for call in ledger] == [1, 2, 3]
+            assert all(call.call_state == "completed" for call in ledger)
+            assert await db.scalar(select(func.count()).select_from(MeetingOutcomeItem).where(
+                MeetingOutcomeItem.meeting_id == meeting_id,
+            )) == 0
+
+    asyncio.run(run())
+    assert calls == [EXTRACTOR_PROMPT_NAME, "graf/meeting-outcome/auto", VERIFIER_PROMPT_NAME]
 
 
 def test_provider_only_legacy_result_does_not_start_new_outcomes(client) -> None:
@@ -203,61 +281,35 @@ def test_provider_only_legacy_result_does_not_start_new_outcomes(client) -> None
     asyncio.run(generate())
 
 
-def test_first_baseline_outcome_remains_an_unpublished_candidate(client) -> None:
+def test_first_wait_projection_remains_unpublished_without_model_identity(client) -> None:
     meeting_id = create_outcome_ready_meeting(client)
     service = _service_module()
 
-    async def generate_and_repair() -> tuple:
+    async def run() -> None:
         async with client.app_state["sessionmaker"]() as db:
-            result = await db.scalar(
-                select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
-            )
+            result = await db.scalar(select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id))
             meeting = await db.get(Meeting, meeting_id)
-            assert result is not None
-            assert meeting is not None
-            outcome_set = await service.ensure_outcomes_for_processing_result(db, result=result)
+            assert result is not None and meeting is not None
+            first = await service.ensure_outcomes_for_processing_result(db, result=result, ai_dispatch_planned=True)
             await db.commit()
-            first = (
-                meeting.current_outcome_set_id,
-                outcome_set.revision_state,
-                outcome_set.accepted_at is not None,
-                outcome_set.requested_by_user_id,
-                outcome_set.accepted_by_user_id,
-                outcome_set.template_key,
-                outcome_set.template_version,
-                outcome_set.output_language,
-                outcome_set.detail_level,
-            )
+            repaired = await service.ensure_outcomes_for_processing_result(db, result=result, ai_dispatch_planned=True)
+            assert first.id == repaired.id
+            assert meeting.current_outcome_set_id is None
+            assert repaired.revision_state == "candidate"
+            assert repaired.status == "generating" and repaired.protocol_state == "processing"
+            assert repaired.protocol_json is None and repaired.content_hash is None
+            assert repaired.candidate_id is None and repaired.accepted_at is None
+            assert repaired.requested_by_user_id is None and repaired.accepted_by_user_id is None
+            assert repaired.template_key is None and repaired.template_version is None
+            assert repaired.output_language is None and repaired.detail_level is None
+            assert await db.scalar(select(func.count()).select_from(MeetingOutcomeGenerationAttempt).where(
+                MeetingOutcomeGenerationAttempt.meeting_id == meeting_id,
+            )) == 0
+            assert await db.scalar(select(func.count()).select_from(GenerationCall).where(
+                GenerationCall.meeting_id == meeting_id,
+            )) == 0
 
-            repaired = await service.ensure_outcomes_for_processing_result(db, result=result)
-            await db.commit()
-            return first, (
-                meeting.current_outcome_set_id,
-                repaired.revision_state,
-                repaired.accepted_at is not None,
-                repaired.requested_by_user_id,
-                repaired.accepted_by_user_id,
-                repaired.template_key,
-                repaired.template_version,
-                repaired.output_language,
-                repaired.detail_level,
-            ), outcome_set.id
-
-    first, repaired, _outcome_set_id = asyncio.run(generate_and_repair())
-
-    expected = (
-        None,
-        "candidate",
-        False,
-        None,
-        None,
-        "graf-auto-v1",
-        1,
-        None,
-        None,
-    )
-    assert first == expected
-    assert repaired == expected
+    asyncio.run(run())
 
 
 def test_trusted_reconcile_cannot_promote_the_initial_baseline(client) -> None:
@@ -275,11 +327,11 @@ def test_trusted_reconcile_cannot_promote_the_initial_baseline(client) -> None:
             await db.commit()
             assert meeting.current_outcome_set_id is None
             assert candidate.revision_state == "candidate"
+            assert candidate.protocol_json is None and candidate.protocol_state == "unavailable"
 
             repeated = await service.ensure_outcomes_for_processing_result(
                 db,
                 result=result,
-                publish_initial_baseline=True,
                 ai_dispatch_planned=False,
             )
             attempts = (
@@ -300,6 +352,9 @@ def test_trusted_reconcile_cannot_promote_the_initial_baseline(client) -> None:
                 .where(MeetingOutcomeItem.outcome_set_id == repeated.id)
             )
             await db.commit()
+            assert repeated.protocol_json is None and repeated.content_hash is None
+            assert repeated.protocol_state == "unavailable"
+            assert repeated.failure_reason == "summary_generation_unavailable"
             return (
                 candidate.id,
                 repeated.id,
@@ -325,7 +380,7 @@ def test_trusted_reconcile_cannot_promote_the_initial_baseline(client) -> None:
     assert current_id is None
     assert revision_state == "candidate"
     assert accepted is False
-    assert attempt_statuses == ["blocked_dependency"]
+    assert attempt_statuses == []
     assert set_count == 1
     assert item_count == 0
 
@@ -349,7 +404,6 @@ def test_automatic_candidate_uses_exact_workspace_builtin_default_once(client) -
             baseline = await service.ensure_outcomes_for_processing_result(
                 db,
                 result=result,
-                publish_initial_baseline=True,
             )
             current_before = meeting.current_outcome_set_id
             first = await ensure_automatic_summary_candidate(
@@ -386,6 +440,9 @@ def test_automatic_candidate_uses_exact_workspace_builtin_default_once(client) -
             assert slot is not None
             await db.commit()
             assert first is not None and second is not None
+            assert first.detail_level == "detailed"
+            assert workspace.default_summary_template_version == 1
+            assert slot.default_resolution_version == "workspace-default:graf-meeting-minutes-v1:v2"
             return (
                 baseline.id,
                 current_before,
@@ -422,7 +479,7 @@ def test_automatic_candidate_uses_exact_workspace_builtin_default_once(client) -
     assert current_before is None
     assert current_after is None
     assert first_candidate == second_candidate
-    assert (template_key, template_version) == ("graf-meeting-minutes-v1", 1)
+    assert (template_key, template_version) == ("graf-meeting-minutes-v1", 2)
     assert requested_by == USER_ID
     assert status == "queued"
     assert attempt_count == intent_count == 1
@@ -485,7 +542,7 @@ def test_missing_summary_default_reconciliation_only_marks_populated_slot(client
             assert workspace is not None
             workspace.default_summary_template_key = "graf-auto-v1"
             workspace.default_summary_template_version = 1
-            outcome = MeetingOutcomeSet(
+            outcome = await _protocol_row(db,
                 workspace_id=meeting.workspace_id,
                 meeting_id=meeting.id,
                 media_revision_id=result.media_revision_id,
@@ -497,7 +554,7 @@ def test_missing_summary_default_reconciliation_only_marks_populated_slot(client
                 source_result_hash=result.source_result_hash,
                 source_fingerprint=f"result:{result.id}",
                 template_key="graf-auto-v1",
-                template_version=1,
+                template_version=2,
                 revision_state="accepted",
             )
             db.add(outcome)
@@ -512,10 +569,17 @@ def test_missing_summary_default_reconciliation_only_marks_populated_slot(client
             )
             db.add(slot)
             await db.flush()
+            document_hash_before = _content_hash(outcome.protocol_json)
             repaired = await reconcile_missing_summary_defaults(db, limit=10)
             await db.refresh(slot)
             second_pass = await reconcile_missing_summary_defaults(db, limit=10)
             await db.refresh(slot)
+            await db.refresh(outcome)
+            assert slot.current_outcome_set_id == outcome.id
+            assert outcome.revision_state == "accepted"
+            assert outcome.protocol_state == "available"
+            assert outcome.content_hash == document_hash_before == _content_hash(outcome.protocol_json)
+            assert workspace.default_summary_template_version == 1
             result_tuple = (
                 repaired,
                 second_pass,
@@ -535,76 +599,19 @@ def test_missing_summary_default_reconciliation_only_marks_populated_slot(client
     )
 
 
-def test_orphaned_revision_candidate_is_repaired_and_dispatched(client) -> None:
-    """A committed pre-dispatch placeholder must not strand a meeting forever."""
-
-    meeting_id = create_outcome_ready_meeting(client, "orphaned-summary-candidate")
-
-    async def reconcile() -> tuple[int, str, str, str, str]:
-        async with client.app_state["sessionmaker"]() as db:
-            meeting = await db.get(Meeting, meeting_id)
-            result = await db.scalar(
-                select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
-            )
-            assert meeting is not None and result is not None
-            orphan = MeetingOutcomeSet(
-                workspace_id=meeting.workspace_id,
-                meeting_id=meeting.id,
-                media_revision_id=result.media_revision_id,
-                processing_result_id=result.id,
-                candidate_id=uuid4(),
-                status="generating",
-                generator_kind="deterministic_extractive",
-                generator_version="outcomes-extractive-v1",
-                source_result_hash=result.source_result_hash,
-                revision_state="candidate",
-            )
-            db.add(orphan)
-            await db.flush()
-
-            repaired = await reconcile_orphaned_summary_candidates(db, limit=10)
-            attempt = await db.scalar(
-                select(MeetingOutcomeGenerationAttempt).where(
-                    MeetingOutcomeGenerationAttempt.meeting_id == meeting_id,
-                    MeetingOutcomeGenerationAttempt.provider_kind == "litellm",
-                )
-            )
-            slot = await db.scalar(
-                select(MeetingSummarySlot).where(
-                    MeetingSummarySlot.meeting_id == meeting_id,
-                    MeetingSummarySlot.template_key == "graf-auto-v1",
-                )
-            )
-            refreshed_orphan = await db.get(MeetingOutcomeSet, orphan.id)
-            dispatch = await db.scalar(
-                select(DispatchIntent).where(
-                    DispatchIntent.meeting_id == meeting_id,
-                    DispatchIntent.candidate_id == attempt.candidate_id,
-                )
-            )
-            assert attempt is not None and slot is not None
-            assert refreshed_orphan is not None and dispatch is not None
-            await db.refresh(attempt)
-            await db.refresh(refreshed_orphan)
-            await db.refresh(dispatch)
-            result = (
-                repaired,
-                attempt.status,
-                refreshed_orphan.revision_state or "",
-                refreshed_orphan.status,
-                dispatch.state,
-            )
-            await db.rollback()
-            return result
-
-    assert asyncio.run(reconcile()) == (1, "queued", "stale", "blocked", "created")
-
-
-def test_unrequested_ready_result_is_backfilled_once(client) -> None:
+@pytest.mark.parametrize("existing_wait_projection", [False, True])
+def test_unrequested_ready_result_is_backfilled_once(client, existing_wait_projection) -> None:
     meeting_id = create_outcome_ready_meeting(client, "unrequested-summary-backfill")
 
     async def reconcile() -> tuple[int, int, int, str]:
         async with client.app_state["sessionmaker"]() as db:
+            if existing_wait_projection:
+                result = await db.scalar(select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id))
+                waiting = await outcome_service.ensure_outcomes_for_processing_result(
+                    db, result=result, ai_dispatch_planned=True,
+                )
+                assert waiting.candidate_id is None and waiting.protocol_json is None
+                await db.commit()
             first = await reconcile_unrequested_summary_candidates(db, limit=10)
             second = await reconcile_unrequested_summary_candidates(db, limit=10)
             attempts = await db.scalar(
@@ -647,7 +654,7 @@ def test_automatic_replay_replaces_an_attempt_not_current_in_its_slot(client) ->
                 meeting_id=meeting.id,
             )
             assert first is not None and first.candidate_id is not None
-            generated = MeetingOutcomeSet(
+            generated = await _protocol_row(db,
                 workspace_id=meeting.workspace_id,
                 meeting_id=meeting.id,
                 processing_result_id=result.id,
@@ -656,7 +663,7 @@ def test_automatic_replay_replaces_an_attempt_not_current_in_its_slot(client) ->
                 generator_version=f"test:auto:{first.candidate_id}",
                 revision_state="superseded",
             )
-            replacement = MeetingOutcomeSet(
+            replacement = await _protocol_row(db,
                 workspace_id=meeting.workspace_id,
                 meeting_id=meeting.id,
                 processing_result_id=result.id,
@@ -861,34 +868,35 @@ def test_old_result_version_cannot_create_baseline_after_same_revision_retry(cli
     assert asyncio.run(run()) == 0
 
 
-def test_outcome_generation_preserves_not_inferable_category_truth(client) -> None:
+def test_waiting_protocol_does_not_claim_sections_are_absent(client) -> None:
     meeting_id = create_outcome_ready_meeting(client)
-    service = _service_module()
 
-    async def generate() -> dict[str, str]:
+    async def run() -> None:
         async with client.app_state["sessionmaker"]() as db:
             result = await db.scalar(select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id))
             assert result is not None
-            outcome_set = await service.ensure_outcomes_for_processing_result(db, result=result)
-            await db.commit()
-            return {
-                "decisions": outcome_set.decisions_state,
-                "action_items": outcome_set.action_items_state,
-                "followups": outcome_set.followups_state,
-            }
+            outcome = await outcome_service.ensure_outcomes_for_processing_result(
+                db, result=result, ai_dispatch_planned=True,
+            )
+            assert outcome.protocol_state == "processing"
+            assert outcome.protocol_json is None and outcome.content_hash is None
+            assert outcome.accepted_at is None
+            # No model has read the transcript: empty/not-found semantic claims would be false.
+            assert outcome.candidate_id is None
+            assert await db.scalar(select(func.count()).select_from(MeetingOutcomeItem).where(
+                MeetingOutcomeItem.outcome_set_id == outcome.id,
+            )) == 0
 
-    states = asyncio.run(generate())
-
-    assert set(states.values()) <= {"not_found", "not_inferable", "available"}
-    assert states["action_items"] in {"not_found", "not_inferable"}
+    asyncio.run(run())
 
 
 def test_blocked_outcome_can_retry_after_transcript_becomes_available(client) -> None:
     meeting_id = create_outcome_ready_meeting(client)
     service = _service_module()
 
-    async def block_then_retry() -> tuple[str, str, str | None, str | None, dict, int, int]:
-        async with client.app_state["sessionmaker"]() as db:
+    async def run() -> None:
+        sessionmaker = client.app_state["sessionmaker"]
+        async with sessionmaker() as db:
             result = await db.scalar(select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id))
             assert result is not None
             result.transcript_status = ProcessingAvailabilityStatus.UNAVAILABLE.value
@@ -896,213 +904,213 @@ def test_blocked_outcome_can_retry_after_transcript_becomes_available(client) ->
             result.failure_reason = "no_recognizable_speech"
             result.failure_source = "input_audio"
             blocked = await service.ensure_outcomes_for_processing_result(db, result=result)
-            attempt = await db.scalar(
-                select(MeetingOutcomeGenerationAttempt)
-                .where(MeetingOutcomeGenerationAttempt.meeting_id == meeting_id)
-                .order_by(MeetingOutcomeGenerationAttempt.created_at.desc())
-            )
+            assert blocked.status == "blocked" and blocked.protocol_state == "unavailable"
+            assert blocked.failure_reason == "no_recognizable_speech"
+            assert blocked.failure_source == "input_audio"
+            assert blocked.protocol_json is None and blocked.candidate_id is None
+            assert await ensure_automatic_summary_candidate(
+                db, workspace_id=result.workspace_id, meeting_id=meeting_id,
+            ) is None
+            assert await db.scalar(select(func.count()).select_from(MeetingOutcomeGenerationAttempt).where(
+                MeetingOutcomeGenerationAttempt.meeting_id == meeting_id,
+            )) == 0
             await db.commit()
-            assert blocked.status == "blocked"
-            assert attempt is not None
-            blocked_snapshot = (
-                blocked.status,
-                blocked.failure_reason,
-                blocked.failure_source,
-                attempt.failure_source,
-                attempt.metadata_json,
-            )
 
-        async with client.app_state["sessionmaker"]() as db:
+        async with sessionmaker() as db:
             result = await db.scalar(select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id))
-            assert result is not None
             result.transcript_status = ProcessingAvailabilityStatus.AVAILABLE.value
             result.segment_count = 2
             result.failure_reason = None
             result.failure_source = None
-            retried = await service.ensure_outcomes_for_processing_result(db, result=result)
-            items = (
-                await db.scalars(
-                    select(MeetingOutcomeItem)
-                    .where(MeetingOutcomeItem.outcome_set_id == retried.id)
-                    .order_by(MeetingOutcomeItem.category, MeetingOutcomeItem.sequence)
-                )
-            ).all()
-            attempts = (
-                await db.scalars(
-                    select(MeetingOutcomeGenerationAttempt)
-                    .where(MeetingOutcomeGenerationAttempt.meeting_id == meeting_id)
-                    .order_by(MeetingOutcomeGenerationAttempt.created_at)
-                )
-            ).all()
+            attempt = await ensure_automatic_summary_candidate(
+                db, workspace_id=result.workspace_id, meeting_id=meeting_id,
+            )
+            assert attempt is not None and attempt.status == "queued"
+            assert attempt.candidate_id is not None and attempt.outcome_set_id is None
+            retried = await service.ensure_outcomes_for_processing_result(
+                db, result=result, ai_dispatch_planned=True,
+            )
+            assert retried.id == blocked.id  # State-only projection; not immutable generated content.
+            assert retried.status == "generating" and retried.protocol_state == "processing"
+            assert retried.failure_reason is None and retried.failure_source is None
+            assert retried.protocol_json is None and retried.candidate_id is None
+            assert await db.scalar(select(func.count()).select_from(MeetingOutcomeItem).where(
+                MeetingOutcomeItem.meeting_id == meeting_id,
+            )) == 0
+            assert await db.scalar(select(func.count()).select_from(MeetingOutcomeGenerationAttempt).where(
+                MeetingOutcomeGenerationAttempt.meeting_id == meeting_id,
+            )) == 1
+            assert (await db.get(Meeting, meeting_id)).current_outcome_set_id is None
             await db.commit()
-            return (*blocked_snapshot, retried.status, len(items), len(attempts))
 
-    (
-        blocked_status,
-        blocked_reason,
-        blocked_source,
-        attempt_source,
-        attempt_metadata,
-        retried_status,
-        item_count,
-        attempt_count,
-    ) = asyncio.run(block_then_retry())
-
-    assert blocked_status == "blocked"
-    assert blocked_reason == "no_recognizable_speech"
-    assert blocked_source == "input_audio"
-    assert attempt_source == "input_audio"
-    assert attempt_metadata["failure_source"] == "input_audio"
-    assert retried_status == "available"
-    assert item_count >= 3
-    assert attempt_count >= 2
+    asyncio.run(run())
 
 
 def test_revision_scoped_blocked_outcome_recovery_creates_new_candidate_lineage(client) -> None:
     meeting_id = create_outcome_ready_meeting(client, "revision-blocked-lineage")
-    service = _service_module()
 
-    async def block_then_retry() -> tuple[str, str, str, str, int]:
-        async with client.app_state["sessionmaker"]() as db:
-            result = await db.scalar(select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id))
-            assert result is not None and result.media_revision_id is not None
+    async def run() -> None:
+        sessionmaker = client.app_state["sessionmaker"]
+        async with sessionmaker() as db:
+            meeting = await db.get(Meeting, meeting_id)
+            first = await ensure_automatic_summary_candidate(
+                db, workspace_id=meeting.workspace_id, meeting_id=meeting_id,
+            )
+            assert first is not None
+            result = await db.get(ProcessingResult, first.processing_result_id)
             result.transcript_status = ProcessingAvailabilityStatus.UNAVAILABLE.value
             result.segment_count = 0
             result.failure_reason = "no_recognizable_speech"
-            blocked = await service.ensure_outcomes_for_processing_result(db, result=result)
-            blocked_attempt = await db.scalar(
-                select(MeetingOutcomeGenerationAttempt)
-                .where(MeetingOutcomeGenerationAttempt.outcome_set_id == blocked.id)
-            )
-            assert blocked_attempt is not None and blocked_attempt.candidate_id == blocked.candidate_id
+            result.failure_source = "input_audio"
+            blocked = await outcome_service.ensure_outcomes_for_processing_result(db, result=result)
+            assert blocked.protocol_state == "unavailable" and blocked.protocol_json is None
             await db.commit()
 
-        async with client.app_state["sessionmaker"]() as db:
-            result = await db.scalar(select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id))
-            assert result is not None
+        await finalize_candidate_generation_failure(
+            sessionmaker, workspace_id=first.workspace_id, candidate_id=first.candidate_id,
+            failure_code="summary_transcript_unavailable",
+        )
+        async with sessionmaker() as db:
+            first = await db.get(MeetingOutcomeGenerationAttempt, first.id)
+            assert first.status == "failed" and first.ended_at is not None
+            result = await db.get(ProcessingResult, first.processing_result_id)
             result.transcript_status = ProcessingAvailabilityStatus.AVAILABLE.value
             result.segment_count = 2
             result.failure_reason = None
             result.failure_source = None
-            retried = await service.ensure_outcomes_for_processing_result(db, result=result)
-            attempts = (
-                await db.scalars(
-                    select(MeetingOutcomeGenerationAttempt)
-                    .where(MeetingOutcomeGenerationAttempt.meeting_id == meeting_id)
-                    .order_by(MeetingOutcomeGenerationAttempt.created_at)
-                )
-            ).all()
-            await db.commit()
-            assert retried.candidate_id is not None
-            return (
-                str(blocked.id),
-                str(blocked.candidate_id),
-                str(retried.id),
-                str(retried.candidate_id),
-                len(attempts),
+            retry = await create_summary_candidate(
+                db, workspace_id=first.workspace_id, meeting_id=meeting_id,
+                requested_by_user_id=USER_ID, template_key="graf-auto-v1",
+                template_id=None, template_version=2, expected_current_outcome_set_id=None,
+                request_intent="manual_refresh", request_intent_id=uuid4(),
             )
+            assert retry.id != first.id and retry.candidate_id != first.candidate_id
+            assert retry.status == "queued" and retry.outcome_set_id is None
+            assert retry.media_revision_id == first.media_revision_id
+            assert retry.processing_result_id == first.processing_result_id
+            assert first.status == "failed" and first.failure_code == "summary_transcript_unavailable"
+            assert await db.scalar(select(func.count()).select_from(MeetingOutcomeGenerationAttempt).where(
+                MeetingOutcomeGenerationAttempt.meeting_id == meeting_id,
+            )) == 2
+            prior_dispatch = await db.scalar(select(DispatchIntent).where(
+                DispatchIntent.candidate_id == first.candidate_id,
+            ))
+            assert prior_dispatch.state == "terminal_failed"
+            assert (await db.get(Meeting, meeting_id)).current_outcome_set_id is None
 
-    blocked_id, blocked_candidate, retried_id, retried_candidate, attempt_count = asyncio.run(block_then_retry())
-
-    assert blocked_id != retried_id
-    assert blocked_candidate != retried_candidate
-    assert attempt_count >= 2
+    asyncio.run(run())
 
 
-def test_generation_failure_records_safe_blocked_attempt_without_losing_review(client, monkeypatch) -> None:
+@pytest.mark.parametrize("failure_stage", ["extract", "draft", "verify"])
+def test_generation_failure_records_safe_blocked_attempt_without_losing_review(
+    client, monkeypatch, failure_stage,
+) -> None:
     meeting_id = create_outcome_ready_meeting(client)
-    service = _service_module()
+    calls = []
+    marker = "synthetic provider detail must not enter attempt metadata"
+    stages = [EXTRACTOR_PROMPT_NAME, "graf/meeting-outcome/meeting-minutes", VERIFIER_PROMPT_NAME]
+    failing_stage = {"extract": 1, "draft": 2, "verify": 3}[failure_stage]
+    monkeypatch.setattr(
+        "twobrain_rec_server.outcomes.ai_service._read_secret", lambda _path: "synthetic-unused",
+    )
 
-    def fail_generation(_segments):
-        raise RuntimeError("synthetic generator failure with no meeting content")
-
-    monkeypatch.setattr(service, "generate_outcomes", fail_generation)
-
-    async def generate() -> tuple[str, str | None, str, dict]:
-        async with client.app_state["sessionmaker"]() as db:
-            result = await db.scalar(select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id))
-            assert result is not None
-            outcome_set = await service.ensure_outcomes_for_processing_result(db, result=result)
-            attempt = await db.scalar(
-                select(MeetingOutcomeGenerationAttempt)
-                .where(MeetingOutcomeGenerationAttempt.meeting_id == meeting_id)
-                .order_by(MeetingOutcomeGenerationAttempt.created_at.desc())
+    async def run() -> None:
+        sessionmaker = client.app_state["sessionmaker"]
+        async with sessionmaker() as db:
+            accepted, _ = await seed_accepted_protocol(db, meeting_id)
+            attempt, segments = await prepare_protocol_candidate(
+                db, meeting_id, template_key="graf-meeting-minutes-v1",
             )
-            assert attempt is not None
-            await db.commit()
-            return outcome_set.status, outcome_set.failure_reason, attempt.status, attempt.metadata_json
+        draft = protocol_result(segments)
 
-    status, reason, attempt_status, metadata = asyncio.run(generate())
+        async def generate(_self, *, snapshot, messages, **_kwargs):
+            calls.append(snapshot.name)
+            if snapshot.name == stages[failing_stage - 1]:
+                raise LiteLLMError(
+                    "summary_provider_error", retryable=False, raw_response={"error": marker},
+                )
+            result = extraction_result(segments) if snapshot.name == EXTRACTOR_PROMPT_NAME else draft
+            return protocol_gateway_response(snapshot, messages, result)
 
-    assert status == "blocked"
-    assert reason == "outcomes_generation_failed"
-    assert attempt_status == "failed_terminal"
-    assert "synthetic generator failure" not in str(metadata)
+        monkeypatch.setattr("twobrain_rec_server.outcomes.ai_service.LiteLLMGateway.generate", generate)
+        result = await execute_candidate_generation(
+            sessionmaker, workspace_id=attempt.workspace_id, candidate_id=attempt.candidate_id,
+            expected_snapshot_hash=attempt.temporal_transcript_hash,
+            settings=Settings(litellm_base_url="https://example.invalid", langfuse_project_id="synthetic-project"),
+        )
+        assert result["state"] == "failed" and result["failure_code"] == "summary_provider_error"
+        async with sessionmaker() as db:
+            attempt = await db.get(MeetingOutcomeGenerationAttempt, attempt.id)
+            assert attempt.status == "failed" and attempt.ended_at is not None
+            assert attempt.outcome_set_id is None
+            assert marker not in str(attempt.metadata_json)
+            assert marker not in str(attempt.failure_reason)
+            slots = (await db.scalars(select(MeetingSummarySlot).where(
+                MeetingSummarySlot.meeting_id == meeting_id,
+            ))).all()
+            assert {slot.template_key: slot.current_outcome_set_id for slot in slots} == {
+                "graf-auto-v1": accepted.id, "graf-meeting-minutes-v1": None,
+            }
+            prior = await db.get(MeetingOutcomeSet, accepted.id)
+            assert prior.revision_state == "accepted"
+            assert prior.protocol_state == "available" and prior.protocol_json == accepted.protocol_json
+            ledger = (await db.scalars(select(GenerationCall).where(
+                GenerationCall.candidate_id == attempt.candidate_id,
+            ).order_by(GenerationCall.call_sequence))).all()
+            assert len(ledger) == failing_stage
+            assert ledger[-1].raw_response_json == {"error": marker}
+            assert (await db.get(Meeting, meeting_id)).current_outcome_set_id == accepted.id
+
+    asyncio.run(run())
+    assert calls == stages[:failing_stage]
 
 
-def test_expired_revision_baseline_is_restarted_with_new_bounded_candidate(client) -> None:
+def test_expired_automatic_candidate_requires_explicit_refresh_with_new_bounded_lineage(client) -> None:
     meeting_id = create_outcome_ready_meeting(client, "expired-baseline-retry")
-    service = _service_module()
 
-    async def expire_then_retry() -> tuple[
-        object,
-        object,
-        datetime | None,
-        datetime | None,
-        int,
-        str,
-        str | None,
-        datetime | None,
-    ]:
-        async with client.app_state["sessionmaker"]() as db:
-            result = await db.scalar(select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id))
-            assert result is not None
-            first = await service.ensure_outcomes_for_processing_result(db, result=result)
+    async def run() -> None:
+        sessionmaker = client.app_state["sessionmaker"]
+        async with sessionmaker() as db:
+            meeting = await db.get(Meeting, meeting_id)
+            first = await ensure_automatic_summary_candidate(
+                db, workspace_id=meeting.workspace_id, meeting_id=meeting_id,
+            )
+            assert first is not None
             first.expires_at = datetime.now(UTC) - timedelta(seconds=1)
             await db.commit()
 
-        async with client.app_state["sessionmaker"]() as db:
-            result = await db.scalar(select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id))
-            assert result is not None
-            retried = await service.ensure_outcomes_for_processing_result(db, result=result)
-            attempts = (
-                await db.scalars(
-                    select(MeetingOutcomeGenerationAttempt).where(
-                        MeetingOutcomeGenerationAttempt.meeting_id == meeting_id
-                    )
-                )
-            ).all()
-            expired_attempt = next(attempt for attempt in attempts if attempt.outcome_set_id == first.id)
-            await db.commit()
-            return (
-                first.id,
-                retried.id,
-                first.expires_at,
-                retried.expires_at,
-                len(attempts),
-                expired_attempt.status,
-                expired_attempt.failure_code,
-                expired_attempt.ended_at,
+        async with sessionmaker() as db:
+            replay = await ensure_automatic_summary_candidate(
+                db, workspace_id=first.workspace_id, meeting_id=meeting_id,
             )
+            assert replay is not None and replay.id == first.id
+            assert replay.status == "expired"
+            prior_dispatch = await db.scalar(select(DispatchIntent).where(
+                DispatchIntent.candidate_id == first.candidate_id,
+            ))
+            assert prior_dispatch.state == "cancelled"
+            retried = await create_summary_candidate(
+                db, workspace_id=first.workspace_id, meeting_id=meeting_id,
+                requested_by_user_id=USER_ID, template_key="graf-auto-v1",
+                template_id=None, template_version=2, expected_current_outcome_set_id=None,
+                request_intent="manual_refresh", request_intent_id=uuid4(),
+            )
+            expired = await db.get(MeetingOutcomeGenerationAttempt, first.id)
+            assert expired.id != retried.id and expired.candidate_id != retried.candidate_id
+            assert expired.expires_at is not None and retried.expires_at is not None
+            assert retried.expires_at > datetime.now(UTC)
+            assert retried.expires_at > expired.expires_at
+            assert expired.status == "expired"
+            assert expired.failure_code == "summary_candidate_expired"
+            assert expired.ended_at is not None
+            assert retried.status == "queued"
+            assert expired.outcome_set_id is None and retried.outcome_set_id is None
+            assert await db.scalar(select(func.count()).select_from(MeetingOutcomeGenerationAttempt).where(
+                MeetingOutcomeGenerationAttempt.meeting_id == meeting_id,
+            )) == 2
+            assert (await db.get(Meeting, meeting_id)).current_outcome_set_id is None
 
-    (
-        old_id,
-        new_id,
-        old_expiry,
-        new_expiry,
-        attempt_count,
-        expired_attempt_status,
-        expired_attempt_failure_code,
-        expired_attempt_ended_at,
-    ) = asyncio.run(expire_then_retry())
-    assert old_id != new_id
-    assert old_expiry is not None and new_expiry is not None
-    assert new_expiry > datetime.now(UTC)
-    assert new_expiry > old_expiry
-    assert attempt_count == 2
-    assert expired_attempt_status == "expired"
-    assert expired_attempt_failure_code == "summary_candidate_expired"
-    assert expired_attempt_ended_at is not None
+    asyncio.run(run())
 
 
 def test_generation_failure_preserves_root_code_and_closes_dispatch(client) -> None:
@@ -1124,7 +1132,7 @@ def test_generation_failure_preserves_root_code_and_closes_dispatch(client) -> N
                 requested_by_user_id=USER_ID,
                 template_key="graf-auto-v1",
                 template_id=None,
-                template_version=1,
+                template_version=2,
                 expected_current_outcome_set_id=meeting.current_outcome_set_id,
             )
             intent = await ensure_dispatch_intent(
@@ -1204,7 +1212,7 @@ def test_started_dispatch_lease_recovers_after_worker_crash(client) -> None:
                 requested_by_user_id=USER_ID,
                 template_key="graf-auto-v1",
                 template_id=None,
-                template_version=1,
+                template_version=2,
                 expected_current_outcome_set_id=meeting.current_outcome_set_id,
             )
             intent = await ensure_dispatch_intent(
@@ -1314,7 +1322,7 @@ def test_slow_temporal_start_is_bounded_and_reconcilable(client, monkeypatch) ->
                 requested_by_user_id=USER_ID,
                 template_key="graf-auto-v1",
                 template_id=None,
-                template_version=1,
+                template_version=2,
                 expected_current_outcome_set_id=meeting.current_outcome_set_id,
             )
             intent = await dispatch.ensure_dispatch_intent(
@@ -1374,7 +1382,7 @@ def test_temporal_dispatch_retry_exhaustion_closes_candidate_for_manual_retry(cl
                 requested_by_user_id=USER_ID,
                 template_key="graf-meeting-minutes-v1",
                 template_id=None,
-                template_version=1,
+                template_version=2,
                 expected_current_outcome_set_id=meeting.current_outcome_set_id,
             )
             intent = await dispatch.ensure_dispatch_intent(

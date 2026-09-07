@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime
-from hashlib import sha256
 from pathlib import Path
 from uuid import UUID
 
@@ -10,6 +8,12 @@ import pytest
 from sqlalchemy import func, select
 
 from tests.fixtures.cabinet import create_outcome_ready_meeting
+from tests.fixtures.meeting_protocol import (
+    extraction_result,
+    prepare_protocol_candidate,
+    protocol_gateway_response,
+    protocol_result,
+)
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.db.models import (
     GenerationCall,
@@ -22,15 +26,10 @@ from twobrain_rec_server.db.models import (
 )
 from twobrain_rec_server.outcomes.ai_service import (
     OutcomeGenerationDependencyError,
-    _candidate_segments,
-    _content_hash,
     ensure_automatic_summary_candidate,
     execute_candidate_generation,
-    publish_model_generated_outcome,
 )
-from twobrain_rec_server.outcomes.generator import canonical_transcript
-from twobrain_rec_server.outcomes.prompts import outcome_config, prompt_snapshot_hash
-from twobrain_rec_server.outcomes.templates import OUTCOME_CATEGORIES
+from twobrain_rec_server.outcomes.prompts import EXTRACTOR_PROMPT_NAME, VERIFIER_PROMPT_NAME
 from twobrain_rec_server.workflows.temporal_client import (
     outcome_generation_workflow_id,
     start_outcome_generation_workflow,
@@ -74,7 +73,7 @@ async def test_candidate_dispatch_uses_deterministic_id_and_plaintext_identifier
         workspace_id=UUID("33333333-3333-3333-3333-333333333333"),
         source_result_id=UUID("44444444-4444-4444-4444-444444444444"),
         template_key="graf-auto-v1",
-        template_version=1,
+        template_version=2,
         prompt_name="graf/meeting-outcome/auto",
         summary_slot_id=UUID("55555555-5555-5555-5555-555555555555"),
         expected_current_outcome_set_id=UUID("66666666-6666-6666-6666-666666666666"),
@@ -108,7 +107,7 @@ async def test_duplicate_candidate_dispatch_reuses_existing_workflow() -> None:
         workspace_id=UUID("33333333-3333-3333-3333-333333333333"),
         source_result_id=UUID("44444444-4444-4444-4444-444444444444"),
         template_key="graf-auto-v1",
-        template_version=1,
+        template_version=2,
         prompt_name="graf/meeting-outcome/auto",
     )
 
@@ -134,7 +133,7 @@ async def test_duplicate_candidate_dispatch_keeps_temporal_run_id_when_available
         workspace_id=UUID("33333333-3333-3333-3333-333333333333"),
         source_result_id=UUID("44444444-4444-4444-4444-444444444444"),
         template_key="graf-auto-v1",
-        template_version=1,
+        template_version=2,
         prompt_name="graf/meeting-outcome/auto",
     )
 
@@ -159,7 +158,7 @@ async def test_ambiguous_candidate_dispatch_keeps_workflow_reconcilable() -> Non
         workspace_id=UUID("33333333-3333-3333-3333-333333333333"),
         source_result_id=UUID("44444444-4444-4444-4444-444444444444"),
         template_key="graf-auto-v1",
-        template_version=1,
+        template_version=2,
         prompt_name="graf/meeting-outcome/auto",
     )
 
@@ -200,44 +199,6 @@ def test_prompt_activity_accepts_nullable_slot_fence() -> None:
     assert get_type_hints(resolve_outcome_prompt_config_activity)["payload"] == dict[str, Any]
 
 
-async def _ready_automatic_candidate(db, meeting_id):
-    meeting = await db.get(Meeting, meeting_id)
-    result = await db.scalar(
-        select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
-    )
-    assert meeting is not None and result is not None
-    first = await ensure_automatic_summary_candidate(
-        db, workspace_id=meeting.workspace_id, meeting_id=meeting.id
-    )
-    repeated = await ensure_automatic_summary_candidate(
-        db, workspace_id=meeting.workspace_id, meeting_id=meeting.id
-    )
-    assert first is not None and repeated is not None
-    assert first.candidate_id == repeated.candidate_id
-    outcome_set = MeetingOutcomeSet(
-        workspace_id=meeting.workspace_id,
-        meeting_id=meeting.id,
-        media_revision_id=result.media_revision_id,
-        processing_result_id=result.id,
-        candidate_id=first.candidate_id,
-        status="available",
-        source_kind="litellm",
-        generator_kind="litellm",
-        generator_version="test:automatic-ai",
-        source_result_hash=first.source_result_hash,
-        source_fingerprint=first.source_fingerprint,
-        deletion_epoch_at_start=first.deletion_epoch_at_start,
-        template_key=first.template_key,
-        template_version=first.template_version,
-        revision_state="candidate",
-    )
-    db.add(outcome_set)
-    await db.flush()
-    first.outcome_set_id = outcome_set.id
-    first.status = "candidate"
-    return meeting, result, first, outcome_set
-
-
 def test_revision_scoped_ai_wait_replaces_blocked_lineage_without_deterministic_content(client) -> None:
     meeting_id = create_outcome_ready_meeting(client, "ai-disabled-initial-outcome")
     from twobrain_rec_server.outcomes.service import ensure_outcomes_for_processing_result
@@ -252,12 +213,10 @@ def test_revision_scoped_ai_wait_replaces_blocked_lineage_without_deterministic_
             first = await ensure_outcomes_for_processing_result(
                 db,
                 result=result,
-                publish_initial_baseline=True,
             )
             repeated = await ensure_outcomes_for_processing_result(
                 db,
                 result=result,
-                publish_initial_baseline=True,
                 ai_dispatch_planned=False,
             )
             item_count = await db.scalar(
@@ -266,18 +225,23 @@ def test_revision_scoped_ai_wait_replaces_blocked_lineage_without_deterministic_
                 .where(MeetingOutcomeItem.outcome_set_id == first.id)
             )
             await db.commit()
+            assert first.protocol_json is None and first.candidate_id is None
+            assert repeated.protocol_json is None and repeated.content_hash is None
+            assert await db.scalar(select(func.count()).select_from(MeetingOutcomeGenerationAttempt).where(
+                MeetingOutcomeGenerationAttempt.meeting_id == meeting_id,
+            )) == 0
             return (
                 first.id,
                 repeated.id,
                 first.status,
                 first.failure_reason,
                 first.revision_state,
-                {getattr(first, f"{category}_state") for category in OUTCOME_CATEGORIES},
+                first.protocol_state,
                 int(item_count or 0),
                 repeated.status,
                 repeated.failure_reason,
                 repeated.revision_state,
-                {getattr(repeated, f"{category}_state") for category in OUTCOME_CATEGORIES},
+                repeated.protocol_state,
                 meeting.current_outcome_set_id,
             )
 
@@ -287,19 +251,19 @@ def test_revision_scoped_ai_wait_replaces_blocked_lineage_without_deterministic_
         first_status,
         first_reason,
         first_revision_state,
-        first_category_states,
+        first_protocol_state,
         item_count,
         repeated_status,
         repeated_reason,
         repeated_revision_state,
-        repeated_category_states,
+        repeated_protocol_state,
         current_id,
     ) = asyncio.run(run())
     assert first_id == repeated_id
     assert first_status == repeated_status == "blocked"
     assert first_reason == repeated_reason == "summary_generation_unavailable"
     assert first_revision_state == repeated_revision_state == "candidate"
-    assert first_category_states == repeated_category_states == {"unavailable"}
+    assert first_protocol_state == repeated_protocol_state == "unavailable"
     assert item_count == 0
     assert current_id is None
 
@@ -317,7 +281,6 @@ def test_planned_ai_dispatch_keeps_initial_outcome_generating_without_content(cl
             outcome_set = await ensure_outcomes_for_processing_result(
                 db,
                 result=result,
-                publish_initial_baseline=True,
                 ai_dispatch_planned=True,
             )
             item_count = await db.scalar(
@@ -326,139 +289,102 @@ def test_planned_ai_dispatch_keeps_initial_outcome_generating_without_content(cl
                 .where(MeetingOutcomeItem.outcome_set_id == outcome_set.id)
             )
             await db.commit()
+            assert outcome_set.protocol_json is None and outcome_set.candidate_id is None
+            assert outcome_set.content_hash is None and outcome_set.accepted_at is None
             return (
                 outcome_set.status,
                 outcome_set.failure_reason,
-                {
-                    getattr(outcome_set, f"{category}_state")
-                    for category in OUTCOME_CATEGORIES
-                },
+                outcome_set.protocol_state,
                 int(item_count or 0),
             )
 
-    status, reason, category_states, item_count = asyncio.run(run())
+    status, reason, protocol_state, item_count = asyncio.run(run())
     assert status == "generating"
     assert reason is None
-    assert category_states == {"processing"}
+    assert protocol_state == "processing"
     assert item_count == 0
 
 
 def test_generation_activity_replay_returns_matching_published_result(client, monkeypatch) -> None:
     meeting_id = create_outcome_ready_meeting(client, "accepted-generation-activity-replay")
+    calls = []
+    monkeypatch.setattr(
+        "twobrain_rec_server.outcomes.ai_service._read_secret", lambda _path: "synthetic-unused",
+    )
 
     async def unexpected_generation(*_args, **_kwargs):
         raise AssertionError("accepted activity replay must not repeat model inference")
 
-    monkeypatch.setattr(
-        "twobrain_rec_server.outcomes.ai_service.LiteLLMGateway.generate",
-        unexpected_generation,
-    )
-
-    async def run() -> tuple:
+    async def run() -> None:
         sessionmaker = client.app_state["sessionmaker"]
         async with sessionmaker() as db:
-            meeting, _result, attempt, outcome_set = await _ready_automatic_candidate(
-                db, meeting_id
-            )
-            prompt = [
-                {
-                    "role": "system",
-                    "content": (
-                        "{{transcript_json}} {{output_language}} "
-                        "{{detail_level}} {{template_sections_json}}"
-                    ),
-                }
-            ]
-            config = outcome_config(schema_name="graf_outcome")
-            attempt.prompt_name = "graf/meeting-outcome/auto"
-            attempt.prompt_version = 1
-            attempt.prompt_definition = prompt
-            attempt.prompt_config = config
-            attempt.prompt_source = "verified_promoted_snapshot"
-            attempt.prompt_hash = prompt_snapshot_hash(prompt=prompt, config=config)
-            transcript = canonical_transcript(await _candidate_segments(db, attempt))
-            transcript_hash = sha256(transcript.encode("utf-8")).hexdigest()
-            attempt.temporal_transcript_hash = transcript_hash
-            validated = {
-                "category_states": {
-                    category: "not_found" for category in OUTCOME_CATEGORIES
-                },
-                "items": [],
-            }
-            validated_hash = _content_hash(validated)
-            outcome_set.content_hash = validated_hash
-            now = datetime.now(UTC)
-            raw_response = {"choices": []}
-            request = {"messages": []}
-            call = GenerationCall(
-                workspace_id=meeting.workspace_id,
-                meeting_id=meeting.id,
-                candidate_id=attempt.candidate_id,
-                provider_attempt=1,
-                call_sequence=1,
-                trace_id="1" * 32,
-                observation_id="2" * 32,
-                call_state="completed",
-                started_at=now,
-                completed_at=now,
-                request_json=request,
-                transcript_text=transcript,
-                raw_response_json=raw_response,
-                request_hash=_content_hash(request),
-                transcript_hash=transcript_hash,
-                raw_response_hash=_content_hash(raw_response),
-                validated_result_json=validated,
-                validated_result_hash=validated_hash,
-            )
-            db.add(call)
-            await db.flush()
-            await publish_model_generated_outcome(
-                db,
-                workspace_id=meeting.workspace_id,
-                meeting_id=meeting.id,
-                candidate_id=attempt.candidate_id,
-                expected_current_outcome_set_id=None,
-                publication_proof={
-                    "generation_call_id": str(call.id),
-                    "outcome_set_id": str(outcome_set.id),
-                    "validated_result_hash": validated_hash,
-                },
-            )
-            workspace_id = meeting.workspace_id
-            candidate_id = attempt.candidate_id
-            published_id = outcome_set.id
-            await db.commit()
-            assert candidate_id is not None
-
-        replay = await execute_candidate_generation(
-            sessionmaker,
-            workspace_id=workspace_id,
-            candidate_id=candidate_id,
-            expected_snapshot_hash=transcript_hash,
-            settings=Settings(),
-        )
-        async with sessionmaker() as db:
-            attempt = await db.scalar(
-                select(MeetingOutcomeGenerationAttempt).where(
-                    MeetingOutcomeGenerationAttempt.candidate_id == candidate_id
-                )
-            )
             meeting = await db.get(Meeting, meeting_id)
-            assert attempt is not None and meeting is not None
-            current_slot_id = await db.scalar(
-                select(MeetingSummarySlot.current_outcome_set_id).where(
-                    MeetingSummarySlot.meeting_id == meeting_id,
-                    MeetingSummarySlot.template_key == attempt.template_key,
-                )
+            first = await ensure_automatic_summary_candidate(
+                db, workspace_id=meeting.workspace_id, meeting_id=meeting_id,
             )
-            return replay, attempt.status, current_slot_id, published_id
+            repeated = await ensure_automatic_summary_candidate(
+                db, workspace_id=meeting.workspace_id, meeting_id=meeting_id,
+            )
+            assert first.candidate_id == repeated.candidate_id
+            attempt, segments = await prepare_protocol_candidate(db, meeting_id)
+            assert attempt.candidate_id == first.candidate_id
+        draft = protocol_result(segments)
 
-    replay, attempt_status, current_id, published_id = asyncio.run(run())
-    assert replay["state"] == "accepted"
-    assert replay["reused"] is True
-    assert replay["outcome_set_id"] == str(published_id)
-    assert attempt_status == "accepted"
-    assert current_id == published_id
+        async def generate(_self, *, snapshot, messages, **_kwargs):
+            calls.append(snapshot.name)
+            if snapshot.name == VERIFIER_PROMPT_NAME:
+                async with sessionmaker() as db:
+                    # Completed extraction and draft must not publish a slot or protocol.
+                    ledger = (await db.scalars(select(GenerationCall).where(
+                        GenerationCall.candidate_id == attempt.candidate_id,
+                    ).order_by(GenerationCall.call_sequence))).all()
+                    assert [call.call_state for call in ledger] == ["completed", "completed", "reserved"]
+                    assert await db.scalar(select(MeetingSummarySlot.current_outcome_set_id).where(
+                        MeetingSummarySlot.meeting_id == meeting_id,
+                        MeetingSummarySlot.template_key == attempt.template_key,
+                    )) is None
+                    assert await db.scalar(select(func.count()).select_from(MeetingOutcomeSet).where(
+                        MeetingOutcomeSet.meeting_id == meeting_id,
+                    )) == 0
+                result = {"verdict": "pass", "findings": []}
+            elif snapshot.name == EXTRACTOR_PROMPT_NAME:
+                result = extraction_result(segments)
+            else:
+                result = draft
+            return protocol_gateway_response(snapshot, messages, result)
+
+        monkeypatch.setattr("twobrain_rec_server.outcomes.ai_service.LiteLLMGateway.generate", generate)
+        kwargs = dict(
+            workspace_id=attempt.workspace_id, candidate_id=attempt.candidate_id,
+            expected_snapshot_hash=attempt.temporal_transcript_hash,
+            settings=Settings(litellm_base_url="https://example.invalid", langfuse_project_id="synthetic-project"),
+        )
+        completed = await execute_candidate_generation(sessionmaker, **kwargs)
+        assert completed["state"] == "accepted"
+        monkeypatch.setattr(
+            "twobrain_rec_server.outcomes.ai_service.LiteLLMGateway.generate", unexpected_generation,
+        )
+        replay = await execute_candidate_generation(sessionmaker, **kwargs)
+        assert replay["state"] == "accepted" and replay["reused"] is True
+        assert replay["outcome_set_id"] == completed["outcome_set_id"]
+        async with sessionmaker() as db:
+            persisted = await db.get(MeetingOutcomeGenerationAttempt, attempt.id)
+            assert persisted.status == "accepted"
+            slot = await db.scalar(select(MeetingSummarySlot).where(
+                MeetingSummarySlot.meeting_id == meeting_id,
+                MeetingSummarySlot.template_key == attempt.template_key,
+            ))
+            assert str(slot.current_outcome_set_id) == completed["outcome_set_id"]
+            outcome = await db.get(MeetingOutcomeSet, slot.current_outcome_set_id)
+            assert outcome.protocol_state == "available" and outcome.protocol_json
+            ledger = (await db.scalars(select(GenerationCall).where(
+                GenerationCall.candidate_id == attempt.candidate_id,
+            ).order_by(GenerationCall.call_sequence))).all()
+            assert [call.call_sequence for call in ledger] == [1, 2, 3]
+            assert all(call.call_state == "completed" for call in ledger)
+
+    asyncio.run(run())
+    assert calls == [EXTRACTOR_PROMPT_NAME, "graf/meeting-outcome/auto", VERIFIER_PROMPT_NAME]
 
 
 def test_missing_provider_config_does_not_reserve_generation_call(client) -> None:
@@ -467,37 +393,10 @@ def test_missing_provider_config_does_not_reserve_generation_call(client) -> Non
     async def run() -> int:
         sessionmaker = client.app_state["sessionmaker"]
         async with sessionmaker() as db:
-            meeting = await db.get(Meeting, meeting_id)
-            assert meeting is not None
-            attempt = await ensure_automatic_summary_candidate(
-                db,
-                workspace_id=meeting.workspace_id,
-                meeting_id=meeting.id,
-            )
-            assert attempt is not None and attempt.candidate_id is not None
-            prompt = [
-                {
-                    "role": "system",
-                    "content": (
-                        "{{transcript_json}} {{output_language}} "
-                        "{{detail_level}} {{template_sections_json}}"
-                    ),
-                }
-            ]
-            config = outcome_config(schema_name="graf_outcome")
-            attempt.prompt_name = "graf/meeting-outcome/auto"
-            attempt.prompt_version = 1
-            attempt.prompt_definition = prompt
-            attempt.prompt_config = config
-            attempt.prompt_source = "verified_promoted_snapshot"
-            attempt.prompt_hash = prompt_snapshot_hash(prompt=prompt, config=config)
-            transcript = canonical_transcript(await _candidate_segments(db, attempt))
-            transcript_hash = sha256(transcript.encode("utf-8")).hexdigest()
-            attempt.temporal_transcript_hash = transcript_hash
-            attempt.status = "generating"
+            attempt, _segments = await prepare_protocol_candidate(db, meeting_id)
             candidate_id = attempt.candidate_id
-            workspace_id = meeting.workspace_id
-            await db.commit()
+            workspace_id = attempt.workspace_id
+            transcript_hash = attempt.temporal_transcript_hash
 
         with pytest.raises(
             OutcomeGenerationDependencyError,
@@ -508,7 +407,7 @@ def test_missing_provider_config_does_not_reserve_generation_call(client) -> Non
                 workspace_id=workspace_id,
                 candidate_id=candidate_id,
                 expected_snapshot_hash=transcript_hash,
-                settings=Settings(),
+                settings=Settings(langfuse_project_id="synthetic-project"),
             )
         async with sessionmaker() as db:
             return int(

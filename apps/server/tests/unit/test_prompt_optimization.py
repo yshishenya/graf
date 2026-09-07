@@ -9,47 +9,32 @@ from uuid import UUID
 
 import pytest
 
+from tests.fixtures.outcome_prompts import desired_prompts
 from twobrain_rec_server.cli.langfuse_prompts import (
-    CONTROL_PROMPTS,
     create_root_bundle_candidate,
-    desired_prompts,
-    promote_control_prompt_version,
     sync_prompts,
 )
 from twobrain_rec_server.outcomes.prompt_bundle import (
-    bind_snapshot_from_metadata,
     snapshot_bundle_metadata,
 )
 from twobrain_rec_server.outcomes.prompt_optimization import (
     OUTCOME_EVAL_METRIC_THRESHOLDS,
     OptimizationCandidate,
     PromptOptimizationError,
-    PromptOptimizationReconciliationError,
     SyntheticExample,
     SyntheticManifest,
     _commit_database_until_quiescent,
     _publish_optimization_terminal_observation,
-    _run_thread_until_quiescent,
     _snapshot_from_payload,
     _snapshot_payload,
-    authorize_prompt_rollback_action_activity,
-    control_gate_evidence_hash,
     load_persisted_candidate_result,
-    load_verified_promoted_snapshot,
-    move_production_label,
     optimization_terminal_observation_id,
     parse_reflection_proposal,
-    persist_verified_promoted_snapshot,
-    promote_control_prompt,
-    promote_prompt_candidate_activity,
     prompt_config_hash,
     publish_or_recover_unlabelled_candidate,
     publish_prompt_candidate_activity,
     publish_unlabelled_candidate,
-    required_judge_calibration,
-    rollback_prompt_production_label_activity,
     validate_candidate_prompt,
-    validate_control_prompt_gate,
     validate_heldout_candidate,
     validate_outcome_eval_receipt,
 )
@@ -59,56 +44,10 @@ from twobrain_rec_server.outcomes.prompts import (
     validate_prompt_snapshot,
 )
 
-
-@pytest.mark.anyio
-async def test_cancel_during_label_move_commits_promoted_state_and_keeps_rollback_authority() -> (
-    None
-):
-    started = threading.Event()
-    release = threading.Event()
-    state: dict[str, object] = {
-        "database_status": "candidate",
-        "production_version": 7,
-        "rollback_prompt_version": 7,
-    }
-
-    def blocked_label_move() -> int:
-        started.set()
-        assert release.wait(timeout=2)
-        state["production_version"] = 9
-        return 9
-
-    async def promotion_commit_boundary() -> dict[str, object]:
-        version = await _run_thread_until_quiescent(
-            blocked_label_move,
-            on_cancel=lambda: None,
-            complete_after_cancel=True,
-        )
-        state["database_status"] = "promoted"
-        return {"status": "promoted", "production_prompt_version": version}
-
-    task = asyncio.create_task(promotion_commit_boundary())
-    assert await asyncio.to_thread(started.wait, 1)
-    task.cancel()
-    await asyncio.sleep(0)
-
-    assert not task.done()
-    assert state == {
-        "database_status": "candidate",
-        "production_version": 7,
-        "rollback_prompt_version": 7,
-    }
-
-    release.set()
-    assert await asyncio.wait_for(task, timeout=1) == {
-        "status": "promoted",
-        "production_prompt_version": 9,
-    }
-    assert state == {
-        "database_status": "promoted",
-        "production_version": 9,
-        "rollback_prompt_version": 7,
-    }
+CONTROL_PROMPTS = {
+    name: value for name, value in desired_prompts().items()
+    if not name.startswith("graf/meeting-outcome/")
+}
 
 
 @pytest.mark.anyio
@@ -116,8 +55,6 @@ async def test_cancel_during_label_move_commits_promoted_state_and_keeps_rollbac
     ("operation", "expected_status"),
     [
         ("candidate", "cancelled"),
-        ("promotion", "promoted"),
-        ("rollback", "rolled_back"),
     ],
 )
 async def test_cancel_during_db_commit_finishes_boundary_without_split_brain(
@@ -133,11 +70,7 @@ async def test_cancel_during_db_commit_finishes_boundary_without_split_brain(
         async def commit(self) -> None:
             commit_started.set()
             await release_commit.wait()
-            state["database"] = {
-                "candidate": "candidate",
-                "promotion": "promoted",
-                "rollback": "rolled_back",
-            }[operation]
+            state["database"] = "candidate"
             state["commit_finished"] = True
 
     async def activity_and_workflow_boundary() -> str:
@@ -274,107 +207,6 @@ def test_candidate_external_create_is_recovered_after_database_commit_failure() 
     assert tag in client.create_prompt.call_args.kwargs["tags"]
 
 
-def test_production_move_is_protected_conflict_checked_and_postverified() -> None:
-    source = _source()
-    current = Mock(version=1, prompt=source.prompt, config=source.config)
-    target = Mock(version=2, prompt=source.prompt, config=source.config)
-    client = Mock()
-    client.get_prompt.side_effect = [current, target, target]
-    result = move_production_label(
-        client,
-        prompt_name=source.name,
-        prompt_type="chat",
-        expected_source_version=1,
-        target_version=2,
-        protected_label_capability_verified=True,
-    )
-    assert result.version == 2
-    client.update_prompt.assert_called_once_with(
-        name=source.name,
-        version=2,
-        new_labels=["production"],
-    )
-    client.clear_prompt_cache.assert_called_once_with()
-    with pytest.raises(PromptOptimizationError, match="protected_label_capability_unavailable"):
-        move_production_label(
-            client,
-            prompt_name=source.name,
-            prompt_type="chat",
-            expected_source_version=1,
-            target_version=2,
-            protected_label_capability_verified=False,
-        )
-
-
-def test_production_move_is_idempotent_after_label_mutation_crash() -> None:
-    source = _source()
-    target = Mock(version=2, prompt=source.prompt, config=source.config)
-    client = Mock()
-    client.get_prompt.side_effect = [target, target, target]
-
-    result = move_production_label(
-        client,
-        prompt_name=source.name,
-        prompt_type="chat",
-        expected_source_version=1,
-        target_version=2,
-        protected_label_capability_verified=True,
-    )
-
-    assert result.version == 2
-    client.update_prompt.assert_not_called()
-    client.clear_prompt_cache.assert_called_once_with()
-
-
-def test_production_move_retries_snapshot_export_after_label_already_moved() -> None:
-    source = _source()
-    target = Mock(version=2, prompt=source.prompt, config=source.config)
-    client = Mock()
-    client.get_prompt.side_effect = [source, target, target, target, target, target]
-
-    class Storage:
-        def __init__(self) -> None:
-            self.objects: dict[str, bytes] = {}
-            self.fail_once = True
-
-        def put_stream(self, key, stream, _length):
-            if self.fail_once:
-                self.fail_once = False
-                raise RuntimeError("snapshot export unavailable")
-            self.objects[key] = stream.read()
-
-        def get_bytes(self, key):
-            return self.objects[key]
-
-    storage = Storage()
-    with pytest.raises(
-        PromptOptimizationReconciliationError,
-        match="production_label_reconciliation_required",
-    ):
-        move_production_label(
-            client,
-            prompt_name=source.name,
-            prompt_type="chat",
-            expected_source_version=1,
-            target_version=2,
-            protected_label_capability_verified=True,
-            snapshot_storage=storage,
-        )
-
-    restored = move_production_label(
-        client,
-        prompt_name=source.name,
-        prompt_type="chat",
-        expected_source_version=1,
-        target_version=2,
-        protected_label_capability_verified=True,
-        snapshot_storage=storage,
-    )
-
-    assert restored.version == 2
-    client.update_prompt.assert_called_once()
-
-
 def _install_prompt_transition_activity_fakes(
     monkeypatch,
     *,
@@ -442,8 +274,6 @@ def _install_prompt_transition_activity_fakes(
     [
         ("candidate", "cancelled"),
         ("persisted_candidate", "cancelled"),
-        ("promotion", "promoted"),
-        ("rollback", "rolled_back"),
     ],
 )
 async def test_cancel_during_session_exit_or_engine_dispose_keeps_activity_coherent(
@@ -470,19 +300,11 @@ async def test_cancel_during_session_exit_or_engine_dispose_keeps_activity_coher
         prompt=source.prompt,
         config=source.config,
     )
-    action_id = UUID("30000000-0000-0000-0000-000000000003")
     run_id = UUID("10000000-0000-0000-0000-000000000001")
     run = SimpleNamespace(
         id=run_id,
-        status=(
-            "candidate"
-            if operation in {"persisted_candidate", "promotion"}
-            else "promoted"
-            if operation == "rollback"
-            else "running"
-        ),
-        approval_state="approved",
-        approval_action_id=UUID("20000000-0000-0000-0000-000000000002"),
+        status="candidate" if operation == "persisted_candidate" else "running",
+        approval_state="not_requested",
         approval_expires_at=(
             datetime.now(UTC) + timedelta(days=1) if operation == "persisted_candidate" else None
         ),
@@ -493,16 +315,7 @@ async def test_cancel_during_session_exit_or_engine_dispose_keeps_activity_coher
         candidate_config_hash=(
             prompt_config_hash(candidate.config) if operation != "candidate" else None
         ),
-        rollback_prompt_version=source.version,
         aggregate_scores={},
-        budget={
-            "protected_label_capability_verified": True,
-            "rollback_action": {
-                "action_id": str(action_id),
-                "actor_id": "operator",
-                "consumed": True,
-            },
-        },
     )
     boundary_state = _install_prompt_transition_activity_fakes(
         monkeypatch,
@@ -514,17 +327,12 @@ async def test_cancel_during_session_exit_or_engine_dispose_keeps_activity_coher
     )
 
     async def return_snapshot(*_args, **_kwargs):
-        return candidate if operation != "rollback" else source
+        return candidate
 
     monkeypatch.setattr(
         optimization_module,
         "_run_thread_until_quiescent",
         return_snapshot,
-    )
-    monkeypatch.setattr(
-        optimization_module,
-        "_publish_label_transition",
-        lambda *_args, **_kwargs: None,
     )
     expires_at = datetime.now(UTC) + timedelta(days=1)
     if operation in {"candidate", "persisted_candidate"}:
@@ -541,22 +349,6 @@ async def test_cancel_during_session_exit_or_engine_dispose_keeps_activity_coher
                     "heldout_scores": {},
                 },
                 "approval_expires_at": expires_at.isoformat(),
-            }
-        )
-    elif operation == "promotion":
-        activity = promote_prompt_candidate_activity(
-            {
-                "run_id": str(run_id),
-                "prompt_name": source.name,
-                "approval_action_id": str(run.approval_action_id),
-            }
-        )
-    else:
-        activity = rollback_prompt_production_label_activity(
-            {
-                "run_id": str(run_id),
-                "prompt_name": source.name,
-                "action_id": str(action_id),
             }
         )
 
@@ -637,7 +429,6 @@ async def test_candidate_activity_recovers_external_create_after_db_commit_failu
     ]
     client.create_prompt.return_value = Mock(version=2)
     client.get_prompt.return_value = candidate
-    expires_at = datetime.now(UTC) + timedelta(days=1)
     run = SimpleNamespace(
         status="running",
         source_prompt_version=source.version,
@@ -673,7 +464,6 @@ async def test_candidate_activity_recovers_external_create_after_db_commit_failu
             "development_score": 1,
         },
         "heldout_result": {"hard_gates_passed": True, "heldout_scores": {}},
-        "approval_expires_at": expires_at.isoformat(),
     }
 
     with pytest.raises(RuntimeError, match="database commit lost"):
@@ -682,178 +472,57 @@ async def test_candidate_activity_recovers_external_create_after_db_commit_failu
 
     assert result["candidate_prompt_version"] == 2
     assert run.status == "candidate"
+    assert run.approval_state == "not_requested"
+    assert run.approval_expires_at is None
+    assert result["approval_expires_at"] is None
     client.create_prompt.assert_called_once()
     assert client.create_prompt.call_args.kwargs["labels"] == []
 
 
 @pytest.mark.anyio
-async def test_promotion_completion_loss_returns_verified_durable_result(monkeypatch) -> None:
+@pytest.mark.parametrize("status", ["completed", "promoted", "rolled_back", "failed", "cancelled"])
+async def test_finished_run_callback_cannot_create_a_candidate(monkeypatch, status):
     source = _source()
-    target = validate_prompt_snapshot(
-        name=source.name,
-        version=2,
-        prompt_type=source.prompt_type,
-        prompt=source.prompt,
-        config=source.config,
-    )
-    remote = Mock(version=2, prompt=target.prompt, config=target.config)
     client = Mock()
-    client.get_prompt.return_value = remote
-
-    class Storage:
-        objects: dict[str, bytes] = {}
-
-        def put_stream(self, key, stream, _length):
-            self.objects[key] = stream.read()
-
-        def get_bytes(self, key):
-            return self.objects[key]
-
     run = SimpleNamespace(
-        id=UUID("10000000-0000-0000-0000-000000000001"),
-        status="promoted",
-        approval_state="approved",
-        approval_action_id=UUID("20000000-0000-0000-0000-000000000002"),
-        prompt_name=source.name,
-        source_prompt_version=1,
-        candidate_prompt_version=2,
-        candidate_prompt_hash=target.canonical_hash,
-        budget={"protected_label_capability_verified": True},
+        status=status, source_prompt_version=source.version, candidate_prompt_version=None,
+        candidate_prompt_hash=None, candidate_config_hash=None, approval_expires_at=None,
     )
     _install_prompt_transition_activity_fakes(
-        monkeypatch,
-        run=run,
-        client=client,
-        storage=Storage(),
+        monkeypatch, run=run, client=client, storage=SimpleNamespace(),
     )
-
-    result = await promote_prompt_candidate_activity(
-        {
-            "run_id": str(run.id),
-            "prompt_name": run.prompt_name,
-            "approval_action_id": str(run.approval_action_id),
-        }
-    )
-
-    assert result == {"status": "promoted", "production_prompt_version": 2}
-    client.update_prompt.assert_not_called()
+    with pytest.raises(PromptOptimizationError, match="optimization_run_not_active"):
+        await publish_prompt_candidate_activity({
+            "run_id": "10000000-0000-0000-0000-000000000001",
+            "resolved_contract": {"source_prompt": _snapshot_payload(source)},
+            "optimization_result": {"prompt_text": canonical_json(source.prompt)},
+            "heldout_result": {"hard_gates_passed": True},
+        })
+    assert client.mock_calls == []
+    assert run.status == status
 
 
-@pytest.mark.anyio
-async def test_rollback_completion_loss_reuses_consumed_action_and_durable_result(
-    monkeypatch,
-) -> None:
-    source = _source()
-    remote = Mock(version=1, prompt=source.prompt, config=source.config)
-    client = Mock()
-    client.get_prompt.return_value = remote
-
-    class Storage:
-        objects: dict[str, bytes] = {}
-
-        def put_stream(self, key, stream, _length):
-            self.objects[key] = stream.read()
-
-        def get_bytes(self, key):
-            return self.objects[key]
-
-    action_id = "30000000-0000-0000-0000-000000000003"
-    run = SimpleNamespace(
-        id=UUID("10000000-0000-0000-0000-000000000001"),
-        status="rolled_back",
-        prompt_name=source.name,
-        source_prompt_version=1,
-        candidate_prompt_version=2,
-        rollback_prompt_version=1,
-        budget={
-            "protected_label_capability_verified": True,
-            "rollback_action": {
-                "action_id": action_id,
-                "actor_id": "operator",
-                "consumed": True,
-            },
-        },
-    )
-    _install_prompt_transition_activity_fakes(
-        monkeypatch,
-        run=run,
-        client=client,
-        storage=Storage(),
-    )
-
-    assert await authorize_prompt_rollback_action_activity(
-        {"run_id": str(run.id), "action_id": action_id}
-    ) == {"status": "authorized"}
-
-    result = await rollback_prompt_production_label_activity(
-        {
-            "run_id": str(run.id),
-            "prompt_name": run.prompt_name,
-            "action_id": action_id,
-        }
-    )
-
-    assert result["status"] == "rolled_back"
-    assert result["production_prompt_version"] == 1
-    client.update_prompt.assert_not_called()
-
-
-def test_production_move_supports_gated_initial_control_promotion() -> None:
-    from langfuse.api.commons.errors.not_found_error import NotFoundError
-
-    source = _source()
-    target = Mock(version=2, prompt=source.prompt, config=source.config)
-    client = Mock()
-    client.get_prompt.side_effect = [NotFoundError(body={}), target, target]
-
-    result = move_production_label(
-        client,
-        prompt_name=source.name,
-        prompt_type="chat",
-        expected_source_version=None,
-        target_version=2,
-        protected_label_capability_verified=True,
-    )
-
-    assert result.version == 2
-    client.update_prompt.assert_called_once_with(
-        name=source.name,
-        version=2,
-        new_labels=["production"],
-    )
-
-
-def test_verified_promoted_snapshot_is_owner_controlled_fallback() -> None:
-    source = _source()
-
-    class Storage:
-        objects = {}
-
-        def put_stream(self, key, stream, length):
-            value = stream.read()
-            assert len(value) == length
-            self.objects[key] = value
-
-        def get_bytes(self, key):
-            return self.objects[key]
-
-    storage = Storage()
-    key = persist_verified_promoted_snapshot(storage, source)
-    restored = load_verified_promoted_snapshot(storage, prompt_name=source.name)
-    assert key.startswith("_system/prompts/verified-production/")
-    assert restored.source == "verified_promoted_snapshot"
-    assert restored.canonical_hash == source.canonical_hash
-
-
-def test_prompt_sync_creates_only_unlabelled_candidates(monkeypatch) -> None:
+@pytest.mark.parametrize("bootstrap", [False, True])
+def test_prompt_sync_creates_only_unlabelled_candidates(monkeypatch, bootstrap) -> None:
     import langfuse
+
+    from twobrain_rec_server.outcomes.prompts import EXTRACTOR_PROMPT_NAME
 
     class Client:
         def __init__(self) -> None:
             self.created = []
 
-        def get_prompt(self, *_args, **_kwargs):
-            raise RuntimeError("not seeded")
+        def get_prompt(self, name, **kwargs):
+            assert "label" not in kwargs
+            assert kwargs["version"] == 7
+            if bootstrap:
+                assert name != EXTRACTOR_PROMPT_NAME  # The new child does not exist yet.
+            return Mock(version=7, prompt="previous prompt", config={
+                "config_contract_version": 3,
+                "model": "gemini/gemini-3.8-flash",
+                "top_p": 0.7, "max_tokens": 12000,
+                CONTROL_GATE_CONFIG_KEY: {"old_evidence": "must-not-be-carried"},
+            })
 
         def create_prompt(self, **kwargs):
             self.created.append(kwargs)
@@ -873,6 +542,8 @@ def test_prompt_sync_creates_only_unlabelled_candidates(monkeypatch) -> None:
         public_key="pk-test",
         secret_key="sk-test",
         apply=True,
+        source_versions={name: 7 for name in desired_prompts()},
+        source_names={EXTRACTOR_PROMPT_NAME: "graf/meeting-outcome/auto"} if bootstrap else None,
     )
 
     control_creates = [row for row in client.created if row["name"] in CONTROL_PROMPTS]
@@ -884,26 +555,34 @@ def test_prompt_sync_creates_only_unlabelled_candidates(monkeypatch) -> None:
         for row in client.created
     )
     assert sum(value.startswith("created-control-candidate:") for value in outcomes) == 4
-    assert sum(value.startswith("created-outcome-candidate:") for value in outcomes) == 10
+    assert sum(value.startswith("created-outcome-candidate:") for value in outcomes) == 12
+    assert all(row["config"]["model"] == "gemini/gemini-3.8-flash" for row in client.created)
+    assert all(row["config"]["top_p"] == 0.7 for row in client.created)
+    assert all(row["config"]["max_tokens"] == 12000 for row in client.created)
+    assert all("temperature" not in row["config"] for row in client.created)
+    assert all("reasoning_effort" not in row["config"] for row in client.created)
+    assert all(CONTROL_GATE_CONFIG_KEY not in row["config"] for row in client.created)
 
 
-def test_prompt_sync_treats_an_older_production_contract_as_change_required(
-    monkeypatch,
-) -> None:
+@pytest.mark.parametrize("failure", ["missing-model", "wrong-version", "unknown-field"])
+def test_prompt_sync_validates_all_exact_sources_before_any_write(monkeypatch, failure) -> None:
     import langfuse
 
-    prompt_name = "graf/meeting-outcome/auto"
-    prompt_type, prompt, _config = desired_prompts()[prompt_name]
-
     class Client:
-        def get_prompt(self, name, **_kwargs):
-            if name == prompt_name:
-                return Mock(
-                    version=3,
-                    prompt=prompt,
-                    config={"config_contract_version": 1},
-                )
-            raise RuntimeError("not seeded")
+        create_prompt = Mock()
+
+        def get_prompt(self, name, **kwargs):
+            assert "label" not in kwargs
+            config = {"config_contract_version": 1, "model": "test-model"}
+            version = kwargs["version"]
+            if name == list(desired_prompts())[-1]:
+                if failure == "missing-model":
+                    del config["model"]
+                elif failure == "wrong-version":
+                    version += 1
+                else:
+                    config["base_url"] = "https://example.invalid"
+            return Mock(version=version, prompt="previous prompt", config=config)
 
         def flush(self) -> None:
             pass
@@ -911,16 +590,14 @@ def test_prompt_sync_treats_an_older_production_contract_as_change_required(
         def shutdown(self) -> None:
             pass
 
-    monkeypatch.setattr(langfuse, "Langfuse", lambda **_kwargs: Client())
-
-    outcomes = sync_prompts(
-        base_url="https://langfuse.invalid",
-        public_key="pk-test",
-        secret_key="sk-test",
-        apply=False,
-    )
-
-    assert f"change-required:{prompt_name}" in outcomes
+    client = Client()
+    monkeypatch.setattr(langfuse, "Langfuse", lambda **_kwargs: client)
+    with pytest.raises(ValueError):
+        sync_prompts(
+            base_url="https://langfuse.invalid", public_key="pk-test", secret_key="sk-test",
+            apply=True, source_versions={name: 7 for name in desired_prompts()},
+        )
+    client.create_prompt.assert_not_called()
 
 
 def test_root_bundle_candidate_accepts_exact_version_per_prompt(monkeypatch) -> None:
@@ -948,22 +625,11 @@ def test_root_bundle_candidate_accepts_exact_version_per_prompt(monkeypatch) -> 
             pass
 
     monkeypatch.setattr(langfuse, "Langfuse", lambda **_kwargs: Client())
-    descriptor = {
-        "alias": "gpt-5.6-luna",
-        "binding_version": "graf-litellm-route-v1",
-        "allowed_provider_models": [{"provider": "openai", "model": "gpt-5.6-luna"}],
-        "request_compiler_hash": "a" * 64,
-        "request_compiler_version": "graf-chat-compiler-v1",
-    }
-    from twobrain_rec_server.outcomes.prompt_bundle import route_binding_hash
-
-    route_binding = {**descriptor, "binding_hash": route_binding_hash(descriptor)}
     result = create_root_bundle_candidate(
         base_url="https://langfuse.invalid",
         public_key="pk-test",
         secret_key="sk-test",
         child_versions=versions,
-        route_binding=route_binding,
     )
 
     assert result["root_prompt_version"] == 31
@@ -971,36 +637,24 @@ def test_root_bundle_candidate_accepts_exact_version_per_prompt(monkeypatch) -> 
     assert sorted(calls) == sorted(versions.items())
 
 
-def test_optimizer_snapshot_and_candidate_retain_route_binding() -> None:
-    source = _source()
-    descriptor = {
-        "alias": "gpt-5.6-luna",
-        "binding_version": "graf-litellm-route-v1",
-        "allowed_provider_models": [{"provider": "openai", "model": "gpt-5.6-luna"}],
-        "request_compiler_hash": "a" * 64,
-        "request_compiler_version": "graf-chat-compiler-v1",
-    }
-    from twobrain_rec_server.outcomes.prompt_bundle import route_binding_hash
+def test_optimizer_snapshot_and_candidate_retain_root_binding() -> None:
+    from tests.fixtures.meeting_protocol import protocol_bundle
 
-    binding = {**descriptor, "binding_hash": route_binding_hash(descriptor)}
-    bound = bind_snapshot_from_metadata(
-        source,
-        {
-            "root_bundle_hash": "b" * 64,
-            "root_prompt_version": 3,
-            "route_binding_hash": binding["binding_hash"],
-            "route_binding": binding,
-        },
-    )
+    bound = protocol_bundle().child("graf/meeting-outcome/auto")
 
     restored = _snapshot_from_payload(_snapshot_payload(bound))
     candidate = validate_candidate_prompt(bound, canonical_json(bound.prompt))
 
     assert snapshot_bundle_metadata(restored) == snapshot_bundle_metadata(bound)
     assert snapshot_bundle_metadata(candidate) == snapshot_bundle_metadata(bound)
+    changed = [dict(message) for message in bound.prompt]
+    changed[0]["content"] += " Additional synthetic emphasis."
+    counterfactual = validate_candidate_prompt(bound, canonical_json(changed))
+    assert snapshot_bundle_metadata(counterfactual) is None
+    assert counterfactual.config == bound.config
 
 
-def test_production_optimizer_uses_secret_file_and_requires_route_binding(
+def test_production_optimizer_uses_secret_file_and_standard_gateway(
     monkeypatch, tmp_path
 ) -> None:
     from twobrain_rec_server.outcomes import generator as generator_module
@@ -1027,7 +681,6 @@ def test_production_optimizer_uses_secret_file_and_requires_route_binding(
         "base_url": "https://litellm.pro-4.ru",
         "api_key": "luna-key",
         "timeout_seconds": 120,
-        "require_route_binding": True,
     }
 
 
@@ -1196,198 +849,6 @@ def test_synthetic_example_accepts_runtime_sized_long_context() -> None:
     )
 
     assert len(example.transcript_json) == 300_000
-
-
-def test_control_prompt_gate_requires_real_reflection_and_judge_evidence() -> None:
-    reflection_type, reflection_prompt, reflection_config = CONTROL_PROMPTS[
-        "graf/prompt-optimization/reflection"
-    ]
-    reflection = validate_prompt_snapshot(
-        name="graf/prompt-optimization/reflection",
-        version=2,
-        prompt_type=reflection_type,
-        prompt=reflection_prompt,
-        config=reflection_config,
-    )
-    reflection_evidence = {
-        "evaluator_version": "reflection-v1",
-        "operator_actor_id": "deploy-operator",
-        "operator_approved": True,
-        "native_parser_smoke_passed": True,
-        "variable_preservation_passed": True,
-        "anti_copy_regression_passed": True,
-        "bounded_cost_smoke_passed": True,
-    }
-    assert validate_control_prompt_gate(
-        candidate=reflection,
-        evidence=reflection_evidence,
-    )["passed"]
-    with pytest.raises(PromptOptimizationError, match="operator_approval_required"):
-        validate_control_prompt_gate(
-            candidate=reflection,
-            evidence={**reflection_evidence, "operator_approved": False},
-        )
-
-    judge_name = "graf/evaluation/meeting-outcome-faithfulness"
-    judge_type, judge_prompt, judge_config = CONTROL_PROMPTS[judge_name]
-    judge = validate_prompt_snapshot(
-        name=judge_name,
-        version=3,
-        prompt_type=judge_type,
-        prompt=judge_prompt,
-        config=judge_config,
-    )
-    judge_evidence = {
-        "evaluator_version": "judge-v1",
-        "operator_actor_id": "deploy-operator",
-        "operator_approved": True,
-        "calibration_manifest_hash": "a" * 64,
-        "expected_labels": ["pass", "fail"] * 5,
-        "actual_labels": ["pass", "fail"] * 5,
-        "agreement_threshold": 0.9,
-        "invalid_output_count": 0,
-        "bounded_cost_smoke_passed": True,
-    }
-    aggregate = validate_control_prompt_gate(candidate=judge, evidence=judge_evidence)
-    assert aggregate["agreement"] == 1
-    gated = validate_prompt_snapshot(
-        name=judge_name,
-        version=4,
-        prompt_type=judge_type,
-        prompt=judge_prompt,
-        config={
-            **judge_config,
-            CONTROL_GATE_CONFIG_KEY: {
-                **aggregate,
-                "evidence_hash": "b" * 64,
-                "gate_version": 1,
-                "operator_approved": True,
-            },
-        },
-    )
-    calibration, gate = required_judge_calibration(gated)
-    assert calibration.passed
-    assert gate["evaluator_version"] == "judge-v1"
-    with pytest.raises(PromptOptimizationError, match="judge_control_prompt_gate_failed"):
-        validate_control_prompt_gate(
-            candidate=judge,
-            evidence={**judge_evidence, "actual_labels": ["fail", "pass"] * 5},
-        )
-
-
-def test_control_promotion_persists_gate_in_exact_langfuse_prompt_version() -> None:
-    from langfuse.api.commons.errors.not_found_error import NotFoundError
-
-    judge_name = "graf/evaluation/meeting-outcome-faithfulness"
-    judge_type, judge_prompt, judge_config = CONTROL_PROMPTS[judge_name]
-
-    class Client:
-        def __init__(self) -> None:
-            self.production = False
-            self.gated = None
-
-        def get_prompt(self, _name, **kwargs):
-            if kwargs.get("version") == 2:
-                return Mock(version=2, prompt=judge_prompt, config=judge_config)
-            if kwargs.get("version") == 3 or (
-                kwargs.get("label") == "production" and self.production
-            ):
-                return self.gated
-            raise NotFoundError(body={})
-
-        def create_prompt(self, **kwargs):
-            self.gated = Mock(version=3, prompt=kwargs["prompt"], config=kwargs["config"])
-            return self.gated
-
-        def update_prompt(self, **_kwargs):
-            self.production = True
-
-        def clear_prompt_cache(self):
-            pass
-
-    evidence = {
-        "evaluator_version": "judge-v9",
-        "operator_actor_id": "deploy-operator",
-        "operator_approved": True,
-        "calibration_manifest_hash": "a" * 64,
-        "expected_labels": ["pass", "fail"] * 5,
-        "actual_labels": ["pass", "fail"] * 5,
-        "agreement_threshold": 0.9,
-        "invalid_output_count": 0,
-        "bounded_cost_smoke_passed": True,
-    }
-    client = Client()
-
-    promoted, aggregate = promote_control_prompt(
-        client,
-        prompt_name=judge_name,
-        prompt_type=judge_type,
-        candidate_version=2,
-        expected_source_version=None,
-        evidence=evidence,
-        protected_label_capability_verified=True,
-    )
-
-    gate = promoted.config[CONTROL_GATE_CONFIG_KEY]
-    assert promoted.version == 3
-    assert aggregate["evaluator_version"] == "judge-v9"
-    assert gate["evaluator_version"] == "judge-v9"
-    assert gate["evidence_hash"] == control_gate_evidence_hash(evidence)
-
-
-def test_control_promotion_returns_the_exact_embedded_evidence_hash(monkeypatch) -> None:
-    from twobrain_rec_server.cli import langfuse_prompts as cli_module
-
-    evidence = {
-        "evaluator_version": "reflection-v1",
-        "operator_actor_id": "deploy-operator",
-        "operator_approved": True,
-        "native_parser_smoke_passed": True,
-        "variable_preservation_passed": True,
-        "anti_copy_regression_passed": True,
-        "bounded_cost_smoke_passed": True,
-    }
-    embedded_hash = control_gate_evidence_hash(evidence)
-
-    class Observation:
-        def end(self):
-            pass
-
-    class Client:
-        def start_observation(self, **_kwargs):
-            return Observation()
-
-        def flush(self):
-            pass
-
-        def shutdown(self):
-            pass
-
-    monkeypatch.setattr("langfuse.Langfuse", lambda **_kwargs: Client())
-    monkeypatch.setattr(
-        cli_module,
-        "promote_control_prompt",
-        lambda *_args, **_kwargs: (
-            Mock(
-                version=9,
-                config={CONTROL_GATE_CONFIG_KEY: {"evidence_hash": embedded_hash}},
-            ),
-            {"passed": True},
-        ),
-    )
-
-    result = promote_control_prompt_version(
-        base_url="https://langfuse.invalid",
-        public_key="pk-test",
-        secret_key="sk-test",
-        prompt_name="graf/prompt-optimization/reflection",
-        candidate_version=8,
-        expected_source_version=7,
-        evidence=evidence,
-        protected_label_capability_verified=True,
-    )
-
-    assert result["evidence_hash"] == embedded_hash
 
 
 def test_optimizer_terminal_observation_retries_with_one_deterministic_identity() -> None:

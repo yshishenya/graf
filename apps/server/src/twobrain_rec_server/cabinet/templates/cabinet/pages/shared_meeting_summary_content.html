@@ -1,33 +1,14 @@
 <main id="cabinet-main" class="main" tabindex="-1">
   <section class="panel shared-summary" aria-labelledby="shared-summary-title">
     <p class="eyebrow">Итоги через GRAF</p>
-    <h1 id="shared-summary-title">{{ meeting_title }}</h1>
-    <p class="muted">
-      {% if time_is_upload %}Загружено {% endif %}{{ user_time_element(occurred_at, show_zone=True) }} · {{ (duration_seconds // 60) }} мин
-    </p>
-    <p class="shared-summary__notice">Вам открыли только итоги этой встречи. Аудио, расшифровка и внутренние данные не доступны.</p>
+    <h1 id="shared-summary-title">Итоги встречи</h1>
+    <p class="shared-summary__notice">Вам открыли только итоги этой встречи. Аудио и расшифровка недоступны.</p>
 
-    {% if summary_sections %}
-      <div class="shared-summary__sections">
-        {% for section in summary_sections %}
-          <article class="shared-summary__section">
-            <h2>{{ section.get("label") or "Итоги" }}</h2>
-            {% for item in section.get("items", []) %}
-              <div class="shared-summary__item">
-                <p>{{ item.get("text") or "" }}</p>
-                {% if item.get("owner_text") or item.get("due_date_text") %}
-                  <p class="muted shared-summary__meta">
-                    {% if item.get("owner_text") %}<span>Ответственный: {{ item.get("owner_text") }}</span>{% endif %}
-                    {% if item.get("due_date_text") %}<span>Срок: {{ item.get("due_date_text") }}</span>{% endif %}
-                  </p>
-                {% endif %}
-              </div>
-            {% endfor %}
-          </article>
-        {% endfor %}
-      </div>
+    {% if protocol_html %}
+      {{ protocol_html }}
     {% else %}
-      <p class="muted">Итоги пока не подготовлены.</p>
+      <h2>{{ meeting_title }}</h2>
+      <p class="muted">Нужно сформировать новую версию итогов.</p>
     {% endif %}
 
     {% if authenticated %}

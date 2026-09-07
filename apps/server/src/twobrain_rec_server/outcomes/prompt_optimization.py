@@ -9,7 +9,7 @@ import tempfile
 import threading
 from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
 from contextlib import asynccontextmanager, suppress
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from hashlib import sha256
@@ -20,21 +20,27 @@ from typing import Any, Literal, Protocol
 from uuid import UUID, uuid4
 from zipfile import ZIP_DEFLATED, ZipFile
 
+from twobrain_rec_server.outcomes.models import (
+    PROTOCOL_SECTIONS,
+    TEMPLATE_PROTOCOL_SECTIONS,
+    OutcomeTranscriptSegment,
+)
 from twobrain_rec_server.outcomes.prompt_bundle import (
     bind_snapshot_from_metadata,
     snapshot_bundle_metadata,
 )
 from twobrain_rec_server.outcomes.prompts import (
     CONTROL_GATE_CONFIG_KEY,
+    EXTRACTOR_PROMPT_NAME,
     JUDGE_VARIABLES,
     PromptSnapshot,
     canonical_json,
     langfuse_prompt_payload,
     prompt_variables,
-    validate_outcome_result,
+    validate_factual_extraction,
     validate_prompt_snapshot,
+    validate_protocol_result,
 )
-from twobrain_rec_server.outcomes.templates import OUTCOME_CATEGORIES
 
 OPTIMIZER_VERSION = "0.1.4"
 ADAPTER_VERSION = "graf-gepa-v1"
@@ -56,9 +62,11 @@ CALL_PHASES = (
     "judge_faithfulness",
     "judge_action_items",
     "judge_completeness",
+    "extract",
 )
+JUDGE_PHASES = CALL_PHASES[2:5]
 TASK_MODEL_VARIABLE_KEYS = frozenset(
-    {"transcript_json", "output_language", "detail_level", "template_sections_json"}
+    {"transcript_json", "output_language", "detail_level", "template_sections_json", "extraction_json"}
 )
 OUTCOME_EVAL_METRIC_THRESHOLDS = {
     "factual_precision": 1.0,
@@ -263,8 +271,8 @@ class PromptOptimizationError(RuntimeError):
         super().__init__(code)
 
 
-class PromptOptimizationReconciliationError(RuntimeError):
-    """Retryable failure after an external prompt mutation may have started."""
+class OptimizationObservationPending(PromptOptimizationError):
+    """Retry read-confirm with the existing Temporal policy, never repeat inference."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -332,6 +340,28 @@ class SyntheticManifest:
         )
         if sha256(payload).hexdigest() != self.sha256:
             raise PromptOptimizationError("synthetic_manifest_hash_mismatch")
+
+
+def _synthetic_segments(example: SyntheticExample) -> list[OutcomeTranscriptSegment]:
+    try:
+        rows = json.loads(example.transcript_json)
+        segments = [
+            OutcomeTranscriptSegment(
+                segment_id=UUID(row["transcript_segment_id"]), sequence=row["sequence"],
+                start_seconds=Decimal(row["start_seconds"]), end_seconds=Decimal(row["end_seconds"]),
+                speaker_label=row["speaker_label"], source_role=row["source_role"], text=row["text"],
+            )
+            for row in rows
+        ]
+        if {str(segment.segment_id) for segment in segments} != set(example.segment_ids):
+            raise ValueError("synthetic_segment_ids_mismatch")
+        return segments
+    except (KeyError, TypeError, ValueError, ArithmeticError):
+        raise ValueError("synthetic_protocol_invalid") from None
+
+
+def validate_optimization_protocol(value: object, example: SyntheticExample) -> dict[str, object]:
+    return validate_protocol_result(value, segments=_synthetic_segments(example), sections=PROTOCOL_SECTIONS)
 
 
 def validate_disjoint_manifests(
@@ -405,7 +435,7 @@ class FencedCallLedger(Protocol):
 class PersistedCallReservation:
     call_key: str
     fence: UUID
-    status: Literal["reserved", "succeeded"]
+    status: Literal["reserved", "succeeded", "ambiguous"]
     result_artifact_ref: str | None = None
 
 
@@ -438,10 +468,6 @@ async def reserve_persisted_call(
     )
     if run is None or run.deployment_scope != "global":
         raise PromptOptimizationError("optimization_run_not_found")
-    if run.status not in {"queued", "running", "paused"}:
-        raise PromptOptimizationError("optimization_run_not_active")
-    if now >= run.deadline_at:
-        raise PromptOptimizationError("optimization_deadline_exceeded")
     rows = list(
         (
             await db.scalars(
@@ -461,15 +487,20 @@ async def reserve_persisted_call(
         )
     if current is not None and current.status == "reserved" and current.lease_expires_at > now:
         raise PromptOptimizationError("optimization_call_in_flight")
-    budget = dict(run.budget or {})
     if current is not None and current.status in {"reserved", "ambiguous"}:
-        budget["ambiguous_calls"] = int(budget.get("ambiguous_calls", 0)) + 1
-        budget["ambiguous_tokens"] = int(budget.get("ambiguous_tokens", 0)) + int(
-            current.reserved_token_ceiling
-        )
-        budget["ambiguous_cost"] = str(
-            Decimal(str(budget.get("ambiguous_cost", "0"))) + Decimal(current.reserved_cost_ceiling)
-        )
+        current.status = "ambiguous"
+        current.completed_at = current.completed_at or now
+        await db.flush()
+        # The bridge commits this transition BEFORE raising. Raising here would
+        # silently roll the status back when the caller's transaction exits.
+        return PersistedCallReservation(call_key=call_key, fence=current.activity_fence, status="ambiguous")
+    if current is not None:
+        raise PromptOptimizationError("optimization_call_state_invalid")
+    if run.status not in {"queued", "running", "paused"}:
+        raise PromptOptimizationError("optimization_run_not_active")
+    if now >= run.deadline_at:
+        raise PromptOptimizationError("optimization_deadline_exceeded")
+    budget = dict(run.budget or {})
     charged_calls = int(budget.get("ambiguous_calls", 0))
     charged_tokens = int(budget.get("ambiguous_tokens", 0))
     charged_cost = Decimal(str(budget.get("ambiguous_cost", "0")))
@@ -628,6 +659,7 @@ class ModelCall:
     actual_provider: str | None = None
     token_usage: Mapping[str, object] | None = None
     cost_details: Mapping[str, object] | None = None
+    observation: Mapping[str, object] | None = None
 
 
 class OptimizationModelExecutor(Protocol):
@@ -647,6 +679,7 @@ class ObservationSink(Protocol):
         *,
         phase: str,
         call_key: str,
+        fence: UUID,
         snapshot: PromptSnapshot,
         request: object,
         raw_response: object,
@@ -661,6 +694,7 @@ class ObservationSink(Protocol):
 @dataclass(frozen=True, slots=True)
 class PinnedOptimizationContract:
     source: PromptSnapshot
+    extractor: PromptSnapshot
     reflection: PromptSnapshot
     judges: Mapping[str, PromptSnapshot]
 
@@ -673,6 +707,13 @@ class PinnedOptimizationContract:
             raise ValueError("optimizer reflection prompt is invalid")
         if set(self.judges) != set(JUDGE_NAMES):
             raise ValueError("optimizer must pin all three judges")
+        binding = snapshot_bundle_metadata(self.source)
+        if binding is None or self.extractor.name != EXTRACTOR_PROMPT_NAME:
+            raise PromptOptimizationError("optimization_prompt_bundle_invalid")
+        bind_snapshot_from_metadata(self.source, binding)
+        bind_snapshot_from_metadata(self.extractor, binding)
+        if snapshot_bundle_metadata(self.extractor) != binding:
+            raise PromptOptimizationError("optimization_prompt_bundle_invalid")
 
 
 @dataclass(frozen=True, slots=True)
@@ -817,7 +858,6 @@ class PromptOptimizationAdapter:
         self.activity_attempt = activity_attempt
         self._now = now
         self._cancelled = cancelled
-        self._call_sequence = 0
 
     def evaluate(
         self,
@@ -834,26 +874,28 @@ class PromptOptimizationAdapter:
         objective_scores: list[dict[str, float]] = []
         trajectories: list[OptimizationTrajectory] | None = [] if capture_traces else None
         for example in batch:
+            extraction_call = self._call(
+                phase="extract", snapshot=self.contract.extractor, prompt_text="",
+                variables=task_model_variables(example.transcript_json), example_id=example.id,
+            )
+            extraction = validate_factual_extraction(
+                extraction_call.validated_result, segments=_synthetic_segments(example),
+            )
             _, validated = self._call_with_validation_retry(
                 phase="task",
                 snapshot=self.contract.source,
                 prompt_text=prompt_text,
-                variables=task_model_variables(example.transcript_json),
+                variables={**task_model_variables(example.transcript_json),
+                           "extraction_json": canonical_json(extraction)},
                 example_id=example.id,
-                validator=lambda value, allowed_categories=example.required_categories, allowed_segment_ids=frozenset(example.segment_ids): (
-                    validate_outcome_result(
-                        value,
-                        allowed_categories=allowed_categories,
-                        allowed_segment_ids=set(allowed_segment_ids),
-                    )
-                ),
+                validator=lambda value, example=example: validate_optimization_protocol(value, example),
             )
             judge_scores: list[float] = []
             judge_objectives: dict[str, float] = {}
             feedback: list[str] = []
             for judge_name, phase in zip(
                 JUDGE_NAMES,
-                CALL_PHASES[2:],
+                JUDGE_PHASES,
                 strict=True,
             ):
                 variables = {
@@ -862,7 +904,7 @@ class PromptOptimizationAdapter:
                 }
                 if judge_name.endswith("completeness"):
                     variables["required_categories_json"] = canonical_json(
-                        list(example.required_categories)
+                        [section for category in example.required_categories for section in TEMPLATE_PROTOCOL_SECTIONS[category]]
                     )
                 _, judge_result = self._call_with_validation_retry(
                     phase=phase,
@@ -896,7 +938,7 @@ class PromptOptimizationAdapter:
             scores=scores,
             trajectories=trajectories,
             objective_scores=objective_scores,
-            num_metric_calls=len(batch) * 4,
+            num_metric_calls=len(batch) * 5,
         )
 
     def _call_with_validation_retry(
@@ -972,7 +1014,9 @@ class PromptOptimizationAdapter:
                 "curr_param": current,
                 "side_info": canonical_json(reflective_dataset[PROMPT_COMPONENT]),
             },
-            example_id=f"reflection-{self._call_sequence + 1}",
+            # Input/candidate hashes already identify the reflection. An in-memory
+            # counter changes on GEPA resume and would authorize duplicate inference.
+            example_id="reflection",
         )
         proposal = parse_reflection_proposal(str(call.validated_result))
         validate_candidate_prompt(
@@ -997,8 +1041,6 @@ class PromptOptimizationAdapter:
         example_id: str,
     ) -> ModelCall:
         now = self._now()
-        self._check_budget(now)
-        self._call_sequence += 1
         call_key = optimization_call_key(
             run_id=self.run_id,
             phase=phase,
@@ -1027,6 +1069,7 @@ class PromptOptimizationAdapter:
             self.observer(
                 phase=phase,
                 call_key=call_key,
+                fence=reservation.fence,
                 snapshot=snapshot,
                 request=reservation.result.request,
                 raw_response=reservation.result.raw_response,
@@ -1037,7 +1080,10 @@ class PromptOptimizationAdapter:
                 cost_details=reservation.result.cost_details,
             )
             return reservation.result
+        if reservation.status != "reserved":
+            raise PromptOptimizationError("optimization_call_ambiguous")
         try:
+            self._check_budget(now)
             result = self.executor(
                 phase=phase,
                 snapshot=snapshot,
@@ -1066,6 +1112,7 @@ class PromptOptimizationAdapter:
         self.observer(
             phase=phase,
             call_key=call_key,
+            fence=reservation.fence,
             snapshot=snapshot,
             request=result.request,
             raw_response=result.raw_response,
@@ -1221,7 +1268,7 @@ def validate_candidate_prompt(
     bundle_metadata = snapshot_bundle_metadata(source)
     return (
         bind_snapshot_from_metadata(candidate, bundle_metadata)
-        if bundle_metadata is not None
+        if bundle_metadata is not None and candidate.canonical_hash == source.canonical_hash
         else candidate
     )
 
@@ -1334,8 +1381,8 @@ def task_model_variables(transcript_json: str) -> dict[str, str]:
     return {
         "transcript_json": transcript_json,
         "output_language": "ru",
-        "detail_level": "standard",
-        "template_sections_json": canonical_json(list(OUTCOME_CATEGORIES)),
+        "detail_level": "detailed",
+        "template_sections_json": canonical_json(list(PROTOCOL_SECTIONS)),
     }
 
 
@@ -1461,7 +1508,7 @@ def publish_unlabelled_candidate(
         tags=tags,
         type=source.prompt_type,
         config=source.config,
-        commit_message="GEPA 0.1.4 synthetic candidate; requires operator approval",
+        commit_message="GEPA 0.1.4 synthetic candidate; requires qualified root admission",
     )
     fetched = client.get_prompt(
         source.name,
@@ -1579,311 +1626,6 @@ def load_persisted_candidate_result(
     return snapshot
 
 
-def validate_control_prompt_gate(
-    *,
-    candidate: PromptSnapshot,
-    evidence: Mapping[str, object],
-) -> dict[str, object]:
-    """Validate operator-supplied offline evidence without exporting calibration content."""
-    common_keys = {"evaluator_version", "operator_actor_id", "operator_approved"}
-    if not isinstance(evidence.get("evaluator_version"), str) or not re.fullmatch(
-        r"[A-Za-z0-9._-]{1,64}", str(evidence["evaluator_version"])
-    ):
-        raise PromptOptimizationError("control_prompt_evaluator_version_invalid")
-    if (
-        not isinstance(evidence.get("operator_actor_id"), str)
-        or not str(evidence["operator_actor_id"]).strip()
-    ):
-        raise PromptOptimizationError("control_prompt_operator_invalid")
-    if evidence.get("operator_approved") is not True:
-        raise PromptOptimizationError("control_prompt_operator_approval_required")
-    if candidate.name == "graf/prompt-optimization/reflection":
-        required = common_keys | {
-            "native_parser_smoke_passed",
-            "variable_preservation_passed",
-            "anti_copy_regression_passed",
-            "bounded_cost_smoke_passed",
-        }
-        if set(evidence) != required or not all(
-            evidence.get(name) is True for name in required - common_keys
-        ):
-            raise PromptOptimizationError("reflection_control_prompt_gate_failed")
-        return {
-            "evaluator_version": evidence["evaluator_version"],
-            "gate": "reflection",
-            "operator_actor_id": evidence["operator_actor_id"],
-            "passed": True,
-        }
-    if candidate.name not in JUDGE_NAMES:
-        raise PromptOptimizationError("control_prompt_name_invalid")
-    required = common_keys | {
-        "calibration_manifest_hash",
-        "expected_labels",
-        "actual_labels",
-        "agreement_threshold",
-        "invalid_output_count",
-        "bounded_cost_smoke_passed",
-    }
-    if set(evidence) != required:
-        raise PromptOptimizationError("judge_control_prompt_gate_failed")
-    manifest_hash = evidence["calibration_manifest_hash"]
-    expected = evidence["expected_labels"]
-    actual = evidence["actual_labels"]
-    threshold = evidence["agreement_threshold"]
-    invalid_outputs = evidence["invalid_output_count"]
-    if (
-        not isinstance(manifest_hash, str)
-        or not re.fullmatch(r"[0-9a-f]{64}", manifest_hash)
-        or not isinstance(expected, list)
-        or not isinstance(actual, list)
-        or len(expected) < 10
-        or not isinstance(threshold, (int, float))
-        or isinstance(threshold, bool)
-        or float(threshold) < 0.9
-        or not isinstance(invalid_outputs, int)
-        or isinstance(invalid_outputs, bool)
-        or invalid_outputs != 0
-        or evidence["bounded_cost_smoke_passed"] is not True
-    ):
-        raise PromptOptimizationError("judge_control_prompt_gate_failed")
-    calibration = calibrate_judge(
-        prompt_name=candidate.name,
-        expected=[str(value) for value in expected],
-        actual=[str(value) for value in actual],
-        threshold=float(threshold),
-        operator_approved=True,
-    )
-    if not calibration.passed:
-        raise PromptOptimizationError("judge_control_prompt_gate_failed")
-    return {
-        "agreement": calibration.agreement,
-        "agreement_threshold": float(threshold),
-        "calibration_manifest_hash": manifest_hash,
-        "evaluator_version": evidence["evaluator_version"],
-        "gate": "judge",
-        "operator_actor_id": evidence["operator_actor_id"],
-        "passed": True,
-        "valid_rows": calibration.valid_rows,
-    }
-
-
-def control_gate_evidence_hash(evidence: Mapping[str, object]) -> str:
-    return sha256(canonical_json(evidence).encode("utf-8")).hexdigest()
-
-
-def promote_control_prompt(
-    client: Any,
-    *,
-    prompt_name: str,
-    prompt_type: Literal["chat", "text"],
-    candidate_version: int,
-    expected_source_version: int | None,
-    evidence: Mapping[str, object],
-    protected_label_capability_verified: bool,
-    snapshot_storage: Any | None = None,
-) -> tuple[PromptSnapshot, dict[str, object]]:
-    fetched = client.get_prompt(
-        prompt_name,
-        version=candidate_version,
-        type=prompt_type,
-        cache_ttl_seconds=0,
-        max_retries=0,
-        fetch_timeout_seconds=10,
-    )
-    candidate = validate_prompt_snapshot(
-        name=prompt_name,
-        version=int(fetched.version),
-        prompt_type=prompt_type,
-        prompt=fetched.prompt,
-        config=fetched.config or {},
-    )
-    aggregate = validate_control_prompt_gate(candidate=candidate, evidence=evidence)
-    evidence_hash = control_gate_evidence_hash(evidence)
-    gated_config = dict(candidate.config)
-    gated_config[CONTROL_GATE_CONFIG_KEY] = {
-        **aggregate,
-        "evidence_hash": evidence_hash,
-        "gate_version": 1,
-        "operator_approved": True,
-    }
-    gated = client.create_prompt(
-        name=prompt_name,
-        prompt=langfuse_prompt_payload(candidate.prompt),
-        labels=[],
-        tags=["graf", "recording-workflows", "control-gate-v1"],
-        type=prompt_type,
-        config=gated_config,
-        commit_message=(
-            f"Validated control gate for candidate v{candidate_version}; evidence {evidence_hash}"
-        ),
-    )
-    promoted = move_production_label(
-        client,
-        prompt_name=prompt_name,
-        prompt_type=prompt_type,
-        expected_source_version=expected_source_version,
-        target_version=int(gated.version),
-        protected_label_capability_verified=protected_label_capability_verified,
-        snapshot_storage=snapshot_storage,
-    )
-    if (
-        promoted.prompt != candidate.prompt
-        or promoted.config.get(CONTROL_GATE_CONFIG_KEY) != gated_config[CONTROL_GATE_CONFIG_KEY]
-    ):
-        raise PromptOptimizationError("control_prompt_promotion_postverify_failed")
-    return promoted, aggregate
-
-
-def move_production_label(
-    client: Any,
-    *,
-    prompt_name: str,
-    prompt_type: Literal["chat", "text"],
-    expected_source_version: int | None,
-    target_version: int,
-    protected_label_capability_verified: bool,
-    snapshot_storage: Any | None = None,
-) -> PromptSnapshot:
-    if not protected_label_capability_verified:
-        raise PromptOptimizationError("protected_label_capability_unavailable")
-    try:
-        current = client.get_prompt(
-            prompt_name,
-            label="production",
-            type=prompt_type,
-            cache_ttl_seconds=0,
-            max_retries=0,
-            fetch_timeout_seconds=10,
-        )
-    except Exception as exc:
-        from langfuse.api.commons.errors.not_found_error import NotFoundError
-
-        if expected_source_version is not None or not isinstance(exc, NotFoundError):
-            raise
-        current = None
-    target = client.get_prompt(
-        prompt_name,
-        version=target_version,
-        type=prompt_type,
-        cache_ttl_seconds=0,
-        max_retries=0,
-        fetch_timeout_seconds=10,
-    )
-    target_snapshot = validate_prompt_snapshot(
-        name=prompt_name,
-        version=int(target.version),
-        prompt_type=prompt_type,
-        prompt=target.prompt,
-        config=target.config or {},
-    )
-    current_version = int(current.version) if current is not None else None
-    if current_version not in {expected_source_version, target_version}:
-        raise PromptOptimizationError("production_source_conflict")
-    try:
-        # The target state is an idempotent retry after a label mutation
-        # succeeded but post-verification, snapshot export, or the Activity
-        # completion was lost.
-        if current_version != target_version:
-            client.update_prompt(
-                name=prompt_name,
-                version=target_version,
-                new_labels=["production"],
-            )
-        client.clear_prompt_cache()
-        verified = client.get_prompt(
-            prompt_name,
-            label="production",
-            type=prompt_type,
-            cache_ttl_seconds=0,
-            max_retries=0,
-            fetch_timeout_seconds=10,
-        )
-        if int(verified.version) != target_version:
-            raise ValueError("production label does not point at the target")
-        snapshot = validate_prompt_snapshot(
-            name=prompt_name,
-            version=int(verified.version),
-            prompt_type=prompt_type,
-            prompt=verified.prompt,
-            config=verified.config or {},
-        )
-        if snapshot.prompt != target_snapshot.prompt or snapshot.config != target_snapshot.config:
-            raise ValueError("production target content changed")
-        if snapshot_storage is not None:
-            persist_verified_promoted_snapshot(snapshot_storage, snapshot)
-        return snapshot
-    except Exception as exc:
-        raise PromptOptimizationReconciliationError(
-            "production_label_reconciliation_required"
-        ) from exc
-
-
-def promoted_snapshot_object_key(prompt_name: str) -> str:
-    digest = sha256(prompt_name.encode("utf-8")).hexdigest()
-    return f"_system/prompts/verified-production/{digest}.json"
-
-
-def build_verified_promoted_snapshot(snapshot: PromptSnapshot) -> tuple[str, bytes, str]:
-    payload = {
-        "canonical_hash": snapshot.canonical_hash,
-        "config": snapshot.config,
-        "name": snapshot.name,
-        "prompt": snapshot.prompt,
-        "prompt_type": snapshot.prompt_type,
-        "schema_version": "graf-verified-prompt-v1",
-        "version": snapshot.version,
-    }
-    encoded = canonical_json(payload).encode("utf-8")
-    return promoted_snapshot_object_key(snapshot.name), encoded, sha256(encoded).hexdigest()
-
-
-def persist_verified_promoted_snapshot(storage: Any, snapshot: PromptSnapshot) -> str:
-    key, payload, _ = build_verified_promoted_snapshot(snapshot)
-    storage.put_stream(key, BytesIO(payload), len(payload))
-    verified = load_verified_promoted_snapshot(storage, prompt_name=snapshot.name)
-    if verified.canonical_hash != snapshot.canonical_hash or verified.version != snapshot.version:
-        raise PromptOptimizationError("promoted_snapshot_export_postverify_failed")
-    return key
-
-
-def load_verified_promoted_snapshot(storage: Any, *, prompt_name: str) -> PromptSnapshot:
-    key = promoted_snapshot_object_key(prompt_name)
-    payload = storage.get_bytes(key)
-    if len(payload) > 131_072:
-        raise PromptOptimizationError("promoted_snapshot_export_invalid")
-    try:
-        data = json.loads(payload)
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise PromptOptimizationError("promoted_snapshot_export_invalid") from exc
-    if (
-        not isinstance(data, dict)
-        or set(data)
-        != {
-            "canonical_hash",
-            "config",
-            "name",
-            "prompt",
-            "prompt_type",
-            "schema_version",
-            "version",
-        }
-        or data["schema_version"] != "graf-verified-prompt-v1"
-        or data["name"] != prompt_name
-    ):
-        raise PromptOptimizationError("promoted_snapshot_export_invalid")
-    snapshot = validate_prompt_snapshot(
-        name=prompt_name,
-        version=data["version"],
-        prompt_type=data["prompt_type"],
-        prompt=data["prompt"],
-        config=data["config"],
-        source="verified_promoted_snapshot",
-    )
-    if snapshot.canonical_hash != data["canonical_hash"]:
-        raise PromptOptimizationError("promoted_snapshot_export_hash_mismatch")
-    return snapshot
-
-
 def _single_candidate(candidate: Mapping[str, str] | str) -> str:
     if isinstance(candidate, str):
         return candidate
@@ -1960,7 +1702,9 @@ def _gepa_plaintext_state(run_dir: str | Path) -> dict[str, object]:
 
 def _history_observation_payload(value: Mapping[str, object]) -> dict[str, object]:
     snapshot = value.get("snapshot")
-    if not isinstance(snapshot, PromptSnapshot):
+    if isinstance(snapshot, PromptSnapshot):
+        snapshot = _snapshot_payload(snapshot)
+    if not isinstance(snapshot, Mapping):
         raise PromptOptimizationError("optimization_history_observation_invalid")
     return {
         "actual_model": value.get("actual_model"),
@@ -1968,7 +1712,7 @@ def _history_observation_payload(value: Mapping[str, object]) -> dict[str, objec
         "call_key": value["call_key"],
         "cost_details": value.get("cost_details"),
         "phase": value["phase"],
-        "prompt": _snapshot_payload(snapshot),
+        "prompt": dict(snapshot),
         "raw_response": value["raw_response"],
         "request": value["request"],
         "token_usage": value.get("token_usage"),
@@ -2148,7 +1892,7 @@ class _PersistentLedgerBridge:
         settings: Any,
         run_id: UUID,
         storage: Any,
-        contract: PinnedOptimizationContract,
+        contract: PinnedOptimizationContract | None,
     ) -> None:
         self.settings = settings
         self.run_id = run_id
@@ -2156,11 +1900,15 @@ class _PersistentLedgerBridge:
         self.contract = contract
 
     def _snapshot(self, phase: str) -> PromptSnapshot:
+        if self.contract is None:
+            raise PromptOptimizationError("optimization_contract_invalid")
+        if phase == "extract":
+            return self.contract.extractor
         if phase == "task":
             return self.contract.source
         if phase == "reflection":
             return self.contract.reflection
-        return self.contract.judges[JUDGE_NAMES[CALL_PHASES[2:].index(phase)]]
+        return self.contract.judges[JUDGE_NAMES[JUDGE_PHASES.index(phase)]]
 
     def reserve(
         self,
@@ -2174,7 +1922,7 @@ class _PersistentLedgerBridge:
     ) -> CallReservation:
         snapshot = self._snapshot(phase)
 
-        async def operation() -> PersistedCallReservation:
+        async def operation() -> tuple[PersistedCallReservation, ModelCall | None]:
             from twobrain_rec_server.db.session import create_prompt_optimization_database
 
             engine, sessionmaker = create_prompt_optimization_database(self.settings)
@@ -2193,17 +1941,17 @@ class _PersistentLedgerBridge:
                         activity_attempt=activity_attempt,
                         now=now,
                     )
+                    result = None
+                    if reservation.status == "succeeded":
+                        result, _ = self._read_receipt(call_key, reservation.fence, reservation.result_artifact_ref)
                     await db.commit()
-                    return reservation
+                    return reservation, result
             finally:
                 await engine.dispose()
 
-        persisted = asyncio.run(operation())
-        result = None
-        if persisted.status == "succeeded":
-            if persisted.result_artifact_ref is None:
-                raise PromptOptimizationError("optimization_ledger_result_invalid")
-            result = _model_call_from_bytes(self.storage.get_bytes(persisted.result_artifact_ref))
+        persisted, result = asyncio.run(operation())
+        if persisted.status == "ambiguous":
+            raise PromptOptimizationError("optimization_call_ambiguous")
         return CallReservation(
             call_key=call_key,
             phase=phase,
@@ -2225,32 +1973,172 @@ class _PersistentLedgerBridge:
     ) -> None:
         if not isinstance(result, ModelCall):
             raise PromptOptimizationError("optimization_ledger_result_invalid")
-        artifact_ref = f"{CHECKPOINT_PREFIX}/{self.run_id}/calls/{call_key}/{fence}.json"
-        payload = _model_call_bytes(result)
-        self.storage.put_stream(artifact_ref, BytesIO(payload), len(payload))
-
         async def operation() -> None:
-            from twobrain_rec_server.db.session import create_prompt_optimization_database
+            async with self._locked_call(call_key, fence, status="reserved") as (db, row):
+                retained = replace(result, observation=_optimization_observation_payload(
+                    run_id=self.run_id, call_key=call_key, phase=row.phase,
+                    snapshot=self._snapshot(row.phase), result=result,
+                    project_id=self.settings.langfuse_project_id,
+                ))
+                payload = _model_call_bytes(retained)
+                _model_call_from_bytes(payload)  # do not persist an unreadable/oversize receipt
+                checksum = sha256(payload).hexdigest()
+                artifact_ref = f"{CHECKPOINT_PREFIX}/{self.run_id}/calls/{call_key}/{fence}.{checksum}.json"
+                checkpoint = self._checkpoint_binding(call_key, fence, checksum)
+                checkpoint = {**checkpoint, "state": "pending"}
+                # Never overwrite a receipt/checkpoint, even after a lost commit response.
+                for key in (artifact_ref, self._observation_key(call_key, fence)):
+                    try:
+                        self.storage.get_bytes(key)
+                    except KeyError:
+                        continue
+                    raise PromptOptimizationError("optimization_receipt_already_exists")
+                self.storage.put_stream(artifact_ref, BytesIO(payload), len(payload))
+                if self.storage.get_bytes(artifact_ref) != payload:
+                    raise PromptOptimizationError("optimization_receipt_hash_mismatch")
+                self._write_observation_checkpoint(call_key, fence, checkpoint)
+                await complete_persisted_call(
+                    db, run_id=self.run_id, call_key=call_key, fence=fence,
+                    result_artifact_ref=artifact_ref, input_tokens=result.input_tokens,
+                    output_tokens=result.output_tokens, actual_cost=actual_cost, now=datetime.now(UTC),
+                )
+                await db.commit()
 
-            engine, sessionmaker = create_prompt_optimization_database(self.settings)
-            try:
-                async with sessionmaker() as db:
-                    await complete_persisted_call(
-                        db,
-                        run_id=self.run_id,
-                        call_key=call_key,
-                        fence=fence,
-                        result_artifact_ref=artifact_ref,
-                        input_tokens=result.input_tokens,
-                        output_tokens=result.output_tokens,
-                        actual_cost=actual_cost,
-                        now=datetime.now(UTC),
-                    )
-                    await db.commit()
-            finally:
-                await engine.dispose()
+        try:
+            asyncio.run(operation())
+        except PromptOptimizationError:
+            raise
+        except Exception:
+            raise PromptOptimizationError("optimization_receipt_storage_unresolved") from None
 
-        asyncio.run(operation())
+    @asynccontextmanager
+    async def _locked_call(self, call_key: str, fence: UUID, *, status: str = "succeeded"):
+        from sqlalchemy import select
+
+        from twobrain_rec_server.db.models import PromptOptimizationCallLedger
+        from twobrain_rec_server.db.session import create_prompt_optimization_database
+
+        engine, sessions = create_prompt_optimization_database(self.settings)
+        try:
+            async with sessions() as db:
+                row = await db.scalar(select(PromptOptimizationCallLedger).where(
+                    PromptOptimizationCallLedger.run_id == self.run_id,
+                    PromptOptimizationCallLedger.call_key == call_key,
+                ).with_for_update())
+                if row is None or row.status != status or row.activity_fence != fence:
+                    raise PromptOptimizationError("optimization_activity_fenced")
+                yield db, row
+        finally:
+            await engine.dispose()
+
+    def _read_receipt(self, call_key: str, fence: UUID, artifact_ref: str | None) -> tuple[ModelCall, str]:
+        prefix = f"{CHECKPOINT_PREFIX}/{self.run_id}/calls/{call_key}/{fence}."
+        # Historical paths without a DB-anchored digest cannot prove immutable
+        # delivery. They remain unresolved, never a reason to call/send again.
+        if not artifact_ref or not artifact_ref.startswith(prefix) or not re.fullmatch(
+            r"[a-f0-9]{64}\.json", artifact_ref[len(prefix):],
+        ):
+            raise PromptOptimizationError("optimization_historical_observation_unresolved")
+        checksum = artifact_ref[len(prefix):-5]
+        try:
+            payload = self.storage.get_bytes(artifact_ref)
+            if sha256(payload).hexdigest() != checksum:
+                raise PromptOptimizationError("optimization_receipt_hash_mismatch")
+            return _model_call_from_bytes(payload), checksum
+        except PromptOptimizationError:
+            raise
+        except Exception:
+            raise PromptOptimizationError("optimization_receipt_storage_unresolved") from None
+
+    def _observation_key(self, call_key: str, fence: UUID) -> str:
+        return f"{CHECKPOINT_PREFIX}/{self.run_id}/calls/{call_key}/{fence}.observation.json"
+
+    def _checkpoint_binding(self, call_key: str, fence: UUID, checksum: str) -> dict[str, object]:
+        return {
+            "schema_version": 1, "run_id": str(self.run_id), "call_key": call_key,
+            "fence": str(fence), "receipt_sha256": checksum,
+            "trace_id": optimization_trace_id(self.run_id),
+            "observation_id": sha256(call_key.encode()).digest()[:8].hex(),
+        }
+
+    def _read_observation_checkpoint(self, call_key: str, fence: UUID, checksum: str) -> dict[str, object]:
+        try:
+            raw = self.storage.get_bytes(self._observation_key(call_key, fence))
+        except KeyError:
+            raise PromptOptimizationError("optimization_historical_observation_unresolved") from None
+        except Exception:
+            raise PromptOptimizationError("optimization_observation_storage_unresolved") from None
+        expected = self._checkpoint_binding(call_key, fence, checksum)
+        try:
+            value = json.loads(raw)
+            if (len(raw) > 4096 or not isinstance(value, dict)
+                or set(value) != {*expected, "state"}
+                or value["state"] not in {"pending", "ambiguous", "confirmed"}
+                or canonical_json({key: value[key] for key in expected}) != canonical_json(expected)):
+                raise ValueError
+        except (ValueError, TypeError):
+            raise PromptOptimizationError("optimization_observation_checkpoint_invalid") from None
+        return value
+
+    def _write_observation_checkpoint(self, call_key: str, fence: UUID, checkpoint: Mapping[str, object]) -> None:
+        payload = canonical_json(checkpoint).encode()
+        key = self._observation_key(call_key, fence)
+        self.storage.put_stream(key, BytesIO(payload), len(payload))
+        if self.storage.get_bytes(key) != payload:
+            raise PromptOptimizationError("optimization_observation_storage_unresolved")
+
+    def publish_observation(self, client: Any, *, call_key: str, fence: UUID) -> None:
+        """One send claim; all later attempts only read-confirm the retained call."""
+        async def transition(*, claim: bool = False, confirm: bool = False, expected_checksum: str | None = None):
+            async with self._locked_call(call_key, fence) as (db, row):
+                result, checksum = self._read_receipt(call_key, fence, row.result_artifact_ref)
+                checkpoint = self._read_observation_checkpoint(call_key, fence, checksum)
+                if expected_checksum is not None and checksum != expected_checksum:
+                    raise PromptOptimizationError("optimization_receipt_hash_mismatch")
+                if confirm and checkpoint["state"] not in {"ambiguous", "confirmed"}:
+                    raise PromptOptimizationError("optimization_observation_checkpoint_invalid")
+                value = result.observation
+                if not isinstance(value, Mapping) or value.get("project_id") != self.settings.langfuse_project_id:
+                    raise PromptOptimizationError("optimization_observation_receipt_invalid")
+                send = claim and checkpoint["state"] == "pending"
+                if send or (confirm and checkpoint["state"] == "ambiguous"):
+                    checkpoint["state"] = "confirmed" if confirm else "ambiguous"
+                    self._write_observation_checkpoint(call_key, fence, checkpoint)
+                await db.commit()
+                return checkpoint, value, send
+
+        try:
+            checkpoint, value, _ = asyncio.run(transition())
+            if checkpoint["state"] == "confirmed":
+                return
+            if checkpoint["state"] == "pending":
+                snapshot = value["snapshot"]
+                # Pure preflight: no observation has started. Failure here leaves pending.
+                linked = client.get_prompt(
+                    snapshot["name"], version=snapshot["version"], type=snapshot["prompt_type"],
+                    cache_ttl_seconds=0, max_retries=0, fetch_timeout_seconds=10,
+                )
+                if (linked.version != snapshot["version"] or linked.prompt != snapshot["prompt"]
+                    or linked.config != snapshot["config"]):
+                    raise PromptOptimizationError("optimization_observation_prompt_mismatch")
+                checkpoint, value, send = asyncio.run(transition(
+                    claim=True, expected_checksum=checkpoint["receipt_sha256"],
+                ))
+                if send:
+                    _publish_optimization_observation(client, value=value, checkpoint=checkpoint, linked_prompt=linked)
+            if checkpoint["state"] == "confirmed":
+                return
+            _confirm_optimization_observation(client, value=value, checkpoint=checkpoint)
+            asyncio.run(transition(confirm=True, expected_checksum=checkpoint["receipt_sha256"]))
+        except PromptOptimizationError as exc:
+            if exc.code in {
+                "optimization_observation_unconfirmed", "optimization_observation_mismatch",
+                "optimization_observation_storage_unresolved",
+            }:
+                raise OptimizationObservationPending(exc.code) from None
+            raise
+        except Exception:
+            raise OptimizationObservationPending("optimization_observation_unresolved") from None
 
     def fail(self, *, call_key: str, fence: UUID) -> None:
         async def operation() -> None:
@@ -2313,11 +2201,15 @@ class _PersistentLedgerBridge:
             await engine.dispose()
         observations: list[dict[str, object]] = []
         for row in rows:
-            if not row.result_artifact_ref:
-                raise PromptOptimizationError("optimization_ledger_result_invalid")
-            result = _model_call_from_bytes(
-                await asyncio.to_thread(self.storage.get_bytes, row.result_artifact_ref)
-            )
+            # Re-lock the current row/fence for every storage read, just as the
+            # delivery transition does. A GEPA checkpoint cannot bypass receipts.
+            async with self._locked_call(row.call_key, row.activity_fence) as (_, current):
+                result, checksum = self._read_receipt(row.call_key, row.activity_fence, current.result_artifact_ref)
+                checkpoint = self._read_observation_checkpoint(row.call_key, row.activity_fence, checksum)
+                if checkpoint["state"] != "confirmed":
+                    raise PromptOptimizationError("optimization_observation_unconfirmed")
+                if not isinstance(result.observation, Mapping):
+                    raise PromptOptimizationError("optimization_observation_receipt_invalid")
             observations.append(
                 {
                     "actual_model": result.actual_model,
@@ -2327,7 +2219,7 @@ class _PersistentLedgerBridge:
                     "phase": row.phase,
                     "raw_response": result.raw_response,
                     "request": result.request,
-                    "snapshot": self._snapshot(row.phase),
+                    "snapshot": result.observation["snapshot"],
                     "token_usage": result.token_usage,
                     "validated_result": result.validated_result,
                 }
@@ -2348,6 +2240,7 @@ def _model_call_bytes(value: ModelCall) -> bytes:
             "request": value.request,
             "token_usage": value.token_usage,
             "validated_result": value.validated_result,
+            "observation": value.observation,
         }
     ).encode("utf-8")
 
@@ -2367,6 +2260,7 @@ def _model_call_from_bytes(payload: bytes) -> ModelCall:
         actual_provider=value.get("actual_provider"),
         token_usage=value.get("token_usage"),
         cost_details=value.get("cost_details"),
+        observation=value.get("observation"),
     )
 
 
@@ -2380,7 +2274,6 @@ class _ProductionModelExecutor:
             base_url=str(settings.litellm_base_url),
             api_key=settings.litellm_api_key_file.read_text(encoding="utf-8").strip(),
             timeout_seconds=settings.litellm_request_timeout_seconds,
-            require_route_binding=True,
         )
 
     def __call__(
@@ -2423,14 +2316,22 @@ def _compile_optimization_messages(
     snapshot: PromptSnapshot,
     variables: Mapping[str, str],
 ) -> list[dict[str, str]]:
+    if snapshot.name.startswith("graf/meeting-outcome/"):
+        from twobrain_rec_server.outcomes.generator import compile_prompt_messages, model_transcript
+
+        return compile_prompt_messages(
+            snapshot, transcript_json=model_transcript(variables["transcript_json"]),
+            output_language=variables["output_language"], detail_level=variables["detail_level"],
+            template_sections=json.loads(variables["template_sections_json"]),
+            extraction_json=variables.get("extraction_json"),
+        )
     if snapshot.prompt_type == "text":
         if not isinstance(snapshot.prompt, str):
             raise PromptOptimizationError("optimization_prompt_invalid")
-        content = snapshot.prompt
-        for key, value in variables.items():
-            content = content.replace(f"<{key}>", value)
-        if "<curr_param>" in content or "<side_info>" in content:
+        pattern = re.compile(r"<(curr_param|side_info)>")
+        if set(pattern.findall(snapshot.prompt)) != set(variables):
             raise PromptOptimizationError("optimization_prompt_variables_unresolved")
+        content = pattern.sub(lambda match: variables[match[1]], snapshot.prompt)
         return [{"role": "user", "content": content}]
     if not isinstance(snapshot.prompt, list):
         raise PromptOptimizationError("optimization_prompt_invalid")
@@ -2439,10 +2340,10 @@ def _compile_optimization_messages(
         if not isinstance(item, Mapping):
             raise PromptOptimizationError("optimization_prompt_invalid")
         content = str(item["content"])
-        for key, value in variables.items():
-            content = content.replace(f"{{{{{key}}}}}", value)
-        if "{{" in content or "}}" in content:
+        pattern = re.compile(r"\{\{([a-z_]+)\}\}")
+        if set(pattern.findall(content)) - set(variables) or "{{" in pattern.sub("", content) or "}}" in pattern.sub("", content):
             raise PromptOptimizationError("optimization_prompt_variables_unresolved")
+        content = pattern.sub(lambda match: variables[match[1]], content)
         messages.append({"role": str(item["role"]), "content": content})
     return messages
 
@@ -2454,6 +2355,7 @@ def _optional_int(value: object) -> int | None:
 def _contract_from_resolved(payload: Mapping[str, object]) -> PinnedOptimizationContract:
     return PinnedOptimizationContract(
         source=_snapshot_from_payload(payload["source_prompt"]),  # type: ignore[arg-type]
+        extractor=_snapshot_from_payload(payload["extractor_prompt"]),  # type: ignore[arg-type]
         reflection=_snapshot_from_payload(payload["reflection_prompt"]),  # type: ignore[arg-type]
         judges={
             name: _snapshot_from_payload(value)  # type: ignore[arg-type]
@@ -2538,7 +2440,8 @@ async def resolve_prompt_optimization_contract_activity(
             version=int(run_values["reflection_prompt_version"]),
             prompt_type="text",
         )
-        reflection = bind_snapshot_from_metadata(reflection, root_bundle_binding)
+        extractor = _snapshot_from_payload(run_values["budget"]["extractor_prompt"])
+        bind_snapshot_from_metadata(extractor, root_bundle_binding)
         judges = {
             str(item["prompt_name"]): _fetch_exact_snapshot(
                 client,
@@ -2547,10 +2450,6 @@ async def resolve_prompt_optimization_contract_activity(
                 prompt_type="chat",
             )
             for item in run_values["judge_prompt_refs"]
-        }
-        judges = {
-            name: bind_snapshot_from_metadata(snapshot, root_bundle_binding)
-            for name, snapshot in judges.items()
         }
     finally:
         shutdown_langfuse(client)
@@ -2573,6 +2472,7 @@ async def resolve_prompt_optimization_contract_activity(
     return {
         **run_values,
         "source_prompt": _snapshot_payload(source),
+        "extractor_prompt": _snapshot_payload(extractor),
         "reflection_prompt": _snapshot_payload(reflection),
         "judge_prompts": {name: _snapshot_payload(value) for name, value in judges.items()},
         "trace_id": optimization_trace_id(run_id),
@@ -2738,9 +2638,9 @@ async def run_gepa_prompt_optimization_activity(
         call_key = str(value["call_key"])
         if call_key in observed_call_keys:
             return
+        ledger.publish_observation(langfuse, call_key=call_key, fence=value["fence"])
         observed_call_keys.add(call_key)
         observations.append(dict(value))
-        _publish_optimization_observation(langfuse, run_id=run_id, value=value)
         heartbeat({"phase": value["phase"], "call_key": value["call_key"]})
 
     budget_value = resolved["budget"]
@@ -2967,9 +2867,9 @@ async def validate_heldout_prompt_candidate_activity(
         call_key = str(value["call_key"])
         if call_key in observed_call_keys:
             return
+        ledger.publish_observation(langfuse, call_key=call_key, fence=value["fence"])
         observed_call_keys.add(call_key)
         observations.append(dict(value))
-        _publish_optimization_observation(langfuse, run_id=run_id, value=value)
         heartbeat({"phase": value["phase"], "call_key": value["call_key"]})
 
     ledger = _PersistentLedgerBridge(
@@ -3062,7 +2962,11 @@ async def publish_prompt_candidate_activity(payload: dict[str, Any]) -> dict[str
         raise PromptOptimizationError("heldout_gate_failed")
     source = _snapshot_from_payload(resolved["source_prompt"])
     prompt = json.loads(str(optimized["prompt_text"]))
-    approval_expires_at = datetime.fromisoformat(str(payload["approval_expires_at"]))
+    # Retain the old result field only when reconstructing a pre-F239 history.
+    approval_expires_at = (
+        datetime.fromisoformat(str(payload["approval_expires_at"]))
+        if payload.get("approval_expires_at") else None
+    )
     cancellation_observed = threading.Event()
     idempotency_tag = f"graf-optimization-run-{run_id}"
     engine, sessionmaker = create_prompt_optimization_database(settings)
@@ -3076,11 +2980,12 @@ async def publish_prompt_candidate_activity(payload: dict[str, Any]) -> dict[str
             run = await db.get(PromptOptimizationRun, run_id, with_for_update=True)
             if run is None or run.source_prompt_version != source.version:
                 raise PromptOptimizationError("production_source_conflict")
+            if run.status not in {"queued", "running", "paused", "candidate", "completed"}:
+                raise PromptOptimizationError("optimization_run_not_active")
             persisted = (
                 run.candidate_prompt_version,
                 run.candidate_prompt_hash,
                 run.candidate_config_hash,
-                run.approval_expires_at,
             )
             if all(value is not None for value in persisted):
                 candidate = await _run_thread_until_quiescent(
@@ -3097,11 +3002,15 @@ async def publish_prompt_candidate_activity(payload: dict[str, Any]) -> dict[str
                     "candidate_prompt_version": candidate.version,
                     "candidate_prompt_hash": candidate.canonical_hash,
                     "candidate_config_hash": prompt_config_hash(candidate.config),
-                    "approval_expires_at": run.approval_expires_at.isoformat(),  # type: ignore[union-attr]
+                    "approval_expires_at": (
+                        run.approval_expires_at.isoformat() if run.approval_expires_at else None
+                    ),
                 }
             elif any(value is not None for value in persisted):
                 raise PromptOptimizationError("candidate_persisted_result_incomplete")
             else:
+                if run.status not in {"queued", "running", "paused"}:
+                    raise PromptOptimizationError("optimization_run_not_active")
                 candidate = await _run_thread_until_quiescent(
                     publish_or_recover_unlabelled_candidate,
                     client,
@@ -3120,7 +3029,7 @@ async def publish_prompt_candidate_activity(payload: dict[str, Any]) -> dict[str
                     "heldout_scores": heldout["heldout_scores"],
                     "hard_gates_passed": True,
                 }
-                run.approval_state = "awaiting_human"
+                run.approval_state = "not_requested"
                 run.approval_expires_at = approval_expires_at
                 run.status = "candidate"
                 await _commit_database_until_quiescent(
@@ -3132,7 +3041,9 @@ async def publish_prompt_candidate_activity(payload: dict[str, Any]) -> dict[str
                     "candidate_prompt_version": candidate.version,
                     "candidate_prompt_hash": candidate.canonical_hash,
                     "candidate_config_hash": prompt_config_hash(candidate.config),
-                    "approval_expires_at": approval_expires_at.isoformat(),
+                    "approval_expires_at": (
+                        approval_expires_at.isoformat() if approval_expires_at else None
+                    ),
                 }
     finally:
         shutdown_langfuse(client)
@@ -3149,130 +3060,14 @@ async def publish_prompt_candidate_activity(payload: dict[str, Any]) -> dict[str
     return activity_result
 
 
-async def authorize_prompt_optimization_action_activity(
-    payload: dict[str, str],
-) -> dict[str, str]:
-    from sqlalchemy import select
-
-    from twobrain_rec_server.config import get_settings
-    from twobrain_rec_server.db.models import PromptOptimizationRun
-    from twobrain_rec_server.db.session import create_prompt_optimization_database
-
-    action_id = UUID(payload["action_id"])
-    decision = payload["decision"]
-    engine, sessionmaker = create_prompt_optimization_database(get_settings())
-    try:
-        async with sessionmaker() as db:
-            run = await db.scalar(
-                select(PromptOptimizationRun)
-                .where(PromptOptimizationRun.approval_action_id == action_id)
-                .with_for_update()
-            )
-            now = datetime.now(UTC)
-            if (
-                run is None
-                or run.status != "candidate"
-                or run.approval_state != "awaiting_human"
-                or run.approval_expires_at is None
-                or now >= run.approval_expires_at
-                or run.approved_by_actor_id is None
-            ):
-                return {"status": "denied"}
-            run.approval_state = decision
-            run.approved_at = now
-            if decision == "rejected":
-                run.status = "rejected"
-            await db.commit()
-            return {"status": "authorized"}
-    finally:
-        await engine.dispose()
+async def authorize_prompt_optimization_action_activity(payload: dict[str, Any]) -> dict[str, object]:
+    """Keep the registered history name, never execute a retired child transition."""
+    return {"status": "denied"}
 
 
 async def promote_prompt_candidate_activity(payload: dict[str, Any]) -> dict[str, object]:
-    from sqlalchemy import select, text
-
-    from twobrain_rec_server.config import get_settings
-    from twobrain_rec_server.db.models import PromptOptimizationRun
-    from twobrain_rec_server.db.session import create_prompt_optimization_database
-    from twobrain_rec_server.observability.langfuse import (
-        create_langfuse_client,
-        shutdown_langfuse,
-    )
-    from twobrain_rec_server.storage.minio_client import get_storage
-
-    settings = get_settings()
-    run_id = UUID(str(payload["run_id"]))
-    engine, sessionmaker = create_prompt_optimization_database(settings)
-    client = create_langfuse_client(settings)
-    try:
-        async with _quiescent_session_scope(
-            sessionmaker(),
-            complete_after_cancel=True,
-        ) as db:
-            await db.execute(
-                text("select pg_advisory_xact_lock(hashtextextended(:name, 0))"),
-                {"name": str(payload["prompt_name"])},
-            )
-            run = await db.scalar(
-                select(PromptOptimizationRun)
-                .where(PromptOptimizationRun.id == run_id)
-                .with_for_update()
-            )
-            if run is None or str(run.approval_action_id) != payload["approval_action_id"]:
-                raise PromptOptimizationError("promotion_not_authorized")
-            retrying_completed = run.status == "promoted"
-            if not retrying_completed and (
-                run.status != "candidate" or run.approval_state != "approved"
-            ):
-                raise PromptOptimizationError("promotion_not_authorized")
-            if run.candidate_prompt_version is None or run.candidate_prompt_hash is None:
-                raise PromptOptimizationError("candidate_persisted_result_incomplete")
-            snapshot = await _run_thread_until_quiescent(
-                move_production_label,
-                client,
-                prompt_name=run.prompt_name,
-                prompt_type="chat",
-                expected_source_version=(
-                    run.candidate_prompt_version
-                    if retrying_completed
-                    else run.source_prompt_version
-                ),
-                target_version=run.candidate_prompt_version,
-                protected_label_capability_verified=bool(
-                    run.budget.get("protected_label_capability_verified")
-                ),
-                snapshot_storage=get_storage(settings),
-                on_cancel=lambda: None,
-                complete_after_cancel=True,
-            )
-            if snapshot.canonical_hash != run.candidate_prompt_hash:
-                raise PromptOptimizationError("promoted_persisted_result_mismatch")
-            if retrying_completed:
-                return {
-                    "status": "promoted",
-                    "production_prompt_version": snapshot.version,
-                }
-            _publish_label_transition(
-                client,
-                trace_id=optimization_trace_id(run_id),
-                run_id=run_id,
-                operation="promotion",
-                from_version=run.source_prompt_version,
-                to_version=snapshot.version,
-            )
-            run.status = "promoted"
-            run.candidate_prompt_hash = snapshot.canonical_hash
-            await _commit_database_until_quiescent(
-                db,
-                complete_after_cancel=True,
-            )
-            return {"status": "promoted", "production_prompt_version": snapshot.version}
-    finally:
-        shutdown_langfuse(client)
-        await _complete_async_operation_until_quiescent(
-            engine.dispose(),
-            complete_after_cancel=True,
-        )
+    """Keep the registered history name, never execute a retired child transition."""
+    raise PromptOptimizationError("root_promotion_required")
 
 
 async def finalize_prompt_optimization_activity(payload: dict[str, Any]) -> dict[str, object]:
@@ -3296,7 +3091,7 @@ async def finalize_prompt_optimization_activity(payload: dict[str, Any]) -> dict
             run = await db.get(PromptOptimizationRun, run_id, with_for_update=True)
             if run is None:
                 raise PromptOptimizationError("optimization_run_not_found")
-            if run.status == "promoted":
+            if run.status in {"promoted", "rolled_back"}:
                 return {"run_id": str(run_id), "status": run.status}
             if run.status not in terminal_statuses:
                 run.status = status
@@ -3328,137 +3123,14 @@ async def finalize_prompt_optimization_activity(payload: dict[str, Any]) -> dict
     return {"run_id": str(run_id), "status": terminal["status"]}
 
 
-async def authorize_prompt_rollback_action_activity(payload: dict[str, Any]) -> dict[str, str]:
-    from sqlalchemy import select
-
-    from twobrain_rec_server.config import get_settings
-    from twobrain_rec_server.db.models import PromptOptimizationRun
-    from twobrain_rec_server.db.session import create_prompt_optimization_database
-
-    engine, sessionmaker = create_prompt_optimization_database(get_settings())
-    try:
-        async with sessionmaker() as db:
-            run = await db.scalar(
-                select(PromptOptimizationRun)
-                .where(
-                    PromptOptimizationRun.id == UUID(str(payload["run_id"])),
-                )
-                .with_for_update()
-            )
-            action = dict(run.budget.get("rollback_action", {})) if run else {}
-            if (
-                run is None
-                or run.status not in {"promoted", "rolled_back"}
-                or action.get("action_id") != str(payload["action_id"])
-                or action.get("consumed") not in {False, True}
-                or not action.get("actor_id")
-            ):
-                return {"status": "denied"}
-            if action["consumed"] is True:
-                return {"status": "authorized"}
-            action["consumed"] = True
-            budget = dict(run.budget)
-            budget["rollback_action"] = action
-            run.budget = budget
-            await db.commit()
-            return {"status": "authorized"}
-    finally:
-        await engine.dispose()
+async def authorize_prompt_rollback_action_activity(payload: dict[str, Any]) -> dict[str, object]:
+    """Keep the registered history name, never execute a retired child transition."""
+    return {"status": "denied"}
 
 
-async def rollback_prompt_production_label_activity(
-    payload: dict[str, Any],
-) -> dict[str, object]:
-    from sqlalchemy import select, text
-
-    from twobrain_rec_server.config import get_settings
-    from twobrain_rec_server.db.models import PromptOptimizationRun
-    from twobrain_rec_server.db.session import create_prompt_optimization_database
-    from twobrain_rec_server.observability.langfuse import (
-        create_langfuse_client,
-        shutdown_langfuse,
-    )
-    from twobrain_rec_server.storage.minio_client import get_storage
-
-    settings = get_settings()
-    run_id = UUID(str(payload["run_id"]))
-    engine, sessionmaker = create_prompt_optimization_database(settings)
-    client = create_langfuse_client(settings)
-    try:
-        async with _quiescent_session_scope(
-            sessionmaker(),
-            complete_after_cancel=True,
-        ) as db:
-            await db.execute(
-                text("select pg_advisory_xact_lock(hashtextextended(:name, 0))"),
-                {"name": str(payload["prompt_name"])},
-            )
-            run = await db.scalar(
-                select(PromptOptimizationRun)
-                .where(PromptOptimizationRun.id == run_id)
-                .with_for_update()
-            )
-            action = dict(run.budget.get("rollback_action", {})) if run else {}
-            if (
-                run is None
-                or run.status not in {"promoted", "rolled_back"}
-                or action.get("action_id") != str(payload["action_id"])
-                or action.get("consumed") is not True
-            ):
-                raise PromptOptimizationError("rollback_not_authorized")
-            retrying_completed = run.status == "rolled_back"
-            snapshot = await _run_thread_until_quiescent(
-                move_production_label,
-                client,
-                prompt_name=run.prompt_name,
-                prompt_type="chat",
-                expected_source_version=(
-                    run.rollback_prompt_version
-                    if retrying_completed
-                    else run.candidate_prompt_version
-                ),
-                target_version=run.rollback_prompt_version,
-                protected_label_capability_verified=bool(
-                    run.budget.get("protected_label_capability_verified")
-                ),
-                snapshot_storage=get_storage(settings),
-                on_cancel=lambda: None,
-                complete_after_cancel=True,
-            )
-            transition_trace_id = rollback_trace_id(run_id, snapshot.version)
-            if retrying_completed:
-                return {
-                    "status": "rolled_back",
-                    "production_prompt_version": snapshot.version,
-                    "linked_optimization_trace_id": optimization_trace_id(run_id),
-                    "rollback_trace_id": transition_trace_id,
-                }
-            _publish_label_transition(
-                client,
-                trace_id=transition_trace_id,
-                run_id=run_id,
-                operation="rollback",
-                from_version=run.candidate_prompt_version,
-                to_version=snapshot.version,
-                linked_trace_id=optimization_trace_id(run_id),
-            )
-            run.status = "rolled_back"
-            await _commit_database_until_quiescent(
-                db,
-                complete_after_cancel=True,
-            )
-            return {
-                "status": "rolled_back",
-                "production_prompt_version": snapshot.version,
-                "linked_optimization_trace_id": optimization_trace_id(run_id),
-                "rollback_trace_id": transition_trace_id,
-            }
-    finally:
-        shutdown_langfuse(client)
-        await _complete_async_operation_until_quiescent(
-            engine.dispose(),
-            complete_after_cancel=True,
-        )
+async def rollback_prompt_production_label_activity(payload: dict[str, Any]) -> dict[str, object]:
+    """Keep the registered history name, never execute a retired child transition."""
+    raise PromptOptimizationError("root_promotion_required")
 
 
 def _fetch_exact_snapshot(
@@ -3485,71 +3157,100 @@ def _fetch_exact_snapshot(
     )
 
 
-def _publish_optimization_observation(
-    client: Any,
-    *,
-    run_id: UUID,
-    value: Mapping[str, object],
-) -> None:
-    snapshot = value["snapshot"]
-    phase = str(value["phase"])
-    call_key = str(value["call_key"])
-    from twobrain_rec_server.observability.langfuse import deterministic_observation_scope
+def _optimization_observation_payload(
+    *, run_id: UUID, call_key: str, phase: str, snapshot: PromptSnapshot,
+    result: ModelCall, project_id: str | None,
+) -> dict[str, object]:
+    from twobrain_rec_server.observability.langfuse import _model_parameters
 
-    linked_prompt = client.get_prompt(
-        snapshot.name,
-        version=snapshot.version,
-        type=snapshot.prompt_type,
-        cache_ttl_seconds=60,
-        max_retries=0,
-        fetch_timeout_seconds=10,
-    )
+    if not project_id or not isinstance(result.request, Mapping):
+        raise PromptOptimizationError("optimization_observation_receipt_invalid")
     usage_details = {
         str(key): value
-        for key, value in (value.get("token_usage") or {}).items()
+        for key, value in (result.token_usage or {}).items()
         if isinstance(value, int) and not isinstance(value, bool)
     }
     cost_details = {
         str(key): float(item)
-        for key, item in (value.get("cost_details") or {}).items()
+        for key, item in (result.cost_details or {}).items()
         if isinstance(item, (int, float)) and not isinstance(item, bool)
     }
 
-    with deterministic_observation_scope(
-        trace_id=optimization_trace_id(run_id),
-        observation_id=sha256(call_key.encode()).digest()[:8].hex(),
-    ):
-        observation = client.start_observation(
-            name=f"prompt-optimization-{phase}",
-            as_type="generation",
-            input=value["request"],
-            output={
-                "raw_response": value["raw_response"],
-                "validated_result": value["validated_result"],
-            },
-            metadata={
+    return {
+        "project_id": project_id, "snapshot": _snapshot_payload(snapshot),
+        "generation": {
+            "name": f"prompt-optimization-{phase}", "as_type": "generation",
+            "input": result.request,
+            "output": {"raw_response": result.raw_response, "validated_result": result.validated_result},
+            "metadata": {
                 "run_id": str(run_id),
                 "call_key": call_key,
                 "phase": phase,
                 "prompt_name": snapshot.name,
                 "prompt_version": snapshot.version,
-                "actual_model": value.get("actual_model"),
-                "actual_provider": value.get("actual_provider"),
+                "actual_model": result.actual_model,
+                "actual_provider": result.actual_provider,
+                "selected_model": result.request.get("model"),
                 "config_hash": prompt_config_hash(snapshot.config),
                 "optimizer_version": OPTIMIZER_VERSION,
             },
-            model=str(value.get("actual_model") or snapshot.model),
-            model_parameters={
-                key: snapshot.config[key]
-                for key in ("temperature", "max_completion_tokens")
-                if key in snapshot.config
-            },
-            prompt=linked_prompt,
-            usage_details=usage_details or None,
-            cost_details=cost_details or None,
-        )
+            "model": result.actual_model,
+            "model_parameters": _model_parameters(result.request),
+            "usage_details": usage_details or None, "cost_details": cost_details or None,
+        },
+    }
+
+
+def _publish_optimization_observation(
+    client: Any, *, value: Mapping[str, object], checkpoint: Mapping[str, object], linked_prompt: Any,
+) -> None:
+    from twobrain_rec_server.observability.langfuse import deterministic_observation_scope
+
+    generation = value["generation"]
+    with deterministic_observation_scope(
+        trace_id=checkpoint["trace_id"], observation_id=checkpoint["observation_id"],
+    ):
+        observation = client.start_observation(**{
+            **generation, "prompt": linked_prompt,
+            "metadata": {**generation["metadata"], "receipt_sha256": checkpoint["receipt_sha256"],
+                         "activity_fence": checkpoint["fence"]},
+        })
         observation.end()
     client.flush()
+
+
+def _confirm_optimization_observation(
+    client: Any, *, value: Mapping[str, object], checkpoint: Mapping[str, object],
+) -> None:
+    generation = value["generation"]
+    metadata = {**generation["metadata"], "receipt_sha256": checkpoint["receipt_sha256"],
+                "activity_fence": checkpoint["fence"]}
+    page = client.api.observations.get_many(
+        filter=canonical_json([
+            {"type": "string", "column": "id", "operator": "=", "value": checkpoint["observation_id"]},
+            {"type": "string", "column": "traceId", "operator": "=", "value": checkpoint["trace_id"]},
+        ]), limit=2, fields="basic,io,metadata,model,prompt", expand_metadata=",".join(metadata),
+        request_options={"timeout_in_seconds": 10, "max_retries": 0},
+    )
+    if len(page.data) != 1:
+        raise PromptOptimizationError("optimization_observation_unconfirmed")
+    observation = page.data[0]
+    expected = {
+        "id": checkpoint["observation_id"], "trace_id": checkpoint["trace_id"],
+        "project_id": value["project_id"], "type": "GENERATION", "name": generation["name"],
+        "prompt_name": value["snapshot"]["name"], "prompt_version": value["snapshot"]["version"],
+        "provided_model_name": generation["model"],
+    }
+    try:
+        if (canonical_json({key: getattr(observation, key) for key in expected}) != canonical_json(expected)
+            or observation.end_time is None
+            or canonical_json(json.loads(observation.input)) != canonical_json(generation["input"])
+            or canonical_json(json.loads(observation.output)) != canonical_json(generation["output"])
+            or canonical_json({key: observation.metadata[key] for key in metadata}) != canonical_json(metadata)
+            or canonical_json(observation.model_parameters) != canonical_json(generation["model_parameters"])):
+            raise ValueError
+    except (AttributeError, KeyError, TypeError, ValueError):
+        raise PromptOptimizationError("optimization_observation_mismatch") from None
 
 
 def _publish_optimization_terminal_observation(
@@ -3577,40 +3278,6 @@ def _publish_optimization_terminal_observation(
                 "status": status,
                 "terminal": True,
             },
-        )
-        observation.end()
-    client.flush()
-
-
-def _publish_label_transition(
-    client: Any,
-    *,
-    trace_id: str,
-    run_id: UUID,
-    operation: Literal["promotion", "rollback"],
-    from_version: int | None,
-    to_version: int,
-    linked_trace_id: str | None = None,
-) -> None:
-    value = {
-        "run_id": str(run_id),
-        "operation": operation,
-        "from_version": from_version,
-        "to_version": to_version,
-        "linked_trace_id": linked_trace_id,
-    }
-    from twobrain_rec_server.observability.langfuse import deterministic_observation_scope
-
-    with deterministic_observation_scope(
-        trace_id=trace_id,
-        observation_id=sha256(f"{operation}/{run_id}/{to_version}".encode()).digest()[:8].hex(),
-    ):
-        observation = client.start_observation(
-            name=f"prompt-{operation}",
-            as_type="span",
-            input=value,
-            output={"status": "verified", **value},
-            metadata=value,
         )
         observation.end()
     client.flush()

@@ -79,7 +79,7 @@ async def test_observability_outage_retries_without_replaying_model_inference(mo
         activity_names.append(name)
         snapshot_hash = sha256(b"full transcript").hexdigest()
         if name == "resolve_outcome_prompt_config_activity":
-            return {"prompt_hash": "prompt-hash"}
+            return {"prompt_hash": "prompt-hash", "generation_timeout_seconds": 1320}
         if name == "snapshot_outcome_transcript_metadata_activity":
             return {
                 "candidate_id": payload["candidate_id"],
@@ -98,6 +98,7 @@ async def test_observability_outage_retries_without_replaying_model_inference(mo
                 "transcript_utf8": "full transcript",
             }
         if name == "execute_outcome_generation_activity":
+            assert kwargs["start_to_close_timeout"].total_seconds() == 1320
             return {"generation_call_id": "call", "candidate_state": "ready"}
         raise AssertionError(name)
 

@@ -257,7 +257,7 @@ def test_prompt_optimization_accepts_complete_ai_runtime_without_outcomes(tmp_pa
     assert settings.outcome_generation_enabled is False
 
 
-def test_evaluation_prompt_label_is_development_only(tmp_path) -> None:
+def test_evaluation_requires_numeric_root_without_child_labels(tmp_path) -> None:
     lite_key = tmp_path / "litellm-key"
     public_key = tmp_path / "langfuse-public-key"
     secret_key = tmp_path / "langfuse-secret-key"
@@ -271,14 +271,18 @@ def test_evaluation_prompt_label_is_development_only(tmp_path) -> None:
         "langfuse_base_url": "https://langfuse.example.test",
         "langfuse_public_key_file": public_key,
         "langfuse_secret_key_file": secret_key,
-        "outcome_prompt_label": "feature-181-eval",
+        "outcome_root_prompt_version": 17,
     }
 
-    assert Settings(**runtime).outcome_prompt_label == "feature-181-eval"
-    with pytest.raises(ValidationError, match="production prompt label"):
+    assert Settings(**runtime).outcome_root_prompt_version == 17
+    assert Settings(**runtime).outcome_prompt_label == "production"
+    with pytest.raises(ValidationError, match="evaluation-only"):
         Settings(env="production", **runtime)
-    with pytest.raises(ValidationError, match="explicit deployment label"):
-        Settings(**{**runtime, "outcome_prompt_label": "latest"})
+    for label in ("latest", "feature-181-eval"):
+        with pytest.raises(ValidationError):
+            Settings(**{**runtime, "outcome_prompt_label": label})
+    with pytest.raises(ValidationError, match="positive"):
+        Settings(**{**runtime, "outcome_root_prompt_version": 0})
 
 
 @pytest.mark.parametrize(

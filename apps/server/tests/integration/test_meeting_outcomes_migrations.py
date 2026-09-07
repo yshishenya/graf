@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
-from sqlalchemy import select, text
+from sqlalchemy import JSON, String, inspect, select, text
 
 from tests.fakes.auth_contexts import PERSONAL_WORKSPACE_ID
 from tests.fixtures.cabinet import create_outcome_ready_meeting
@@ -18,6 +18,8 @@ from twobrain_rec_server.db import models
 from twobrain_rec_server.db.base import Base
 from twobrain_rec_server.db.models import (
     Meeting,
+    MeetingOutcomeGenerationAttempt,
+    MeetingOutcomeItem,
     MeetingOutcomeSet,
     MeetingSummarySlot,
     ProcessingResult,
@@ -29,6 +31,7 @@ MIGRATION = (
     REPO_ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0009_meeting_outcomes_mvp.py"
 )
+PROTOCOL_MIGRATION = MIGRATION.with_name("0086_full_meeting_protocol.py")
 
 OUTCOME_TABLES = {
     "meeting_outcome_sets",
@@ -83,6 +86,172 @@ def test_outcome_migration_declares_revision_chain_tables_indexes_and_rls() -> N
 def test_outcome_tables_are_in_rls_inventory_and_test_fixture() -> None:
     assert OUTCOME_TABLES.issubset(set(RLS_COVERED_TABLES))
     assert OUTCOME_TABLES.issubset(TEST_RLS_COVERED_TABLES)
+
+
+def test_protocol_storage_columns_have_safe_defaults() -> None:
+    outcome = MeetingOutcomeSet.__table__.c
+    attempt = MeetingOutcomeGenerationAttempt.__table__.c
+    for column in (outcome.source_kind, outcome.generator_kind, attempt.provider_kind):
+        assert not column.nullable
+        assert column.default is None
+        assert column.server_default is None
+    for column in (outcome.protocol_json, attempt.header_snapshot_json):
+        assert isinstance(column.type, JSON)
+        assert column.nullable
+        assert column.default is None
+        assert column.server_default is None
+    assert isinstance(outcome.protocol_schema_version.type, String)
+    assert outcome.protocol_schema_version.type.length == 64
+    assert outcome.protocol_schema_version.nullable
+    assert isinstance(outcome.protocol_state.type, String)
+    assert outcome.protocol_state.type.length == 32
+    assert not outcome.protocol_state.nullable
+    assert outcome.protocol_state.default.arg == "unavailable"
+    assert str(outcome.protocol_state.server_default.arg) == "'unavailable'"
+
+
+def test_protocol_migration_roundtrip_preserves_history_and_bindings(client) -> None:
+    migration = _load_migration_module(PROTOCOL_MIGRATION, "full_meeting_protocol_migration")
+    assert migration.revision == "0086_full_meeting_protocol"
+    assert migration.down_revision == "0087_merge_calendar_timezone"
+    meeting_id = create_outcome_ready_meeting(client, "protocol-migration-history")
+
+    async def run() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            meeting = await db.get(Meeting, meeting_id)
+            result = await db.scalar(
+                select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
+            )
+            assert meeting is not None and result is not None
+            outcome = MeetingOutcomeSet(
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                processing_result_id=result.id,
+                generator_version="synthetic-historical",
+                source_kind="extractive_generator",
+                generator_kind="deterministic_extractive",
+                template_key="graf-auto-v1",
+                template_version=1,
+                status="available",
+                revision_state="accepted",
+                content_hash="a" * 64,
+            )
+            db.add(outcome)
+            await db.flush()
+            attempt = MeetingOutcomeGenerationAttempt(
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                processing_result_id=result.id,
+                outcome_set_id=outcome.id,
+                generator_version="synthetic-historical",
+                provider_kind="deterministic_extractive",
+                metadata_json={"template_sections": ["summary", "decisions"]},
+                prompt_config={"synthetic": True},
+            )
+            db.add_all([
+                attempt,
+                MeetingOutcomeItem(
+                    workspace_id=meeting.workspace_id,
+                    meeting_id=meeting.id,
+                    outcome_set_id=outcome.id,
+                    category="summary",
+                    sequence=1,
+                    text="Синтетический исторический итог.",
+                    source_refs_json=[{"sequence": 1}],
+                ),
+                MeetingSummarySlot(
+                    workspace_id=meeting.workspace_id,
+                    meeting_id=meeting.id,
+                    template_key="graf-auto-v1",
+                    current_outcome_set_id=outcome.id,
+                    current_binding_class="migrated_legacy_read_only",
+                    legacy_migration_proof_hash="b" * 64,
+                    is_meeting_default=True,
+                    default_resolution_source="legacy_pointer",
+                    default_resolution_version="1",
+                    default_resolved_at=datetime(2026, 8, 24, tzinfo=UTC),
+                ),
+            ])
+            meeting.current_outcome_set_id = outcome.id
+            await db.commit()
+            outcome_id, attempt_id = outcome.id, attempt.id
+
+        async with client.app_state["engine"].connect() as connection:
+            # Roll back DDL even on assertion failure; other tests share this schema.
+            transaction = await connection.begin()
+            try:
+                def migrate(sync_connection, direction):
+                    with Operations.context(MigrationContext.configure(sync_connection)):
+                        getattr(migration, direction)()
+
+                def snapshot(sync_connection):
+                    return {
+                        table: sync_connection.execute(
+                            text(f"select to_jsonb(t) from {table} t order by id")
+                        ).scalars().all()
+                        for table in (
+                            "meetings", "meeting_outcome_sets", "meeting_outcome_items",
+                            "meeting_outcome_generation_attempts", "meeting_summary_slots",
+                            "summary_templates", "generation_calls",
+                        )
+                    }
+
+                await connection.run_sync(migrate, "downgrade")
+                before = await connection.run_sync(snapshot)
+                await connection.run_sync(migrate, "upgrade")
+                columns = await connection.run_sync(
+                    lambda sync: {
+                        column["name"]: column
+                        for column in inspect(sync).get_columns("meeting_outcome_sets")
+                    }
+                )
+                assert columns["protocol_json"]["nullable"]
+                assert columns["protocol_json"]["default"] is None
+                assert columns["source_kind"]["default"] is None
+                assert columns["generator_kind"]["default"] is None
+                attempt_columns = await connection.run_sync(
+                    lambda sync: {
+                        column["name"]: column
+                        for column in inspect(sync).get_columns("meeting_outcome_generation_attempts")
+                    }
+                )
+                assert attempt_columns["provider_kind"]["default"] is None
+                assert not columns["protocol_state"]["nullable"]
+                assert "unavailable" in columns["protocol_state"]["default"]
+                assert (await connection.execute(text(
+                    "select protocol_json, protocol_schema_version, protocol_state "
+                    "from meeting_outcome_sets where id = :id"
+                ), {"id": outcome_id})).one() == (None, None, "unavailable")
+                assert await connection.scalar(text(
+                    "select header_snapshot_json from meeting_outcome_generation_attempts "
+                    "where id = :id"
+                ), {"id": attempt_id}) is None
+
+                after = await connection.run_sync(snapshot)
+                for row in after["meeting_outcome_sets"]:
+                    for key in ("protocol_json", "protocol_schema_version", "protocol_state"):
+                        row.pop(key)
+                for row in after["meeting_outcome_generation_attempts"]:
+                    row.pop("header_snapshot_json")
+                assert after == before
+
+                # Downgrade removes only the new fields, including populated JSON.
+                await connection.execute(text(
+                    "update meeting_outcome_sets set protocol_json = '{\"topics\": []}', "
+                    "protocol_schema_version = 'synthetic.v2', protocol_state = 'available' "
+                    "where id = :id"
+                ), {"id": outcome_id})
+                await connection.execute(text(
+                    "update meeting_outcome_generation_attempts "
+                    "set header_snapshot_json = '{\"title\": \"Synthetic\"}' where id = :id"
+                ), {"id": attempt_id})
+                await connection.run_sync(migrate, "downgrade")
+                assert await connection.run_sync(snapshot) == before
+                await connection.run_sync(migrate, "upgrade")
+            finally:
+                await transaction.rollback()
+
+    asyncio.run(run())
 
 
 def test_summary_slot_backfill_preserves_proven_legacy_rows_and_reports_ambiguity(client) -> None:
