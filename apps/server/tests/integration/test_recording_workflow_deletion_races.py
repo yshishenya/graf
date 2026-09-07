@@ -30,11 +30,8 @@ from twobrain_rec_server.outcomes.ai_service import (
     publish_candidate_generation_calls,
     publish_generation_call,
 )
-from twobrain_rec_server.outcomes.prompts import (
-    canonical_json,
-    outcome_config,
-    prompt_snapshot_hash,
-)
+from tests.fixtures.outcome_prompts import outcome_config
+from twobrain_rec_server.outcomes.prompts import canonical_json, prompt_snapshot_hash
 from twobrain_rec_server.workflows.temporal_client import playback_normalization_workflow_id
 
 BOUNDED_COPY = "Delete this meeting everywhere GRAF controls."

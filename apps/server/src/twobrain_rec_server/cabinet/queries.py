@@ -1110,10 +1110,11 @@ async def get_cabinet_meeting_review(
         meeting_id=meeting_id,
         media_revision_id=media_revision_id,
     )
-    result = await latest_processing_result(
+    result = await _latest_result(
         db,
         workspace_id=workspace_id,
         meeting_id=meeting_id,
+        media_revision_id=media_revision_id,
     )
     transcript_segments: list[TranscriptSegment] = []
     diarization_segments: list[DiarizationSegment] = []
