@@ -163,8 +163,7 @@ bool WindowsTargetDetector::isPromptCandidate(const TargetObservation& observati
                                                const VerifiedTargetRegistry& registry) noexcept {
     return observation.processId != 0 && observation.processCreatedAt != 0 && observation.signatureVerified &&
         observation.hasRenderStream && observation.hasCaptureStream &&
-        registry.contains(observation.identity.executableFingerprint, observation.identity.publisherFingerprint,
-                          observation.identity.registryVersion);
+        registry.contains(observation.identity);
 }
 
 std::optional<TargetObservation> WindowsTargetDetector::inspectProcess(std::uint32_t processId) {

@@ -6,14 +6,29 @@ int main() {
     using P = AutomaticRecordingPreference;
     VerifiedTargetRegistry registry;
     const auto first = target(), second = target('c');
-    assert(!registry.registerTarget({"Teams.exe", "Microsoft", "Teams", 1}));
+    assert(!registry.registerTarget({"Teams.exe", "Microsoft", "Teams", 1, "microsoft_teams_new"}));
     assert(!registry.registerTarget(target('g')));
     assert(!registry.registerTarget(target('a', 'b', 0)));
     auto invalid = first;
     invalid.displayName = "Meeting\nuntrusted";
     assert(!registry.registerTarget(invalid));
+    for (const auto& key : {"", "Teams", "1teams", "../teams", "teams:beta", "teams=always", "teams\n"}) {
+        invalid = first;
+        invalid.targetKey = key;
+        assert(!registry.registerTarget(invalid));
+    }
+    invalid = first;
+    invalid.targetKey = std::string(65, 'a');
+    assert(!registry.registerTarget(invalid));
     assert(registry.registerTarget(first));
     assert(registry.registerTarget(second));
+    invalid = first;
+    invalid.targetKey = second.targetKey;
+    assert(!registry.registerTarget(invalid)); // Same EXE cannot represent another product.
+    invalid = first;
+    invalid.executableFingerprint = std::string(64, 'e');
+    invalid.displayName = "Different name";
+    assert(!registry.registerTarget(invalid)); // One product has one display name.
     Preferences storage;
     AutomaticRecordingPolicy policy(registry, storage.store());
     assert(policy.preference(first) == P::ask);
@@ -24,6 +39,11 @@ int main() {
     assert(policy.setPreference(second, P::never));
     assert(policy.preference(first) == P::always);
     assert(policy.preference(second) == P::never);
+    invalid = first;
+    invalid.targetKey = second.targetKey;
+    assert(policy.preference(invalid) == P::ask);
+    assert(!policy.setPreference(invalid, P::always));
+    assert(!WindowsTargetDetector::isPromptCandidate(snapshot(at(), invalid).observations.front(), registry));
     AutomaticRecordingPolicy relaunched(registry, storage.store());
     assert(relaunched.preference(first) == P::always);
     assert(relaunched.preference(second) == P::never);
@@ -46,21 +66,43 @@ int main() {
     assert(!policy.setPreference(first, static_cast<P>(99)));
     assert(!policy.setAllPreferences(static_cast<P>(99)));
     assert(policy.setPreference(first, P::always));
-    assert(registry.registerTarget(target('a', 'f')));
-    assert(policy.preference(target('a', 'f')) == P::ask); // Exact signer, no inherited grant.
-    assert(registry.registerTarget(target('a', 'b', 2)));
-    assert(policy.preference(target('a', 'b', 2)) == P::ask); // Registry approval version also matters.
+    assert(policy.preference(target('a', 'f')) == P::ask); // Unapproved signer, no inherited grant.
+    assert(policy.preference(target('a', 'b', 2)) == P::ask);
+    assert(!policy.setPreference(target('a', 'f'), P::always));
+    assert(!policy.setPreference(target('a', 'b', 2), P::always));
+    auto updated = target('e', 'f', 2);
+    updated.targetKey = first.targetKey;
+    assert(registry.registerTarget(updated));
+    assert(VerifiedTargetRegistry::identityKey(first) != VerifiedTargetRegistry::identityKey(updated));
+    for (const auto choice : {P::always, P::ask, P::never}) {
+        assert(policy.setPreference(first, choice));
+        assert(policy.preference(updated) == choice);
+        AutomaticRecordingPolicy restart(registry, storage.store());
+        assert(restart.preference(updated) == choice);
+        assert(restart.settings().applications.size() == 3); // Four identities, three products.
+    }
+    const auto saved = storage.bytes;
     assert(registry.removeTarget(first.executableFingerprint));
+    assert(registry.removeTarget(updated.executableFingerprint));
     assert(policy.preference(first) == P::ask);
+    AutomaticRecordingPolicy withoutApp(registry, storage.store());
+    assert(withoutApp.setPreference(second, P::ask)); // Retain rules for absent products.
     assert(registry.registerTarget(first));
+    AutomaticRecordingPolicy restored(registry, storage.store());
+    assert(restored.preference(first) == P::never);
+    assert(saved.find("graf.automatic-recording.v2\n") == 0);
+    assert(saved.find(first.targetKey + "=never\n") != std::string::npos);
 
-    const auto key = VerifiedTargetRegistry::preferenceKey(first);
+    const auto key = first.targetKey;
     for (const auto& malformed : std::vector<std::string>{
         std::string("assisted_auto_start=1\nprompt_before_recording=0\n"),
-        "graf.automatic-recording.v1\n" + key + "=always", // Partial write.
-        "graf.automatic-recording.v1\n" + key + "=unknown\n",
-        "graf.automatic-recording.v1\n" + key + "=always\n" + key + "=never\n",
-        "graf.automatic-recording.v1\n../untrusted=always\n",
+        "graf.automatic-recording.v1\n" + VerifiedTargetRegistry::identityKey(first) + "=always\n",
+        "graf.automatic-recording.v1\n" + key + "=always\n",
+        "graf.automatic-recording.v2\n" + key + "=always", // Partial write.
+        "graf.automatic-recording.v2\n" + key + "=unknown\n",
+        "graf.automatic-recording.v2\n" + key + "=always\n" + key + "=never\n",
+        "graf.automatic-recording.v2\n" + key + "=always\n../untrusted=always\n",
+        "graf.automatic-recording.v2\n" + key + "=always\nTeams=always\n",
         std::string(65537, 'x')
     }) {
         storage.bytes = malformed;
@@ -76,6 +118,13 @@ int main() {
     observed.hasCaptureStream = true;
     observed.hasRenderStream = false;
     assert(!WindowsTargetDetector::isPromptCandidate(observed, registry));
+
+    const auto bundled = VerifiedTargetRegistry::bundled();
+    assert(bundled.targets().size() == 1);
+    const auto& teams = bundled.targets().front();
+    assert(teams.targetKey == "microsoft_teams_new");
+    assert(teams.displayName == "Microsoft Teams");
+    assert(VerifiedTargetRegistry::validIdentity(teams));
     observed.hasRenderStream = true;
     observed.signatureVerified = false;
     assert(!WindowsTargetDetector::isPromptCandidate(observed, registry));

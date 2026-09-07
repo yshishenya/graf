@@ -1,4 +1,5 @@
 #include "../../RecApp/Upload/DesktopUploadRecoveryScheduler.h"
+#include "../../RecApp/Upload/DesktopApiClient.h"
 
 #ifdef NDEBUG
 #undef NDEBUG
@@ -120,18 +121,19 @@ void testWorkspaceBootstrap() {
     auto cancellation = std::make_shared<std::atomic_bool>(false);
     config.cancellation = cancellation;
     unsigned calls = 0;
-    const auto get = [&](const DesktopHttpConfig& request, std::string_view path) -> std::optional<std::string> {
+    using IdentityResponse = DesktopHttpTransport::IdentityResponse;
+    const auto get = [&](const DesktopHttpConfig& request, std::string_view path) -> IdentityResponse {
         ++calls;
         assert(request.sessionToken == config.sessionToken);
         assert(request.baseOrigin == config.baseOrigin && request.deviceId.empty());
         if (calls == 1) {
             assert(path == "/desktop/settings/spaces" && request.workspaceId.empty());
-            return spaces;
+            return {200, spaces};
         }
         assert(calls == 2 && path == "/api/v1/auth/me" && request.workspaceId == owner.workspaceId);
-        return meResponse(owner.userId, owner.workspaceId);
+        return {200, meResponse(owner.userId, owner.workspaceId)};
     };
-    auto identity = DesktopHttpTransport(config).accountIdentity(get);
+    auto identity = DesktopHttpTransport(config).accountIdentity(get).identity;
     assert(identity && identity->userId == owner.userId && identity->workspaceId == owner.workspaceId && calls == 2);
     // Current server response shapes, synthetic content only. Nested account
     // identifiers and display text must not replace the root authority.
@@ -155,29 +157,29 @@ void testWorkspaceBootstrap() {
             "handoff_path":"/billing"}})";
     calls = 0;
     identity = DesktopHttpTransport(config).accountIdentity(
-        [&](const DesktopHttpConfig& request, std::string_view path) -> std::optional<std::string> {
+        [&](const DesktopHttpConfig& request, std::string_view path) -> IdentityResponse {
             (void)get(request, path); // Check the same headers and two-request order.
-            return calls == 1 ? fullSpaces : fullMe;
-        });
+            return {200, calls == 1 ? fullSpaces : fullMe};
+        }).identity;
     assert(identity && identity->userId == owner.userId && identity->workspaceId == owner.workspaceId && calls == 2);
     for (unsigned failAt : {1U, 2U}) {
         calls = 0;
         assert(!DesktopHttpTransport(config).accountIdentity(
-            [&](const DesktopHttpConfig& request, std::string_view path) -> std::optional<std::string> {
+            [&](const DesktopHttpConfig& request, std::string_view path) -> IdentityResponse {
                 const auto body = get(request, path);
-                return calls == failAt ? std::nullopt : body;
-            }));
+                return calls == failAt ? IdentityResponse{0, {}, true} : body;
+            }).identity);
         assert(calls == failAt);
     }
     for (unsigned cancelAt : {0U, 1U, 2U}) {
         calls = 0;
         cancellation->store(cancelAt == 0);
         assert(!DesktopHttpTransport(config).accountIdentity(
-            [&](const DesktopHttpConfig& request, std::string_view path) -> std::optional<std::string> {
+            [&](const DesktopHttpConfig& request, std::string_view path) -> IdentityResponse {
                 const auto body = get(request, path);
                 if (calls == cancelAt) cancellation->store(true);
                 return body;
-            }));
+            }).identity);
         assert(calls == cancelAt);
         cancellation->store(false);
     }
@@ -185,32 +187,65 @@ void testWorkspaceBootstrap() {
         "{\"user_id\":\"" + owner.userId + "\",\"workspace_id\":\"" + owner.workspaceId + "\",\"active_session_id\":null}"}) {
         calls = 0;
         assert(!DesktopHttpTransport(config).accountIdentity(
-            [&](const DesktopHttpConfig& request, std::string_view path) -> std::optional<std::string> {
+            [&](const DesktopHttpConfig& request, std::string_view path) -> IdentityResponse {
                 const auto body = get(request, path);
-                return calls == 2 ? invalidMe : body;
-            }));
+                return calls == 2 ? IdentityResponse{200, invalidMe} : body;
+            }).identity);
     }
     calls = 0;
     assert(!DesktopHttpTransport(config).accountIdentity(
-        [&](const auto&, auto) -> std::optional<std::string> { ++calls; return "{\"spaces\":[]}"; }));
+        [&](const auto&, auto) -> IdentityResponse { ++calls; return {200, "{\"spaces\":[]}"}; }).identity);
     assert(calls == 1);
     config.workspaceId = owner.workspaceId;
     calls = 0;
     assert(DesktopHttpTransport(config).accountIdentity(
-        [&](const DesktopHttpConfig& request, std::string_view path) -> std::optional<std::string> {
+        [&](const DesktopHttpConfig& request, std::string_view path) -> IdentityResponse {
             ++calls;
             assert(path == "/api/v1/auth/me" && request.workspaceId == owner.workspaceId && request.deviceId.empty());
-            return meResponse(owner.userId, owner.workspaceId);
-        }));
+            return {200, meResponse(owner.userId, owner.workspaceId)};
+        }).identity);
     assert(calls == 1);
     config.workspaceId = "invalid";
     calls = 0;
-    assert(!DesktopHttpTransport(config).accountIdentity(get) && calls == 0);
+    assert(!DesktopHttpTransport(config).accountIdentity(get).identity && calls == 0);
     config.workspaceId.clear();
-    assert(!DesktopHttpTransport(config).accountIdentity(DesktopHttpTransport::IdentityGet{}));
+    assert(!DesktopHttpTransport(config).accountIdentity(DesktopHttpTransport::IdentityGet{}).identity);
     config.sessionToken.clear();
     calls = 0;
-    assert(!DesktopHttpTransport(config).accountIdentity(get) && calls == 0);
+    assert(!DesktopHttpTransport(config).accountIdentity(get).identity && calls == 0);
+}
+
+void testIdentityFailures() {
+    using namespace graf::windows;
+    using Response = DesktopHttpTransport::IdentityResponse;
+    DesktopHttpConfig config;
+    config.sessionToken = "synthetic-session";
+    const auto spaces = "{\"spaces\":[{\"id\":\"" + owner.workspaceId + "\",\"active\":true}]}";
+    // Both bootstrap steps must retain the distinction between network/server
+    // failure and a missing/revoked session. A valid body cannot override status.
+    for (unsigned failAt : {1U, 2U}) {
+        for (unsigned status : {0U, 200U, 408U, 429U, 500U, 503U, 504U, 401U, 403U, 302U, 404U}) {
+            unsigned calls = 0;
+            const bool transportFailed = status == 0 || status == 200;
+            const auto result = DesktopHttpTransport(config).accountIdentity(
+                [&](const DesktopHttpConfig& request, std::string_view) -> Response {
+                    ++calls;
+                    assert(request.sessionToken == config.sessionToken && request.deviceId.empty());
+                    const auto body = calls == 1 ? spaces : meResponse(owner.userId, owner.workspaceId);
+                    return {calls == failAt ? status : 200, body, calls == failAt && transportFailed};
+                });
+            assert(!result.identity && calls == failAt);
+            const auto expected = transportFailed || status == 408 || status == 429 || status >= 500
+                ? DesktopTransportStatus::retryableFailure : DesktopTransportStatus::authRequired;
+            assert(result.status == expected);
+        }
+    }
+    unsigned calls = 0;
+    config.sessionToken.clear();
+    const auto missing = DesktopHttpTransport(config).accountIdentity([&](const auto&, auto) -> Response {
+        ++calls; return {200, meResponse(owner.userId, owner.workspaceId)};
+    });
+    assert(!missing.identity && missing.status == DesktopTransportStatus::authRequired && calls == 0);
 }
 
 std::string syncState(std::string_view status, std::string_view conflict,
@@ -266,6 +301,119 @@ std::size_t runWorker(graf::windows::DesktopUploadRecoveryScheduler& scheduler,
     std::size_t handled = 0;
     waitFor([&] { handled += scheduler.drain(); return !scheduler.busy(); });
     return handled;
+}
+
+void testManualRetry(const std::filesystem::path& root) {
+    using namespace graf::windows;
+    std::filesystem::create_directories(root / "package");
+    DesktopUploadQueueService queue(root / "queue.json", root);
+    assert(queue.load());
+    assert(queue.enqueue({"exhausted", "directory", "session", root / "package",
+        UploadQueueStatus::pending, {}, 0, "", owner.userId, owner.workspaceId}));
+    DesktopUploadRecoveryScheduler scheduler(queue);
+    for (unsigned attempt = 0; attempt < 8; ++attempt) {
+        assert(runWorker(scheduler, RecoveryTrigger::scheduled, [](const auto& item, auto) {
+            return DesktopTransportResult{DesktopTransportStatus::retryableFailure,
+                UploadServerTruth{item.localRecordingId, true, true, {11, 22, 33}, false}};
+        }) == 1);
+    }
+    // Manual retry must not revive another auth-blocked/exhausted item.
+    assert(queue.enqueue({"auth-blocked", "auth-directory", "auth-session", root / "package",
+        UploadQueueStatus::needsAuth, {}, 8, "account_mismatch", owner.userId, owner.workspaceId}));
+    assert(queue.enqueue({"other-exhausted", "other-directory", "other-session", root / "package",
+        UploadQueueStatus::retry, {}, 8, "transport_unavailable", owner.userId, owner.workspaceId}));
+    assert(queue.requestRetry("exhausted"));
+    assert(queue.items()[0].attempts == 0 && queue.items()[0].ownerUserId == owner.userId);
+    assert(queue.items()[0].ownerWorkspaceId == owner.workspaceId);
+    assert(runWorker(scheduler, RecoveryTrigger::scheduled, [](const auto& item, auto) {
+        assert((item.acceptedBytes == std::array<std::uint64_t, 3>{11, 22, 33}));
+        return DesktopTransportResult{DesktopTransportStatus::uploaded,
+            UploadServerTruth{item.localRecordingId, true, true, {11, 22, 33}, true}};
+    }) == 1);
+    assert(queue.items()[0].status == UploadQueueStatus::uploaded);
+    assert(queue.items()[1].status == UploadQueueStatus::needsAuth && queue.items()[1].attempts == 8);
+    assert(queue.items()[2].status == UploadQueueStatus::retry && queue.items()[2].attempts >= 8);
+    assert(!queue.requestRetry("exhausted") && !queue.requestRetry("unknown"));
+
+    // The selected row can follow more than one bounded batch of exhausted rows.
+    for (unsigned i = 0; i < 32; ++i) {
+        const auto id = "budget-" + std::to_string(i);
+        assert(queue.enqueue({id, id, id, root / "package", UploadQueueStatus::retry, {}, 8,
+            "retry_budget_exhausted", owner.userId, owner.workspaceId}));
+    }
+    assert(queue.enqueue({"selected", "selected", "selected", root / "package", UploadQueueStatus::needsAuth,
+        {}, 8, "auth_required", owner.userId, owner.workspaceId}));
+    assert(queue.requestRetry("selected"));
+    assert(runWorker(scheduler, RecoveryTrigger::scheduled, [](const auto& item, auto) {
+        assert(item.localRecordingId == "selected" && item.attempts == 0);
+        return DesktopTransportResult{DesktopTransportStatus::uploaded, std::nullopt};
+    }) == 1);
+}
+
+void testReplacementSessionKey() {
+    using namespace graf::windows;
+    UploadCustodyItem item{"local", "directory", "session", {}, UploadQueueStatus::retry, {}, 8, ""};
+    const auto first = DesktopHttpTransport::replacementUploadSessionKey(item, "expired-first");
+    assert(!first.empty() && first != DesktopApiClient::idempotencyKey("upload-session", item.directoryId, item.sessionId));
+    item.attempts = 0; // Explicit retry cannot replay the key of an expired session.
+    assert(DesktopHttpTransport::replacementUploadSessionKey(item, "expired-first") == first);
+    const auto second = DesktopHttpTransport::replacementUploadSessionKey(item, "expired-second");
+    assert(!second.empty() && second != first);
+    item.attempts = 7;
+    assert(DesktopHttpTransport::replacementUploadSessionKey(item, "expired-second") == second);
+    assert(DesktopHttpTransport::replacementUploadSessionKey(item, "").empty());
+    assert(DesktopHttpTransport::replacementUploadSessionKey(item, "../invalid").empty());
+    assert(DesktopHttpTransport::replacementUploadSessionKey(item, std::string(301, 's')).empty());
+    item.directoryId = "../invalid";
+    assert(DesktopHttpTransport::replacementUploadSessionKey(item, "expired-first").empty());
+}
+
+void testTransientIdentityRecovery(const std::filesystem::path& root) {
+    using namespace graf::windows;
+    std::filesystem::create_directories(root / "package");
+    DesktopUploadQueueService queue(root / "queue.json", root);
+    assert(queue.load());
+    assert(queue.enqueue({"identity-recovery", "directory", "session", root / "package", UploadQueueStatus::pending,
+        {11, 22, 33}, 0, "", owner.userId, owner.workspaceId}));
+    DesktopUploadRecoveryScheduler scheduler(queue);
+    DesktopHttpConfig config;
+    config.sessionToken = "synthetic-session";
+    config.workspaceId = owner.workspaceId; // AppMain already resolved the account.
+    unsigned httpStatus = 503, mediaCalls = 0, identityCalls = 0;
+    auto currentUser = owner.userId;
+    const auto worker = [&](const UploadCustodyItem& item, auto cancellation) {
+        config.cancellation = cancellation;
+        const auto result = DesktopHttpTransport(config).accountIdentity(
+            [&](const DesktopHttpConfig&, std::string_view path) -> DesktopHttpTransport::IdentityResponse {
+                ++identityCalls;
+                assert(path == "/api/v1/auth/me");
+                return {httpStatus, meResponse(currentUser, owner.workspaceId)};
+            });
+        const auto block = DesktopHttpTransport::ownerBlockReason(item, result.identity);
+        if (!block.empty()) return DesktopTransportResult{
+            result.identity ? DesktopTransportStatus::authRequired : result.status, std::nullopt, std::string(block)};
+        ++mediaCalls;
+        assert((item.acceptedBytes == std::array<std::uint64_t, 3>{11, 22, 33}));
+        return DesktopTransportResult{DesktopTransportStatus::uploaded, std::nullopt};
+    };
+    assert(runWorker(scheduler, RecoveryTrigger::scheduled, worker) == 1);
+    assert(queue.items()[0].status == UploadQueueStatus::retry && mediaCalls == 0);
+    httpStatus = 200;
+    assert(runWorker(scheduler, RecoveryTrigger::scheduled, worker) == 1);
+    assert(queue.items()[0].status == UploadQueueStatus::uploaded && mediaCalls == 1);
+
+    for (unsigned denied : {401U, 403U, 200U}) {
+        const auto id = "denied-" + std::to_string(denied);
+        assert(queue.enqueue({id, id, id, root / "package", UploadQueueStatus::pending,
+            {}, 0, "", owner.userId, owner.workspaceId}));
+        httpStatus = denied;
+        if (denied == 200) currentUser = owner.workspaceId; // Valid but different account.
+        assert(runWorker(scheduler, RecoveryTrigger::scheduled, worker) == 1);
+        assert(queue.items().back().status == UploadQueueStatus::needsAuth && mediaCalls == 1);
+        const auto before = identityCalls;
+        assert(!scheduler.startAsync(RecoveryTrigger::scheduled, worker));
+        assert(identityCalls == before && queue.items().back().attempts == 0);
+    }
 }
 
 void testOwnerRecovery(const std::filesystem::path& root) {
@@ -416,11 +564,15 @@ int main() {
     testSyncDecoder();
     testAccountIdentity();
     testWorkspaceBootstrap();
+    testIdentityFailures();
+    testReplacementSessionKey();
     const auto root = std::filesystem::temp_directory_path() /
         ("graf-feature-200-recovery-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     const auto path = root / "desktop-upload-queue.json";
     const auto package = root / "recording";
     std::filesystem::create_directories(package);
+    testManualRetry(root / "manual");
+    testTransientIdentityRecovery(root / "identity-recovery");
     testWorker(root / "worker");
     testOwnerRecovery(root / "owner");
     DesktopUploadQueueService queue(path, root); assert(queue.load());

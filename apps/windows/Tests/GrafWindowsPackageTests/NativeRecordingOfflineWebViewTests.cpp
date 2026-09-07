@@ -89,7 +89,7 @@ int main() {
         processor.fail = true;
         for (const auto source : {AudioSource::systemRender, AudioSource::microphone}) {
             assert(CaptureSessionTestPeer::push(capture,
-                {source, 48'000, 1, 480, 1, 1, false, std::vector<float>(480, 0.9F)}));
+                {source, 48'000, 1, 480, 1, 1, false, std::vector<float>(480, 0.9F), 480}));
         }
         assert(capture.pollHealth().state == SessionState::failed);
         assert(capture.finalization().trustedPrefixRetained);

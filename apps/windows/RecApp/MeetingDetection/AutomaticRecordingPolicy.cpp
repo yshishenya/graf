@@ -1,7 +1,6 @@
 #include "AutomaticRecordingPolicy.h"
 
 #include <algorithm>
-#include <charconv>
 #include <sstream>
 #include <utility>
 
@@ -13,7 +12,7 @@ namespace graf::windows {
 namespace {
 using namespace std::chrono_literals;
 constexpr std::size_t maximumPreferenceBytes = 64 * 1024;
-constexpr std::string_view preferencesHeader = "graf.automatic-recording.v1\n";
+constexpr std::string_view preferencesHeader = "graf.automatic-recording.v2\n";
 
 bool validPreference(AutomaticRecordingPreference value) {
     return value == AutomaticRecordingPreference::always || value == AutomaticRecordingPreference::ask ||
@@ -27,19 +26,7 @@ bool fresh(const TargetDetectionSnapshot& snapshot, DetectionClock::time_point n
 
 bool sameProcess(const TargetObservation& first, const TargetObservation& second) {
     return first.processId == second.processId && first.processCreatedAt == second.processCreatedAt &&
-        VerifiedTargetRegistry::preferenceKey(first.identity) == VerifiedTargetRegistry::preferenceKey(second.identity);
-}
-
-bool validKey(std::string_view key) {
-    const auto separator = key.find(':');
-    if (separator == std::string_view::npos || separator == 0 || separator > 10 ||
-        key.size() != separator + 130 || key[separator + 65] != ':') return false;
-    std::uint32_t version = 0;
-    const auto parsed = std::from_chars(key.data(), key.data() + separator, version);
-    if (parsed.ec != std::errc{} || parsed.ptr != key.data() + separator || version == 0 ||
-        std::to_string(version) != key.substr(0, separator)) return false;
-    return VerifiedTargetRegistry::validIdentity({std::string(key.substr(separator + 1, 64)),
-        std::string(key.substr(separator + 66, 64)), "Target", version});
+        VerifiedTargetRegistry::identityKey(first.identity) == VerifiedTargetRegistry::identityKey(second.identity);
 }
 } // namespace
 
@@ -54,10 +41,10 @@ std::string_view automaticRecordingPreferenceLabel(AutomaticRecordingPreference 
 
 AutomaticRecordingPreferenceStore AutomaticRecordingPreferenceStore::native() {
 #ifdef _WIN32
-    // Old global booleans never granted a target permission. Deliberately do not
-    // migrate/read them, and do not touch recordings, queue or package settings.
+    // The pre-catalog build could not save real V1 per-app rules. Leave V1 and
+    // old global flags untouched; neither grants permissions in this format.
     constexpr auto key = L"Software\\GRAF\\Windows\\MeetingDetection";
-    constexpr auto name = L"ApplicationRulesV1";
+    constexpr auto name = L"ApplicationRulesV2";
     return {
         [key, name]() -> std::optional<std::string> {
             DWORD bytes = 0;
@@ -101,7 +88,7 @@ AutomaticRecordingPolicy::AutomaticRecordingPolicy(const VerifiedTargetRegistry&
     std::map<std::string, AutomaticRecordingPreference> decoded;
     while (std::getline(input, line)) {
         const auto split = line.find('=');
-        if (split == std::string::npos || !validKey(std::string_view(line).substr(0, split))) return;
+        if (split == std::string::npos || !VerifiedTargetRegistry::validTargetKey(std::string_view(line).substr(0, split))) return;
         const auto value = line.substr(split + 1);
         if (value != "always" && value != "ask" && value != "never") return;
         if (!decoded.emplace(line.substr(0, split), value == "always" ? AutomaticRecordingPreference::always :
@@ -113,16 +100,16 @@ AutomaticRecordingPolicy::AutomaticRecordingPolicy(const VerifiedTargetRegistry&
 }
 
 AutomaticRecordingPreference AutomaticRecordingPolicy::preference(const VerifiedTargetIdentity& target) const {
-    if (!registry_.contains(target.executableFingerprint, target.publisherFingerprint, target.registryVersion))
+    if (!registry_.contains(target))
         return AutomaticRecordingPreference::ask;
-    const auto found = preferences_.find(VerifiedTargetRegistry::preferenceKey(target));
+    const auto found = preferences_.find(target.targetKey);
     return found == preferences_.end() ? AutomaticRecordingPreference::ask : found->second;
 }
 
 bool AutomaticRecordingPolicy::save(std::map<std::string, AutomaticRecordingPreference> updated) {
     std::string bytes(preferencesHeader);
     for (const auto& [key, value] : updated) {
-        if (!validKey(key) || !validPreference(value)) return false;
+        if (!VerifiedTargetRegistry::validTargetKey(key) || !validPreference(value)) return false;
         bytes += key + "=" + (value == AutomaticRecordingPreference::always ? "always" :
             value == AutomaticRecordingPreference::never ? "never" : "ask") + "\n";
     }
@@ -133,24 +120,28 @@ bool AutomaticRecordingPolicy::save(std::map<std::string, AutomaticRecordingPref
 }
 
 bool AutomaticRecordingPolicy::setPreference(const VerifiedTargetIdentity& target, AutomaticRecordingPreference value) {
-    if (!validPreference(value) || !registry_.contains(target.executableFingerprint, target.publisherFingerprint,
-                                                      target.registryVersion)) return false;
+    if (!validPreference(value) || !registry_.contains(target)) return false;
     auto updated = preferences_;
-    updated[VerifiedTargetRegistry::preferenceKey(target)] = value;
+    updated[target.targetKey] = value;
     return save(std::move(updated));
 }
 
 bool AutomaticRecordingPolicy::setAllPreferences(AutomaticRecordingPreference value) {
     if (!validPreference(value) || registry_.targets().empty()) return false;
     auto updated = preferences_;
-    for (const auto& target : registry_.targets()) updated[VerifiedTargetRegistry::preferenceKey(target)] = value;
+    for (const auto& target : registry_.targets()) updated[target.targetKey] = value;
     return save(std::move(updated));
 }
 
 AutomaticRecordingSettingsSnapshot AutomaticRecordingPolicy::settings() const {
     AutomaticRecordingSettingsSnapshot result;
     result.preferenceWriteFailed = preferenceWriteFailed_;
-    for (const auto& target : registry_.targets()) result.applications.push_back({target, preference(target)});
+    // ponytail: linear deduplication for at most 64 identities; index only if the catalog limit grows.
+    for (const auto& target : registry_.targets()) {
+        if (std::none_of(result.applications.begin(), result.applications.end(), [&](const auto& item) {
+            return item.target.targetKey == target.targetKey;
+        })) result.applications.push_back({target, preference(target)});
+    }
     if (!result.applications.empty()) {
         const auto first = result.applications.front().preference;
         if (std::all_of(result.applications.begin(), result.applications.end(), [first](const auto& item) {
@@ -176,7 +167,7 @@ std::uint32_t AutomaticRecordingPolicy::secondsRemaining(DetectionClock::time_po
 
 AutomaticRecordingDecision AutomaticRecordingPolicy::start(AutomaticStartReason reason, bool rememberChoice) {
     const auto saved = rememberChoice && setPreference(target_.identity, AutomaticRecordingPreference::always);
-    tracked_.at(VerifiedTargetRegistry::preferenceKey(target_.identity)).handled = true;
+    tracked_.at(VerifiedTargetRegistry::identityKey(target_.identity)).handled = true;
     state_ = AutomaticPromptState::started;
     return {state_, true, saved, reason};
 }
@@ -189,7 +180,7 @@ AutomaticRecordingDecision AutomaticRecordingPolicy::update(const TargetDetectio
     }
     for (const auto& item : snapshot.observations) {
         if (!WindowsTargetDetector::isPromptCandidate(item, registry_)) continue;
-        const auto key = VerifiedTargetRegistry::preferenceKey(item.identity);
+        const auto key = VerifiedTargetRegistry::identityKey(item.identity);
         auto [it, inserted] = tracked_.try_emplace(key, TrackedTarget{item, snapshot.observedAt, snapshot.observedAt, false});
         auto& tracked = it->second;
         if (!inserted && snapshot.observedAt < tracked.lastSeen) continue;
@@ -259,7 +250,7 @@ AutomaticRecordingDecision AutomaticRecordingPolicy::refuse(bool rememberChoice,
 void AutomaticRecordingPolicy::captureAccepted() {
     if (state_ != AutomaticPromptState::started || recordingTarget_) return;
     recordingTarget_ = target_.identity;
-    lastCaptureEvidenceAt_ = tracked_.at(VerifiedTargetRegistry::preferenceKey(*recordingTarget_)).lastSeen;
+    lastCaptureEvidenceAt_ = tracked_.at(VerifiedTargetRegistry::identityKey(*recordingTarget_)).lastSeen;
     lastCaptureSnapshotAt_ = lastCaptureEvidenceAt_;
     captureAbsentSince_.reset();
 }
@@ -277,9 +268,9 @@ bool AutomaticRecordingPolicy::shouldStopCapture(const TargetDetectionSnapshot& 
     } else if (snapshot.observedAt > lastCaptureSnapshotAt_) {
         if (snapshot.observedAt - lastCaptureSnapshotAt_ > 2s) captureAbsentSince_.reset();
         lastCaptureSnapshotAt_ = snapshot.observedAt;
-        const auto key = VerifiedTargetRegistry::preferenceKey(*recordingTarget_);
+        const auto key = VerifiedTargetRegistry::identityKey(*recordingTarget_);
         const bool present = std::any_of(snapshot.observations.begin(), snapshot.observations.end(), [&](const auto& item) {
-            return VerifiedTargetRegistry::preferenceKey(item.identity) == key &&
+            return VerifiedTargetRegistry::identityKey(item.identity) == key &&
                 WindowsTargetDetector::isPromptCandidate(item, registry_);
         });
         if (present) {

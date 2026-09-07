@@ -9,10 +9,13 @@
 #include <functional>
 #include <chrono>
 #include <atomic>
+#include <condition_variable>
+#include <deque>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
+#include <thread>
 
 namespace graf::windows {
 
@@ -53,14 +56,20 @@ public:
     [[nodiscard]] const WindowsDesktopSession& session() const noexcept { return session_; }
     [[nodiscard]] const RecordingIndicator& indicator() const noexcept { return indicator_; }
     [[nodiscard]] const CaptureFinalization& finalization() const noexcept { return finalization_; }
+    [[nodiscard]] CaptureClockDiagnostics clockDiagnostics(AudioSource source) const noexcept;
 
 private:
     friend struct CaptureSessionTestPeer;
     [[nodiscard]] bool startWorkers();
     [[nodiscard]] ReasonCode captureFailureReason() const noexcept;
     void stopWorkers() noexcept;
+    [[nodiscard]] bool enqueueBatch(AudioBatch batch);
+    void dispatchLoop() noexcept;
+    void requestDispatcherStop() noexcept;
+    void joinDispatcher() noexcept;
     [[nodiscard]] TransitionResult finishStop();
     [[nodiscard]] bool handleBatch(AudioBatch batch);
+    [[nodiscard]] bool processBatch(AudioBatch batch);
     void latchFault(ReasonCode reason) noexcept;
 
     WindowsDesktopSession session_;
@@ -76,6 +85,14 @@ private:
     std::atomic_bool acceptingBatches_{false};
     std::atomic<ReasonCode> captureFault_{ReasonCode::none};
     std::mutex captureMutex_;
+    static constexpr std::size_t maxPendingBatches_ = 256;
+    std::mutex dispatchMutex_;
+    std::condition_variable dispatchCondition_;
+    std::deque<AudioBatch> pendingBatches_;
+    std::thread dispatchThread_;
+    std::atomic_bool dispatchFinished_{true};
+    std::atomic_bool dispatchBusy_{false};
+    bool dispatchStopRequested_ = false;
 };
 
 } // namespace graf::windows

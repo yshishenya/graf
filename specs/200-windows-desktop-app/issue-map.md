@@ -75,3 +75,4 @@
 - [T082](https://github.com/yshishenya/graf/issues/6639)
 - [T083](https://github.com/yshishenya/graf/issues/6640)
 - [T084](https://github.com/yshishenya/graf/issues/6641)
+- [T085](https://github.com/yshishenya/graf/issues/6781)

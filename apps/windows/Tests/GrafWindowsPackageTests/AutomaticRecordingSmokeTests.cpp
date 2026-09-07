@@ -21,7 +21,7 @@ int main(int argc, char** argv) {
     }
     if (argc == 4 && std::string_view(argv[1]) == "--observe-target") {
         VerifiedTargetRegistry approved;
-        if (!approved.registerTarget({argv[2], argv[3], "Approved test installation", 1})) return 2;
+        if (!approved.registerTarget({argv[2], argv[3], "Approved test installation", 1, "approved_test"})) return 2;
         const auto observed = WindowsTargetDetector::snapshot(approved);
         std::cout << "native_snapshot_status=" << static_cast<unsigned>(observed.status)
                   << "; verified_active_targets=" << observed.observations.size() << '\n';
@@ -29,6 +29,30 @@ int main(int argc, char** argv) {
     }
     if (argc != 1) return 2;
     using P = AutomaticRecordingPreference;
+    // Preferences follow a product update; a countdown/recording still follows
+    // the exact approved image. Neither can substitute another approved version.
+    for (bool active : {false, true}) {
+        VerifiedTargetRegistry versions;
+        auto newer = target('c', 'd', 2);
+        newer.targetKey = target().targetKey;
+        assert(versions.registerTarget(target()));
+        assert(versions.registerTarget(newer));
+        Preferences local;
+        AutomaticRecordingPolicy policy(versions, local.store());
+        assert(observeFor(policy, 0, 5).state == AutomaticPromptState::countdown);
+        if (!active) {
+            assert(!policy.recordNow(true, snapshot(at(6s), newer), ready(), at(6s)).shouldStart);
+            assert(local.writes == 0);
+            continue;
+        }
+        assert(policy.recordNow(false, snapshot(at(6s)), ready(), at(6s)).shouldStart);
+        policy.captureAccepted();
+        for (int second = 7; second <= 22; ++second) {
+            const auto now = at(std::chrono::seconds(second));
+            assert(policy.shouldStopCapture(snapshot(now, newer), true, now) == (second == 22));
+        }
+        assert(local.writes == 0);
+    }
     VerifiedTargetRegistry registry;
     assert(registry.registerTarget(target()));
     Preferences storage;

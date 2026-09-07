@@ -1,6 +1,7 @@
 #pragma once
 
 #include "AudioTypes.h"
+#include "ClockMapper.h"
 #include "WasapiEndpointEnumerator.h"
 
 #include <cstddef>
@@ -12,6 +13,8 @@
 
 namespace graf::windows {
 
+class AudioNormalizer;
+
 enum class CaptureWorkerError {
     none,
     alreadyRunning,
@@ -20,6 +23,7 @@ enum class CaptureWorkerError {
     initializationFailed,
     deviceInvalidated,
     bufferOverflow,
+    clockDiscontinuity,
     unsupportedPlatform,
 };
 
@@ -48,9 +52,14 @@ public:
     [[nodiscard]] bool finished() const noexcept;
     [[nodiscard]] bool running() const noexcept;
     [[nodiscard]] CaptureWorkerError lastError() const noexcept;
+    [[nodiscard]] CaptureClockDiagnostics clockDiagnostics() const noexcept;
 
 private:
     friend struct CaptureSessionTestPeer;
+    // The device loop and packet regressions share copy/release/normalization.
+    [[nodiscard]] bool consumePacket(ClockMapper& mapper, AudioNormalizer& normalizer,
+        ClockObservation packet, const void* data, std::uint16_t channels, bool float32,
+        const std::function<bool(std::uint32_t)>& releaseBuffer);
 #ifdef _WIN32
     [[nodiscard]] static std::wstring utf8ToWide(const std::string& value);
 #endif

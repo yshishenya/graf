@@ -424,6 +424,8 @@ public:
         snapshot.durationMs = writer_->frameCount() * 10;
         snapshot.endpointIdentity = recordingEndpointIdentity_;
         snapshot.trustedPrefixRetained = controller_->finalization().trustedPrefixRetained;
+        snapshot.renderClock = controller_->clockDiagnostics(graf::windows::AudioSource::systemRender);
+        snapshot.microphoneClock = controller_->clockDiagnostics(graf::windows::AudioSource::microphone);
         lastDiagnostics_ = graf::windows::MetadataSafeDiagnostics::serialize(snapshot);
         diagnosticsSessionId_ = sessionId_;
     }
@@ -455,8 +457,8 @@ public:
         if (!item || scheduler_.busy() || item->status == graf::windows::UploadQueueStatus::uploaded ||
             item->status == graf::windows::UploadQueueStatus::quarantined || !currentAccount_ ||
             item->ownerUserId != currentAccount_->userId || item->ownerWorkspaceId != currentAccount_->workspaceId) return false;
-        if (!queue_.markRetry(id, "manual_retry")) return false;
-        recover(graf::windows::RecoveryTrigger::authRecovered);
+        if (!queue_.requestRetry(id)) return false;
+        recover(graf::windows::RecoveryTrigger::scheduled);
         return true;
     }
     graf::windows::LocalCopyRemovalResult removeLocalCopy(std::string_view id, HWND owner) {
@@ -1270,7 +1272,11 @@ private:
             switch (item.status) {
             case Status::pending: row.status = "Ожидает отправки"; break;
             case Status::uploading: row.status = "Отправляется"; break;
-            case Status::retry: row.status = "Ожидает повторной отправки"; break;
+            case Status::retry:
+                row.status = item.safeReason == "retry_budget_exhausted"
+                    ? "Автоматические повторы остановлены · нажмите «Отправить»"
+                    : "Ожидает повторной отправки";
+                break;
             case Status::needsAuth:
                 row.status = item.safeReason == "local_owner_unclaimed" ? "Подтвердите аккаунт для отправки" :
                     item.safeReason == "account_mismatch" ? "Нужен исходный аккаунт записи" :
@@ -1605,9 +1611,9 @@ private:
 
     void startAutomaticRecording(const graf::windows::AutomaticRecordingDecision& decision) {
         if (!decision.shouldStart || !automaticPrerequisites().allowsStart()) return;
-        const auto key = graf::windows::VerifiedTargetRegistry::preferenceKey(automaticPolicy_.target());
+        const auto key = graf::windows::VerifiedTargetRegistry::identityKey(automaticPolicy_.target());
         const auto target = std::find_if(detectionSnapshot_.observations.begin(), detectionSnapshot_.observations.end(), [&](const auto& item) {
-            return graf::windows::VerifiedTargetRegistry::preferenceKey(item.identity) == key &&
+            return graf::windows::VerifiedTargetRegistry::identityKey(item.identity) == key &&
                 graf::windows::WindowsTargetDetector::isPromptCandidate(item, verifiedTargets_);
         });
         if (target == detectionSnapshot_.observations.end() || !ensureRecordingIndicator()) return;
@@ -1623,7 +1629,7 @@ private:
 
     void updateAutomaticPrompt() {
         const auto view = graf::windows::AutomaticRecordingPrompt::view(automaticPolicy_);
-        const auto key = graf::windows::VerifiedTargetRegistry::preferenceKey(automaticPolicy_.target());
+        const auto key = graf::windows::VerifiedTargetRegistry::identityKey(automaticPolicy_.target());
         if (automaticPromptWindow_ && automaticPromptTargetKey_ != key) automaticPromptWindow_.Close();
         if (!view.visible) {
             if (automaticPromptWindow_) automaticPromptWindow_.Close();
@@ -1657,7 +1663,7 @@ private:
             auto start = styledButton(std::wstring(winrt::to_hstring(view.primaryAction).c_str()), true);
             start.Click([this, generation, key](auto const&, auto const&) {
                 if (!automaticPromptWindow_ || automaticPromptGeneration_ != generation || automaticPolicy_.state() != graf::windows::AutomaticPromptState::countdown ||
-                    graf::windows::VerifiedTargetRegistry::preferenceKey(automaticPolicy_.target()) != key) return;
+                    graf::windows::VerifiedTargetRegistry::identityKey(automaticPolicy_.target()) != key) return;
                 const auto checked = rememberAutomaticChoice_.IsChecked();
                 const auto decision = automaticPolicy_.recordNow(checked && checked.Value(), detectionSnapshot_, automaticPrerequisites());
                 automaticPreferenceError_ = automaticPolicy_.settings().preferenceWriteFailed;
@@ -1668,7 +1674,7 @@ private:
             auto refuse = styledButton(std::wstring(winrt::to_hstring(view.secondaryAction).c_str()));
             refuse.Click([this, generation, key](auto const&, auto const&) {
                 if (!automaticPromptWindow_ || automaticPromptGeneration_ != generation || automaticPolicy_.state() != graf::windows::AutomaticPromptState::countdown ||
-                    graf::windows::VerifiedTargetRegistry::preferenceKey(automaticPolicy_.target()) != key) return;
+                    graf::windows::VerifiedTargetRegistry::identityKey(automaticPolicy_.target()) != key) return;
                 const auto checked = rememberAutomaticChoice_.IsChecked();
                 (void)automaticPolicy_.refuse(checked && checked.Value());
                 automaticPreferenceError_ = automaticPolicy_.settings().preferenceWriteFailed;
@@ -1682,7 +1688,7 @@ private:
             automaticPromptWindow_.Closed([this, generation, key](auto const&, auto const&) {
                 if (automaticPromptGeneration_ != generation) return;
                 if (automaticPolicy_.state() == graf::windows::AutomaticPromptState::countdown &&
-                    graf::windows::VerifiedTargetRegistry::preferenceKey(automaticPolicy_.target()) == key) automaticPolicy_.cancel();
+                    graf::windows::VerifiedTargetRegistry::identityKey(automaticPolicy_.target()) == key) automaticPolicy_.cancel();
                 automaticPromptWindow_ = nullptr;
                 automaticPromptText_ = nullptr;
                 rememberAutomaticChoice_ = nullptr;
@@ -2079,7 +2085,7 @@ private:
     ULONGLONG lastStateTick_ = 0;
     bool exitRequested_ = false;
     ULONGLONG lastUploadRecovery_ = 0;
-    graf::windows::VerifiedTargetRegistry verifiedTargets_;
+    graf::windows::VerifiedTargetRegistry verifiedTargets_{graf::windows::VerifiedTargetRegistry::bundled()};
     graf::windows::AutomaticRecordingPolicy automaticPolicy_{verifiedTargets_};
     Window automaticPromptWindow_{nullptr};
     TextBlock automaticPromptText_{nullptr};

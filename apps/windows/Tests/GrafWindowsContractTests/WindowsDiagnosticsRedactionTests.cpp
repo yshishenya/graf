@@ -17,12 +17,15 @@ class GroupedNumbers final : public std::numpunct<char> {
 int main() {
     using namespace graf::windows;
     const MetadataSnapshot sample{"2026.09.06.1", "10.0.26200.9168", "x64", SessionState::failed,
-        ReasonCode::clockDiscontinuity, 100, 97, 970, "ep_C:\\private\\endpoint", true};
+        ReasonCode::clockDiscontinuity, 100, 97, 970, "ep_C:\\private\\endpoint", true,
+        {480, ClockFault::clockDrift}, {441, ClockFault::sampleCountMismatch}};
     const auto json = MetadataSafeDiagnostics::serialize(sample);
     assert(json == "{\"app_version\":\"2026.09.06.1\",\"os_build\":\"10.0.26200.9168\","
         "\"architecture\":\"x64\",\"state\":\"failed\",\"reason_code\":\"clock_discontinuity\","
         "\"processed_blocks\":100,\"written_blocks\":97,\"duration_ms\":970,"
-        "\"endpoint_fingerprint\":\"ep_22d61c6cfc6f3f20\",\"trusted_prefix_retained\":true}");
+        "\"endpoint_fingerprint\":\"ep_22d61c6cfc6f3f20\",\"trusted_prefix_retained\":true,"
+        "\"render_startup_discarded_frames\":480,\"microphone_startup_discarded_frames\":441,"
+        "\"render_clock_fault\":\"clock_drift\",\"microphone_clock_fault\":\"sample_count_mismatch\"}");
     assert(json.find("dropped_frames") == std::string::npos);
     assert(json.find("overflow_count") == std::string::npos);
 
@@ -79,6 +82,7 @@ int main() {
     snapshot.processedBlocks = snapshot.writtenBlocks = snapshot.durationMs = std::numeric_limits<std::uint64_t>::max();
     snapshot.state = SessionState::checkingReadiness;
     snapshot.reason = ReasonCode::formatNormalizationUnavailable;
+    snapshot.renderClock = snapshot.microphoneClock = {4'800, ClockFault::sampleCountMismatch};
     const auto maximum = MetadataSafeDiagnostics::serialize(snapshot);
     assert(maximum.find("\"app_version\":\"" + std::string(32, '9') + "\"") != std::string::npos);
     assert(maximum.find("\"os_build\":\"" + std::string(32, '9') + "\"") != std::string::npos);
@@ -86,6 +90,7 @@ int main() {
     assert(maximum.find("\"written_blocks\":18446744073709551615") != std::string::npos);
     assert(maximum.find("\"duration_ms\":18446744073709551615") != std::string::npos);
     assert(maximum.size() <= 1024);
+    assert(maximum.find("\"render_startup_discarded_frames\":4800,\"microphone_startup_discarded_frames\":4800") != std::string::npos);
     const auto previousLocale = std::locale::global(std::locale(std::locale::classic(), new GroupedNumbers));
     assert(MetadataSafeDiagnostics::serialize(snapshot) == maximum);
     std::locale::global(previousLocale);
@@ -103,9 +108,25 @@ int main() {
     const auto empty = MetadataSafeDiagnostics::serialize({});
     assert(empty.find("\"processed_blocks\":0,\"written_blocks\":0,\"duration_ms\":0") != std::string::npos);
     assert(empty.find("\"trusted_prefix_retained\":false") != std::string::npos);
+    assert(empty.find("\"render_startup_discarded_frames\":0,\"microphone_startup_discarded_frames\":0") != std::string::npos);
+    assert(empty.find("\"render_clock_fault\":\"none\",\"microphone_clock_fault\":\"none\"") != std::string::npos);
+    for (const auto fault : {ClockFault::none, ClockFault::invalidPacket, ClockFault::timestampError,
+                            ClockFault::discontinuity, ClockFault::nonMonotonic,
+                            ClockFault::sampleCountMismatch, ClockFault::clockDrift}) {
+        const char* names[]{"none", "invalid_packet", "timestamp_error", "discontinuity",
+                            "non_monotonic", "sample_count_mismatch", "clock_drift"};
+        snapshot.renderClock.fault = snapshot.microphoneClock.fault = fault;
+        const auto output = MetadataSafeDiagnostics::serialize(snapshot);
+        const std::string name = names[static_cast<int>(fault)];
+        assert(output.find("\"render_clock_fault\":\"" + name + "\"") != std::string::npos);
+        assert(output.find("\"microphone_clock_fault\":\"" + name + "\"") != std::string::npos);
+    }
     snapshot.state = static_cast<SessionState>(-1);
     snapshot.reason = static_cast<ReasonCode>(-1);
+    snapshot.renderClock = snapshot.microphoneClock = {std::numeric_limits<std::uint32_t>::max(), static_cast<ClockFault>(-1)};
     const auto unknown = MetadataSafeDiagnostics::serialize(snapshot);
     assert(unknown.find("\"state\":\"unknown\",\"reason_code\":\"unknown\"") != std::string::npos);
+    assert(unknown.find("\"render_clock_fault\":\"unknown\",\"microphone_clock_fault\":\"unknown\"") != std::string::npos);
+    assert(unknown.find("\"render_startup_discarded_frames\":0,\"microphone_startup_discarded_frames\":0") != std::string::npos);
     return 0;
 }

@@ -85,6 +85,13 @@ PTS and route generation.
 
 ## 4. RecordingAudioBatch
 
+До публикации batch ClockMapper получает полные битовые flags WASAPI. Только
+первый непустой пакет новой сессии с flags=0x1 может быть отброшен по контракту
+§5; он не задаёт origin/фазу/offset. Worker отдельно хранит счётчик успешно
+освобождённых стартовых кадров (0..4800) и типизированный clock fault.
+В MetadataSnapshot это две пары `render_*`/`microphone_*` полей, не часть
+сохраняемого v5/v2. Чтение итоговой сводки происходит после завершения workers.
+
 Each source producer publishes a bounded value to its queue:
 
 ```text
@@ -93,11 +100,12 @@ samples                 # in-memory float samples; never persisted as metadata
 source_frame_count
 source_sample_rate
 source_channel_count
-presentation_timestamp  # qpc/device-derived timestamp
+presentation_timestamp  # full WASAPI QPC before normalization; canonical frames after it
 clock_domain
 device_position_frames  # optional WASAPI position
-qpc_ticks               # optional packet QPC position
-qpc_frequency           # process-cached frequency reference
+qpc_100ns               # optional packet QPC; fixed 100-ns units from GetBuffer
+audio_clock_position    # IAudioClock position for packet continuity
+audio_clock_frequency   # IAudioClock frequency; fixed for the worker route
 route_generation
 discontinuity            # none | device_changed | clock_changed | overflow |
                          # invalid_timestamp | service_interrupted
@@ -112,6 +120,18 @@ Invariants:
 - queue capacity and maximum reorder window are finite and covered by tests;
 - the timeline emits only canonical 480-sample pairs to AEC3.
 
+Для Windows worker `audio_clock_position` и `audio_clock_frequency` берутся
+из `IAudioClock::GetPosition/GetFrequency` и являются проверяемой шкалой
+непрерывности пакетов. `device_position_frames` сохраняется только как
+монотонная наблюдаемая метка: при endpoint/engine resampling её delta может
+отличаться от `source_frame_count`. `qpc_100ns` нужен для общей начальной
+привязки двух источников; производная PTS не зависит от задержки callback.
+
+T085: device position is a per-stream integrity observation, never the common
+presentation origin. Source-normalization phase follows submitted samples;
+presentation timestamps retain QPC offset separately. The bounded drift
+envelope and ±48-frame interpolation/overlap rules are defined in contract §5.
+
 ## 5. RecordingAudioTimeline
 
 The timeline is the only alignment owner.
@@ -124,8 +144,6 @@ The timeline is the only alignment owner.
 | `system_queue` / `microphone_queue` | bounded normalized batches |
 | `active_route_generations` | current system/microphone generation pair |
 | `last_emitted_frame` | canonical frame index |
-| `reorder_window_frames` | `48_000` canonical frames (1 s at 48 kHz) |
-| `max_known_gap_seconds` | `15` seconds, matching the current macOS timeline default |
 | `max_buffered_frames_per_source` | `960_000` canonical frames (20 s at 48 kHz) |
 | `max_clock_recovery_frames_per_batch` | `48` canonical frames (1 ms at 48 kHz) |
 | `dropped_frame_count` | diagnostic counter |
@@ -140,11 +158,11 @@ The timeline calls AEC3 in the fixed order `system/reference` then
 component and sends canonical chunks to the writer. It never returns raw
 microphone samples as a normal artifact.
 
-These starting bounds are deliberately copied from the active macOS
-`RecordingAudioTimelineConfiguration` and `BufferedLocalRecordingSampleSource`
-defaults. A Windows change requires synthetic evidence for latency, memory,
-overflow and duration; it must not silently choose an unbounded queue or a new
-gap-recovery policy.
+The buffer and correction bounds follow macOS defaults. T085 removes unused
+reorder/15-second gap fields from Windows: workers deliver packets in source
+order, and a gap above 48 fails the normal segment. Independent source arrival
+order is retained. Synthetic evidence must cover latency, memory, overflow,
+duration and common-start prefix disposal; queues cannot grow without bound.
 
 ## 6. LocalRecordingPackage
 
@@ -280,8 +298,9 @@ This is a local model, not a new server or manifest field.
 - Галочка и оставшееся время относятся к текущему вопросу, а не к четвёртому
   значению настройки. `Для всех приложений` меняет только известные приложения;
   `Разные` вычисляется для отображения и не сохраняется как значение.
-- Локальные настройки относятся к текущему пользователю/рабочему пространству/
-  устройству. Изменение видно и обратимо в настройках; оно не даёт разрешения
+- Локальные настройки относятся к текущему пользователю Windows на устройстве,
+  как локальные правила macOS; серверное пространство ими не управляет.
+  Изменение видно и обратимо в настройках; оно не даёт разрешения
   записывать любое системное аудио и не блокирует разрешённый ручной Record.
 - Сеть и серверное подтверждение настройки не нужны. При старте всё равно
   проверяются идентичность приложения, текущая встреча, разрешения, устройства,
@@ -309,6 +328,20 @@ AutomaticRecordingPolicy: точная identity цели принятого ст
 потоков. Пороги — 2 секунды свежести, 15 секунд отсутствия, 600 секунд без
 положительного подтверждения. Ручной Stop/Record и завершение capture очищают
 это слежение, но не меняют сохранённый выбор пользователя.
+
+`target_key` — постоянный ID общего продуктового каталога, ASCII
+`[a-z][a-z0-9_]{0,63}`. Это ключ настройки, не доказательство доверия. Точная
+identity включает хеш EXE, сертификата и ревизию; membership дополнительно
+сверяет её target_key. Несколько identity могут принадлежать одному продукту,
+один EXE не может принадлежать разным продуктам. Название одного продукта
+однозначно; настройки группируются по target_key.
+
+Формат правил `graf.automatic-recording.v2`/HKCU `ApplicationRulesV2` сохраняет
+значения по target_key без изменения при обновлении подтверждённых identity.
+Неизвестные текущему каталогу ключи сохраняются для будущего восстановления,
+но не разрешают неподтверждённый EXE. Дорелизный V1 не читается и не удаляется:
+пустой production registry не мог сохранить реальные per-app правила; это
+подтверждено кодом и отсутствием значения V1 на проверяемой Windows.
 
 ## 10. CaptureHealth and reason codes
 

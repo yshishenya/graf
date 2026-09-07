@@ -21,8 +21,6 @@ enum class TimelineFault {
 };
 
 struct TimelineLimits {
-    std::size_t reorderWindowFrames = 48'000;
-    std::size_t knownGapFrames = 48'000 * 15;
     std::size_t maxBufferedFrames = 960'000;
     std::size_t clockRecoveryFrames = 48;
 };
@@ -55,9 +53,21 @@ public:
     [[nodiscard]] TimelineFault fault() const noexcept { return fault_; }
     [[nodiscard]] std::uint64_t processedFrames() const noexcept { return processedFrames_; }
     [[nodiscard]] std::int64_t nextFramePts() const noexcept { return nextFramePts_; }
+    [[nodiscard]] std::uint64_t trimmedFrames(AudioSource source) const noexcept {
+        return source == AudioSource::systemRender ? system_.trimmedFrames : microphone_.trimmedFrames;
+    }
 
 private:
     using SampleStore = std::map<std::int64_t, float>;
+    struct SourceState {
+        SampleStore samples;
+        std::uint64_t nextNormalizedOffset = 0;
+        std::uint64_t trimmedFrames = 0;
+        std::int64_t endPts = -1;
+        float lastSample = 0.0F;
+        std::uint64_t routeGeneration = 0;
+        std::uint16_t channels = 0;
+    };
 
     [[nodiscard]] bool normalizeAndStore(AudioBatch&& batch);
     void drain();
@@ -66,14 +76,11 @@ private:
 
     IAec3Processor& processor_;
     TimelineLimits limits_;
-    SampleStore systemSamples_;
-    SampleStore microphoneSamples_;
+    SourceState system_;
+    SourceState microphone_;
     std::vector<CanonicalAudioFrame> frames_;
-    std::int64_t lastSystemPts_ = -1;
-    std::int64_t lastMicrophonePts_ = -1;
+    std::int64_t commonStartPts_ = -1;
     std::int64_t nextFramePts_ = -1;
-    std::uint64_t systemRouteGeneration_ = 0;
-    std::uint64_t microphoneRouteGeneration_ = 0;
     std::uint64_t clockDomain_ = 0;
     std::uint64_t processedFrames_ = 0;
     bool microphonePaused_ = false;

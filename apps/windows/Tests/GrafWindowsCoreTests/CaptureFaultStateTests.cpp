@@ -1,4 +1,5 @@
 #include "../../RecApp/Audio/ClockMapper.h"
+#include "../../RecApp/Audio/AudioNormalizer.h"
 #include "../../RecApp/Capture/WindowsCaptureSessionController.h"
 
 #ifdef NDEBUG
@@ -21,6 +22,18 @@ namespace graf::windows {
 // Exercise the real controller's sink/Stop/polling without requiring a microphone.
 // Only acquisition is bypassed; production state, finalizer and worker errors run.
 struct CaptureSessionTestPeer {
+    template<class Run>
+    static void device(WasapiCaptureWorker& worker, Run run) { worker.deviceRunForTesting_ = std::move(run); }
+    static bool packet(WasapiCaptureWorker& worker, ClockMapper& mapper, AudioNormalizer& normalizer,
+        ClockObservation packet, const void* data, const std::function<bool(std::uint32_t)>& release) {
+        return worker.consumePacket(mapper, normalizer, packet, data, 1, true, release);
+    }
+    static bool packet(WindowsCaptureSessionController& controller, bool render,
+                       ClockMapper& mapper, AudioNormalizer& normalizer, ClockObservation observation) {
+        auto& worker = render ? controller.renderWorker_ : controller.microphoneWorker_;
+        return packet(*worker, mapper, normalizer, observation, reinterpret_cast<const void*>(1),
+            [](std::uint32_t frames) { assert(frames == 480); return true; });
+    }
 #ifdef _WIN32
     static std::wstring wideId(const std::string& value) { return WasapiCaptureWorker::utf8ToWide(value); }
     static std::string narrowId(const wchar_t* value) { return WasapiEndpointEnumerator::narrow(value); }
@@ -153,15 +166,126 @@ int main() {
     std::printf("Native endpoint ID roundtrips: %u (no capture)\n", roundtrips);
 #endif
     ClockMapper mapper;
-    assert(mapper.observe({0, 0, 48'000}).valid);
-    assert(mapper.observe({10'000'000, 48'000, 48'000}).valid);
-    assert(!mapper.observe({9'000'000, 48'000, 48'000}).valid);
+    // A discontinuous startup packet is not a usable clock origin. The next
+    // clean packet may have unrelated positions; only it starts the segment.
+    ClockMapper startupClock;
+    const auto discarded = startupClock.observe({900'000, 8'000, 48'000, ClockObservation::dataDiscontinuity, 480});
+    assert(!discarded.valid && discarded.discardStartup && discarded.fault == ClockFault::none);
+    assert(startupClock.healthy());
+    assert(startupClock.observe({100'000, 10, 48'000, 0, 480}).valid);
+    assert(mapper.observe({0, 0, 48'000, 0, 480}).valid);
+    assert(mapper.observe({100'000, 480, 48'000, 0, 480}).valid);
+    assert(mapper.observe({90'000, 960, 48'000, 0, 480}).fault == ClockFault::nonMonotonic);
     ClockMapper longRun;
-    assert(longRun.observe({1, 0, 48'000}).valid);
-    assert(longRun.observe({300'000'000'000'001ULL, 1'440'000'000'000ULL, 48'000}).valid);
-    ClockMapper nonDefaultFrequency(3'000'000);
-    assert(nonDefaultFrequency.observe({0, 0, 48'000}).valid);
-    assert(nonDefaultFrequency.observe({3'000'000, 48'000, 48'000}).valid);
+    assert(longRun.observe({300'000'000'000'001ULL, 1'440'000'000'000ULL, 48'000, 0, 480}).valid);
+    assert(longRun.observe({300'000'000'100'001ULL, 1'440'000'000'480ULL, 48'000, 0, 480}).valid);
+    // IAudioCaptureClient::GetBuffer has already converted QPC to 100 ns,
+    // including on the observed 24 MHz ARM64 host. Never scale it again.
+    ClockMapper wasapi;
+    ClockObservation packet;
+    packet.qpc100ns = 1'000'000'000;
+    packet.deviceFrames = 240;
+    packet.frameCount = 480;
+    assert(wasapi.observe(packet).valid);
+    packet.qpc100ns += 100'000;
+    packet.deviceFrames += 480;
+    const auto nextPacket = wasapi.observe(packet);
+    assert(nextPacket.valid && nextPacket.driftPpm == 0 && nextPacket.qpc100ns == 1'000'100'000);
+    packet.flags = ClockObservation::timestampError;
+    assert(!wasapi.observe(packet).valid && !wasapi.healthy());
+    wasapi.reset(2);
+    packet.flags = 0;
+    assert(wasapi.observe(packet).valid);
+    ClockMapper missingTimestamp;
+    packet.flags = ClockObservation::timestampError;
+    assert(!missingTimestamp.observe(packet).valid);
+
+    // Every first/next flag combination uses the same production decision.
+    for (std::uint32_t flags = 0; flags <= 8; ++flags) {
+        ClockMapper first;
+        const auto observation = first.observe({100'000, 10, 48'000, flags, 480});
+        assert(observation.valid == (flags == 0 || flags == ClockObservation::silent));
+        assert(observation.discardStartup == (flags == ClockObservation::dataDiscontinuity));
+        const auto fault = flags == 8 ? ClockFault::invalidPacket :
+            (flags & ClockObservation::timestampError) ? ClockFault::timestampError :
+            flags == 3 ? ClockFault::discontinuity : ClockFault::none;
+        assert(observation.fault == fault);
+        for (const auto initial : {0U, ClockObservation::dataDiscontinuity, ClockObservation::silent}) {
+            ClockMapper next;
+            (void)next.observe({100'000, 10, 48'000, initial, 480});
+            const auto second = next.observe({200'000, 490, 48'000, flags, 480});
+            assert(!second.discardStartup);
+            assert(second.valid == (flags == 0 || flags == ClockObservation::silent));
+            if (!second.valid) {
+                assert(!next.healthy());
+                assert(next.observe({300'000, 970, 48'000, 0, 480}).fault == second.fault);
+            }
+        }
+    }
+    for (const auto count : {0U, 4'801U}) {
+        ClockMapper invalid;
+        const auto result = invalid.observe({100'000, 10, 48'000, ClockObservation::dataDiscontinuity, count});
+        assert(!result.discardStartup && result.fault == ClockFault::invalidPacket);
+    }
+    for (const auto rate : {7'999U, 192'001U}) {
+        ClockMapper invalid;
+        assert(invalid.observe({100'000, 10, rate, 1, 480}).fault == ClockFault::invalidPacket);
+    }
+    ClockMapper changedRate;
+    assert(changedRate.observe({100'000, 10, 48'000, 1, 480}).discardStartup);
+    assert(changedRate.observe({200'000, 490, 44'100, 0, 441}).fault == ClockFault::invalidPacket);
+    ClockMapper mismatch, drift;
+    assert(mismatch.observe({100'000, 0, 48'000, 0, 482}).valid);
+    assert(mismatch.observe({201'522, 448, 48'000, 0, 487}).fault == ClockFault::sampleCountMismatch);
+    assert(drift.observe({100'000, 0, 48'000, 0, 480}).valid);
+    assert(drift.observe({250'000, 480, 48'000, 0, 480}).fault == ClockFault::clockDrift);
+
+    // Run the actual packet consumer inside the real worker thread. An invalid
+    // data pointer proves startup audio is never read; the release callback sees
+    // the full count, and failures cannot claim discarded or recorded frames.
+    for (const bool render : {false, true}) for (const bool releaseSucceeds : {false, true}) {
+        WasapiCaptureWorker worker({"synthetic", "Synthetic", render ? WasapiDataFlow::render : WasapiDataFlow::capture,
+                                    44'100, 1, true, true, 1}, render);
+        std::atomic_bool consumed{false};
+        AudioBatch output;
+        int releases = 0, callbacks = 0;
+        CaptureSessionTestPeer::device(worker, [&](const auto& running, auto&, const auto&) {
+            ClockMapper clock;
+            AudioNormalizer normalizer;
+            const auto release = [&](std::uint32_t frames) {
+                assert(frames == 441);
+                ++releases;
+                return releaseSucceeds;
+            };
+            assert(CaptureSessionTestPeer::packet(worker, clock, normalizer,
+                {900'000, 8'000, 44'100, 1, 441}, reinterpret_cast<const void*>(1), release) == releaseSucceeds);
+            assert(!worker.ready() && callbacks == 0 && normalizer.healthy());
+            assert(worker.clockDiagnostics().startupDiscardedFrames == (releaseSucceeds ? 441U : 0U));
+            const std::vector<float> samples(441, 0.25F);
+            assert(CaptureSessionTestPeer::packet(worker, clock, normalizer,
+                {100'000, 10, 44'100, 0, 441}, samples.data(), release) == releaseSucceeds);
+            if (releaseSucceeds) {
+                AudioNormalizer baseline;
+                AudioBatch expected, input;
+                input.sampleRate = 44'100; input.channels = 1;
+                input.clockDomain = input.routeGeneration = 1; input.samples = samples;
+                assert(baseline.normalize(std::move(input), 100'000, expected));
+                assert(callbacks == 1 && worker.ready());
+                assert(output.samples == expected.samples && output.ptsFrames == expected.ptsFrames);
+                assert(output.normalizedFrameOffset == 0);
+                assert(output.source == (render ? AudioSource::systemRender : AudioSource::microphone));
+            }
+            consumed.store(true);
+            while (running.load()) std::this_thread::yield();
+        });
+        assert(worker.start([&](AudioBatch batch) { ++callbacks; output = std::move(batch); return true; }) == CaptureWorkerError::none);
+        waitUntil([&] { return consumed.load(); });
+        assert(worker.ready() == releaseSucceeds && releases == 2);
+        assert(worker.lastError() == (releaseSucceeds ? CaptureWorkerError::none : CaptureWorkerError::deviceInvalidated));
+        worker.stop();
+        waitUntil([&] { return worker.finished(); });
+        assert(!worker.ready() && worker.clockDiagnostics().fault == ClockFault::none);
+    }
 
     // Regression: real worker error must not skip the finalizer, including startup.
     ReadinessInputs ready;
@@ -178,6 +302,56 @@ int main() {
     startup.setEndpoints({}, {});
     assert(startup.record(ready).state == SessionState::failed);
     assert(startup.stop().status == TransitionStatus::idempotent && startupFinalizations == 1);
+
+    // Discard alone never signals ready: with no usable data the original
+    // deadline still wins. A following fault also survives terminal snapshotting.
+    for (const bool clockFailure : {false, true}) {
+        std::atomic<int> discardedSources{0};
+        std::atomic_bool fail{false};
+        int finalized = 0;
+        WindowsCaptureSessionController controller("discard-startup", [](AudioBatch) {
+            assert(false); return false;
+        }, [&](ReasonCode reason) {
+            assert(reason == (clockFailure ? ReasonCode::clockDiscontinuity : ReasonCode::endpointInvalidated));
+            ++finalized;
+            return CaptureFinalization{false, reason};
+        });
+        const auto run = [&](bool render, const auto& running) {
+            ClockMapper mapper;
+            AudioNormalizer normalizer;
+            assert(CaptureSessionTestPeer::packet(controller, render, mapper, normalizer, {100'000, 0, 48'000, 1, 480}));
+            ++discardedSources;
+            while (running.load()) {
+                if (!render && fail.load()) {
+                    assert(!CaptureSessionTestPeer::packet(controller, render, mapper, normalizer, {200'000, 480, 48'000, 1, 480}));
+                    return;
+                }
+                std::this_thread::yield();
+            }
+        };
+        CaptureSessionTestPeer::devices(controller,
+            [&](const auto& running, auto&, const auto&) { run(true, running); },
+            [&](const auto& running, auto&, const auto&) { run(false, running); });
+        assert(controller.record(ready).state == SessionState::starting);
+        waitUntil([&] { return discardedSources.load() == 2; });
+        assert(controller.pollHealth().state == SessionState::starting);
+        assert(controller.indicator().snapshot().visible && controller.indicator().snapshot().stopAvailable);
+        if (clockFailure) {
+            fail.store(true);
+            waitUntil([&] { return CaptureSessionTestPeer::microphoneFinished(controller); });
+        } else CaptureSessionTestPeer::expireStartup(controller);
+        (void)controller.pollHealth();
+        waitUntil([&] { return CaptureSessionTestPeer::finished(controller); });
+        assert(controller.pollHealth().state == SessionState::failed && finalized == 1);
+        const auto render = controller.clockDiagnostics(AudioSource::systemRender);
+        const auto microphone = controller.clockDiagnostics(AudioSource::microphone);
+        assert(render.startupDiscardedFrames == 480 && microphone.startupDiscardedFrames == 480);
+        assert(render.fault == ClockFault::none);
+        assert(microphone.fault == (clockFailure ? ClockFault::discontinuity : ClockFault::none));
+        assert(!controller.indicator().snapshot().visible);
+        assert(controller.pollHealth().status == TransitionStatus::idempotent && finalized == 1);
+        assert(controller.clockDiagnostics(AudioSource::microphone).fault == microphone.fault);
+    }
 
     // Asynchronous two-endpoint startup, cancellation/deadline, and real worker
     // cleanup fences. The UI thread keeps ownership of the lease and finalizer.

@@ -54,10 +54,19 @@ public:
 
     [[nodiscard]] DesktopTransportResult upload(const UploadCustodyItem& item) const;
     [[nodiscard]] std::optional<DesktopAccountIdentity> accountIdentity() const;
-    // Read-only transport seam: returns a body only for a successful HTTP 200.
-    // The production overload supplies the existing bounded, no-redirect WinHTTP GET.
-    using IdentityGet = std::function<std::optional<std::string>(const DesktopHttpConfig&, std::string_view)>;
-    [[nodiscard]] std::optional<DesktopAccountIdentity> accountIdentity(const IdentityGet& get) const;
+    struct IdentityResponse {
+        std::uint32_t status = 0;
+        std::string body;
+        bool transportFailed = false;
+    };
+    struct IdentityResult {
+        std::optional<DesktopAccountIdentity> identity;
+        DesktopTransportStatus status = DesktopTransportStatus::authRequired;
+    };
+    // Read-only, bounded, no-redirect WinHTTP GET; retain HTTP/transport failure
+    // separately so an unavailable server does not require a new login.
+    using IdentityGet = std::function<IdentityResponse(const DesktopHttpConfig&, std::string_view)>;
+    [[nodiscard]] IdentityResult accountIdentity(const IdentityGet& get) const;
     [[nodiscard]] static std::optional<std::string> decodeActiveWorkspace(std::string_view json);
     [[nodiscard]] static std::optional<DesktopAccountIdentity> decodeAccountIdentity(std::string_view json);
     [[nodiscard]] static std::string_view ownerBlockReason(
@@ -66,6 +75,8 @@ public:
     // be tested without WinHTTP or a live recording/account.
     [[nodiscard]] static std::optional<DesktopRemoteUploadState> decodeSyncState(
         std::string_view json, std::string_view localRecordingId);
+    [[nodiscard]] static std::string replacementUploadSessionKey(
+        const UploadCustodyItem& item, std::string_view expiredSessionId);
 
 private:
     DesktopHttpConfig config_;

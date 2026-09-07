@@ -9,10 +9,11 @@ namespace graf::windows {
 AudioNormalizer::AudioNormalizer(std::size_t maxOutputFrames)
     : maxOutputFrames_(maxOutputFrames == 0 ? 1 : maxOutputFrames) {}
 
-bool AudioNormalizer::normalize(AudioBatch input, AudioBatch& output) {
+bool AudioNormalizer::normalize(AudioBatch input, std::uint64_t qpc100ns, AudioBatch& output) {
     output = {};
     if (!healthy_ || input.sampleRate < 8'000 || input.sampleRate > 192'000 || input.channels == 0 ||
-        input.channels > 32 || input.ptsFrames < 0 || input.routeGeneration == 0 || input.clockDomain == 0 ||
+        input.channels > 32 ||
+        input.routeGeneration == 0 || input.clockDomain == 0 || input.discontinuity ||
         input.samples.empty() || input.samples.size() % input.channels != 0) {
         fail();
         return false;
@@ -30,14 +31,21 @@ bool AudioNormalizer::normalize(AudioBatch input, AudioBatch& output) {
         }
     }
 
-    if (!initialized_ || input.discontinuity) {
+    if (!initialized_) {
         initialized_ = true;
         inputSampleRate_ = input.sampleRate;
-        nextInputPosition_ = static_cast<double>(input.ptsFrames);
-        havePreviousSample_ = false;
+        clockDomain_ = input.clockDomain;
+        routeGeneration_ = input.routeGeneration;
+        inputChannels_ = input.channels;
+        firstQpc_ = qpc100ns;
     } else if (input.sampleRate != inputSampleRate_ ||
-               static_cast<double>(input.ptsFrames) > nextInputPosition_ + 1.0 ||
-               static_cast<double>(input.ptsFrames) + 1.0 < nextInputPosition_) {
+               input.clockDomain != clockDomain_ || input.routeGeneration != routeGeneration_ ||
+               input.channels != inputChannels_ || qpc100ns <= lastQpc_) {
+        fail();
+        return false;
+    }
+    lastQpc_ = qpc100ns;
+    if (submittedFrames_ > (1ULL << 52) - sourceFrames) {
         fail();
         return false;
     }
@@ -50,17 +58,24 @@ bool AudioNormalizer::normalize(AudioBatch input, AudioBatch& output) {
         mono[frame] /= static_cast<float>(input.channels);
     }
 
-    const auto sourceStart = static_cast<double>(input.ptsFrames);
+    // Resampler phase follows samples, not a second interpretation of QPC.
+    const auto sourceStart = static_cast<double>(submittedFrames_);
     const auto sourceEnd = sourceStart + static_cast<double>(sourceFrames);
     const auto step = static_cast<double>(input.sampleRate) / targetSampleRate;
+    auto nextInputPosition = static_cast<double>(deliveredFrames_) * step;
     output.source = input.source;
     output.sampleRate = targetSampleRate;
     output.channels = 1;
     output.clockDomain = input.clockDomain;
     output.routeGeneration = input.routeGeneration;
     output.discontinuity = input.discontinuity;
-    output.ptsFrames = static_cast<std::int64_t>(std::llround(
-        nextInputPosition_ * static_cast<double>(targetSampleRate) / input.sampleRate));
+    output.normalizedFrameOffset = deliveredFrames_;
+    const auto origin = (firstQpc_ / 10'000'000) * targetSampleRate +
+        ((firstQpc_ % 10'000'000) * targetSampleRate + 5'000'000) / 10'000'000;
+    const auto elapsedFrames = static_cast<long double>(qpc100ns - firstQpc_) * targetSampleRate / 10'000'000;
+    const auto residual = elapsedFrames - static_cast<long double>(submittedFrames_) * targetSampleRate / input.sampleRate;
+    output.ptsFrames = static_cast<std::int64_t>(origin + deliveredFrames_) +
+        static_cast<std::int64_t>(std::llround(residual));
     output.samples.reserve(std::min(
         maxOutputFrames_, static_cast<std::size_t>(std::ceil(sourceFrames / step)) + 1));
 
@@ -68,20 +83,24 @@ bool AudioNormalizer::normalize(AudioBatch input, AudioBatch& output) {
     // holds the final source sample until the next batch supplies its right
     // neighbour; at 48 kHz there is no reason to hold or drop that sample.
     if (input.sampleRate == targetSampleRate) {
-        output.ptsFrames = input.ptsFrames;
+        if (sourceFrames > maxOutputFrames_) {
+            fail();
+            return false;
+        }
         output.samples = std::move(mono);
-        nextInputPosition_ = sourceEnd;
+        submittedFrames_ += sourceFrames;
+        deliveredFrames_ += sourceFrames;
         previousSample_ = output.samples.back();
         havePreviousSample_ = true;
         return true;
     }
 
-    while (nextInputPosition_ < sourceEnd) {
+    while (nextInputPosition < sourceEnd) {
         if (output.samples.size() >= maxOutputFrames_) {
             fail();
             return false;
         }
-        const auto floorPosition = std::floor(nextInputPosition_);
+        const auto floorPosition = std::floor(nextInputPosition);
         const auto index = static_cast<std::int64_t>(floorPosition - sourceStart);
         float left = 0.0F;
         float right = 0.0F;
@@ -98,13 +117,15 @@ bool AudioNormalizer::normalize(AudioBatch input, AudioBatch& output) {
             left = mono[sourceIndex];
             right = mono[sourceIndex + 1];
         }
-        const auto fraction = static_cast<float>(nextInputPosition_ - floorPosition);
+        const auto fraction = static_cast<float>(nextInputPosition - floorPosition);
         output.samples.push_back(left + (right - left) * fraction);
-        nextInputPosition_ += step;
+        ++deliveredFrames_;
+        nextInputPosition = static_cast<double>(deliveredFrames_) * step;
     }
 
     previousSample_ = mono.back();
     havePreviousSample_ = true;
+    submittedFrames_ += sourceFrames;
     return true;
 }
 

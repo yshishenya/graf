@@ -68,6 +68,9 @@ public:
     [[nodiscard]] bool enqueue(UploadCustodyItem item);
     [[nodiscard]] bool reconcile(const UploadServerTruth& truth);
     [[nodiscard]] bool markRetry(std::string_view localRecordingId, std::string reason);
+    // UI owner only, with no upload in flight and after current-account checks.
+    // Explicit retry rearms only this owned row; accepted bytes/identity stay put.
+    [[nodiscard]] bool requestRetry(std::string_view localRecordingId);
     [[nodiscard]] bool markNeedsAuth(std::string_view localRecordingId, std::string reason = "auth_required");
     // UI thread, only after explicit native confirmation against the current
     // account generation. A known owner can never be reassigned, even to itself.

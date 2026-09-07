@@ -11,7 +11,8 @@ namespace graf::windows::testing {
 using namespace std::chrono_literals;
 
 inline VerifiedTargetIdentity target(char executable = 'a', char publisher = 'b', std::uint32_t version = 1) {
-    return {std::string(64, executable), std::string(64, publisher), "Meeting app", version};
+    return {std::string(64, executable), std::string(64, publisher), "Meeting app", version,
+        std::string("app_") + executable};
 }
 
 inline DetectionClock::time_point at(std::chrono::milliseconds elapsed = 0ms) {

@@ -14,20 +14,22 @@ struct VerifiedTargetIdentity {
     std::string publisherFingerprint;
     std::string displayName;
     std::uint32_t registryVersion = 0;
+    // Stable shared-catalog product ID for settings, never proof of trust.
+    std::string targetKey;
 };
 
 class VerifiedTargetRegistry final {
 public:
     static constexpr std::size_t maximumTargets = 64;
+    [[nodiscard]] static bool validTargetKey(std::string_view key) noexcept;
     [[nodiscard]] static bool validIdentity(const VerifiedTargetIdentity& identity) noexcept;
-    [[nodiscard]] static std::string preferenceKey(const VerifiedTargetIdentity& identity);
+    [[nodiscard]] static std::string identityKey(const VerifiedTargetIdentity& identity);
+    [[nodiscard]] static VerifiedTargetRegistry bundled();
     [[nodiscard]] const VerifiedTargetIdentity* find(std::string_view executableFingerprint,
                                                     std::string_view publisherFingerprint) const noexcept;
     [[nodiscard]] bool registerTarget(VerifiedTargetIdentity identity);
     [[nodiscard]] bool removeTarget(std::string_view executableFingerprint);
-    [[nodiscard]] bool contains(std::string_view executableFingerprint,
-                                std::string_view publisherFingerprint,
-                                std::uint32_t version) const noexcept;
+    [[nodiscard]] bool contains(const VerifiedTargetIdentity& identity) const noexcept;
     [[nodiscard]] const std::vector<VerifiedTargetIdentity>& targets() const noexcept { return targets_; }
 
 private:

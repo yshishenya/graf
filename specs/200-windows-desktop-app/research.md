@@ -185,14 +185,23 @@ prefix may be finalized as degraded if the writer has enough verified output.
 
 ### Clock and drift
 
-Use the QPC frequency captured once at process initialization and the timestamp
-metadata from WASAPI packets. Keep device position and QPC observations for
+Use the WASAPI timestamp in fixed 100-ns units, not the raw QPC frequency.
+`IAudioCaptureClient::GetBuffer` already performs that conversion. Keep device position and QPC observations for
 sanity/diagnostic counters; keep the stream's clock domain on every batch. A
 different endpoint may have a different clock domain, so the first release does
 not invent a sample-rate correction from wall-clock arrival time. Drift is
 handled by the bounded PTS timeline and the existing canonical conversion rules;
 route/clock discontinuity ends the trusted segment when it exceeds the accepted
 gap bound.
+
+Проверка 2026-09-07: на текущей ARM64 VM `QueryPerformanceFrequency` равна
+24 MHz; прежний Windows-код повторно делил уже преобразованную метку на эту
+частоту вместо 10 MHz. [Официальный контракт GetBuffer](https://learn.microsoft.com/en-us/windows/win32/api/audioclient/nf-audioclient-iaudiocaptureclient-getbuffer)
+прямо задаёт 100-нс единицы и отдельный флаг недостоверной метки.
+Неверный параметр частоты удалён, `TIMESTAMP_ERROR` отвергается.
+Это не исправляет автоматически общий origin, кратковременное колебание меток
+и фактические `DATA_DISCONTINUITY` устройства. Их приёмка остаётся T071/T084;
+ослабление порогов ради зелёного теста не допускается.
 
 ## Решение 4: artifact and local custody
 
@@ -338,6 +347,44 @@ SHA-256 EXE/DER сертификата для Windows. Установленны�
 продукта для сохранения Never при обновлении и положительная приёмка встреч
 остаются в T082; синтетические тестовые хеши не попадают в рабочий каталог.
 
+### Постоянные настройки и первый Windows-каталог (2026-09-06)
+
+Mac хранит выбор по постоянному `targetID`. Windows V1 связывал его с хешами
+EXE/сертификата/ревизией: одобренное обновление теряло даже `Никогда`.
+Разделены постоянный `targetKey` для настроек и точный `identityKey` для
+обнаружения, вопроса и срока записи. Членство в каталоге проверяет также
+targetKey; совпадение только имени/ключа не подтверждает программу.
+
+Новый отдельный HKCU `ApplicationRulesV2` с заголовком
+`graf.automatic-recording.v2` хранит три режима по стабильному ключу.
+V1 и глобальные флаги не читаются и не удаляются: до этого AppMain создавал
+пустой verifiedTargets_, а setPreference/setAllPreferences отвергали цели вне
+каталога. Поэтому реальные правила через UI сохранить было нельзя. Проверка
+пользовательской Windows также вернула `V1RulesPresent=False`. Миграционный
+reader не нужен; V2 сохраняет правила временно отсутствующих продуктов.
+
+Первая запись использует общий ключ `microsoft_teams_new` из
+`apps/macos/RecApp/Resources/meeting-target-registry-baseline.json`.
+Проверено установленное приложение, без входа/встречи/захвата:
+
+| Метаданные | Проверенное значение |
+|---|---|
+| Package / version | MSTeams / 26213.1006.5014.9784 |
+| Architecture / family | ARM64 / MSTeams_8wekyb3d8bbwe |
+| Manifest Application Id / EXE | MSTeams / ms-teams.exe |
+| Product / signer | Microsoft Teams / Microsoft Corporation |
+| Get-AuthenticodeSignature | Valid |
+| EXE SHA-256 | `d2538d0290c463a896e2710534b5e078066d4c9519e3111754186f7f38fe2dd4` |
+| Signer DER SHA-256 | `c4514cb03fff0842be711ecfec8560be9cc5fc7dbd1f7db95c68257ff77aae2f` |
+
+После обычного запуска уже установленного Teams существующий native
+`AutomaticRecordingSmokeTests --inspect-process` подтвердил те же два хеша
+через WindowsTargetDetector/WinVerifyTrust (проверка подписи и цепочки из кеша).
+Manifest выбирался по Id MSTeams: второй entry использует тот же EXE.
+Каталог не включает ms-teamsupdate.exe/autostarter или неподтверждённые версии.
+Это точная идентичность одного ARM64-пакета, не доказательство встречи,
+поддержки всех Teams, GRAF ARM64 либо физического x64-компьютера.
+
 ## Rejected alternatives
 
 | Alternative | Rejection |
@@ -364,3 +411,76 @@ SHA-256 EXE/DER сертификата для Windows. Установленны�
    paths; no UI may claim permission merely from a manifest flag.
 5. Run WebView2 origin/navigation/message fuzz cases and confirm no bridge action
    is possible after navigation/session nonce changes.
+
+## T085: единицы WASAPI и особенности начала потока (2026-09-07)
+
+[Актуальный GetBuffer](https://learn.microsoft.com/en-us/windows/win32/api/audioclient/nf-audioclient-iaudiocaptureclient-getbuffer)
+определяет QPC100ns для первого кадра пакета, а device position — как число
+аудиокадров от начала потока. Он не даёт отдельного правила пересчёта этой
+позиции при внутреннем преобразовании частоты endpoint/engine.
+[GetFrequency](https://learn.microsoft.com/en-us/windows/win32/api/audioclient/nf-audioclient-iaudioclock-getfrequency)
+относится к IAudioClock.GetPosition, не к GetBuffer: измеренные 384000
+нельзя считать частотой семплов пакетного счётчика.
+[DeviceFormat](https://learn.microsoft.com/en-us/windows/win32/coreaudio/pkey-audioengine-deviceformat)
+описывает поток engine ↔ endpoint. Для
+[IAudioClock2.GetDevicePosition](https://learn.microsoft.com/en-us/windows/win32/api/audioclient/nf-audioclient-iaudioclock2-getdeviceposition)
+различие аппаратной/mix частоты оговорено прямо, но это другой API и
+текущая позиция, не timestamp первого семпла полученного пакета.
+
+В ВМ подтверждены mic DeviceFormat44100 / GetMixFormat48000 и сочетание
+device delta448 с пакетами487/488. Это согласуется с преобразованием
+448 × 48000/44100 ≈ 487.62, но не разрешает автоматически переписать
+единицы счётчика. Открытие shared DeviceFormat44100 даёт S_FALSE у
+IsFormatSupported: запасной путь без изменения Windows-настроек не принят.
+Render также имеет выходящие за текущий допуск колебания QPC после старта.
+Точные метаданные и границы опыта — validation-2026-09-06.md.
+
+В [официальной исторической документации Microsoft](https://github.com/MicrosoftDocs/sdk-api/blob/51e75730951a2cf9dea1fd96e7e062d57161fa6b/sdk-api-src/content/audioclient/nf-audioclient-iaudiocaptureclient-getbuffer.md#L81)
+первый DATA_DISCONTINUITY после Start назван неопределённым;
+[оговорка удалена 13.06.2019](https://github.com/MicrosoftDocs/sdk-api/commit/60b1f9ec4dfce32f30dfe9a74c33c642dd137aae),
+причина не указана. [Chromium](https://github.com/chromium/chromium/blob/5b50c26e08d6f46f0f47ec548ef0fa0815e2a719/media/audio/win/audio_low_latency_input_win.cc#L1424-L1485)
+и [cubeb](https://github.com/mozilla/cubeb/blob/dc56ea41279c1089eb9064d15fcebdefc5d9feca/src/cubeb_wasapi.cpp#L1197-L1213)
+сохраняют особое отношение к первому флагу. Chromium считает ожидаемую
+позицию через devicePosition + frameCount для учёта сбоев; это не доказательство
+обязательного строгого равенства с остановкой на каждом устройстве.
+
+Решение продолжения T085: **ограниченная подготовка, не гарантия Windows**.
+Контракт §5 уточнён: отбросить только первый
+непустой пакет с ровно флагом0x1, без чтения данных/продвижения аудиосостояния,
+с проверенным ReleaseBuffer(count), отдельным учётом и прежним таймаутом.
+Первый чистый пакет расходует это исключение, второй разрыв/смешанные флаги
+и дальнейшие ошибки часов остаются отказом; переинициализация внутри записи
+его не открывает заново. Основание — историческая документация и существующая
+практика Chromium/cubeb, при сохранении наблюдаемого учёта и всех следующих
+проверок. Альтернативы: прежний безусловный отказ блокирует подготовку;
+пропуск произвольных флагов/неограниченный прогрев скрывает потери и отклонён.
+До кода обязательны независимый review уточнения и регрессии. Даже это
+решение не устраняет несовпадение счётчиков
+микрофона и последующие отклонения render в нынешней ВМ.
+
+Результат реализации: новая безопасная сводка самого GRAF подтвердила
+стартовое отбрасывание и последующие render `clock_drift` / microphone
+`sample_count_mismatch`. Тихий сценарий тоже отказал на микрофоне до deadline.
+Это локализует проверки, но не доказывает единственную первопричину драйвера.
+
+Дополнительный read-only запрос по
+[IsFormatSupported](https://learn.microsoft.com/en-us/windows/win32/api/audioclient/nf-audioclient-iaudioclient-isformatsupported)
+уточнил S_FALSE: для DeviceFormat44100 предложен closest 48000/stereo/32-bit
+IEEE float, повторная проверка полного неизменённого дескриптора дала S_OK
+без нового closest. Первоначальный дескриптор44100 от этого не становится
+поддерживаемым. Предложенный формат номинально совпадает с текущим потоком;
+он не является доказанным исправлением. Изменять ОС или автоматически
+пересчитывать devicePosition по этому результату нельзя. См. также
+[WAVEFORMATEXTENSIBLE](https://learn.microsoft.com/en-us/windows/win32/api/mmreg/ns-mmreg-waveformatextensible):
+четыре сводных поля не заменяют полного описания формата. Подробное evidence
+и границы настоящего испытания — последний раздел validation-2026-09-06.md.
+
+Новое read-only измерение вызвало `IAudioClock::GetPosition` на каждом
+полученном пакете. Для render с `frames=480` clock delta был `3840` при
+frequency `384000`; для microphone с `frames=487/488` clock delta был
+`3896/3904` при той же frequency. Это даёт ровно engine sample rate
+`clockDelta * 48000 / 384000` и объясняет `devicePosition` delta `448`.
+Поэтому минимальная правка использует уже существующий WASAPI audio clock
+для packet continuity, сохраняя исходный device position для монотонности.
+Перебирать форматы, менять настройки Windows или ослаблять count gates не
+требуется.

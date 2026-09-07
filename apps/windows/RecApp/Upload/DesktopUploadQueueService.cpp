@@ -181,8 +181,17 @@ bool DesktopUploadQueueService::load() {
         items_.push_back(std::move(item)); cursor = end + 1;
     }
     while (cursor < json.size() && std::isspace(static_cast<unsigned char>(json[cursor]))) ++cursor;
-    if (cursor + 1 == json.size() && json[cursor] == '}') return true;
-    return quarantine();
+    if (cursor + 1 != json.size() || json[cursor] != '}') return quarantine();
+    // A previous process has no live upload worker. Recover only after the
+    // entire ledger is valid, preserving owner, identity and server ranges.
+    bool recovered = false;
+    for (auto& item : items_) {
+        if (item.status != UploadQueueStatus::uploading) continue;
+        item.status = UploadQueueStatus::retry;
+        item.safeReason = "upload_interrupted";
+        recovered = true;
+    }
+    return !recovered || persist();
 }
 
 bool DesktopUploadQueueService::enqueue(UploadCustodyItem item) {
@@ -205,8 +214,26 @@ bool DesktopUploadQueueService::reconcile(const UploadServerTruth& truth) {
 }
 
 bool DesktopUploadQueueService::markRetry(std::string_view id, std::string reason) {
-    auto* item = find(id); if (!item || !validSafeReason(reason) || reason.empty()) return false;
-    item->status = UploadQueueStatus::retry; ++item->attempts; item->safeReason = std::move(reason); return persist();
+    auto* item = find(id); if (quarantined_ || !item || !validSafeReason(reason) || reason.empty()) return false;
+    item->status = UploadQueueStatus::retry;
+    if (item->attempts < std::numeric_limits<std::uint32_t>::max()) ++item->attempts;
+    item->safeReason = std::move(reason);
+    return persist();
+}
+
+bool DesktopUploadQueueService::requestRetry(std::string_view id) {
+    auto* item = find(id);
+    if (quarantined_ || !item ||
+        (item->status != UploadQueueStatus::pending && item->status != UploadQueueStatus::retry &&
+         item->status != UploadQueueStatus::needsAuth) ||
+        !DesktopApiClient::accountId(item->ownerUserId) || !DesktopApiClient::accountId(item->ownerWorkspaceId)) return false;
+    const auto previous = *item;
+    item->status = UploadQueueStatus::retry;
+    item->attempts = 0;
+    item->safeReason = "manual_retry";
+    if (persist()) return true;
+    *item = previous;
+    return false;
 }
 
 bool DesktopUploadQueueService::markNeedsAuth(std::string_view id, std::string reason) {

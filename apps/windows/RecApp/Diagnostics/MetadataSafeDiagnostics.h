@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../Contracts/WindowsDesktopContracts.h"
+#include "../Audio/ClockMapper.h"
 
 #include <cstdint>
 #include <string>
@@ -19,6 +20,8 @@ struct MetadataSnapshot {
     std::uint64_t durationMs = 0;
     std::string endpointIdentity; // Raw native identity; serialization always hashes it.
     bool trustedPrefixRetained = false;
+    CaptureClockDiagnostics renderClock{};
+    CaptureClockDiagnostics microphoneClock{};
 };
 
 class MetadataSafeDiagnostics final {

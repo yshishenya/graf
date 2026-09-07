@@ -519,37 +519,55 @@ std::optional<std::string> DesktopHttpTransport::decodeActiveWorkspace(std::stri
     return workspace;
 }
 
-std::optional<DesktopAccountIdentity> DesktopHttpTransport::accountIdentity(const IdentityGet& get) const {
-    if (!get || cancelled(config_) || config_.sessionToken.empty() ||
-        (!config_.workspaceId.empty() && !DesktopApiClient::accountId(config_.workspaceId))) return std::nullopt;
+DesktopHttpTransport::IdentityResult DesktopHttpTransport::accountIdentity(const IdentityGet& get) const {
+    if (cancelled(config_)) return {std::nullopt, DesktopTransportStatus::retryableFailure};
+    if (!get || config_.sessionToken.empty() ||
+        (!config_.workspaceId.empty() && !DesktopApiClient::accountId(config_.workspaceId))) return {};
     auto config = config_;
     config.deviceId.clear();
+    IdentityResult result;
+    const auto read = [&](std::string_view path) -> std::optional<std::string> {
+        if (cancelled(config)) {
+            result.status = DesktopTransportStatus::retryableFailure;
+            return std::nullopt;
+        }
+        const auto response = get(config, path);
+        if (cancelled(config) || response.transportFailed || response.status == 0 ||
+            response.status == 408 || response.status == 429 || response.status >= 500) {
+            result.status = DesktopTransportStatus::retryableFailure;
+            return std::nullopt;
+        }
+        if (response.status != 200) return std::nullopt;
+        return response.body;
+    };
     if (config.workspaceId.empty()) {
-        const auto response = get(config, "/desktop/settings/spaces");
-        if (!response || cancelled(config)) return std::nullopt;
+        const auto response = read("/desktop/settings/spaces");
+        if (!response) return result;
         const auto workspace = decodeActiveWorkspace(*response);
-        if (!workspace) return std::nullopt;
+        if (!workspace) return {};
         config.workspaceId = *workspace;
     }
-    if (cancelled(config)) return std::nullopt;
-    const auto response = get(config, "/api/v1/auth/me");
-    if (!response || cancelled(config)) return std::nullopt;
+    const auto response = read("/api/v1/auth/me");
+    if (!response) return result;
     auto identity = decodeAccountIdentity(*response);
-    if (identity && identity->workspaceId != config.workspaceId) return std::nullopt;
-    return identity;
+    if (!identity || identity->workspaceId != config.workspaceId) return {};
+    return {identity, DesktopTransportStatus::uploaded};
 }
 
-std::optional<DesktopAccountIdentity> DesktopHttpTransport::accountIdentity() const {
-    return accountIdentity([](const DesktopHttpConfig& config, std::string_view path) -> std::optional<std::string> {
+namespace {
+DesktopHttpTransport::IdentityResponse requestIdentity(const DesktopHttpConfig& config, std::string_view path) {
 #ifdef _WIN32
-        const auto response = request(config, L"GET", utf8ToWide(path), "", true);
-        if (response.transportFailed || response.status != 200 || cancelled(config)) return std::nullopt;
-        return response.body;
+    auto response = request(config, L"GET", utf8ToWide(path), "", true);
+    return {response.status, std::move(response.body), response.transportFailed};
 #else
-        (void)config; (void)path;
-        return std::nullopt;
+    (void)config; (void)path;
+    return {0, {}, true};
 #endif
-    });
+}
+} // namespace
+
+std::optional<DesktopAccountIdentity> DesktopHttpTransport::accountIdentity() const {
+    return accountIdentity(requestIdentity).identity;
 }
 
 std::string_view DesktopHttpTransport::ownerBlockReason(
@@ -561,6 +579,15 @@ std::string_view DesktopHttpTransport::ownerBlockReason(
     if (item.ownerUserId != identity->userId || item.ownerWorkspaceId != identity->workspaceId)
         return "account_mismatch";
     return {};
+}
+
+std::string DesktopHttpTransport::replacementUploadSessionKey(
+    const UploadCustodyItem& item, std::string_view expiredSessionId) {
+    if (!isSafeIdentifier(expiredSessionId)) return {};
+    // Bind replacement to server truth, never the resettable retry counter.
+    // Retrying a lost response reuses this key; another expiry gets a new key.
+    return DesktopApiClient::idempotencyKey("upload-session-after-" + std::string(expiredSessionId),
+                                          item.directoryId, item.sessionId);
 }
 
 DesktopTransportResult DesktopHttpTransport::upload(const UploadCustodyItem& item) const {
@@ -580,8 +607,10 @@ DesktopTransportResult DesktopHttpTransport::upload(const UploadCustodyItem& ite
     }
     // Resolve with the same copied session used by every following request.
     // This precedes sync-state too: recording_not_found is not claim authority.
-    const auto block = ownerBlockReason(item, accountIdentity());
-    if (!block.empty()) return {DesktopTransportStatus::authRequired, std::nullopt, std::string(block)};
+    const auto account = accountIdentity(requestIdentity);
+    const auto block = ownerBlockReason(item, account.identity);
+    if (!block.empty()) return {account.identity ? DesktopTransportStatus::authRequired : account.status,
+                               std::nullopt, std::string(block)};
     UploadServerTruth truth;
     truth.localRecordingId = item.localRecordingId;
     const auto localRevision = item.directoryId + "--initial";
@@ -648,10 +677,9 @@ DesktopTransportResult DesktopHttpTransport::upload(const UploadCustodyItem& ite
         }
         expectedTracks += ']';
         expectedSizes += '}';
-        const std::string sessionScope = remote && remote->needsNewUploadSession
-            ? std::string("upload-session-retry-") + std::to_string(item.attempts)
-            : std::string("upload-session");
-        const auto sessionKey = DesktopApiClient::idempotencyKey(sessionScope, item.directoryId, item.sessionId);
+        const auto sessionKey = remote && remote->needsNewUploadSession
+            ? replacementUploadSessionKey(item, remote->sessionId)
+            : DesktopApiClient::idempotencyKey("upload-session", item.directoryId, item.sessionId);
         if (sessionKey.empty()) return withTruth(DesktopTransportStatus::invalidPackage);
         const auto sessionBody = std::string("{\"expected_tracks\":") + expectedTracks +
             ",\"expected_track_sizes\":" + expectedSizes + ",\"manifest_sha256\":\"" +

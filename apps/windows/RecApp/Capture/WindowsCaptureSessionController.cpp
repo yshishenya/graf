@@ -1,6 +1,11 @@
 #include "WindowsCaptureSessionController.h"
 
 namespace graf::windows {
+
+CaptureClockDiagnostics WindowsCaptureSessionController::clockDiagnostics(AudioSource source) const noexcept {
+    const auto& worker = source == AudioSource::systemRender ? renderWorker_ : microphoneWorker_;
+    return worker ? worker->clockDiagnostics() : CaptureClockDiagnostics{};
+}
 namespace {
 
 ReasonCode workerReason(CaptureWorkerError error) noexcept {
@@ -8,6 +13,7 @@ ReasonCode workerReason(CaptureWorkerError error) noexcept {
     case CaptureWorkerError::none: return ReasonCode::none;
     case CaptureWorkerError::unsupportedFormat: return ReasonCode::formatNormalizationUnavailable;
     case CaptureWorkerError::bufferOverflow: return ReasonCode::queueOverflow;
+    case CaptureWorkerError::clockDiscontinuity: return ReasonCode::clockDiscontinuity;
     default: return ReasonCode::endpointInvalidated;
     }
 }
@@ -23,6 +29,7 @@ WindowsCaptureSessionController::WindowsCaptureSessionController(std::string ses
 
 WindowsCaptureSessionController::~WindowsCaptureSessionController() {
     stopWorkers();
+    joinDispatcher();
     // Join while the callback fence/mutex/sink still exist. Normally UI polling
     // has already observed completion; forced destruction can wait for native COM.
     renderWorker_.reset();
@@ -118,6 +125,13 @@ TransitionResult WindowsCaptureSessionController::finishStop() {
     for (const auto* worker : {renderWorker_.get(), microphoneWorker_.get()}) {
         if (worker && !worker->finished()) return {TransitionStatus::idempotent, session_.state(), session_.reason()};
     }
+    requestDispatcherStop();
+    if (!dispatchFinished_.load(std::memory_order_acquire)) {
+        std::lock_guard<std::mutex> dispatchLock(dispatchMutex_);
+        if (dispatchBusy_.load(std::memory_order_acquire) || !pendingBatches_.empty())
+            return {TransitionStatus::idempotent, session_.state(), session_.reason()};
+    }
+    joinDispatcher();
     // Also fence direct/synthetic producers, without making UI Stop wait on a
     // sink. A later poll retries after its in-flight call returns.
     std::unique_lock<std::mutex> lock(captureMutex_, std::try_to_lock);
@@ -156,7 +170,22 @@ bool WindowsCaptureSessionController::startWorkers() {
         latchFault(ReasonCode::endpointInvalidated);
         return false;
     }
-    const auto callback = [this](AudioBatch batch) { return handleBatch(std::move(batch)); };
+    if (dispatchThread_.joinable()) joinDispatcher();
+    {
+        std::lock_guard<std::mutex> lock(dispatchMutex_);
+        pendingBatches_.clear();
+        dispatchStopRequested_ = false;
+        dispatchFinished_.store(false, std::memory_order_release);
+        dispatchBusy_.store(false, std::memory_order_release);
+    }
+    try {
+        dispatchThread_ = std::thread([this] { dispatchLoop(); });
+    } catch (...) {
+        dispatchFinished_.store(true, std::memory_order_release);
+        latchFault(ReasonCode::queueOverflow);
+        return false;
+    }
+    const auto callback = [this](AudioBatch batch) { return enqueueBatch(std::move(batch)); };
     for (auto* worker : {renderWorker_.get(), microphoneWorker_.get()}) {
         const auto error = worker->start(callback);
         if (error != CaptureWorkerError::none) latchFault(workerReason(error));
@@ -184,6 +213,72 @@ void WindowsCaptureSessionController::stopWorkers() noexcept {
     acceptingBatches_.store(false);
     if (renderWorker_) renderWorker_->stop();
     if (microphoneWorker_) microphoneWorker_->stop();
+    requestDispatcherStop();
+}
+
+bool WindowsCaptureSessionController::enqueueBatch(AudioBatch batch) {
+    // Synthetic lifecycle tests use an empty callback marker. Real workers only
+    // publish normalized non-empty batches, so keep that marker synchronous.
+    if (batch.samples.empty()) return handleBatch(std::move(batch));
+    if (!acceptingBatches_.load() || captureFault_.load() != ReasonCode::none) return true;
+    {
+        std::lock_guard<std::mutex> lock(dispatchMutex_);
+        if (!acceptingBatches_.load() || captureFault_.load() != ReasonCode::none || dispatchStopRequested_)
+            return true;
+        if (pendingBatches_.size() >= maxPendingBatches_) return false;
+        pendingBatches_.push_back(std::move(batch));
+    }
+    dispatchCondition_.notify_one();
+    return true;
+}
+
+void WindowsCaptureSessionController::dispatchLoop() noexcept {
+    while (true) {
+        AudioBatch batch;
+        {
+            std::unique_lock<std::mutex> lock(dispatchMutex_);
+            dispatchCondition_.wait(lock, [this] {
+                return dispatchStopRequested_ || !pendingBatches_.empty();
+            });
+            if (pendingBatches_.empty()) {
+                if (dispatchStopRequested_) break;
+                continue;
+            }
+            batch = std::move(pendingBatches_.front());
+            pendingBatches_.pop_front();
+            dispatchBusy_.store(true, std::memory_order_release);
+        }
+        if (!processBatch(std::move(batch))) {
+            dispatchBusy_.store(false, std::memory_order_release);
+            latchFault(ReasonCode::clockDiscontinuity);
+            acceptingBatches_.store(false);
+            if (renderWorker_) renderWorker_->stop();
+            if (microphoneWorker_) microphoneWorker_->stop();
+            std::lock_guard<std::mutex> lock(dispatchMutex_);
+            pendingBatches_.clear();
+            dispatchStopRequested_ = true;
+            dispatchCondition_.notify_all();
+            break;
+        }
+        dispatchBusy_.store(false, std::memory_order_release);
+    }
+    dispatchBusy_.store(false, std::memory_order_release);
+    dispatchFinished_.store(true, std::memory_order_release);
+}
+
+void WindowsCaptureSessionController::requestDispatcherStop() noexcept {
+    {
+        std::lock_guard<std::mutex> lock(dispatchMutex_);
+        dispatchStopRequested_ = true;
+    }
+    dispatchCondition_.notify_all();
+}
+
+void WindowsCaptureSessionController::joinDispatcher() noexcept {
+    requestDispatcherStop();
+    if (dispatchThread_.joinable()) dispatchThread_.join();
+    dispatchBusy_.store(false, std::memory_order_release);
+    dispatchFinished_.store(true, std::memory_order_release);
 }
 
 void WindowsCaptureSessionController::latchFault(ReasonCode reason) noexcept {
@@ -193,15 +288,22 @@ void WindowsCaptureSessionController::latchFault(ReasonCode reason) noexcept {
 
 bool WindowsCaptureSessionController::handleBatch(AudioBatch batch) {
     if (!acceptingBatches_.load() || captureFault_.load() != ReasonCode::none) return true;
+    (void)processBatch(std::move(batch));
+    return true;
+}
+
+bool WindowsCaptureSessionController::processBatch(AudioBatch batch) {
+    if (!batchSink_) return false;
     std::lock_guard<std::mutex> lock(captureMutex_);
-    // Do not manufacture a worker overflow for a callback during shutdown.
-    if (!acceptingBatches_.load() || captureFault_.load() != ReasonCode::none) return true;
+    bool accepted = true;
     try {
-        if (!batchSink_(std::move(batch))) latchFault(ReasonCode::clockDiscontinuity);
+        accepted = batchSink_(std::move(batch));
+        if (!accepted) latchFault(ReasonCode::clockDiscontinuity);
     } catch (...) {
+        accepted = false;
         latchFault(ReasonCode::finalizationFailed);
     }
-    return true;
+    return accepted;
 }
 
 } // namespace graf::windows

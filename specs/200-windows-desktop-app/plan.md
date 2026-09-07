@@ -47,6 +47,15 @@ reader для массива и объектов, без новой зависи
 несовпадение пространства и недействительную сессию. Владелец записи, очередь,
 права доступа к серверным данным и полномочия удаления не меняются.
 
+Продолжение T083: устранить три подтверждённых тупика в существующей очереди,
+не создавать вторую службу отправки. Явное «Отправить» возобновляет только
+выбранную запись после исчерпания автоматических повторов; проверка владельца
+сохраняет различие сетевого отказа и HTTP 401/403. Промежуточный `uploading`
+после загрузки проверенного реестра возобновляется через server truth.
+Ключ замены истёкшей серверной сессии не должен зависеть от сбрасываемого
+счётчика повторов. Регрессии и условия сохранности перечислены в контракте §7;
+серверный API, v2/v5 и Mac-код не меняются.
+
 Предыдущие отметки implementation complete не закрывают новые найденные
 расхождения и не заменяют T070/T071/T063. Нужны свежая Release-сборка,
 portable checks, настоящие окна в Parallels, recovery и контрактные сценарии.
@@ -109,10 +118,13 @@ and hardware evidence
   allocation-heavy UI work, WebView calls or AEC processing from callbacks.
 - One bounded queue per source and one timeline owner; overflow is observable and
   fails the normal capture gate instead of growing without limit.
-- Initial timeline bounds reuse the active macOS defaults: 48,000-frame reorder
-  window, 15-second known-gap limit, 960,000 buffered frames per source and
-  48-frame clock recovery budget per batch; Windows may change them only with
-  synthetic memory/latency evidence.
+- Active Windows bounds are 960,000 buffered frames per source and at most
+  48-frame clock recovery per batch, following the macOS bounded correction.
+  T085 removes unused reorder/known-gap configuration: WASAPI workers deliver
+  each source in order; reversed/duplicate packets or gaps above 48 stop the
+  normal segment rather than waiting for an unimplemented 15-second recovery.
+  Interleaving of the two sources remains independent. Synthetic tests must
+  cover the memory bound, common-start trimming and correction limits.
 - 60-minute ±100 ppm reference run has no dropped/duplicated output and at most
   100 ms WAV/M4A/timeline duration difference.
 - The same reference run has no sustained CPU runaway: after warm-up, native
@@ -180,13 +192,23 @@ remain intentionally unclaimed under T070/T071.
 
 **Native capture hardening re-check (2026-08-25)**: PASS for the portable
 contract surface. `WasapiCaptureWorker` now waits for successful WASAPI startup,
-uses the runtime `QueryPerformanceFrequency` for `ClockMapper`, rejects
+used the runtime `QueryPerformanceFrequency` for `ClockMapper` (this historical
+claim is corrected below: WASAPI already converts QPC to 100-ns units), rejects
 unsupported/non-finite samples instead of synthesizing silence, and reports
 worker faults to the session finalizer. The v5 writer removes partial artifacts
 when either WAV or playback encoding fails and publishes both artifacts only
 after their temporary files are complete. CMake/CTest remains 20/20 PASS;
 Windows MSBuild, pinned AEC3 binding and resampling implementation are now
 host-built; hardware and signed-package evidence remain open.
+
+**Уточнение по реальному отказу 2026-09-07 (T081/T084)**: `GetBuffer` возвращает
+QPC уже в 100-нс единицах, независимо от частоты `QueryPerformanceFrequency`.
+Обнаруженная в VM частота 24 MHz не может быть делителем этого значения.
+У `ClockMapper` удалить неиспользуемую после исправления настраиваемую частоту;
+поле входа назвать `qpc100ns`. `AUDCLNT_BUFFERFLAGS_TIMESTAMP_ERROR` запрещает
+считать метку достоверной. Это исправление единиц, не разрешение игнорировать
+разрывы или ослаблять аудиоконтракт. Общая временная шкала двух источников,
+дрейф и реальный полный Record/Pause/Resume/Stop остаются предметом T071/T084.
 
 **Host validation re-check (2026-08-30)**: PASS WITH EVIDENCE GATES. After
 MSBuild restore, the current dirty worktree builds `GrafWindows.sln` and the
@@ -230,6 +252,38 @@ The server remains the owner of authentication, meetings, review, deletion,
 MediaScribe and server-side processing.
 
 ### Audio pipeline
+
+Продолжение T085 (#6781): техническое уточнение контракта §5 отделяет общие
+QPC timestamps от независимых device counters и фазы преобразования семплов.
+Переиспользовать алгоритм ограниченной интерполяции/обрезки из macOS
+`RecordingAudioTimeline.swift`, независимо реализовав его в существующем
+Windows timeline. Не добавлять новый runtime/библиотеку/параллельный конвейер.
+До реализации — регрессии на всю цепочку и независимая проверка требований;
+до новой попытки записи — portable/native тесты. Недостоверные метки VM
+остаются отказом, а не поводом увеличивать пределы. T085 предшествует
+повторной аудиопроверке T084; обе задачи открыты до фактических результатов.
+
+Уточнение начала потока T085: использовать существующий ClockMapper как
+общую проверяемую точку решения о первом пакете, передавая битовые флаги
+WASAPI целиком вместо отдельного timestampError. Единственное отбрасывание
+по контракту §5 не начинает шкалу; ReleaseBuffer и фактический счётчик остаются
+у worker. Готовность устанавливается после первых нормализованных данных.
+Типизированный отказ часов и стартовый счётчик передаются через существующие
+worker/controller/MetadataSafeDiagnostics, без журнала содержимого пакетов.
+Сначала регрессии первого/второго/смешанного флага, неизменности формата,
+ошибки освобождения, общей шкалы, таймаута и безопасной сериализации.
+Не менять формат устройства Windows, правила count/device или пределы дрейфа.
+
+Уточнение по результатам read-only измерения 2026-09-07: `GetBuffer`-
+`devicePosition` может быть в endpoint-единицах и не обязан совпадать с
+числом кадров engine-пакета при внутреннем преобразовании частоты. Worker
+обязан получить существующий `IAudioClock`, проверять его частоту и брать
+`GetPosition` для непрерывности пакетов; `GetBuffer.qpcPosition` остаётся
+монотонной общей начальной привязкой. После первого пригодного пакета
+presentation timestamp выводится из общей QPC-точки и `IAudioClock`
+progression, чтобы виртуализированный хост не подменял audio clock шагом
+callback. При отсутствии `IAudioClock` worker отказывает в инициализации;
+автоматический пересчёт `devicePosition` по DeviceFormat не используется.
 
 ```text
 WASAPI render loopback ─┐
@@ -331,6 +385,31 @@ macOS `stopStaleMeetingDetectionRecordingIfNeeded`, 600 секунд без по
 AutomaticRecordingSmokeTests, затем Windows Release и нативная проверка окна.
 Каталог и миграция предпочтений остаются отдельными незакрытыми частями T082;
 синтетические идентичности не добавлять в рабочий реестр.
+
+Следующий срез T082 (US5/AC7–9): добавить `targetKey` в существующую
+VerifiedTargetIdentity. Старый составной ключ переименовать в `identityKey`
+и сохранить для точного слежения/вопроса; только настройки получают постоянный
+ключ продукта. Проверка членства в реестре сверяет также targetKey, поэтому
+подмена ключа при настоящих хешах не читает/не меняет чужой режим. Разрешить
+несколько проверенных версий одного продукта, но одну строку настроек; отвергать
+назначение одного EXE разным продуктам и противоречивые названия. Лимит 64
+проверенных записей пока прежний.
+
+HKCU `ApplicationRulesV2`, заголовок `graf.automatic-recording.v2`: ключ
+`[a-z][a-z0-9_]{0,63}`, три прежних значения и атомарная запись одного документа.
+Не добавлять миграционный reader V1: рабочий каталог до этого был пуст, UI
+не мог сохранить реальные per-app правила, на проверяемой Windows V1 отсутствует.
+Не удалять старые значения. V2 сохраняет правила временно отсутствующих продуктов,
+но они применяются только после возвращения подтверждённой записи того же ключа.
+Не создавать нового сервиса/серверного API/хранилища, не менять правила вручную
+в Windows ради проверки. Начать с synthetic regression в VerifiedTargetPolicyTests.
+
+Первый реальный элемент bundled-реестра — `microsoft_teams_new` из общего
+каталога, только проверенная установленная ARM64-версия Microsoft Teams.
+Хеши и происхождение фиксируются в research.md; это не утверждение поддержки
+всех Teams/x64 и не закрытие всего T082. Таблица находится в существующем
+VerifiedTargetRegistry.cpp; AppMain получает её до создания policy/detector.
+Нативная проверка подписи остаётся обязательной при каждом наблюдении.
 
 ### Phase 6 — Packaging and release readiness
 

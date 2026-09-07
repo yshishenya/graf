@@ -13,7 +13,7 @@ if ($env:OS -ne 'Windows_NT') { throw 'Feature 200 Windows validation requires a
 $root = Split-Path -Parent $PSScriptRoot
 $build = Join-Path $root 'out\build\x64\Release'
 if (-not (Test-Path $build)) { throw "Build output is missing: $build" }
-$patterns = @('Timeline|AEC3|Writer')
+$patterns = @('Timeline|AudioNormalizer|CaptureFaultState|AEC3|Writer')
 if ($HardwareMatrix) { $patterns += 'Capture|Hardware' }
 if ($CustodyFaults) { $patterns += 'Custody|Queue|Upload' }
 foreach ($pattern in $patterns) {

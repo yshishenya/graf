@@ -8,6 +8,19 @@
 namespace graf::windows {
 namespace {
 
+std::string_view clockFault(ClockFault fault) {
+    switch (fault) {
+    case ClockFault::none: return "none";
+    case ClockFault::invalidPacket: return "invalid_packet";
+    case ClockFault::timestampError: return "timestamp_error";
+    case ClockFault::discontinuity: return "discontinuity";
+    case ClockFault::nonMonotonic: return "non_monotonic";
+    case ClockFault::sampleCountMismatch: return "sample_count_mismatch";
+    case ClockFault::clockDrift: return "clock_drift";
+    }
+    return "unknown";
+}
+
 bool numericVersion(std::string_view value) {
     if (value.empty() || value.size() > 32) return false;
     bool needsDigit = true;
@@ -54,7 +67,13 @@ std::string MetadataSafeDiagnostics::serialize(const MetadataSnapshot& snapshot)
          << "\"written_blocks\":" << snapshot.writtenBlocks << ","
          << "\"duration_ms\":" << snapshot.durationMs << ","
          << "\"endpoint_fingerprint\":\"" << redactedEndpointFingerprint(snapshot.endpointIdentity) << "\","
-         << "\"trusted_prefix_retained\":" << (snapshot.trustedPrefixRetained ? "true" : "false")
+         << "\"trusted_prefix_retained\":" << (snapshot.trustedPrefixRetained ? "true" : "false") << ","
+         << "\"render_startup_discarded_frames\":" <<
+            (snapshot.renderClock.startupDiscardedFrames <= 4'800 ? snapshot.renderClock.startupDiscardedFrames : 0) << ","
+         << "\"microphone_startup_discarded_frames\":" <<
+            (snapshot.microphoneClock.startupDiscardedFrames <= 4'800 ? snapshot.microphoneClock.startupDiscardedFrames : 0) << ","
+         << "\"render_clock_fault\":\"" << clockFault(snapshot.renderClock.fault) << "\","
+         << "\"microphone_clock_fault\":\"" << clockFault(snapshot.microphoneClock.fault) << "\""
          << "}";
     return json.str();
 }

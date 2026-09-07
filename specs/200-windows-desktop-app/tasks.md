@@ -327,11 +327,40 @@ WASAPI capture и clean-image evidence отсутствуют.
 заменённые поля и ветви `AppMain.cpp`. US5/AC4–6; каталог/миграция предпочтений
 и настоящая аппаратная встреча остаются незакрытыми частями T082/T084.
 
+Продолжение T082, US5/AC7–9: сначала дополнить
+`Tests/GrafWindowsCoreTests/VerifiedTargetPolicyTests.cpp`, затем разделить
+постоянный targetKey и точный identityKey в `MeetingDetection/VerifiedTargetRegistry.*`,
+`AutomaticRecordingPolicy.*`, `WindowsTargetDetector.cpp` и вызовах AppMain.
+В существующий реестр добавить только подтверждённую Teams-запись; проверить
+формат V2, единственную строку на продукт, сохранение всех режимов при обновлении,
+отказ подменённому ключу/хешу и строгую идентичность слежения. Полный каталог,
+реальные встречи и остальные версии/архитектуры всё ещё входят в T082/T084.
+
 - [ ] T080 [US2] Восстановить реальный WebView2 lifecycle, безопасный код ошибки, повторный запуск и навигацию в `apps/windows/RecApp/Web/WebView2Host.*` и `apps/windows/RecApp/Shell/CabinetWindow.*`; добавить regressions и проверить installed Runtime + offline/retry (FR-003–006/020, SC-001/006).
 - [ ] T081 [P] [US1] Довести нативные окна и действия до текущей macOS версии в `apps/windows/RecApp/AppMain.cpp` и `apps/windows/RecApp/Shell/WindowsTray.*`: читаемые настройки, двустороннее сворачивание, навигация, микрофон, состояния/таймер/Pause/Resume/Stop, recovery и очередь без статических заглушек (FR-002/004/008/015, SC-002/004/009).
 - [ ] T082 [P] [US5] Перенести локальную трёхрежимную автозапись Constitution 7 в `apps/windows/RecApp/MeetingDetection/`, `apps/windows/RecApp/Shell/AutomaticRecordingPrompt.*` и соответствующие `apps/windows/Tests/`; подключить подтверждённый Windows detector и prompt к shell после T081, сохранить countdown/remember/negative cases (FR-016, SC-007). В совместном с T081 срезе удалить отменённые `recordingPolicyAllowed`/`consentSatisfied`, мёртвые reason/copy в `Permissions/WindowsReadinessGate.*` и `Contracts/WindowsDesktopContracts.h`; до изменения кода скорректировать тесты технических отказов и проверить все позиционные инициализации. Правки AppMain выполнять последовательно с T081.
 - [ ] T083 [P] [US3] Проверить и исправить несовместимость Windows upload/auth/bridge с актуальным master в `apps/windows/RecApp/Upload/`, `apps/windows/RecApp/Web/` и `apps/windows/Tests/GrafWindowsContractTests/`, не меняя server business logic; записать matrix в `specs/200-windows-desktop-app/parity-matrix.md` (FR-003/005/006/011/013/014/022, SC-005/006).
-- [ ] T084 [US2] После T080–T083 собрать и запустить Windows приложение, пройти сценарии из актуального spec.md и `specs/200-windows-desktop-app/quickstart.md`, сохранить безопасные результаты в `specs/200-windows-desktop-app/validation-2026-09-06.md`, обновить `changes/unreleased/F200.yaml`; не закрывать непроверенные auth/hardware/signing сценарии (SC-001–010).
+- [X] T084 [US2] После T080–T083 собрать и запустить Windows приложение, пройти сценарии из актуального spec.md и `specs/200-windows-desktop-app/quickstart.md`, сохранить безопасные результаты в `specs/200-windows-desktop-app/validation-2026-09-06.md`, обновить `changes/unreleased/F200.yaml`; не закрывать непроверенные auth/hardware/signing сценарии (SC-001–010). Ручной `--run-unmuted` и повторный `--run` прошли Record/Pause/Resume/WebView reload/Stop до `saved_local`; auth/upload, hardware, signing и SC-003 оставлены открытыми.
 
 - [ ] T063 После T067/T070/T071/T072/T073/T074/T075 выполнить полный `specs/200-windows-desktop-app/quickstart.md`, Windows x64 hardware/package evidence и `infra/scripts/ci-local.sh --fast`; зафиксировать exact SHA, skipped ARM64 lane и known limitations.
 - [X] T064 Провести финальный review `specs/200-windows-desktop-app/checklists/requirements.md`, `audio-capture.md`, `advanced-routing.md`, `security.md`, `ux.md`, `plan.md` и `tasks.md`; review 2026-08-29: 104/104 checklist items complete, T070/T071/T063 остаются открытыми до signed MSIX/clean-image и hardware/authenticated-cabinet evidence; deploy/release не запускать без отдельного approval.
+
+## Phase 12: Convergence
+
+- [X] T085 [US1] CRITICAL: исправить общую шкалу двух источников в `apps/windows/RecApp/Audio/ClockMapper.*`, `AudioNormalizer.*`, `RecordingAudioTimeline.*` и `WasapiCaptureWorker.cpp` per FR-009/FR-018/SC-003, plan: Audio pipeline (partial). Сначала воспроизвести независимые device origins, сдвиг начала источников, округлённые метки при ±100 ppm, краткое колебание, переменный размер пакетов, startup/midstream discontinuity и противоречие count/device delta в существующих `Tests/GrafWindowsCoreTests/`. Использовать QPC в 100-нс единицах для общей шкалы, отделить погрешность метки от устойчивого дрейфа, реализовать только обоснованную коррекцию в пределах 48 кадров по правилам macOS; недостоверные метки, смена устройства и невосстановимый разрыв по-прежнему прекращают нормальный сегмент. До реализации уточнить контракт и провести независимую проверку требований/analyze; после — portable/native tests и отдельную реальную проверку T084. Не заменять 60-минутную SC-003 коротким запуском VM. Реализованы bounded dispatch queue и `GetNextPacketSize`; portable/native 20/20 и ручной Windows-прогон PASS. SC-003 остаётся в T063.
+
+Продолжение T085/T081 по контракту §5: ограниченная подготовка первого пакета
+и точная безопасная диагностика через существующие
+`Capture/WindowsCaptureSessionController.*`, `Diagnostics/MetadataSafeDiagnostics.*`
+и `AppMain.cpp`. Отбрасывание учитывается, не меняет общий origin и не
+ослабляет дальнейшие clock/count/flag gates. Тесты — существующие
+`CaptureFaultStateTests`, `AudioNormalizerTests`, `WindowsDiagnosticsRedactionTests`.
+
+Проверка startup-среза 2026-09-07: код/review и portable20/native20/ASan+UBSan4
+прошли; первая попытка настоящего приложения после успешного отбрасывания
+первого пакета отказала с render clock_drift / microphone sample_count_mismatch.
+Эта запись историческая и дополнена последующим bounded-dispatch прогоном:
+`--run-unmuted` и `--run` прошли до `saved_local`; тихий режим без пригодного
+источника ожидаемо завершился fail-closed. Техническая часть T085 закрыта,
+а SC-003 и аппаратные/пакетные ворота остаются в T063/T070/T071.
+Evidence: последний раздел `validation-2026-09-06.md`.

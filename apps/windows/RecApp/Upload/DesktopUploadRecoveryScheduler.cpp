@@ -46,13 +46,16 @@ bool DesktopUploadRecoveryScheduler::prepare(RecoveryTrigger trigger) {
     if (leases.count(key)) return false;
     if (trigger == RecoveryTrigger::authRecovered && !queue_.requeueNeedsAuth()) return false;
     auto flight = std::make_shared<Flight>();
-    for (const auto& item : queue_.pendingItems(32)) {
+    // Apply the flight bound after excluding exhausted rows, so they cannot
+    // hide a later row explicitly rearmed by the user.
+    for (const auto& item : queue_.pendingItems(queue_.items().size())) {
         if (item.attempts >= maxAttempts_) {
-            if (item.safeReason != "retry_budget_exhausted")
-                (void)queue_.markRetry(item.localRecordingId, "retry_budget_exhausted");
+            if (item.safeReason != "retry_budget_exhausted" &&
+                !queue_.markRetry(item.localRecordingId, "retry_budget_exhausted")) return false;
             continue;
         }
         flight->items.push_back(item);
+        if (flight->items.size() == 32) break;
     }
     if (flight->items.empty()) return false;
     flight->results.reserve(flight->items.size());

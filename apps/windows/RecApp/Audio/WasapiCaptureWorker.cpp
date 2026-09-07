@@ -5,7 +5,6 @@
 
 #include <algorithm>
 #include <atomic>
-#include <cmath>
 #include <limits>
 #include <thread>
 
@@ -73,9 +72,12 @@ struct WasapiCaptureWorker::Impl {
     std::atomic_bool ready{false};
     std::atomic_bool finished{true};
     std::atomic<CaptureWorkerError> error{CaptureWorkerError::none};
+    std::atomic<ClockFault> clockFault{ClockFault::none};
+    std::atomic<std::uint32_t> startupDiscardedFrames{0};
     std::thread thread;
-    void run() {
+    void run(WasapiCaptureWorker& owner) {
 #ifndef _WIN32
+        (void)owner;
         error.store(CaptureWorkerError::unsupportedPlatform);
 #else
         HRESULT init = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
@@ -98,15 +100,11 @@ struct WasapiCaptureWorker::Impl {
         Microsoft::WRL::ComPtr<IMMDevice> device;
         Microsoft::WRL::ComPtr<IAudioClient> client;
         Microsoft::WRL::ComPtr<IAudioCaptureClient> capture;
+        Microsoft::WRL::ComPtr<IAudioClock> audioClock;
         auto& eventHandle = resources.eventHandle;
         auto& format = resources.format;
         do {
             if (!running.load()) break;
-            LARGE_INTEGER qpcFrequency{};
-            if (!QueryPerformanceFrequency(&qpcFrequency) || qpcFrequency.QuadPart <= 0) {
-                error.store(CaptureWorkerError::initializationFailed);
-                break;
-            }
             if (FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
                                         IID_PPV_ARGS(&enumerator)))) { error = CaptureWorkerError::initializationFailed; break; }
             if (!running.load()) break;
@@ -143,16 +141,27 @@ struct WasapiCaptureWorker::Impl {
                 error.store(CaptureWorkerError::initializationFailed);
                 break;
             }
+            UINT64 audioClockFrequency = 0;
+            if (FAILED(client->GetService(IID_PPV_ARGS(&audioClock))) ||
+                FAILED(audioClock->GetFrequency(&audioClockFrequency)) || audioClockFrequency == 0) {
+                error.store(CaptureWorkerError::initializationFailed);
+                break;
+            }
             if (!running.load()) break;
             if (FAILED(client->Start())) { error.store(CaptureWorkerError::initializationFailed); break; }
-            ready.store(true);
-            ClockMapper clockMapper(static_cast<std::uint64_t>(qpcFrequency.QuadPart));
+            static_assert(ClockObservation::dataDiscontinuity == AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY &&
+                ClockObservation::silent == AUDCLNT_BUFFERFLAGS_SILENT &&
+                ClockObservation::timestampError == AUDCLNT_BUFFERFLAGS_TIMESTAMP_ERROR);
+            ClockMapper clockMapper;
             AudioNormalizer normalizer(config.maxBatchFrames * 6);
             while (running.load() && error.load() == CaptureWorkerError::none) {
                 if (WaitForSingleObject(eventHandle, 500) == WAIT_TIMEOUT) continue;
                 if (!running.load()) break;
                 UINT32 frames = 0;
-                if (FAILED(client->GetCurrentPadding(&frames))) { error.store(CaptureWorkerError::deviceInvalidated); break; }
+                if (FAILED(capture->GetNextPacketSize(&frames))) {
+                    error.store(CaptureWorkerError::deviceInvalidated);
+                    break;
+                }
                 while (frames > 0 && running.load()) {
                     BYTE* data = nullptr; UINT32 count = 0; DWORD flagsRead = 0;
                     UINT64 devicePosition = 0; UINT64 qpcPosition = 0;
@@ -160,74 +169,27 @@ struct WasapiCaptureWorker::Impl {
                         error.store(CaptureWorkerError::deviceInvalidated); break;
                     }
                     if (count == 0) {
-                        if (FAILED(capture->ReleaseBuffer(0)) || FAILED(client->GetCurrentPadding(&frames))) {
+                        if (FAILED(capture->ReleaseBuffer(0)) || FAILED(capture->GetNextPacketSize(&frames))) {
                             error.store(CaptureWorkerError::deviceInvalidated);
                             break;
                         }
                         continue;
                     }
-                    if (count > config.maxBatchFrames || format->nChannels == 0 || format->nChannels > 32) {
-                        capture->ReleaseBuffer(count); error.store(CaptureWorkerError::bufferOverflow); break;
-                    }
-                    AudioBatch batch;
-                    batch.source = renderLoopback ? AudioSource::systemRender : AudioSource::microphone;
-                    batch.sampleRate = format->nSamplesPerSec;
-                    batch.channels = format->nChannels;
-                    batch.routeGeneration = config.routeGeneration;
-                    batch.clockDomain = config.clockDomain;
-                    const auto mapping = clockMapper.observe({qpcPosition, devicePosition, batch.sampleRate});
-                    if (!mapping.valid || mapping.ptsFrames < 0 ||
-                        mapping.ptsFrames > std::numeric_limits<std::int64_t>::max() -
-                            static_cast<std::int64_t>(count)) {
-                        batch.discontinuity = true;
-                        batch.ptsFrames = 0;
-                    } else {
-                        batch.ptsFrames = mapping.ptsFrames;
-                    }
-                    batch.samples.resize(static_cast<std::size_t>(count) * batch.channels);
-                    batch.discontinuity = batch.discontinuity ||
-                        (flagsRead & AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY) != 0;
-                    const bool silent = (flagsRead & AUDCLNT_BUFFERFLAGS_SILENT) != 0;
-                    if (!silent && data != nullptr && pcmFormat.float32) {
-                        const auto* samples = reinterpret_cast<const float*>(data);
-                        std::copy(samples, samples + batch.samples.size(), batch.samples.begin());
-                    } else if (!silent && data != nullptr && pcmFormat.pcm16) {
-                        const auto* samples = reinterpret_cast<const std::int16_t*>(data);
-                        for (std::size_t i = 0; i < batch.samples.size(); ++i) batch.samples[i] = samples[i] / 32768.0F;
-                    } else if (silent) {
-                        std::fill(batch.samples.begin(), batch.samples.end(), 0.0F);
-                    } else {
-                        capture->ReleaseBuffer(count);
-                        error.store(CaptureWorkerError::unsupportedFormat);
+                    UINT64 audioClockPosition = 0;
+                    if (FAILED(audioClock->GetPosition(&audioClockPosition, nullptr))) {
+                        error.store(CaptureWorkerError::deviceInvalidated);
+                        if (FAILED(capture->ReleaseBuffer(count))) break;
                         break;
                     }
-                    if (std::any_of(batch.samples.begin(), batch.samples.end(),
-                                    [](float sample) { return !std::isfinite(sample); })) {
-                        capture->ReleaseBuffer(count);
-                        error.store(CaptureWorkerError::unsupportedFormat);
+                    if (!owner.consumePacket(clockMapper, normalizer,
+                            {qpcPosition, devicePosition, format->nSamplesPerSec, flagsRead, count,
+                             audioClockPosition, audioClockFrequency},
+                            data, format->nChannels, pcmFormat.float32,
+                            [&](std::uint32_t consumed) { return SUCCEEDED(capture->ReleaseBuffer(consumed)); })) break;
+                    if (FAILED(capture->GetNextPacketSize(&frames))) {
+                        error.store(CaptureWorkerError::deviceInvalidated);
                         break;
                     }
-                    capture->ReleaseBuffer(count);
-                    AudioBatch normalized;
-                    if (!normalizer.normalize(std::move(batch), normalized)) {
-                        error.store(normalizer.healthy() ? CaptureWorkerError::bufferOverflow
-                                                          : CaptureWorkerError::unsupportedFormat);
-                        break;
-                    }
-                    if (running.load() && !normalized.samples.empty()) {
-                        try {
-                            if (!callback(std::move(normalized))) {
-                                error.store(CaptureWorkerError::bufferOverflow);
-                                running.store(false);
-                                break;
-                            }
-                        } catch (...) {
-                            error.store(CaptureWorkerError::initializationFailed);
-                            running.store(false);
-                            break;
-                        }
-                    }
-                    if (FAILED(client->GetCurrentPadding(&frames))) { error.store(CaptureWorkerError::deviceInvalidated); break; }
                 }
             }
             client->Stop();
@@ -237,6 +199,75 @@ struct WasapiCaptureWorker::Impl {
 #endif
     }
 };
+
+bool WasapiCaptureWorker::consumePacket(ClockMapper& mapper, AudioNormalizer& normalizer,
+    ClockObservation packet, const void* data, std::uint16_t channels, bool float32,
+    const std::function<bool(std::uint32_t)>& releaseBuffer) {
+    const auto release = [&] {
+        if (releaseBuffer(packet.frameCount)) return true;
+        impl_->error.store(CaptureWorkerError::deviceInvalidated);
+        return false;
+    };
+    if (impl_->error.load() != CaptureWorkerError::none) { (void)release(); return false; }
+    if (packet.frameCount > impl_->config.maxBatchFrames || channels == 0 || channels > 32) {
+        impl_->clockFault.store(ClockFault::invalidPacket);
+        impl_->error.store(CaptureWorkerError::bufferOverflow);
+        (void)release();
+        return false;
+    }
+    const auto mapping = mapper.observe(packet);
+    if (mapping.discardStartup) {
+        // Do not touch the audio pointer or advance normalizer/sink state.
+        if (!release()) return false;
+        impl_->startupDiscardedFrames.store(packet.frameCount);
+        return true;
+    }
+    if (!mapping.valid) {
+        impl_->clockFault.store(mapping.fault);
+        impl_->error.store(CaptureWorkerError::clockDiscontinuity);
+        (void)release();
+        return false;
+    }
+    AudioBatch batch;
+    batch.source = impl_->renderLoopback ? AudioSource::systemRender : AudioSource::microphone;
+    batch.sampleRate = packet.sampleRate;
+    batch.channels = channels;
+    batch.routeGeneration = impl_->config.routeGeneration;
+    batch.clockDomain = impl_->config.clockDomain;
+    batch.samples.resize(static_cast<std::size_t>(packet.frameCount) * channels);
+    const bool silent = (packet.flags & ClockObservation::silent) != 0;
+    if (!silent && data != nullptr && float32) {
+        const auto* samples = static_cast<const float*>(data);
+        std::copy(samples, samples + batch.samples.size(), batch.samples.begin());
+    } else if (!silent && data != nullptr) {
+        const auto* samples = static_cast<const std::int16_t*>(data);
+        for (std::size_t i = 0; i < batch.samples.size(); ++i) batch.samples[i] = samples[i] / 32768.0F;
+    } else if (!silent) {
+        impl_->error.store(CaptureWorkerError::unsupportedFormat);
+        (void)release();
+        return false;
+    }
+    if (!release()) return false;
+    AudioBatch normalized;
+    // The normalizer validates finite samples as well as the packet format.
+    if (!normalizer.normalize(std::move(batch), mapping.qpc100ns, normalized)) {
+        impl_->error.store(CaptureWorkerError::unsupportedFormat);
+        return false;
+    }
+    if (impl_->running.load() && !normalized.samples.empty()) {
+        try {
+            if (!impl_->callback(std::move(normalized))) {
+                impl_->error.store(CaptureWorkerError::bufferOverflow);
+                return false;
+            }
+        } catch (...) {
+            impl_->error.store(CaptureWorkerError::initializationFailed);
+            return false;
+        }
+        impl_->ready.store(true);
+    }
+    return true;
+}
 
 WasapiCaptureWorker::WasapiCaptureWorker(WasapiEndpointSnapshot endpoint, bool renderLoopback,
                                          CaptureWorkerConfig config)
@@ -266,6 +297,8 @@ CaptureWorkerError WasapiCaptureWorker::start(CaptureBatchCallback callback) {
     if (impl_->thread.joinable()) impl_->thread.join();
     impl_->callback = std::move(callback);
     impl_->error.store(CaptureWorkerError::none);
+    impl_->clockFault.store(ClockFault::none);
+    impl_->startupDiscardedFrames.store(0);
     impl_->ready.store(false);
     impl_->running.store(true);
     impl_->finished.store(false);
@@ -274,7 +307,7 @@ CaptureWorkerError WasapiCaptureWorker::start(CaptureBatchCallback callback) {
             try {
                 if (impl_->running.load()) {
                     if (deviceRunForTesting_) deviceRunForTesting_(impl_->running, impl_->ready, impl_->callback);
-                    else impl_->run();
+                    else impl_->run(*this);
                 }
             } catch (...) { impl_->error.store(CaptureWorkerError::initializationFailed); }
             impl_->running.store(false);
@@ -302,6 +335,10 @@ bool WasapiCaptureWorker::running() const noexcept { return impl_ != nullptr && 
 
 CaptureWorkerError WasapiCaptureWorker::lastError() const noexcept {
     return impl_ == nullptr ? CaptureWorkerError::initializationFailed : impl_->error.load();
+}
+
+CaptureClockDiagnostics WasapiCaptureWorker::clockDiagnostics() const noexcept {
+    return {impl_->startupDiscardedFrames.load(), impl_->clockFault.load()};
 }
 
 } // namespace graf::windows

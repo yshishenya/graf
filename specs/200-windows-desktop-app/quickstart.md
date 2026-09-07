@@ -62,16 +62,34 @@ AutomaticRecordingSmokeTests проверить слежение с `starting`, 
 
 ## 3. Synthetic audio gate
 
+Продолжение T085: до реального Record проверить единственный стартовый 0x1,
+запрет повторного/смешанного флага, ReleaseBuffer failure, неизменность
+аудиосостояния при отбрасывании и таймаут без пригодного пакета. Итоговая
+безопасная сводка должна различать причины часов каждого источника и
+стартовые отбрасывания; её нулевые блоки не являются успешной записью.
+
 Источник synthetic fixture должен генерировать только детерминированные тоны и
 шум с известными параметрами: system render reference, microphone near-end,
 controlled echo, ±100 ppm clock drift, jitter, packet partition и injected gap.
 
 ```powershell
-ctest --test-dir apps/windows/out/build/x64/Release -R "Timeline|AEC3|Writer" --output-on-failure
+ctest --test-dir apps/windows/out/build/x64/Release -R "Timeline|AudioNormalizer|CaptureFaultState|AEC3|Writer" --output-on-failure
 pwsh -File apps/windows/scripts/validate-audio-contract.ps1 -Synthetic
 ```
 
 Pass criteria:
+
+T085: отдельно пройти `AudioNormalizerTests` с включёнными проверками Release:
+общая QPC-шкала, несовпадающие device origins, ±100 ppm с округлением,
+441 + 441 и малые переменные пакеты, mapper → normalizer → timeline.
+Точные часы не требуют искусственной коррекции из-за разбиения пакетов.
+`RecordingAudioTimelineTests` проверяет ±48/49 и разрывы; `CaptureFaultStateTests`
+проверяет ошибки меток и native lifecycle. Прохождение моделируемого часа
+одних метаданных не является 60-минутной звуковой/ресурсной приёмкой SC-003.
+
+Для WASAPI дополнительно проверяется `IAudioClock`-позиция: `devicePosition`
+не используется как число engine-кадров при endpoint/engine resampling,
+а отсутствие `IAudioClock` является отказом инициализации.
 
 - два source batch могут иметь разные размеры, но timeline выдаёт только
   contiguous 480-sample frames;
@@ -140,6 +158,13 @@ pwsh -File apps/windows/scripts/validate-audio-contract.ps1 -CustodyFaults
 partial accepted range, malformed ledger, duplicate Stop, wake recovery и local
 purge/deletion truth. Требование — 100 циклов recovery без duplicate meeting или
 upload session, когда server truth доступна.
+
+Дополнительные регрессии T083: исчерпать автоматические повторы и нажать
+«Отправить» для одной записи; прервать проверку аккаунта сетевым отказом и
+дождаться планового повтора без перезагрузки кабинета; отдельно проверить
+401/403 и несовпадение владельца. Перезапуск между сохранением принятых
+диапазонов и итогового статуса не оставляет вечное «Отправляется». Повтор
+после нового истечения серверной сессии не использует прежний ключ.
 
 ## 7. Automatic recording and accessibility gate
 
@@ -240,6 +265,24 @@ pass/fail result, exact supported Windows 11 build set, skipped ARM64 lane (ес
   доверенная release-подпись и clean-image smoke ещё не доказаны.
 - Не заявлено: hardware WASAPI run, authenticated cabinet parity, clean-image
   package evidence и signed MSIX; это остаётся в T070/T071/T063.
+
+## Постоянные ключи приложений и первый Windows-каталог
+
+- VerifiedTargetPolicyTests: все три режима сохраняются после обновления
+  утверждённых EXE/сертификата/ревизии; неподтверждённая identity и подмена
+  targetKey отклоняются. Несколько версий дают одну строку настроек.
+- V2 переживает перезапуск/удаление и возвращение записи каталога; bulk не
+  назначает режим новым приложениям; ошибка записи не меняет состояние.
+  Неверный ключ/enum, дубли, неполный/слишком большой документ не дают Always.
+- Старый V1/global документ не превращается в настройку V2 и не удаляется.
+  Проверки используют внедряемое синтетическое хранилище, не HKCU пользователя.
+- Bundled Teams сверяется с зафиксированными метаданными установки и native
+  signature proof. Отрицательный snapshot выполняется без захвата; наличие
+  строки Teams не выдаётся за подтверждение настоящей встречи или x64-приёмку.
+- Повторить AutomaticRecordingSmokeTests: общий постоянный ключ не разрешает
+  подменить точный EXE в countdown или продлить уже начавшуюся запись другой
+  identity. Перед запуском сборки подтвердить отсутствие активной встречи;
+  не изменять пользовательское Always/Ask/Never ради автоматической записи.
 
 ## 10. Latest local implementation re-check (2026-08-30)
 
