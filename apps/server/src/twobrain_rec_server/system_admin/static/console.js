@@ -167,7 +167,7 @@ const codesDialog=document.getElementById("codes-dialog"), codesForm=document.ge
 document.querySelectorAll(".issue-codes").forEach(button=>button.addEventListener("click",()=>{codesForm.reset();codesForm.elements.campaign_id.value=button.dataset.id;codesForm.elements.prefix.value="GRAF";codesDialog.querySelector(".dialog-message").textContent="";codesDialog.showModal();}));
 codesForm?.addEventListener("submit",async event=>{
   event.preventDefault(); const values=Object.fromEntries(new FormData(codesForm)); const button=codesForm.querySelector("button[type=submit]"); button.disabled=true;
-  try {const result=await command(`campaigns/${values.campaign_id}/codes`,{idempotency_key:crypto.randomUUID(),count:Number(values.count),prefix:values.prefix}); document.getElementById("codes-output").textContent=result.codes?.join("\n")||"Партия создана. Открытые значения уже недоступны.";} catch(error) {document.getElementById("codes-output").textContent=error.message;} finally {button.disabled=false;}
+  try {const result=await command(`campaigns/${values.campaign_id}/codes`,{idempotency_key:crypto.randomUUID(),count:Number(values.count),prefix:values.prefix,reason:values.reason}); document.getElementById("codes-output").textContent=result.codes?.join("\n")||"Партия создана. Открытые значения уже недоступны.";} catch(error) {document.getElementById("codes-output").textContent=error.message;} finally {button.disabled=false;}
 });
 
 const contentDialog=document.getElementById("content-dialog"),caseForm=document.getElementById("content-case-form"),contentText=document.getElementById("content-text");
