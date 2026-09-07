@@ -129,6 +129,21 @@ final class DesktopNotificationControlTests: XCTestCase {
         XCTAssertTrue(snapshot.completedRecording)
     }
 
+    func testNotificationWithoutLinkStillResolvesOnlyCurrentPermittedEvent() {
+        let now = Date(timeIntervalSince1970: 1000)
+        let event = DesktopCalendarPromptEvent(eventId: "no-link", startsAt: now, endsAt: now.addingTimeInterval(3600))
+        XCTAssertEqual(DesktopNotificationPresenter.currentMeeting(for: event, events: [event], now: now)?.eventId, event.eventId)
+        XCTAssertNil(DesktopNotificationPresenter.currentMeetingURL(for: event, events: [event], now: now))
+        XCTAssertNil(DesktopNotificationPresenter.currentMeeting(for: event, events: [], now: now))
+        XCTAssertNil(DesktopNotificationPresenter.currentMeeting(for: event, events: [event], now: now.addingTimeInterval(300)))
+        var moved = event
+        moved.startsAt = now.addingTimeInterval(60)
+        XCTAssertNil(DesktopNotificationPresenter.currentMeeting(for: event, events: [moved], now: now))
+        var blocked = event
+        blocked.joinPromptState = .blockedByPolicy
+        XCTAssertNil(DesktopNotificationPresenter.currentMeeting(for: event, events: [blocked], now: now))
+    }
+
     func testLateReminderDoesNotPromiseOriginalFiveMinutes() {
         let start = Date(timeIntervalSince1970: 1000)
         let due = start.addingTimeInterval(-300)

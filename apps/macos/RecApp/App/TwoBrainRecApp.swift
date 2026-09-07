@@ -538,7 +538,7 @@ private struct ContentView: View {
         value.session = captureSession
         value.transitioning = recordingStartInProgress || recordingStopInProgress
         value.stopping = recordingStopInProgress
-        value.startAvailable = CaptureControlView.shouldShowDirectRecordButton(for: captureSession, calendarPrompt: desktopCalendarPrompt) && effectivePermissionOnboardingStatus.isReady && !value.transitioning
+        value.startAvailable = CaptureControlView.shouldShowRecordButton(for: captureSession) && effectivePermissionOnboardingStatus.isReady && !value.transitioning
         value.blocker = recordingBlocker
         value.microphone = effectivePermissionOnboardingStatus.microphone == .granted ? (captureSession?.state == .paused ? "На паузе" : localRecordingActive ? (liveRecordingLevels.microphoneIsLive() ? "Поступают аудиоданные" : "Нет свежих аудиоданных") : "Доступ разрешён") : "Нужен доступ"
         value.systemAudio = effectivePermissionOnboardingStatus.systemAudio == .granted ? (localRecordingActive ? (liveRecordingLevels.incomingIsLive() ? "Поступают аудиоданные" : "Нет свежих аудиоданных") : "Доступ разрешён") : "Нужен доступ"

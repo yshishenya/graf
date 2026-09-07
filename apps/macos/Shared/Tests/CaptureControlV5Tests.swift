@@ -618,6 +618,18 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertTrue(source.contains("enqueueReason: \"meeting_detection_target_ended\""))
     }
 
+    func testTrayStartAvailabilityDoesNotUseMainWindowCalendarButtonVisibility() throws {
+        let source = try String(contentsOf: repositoryRootForCaptureTests()
+            .appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"), encoding: .utf8)
+        let snapshot = try XCTUnwrap(source.components(separatedBy: "private var controlPanelSnapshot:").last?
+            .components(separatedBy: "private func syncControlPanel").first)
+        XCTAssertFalse(snapshot.contains("shouldShowDirectRecordButton"))
+        XCTAssertTrue(snapshot.contains("shouldShowRecordButton(for: captureSession) && effectivePermissionOnboardingStatus.isReady && !value.transitioning"))
+        XCTAssertTrue(CaptureControlView.shouldShowRecordButton(for: nil))
+        XCTAssertFalse(CaptureControlView.shouldShowRecordButton(for: makePresentationSession(
+            state: .active, indicator: .active, canStop: true)))
+    }
+
     func testCalendarPromptUIWiresManualPrimaryAndDismissActions() throws {
         let source = try String(
             contentsOf: repositoryRootForCaptureTests()

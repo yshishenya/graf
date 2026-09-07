@@ -314,6 +314,7 @@ public final class CalendarTrayController: NSObject {
         self.onOpenMeetings = onOpenMeetings
         self.onUpdate = onUpdate
         super.init()
+        DesktopNotificationPresenter.shared.onOpenCalendar = { [weak self] in self?.showPopover() }
         model.onAuthInvalidated = { DesktopNotificationPresenter.shared.invalidate() }
         model.onProjection = { response in
             if let response { DesktopNotificationPresenter.shared.updateCalendar(response) }

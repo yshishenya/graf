@@ -130,6 +130,7 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
     @Published public private(set) var permissionText = "Проверяем разрешение macOS"
     @Published public private(set) var owner = ""
     @Published public private(set) var message = ""
+    public var onOpenCalendar: (() -> Void)?
     private let center = UNUserNotificationCenter.current()
     private let store = DesktopNotificationPreferencesStore()
     private var context = ""
@@ -290,7 +291,7 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
     }
     public static func reminderBody(startsAt: Date, due: Date, offsetMinutes: Int, now: Date) -> String {
         let timing = now >= startsAt ? "Встреча уже началась." : due < now ? "Встреча скоро начнётся." : offsetMinutes == 0 ? "Встреча начинается." : "Встреча начнётся через \(offsetMinutes) мин."
-        return timing + " Откройте GRAF, чтобы подключиться."
+        return timing + " Откройте GRAF, чтобы посмотреть встречу."
     }
     private func reminderID(_ event: DesktopCalendarPromptEvent) -> String {
         let raw = context + ":" + event.eventId + ":" + String(event.startsAt.timeIntervalSince1970)
@@ -337,11 +338,16 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
     public nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
         await openResponse(response.notification.request.identifier)
     }
-    public static func currentMeetingURL(for target: DesktopCalendarPromptEvent,
-                                         events: [DesktopCalendarPromptEvent], now: Date = Date()) -> URL? {
+    public static func currentMeeting(for target: DesktopCalendarPromptEvent,
+                                      events: [DesktopCalendarPromptEvent], now: Date = Date()) -> DesktopCalendarPromptEvent? {
         guard let event = events.first(where: { $0.eventId == target.eventId && $0.startsAt == target.startsAt }),
               event.joinPromptState.canSurfacePrompt,
-              min(event.endsAt, event.startsAt.addingTimeInterval(300)) > now,
+              min(event.endsAt, event.startsAt.addingTimeInterval(300)) > now else { return nil }
+        return event
+    }
+    public static func currentMeetingURL(for target: DesktopCalendarPromptEvent,
+                                         events: [DesktopCalendarPromptEvent], now: Date = Date()) -> URL? {
+        guard let event = currentMeeting(for: target, events: events, now: now),
               let url = event.openMeetingURL, url.scheme == "https", url.host != nil else { return nil }
         return url
     }
@@ -349,8 +355,13 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
         if id == "graf.local.test" { DesktopControlModel.shared.send(.settings); return }
         guard let target = requests[id], target.owner == owner, !owner.isEmpty else { return }
         if let event = target.event {
-            guard let url = Self.currentMeetingURL(for: event, events: calendarEvents) else { return }
-            NSWorkspace.shared.open(url)
+            let now = Date()
+            guard Self.currentMeeting(for: event, events: calendarEvents, now: now) != nil else { return }
+            if let url = Self.currentMeetingURL(for: event, events: calendarEvents, now: now) {
+                NSWorkspace.shared.open(url)
+            } else {
+                onOpenCalendar?()
+            }
         } else { DesktopControlModel.shared.send(.localRecordings) }
     }
 }
