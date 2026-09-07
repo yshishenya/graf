@@ -293,3 +293,46 @@ document.querySelectorAll(".open-overview").forEach(button=>button.addEventListe
 }));
 for(const kind of ["revisions","processing"]) document.getElementById(`${kind}-more`).addEventListener("click",()=>loadOverviewHistory(kind,true));
 overviewDialog.addEventListener("close",()=>{overviewState=null;});
+
+const audioDialog=document.getElementById("audio-dialog"),audioForm=document.getElementById("audio-form"),audioPlayer=document.getElementById("audio-player");
+let audioState=null;
+function clearAudio() {audioPlayer.pause();audioPlayer.removeAttribute("src");audioPlayer.load();audioPlayer.hidden=true;if(audioState) audioState.active=false;}
+document.querySelectorAll(".open-audio").forEach(button=>button.addEventListener("click",()=>{
+  clearAudio();audioState={id:button.dataset.id,active:false,caseId:null};audioForm.reset();document.getElementById("audio-target").textContent=`Встреча ${audioState.id}`;
+  audioDialog.querySelector(".dialog-message").textContent="Укажите причину для прослушивания или скачивания.";audioDialog.showModal();
+}));
+async function openAudio(purpose) {
+  if(!audioForm.reportValidity()) return;
+  const state=audioState;if(!state) return;
+  const buttons=audioForm.querySelectorAll("button");buttons.forEach(button=>button.disabled=true);
+  clearAudio();
+  try {
+    const reason=audioForm.elements.reason.value;
+    if(!state.caseId||state.reason!==reason) {
+      const opened=await command(`meetings/${state.id}/case`,{reason});state.caseId=opened.case_context_id;state.reason=reason;
+    }
+    const ticket=await command(`meetings/${state.id}/media-ticket`,{purpose,case_context_id:state.caseId});
+    if(audioState!==state||!audioDialog.open||document.hidden) return;
+    state.revision=ticket.revision_id;
+    const url=`/api/system-admin/v1/media/${encodeURIComponent(ticket.ticket)}`;
+    if(purpose==="listen") {
+      audioPlayer.src=url;audioPlayer.hidden=false;state.active=true;
+      audioDialog.querySelector(".dialog-message").textContent="Запись доступна. При истечении доступа нажмите «Прослушать» снова.";
+      await audioPlayer.play().catch(()=>{});
+    } else {
+      const link=document.createElement("a");link.href=url;link.download=`graf-${state.id}.m4a`;document.body.append(link);link.click();link.remove();
+      audioDialog.querySelector(".dialog-message").textContent="Запрошено скачивание записи. Проверьте его результат в загрузках браузера.";
+    }
+  } catch(error) {clearAudio();audioDialog.querySelector(".dialog-message").textContent=error.message;}
+  finally {buttons.forEach(button=>button.disabled=false);}
+}
+audioForm.addEventListener("submit",event=>{event.preventDefault();openAudio("listen");});
+document.getElementById("audio-download").addEventListener("click",()=>openAudio("download"));
+audioPlayer.addEventListener("error",()=>{if(audioState?.active) {clearAudio();audioDialog.querySelector(".dialog-message").textContent="Воспроизведение прервано. Нажмите «Прослушать», чтобы снова проверить доступ к записи.";}});
+audioDialog.addEventListener("close",()=>{clearAudio();audioState=null;});
+document.addEventListener("visibilitychange",()=>{if(document.hidden&&audioDialog.open) {clearAudio();audioDialog.querySelector(".dialog-message").textContent="Воспроизведение остановлено. Нажмите «Прослушать», чтобы продолжить с проверкой доступа.";}});
+setInterval(async()=>{
+  const state=audioState;if(!state?.active||document.hidden) return;
+  try {await command(`meetings/${state.id}/media/access`,{purpose:"listen",case_context_id:state.caseId,revision_id:state.revision});}
+  catch(error) {if(audioState===state) {clearAudio();audioDialog.querySelector(".dialog-message").textContent="Прослушивание прекращено: доступ отозван, запись удаляется или нет связи с сервером.";}}
+},10000);

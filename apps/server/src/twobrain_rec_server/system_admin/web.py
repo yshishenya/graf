@@ -740,3 +740,70 @@ async def meeting_revision_list(request: Request, meeting_id: UUID, before: int 
         return await meeting_revisions(request.app.state.system_sessions, context, meeting_id, before=before)
     except PermissionError:
         raise HTTPException(403, "Версии записи недоступны") from None
+
+
+class MediaTicketInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    purpose: Annotated[str, Field(pattern=r"^(listen|download)$")]
+    case_context_id: UUID
+    revision_id: UUID | None = None
+
+
+@router.post("/meetings/{meeting_id}/media-ticket")
+async def media_ticket(request: Request, meeting_id: UUID, payload: MediaTicketInput):
+    from dataclasses import replace
+
+    from twobrain_rec_server.system_admin.media import issue_media_ticket
+
+    _, context = await current_admin(request)
+    if getattr(request.app.state, "media_storage", None) is None:
+        raise HTTPException(503, "Доступ к записям временно недоступен")
+    context = replace(context, permission="audio." + payload.purpose, target_type="meeting",
+                      target_id=meeting_id, case_context_id=payload.case_context_id)
+    try:
+        return await issue_media_ticket(request.app.state.system_sessions, context, revision_id=payload.revision_id)
+    except PermissionError:
+        raise HTTPException(403, "Нет доступа к записи, исходник недоступен или достигнут предел запросов") from None
+
+
+@router.get("/media/{token}")
+async def media_stream(request: Request, token: str):
+    from twobrain_rec_server.api.problems import ProblemDetail
+    from twobrain_rec_server.system_admin.media import audio_response
+
+    _, context = await current_admin(request)
+    storage = getattr(request.app.state, "media_storage", None)
+    if storage is None:
+        raise HTTPException(503, "Доступ к записям временно недоступен")
+    try:
+        return await audio_response(request.app.state.system_sessions, context, token=token,
+            cookies=request.cookies, storage=storage, range_header=request.headers.get("range"))
+    except PermissionError:
+        raise HTTPException(403, "Доступ к записи завершён. Запросите его снова") from None
+    except ProblemDetail as error:
+        raise HTTPException(error.status, "Запрошенная часть записи недоступна") from None
+    except ValueError:
+        raise HTTPException(503, "Запись временно недоступна в хранилище") from None
+
+
+@router.post("/meetings/{meeting_id}/media/access")
+async def media_access(request: Request, meeting_id: UUID, payload: MediaTicketInput):
+    from dataclasses import replace
+
+    from twobrain_rec_server.db.tenant_context import apply_system_context
+    from twobrain_rec_server.system_admin.audit import authorize_access
+
+    _, context = await current_admin(request)
+    try:
+        context = await authorize_access(request.app.state.system_sessions, replace(context,
+            permission="audio."+payload.purpose, target_type="meeting", target_id=meeting_id,
+            case_context_id=payload.case_context_id))
+        async with request.app.state.system_sessions() as session:
+            await apply_system_context(session, context)
+            source = await session.scalar(text("select system_control.media_source(:id,:revision)"),
+                                          {"id": meeting_id, "revision": payload.revision_id})
+            if source is None:
+                raise PermissionError
+    except PermissionError:
+        raise HTTPException(403, "Доступ к записи прекращён") from None
+    return {"status": "ok"}

@@ -269,3 +269,23 @@ class SystemAuthRateLimit(Base):
     window_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
     attempts: Mapped[int]
     attempt_id: Mapped[UUID] = mapped_column(server_default=func.gen_random_uuid())
+
+
+class SystemMediaTicket(Base):
+    __tablename__ = "media_tickets"
+    __table_args__ = ({"schema": "system_control"},)
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    principal_id: Mapped[UUID] = mapped_column(ForeignKey("system_control.principals.id"))
+    session_id: Mapped[UUID] = mapped_column(ForeignKey("system_control.sessions.id"))
+    meeting_id: Mapped[UUID] = mapped_column()
+    revision_id: Mapped[UUID] = mapped_column()
+    case_context_id: Mapped[UUID] = mapped_column(ForeignKey("system_control.case_contexts.id"))
+    permission: Mapped[str] = mapped_column(String(40))
+    source_hash: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    lease_hash: Mapped[str | None] = mapped_column(String(64))
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

@@ -16,6 +16,7 @@ services:
       SYSTEM_ADMIN_PUBLIC_ORIGIN: "${SYSTEM_ADMIN_PUBLIC_ORIGIN:-}"
       SYSTEM_ADMIN_DATABASE_URL_FILE: /run/secrets/graf_system_database_url
       SYSTEM_ADMIN_TOTP_KEYS_FILE: /run/secrets/graf_system_totp_keys
+      SYSTEM_ADMIN_STORAGE_CONFIG_FILE: "${SYSTEM_ADMIN_STORAGE_CONFIG_FILE:+/run/secrets/graf_system_media_reader}"
       SYSTEM_ADMIN_POSTAL_API_URL: "${SYSTEM_ADMIN_POSTAL_API_URL:-}"
       SYSTEM_ADMIN_FROM_ADDRESS: "${SYSTEM_ADMIN_FROM_ADDRESS:-}"
       SYSTEM_ADMIN_POSTAL_KEY_FILE: /run/secrets/graf_system_postal_key
@@ -25,6 +26,7 @@ services:
       - graf_system_database_url
       - graf_system_totp_keys
       - graf_system_postal_key
+      - graf_system_media_reader
     read_only: true
     tmpfs:
       - /tmp:size=16m,mode=1777
@@ -46,3 +48,6 @@ secrets:
   graf_system_postal_key:
     # No mail is sent when SYSTEM_ADMIN_POSTAL_API_URL is empty.
     file: "${SYSTEM_ADMIN_POSTAL_KEY_FILE:-/dev/null}"
+  graf_system_media_reader:
+    # Optional dedicated GetObject-only credential; never reuse the writer key.
+    file: "${SYSTEM_ADMIN_STORAGE_CONFIG_FILE:-/dev/null}"

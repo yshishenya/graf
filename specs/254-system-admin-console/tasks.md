@@ -58,7 +58,7 @@
 - [ ] T010 [US3] Добавить глобальную карточку встречи и разделение метаданных/контента. Пути: `apps/server/src/twobrain_rec_server/system_admin/queries.py`; `apps/server/src/twobrain_rec_server/system_admin/templates/system_admin/meeting.html`.
   - Результат: Версии/стадии/source/time, no-speech, полный текст с частичной загрузкой/поиском/таймкодами; несуществующие исторические версии не выдумывать.
   - Зависимости: T008. Приёмка: AC-008, AC-009, AC-010, AC-011, AC-013, AC-039.
-  - В работе: отдельный доступ к заголовку/расшифровке, выбор существующего опубликованного результата общим helper, 100 фрагментов на страницу, поиск через POST, привязка страниц к версии и очистка при отзыве. Добавлены карточка метаданных, постраничные версии/попытки и состояния удаления. Итоги, аудио и retained-диагностика ещё не завершены.
+  - В работе: отдельный доступ к заголовку/расшифровке, выбор существующего опубликованного результата общим helper, 100 фрагментов на страницу, поиск через POST, привязка страниц к версии и очистка при отзыве. Добавлены карточка метаданных, постраничные версии/попытки и состояния удаления. Добавлен канонический аудиоплеер и скачивание с отдельным доступом; итоги и retained-диагностика ещё не завершены.
 
 - [ ] T011 [US3] Защитить аудио, экспорт и сохранённую диагностику системным доступом. Пути: `apps/server/src/twobrain_rec_server/cabinet/egress.py`; `apps/server/src/twobrain_rec_server/system_admin/web.py`; `apps/server/src/twobrain_rec_server/system_admin/audit.py`.
   - Результат: Явный system egress вместо admin shortcut; stream ticket и Range recheck; revision integrity; distinct retained view; content download/export права, no signed public URL.

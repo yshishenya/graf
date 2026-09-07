@@ -78,6 +78,7 @@ def run():
         async def lifespan(application):
             async with original_lifespan(application):
                 application.state.mailer = Mailbox()
+                application.state.media_storage = product_app.state.storage
                 yield
 
         app.router.lifespan_context = lifespan

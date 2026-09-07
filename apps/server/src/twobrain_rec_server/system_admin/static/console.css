@@ -40,3 +40,4 @@ dialog p { overflow-wrap: anywhere; }
 
 dl {display:grid;grid-template-columns:minmax(7rem,1fr) minmax(0,2fr);gap:.35rem 1rem;padding:1rem 0;border-bottom:1px solid var(--border,#d9dee7)}
 dt {font-weight:600} dd {margin:0;overflow-wrap:anywhere}
+audio {width:100%;margin-block:1rem}

@@ -1,5 +1,6 @@
 """Standalone ASGI process. Never mounted inside the product application."""
 
+import asyncio
 import base64
 import hmac
 import json
@@ -97,6 +98,28 @@ def create_app() -> FastAPI:
             app.state.password_computations = PasswordComputations()
             app.state.dummy_password_hash = hash_password(secrets.token_urlsafe(32))
             app.state.system_sessions = sessions
+            app.state.media_storage = None
+            storage_file = os.getenv("SYSTEM_ADMIN_STORAGE_CONFIG_FILE")
+            if storage_file:
+                from types import SimpleNamespace
+
+                from twobrain_rec_server.storage.minio_client import MinioStorage
+
+                try:
+                    storage_config = json.loads(Path(storage_file).read_text())
+                    required = {"endpoint", "access_key", "secret_key", "bucket", "secure"}
+                    if set(storage_config) != required or type(storage_config["secure"]) is not bool:
+                        raise ValueError
+                    if any(not isinstance(storage_config[key], str) or not storage_config[key]
+                           for key in required - {"secure"}):
+                        raise ValueError
+                    app.state.media_storage = MinioStorage(SimpleNamespace(
+                        minio_endpoint=storage_config["endpoint"], minio_access_key=storage_config["access_key"],
+                        minio_secret_key=storage_config["secret_key"], minio_bucket=storage_config["bucket"],
+                        minio_secure=storage_config["secure"],
+                    ))
+                except Exception:
+                    raise ValueError("invalid system media storage configuration") from None
             app.state.mailer = None
             if os.getenv("SYSTEM_ADMIN_POSTAL_API_URL"):
                 from twobrain_rec_server.auth.email_delivery import PostalEmailLoginClient
@@ -113,6 +136,7 @@ def create_app() -> FastAPI:
     app = FastAPI(title="Системная консоль GRAF", lifespan=lifespan,
                   docs_url=None, redoc_url=None, openapi_url=None)
     app.add_middleware(BodyLimit)
+    app.state.media_stream_slots = asyncio.Semaphore(4)
     app.state.public_origin = origin
     app.state.commands_enabled = os.getenv("SYSTEM_ADMIN_COMMANDS_ENABLED", "false") == "true"
 

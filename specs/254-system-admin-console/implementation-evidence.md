@@ -179,3 +179,27 @@ apps/server/scripts/run_local_postgres_tests.sh --focused tests/integration/test
 ```
 
 Это не реальный Temporal/MinIO прогон и не полная браузерная приёмка новых форм. Аудио/экспорт/retained diagnostics, account closure, полный billing/тарифы/акции, телеметрия, метрики и общие release gates остаются обязательной работой. Реальные письма, платежи и production действия не выполнялись.
+
+## Продолжение: аудио и серверная проверка выдачи
+
+Миграция `0095_system_media_access`, модуль `system_admin/media.py`, HTTP и обычный браузерный плеер реализуют выдачу сохранённого канонического аудио. Подробности операторской конфигурации — в quickstart. Реальный файл пользователя не использовался.
+
+- Сервер проверяет существующий canonical validator `_is_stored_review_m4a`, согласованность normalization job/revision/artifact и размер объекта. Прямой storage URL не выдаётся; media source возвращается только внутреннему обработчику после сохранённого аудита.
+- Одноразовая активация на 60 секунд, проверенный объектный grant/session/case, закреплённый хеш метаданных источника. После первого GET отдельная host-only HttpOnly cookie разрешает Range только этой сессии на 15 минут. Подмена источника, удаление, отзыв и чужая сессия закрывают доступ; открытый поток проверяется перед каждым блоком.
+- Одновременно не более четырёх потоков на процесс; переполнение 429/Retry-After. Новые tickets не более десяти в минуту на principal. Служебный worker удаляет истёкшие технические tickets; неизменяемый аудит сохраняется.
+- Запись `playback_stream_prepared` или `download_stream_prepared` в существующем журнале имеет id системного audit event, без подстановки product actor. Отчёт удаления учитывает факт подготовленной выдачи, не обещая доказательство полного скачивания.
+- Отдельная необязательная конфигурация MinIO reader и GetObject-only policy. Writer credential не передаётся console. Отсутствие reader сохраняет работоспособность остальных страниц и закрывает аудио.
+
+Проверки 2026-09-07:
+
+```sh
+apps/server/scripts/run_local_postgres_tests.sh --focused tests/integration/test_system_admin_media.py tests/integration/test_system_admin_operations.py tests/integration/test_system_admin_security.py tests/integration/test_system_admin_content.py tests/integration/test_system_admin_login.py -x -q
+# 46 passed до добавления ограничения одновременных потоков.
+
+apps/server/scripts/run_local_postgres_tests.sh --focused tests/integration/test_system_admin_media.py -x -q
+# 3 passed после ограничения: PostgreSQL + synthetic storage, аудио-only grant
+# не выдаёт download, Range/attachment/416, повтор активации, смена источника,
+# отзыв между блоками, связь system actor и egress audit, 429 и освобождение слота.
+```
+
+Браузер Chrome через Playwright: полный password/TOTP вход; канонический синтетический M4A 40 секунд успешно воспроизводится (readyState=4, advancing currentTime), перемотка к 10 секунде; окно аудио визуально проверено на 375×812. Карточка метаданных показывает сохранённую историю. Предпросмотр команды показывает введённую причину, последствия, срок, MFA и отдельное подтверждение. Снимки вне git. Это частичная UX проверка, не T036 и не полная доступность/нагрузка; production Temporal/MinIO, exporter/retained diagnostics и остальные задачи остаются обязательными.

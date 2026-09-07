@@ -384,8 +384,15 @@ async def test_system_migration_refuses_destructive_downgrade(system_database):
     overview_migration = importlib.util.module_from_spec(overview_spec)
     overview_spec.loader.exec_module(overview_migration)
 
+    media_spec = importlib.util.spec_from_file_location(
+        "f254_media_migration", migration_path.with_name("0095_system_media_access.py"),
+    )
+    media_migration = importlib.util.module_from_spec(media_spec)
+    media_spec.loader.exec_module(media_migration)
+
     def downgrade(connection):
         with Operations.context(MigrationContext.configure(connection)):
+            media_migration.downgrade()
             overview_migration.downgrade()
             lineage_migration.downgrade()
             content_migration.downgrade()

@@ -1,7 +1,7 @@
 """Maintenance dispatcher: atomically admit a domain effect, then observe it.
 
 Only the maintenance login runs this module. The web console never receives
-product-table DML or storage credentials. Existing Temporal/start and deletion
+product-table DML or storage writer credentials. Existing Temporal/start and deletion
 reconcilers recover the committed domain effect; this loop never resubmits it.
 """
 
@@ -145,6 +145,8 @@ async def run_system_operation_reconciler(settings, temporal_client) -> None:
         while True:
             try:
                 async with sessions() as db:
+                    await db.execute(text("select system_control.expire_media_tickets()"))
+                    await db.commit()
                     pending = (await db.execute(text(
                         "select * from system_control.pending_system_operations()"
                     ))).all()
