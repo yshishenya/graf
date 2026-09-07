@@ -140,10 +140,6 @@ public struct MeetingDetectionSettingsView: View {
                     } else {
                         ForEach(promptCapableTargets, id: \.id) { target in
                             HStack(spacing: 12) {
-                                Image(systemName: "app.dashed")
-                                    .foregroundStyle(.secondary)
-                                    .frame(width: 20)
-                                    .accessibilityHidden(true)
                                 Text(target.displayName)
                                     .fontWeight(.medium)
                                     .fixedSize(horizontal: false, vertical: true)
@@ -279,16 +275,16 @@ private struct AutomaticRecordingRulePicker: View {
                             .minimumScaleFactor(0.8)
                     }
                     .font(.callout)
-                    .frame(width: 104, height: 40)
+                    .frame(width: 104, height: 28)
                     .foregroundStyle(selection == rule ? Color.black : Color.primary)
                     .background(
                         selection == rule
                             ? DesktopMeetingShellChrome.shellAccentColor
                             : hoveredRule == rule ? DesktopMeetingShellChrome.shellAccentColor.opacity(0.12) : Color.clear,
-                        in: RoundedRectangle(cornerRadius: 10)
+                        in: RoundedRectangle(cornerRadius: 6)
                     )
                     .overlay(
-                        RoundedRectangle(cornerRadius: 10)
+                        RoundedRectangle(cornerRadius: 6)
                             .stroke(
                                 selection == rule
                                     ? DesktopMeetingShellChrome.shellAccentColor
