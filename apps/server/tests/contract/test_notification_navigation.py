@@ -145,14 +145,16 @@ const start = source.indexOf('  const positionPanel = () => {');
 const context = {window:{},bell:{},panel:{style:{}}};
 vm.createContext(context);
 vm.runInContext(source.slice(start, source.indexOf('  const csrf =',start)) + '\nglobalThis.place = positionPanel;',context);
-for (const [width,height] of [[360,640],[980,600],[1440,900]]) {
+for (const scale of [1,2]) for (const [width,height] of [[360,640],[980,600],[1440,900]]) {
   Object.assign(context.window,{innerWidth:width,innerHeight:height});
-  Object.assign(context.panel,{offsetWidth:Math.min(400,width-24),offsetHeight:height-24});
+  context.panel.style = {};
+  Object.defineProperty(context.panel,'offsetWidth',{configurable:true,get:()=>parseFloat(context.panel.style.width)||Math.min(400,width-24)});
+  context.panel.getBoundingClientRect=()=>({width:context.panel.offsetWidth*scale});
   for (const rect of [{right:54,bottom:height-70},{right:244,bottom:height-40},{right:width-20,bottom:height-5}]) {
     context.bell.getBoundingClientRect=()=>rect; context.place();
-    const left=parseFloat(context.panel.style.left), bottom=parseFloat(context.panel.style.bottom);
-    assert(left>=12 && left+context.panel.offsetWidth<=width-12);
-    assert(bottom>=12 && bottom+Math.min(context.panel.offsetHeight,parseFloat(context.panel.style.maxHeight))<=height-12);
+    const left=parseFloat(context.panel.style.left)*scale, bottom=parseFloat(context.panel.style.bottom)*scale;
+    assert(left>=12 && left+context.panel.offsetWidth*scale<=width-12);
+    assert(bottom>=12 && bottom+parseFloat(context.panel.style.maxHeight)*scale<=height-12);
   }
 }
 """

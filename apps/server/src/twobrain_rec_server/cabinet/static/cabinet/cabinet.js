@@ -7877,9 +7877,13 @@
   mobileMedia.addEventListener('change', syncLocation);
   const positionPanel = () => {
     const rect = bell.getBoundingClientRect();
-    panel.style.left = Math.max(12, Math.min(rect.right + 12, window.innerWidth - panel.offsetWidth - 12)) + 'px';
-    panel.style.bottom = Math.max(12, Math.min(window.innerHeight - rect.bottom, window.innerHeight - 480 - 12)) + 'px';
-    panel.style.maxHeight = (window.innerHeight - parseFloat(panel.style.bottom) - 12) + 'px';
+    const scale = panel.offsetWidth ? panel.getBoundingClientRect().width / panel.offsetWidth : 1;
+    panel.style.width = Math.min(400, (window.innerWidth - 24) / scale) + 'px';
+    const width = panel.getBoundingClientRect().width;
+    const bottom = Math.max(12, Math.min(window.innerHeight - rect.bottom, window.innerHeight - Math.min(480 * scale, window.innerHeight - 24) - 12));
+    panel.style.left = Math.max(12, Math.min(rect.right + 12, window.innerWidth - width - 12)) / scale + 'px';
+    panel.style.bottom = bottom / scale + 'px';
+    panel.style.maxHeight = (window.innerHeight - bottom - 12) / scale + 'px';
   };
   const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
   const embedded = bell.pathname.startsWith('/desktop/');
@@ -8039,7 +8043,7 @@
   document.addEventListener('keydown', event => { if (event.key === 'Escape' && !panel.hidden) { close(true); event.stopPropagation(); } });
   document.addEventListener('click', event => { if (!root.contains(event.target) && !panel.contains(event.target)) close(); });
   window.addEventListener('resize', () => { if (!panel.hidden) close(panel.contains(document.activeElement)); });
-  document.addEventListener('scroll', event => { if (!panel.hidden && !panel.contains(event.target)) close(panel.contains(document.activeElement)); }, true);
+  document.addEventListener('scroll', event => { if (!panel.hidden && !panel.contains(event.target)) positionPanel(); }, true);
   document.addEventListener('visibilitychange', () => { clear(); if (!document.hidden) load(); });
   window.addEventListener('pageshow', () => { clear(); load(); consumeOpenedNotice(); });
   window.addEventListener('pagehide', clear);
