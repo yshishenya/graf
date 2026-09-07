@@ -233,6 +233,22 @@ def test_profile_menu_submits_only_theme_and_enables_existing_autosave(embedded)
     assert 'data-account-preferences-auto-save="true"' in form
     assert 'name="locale"' not in form and 'name="timezone"' not in form
     assert 'value="dark" checked' in form
+    assert 'name="return_to"' in form
+    assert 'data-account-preferences-status' in form
+
+
+@pytest.mark.parametrize(
+    ("requested", "embedded", "expected"),
+    [
+        ("/desktop/meetings", True, "/desktop/meetings?preferences=saved"),
+        ("/meetings?status=ready", False, "/meetings?status=ready&preferences=saved"),
+        ("https://example.test/phishing", True, "/desktop/settings/account?preferences=saved"),
+        ("//example.test/phishing", False, "/settings/account?preferences=saved"),
+        ("/logout", False, "/settings/account?preferences=saved"),
+    ],
+)
+def test_account_preferences_return_path_stays_first_party(requested, embedded, expected):
+    assert settings._account_preferences_redirect_target(requested, embedded=embedded) == expected
 
 
 def test_all_billing_and_deletion_shell_callers_supply_profile():

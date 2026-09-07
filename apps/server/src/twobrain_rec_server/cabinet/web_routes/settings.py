@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from fastapi import APIRouter, Query, Request
@@ -23,6 +24,7 @@ from twobrain_rec_server.auth.dependencies import (
     auth_session_cookie_secure,
     is_web_cookie_session,
 )
+from twobrain_rec_server.auth.redirects import safe_first_party_path
 from twobrain_rec_server.auth.provider_links import (
     RECOVERY_CAPABLE_PROVIDERS,
     recovery_safe_unlink_allowed,
@@ -705,6 +707,27 @@ async def _save_account_preferences(
     await db.commit()
 
 
+def _account_preferences_redirect_target(
+    requested_path: object | None,
+    *,
+    embedded: bool,
+) -> str:
+    fallback = f"{'/desktop' if embedded else ''}/settings/account?preferences=saved"
+    if not isinstance(requested_path, str):
+        return fallback
+    candidate = safe_first_party_path(requested_path)
+    if candidate is None:
+        return fallback
+    try:
+        parsed_path = urlsplit(candidate).path
+    except ValueError:
+        return fallback
+    if not parsed_path or parsed_path.startswith(("/login", "/logout")):
+        return fallback
+    separator = "&" if "?" in candidate else "?"
+    return f"{candidate}{separator}preferences=saved"
+
+
 async def _unlink_account_provider(
     db: AsyncSession,
     *,
@@ -1016,7 +1039,11 @@ async def save_settings_account_preferences(
     await _save_account_preferences(
         db, principal=principal, tenant_scope=tenant_scope, request=request
     )
-    return RedirectResponse("/settings/account?preferences=saved", status_code=303)
+    form = await request.form()
+    return RedirectResponse(
+        _account_preferences_redirect_target(form.get("return_to"), embedded=False),
+        status_code=303,
+    )
 
 
 @router.post(
@@ -1037,7 +1064,11 @@ async def save_embedded_settings_account_preferences(
     await _save_account_preferences(
         db, principal=principal, tenant_scope=tenant_scope, request=request
     )
-    return RedirectResponse("/desktop/settings/account?preferences=saved", status_code=303)
+    form = await request.form()
+    return RedirectResponse(
+        _account_preferences_redirect_target(form.get("return_to"), embedded=True),
+        status_code=303,
+    )
 
 
 async def _unlink_provider_action(

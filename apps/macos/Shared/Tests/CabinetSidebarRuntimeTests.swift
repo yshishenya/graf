@@ -522,6 +522,67 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
         XCTAssertEqual(compactState["reachable"] as? Bool, true, compactState["detail"] as? String ?? "")
     }
 
+    func testProfileThemeAutosaveKeepsCurrentRoute() async throws {
+        let root = try repositoryRoot()
+        let script = try String(
+            contentsOf: root.appendingPathComponent(
+                "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js"
+            ),
+            encoding: .utf8
+        )
+        let webView = makeWebView(frame: CGRect(x: 0, y: 0, width: 1200, height: 844))
+        let origin = try XCTUnwrap(URL(string: "https://theme-autosave.graf.test/meetings"))
+        try await load(
+            """
+            <!doctype html><html><body>
+              <form data-account-preferences data-account-preferences-auto-save="true" action="/desktop/settings/account/preferences" method="post">
+                <input type="hidden" name="return_to" value="" data-account-preferences-return>
+                <input type="radio" name="theme" value="light">
+                <input type="radio" name="theme" value="system" checked>
+                <span data-account-preferences-status role="status"></span>
+              </form>
+              <script>
+                window.fetch = async (url, options) => {
+                  window.__themeFetch = {url, returnTo: options.body.get('return_to')};
+                  return {ok: true};
+                };
+              </script>
+              <script>\(script)</script>
+            </body></html>
+            """,
+            in: webView,
+            baseURL: origin
+        )
+        let result = try await webView.callAsyncJavaScript(
+            """
+            const light = document.querySelector('input[value="light"]');
+            light.checked = true;
+            light.dispatchEvent(new Event('change', {bubbles: true}));
+            await new Promise(resolve => setTimeout(resolve, 40));
+            return {
+              path: location.pathname,
+              fetchUrl: window.__themeFetch?.url || '',
+              returnTo: window.__themeFetch?.returnTo || '',
+              state: document.querySelector('form').dataset.state || '',
+              theme: document.documentElement.dataset.theme || '',
+              ready: document.querySelector('form').dataset.accountPreferencesReady || '',
+              cabinetReady: document.documentElement.dataset.cabinetJs || ''
+            };
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        )
+        let state = try XCTUnwrap(result as? [String: Any])
+        XCTAssertEqual(state["path"] as? String, "/meetings")
+        XCTAssertEqual(state["fetchUrl"] as? String, "https://theme-autosave.graf.test/desktop/settings/account/preferences")
+        XCTAssertEqual(state["returnTo"] as? String, "/meetings")
+        XCTAssertEqual(state["state"] as? String, "saved")
+        XCTAssertEqual(state["theme"] as? String, "light")
+        XCTAssertEqual(state["ready"] as? String, "true")
+        XCTAssertEqual(state["cabinetReady"] as? String, "ready")
+    }
+
     private func railState(in webView: WKWebView) async throws -> [String: Any] {
         let result = try await evaluatePageJavaScript(
             """

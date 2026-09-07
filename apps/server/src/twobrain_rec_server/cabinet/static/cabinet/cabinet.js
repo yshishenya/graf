@@ -5084,23 +5084,65 @@
     document.querySelectorAll("[data-account-preferences]").forEach((form) => {
       if (form.dataset.accountPreferencesReady === "true") return;
       form.dataset.accountPreferencesReady = "true";
+      const autoSave = form.dataset.accountPreferencesAutoSave === "true";
+      const status = form.querySelector("[data-account-preferences-status]");
+      const returnField = form.elements.namedItem("return_to");
+      let persistedTheme = form.elements.namedItem("theme")?.value || "system";
+      let saveInFlight = false;
       const applyTheme = (theme) => {
         if (theme === "system") document.documentElement.removeAttribute("data-theme");
         else document.documentElement.dataset.theme = theme;
         document.documentElement.style.colorScheme = theme === "system" ? "" : theme;
       };
       const currentTheme = form.elements.namedItem("theme")?.value || "system";
+      persistedTheme = currentTheme;
       applyTheme(currentTheme);
       form.addEventListener("change", (event) => {
         if (event.target?.name === "theme") {
           applyTheme(event.target.value);
-          if (form.dataset.accountPreferencesAutoSave === "true") form.requestSubmit();
+          if (autoSave && !saveInFlight) form.requestSubmit();
         }
       });
-      form.addEventListener("submit", () => {
+      form.addEventListener("submit", async (event) => {
+        if (autoSave) {
+          event.preventDefault();
+          if (saveInFlight) return;
+          saveInFlight = true;
+          if (returnField) returnField.value = `${window.location.pathname}${window.location.search}`;
+          form.dataset.state = "saving";
+          if (status) status.textContent = "Сохраняем тему…";
+          form.querySelectorAll("input[name='theme']").forEach((input) => { input.disabled = true; });
+          try {
+            const response = await fetch(form.action, {
+              method: "POST",
+              body: new FormData(form),
+              credentials: "same-origin",
+              redirect: "follow",
+            });
+            const responsePath = new URL(response.url || window.location.href, window.location.href).pathname;
+            if (!response.ok || responsePath.startsWith("/login")) {
+              throw new Error("account_preferences_save_failed");
+            }
+            persistedTheme = form.elements.namedItem("theme")?.value || persistedTheme;
+            form.dataset.state = "saved";
+            if (status) status.textContent = "Тема сохранена";
+            form.closest("[data-profile-menu-root]")?.querySelector("[data-profile-menu-trigger]")?.click();
+          } catch {
+            applyTheme(persistedTheme);
+            const selected = Array.from(form.querySelectorAll("input[name='theme']"))
+              .find((input) => input.value === persistedTheme);
+            if (selected) selected.checked = true;
+            form.dataset.state = "error";
+            if (status) status.textContent = "Не удалось сохранить тему";
+          } finally {
+            form.querySelectorAll("input[name='theme']").forEach((input) => { input.disabled = false; });
+            saveInFlight = false;
+          }
+          return;
+        }
         // Keep the native POST/no-JS path authoritative; preview is local only until the server confirms.
-        const status = form.querySelector("[data-settings-form-status]");
-        if (status) { status.textContent = "Сохраняем настройки…"; status.hidden = false; }
+        const settingsStatus = form.querySelector("[data-settings-form-status]");
+        if (settingsStatus) { settingsStatus.textContent = "Сохраняем настройки…"; settingsStatus.hidden = false; }
         const submit = form.querySelector("button[type='submit']");
         if (submit) submit.disabled = false;
       });
