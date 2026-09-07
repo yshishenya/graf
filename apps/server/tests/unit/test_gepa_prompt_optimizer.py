@@ -264,7 +264,7 @@ def test_model_result_returned_after_cancel_is_fenced_before_observation() -> No
 
 
 def _snapshot(name: str):
-    prompt_type, prompt, config = desired_prompts()[name]
+    prompt_type, prompt, config = desired_prompts(model="gpt-5.6-luna")[name]
     return validate_prompt_snapshot(
         name=name,
         version=1,

@@ -574,6 +574,13 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
 .notes-section-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; min-width: 0; }
 .notes-section-title { min-width: 0; display: grid; gap: 3px; }
 .notes-section h4 { margin: 0; font-size: var(--font-size-label); }
+.notes-full-protocol :is(h3, h4, h5, h6) { margin: 0 0 10px; line-height: 1.4; }
+.notes-full-protocol h5 { font-size: var(--font-size-body); }
+.notes-full-protocol h6 { font-size: var(--font-size-label); }
+.notes-action-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.notes-action-table caption { text-align: left; margin-bottom: 10px; }
+.notes-action-table :is(th, td) { padding: 10px; text-align: left; vertical-align: top; border: 1px solid var(--line-soft); overflow-wrap: anywhere; }
+.notes-action-table :is(th, td):first-child { width: 55%; }
 .notes-state-copy { margin: 0; color: var(--muted); font-size: var(--font-size-helper); overflow-wrap: anywhere; }
 .notes-state-label { flex: 0 0 auto; color: var(--muted); font-size: var(--font-size-caption); }
 .notes-items { display: grid; gap: 10px; margin-top: 12px; min-width: 0; }

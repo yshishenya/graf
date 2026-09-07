@@ -266,7 +266,7 @@ def fetch_prompt_by_label(
         name,
         label=label,
         type=prompt_type,
-        cache_ttl_seconds=60,
+        cache_ttl_seconds=0,
         max_retries=0,
         fetch_timeout_seconds=10,
     )

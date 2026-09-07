@@ -394,6 +394,7 @@ async def create_content_export(
     device_id: UUID,
     recipient_proof: ShareRecipientAccessProof | None = None,
     pinned_summary_revision: tuple[str, UUID] | None = None,
+    meeting_url: str = "",
 ) -> GeneratedContentExport:
     artifact_class: ArtifactClass = (
         "transcript"
@@ -515,6 +516,7 @@ async def create_content_export(
             result=result,
             selection=selection,
             pinned_summary_revision=pinned_summary_revision,
+            meeting_url=meeting_url,
         )
         generated = await to_thread.run_sync(render_content_export, snapshot)
     except ProblemDetail as exc:

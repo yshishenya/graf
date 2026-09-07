@@ -1,0 +1,113 @@
+# Данные протокола
+
+## MeetingProtocol
+
+Все объекты запрещают неизвестные поля; все перечисленные поля обязательны.
+Nullable означает JSON null, а не отсутствующее поле. Строки сохраняются
+побайтно без strip/нормализации; непустая строка должна содержать не-пробел.
+
+| Поле / тип | Правило |
+| --- | --- |
+| schema_version | literal `graf-meeting-protocol-v1` |
+| title, input_type, meeting_type | непустые строки |
+| date_and_time | непустая строка либо null |
+| participants | список непустых строк; [] означает неизвестный состав |
+| executive_summary, objectives, decisions, open_questions, next_steps | список Statement, [] допустим |
+| topics | список Topic, [] допустим |
+| action_items | список Task, [] допустим |
+| notes | список Note, [] допустим |
+| Statement | text: непустая строка; source_refs: непустой список Ref |
+| Note | text: непустая строка; source_refs: список Ref, включая [] |
+| Topic | title: непустая строка; context/discussion/proposals/outcome: списки Statement |
+| Task | task: непустая строка; owner_text/due_date_text: непустая строка либо null; source_refs: непустой список Ref |
+| Ref | sequence: строгий int ≥0; quote: непустая строка либо null |
+
+В одном source_refs повтор sequence запрещён. В источнике sequence должен
+быть уникален. Цитата — точная Unicode-подстрока соответствующего фрагмента,
+без исправления регистра, пробелов или нормализации. Несколько refs задачи
+могут совместно подтверждать поручение, исполнителя и срок в разных репликах.
+Полный ответ ограничен 2 MiB UTF-8; превышение — явная ошибка без обрезания.
+Существующий предел источника 8 MiB не меняется. Wire schema не содержит
+вложенных maxItems; это не ограничения на содержательную полноту встречи.
+
+Минимальный синтетический пример узла от модели:
+
+```json
+{"text":"Обсудили макет.","source_refs":[{"sequence":0,"quote":"макет"}]}
+```
+
+После разрешения ссылки текст остаётся тем же; Ref заменяется канонической
+ссылкой текущего источника (UUID ниже вымышленные):
+
+```json
+{"processing_result_id":"00000000-0000-0000-0000-000000000001","transcript_segment_id":"00000000-0000-0000-0000-000000000002","sequence":0,"start_seconds":0.0,"end_seconds":1.0,"speaker_label":"Участник 1","quote":"макет","source_role":"unknown","evidence_kind":"segment"}
+```
+
+speaker_label nullable; source_role — каноническая роль источника, строка;
+evidence_kind — literal segment. Имена полей повторяют OutcomeSourceReference,
+новый параллельный формат миллисекунд не вводится.
+Время, UUID и speaker_label никогда не берутся из модельного Ref.
+
+Строгий объект: `title`, `date_and_time`, `input_type`, `meeting_type`,
+`participants`, `executive_summary`, `objectives`, `topics`, `decisions`,
+`action_items`, `open_questions`, `next_steps`, `notes`.
+
+Утверждение: `text`, `source_refs`. Тема: `title`, списки утверждений
+`context`, `discussion`, `proposals`, `outcome`. Задача: `task`, `owner_text`,
+`due_date_text`, `source_refs`. Исполнитель/срок nullable. Шапка и общие
+примечания могут не иметь ссылок; существенные утверждения, решения и задачи
+требуют источников. Риски/зависимости сохраняются в соответствующих темах.
+
+Модельная ссылка: целочисленный `sequence`, nullable буквальный `quote`.
+UUID, время и URL модель не создаёт. Сервер разрешает точный уникальный
+sequence закреплённого источника и проверяет цитату, если она указана.
+Неизвестные/неоднозначные ссылки и boolean/float вместо integer отклоняются.
+Сервер добавляет канонические идентификаторы и время, не меняя текстовые поля.
+Технические границы размера не обрезают материал.
+
+## Хранение и жизненный цикл
+
+`MeetingOutcomeSet.protocol_json` — полный разрешённый документ;
+`content_hash` связан с validated result журнала. Сохранение и публикация
+используют действующие транзакции и CAS указателя текущих итогов.
+Поля категорий/items — техническая проекция для существующего API.
+`NULL protocol_json` означает исторический плоский документ, не fallback.
+Поля owner_text/due_date_text плоской проекции имеют тип Text; ограничения
+длины прежних VARCHAR не должны откатывать сохранение модельного ответа.
+Журнал ответа фиксируется до транзакции проекции; после фиксации повторно
+проверяются актуальность, удаление и доступ. Ошибка проекции не стирает ответ.
+Backfill выдуманными темами запрещён. Удаление outcome удаляет и протокол;
+Generation Call, Langfuse, Temporal сохраняются по существующей политике.
+
+Состояния attempts/slots/workflow не меняются. Успешный ответ сохраняется
+и при невозможности публикации: expiry/cancel/deletion/source/access race
+не стирает ответ и не повторяет inference.
+
+## PromptSnapshot
+
+Точный name/version/prompt/config/hash закрепляется в существующей попытке.
+Модель/параметры передаются без code-owned defaults. Метка не разрешается
+повторно внутри попытки. Проверенный сохранённый снимок не пересекает границу
+dev/production; root/qualification/event не требуется.
+
+Выбор runtime — только существующая `Settings.outcome_prompt_label`;
+числовая версия разрешается из явно указанной метки один раз и закрепляется.
+Новый selector версии не добавляется. Обязательные ключи config:
+`contract_version` (literal `graf-meeting-protocol-v1`), `model` (непустая
+строка), `response_format` (строгая схема данного документа).
+Допустимые необязательные параметры: temperature [0,2], top_p [0,1],
+presence_penalty/frequency_penalty [-2,2], seed (строгий int), stop (строка
+или непустой список строк), max_tokens/max_completion_tokens (строгий int >0,
+взаимоисключающие), reasoning_effort (непустая строка). Числа конечные,
+bool не число. Неизвестные ключи — явная ошибка настройки, не тихое удаление.
+Только заданные параметры отправляются поставщику; default модели,
+temperature, token budget и reasoning_effort в коде нет. Нет списка моделей.
+Actual provider/model берутся из retained response либо остаются null;
+request alias не является доказательством фактической модели.
+
+Первичная настройка требует явно выбранной оператором модели/config;
+обновление текста сохраняет операторские параметры. Сохранённый fallback
+снимок в существующем MinIO связан с hash идентичности проекта Langfuse
+(host + public key, без секрета), name и точной label/environment. Hash
+содержимого проверяется при чтении; production namespace не служит dev.
+Нет снимка с совпадающей идентичностью — dependency wait, не подмена.

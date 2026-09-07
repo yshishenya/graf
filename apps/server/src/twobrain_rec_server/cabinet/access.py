@@ -130,12 +130,16 @@ def narrow_summary_projection(
     occurred_at: datetime,
     duration_seconds: int,
     summary_sections: list[dict[str, object]],
+    protocol: dict | None = None,
 ) -> dict[str, object]:
+    from twobrain_rec_server.cabinet.meeting_protocol import without_protocol_evidence
+
     return {
         "meeting_label": meeting_label[:160],
         "occurred_at": occurred_at,
         "duration_seconds": max(0, duration_seconds),
         "summary_sections": summary_sections,
+        "protocol": without_protocol_evidence(protocol),
     }
 
 

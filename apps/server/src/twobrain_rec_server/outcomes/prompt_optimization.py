@@ -2380,7 +2380,6 @@ class _ProductionModelExecutor:
             base_url=str(settings.litellm_base_url),
             api_key=settings.litellm_api_key_file.read_text(encoding="utf-8").strip(),
             timeout_seconds=settings.litellm_request_timeout_seconds,
-            require_route_binding=True,
         )
 
     def __call__(

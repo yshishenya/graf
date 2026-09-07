@@ -147,7 +147,7 @@ def _service_module():
         raise AssertionError("outcome service module is missing") from exc
 
 
-def test_outcome_generation_is_idempotent_and_stores_source_evidence(client) -> None:
+def test_waiting_projection_is_idempotent_and_does_not_invent_content(client) -> None:
     meeting_id = create_outcome_ready_meeting(client)
     service = _service_module()
 
@@ -172,10 +172,8 @@ def test_outcome_generation_is_idempotent_and_stores_source_evidence(client) -> 
     set_count, item_count, items = asyncio.run(generate_twice())
 
     assert set_count == 1
-    assert item_count >= 3
-    assert all(item.workspace_id for item in items)
-    assert all(item.source_refs_json for item in items if item.state == "available")
-    assert {item.category for item in items} >= {"summary", "key_points", "evidence"}
+    assert item_count == 0
+    assert items == []
 
 
 def test_provider_only_legacy_result_does_not_start_new_outcomes(client) -> None:
@@ -325,7 +323,7 @@ def test_trusted_reconcile_cannot_promote_the_initial_baseline(client) -> None:
     assert current_id is None
     assert revision_state == "candidate"
     assert accepted is False
-    assert attempt_statuses == ["blocked_dependency"]
+    assert attempt_statuses == []  # A display projection is not a model attempt.
     assert set_count == 1
     assert item_count == 0
 
@@ -861,7 +859,7 @@ def test_old_result_version_cannot_create_baseline_after_same_revision_retry(cli
     assert asyncio.run(run()) == 0
 
 
-def test_outcome_generation_preserves_not_inferable_category_truth(client) -> None:
+def test_waiting_projection_does_not_claim_absence_before_generation(client) -> None:
     meeting_id = create_outcome_ready_meeting(client)
     service = _service_module()
 
@@ -879,8 +877,7 @@ def test_outcome_generation_preserves_not_inferable_category_truth(client) -> No
 
     states = asyncio.run(generate())
 
-    assert set(states.values()) <= {"not_found", "not_inferable", "available"}
-    assert states["action_items"] in {"not_found", "not_inferable"}
+    assert set(states.values()) == {"unavailable"}
 
 
 def test_blocked_outcome_can_retry_after_transcript_becomes_available(client) -> None:
@@ -953,9 +950,9 @@ def test_blocked_outcome_can_retry_after_transcript_becomes_available(client) ->
     assert blocked_source == "input_audio"
     assert attempt_source == "input_audio"
     assert attempt_metadata["failure_source"] == "input_audio"
-    assert retried_status == "available"
-    assert item_count >= 3
-    assert attempt_count >= 2
+    assert retried_status == "blocked"  # Recovered source still needs the LLM.
+    assert item_count == 0
+    assert attempt_count == 1  # The old blocked attempt remains as history.
 
 
 def test_revision_scoped_blocked_outcome_recovery_creates_new_candidate_lineage(client) -> None:
@@ -1006,17 +1003,14 @@ def test_revision_scoped_blocked_outcome_recovery_creates_new_candidate_lineage(
 
     assert blocked_id != retried_id
     assert blocked_candidate != retried_candidate
-    assert attempt_count >= 2
+    assert attempt_count == 1
 
 
-def test_generation_failure_records_safe_blocked_attempt_without_losing_review(client, monkeypatch) -> None:
+def test_missing_ai_dispatch_has_no_local_generator_fallback(client) -> None:
     meeting_id = create_outcome_ready_meeting(client)
     service = _service_module()
 
-    def fail_generation(_segments):
-        raise RuntimeError("synthetic generator failure with no meeting content")
-
-    monkeypatch.setattr(service, "generate_outcomes", fail_generation)
+    assert not hasattr(service, "generate_outcomes")
 
     async def generate() -> tuple[str, str | None, str, dict]:
         async with client.app_state["sessionmaker"]() as db:
@@ -1028,16 +1022,14 @@ def test_generation_failure_records_safe_blocked_attempt_without_losing_review(c
                 .where(MeetingOutcomeGenerationAttempt.meeting_id == meeting_id)
                 .order_by(MeetingOutcomeGenerationAttempt.created_at.desc())
             )
-            assert attempt is not None
+            assert attempt is None
             await db.commit()
-            return outcome_set.status, outcome_set.failure_reason, attempt.status, attempt.metadata_json
+            return outcome_set.status, outcome_set.failure_reason
 
-    status, reason, attempt_status, metadata = asyncio.run(generate())
+    status, reason = asyncio.run(generate())
 
     assert status == "blocked"
-    assert reason == "outcomes_generation_failed"
-    assert attempt_status == "failed_terminal"
-    assert "synthetic generator failure" not in str(metadata)
+    assert reason == "summary_generation_unavailable"
 
 
 def test_expired_revision_baseline_is_restarted_with_new_bounded_candidate(client) -> None:
@@ -1072,7 +1064,7 @@ def test_expired_revision_baseline_is_restarted_with_new_bounded_candidate(clien
                     )
                 )
             ).all()
-            expired_attempt = next(attempt for attempt in attempts if attempt.outcome_set_id == first.id)
+            expired = await db.get(MeetingOutcomeSet, first.id)
             await db.commit()
             return (
                 first.id,
@@ -1080,9 +1072,9 @@ def test_expired_revision_baseline_is_restarted_with_new_bounded_candidate(clien
                 first.expires_at,
                 retried.expires_at,
                 len(attempts),
-                expired_attempt.status,
-                expired_attempt.failure_code,
-                expired_attempt.ended_at,
+                expired.revision_state,
+                expired.failure_reason,
+                expired.expires_at,
             )
 
     (
@@ -1099,9 +1091,9 @@ def test_expired_revision_baseline_is_restarted_with_new_bounded_candidate(clien
     assert old_expiry is not None and new_expiry is not None
     assert new_expiry > datetime.now(UTC)
     assert new_expiry > old_expiry
-    assert attempt_count == 2
+    assert attempt_count == 0
     assert expired_attempt_status == "expired"
-    assert expired_attempt_failure_code == "summary_candidate_expired"
+    assert expired_attempt_failure_code == "summary_generation_unavailable"
     assert expired_attempt_ended_at is not None
 
 

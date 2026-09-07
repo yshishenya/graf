@@ -4601,6 +4601,33 @@
         if (live) live.textContent = `Открыт источник ${formatTime(seconds)} в расшифровке.`;
       });
     });
+    const sourceId = new URLSearchParams(window.location.hash.slice(1)).get("graf-source");
+    if (sourceId) {
+      const target = Array.from(document.querySelectorAll("[data-transcript-turn]")).find(
+        (turn) => (turn.dataset.sourceSegments || "").split(/\s+/).includes(sourceId),
+      );
+      const live = document.querySelector("[data-playback-live-status]");
+      if (!target) {
+        if (live) live.textContent = "Источник этой ревизии недоступен в текущей расшифровке.";
+        return;
+      }
+      // Exact segment identity only: a newer transcript must not resolve by guessed time.
+      activateDetailTab("recording", { updateUrl: false });
+      const seconds = Number(target.dataset.startSeconds);
+      const player = document.querySelector("[data-playback-player]");
+      if (player && Number.isFinite(seconds)) {
+        try {
+          player.currentTime = Math.max(0, seconds);
+        } catch (_error) {
+          reportPlaybackFailure(player);
+        }
+      }
+      window.requestAnimationFrame(() => {
+        target.scrollIntoView({ block: "center" });
+        target.focus({ preventScroll: true });
+        if (live) live.textContent = `Открыт источник ${formatTime(Number(target.dataset.startSeconds))} в расшифровке.`;
+      });
+    }
   };
 
   const DEFAULT_TIMELINE_HEIGHT = 120;

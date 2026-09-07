@@ -10,7 +10,7 @@ from typing import Literal
 from uuid import UUID
 
 from openpyxl import Workbook
-from openpyxl.cell import WriteOnlyCell
+from openpyxl.cell import Cell, WriteOnlyCell
 from openpyxl.styles import Alignment, Font
 from openpyxl.utils import get_column_letter
 from sqlalchemy import or_, select
@@ -18,6 +18,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.api.schemas import CONTENT_EXPORT_FORMATS_BY_SCOPE
+from twobrain_rec_server.cabinet.meeting_protocol import (
+    EMPTY,
+    TASK_HEADING,
+    protocol_blocks,
+    protocol_lines,
+    protocol_timecode,
+    without_protocol_evidence,
+)
 from twobrain_rec_server.cabinet.speakers import speaker_names_for_result
 from twobrain_rec_server.cabinet.view_models import source_role_label
 from twobrain_rec_server.db.models import (
@@ -179,6 +187,7 @@ class SummaryExportRevision:
     generator_version: str
     content_hash: str | None
     items: tuple[SummaryExportItem, ...]
+    protocol: dict | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -194,6 +203,7 @@ class ExportSnapshot:
     raw_segments: tuple[RawExportSegment, ...]
     canonical_turns: tuple[CanonicalExportTurn, ...]
     summary: SummaryExportRevision | None
+    meeting_url: str = ""
     attribution_result_state: Literal["accepted", "degraded_provider_result"] = "accepted"
     attribution_reason_codes: tuple[str, ...] = ()
     schema_version: str = SCHEMA_VERSION
@@ -235,6 +245,7 @@ async def build_export_snapshot(
     result: ProcessingResult,
     selection: ExportSelection,
     pinned_summary_revision: tuple[str, UUID] | None = None,
+    meeting_url: str = "",
 ) -> ExportSnapshot:
     validate_export_selection(selection)
     selection = _effective_export_selection(selection)
@@ -390,6 +401,7 @@ async def build_export_snapshot(
         raw_segments=raw_segments,
         canonical_turns=turns,
         summary=summary,
+        meeting_url=meeting_url,
         attribution_result_state=model.result_state,
         attribution_reason_codes=model.diagnostics.reason_codes,
     )
@@ -610,6 +622,7 @@ async def _load_summary_revision(
         generator_version=outcome_set.generator_version,
         content_hash=outcome_set.content_hash,
         items=tuple(items),
+        protocol=outcome_set.protocol_json if outcome_set.status in {"available", "partial"} else None,
     )
 
 
@@ -684,6 +697,8 @@ def render_content_export(snapshot: ExportSnapshot) -> GeneratedContentExport:
 
 
 def _render_txt(snapshot: ExportSnapshot) -> bytes:
+    if snapshot.selection.content_scope == "summary" and snapshot.summary and snapshot.summary.protocol:
+        return ("\n".join(_summary_lines(snapshot, markdown=False)) + "\n").encode("utf-8")
     lines = [
         snapshot.meeting_title,
         f"Состав: {_scope_label(snapshot.selection.content_scope)}",
@@ -705,6 +720,8 @@ def _render_txt(snapshot: ExportSnapshot) -> bytes:
 
 
 def _render_markdown(snapshot: ExportSnapshot) -> bytes:
+    if snapshot.selection.content_scope == "summary" and snapshot.summary and snapshot.summary.protocol:
+        return ("\n".join(_summary_lines(snapshot, markdown=True)) + "\n").encode("utf-8")
     lines = [
         f"# {_markdown_escape(snapshot.meeting_title)}",
         "",
@@ -783,6 +800,11 @@ def _summary_lines(snapshot: ExportSnapshot, *, markdown: bool) -> list[str]:
     summary = snapshot.summary
     if summary is None:
         return ["Сохранённые итоги недоступны."]
+    if summary.protocol is not None:
+        return list(protocol_lines(
+            summary.protocol, markdown=markdown, include_evidence=snapshot.selection.include_evidence,
+            meeting_url=snapshot.meeting_url or f"/meetings/{snapshot.meeting_id}",
+        ))
     lines = [
         (
             f"Статус сохраненной ревизии: {_markdown_escape(summary.status)}"
@@ -853,6 +875,8 @@ def _render_json(snapshot: ExportSnapshot) -> bytes:
     if snapshot.selection.content_scope in {"summary", "combined"} and snapshot.summary:
         summary = asdict(snapshot.summary)
         if not snapshot.selection.include_evidence:
+            if summary.get("protocol") is not None:
+                summary["protocol"] = without_protocol_evidence(summary["protocol"])
             for item in summary["items"]:
                 item["source_references"] = ()
                 item["evidence_turn_ids"] = ()
@@ -914,6 +938,29 @@ def _render_vtt(snapshot: ExportSnapshot) -> bytes:
 
 def _render_xlsx(snapshot: ExportSnapshot) -> bytes:
     workbook = Workbook(write_only=True)
+    if snapshot.summary is not None and snapshot.summary.protocol is not None:
+        protocol_sheet = workbook.create_sheet("Протокол")
+        _configure_sheet(protocol_sheet, ("Раздел", "Текст", "Ответственный", "Срок", "Источники"))
+        for level, heading, rows in protocol_blocks(snapshot.summary.protocol):
+            _append_sheet_row(protocol_sheet, (heading, "", "", "", ""))
+            tasks = level == 2 and heading == TASK_HEADING
+            if not rows and tasks:
+                _append_sheet_row(protocol_sheet, ("", "Задачи не зафиксированы", "Не назначен", "Не указан", ""))
+            elif not rows and level == 2 and heading in EMPTY:
+                _append_sheet_row(protocol_sheet, ("", EMPTY[heading], "", "", ""))
+            for row in rows:
+                _append_sheet_row(protocol_sheet, (
+                    "", row.get("text", row.get("task")),
+                    (row.get("owner_text") or "Не назначен") if tasks else "",
+                    (row.get("due_date_text") or "Не указан") if tasks else "",
+                    "",
+                ))
+                if snapshot.selection.include_evidence:
+                    for ref in row.get("source_refs", []):
+                        link = WriteOnlyCell(protocol_sheet, value=protocol_timecode(ref["start_seconds"]))
+                        link.hyperlink = f"{snapshot.meeting_url or f'/meetings/{snapshot.meeting_id}'}#graf-source={ref['transcript_segment_id']}"
+                        link.style = "Hyperlink"
+                        _append_sheet_row(protocol_sheet, ("", "", "", "", link))
     transcript = workbook.create_sheet("Transcript")
     summary_sheet = workbook.create_sheet("Summary")
     action_items = workbook.create_sheet("Action Items")
@@ -1073,6 +1120,11 @@ def _configure_sheet(sheet: object, columns: tuple[str, ...]) -> None:
     sheet.freeze_panes = "A2"
     sheet.auto_filter.ref = f"A1:{get_column_letter(len(columns))}1"
     widths = {
+        "Раздел": 32,
+        "Текст": 72,
+        "Ответственный": 28,
+        "Срок": 28,
+        "Источники": 48,
         "text": 72,
         "source_references": 48,
         "unresolved_references": 48,
@@ -1113,7 +1165,7 @@ def _append_sheet_row(sheet: object, values: object) -> None:
     for value in values:
         if isinstance(value, str):
             value = _safe_spreadsheet_text(value)
-        cell = WriteOnlyCell(sheet, value=value)
+        cell = value if isinstance(value, Cell) else WriteOnlyCell(sheet, value=value)
         cell.alignment = Alignment(wrap_text=True, vertical="top")
         cells.append(cell)
     sheet.append(cells)

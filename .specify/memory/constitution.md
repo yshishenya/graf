@@ -1,5 +1,28 @@
 <!--
-Sync Impact Report
+Sync Impact Report — 2026-09-08, Feature 239 clean restart
+Version change: 6.0.0 -> 7.0.0
+Modified principle: III. Plaintext Observability For Internal MVP.
+Owner decision: generate full meeting minutes with one model call using the
+original draft-meeting-minutes prompt; keep model/config in Langfuse and remove
+blocking semantic checks and root-promotion machinery from meeting generation.
+Added: single-call generation boundary, structural/reference-only validation,
+verbatim generated wording, independent dev/production prompt selection.
+Removed: mandatory root/activation/qualification/promotion-event authorization
+for runtime generation and publication. Offline optimization remains separate,
+synthetic-only, and cannot promote production automatically.
+Preserved: approved gateway, upstream credential isolation, exact prompt/config
+snapshot, durable response ledger, source/access/deletion fences, independent
+observation delivery, existing retry policy and release authorization.
+Follow-up before implementation: synchronize product-gates.md and the prompt
+control section of prd-voice-layer-final.md; update F239 requirements, design,
+reviewer checklist and task/issue ownership for the clean implementation.
+No application, production label, gateway, retry or deployment change is made
+by this amendment. Historical validation does not qualify the new design.
+Template review: the resolved constitution template has no root-promotion
+requirement; no versioned template changes are required.
+-->
+<!--
+Historical Sync Impact Report
 Version change: 5.0.0 -> 6.0.0
 Modified principles:
 - Visible Consent And User Control: per-application automatic-recording choice
@@ -219,31 +242,49 @@ Langfuse nor that verified snapshot is available, recording and transcription
 MUST continue while AI generation waits in a truthful bounded dependency state;
 GRAF MUST NOT invent or silently substitute model settings from code.
 
-Prompt optimization MUST run outside the user request path as durable,
-deployment-operator-controlled work. Workspace administrators MUST NOT control
-project-global prompt labels. Optimizers MAY publish exact numeric candidate
-prompt versions and evaluation evidence without a manually assigned deployment
-label, but MUST NOT move production without explicit
-operator approval, held-out validation, privacy review, serialized
-expected-source verification, protected-label plus sole mutation credential
-readiness, and a rollback target. Langfuse label mutation MUST NOT be assumed to
-provide native expected-source compare-and-set. One authorized writer under an
-operator-owned lock MUST read and compare the expected root numeric version,
-validate an immutable candidate-root-bound qualification record, move only the
-protected root label and read back the exact target. Successful read-back MUST
-produce an immutable promotion event and a complete typed artifact binding that
-lets runtime fetch and re-hash that event, its qualification record, target root
-and activation manifest. The qualification/event artifacts MUST remain outside
-the already-hashed candidate root and activation manifest to avoid a digest
-cycle, but their complete binding MUST be carried by runtime calls and
-publication evidence. A bare event hash, current-label lookup, mismatch or
-out-of-band movement MUST fail closed on the integrity-checked last-known-good
-root + activation manifest + successful event binding. Automated promotion MUST remain disabled when that readiness is
-unavailable. Feature 121 prompt optimization remains
-synthetic-only to keep the first version small. Synthetic optimization
-observations and Temporal histories MAY contain complete plaintext inputs,
-outputs, judge feedback, and optimizer state. Using real meetings for
-optimization remains a separate product decision.
+Meeting-minutes generation MUST use the existing durable workflow with one
+logical model generation stage over the complete pinned transcript. It MUST
+NOT require preliminary model extraction, an additional model judge, semantic
+quality rejection after generation, or a root/activation/qualification/
+promotion-event authorization chain. Existing provider retry policy remains
+unchanged; one logical stage is not a claim of exactly-once network delivery.
+Before publishing, GRAF MUST validate the response structure, references to the
+pinned source and current access/source/deletion state. It MUST NOT rewrite
+generated wording, infer owners or deadlines, or silently repair evidence.
+Canonical timestamps and navigation targets MUST come from GRAF's pinned
+transcript, not invented model times or URLs. Quality evaluation belongs before
+release and outside the production generation path.
+
+The original owner-approved draft-meeting-minutes instruction is the editorial
+baseline for Feature 239. Its runtime text, model route, supported request
+parameters and response schema MUST be managed as one versioned Langfuse
+prompt/config. Technical output/reference instructions MAY adapt the transport
+without replacing that editorial baseline. Each attempt MUST pin the exact
+numeric version, text, config and integrity hash once; later label changes MUST
+NOT change an in-flight attempt. GRAF MUST NOT impose a separate model allowlist
+or silently add model parameters missing from the approved config. Gateway
+destination authorization, credential isolation and technical input validation
+remain mandatory.
+
+Development evaluation MUST select its own Langfuse label or exact numeric
+version and MUST NOT move or fall back to the production label. Production
+selection uses the deployment-operator-approved production label. A verified
+last-known-good snapshot MUST match the selected prompt and deployment label;
+an unavailable development prompt cannot authorize a production snapshot.
+Workspace administrators MUST NOT control project-global prompt labels.
+Production movement requires explicit deployment-operator approval, evaluation
+of the exact target prompt/config and exact numeric read-back. Langfuse label
+mutation MUST NOT be described as native compare-and-set. These release-time
+checks MUST NOT become a per-generation external qualification dependency.
+
+Prompt optimization MUST remain durable work outside meeting generation.
+Optimizers MAY publish exact numeric candidate versions and evaluation evidence,
+but MUST NOT move production automatically. Feature 121 optimization remains
+synthetic-only. Synthetic observations and histories MAY contain complete
+plaintext inputs, outputs, judge feedback and optimizer state. Using real
+meetings for optimization remains a separate product decision; manually
+evaluating meeting minutes under an approved feature is not authorization for
+automated training or optimization on those meetings.
 
 Rationale: during the internal MVP, complete debuggability is more valuable
 than building a security subsystem before the product flow stabilizes. The
@@ -470,4 +511,4 @@ Amendment procedure:
 - Every implementation review MUST verify that tasks and code preserve the
   applicable constitution gates.
 
-**Version**: 6.0.0 | **Ratified**: 2026-05-27 | **Last Amended**: 2026-08-30
+**Version**: 7.0.0 | **Ratified**: 2026-05-27 | **Last Amended**: 2026-09-08
