@@ -221,14 +221,25 @@ def create_app() -> FastAPI:
                     "payments": ("billing.read", "Платежи"),
                     "plans": ("catalog.read", "Тарифы"),
                     "campaigns": ("promotions.read", "Акции"),
-                    "admins": ("admins.manage", "Администраторы"), "audit": ("audit.read", "Журнал действий")}
+                    "admins": ("admins.manage", "Администраторы"), "audit": ("audit.read", "Журнал действий"),
+                    "operations": ("operations.read", "Операции"), "incidents": ("support.read", "Обращения"),
+                    "devices": ("devices.read", "Устройства"), "integrations": ("integrations.read", "Интеграции"),
+                    "metrics": ("analytics.read", "Статистика"), "alerts": ("operations.read", "Оповещения"),
+                    "storage": ("operations.read", "Хранилище"), "dependencies": ("operations.read", "Зависимости"),
+                    "settings": ("settings.read", "Настройки")}
         if section not in sections:
             raise HTTPException(404, "Раздел не найден")
         permission, title = sections[section]
         if permission and permission not in permissions:
             raise HTTPException(403, "Недостаточно прав")
         rows, columns, next_cursor = [], [], None
-        if section == "meetings":
+        if section == "home":
+            if "operations.read" in permissions:
+                overview = await queries.system_projection(request.app.state.system_sessions, context,
+                    permission="operations.read", statement="select system_control.system_overview()")
+                rows = [{"key": key, "value": value} for key, value in overview.items()]
+                columns = [("key", "Показатель"), ("value", "Значение")]
+        elif section == "meetings":
             result = await queries.meetings(request.app.state.system_sessions, context, after=after)
             rows, next_cursor = result["items"], result["next_cursor"]
             columns = [("id","Встреча"),("workspace_id","Пространство"),("created_by_user_id","Пользователь"),
@@ -304,6 +315,66 @@ def create_app() -> FastAPI:
                        ("benefit_kind","Выгода"),("discount_percent","Скидка, %"),("gift_days","Дней"),
                        ("audience","Аудитория"),("status","Состояние"),("redeemed_count","Использовано"),
                        ("max_redemptions","Лимит"),("code_count","Кодов"),("starts_at","Начало"),("ends_at","Окончание")]
+        elif section == "operations":
+            result = await queries.system_projection(request.app.state.system_sessions, context,
+                permission="operations.read", statement="select system_control.list_system_operations(:after,null)",
+                parameters={"after": after})
+            rows, next_cursor = result[:100], str(result[99]["id"]) if len(result) > 100 else None
+            columns = [("id","Операция"),("kind","Команда"),("target_type","Тип объекта"),("target_id","Объект"),
+                       ("state","Состояние"),("target_state","Состояние объекта"),("error_code","Код ошибки"),
+                       ("created_at","Создана"),("updated_at","Обновлена")]
+        elif section == "incidents":
+            result = await queries.system_projection(request.app.state.system_sessions, context,
+                permission="support.read", statement="select system_control.list_support_incidents(:after,null)",
+                parameters={"after": after})
+            rows, next_cursor = result[:100], str(result[99]["id"]) if len(result) > 100 else None
+            columns = [("incident_number","Обращение"),("workspace_id","Пространство"),("device_id","Устройство"),
+                       ("problem_code","Проблема"),("failure_category","Категория"),("status","Состояние"),
+                       ("affected_count","Затронуто"),("last_received_at","Последнее событие"),
+                       ("github_issue_number","GitHub"),("github_issue_state","Состояние GitHub")]
+        elif section == "devices":
+            result = await queries.system_projection(request.app.state.system_sessions, context,
+                permission="devices.read", statement="select system_control.list_system_devices(:after,null)",
+                parameters={"after": after})
+            rows, next_cursor = result[:100], str(result[99]["id"]) if len(result) > 100 else None
+            columns = [("id","Устройство"),("workspace_id","Пространство"),("user_id","Пользователь"),
+                       ("platform","Платформа"),("client_version","Версия клиента"),("status","Состояние"),
+                       ("registration_state","Регистрация"),("last_seen_at","Последний контакт")]
+        elif section == "integrations":
+            result = await queries.system_projection(request.app.state.system_sessions, context,
+                permission="integrations.read", statement="select system_control.list_system_integrations(:after)",
+                parameters={"after": after})
+            rows, next_cursor = result[:100], str(result[99]["id"]) if len(result) > 100 else None
+            columns = [("id","Интеграция"),("workspace_id","Пространство"),("provider_family","Поставщик"),
+                       ("connection_state","Подключение"),("credential_state","Доступ"),("sync_state","Синхронизация"),
+                       ("last_successful_sync_at","Последняя успешная синхронизация"),("last_safe_error_code","Код ошибки")]
+        elif section == "dependencies":
+            result = await queries.system_projection(request.app.state.system_sessions, context,
+                permission="operations.read", statement="select system_control.list_system_dependencies(:after)",
+                parameters={"after": after})
+            rows, next_cursor = result[:100], str(result[99]["id"]) if len(result) > 100 else None
+            columns = [("dependency","Зависимость"),("workspace_id","Пространство"),("meeting_id","Встреча"),
+                       ("state","Состояние"),("last_verified_at","Проверено"),("updated_at","Обновлено")]
+        elif section == "storage":
+            storage = await queries.system_projection(request.app.state.system_sessions, context,
+                permission="operations.read", statement="select system_control.system_storage_status()")
+            rows = [{"key": key, "value": value} for key, value in storage.items()]
+            columns = [("key", "Показатель"), ("value", "Значение")]
+        elif section == "alerts":
+            alerts = await queries.system_projection(request.app.state.system_sessions, context,
+                permission="operations.read", statement="select system_control.list_system_alerts()")
+            rows, next_cursor = alerts.get("items", []), None
+            columns = [("code","Код"),("severity","Важность"),("title","Описание"),("detail","Деталь"),("observed_at","Наблюдалось")]
+        elif section == "settings":
+            settings = await queries.system_projection(request.app.state.system_sessions, context,
+                permission="settings.read", statement="select system_control.system_settings()")
+            rows, next_cursor = settings.get("items", []), None
+            columns = [("key","Ключ"),("value","Значение"),("mutable","Изменяемо")]
+        elif section == "metrics":
+            metrics = await queries.system_projection(request.app.state.system_sessions, context,
+                permission="analytics.read", statement="select system_control.list_system_metrics(null,null)")
+            rows, next_cursor = metrics.get("items", []), None
+            columns = [("metric_key","Метрика"),("label","Название"),("value","Значение"),("unit","Единица")]
         elif section == "admins":
             rows = (await administrators(request, after))["items"]
             next_cursor = rows[-1]["id"] if len(rows)==100 else None
@@ -333,7 +404,10 @@ def create_app() -> FastAPI:
                 "submitted":"Отправлено на обработку","polling":"Ожидание результата",
                 "importing":"Сохранение результата","failed_terminal":"Ошибка обработки",
                 "canceled":"Отменено","none":"Нет","trial":"Пробный период",
-                "expired":"Срок истёк","past_due":"Просрочено","free":"Бесплатный"},
+                "expired":"Срок истёк","past_due":"Просрочено","free":"Бесплатный",
+                "queued":"В очереди","running":"Выполняется","awaiting_reconciliation":"Ожидает сверки",
+                "succeeded":"Успешно","failed":"Ошибка","cancelled":"Отменено","resolved":"Решено",
+                "unavailable":"Недоступно","paused":"Приостановлено"},
               "observed_at":datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")})
 
     app.include_router(router)

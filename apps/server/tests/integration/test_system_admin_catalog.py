@@ -233,10 +233,15 @@ async def test_subscription_adjustment_http_is_idempotent_and_scoped(system_data
         })
         assert mfa.status_code == 200, mfa.text
         assert (await client.get(f"{prefix}/subscriptions/{workspace}/adjustments")).status_code == 200
-        for section in ("subscriptions", "payments", "plans", "campaigns"):
+        for section in ("subscriptions", "payments", "plans", "campaigns", "operations", "incidents",
+                        "devices", "integrations", "metrics", "alerts", "storage", "dependencies", "settings"):
             page = await client.get(f"/system-admin?section={section}")
             assert page.status_code == 200, f"section={section}: {page.text}"
             assert page.text.count("<thead>") == 1 and page.text.count("<tbody>") == 1
+        for path in ("/overview", "/operations", "/incidents", "/devices", "/integrations",
+                     "/metrics", "/alerts", "/storage", "/dependencies", "/settings"):
+            response = await client.get(f"{prefix}{path}")
+            assert response.status_code == 200, f"path={path}: {response.text}"
         assert "id=\"reason-dialog\"" in (await client.get("/system-admin?section=plans")).text
         starts = datetime.now(UTC).replace(microsecond=0)
         payload = {

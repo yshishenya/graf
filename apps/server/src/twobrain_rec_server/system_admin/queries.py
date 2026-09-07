@@ -131,3 +131,14 @@ async def meeting_revisions(sessions, context, meeting_id: UUID, *, before: int 
     if items is None:
         raise PermissionError("revision metadata denied")
     return {"items": items[:100], "next_cursor": items[99]["revision_number"] if len(items)>100 else None}
+
+
+async def system_projection(sessions, context, *, permission: str, statement: str, parameters: dict | None = None):
+    """Read one bounded operational projection under the system RLS context."""
+    async with sessions() as session:
+        await apply_system_context(session, replace(context, permission=permission))
+        result = await session.scalar(text(statement), parameters or {})
+        await session.commit()
+    if result is None:
+        raise PermissionError(f"{permission} required")
+    return result

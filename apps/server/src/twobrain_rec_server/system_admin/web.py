@@ -542,6 +542,7 @@ class CampaignCodesInput(BaseModel):
     count: Annotated[int, Field(strict=True, ge=1, le=1000)]
     prefix: Annotated[str, Field(min_length=3, max_length=20)] = "GRAF"
     target_user_ids: list[UUID | None] | None = None
+    reason: Annotated[str, Field(min_length=10, max_length=500)]
 
 
 class SubscriptionAdjustmentInput(BaseModel):
@@ -799,6 +800,97 @@ async def campaigns(request: Request, after: UUID | None = None):
     return {"items": items[:100], "next_cursor": str(items[99]["id"]) if len(items)>100 else None}
 
 
+async def _system_projection(request: Request, permission: str, statement: str, **parameters):
+    """Run one bounded read through the isolated system context."""
+    from dataclasses import replace
+
+    from twobrain_rec_server.db.tenant_context import apply_system_context
+
+    _, context = await current_admin(request)
+    async with request.app.state.system_sessions() as session:
+        await apply_system_context(session, replace(context, permission=permission))
+        result = await session.scalar(text(statement), parameters)
+        await session.commit()
+    if result is None:
+        raise HTTPException(403, "Недостаточно прав")
+    return result
+
+
+@router.get("/overview")
+async def system_overview(request: Request):
+    return await _system_projection(request, "operations.read", "select system_control.system_overview()")
+
+
+@router.get("/operations")
+async def system_operations(request: Request, after: UUID | None = None, state: str | None = None):
+    items = await _system_projection(request, "operations.read",
+                                     "select system_control.list_system_operations(:after,:state)",
+                                     after=after, state=state)
+    return {"items": items[:100], "next_cursor": str(items[99]["id"]) if len(items) > 100 else None}
+
+
+@router.get("/incidents")
+async def system_incidents(request: Request, after: UUID | None = None, status: str | None = None):
+    items = await _system_projection(request, "support.read",
+                                     "select system_control.list_support_incidents(:after,:status)",
+                                     after=after, status=status)
+    return {"items": items[:100], "next_cursor": str(items[99]["id"]) if len(items) > 100 else None}
+
+
+@router.get("/devices")
+async def system_devices(request: Request, after: UUID | None = None, status: str | None = None):
+    items = await _system_projection(request, "devices.read",
+                                     "select system_control.list_system_devices(:after,:status)",
+                                     after=after, status=status)
+    return {"items": items[:100], "next_cursor": str(items[99]["id"]) if len(items) > 100 else None}
+
+
+@router.get("/dependencies")
+async def system_dependencies(request: Request, after: UUID | None = None):
+    items = await _system_projection(request, "operations.read",
+                                     "select system_control.list_system_dependencies(:after)", after=after)
+    return {"items": items[:100], "next_cursor": str(items[99]["id"]) if len(items) > 100 else None}
+
+
+@router.get("/integrations")
+async def system_integrations(request: Request, after: UUID | None = None):
+    items = await _system_projection(request, "integrations.read",
+                                     "select system_control.list_system_integrations(:after)", after=after)
+    return {"items": items[:100], "next_cursor": str(items[99]["id"]) if len(items) > 100 else None}
+
+
+@router.get("/metrics")
+async def system_metrics(request: Request, start: AwareDatetime | None = None, end: AwareDatetime | None = None):
+    result = await _system_projection(request, "analytics.read",
+                                      "select system_control.list_system_metrics(:start,:end)",
+                                      start=start, end=end)
+    return result
+
+
+@router.get("/storage")
+async def system_storage(request: Request):
+    return await _system_projection(request, "operations.read", "select system_control.system_storage_status()")
+
+
+@router.get("/alerts")
+async def system_alerts(request: Request):
+    return await _system_projection(request, "operations.read", "select system_control.list_system_alerts()")
+
+
+@router.get("/settings")
+async def system_settings(request: Request):
+    result = await _system_projection(request, "settings.read", "select system_control.system_settings()")
+    return result
+
+
+@router.patch("/settings/{key}")
+async def update_system_setting(request: Request, key: str):
+    # Runtime settings are injected into the isolated process and require a
+    # controlled restart; never mutate process configuration from a browser.
+    await _system_projection(request, "settings.manage", "select system_control.system_settings()")
+    raise HTTPException(409, "Настройка изменяется через управляемую конфигурацию и перезапуск")
+
+
 @router.post("/campaigns", status_code=201)
 async def create_campaign_route(request: Request, payload: CampaignCreateInput):
     from dataclasses import replace
@@ -847,6 +939,12 @@ async def campaign_codes(request: Request, campaign_id: UUID, payload: CampaignC
     if not request.app.state.commands_enabled:
         raise HTTPException(503, "Изменения временно отключены оператором")
     _, context = await current_admin(request)
+    # Code issuance is a sensitive catalog mutation. Keep its operator reason
+    # in the same audited case stream used by the other campaign actions.
+    from twobrain_rec_server.system_admin.audit import create_case_context
+    await create_case_context(request.app.state.system_sessions,
+                              replace(context, permission="promotions.read", target_type="campaign", target_id=campaign_id),
+                              reason=payload.reason)
     async with request.app.state.system_sessions() as session:
         await apply_system_context(session, replace(context, permission="promotions.manage", target_type="campaign", target_id=campaign_id))
         try:
