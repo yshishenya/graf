@@ -205,6 +205,8 @@ Krisp. В живом Krisp Activity находится в левой навиг�
 
 ## Legacy Impact
 
+Classification: `remove`
+
 - Удалена только доказанно недостижимая embedded queue, которая больше не
   участвует в рабочем пути уведомлений.
 - Убраны старые обходные команды запуска отдельных GRAF Local/Preview/Test;
