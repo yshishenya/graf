@@ -595,6 +595,13 @@ final class DesktopCalendarReminderTests: XCTestCase {
             NSSize(width: 344, height: 420)
         )
         XCTAssertEqual(
+            CalendarTrayController.panelSize(
+                in: NSRect(x: 0, y: 0, width: 1_440, height: 900),
+                compact: true
+            ),
+            NSSize(width: 344, height: 160)
+        )
+        XCTAssertEqual(
             CalendarTrayController.panelSize(in: NSRect(x: 0, y: 0, width: 320, height: 240)),
             NSSize(width: 296, height: 216)
         )
