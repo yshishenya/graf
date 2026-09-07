@@ -335,6 +335,19 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
         XCTAssertEqual(try number("width", in: metrics), 40, accuracy: 0.5)
         XCTAssertEqual(try number("height", in: metrics), 40, accuracy: 0.5)
         XCTAssertLessThanOrEqual(try number("overflow", in: metrics), 0.5)
+        for zoom in [2.0, 1.0] {
+            webView.pageZoom = zoom
+            try await Task.sleep(for: .milliseconds(100))
+            let result = try await evaluatePageJavaScript(
+                """
+                ({viewport: innerHeight, shell: document.querySelector('.app-shell').getBoundingClientRect().height,
+                  sidebar: document.querySelector('.sidebar').getBoundingClientRect().height})
+                """, in: webView)
+            let resized = try XCTUnwrap(result as? [String: Any])
+            for key in ["viewport", "shell", "sidebar"] {
+                XCTAssertEqual(try number(key, in: resized), 720 / zoom, accuracy: 1, "\(key) at \(zoom)")
+            }
+        }
     }
 
     func testProfileDisclosureConsumesFirstEscapeBeforeRail() async throws {
@@ -540,7 +553,7 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
         let origin = try XCTUnwrap(URL(string: "https://theme-autosave.graf.test/meetings"))
         try await load(
             """
-            <!doctype html><html><body>
+            <!doctype html><html><head><meta name="csrf-token" content="synthetic-csrf"></head><body>
               <form data-account-preferences data-account-preferences-auto-save="true" action="/desktop/settings/account/preferences" method="post">
                 <input type="hidden" name="return_to" value="" data-account-preferences-return>
                 <input type="radio" name="theme" value="light">
@@ -549,8 +562,9 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
               </form>
               <script>
                 window.fetch = async (url, options) => {
-                  window.__themeFetch = {url, returnTo: options.body.get('return_to')};
-                  return {ok: true};
+                  window.__themeFetch = {url, returnTo: options.body.get('return_to'),
+                    theme: options.body.get('theme'), csrf: options.headers?.['X-CSRF-Token']};
+                  return {ok: window.__themeFetch.theme === 'light' && window.__themeFetch.csrf === 'synthetic-csrf'};
                 };
               </script>
               <script>\(script)</script>
@@ -569,6 +583,8 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
               path: location.pathname,
               fetchUrl: window.__themeFetch?.url || '',
               returnTo: window.__themeFetch?.returnTo || '',
+              sentTheme: window.__themeFetch?.theme || '',
+              csrf: window.__themeFetch?.csrf || '',
               state: document.querySelector('form').dataset.state || '',
               theme: document.documentElement.dataset.theme || '',
               ready: document.querySelector('form').dataset.accountPreferencesReady || '',
@@ -583,10 +599,26 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
         XCTAssertEqual(state["path"] as? String, "/meetings")
         XCTAssertEqual(state["fetchUrl"] as? String, "https://theme-autosave.graf.test/desktop/settings/account/preferences")
         XCTAssertEqual(state["returnTo"] as? String, "/meetings")
+        XCTAssertEqual(state["sentTheme"] as? String, "light")
+        XCTAssertEqual(state["csrf"] as? String, "synthetic-csrf")
         XCTAssertEqual(state["state"] as? String, "saved")
         XCTAssertEqual(state["theme"] as? String, "light")
         XCTAssertEqual(state["ready"] as? String, "true")
         XCTAssertEqual(state["cabinetReady"] as? String, "ready")
+
+        let failed = try await webView.callAsyncJavaScript(
+            """
+            window.fetch = async () => ({ok: false});
+            const system = document.querySelector('input[value="system"]');
+            system.checked = true;
+            system.dispatchEvent(new Event('change', {bubbles: true}));
+            await new Promise(resolve => setTimeout(resolve, 40));
+            return document.querySelector('form').dataset.state === 'error'
+              && document.documentElement.dataset.theme === 'light'
+              && document.querySelector('input[value="light"]').checked
+              && !document.querySelector('input:disabled');
+            """, arguments: [:], in: nil, contentWorld: .page)
+        XCTAssertEqual(failed as? Bool, true)
     }
 
     private func railState(in webView: WKWebView) async throws -> [String: Any] {

@@ -5399,13 +5399,15 @@
           if (returnField) returnField.value = `${window.location.pathname}${window.location.search}`;
           form.dataset.state = "saving";
           if (status) status.textContent = "Сохраняем тему…";
+          const body = new FormData(form);
           form.querySelectorAll("input[name='theme']").forEach((input) => { input.disabled = true; });
           try {
             const response = await fetch(form.action, {
               method: "POST",
-              body: new FormData(form),
+              body,
               credentials: "same-origin",
               redirect: "follow",
+              headers: csrfToken ? { "X-CSRF-Token": csrfToken } : {},
             });
             const responsePath = new URL(response.url || window.location.href, window.location.href).pathname;
             if (!response.ok || responsePath.startsWith("/login")) throw new Error("account_preferences_save_failed");
