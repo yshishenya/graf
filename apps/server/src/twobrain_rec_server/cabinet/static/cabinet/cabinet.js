@@ -6726,6 +6726,8 @@
       }).filter(Boolean);
       format.replaceChildren(...groups);
       if (values.includes(previous)) format.value = previous;
+      if (copy) copy.disabled = submitting || !values.includes("txt");
+      if (submit) submit.disabled = submitting || values.length === 0;
       setStatus("");
       updateOptions();
     };
@@ -6798,8 +6800,10 @@
     };
     const setBusy = (busy) => {
       submitting = busy;
-      if (submit) submit.disabled = busy;
-      if (copy) copy.disabled = busy;
+      const key = "exportFormats" + (scope?.value || "transcript").replace(/^./, (letter) => letter.toUpperCase());
+      const formats = (form.dataset[key] || "").split(",").filter(Boolean);
+      if (submit) submit.disabled = busy || formats.length === 0;
+      if (copy) copy.disabled = busy || !formats.includes("txt");
       if (busy) dialog.setAttribute("aria-busy", "true");
       else dialog.removeAttribute("aria-busy");
     };
@@ -6808,7 +6812,8 @@
       meeting_deletion_active: "Экспорт недоступен: встреча удаляется.",
       meeting_not_found: "Доступ к встрече изменился. Обновите страницу.",
       export_policy_denied: "Политика доступа к этому составу изменилась.",
-      export_unavailable: "Этот состав сейчас недоступен по готовности или политике.",
+      export_unavailable: "Этот состав или формат недоступен по готовности, политике или условиям доступа.",
+      billing_access_unavailable: "Не удалось проверить условия доступа. Повторите позже.",
       subtitle_timing_unavailable: "Не удалось подготовить субтитры: у одного из фрагментов нет корректного времени. Выберите другой формат, чтобы сохранить весь текст.",
       export_generation_failed: "Не удалось собрать файл. Повторите экспорт.",
       audit_unavailable: "Экспорт остановлен: не удалось сохранить обязательную запись аудита. Повторите позже.",
