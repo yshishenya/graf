@@ -1,6 +1,6 @@
 import AppKit
 import Foundation
-import TwoBrainRecAppCore
+@testable import TwoBrainRecAppCore
 import TwoBrainRecShared
 
 #if canImport(XCTest)
@@ -587,6 +587,16 @@ final class DesktopCalendarReminderTests: XCTestCase {
         await first.value
 
         XCTAssertEqual(model.events.map(\.eventId), ["new"])
+    }
+
+    func testCalendarTrayKeepsInsideAndToggleClicksButDismissesOutside() {
+        let panel = NSWindow()
+        let statusItem = NSWindow()
+        let other = NSWindow()
+        for (window, expected) in [(panel, false), (statusItem, false), (other, true), (nil, true)] as [(NSWindow?, Bool)] {
+            XCTAssertEqual(CalendarTrayController.shouldDismissClick(in: window,
+                popoverWindow: panel, statusItemWindow: statusItem), expected)
+        }
     }
 
     func testCalendarTrayPanelSizeFitsAvailableScreen() {

@@ -276,7 +276,7 @@ private struct AutomaticRecordingRulePicker: View {
                     }
                     .font(.callout)
                     .frame(width: 112, height: 28)
-                    .foregroundStyle(selection == rule ? Color.white : Color.primary)
+                    .foregroundStyle(selection == rule ? Color.black : Color.primary)
                     .background(
                         selection == rule
                             ? DesktopMeetingShellChrome.shellAccentColor

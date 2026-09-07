@@ -113,6 +113,7 @@ public struct CalendarTrayView: View {
         }
         .frame(width: panelSize.width, height: panelSize.height)
         .background(.regularMaterial)
+        .tint(DesktopMeetingShellChrome.shellAccentColor)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Ближайшие встречи GRAF")
     }
@@ -189,7 +190,7 @@ public struct CalendarTrayView: View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(alignment: .top, spacing: 10) {
                 Circle()
-                    .fill(event.overlaps(Date()) ? Color.accentColor : Color.secondary.opacity(0.45))
+                    .fill(event.overlaps(Date()) ? DesktopMeetingShellChrome.shellAccentColor : Color.secondary.opacity(0.45))
                     .frame(width: 8, height: 8)
                     .padding(.top, 5)
                     .accessibilityHidden(true)
@@ -242,10 +243,13 @@ public struct CalendarTrayView: View {
     private var footer: some View {
         HStack {
             Button("Открыть GRAF", action: onOpenMeetings)
+                .buttonStyle(.borderedProminent)
+                .foregroundStyle(.black)
                 .keyboardShortcut(.defaultAction)
             Spacer()
             Button("Настройки календаря", action: onOpenCalendar)
                 .buttonStyle(.link)
+                .foregroundStyle(.primary)
         }
         .font(.caption)
         .padding(16)
@@ -291,10 +295,12 @@ public struct CalendarTrayView: View {
 }
 
 @MainActor
-public final class CalendarTrayController: NSObject {
+public final class CalendarTrayController: NSObject, NSPopoverDelegate {
     private let model: CalendarTrayModel
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let popover = NSPopover()
+    private var localMouseMonitor: Any?
+    private var globalMouseMonitor: Any?
     private let onOpenCalendar: () -> Void
     private let onOpenMeetings: () -> Void
     private let onUpdate: () -> Void
@@ -338,6 +344,7 @@ public final class CalendarTrayController: NSObject {
         button.setAccessibilityLabel("Ближайшие встречи GRAF")
         button.setAccessibilityRole(.button)
 
+        popover.delegate = self
         popover.behavior = .transient
         popover.animates = false
 
@@ -387,10 +394,33 @@ public final class CalendarTrayController: NSObject {
             hosting.sizingOptions = []
             popover.contentViewController = hosting
         }
+        popover.appearance = NSApplication.shared.appearance
         popover.contentSize = size
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         popover.contentViewController?.view.window?.makeKey()
+        localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
+            if let self, Self.shouldDismissClick(in: event.window,
+                popoverWindow: self.popover.contentViewController?.view.window,
+                statusItemWindow: self.statusItem.button?.window) {
+                self.popover.performClose(nil)
+            }
+            return event
+        }
+        globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] _ in
+            self?.popover.performClose(nil)
+        }
         refreshNow()
+    }
+
+    static func shouldDismissClick(in window: NSWindow?, popoverWindow: NSWindow?, statusItemWindow: NSWindow?) -> Bool {
+        window == nil || (window !== popoverWindow && window !== statusItemWindow)
+    }
+
+    public func popoverDidClose(_ notification: Notification) {
+        if let localMouseMonitor { NSEvent.removeMonitor(localMouseMonitor) }
+        if let globalMouseMonitor { NSEvent.removeMonitor(globalMouseMonitor) }
+        localMouseMonitor = nil
+        globalMouseMonitor = nil
     }
 
     public static func panelSize(in visibleFrame: NSRect, compact: Bool = false) -> NSSize {
@@ -460,6 +490,7 @@ public final class CalendarTrayController: NSObject {
         let size = Self.panelSize(in: screen.visibleFrame, compact: isEmptyState)
         hosting.sizingOptions = []
         hosting.rootView = makeRootView(panelSize: size)
+        popover.appearance = NSApplication.shared.appearance
         popover.contentSize = size
     }
 
