@@ -21,3 +21,12 @@
 ## Открыто
 
 T002 не закрыта: повторить композицию и сценарии в штатном GRAF Dev на выбранном коммите; подтвердить стекло и матовый вариант, активное/неактивное окно, минимальное окно с раскрытой правой панелью. macOS 14.5 ещё не запускалась. Не изменять глобальные настройки доступности молча ради снимка.
+
+## Exact-SHA Dev candidate 2026-09-07
+
+- Собран и установлен только `GRAF Dev`: manifest `dev-46d693849973`, source SHA `46d6938499730af3712e31e52abd227268cdf19c`, Feature `255`, migration head `0087_merge_calendar_timezone`.
+- Штатные `build --live`, `promote --dry-run`, `promote --live`, `status --json` и `smoke --live` завершились успешно. Все 13 live checks имеют `pass`: API, `/login`, auth bootstrap, representative API, Postgres, MinIO, migration, Temporal, processing/media workers, app identity/presentation и exact source SHA.
+- Исправлен и проверен общий Compose-контракт: `GRAF_DEV_EXPECTED_MIGRATION_HEAD` теперь передаётся в `rec-migrate`; профильные governance-тесты — `22 passed`.
+- Предыдущая Dev база с неизвестной текущему checkout ревизией `0088_merge_notifications` удалена только в изолированном `graf-dev` namespace; новый namespace мигрирован с нуля. Production и GRAF Local не использовались.
+
+Нативное окно и визуальные hover/accessibility сценарии этого exact-SHA кандидата пока не наблюдались: CUA остановлен системной блокировкой Mac. Поэтому T015/T016 не закрываются по одному smoke; нужна повторная проверка после разблокировки.

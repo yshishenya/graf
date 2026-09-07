@@ -35,3 +35,10 @@ GitHub run `34051908491` проверил metadata, 1443 server unit tests и 21
 Через штатный `run_local_postgres_tests.sh --focused` выполнены шесть admin browser contracts и `test_theme_only_form_survives_reload_without_changing_locale_or_timezone`: **7 PASS**. Использована одноразовая PostgreSQL, после проверки контейнер удалён. Первый запуск без PostgreSQL завершился ошибкой подготовки окружения; повторный штатный запуск успешен. Сохранение темы с перезагрузкой, неизменность языка/часового пояса и серверные границы админки проверены. Полная визуальная приёмка админки остаётся открытой.
 
 Playwright: login/code/signup-email, истёкшее приглашение, общая сводка и недоступная встреча при 390/1440: **12 комбинаций**, HTTP 200, без горизонтального переполнения, по одному h1 и main. Производственные шаблоны на синтетических данных; реальный вход/рассылка этим не подтверждены.
+
+## Совместимый exact-SHA Dev кандидат
+
+- После merge с актуальным `origin/master` и коммита Compose-исправления `46d6938499730af3712e31e52abd227268cdf19c` собран `dev-46d693849973` из того же SHA.
+- Подтверждённая Alembic head — `0087_merge_calendar_timezone`; старый Dev namespace содержал неподдерживаемую текущим checkout запись `0088_merge_notifications`, поэтому удалён только изолированный `graf-dev` volume и создан свежий namespace.
+- Штатные build/promote dry-run/promote/status/smoke PASS, 13/13 live checks PASS; bundle id `pro.2brain.graf.dev`, channel `dev`, signing identity `GRAF Local Code Signing`.
+- Визуальная приёмка exact-SHA окна ожидает разблокировки Mac; GRAF Local не использовался.

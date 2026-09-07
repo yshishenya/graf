@@ -34,3 +34,7 @@
 - T013/T014, exact-SHA CI, разрешение на коммит реализации после проверки и release/notarization gates сохраняются.
 
 Изменение протокола доверия, пользовательских путей или иных оценённых требований требует повторной оценки затронутых пунктов. Уточнение внутренних деталей в рамках контракта не подменяет требования и не освобождает от тестов.
+
+## Exact-SHA runtime readiness 2026-09-07
+
+`GRAF Dev` manifest `dev-46d693849973` на SHA `46d6938499730af3712e31e52abd227268cdf19c` успешно прошёл build/promote/status/smoke в свежем Dev namespace с подтверждённой migration head `0087_merge_calendar_timezone`; 13/13 live checks PASS. Исправлен проброс `GRAF_DEV_EXPECTED_MIGRATION_HEAD` в `docker-compose.dev.yml`, регрессия — `22 passed`. Это подтверждает готовность среды для следующего визуального прохода, но не заменяет его.

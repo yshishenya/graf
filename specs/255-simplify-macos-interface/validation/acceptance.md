@@ -45,3 +45,9 @@ Chromium через Playwright CLI, производственные Jinja/CSS/J
 - Admin/public полная визуальная матрица и сохранение профиля сервером с реальной БД. Синтетический POST подтверждает клиентский путь, не сохранение в БД.
 - F245–F253: повторно проверены PR #6611/#6615/#6613/#6626/#6707/#6660/#6692/#6710/#6706 — все OPEN, mergedAt=null. Совместная приёмка будущих объединённых SHA открыта.
 - PR/governance-fast на точном SHA, release candidate, Full CI, CD dry-run и macOS distribution gates не запускались.
+
+## Exact-SHA Dev candidate 2026-09-07
+
+Кандидат `dev-46d693849973` (`46d6938499730af3712e31e52abd227268cdf19c`, migration `0087_merge_calendar_timezone`) установлен штатным Dev harness. Build, promote dry-run/live, status и smoke прошли; все 13 live checks — `pass`, включая `app_presentation`, `migration_readiness` и `exact_source_sha`. В текущем checkout исправлен проброс ожидаемой головы миграции в Compose; `tests/governance` по затронутому контракту — `22 passed`.
+
+Визуальная приёмка установленного окна (sidebar/profile/hover, минимальный размер, темы, Reduce Transparency/Motion, Increase Contrast, VoiceOver, 200% и активная запись/Stop) остаётся открытой: Mac был заблокирован, CUA не получил доступ к окну. Автоматический smoke не заменяет эти наблюдения. Full CI, notarization, stapling, Gatekeeper, Sparkle и production остаются отдельными релизными воротами.
