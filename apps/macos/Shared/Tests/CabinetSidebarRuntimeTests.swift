@@ -1,4 +1,5 @@
 import Foundation
+@testable import TwoBrainRecAppCore
 
 #if canImport(WebKit) && canImport(XCTest)
 import WebKit
@@ -619,6 +620,58 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
               && !document.querySelector('input:disabled');
             """, arguments: [:], in: nil, contentWorld: .page)
         XCTAssertEqual(failed as? Bool, true)
+    }
+
+    func testNativeAppearanceFollowsOnlyTheActiveFirstPartyMainDocument() async throws {
+        let application = NSApplication.shared
+        let original = application.appearance
+        defer { application.appearance = original }
+        let origin = try XCTUnwrap(URL(string: "https://appearance.graf.test"))
+        for allowed in [true, false] {
+            application.appearance = NSAppearance(named: .darkAqua)
+            let url = try XCTUnwrap(URL(string: allowed
+                ? "https://appearance.graf.test/desktop/meetings"
+                : "https://untrusted.graf.test/desktop/meetings"))
+            let view = makeWebView(frame: CGRect(x: 0, y: 0, width: 720, height: 720))
+            let policy = DesktopCabinetRoutePolicy(baseURL: origin)
+            let navigation = EmbeddedCabinetNavigationController()
+            let request = URLRequest(url: url)
+            navigation.attach(webView: view, routePolicy: policy, fallbackRequest: request,
+                              initialRequest: request, sessionExpired: false)
+            let coordinator = EmbeddedCabinetWebView.Coordinator(
+                routePolicy: policy, desktopHeaders: [:], cabinetState: .constant(.ready),
+                currentRoute: .constant(url), navigationEventLogger: nil, showsAppUpdateBadge: false,
+                onCheckForUpdates: {}, onOpenMeetingDetectionSettings: {}, supportIncidentBridge: nil,
+                navigationController: navigation
+            )
+            view.configuration.userContentController.add(coordinator, name: EmbeddedCabinetAppearanceBridge.messageHandlerName)
+            view.configuration.userContentController.addUserScript(WKUserScript(
+                source: EmbeddedCabinetAppearanceBridge.documentScript, injectionTime: .atDocumentEnd,
+                forMainFrameOnly: true))
+            try await load("<html data-theme='light'><body></body></html>", in: view, baseURL: url)
+            try await Task.sleep(for: .milliseconds(100))
+            XCTAssertEqual(application.appearance?.name, allowed ? .aqua : .darkAqua)
+            _ = try await evaluatePageJavaScript(
+                """
+                window.webkit.messageHandlers.grafAppAppearance.postMessage('invalid');
+                const child = document.createElement('iframe');
+                child.srcdoc = '<script>window.webkit.messageHandlers.grafAppAppearance.postMessage("dark")<\\/script>';
+                document.body.append(child);
+                """, in: view)
+            try await Task.sleep(for: .milliseconds(100))
+            XCTAssertEqual(application.appearance?.name, allowed ? .aqua : .darkAqua)
+            _ = try await evaluatePageJavaScript("document.documentElement.dataset.theme = 'dark'", in: view)
+            try await Task.sleep(for: .milliseconds(100))
+            XCTAssertEqual(application.appearance?.name, .darkAqua)
+            _ = try await evaluatePageJavaScript("delete document.documentElement.dataset.theme", in: view)
+            try await Task.sleep(for: .milliseconds(100))
+            XCTAssertEqual(application.appearance?.name, allowed ? nil : .darkAqua)
+            coordinator.detachNavigationController(from: view)
+            _ = try await evaluatePageJavaScript("document.documentElement.dataset.theme = 'light'", in: view)
+            try await Task.sleep(for: .milliseconds(100))
+            XCTAssertEqual(application.appearance?.name, allowed ? nil : .darkAqua)
+            view.configuration.userContentController.removeScriptMessageHandler(forName: EmbeddedCabinetAppearanceBridge.messageHandlerName)
+        }
     }
 
     private func railState(in webView: WKWebView) async throws -> [String: Any] {

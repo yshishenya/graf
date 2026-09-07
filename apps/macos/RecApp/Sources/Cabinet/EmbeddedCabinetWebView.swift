@@ -876,6 +876,21 @@ public enum EmbeddedCabinetUpdateBridge {
     }
 }
 
+public enum EmbeddedCabinetAppearanceBridge {
+    public static let messageHandlerName = "grafAppAppearance"
+    public static let documentScript = """
+    (() => {
+      const publish = () => window.webkit.messageHandlers.grafAppAppearance.postMessage(
+        document.documentElement.dataset.theme || 'system'
+      );
+      new MutationObserver(publish).observe(document.documentElement, {
+        attributes: true, attributeFilter: ['data-theme']
+      });
+      publish();
+    })();
+    """
+}
+
 public enum EmbeddedCabinetQuitBridge {
     public static let messageHandlerName = "grafAppQuit"
     public static let quitAction = "quit"
@@ -1452,6 +1467,17 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         configuration.allowsAirPlayForMediaPlayback = false
         configuration.userContentController.addUserScript(
             WKUserScript(
+                source: EmbeddedCabinetAppearanceBridge.documentScript,
+                injectionTime: .atDocumentEnd,
+                forMainFrameOnly: true
+            )
+        )
+        configuration.userContentController.add(
+            context.coordinator,
+            name: EmbeddedCabinetAppearanceBridge.messageHandlerName
+        )
+        configuration.userContentController.addUserScript(
+            WKUserScript(
                 source: EmbeddedCabinetUpdateBridge.documentScript,
                 injectionTime: .atDocumentEnd,
                 forMainFrameOnly: true
@@ -1581,6 +1607,9 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         guard let container = nsView as? WebViewContainer else { return }
         coordinator.detachSupportIncidentBridge(from: container.webView)
         coordinator.detachNavigationController(from: container.webView)
+        container.webView.configuration.userContentController.removeScriptMessageHandler(
+            forName: EmbeddedCabinetAppearanceBridge.messageHandlerName
+        )
         container.webView.configuration.userContentController.removeScriptMessageHandler(
             forName: EmbeddedCabinetRecordingSettingsBridge.handlerName, contentWorld: .page
         )
@@ -1811,6 +1840,18 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             _: WKUserContentController,
             didReceive message: WKScriptMessage
         ) {
+            if message.name == EmbeddedCabinetAppearanceBridge.messageHandlerName {
+                guard isActive, message.frameInfo.isMainFrame,
+                      let webView = message.webView, navigationController.isAttached(to: webView),
+                      let sourceURL = message.frameInfo.documentRequestURL,
+                      sourceURL == webView.url,
+                      routePolicy.decision(for: sourceURL).decision == .allow,
+                      let theme = message.body as? String, ["light", "dark", "system"].contains(theme)
+                else { return }
+                NSApplication.shared.appearance = theme == "system" ? nil
+                    : NSAppearance(named: theme == "dark" ? .darkAqua : .aqua)
+                return
+            }
             if message.name == EmbeddedCabinetLocalRecordingBridge.messageHandlerName {
                 guard isActive,
                       message.frameInfo.isMainFrame,

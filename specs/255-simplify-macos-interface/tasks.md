@@ -110,3 +110,5 @@ Umbrella/reservation: #6752. Task ownership синхронизировано 202
 ## Phase 9: дефект, обнаруженный при разрешённой записи
 
 - [ ] T026 [US2] Исправить отклонение корректной короткой записи из-за ceil-длительности в `apps/server/src/twobrain_rec_server/normalization/service.py`; расширить существующие `apps/server/tests/integration/test_playback_normalization_media_matrix.py` и `test_playback_normalization_finalize.py` границами допустимого округления, сохранить hash/byte-length/decode и manual-upload проверки. FR-009/SC-004; продолжение T016 после фактической записи/Stop, владелец #6755. Проверить публичные контракты плеера и установленный Dev; evidence в `validation/acceptance.md`.
+
+- [ ] T027 [US2] Синхронизировать light/dark/system из текущего разрешённого документа с NSApplication.appearance в `apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetWebView.swift`; расширить `apps/macos/Shared/Tests/CabinetSidebarRuntimeTests.swift` реальным WKWebView-проходом и отказами чужого origin/iframe/invalid/detach. FR-005/FR-006, продолжение T016; владелец #6755. Не возвращать отменённую нативную навигацию и не создавать второе предпочтение темы.
