@@ -1,5 +1,6 @@
 """Exact historical pins and immutable offers on real PostgreSQL; synthetic money."""
 
+from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
@@ -21,6 +22,278 @@ from twobrain_rec_server.db.models.billing import (
 )
 
 pytestmark = pytest.mark.strict_rls
+
+
+async def _managed_payment(db, cycle="month"):
+    from twobrain_rec_server.db.models.billing import BillingPlan
+
+    plan = BillingPlan(id=uuid4(), code="research_plus", display_name="Synthetic Research")
+    db.add(plan)
+    await db.flush()
+    version = BillingPlanVersion(
+        id=uuid4(), plan_id=plan.id, plan_code=plan.code, version=1, status="draft",
+        capability_schema_version=1,
+        capabilities={**_capabilities(), "processing_unlimited": False, "processing_seconds": 24000},
+        display_terms={"name":"Synthetic Research", "description":"", "audience":"admin", "trial_days":0},
+        cycle="none", currency="RUB", storage_bytes=4_000_000_000,
+        processing_mode="quota", policy_snapshot={"offer_version":"synthetic-research-v1"},
+    )
+    db.add(version)
+    await db.flush()
+    prices = [BillingPlanPrice(id=uuid4(), version_id=version.id, cycle=value, currency="RUB", amount_minor=amount)
+        for value,amount in (("month", 123400), ("year", 1234000))]
+    db.add_all(prices)
+    await db.flush()
+    version.status = "published"
+    version.enabled_for_checkout = True
+    await db.flush()
+    price = next(row for row in prices if row.cycle == cycle)
+    snapshot = {
+        "plan_code":plan.code, "cycle":cycle,
+        "catalog_snapshot":validate_plan_version(version, price=price).as_dict(),
+        "list_amount_minor":price.amount_minor, "payable_amount_minor":price.amount_minor*80//100,
+        "billing_actor_user_id":str(USER_ID), "recurring_consent":True,
+    }
+    operation = BillingOperation(
+        id=uuid4(), workspace_id=PERSONAL_WORKSPACE_ID, kind="initial_checkout",
+        idempotency_key=f"synthetic:{uuid4()}", state="provider_pending",
+        provider_id=f"synthetic-{uuid4()}", request_snapshot=deepcopy(snapshot),
+    )
+    db.add(operation)
+    await db.flush()
+    invoice = BillingInvoice(
+        id=uuid4(), workspace_id=PERSONAL_WORKSPACE_ID, operation_id=operation.id,
+        safe_number=f"SYNTHETIC-{uuid4()}", amount_minor=snapshot["payable_amount_minor"],
+        currency="RUB", plan_snapshot=deepcopy(snapshot), receipt_contact_snapshot="synthetic@example.invalid",
+    )
+    db.add(invoice)
+    await db.commit()
+    return version, price, operation, invoice
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cycle", ["month", "year"])
+async def test_managed_payment_pins_exact_offer_and_renews_after_sales_close(postgres_seeded_database_url, cycle):
+    from cryptography.fernet import Fernet
+
+    from twobrain_rec_server.billing.entitlements import (
+        grant_confirmed_payment,
+        grant_confirmed_renewal,
+        resolve_entitlements,
+    )
+    from twobrain_rec_server.billing.payment_methods import SavedPaymentMethod
+    from twobrain_rec_server.billing.renewal_charge import (
+        plan_due_renewals,
+        project_renewal_cutoffs,
+    )
+
+    engine = create_async_engine(postgres_seeded_database_url)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        async with sessions() as db:
+            version, price, operation, invoice = await _managed_payment(db, cycle)
+            original = deepcopy(invoice.plan_snapshot)
+            # 31 Jan in Moscow, still 30 Jan UTC: calendar boundaries use the pinned zone.
+            paid_at = datetime(2028, 1, 30, 22, tzinfo=UTC)
+            kwargs = dict(workspace_id=PERSONAL_WORKSPACE_ID, provider_payment_id=operation.provider_id,
+                amount_minor=invoice.amount_minor, currency="RUB", paid_at=paid_at,
+                recurring_method_confirmed=True,
+                saved_payment_method=SavedPaymentMethod("synthetic-method", "bank_card", "•••• 0000"),
+                payment_method_key=Fernet.generate_key())
+            # The invoice survives closing sales before its provider confirmation arrives.
+            version.status = "retired"
+            version.enabled_for_checkout = False
+            await db.commit()
+            assert await grant_confirmed_payment(db, **kwargs) == "granted"
+            await db.commit()
+            subscription = await db.get(WorkspaceSubscription, PERSONAL_WORKSPACE_ID, populate_existing=True)
+            first_end = datetime(2028, 2, 28, 22, tzinfo=UTC) if cycle == "month" else datetime(2029, 1, 30, 22, tzinfo=UTC)
+            assert subscription.paid_through == first_end
+            assert subscription.plan_code == "research_plus"
+            assert subscription.pinned_plan_version_id == version.id
+            assert subscription.pinned_price_id == price.id
+            assert subscription.timezone == "Europe/Moscow"
+            schedule_version = subscription.schedule_version
+            assert await grant_confirmed_payment(db, **kwargs) == "duplicate"
+            await db.commit()
+            await db.refresh(subscription)
+            assert subscription.schedule_version == schedule_version
+            assert subscription.paid_through == first_end
+            assert invoice.plan_snapshot == original
+            access = await resolve_entitlements(db, workspace_id=PERSONAL_WORKSPACE_ID, subject_user_id=USER_ID, now=paid_at)
+            assert access.plan_code == "research_plus"
+            assert access.capabilities["processing_seconds"] == 24000
+            assert access.capabilities["processing_unlimited"] is False
+            planned = await plan_due_renewals(db, now=first_end-timedelta(hours=48))
+            assert len(planned) == 1
+            await db.commit()
+            renewal = await db.get(BillingOperation, planned[0])
+            renewal_invoice = await db.scalar(select(BillingInvoice).where(BillingInvoice.operation_id == renewal.id))
+            assert renewal_invoice.amount_minor == price.amount_minor  # First-payment discount is not recurring.
+            assert renewal_invoice.plan_snapshot["catalog_snapshot"] == original["catalog_snapshot"]
+            renewal.provider_id = f"synthetic-renewal-{uuid4()}"
+            renewal.state = "sent"
+            await db.commit()
+            assert await project_renewal_cutoffs(db, now=first_end) == 1
+            await db.commit()
+            renewal_kwargs = dict(workspace_id=PERSONAL_WORKSPACE_ID, provider_payment_id=renewal.provider_id,
+                amount_minor=price.amount_minor, currency="RUB", grant_starts_at=first_end)
+            assert await grant_confirmed_renewal(db, **renewal_kwargs) == "granted"
+            await db.commit()
+            assert await grant_confirmed_renewal(db, **renewal_kwargs) == "duplicate"
+            await db.commit()
+            await db.refresh(subscription)
+            assert subscription.plan_code == "research_plus"
+            assert subscription.pinned_plan_version_id == version.id
+            assert subscription.schedule_version == schedule_version+1
+            grants = list(await db.scalars(select(BillingEntitlementGrant).where(BillingEntitlementGrant.workspace_id == PERSONAL_WORKSPACE_ID)))
+            assert len(grants) == 2
+            assert all(row.plan_version_id == version.id and row.plan_code == "research_plus" for row in grants)
+            assert grants[0].invoice_id != grants[1].invoice_id
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scenario", ["schedule_changed", "legacy_purchase"])
+async def test_managed_terms_do_not_survive_an_incompatible_payment(postgres_seeded_database_url, scenario):
+    from cryptography.fernet import Fernet
+
+    from twobrain_rec_server.billing.entitlements import (
+        grant_confirmed_payment,
+        grant_confirmed_renewal,
+    )
+    from twobrain_rec_server.billing.payment_methods import SavedPaymentMethod
+    from twobrain_rec_server.billing.renewal_charge import plan_due_renewals
+
+    engine = create_async_engine(postgres_seeded_database_url)
+    try:
+        async with async_sessionmaker(engine, expire_on_commit=False)() as db:
+            _, _, operation, invoice = await _managed_payment(db)
+            method = dict(recurring_method_confirmed=True,
+                saved_payment_method=SavedPaymentMethod("synthetic-method", "bank_card", "•••• 0000"),
+                payment_method_key=Fernet.generate_key())
+            now = datetime.now(UTC)
+            assert await grant_confirmed_payment(db, workspace_id=PERSONAL_WORKSPACE_ID,
+                provider_payment_id=operation.provider_id, amount_minor=invoice.amount_minor,
+                currency="RUB", paid_at=now, **method) == "granted"
+            await db.commit()
+            subscription = await db.get(WorkspaceSubscription, PERSONAL_WORKSPACE_ID, populate_existing=True)
+            due = subscription.paid_through
+            if scenario == "schedule_changed":
+                planned = await plan_due_renewals(db, now=due-timedelta(hours=24))
+                await db.commit()
+                renewal = await db.get(BillingOperation, planned[0])
+                renewal_invoice = await db.scalar(select(BillingInvoice).where(BillingInvoice.operation_id == renewal.id))
+                renewal.provider_id = f"synthetic-renewal-{uuid4()}"
+                renewal.state = "sent"
+                subscription.schedule_version += 1
+                await db.commit()
+                assert await grant_confirmed_renewal(db, workspace_id=PERSONAL_WORKSPACE_ID,
+                    provider_payment_id=renewal.provider_id, amount_minor=renewal_invoice.amount_minor,
+                    currency="RUB", grant_starts_at=due) == "schedule_mismatch"
+                await db.commit()
+                await db.refresh(subscription)
+                assert subscription.paid_through == due
+                assert await db.scalar(select(BillingEntitlementGrant.id).where(BillingEntitlementGrant.invoice_id == renewal_invoice.id)) is None
+            else:
+                # A pre-catalog invoice still settles after a managed subscription.
+                snapshot = {"plan_code":"personal", "cycle":"month", "billing_actor_user_id":str(USER_ID), "recurring_consent":True}
+                legacy = BillingOperation(id=uuid4(), workspace_id=PERSONAL_WORKSPACE_ID,
+                    kind="initial_checkout", state="provider_pending", idempotency_key=f"synthetic:{uuid4()}",
+                    provider_id=f"synthetic-legacy-{uuid4()}", request_snapshot=snapshot)
+                db.add(legacy)
+                await db.flush()
+                db.add(BillingInvoice(workspace_id=PERSONAL_WORKSPACE_ID, operation_id=legacy.id,
+                    safe_number=f"SYNTHETIC-{uuid4()}", amount_minor=100000, currency="RUB", plan_snapshot=snapshot))
+                await db.commit()
+                assert await grant_confirmed_payment(db, workspace_id=PERSONAL_WORKSPACE_ID,
+                    provider_payment_id=legacy.provider_id, amount_minor=100000,
+                    currency="RUB", paid_at=due, **method) == "granted"
+                await db.commit()
+                await db.refresh(subscription)
+                assert subscription.plan_code == "personal"
+                assert subscription.pinned_plan_version_id is None and subscription.pinned_price_id is None
+                assert subscription.pin_state == "pending"
+                assert subscription.capacity_bytes == 2_000_000_000
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_managed_payment_applies_under_actual_request_role(postgres_seeded_database_url):
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from tests.integration.test_rls_postgres_policies import _exact_app_role_engine
+    from twobrain_rec_server.billing.entitlements import (
+        grant_confirmed_payment,
+        resolve_entitlements,
+    )
+    from twobrain_rec_server.db.models.identity import Workspace
+    from twobrain_rec_server.db.tenant_context import (
+        TenantDatabaseContext,
+        apply_tenant_context_to_connection,
+    )
+
+    engine = create_async_engine(postgres_seeded_database_url)
+    try:
+        async with async_sessionmaker(engine, expire_on_commit=False)() as db:
+            version, _, operation, invoice = await _managed_payment(db)
+            organization = (await db.get(Workspace, PERSONAL_WORKSPACE_ID)).organization_id
+        async with _exact_app_role_engine(postgres_seeded_database_url) as app, app.connect() as conn:
+            await apply_tenant_context_to_connection(conn, TenantDatabaseContext(
+                organization_id=organization, workspace_id=PERSONAL_WORKSPACE_ID, user_id=USER_ID))
+            assert await conn.scalar(text("select session_user")) == "twobrain_rec_app"
+            async with AsyncSession(bind=conn, expire_on_commit=False) as db:
+                assert await grant_confirmed_payment(db, workspace_id=PERSONAL_WORKSPACE_ID,
+                    provider_payment_id=operation.provider_id, amount_minor=invoice.amount_minor,
+                    currency="RUB", paid_at=datetime.now(UTC), defer_referral_reward=True) == "granted"
+                await db.flush()
+                access = await resolve_entitlements(db, workspace_id=PERSONAL_WORKSPACE_ID,
+                    subject_user_id=USER_ID, now=datetime.now(UTC))
+                assert access.base_plan_version_id == version.id and access.plan_code == "research_plus"
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mismatch", ["missing_catalog", "other_price", "boolean_capability", "amount", "payer", "cycle_type", "plan_type"])
+async def test_managed_payment_rejects_inconsistent_financial_snapshot(postgres_seeded_database_url, mismatch):
+    from twobrain_rec_server.billing.entitlements import grant_confirmed_payment
+
+    engine = create_async_engine(postgres_seeded_database_url)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        async with sessions() as db:
+            _, _, operation, invoice = await _managed_payment(db)
+            snapshot = deepcopy(operation.request_snapshot)
+            if mismatch == "missing_catalog":
+                snapshot.pop("catalog_snapshot")
+            elif mismatch == "other_price":
+                snapshot["catalog_snapshot"]["price_id"] = str(uuid4())
+            elif mismatch == "boolean_capability":
+                # Python dict equality considers True == 1; financial equality must not.
+                snapshot["catalog_snapshot"]["capabilities"]["audio_archive"] = 1
+                invoice.plan_snapshot = deepcopy(snapshot)
+            elif mismatch == "amount":
+                snapshot["payable_amount_minor"] += 1
+                invoice.plan_snapshot = deepcopy(snapshot)
+            elif mismatch == "cycle_type":
+                snapshot["cycle"] = ["month"]
+            elif mismatch == "plan_type":
+                snapshot["plan_code"] = {"code":"research_plus"}
+            else:
+                snapshot["billing_actor_user_id"] = str(uuid4())
+            operation.request_snapshot = snapshot
+            await db.commit()
+            assert await grant_confirmed_payment(db, workspace_id=PERSONAL_WORKSPACE_ID,
+                provider_payment_id=operation.provider_id, amount_minor=invoice.amount_minor,
+                currency="RUB", paid_at=datetime.now(UTC)) == "snapshot_invalid"
+            await db.commit()
+            assert operation.state == "reconciliation_gap"
+            assert await db.scalar(select(BillingEntitlementGrant.id).where(BillingEntitlementGrant.invoice_id == invoice.id)) is None
+    finally:
+        await engine.dispose()
 
 
 @pytest.mark.asyncio

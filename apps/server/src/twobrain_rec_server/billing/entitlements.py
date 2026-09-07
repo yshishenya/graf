@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import calendar
+import json
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,6 +21,7 @@ from twobrain_rec_server.billing.catalog import (
     storage_capacity_bytes,
     validate_capabilities,
 )
+from twobrain_rec_server.billing.catalog_migration import exact_snapshot_version
 from twobrain_rec_server.billing.events import enqueue_billing_notification
 from twobrain_rec_server.billing.notifications import BillingNotification
 from twobrain_rec_server.billing.payment_methods import (
@@ -37,6 +40,7 @@ from twobrain_rec_server.db.models import (
     BillingOperation,
     BillingPaymentMethod,
     BillingPlan,
+    BillingPlanPrice,
     BillingPlanVersion,
     Workspace,
     WorkspaceMembership,
@@ -208,6 +212,60 @@ def _snapshot_storage_capacity(snapshot: object, *, fallback: int) -> int:
     return fallback
 
 
+async def _confirmed_catalog(
+    db: AsyncSession, snapshot: object, invoice: BillingInvoice,
+) -> tuple[BillingPlanVersion, BillingPlanPrice] | None:
+    """Keep legacy invoices payable; managed offers require both exact financial snapshots."""
+    if (
+        not isinstance(snapshot, dict) or not isinstance(snapshot.get("plan_code"), str)
+        or not isinstance(snapshot.get("cycle"), str) or snapshot["cycle"] not in {"month", "year"}
+    ):
+        raise CatalogNotApproved("invalid paid snapshot")
+    sources = (snapshot, invoice.plan_snapshot)
+    managed = any(
+        isinstance(source, dict) and isinstance(source.get("catalog_snapshot"), dict)
+        and {"plan_version_id", "price_id", "capability_schema_version", "capabilities"}.intersection(source["catalog_snapshot"])
+        for source in sources
+    )
+    if not managed and snapshot.get("plan_code") == "personal":
+        return None
+    resolved = await exact_snapshot_version(db, invoice.plan_snapshot, lock=False)
+    if resolved is None or resolved[1] is None or resolved[0].status == "legacy":
+        raise CatalogNotApproved("paid catalog is not pinned")
+    version, price = resolved
+    fields = (
+        "plan_code", "cycle", "catalog_snapshot", "list_amount_minor", "payable_amount_minor",
+        "billing_actor_user_id", "currency", "storage_capacity_bytes", "recurring_consent",
+        "offer_consent", "recurring_authority_version",
+    )
+    if json.dumps({key:snapshot.get(key) for key in fields}, sort_keys=True, allow_nan=False) != json.dumps(
+        {key:invoice.plan_snapshot.get(key) for key in fields}, sort_keys=True, allow_nan=False,
+    ):
+        raise CatalogNotApproved("financial snapshots differ")
+    if (
+        version.plan_code in {"free", "trial"}
+        or type(snapshot.get("payable_amount_minor")) is not int
+        or snapshot["payable_amount_minor"] != invoice.amount_minor
+        or not 0 < invoice.amount_minor <= price.amount_minor
+        or invoice.currency != price.currency
+    ):
+        raise CatalogNotApproved("paid amount differs from offer")
+    return version, price
+
+
+def _pin_confirmed_terms(
+    subscription: WorkspaceSubscription,
+    catalog: tuple[BillingPlanVersion, BillingPlanPrice] | None,
+) -> None:
+    # A fresh legacy payment must not retain a previous managed offer's capabilities.
+    subscription.pinned_plan_version_id = catalog[0].id if catalog else None
+    subscription.pinned_price_id = catalog[1].id if catalog else None
+    subscription.pin_state = "pinned" if catalog else "pending"
+    subscription.pin_checked_application_version = subscription.application_version if catalog else None
+    subscription.next_charge_at = subscription.paid_through
+    subscription.schedule_version = (subscription.schedule_version or 0) + 1
+
+
 async def grant_confirmed_payment(
     db: AsyncSession,
     *,
@@ -240,7 +298,9 @@ async def grant_confirmed_payment(
         operation.state = "reconciliation_gap"
         return "operation_kind_mismatch"
     invoice = await db.scalar(
-        select(BillingInvoice).where(BillingInvoice.operation_id == operation.id).with_for_update()
+        select(BillingInvoice).where(
+            BillingInvoice.operation_id == operation.id, BillingInvoice.workspace_id == workspace_id,
+        ).with_for_update()
     )
     if invoice is None or invoice.amount_minor != amount_minor or invoice.currency != currency:
         operation.state = "reconciliation_gap"
@@ -302,11 +362,13 @@ async def grant_confirmed_payment(
                 )
         return "duplicate"
     snapshot = operation.request_snapshot
-    plan_code = snapshot.get("plan_code")
-    cycle = snapshot.get("cycle")
-    if plan_code != "personal" or cycle not in {"month", "year"}:
+    try:
+        catalog = await _confirmed_catalog(db, snapshot, invoice)
+    except (CatalogNotApproved, ValueError):
         operation.state = "reconciliation_gap"
         return "snapshot_invalid"
+    plan_code = snapshot["plan_code"]
+    cycle = snapshot["cycle"]
     try:
         payer_user_id = UUID(str(snapshot["billing_actor_user_id"]))
     except (KeyError, TypeError, ValueError):
@@ -334,13 +396,15 @@ async def grant_confirmed_payment(
         current_owner_id=owner.user_id,
     )
     paid_at = paid_at.astimezone(UTC)
-    paid_through = _add_paid_interval(paid_at, cycle)
+    timezone = "Europe/Moscow" if catalog else "UTC"
+    paid_through = _add_paid_interval(paid_at.astimezone(ZoneInfo(timezone)), cycle).astimezone(UTC)
     db.add(
         BillingEntitlementGrant(
             workspace_id=workspace_id,
             invoice_id=invoice.id,
             provider_payment_id=provider_payment_id,
             plan_code=plan_code,
+            plan_version_id=catalog[0].id if catalog else None,
             cycle=cycle,
             starts_at=paid_at,
             ends_at=paid_through,
@@ -358,14 +422,17 @@ async def grant_confirmed_payment(
         db.add(subscription)
     subscription.billing_owner_id = owner.user_id
     subscription.state = "personal"
-    subscription.plan_code = "personal"
+    subscription.plan_code = plan_code
     subscription.cycle = cycle
     subscription.capacity_bytes = _snapshot_storage_capacity(
         snapshot,
-        fallback=storage_capacity_bytes("personal"),
+        fallback=catalog[0].storage_bytes if catalog else storage_capacity_bytes("personal"),
     )
     subscription.paid_through = paid_through
     subscription.billing_anchor = paid_at
+    subscription.timezone = timezone
+    subscription.application_version = (subscription.application_version or 0) + 1
+    _pin_confirmed_terms(subscription, catalog)
     if (
         saved_payment_method is not None
         and payment_method_key is not None
@@ -405,7 +472,6 @@ async def grant_confirmed_payment(
         and payment_method_key is not None
     )
     subscription.recurring_authority_version = (subscription.recurring_authority_version or 0) + 1
-    subscription.application_version = (subscription.application_version or 0) + 1
     invoice.status = "succeeded"
     if payment_method_label and "payment_method_label" not in invoice.plan_snapshot:
         invoice.plan_snapshot = {
@@ -506,7 +572,9 @@ async def grant_confirmed_renewal(
     if operation is None:
         return "unmatched"
     invoice = await db.scalar(
-        select(BillingInvoice).where(BillingInvoice.operation_id == operation.id).with_for_update()
+        select(BillingInvoice).where(
+            BillingInvoice.operation_id == operation.id, BillingInvoice.workspace_id == workspace_id,
+        ).with_for_update()
     )
     if invoice is None or invoice.amount_minor != amount_minor or invoice.currency != currency:
         operation.state = "reconciliation_gap"
@@ -526,13 +594,27 @@ async def grant_confirmed_renewal(
     if existing is not None:
         return "duplicate"
     snapshot = operation.request_snapshot
-    cycle = snapshot.get("cycle")
-    if snapshot.get("plan_code") != "personal" or cycle not in {"month", "year"}:
+    try:
+        catalog = await _confirmed_catalog(db, snapshot, invoice)
+    except (CatalogNotApproved, ValueError):
         operation.state = "reconciliation_gap"
         return "snapshot_invalid"
+    plan_code = snapshot["plan_code"]
+    cycle = snapshot["cycle"]
     if subscription is None:
         operation.state = "reconciliation_gap"
         return "subscription_missing"
+    if catalog is not None and (
+        invoice.amount_minor != catalog[1].amount_minor
+        or subscription.pinned_plan_version_id != catalog[0].id
+        or subscription.pinned_price_id != catalog[1].id
+        or snapshot.get("pinned_plan_version_id") != str(catalog[0].id)
+        or snapshot.get("pinned_price_id") != str(catalog[1].id)
+        or type(snapshot.get("schedule_version")) is not int
+        or snapshot["schedule_version"] != subscription.schedule_version
+    ):
+        operation.state = "reconciliation_gap"
+        return "schedule_mismatch"
     owner = await db.scalar(
         select(WorkspaceMembership)
         .where(
@@ -612,13 +694,15 @@ async def grant_confirmed_renewal(
         await db.flush()
         return "refused"
     starts_at = grant_starts_at.astimezone(UTC)
-    ends_at = _add_paid_interval(starts_at, cycle)
+    timezone = ZoneInfo(subscription.timezone or "UTC") if catalog else UTC
+    ends_at = _add_paid_interval(starts_at.astimezone(timezone), cycle).astimezone(UTC)
     db.add(
         BillingEntitlementGrant(
             workspace_id=workspace_id,
             invoice_id=invoice.id,
             provider_payment_id=provider_payment_id,
-            plan_code="personal",
+            plan_code=plan_code,
+            plan_version_id=catalog[0].id if catalog else None,
             cycle=cycle,
             starts_at=starts_at,
             ends_at=ends_at,
@@ -628,15 +712,16 @@ async def grant_confirmed_renewal(
         )
     )
     subscription.state = "personal"
-    subscription.plan_code = "personal"
+    subscription.plan_code = plan_code
     subscription.cycle = cycle
     subscription.paid_through = ends_at
     subscription.capacity_bytes = _snapshot_storage_capacity(
         snapshot,
-        fallback=subscription.capacity_bytes or storage_capacity_bytes("personal"),
+        fallback=subscription.capacity_bytes or (catalog[0].storage_bytes if catalog else storage_capacity_bytes("personal")),
     )
     subscription.renewal_resolution = "succeeded"
     subscription.application_version = (subscription.application_version or 0) + 1
+    _pin_confirmed_terms(subscription, catalog)
     invoice.status = "succeeded"
     operation.state = "succeeded"
     db.add(

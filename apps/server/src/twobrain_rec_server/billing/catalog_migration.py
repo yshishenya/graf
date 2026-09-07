@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from copy import deepcopy
 from uuid import UUID
 
@@ -25,25 +26,31 @@ from twobrain_rec_server.db.models.billing import (
 async def exact_snapshot_version(
     db: AsyncSession,
     snapshot: object,
+    *,
+    lock: bool = True,
 ) -> tuple[BillingPlanVersion, BillingPlanPrice | None] | None:
     """Resolve only the named historical version, including its original list price."""
     if not isinstance(snapshot, dict):
         return None
     catalog = snapshot.get("catalog_snapshot")
-    if not isinstance(catalog, dict) or type(catalog.get("catalog_version")) is not int:
+    if (
+        not isinstance(catalog, dict) or type(catalog.get("catalog_version")) is not int
+        or not isinstance(catalog.get("plan_code"), str)
+        or not isinstance(catalog.get("cycle"), str)
+    ):
         return None
     if snapshot.get("plan_code") != catalog.get("plan_code") or snapshot.get(
         "cycle"
     ) != catalog.get("cycle"):
         return None
-    version = await db.scalar(
+    query = (
         select(BillingPlanVersion)
         .where(
             BillingPlanVersion.plan_code == catalog["plan_code"],
             BillingPlanVersion.version == catalog["catalog_version"],
         )
-        .with_for_update()
     )
+    version = await db.scalar(query.with_for_update() if lock else query)
     if version is None:
         return None
     price = None
@@ -66,9 +73,10 @@ async def exact_snapshot_version(
         expected = validate_plan_version(version, price=price, for_checkout=False).as_dict()
     except (CatalogNotApproved, ValueError):
         return None
-    if catalog != expected:
+    if json.dumps(catalog, sort_keys=True, allow_nan=False) != json.dumps(expected, sort_keys=True, allow_nan=False):
         return None
-    if snapshot.get("list_amount_minor", expected["amount_minor"]) != expected["amount_minor"]:
+    amount = snapshot.get("list_amount_minor", expected["amount_minor"])
+    if type(amount) is not type(expected["amount_minor"]) or amount != expected["amount_minor"]:
         return None
     return version, price
 

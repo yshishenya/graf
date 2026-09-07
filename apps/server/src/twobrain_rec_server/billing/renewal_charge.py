@@ -266,7 +266,7 @@ async def plan_due_renewals(
             WorkspaceMembership.role == "owner",
             WorkspaceMembership.status == "active",
             WorkspaceSubscription.state == "personal",
-            WorkspaceSubscription.plan_code == "personal",
+            WorkspaceSubscription.plan_code.not_in(("free", "trial")),
             WorkspaceSubscription.recurring_allowed.is_(True),
             WorkspaceSubscription.paid_through.is_not(None),
             WorkspaceSubscription.paid_through > current,
@@ -288,7 +288,7 @@ async def plan_due_renewals(
         if (
             workspace is None or workspace.kind != "personal" or subscription is None
             or workspace.owner_user_id != subscription.billing_owner_id or owner is None
-            or subscription.state != "personal" or subscription.plan_code != "personal"
+            or subscription.state != "personal" or subscription.plan_code in {"free", "trial"}
             or not subscription.recurring_allowed or subscription.paid_through is None
             or not current < _utc(subscription.paid_through) <= current+timedelta(hours=RENEWAL_REMINDER_HOURS)
         ):
@@ -515,7 +515,7 @@ async def project_renewal_cutoffs(
     query = (
         select(WorkspaceSubscription)
         .where(
-            WorkspaceSubscription.plan_code == "personal",
+            WorkspaceSubscription.plan_code.not_in(("free", "trial")),
             WorkspaceSubscription.paid_through.is_not(None),
             WorkspaceSubscription.paid_through <= current,
         )
@@ -527,7 +527,7 @@ async def project_renewal_cutoffs(
     for candidate in sorted(candidates, key=lambda row: row.workspace_id):
         workspace, subscription = await _lock_renewal_subscription(db, candidate.workspace_id)
         if (
-            subscription is None or subscription.plan_code != "personal"
+            subscription is None or subscription.plan_code in {"free", "trial"}
             or subscription.paid_through is None or _utc(subscription.paid_through) > current
         ):
             continue
