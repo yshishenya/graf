@@ -7,10 +7,10 @@ role and validate the authenticated system context before touching rows.
 
 from alembic import op
 
-revision = "0103_system_admin_billing_console"
-down_revision = "0102_worker_workspace_locks"
-branch_labels = None
-depends_on = None
+revision: str = "0103_system_admin_billing_console"
+down_revision: str | None = "0102_worker_workspace_locks"
+branch_labels: str | None = None
+depends_on: str | None = None
 
 AUTHORITY = "twobrain_rec_system_authority"
 SYSTEM = "twobrain_rec_system"

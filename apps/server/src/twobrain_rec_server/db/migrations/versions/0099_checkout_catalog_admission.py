@@ -2,10 +2,10 @@
 
 from alembic import op
 
-revision = "0099_checkout_catalog_admission"
-down_revision = "0098_processing_quota_allocations"
-branch_labels = None
-depends_on = None
+revision: str = "0099_checkout_catalog_admission"
+down_revision: str | None = "0098_processing_quota_allocations"
+branch_labels: str | None = None
+depends_on: str | None = None
 
 
 def upgrade() -> None:

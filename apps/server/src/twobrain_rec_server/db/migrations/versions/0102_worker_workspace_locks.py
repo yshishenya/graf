@@ -2,10 +2,10 @@
 
 from alembic import op
 
-revision = "0102_worker_workspace_locks"
-down_revision = "0101_share_recipient_lookup"
-branch_labels = None
-depends_on = None
+revision: str = "0102_worker_workspace_locks"
+down_revision: str | None = "0101_share_recipient_lookup"
+branch_labels: str | None = None
+depends_on: str | None = None
 
 WORKER_SCOPE = """session_user in ('twobrain_rec_app','twobrain_rec_media')
     and rec_context_kind()='worker' and id=rec_current_workspace_id()"""

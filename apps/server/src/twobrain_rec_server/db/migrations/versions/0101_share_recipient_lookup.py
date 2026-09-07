@@ -2,10 +2,10 @@
 
 from alembic import op
 
-revision = "0101_share_recipient_lookup"
-down_revision = "0100_merge_admin_settings"
-branch_labels = None
-depends_on = None
+revision: str = "0101_share_recipient_lookup"
+down_revision: str | None = "0100_merge_admin_settings"
+branch_labels: str | None = None
+depends_on: str | None = None
 
 
 def upgrade() -> None:
