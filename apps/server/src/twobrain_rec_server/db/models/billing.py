@@ -87,7 +87,51 @@ class PromotionCampaign(Base):
     starts_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     enabled: Mapped[bool] = mapped_column(nullable=False, default=False)
+    # Administrative lifecycle and benefit fields.  Existing rows keep their
+    # discount semantics through migration defaults; published rows are
+    # immutable and a new version is created for changed terms.
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="draft")
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    benefit_kind: Mapped[str] = mapped_column(String(16), nullable=False, default="discount")
+    gift_days: Mapped[int | None] = mapped_column(Integer)
+    audience: Mapped[str] = mapped_column(String(32), nullable=False, default="all")
+    target_user_id: Mapped[UUID | None] = mapped_column(ForeignKey("user_identities.id"))
+    budget_minor: Mapped[int | None] = mapped_column(BigInteger)
+    budget_used_minor: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    display_name: Mapped[str | None] = mapped_column(String(120))
     policy_snapshot: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class PromotionCode(Base):
+    """Hashed individual code; plaintext is returned only at creation time."""
+
+    __tablename__ = "promotion_codes"
+    __table_args__ = (
+        UniqueConstraint("code_hash", name="uq_promotion_codes_hash"),
+        Index("ix_promotion_codes_campaign", "campaign_id", "state"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    campaign_id: Mapped[UUID] = mapped_column(ForeignKey("promotion_campaigns.id"), nullable=False)
+    code_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    state: Mapped[str] = mapped_column(String(16), nullable=False, default="available")
+    target_user_id: Mapped[UUID | None] = mapped_column(ForeignKey("user_identities.id"))
+    reserved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    redeemed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class PromotionCodeBatch(Base):
+    __tablename__ = "promotion_code_batches"
+    __table_args__ = (UniqueConstraint("campaign_id", "idempotency_key", name="uq_promotion_code_batches_key"),)
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    campaign_id: Mapped[UUID] = mapped_column(ForeignKey("promotion_campaigns.id"), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(240), nullable=False)
+    code_ids: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    code_count: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

@@ -4,7 +4,7 @@ import base64
 import hmac
 import secrets
 import time
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, HTTPException, Request
@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, SecretStr, model_validator
 from sqlalchemy import text
 
+from twobrain_rec_server.billing.catalog import CatalogNotApproved
 from twobrain_rec_server.cabinet.web_routes.auth_email_flow import _normalize_email
 from twobrain_rec_server.db.tenant_context import SystemDatabaseContext
 from twobrain_rec_server.system_admin.auth import (
@@ -484,6 +485,268 @@ async def search(request: Request,payload: SearchInput):
     if email is None:
         raise HTTPException(422,"Введите полный адрес")
     return await users(request.app.state.system_sessions,context,email=email)
+
+
+class PlanCreateInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    code: Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]{2,31}$")]
+    display_name: Annotated[str, Field(min_length=1, max_length=80)]
+    capabilities: dict
+    display_terms: dict
+    monthly_amount_minor: Annotated[int | None, Field(strict=True, gt=0)] = None
+    annual_amount_minor: Annotated[int | None, Field(strict=True, gt=0)] = None
+    reason: Annotated[str, Field(min_length=10, max_length=500)]
+
+
+class PlanStateInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    state: Literal["open", "closed", "archived"]
+    reason: Annotated[str, Field(min_length=10, max_length=500)]
+
+
+class PlanPublishInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    version_id: UUID
+    reason: Annotated[str, Field(min_length=10, max_length=500)]
+
+
+class CampaignCreateInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    code: Annotated[str, Field(min_length=3, max_length=48)]
+    campaign_version: Annotated[str, Field(min_length=1, max_length=64)]
+    plan_code: Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]{2,31}$")]
+    cycle: Literal["month", "year"] | None = None
+    benefit_kind: Literal["discount", "gift"]
+    discount_percent: Annotated[int | None, Field(strict=True, ge=1, le=99)] = None
+    gift_days: Annotated[int | None, Field(strict=True, ge=1, le=365)] = None
+    audience: Literal["all", "never_paid", "first_purchase", "selected", "former_paid"] = "all"
+    target_user_id: UUID | None = None
+    max_redemptions: Annotated[int, Field(strict=True, ge=1, le=1_000_000)] = 1
+    budget_minor: Annotated[int | None, Field(strict=True, gt=0)] = None
+    starts_at: AwareDatetime | None = None
+    ends_at: AwareDatetime | None = None
+    display_name: Annotated[str | None, Field(max_length=120)] = None
+    reason: Annotated[str, Field(min_length=10, max_length=500)]
+
+
+class CampaignStateInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    state: Literal["active", "paused", "finished", "archived"]
+    reason: Annotated[str, Field(min_length=10, max_length=500)]
+
+
+class CampaignCodesInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    idempotency_key: UUID
+    count: Annotated[int, Field(strict=True, ge=1, le=1000)]
+    prefix: Annotated[str, Field(min_length=3, max_length=20)] = "GRAF"
+    target_user_ids: list[UUID | None] | None = None
+
+
+def _catalog_error(result: dict) -> None:
+    error = result.get("error")
+    if not error:
+        return
+    status = 403 if error == "access_denied" else 409 if error in {"already_exists", "promotion_exhausted", "campaign_unavailable"} else 422
+    messages = {"access_denied":"Недостаточно прав", "already_exists":"Такая запись уже существует",
+                "promotion_exhausted":"Лимит акции исчерпан", "campaign_unavailable":"Акция недоступна",
+                "invalid_catalog":"Условия тарифа не прошли проверку", "invalid_campaign":"Условия акции не прошли проверку",
+                "invalid_batch":"Партия кодов недействительна", "code_already_exists":"Коллизия кода, повторите выпуск",
+                "not_found":"Запись не найдена", "invalid_state":"Недопустимое состояние"}
+    raise HTTPException(status, messages.get(error, "Операция недоступна"))
+
+
+@router.get("/billing/subscriptions")
+async def billing_subscriptions(request: Request, after: UUID | None = None,
+                               plan: str | None = None, state: str | None = None):
+    from dataclasses import replace
+
+    from twobrain_rec_server.db.tenant_context import apply_system_context
+    _, context = await current_admin(request)
+    async with request.app.state.system_sessions() as session:
+        await apply_system_context(session, replace(context, permission="billing.read"))
+        items = await session.scalar(text("select system_control.list_billing_subscriptions(:after,:plan,:state)"),
+                                     {"after": after, "plan": plan, "state": state})
+    if items is None:
+        raise HTTPException(403, "Недостаточно прав")
+    return {"items": items[:100], "next_cursor": str(items[99]["workspace_id"]) if len(items)>100 else None}
+
+
+@router.get("/billing/invoices")
+async def billing_invoices(request: Request, after: UUID | None = None,
+                           workspace_id: UUID | None = None, status: str | None = None):
+    from dataclasses import replace
+
+    from twobrain_rec_server.db.tenant_context import apply_system_context
+    _, context = await current_admin(request)
+    async with request.app.state.system_sessions() as session:
+        await apply_system_context(session, replace(context, permission="billing.read"))
+        items = await session.scalar(text("select system_control.list_billing_invoices(:after,:workspace,:status)"),
+                                     {"after": after, "workspace": workspace_id, "status": status})
+    if items is None:
+        raise HTTPException(403, "Недостаточно прав")
+    return {"items": items[:100], "next_cursor": str(items[99]["id"]) if len(items)>100 else None}
+
+
+@router.get("/billing/refunds")
+async def billing_refunds(request: Request, after: UUID | None = None, workspace_id: UUID | None = None):
+    from dataclasses import replace
+
+    from twobrain_rec_server.db.tenant_context import apply_system_context
+    _, context = await current_admin(request)
+    async with request.app.state.system_sessions() as session:
+        await apply_system_context(session, replace(context, permission="billing.read"))
+        items = await session.scalar(text("select system_control.list_billing_refunds(:after,:workspace)"),
+                                     {"after": after, "workspace": workspace_id})
+    if items is None:
+        raise HTTPException(403, "Недостаточно прав")
+    return {"items": items[:100], "next_cursor": str(items[99]["id"]) if len(items)>100 else None}
+
+
+@router.get("/plans")
+async def plans(request: Request, after: UUID | None = None):
+    from dataclasses import replace
+
+    from twobrain_rec_server.db.tenant_context import apply_system_context
+    _, context = await current_admin(request)
+    async with request.app.state.system_sessions() as session:
+        await apply_system_context(session, replace(context, permission="catalog.read"))
+        items = await session.scalar(text("select system_control.list_catalog_plans(:after)"), {"after": after})
+    if items is None:
+        raise HTTPException(403, "Недостаточно прав")
+    return {"items": items[:100], "next_cursor": str(items[99]["id"]) if len(items)>100 else None}
+
+
+@router.post("/plans", status_code=201)
+async def create_plan(request: Request, payload: PlanCreateInput):
+    from dataclasses import replace
+
+    from twobrain_rec_server.billing.admin_catalog import create_plan as create
+    from twobrain_rec_server.db.tenant_context import apply_system_context
+    if not request.app.state.commands_enabled:
+        raise HTTPException(503, "Изменения временно отключены оператором")
+    _, context = await current_admin(request)
+    async with request.app.state.system_sessions() as session:
+        await apply_system_context(session, replace(context, permission="catalog.draft"))
+        try:
+            result = await create(session, payload.model_dump(exclude={"reason"}))
+            await session.commit()
+        except (ValueError, CatalogNotApproved) as error:
+            await session.rollback()
+            raise HTTPException(422, "Условия тарифа не прошли проверку") from error
+    _catalog_error(result)
+    return result
+
+
+@router.post("/plans/{plan_id}/publish")
+async def publish_plan(request: Request, plan_id: UUID, payload: PlanPublishInput):
+    from dataclasses import replace
+
+    from twobrain_rec_server.billing.admin_catalog import publish_plan as publish
+    from twobrain_rec_server.db.tenant_context import apply_system_context
+    if not request.app.state.commands_enabled:
+        raise HTTPException(503, "Изменения временно отключены оператором")
+    _, context = await current_admin(request)
+    async with request.app.state.system_sessions() as session:
+        await apply_system_context(session, replace(context, permission="catalog.publish", target_type="plan", target_id=plan_id))
+        result = await publish(session, plan_id=plan_id, version_id=payload.version_id)
+        await session.commit()
+    _catalog_error(result)
+    return result
+
+
+@router.patch("/plans/{plan_id}/state")
+async def plan_state(request: Request, plan_id: UUID, payload: PlanStateInput):
+    from dataclasses import replace
+
+    from twobrain_rec_server.billing.admin_catalog import set_plan_state
+    from twobrain_rec_server.db.tenant_context import apply_system_context
+    if not request.app.state.commands_enabled:
+        raise HTTPException(503, "Изменения временно отключены оператором")
+    _, context = await current_admin(request)
+    async with request.app.state.system_sessions() as session:
+        await apply_system_context(session, replace(context, permission="catalog.publish", target_type="plan", target_id=plan_id))
+        result = await set_plan_state(session, plan_id=plan_id, state=payload.state)
+        await session.commit()
+    _catalog_error(result)
+    return result
+
+
+@router.get("/campaigns")
+async def campaigns(request: Request, after: UUID | None = None):
+    from dataclasses import replace
+
+    from twobrain_rec_server.db.tenant_context import apply_system_context
+    _, context = await current_admin(request)
+    async with request.app.state.system_sessions() as session:
+        await apply_system_context(session, replace(context, permission="promotions.read"))
+        items = await session.scalar(text("select system_control.list_campaigns(:after)"), {"after": after})
+    if items is None:
+        raise HTTPException(403, "Недостаточно прав")
+    return {"items": items[:100], "next_cursor": str(items[99]["id"]) if len(items)>100 else None}
+
+
+@router.post("/campaigns", status_code=201)
+async def create_campaign_route(request: Request, payload: CampaignCreateInput):
+    from dataclasses import replace
+
+    from twobrain_rec_server.billing.promotion_admin import create_campaign
+    from twobrain_rec_server.db.tenant_context import apply_system_context
+    if not request.app.state.commands_enabled:
+        raise HTTPException(503, "Изменения временно отключены оператором")
+    _, context = await current_admin(request)
+    values = payload.model_dump(exclude={"reason"})
+    async with request.app.state.system_sessions() as session:
+        await apply_system_context(session, replace(context, permission="promotions.draft"))
+        try:
+            result = await create_campaign(session, **values)
+            await session.commit()
+        except ValueError as error:
+            await session.rollback()
+            raise HTTPException(422, "Условия акции не прошли проверку") from error
+    _catalog_error(result)
+    return result
+
+
+@router.patch("/campaigns/{campaign_id}/state")
+async def campaign_state(request: Request, campaign_id: UUID, payload: CampaignStateInput):
+    from dataclasses import replace
+
+    from twobrain_rec_server.db.tenant_context import apply_system_context
+    if not request.app.state.commands_enabled:
+        raise HTTPException(503, "Изменения временно отключены оператором")
+    _, context = await current_admin(request)
+    async with request.app.state.system_sessions() as session:
+        await apply_system_context(session, replace(context, permission="promotions.publish", target_type="campaign", target_id=campaign_id))
+        result = await session.scalar(text("select system_control.set_promotion_campaign_state(:id,:state)"),
+                                      {"id": campaign_id, "state": payload.state})
+        await session.commit()
+    _catalog_error(dict(result or {}))
+    return result
+
+
+@router.post("/campaigns/{campaign_id}/codes", status_code=201)
+async def campaign_codes(request: Request, campaign_id: UUID, payload: CampaignCodesInput):
+    from dataclasses import replace
+
+    from twobrain_rec_server.billing.promotion_admin import issue_codes
+    from twobrain_rec_server.db.tenant_context import apply_system_context
+    if not request.app.state.commands_enabled:
+        raise HTTPException(503, "Изменения временно отключены оператором")
+    _, context = await current_admin(request)
+    async with request.app.state.system_sessions() as session:
+        await apply_system_context(session, replace(context, permission="promotions.manage", target_type="campaign", target_id=campaign_id))
+        try:
+            result = await issue_codes(session, campaign_id=campaign_id, idempotency_key=str(payload.idempotency_key),
+                                       count=payload.count, prefix=payload.prefix, target_user_ids=payload.target_user_ids)
+            await session.commit()
+        except ValueError as error:
+            await session.rollback()
+            raise HTTPException(422, "Партия кодов недействительна") from error
+    _catalog_error(result)
+    response = JSONResponse(result, status_code=200 if result.get("duplicate") else 201)
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 class InvitationResend(BaseModel):
