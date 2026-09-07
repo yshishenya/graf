@@ -141,6 +141,7 @@ async def ensure_outcomes_for_processing_result(
     result: ProcessingResult,
     publish_initial_baseline: bool = False,
     ai_dispatch_planned: bool | None = None,
+    ai_blocked_reason: str | None = None,
     enforce_latest_result: bool = True,
 ) -> MeetingOutcomeSet:
     meeting = await lock_meeting_fence(
@@ -262,6 +263,7 @@ async def ensure_outcomes_for_processing_result(
             db,
             outcome_set=existing,
             ai_dispatch_planned=bool(ai_dispatch_planned),
+            blocked_reason=ai_blocked_reason,
         )
         return existing
     if existing is not None and not existing_is_immutable_history:
@@ -337,6 +339,7 @@ async def ensure_outcomes_for_processing_result(
             db,
             outcome_set=outcome_set,
             ai_dispatch_planned=bool(ai_dispatch_planned),
+            blocked_reason=ai_blocked_reason,
         )
         return outcome_set
     outcome_set.status = OutcomeSetStatus.GENERATING.value
@@ -485,6 +488,7 @@ async def _project_revision_scoped_ai_wait(
     *,
     outcome_set: MeetingOutcomeSet,
     ai_dispatch_planned: bool,
+    blocked_reason: str | None = None,
 ) -> None:
     """Keep revision-scoped processing truthful until the AI result exists."""
     # A revision-scoped result is a replaceable candidate until the trusted
@@ -497,7 +501,7 @@ async def _project_revision_scoped_ai_wait(
         if ai_dispatch_planned
         else OutcomeSetStatus.BLOCKED.value
     )
-    outcome_set.failure_reason = None if ai_dispatch_planned else AI_DISPATCH_UNAVAILABLE
+    outcome_set.failure_reason = None if ai_dispatch_planned else (blocked_reason or AI_DISPATCH_UNAVAILABLE)
     outcome_set.failure_source = None
     outcome_set.generated_at = None
     outcome_set.latency_ms = None
@@ -520,8 +524,8 @@ async def _project_revision_scoped_ai_wait(
         )
         if attempt is not None and attempt.provider_kind == "deterministic_extractive":
             attempt.status = "generating" if ai_dispatch_planned else "blocked_dependency"
-            attempt.failure_code = None if ai_dispatch_planned else AI_DISPATCH_UNAVAILABLE
-            attempt.failure_reason = None if ai_dispatch_planned else AI_DISPATCH_UNAVAILABLE
+            attempt.failure_code = None if ai_dispatch_planned else (blocked_reason or AI_DISPATCH_UNAVAILABLE)
+            attempt.failure_reason = None if ai_dispatch_planned else (blocked_reason or AI_DISPATCH_UNAVAILABLE)
             attempt.ended_at = None
     await db.flush()
 

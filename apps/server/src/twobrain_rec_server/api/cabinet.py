@@ -4452,6 +4452,8 @@ _SUMMARY_PUBLIC_REASON_ALIASES = {
         "summary_type_retired",
         "summary_generation_in_progress",
         "summary_generation_blocked",
+        "commercial_ai_generation_denied",
+        "billing_access_unavailable",
         "summary_generation_deferred",
         "summary_generation_ambiguous",
         "summary_source_revision_stale",
@@ -4520,6 +4522,8 @@ _SUMMARY_PUBLIC_REASON_ALIASES.update(
     }
 )
 _SUMMARY_PUBLIC_CODE_STATUS = {
+    "commercial_ai_generation_denied": 403,
+    "billing_access_unavailable": 503,
     "summary_dependency_unavailable": 503,
     "summary_type_not_found": 404,
     "summary_generation_blocked": 403,

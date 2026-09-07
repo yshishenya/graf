@@ -1,6 +1,7 @@
 import asyncio
 from uuid import UUID
 
+import pytest
 from sqlalchemy import select, text
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
@@ -42,11 +43,15 @@ from twobrain_rec_server.processing.submit import (
 )
 
 
-def test_processing_happy_path_imports_transcript_and_diarization(client) -> None:
+@pytest.mark.parametrize("ai_denied", [False, True])
+def test_processing_happy_path_imports_transcript_and_diarization(client, ai_denied) -> None:
     finalized = create_finalized_meeting(client, "processing-happy-path")
     meeting_id = UUID(finalized["meeting"]["meeting_id"])
     media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
     workspace_id = UUID(finalized["meeting"]["workspace_id"])
+    if ai_denied:
+        from tests.integration.test_commercial_egress import _deny
+        client.portal.call(lambda: _deny(client, "ai_outcomes"))
     fake_client = FakeMediaScribeClient(
         external_job_id="job_happy",
         status_sequence=[MediaScribeJobStatus.READY],
@@ -142,13 +147,18 @@ def test_processing_happy_path_imports_transcript_and_diarization(client) -> Non
                     MeetingOutcomeGenerationAttempt.meeting_id == meeting_id
                 )
             )
-            assert outcome_set is not None and attempt is not None
+            assert outcome_set is not None
+            if ai_denied:
+                assert attempt is None
+                assert outcome_set.failure_reason == "commercial_ai_generation_denied"
+            else:
+                assert attempt is not None
             return (
                 imported.status.value,
                 len(transcripts),
                 len(diarization),
                 outcome_set.status,
-                attempt.status,
+                attempt.status if attempt is not None else None,
             )
 
     status, transcript_count, diarization_count, outcome_status, attempt_status = asyncio.run(
@@ -157,8 +167,8 @@ def test_processing_happy_path_imports_transcript_and_diarization(client) -> Non
     assert status == "processed"
     assert transcript_count == 1
     assert diarization_count == 1
-    assert outcome_status == "generating"
-    assert attempt_status == "queued"
+    assert outcome_status == ("blocked" if ai_denied else "generating")
+    assert attempt_status == (None if ai_denied else "queued")
 
 
 def test_pending_provider_status_reaches_ready_without_resubmission(client) -> None:

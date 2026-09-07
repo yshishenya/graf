@@ -69,6 +69,7 @@
     "speaker_not_found",
   ]);
   const summaryActionProblemCodes = new Set([
+    "commercial_ai_generation_denied",
     "summary_candidate_not_found",
     "summary_candidate_state_invalid",
     "summary_candidate_unavailable",
@@ -3231,6 +3232,8 @@
         });
       };
       const candidateErrorCopy = (code) => ({
+        commercial_ai_generation_denied: "Создание новых итогов недоступно по условиям вашего доступа. Сохранённые итоги остаются доступны.",
+        billing_access_unavailable: "Не удалось проверить условия доступа. Повторите позже; сохранённые итоги не изменены.",
         summary_transcript_too_large: "Расшифровка слишком большая для этого действия.",
         summary_transcript_unavailable: "Расшифровка пока недоступна. Обновите страницу и попробуйте снова.",
         summary_source_unavailable: "Источник итогов пока недоступен. Обновите страницу и попробуйте снова.",

@@ -39,7 +39,11 @@ from twobrain_rec_server.mediascribe.import_results import (
 )
 from twobrain_rec_server.mediascribe.schemas import MediaScribePollResponse, MediaScribeResult
 from twobrain_rec_server.normalization.statuses import JobState
-from twobrain_rec_server.outcomes.ai_service import ensure_automatic_summary_candidate
+from twobrain_rec_server.outcomes.ai_service import (
+    OutcomeGenerationTerminalError,
+    ensure_automatic_summary_candidate,
+    require_summary_generation_access,
+)
 from twobrain_rec_server.outcomes.service import ensure_outcomes_for_processing_result
 from twobrain_rec_server.processing import store
 from twobrain_rec_server.processing.fences import (
@@ -1131,20 +1135,30 @@ async def poll_and_import_mediascribe_result(
         )
         return ImportProcessingResult(imported=False, status=ProcessingStatus.CANCELED)
     try:
-        if await lock_processing_meeting_fence(
+        locked_meeting = await lock_processing_meeting_fence(
             db, workspace_id=result_row.workspace_id, meeting_id=result_row.meeting_id,
-        ) is None:
+        )
+        if locked_meeting is None:
             raise ProcessingLifecycleBlocked("meeting_deleting")
+        ai_blocked_reason = None
+        if outcome_generation_enabled:
+            try:
+                await require_summary_generation_access(
+                    db, workspace_id=result_row.workspace_id, subject_user_id=locked_meeting.created_by_user_id,
+                )
+            except OutcomeGenerationTerminalError as exc:
+                ai_blocked_reason = str(exc)
         await ensure_outcomes_for_processing_result(
             db,
             result=result_row,
             publish_initial_baseline=True,
-            ai_dispatch_planned=outcome_generation_enabled,
+            ai_dispatch_planned=outcome_generation_enabled and ai_blocked_reason is None,
+            ai_blocked_reason=ai_blocked_reason,
         )
     except ProcessingLifecycleBlocked as exc:
         await _cancel_stale_processing(db, workflow=workflow, reason=exc)
         return ImportProcessingResult(imported=True, status=ProcessingStatus.CANCELED)
-    if outcome_generation_enabled:
+    if outcome_generation_enabled and ai_blocked_reason is None:
         await ensure_automatic_summary_candidate(
             db,
             workspace_id=result_row.workspace_id,
