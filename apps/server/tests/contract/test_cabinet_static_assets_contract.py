@@ -266,7 +266,7 @@ def test_cabinet_js_keeps_fragment_state_ephemeral() -> None:
     assert "htmx:afterSwap" in script
     assert "meeting-list-region" in script
     assert "localStorage" not in script
-    assert script.count("sessionStorage") == 16
+    assert script.count("sessionStorage") == 12
     assert script.count('sessionStorage.removeItem("htmx-history-cache")') == 1
     assert script.count('sessionStorage.removeItem("htmx-current-path-for-history")') == 2
     assert "graf-summary-candidate-" in script
@@ -821,7 +821,9 @@ const currentPlayback = {
     playbackReplaceCount += 1;
   },
 };
+const titleEditorActive = () => false;
 const detail = {
+  querySelector: () => null,
   dataset: {
     playbackPollUrl: "/meetings/meeting-1",
     meetingId: "meeting-1",
@@ -920,6 +922,7 @@ vm.runInThisContext(`${source}; global.refreshProcessingDetailContentOnce = refr
   await global.refreshProcessingDetailContentOnce(nextDetail, projection);
   if (fetchCount !== 2) throw new Error("ready content refreshed more than once");
   staleDetail = {
+    querySelector: () => null,
     dataset: {
       playbackPollUrl: "/meetings/meeting-1",
       meetingId: "meeting-1",
@@ -969,7 +972,9 @@ let firstResolve;
 let secondResolve;
 let fetchCount = 0;
 let replaceCount = 0;
+const titleEditorActive = () => false;
 const detail = {
+  querySelector: () => null,
   dataset: {
     playbackPollUrl: "/meetings/meeting-1",
     meetingId: "meeting-1",
@@ -1074,7 +1079,9 @@ const source = script.slice(
 let fetchCount = 0;
 let statusRefreshes = [];
 const scheduled = [];
+const titleEditorActive = () => false;
 const detail = {
+  querySelector: () => null,
   dataset: {
     playbackPollUrl: "/meetings/meeting-1",
     meetingId: "meeting-1",
@@ -1293,7 +1300,9 @@ const currentPlayback = {
   querySelector: (selector) => selector === "audio" ? { pause() { pauseCount += 1; } } : null,
   replaceWith() { playbackReplaceCount += 1; },
 };
+const titleEditorActive = () => false;
 const detail = {
+  querySelector: () => null,
   dataset: {
     playbackPollUrl: "/meetings/meeting-1",
     meetingId: "meeting-1",
@@ -2823,6 +2832,8 @@ class FakeElement {
   setAttribute() {}
 }
 const list = new FakeElement("list");
+const rows = Array.from({ length: 3 }, () => new FakeElement("row"));
+list.querySelectorAll = (selector) => selector === "[data-meeting-row]" ? rows : [];
 const region = new FakeElement("region");
 region.id = "meeting-list-region";
 const count = new FakeElement("count");
@@ -4026,7 +4037,7 @@ if (rendered.includes("PRIVATE")) throw new Error("private detail leaked into re
 def test_detail_fetch_actions_share_fail_closed_authorization_recovery() -> None:
     script = (STATIC_DIR / "cabinet.js").read_text()
 
-    assert script.count("recoverMeetingDetailFromResponse(response)") == 4
+    assert script.count("recoverMeetingDetailFromResponse(response)") == 5
     assert "summaryActionProblemCodes" in script
     assert "sharingActionProblemCodes" in script
     assert '"meeting_not_found"' in script
@@ -4909,7 +4920,7 @@ def test_feature_191_shared_button_contract_keeps_actions_centered_and_on_one_li
     ]:
         block = css[css.index(compound_action) : css.index("}", css.index(compound_action))]
         assert "white-space: normal;" in block
-    assert ">Завершить<" in account
+    assert ">Выйти<" in account
     assert ">Завершить сеанс<" not in account
 
 
