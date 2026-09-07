@@ -480,3 +480,11 @@ Chromium/Playwright на отдельном synthetic HTTP8102/PostgreSQL55512 �
 - `scripts/run_local_postgres_tests.sh --focused tests/integration/test_system_admin_security.py tests/integration/test_rls_postgres_policies.py -x -q` — целевые проверки границы прошли; полный файл RLS — **36 passed**, 15.01 s, exit 0. Проверены отсутствие `USAGE` системной схемы и отсутствие прямой вставки приложения.
 
 Рабочая голова миграций теперь `0106_promotion_gift_redemptions`. В PR сохранены отдельные ограничения по браузерному/e2e, rehearsal, нагрузке и release-full; эти проверки не объявляются выполненными этим разделом.
+
+## Быстрый контур после исправлений индивидуальных и подарочных акций — 2026-09-07
+
+На точном SHA `ebd1738984800ffee65de75c793d9622ce6e9146` повторён `infra/scripts/ci-local.sh --fast` после исправления импортов, найденных первым запуском. `run_id=ci-fast-ebd173898480-bbd6cf20e767`, `ci_local_result=pass`, exit 0.
+
+Пройдены: development process preflight, Spec Kit governance и **224 governance tests**, portable harness self-test, macOS legacy audio guard, Swift build, **830 macOS тестов (1 штатный skip)**, macOS contract validation, **1519 серверных unit-тестов**, **311 изменённых серверных тестов**, server lint, Python compile, shell syntax, **66 CI contracts**, production compose config, deployment evidence scan, diff whitespace и active CI documentation consistency. Изолированный PostgreSQL-контейнер удалён runner; сохранены только два стандартных предупреждения pytest/httpx.
+
+Этот прогон выполнен до фиксации настоящего раздела evidence и поэтому является историческим результатом на родительской голове документационного коммита. После любого следующего коммита быстрый контур должен быть повторён на его новом exact SHA. Он не заменяет GitHub `governance-fast`, `ci-local --full`, полный browser/e2e, нагрузку 10k/100k/1M, migration rehearsal, deployment review и release gates; reviewer-owned checklist и задачи `tasks.md` исполнитель не закрывает автоматически.
