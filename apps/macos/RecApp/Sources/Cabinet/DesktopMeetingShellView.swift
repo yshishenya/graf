@@ -204,14 +204,8 @@ public enum DesktopMeetingShellLocalQueuePolicy {
 private extension Array where Element == DesktopUploadQueueItem {
     func sortedForNativeLocalDisplay() -> [DesktopUploadQueueItem] {
         sorted {
-            if $0.createdAt != $1.createdAt {
-                return $0.createdAt > $1.createdAt
-            }
-            if $0.updatedAt != $1.updatedAt {
-                return $0.updatedAt > $1.updatedAt
-            }
-            if $0.state.sortPriority != $1.state.sortPriority {
-                return $0.state.sortPriority < $1.state.sortPriority
+            if $0.displayStartedAt != $1.displayStartedAt {
+                return $0.displayStartedAt > $1.displayStartedAt
             }
             return $0.id < $1.id
         }
@@ -241,6 +235,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     private let captureControls: CaptureControls
     private let meetingsWorkspace: MeetingsWorkspace
     @State private var inspectorExpanded = false
+    @ObservedObject private var userTimeContext = DesktopUserTimeContext.shared
     @State private var attentionExpansionDismissed = false
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @Environment(\.colorSchemeContrast) private var colorSchemeContrast
@@ -586,11 +581,11 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 3) {
-                Text(localRecordingDateText(for: item.createdAt))
+                Text(UserTime.format(item.displayStartedAt, dateOnly: true, timeZone: userTimeContext.timeZone))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                Text(localRecordingTimeText(for: item.createdAt))
+                Text(UserTime.format(item.displayStartedAt, timeOnly: true, timeZone: userTimeContext.timeZone))
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
@@ -604,10 +599,13 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     }
 
     private func localRecordingTitle(for item: DesktopUploadQueueItem) -> String {
+        if let title = item.recordingMetadata?.displayTitle(timeZone: userTimeContext.timeZone), !title.isEmpty {
+            return title
+        }
         if item.meetingId != nil {
             return "Встреча"
         }
-        return "Запись \(localRecordingTimeText(for: item.createdAt))"
+        return "Запись \(UserTime.format(item.displayStartedAt, timeOnly: true, timeZone: userTimeContext.timeZone))"
     }
 
     private func localRecordingDetail(for item: DesktopUploadQueueItem) -> String {
@@ -630,7 +628,8 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
             return DesktopUploadCustodyCopy.detail(
                 copyKey: projection.copyKey,
                 count: 1,
-                deadline: projection.retentionDeadline
+                deadline: projection.retentionDeadline,
+                timeZone: userTimeContext.timeZone
             )
         }
         return item.state.displayName
@@ -640,36 +639,11 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         let reviewState = item.serverTruth.mediaRevisionId == nil ? "" : ". Запись получена сервером"
         let progressState = DesktopMeetingShellLocalQueuePolicy.progressAccessibilityLabel(for: item)
             .map { " \($0)" } ?? ""
-        return "\(localRecordingTitle(for: item)), \(localRecordingDetail(for: item)), \(localRecordingDuration(for: item))\(progressState)\(reviewState)"
+        return "\(localRecordingTitle(for: item)), \(UserTime.format(item.displayStartedAt, showZone: true, timeZone: userTimeContext.timeZone)), \(localRecordingDetail(for: item)), \(localRecordingDuration(for: item))\(progressState)\(reviewState)"
     }
 
     private func localRecordingDuration(for item: DesktopUploadQueueItem) -> String {
-        let seconds = max(0, item.artifactProfile.durationSeconds)
-        let minutes = seconds / 60
-        let remainder = seconds % 60
-        if minutes == 0 {
-            return "\(remainder) с"
-        }
-        return remainder == 0 ? "\(minutes) мин" : "\(minutes) мин \(remainder) с"
-    }
-
-    private func localRecordingDateText(for date: Date) -> String {
-        if Calendar.current.isDateInToday(date) {
-            return "Сегодня"
-        }
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "ru_RU")
-        formatter.setLocalizedDateFormatFromTemplate("d MMM")
-        formatter.timeStyle = .none
-        return formatter.string(from: date)
-    }
-
-    private func localRecordingTimeText(for date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "ru_RU")
-        formatter.dateStyle = .none
-        formatter.timeStyle = .short
-        return formatter.string(from: date)
+        UserTime.formatDuration(item.artifactProfile.durationSeconds)
     }
 
     private func localRecordingIcon(for item: DesktopUploadQueueItem) -> String {
@@ -925,7 +899,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                         .fontWeight(.semibold)
                         .lineLimit(1)
                         .minimumScaleFactor(0.82)
-                    Text(summary.detail)
+                    Text(summary.detail(timeZone: userTimeContext.timeZone))
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -948,7 +922,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
             )
         }
         .accessibilityElement(children: summary.safeReport == nil ? .combine : .contain)
-        .accessibilityLabel("\(summary.title). \(summary.detail). Ответственный: \(summary.ownerLabel).")
+        .accessibilityLabel("\(summary.title). \(summary.detail(timeZone: userTimeContext.timeZone)). Ответственный: \(summary.ownerLabel).")
     }
 
     private func custodyDetailIcon(for projection: DesktopUploadCustodyProjection) -> String {

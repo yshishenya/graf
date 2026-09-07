@@ -590,7 +590,7 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertFalse(source.contains("Сигнал: приложение использует аудио встречи"))
         XCTAssertTrue(source.contains("autoRecordEligible"))
         XCTAssertTrue(source.contains("autoRecordOptIn"))
-        XCTAssertTrue(source.contains("saveMeetingDetectionSettings()"))
+        XCTAssertTrue(source.contains("saveMeetingDetectionRule(rule, targetID: prompt.targetID)"))
         XCTAssertTrue(source.contains("do {\n                    try await Task.sleep"))
         XCTAssertTrue(source.contains("catch {\n                    return"))
         XCTAssertTrue(source.contains("guard !Task.isCancelled else { return }"))

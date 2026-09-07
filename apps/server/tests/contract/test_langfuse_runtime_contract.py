@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-from tests.fixtures.outcome_prompts import outcome_config
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.observability.langfuse import (
     _should_export_langfuse_span,
@@ -11,6 +10,7 @@ from twobrain_rec_server.observability.langfuse import (
 )
 from twobrain_rec_server.outcomes.prompts import (
     langfuse_prompt_payload,
+    outcome_config,
     validate_prompt_snapshot,
 )
 

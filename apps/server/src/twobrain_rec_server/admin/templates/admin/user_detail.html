@@ -61,7 +61,7 @@
       {% if view.user.sessions.recent %}
         <ul class="admin-list">
           {% for session in view.user.sessions.recent %}
-            <li>{{ session.provider }} · {{ status_labels.get(session.status, session.status) }} · до {{ session.expires_at }}</li>
+            <li>{{ session.provider }} · {{ status_labels.get(session.status, session.status) }} · до {{ user_time_element(session.expires_at, show_zone=True) }}</li>
           {% endfor %}
         </ul>
       {% else %}

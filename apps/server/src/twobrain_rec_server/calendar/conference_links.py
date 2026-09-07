@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from hashlib import sha256
+from html import unescape
 from ipaddress import ip_address
 from urllib.parse import urlparse
 
@@ -18,20 +19,34 @@ class ClassifiedConferenceLink:
     open_url: str
 
 
-PROVIDER_HOST_MARKERS = (
-    ("telemost.yandex.", "yandex_telemost"),
+PROVIDER_HOSTS = (
+    ("meet.google.com", "google_meet"),
+    ("teams.microsoft.com", "microsoft_teams"),
+    ("teams.live.com", "microsoft_teams"),
+    ("telemost.yandex.ru", "yandex_telemost"),
+    ("telemost.yandex.com", "yandex_telemost"),
     ("mts-link.ru", "mts_link"),
-    ("talk.kontur", "kontur_talk"),
-    ("trueconf", "trueconf"),
-    ("calls.vk.", "vk_calls"),
-    ("zoom.", "zoom"),
-    ("webex.", "webex"),
+    ("webinar.ru", "mts_link"),
+    ("talk.kontur.ru", "kontur_talk"),
+    ("trueconf.ru", "trueconf"),
+    ("trueconf.com", "trueconf"),
+    ("calls.vk.com", "vk_calls"),
+    ("zoom.us", "zoom"),
+    ("zoom.com", "zoom"),
+    ("webex.com", "webex"),
 )
 
 
 def classify_conference_link(url: str) -> ClassifiedConferenceLink:
-    host = urlparse(url).netloc.lower()
-    provider = next((family for marker, family in PROVIDER_HOST_MARKERS if marker in host), "generic")
+    host = (urlparse(url).hostname or "").lower().rstrip(".")
+    provider = next(
+        (
+            family
+            for domain, family in PROVIDER_HOSTS
+            if host == domain or host.endswith("." + domain)
+        ),
+        "generic",
+    )
     return ClassifiedConferenceLink(
         provider_family=provider,
         url_hash=f"sha256:{sha256(url.encode('utf-8')).hexdigest()}",
@@ -79,10 +94,34 @@ def extract_conference_link_candidates(*texts: str | None) -> list[ClassifiedCon
     for text in texts:
         if not text:
             continue
-        for raw_url in URL_RE.findall(text):
+        for raw_url in URL_RE.findall(unescape(text)):
             url = raw_url.rstrip(").,;")
+            if safe_open_meeting_url(url) is None:
+                continue
             if url in seen:
                 continue
             seen.add(url)
             candidates.append(classify_conference_link(url))
     return candidates
+
+
+def conference_link_dicts(*fields: tuple[str, str | None]) -> list[dict]:
+    """Use one URL policy and prefer recognizable call links over agenda links."""
+    links: dict[str, dict] = {}
+    for source_field, text in fields:
+        for candidate in extract_conference_link_candidates(text):
+            if safe_open_meeting_url(candidate.open_url) is None:
+                continue
+            links.setdefault(
+                candidate.url_hash,
+                {
+                    "provider_family": candidate.provider_family,
+                    "source_field": source_field,
+                    "url_hash": candidate.url_hash,
+                    "redacted_url_preview": candidate.redacted_url_preview,
+                    "contains_passcode": candidate.contains_passcode,
+                    "sensitivity_class": "meeting_link",
+                    "open_url": candidate.open_url,
+                },
+            )
+    return sorted(links.values(), key=lambda link: link["provider_family"] == "generic")

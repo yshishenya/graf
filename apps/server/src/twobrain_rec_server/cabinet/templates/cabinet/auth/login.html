@@ -55,7 +55,7 @@
     <form class="auth-form" action="/login/email/start" method="post">
       <label>
         {% if invitation_flow %}Email из приглашения{% else %}Рабочая почта{% endif %}
-        <input name="email" type="email" placeholder="name@company.ru" autocomplete="email" required>
+        <input name="email" type="email" value="{{ email_value }}" placeholder="name@company.ru" autocomplete="email" required>
       </label>
       <input type="hidden" name="next" value="{{ next_path }}">
       <button class="primary" type="submit">{% if invitation_flow %}Войти и открыть итоги{% else %}Войти{% endif %}</button>

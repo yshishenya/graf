@@ -190,6 +190,7 @@ public struct DesktopCalendarPromptEvent: Codable, Equatable, Identifiable, Send
     public var providerFamily: String
     public var startsAt: Date
     public var endsAt: Date
+    public var allDay: Bool?
     public var title: String?
     public var titleState: CalendarEventTitleState
     public var meetingLinkPresent: Bool
@@ -206,6 +207,7 @@ public struct DesktopCalendarPromptEvent: Codable, Equatable, Identifiable, Send
         providerFamily: String = "calendar",
         startsAt: Date,
         endsAt: Date,
+        allDay: Bool? = nil,
         title: String? = nil,
         titleState: CalendarEventTitleState = .policyHidden,
         meetingLinkPresent: Bool = false,
@@ -221,6 +223,7 @@ public struct DesktopCalendarPromptEvent: Codable, Equatable, Identifiable, Send
         self.providerFamily = providerFamily
         self.startsAt = startsAt
         self.endsAt = endsAt
+        self.allDay = allDay
         self.title = title
         self.titleState = titleState
         self.meetingLinkPresent = meetingLinkPresent
@@ -238,6 +241,7 @@ public struct DesktopCalendarPromptEvent: Codable, Equatable, Identifiable, Send
         case providerFamily = "provider_family"
         case startsAt = "starts_at"
         case endsAt = "ends_at"
+        case allDay = "all_day"
         case title
         case titleState = "title_state"
         case meetingLinkPresent = "meeting_link_present"
@@ -251,35 +255,17 @@ public struct DesktopCalendarPromptEvent: Codable, Equatable, Identifiable, Send
     }
 
     public func safeDisplayTitle(genericTitle: String = SystemAudioStatusLabels.calendarGenericMeetingTitle) -> String {
-        guard titleState.allowsTitleDisplay,
-              let candidate = title?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !candidate.isEmpty,
-              Self.isSafePromptTitle(candidate)
+        guard titleState.allowsTitleDisplay else { return genericTitle }
+        guard let candidate = title,
+              !candidate.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         else {
-            return genericTitle
+            return "Без названия"
         }
         return candidate
     }
 
     public func overlaps(_ date: Date) -> Bool {
         startsAt <= date && date < endsAt
-    }
-
-    public static func isSafePromptTitle(_ title: String) -> Bool {
-        let normalized = title.lowercased()
-        let unsafeFragments = [
-            "@",
-            "http://",
-            "https://",
-            "meet.google.com",
-            "teams.microsoft.com",
-            "zoom.us/",
-            "passcode",
-            "password",
-            "парол",
-            "код доступа"
-        ]
-        return !unsafeFragments.contains { normalized.contains($0) }
     }
 }
 

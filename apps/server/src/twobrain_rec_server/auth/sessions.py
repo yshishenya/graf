@@ -2,14 +2,20 @@ from __future__ import annotations
 
 import hashlib
 import secrets
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from twobrain_rec_server.db.models import AuthCallbackState, AuthSession
+from twobrain_rec_server.db.models import (
+    AuthCallbackState,
+    AuthSession,
+    AuthSessionDeviceBinding,
+    RegisteredDevice,
+)
 
 SESSION_TOKEN_TTL_SECONDS = 86_400
 CALLBACK_STATE_TTL_SECONDS = 900
@@ -164,6 +170,7 @@ async def issue_auth_session(
     claims_fingerprint: str | None = None,
     ttl_seconds: int | None = None,
     now: datetime | None = None,
+    expires_at: datetime | None = None,
 ) -> IssuedAuthSession:
     now = now or datetime.now(UTC)
     raw_token = issue_session_token()
@@ -176,7 +183,7 @@ async def issue_auth_session(
         session_token_hash=token_hash,
         issued_at=now,
         last_seen_at=now,
-        expires_at=session_expiry(now, ttl_seconds=ttl_seconds),
+        expires_at=expires_at or session_expiry(now, ttl_seconds=ttl_seconds),
         status="active",
         claims_fingerprint=claims_fingerprint,
     )
@@ -186,3 +193,140 @@ async def issue_auth_session(
     return IssuedAuthSession(
         id=session.id, token=raw_token, token_hash=token_hash, expires_at=session.expires_at
     )
+
+
+def client_metadata(user_agent: str | None, *, browser_only: bool = False) -> tuple[str, str]:
+    """Bounded display hints; never an authentication or device trust signal."""
+    import re
+
+    agent = (user_agent or '')[:2048]
+    desktop = re.search(r'(?:^|\s)GRAFDesktop/(unknown|[0-9]+(?:\.[0-9]+){1,4})(?=\s|$)', agent)
+    if desktop and not browser_only and len(desktop[1]) <= 40:
+        return 'macos', desktop[1]
+    family = next((name for token, name in (
+        ('Edg/', 'edge'), ('EdgiOS/', 'edge'), ('EdgA/', 'edge'),
+        ('Firefox/', 'firefox'), ('FxiOS/', 'firefox'), ('Chrome/', 'chrome'),
+        ('CriOS/', 'chrome'), ('Safari/', 'safari'),
+    ) if token in agent), 'unknown')
+    operating_system = next((name for token, name in (
+        ('iPhone', 'ios'), ('iPad', 'ios'), ('Android', 'android'),
+        ('Macintosh', 'macos'), ('Mac OS X', 'macos'), ('Windows', 'windows'),
+        ('Linux', 'linux'),
+    ) if token in agent), 'unknown')
+    return 'web', f'browser:{family}:{operating_system}'
+
+
+async def create_login_device(
+    db: AsyncSession, *, user_id: UUID, workspace_id: UUID,
+    user_agent: str | None = None, metadata: tuple[str, str | None] | None = None,
+    browser_only: bool = False, now: datetime | None = None,
+) -> RegisteredDevice:
+    platform, version = metadata or client_metadata(user_agent, browser_only=browser_only)
+    device = RegisteredDevice(
+        user_id=user_id, workspace_id=workspace_id, device_public_id=f'login:{uuid4()}',
+        platform=platform, client_version=version, status='active',
+        registration_state='approved', trusted_by=user_id, last_seen_at=now or datetime.now(UTC),
+    )
+    db.add(device)
+    await db.flush()
+    return device
+
+
+def session_device_access(
+    session: AuthSession, devices_by_id: dict[UUID, RegisteredDevice],
+    bindings: Iterable[AuthSessionDeviceBinding],
+) -> tuple[bool, RegisteredDevice | None]:
+    """Resolve a bound client, or a legitimate API bootstrap without any binding."""
+    links = list(bindings)
+    if session.device_id is None and not links:
+        return True, None
+    device_ids = {link.registered_device_id for link in links}
+    if len(device_ids) != 1 or (
+        session.device_id is not None and device_ids != {session.device_id}
+    ):
+        return False, None
+    device = devices_by_id.get(next(iter(device_ids)))
+    if device is None or (
+        device.user_id != session.user_id or device.workspace_id != session.workspace_id
+        or device.status != 'active' or device.registration_state != 'approved'
+        or any(link.auth_session_id != session.id or link.device_state != 'trusted' for link in links)
+    ):
+        return False, None
+    return True, device
+
+
+async def revoke_auth_sessions(db: AsyncSession, sessions: Iterable[AuthSession]) -> int:
+    rows = list(sessions)
+    ids = [session.id for session in rows]
+    if not ids:
+        return 0
+    # Match the activity writer's session-before-binding lock order.
+    ids = list(await db.scalars(select(AuthSession.id).where(
+        AuthSession.id.in_(ids)).order_by(AuthSession.id).with_for_update()))
+    links = await db.scalars(select(AuthSessionDeviceBinding).where(
+        AuthSessionDeviceBinding.auth_session_id.in_(ids)).with_for_update())
+    for link in links:
+        link.device_state = 'blocked'
+        link.revocation_reason = 'session_revoked'
+    changed = list(await db.scalars(update(AuthSession).where(
+        AuthSession.id.in_(ids), AuthSession.status == 'active',
+    ).values(status='revoked').returning(AuthSession.id)))
+    await db.flush()
+    return len(changed)
+
+
+async def revoke_registered_devices(
+    db: AsyncSession, devices: Iterable[RegisteredDevice], *, actor_user_id: UUID,
+) -> tuple[int, int]:
+    rows = list(devices)
+    ids = [device.id for device in rows]
+    if not ids:
+        return 0, 0
+    linked_sessions = select(AuthSessionDeviceBinding.auth_session_id).where(
+        AuthSessionDeviceBinding.registered_device_id.in_(ids))
+    sessions = list(await db.scalars(select(AuthSession).where(
+        or_(AuthSession.device_id.in_(ids), AuthSession.id.in_(linked_sessions)),
+        or_(*(and_(AuthSession.user_id == device.user_id,
+                   AuthSession.workspace_id == device.workspace_id) for device in rows)),
+    ).order_by(AuthSession.id).with_for_update()))
+    count = await revoke_auth_sessions(db, sessions)
+    for device in rows:
+        device.status = 'revoked'
+        device.registration_state = 'revoked'
+        device.revoked_by = actor_user_id
+    await db.flush()
+    return len(rows), count
+
+
+async def resolve_session_device(
+    db: AsyncSession, session: AuthSession,
+) -> tuple[bool, RegisteredDevice | None]:
+    links = list(await db.scalars(select(AuthSessionDeviceBinding).where(
+        AuthSessionDeviceBinding.auth_session_id == session.id)))
+    ids = {link.registered_device_id for link in links}
+    if session.device_id is not None:
+        ids.add(session.device_id)
+    devices = list(await db.scalars(select(RegisteredDevice).where(RegisteredDevice.id.in_(ids)))) if ids else []
+    return session_device_access(session, {device.id: device for device in devices}, links)
+
+
+async def record_session_activity(
+    db: AsyncSession, session: AuthSession, device: RegisteredDevice | None,
+    *, now: datetime | None = None,
+) -> None:
+    now = now or datetime.now(UTC)
+    cutoff = now - timedelta(seconds=300)
+    touched = await db.scalar(update(AuthSession).where(
+        AuthSession.id == session.id, AuthSession.status == 'active',
+        AuthSession.expires_at > now,
+        or_(AuthSession.last_seen_at.is_(None), AuthSession.last_seen_at <= cutoff),
+    ).values(last_seen_at=now).returning(AuthSession.id).execution_options(synchronize_session=False))
+    if touched is not None and device is not None:
+        await db.execute(update(RegisteredDevice).where(
+            RegisteredDevice.id == device.id, RegisteredDevice.status == 'active',
+        ).values(last_seen_at=now).execution_options(synchronize_session=False))
+        await db.execute(update(AuthSessionDeviceBinding).where(
+            AuthSessionDeviceBinding.auth_session_id == session.id,
+            AuthSessionDeviceBinding.registered_device_id == device.id,
+            AuthSessionDeviceBinding.device_state == 'trusted',
+        ).values(last_heartbeat_at=now).execution_options(synchronize_session=False))

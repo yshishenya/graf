@@ -1,12 +1,26 @@
 {% import "cabinet/components/sections.html" as sections %}
 
-<main id="cabinet-main" class="main detail-page-main" tabindex="-1" data-cabinet-embedded="{{ 'true' if embedded else 'false' }}" data-meeting-id="{{ meeting_id }}" data-media-revision-id="{{ media_revision_id }}" data-local-media-revision-id="{{ local_media_revision_id }}" data-processing-status-url="{% if media_revision_id %}/api/v1/meetings/{{ meeting_id }}/processing{% endif %}" data-processing-check-url="{% if media_revision_id %}/api/v1/meetings/{{ meeting_id }}/processing/check{% endif %}" data-processing-attempt-url="{% if media_revision_id %}/api/v1/meetings/{{ meeting_id }}/processing/attempt{% endif %}" data-processing-reprocess-url="{% if reprocess_available %}/api/v1/meetings/{{ meeting_id }}/processing/reprocess{% endif %}" data-processing-workflow-id="{{ processing_workflow_id }}" data-processing-attempt-ordinal="{{ processing_attempt_ordinal }}" data-processing-reprocess-available="{{ 'true' if reprocess_available else 'false' }}" data-processing-replacement-active="{{ 'true' if replacement_active else 'false' }}" data-processing-published-attempt="{{ processing_published_attempt }}" data-playback-poll-url="{{ playback_poll_url }}" data-playback-poll-active="{{ playback_poll_active }}" data-processing-state="{{ processing_state }}" data-processing-reason-code="{{ processing_reason_code }}" data-stored-outcomes-available="{{ 'true' if stored_outcomes_available else 'false' }}">
+<main data-hx-history="false" id="cabinet-main" class="main detail-page-main" tabindex="-1" data-cabinet-embedded="{{ 'true' if embedded else 'false' }}" data-meeting-id="{{ meeting_id }}" data-media-revision-id="{{ media_revision_id }}" data-local-media-revision-id="{{ local_media_revision_id }}" data-processing-status-url="{% if media_revision_id %}/api/v1/meetings/{{ meeting_id }}/processing{% endif %}" data-processing-check-url="{% if media_revision_id %}/api/v1/meetings/{{ meeting_id }}/processing/check{% endif %}" data-processing-attempt-url="{% if media_revision_id %}/api/v1/meetings/{{ meeting_id }}/processing/attempt{% endif %}" data-processing-reprocess-url="{% if reprocess_available %}/api/v1/meetings/{{ meeting_id }}/processing/reprocess{% endif %}" data-processing-workflow-id="{{ processing_workflow_id }}" data-processing-attempt-ordinal="{{ processing_attempt_ordinal }}" data-processing-reprocess-available="{{ 'true' if reprocess_available else 'false' }}" data-processing-replacement-active="{{ 'true' if replacement_active else 'false' }}" data-processing-published-attempt="{{ processing_published_attempt }}" data-playback-poll-url="{{ playback_poll_url }}" data-playback-poll-active="{{ playback_poll_active }}" data-processing-state="{{ processing_state }}" data-processing-reason-code="{{ processing_reason_code }}" data-stored-outcomes-available="{{ 'true' if stored_outcomes_available else 'false' }}">
   <p class="sr-only" id="playback-live-status" data-playback-live-status role="status" aria-live="polite" aria-atomic="true">{{ playback_live_label }}</p>
   <div class="meeting-detail-header" data-meeting-detail-header>
     <div class="topline">
       <div class="page-title">
         <div class="crumbs"><a href="{{ base_path }}">Мои встречи</a></div>
+        {% if title_version %}
+        <form class="meeting-title-editor" data-meeting-title-form data-confirmed-title="{{ meeting_title }}" method="post" action="{{ base_path }}/{{ meeting_id }}/title">
+          <input type="hidden" name="csrf_token" value="{{ title_csrf_token }}">
+          <input type="hidden" name="expected_version" value="{{ title_version }}">
+          <h1>
+            <button type="button" class="meeting-title-display" data-meeting-title-open aria-label="Переименовать встречу: {{ meeting_title }}" hidden>{{ meeting_title }}</button>
+            <input type="text" class="meeting-title-input" name="title" value="{{ title_edit.get('draft', meeting_title) }}" aria-label="Название встречи" aria-describedby="meeting-title-error" autocomplete="off" data-meeting-title-input{% if title_edit.get('error') %} aria-invalid="true"{% endif %}>
+          </h1>
+          <p id="meeting-title-error" class="meeting-title-error" role="alert"{% if not title_edit.get('error') %} hidden{% endif %}>{{ title_edit.get('error', '') }}</p>
+          <span class="sr-only" data-meeting-title-status role="status" aria-live="polite"></span>
+          <noscript><span class="muted">Введите название и нажмите Enter.</span></noscript>
+        </form>
+        {% else %}
         <h1>{{ meeting_title }}</h1>
+        {% endif %}
         <div class="row-meta">
           <span>{{ meeting_date }}</span><span>·</span><span>{{ meeting_duration }}</span><span data-meeting-status-label>{{ status_label }}</span>
         </div>

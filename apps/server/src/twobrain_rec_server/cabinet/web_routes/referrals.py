@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
-from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -25,6 +24,7 @@ from twobrain_rec_server.cabinet.templates import (
     render_template,
     trusted_component_html,
 )
+from twobrain_rec_server.cabinet.user_time import format_user_datetime, user_time_element
 from twobrain_rec_server.cabinet.web_routes.support import (
     PrincipalDependency,
     PublicDbDependency,
@@ -50,7 +50,6 @@ from twobrain_rec_server.product_analytics.browser_context import (
 )
 
 router = APIRouter(tags=["cabinet-web"])
-MOSCOW = ZoneInfo("Europe/Moscow")
 
 
 @router.get("/referrals", response_class=HTMLResponse, include_in_schema=False)
@@ -147,7 +146,7 @@ async def referrals_page(
                         "status_label": status_labels.get(row.state, "Статус уточняется"),
                         "reward_days": ledger.days if ledger is not None and ledger.days > 0 else None,
                         "updated_label": (
-                            row.bound_at.astimezone(MOSCOW).strftime("%d.%m.%Y")
+                            format_user_datetime(row.bound_at, date_only=True)
                             if row.bound_at is not None
                             else "дата уточняется"
                         ),
@@ -180,7 +179,7 @@ async def referrals_page(
         referral_token_hash=token_hash,
         referral_issued=link_record is not None,
         referral_expires_at_label=(
-            link_record.expires_at.astimezone(MOSCOW).strftime("%d.%m.%Y, %H:%M (МСК)")
+            format_user_datetime(link_record.expires_at, show_zone=True)
             if link_record is not None and link_record.expires_at is not None
             else None
         ),
@@ -345,7 +344,7 @@ async def referral_landing(
         _referral_landing_html(
             state="valid",
             expires_at_label=(
-                link.expires_at.astimezone(MOSCOW).strftime("%d.%m.%Y, %H:%M (МСК)")
+                user_time_element(link.expires_at, show_zone=True)
                 if link.expires_at is not None
                 else None
             ),

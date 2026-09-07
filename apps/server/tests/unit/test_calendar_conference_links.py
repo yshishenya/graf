@@ -70,3 +70,24 @@ END:VCALENDAR
 
     assert normalized.source_status == "cancelled"
     assert normalized.conference_links == []
+
+
+def test_link_extraction_decodes_html_prefers_calls_and_rejects_unsafe_urls() -> None:
+    from twobrain_rec_server.calendar.conference_links import conference_link_dicts
+
+    links = conference_link_dicts(
+        (
+            "description",
+            "https://example.test/agenda https://zoom.us/j/1?pwd=x&amp;a=1 https://127.0.0.1/private https://[bad/",
+        )
+    )
+    assert links[0]["provider_family"] == "zoom"
+    assert links[0]["open_url"] == "https://zoom.us/j/1?pwd=x&a=1"
+    assert len(links) == 2
+    assert classify_conference_link("https://zoom.us.attacker.test/a").provider_family == "generic"
+    assert (
+        classify_conference_link(
+            "https://teams.microsoft.com/l/meetup-join/synthetic"
+        ).provider_family
+        == "microsoft_teams"
+    )

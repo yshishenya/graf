@@ -5,6 +5,7 @@ from html import escape
 from twobrain_rec_server.api.schemas import ArtifactEgressState, MeetingReviewResponse
 from twobrain_rec_server.cabinet.rendering_shared import _base_path, _ui_text
 from twobrain_rec_server.cabinet.templates import render_icon, render_template
+from twobrain_rec_server.cabinet.user_time import format_user_datetime
 from twobrain_rec_server.deletion.report import BOUNDED_DELETE_COPY
 
 
@@ -153,7 +154,7 @@ def _render_activity(review: MeetingReviewResponse) -> str:
         f"""
         <div class="activity-item">
           <div class="state-row"><strong>{escape(_ui_text(item.event_type))}</strong><span class="chip {escape(item.outcome)}">{escape(_ui_text(item.outcome))}</span></div>
-          <div class="muted">{escape(_ui_text(item.actor_label))} · {escape(item.created_at.strftime("%Y-%m-%d %H:%M"))}</div>
+          <div class="muted">{escape(_ui_text(item.actor_label))} · {escape(format_user_datetime(item.created_at, show_zone=True))}</div>
         </div>
         """
         for item in activity.items[:6]

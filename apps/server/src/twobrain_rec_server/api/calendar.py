@@ -49,6 +49,7 @@ from twobrain_rec_server.calendar.google import (
     google_oauth_config_from_settings,
 )
 from twobrain_rec_server.calendar.matching import resolve_recording_calendar_context
+from twobrain_rec_server.calendar.owner_content import owner_event_content
 from twobrain_rec_server.calendar.providers import CalendarProviderError
 from twobrain_rec_server.calendar.service import (
     calendars_for_source,
@@ -214,30 +215,33 @@ async def _source_response(
     )
 
 
-def _event_title_state(event: CalendarEventSnapshot) -> str:
-    title_state = str(
-        (event.provider_extras_json or {}).get("title_state")
-        or ("available" if event.safe_to_show_in_list else "policy_hidden")
-    )
-    return (
-        title_state
-        if title_state in {"available", "private_redacted", "free_busy_only", "policy_hidden"}
-        else "policy_hidden"
-    )
-
-
 def _event_summary(
-    event: CalendarEventSnapshot, *, show_title: bool = True
+    event: CalendarEventSnapshot,
+    *,
+    show_title: bool = True,
+    credential_encryption_key: bytes | None = None,
 ) -> CalendarEventSummary:
     extras = event.provider_extras_json or {}
     conference = event.conference_summary_json or {}
+    content = owner_event_content(event, credential_encryption_key)
+    title = content.get("title")
+    # An available row with no title means the provider supplied no title.
+    # Preserve the deployed Swift enum without claiming that GRAF hid content.
+    title_state = "free_busy_only" if not title and event.privacy_class == "free_busy_only" else "available"
     return CalendarEventSummary(
+        all_day=bool(event.all_day),
         event_id=event.id,
         provider_family=extras.get("provider_family") or "calendar",
         starts_at=event.starts_at,
         ends_at=event.ends_at,
-        title=event.title if event.safe_to_show_in_list and show_title else None,
-        title_state=_event_title_state(event) if show_title else "policy_hidden",
+        title=title if show_title else None,
+        title_state=title_state if show_title else "policy_hidden",
+        description=content.get("description"),
+        location=content.get("location"),
+        participants=content.get("participants") or [],
+        attachments=content.get("attachments") or [],
+        conference_links=content.get("conference_links") or [],
+        provider_extras=content.get("provider_extras") or {},
         meeting_link_present=bool(conference.get("meeting_link_present", False)),
         attendee_count=int(extras.get("participant_count", 0)),
         roster_state=str(extras.get("roster_state", "not_available")),
@@ -254,7 +258,9 @@ def _desktop_event(
     show_title: bool = True,
     credential_encryption_key: bytes | None = None,
 ) -> DesktopCalendarPromptEvent:
-    summary = _event_summary(event, show_title=show_title)
+    summary = _event_summary(
+        event, show_title=show_title, credential_encryption_key=credential_encryption_key
+    )
     open_meeting_url = _open_meeting_url(event, credential_encryption_key)
     return DesktopCalendarPromptEvent(
         **summary.model_dump(),
@@ -471,6 +477,7 @@ async def open_calendar_meeting(
     dependencies=[PrincipalDependency],
 )
 async def list_upcoming_calendar_events(
+    request: Request,
     starts_from: Annotated[datetime | None, Query(alias="from")] = None,
     starts_to: Annotated[datetime | None, Query(alias="to")] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
@@ -489,7 +496,12 @@ async def list_upcoming_calendar_events(
     )
     return UpcomingCalendarEventsResponse(
         events=[
-            _event_summary(event, show_title=preference.show_upcoming_title) for event in events
+            _event_summary(
+                event,
+                show_title=preference.show_upcoming_title,
+                credential_encryption_key=_credential_encryption_key(request, required=False),
+            )
+            for event in events
         ],
         truncated=truncated,
         show_upcoming_time=preference.show_upcoming_time,

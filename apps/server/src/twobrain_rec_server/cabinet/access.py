@@ -98,6 +98,8 @@ class ShareInvitationPreview:
     duration_seconds: int
     expires_at: datetime
     content_scope: str = "summary_only"
+    display_occurred_at: datetime | None = None
+    display_time_is_upload: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -1860,9 +1862,14 @@ async def share_invitation_preview(
     if result is None:
         return None
     meeting, expires_at, content_scope = result
+    from twobrain_rec_server.cabinet.queries import shared_meeting_display_metadata
+
+    title, display_time, uploaded = await shared_meeting_display_metadata(db, meeting=meeting)
     return ShareInvitationPreview(
-        meeting_title=(meeting.title or "Встреча")[:160],
+        meeting_title=title[:160],
         occurred_at=meeting.started_at or meeting.created_at,
+        display_occurred_at=display_time,
+        display_time_is_upload=uploaded,
         duration_seconds=max(0, meeting.duration_seconds),
         expires_at=expires_at,
         content_scope=content_scope,

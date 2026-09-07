@@ -74,11 +74,11 @@ def test_account_session_projection_marks_current_and_exposes_safe_metadata_only
         last_seen_at=datetime(2026, 7, 25, tzinfo=UTC),
     )
 
-    result = account_session_view(session, current_session_id=session_id)
+    result = account_session_view(session, current_session_id=session_id, now=datetime(2026, 7, 25, tzinfo=UTC))
 
     assert isinstance(result, AccountSessionView)
     assert result.provider_label == "Яндекс ID"
-    assert result.status_label == "Активна"
+    assert result.status_label == "Действует"
     assert result.current is True
     assert result.can_revoke is False
     assert not hasattr(result, "session_token_hash")
@@ -88,7 +88,7 @@ def test_account_profile_projection_defaults_to_bounded_preferences() -> None:
     profile = AccountProfileView(display_name="Тест")
 
     assert profile.locale == "ru-RU"
-    assert profile.timezone == "Europe/Moscow"
+    assert profile.timezone is None
     assert profile.theme == "system"
 
 
@@ -184,3 +184,72 @@ def test_account_query_does_not_treat_telegram_as_email_recovery() -> None:
 
     assert by_provider["email"].can_unlink is False
     assert by_provider["telegram"].can_unlink is True
+
+
+def test_session_surface_separates_effective_access_and_uses_local_time() -> None:
+    from datetime import timedelta
+
+    from twobrain_rec_server.db.models import AuthSessionDeviceBinding
+
+    now = datetime(2026, 9, 6, 12, tzinfo=UTC)
+    user, workspace = uuid4(), uuid4()
+    device = RegisteredDevice(id=uuid4(), user_id=user, workspace_id=workspace,
+                              device_public_id='login:synthetic', platform='macos',
+                              client_version='2026.09.06.1', status='active', registration_state='approved')
+    def session(status='active', expired=False):
+        return AuthSession(id=uuid4(), user_id=user, workspace_id=workspace, device_id=device.id,
+                           provider='email', status=status, issued_at=now-timedelta(hours=2),
+                           last_seen_at=now-timedelta(minutes=3),
+                           expires_at=now+timedelta(hours=-1 if expired else 1))
+    current, expired, revoked, broken = session(), session(expired=True), session('revoked'), session()
+    unbound = session()
+    unbound.device_id = None
+    rows = (expired, unbound, revoked, broken, current)
+    bindings = [AuthSessionDeviceBinding(auth_session_id=s.id, registered_device_id=device.id,
+                                        device_state='trusted') for s in (current, expired, revoked)]
+    surface = account_settings_surface(profile=AccountProfileView(display_name='Тест', timezone='Asia/Yekaterinburg'),
+                                      devices=(device,), sessions=rows, bindings=bindings,
+                                      current_session_id=current.id, now=now)
+    assert [s.session_id for s in surface.active_sessions] == [current.id, unbound.id]
+    assert surface.active_sessions[0].client_label == 'GRAF для macOS'
+    assert surface.active_sessions[0].last_seen_label == '06.09.2026, 16:57 (UTC+05:00)'
+    assert surface.active_sessions[1].client_label == 'Устройство не подключено'
+    assert {s.status_label for s in surface.session_history} == {'Срок истёк', 'Завершён', 'Доступ заблокирован'}
+    assert all(not s.can_revoke for s in surface.session_history)
+    assert surface.has_other_sessions
+
+
+def test_old_client_metadata_is_not_invented_or_rendered_raw() -> None:
+    from datetime import timedelta
+
+    from twobrain_rec_server.db.models import AuthSessionDeviceBinding
+
+    now = datetime.now(UTC)
+    device = RegisteredDevice(id=uuid4(), workspace_id=uuid4(), user_id=uuid4(),
+                              device_public_id='browser-email:synthetic', platform='web',
+                              client_version='email-login', status='active', registration_state='approved')
+    session = AuthSession(id=uuid4(), user_id=device.user_id, workspace_id=device.workspace_id,
+                          device_id=device.id, provider='email', status='active', expires_at=now+timedelta(hours=1))
+    binding = AuthSessionDeviceBinding(auth_session_id=session.id, registered_device_id=device.id, device_state='trusted')
+    view = account_settings_surface(devices=(device,), sessions=(session,), bindings=(binding,), now=now).sessions[0]
+    assert view.client_label == 'Неизвестный вход'
+    assert view.last_seen_label == 'Нет данных'
+    assert 'email-login' not in repr(view)
+    assert 'browser-email' not in repr(view)
+
+
+def test_session_compact_time_uses_local_calendar_without_claiming_online() -> None:
+    from twobrain_rec_server.cabinet.view_models import _session_time
+
+    now = datetime(2026, 1, 1, 20, tzinfo=UTC)  # January 2 in the profile zone.
+    cases = [
+        (datetime(2026, 1, 1, 19, 30, tzinfo=UTC), "Asia/Yekaterinburg", "сегодня, 00:30"),
+        (datetime(2026, 1, 1, 18, 59, tzinfo=UTC), "Asia/Yekaterinburg", "вчера, 23:59"),
+        (datetime(2025, 12, 31, 18, tzinfo=UTC), "Asia/Yekaterinburg", "31.12.2025, 23:00"),
+        (datetime(2026, 1, 1, 20, 1, tzinfo=UTC), "UTC", "01.01.2026, 20:01"),
+        (datetime(2026, 1, 1, 19, 30), "invalid/zone", "сегодня, 19:30"),
+        (None, "UTC", "Нет данных"),
+    ]
+    for value, zone, expected in cases:
+        assert _session_time(value, zone, relative_to=now) == expected
+    assert _session_time(cases[0][0], "Asia/Yekaterinburg") == "02.01.2026, 00:30 (UTC+05:00)"

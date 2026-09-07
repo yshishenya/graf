@@ -8,12 +8,18 @@ from hashlib import sha256
 from uuid import UUID
 
 from fastapi import Cookie, Depends, Header, Request, Response
-from sqlalchemy import and_, select
+from sqlalchemy import and_, select, update
 
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, DeviceContext, TenantScope
 from twobrain_rec_server.auth.csrf import CSRF_FORM_FIELD_NAME, CSRF_HEADER_NAME, require_csrf_token
-from twobrain_rec_server.auth.sessions import decode_session_token, is_session_token_valid
+from twobrain_rec_server.auth.sessions import (
+    decode_session_token,
+    is_session_token_valid,
+    record_session_activity,
+    resolve_session_device,
+)
+from twobrain_rec_server.cabinet.user_time import apply_user_time_preference
 from twobrain_rec_server.db.models import (
     AuthSession,
     AuthSessionDeviceBinding,
@@ -273,7 +279,10 @@ async def _principal_from_session_token(request: Request, token: str) -> Authent
                 title="Session token is invalid",
             )
         if not is_session_token_valid(session, datetime.now(UTC)):
-            session.status = "expired"
+            await db.execute(update(AuthSession).where(
+                AuthSession.id == session.id, AuthSession.status == "active",
+                AuthSession.expires_at <= datetime.now(UTC),
+            ).values(status="expired"))
             await db.commit()
             raise ProblemDetail(
                 status=401,
@@ -283,7 +292,9 @@ async def _principal_from_session_token(request: Request, token: str) -> Authent
 
         user = await db.get(UserIdentity, session.user_id)
         if user is None or user.status != "active":
-            session.status = "revoked"
+            await db.execute(update(AuthSession).where(
+                AuthSession.id == session.id, AuthSession.status == "active",
+            ).values(status="revoked"))
             await db.commit()
             raise ProblemDetail(
                 status=403,
@@ -325,7 +336,9 @@ async def _principal_from_session_token(request: Request, token: str) -> Authent
             or membership.status != "active"
             or not personal_owner_is_valid
         ):
-            session.status = "revoked"
+            await db.execute(update(AuthSession).where(
+                AuthSession.id == session.id, AuthSession.status == "active",
+            ).values(status="revoked"))
             await db.commit()
             raise ProblemDetail(
                 status=403,
@@ -335,6 +348,29 @@ async def _principal_from_session_token(request: Request, token: str) -> Authent
                 if request.url.path.startswith("/desktop/")
                 else None,
             )
+        await apply_tenant_context(db, TenantDatabaseContext(
+            organization_id=user.organization_id, workspace_id=session.workspace_id,
+            user_id=user.id, auth_session_id=session.id, device_id=session.device_id,
+        ))
+        allowed, device = await resolve_session_device(db, session)
+        if not allowed:
+            blocked = await db.scalar(select(AuthSessionDeviceBinding.id).where(
+                AuthSessionDeviceBinding.auth_session_id == session.id,
+                AuthSessionDeviceBinding.device_state == "blocked",
+            ).limit(1))
+            rejected_device = await db.get(RegisteredDevice, session.device_id) if session.device_id else None
+            revoked = blocked is not None or (rejected_device is not None and (
+                rejected_device.status == "revoked" or rejected_device.registration_state == "revoked"))
+            raise ProblemDetail(status=403, code="device_revoked" if revoked else "device_untrusted",
+                                title="Session device is unavailable")
+        # The legacy desktop POST is a logout alias, not a meeting operation.
+        logout_request = request.method == "POST" and request.url.path in {
+            "/logout", "/desktop/meetings",
+        }
+        if not logout_request:
+            await record_session_activity(db, session, device)
+        await db.commit()
+        apply_user_time_preference(user_id=user.id, session_id=session.id, timezone=user.timezone)
         return AuthenticatedPrincipal(
             user_id=user.id,
             organization_id=user.organization_id,
@@ -343,7 +379,7 @@ async def _principal_from_session_token(request: Request, token: str) -> Authent
             session_id=session.id,
             auth_via_session=True,
             session_workspace_id=session.workspace_id,
-            session_device_id=session.device_id,
+            session_device_id=device.id if device is not None else None,
         )
 
 
@@ -676,7 +712,9 @@ async def _validate_tenant_scope(
             if principal.auth_via_session and principal.session_id is not None and membership_is_inactive:
                 session = await db.get(AuthSession, principal.session_id)
                 if session is not None and session.status == "active":
-                    session.status = "revoked"
+                    await db.execute(update(AuthSession).where(
+                        AuthSession.id == session.id, AuthSession.status == "active",
+                    ).values(status="revoked"))
                     await db.commit()
             raise ProblemDetail(
                 status=403,
@@ -717,19 +755,18 @@ async def _validate_tenant_scope(
                     code="auth_session_mismatched",
                     title="Auth session context does not match workspace context",
                 )
+            if session.status != "active":
+                raise ProblemDetail(status=401, code="auth_session_invalid", title="Auth session is not active")
             if not is_session_token_valid(session, datetime.now(UTC)):
-                session.status = "expired"
+                await db.execute(update(AuthSession).where(
+                    AuthSession.id == session.id, AuthSession.status == "active",
+                    AuthSession.expires_at <= datetime.now(UTC),
+                ).values(status="expired"))
                 await db.commit()
                 raise ProblemDetail(
                     status=401,
                     code="auth_session_expired",
                     title="Auth session has expired",
-                )
-            if session.status != "active":
-                raise ProblemDetail(
-                    status=403,
-                    code="auth_session_invalid",
-                    title="Auth session is not active",
                 )
             binding = await db.scalar(
                 select(AuthSessionDeviceBinding).where(
@@ -756,6 +793,7 @@ async def _validate_tenant_scope(
                     title="Device is not trusted for this session",
                 )
 
+    apply_user_time_preference(user_id=user.id, session_id=principal.session_id, timezone=user.timezone)
     return TenantScope(
         organization_id=principal.organization_id,
         workspace_id=workspace_id,

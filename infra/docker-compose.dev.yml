@@ -119,8 +119,6 @@ services:
     depends_on:
       rec-migrate:
         condition: service_completed_successfully
-      rec-temporal:
-        condition: service_healthy
       rec-postgres:
         condition: service_healthy
       rec-minio:

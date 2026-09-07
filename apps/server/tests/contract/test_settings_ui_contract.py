@@ -10,6 +10,7 @@ from twobrain_rec_server.cabinet.view_models import (
     AccountDeviceView,
     AccountProfileView,
     AccountProviderView,
+    AccountSettingsSurface,
     account_settings_surface,
 )
 from twobrain_rec_server.cabinet.web_routes.settings import router as settings_router
@@ -134,6 +135,13 @@ def test_settings_templates_use_primary_sidebar_and_single_content_column() -> N
     assert "grid-template-columns: minmax(0, 1fr)" in single_column_css
     assert "grid-column: 1" in single_column_css
     assert "gap: 0" in single_column_css
+    assert "width: min(var(--settings-content-width), 100%);" in single_column_css
+    assert "margin-inline: auto;" in single_column_css
+    assert re.search(
+        r"\.settings-page > \.settings-page__content,\s*"
+        r"\.calendar-settings > \.calendar-settings__content\s*\{[^}]*margin-inline: auto;",
+        single_column_css,
+    )
     assert ".settings-navigation" not in css
     assert ".settings-page {\n  grid-template-columns" not in css
 
@@ -251,10 +259,41 @@ def test_recording_settings_keep_native_boundary_copy_compact() -> None:
     assert 'data-sidebar-download href="/download"' in page
     assert page.count("data-sidebar-download") == 1
     assert "data-sidebar-download" not in embedded_page
-    assert (
-        '/desktop/settings/meeting-detection">Открыть настройки записи в приложении'
-        in embedded_page
+    assert 'href="/desktop/settings/meeting-detection"' in embedded_page
+    assert "Открыть локальные настройки" in embedded_page
+    assert "data-recording-settings" in embedded_page
+    assert "data-recording-settings-controls hidden" in embedded_page
+    assert "data-recording-settings" not in page
+    assert "Всегда" in embedded_page and "Спрашивать" in embedded_page and "Никогда" in embedded_page
+    assert 'aria-live="polite"' in embedded_page
+
+    assert "Нет приложения GRAF?" not in embedded_page
+    assert 'href="/download">Скачать GRAF для macOS</a>' in page
+
+
+def test_settings_forms_share_dirty_state_and_one_preferences_submit_handler() -> None:
+    account = render_settings_page(
+        category="account",
+        account_surface=AccountSettingsSurface(profile=AccountProfileView("Synthetic")),
     )
+    notifications = render_settings_page(category="notifications")
+    assert account.count("data-settings-form-disable-pristine") == 2
+    assert account.count("data-settings-form-reset") == 2
+    assert "data-settings-form-disable-pristine" in notifications
+    root = Path(__file__).resolve().parents[2]
+    script = (root / "src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js").read_text()
+    preferences = script.split("const initAccountPreferences =", 1)[1].split(
+        "const initSettingsConfirmations =", 1
+    )[0]
+    assert preferences.count('form.addEventListener("submit"') == 1
+
+
+def test_settings_retire_unused_style_paths() -> None:
+    root = Path(__file__).resolve().parents[2]
+    css = (root / "src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css").read_text()
+    assert ".settings-handoff-card" not in css
+    assert ".settings-choice-row--toggle" not in css
+    assert ".settings-section { grid-template-columns:" not in css
 
 
 def test_settings_account_close_phrase_is_described_to_confirmation_field() -> None:
@@ -363,7 +402,7 @@ def test_account_preferences_and_provider_unlink_are_csrf_protected() -> None:
 
 def test_account_surface_template_contains_profile_preference_and_session_controls() -> None:
     page = render_settings_page(category="account")
-    for label in ("Профиль", ">Язык<", "Часовой пояс", "Системная", "Активные сессии"):
+    for label in ("Профиль", ">Язык<", "Часовой пояс", "Системная", "Где вы вошли"):
         assert label in page
     assert "data-account-preferences" in page
     assert "session_token_hash" not in page

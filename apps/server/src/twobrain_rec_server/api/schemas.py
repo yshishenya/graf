@@ -291,11 +291,18 @@ class CalendarDisconnectResponse(BaseModel):
 
 
 class CalendarEventSummary(BaseModel):
+    all_day: bool = False
     event_id: UUID
     provider_family: str
     starts_at: datetime
     ends_at: datetime
     title: str | None = None
+    description: str | None = None
+    location: str | None = None
+    participants: list[dict[str, Any]] = Field(default_factory=list)
+    attachments: list[dict[str, Any]] = Field(default_factory=list)
+    conference_links: list[dict[str, Any]] = Field(default_factory=list)
+    provider_extras: dict[str, Any] = Field(default_factory=dict)
     title_state: Literal["available", "private_redacted", "free_busy_only", "policy_hidden"]
     meeting_link_present: bool = False
     attendee_count: int = 0
@@ -2187,6 +2194,7 @@ class PlaybackPreparationState(BaseModel):
 class MeetingListItem(BaseModel):
     meeting_id: UUID
     title: str
+    title_version: str | None = None
     started_at: datetime | None = None
     uploaded_at: datetime | None = None
     ended_at: datetime | None = None

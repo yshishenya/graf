@@ -4,10 +4,11 @@ import re
 from collections import defaultdict
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING, Literal, cast
 from uuid import UUID
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from twobrain_rec_server.api.schemas import (
     ArtifactEgressState,
@@ -49,6 +50,8 @@ from twobrain_rec_server.api.schemas import (
 )
 from twobrain_rec_server.cabinet.access import owner_access_state
 from twobrain_rec_server.cabinet.constants import DELETION_TRUTH_COPY
+from twobrain_rec_server.cabinet.meeting_titles import meeting_title_version
+from twobrain_rec_server.cabinet.user_time import display_timezone_name, format_user_datetime
 from twobrain_rec_server.calendar.service import (
     SELECTABLE_CALENDAR_VISIBILITIES,
     calendar_duplicate_group_key,
@@ -56,6 +59,7 @@ from twobrain_rec_server.calendar.service import (
 )
 from twobrain_rec_server.db.models import (
     AuthSession,
+    AuthSessionDeviceBinding,
     CalendarEventSnapshot,
     CalendarParticipant,
     CalendarSettingsPreference,
@@ -188,13 +192,21 @@ class AccountSessionView:
     current: bool
     can_revoke: bool
 
+    client_label: str = "Неизвестный вход"
+    client_detail: str = ""
+    issued_label: str = "Нет данных"
+    last_seen_label: str = "Нет данных"
+    expires_label: str = "Нет данных"
+    last_seen_short: str = "Нет данных"
+    active: bool = False
+
 
 @dataclass(frozen=True, slots=True)
 class AccountProfileView:
     display_name: str
     primary_email: str | None = None
     locale: str = "ru-RU"
-    timezone: str = "Europe/Moscow"
+    timezone: str | None = None
     theme: str = "system"
 
 
@@ -206,6 +218,18 @@ class AccountSettingsSurface:
     sessions: tuple[AccountSessionView, ...] = ()
     unavailable: bool = False
     account_close: AccountCloseView | None = None
+
+    @property
+    def active_sessions(self) -> tuple[AccountSessionView, ...]:
+        return tuple(row for row in self.sessions if row.active)
+
+    @property
+    def session_history(self) -> tuple[AccountSessionView, ...]:
+        return tuple(row for row in self.sessions if not row.active)
+
+    @property
+    def has_other_sessions(self) -> bool:
+        return any(row.can_revoke for row in self.sessions)
 
 
 def account_provider_view(
@@ -251,22 +275,79 @@ def account_device_view(
     )
 
 
+def _session_time(value: datetime | None, timezone_name: str, *, relative_to: datetime | None = None) -> str:
+    if value is None:
+        return "Нет данных"
+    try:
+        zone = ZoneInfo(timezone_name)
+    except (ValueError, ZoneInfoNotFoundError):
+        zone = ZoneInfo("UTC")
+    aware = value.replace(tzinfo=UTC) if value.tzinfo is None else value
+    local = aware.astimezone(zone)
+    if relative_to is not None:
+        reference = relative_to.replace(tzinfo=UTC) if relative_to.tzinfo is None else relative_to
+        days = (reference.astimezone(zone).date() - local.date()).days
+        if days in (0, 1) and aware <= reference:
+            return f"{'сегодня' if days == 0 else 'вчера'}, {local:%H:%M}"
+        return f"{local:%d.%m.%Y, %H:%M}"
+    offset = local.strftime("%z")
+    suffix = "UTC" if offset == "+0000" else f"UTC{offset[:3]}:{offset[3:]}"
+    return f"{local:%d.%m.%Y, %H:%M} ({suffix})"
+
+
+def _session_client(device: RegisteredDevice | None) -> tuple[str, str]:
+    if device is None:
+        return "Устройство не подключено", "Вы вошли в аккаунт, но устройство ещё не подключено. Доступ к данным ограничен."
+    if device.platform == "macos":
+        version = device.client_version or ""
+        detail = f"Версия {version}" if re.fullmatch(r"[0-9]+(?:\.[0-9]+){1,3}", version) else "Версия приложения неизвестна"
+        return "GRAF для macOS", detail
+    metadata = (device.client_version or "").split(":")
+    browsers = {"chrome": "Chrome", "edge": "Edge", "firefox": "Firefox", "safari": "Safari", "unknown": "Неизвестный вход"}
+    systems = {"macos": "macOS", "windows": "Windows", "linux": "Linux", "ios": "iOS", "android": "Android", "unknown": ""}
+    if (device.platform == "web" and (device.device_public_id or "").startswith("login:")
+            and len(metadata) == 3 and metadata[0] == "browser"
+            and metadata[1] in browsers and metadata[2] in systems):
+        system = systems[metadata[2]]
+        return browsers[metadata[1]] + (f" на {system}" if system else ""), ""
+    return "Неизвестный вход", "Для этого входа сведения о приложении или браузере не сохранились"
+
+
 def account_session_view(
     session: AuthSession,
     *,
     current_session_id: UUID | None,
+    device: RegisteredDevice | None = None,
+    access_allowed: bool = True,
+    timezone_name: str = "UTC",
+    now: datetime | None = None,
 ) -> AccountSessionView:
-    provider_label = PROVIDER_LINK_LABELS.get(session.provider, "Способ входа")
-    status_label = "Активна" if session.status == "active" else "Отозвана"
+    from twobrain_rec_server.auth.sessions import is_session_token_valid
+
+    now = now or datetime.now(UTC)
+    active = is_session_token_valid(session, now) and access_allowed
+    status_label = {"revoked": "Завершён", "expired": "Срок истёк", "replaced": "Заменён новым входом"}.get(session.status, "Состояние неизвестно")
+    if session.status == "active":
+        status_label = "Действует" if active else ("Доступ заблокирован" if not access_allowed else "Срок истёк")
+    client_label, client_detail = _session_client(device)
+    if not access_allowed and device is None:
+        client_label, client_detail = "Неизвестный вход", "Связь с устройством недоступна"
     current = session.id == current_session_id
     return AccountSessionView(
         session_id=session.id,
-        provider_label=provider_label,
+        provider_label=PROVIDER_LINK_LABELS.get(session.provider, "Способ входа неизвестен"),
         status_label=status_label,
         last_seen_at=session.last_seen_at,
         expires_at=session.expires_at,
         current=current,
-        can_revoke=session.status == "active" and not current,
+        can_revoke=active and not current,
+        client_label=client_label,
+        client_detail=client_detail,
+        issued_label=_session_time(session.issued_at, timezone_name),
+        last_seen_label=_session_time(session.last_seen_at, timezone_name),
+        last_seen_short=_session_time(session.last_seen_at, timezone_name, relative_to=now),
+        expires_label=_session_time(session.expires_at, timezone_name),
+        active=active,
     )
 
 
@@ -276,13 +357,41 @@ def account_settings_surface(
     identities: Iterable[ExternalIdentity] = (),
     devices: Iterable[RegisteredDevice] = (),
     sessions: Iterable[AuthSession] = (),
+    bindings: Iterable[AuthSessionDeviceBinding] = (),
+    now: datetime | None = None,
     current_session_id: UUID | None = None,
     current_device_id: UUID | None = None,
     can_unlink_provider: Callable[[ExternalIdentity], bool] | None = None,
     unavailable: bool = False,
     account_close: AccountCloseView | None = None,
 ) -> AccountSettingsSurface:
+    from twobrain_rec_server.auth.sessions import session_device_access
+
     identity_rows = tuple(identities)
+    device_rows = tuple(devices)
+    devices_by_id = {device.id: device for device in device_rows}
+    bindings_by_session: dict[UUID, list[AuthSessionDeviceBinding]] = defaultdict(list)
+    for binding in bindings:
+        bindings_by_session[binding.auth_session_id].append(binding)
+    session_views = []
+    for session in sessions:
+        allowed, device = session_device_access(session, devices_by_id, bindings_by_session[session.id])
+        # A revoked binding stops access, but does not erase known client metadata.
+        known_device = devices_by_id.get(session.device_id)
+        if device is None and known_device is not None and (
+            known_device.user_id == session.user_id and known_device.workspace_id == session.workspace_id
+        ):
+            device = known_device
+        session_views.append(account_session_view(
+            session, current_session_id=current_session_id, device=device,
+            access_allowed=allowed, timezone_name=(profile.timezone if profile else None) or display_timezone_name(), now=now,
+        ))
+    session_views.sort(key=lambda row: (
+        not row.current,
+        -(row.last_seen_at.replace(tzinfo=UTC) if row.last_seen_at and row.last_seen_at.tzinfo is None
+          else row.last_seen_at).timestamp() if row.last_seen_at else float("inf"),
+        str(row.session_id),
+    ))
     return AccountSettingsSurface(
         profile=profile,
         providers=tuple(
@@ -294,12 +403,9 @@ def account_settings_surface(
             for index, identity in enumerate(identity_rows)
         ),
         devices=tuple(
-            account_device_view(device, current_device_id=current_device_id) for device in devices
+            account_device_view(device, current_device_id=current_device_id) for device in device_rows
         ),
-        sessions=tuple(
-            account_session_view(session, current_session_id=current_session_id)
-            for session in sessions
-        ),
+        sessions=tuple(session_views),
         unavailable=unavailable,
         account_close=account_close,
     )
@@ -327,22 +433,6 @@ SORT_LABELS: dict[str, str] = {
     "duration_asc": "Сначала короткие",
     "title_asc": "По названию",
 }
-SHORT_MONTH_LABELS = (
-    "",
-    "янв",
-    "фев",
-    "мар",
-    "апр",
-    "май",
-    "июн",
-    "июл",
-    "авг",
-    "сен",
-    "окт",
-    "ноя",
-    "дек",
-)
-
 MeetingListTimeBasis = Literal["meeting", "updated", "upload"]
 
 
@@ -865,6 +955,7 @@ class UpcomingPreviewItemView:
     ends_at: datetime
     source_ids: tuple[str, ...]
     meeting_link_present: bool
+    all_day: bool = False
     open_meeting_available: bool = False
     calendar_labels: tuple[str, ...] = ()
     source_labels: tuple[str, ...] = ()
@@ -908,8 +999,8 @@ class CalendarSettingsSurfaceView:
     )
     no_matching_events_copy: str = "Нет будущих событий, которые подходят под выбранные настройки."
     private_free_busy_copy: str = (
-        "Приватные события и события только со статусом занятости показываются без названия, "
-        "ссылок, участников, описания и вложений."
+        "GRAF показывает сведения, которые провайдер передал владельцу, в том числе для приватных событий. "
+        "Если доступна только занятость, название и другие отсутствующие сведения не добавляются."
     )
     empty_state_title: str = "Календари пока не подключены"
     empty_state_body: str = "Подключите источник календаря, затем выберите календари. Пока календарь не выбран, встречи из него не подтягиваются."
@@ -1176,7 +1267,7 @@ def calendar_visibility_label(visibility: str) -> str:
         "selected": "выбран",
         "hidden": "скрыт провайдером",
         "unavailable": "недоступен",
-        "private": "приватное / только занятость",
+        "private": "приватный календарь",
         "shared": "общий календарь",
         "delegated": "делегированный календарь",
         "removed": "удален у провайдера",
@@ -1236,7 +1327,7 @@ def calendar_sync_health_state(source: CalendarSource, *, now: datetime | None =
         synced_at = source.last_successful_sync_at
         if synced_at.tzinfo is None:
             synced_at = synced_at.replace(tzinfo=UTC)
-        if current - synced_at > timedelta(hours=24):
+        if current - synced_at > timedelta(minutes=3):
             return "stale"
     return "synced" if source.last_successful_sync_at else "never_synced"
 
@@ -1374,7 +1465,7 @@ def calendar_settings_notices(
 
 
 def safe_calendar_label(raw: str | None, *, fallback: str) -> str:
-    return safe_title_candidate(raw) or fallback
+    return raw if raw and raw.strip() else fallback
 
 
 def preview_items(
@@ -1457,18 +1548,14 @@ def upcoming_preview_item(
     duplicate_source_count: int = 1,
     sync_confidence_state: str = "current",
 ) -> UpcomingPreviewItemView:
-    title = safe_calendar_label(
-        event.title if event.safe_to_show_in_list else None, fallback="Скрытое событие"
-    )
-    title_state = (
-        "available"
-        if event.safe_to_show_in_list and title != "Скрытое событие"
-        else event.privacy_class
-    )
+    from twobrain_rec_server.calendar.owner_content import owner_event_title
+
+    raw_title = owner_event_title(event)
+    title = safe_calendar_label(raw_title, fallback="Без названия")
+    title_state = "available" if raw_title and raw_title.strip() else "missing"
     meeting_link_present = bool((event.conference_summary_json or {}).get("meeting_link_present"))
-    if _is_private_or_free_busy(event):
-        meeting_link_present = False
     return UpcomingPreviewItemView(
+        all_day=bool(event.all_day),
         event_id=str(event.id),
         title=title,
         title_state=title_state,
@@ -1528,12 +1615,6 @@ def _event_participant_count(event: CalendarEventSnapshot) -> int:
     except (TypeError, ValueError):
         return 0
 
-
-def _is_private_or_free_busy(event: CalendarEventSnapshot) -> bool:
-    return (
-        event.privacy_class in {"private", "free_busy", "free_busy_only"}
-        or not event.safe_to_show_in_list
-    )
 
 
 @dataclass(frozen=True)
@@ -1709,12 +1790,7 @@ def format_duration(seconds: int) -> str:
 
 
 def date_label(item: MeetingListItem) -> str:
-    if item.started_at is None:
-        return meeting_time_label(item, time_basis="meeting")
-    return short_date_label(
-        item.started_at,
-        timezone_offset_minutes=item.recording_display_timezone_offset_minutes,
-    )
+    return meeting_time_label(item, time_basis="meeting")
 
 
 def meeting_list_time_label(
@@ -1725,27 +1801,26 @@ def meeting_list_time_label(
 ) -> str:
     if value is None:
         return "Без даты"
-    localized = _localized_datetime(
-        value,
-        timezone_offset_minutes=timezone_offset_minutes,
-    )
     prefix = (
         "Обновлено " if time_basis == "updated" else "Загружено " if time_basis == "upload" else ""
     )
-    return f"{prefix}{localized.day} {SHORT_MONTH_LABELS[localized.month]}, {localized:%H:%M}"
+    return f"{prefix}{format_user_datetime(value)}"
+
+
+def meeting_time_value(
+    item: MeetingListItem, *, time_basis: MeetingListTimeBasis
+) -> datetime | None:
+    if time_basis == "updated":
+        return item.updated_at
+    if time_basis == "upload":
+        return item.uploaded_at
+    return item.started_at or (item.uploaded_at if item.source == "manual_upload" else None)
 
 
 def meeting_time_label(item: MeetingListItem, *, time_basis: MeetingListTimeBasis) -> str:
-    if time_basis == "updated":
-        value = item.updated_at
-    elif time_basis == "upload":
-        value = item.uploaded_at
-    else:
-        value = item.started_at
-        if value is None and item.source == "manual_upload":
-            value = item.uploaded_at
-            if value is not None:
-                time_basis = "upload"
+    value = meeting_time_value(item, time_basis=time_basis)
+    if time_basis == "meeting" and item.started_at is None and item.source == "manual_upload":
+        time_basis = "upload"
     return meeting_list_time_label(
         value,
         timezone_offset_minutes=item.recording_display_timezone_offset_minutes,
@@ -1753,27 +1828,12 @@ def meeting_time_label(item: MeetingListItem, *, time_basis: MeetingListTimeBasi
     )
 
 
-def _localized_datetime(
-    value: datetime,
-    *,
-    timezone_offset_minutes: int | None,
-) -> datetime:
-    localized = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
-    if timezone_offset_minutes is not None and -14 * 60 <= timezone_offset_minutes <= 14 * 60:
-        localized = localized.astimezone(timezone(timedelta(minutes=timezone_offset_minutes)))
-    return localized
-
-
 def short_date_label(
     value: datetime,
     *,
     timezone_offset_minutes: int | None = None,
 ) -> str:
-    localized = _localized_datetime(
-        value,
-        timezone_offset_minutes=timezone_offset_minutes,
-    )
-    return f"{localized.day} {SHORT_MONTH_LABELS[localized.month]}"
+    return format_user_datetime(value)
 
 
 def normalize_meeting_list_sort(
@@ -1929,7 +1989,9 @@ def meeting_media_label(item: MeetingListItem) -> str:
     }[meeting_media_kind(item)]
 
 
-def meeting_list_title(meeting: Meeting, *, source: str | None = None) -> str:
+def meeting_list_title(
+    meeting: Meeting, *, source: str | None = None, include_recording_time: bool = True
+) -> str:
     title = safe_title_candidate(meeting.title)
     if (
         title
@@ -1937,7 +1999,9 @@ def meeting_list_title(meeting: Meeting, *, source: str | None = None) -> str:
         and MEDIA_FILENAME_EXTENSION_RE.search(title)
     ):
         return _clean_file_title(title)
-    projected = recording_display_title(meeting, source=source)
+    projected = recording_display_title(
+        meeting, source=source, include_recording_time=include_recording_time
+    )
     if (
         projected == "Запись без названия"
         and meeting.title_source not in AUTHORITATIVE_TITLE_SOURCES
@@ -2398,6 +2462,7 @@ def build_list_item(
     item = MeetingListItem(
         meeting_id=meeting.id,
         title=safe_title(meeting, source=source),
+        title_version=meeting_title_version(meeting) if access_state.state == "owner" else None,
         started_at=meeting.started_at,
         uploaded_at=meeting.created_at,
         ended_at=meeting.ended_at,

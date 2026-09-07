@@ -19,7 +19,7 @@ from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from twobrain_rec_server.calendar.conference_links import safe_open_meeting_url
+from twobrain_rec_server.calendar.conference_links import conference_link_dicts
 from twobrain_rec_server.calendar.normalize import normalize_calendar_event
 from twobrain_rec_server.calendar.providers import (
     MAX_PROVIDER_PAGES,
@@ -304,13 +304,22 @@ class GoogleCalendarAdapter:
         items = payload.get("items")
         if not isinstance(items, list):
             raise CalendarProviderError("invalid_payload")
-        events = tuple(
-            normalize_calendar_event(_normalize_google_event(item, calendar_id=calendar_id))
-            for item in items
-            if isinstance(item, dict) and item.get("id")
-        )
+        events = []
+        deleted_ids = []
+        for item in items:
+            if not isinstance(item, dict) or not item.get("id"):
+                raise CalendarProviderError("invalid_payload")
+            # Cancelled instances may omit iCalUID even when originalStartTime
+            # is present. Deletion must use the provider id, not the upsert tuple.
+            if item.get("status") == "cancelled":
+                deleted_ids.append(str(item["id"]))
+            else:
+                events.append(
+                    normalize_calendar_event(_normalize_google_event(item, calendar_id=calendar_id))
+                )
         return CalendarEventPage(
-            events=events,
+            events=tuple(events),
+            deleted_event_ids=tuple(deleted_ids),
             next_page_token=_optional_string(payload.get("nextPageToken")),
             next_sync_token=_optional_string(payload.get("nextSyncToken")),
         )
@@ -347,7 +356,7 @@ class GoogleCalendarAdapter:
         access_role = _optional_string(item.get("accessRole")) or "reader"
         return CalendarCatalogEntry(
             provider_calendar_id=calendar_id,
-            display_label=label[:240],
+            display_label=label,
             access_role=access_role,
             primary=bool(item.get("primary")),
             visibility="available"
@@ -465,24 +474,37 @@ def _normalize_google_event(item: dict[str, Any], *, calendar_id: str) -> dict[s
     end, _ = _event_time(item.get("end"), default=start)
     privacy = _optional_string(item.get("visibility")) or "public"
     privacy_class = "private" if privacy in {"private", "confidential"} else "public"
-    conference_links = (
-        _conference_links(item) if privacy_class == "public" and status != "cancelled" else []
-    )
+    conference_links = _conference_links(item) if status != "cancelled" else []
     participants = []
-    if privacy_class == "public" and status != "cancelled":
-        for attendee in item.get("attendees") or []:
-            if not isinstance(attendee, dict) or not attendee.get("email"):
-                continue
-            participants.append(
-                {
-                    "participant_kind": "organizer"
-                    if attendee.get("organizer")
-                    else "required_attendee",
-                    "response_status": attendee.get("responseStatus", "unknown"),
-                    "email": attendee["email"],
-                    "display_name": attendee.get("displayName"),
-                }
-            )
+    organizer = item.get("organizer")
+    if isinstance(organizer, dict):
+        participants.append(
+            {
+                "participant_kind": "organizer",
+                "email": organizer.get("email"),
+                "display_name": organizer.get("displayName"),
+                "response_status": "unknown",
+                "provider_details": dict(organizer),
+            }
+        )
+    for attendee in item.get("attendees") or []:
+        if not isinstance(attendee, dict):
+            continue
+        participants.append(
+            {
+                "participant_kind": "organizer"
+                if attendee.get("organizer")
+                else "resource"
+                if attendee.get("resource")
+                else "optional_attendee"
+                if attendee.get("optional")
+                else "required_attendee",
+                "response_status": attendee.get("responseStatus", "unknown"),
+                "email": attendee.get("email"),
+                "display_name": attendee.get("displayName"),
+                "provider_details": dict(attendee),
+            }
+        )
     recurring_id = _optional_string(item.get("recurringEventId"))
     return {
         "provider_family": GOOGLE_PROVIDER_FAMILY,
@@ -496,11 +518,12 @@ def _normalize_google_event(item: dict[str, Any], *, calendar_id: str) -> dict[s
         "ends_at": end,
         "timezone": _event_timezone(item.get("start")),
         "all_day": all_day,
-        "title": item.get("summary") if privacy_class == "public" else None,
-        "description": item.get("description") if privacy_class == "public" else None,
-        "location": item.get("location") if privacy_class == "public" else None,
+        "title": item.get("summary"),
+        "description": item.get("description"),
+        "location": item.get("location"),
         "privacy_class": privacy_class,
         "participants": participants,
+        "attachments_metadata": item.get("attachments") or [],
         "conference_links": conference_links,
         "transparency": item.get("transparency"),
         "recurring_series_id": recurring_id,
@@ -511,34 +534,19 @@ def _normalize_google_event(item: dict[str, Any], *, calendar_id: str) -> dict[s
         else None,
         "provider_extras": {"google_event_type": item.get("eventType", "default")},
         "source_updated_at": item.get("updated"),
+        "source_created_at": item.get("created"),
     }
 
 
 def _conference_links(item: dict[str, Any]) -> list[dict[str, Any]]:
-    links: list[dict[str, Any]] = []
-    raw_links = []
-    if item.get("hangoutLink"):
-        raw_links.append(("hangoutLink", item["hangoutLink"]))
-    for entry in (item.get("conferenceData") or {}).get("entryPoints") or []:
-        if isinstance(entry, dict) and entry.get("uri"):
-            raw_links.append(("conferenceData", entry["uri"]))
-    for source_field, raw_url in raw_links[:10]:
-        open_url = safe_open_meeting_url(str(raw_url))
-        if open_url is None:
-            continue
-        links.append(
-            {
-                "provider_family": "google_meet"
-                if "meet.google.com" in str(raw_url)
-                else "generic",
-                "source_field": source_field,
-                "url_hash": f"sha256:{sha256(str(raw_url).encode()).hexdigest()}",
-                "contains_passcode": False,
-                "sensitivity_class": "meeting_link",
-                "open_url": open_url,
-            }
-        )
-    return links
+    fields = [("hangoutLink", item.get("hangoutLink"))]
+    fields.extend(
+        ("conferenceData", entry.get("uri"))
+        for entry in (item.get("conferenceData") or {}).get("entryPoints") or []
+        if isinstance(entry, dict) and entry.get("entryPointType", "video") == "video"
+    )
+    fields.extend((name, item.get(name)) for name in ("description", "location"))
+    return conference_link_dicts(*fields)
 
 
 def _event_time(value: Any, *, default: datetime | None = None) -> tuple[datetime, bool]:
@@ -561,7 +569,9 @@ def _event_time(value: Any, *, default: datetime | None = None) -> tuple[datetim
         if parsed.tzinfo is None:
             timezone_name = _optional_string(value.get("timeZone"))
             try:
-                parsed = parsed.replace(tzinfo=ZoneInfo(timezone_name or "UTC"))
+                if not timezone_name:
+                    raise CalendarProviderError("invalid_payload")
+                parsed = parsed.replace(tzinfo=ZoneInfo(timezone_name))
             except ZoneInfoNotFoundError as exc:
                 raise CalendarProviderError("invalid_payload") from exc
         return parsed, False

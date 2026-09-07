@@ -2,6 +2,12 @@
 <html lang="ru"{% if profile is defined and profile and profile.theme in ["dark", "light"] %} data-theme="{{ profile.theme }}"{% endif %}>
 <head>
   <meta charset="utf-8">
+    <meta name="graf-time-preferred" content="{{ viewer_time_context().preferred }}">
+    <meta name="graf-time-user" content="{{ viewer_time_context().user }}">
+    <meta name="graf-time-session" content="{{ viewer_time_context().session }}">
+    <meta name="graf-timezone" content="{{ display_timezone_name() }}">
+    <meta name="graf-time-reload" content="{{ 'true' if time_reload_allowed() else 'false' }}">
+    <script src="{{ cabinet_static_asset_url('user-time.js') }}"></script>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
   {% if csrf_token is defined and csrf_token %}

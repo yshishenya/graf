@@ -67,7 +67,7 @@ final class InstallerLifecycleEvidenceTests: XCTestCase {
         XCTAssertTrue(source.contains("SUVerifyUpdateBeforeExtraction"))
         XCTAssertTrue(source.contains("SUSignedFeedFailureExpirationInterval"))
         XCTAssertTrue(source.contains("SUScheduledCheckInterval"))
-        XCTAssertTrue(source.contains("86400"))
+        XCTAssertTrue(source.contains("SUScheduledCheckInterval -integer 14400"))
         XCTAssertTrue(source.contains("SUEnableAutomaticChecks"))
         XCTAssertTrue(source.contains("SUAutomaticallyUpdate"))
         XCTAssertTrue(source.contains("SUAllowsAutomaticUpdates"))
