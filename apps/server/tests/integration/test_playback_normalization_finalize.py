@@ -59,7 +59,7 @@ class NeverCalledNormalizationPipeline:
         raise AssertionError("source custody must fail before conversion")
 
 
-def _generate_canonical_playback_candidate(path: Path) -> None:
+def _generate_canonical_playback_candidate(path: Path, duration: str = "1") -> None:
     """Generate an ephemeral canonical review M4A; no audio fixture is stored."""
 
     _run_ffmpeg(
@@ -67,7 +67,7 @@ def _generate_canonical_playback_candidate(path: Path) -> None:
             "-f",
             "lavfi",
             "-i",
-            "sine=frequency=440:duration=1",
+            f"sine=frequency=440:duration={duration}",
             "-map",
             "0:a:0",
             "-vn",
@@ -283,16 +283,18 @@ def test_no_archive_manual_normalization_publishes_without_storage_reservation(
     assert reservations == []
 
 
+@pytest.mark.parametrize("duration", ["1", "0.4"])
 def test_v5_canonical_review_candidate_is_reused_without_touching_asr_wav(
     client: TestClient,
     tmp_path: Path,
+    duration: str,
 ) -> None:
     review_candidate = tmp_path / "review-candidate.m4a"
-    _generate_canonical_playback_candidate(review_candidate)
+    _generate_canonical_playback_candidate(review_candidate, duration)
     finalized = create_finalized_mixed_recording(
         client,
         "normalization-v5-candidate-reuse",
-        media_bytes=deterministic_canonical_wav_bytes(frame_count=16_000),
+        media_bytes=deterministic_canonical_wav_bytes(frame_count=int(float(duration) * 16_000)),
         playback_bytes=review_candidate.read_bytes(),
     )
     meeting_id = UUID(str(finalized["meeting"]["meeting_id"]))

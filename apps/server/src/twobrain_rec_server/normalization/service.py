@@ -770,7 +770,15 @@ def _validate_authoritative_source_duration(
     *,
     expected_duration_seconds: int,
     manual_upload: bool = False,
+    rounded_up: bool = False,
 ) -> None:
+    # Desktop declares whole seconds rounded up from the audio frame count.
+    if (
+        rounded_up and not manual_upload
+        and source_duration_ms > 0
+        and (source_duration_ms + 999) // 1000 == expected_duration_seconds
+    ):
+        return
     expected = Decimal(expected_duration_seconds)
     tolerance = (
         Decimal("1.25")
@@ -2768,6 +2776,9 @@ async def _execute_normalization_job(
         _validate_authoritative_source_duration(
             output.source_duration_ms,
             expected_duration_seconds=prepared.expected_duration_seconds,
+            rounded_up=(
+                prepared.job.source_kind == MediaRevisionSourceKind.INITIAL_MIXED_RECORDING.value
+            ),
             manual_upload=(
                 prepared.job.source_kind == MediaRevisionSourceKind.MANUAL_UPLOAD.value
             ),
