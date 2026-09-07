@@ -1,7 +1,10 @@
 <div class="notification-entry" data-notification-inbox>
-  <a class="notification-bell" href="{{ '/desktop/notifications' if embedded else '/notifications' }}" aria-label="Важное и история" data-notification-bell>
+  <a class="notification-bell cabinet-sidebar-nav__item" href="{{ '/desktop/notifications' if embedded else '/notifications' }}" aria-label="Уведомления" title="Уведомления" data-notification-bell>
+    <span class="notification-icon">
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg>
     <span class="notification-dot" data-notification-dot hidden></span>
+    </span>
+    <span class="cabinet-sidebar-nav__label">Уведомления</span>
   </a>
   <section class="notification-panel" id="notification-panel" aria-labelledby="notification-heading" data-notification-panel hidden>
     <header><h2 id="notification-heading" tabindex="-1">Уведомления</h2><button type="button" aria-label="Закрыть уведомления" data-notification-close>×</button></header>

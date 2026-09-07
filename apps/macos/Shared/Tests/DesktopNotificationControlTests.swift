@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import XCTest
 @testable import TwoBrainRecAppCore
@@ -5,6 +6,21 @@ import TwoBrainRecShared
 
 @MainActor
 final class DesktopNotificationControlTests: XCTestCase {
+    func testPanelFitsShortAndNegativeOriginScreens() {
+        for bounds in [NSRect(x: 0, y: 24, width: 1440, height: 876),
+                       NSRect(x: -1280, y: -320, width: 1280, height: 480)] {
+            for candidate in [NSRect(x: 3000, y: 900, width: 290, height: 320),
+                              NSRect(x: -3000, y: -1200, width: 2000, height: 1200)] {
+                let placed = DesktopPanelPlacement.frame(candidate, within: bounds)
+                XCTAssertTrue(bounds.contains(placed))
+                XCTAssertEqual(DesktopPanelPlacement.frame(placed, within: bounds), placed)
+            }
+            let size = CalendarTrayController.panelSize(in: bounds)
+            XCTAssertLessThanOrEqual(size.height, bounds.height - 24)
+            XCTAssertLessThanOrEqual(size.width, bounds.width - 24)
+        }
+    }
+
     func testDeviceNavigationDoesNotMutateCapture() {
         let model = DesktopControlModel()
         var actions: [DesktopControlAction] = []
@@ -117,6 +133,7 @@ final class DesktopNotificationControlTests: XCTestCase {
 
     func testFailedSessionKeepsIndicatorUntilStopCleanupFinishes() {
         var snapshot = DesktopControlSnapshot()
+        XCTAssertEqual(snapshot.recoveryAction, .permissions)
         snapshot.session = CaptureSession(id: "stop", mode: .audioRecording, state: .failed,
             sourceAppEligibility: .eligible, policySnapshotRef: "policy", triggerEvidence: [:],
             visibleIndicatorState: .error, stopActionAvailable: false,
@@ -127,6 +144,7 @@ final class DesktopNotificationControlTests: XCTestCase {
         snapshot.stopping = false
         XCTAssertFalse(snapshot.active)
         XCTAssertTrue(snapshot.completedRecording)
+        XCTAssertEqual(snapshot.recoveryAction, .localRecordings)
     }
 
     func testNotificationWithoutLinkStillResolvesOnlyCurrentPermittedEvent() {

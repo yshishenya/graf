@@ -5912,11 +5912,13 @@ body {
 
 .meeting-detail-header.meeting-title-header-scrolls { position: static; }
 /* Quiet account inbox. Device/capture controls stay in the native shell. */
-.notification-entry { position: fixed; top: 38px; right: 50px; z-index: 65; }
-.cabinet-topbar { padding-right: 56px; }
-.notification-bell { position: relative; display: grid; place-items: center; width: 40px; height: 40px; border: 1px solid var(--line); border-radius: 10px; color: var(--text); background: var(--surface-2); }
-.notification-dot { position: absolute; top: 6px; right: 6px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
-.notification-panel { position: absolute; top: 48px; right: 0; display: flex; flex-direction: column; width: min(400px, calc(100vw - 32px)); max-height: calc(100dvh - 116px); overflow: hidden; padding: 18px; color: var(--text); background: var(--surface-2); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 12px 40px #0002; }
+.notification-entry { min-width: 0; }
+.notification-icon { position: relative; display: flex; flex: 0 0 20px; }
+.notification-dot { position: absolute; top: 0; right: 0; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+.notification-panel { position: fixed; z-index: 100; display: flex; flex-direction: column; width: min(400px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); overflow: hidden; padding: 18px; color: var(--text); background: var(--surface-2); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 12px 40px #0002; }
+.cabinet-mobile-nav .notification-entry { flex: 0 0 auto; }
+.cabinet-mobile-nav .notification-bell { width: 40px; min-height: 40px; padding: 8px; justify-content: center; }
+.cabinet-mobile-nav .notification-bell .cabinet-sidebar-nav__label { display: none; }
 .notification-panel[hidden] { display: none; }
 .notification-panel header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .notification-panel h2 { margin: 0; font-size: 17px; }
@@ -5934,9 +5936,6 @@ body {
 .notification-panel footer { margin-top: 16px; }
 .notification-history { max-width: 680px; margin: 32px auto; padding: 20px; }
 .notification-bell:focus-visible, .notification-panel :focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 3px; }
-@media (max-width: 1000px) { .notification-entry { right: 24px; } }
 @media (max-width: 600px) {
-  .notification-entry { right: 12px; top: 12px; }
-  .notification-panel { width: calc(100vw - 24px); max-height: calc(100dvh - 80px); }
   .notification-panel button, .notification-bell { min-height: 44px; }
 }

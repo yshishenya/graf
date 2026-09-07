@@ -23,6 +23,9 @@ public struct DesktopControlSnapshot: Equatable {
         guard let id = session?.id else { return nil }
         return DesktopUploadCustodySummary.summaries(for: uploadItems.filter { $0.sessionId == id }).first
     }
+    public var recoveryAction: DesktopControlAction {
+        completedRecording || session?.state == .failed ? .localRecordings : .permissions
+    }
     public var localIssues: [DesktopUploadCustodySummary] {
         DesktopUploadCustodySummary.summaries(for: uploadItems.filter {
             $0.serverTruth.finalizedAt == nil && $0.state != .terminalDeleted
@@ -65,55 +68,101 @@ public struct DesktopControlPanel: View {
                 }
                 if !compact {
                     Button { model.send(.settings) } label: { Image(systemName: "gearshape") }
-                        .accessibilityLabel("Настройки").help("Настройки")
+                        .buttonStyle(.borderless).accessibilityLabel("Настройки").help("Настройки")
                 }
             }
             if model.snapshot.stopping {
-                Text("Останавливаем запись…")
-                Text("Завершаем захват и проверяем локальную копию.").foregroundStyle(.secondary)
+                Text("Останавливаем запись…").fontWeight(.medium)
+                Text("Сохраняем запись на этом Mac.").font(.caption).foregroundStyle(.secondary)
             } else if model.snapshot.active {
                 CaptureStatusItem(session: model.snapshot.session,
                     stopDisabled: model.snapshot.transitioning, pauseDisabled: model.snapshot.transitioning,
                     onStop: { model.send(.stop) }, onPause: { model.send(.pause) }, onResume: { model.send(.resume) })
             } else {
                 if model.snapshot.completedRecording {
-                    Text("Запись остановлена")
+                    Text("Запись остановлена").fontWeight(.medium)
                     if let custody = model.snapshot.latestCustody {
-                        Text(custody.title)
-                        Text(custody.detail).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                    } else {
-                        Text("Проверьте локальную копию в списке записей.").foregroundStyle(.secondary)
+                        Text(custody.title).font(.callout).foregroundStyle(.secondary)
+                            .accessibilityLabel(custody.title + ". " + custody.detail).help(custody.detail)
                     }
                     Button("Открыть локальные записи") { model.send(.localRecordings) }
+                        .buttonStyle(.borderless)
                 } else {
-                    Text(model.snapshot.transitioning ? "Подготавливаем запись…" : model.snapshot.startAvailable ? "Готово к записи" : "Проверьте доступ к записи")
+                    Text(model.snapshot.transitioning ? "Подготавливаем запись…" : model.snapshot.startAvailable ? "Готово к записи" : "Запись пока недоступна")
+                        .foregroundStyle(.secondary)
                 }
-                Button("Начать запись") { model.send(.start) }
-                    .disabled(!model.snapshot.startAvailable || model.snapshot.transitioning)
-            }
-            if model.snapshot.session?.state == .paused {
-                Text(SystemAudioStatusLabels.localRecordingPausedStatus)
-                    .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            }
-            if !compact || model.snapshot.active {
-                Label("Микрофон: \(model.snapshot.microphone)", systemImage: "mic")
-                    .fixedSize(horizontal: false, vertical: true)
-                Label("Системный звук: \(model.snapshot.systemAudio)", systemImage: "speaker.wave.2")
-                    .fixedSize(horizontal: false, vertical: true)
-                if let blocker = model.snapshot.blocker, !blocker.isEmpty {
-                    Text(blocker).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                    Button("Проверить запись") { model.send(.permissions) }
+                Button { model.send(.start) } label: {
+                    Label("Начать запись", systemImage: "record.circle").frame(maxWidth: .infinity)
                 }
-                if let issue = model.snapshot.localIssues.first {
-                    Divider()
-                    Text("На этом Mac").font(.headline)
-                    Text(issue.title)
-                    Text(issue.detail).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                    Button("Открыть локальные записи") { model.send(.localRecordings) }
+                .buttonStyle(DesktopWebButtonStyle(.primary))
+                .disabled(!model.snapshot.startAvailable || model.snapshot.transitioning)
+            }
+            if model.snapshot.active && !model.snapshot.stopping {
+                HStack(spacing: 12) {
+                    Label(model.snapshot.session?.state == .paused ? "Микрофон на паузе" : "Микрофон", systemImage: "mic")
+                        .accessibilityValue(model.snapshot.microphone)
+                    Label("Звук Mac", systemImage: "speaker.wave.2")
+                        .accessibilityValue(model.snapshot.systemAudio)
+                }.font(.caption).foregroundStyle(.secondary)
+                if model.snapshot.session?.state == .paused {
+                    Text("Пауза не отключает запись звука Mac.").font(.caption).foregroundStyle(.secondary)
                 }
             }
-        }.font(.callout).padding(16).frame(width: compact ? 290 : 360)
-        .background(.regularMaterial).accessibilityElement(children: .contain)
+            if let blocker = model.snapshot.blocker, !blocker.isEmpty {
+                Text(blocker).font(.caption).foregroundStyle(.orange)
+                    .lineLimit(2).help(blocker).accessibilityLabel(blocker)
+            }
+            if model.snapshot.active && !model.snapshot.stopping {
+                if ["Нет свежих аудиоданных", "Нужен доступ"].contains(model.snapshot.microphone) {
+                    Text("Микрофон: \(model.snapshot.microphone)").font(.caption).foregroundStyle(.orange)
+                }
+                if ["Нет свежих аудиоданных", "Нужен доступ"].contains(model.snapshot.systemAudio) {
+                    Text("Звук Mac: \(model.snapshot.systemAudio)").font(.caption).foregroundStyle(.orange)
+                }
+            }
+        }
+        .font(.callout).padding(16).frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .contain)
+    }
+
+    var details: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if let blocker = model.snapshot.blocker, !blocker.isEmpty {
+                Text(blocker).font(.callout).fixedSize(horizontal: false, vertical: true)
+                if !model.snapshot.active {
+                    Button(model.snapshot.recoveryAction == .localRecordings ? "Открыть локальные записи" : "Проверить доступ") {
+                        model.send(model.snapshot.recoveryAction)
+                    }.buttonStyle(.borderless)
+                }
+            }
+            if let issue = model.snapshot.localIssues.first {
+                Button { model.send(.localRecordings) } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "exclamationmark.circle").foregroundStyle(.orange)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(issue.title).font(.callout.weight(.medium))
+                            Text("Посмотреть запись").font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
+                    }.contentShape(Rectangle())
+                }.buttonStyle(.plain).accessibilityLabel(issue.title + ". Открыть локальные записи")
+            }
+            DisclosureGroup("Источники звука") {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Микрофон: \(model.snapshot.microphone)")
+                    Text("Звук Mac: \(model.snapshot.systemAudio)")
+                }.font(.caption).foregroundStyle(.secondary).padding(.top, 6)
+            }.font(.caption).foregroundStyle(.secondary)
+        }.padding(.horizontal, 16).padding(.vertical, 12)
+    }
+}
+
+public enum DesktopPanelPlacement {
+    public static func frame(_ frame: NSRect, within bounds: NSRect) -> NSRect {
+        let width = min(frame.width, bounds.width), height = min(frame.height, bounds.height)
+        return NSRect(x: max(bounds.minX, min(frame.minX, bounds.maxX - width)),
+                      y: max(bounds.minY, min(frame.minY, bounds.maxY - height)), width: width, height: height)
     }
 }
 
@@ -122,14 +171,26 @@ public final class DesktopRecordingWidget {
     private let panel: NSPanel
     private var observation: AnyCancellable?
     private var screensObservation: AnyCancellable?
+    private var resizeObservation: AnyCancellable?
     private var hideCompletion: DispatchWorkItem?
     private var wasActive = false
     private func keepVisible() {
-        guard let screen = NSScreen.screens.first(where: { $0.visibleFrame.intersects(panel.frame) }) ?? NSScreen.main else { return }
-        let bounds = screen.visibleFrame
-        panel.setFrameOrigin(NSPoint(x: max(bounds.minX, min(panel.frame.minX, bounds.maxX - panel.frame.width)),
-                                     y: max(bounds.minY, min(panel.frame.minY, bounds.maxY - panel.frame.height))))
+        let screen = panel.screen ?? NSScreen.screens.max { left, right in
+            let a = left.visibleFrame.intersection(panel.frame), b = right.visibleFrame.intersection(panel.frame)
+            return (a.isNull ? 0 : a.width * a.height) < (b.isNull ? 0 : b.width * b.height)
+        } ?? NSScreen.main
+        guard let screen else { return }
+        let bounds = screen.visibleFrame.insetBy(dx: 8, dy: 8)
+        var requested = panel.frame
+        if let hosting = panel.contentViewController as? NSHostingController<DesktopControlPanel> {
+            let width = min(290, bounds.width)
+            let fitted = hosting.sizeThatFits(in: NSSize(width: width, height: bounds.height))
+            requested.size = panel.frameRect(forContentRect: NSRect(x: 0, y: 0, width: width, height: fitted.height)).size
+        }
+        let frame = DesktopPanelPlacement.frame(requested, within: bounds)
+        if panel.frame != frame { panel.setFrame(frame, display: true) }
     }
+
     public init(model: DesktopControlModel) {
         panel = NSPanel(contentRect: NSRect(x: 30, y: 80, width: 290, height: 140),
             styleMask: [.titled, .fullSizeContentView, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -143,7 +204,12 @@ public final class DesktopRecordingWidget {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isReleasedWhenClosed = false
         panel.setFrameAutosaveName("graf-recording-control-widget")
-        panel.contentViewController = NSHostingController(rootView: DesktopControlPanel(model: model, compact: true))
+        let hosting = NSHostingController(rootView: DesktopControlPanel(model: model, compact: true))
+        hosting.sizingOptions = []
+        panel.contentViewController = hosting
+        resizeObservation = NotificationCenter.default.publisher(for: NSWindow.didResizeNotification, object: panel)
+            .merge(with: NotificationCenter.default.publisher(for: NSWindow.didChangeScreenNotification, object: panel))
+            .sink { [weak self] _ in self?.keepVisible() }
         screensObservation = NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification).sink { [weak self] _ in self?.keepVisible() }
         observation = model.$snapshot.sink { [weak self] snapshot in
             guard let self else { return }
@@ -163,6 +229,7 @@ public final class DesktopRecordingWidget {
                 self.hideCompletion = hide
                 DispatchQueue.main.asyncAfter(deadline: .now() + 8, execute: hide)
             }
+            DispatchQueue.main.async { [weak self] in self?.keepVisible() }
             self.wasActive = snapshot.active
         }
     }

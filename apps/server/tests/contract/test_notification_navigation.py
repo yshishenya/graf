@@ -126,11 +126,55 @@ const source = require('node:fs').readFileSync(process.argv[1], 'utf8');
   await context.read.onclick();
   assert.equal(cleared,4); assert.equal(context.read.disabled,false);
   const filters = ['important','history'].map(value=>({dataset:{notificationFilter:value},setAttribute:(name,v)=>{ if(name==='aria-pressed') context[value]=v; }}));
-  Object.assign(context,{bell:{setAttribute:()=>{}},panel:{hidden:true},filter:'history',root:{querySelectorAll:()=>filters}});
+  Object.assign(context,{bell:{setAttribute:()=>{}},panel:{hidden:true,querySelectorAll:()=>filters},filter:'history',positionPanel:()=>{}});
   const open=source.indexOf('  bell.onclick = event => {',start);
-  vm.runInContext(source.slice(open,source.indexOf("  root.querySelector('[data-notification-close]')",open)),context);
+  vm.runInContext(source.slice(open,source.indexOf("  panel.querySelector('[data-notification-close]')",open)),context);
   context.bell.onclick({preventDefault:()=>{}});
   assert.equal(context.filter,'important'); assert.equal(context.important,'true'); assert.equal(context.history,'false');
 })().catch(error=>{console.error(error);process.exitCode=1;});
 """
     subprocess.run([shutil.which('node'), '-e', harness, str(script)], check=True, capture_output=True, text=True)
+
+
+def test_notification_panel_stays_inside_viewport():
+    script = Path(__file__).resolve().parents[2] / 'src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js'
+    harness = r"""
+const assert = require('node:assert/strict'), vm = require('node:vm');
+const source = require('node:fs').readFileSync(process.argv[1], 'utf8');
+const start = source.indexOf('  const positionPanel = () => {');
+const context = {window:{},bell:{},panel:{style:{}}};
+vm.createContext(context);
+vm.runInContext(source.slice(start, source.indexOf('  const csrf =',start)) + '\nglobalThis.place = positionPanel;',context);
+for (const [width,height] of [[360,640],[980,600],[1440,900]]) {
+  Object.assign(context.window,{innerWidth:width,innerHeight:height});
+  Object.assign(context.panel,{offsetWidth:Math.min(400,width-24),offsetHeight:height-24});
+  for (const rect of [{right:54,bottom:height-70},{right:244,bottom:height-40},{right:width-20,bottom:height-5}]) {
+    context.bell.getBoundingClientRect=()=>rect; context.place();
+    const left=parseFloat(context.panel.style.left), bottom=parseFloat(context.panel.style.bottom);
+    assert(left>=12 && left+context.panel.offsetWidth<=width-12);
+    assert(bottom>=12 && bottom+Math.min(context.panel.offsetHeight,parseFloat(context.panel.style.maxHeight))<=height-12);
+  }
+}
+"""
+    subprocess.run([shutil.which('node'), '-e', harness, str(script)], check=True, capture_output=True, text=True)
+
+
+def test_notification_entry_is_in_persistent_menu_for_web_and_embedded():
+    from types import SimpleNamespace
+
+    from jinja2 import Environment, FileSystemLoader
+
+    root = Path(__file__).resolve().parents[2] / 'src/twobrain_rec_server/cabinet/templates'
+    env = Environment(loader=FileSystemLoader(root), autoescape=True)
+    navigation = SimpleNamespace(active='meetings', items=[])
+    for embedded in (False, True):
+        html = env.get_template('cabinet/pages/shell.html').render(
+            navigation=navigation, embedded=embedded, content='', cabinet_static_url='/static/cabinet',
+            csrf_token=None, settings_navigation=[], profile=None,
+        )
+        assert html.count('data-notification-inbox') == 1
+        start = html.index('<div class="sidebar-foot">')
+        inbox = html.index('data-notification-inbox')
+        profile = html.index('data-profile-menu-root')
+        assert start < inbox < profile < html.index('</aside>')
+        assert ('href="/desktop/notifications"' if embedded else 'href="/notifications"') in html

@@ -7860,9 +7860,27 @@
   const panel = root.querySelector('[data-notification-panel]');
   const heading = panel.querySelector('h2');
   const dot = root.querySelector('[data-notification-dot]');
-  const list = root.querySelector('[data-notification-items]');
-  const status = root.querySelector('[data-notification-status]');
-  const more = root.querySelector('[data-notification-more]');
+  const list = panel.querySelector('[data-notification-items]');
+  const status = panel.querySelector('[data-notification-status]');
+  const more = panel.querySelector('[data-notification-more]');
+  // Keep the inbox outside the scrolling sidebar and the replaceable meeting content.
+  document.body.append(panel);
+  const sidebarFoot = root.parentElement;
+  const mobileNav = root.closest('[data-cabinet-shell]')?.querySelector('.cabinet-mobile-nav');
+  const mobileMedia = window.matchMedia('(max-width: 980px)');
+  const syncLocation = () => {
+    const target = mobileNav && mobileMedia.matches ? mobileNav : sidebarFoot;
+    const profile = target.querySelector('[data-profile-menu-root]');
+    target.insertBefore(root, profile);
+  };
+  syncLocation();
+  mobileMedia.addEventListener('change', syncLocation);
+  const positionPanel = () => {
+    const rect = bell.getBoundingClientRect();
+    panel.style.left = Math.max(12, Math.min(rect.right + 12, window.innerWidth - panel.offsetWidth - 12)) + 'px';
+    panel.style.bottom = Math.max(12, Math.min(window.innerHeight - rect.bottom, window.innerHeight - 480 - 12)) + 'px';
+    panel.style.maxHeight = (window.innerHeight - parseFloat(panel.style.bottom) - 12) + 'px';
+  };
   const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
   const embedded = bell.pathname.startsWith('/desktop/');
   const openedNoticeKey = 'graf-notification-open';
@@ -7896,7 +7914,7 @@
   let filter = 'important', next = null, epoch = 0, scopeEpoch = 0, controller = null, pageCount = 1;
   const setDot = value => {
     dot.hidden = !value;
-    bell.setAttribute('aria-label', value ? 'Есть новое важное уведомление' : 'Важное и история');
+    bell.setAttribute('aria-label', value ? 'Уведомления: есть новое важное' : 'Уведомления');
   };
   const clear = () => {
     epoch++; scopeEpoch++; controller?.abort(); list.replaceChildren(); setDot(false);
@@ -8001,25 +8019,27 @@
       if (!panel.hidden) {
         status.textContent = 'Не удалось проверить уведомления.';
         const retry = text('button', 'Повторить'); retry.type = 'button'; retry.onclick = () => load(); list.append(retry);
-        if (!root.contains(document.activeElement)) heading.focus({preventScroll:true});
+        if (!panel.contains(document.activeElement)) heading.focus({preventScroll:true});
       }
     }
   };
   bell.onclick = event => {
     event.preventDefault(); if (!panel.hidden) { close(true); return; }
     clear(); filter = 'important';
-    root.querySelectorAll('[data-notification-filter]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.notificationFilter === filter)));
-    panel.hidden = false; bell.setAttribute('aria-expanded','true'); heading.focus(); load();
+    panel.querySelectorAll('[data-notification-filter]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.notificationFilter === filter)));
+    panel.hidden = false; bell.setAttribute('aria-expanded','true'); positionPanel(); heading.focus({preventScroll:true}); load();
   };
-  root.querySelector('[data-notification-close]').onclick = () => close(true);
-  root.querySelectorAll('[data-notification-filter]').forEach(button => button.onclick = () => {
+  panel.querySelector('[data-notification-close]').onclick = () => close(true);
+  panel.querySelectorAll('[data-notification-filter]').forEach(button => button.onclick = () => {
     if (filter === button.dataset.notificationFilter) return;
     clear(); filter = button.dataset.notificationFilter;
-    root.querySelectorAll('[data-notification-filter]').forEach(b => b.setAttribute('aria-pressed', String(b === button))); load();
+    panel.querySelectorAll('[data-notification-filter]').forEach(b => b.setAttribute('aria-pressed', String(b === button))); load();
   });
   more.onclick = () => load(true);
   document.addEventListener('keydown', event => { if (event.key === 'Escape' && !panel.hidden) { close(true); event.stopPropagation(); } });
-  document.addEventListener('click', event => { if (!root.contains(event.target)) close(); });
+  document.addEventListener('click', event => { if (!root.contains(event.target) && !panel.contains(event.target)) close(); });
+  window.addEventListener('resize', () => { if (!panel.hidden) close(panel.contains(document.activeElement)); });
+  document.addEventListener('scroll', event => { if (!panel.hidden && !panel.contains(event.target)) close(panel.contains(document.activeElement)); }, true);
   document.addEventListener('visibilitychange', () => { clear(); if (!document.hidden) load(); });
   window.addEventListener('pageshow', () => { clear(); load(); consumeOpenedNotice(); });
   window.addEventListener('pagehide', clear);
