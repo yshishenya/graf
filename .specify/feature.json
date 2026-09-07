@@ -84,10 +84,12 @@
     "apps/server/src/twobrain_rec_server/outcomes/ai_service.py",
     "apps/server/tests/integration/test_commercial_ai.py",
     "apps/server/src/twobrain_rec_server/outcomes/service.py",
-    "apps/server/tests/integration/test_commercial_storage.py"
+    "apps/server/tests/integration/test_commercial_storage.py",
+    "apps/server/tests/integration/test_postgres_migrations.py",
+    "apps/server/tests/integration/test_system_admin_catalog.py"
   ],
   "owner": "codex",
   "risk_lane": "high-risk-product",
   "schema_version": 1,
-  "source_sha": "7c1f8f1c906fa1b62d3aa044f604f7609e2a2e60"
+  "source_sha": "33789d62ef8d3a62cd6cbf16df0b51cb381f649c"
 }
