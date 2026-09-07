@@ -5,7 +5,7 @@
 <nav class="cabinet-sidebar-nav" aria-label="Навигация кабинета">
   {%- for item in items -%}
   {%- set selected = item.id == active -%}
-  <a class="cabinet-sidebar-nav__item{% if selected %} is-selected{% endif %}" href="{{ item.href }}" data-shell-item="{{ item.id }}" data-shell-group="main" aria-label="{{ item.label }}" title="{{ item.label }}" data-state="{{ 'selected' if selected else 'normal' }}"{% if selected %} aria-current="page"{% endif %}>
+  <a class="cabinet-sidebar-nav__item{% if selected %} is-selected{% endif %}" href="{{ item.href }}" aria-label="{{ item.label }}" title="{{ item.label }}" data-state="{{ 'selected' if selected else 'normal' }}"{% if selected %} aria-current="page"{% endif %}>
     {{ icons.icon(item.icon) }}
     <span class="cabinet-sidebar-nav__label">{{ item.label }}</span>
   </a>
@@ -17,21 +17,26 @@
 <aside class="sidebar" id="cabinet-sidebar" data-cabinet-navigation>
   <button class="cabinet-rail-toggle" type="button" data-cabinet-rail-toggle aria-label="Показать боковую панель" title="Показать боковую панель" aria-controls="cabinet-sidebar" aria-expanded="false">{{ icons.icon("panel-left-open") }}{{ icons.icon("panel-left-close") }}</button>
   {{ workspace_header("ГРАФ", none, mark_src=static_url ~ "/graf-icon.png", wordmark_src=static_url ~ "/graf-wordmark-dark.png", wordmark_srcset=static_url ~ "/graf-wordmark-dark@2x.png 2x") }}
-  {{ sidebar_navigation(navigation.items, active=navigation.active) }}
   {% if navigation.active == "settings" %}
-  <nav class="cabinet-sidebar-nav cabinet-sidebar-nav--settings" aria-label="Разделы настроек" data-settings-primary-nav>
+  <nav class="cabinet-sidebar-nav cabinet-sidebar-nav--settings" aria-label="Навигация кабинета" data-settings-primary-nav>
+    <a class="cabinet-sidebar-nav__item cabinet-sidebar-nav__item--back" href="{{ '/desktop/meetings' if embedded else '/meetings' }}" aria-label="К встречам" title="К встречам" data-settings-primary-nav-item="meetings">
+      {{ icons.icon("calendar-days") }}
+      <span class="cabinet-sidebar-nav__label">К встречам</span>
+    </a>
     <span class="cabinet-sidebar-nav__section-label">Настройки</span>
-    <a class="cabinet-sidebar-nav__item{% if settings_active == 'overview' %} is-selected{% endif %}" href="{{ '/desktop/settings' if embedded else '/settings' }}" aria-label="Обзор" title="Обзор" data-settings-primary-nav-item="overview" data-shell-item="overview" data-shell-group="settings"{% if settings_active == 'overview' %} aria-current="page"{% endif %}>
+    <a class="cabinet-sidebar-nav__item{% if settings_active == 'overview' %} is-selected{% endif %}" href="{{ '/desktop/settings' if embedded else '/settings' }}" aria-label="Обзор" title="Обзор" data-settings-primary-nav-item="overview"{% if settings_active == 'overview' %} aria-current="page"{% endif %}>
       {{ icons.icon("settings") }}
       <span class="cabinet-sidebar-nav__label">Обзор</span>
     </a>
     {% for item in settings_navigation %}
-    <a class="cabinet-sidebar-nav__item{% if item.id == settings_active %} is-selected{% endif %}" href="{{ item.href }}" aria-label="{{ item.label }}" title="{{ item.label }}" data-settings-primary-nav-item="{{ item.id }}" data-shell-item="{{ item.id }}" data-shell-group="settings"{% if item.id == settings_active %} aria-current="page"{% endif %}>
+    <a class="cabinet-sidebar-nav__item{% if item.id == settings_active %} is-selected{% endif %}" href="{{ item.href }}" aria-label="{{ item.label }}" title="{{ item.label }}" data-settings-primary-nav-item="{{ item.id }}"{% if item.id == settings_active %} aria-current="page"{% endif %}>
       {{ icons.icon(item.icon) }}
       <span class="cabinet-sidebar-nav__label">{{ item.label }}</span>
     </a>
     {% endfor %}
   </nav>
+  {% else %}
+  {{ sidebar_navigation(navigation.items, active=navigation.active) }}
   {% endif %}
   {%- if embedded %}
   <button class="sidebar-app-update" type="button" data-graf-app-update hidden aria-label="Доступно обновление GRAF. Открыть проверку обновлений." title="Доступно обновление GRAF. Открыть проверку обновлений.">{{ icons.icon("download") }}<span class="sidebar-app-update__label">Доступно обновление</span></button>
@@ -62,6 +67,20 @@
           </div>
         </details>{% endif %}
         <a class="sidebar-profile-menu__item" href="{{ '/desktop/settings' if embedded else '/settings' }}" data-profile-menu-item="settings">{{ icons.icon("settings") }}<span>Настройки</span></a>
+        <div class="sidebar-profile-menu__separator" role="separator"></div>
+        <details class="sidebar-profile-menu__disclosure">
+          <summary class="sidebar-profile-menu__item">{{ icons.icon("info") }}<span>Решение проблем</span></summary>
+          <div class="sidebar-profile-menu__submenu" data-profile-menu-submenu>
+            {% for label in ("Сообщить о проблеме", "Записать сетевой журнал", "Диагностика сети") %}<button class="sidebar-profile-menu__item sidebar-profile-menu__item--disabled" type="button" disabled aria-disabled="true">{{ icons.icon("info") }}<span>{{ label }}</span></button>{% endfor %}
+          </div>
+        </details>
+        <details class="sidebar-profile-menu__disclosure">
+          <summary class="sidebar-profile-menu__item">{{ icons.icon("transcript") }}<span>Документация</span></summary>
+          <div class="sidebar-profile-menu__submenu" data-profile-menu-submenu>
+            {% for label in ("Начало работы", "Что нового", "Центр помощи", "Конфиденциальность и обмен данными") %}<button class="sidebar-profile-menu__item sidebar-profile-menu__item--disabled" type="button" disabled aria-disabled="true">{{ icons.icon("transcript") }}<span>{{ label }}</span></button>{% endfor %}
+          </div>
+        </details>
+        {% for label, icon_name in (("Техническая поддержка", "users-round"), ("Обратная связь", "info"), ("Присоединиться к ТГ-каналу", "users-round")) %}<button class="sidebar-profile-menu__item sidebar-profile-menu__item--disabled" type="button" disabled aria-disabled="true">{{ icons.icon(icon_name) }}<span>{{ label }}</span></button>{% endfor %}
         <div class="sidebar-profile-menu__separator" role="separator"></div>
         <form class="sidebar-logout" method="post" action="{{ '/desktop/meetings' if embedded else '/logout' }}">
           {{ csrf_field(csrf_token) }}

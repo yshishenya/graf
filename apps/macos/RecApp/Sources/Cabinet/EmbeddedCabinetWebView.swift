@@ -293,20 +293,6 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
         beginControllerNavigation(navigation, targetURL: webView.url)
     }
 
-    public func openDocument(_ url: URL) {
-        guard !isLoading, !sessionExpired, let webView, let routePolicy,
-              EmbeddedCabinetShellSnapshot.allowsDocument(url, policy: routePolicy),
-              let fallbackRequest else { return }
-        var request = fallbackRequest
-        request.url = url
-        request.httpMethod = "GET"
-        request.httpBody = nil
-        syntheticForwardRequest = nil
-        observeNavigationRequest(request, webView: webView)
-        guard let navigation = webView.load(request) else { return }
-        navigationDidStart(webView: webView, navigation: navigation, targetURL: url, controllerInitiated: true)
-    }
-
     public func goHome() {
         guard !isLoading,
               canGoHome,
@@ -1251,7 +1237,6 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
     private let onLocalRecordingAction: LocalRecordingAction
     private let fallbackRequest: URLRequest
     private let navigationController: EmbeddedCabinetNavigationController
-    var shellBridge: EmbeddedCabinetShellBridge?
     @Binding private var cabinetState: DesktopCabinetState
     @Binding private var currentRoute: URL?
 
@@ -1269,8 +1254,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         localRecordingRows: [EmbeddedCabinetLocalRecordingRow] = [],
         onLocalRecordingAction: @escaping LocalRecordingAction = { _, _ in },
         fallbackRequest: URLRequest,
-        navigationController: EmbeddedCabinetNavigationController,
-        shellBridge: EmbeddedCabinetShellBridge? = nil
+        navigationController: EmbeddedCabinetNavigationController
     ) {
         self.request = request
         self.routePolicy = routePolicy
@@ -1284,7 +1268,6 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         self.onLocalRecordingAction = onLocalRecordingAction
         self.fallbackRequest = fallbackRequest
         self.navigationController = navigationController
-        self.shellBridge = shellBridge
         _cabinetState = cabinetState
         _currentRoute = currentRoute
     }
@@ -1497,9 +1480,6 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             context.coordinator,
             name: EmbeddedCabinetLocalRecordingBridge.messageHandlerName
         )
-        if shellBridge != nil {
-            configuration.userContentController.add(context.coordinator, name: EmbeddedCabinetShellBridge.messageHandlerName)
-        }
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.wantsLayer = true
         webView.underPageBackgroundColor = DesktopMeetingShellChrome.webEmbeddedBackgroundNSColor
@@ -1583,8 +1563,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             onCheckForUpdates: onCheckForUpdates,
             onOpenMeetingDetectionSettings: onOpenMeetingDetectionSettings,
             supportIncidentBridge: supportIncidentBridge,
-            navigationController: navigationController,
-            shellBridge: shellBridge
+            navigationController: navigationController
         )
     }
 
@@ -1620,7 +1599,6 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         private let onOpenMeetingDetectionSettings: OpenMeetingDetectionSettingsAction
         private let supportIncidentBridge: EmbeddedCabinetSupportIncidentBridge?
         private let navigationController: EmbeddedCabinetNavigationController
-        private let shellBridge: EmbeddedCabinetShellBridge?
         private var localRecordingRows: [EmbeddedCabinetLocalRecordingRow] = []
         private var onLocalRecordingAction: LocalRecordingAction = { _, _ in }
         private weak var downloadHostWindow: NSWindow?
@@ -1642,8 +1620,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             onCheckForUpdates: @escaping CheckForUpdatesAction,
             onOpenMeetingDetectionSettings: @escaping OpenMeetingDetectionSettingsAction,
             supportIncidentBridge: EmbeddedCabinetSupportIncidentBridge?,
-            navigationController: EmbeddedCabinetNavigationController,
-            shellBridge: EmbeddedCabinetShellBridge? = nil
+            navigationController: EmbeddedCabinetNavigationController
         ) {
             self.routePolicy = routePolicy
             self.desktopHeaders = desktopHeaders
@@ -1657,7 +1634,6 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             self.onOpenMeetingDetectionSettings = onOpenMeetingDetectionSettings
             self.supportIncidentBridge = supportIncidentBridge
             self.navigationController = navigationController
-            self.shellBridge = shellBridge
             _cabinetState = cabinetState
             _currentRoute = currentRoute
         }
@@ -1705,7 +1681,6 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         public func detachNavigationController(from webView: WKWebView) {
             isActive = false
             cancelJavaScriptConfirmation()
-            shellBridge?.invalidate(deferPublication: true)
             navigationController.detach(webView: webView)
         }
 
@@ -1799,14 +1774,6 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             _: WKUserContentController,
             didReceive message: WKScriptMessage
         ) {
-            if message.name == EmbeddedCabinetShellBridge.messageHandlerName {
-                guard isActive, !webContentProcessTerminated,
-                      let webView = message.webView, navigationController.isAttached(to: webView),
-                      let sourceURL = message.frameInfo.documentRequestURL else { return }
-                shellBridge?.receive(message.body, sourceURL: sourceURL, isMainFrame: message.frameInfo.isMainFrame,
-                                     sessionBoundaryID: navigationController.sessionBoundaryID)
-                return
-            }
             if message.name == EmbeddedCabinetLocalRecordingBridge.messageHandlerName {
                 guard isActive,
                       message.frameInfo.isMainFrame,
@@ -2146,11 +2113,6 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             }
         }
 
-        public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
-            guard isActive, navigationController.isAttached(to: webView) else { return }
-            shellBridge?.committed(webView: webView, policy: routePolicy, sessionBoundaryID: navigationController.sessionBoundaryID)
-        }
-
         @MainActor
         public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             guard navigationController.isAttached(to: webView) else { return }
@@ -2189,7 +2151,6 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                 currentRoute = EmbeddedCabinetWebView.trackedRoute(current: currentRoute, loaded: url)
             }
             cabinetState = finishedState
-            shellBridge?.publishDocument(sessionBoundaryID: navigationController.sessionBoundaryID)
             applyUpdateVisibility(to: webView)
             applyLocalRecordingRows(to: webView)
             logNavigationEvent(
@@ -2241,7 +2202,6 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                     expectedURL: navigationResponse.response.url
                 )
                 if state == .expiredSession || state == .workspaceReselectionRequired {
-                    shellBridge?.invalidate()
                     navigationController.markSessionExpired(webView: webView)
                 }
                 cabinetState = state
@@ -2258,7 +2218,6 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             guard navigationController.isAttached(to: webView) else { return }
             guard navigationController.navigationDidFail(webView: webView, navigation: navigation, error: error) else { return }
             cancelJavaScriptConfirmation()
-            shellBridge?.invalidate()
             transitionAfterNavigationFailure(error, webView: webView, phase: "committed")
         }
 
@@ -2267,7 +2226,6 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             guard navigationController.isAttached(to: webView) else { return }
             guard navigationController.navigationDidFail(webView: webView, navigation: navigation, error: error) else { return }
             cancelJavaScriptConfirmation()
-            shellBridge?.invalidate()
             transitionAfterNavigationFailure(error, webView: webView, phase: "provisional")
         }
 
@@ -2280,7 +2238,6 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
 
         public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
             guard navigationController.isAttached(to: webView) else { return }
-            shellBridge?.invalidate()
             webContentProcessTerminated = true
             cancelJavaScriptConfirmation()
             navigationController.cancelPendingNavigation(webView: webView)
@@ -2430,6 +2387,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             super.init(frame: .zero)
             wantsLayer = true
             clipsToBounds = true
+            layer?.backgroundColor = DesktopMeetingShellChrome.webEmbeddedBackgroundNSColor.cgColor
             layer?.masksToBounds = true
             webView.clipsToBounds = true
             webView.layer?.masksToBounds = true

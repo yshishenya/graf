@@ -5080,78 +5080,6 @@
     });
   };
 
-  // One document owns this handoff. Older clients/servers retain the HTML sidebar.
-  const initDesktopShell = () => {
-    const shell = document.querySelector(".desktop-embedded[data-cabinet-shell]");
-    const sidebar = shell?.querySelector("[data-cabinet-navigation]");
-    if (!sidebar || window.grafDesktopShell) return;
-    let generation = null;
-    const snapshot = () => ({
-      version: "desktop-shell/v1", generation,
-      items: Array.from(sidebar.querySelectorAll("a[data-shell-item]")).map((link) => ({
-        id: link.dataset.shellItem, label: link.getAttribute("aria-label"),
-        route: link.getAttribute("href"), group: link.dataset.shellGroup,
-        selected: link.getAttribute("aria-current") === "page"
-      })),
-      name: sidebar.querySelector(".sidebar-profile__name")?.textContent.trim() || "Профиль",
-      theme: document.documentElement.dataset.theme || "system",
-      commands: [
-        ["account", '[data-profile-menu-item="account"]'],
-        ["settings", '[data-profile-menu-item="settings"]'],
-        ["theme", '[data-account-preferences] input[name="theme"]'],
-        ["logout", "form.sidebar-logout"], ["update", "[data-graf-app-update]"],
-        ["quit", "[data-graf-app-quit]"]
-      ].filter(([, selector]) => sidebar.querySelector(selector)).map(([action]) => action)
-    });
-    const publish = () => {
-      if (generation) window.webkit?.messageHandlers?.grafDesktopShell?.postMessage(snapshot());
-    };
-    window.grafDesktopShell = {
-      begin(token) {
-        if (typeof token !== "string" || !window.webkit?.messageHandlers?.grafDesktopShell) return null;
-        generation = token;
-        return snapshot();
-      },
-      adopt(token) {
-        if (!generation || token !== generation) return { adopted: false };
-        const focusSidebar = sidebar.contains(document.activeElement);
-        const menu = sidebar.querySelector("[data-profile-menu]");
-        if (menu?.matches(":popover-open")) menu.hidePopover();
-        sidebar.hidden = true;
-        shell.dataset.nativeNavigation = "true";
-        return { adopted: true, focusSidebar };
-      },
-      release(token) {
-        if (token !== generation) return;
-        sidebar.hidden = false;
-        delete shell.dataset.nativeNavigation;
-        generation = null;
-      },
-      publish,
-      perform(token, action, value) {
-        if (!generation || token !== generation) return false;
-        if (action === "theme" && ["light", "dark", "system"].includes(value)) {
-          const input = sidebar.querySelector(`[data-account-preferences] input[name="theme"][value="${value}"]`);
-          if (!input) return false;
-          input.click(); // Existing autosave listener and CSRF form own the POST.
-          return true;
-        }
-        if (action === "logout") {
-          const form = sidebar.querySelector("form.sidebar-logout");
-          if (!form) return false;
-          form.requestSubmit();
-          return true;
-        }
-        const selector = { account: '[data-profile-menu-item="account"]', settings: '[data-profile-menu-item="settings"]',
-          update: "[data-graf-app-update]", quit: "[data-graf-app-quit]" }[action];
-        const target = selector && sidebar.querySelector(selector);
-        if (!target) return false;
-        target.click();
-        return true;
-      }
-    };
-  };
-
   const initAccountPreferences = () => {
     document.querySelectorAll("[data-account-preferences]").forEach((form) => {
       if (form.dataset.accountPreferencesReady === "true") return;
@@ -5160,7 +5088,6 @@
         if (theme === "system") document.documentElement.removeAttribute("data-theme");
         else document.documentElement.dataset.theme = theme;
         document.documentElement.style.colorScheme = theme === "system" ? "" : theme;
-        window.grafDesktopShell?.publish();
       };
       const currentTheme = form.elements.namedItem("theme")?.value || "system";
       applyTheme(currentTheme);
@@ -5170,48 +5097,8 @@
           if (form.dataset.accountPreferencesAutoSave === "true") form.requestSubmit();
         }
       });
-      let confirmedTheme = currentTheme;
-      let savingTheme = false;
-      form.addEventListener("submit", async (event) => {
-        if (form.dataset.accountPreferencesAutoSave === "true") {
-          event.preventDefault();
-          if (savingTheme) return;
-          savingTheme = true;
-          const inputs = Array.from(form.querySelectorAll('input[name="theme"]'));
-          const requestedTheme = form.elements.namedItem("theme")?.value || "system";
-          const body = new FormData(form);
-          inputs.forEach((input) => { input.disabled = true; });
-          let feedback = document.getElementById("cabinet-theme-feedback");
-          if (feedback) feedback.remove();
-          try {
-            // Reuse the same CSRF-protected POST and its confirmation; keep the working document.
-            const response = await fetch(form.action, { method: "POST", body, credentials: "same-origin" });
-            const target = new URL(response.url);
-            if (target.origin !== window.location.origin) throw new Error("theme_unconfirmed");
-            if (target.pathname === "/login") { window.location.assign(target.href); return; }
-            const expectedPath = new URL(form.action).pathname.replace(/\/preferences$/, "");
-            if (!response.ok || target.pathname !== expectedPath || target.searchParams.get("preferences") !== "saved") {
-              throw new Error("theme_unconfirmed");
-            }
-            confirmedTheme = requestedTheme;
-            document.querySelectorAll('[data-account-preferences] input[name="theme"]').forEach((input) => {
-              input.checked = input.value === confirmedTheme;
-            });
-          } catch (_error) {
-            inputs.forEach((input) => { input.checked = input.value === confirmedTheme; });
-            applyTheme(confirmedTheme);
-            feedback = document.createElement("div");
-            feedback.id = "cabinet-theme-feedback";
-            feedback.className = "cabinet-banner";
-            feedback.setAttribute("role", "alert");
-            feedback.textContent = "Не удалось подтвердить сохранение темы. Попробуйте выбрать её ещё раз.";
-            document.querySelector("main")?.prepend(feedback);
-          } finally {
-            savingTheme = false;
-            inputs.forEach((input) => { input.disabled = false; });
-          }
-          return;
-        }
+      form.addEventListener("submit", () => {
+        // Keep the native POST/no-JS path authoritative; preview is local only until the server confirms.
         const status = form.querySelector("[data-settings-form-status]");
         if (status) { status.textContent = "Сохраняем настройки…"; status.hidden = false; }
         const submit = form.querySelector("button[type='submit']");
@@ -7261,7 +7148,6 @@
     initCalendarUpcomingRefresh();
     initSettingsFormState();
     initAccountPreferences();
-    initDesktopShell();
     initSettingsConfirmations();
     initShareInvitationAutoAccept();
     initBillingCopyControls();

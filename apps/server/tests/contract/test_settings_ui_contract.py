@@ -28,7 +28,7 @@ def test_settings_overview_exposes_supported_categories_in_primary_sidebar() -> 
         assert f'href="{prefix}/workspace"' in page
         assert f'href="{prefix}/account"' in page
         assert page.count("data-settings-primary-nav>") == 1
-        assert page.count("data-settings-primary-nav-item") == 8
+        assert page.count("data-settings-primary-nav-item") == 9
         assert '<span class="cabinet-sidebar-nav__section-label">Настройки</span>' in page
         assert f'<a href="{prefix}/account">Настройки</a>' not in page
         assert 'class="settings-navigation"' not in page
@@ -38,6 +38,7 @@ def test_settings_overview_exposes_supported_categories_in_primary_sidebar() -> 
 
 def test_settings_sidebar_exposes_canonical_links_and_active_state() -> None:
     expected_ids = (
+        "meetings",
         "overview",
         "recording",
         "summaries",
@@ -141,7 +142,7 @@ def test_settings_templates_use_primary_sidebar_and_single_content_column() -> N
         render_settings_page(category="recording", embedded=True),
     ):
         assert page.count('aria-label="Навигация кабинета"') == 1
-        assert page.count('aria-current="page"') == 2
+        assert page.count('aria-current="page"') == 1
         assert 'class="settings-page__content"' in page
 
     templates = root / "src/twobrain_rec_server/cabinet/templates/cabinet"
@@ -180,7 +181,7 @@ def test_settings_overview_keeps_navigation_primary_and_copy_compact() -> None:
     assert page.count('data-settings-category="') == 7
     assert "Разрешения и автозапись на Mac." in page
     assert "Тариф, хранилище и платежи." in page
-    assert page.count('data-settings-primary-nav-item="') == 8
+    assert page.count('data-settings-primary-nav-item="') == 9
 
 
 def test_settings_overview_matches_product_reference_geometry() -> None:
@@ -222,7 +223,7 @@ def test_settings_binary_controls_use_shared_switches_and_segmented_theme() -> N
     assert "Важные системные сообщения всегда включены." in notifications
 
 
-def test_profile_menu_removes_permanent_placeholders_and_keeps_native_quit() -> None:
+def test_profile_menu_uses_semantic_disabled_actions_and_native_quit_marker() -> None:
     root = Path(__file__).resolve().parents[2]
     template = (
         root / "src/twobrain_rec_server/cabinet/templates/cabinet/components/sections.html"
@@ -231,10 +232,10 @@ def test_profile_menu_removes_permanent_placeholders_and_keeps_native_quit() -> 
         encoding="utf-8"
     )
 
-    assert 'disabled aria-disabled="true"' not in template
+    assert 'disabled aria-disabled="true"' in template
     assert 'data-graf-app-quit' in template
     assert 'data-account-preferences-auto-save' in template
-    assert '.sidebar-profile-menu__item--disabled' not in css
+    assert '.sidebar-profile-menu__item--disabled' in css
     assert '.sidebar-profile-menu__separator' in css
 
 

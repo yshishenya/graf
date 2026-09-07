@@ -3875,6 +3875,10 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
   .calendar-section-head > .button { align-self: flex-start; }
 }
 
+.cabinet-sidebar-nav__item.is-selected {
+  background: var(--surface-3);
+}
+
 .cabinet-tooltip {
   position: relative;
   display: inline-flex;
@@ -3924,7 +3928,7 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
 .cabinet-sidebar-nav {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 8px;
 }
 
 .cabinet-banner {
@@ -4282,6 +4286,9 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
 }
 .list-card.cabinet-card {
   min-height: 0;
+  border-color: rgba(255,255,255,.12);
+  border-radius: 10px;
+  background: var(--surface);
   animation: none;
 }
 .meeting-list {
@@ -4500,6 +4507,9 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
 .cabinet-workspace-header--brand .cabinet-workspace-header__wordmark {
   width: 86px;
   height: 32px;
+}
+.cabinet-sidebar-nav {
+  gap: 4px;
 }
 .cabinet-sidebar-nav__item {
   min-height: 36px;
@@ -5218,13 +5228,15 @@ html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned
 .sidebar-profile-menu__item:focus-visible,
 .sidebar-profile-menu__account:focus-visible,
 .sidebar-profile-menu .sidebar-logout__button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.sidebar-profile-menu__item--disabled,
+.sidebar-profile-menu__item--disabled:hover { color: var(--muted); background: transparent; cursor: not-allowed; opacity: .62; }
 .sidebar-profile-menu__theme-form { margin: 0; padding: 0; }
 .sidebar-profile-menu__theme-form .theme-picker > legend { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 .sidebar-profile-menu__theme-form .theme-picker__options { grid-template-columns: 1fr; max-width: none; }
 .sidebar-profile-menu__theme-form .theme-picker__option > span { justify-content: flex-start; min-height: 30px; padding-inline: 8px; font-size: var(--font-size-body); }
 .sidebar-profile-menu__quit { margin-top: 1px; }
-.sidebar-profile-menu__quit { color: var(--text); background: transparent; }
-.sidebar-profile-menu__quit:hover { background: var(--surface-3); }
+.sidebar-profile-menu__quit:not(.sidebar-profile-menu__item--disabled) { color: var(--text); background: transparent; }
+.sidebar-profile-menu__quit:not(.sidebar-profile-menu__item--disabled):hover { background: var(--surface-3); }
 
 @media (max-width: 520px), (max-height: 620px) {
   .sidebar-profile-menu {
@@ -5840,36 +5852,4 @@ body {
     width: var(--app-sidebar-width);
     min-width: var(--app-sidebar-width);
   }
-}
-
-/* The native shell takes only navigation; document forms/history remain authoritative. */
-.app-shell.desktop-embedded[data-native-navigation="true"] {
-  grid-template-columns: minmax(0, 1fr);
-}
-.app-shell.desktop-embedded[data-native-navigation="true"] > [data-cabinet-navigation] {
-  display: none;
-}
-
-/* A finished matte surface; control borders retain their stronger contrast. */
-.app-shell[data-cabinet-shell] { --app-sidebar-width: 268px; }
-.app-shell[data-cabinet-shell] > .sidebar {
-  margin: 8px;
-  top: 8px;
-  height: calc(100dvh - 16px);
-  border: 1px solid var(--line-soft);
-  border-radius: 16px;
-  scrollbar-gutter: auto;
-}
-@media (max-width: 1120px) {
-  .app-shell.desktop-embedded[data-cabinet-shell] > .sidebar {
-    margin: 8px 4px;
-    width: calc(var(--app-rail-width) - 8px);
-    min-width: 0;
-  }
-  .app-shell.desktop-embedded.is-rail-pinned[data-cabinet-shell] > .sidebar {
-    width: calc(var(--app-sidebar-width) - 8px);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .app-shell[data-cabinet-shell] > .sidebar { transition: none; }
 }
