@@ -11,3 +11,5 @@
 7. PR governance-fast на точном SHA. Full CI/notarization/production — отдельный frozen release candidate; этот Dev проход их не заменяет.
 
 T021: `swift test --package-path apps/macos --parallel --num-workers 1 --filter CabinetSidebarRuntimeTests`; в профиле проверить hover одного подменю, переход внутрь через зазор, смену строки, уход, keyboard/touch/Escape. Проверить светлую/тёмную тему и компактное окно: подпункты видимы внутри меню. Evidence — `validation/profile-hover.md`.
+
+T010, общий валидатор Dev: `pytest -q tests/governance/test_dev_runtime.py tests/governance/test_dev_compose_contract.py`; `python3 scripts/validate-dev-runtime.py`; `python3 scripts/validate-agent-context.py`. Отсутствие/номер локального указателя не влияет на runtime-проверку; нарушения Compose/evidence должны приводить к ошибке.

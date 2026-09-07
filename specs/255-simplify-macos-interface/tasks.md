@@ -39,7 +39,7 @@ T019 выполняет точечный возврат, T020 — повторн
 
 **Independent Test**: inventory.md покрыт результатами; для каждого удаления найден весь круг потребителей и есть профильная проверка, рабочий local mode сохранён.
 
-- [ ] T010 [US3] Повторно найти все потребители и убрать только перекрытые CSS декларации и доказанно недостижимую queue-ветку в `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css` и `apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift`; обновить затронутые проверки и `specs/255-simplify-macos-interface/validation/cleanup.md`. FR-012/SC-005; .card и local mode не удалять без отдельного доказательства.
+- [ ] T010 [US3] Повторно найти все потребители и убрать только перекрытые CSS декларации и доказанно недостижимую queue-ветку в `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css` и `apps/macos/RecApp/Sources/Cabinet/DesktopMeetingShellView.swift`; обновить затронутые проверки и `specs/255-simplify-macos-interface/validation/cleanup.md`. По решению владельца от 2026-09-08 также убрать привязку `scripts/validate-dev-runtime.py` к закрытой F229 и заменить пропускаемый тест в `tests/governance/test_dev_runtime.py` регрессиями общего валидатора, сохранив защитные ограничения. FR-012/SC-005; .card и local mode не удалять без отдельного доказательства.
 - [ ] T011 [US3] Завершить общие роли заголовков/действий/состояний в `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css` и согласовать реальные F245–F253, admin/public/no-JS, ресурсы и отклонения reference в `specs/255-simplify-macos-interface/inventory.md` и `validation/acceptance.md`. FR-010/FR-011/FR-013/FR-014.
 
 ## Phase 6: Приёмка, PR и выпуск
@@ -82,7 +82,7 @@ Umbrella/reservation: #6752. Task ownership синхронизировано 202
 
 ## Промежуточное состояние реализации
 
-Код T003–T010 реализован и прошёл профильные проверки, но задачи с обязательной runtime приёмкой сохраняют `[ ]` до полного evidence. См. `validation/acceptance.md`, `validation/cleanup.md` и `validation/convergence.md`. Коммит `c6bbcf3` содержит документы; реализация закоммичена в `1614e6787`, создан draft PR #6766 и штатный Dev-кандидат. Продвижение в установленный Dev и выпуск ещё не выполнены; см. `validation/dev-preparation.md`.
+Код T003–T010 реализован и прошёл профильные проверки, но задачи с обязательной runtime приёмкой сохраняют `[ ]` до полного evidence. См. `validation/acceptance.md`, `validation/cleanup.md` и `validation/convergence.md`. Коммит `c6bbcf3` содержит документы; реализация закоммичена в `1614e6787`, создан draft PR #6766 и штатный Dev-кандидат. Установлен GRAF Dev `dev-e8193d7ba850`, live smoke 13/13 PASS; выпуск ещё не выполнен. Это отдельное evidence установленной ревизии; см. `validation/dev-preparation.md`.
 
 - [ ] T018 [US3] По запросу владельца от 2026-09-07 убрать одинаковые заглушки приложений и уменьшить высоту кнопок автозаписи до 28 pt, радиус до 6 pt в `apps/macos/RecApp/Sources/MeetingDetection/MeetingDetectionSettingsView.swift`; согласовать существующий контракт `apps/macos/Shared/Tests/AppControlAccessibilityTests.swift`, сохранить три правила, выбор/disabled/клавиатуру и изменения F249 при совместной приёмке. FR-003/FR-006; владелец #6755. Профильные проверки и фактический результат — `validation/settings-density.md`.
 
