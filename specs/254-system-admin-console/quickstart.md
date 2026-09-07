@@ -88,3 +88,11 @@ PYTHONPATH=src .venv/bin/python scripts/backfill_billing_catalog.py --database-u
 Переменная указывает на операторский файл секрета с DSN роли `twobrain_rec_maintenance`; сам DSN не передаётся аргументом. Без `--execute` выводятся только счётчики. Каждый пакет коммитится отдельно; повтор продолжает незавершённые/изменённые подписки. `lag=0` означает отсутствие непроверенных текущих версий подписки на момент запроса; `unresolved>0` означает сохранённые истории, требующие разбора. Нулевой lag до остановки старых billing writers не заменяет обязательный повтор после барьера из contracts/migration.md. Новые catalog writers и продажи не включать до подключения всех consumers и прохождения полного жизненного цикла. Команда не меняет платежи, согласия и paid_through, не отправляет запросов провайдеру.
 
 Перед выпуском дополнительно закрыть T018 для уже существующих scheduled renewal operations без schedule_version: текущий исполнитель направляет их на разбор и не отправляет платёж. Расширение денежных колонок до bigint проверить на восстановленной базе с замером блокировок; этот локальный прогон не доказывает миграционное окно production.
+
+### Индивидуальные назначения: проверка внутреннего сервиса
+
+```sh
+apps/server/scripts/run_local_postgres_tests.sh --focused tests/integration/test_system_admin_entitlements.py tests/integration/test_system_admin_billing.py tests/integration/test_billing_rls.py tests/integration/test_system_admin_security.py -x -q
+```
+
+Все данные синтетические. Сейчас это проверка immutable ledger и коммерческого расчёта, а не готовая пользовательская форма. Не включать назначения в production до завершения распределения резервов, общего resolver всех потребителей и T020. Ручная вставка ledger не является поддерживаемым способом назначения прав.

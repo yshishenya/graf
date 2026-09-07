@@ -329,79 +329,18 @@ async def test_system_migration_refuses_destructive_downgrade(system_database):
         Path(__file__).resolve().parents[2]
         / "src/twobrain_rec_server/db/migrations/versions/0086_system_admin_boundary.py"
     )
-    spec = importlib.util.spec_from_file_location("f254_boundary_migration", migration_path)
-    migration = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(migration)
+    from alembic.script import ScriptDirectory
+
+    revisions = list(ScriptDirectory(str(migration_path.parents[1])).walk_revisions(
+        base="0086_system_admin_boundary", head="heads"))
     owner = system_database["owner"]
     url = make_url(system_database["url"]).set(username="twobrain_rec", password="twobrain_rec")
     engine = create_async_engine(url)
 
-    later_spec = importlib.util.spec_from_file_location(
-        "f254_scoped_migration", migration_path.with_name("0087_system_scoped_authority.py"),
-    )
-    later_migration = importlib.util.module_from_spec(later_spec)
-    later_spec.loader.exec_module(later_migration)
-
-    operation_spec = importlib.util.spec_from_file_location(
-        "f254_operations_migration", migration_path.with_name("0088_system_operations.py"),
-    )
-    operation_migration = importlib.util.module_from_spec(operation_spec)
-    operation_spec.loader.exec_module(operation_migration)
-
-    auth_spec = importlib.util.spec_from_file_location(
-        "f254_auth_migration", migration_path.with_name("0089_system_auth.py"),
-    )
-    auth_migration = importlib.util.module_from_spec(auth_spec)
-    auth_spec.loader.exec_module(auth_migration)
-
-    management_spec = importlib.util.spec_from_file_location(
-        "f254_management_migration", migration_path.with_name("0090_system_admin_management.py"),
-    )
-    management_migration = importlib.util.module_from_spec(management_spec)
-    management_spec.loader.exec_module(management_migration)
-
-    projection_spec = importlib.util.spec_from_file_location(
-        "f254_projection_migration", migration_path.with_name("0091_system_user_projection.py"),
-    )
-    projection_migration = importlib.util.module_from_spec(projection_spec)
-    projection_spec.loader.exec_module(projection_migration)
-
-    content_spec = importlib.util.spec_from_file_location(
-        "f254_content_migration", migration_path.with_name("0092_system_meeting_content.py"),
-    )
-    content_migration = importlib.util.module_from_spec(content_spec)
-    content_spec.loader.exec_module(content_migration)
-
-    lineage_spec = importlib.util.spec_from_file_location(
-        "f254_lineage_migration", migration_path.with_name("0093_system_domain_lineage.py"),
-    )
-    lineage_migration = importlib.util.module_from_spec(lineage_spec)
-    lineage_spec.loader.exec_module(lineage_migration)
-
-    overview_spec = importlib.util.spec_from_file_location(
-        "f254_overview_migration", migration_path.with_name("0094_system_meeting_overview.py"),
-    )
-    overview_migration = importlib.util.module_from_spec(overview_spec)
-    overview_spec.loader.exec_module(overview_migration)
-
-    media_spec = importlib.util.spec_from_file_location(
-        "f254_media_migration", migration_path.with_name("0095_system_media_access.py"),
-    )
-    media_migration = importlib.util.module_from_spec(media_spec)
-    media_spec.loader.exec_module(media_migration)
-
     def downgrade(connection):
         with Operations.context(MigrationContext.configure(connection)):
-            media_migration.downgrade()
-            overview_migration.downgrade()
-            lineage_migration.downgrade()
-            content_migration.downgrade()
-            projection_migration.downgrade()
-            management_migration.downgrade()
-            auth_migration.downgrade()
-            operation_migration.downgrade()
-            later_migration.downgrade()
-            migration.downgrade()
+            for revision in revisions:
+                revision.module.downgrade()
 
     try:
         with pytest.raises(DBAPIError, match="destructive downgrade refused"):

@@ -7,6 +7,8 @@ from twobrain_rec_server.db.models.admin import (
     WorkspaceUsageDaily,
 )
 from twobrain_rec_server.db.models.billing import (
+    BillingAccessAdjustment,
+    BillingAccessRevocation,
     BillingAuditEvent,
     BillingEntitlementGrant,
     BillingInvoice,
@@ -159,6 +161,8 @@ __all__ = [
     "SystemSession",
     "AdminAuditEvent",
     "AccountClosureRequest",
+    "BillingAccessAdjustment",
+    "BillingAccessRevocation",
     "BillingAuditEvent",
     "BillingInvoice",
     "BillingEntitlementGrant",

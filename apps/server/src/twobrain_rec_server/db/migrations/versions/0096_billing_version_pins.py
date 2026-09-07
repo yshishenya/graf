@@ -177,7 +177,9 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.execute("""do $$ begin
-        if exists(select 1 from workspace_subscriptions where pin_state in ('pinned','legacy_pinned'))
+        if exists(select 1 from workspace_subscriptions where pin_state in ('pinned','legacy_pinned')
+          or pinned_plan_version_id is not null or pinned_price_id is not null or legacy_pinned_snapshot is not null)
+          or exists(select 1 from billing_entitlement_grants where plan_version_id is not null)
           or exists(select 1 from billing_plan_versions where status<>'legacy') then
           raise exception 'billing pin records exist; compatible forward fix required';
         end if;

@@ -207,6 +207,31 @@ async def test_historical_pin_never_selects_latest_and_catchup_preserves_money(
                 ]
                 == 999999
             )
+            # Expiration or a display state must not make preserved financial pins disposable.
+            from pathlib import Path
+
+            from alembic.migration import MigrationContext
+            from alembic.operations import Operations
+            from alembic.script import ScriptDirectory
+            from sqlalchemy.exc import DBAPIError
+
+            subscription.pin_state = "not_applicable"
+            await db.commit()
+            directory = (
+                Path(__file__).resolve().parents[2] / "src/twobrain_rec_server/db/migrations"
+            )
+            migration = (
+                ScriptDirectory(str(directory)).get_revision("0096_billing_version_pins").module
+            )
+
+            def downgrade(connection):
+                with Operations.context(MigrationContext.configure(connection)):
+                    migration.downgrade()
+
+            with pytest.raises(DBAPIError, match="billing pin records exist"):
+                async with db.begin_nested():
+                    await (await db.connection()).run_sync(downgrade)
+
     finally:
         await engine.dispose()
 
