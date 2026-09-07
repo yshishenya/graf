@@ -6210,8 +6210,38 @@
             || placed.top < 8 || placed.bottom > window.innerHeight - 8);
         });
       };
+      let hoveredDisclosure = null;
+      let disclosureCloseTimer;
+      const closeDisclosures = (except = null) => {
+        disclosures.forEach((details) => { if (details !== except) details.open = false; });
+      };
+      menu.addEventListener("pointerover", (event) => {
+        if (event.pointerType !== "mouse" || !(event.target instanceof Element)) return;
+        window.clearTimeout(disclosureCloseTimer);
+        hoveredDisclosure = event.target.closest(".sidebar-profile-menu__disclosure");
+        closeDisclosures(hoveredDisclosure);
+        if (hoveredDisclosure) hoveredDisclosure.open = true;
+      });
+      menu.addEventListener("pointerleave", (event) => {
+        if (event.pointerType !== "mouse") return;
+        hoveredDisclosure = null;
+        // Let the pointer cross the gap into the child panel without closing it.
+        disclosureCloseTimer = window.setTimeout(() => {
+          if (!menu.querySelector(":focus-visible")) closeDisclosures();
+        }, 150);
+      });
+      menu.addEventListener("focusin", (event) => {
+        closeDisclosures(event.target.closest(".sidebar-profile-menu__disclosure"));
+      });
       disclosures.forEach((details) => {
-        details.addEventListener("toggle", () => syncDisclosurePosition(details));
+        details.querySelector("summary")?.addEventListener("click", (event) => {
+          // Hover already opened it. Keep native click activation for keyboard/touch.
+          if (event.detail > 0 && hoveredDisclosure === details) event.preventDefault();
+        });
+        details.addEventListener("toggle", () => {
+          if (details.open) closeDisclosures(details);
+          syncDisclosurePosition(details);
+        });
       });
       const setOpen = (open, restoreFocus = false) => {
         if (open) {
@@ -6223,7 +6253,11 @@
           menu.hidden = true;
         }
         trigger.setAttribute("aria-expanded", open ? "true" : "false");
-        if (!open) disclosures.forEach((details) => { details.open = false; syncDisclosurePosition(details); });
+        if (!open) {
+          window.clearTimeout(disclosureCloseTimer);
+          hoveredDisclosure = null;
+          disclosures.forEach((details) => { details.open = false; syncDisclosurePosition(details); });
+        }
         if (!open && restoreFocus) trigger.focus({ preventScroll: true });
       };
       trigger.addEventListener("click", () => setOpen(menu.hidden || (supportsPopover && !popoverOpen())));
