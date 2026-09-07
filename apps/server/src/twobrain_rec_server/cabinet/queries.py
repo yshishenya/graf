@@ -1110,14 +1110,20 @@ async def get_cabinet_meeting_review(
         meeting_id=meeting_id,
         media_revision_id=media_revision_id,
     )
-    # Keep an accepted protocol visible when its source has only a partial
-    # transcript.  The selector pins the stored outcome's source result and
-    # falls back to the complete-result fence when no protocol is published.
-    result = await latest_processing_result(
+    # Prefer a newer complete transcript, while retaining an accepted
+    # protocol's source result when no complete result exists (partial input).
+    result = await _latest_result(
         db,
         workspace_id=workspace_id,
         meeting_id=meeting_id,
+        media_revision_id=media_revision_id,
     )
+    if result is None:
+        result = await latest_processing_result(
+            db,
+            workspace_id=workspace_id,
+            meeting_id=meeting_id,
+        )
     transcript_segments: list[TranscriptSegment] = []
     diarization_segments: list[DiarizationSegment] = []
     if result is not None:
