@@ -297,7 +297,10 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .padding(DesktopMeetingShellChrome.spacingSmall)
-        .background(DesktopMeetingShellChrome.shellBackgroundColor)
+        .background(
+            DesktopMeetingShellChrome.shellBackgroundColor
+                .overlay(Color.primary.opacity(0.06))
+        )
         .tint(DesktopMeetingShellChrome.shellAccentColor)
         .background {
             RecordingTitlebarAccessory(
