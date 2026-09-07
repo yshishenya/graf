@@ -29,9 +29,11 @@ infra/scripts/ci-local.sh --fast
 
 The lane argument is mandatory. The fast lane uses the diff from
 `origin/master` to run bounded server, macOS, infrastructure/tooling and
-documentation checks. Changed server contract/integration files run focused;
-calendar performance paths run a focused required proof, while a missing or
-renamed proof reports partial coverage without invoking a deleted path.
+documentation checks. Changed server contract/integration files run a focused
+file selection through the PostgreSQL runner's bounded marker split: ordinary
+tests use isolated workers, while strict RLS and performance tests remain
+serialized. Calendar performance paths run a focused required proof, while a
+missing or renamed proof reports partial coverage without invoking a deleted path.
 Deployment evidence also runs its dedicated secret/verdict scanner.
 Shared/high-risk, unknown or unavailable diffs report partial coverage and
 require full before release, but an explicit `--fast` never changes to `effective=full`.

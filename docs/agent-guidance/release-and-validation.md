@@ -31,7 +31,10 @@ remain the first check during implementation.
 
 GitHub Actions runs `governance-fast` automatically for each pull request and
 its exact-SHA result is the merge evidence. The workflow executes the bounded
-`ci-local.sh --fast` lane on a clean GitHub runner. Local `ci-local.sh` remains
+`ci-local.sh --fast` lane on a clean GitHub runner. Changed server test files
+are passed as a bounded selection to the PostgreSQL runner, which parallelizes
+ordinary tests with isolated workers and keeps strict RLS/performance phases
+serialized. Local `ci-local.sh` remains
 available only for an explicitly requested diagnosis or offline fallback; local
 evidence alone cannot authorize a merge. Use `--full` only for an early broad
 diagnosis or when the release workflow cannot provide the authoritative record;

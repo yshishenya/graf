@@ -258,7 +258,7 @@ def test_deployment_evidence_runs_its_bounded_scanner() -> None:
     assert "ci_stage=deployment evidence scan status=pass" in result.stdout
 
 
-def test_changed_contract_and_integration_tests_run_focused_once() -> None:
+def test_changed_contract_and_integration_tests_use_bounded_parallel_runner() -> None:
     result = run_stubbed_ci(
         "apps/server/tests/contract/test_ci_cd_contract.py\n"
         "apps/server/tests/integration/test_calendar_auto_context_match.py",
@@ -269,6 +269,9 @@ def test_changed_contract_and_integration_tests_run_focused_once() -> None:
     assert result.stdout.count("ci_stage=changed server tests status=pass") == 1
     assert "ci_stage=server tests status=pass" not in result.stdout
     assert "effective=fast components=server" in result.stdout
+    script = LOCAL_CI.read_text(encoding="utf-8")
+    assert 'run_server_tests full "$performance_gate"' in script
+    assert 'run_server_tests focused "$performance_gate"' not in script
 
 
 def test_removed_server_test_uses_bounded_unit_fallback() -> None:

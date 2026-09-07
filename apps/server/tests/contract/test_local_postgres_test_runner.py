@@ -127,6 +127,14 @@ def test_local_ci_requires_an_explicit_lane_and_exposes_component_selection() ->
     assert "ci-receipt" not in script
 
 
+def test_changed_server_selection_reuses_marker_split_parallel_runner() -> None:
+    script = LOCAL_CI.read_text(encoding="utf-8")
+
+    assert 'run_server_tests full "$performance_gate"' in script
+    assert 'run_server_tests focused "$performance_gate"' not in script
+    assert 'run_server_tests focused required' in script
+
+
 def test_remote_deploy_runs_one_authoritative_full_gate() -> None:
     script = REMOTE_CD.read_text(encoding="utf-8")
 

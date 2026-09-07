@@ -152,7 +152,10 @@ run_changed_server_tests() {
   while IFS= read -r path; do
     [[ -n "$path" ]] && test_files+=("${path#apps/server/}")
   done <<<"$changed_test_list"
-  run_server_tests focused "$performance_gate" "${test_files[@]}"
+  # Reuse the full runner's marker split for a bounded file selection.  This
+  # keeps strict RLS and performance tests serialized while allowing ordinary
+  # changed integration/contract tests to use the isolated xdist workers.
+  run_server_tests full "$performance_gate" "${test_files[@]}"
 }
 
 check_shell_syntax() {
