@@ -1,0 +1,61 @@
+# Optional overlay. Start explicitly with --profile system-admin after migrations
+# and bootstrap_runtime_database_roles.py have verified the restricted login.
+services:
+  rec-system-admin:
+    profiles: [system-admin]
+    build:
+      context: ..
+      dockerfile: infra/server/Dockerfile
+    restart: unless-stopped
+    group_add:
+      - "${TWOBRAIN_RUNTIME_SECRET_GID:-1001}"
+    command: [uvicorn, twobrain_rec_server.system_admin.app:create_app, --factory, --host, 0.0.0.0, --port, "8080", --no-access-log]
+    environment:
+      SYSTEM_ADMIN_ENABLED: "${SYSTEM_ADMIN_ENABLED:-false}"
+      SYSTEM_ADMIN_COMMANDS_ENABLED: "${SYSTEM_ADMIN_COMMANDS_ENABLED:-false}"
+      SYSTEM_ADMIN_PUBLIC_ORIGIN: "${SYSTEM_ADMIN_PUBLIC_ORIGIN:-}"
+      SYSTEM_ADMIN_DATABASE_URL_FILE: /run/secrets/graf_system_database_url
+      SYSTEM_ADMIN_TOTP_KEYS_FILE: /run/secrets/graf_system_totp_keys
+      SYSTEM_ADMIN_STORAGE_CONFIG_FILE: "${SYSTEM_ADMIN_STORAGE_CONFIG_FILE:+/run/secrets/graf_system_media_reader}"
+      SYSTEM_ADMIN_POSTAL_API_URL: "${SYSTEM_ADMIN_POSTAL_API_URL:-}"
+      SYSTEM_ADMIN_FROM_ADDRESS: "${SYSTEM_ADMIN_FROM_ADDRESS:-}"
+      SYSTEM_ADMIN_POSTAL_KEY_FILE: /run/secrets/graf_system_postal_key
+    ports:
+      - "127.0.0.1:${SYSTEM_ADMIN_LOCAL_PORT:-18083}:8080"
+    networks:
+      - rec-private
+      - rec-media-private
+    secrets:
+      - graf_system_database_url
+      - graf_system_totp_keys
+      - graf_system_postal_key
+      - graf_system_media_reader
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 768m
+    cpus: 1
+    pids_limit: 128
+healthcheck:
+      test: [CMD, python, -c, "import http.client,os,urllib.parse; c=http.client.HTTPConnection('127.0.0.1',8080); c.request('GET','/health',headers={'Host':urllib.parse.urlsplit(os.environ['SYSTEM_ADMIN_PUBLIC_ORIGIN']).netloc}); assert c.getresponse().status==200"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+networks:
+  rec-private:
+    name: twobrain-rec-private
+  rec-media-private:
+    name: twobrain-rec-media-private
+secrets:
+  graf_system_database_url:
+    file: "${SYSTEM_ADMIN_DATABASE_URL_FILE:?Set the console-only database URL secret file}"
+  graf_system_totp_keys:
+    file: "${SYSTEM_ADMIN_TOTP_KEYS_FILE:?Set the console-only MFA keyring secret file}"
+  graf_system_postal_key:
+    # No mail is sent when SYSTEM_ADMIN_POSTAL_API_URL is empty.
+    file: "${SYSTEM_ADMIN_POSTAL_KEY_FILE:-/dev/null}"
+  graf_system_media_reader:
+    # Optional dedicated GetObject-only credential; never reuse the writer key.
+    file: "${SYSTEM_ADMIN_STORAGE_CONFIG_FILE:-/dev/null}"

@@ -11,6 +11,9 @@ from twobrain_rec_server.db.base import Base
 class MeetingDeletionRequest(Base):
     __tablename__ = "meeting_deletion_requests"
 
+    system_operation_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("system_control.operations.id"), nullable=True,
+    )
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
     meeting_id: Mapped[UUID] = mapped_column(ForeignKey("meetings.id"), nullable=False)

@@ -13,7 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.cabinet import (
-    PublicShareDbDependency,
+    AuthenticatedShareDbDependency,
     _recipient_share_access_proof,
 )
 from twobrain_rec_server.api.problems import ProblemDetail
@@ -960,7 +960,7 @@ async def shared_meeting_detail_page(
     recipient_scope: TenantScope = WebTenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     storage: object = StorageDependency,
-    db: AsyncSession | None = PublicShareDbDependency,
+    db: AsyncSession | None = AuthenticatedShareDbDependency,
 ) -> Response:
     if db is None:
         raise ProblemDetail(

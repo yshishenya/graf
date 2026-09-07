@@ -3,17 +3,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.billing.catalog import (
-    CatalogNotApproved,
     PlanCatalogSnapshot,
-    validate_plan_version,
+    read_public_catalog,
 )
 from twobrain_rec_server.config import Settings
-from twobrain_rec_server.db.models import BillingPlanVersion
 
 PUBLIC_MONTHLY_AMOUNT_MINOR = 100_000
 PUBLIC_ANNUAL_AMOUNT_MINOR = 1_000_000
@@ -59,31 +56,10 @@ async def build_public_offer_view(
         return unavailable_public_offer()
     current = (now or datetime.now(UTC)).astimezone(UTC)
     try:
-        rows = list(
-            await db.scalars(
-                select(BillingPlanVersion)
-                .where(
-                    BillingPlanVersion.plan_code == "personal",
-                    BillingPlanVersion.cycle.in_(("month", "year")),
-                )
-                .order_by(BillingPlanVersion.cycle, BillingPlanVersion.version.desc())
-            )
-        )
+        approved_by_cycle = (await read_public_catalog(db, now=current, plan_code="personal")).get("personal", {})
     except (OSError, SQLAlchemyError):
         # Public pages remain available if the catalog database is unavailable.
-        # Paid copy must fail closed instead of advertising an unverified sale.
         return unavailable_public_offer()
-    approved_by_cycle: dict[str, PlanCatalogSnapshot] = {}
-    for row in rows:
-        if row.cycle in approved_by_cycle:
-            continue
-        try:
-            approved_by_cycle[row.cycle] = validate_plan_version(row, now=current)
-        except (CatalogNotApproved, ValueError):
-            # A future, expired, disabled or malformed newest version must
-            # not hide an older version that is currently effective. This is
-            # the same first-valid-row selection used by checkout.
-            continue
     month = approved_by_cycle.get("month")
     year = approved_by_cycle.get("year")
     if month is None or year is None:
@@ -120,4 +96,7 @@ def _matching_public_catalog(month: PlanCatalogSnapshot, year: PlanCatalogSnapsh
         and month.processing_mode == year.processing_mode == "unlimited"
         and month.offer_version == year.offer_version
         and month.offer_version == PUBLIC_APPROVED_OFFER_VERSION
+        and (month.capabilities is None or all(month.capabilities[key] for key in (
+            "audio_archive", "audio_download", "content_export", "meeting_sharing", "ai_summary", "ai_outcomes",
+        )))
     )

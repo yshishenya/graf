@@ -36,7 +36,6 @@ from twobrain_rec_server.db.models import (
     MeetingShareRateLimitBucket,
     RecordingCalendarContextLink,
     UserIdentity,
-    Workspace,
     WorkspaceMembership,
 )
 from twobrain_rec_server.db.tenant_context import TenantDatabaseContext, apply_tenant_context
@@ -502,6 +501,10 @@ async def decide_meeting_access(
     )
     role = membership.role if membership is not None else None
     privileged = role in PRIVILEGED_ROLES
+    active_member = membership is not None or bool(
+        recipient_proof and recipient_proof.user_is_active
+        and recipient_proof.workspace_membership_is_active
+    )
 
     if meeting.created_by_user_id == viewer_user_id:
         return AccessDecision(
@@ -516,7 +519,7 @@ async def decide_meeting_access(
             role=role,
         )
 
-    if membership is not None and (meeting.visibility or "").lower() in TEAM_VISIBLE_VALUES:
+    if active_member and (meeting.visibility or "").lower() in TEAM_VISIBLE_VALUES:
         return AccessDecision(
             state="team",
             label="Team",
@@ -556,7 +559,7 @@ async def decide_meeting_access(
                 reason="Access was granted with a login-required share.",
             )
 
-    if membership is not None:
+    if active_member:
         workspace_grant = await db.scalar(
             select(MeetingShareGrant).where(
                 MeetingShareGrant.workspace_id == workspace_id,
@@ -744,6 +747,7 @@ async def share_panel_state(
     meeting: Meeting,
     decision: AccessDecision,
     *,
+    actor_user_id: UUID,
     external_invitations_enabled: bool = False,
     invitation_encryption_key: bytes | None = None,
 ) -> SharePanelState:
@@ -805,6 +809,13 @@ async def share_panel_state(
         if decision.can_share
         else "Для управления доступом войдите в аккаунт с правом владельца."
     )
+    if decision.can_share:
+        from twobrain_rec_server.cabinet.egress import meeting_commercial_capabilities
+
+        commercial = await meeting_commercial_capabilities(db, meeting=meeting, actor_user_id=actor_user_id)
+        if not commercial["meeting_sharing"]:
+            capability_state = "policy_blocked"
+            capability_reason = "Новые приглашения недоступны по условиям доступа. Ранее открытый доступ можно отозвать."
     invitation_views = []
     for invitation in invitations:
         display_label = f"Приглашение · {str(invitation.id)[:8]}"
@@ -833,14 +844,33 @@ async def share_panel_state(
     return SharePanelState(
         team_visibility=team_visibility,
         active_grants=grant_views,
-        copy_link_state="available" if decision.can_share else "auth_required",
+        copy_link_state="available" if capability_state == "available" else ("disabled" if decision.can_share else "auth_required"),
         public_link_state="disabled_by_default",
         capability_state=capability_state,
         capability_reason=capability_reason,
-        external_invitation_state=("available" if external_invitations_enabled else "disabled"),
+        external_invitation_state=("available" if external_invitations_enabled and capability_state == "available" else "disabled"),
         active_invitations=invitation_views,
         recipient_sources=["workspace", "calendar"] if calendar_context else ["workspace"],
     )
+
+
+async def _require_commercial_sharing(
+    db: AsyncSession, *, meeting: Meeting, actor_user_id: UUID, device_id: UUID,
+) -> None:
+    from twobrain_rec_server.cabinet.egress import (
+        meeting_commercial_capabilities,
+        record_egress_audit_event,
+    )
+
+    commercial = await meeting_commercial_capabilities(db, meeting=meeting, actor_user_id=actor_user_id)
+    if not commercial["meeting_sharing"]:
+        await record_egress_audit_event(
+            db, workspace_id=meeting.workspace_id, meeting_id=meeting.id,
+            actor_user_id=actor_user_id, device_id=device_id, event_type="share_denied",
+            outcome="denied", policy_reason="commercial_sharing_denied",
+        )
+        await db.commit()
+        raise ProblemDetail(status=403, code="commercial_sharing_denied", title="Sharing unavailable under access terms")
 
 
 async def create_scoped_share_grant(
@@ -858,14 +888,19 @@ async def create_scoped_share_grant(
     expires_at: datetime | None,
     broader_audience_enabled: bool = False,
 ) -> tuple[MeetingShareGrant, str]:
-    from twobrain_rec_server.cabinet.egress import record_egress_audit_event
+    from twobrain_rec_server.cabinet.egress import (
+        lock_commercial_workspace,
+        record_egress_audit_event,
+    )
 
+    await lock_commercial_workspace(db, workspace_id)
     meeting = await lock_shareable_meeting(db, workspace_id=workspace_id, meeting_id=meeting.id)
     decision = await decide_meeting_access(
         db, meeting, workspace_id=workspace_id, viewer_user_id=actor_user_id
     )
     if not decision.can_share:
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
+    await _require_commercial_sharing(db, meeting=meeting, actor_user_id=actor_user_id, device_id=device_id)
     default_slot = await load_meeting_default_slot(
         db,
         workspace_id=workspace_id,
@@ -892,28 +927,17 @@ async def create_scoped_share_grant(
             device_id=device_id,
             action_key="grant",
         )
-        workspace = await db.get(Workspace, workspace_id)
-        grantee = await db.get(UserIdentity, audience_id)
-        membership = await db.scalar(
-            select(WorkspaceMembership).where(
-                WorkspaceMembership.workspace_id == workspace_id,
-                WorkspaceMembership.user_id == audience_id,
-                WorkspaceMembership.status == "active",
-            )
-        )
-        if (
-            workspace is None
-            or grantee is None
-            or grantee.status != "active"
-            or grantee.organization_id != workspace.organization_id
-            or membership is None
-        ):
+        is_member = await db.scalar(select(func.rec_share_recipient_is_member(meeting.id, audience_id)))
+        if not is_member:
             raise ProblemDetail(status=404, code="grantee_not_found", title="Grantee not found")
         existing_decision = await decide_meeting_access(
             db,
             meeting,
             workspace_id=workspace_id,
             viewer_user_id=audience_id,
+            recipient_proof=ShareRecipientAccessProof(
+                user_is_active=True, workspace_membership_is_active=True,
+            ),
         )
         if existing_decision.can_view:
             raise ProblemDetail(
@@ -1084,14 +1108,19 @@ async def rotate_share_link(
     device_id: UUID,
     grant_id: UUID,
 ) -> tuple[MeetingShareGrant, str]:
-    from twobrain_rec_server.cabinet.egress import record_egress_audit_event
+    from twobrain_rec_server.cabinet.egress import (
+        lock_commercial_workspace,
+        record_egress_audit_event,
+    )
 
+    await lock_commercial_workspace(db, workspace_id)
     meeting = await lock_shareable_meeting(db, workspace_id=workspace_id, meeting_id=meeting.id)
     decision = await decide_meeting_access(
         db, meeting, workspace_id=workspace_id, viewer_user_id=actor_user_id
     )
     if not decision.can_share:
         raise ProblemDetail(status=404, code="share_not_found", title="Share not found")
+    await _require_commercial_sharing(db, meeting=meeting, actor_user_id=actor_user_id, device_id=device_id)
     await enforce_share_rate_limit(
         db,
         workspace_id=workspace_id,
@@ -1184,8 +1213,6 @@ async def search_share_recipients(
     workspace_users = (
         await db.scalars(
             select(UserIdentity)
-            .join(WorkspaceMembership, WorkspaceMembership.user_id == UserIdentity.id)
-            .join(Workspace, Workspace.id == WorkspaceMembership.workspace_id)
             .outerjoin(
                 ExternalIdentity,
                 and_(
@@ -1195,10 +1222,7 @@ async def search_share_recipients(
                 ),
             )
             .where(
-                WorkspaceMembership.workspace_id == workspace_id,
-                WorkspaceMembership.status == "active",
-                UserIdentity.status == "active",
-                UserIdentity.organization_id == Workspace.organization_id,
+                func.rec_share_recipient_is_member(meeting_id, UserIdentity.id),
                 or_(
                     UserIdentity.display_name.ilike(pattern, escape="\\"),
                     ExternalIdentity.email.ilike(pattern, escape="\\"),
@@ -1252,8 +1276,6 @@ async def search_share_recipients(
     calendar_users = (
         await db.execute(
             select(UserIdentity, ExternalIdentity.email)
-            .join(WorkspaceMembership, WorkspaceMembership.user_id == UserIdentity.id)
-            .join(Workspace, Workspace.id == WorkspaceMembership.workspace_id)
             .join(
                 ExternalIdentity,
                 and_(
@@ -1263,10 +1285,7 @@ async def search_share_recipients(
                 ),
             )
             .where(
-                WorkspaceMembership.workspace_id == workspace_id,
-                WorkspaceMembership.status == "active",
-                UserIdentity.status == "active",
-                UserIdentity.organization_id == Workspace.organization_id,
+                func.rec_share_recipient_is_member(meeting_id, UserIdentity.id),
                 func.lower(ExternalIdentity.email).in_(participant_emails),
                 *((UserIdentity.id != viewer_user_id,) if viewer_user_id is not None else ()),
             )
@@ -1307,14 +1326,19 @@ async def create_share_invitation(
     encryption_key: bytes,
     ttl_seconds: int,
 ) -> MeetingShareInvitation:
-    from twobrain_rec_server.cabinet.egress import record_egress_audit_event
+    from twobrain_rec_server.cabinet.egress import (
+        lock_commercial_workspace,
+        record_egress_audit_event,
+    )
 
+    await lock_commercial_workspace(db, workspace_id)
     meeting = await lock_shareable_meeting(db, workspace_id=workspace_id, meeting_id=meeting.id)
     decision = await decide_meeting_access(
         db, meeting, workspace_id=workspace_id, viewer_user_id=actor_user_id
     )
     if not decision.can_share:
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
+    await _require_commercial_sharing(db, meeting=meeting, actor_user_id=actor_user_id, device_id=device_id)
     await enforce_share_rate_limit(
         db,
         workspace_id=workspace_id,

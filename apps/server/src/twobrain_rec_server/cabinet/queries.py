@@ -501,7 +501,7 @@ async def list_cabinet_meetings(
             processing_result_id=result.id if result is not None else None,
         )
         artifacts = await artifact_egress_states(
-            db, meeting=meeting, access=decision, result=result
+            db, meeting=meeting, actor_user_id=viewer_user_id, access=decision, result=result
         )
         playback = await review_playback_state(
             db,
@@ -1264,12 +1264,13 @@ async def get_cabinet_meeting_review(
             db,
             meeting,
             decision,
+            actor_user_id=viewer_user_id,
             external_invitations_enabled=external_invitations_enabled,
             invitation_encryption_key=invitation_encryption_key,
         ),
-        artifacts=await artifact_egress_states(db, meeting=meeting, access=decision, result=result),
+        artifacts=await artifact_egress_states(db, meeting=meeting, actor_user_id=viewer_user_id, access=decision, result=result),
         content_exports=await content_export_capabilities(
-            db, meeting=meeting, access=decision, result=result
+            db, meeting=meeting, actor_user_id=viewer_user_id, access=decision, result=result
         ),
         review_playback=await review_playback_state(
             db,

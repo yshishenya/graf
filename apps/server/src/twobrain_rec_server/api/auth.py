@@ -47,9 +47,10 @@ from twobrain_rec_server.auth.sessions import (
     resolve_session_device,
     revoke_registered_devices,
 )
-from twobrain_rec_server.billing.catalog import FREE_STORAGE_BYTES
-from twobrain_rec_server.billing.entitlements import effective_plan_code
+from twobrain_rec_server.billing.catalog import CAPABILITY_BOOLEANS, CatalogNotApproved
+from twobrain_rec_server.billing.entitlements import resolve_entitlements
 from twobrain_rec_server.billing.storage import project_active_playback_storage
+from twobrain_rec_server.billing.usage import processing_usage_projection
 from twobrain_rec_server.cabinet.auth_return import resolve_browser_auth_return_path
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.db.models import (
@@ -191,6 +192,7 @@ class LinkedProvider(BaseModel):
 
 class BillingSummaryResponse(BaseModel):
     plan_code: str
+    plan_label: str
     state: str
     trial_ends_at: datetime | None = None
     paid_through: datetime | None = None
@@ -199,6 +201,15 @@ class BillingSummaryResponse(BaseModel):
     processing_unlimited: bool
     storage_used_bytes: int | None = None
     storage_capacity_bytes: int | None = None
+    access_source: str
+    access_until: datetime | None = None
+    commercial_capabilities: dict[str, bool | list[str]]
+    processing_used_seconds: int | None = None
+    processing_reserved_seconds: int | None = None
+    processing_available_seconds: int | None = None
+    processing_window_start: datetime | None = None
+    processing_window_end: datetime | None = None
+    usage_freshness: str | None = None
     handoff_path: str = "/billing"
 
 
@@ -1497,23 +1508,20 @@ async def get_me(
             adapters=build_provider_registry(),
         )
     )
-    subscription = await db.scalar(
-        select(WorkspaceSubscription).where(WorkspaceSubscription.workspace_id == workspace_id)
-    )
+    # Match quota writers so capabilities and counters describe one state.
+    await db.scalar(select(Workspace.id).where(
+        Workspace.id == workspace_id,
+    ).with_for_update(read=True))
     now = datetime.now(UTC)
-    raw_plan_code = subscription.plan_code if subscription is not None else "free"
-    plan_code = effective_plan_code(
-        plan_code=raw_plan_code,  # type: ignore[arg-type]
-        state=subscription.state if subscription is not None else "free",
-        now=now,
-        paid_through=subscription.paid_through if subscription is not None else None,
-        trial_ends_at=subscription.trial_ends_at if subscription is not None else None,
-    )
-    capacity = (
-        subscription.capacity_bytes
-        if subscription is not None and plan_code in {"trial", "personal"}
-        else FREE_STORAGE_BYTES
-    )
+    try:
+        access = await resolve_entitlements(db, workspace_id=workspace_id,
+            subject_user_id=principal.user_id, now=now)
+    except (CatalogNotApproved, ValueError) as exc:
+        raise ProblemDetail(status=503, code="billing_entitlements_unavailable",
+            title="Billing access is temporarily unavailable") from exc
+    subscription = await db.get(WorkspaceSubscription, workspace_id)
+    plan_code = access.plan_code
+    usage = await processing_usage_projection(db, workspace_id=workspace_id, now=now, access=access)
     reserved = int(
         await db.scalar(
             select(
@@ -1534,7 +1542,7 @@ async def get_me(
     storage = await project_active_playback_storage(
         db,
         workspace_id=workspace_id,
-        capacity_bytes=capacity,
+        capacity_bytes=access.capabilities["storage_bytes"],
         reserved_bytes=max(0, reserved),
     )
     bonus_until = await db.scalar(
@@ -1550,7 +1558,7 @@ async def get_me(
     safe_state = (
         (subscription.state if subscription is not None else "free")
         if owner_billing
-        else ("active" if plan_code in {"trial", "personal"} else "free")
+        else ("active" if plan_code != "free" else "free")
     )
     return MeResponse(
         user_id=user.id,
@@ -1561,19 +1569,32 @@ async def get_me(
         registered_devices=registered_devices,
         billing=BillingSummaryResponse(
             plan_code=plan_code,
+            plan_label=access.plan_label,
             state=safe_state,
             trial_ends_at=subscription.trial_ends_at
             if owner_billing and subscription is not None and plan_code == "trial"
             else None,
             paid_through=subscription.paid_through
-            if owner_billing and subscription is not None and plan_code == "personal"
+            if owner_billing and subscription is not None
+            and subscription.plan_code not in {"free", "trial"}
+            and subscription.paid_through is not None and subscription.paid_through > now
             else None,
             bonus_until=bonus_until if owner_billing else None,
             renewal_resolution=subscription.renewal_resolution
             if owner_billing and subscription is not None
             else None,
-            processing_unlimited=plan_code in {"trial", "personal"},
+            processing_unlimited=access.capabilities["processing_unlimited"],
             storage_used_bytes=None if member_billing else storage.used_bytes,
             storage_capacity_bytes=None if member_billing else storage.capacity_bytes,
+            access_source=access.base_source,
+            access_until=access.access_until if owner_billing else None,
+            commercial_capabilities={key: access.capabilities[key]
+                for key in sorted(CAPABILITY_BOOLEANS | {"export_formats"})},
+            processing_used_seconds=None if member_billing else usage.used,
+            processing_reserved_seconds=None if member_billing else usage.reserved,
+            processing_available_seconds=None if member_billing else usage.available,
+            processing_window_start=None if member_billing else usage.window_start,
+            processing_window_end=None if member_billing else usage.window_end,
+            usage_freshness=None if member_billing else usage.freshness_state,
         ),
     )

@@ -8,6 +8,7 @@ worker restart cannot create a second charge for the same paid interval.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import NAMESPACE_URL, UUID, uuid5
@@ -23,10 +24,10 @@ from twobrain_rec_server.billing.authority import (
 )
 from twobrain_rec_server.billing.catalog import (
     FREE_STORAGE_BYTES,
-    CatalogNotApproved,
     PlanCatalogSnapshot,
-    validate_plan_version,
+    read_pinned_subscription_catalog,
 )
+from twobrain_rec_server.billing.catalog_migration import pin_subscription_history
 from twobrain_rec_server.billing.operations import (
     CHECKOUT_BLOCKING_STATES,
     BillingEmergencyStop,
@@ -37,6 +38,7 @@ from twobrain_rec_server.billing.payment_methods import (
     read_billing_encryption_key,
 )
 from twobrain_rec_server.billing.provider_events import validate_provider_identifier
+from twobrain_rec_server.billing.subscription import lock_billing_subscription
 from twobrain_rec_server.billing.yookassa import (
     YooKassaClient,
     YooKassaConfigurationError,
@@ -50,7 +52,6 @@ from twobrain_rec_server.db.models import (
     BillingInvoice,
     BillingOperation,
     BillingPaymentMethod,
-    BillingPlanVersion,
     Workspace,
     WorkspaceMembership,
     WorkspaceSubscription,
@@ -92,25 +93,22 @@ def renewal_invoice_number(operation_id: UUID) -> str:
 async def _approved_catalog(
     db: AsyncSession,
     *,
-    cycle: object,
+    subscription: WorkspaceSubscription,
     now: datetime,
 ) -> PlanCatalogSnapshot | None:
-    if cycle not in {"month", "year"}:
+    """Renew only exact purchased terms, even after closing that offer to new sales."""
+    if subscription.cycle not in {"month", "year"}:
         return None
-    rows = await db.scalars(
-        select(BillingPlanVersion)
-        .where(
-            BillingPlanVersion.plan_code == "personal",
-            BillingPlanVersion.cycle == cycle,
-        )
-        .order_by(BillingPlanVersion.version.desc())
-    )
-    for row in rows:
-        try:
-            return validate_plan_version(row, now=now)
-        except (CatalogNotApproved, ValueError):
-            continue
-    return None
+    if (
+        subscription.pin_state == "pending"
+        or subscription.pin_state is None
+        or subscription.pin_checked_application_version != subscription.application_version
+    ):
+        if await pin_subscription_history(db, subscription) != "pinned":
+            return None
+        await db.flush()
+        await db.refresh(subscription)
+    return await read_pinned_subscription_catalog(db, subscription=subscription, now=now)
 
 
 def _snapshot(
@@ -120,8 +118,11 @@ def _snapshot(
         _utc(subscription.paid_through) if subscription.paid_through is not None else None
     )
     return {
-        "plan_code": "personal",
+        "plan_code": catalog.plan_code,
         "cycle": subscription.cycle,
+        "pinned_plan_version_id": str(subscription.pinned_plan_version_id),
+        "pinned_price_id": str(subscription.pinned_price_id),
+        "schedule_version": subscription.schedule_version,
         "list_amount_minor": catalog.amount_minor,
         "payable_amount_minor": catalog.amount_minor,
         "currency": catalog.currency,
@@ -134,6 +135,53 @@ def _snapshot(
         "paid_through_at": paid_through.isoformat() if paid_through is not None else None,
         "purchased_duration": subscription.cycle,
     }
+
+
+def _pin_legacy_schedule(
+    db: AsyncSession, *, subscription: WorkspaceSubscription, operation: BillingOperation,
+    invoice: BillingInvoice | None, catalog: PlanCatalogSnapshot, now: datetime,
+) -> bool:
+    """Add schedule metadata only while an old writer could not yet send the charge.
+
+    A legacy scheduled row after cutoff may have survived a crash after POST.
+    Its lack of a provider ID is not proof that it was never sent.
+    The caller owns the subscription, operation and invoice locks and commit.
+    """
+    pins = {"pinned_plan_version_id", "pinned_price_id", "schedule_version"}
+    snapshot = operation.request_snapshot
+    due = subscription.paid_through
+    if (
+        not isinstance(snapshot, dict) or pins.intersection(snapshot)
+        or due is None or _utc(now) >= _utc(due)
+        or operation.kind != "renewal" or operation.state != "scheduled"
+        or operation.provider_id is not None
+        or operation.workspace_id != subscription.workspace_id
+        or operation.idempotency_key != renewal_operation_key(workspace_id=subscription.workspace_id, paid_through=due)
+        or operation.provider_key_expires_at is None
+        or _utc(operation.provider_key_expires_at) != _utc(due)+RENEWAL_PROVIDER_WINDOW
+        or subscription.recurring_allowed is not True or subscription.pin_state != "pinned"
+        or subscription.pinned_plan_version_id is None or subscription.pinned_price_id is None
+        or invoice is None or invoice.status != "pending" or invoice.operation_id != operation.id
+        or invoice.workspace_id != subscription.workspace_id
+        or invoice.amount_minor != catalog.amount_minor or invoice.currency != catalog.currency
+        or not isinstance(invoice.plan_snapshot, dict)
+    ):
+        return False
+    expected = _snapshot(subscription=subscription, catalog=catalog)
+    financial = {key:value for key,value in expected.items() if key not in pins}
+    # JSON equality also rejects bool/int and float/int substitutions in nested snapshots.
+    canonical = json.dumps(financial, sort_keys=True, allow_nan=False)
+    for source in (snapshot, invoice.plan_snapshot):
+        if json.dumps({key:source.get(key) for key in financial}, sort_keys=True, allow_nan=False) != canonical:
+            return False
+    operation.request_snapshot = {**snapshot, **{key:expected[key] for key in pins}}
+    db.add(BillingAuditEvent(
+        workspace_id=subscription.workspace_id, actor_user_id=subscription.billing_owner_id,
+        action="renewal.legacy_schedule_pinned", target_kind="billing_operation",
+        target_ref=invoice.safe_number, outcome="scheduled",
+        reason_code="pre_cutoff_exact_terms_verified", metadata_json={"state":"scheduled"},
+    ))
+    return True
 
 
 async def plan_due_renewals(
@@ -169,7 +217,7 @@ async def plan_due_renewals(
             WorkspaceMembership.role == "owner",
             WorkspaceMembership.status == "active",
             WorkspaceSubscription.state == "personal",
-            WorkspaceSubscription.plan_code == "personal",
+            WorkspaceSubscription.plan_code.not_in(("free", "trial")),
             WorkspaceSubscription.recurring_allowed.is_(True),
             WorkspaceSubscription.paid_through.is_not(None),
             WorkspaceSubscription.paid_through > current,
@@ -177,10 +225,25 @@ async def plan_due_renewals(
         )
         .order_by(WorkspaceSubscription.paid_through, WorkspaceSubscription.workspace_id)
         .limit(limit)
-        .with_for_update(skip_locked=True)
     )
     planned: list[UUID] = []
-    for subscription in await db.scalars(query):
+    candidates = list(await db.scalars(query))
+    # Stable ordering when a caller commits a batch of several workspaces.
+    for candidate in sorted(candidates, key=lambda row: row.workspace_id):
+        workspace, subscription = await lock_billing_subscription(db, candidate.workspace_id)
+        owner = await db.scalar(select(WorkspaceMembership).where(
+            WorkspaceMembership.workspace_id == candidate.workspace_id,
+            WorkspaceMembership.user_id == (subscription.billing_owner_id if subscription else None),
+            WorkspaceMembership.role == "owner", WorkspaceMembership.status == "active",
+        ).with_for_update().execution_options(populate_existing=True))
+        if (
+            workspace is None or workspace.kind != "personal" or subscription is None
+            or workspace.owner_user_id != subscription.billing_owner_id or owner is None
+            or subscription.state != "personal" or subscription.plan_code in {"free", "trial"}
+            or not subscription.recurring_allowed or subscription.paid_through is None
+            or not current < _utc(subscription.paid_through) <= current+timedelta(hours=RENEWAL_REMINDER_HOURS)
+        ):
+            continue
         initial_checkout = await db.scalar(
             select(BillingOperation.id)
             .where(
@@ -193,7 +256,7 @@ async def plan_due_renewals(
         )
         if initial_checkout is not None:
             continue
-        catalog = await _approved_catalog(db, cycle=subscription.cycle, now=current)
+        catalog = await _approved_catalog(db, subscription=subscription, now=current)
         if (
             catalog is None
             or catalog.amount_minor is None
@@ -251,6 +314,15 @@ async def plan_due_renewals(
         )
         if existing is not None:
             if existing.state in RENEWAL_CANDIDATE_STATES and existing.provider_id is None:
+                if "schedule_version" not in existing.request_snapshot:
+                    invoice = await db.scalar(select(BillingInvoice).where(
+                        BillingInvoice.operation_id == existing.id,
+                        BillingInvoice.workspace_id == subscription.workspace_id,
+                    ).with_for_update().execution_options(populate_existing=True))
+                    if not _pin_legacy_schedule(db, subscription=subscription, operation=existing,
+                        invoice=invoice, catalog=catalog, now=current):
+                        subscription.renewal_resolution = "catalog_not_approved"
+                        continue
                 planned.append(existing.id)
             continue
         operation_id = uuid5(NAMESPACE_URL, f"graf:renewal-operation:{key}")
@@ -270,6 +342,7 @@ async def plan_due_renewals(
             request_snapshot=snapshot,
         )
         db.add(operation)
+        await db.flush()  # The invoice FK must see its operation in this transaction.
         db.add(
             BillingInvoice(
                 workspace_id=subscription.workspace_id,
@@ -393,17 +466,22 @@ async def project_renewal_cutoffs(
     query = (
         select(WorkspaceSubscription)
         .where(
-            WorkspaceSubscription.plan_code == "personal",
+            WorkspaceSubscription.plan_code.not_in(("free", "trial")),
             WorkspaceSubscription.paid_through.is_not(None),
             WorkspaceSubscription.paid_through <= current,
         )
         .order_by(WorkspaceSubscription.paid_through, WorkspaceSubscription.workspace_id)
         .limit(limit)
-        .with_for_update(skip_locked=True)
     )
     projected = 0
-    for subscription in await db.scalars(query):
-        workspace = await db.get(Workspace, subscription.workspace_id)
+    candidates = list(await db.scalars(query))
+    for candidate in sorted(candidates, key=lambda row: row.workspace_id):
+        workspace, subscription = await lock_billing_subscription(db, candidate.workspace_id)
+        if (
+            subscription is None or subscription.plan_code in {"free", "trial"}
+            or subscription.paid_through is None or _utc(subscription.paid_through) > current
+        ):
+            continue
         owner = await db.scalar(
             select(WorkspaceMembership).where(
                 WorkspaceMembership.workspace_id == subscription.workspace_id,
@@ -494,15 +572,12 @@ async def charge_renewal_operation(
     operation_id: UUID,
     workspace_id: UUID,
     now: datetime | None = None,
+    _dispatch_claimed: bool = False,
 ) -> RenewalChargeResult:
     """Send one saved-method payment while holding the subscription authority lock."""
     current = _utc(now or datetime.now(UTC))
     await db.rollback()
-    subscription = await db.scalar(
-        select(WorkspaceSubscription)
-        .where(WorkspaceSubscription.workspace_id == workspace_id)
-        .with_for_update()
-    )
+    workspace, subscription = await lock_billing_subscription(db, workspace_id)
     operation = await db.scalar(
         select(BillingOperation)
         .where(
@@ -511,13 +586,16 @@ async def charge_renewal_operation(
             BillingOperation.kind == "renewal",
         )
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
     if operation is None:
         await db.rollback()
         return RenewalChargeResult(operation_id, "missing")
-    if operation.provider_id is not None or operation.state not in RENEWAL_CANDIDATE_STATES:
+    admitted_states = {"processing"} if _dispatch_claimed else RENEWAL_CANDIDATE_STATES
+    if operation.provider_id is not None or operation.state not in admitted_states:
+        result = RenewalChargeResult(operation_id, operation.state, operation.provider_id)
         await db.rollback()
-        return RenewalChargeResult(operation_id, operation.state, operation.provider_id)
+        return result
     invoice = await db.scalar(
         select(BillingInvoice)
         .where(
@@ -525,12 +603,12 @@ async def charge_renewal_operation(
             BillingInvoice.workspace_id == workspace_id,
         )
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
     if subscription is None or invoice is None:
         operation.state = "manual_resolution"
         await db.commit()
         return RenewalChargeResult(operation_id, "manual_resolution")
-    workspace = await db.get(Workspace, workspace_id)
     owner = await db.scalar(
         select(WorkspaceMembership)
         .where(
@@ -540,6 +618,7 @@ async def charge_renewal_operation(
             WorkspaceMembership.status == "active",
         )
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
     try:
         billing_actor_id = UUID(str(operation.request_snapshot.get("billing_actor_user_id")))
@@ -568,7 +647,24 @@ async def charge_renewal_operation(
         if subscription.paid_through is not None
         else None
     )
-    if expected_paid_through != current_paid_through:
+    expected_schedule = operation.request_snapshot.get("schedule_version")
+    if type(expected_schedule) is not int:
+        operation.state = "manual_resolution"
+        invoice.status = "manual_resolution"
+        subscription.renewal_resolution = "catalog_not_approved"
+        _record_charge_audit(
+            db,
+            subscription=subscription,
+            operation=operation,
+            outcome="manual_resolution",
+            reason_code="renewal_terms_not_pinned",
+        )
+        await db.commit()
+        return RenewalChargeResult(operation_id, "manual_resolution")
+    if (
+        expected_paid_through != current_paid_through
+        or expected_schedule != subscription.schedule_version
+    ):
         operation.state = "canceled"
         invoice.status = "canceled"
         subscription.renewal_resolution = "schedule_changed"
@@ -612,9 +708,10 @@ async def charge_renewal_operation(
             emergency_stop=bool(settings.billing_emergency_stop),
         )
         expected_version = operation.request_snapshot.get("recurring_authority_version")
+        if not subscription.recurring_allowed:
+            raise BillingAuthorizationError("recurring authority was withdrawn")
         if (
             subscription.billing_owner_id is None
-            or not subscription.recurring_allowed
             or not isinstance(expected_version, int)
             or isinstance(expected_version, bool)
         ):
@@ -633,6 +730,7 @@ async def charge_renewal_operation(
                 BillingPaymentMethod.verified_at.is_not(None),
             )
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
         key = read_billing_encryption_key(settings.credential_encryption_key_file)
         if method is None or key is None or method.key_version != "billing-v1":
@@ -644,8 +742,28 @@ async def charge_renewal_operation(
         if invoice.amount_minor <= 0 or invoice.currency != "RUB":
             raise ValueError("renewal invoice is invalid")
         provider_environment(settings.billing_yookassa_environment)
-        operation.state = "processing"
-        await db.flush()
+        if not _dispatch_claimed:
+            # Only this invocation may cross the committed claim. A restarted worker
+            # sees processing and must reconcile; it cannot issue another POST.
+            operation.state = "processing"
+            _record_charge_audit(
+                db,
+                subscription=subscription,
+                operation=operation,
+                outcome="claimed",
+                reason_code="renewal_dispatch_claimed",
+            )
+            await db.commit()
+            # Reacquire locks and recheck current owner, consent, schedule and method
+            # after commit; a concurrent cancellation cannot ride the former lock.
+            return await charge_renewal_operation(
+                db,
+                settings,
+                operation_id=operation_id,
+                workspace_id=workspace_id,
+                now=now,
+                _dispatch_claimed=True,
+            )
         async with YooKassaClient(settings) as provider:
             receipt = build_receipt_payload(
                 receipt_contact=invoice.receipt_contact_snapshot,

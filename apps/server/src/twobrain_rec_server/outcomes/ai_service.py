@@ -11,6 +11,8 @@ from uuid import UUID, uuid4
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from twobrain_rec_server.billing.catalog import CatalogNotApproved
+from twobrain_rec_server.billing.entitlements import resolve_entitlements
 from twobrain_rec_server.cabinet.speakers import (
     candidate_speaker_attribution_is_current,
     speaker_attribution_revision,
@@ -88,6 +90,7 @@ from twobrain_rec_server.outcomes.templates import (
 from twobrain_rec_server.processing.fences import (
     is_expired,
     lock_meeting_fence,
+    lock_processing_meeting_fence,
     meeting_is_deleted_or_deleting,
     normalize_db_timestamp,
 )
@@ -294,6 +297,21 @@ async def _expire_attempt_projection(
         outcome_set.revision_state = "expired"
 
 
+async def require_summary_generation_access(
+    db: AsyncSession, *, workspace_id: UUID, subject_user_id: UUID,
+) -> None:
+    # The current model call produces both summary and structured outcomes.
+    # Either restriction blocks a new call; retained results remain readable.
+    try:
+        access = await resolve_entitlements(
+            db, workspace_id=workspace_id, subject_user_id=subject_user_id, now=datetime.now(UTC),
+        )
+    except (CatalogNotApproved, ValueError) as exc:
+        raise OutcomeGenerationTerminalError("billing_access_unavailable") from exc
+    if not all(access.capabilities.get(key) is True for key in ("ai_summary", "ai_outcomes")):
+        raise OutcomeGenerationTerminalError("commercial_ai_generation_denied")
+
+
 async def create_summary_candidate(
     db: AsyncSession,
     *,
@@ -307,7 +325,7 @@ async def create_summary_candidate(
     request_intent: str = "automatic_baseline",
     request_intent_id: UUID | None = None,
 ) -> MeetingOutcomeGenerationAttempt:
-    meeting = await lock_meeting_fence(db, workspace_id=workspace_id, meeting_id=meeting_id)
+    meeting = await lock_processing_meeting_fence(db, workspace_id=workspace_id, meeting_id=meeting_id)
     if meeting is None:
         raise OutcomeGenerationTerminalError("meeting_not_found")
     if meeting_is_deleted_or_deleting(meeting):
@@ -318,15 +336,9 @@ async def create_summary_candidate(
         meeting_id=meeting_id,
         template_key=template_key,
     )
-    slot = slot or await ensure_summary_slot(
-        db,
-        workspace_id=workspace_id,
-        meeting_id=meeting_id,
-        template_key=template_key,
-    )
-    if slot.current_outcome_set_id != expected_current_outcome_set_id:
+    current_outcome_set_id = slot.current_outcome_set_id if slot is not None else None
+    if current_outcome_set_id != expected_current_outcome_set_id:
         raise OutcomeGenerationTerminalError("summary_revision_conflict")
-    current_outcome_set_id = slot.current_outcome_set_id
     latest_revision = await db.scalar(
         select(MediaRevision)
         .where(
@@ -488,6 +500,14 @@ async def create_summary_candidate(
             and accepted_automatic.outcome_set_id == current_outcome_set_id
         ):
             return accepted_automatic
+    # Exact admitted replays above keep their durable answer after a tariff
+    # change. Check new work before creating a slot or replacing old attempts.
+    await require_summary_generation_access(
+        db, workspace_id=workspace_id, subject_user_id=requested_by_user_id,
+    )
+    slot = slot or await ensure_summary_slot(
+        db, workspace_id=workspace_id, meeting_id=meeting_id, template_key=template_key,
+    )
     if template is not None and template.status != "active":
         # Archived/deleted templates remain valid only for an exact replay of
         # their pinned candidate; they cannot start a new intent.
@@ -907,13 +927,17 @@ async def ensure_automatic_summary_candidate(
     workspace_id: UUID,
     meeting_id: UUID,
 ) -> MeetingOutcomeGenerationAttempt | None:
+    meeting = await lock_processing_meeting_fence(db, workspace_id=workspace_id, meeting_id=meeting_id)
+    if meeting is None or meeting_is_deleted_or_deleting(meeting):
+        return None
+    try:
+        await require_summary_generation_access(
+            db, workspace_id=workspace_id, subject_user_id=meeting.created_by_user_id,
+        )
+    except OutcomeGenerationTerminalError:
+        return None
     workspace = await db.get(Workspace, workspace_id)
-    meeting = await db.get(Meeting, meeting_id)
-    if (
-        workspace is None
-        or meeting is None
-        or meeting_is_deleted_or_deleting(meeting)
-    ):
+    if workspace is None:
         return None
     definition = built_in_template_for_version(
         workspace.default_summary_template_key,

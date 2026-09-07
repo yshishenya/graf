@@ -349,6 +349,21 @@ async def get_public_share_db_session(
         yield session
 
 
+async def get_authenticated_share_db_session(
+    workspace_id: Annotated[UUID, Query()],
+    db: Annotated[AsyncSession | None, Depends(get_public_share_db_session)],
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+):
+    if db is not None:
+        # Keep the owner's content scope and the authenticated viewer's assignments.
+        # This context alone never grants meeting access: recipient proof/ACL still apply.
+        await apply_tenant_context(db, TenantDatabaseContext(
+            organization_id=UUID(int=0), workspace_id=workspace_id,
+            user_id=principal.user_id, context_kind="request",
+        ))
+    return db
+
+
 async def _verified_invitation_address_hashes(
     request: Request,
     *,
@@ -414,6 +429,7 @@ async def _recipient_share_access_proof(
 
 
 PublicShareDbDependency = Depends(get_public_share_db_session)
+AuthenticatedShareDbDependency = Depends(get_authenticated_share_db_session)
 StorageDependency = Depends(get_request_storage)
 CabinetSearchQuery = Query(default=None, max_length=120)
 CabinetStatusQuery = Query(default=None)
@@ -699,6 +715,7 @@ async def get_meeting_access_state_route(
             db,
             meeting,
             decision,
+            actor_user_id=principal.user_id,
             external_invitations_enabled=request.app.state.settings.share_external_invitations_enabled,
             invitation_encryption_key=(
                 request.app.state.settings.credential_encryption_key_file.read_bytes().strip()
@@ -706,7 +723,7 @@ async def get_meeting_access_state_route(
                 else None
             ),
         ),
-        artifacts=await artifact_egress_states(db, meeting=meeting, access=decision, result=result),
+        artifacts=await artifact_egress_states(db, meeting=meeting, actor_user_id=principal.user_id, access=decision, result=result),
         deletion_truth_copy=DELETION_TRUTH_COPY,
     )
 
@@ -2957,7 +2974,7 @@ async def play_shared_meeting_audio_route(
     principal: AuthenticatedPrincipal = PrincipalDependency,
     device: DeviceContext = DeviceDependency,
     storage: object = StorageDependency,
-    db: AsyncSession | None = PublicShareDbDependency,
+    db: AsyncSession | None = AuthenticatedShareDbDependency,
 ) -> Response:
     if db is None:
         raise ProblemDetail(
@@ -3004,7 +3021,7 @@ async def download_shared_meeting_artifact_route(
     principal: AuthenticatedPrincipal = PrincipalDependency,
     device: DeviceContext = DeviceDependency,
     storage: object = StorageDependency,
-    db: AsyncSession | None = PublicShareDbDependency,
+    db: AsyncSession | None = AuthenticatedShareDbDependency,
 ) -> Response:
     if db is None:
         raise ProblemDetail(
@@ -3060,7 +3077,7 @@ async def get_shared_meeting_content_export_capabilities_route(
     workspace_id: Annotated[UUID, Query()],
     recipient_scope: TenantScope = TenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
-    db: AsyncSession | None = PublicShareDbDependency,
+    db: AsyncSession | None = AuthenticatedShareDbDependency,
 ) -> ContentExportCapabilityResponse:
     if db is None:
         raise ProblemDetail(
@@ -3088,7 +3105,7 @@ async def get_shared_meeting_content_export_capabilities_route(
     return await content_export_capabilities(
         db,
         meeting=meeting,
-        access=decision,
+        actor_user_id=principal.user_id, access=decision,
         result=result,
         pinned_summary_revision=_shared_summary_pin(grant),
     )
@@ -3108,7 +3125,7 @@ async def create_shared_meeting_content_export_route(
     recipient_scope: TenantScope = TenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     device: DeviceContext = DeviceDependency,
-    db: AsyncSession | None = PublicShareDbDependency,
+    db: AsyncSession | None = AuthenticatedShareDbDependency,
 ) -> Response:
     if db is None:
         raise ProblemDetail(
@@ -3211,7 +3228,7 @@ async def get_meeting_content_export_capabilities_route(
         workspace_id=tenant_scope.workspace_id,
         meeting_id=meeting_id,
     )
-    return await content_export_capabilities(db, meeting=meeting, access=decision, result=result)
+    return await content_export_capabilities(db, meeting=meeting, actor_user_id=principal.user_id, access=decision, result=result)
 
 
 @router.post(
@@ -4435,6 +4452,8 @@ _SUMMARY_PUBLIC_REASON_ALIASES = {
         "summary_type_retired",
         "summary_generation_in_progress",
         "summary_generation_blocked",
+        "commercial_ai_generation_denied",
+        "billing_access_unavailable",
         "summary_generation_deferred",
         "summary_generation_ambiguous",
         "summary_source_revision_stale",
@@ -4503,6 +4522,8 @@ _SUMMARY_PUBLIC_REASON_ALIASES.update(
     }
 )
 _SUMMARY_PUBLIC_CODE_STATUS = {
+    "commercial_ai_generation_denied": 403,
+    "billing_access_unavailable": 503,
     "summary_dependency_unavailable": 503,
     "summary_type_not_found": 404,
     "summary_generation_blocked": 403,

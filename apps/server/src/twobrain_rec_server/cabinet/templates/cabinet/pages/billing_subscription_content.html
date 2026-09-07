@@ -11,6 +11,7 @@
       {% elif result == "already_cancelled" %}<p class="notice" role="status">Автопродление уже отключено.</p>
       {% elif result == "already_active" %}<p class="notice" role="status">Автопродление уже включено.</p>
       {% elif result == "consent_required" %}<p class="notice" role="alert">Подтвердите отдельное согласие на следующее списание.</p>
+      {% elif result == "terms_unavailable" %}<p class="notice" role="alert">Не удалось подтвердить сумму и дату следующего списания. Автопродление не включено. Обновите страницу позже или обратитесь в поддержку.</p>
       {% elif result == "method_required" %}<p class="notice" role="alert">Нужен подтверждённый способ оплаты. Возобновление не включено.</p>
       {% elif result == "unavailable" %}<p class="notice" role="alert">Управление подпиской сейчас недоступно.</p>{% endif %}
       <section class="settings-section cabinet-card" aria-labelledby="billing-subscription-state-title">
@@ -20,17 +21,28 @@
         <p class="notice" role="status" aria-live="polite">Проверяем результат последнего списания. Нового платежа не создаём. Если подтверждения не будет, доступ сразу перейдёт на бесплатный тариф.</p>
         {% endif %}
         {% if active %}
-        <p>Оплачено до: <strong>{{ paid_through_label|default("дата уточняется") }}</strong>.</p>
+        <p>Доступ по подписке до: <strong>{{ paid_through_label|default("дата уточняется") }}</strong>.</p>
         {% if subscription.recurring_allowed %}
-        <p>Следующее списание: <strong>{{ paid_through_label|default("дата уточняется") }}</strong> по сохранённому способу оплаты.</p>
+        <p>Следующее списание: <strong>{{ paid_through_label|default("дата уточняется") }}{% if next_charge_amount_label|default(None) %} · {{ next_charge_amount_label }}{% endif %}</strong> по сохранённому способу оплаты.</p>
         <p class="muted">Если передумаете, автопродление можно включить снова до даты окончания доступа.</p>
         <form action="/billing/subscription/cancel" method="post">{{ sections.csrf_field(csrf_token|default(None)) }}<input type="hidden" name="expected_authority_version" value="{{ subscription.recurring_authority_version }}"><button class="button quiet" type="submit">Отключить автопродление</button></form>
         {% else %}
         <p>Автопродление отключено. Нового списания не будет.</p>
         <p class="muted">Возобновление не создаёт новый платёж. Следующее списание: <strong>{{ next_charge_amount_label|default("сумма уточняется") }}</strong> после {{ paid_through_label|default("даты уточняется") }}. Для действия нужна сохранённая подтверждённая карта.</p>
-        {% if method_available|default(False) %}<form action="/billing/subscription/resume" method="post">{{ sections.csrf_field(csrf_token|default(None)) }}<input type="hidden" name="expected_authority_version" value="{{ subscription.recurring_authority_version }}"><label><input type="checkbox" name="resume_consent" value="true"> Я разрешаю следующее рекуррентное списание по указанной сумме и дате.</label><button class="button" type="submit">Возобновить автопродление</button></form>{% else %}<p role="status">Возобновление недоступно до добавления подтверждённого способа оплаты.</p>{% endif %}
+        {% if method_available|default(False) and next_charge_amount_label|default(None) %}
+        <form action="/billing/subscription/resume" method="post">
+          {{ sections.csrf_field(csrf_token|default(None)) }}
+          <input type="hidden" name="expected_authority_version" value="{{ subscription.recurring_authority_version }}">
+          <input type="hidden" name="expected_plan_version_id" value="{{ subscription.pinned_plan_version_id }}">
+          <input type="hidden" name="expected_price_id" value="{{ subscription.pinned_price_id }}">
+          <input type="hidden" name="expected_schedule_version" value="{{ subscription.schedule_version }}">
+          <input type="hidden" name="expected_paid_through" value="{{ subscription.paid_through.isoformat() }}">
+          <label><input type="checkbox" name="resume_consent" value="true"> Я разрешаю следующее рекуррентное списание по указанной сумме и дате.</label>
+          <button class="button" type="submit">Возобновить автопродление</button>
+        </form>
+        {% else %}<p role="status">Возобновление доступно после подтверждения способа оплаты, суммы и даты списания.</p>{% endif %}
         {% endif %}
-        {% else %}<p>Активной платной подписки нет. После окончания оплаченного периода доступ сразу переходит на бесплатный тариф.</p><p>Следующее списание: <strong>не запланировано</strong>.</p>{% if billing_enabled|default(False) %}<a class="button" href="/billing/checkout">Выбрать тариф</a>{% else %}<p role="status">Оплата временно недоступна; магазин не включён.</p>{% endif %}{% endif %}
+        {% else %}<p>Активной платной подписки нет. {% if access_source|default(None) == "gift" %}Назначенный доступ сохраняется до {{ assigned_access_until_label }}.{% else %}Действующие права и квоты показаны на странице использования.{% endif %}</p><p>Следующее списание: <strong>не запланировано</strong>.</p>{% if billing_enabled|default(False) %}<a class="button" href="/billing/checkout">Выбрать тариф</a>{% else %}<p role="status">Оплата временно недоступна; магазин не включён.</p>{% endif %}{% endif %}
       </section>
       <p class="billing-help"><a class="button quiet" href="/billing/history">Нужна помощь с оплатой?</a></p>
       <a class="button quiet" href="/billing">Вернуться к тарифу и оплате</a>

@@ -16,6 +16,8 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.pool import NullPool
 
 from tests.fakes.auth_contexts import (
     AUTH_BOOTSTRAP_WORKSPACE_ID,
@@ -28,8 +30,8 @@ from tests.fakes.auth_contexts import (
 from tests.fakes.fake_minio import FakeMinioStorage
 from tests.fixtures.cabinet import seed_cabinet_meetings
 from tests.fixtures.cabinet_access import add_retained_playback_m4a
+from tests.fixtures.postgres_test_database import prepare_schema
 from twobrain_rec_server.config import Settings
-from twobrain_rec_server.db.base import Base
 from twobrain_rec_server.db.models import (
     Meeting,
     MeetingTargetRegistryEntry,
@@ -42,7 +44,7 @@ from twobrain_rec_server.db.models import (
     Workspace,
     WorkspaceMembership,
 )
-from twobrain_rec_server.db.session import create_engine, create_sessionmaker
+from twobrain_rec_server.db.session import create_sessionmaker
 from twobrain_rec_server.ingest.store import InMemoryIngestStore
 from twobrain_rec_server.main import create_app
 from twobrain_rec_server.meeting_detection.registry import registry_entries, registry_etag
@@ -61,8 +63,6 @@ LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 
 
 async def _seed_database(app: FastAPI) -> None:
-    async with app.state.db_engine.begin() as connection:
-        await connection.run_sync(Base.metadata.create_all)
     registry_document = json.loads(REGISTRY_DATA.read_text(encoding="utf-8"))
     async with app.state.db_sessionmaker() as session:
         registry_version = MeetingTargetRegistryVersion(
@@ -96,6 +96,12 @@ async def _seed_database(app: FastAPI) -> None:
                     external_subject=str(USER_ID),
                     display_name="Feature 099 Owner",
                 ),
+                registry_version,
+            ]
+        )
+        await session.flush()
+        session.add_all(
+            [
                 WorkspaceMembership(
                     workspace_id=WORKSPACE_ID,
                     user_id=USER_ID,
@@ -116,7 +122,6 @@ async def _seed_database(app: FastAPI) -> None:
                     device_public_id="feature-099-revoked-device",
                     status="revoked",
                 ),
-                registry_version,
             ]
         )
         await session.flush()
@@ -320,13 +325,15 @@ def create_harness(
         web_login_workspace_id=AUTH_BOOTSTRAP_WORKSPACE_ID,
         legacy_header_auth_enabled=True,
     )
+    prepare_schema(database_url)
     app = create_app(settings)
+    # Fixture helpers and TestClient use different event loops. Do not reuse
+    # asyncpg connections across those loops.
+    app.state.db_engine = create_async_engine(settings.database_url, poolclass=NullPool)
+    app.state.db_sessionmaker = create_sessionmaker(app.state.db_engine)
     app.state.storage = FakeMinioStorage()
     app.state.ingest_store = InMemoryIngestStore()
     asyncio.run(_seed_database(app))
-    asyncio.run(app.state.db_engine.dispose())
-    app.state.db_engine = create_engine(settings)
-    app.state.db_sessionmaker = create_sessionmaker(app.state.db_engine)
     body = _synthetic_m4a(runtime_directory)
 
     with TestClient(app) as client:
@@ -345,9 +352,6 @@ def create_harness(
             independent_id=seeds.partial_id,
         )
     )
-    asyncio.run(app.state.db_engine.dispose())
-    app.state.db_engine = create_engine(settings)
-    app.state.db_sessionmaker = create_sessionmaker(app.state.db_engine)
 
     harness_state: dict[str, object] = {
         "origin": origin,

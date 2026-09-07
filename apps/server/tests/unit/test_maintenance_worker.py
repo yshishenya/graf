@@ -60,6 +60,7 @@ async def test_calendar_runs_during_temporal_outage_and_all_tasks_stop(
     monkeypatch.setattr(worker, "run_calendar_sync_reconciler", calendar)
     monkeypatch.setattr(worker, "run_billing_notification_reconciler", independent)
     for name in (
+        "run_system_operation_reconciler",
         "run_account_closure_reconciler",
         "run_billing_renewal_reconciler",
         "run_billing_reconciliation_reconciler",

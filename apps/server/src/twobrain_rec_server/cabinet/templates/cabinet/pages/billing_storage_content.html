@@ -8,7 +8,7 @@
         <h2 id="billing-storage-title">Текущая ёмкость</h2>
         {% if result|default(None) == "unavailable" %}<p class="notice" role="alert">Данные хранилища временно недоступны. Объёмы и платные действия скрыты; обновите страницу позже.</p>
         {% else %}
-        <p><strong>{{ current_capacity_label|default("ёмкость уточняется") }}</strong> включено в текущий тариф.</p>
+        <p><strong>{{ current_capacity_label|default("ёмкость уточняется") }}</strong> доступно с учётом тарифа и индивидуальных назначений.</p>
         <p class="muted">В расчёт входит только нормализованный playback-файл <code>meeting-review.m4a</code>. Исходный WAV и временные файлы не расходуют лимит пользователя.</p>
         {% if eligible and billing_enabled %}
         <h3>Доступные варианты</h3>
@@ -21,8 +21,8 @@
         {% elif not billing_enabled %}
         <p role="status">Платные дополнения пока недоступны: магазин не включён.</p>
         {% else %}
-        <p role="status">Дополнение доступно только на тарифе «Личный».</p>
-        <a class="button" href="/billing/checkout">Выбрать тариф «Личный»</a>
+        <p role="status">Для платного дополнения нужна действующая платная подписка.</p>
+        <a class="button" href="/billing/plans">Выбрать тариф</a>
         {% endif %}
         {% endif %}
       </section>

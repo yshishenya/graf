@@ -35,6 +35,10 @@ MEDIA_READ_ONLY_TABLES = (
     "media_revisions",
     "upload_sessions",
     "workspace_subscriptions",
+    "billing_plans",
+    "billing_plan_versions",
+    "billing_access_adjustments",
+    "billing_access_revocations",
     "workspaces",
 )
 MEDIA_READ_WRITE_TABLES = (
@@ -46,7 +50,7 @@ MEDIA_READ_WRITE_TABLES = (
     "track_artifacts",
 )
 MEDIA_INSERT_ONLY_TABLES = ("ingest_audit_events",)
-MEDIA_LOCK_COLUMNS = (("meetings", "updated_at"), ("media_revisions", "updated_at"))
+MEDIA_LOCK_COLUMNS = (("meetings", "updated_at"), ("media_revisions", "updated_at"), ("workspaces", "id"))
 MEDIA_ROLE_BOOTSTRAP_LOCK_KEY = 110_202_607_18
 
 

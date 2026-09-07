@@ -69,6 +69,7 @@
     "speaker_not_found",
   ]);
   const summaryActionProblemCodes = new Set([
+    "commercial_ai_generation_denied",
     "summary_candidate_not_found",
     "summary_candidate_state_invalid",
     "summary_candidate_unavailable",
@@ -3231,6 +3232,8 @@
         });
       };
       const candidateErrorCopy = (code) => ({
+        commercial_ai_generation_denied: "Создание новых итогов недоступно по условиям вашего доступа. Сохранённые итоги остаются доступны.",
+        billing_access_unavailable: "Не удалось проверить условия доступа. Повторите позже; сохранённые итоги не изменены.",
         summary_transcript_too_large: "Расшифровка слишком большая для этого действия.",
         summary_transcript_unavailable: "Расшифровка пока недоступна. Обновите страницу и попробуйте снова.",
         summary_source_unavailable: "Источник итогов пока недоступен. Обновите страницу и попробуйте снова.",
@@ -5458,7 +5461,8 @@
   const uploadFailureMessage = (code) => ({
     empty_media_upload: "Файл пустой",
     upload_part_bytes_exceeded: "Файл слишком большой",
-    unsafe_meeting_title: "Измените название"
+    unsafe_meeting_title: "Измените название",
+    commercial_audio_archive_denied: "Сохранение аудио недоступно по тарифу. Для обработки без архива снимите флажок сохранения аудио."
   })[code] || "Не удалось загрузить";
 
   const formatBytes = (value) => {
@@ -5626,6 +5630,7 @@
         activity.recoverButton.hidden = state !== "failed" || activity.recoveryMode === null;
         if (activity.recoveryMode === "auth") activity.recoverButton.textContent = "Обновить страницу";
         if (activity.recoveryMode === "conflict") activity.recoverButton.textContent = "Выбрать другой файл";
+        if (activity.recoveryMode === "archive") activity.recoverButton.textContent = "Изменить условия загрузки";
       }
       if (activity.resumeButton) activity.resumeButton.hidden = state !== "canceled";
       if (activity.detailLink) activity.detailLink.hidden = !activity.detailHref;
@@ -5772,7 +5777,7 @@
         activity.meta.textContent = `${file.name || "Файл"} · ${formatBytes(file.size)} · ${duration} сек.`;
       }
       activeUploadActivities.add(activity);
-      row.addEventListener("click", (event) => {
+      row.addEventListener("click", async (event) => {
         if (!(event.target instanceof Element)) return;
         if (event.target.closest("[data-upload-activity-cancel]")) {
           if (activity.xhr && !activity.accepted) activity.xhr.abort();
@@ -5788,6 +5793,13 @@
           } else if (activity.recoveryMode === "conflict") {
             resetDraft();
             openDialog(lastTrigger);
+          } else if (activity.recoveryMode === "archive") {
+            resetDraft();
+            openDialog(lastTrigger);
+            await setSelectedFile(activity.file);
+            if (titleInput) titleInput.value = activity.title;
+            setValidation(uploadFailureMessage("commercial_audio_archive_denied"), "error");
+            focusDialogElement(archiveInput);
           }
           return;
         }
@@ -5864,7 +5876,8 @@
         }
         activity.recoveryMode = authUploadFailure(failureCode)
           ? "auth"
-          : conflictUploadFailure(failureCode) ? "conflict" : null;
+          : conflictUploadFailure(failureCode) ? "conflict"
+          : failureCode === "commercial_audio_archive_denied" ? "archive" : null;
         setActivityState(activity, "failed", uploadFailureMessage(failureCode), "error");
       };
       xhr.onerror = () => {
@@ -6726,6 +6739,8 @@
       }).filter(Boolean);
       format.replaceChildren(...groups);
       if (values.includes(previous)) format.value = previous;
+      if (copy) copy.disabled = submitting || !values.includes("txt");
+      if (submit) submit.disabled = submitting || values.length === 0;
       setStatus("");
       updateOptions();
     };
@@ -6798,8 +6813,10 @@
     };
     const setBusy = (busy) => {
       submitting = busy;
-      if (submit) submit.disabled = busy;
-      if (copy) copy.disabled = busy;
+      const key = "exportFormats" + (scope?.value || "transcript").replace(/^./, (letter) => letter.toUpperCase());
+      const formats = (form.dataset[key] || "").split(",").filter(Boolean);
+      if (submit) submit.disabled = busy || formats.length === 0;
+      if (copy) copy.disabled = busy || !formats.includes("txt");
       if (busy) dialog.setAttribute("aria-busy", "true");
       else dialog.removeAttribute("aria-busy");
     };
@@ -6808,7 +6825,8 @@
       meeting_deletion_active: "Экспорт недоступен: встреча удаляется.",
       meeting_not_found: "Доступ к встрече изменился. Обновите страницу.",
       export_policy_denied: "Политика доступа к этому составу изменилась.",
-      export_unavailable: "Этот состав сейчас недоступен по готовности или политике.",
+      export_unavailable: "Этот состав или формат недоступен по готовности, политике или условиям доступа.",
+      billing_access_unavailable: "Не удалось проверить условия доступа. Повторите позже.",
       subtitle_timing_unavailable: "Не удалось подготовить субтитры: у одного из фрагментов нет корректного времени. Выберите другой формат, чтобы сохранить весь текст.",
       export_generation_failed: "Не удалось собрать файл. Повторите экспорт.",
       audit_unavailable: "Экспорт остановлен: не удалось сохранить обязательную запись аудита. Повторите позже.",
@@ -6948,6 +6966,7 @@
         invalid_invitation_ttl: "Срок действия приглашения недоступен. Попробуйте ещё раз.",
         external_share_scope_invalid: "Внешний доступ возможен только к итогам без скачивания.",
         grantee_not_found: "Не удалось подтвердить участника. Попробуйте найти его заново.",
+        commercial_sharing_denied: "Новые приглашения недоступны по условиям доступа. Обновите страницу; ранее открытый доступ можно отозвать.",
         grantee_already_has_access: "У этого участника уже есть доступ к встрече.",
         share_policy_blocked: "Этот способ доступа пока недоступен по политике.",
         share_not_found: "Ссылка больше недоступна. Обновите список доступов.",

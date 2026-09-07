@@ -37,6 +37,7 @@ from twobrain_rec_server.billing.renewal_charge import (
     plan_due_renewals,
     project_renewal_cutoffs,
 )
+from twobrain_rec_server.billing.subscription import lock_billing_subscription
 from twobrain_rec_server.billing.webhook_reconciliation import (
     reconcile_pending_initial_checkout_operations,
     reconcile_pending_webhook_events,
@@ -983,6 +984,7 @@ async def run_billing_renewal_activity(payload: dict[str, str]) -> dict[str, str
     try:
         async with sessionmaker() as db:
             await apply_tenant_context(db, context)
+            workspace, subscription = await lock_billing_subscription(db, workspace_id)
             operation = await db.scalar(
                 select(BillingOperation)
                 .where(
@@ -1019,12 +1021,6 @@ async def run_billing_renewal_activity(payload: dict[str, str]) -> dict[str, str
                     type="BillingRenewalProviderMismatch",
                     non_retryable=True,
                 )
-            workspace = await db.get(Workspace, workspace_id)
-            subscription = await db.scalar(
-                select(WorkspaceSubscription)
-                .where(WorkspaceSubscription.workspace_id == workspace_id)
-                .with_for_update()
-            )
             owner = None
             if (
                 workspace is not None
@@ -1070,6 +1066,7 @@ async def run_billing_renewal_activity(payload: dict[str, str]) -> dict[str, str
 
         async with sessionmaker() as db:
             await apply_tenant_context(db, context)
+            _, subscription = await lock_billing_subscription(db, workspace_id)
             operation = await db.scalar(
                 select(BillingOperation)
                 .where(
@@ -1112,12 +1109,6 @@ async def run_billing_renewal_activity(payload: dict[str, str]) -> dict[str, str
                     non_retryable=True,
                 ) from exc
 
-            subscription = await db.scalar(
-                select(WorkspaceSubscription)
-                .where(WorkspaceSubscription.workspace_id == workspace_id)
-                .with_for_update()
-                .execution_options(populate_existing=True)
-            )
             now = datetime.now(UTC)
             key_expired = provider_key_is_expired(
                 expires_at=operation.provider_key_expires_at,

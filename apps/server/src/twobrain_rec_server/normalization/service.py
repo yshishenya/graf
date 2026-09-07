@@ -19,8 +19,7 @@ from sqlalchemy import and_, exists, func, or_, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from twobrain_rec_server.billing.catalog import FREE_STORAGE_BYTES
-from twobrain_rec_server.billing.entitlements import effective_plan_code
+from twobrain_rec_server.billing.entitlements import resolve_entitlements
 from twobrain_rec_server.billing.source_lifecycle import (
     clear_source_playback_verification,
     mark_source_playback_verified,
@@ -42,7 +41,6 @@ from twobrain_rec_server.db.models import (
     StorageReservation,
     TrackArtifact,
     Workspace,
-    WorkspaceSubscription,
 )
 from twobrain_rec_server.db.tenant_context import (
     rehydrate_tenant_context,
@@ -1654,6 +1652,14 @@ async def _delete_storage_object(storage: object, object_key: str) -> None:
     raise RuntimeError("storage_unavailable")
 
 
+async def _lock_playback_storage_scope(db: AsyncSession, workspace_id: UUID) -> None:
+    # Match subscription writers: legacy storage advisory lock → Workspace.
+    # Acquire both before Meeting/Job so assigned capacity cannot race admission.
+    await lock_storage_workspace(db, workspace_id)
+    if await db.scalar(select(Workspace.id).where(Workspace.id == workspace_id).with_for_update()) is None:
+        raise StorageAdmissionError("storage workspace unavailable")
+
+
 async def _reserve_playback_storage(
     db: AsyncSession,
     *,
@@ -1670,32 +1676,18 @@ async def _reserve_playback_storage(
     ):
         return None
     await lock_storage_workspace(db, job.workspace_id)
-    subscription = await db.scalar(
-        select(WorkspaceSubscription).where(
-            WorkspaceSubscription.workspace_id == job.workspace_id
-        )
-    )
-    effective_plan = (
-        effective_plan_code(
-            plan_code=subscription.plan_code,
-            state=subscription.state,
-            now=now,
-            paid_through=subscription.paid_through,
-            trial_ends_at=subscription.trial_ends_at,
-        )
-        if subscription is not None
-        else "free"
+    subject_user_id = await db.scalar(select(Meeting.created_by_user_id).where(
+        Meeting.id == job.meeting_id, Meeting.workspace_id == job.workspace_id,
+    ))
+    access = await resolve_entitlements(
+        db, workspace_id=job.workspace_id, subject_user_id=subject_user_id, now=now,
     )
     return await reserve_storage(
         db,
         workspace_id=job.workspace_id,
         reservation_key=f"normalization:{attempt.id}",
         declared_bytes=declared_bytes,
-        capacity_bytes=(
-            subscription.capacity_bytes
-            if subscription is not None and effective_plan in {"trial", "personal"}
-            else FREE_STORAGE_BYTES
-        ),
+        capacity_bytes=access.capabilities["storage_bytes"],
         now=now,
     )
 
@@ -2774,6 +2766,7 @@ async def _execute_normalization_job(
         )
         await _ensure_normalized_output_matches_file(output_path, output)
 
+        await _lock_playback_storage_scope(db, prepared.job.workspace_id)
         # Fence ownership before storage I/O, then commit to release the
         # lifecycle locks. A deletion may race the upload; the post-upload
         # Meeting → Job → Attempt fence below deletes the late object instead
@@ -3104,6 +3097,12 @@ async def publish_uploaded_attempt(
     )
     if job_meeting_id is None:
         raise RuntimeError("database_unavailable")
+    workspace_id = await db.scalar(select(PlaybackNormalizationJob.workspace_id).where(
+        PlaybackNormalizationJob.id == attempt_job_id,
+    ))
+    if workspace_id is None:
+        raise RuntimeError("database_unavailable")
+    await _lock_playback_storage_scope(db, workspace_id)
     meeting = await db.scalar(
         select(Meeting)
         .where(Meeting.id == job_meeting_id)

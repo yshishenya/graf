@@ -27,6 +27,8 @@ from twobrain_rec_server.api.schemas import (
     MeetingActivityResponse,
     PlaybackPreparationState,
 )
+from twobrain_rec_server.billing.catalog import CatalogNotApproved
+from twobrain_rec_server.billing.entitlements import resolve_entitlements
 from twobrain_rec_server.cabinet.access import (
     AccessDecision,
     ShareRecipientAccessProof,
@@ -61,6 +63,7 @@ from twobrain_rec_server.db.models import (
     ProcessingResult,
     TrackArtifact,
     TranscriptSegment,
+    Workspace,
 )
 from twobrain_rec_server.domain.statuses import (
     DeletionState,
@@ -226,6 +229,7 @@ async def content_export_capabilities(
     *,
     meeting: Meeting,
     access: AccessDecision,
+    actor_user_id: UUID,
     result: ProcessingResult | None,
     pinned_summary_revision: tuple[str, UUID] | None = None,
 ) -> ContentExportCapabilityResponse:
@@ -245,6 +249,11 @@ async def content_export_capabilities(
             duration_seconds=max(meeting.duration_seconds, 0),
         )
 
+    commercial = await meeting_commercial_capabilities(db, meeting=meeting, actor_user_id=actor_user_id)
+    formats = {
+        scope: [format for format in allowed if format in commercial["export_formats"]]
+        for scope, allowed in FORMAT_COMPATIBILITY.items()
+    }
     result = await _effective_complete_result(db, meeting=meeting)
 
     policy = await resolve_artifact_policy(
@@ -367,6 +376,13 @@ async def content_export_capabilities(
         and outcome_set.status in {"available", "partial"}
         else None
     )
+    denied = ContentExportReadiness(state="denied", reason="commercial_export_denied")
+    if not formats["transcript"]:
+        transcript = denied
+    if not formats["summary"]:
+        summary = denied
+    if not formats["combined"]:
+        combined = denied
     return ContentExportCapabilityResponse(
         processing_result_id=result.id if result else None,
         # Keep the accepted pointer as the UI CAS token even when a newer
@@ -376,7 +392,7 @@ async def content_export_capabilities(
         transcript=transcript,
         summary=summary,
         combined=combined,
-        formats={scope: list(formats) for scope, formats in FORMAT_COMPATIBILITY.items()},
+        formats=formats,
         defaults=ContentExportDefaults(),
         language=result.language if result else None,
         duration_seconds=max(meeting.duration_seconds, 0),
@@ -467,12 +483,14 @@ async def create_content_export(
         db,
         meeting=meeting,
         access=access,
+        actor_user_id=actor_user_id,
         result=result,
         pinned_summary_revision=pinned_summary_revision,
     )
     readiness = getattr(capabilities, selection.content_scope)
-    if not _content_export_readiness_allows(selection.content_scope, readiness.state):
-        denial_reason = readiness.reason or "export_unavailable"
+    format_allowed = selection.format in capabilities.formats[selection.content_scope]
+    if not format_allowed or not _content_export_readiness_allows(selection.content_scope, readiness.state):
+        denial_reason = readiness.reason or ("commercial_export_format_denied" if not format_allowed else "export_unavailable")
         if selection.content_scope == "summary" and selection.outcome_set_id is not None:
             selected_outcome = await db.scalar(
                 select(MeetingOutcomeSet).where(
@@ -508,6 +526,9 @@ async def create_content_export(
         policy_reason="policy_allowed",
         metadata={**audit_base, "request_class": "content_export"},
     )
+    # Audit FKs hold Workspace/Meeting KEY SHARE locks. Release them before
+    # rendering so an assignment or deletion can win the final egress recheck.
+    await db.commit()
     try:
         snapshot = await build_export_snapshot(
             db,
@@ -580,6 +601,7 @@ async def create_content_export(
         db,
         meeting=meeting,
         access=final_access,
+        actor_user_id=actor_user_id,
         result=result,
         pinned_summary_revision=pinned_summary_revision,
     )
@@ -623,9 +645,9 @@ async def create_content_export(
     elif not final_access.can_view:
         denial = (404, "meeting_not_found", "Meeting not found")
         denial_reason = "meeting_not_found"
-    elif final_readiness.state == "denied":
+    elif final_readiness.state == "denied" or selection.format not in final_capabilities.formats[selection.content_scope]:
         denial = (403, "export_policy_denied", "Export policy denied")
-        denial_reason = "export_policy_denied"
+        denial_reason = final_readiness.reason or "export_policy_denied"
     elif not _content_export_readiness_allows(selection.content_scope, final_readiness.state):
         denial = (409, "export_unavailable", "Export unavailable")
         denial_reason = (
@@ -897,6 +919,7 @@ async def artifact_egress_states(
     *,
     meeting: Meeting,
     access: AccessDecision,
+    actor_user_id: UUID,
     result: ProcessingResult | None,
 ) -> list[ArtifactEgressState]:
     if meeting_deletion_active(meeting):
@@ -941,6 +964,23 @@ async def artifact_egress_states(
         access,
         states,
     )
+    commercial = await meeting_commercial_capabilities(db, meeting=meeting, actor_user_id=actor_user_id)
+    for state in states + [package_state]:
+        allowed = (
+            commercial["audio_download"] if state.artifact_class == "audio"
+            else commercial["content_export"] and (
+                "json" if state.artifact_class == "package" else "txt"
+            ) in commercial["export_formats"]
+        )
+        if not allowed:
+            state.state = "policy_blocked"
+            state.action = "disabled"
+            state.label = "Недоступно по условиям доступа"
+            state.reason = "commercial_audio_download_denied" if state.artifact_class == "audio" else "commercial_export_denied"
+    if package_state.state == "available":
+        package_state = _package_state(
+            _effective_policy_value(policy.package_export, policy_source=policy.policy_source), access, states,
+        )
     return states + [package_state]
 
 
@@ -1325,6 +1365,7 @@ async def download_artifact(
     device_id: UUID,
     recipient_proof: ShareRecipientAccessProof | None = None,
 ) -> DownloadArtifact:
+    await lock_commercial_workspace(db, meeting.workspace_id)
     locked_meeting = await lock_meeting_fence(
         db, workspace_id=meeting.workspace_id, meeting_id=meeting.id
     )
@@ -1375,7 +1416,7 @@ async def download_artifact(
         raise ProblemDetail(status=409, code="export_revision_stale", title="Export revision is stale")
     states = {
         state.artifact_class: state
-        for state in await artifact_egress_states(db, meeting=meeting, access=access, result=result)
+        for state in await artifact_egress_states(db, meeting=meeting, access=access, result=result, actor_user_id=actor_user_id)
     }
     state = states.get(artifact_class)
     if state is None or state.state != "available" or artifact_class == "package":
@@ -1465,6 +1506,20 @@ async def download_artifact(
         media_type = "text/plain; charset=utf-8"
         byte_length = len(body)
         source_mode = None
+
+    # Row locks fence mutations, but wall-clock access intervals can change
+    # while the bounded audio body is materialized.
+    if artifact_class == "audio" and not (await meeting_commercial_capabilities(
+        db, meeting=meeting, actor_user_id=actor_user_id,
+    ))["audio_download"]:
+        await record_egress_audit_event(
+            db, workspace_id=meeting.workspace_id, meeting_id=meeting.id,
+            actor_user_id=actor_user_id, device_id=device_id, event_type="download_denied",
+            artifact_class="audio", outcome="denied", policy_reason="commercial_audio_download_denied",
+            metadata={"artifact_class": "audio", "outcome": "denied"},
+        )
+        await db.commit()
+        raise ProblemDetail(status=409, code="artifact_unavailable", title="Artifact unavailable")
 
     download_metadata: dict[str, object] = {
         "artifact_class": artifact_class,
@@ -1832,7 +1887,7 @@ async def create_export_package(
         )
     states = {
         state.artifact_class: state
-        for state in await artifact_egress_states(db, meeting=meeting, access=access, result=result)
+        for state in await artifact_egress_states(db, meeting=meeting, access=access, result=result, actor_user_id=actor_user_id)
     }
     package_state = states.get("package")
     if package_state is None or package_state.state != "available":
@@ -2018,6 +2073,19 @@ async def export_package_bytes(
         )
         await db.commit()
         raise ProblemDetail(status=410, code="export_expired", title="Export has expired")
+    states = {state.artifact_class: state for state in await artifact_egress_states(
+        db, meeting=meeting, access=access, result=None, actor_user_id=actor_user_id,
+    )}
+    if any(states.get(kind) is None or states[kind].state != "available"
+           for kind in ["package", *package.included_artifacts]):
+        await record_egress_audit_event(
+            db, workspace_id=meeting.workspace_id, meeting_id=meeting.id,
+            actor_user_id=actor_user_id, device_id=device_id, event_type="export_denied",
+            artifact_class="package", outcome="denied", policy_reason="export_policy_denied",
+            metadata={"artifact_class": "package", "export_id": str(package.id)},
+        )
+        await db.commit()
+        raise ProblemDetail(status=403, code="export_policy_denied", title="Export policy denied")
     body = json.dumps(package.manifest_json, ensure_ascii=False, sort_keys=True).encode("utf-8")
     await record_egress_audit_event(
         db,
@@ -2082,7 +2150,29 @@ def meeting_deletion_active(meeting: Meeting) -> bool:
     return meeting_is_deleted_or_deleting(meeting)
 
 
+async def meeting_commercial_capabilities(
+    db: AsyncSession, *, meeting: Meeting, actor_user_id: UUID,
+) -> dict[str, object]:
+    if await db.scalar(select(Workspace.id).where(Workspace.id == meeting.workspace_id)) is None:
+        raise ProblemDetail(status=503, code="billing_access_unavailable", title="Access terms unavailable")
+    try:
+        return (await resolve_entitlements(
+            db, workspace_id=meeting.workspace_id, subject_user_id=actor_user_id, now=datetime.now(UTC),
+        )).capabilities
+    except (CatalogNotApproved, ValueError) as exc:
+        raise ProblemDetail(status=503, code="billing_access_unavailable", title="Access terms unavailable") from exc
+
+
+async def lock_commercial_workspace(db: AsyncSession, workspace_id: UUID) -> None:
+    # Assignment/revocation and subscription writers lock Workspace before Meeting.
+    if await db.scalar(select(Workspace.id).where(
+        Workspace.id == workspace_id,
+    ).with_for_update(read=True)) is None:
+        raise ProblemDetail(status=503, code="billing_access_unavailable", title="Access terms unavailable")
+
+
 async def _lock_export_meeting(db: AsyncSession, meeting: Meeting) -> Meeting:
+    await lock_commercial_workspace(db, meeting.workspace_id)
     locked = await db.scalar(
         select(Meeting)
         .where(Meeting.workspace_id == meeting.workspace_id, Meeting.id == meeting.id)

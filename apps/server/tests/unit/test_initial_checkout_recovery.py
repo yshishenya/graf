@@ -151,3 +151,15 @@ def test_transport_failure_metadata_has_no_exception_text() -> None:
         "observed_at": "2026-08-25T10:00:00+00:00",
     }
     assert "private upstream detail" not in str(metadata)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("field", ["plan_version_id", "price_id", "capability_schema_version", "capabilities"])
+async def test_managed_checkout_cannot_use_legacy_continuation_without_database(field):
+    operation = _operation(expires_at=datetime.now(UTC) + timedelta(hours=1))
+    operation.request_snapshot = {**operation.request_snapshot, "catalog_snapshot": {field: "synthetic"}}
+    with pytest.raises(ValueError, match="persisted catalog validation"):
+        await billing._create_initial_checkout_payment(
+            settings=Settings(), operation=operation, invoice=_invoice(),
+            return_url="https://rec.example.test/billing/checkout/return?invoice=INV-RECOVERY1",
+        )

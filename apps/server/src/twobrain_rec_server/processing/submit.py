@@ -39,10 +39,17 @@ from twobrain_rec_server.mediascribe.import_results import (
 )
 from twobrain_rec_server.mediascribe.schemas import MediaScribePollResponse, MediaScribeResult
 from twobrain_rec_server.normalization.statuses import JobState
-from twobrain_rec_server.outcomes.ai_service import ensure_automatic_summary_candidate
+from twobrain_rec_server.outcomes.ai_service import (
+    OutcomeGenerationTerminalError,
+    ensure_automatic_summary_candidate,
+    require_summary_generation_access,
+)
 from twobrain_rec_server.outcomes.service import ensure_outcomes_for_processing_result
 from twobrain_rec_server.processing import store
-from twobrain_rec_server.processing.fences import lock_meeting_fence, meeting_is_deleted_or_deleting
+from twobrain_rec_server.processing.fences import (
+    lock_processing_meeting_fence,
+    meeting_is_deleted_or_deleting,
+)
 from twobrain_rec_server.processing.reasons import (
     BLOCKED_AUDIO_TOO_LARGE,
     BLOCKED_FREE_PROCESSING_EXHAUSTED,
@@ -211,7 +218,7 @@ async def _ensure_processing_fence(
     submission_claim_token: str | None = None,
     manual_canonical_artifact_id: UUID | None = None,
 ) -> None:
-    meeting = await lock_meeting_fence(
+    meeting = await lock_processing_meeting_fence(
         db, workspace_id=workflow.workspace_id, meeting_id=workflow.meeting_id
     )
     if (
@@ -1051,6 +1058,9 @@ async def poll_and_import_mediascribe_result(
     except ProcessingLifecycleBlocked as exc:
         await _cancel_stale_processing(db, workflow=workflow, reason=exc)
         return ImportProcessingResult(imported=False, status=ProcessingStatus.CANCELED)
+    # The provider result is read-only; release the quota/lifecycle locks during
+    # network I/O and recheck the existing fence before importing the response.
+    await db.commit()
     try:
         result = _classify_ready_result(
             normalize_result(await mediascribe_client.fetch_result(job.external_job_id)),
@@ -1125,16 +1135,30 @@ async def poll_and_import_mediascribe_result(
         )
         return ImportProcessingResult(imported=False, status=ProcessingStatus.CANCELED)
     try:
+        locked_meeting = await lock_processing_meeting_fence(
+            db, workspace_id=result_row.workspace_id, meeting_id=result_row.meeting_id,
+        )
+        if locked_meeting is None:
+            raise ProcessingLifecycleBlocked("meeting_deleting")
+        ai_blocked_reason = None
+        if outcome_generation_enabled:
+            try:
+                await require_summary_generation_access(
+                    db, workspace_id=result_row.workspace_id, subject_user_id=locked_meeting.created_by_user_id,
+                )
+            except OutcomeGenerationTerminalError as exc:
+                ai_blocked_reason = str(exc)
         await ensure_outcomes_for_processing_result(
             db,
             result=result_row,
             publish_initial_baseline=True,
-            ai_dispatch_planned=outcome_generation_enabled,
+            ai_dispatch_planned=outcome_generation_enabled and ai_blocked_reason is None,
+            ai_blocked_reason=ai_blocked_reason,
         )
     except ProcessingLifecycleBlocked as exc:
         await _cancel_stale_processing(db, workflow=workflow, reason=exc)
         return ImportProcessingResult(imported=True, status=ProcessingStatus.CANCELED)
-    if outcome_generation_enabled:
+    if outcome_generation_enabled and ai_blocked_reason is None:
         await ensure_automatic_summary_candidate(
             db,
             workspace_id=result_row.workspace_id,
@@ -1218,6 +1242,10 @@ async def _persist_input_audio_failure_result(
         )
         return ImportProcessingResult(imported=False, status=ProcessingStatus.CANCELED)
     try:
+        if await lock_processing_meeting_fence(
+            db, workspace_id=result_row.workspace_id, meeting_id=result_row.meeting_id,
+        ) is None:
+            raise ProcessingLifecycleBlocked("meeting_deleting")
         await ensure_outcomes_for_processing_result(
             db,
             result=result_row,

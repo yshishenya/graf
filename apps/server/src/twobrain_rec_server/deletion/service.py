@@ -57,6 +57,7 @@ from twobrain_rec_server.db.models import (
     TranscriptSegment,
     UploadPart,
     UploadSession,
+    Workspace,
 )
 from twobrain_rec_server.db.models import (
     LocalPurgeTask as LocalPurgeTaskModel,
@@ -97,7 +98,10 @@ from twobrain_rec_server.normalization.statuses import (
     ensure_attempt_transition,
     ensure_job_transition,
 )
-from twobrain_rec_server.processing.fences import ensure_deletion_fence
+from twobrain_rec_server.processing.fences import (
+    ensure_deletion_fence,
+    lock_processing_meeting_fence,
+)
 from twobrain_rec_server.processing.lifecycle import (
     MEDIA_REVISION_DELETION_SAFE_REASON,
     TERMINAL_PROCESSING_STATUSES,
@@ -151,21 +155,21 @@ async def request_meeting_deletion(
     local_buffer_expiry_days: int | None = None,
     storage: object | None = None,
     temporal_client: object | None = None,
+    system_operation_id: UUID | None = None,
+    system_request_id: UUID | None = None,
 ) -> DeletionRequestResponse:
+    if (system_operation_id is None) != (system_request_id is None):
+        raise ValueError("system operation and claimed domain reference are required together")
+    if system_operation_id is not None and (actor_user_id is not None or device_id is not None):
+        raise ValueError("a system actor cannot impersonate a product identity")
     if confirmation_boundary != BOUNDED_DELETE_COPY:
         raise ProblemDetail(
             status=422, code="invalid_deletion_confirmation", title="Invalid deletion confirmation"
         )
     meeting_id = meeting.id
     workspace_id = meeting.workspace_id
-    locked_meeting = await db.scalar(
-        select(Meeting)
-        .where(
-            Meeting.id == meeting_id,
-            Meeting.workspace_id == workspace_id,
-        )
-        .with_for_update()
-        .execution_options(populate_existing=True)
+    locked_meeting = await lock_processing_meeting_fence(
+        db, workspace_id=workspace_id, meeting_id=meeting_id,
     )
     if locked_meeting is None:
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
@@ -198,6 +202,7 @@ async def request_meeting_deletion(
     deletion_fence.requested_at = now
     await _flush_or_fail_closed(db)
     deletion_request = MeetingDeletionRequest(
+        id=system_request_id, system_operation_id=system_operation_id,
         workspace_id=workspace_id,
         meeting_id=meeting_id,
         requested_by_user_id=actor_user_id,
@@ -506,11 +511,8 @@ async def retry_meeting_deletion(
 ) -> DeletionRequestResponse:
     meeting_id = meeting.id
     workspace_id = meeting.workspace_id
-    locked_meeting = await db.scalar(
-        select(Meeting)
-        .where(Meeting.workspace_id == workspace_id, Meeting.id == meeting_id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
+    locked_meeting = await lock_processing_meeting_fence(
+        db, workspace_id=workspace_id, meeting_id=meeting_id,
     )
     if locked_meeting is None:
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
@@ -822,26 +824,25 @@ async def reconcile_deletion_purges(
     # Keep only immutable identifiers across iterations. A failed cleanup can
     # roll back the session and expire every ORM instance, so carrying Meeting
     # objects into the next iteration would trigger an implicit async refresh.
-    meeting_keys = list(
-        (
-            await db.execute(
-                select(Meeting.id, Meeting.workspace_id)
-                .where(Meeting.id.in_(pending_meeting_ids))
-                .order_by(Meeting.deletion_requested_at.asc(), Meeting.id.asc())
-                .limit(limit)
-                .with_for_update(skip_locked=True)
-            )
-        ).all()
-    )
+    locked_workspaces = list(await db.scalars(
+        select(Workspace.id).where(Workspace.id.in_(
+            select(Meeting.workspace_id).where(Meeting.id.in_(pending_meeting_ids))
+        )).order_by(Workspace.id).limit(100).with_for_update(skip_locked=True)
+    ))
+    meeting_keys = (await db.execute(
+        select(Meeting.id, Meeting.workspace_id)
+        .where(Meeting.id.in_(pending_meeting_ids), Meeting.workspace_id.in_(locked_workspaces))
+        .order_by(Meeting.deletion_requested_at.asc(), Meeting.id.asc())
+        .limit(limit).with_for_update(skip_locked=True)
+    )).all()
+    await db.commit()
     reconciled = 0
     for meeting_id, workspace_id in meeting_keys:
-        meeting = await db.scalar(
-            select(Meeting)
-            .where(Meeting.id == meeting_id, Meeting.workspace_id == workspace_id)
-            .with_for_update(skip_locked=True)
-            .execution_options(populate_existing=True)
+        meeting = await lock_processing_meeting_fence(
+            db, workspace_id=workspace_id, meeting_id=meeting_id, skip_locked=True,
         )
         if meeting is None:
+            await db.rollback()
             continue
         report = await db.scalar(
             select(MeetingDeletionReport)
@@ -907,65 +908,78 @@ async def reconcile_transient_media_purges(
             > now - MEDIASCRIBE_SUBMISSION_CLAIM_STALE_AFTER,
         )
     )
-    candidate_rows = list(
-        (
-            await db.execute(
-                select(
-                    ProcessingWorkflow.id,
-                    ProcessingWorkflow.workspace_id,
-                    ProcessingWorkflow.meeting_id,
-                )
-                .join(
-                    Meeting,
-                    (Meeting.id == ProcessingWorkflow.meeting_id)
-                    & (Meeting.workspace_id == ProcessingWorkflow.workspace_id),
-                )
-                .where(
-                    ProcessingWorkflow.archive_audio.is_(False),
-                    ProcessingWorkflow.transient_state.in_(
-                        {"admitted", "processing", "terminal", "purge_due"}
+    candidate_query = (
+        select(
+            ProcessingWorkflow.id,
+            ProcessingWorkflow.workspace_id,
+            ProcessingWorkflow.meeting_id,
+        )
+        .join(
+            Meeting,
+            (Meeting.id == ProcessingWorkflow.meeting_id)
+            & (Meeting.workspace_id == ProcessingWorkflow.workspace_id),
+        )
+        .where(
+            ProcessingWorkflow.archive_audio.is_(False),
+            ProcessingWorkflow.transient_state.in_(
+                {"admitted", "processing", "terminal", "purge_due"}
+            ),
+            (
+                (ProcessingWorkflow.transient_hard_deadline.is_not(None)
+                 & (ProcessingWorkflow.transient_hard_deadline <= now))
+                | (ProcessingWorkflow.transient_purge_due_at.is_not(None)
+                   & (ProcessingWorkflow.transient_purge_due_at <= now))
+            ),
+            # Media is revision-scoped, so only its latest attempt may
+            # decide when the shared objects are safe to purge.
+            ~exists(
+                select(1).where(
+                    newer_workflow.workspace_id == ProcessingWorkflow.workspace_id,
+                    newer_workflow.meeting_id == ProcessingWorkflow.meeting_id,
+                    newer_workflow.media_revision_id.is_not_distinct_from(
+                        ProcessingWorkflow.media_revision_id
                     ),
-                    (
-                        (ProcessingWorkflow.transient_hard_deadline.is_not(None)
-                         & (ProcessingWorkflow.transient_hard_deadline <= now))
-                        | (ProcessingWorkflow.transient_purge_due_at.is_not(None)
-                           & (ProcessingWorkflow.transient_purge_due_at <= now))
-                    ),
-                    # Media is revision-scoped, so only its latest attempt may
-                    # decide when the shared objects are safe to purge.
-                    ~exists(
-                        select(1).where(
-                            newer_workflow.workspace_id == ProcessingWorkflow.workspace_id,
-                            newer_workflow.meeting_id == ProcessingWorkflow.meeting_id,
-                            newer_workflow.media_revision_id.is_not_distinct_from(
-                                ProcessingWorkflow.media_revision_id
-                            ),
-                            newer_workflow.purpose == ProcessingWorkflow.purpose,
-                            newer_workflow.attempt_ordinal
-                            > ProcessingWorkflow.attempt_ordinal,
-                        )
-                    ),
-                    ~active_submission_claim,
+                    newer_workflow.purpose == ProcessingWorkflow.purpose,
+                    newer_workflow.attempt_ordinal
+                    > ProcessingWorkflow.attempt_ordinal,
                 )
-                .order_by(ProcessingWorkflow.transient_purge_due_at, ProcessingWorkflow.id)
-                .limit(max(1, min(limit, 100)))
-                .with_for_update(of=(ProcessingWorkflow, Meeting), skip_locked=True)
-            )
-        ).all()
+            ),
+            ~active_submission_claim,
+        )
+        .order_by(ProcessingWorkflow.transient_purge_due_at, ProcessingWorkflow.id)
+        .limit(max(1, min(limit, 100)))
     )
+    # Acquire workspace fences first, then let PostgreSQL skip locked meetings
+    # before applying the result limit. A busy early meeting must not hide a
+    # later eligible one from a small maintenance batch.
+    eligible_workspaces = candidate_query.with_only_columns(ProcessingWorkflow.workspace_id).order_by(None).limit(None)
+    locked_workspaces = list(await db.scalars(
+        select(Workspace.id).where(Workspace.id.in_(eligible_workspaces))
+        .order_by(Workspace.id).limit(100).with_for_update(skip_locked=True)
+    ))
+    candidate_rows = (await db.execute(
+        candidate_query.where(ProcessingWorkflow.workspace_id.in_(locked_workspaces))
+        .with_for_update(of=Meeting, skip_locked=True)
+    )).all()
+    await db.commit()
     purged = 0
     for workflow_id, workspace_id, meeting_id in candidate_rows:
+        # Discovery owns no lifecycle locks. Recheck all eligibility conditions
+        # after Workspace → Meeting, including retries started since discovery.
+        meeting = await lock_processing_meeting_fence(
+            db, workspace_id=workspace_id, meeting_id=meeting_id, skip_locked=True,
+        )
+        if meeting is None:
+            await db.rollback()
+            continue
         workflow = await db.scalar(
-            select(ProcessingWorkflow)
-            .where(
-                ProcessingWorkflow.id == workflow_id,
-                ProcessingWorkflow.workspace_id == workspace_id,
-                ProcessingWorkflow.meeting_id == meeting_id,
-            )
-            .with_for_update()
+            candidate_query.with_only_columns(ProcessingWorkflow)
+            .where(ProcessingWorkflow.id == workflow_id)
+            .with_for_update(of=ProcessingWorkflow)
             .execution_options(populate_existing=True)
         )
         if workflow is None:
+            await db.rollback()
             continue
         revision_workflows = list(
             (
@@ -983,9 +997,7 @@ async def reconcile_transient_media_purges(
                 )
             ).all()
         )
-        # The candidate query locks Meeting together with the workflow. This
-        # second check makes the fence explicit and keeps the invariant local
-        # if the selection query is changed later.
+        # The meeting remains locked while checking the provider submission fence.
         if await db.scalar(
             select(MediaScribeJob.id).where(
                 MediaScribeJob.processing_workflow_id == workflow.id,

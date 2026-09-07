@@ -11,6 +11,7 @@ from twobrain_rec_server.db.models import (
     BillingOperation,
     BillingWebhookEvent,
     Workspace,
+    WorkspaceSubscription,
 )
 
 
@@ -33,6 +34,11 @@ class _Db:
         return _Rows(self.operations)
 
     async def scalar(self, _query):
+        entity = _query.column_descriptions[0].get("entity")
+        if entity is BillingOperation:
+            return self.operations[0] if self.operations else None
+        if entity is WorkspaceSubscription:
+            return None
         return self.scope
 
 
@@ -126,6 +132,7 @@ def test_observation_only_polls_known_payment_without_enabling_checkout(
     db = _Db(
         [
             SimpleNamespace(
+                id=UUID("10000000-0000-4000-8000-000000000001"),
                 provider_id="payment-1",
                 workspace_id=UUID("20000000-0000-4000-8000-000000000002"),
             )
@@ -180,6 +187,10 @@ def test_invalid_initial_checkout_scope_is_terminal_without_provider_call(
             entity = query.column_descriptions[0].get("entity")
             if entity is Workspace:
                 return None
+            if entity is WorkspaceSubscription:
+                return None
+            if entity is BillingOperation:
+                return operation
             if entity is BillingInvoice:
                 return invoice
             raise AssertionError(f"unexpected query entity: {entity}")
@@ -253,6 +264,11 @@ def test_invalid_historical_webhook_is_terminal_without_provider_call(
             return [event.id]
 
         async def scalar(self, _query):
+            entity = _query.column_descriptions[0].get("entity")
+            if entity is Workspace:
+                return workspace
+            if entity is WorkspaceSubscription:
+                return None
             return event
 
         async def get(self, model, _key):

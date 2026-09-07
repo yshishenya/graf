@@ -21,15 +21,44 @@ from sqlalchemy.sql import func
 from twobrain_rec_server.db.base import Base
 
 
+class BillingPlan(Base):
+    __tablename__ = "billing_plans"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    code: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
+    display_name: Mapped[str] = mapped_column(String(80), nullable=False)
+    sales_state: Mapped[str] = mapped_column(String(16), nullable=False, default="closed")
+    current_version_id: Mapped[UUID | None] = mapped_column(ForeignKey("billing_plan_versions.id", use_alter=True))
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class BillingPlanPrice(Base):
+    __tablename__ = "billing_plan_prices"
+    __table_args__ = (UniqueConstraint("version_id", "cycle", "currency", name="uq_billing_plan_price_cycle"),)
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    version_id: Mapped[UUID] = mapped_column(ForeignKey("billing_plan_versions.id"), nullable=False)
+    cycle: Mapped[str] = mapped_column(String(16), nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="RUB")
+    amount_minor: Mapped[int] = mapped_column(BigInteger, nullable=False)
+
+
 class BillingPlanVersion(Base):
     __tablename__ = "billing_plan_versions"
     __table_args__ = (UniqueConstraint("plan_code", "version", name="uq_billing_plan_versions_code_version"),)
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    plan_id: Mapped[UUID | None] = mapped_column(ForeignKey("billing_plans.id"))
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="legacy")
+    capability_schema_version: Mapped[int | None] = mapped_column(Integer)
+    capabilities: Mapped[dict | None] = mapped_column(JSON)
+    display_terms: Mapped[dict | None] = mapped_column(JSON)
+    publication_revision: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     plan_code: Mapped[str] = mapped_column(String(32), nullable=False)
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     cycle: Mapped[str] = mapped_column(String(16), nullable=False, default="none")
-    amount_minor: Mapped[int | None] = mapped_column(Integer)
+    amount_minor: Mapped[int | None] = mapped_column(BigInteger)
     currency: Mapped[str] = mapped_column(String(3), nullable=False, default="RUB")
     storage_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
     processing_mode: Mapped[str] = mapped_column(String(16), nullable=False)
@@ -58,7 +87,51 @@ class PromotionCampaign(Base):
     starts_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     enabled: Mapped[bool] = mapped_column(nullable=False, default=False)
+    # Administrative lifecycle and benefit fields.  Existing rows keep their
+    # discount semantics through migration defaults; published rows are
+    # immutable and a new version is created for changed terms.
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="draft")
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    benefit_kind: Mapped[str] = mapped_column(String(16), nullable=False, default="discount")
+    gift_days: Mapped[int | None] = mapped_column(Integer)
+    audience: Mapped[str] = mapped_column(String(32), nullable=False, default="all")
+    target_user_id: Mapped[UUID | None] = mapped_column(ForeignKey("user_identities.id"))
+    budget_minor: Mapped[int | None] = mapped_column(BigInteger)
+    budget_used_minor: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    display_name: Mapped[str | None] = mapped_column(String(120))
     policy_snapshot: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class PromotionCode(Base):
+    """Hashed individual code; plaintext is returned only at creation time."""
+
+    __tablename__ = "promotion_codes"
+    __table_args__ = (
+        UniqueConstraint("code_hash", name="uq_promotion_codes_hash"),
+        Index("ix_promotion_codes_campaign", "campaign_id", "state"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    campaign_id: Mapped[UUID] = mapped_column(ForeignKey("promotion_campaigns.id"), nullable=False)
+    code_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    state: Mapped[str] = mapped_column(String(16), nullable=False, default="available")
+    target_user_id: Mapped[UUID | None] = mapped_column(ForeignKey("user_identities.id"))
+    reserved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    redeemed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class PromotionCodeBatch(Base):
+    __tablename__ = "promotion_code_batches"
+    __table_args__ = (UniqueConstraint("campaign_id", "idempotency_key", name="uq_promotion_code_batches_key"),)
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    campaign_id: Mapped[UUID] = mapped_column(ForeignKey("promotion_campaigns.id"), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(240), nullable=False)
+    code_ids: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    code_count: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -79,11 +152,12 @@ class PromotionRedemption(Base):
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     campaign_id: Mapped[UUID] = mapped_column(ForeignKey("promotion_campaigns.id"), nullable=False)
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
-    invoice_id: Mapped[UUID] = mapped_column(ForeignKey("billing_invoices.id"), nullable=False)
+    # Gift redemptions are access grants without a monetary invoice.
+    invoice_id: Mapped[UUID | None] = mapped_column(ForeignKey("billing_invoices.id"))
     reservation_key: Mapped[str] = mapped_column(String(240), nullable=False)
     code_hash: Mapped[str] = mapped_column(String(64), nullable=False)
-    list_amount_minor: Mapped[int] = mapped_column(Integer, nullable=False)
-    payable_amount_minor: Mapped[int] = mapped_column(Integer, nullable=False)
+    list_amount_minor: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    payable_amount_minor: Mapped[int] = mapped_column(BigInteger, nullable=False)
     discount_percent: Mapped[int] = mapped_column(Integer, nullable=False)
     state: Mapped[str] = mapped_column(String(24), nullable=False, default="reserved")
     reserved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -108,6 +182,15 @@ class WorkspaceSubscription(Base):
     recurring_authority_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     renewal_resolution: Mapped[str | None] = mapped_column(String(40))
     application_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    pinned_plan_version_id: Mapped[UUID | None] = mapped_column(ForeignKey("billing_plan_versions.id"))
+    pinned_price_id: Mapped[UUID | None] = mapped_column(ForeignKey("billing_plan_prices.id"))
+    timezone: Mapped[str] = mapped_column(String(64), nullable=False, default="UTC")
+    next_charge_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    schedule_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    pin_state: Mapped[str] = mapped_column(String(24), nullable=False, default="pending")
+    pin_checked_application_version: Mapped[int | None] = mapped_column(Integer)
+    legacy_pinned_snapshot: Mapped[dict | None] = mapped_column(JSON)
+
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
@@ -132,7 +215,7 @@ class BillingInvoice(Base):
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
     operation_id: Mapped[UUID] = mapped_column(ForeignKey("billing_operations.id"), nullable=False)
     safe_number: Mapped[str] = mapped_column(String(80), unique=True, nullable=False)
-    amount_minor: Mapped[int] = mapped_column(Integer, nullable=False)
+    amount_minor: Mapped[int] = mapped_column(BigInteger, nullable=False)
     currency: Mapped[str] = mapped_column(String(3), nullable=False, default="RUB")
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
     plan_snapshot: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
@@ -150,12 +233,13 @@ class BillingEntitlementGrant(Base):
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
     invoice_id: Mapped[UUID] = mapped_column(ForeignKey("billing_invoices.id"), nullable=False)
+    plan_version_id: Mapped[UUID | None] = mapped_column(ForeignKey("billing_plan_versions.id"))
     provider_payment_id: Mapped[str] = mapped_column(String(160), nullable=False)
     plan_code: Mapped[str] = mapped_column(String(32), nullable=False)
     cycle: Mapped[str] = mapped_column(String(16), nullable=False)
     starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    amount_minor: Mapped[int] = mapped_column(Integer, nullable=False)
+    amount_minor: Mapped[int] = mapped_column(BigInteger, nullable=False)
     currency: Mapped[str] = mapped_column(String(3), nullable=False)
     source: Mapped[str] = mapped_column(String(40), nullable=False, default="provider_confirmed")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -202,7 +286,7 @@ class ObservedProviderRefund(Base):
     invoice_id: Mapped[UUID] = mapped_column(ForeignKey("billing_invoices.id"), nullable=False)
     shop_environment: Mapped[str] = mapped_column(String(32), nullable=False)
     provider_refund_id: Mapped[str] = mapped_column(String(160), nullable=False)
-    amount_minor: Mapped[int] = mapped_column(Integer, nullable=False)
+    amount_minor: Mapped[int] = mapped_column(BigInteger, nullable=False)
     currency: Mapped[str] = mapped_column(String(3), nullable=False, default="RUB")
     source: Mapped[str] = mapped_column(String(32), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="succeeded")
@@ -217,9 +301,9 @@ class FreeUsageWindow(Base):
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
     window_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     window_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    included_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=18_000)
-    committed_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    reserved_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    included_seconds: Mapped[int] = mapped_column(BigInteger, nullable=False, default=18_000)
+    committed_seconds: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    reserved_seconds: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     freshness_state: Mapped[str] = mapped_column(String(32), nullable=False, default="fresh")
 
 
@@ -231,10 +315,25 @@ class UsageReservation(Base):
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
     window_id: Mapped[UUID] = mapped_column(ForeignKey("free_usage_windows.id"), nullable=False)
     idempotency_key: Mapped[str] = mapped_column(String(240), nullable=False)
-    declared_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
-    committed_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    declared_seconds: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    committed_seconds: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     state: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class UsageQuotaAllocation(Base):
+    __tablename__ = "usage_quota_allocations"
+    __table_args__ = (UniqueConstraint("reservation_id", "window_id", "source_key"),)
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
+    reservation_id: Mapped[UUID] = mapped_column(ForeignKey("usage_reservations.id"), nullable=False)
+    window_id: Mapped[UUID] = mapped_column(ForeignKey("free_usage_windows.id"), nullable=False)
+    source_key: Mapped[str] = mapped_column(String(36), nullable=False)
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    adjustment_id: Mapped[UUID | None] = mapped_column(ForeignKey("billing_access_adjustments.id"))
+    allocated_seconds: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    committed_seconds: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
 
 
 class UsageLedgerEntry(Base):
@@ -450,3 +549,42 @@ class ReferralAttribution(Base):
     bound_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     state: Mapped[str] = mapped_column(String(32), nullable=False, default="issued")
     risk_signal: Mapped[str | None] = mapped_column(String(120))
+
+
+class BillingAccessAdjustment(Base):
+    """Non-monetary access source. Revocations are separate append-only records."""
+
+    __tablename__ = "billing_access_adjustments"
+    __table_args__ = (UniqueConstraint("source_kind", "source_ref", name="uq_access_adjustment_source"),)
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
+    subject_user_id: Mapped[UUID | None] = mapped_column(ForeignKey("user_identities.id"))
+    kind: Mapped[str] = mapped_column(String(24), nullable=False)
+    feature_key: Mapped[str | None] = mapped_column(String(40))
+    plan_version_id: Mapped[UUID | None] = mapped_column(ForeignKey("billing_plan_versions.id"))
+    plan_mode: Mapped[str | None] = mapped_column(String(16))
+    value: Mapped[dict | int | bool | None] = mapped_column(JSON)
+    unit: Mapped[str | None] = mapped_column(String(16))
+    timezone: Mapped[str] = mapped_column(String(64), nullable=False, default="UTC")
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    source_kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    source_ref: Mapped[str] = mapped_column(String(160), nullable=False)
+    admin_operation_id: Mapped[UUID | None] = mapped_column(ForeignKey("system_control.operations.id"))
+    reason: Mapped[str] = mapped_column(String(500), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class BillingAccessRevocation(Base):
+    __tablename__ = "billing_access_revocations"
+    __table_args__ = (UniqueConstraint("source_kind", "source_ref", name="uq_access_revocation_source"),)
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
+    adjustment_id: Mapped[UUID] = mapped_column(ForeignKey("billing_access_adjustments.id"), unique=True, nullable=False)
+    source_kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    source_ref: Mapped[str] = mapped_column(String(160), nullable=False)
+    admin_operation_id: Mapped[UUID | None] = mapped_column(ForeignKey("system_control.operations.id"))
+    reason: Mapped[str] = mapped_column(String(500), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

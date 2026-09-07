@@ -4904,11 +4904,12 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
   color: var(--text);
 }
 .share-dialog::backdrop { background: rgb(5 7 12 / 70%); }
-.share-dialog__surface { display: grid; gap: 20px; padding: 24px; }
+.share-dialog__surface { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; padding: 24px; overflow-wrap: anywhere; }
 .share-dialog__header,
 .share-recipient-row,
 .share-viewer-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .share-dialog__header { align-items: flex-start; }
+.share-dialog__header > div { min-width: 0; }
 .share-dialog__header h2,
 .share-dialog__header p,
 .share-viewers h3 { margin: 0; }
@@ -4927,7 +4928,8 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
 .share-viewers { display: grid; gap: 12px; }
 .share-viewer-row { padding: 10px 0; border-bottom: 1px solid var(--line); }
 .share-viewer-row > span:first-child { display: grid; gap: 3px; min-width: 0; }
-.share-viewer-row__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.share-viewer-row__actions { display: flex; min-width: 0; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.share-viewer-row__actions button { max-width: 100%; white-space: normal; }
 .share-dialog__status { min-height: 22px; margin: 0; }
 .share-dialog__status[data-tone="error"] { color: var(--danger-text); }
 .share-dialog__status[data-tone="success"] { color: var(--green); }
@@ -5310,6 +5312,7 @@ html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned
 .billing-page .settings-page { min-width: 0; }
 .billing-page .settings-page__content { width: min(880px, 100%); margin-inline: auto; }
 .billing-page .settings-section.cabinet-card {
+  min-width: 0;
   max-width: none;
   padding: 24px 0;
   border: 0;
@@ -5353,6 +5356,7 @@ html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned
 .billing-price strong { font-size: 24px; line-height: 1.15; font-weight: 750; letter-spacing: -.02em; white-space: nowrap; }
 .billing-price span { color: var(--muted); font-size: var(--font-size-helper); }
 .billing-summary__description { margin: 18px 0 0; }
+.billing-summary__description a { text-decoration: underline; text-underline-offset: .15em; }
 .billing-inline-facts { display: flex; flex-wrap: wrap; gap: 8px 20px; margin-top: 14px; color: var(--muted); font-size: var(--font-size-helper); }
 .billing-inline-facts span { min-width: 0; overflow-wrap: anywhere; }
 .billing-inline-facts strong { color: var(--text); font-weight: 650; }
@@ -5447,10 +5451,14 @@ html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned
 .billing-feature-list li::before { content: "✓"; position: absolute; inset-inline-start: 0; color: var(--green); font-weight: 800; }
 .billing-plan-card__action { display: grid; gap: 8px; margin-top: auto; }
 .billing-plan-card__action .button { width: 100%; }
-.billing-comparison { margin-top: 24px; }
+.billing-comparison { margin-top: 24px; min-width: 0; }
 .billing-comparison h2 { margin-bottom: 16px; }
-.billing-comparison__table { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
-.billing-comparison__row { display: grid; grid-template-columns: minmax(160px, 1.3fr) repeat(3, minmax(100px, 1fr)); }
+.billing-comparison__table { border: 1px solid var(--line); border-radius: 12px; overflow-x: auto; }
+.billing-quota-table { max-width: 100%; overflow-x: auto; }
+.billing-quota-table table { width: 100%; border-collapse: collapse; }
+.billing-quota-table th, .billing-quota-table td { padding: 10px; text-align: left; border-bottom: 1px solid var(--line); }
+.billing-quota-table caption { text-align: left; padding: 10px; font-weight: 600; }
+.billing-comparison__row { display: grid; grid-template-columns: minmax(160px, 1.3fr); grid-auto-flow: column; grid-auto-columns: minmax(100px, 1fr); }
 .billing-comparison__row > span { min-width: 0; padding: 12px; border-inline-end: 1px solid var(--line); border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
 .billing-comparison__row > span:last-child { border-inline-end: 0; }
 .billing-comparison__row:last-child > span { border-bottom: 0; }
@@ -5504,7 +5512,7 @@ html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned
   .billing-plan-grid { grid-template-columns: 1fr; }
   .billing-plan-card:last-child { grid-column: auto; }
   .billing-plan-card { min-height: 0; }
-  .billing-comparison__row { grid-template-columns: minmax(92px, 1.25fr) repeat(3, minmax(58px, 1fr)); }
+  .billing-comparison__row { grid-template-columns: minmax(92px, 1.25fr); grid-auto-columns: minmax(58px, 1fr); }
   .billing-comparison__row > span { padding: 9px 7px; font-size: var(--font-size-caption); }
   .billing-checkout-card { padding-inline: 18px; }
 }
@@ -5523,7 +5531,7 @@ html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned
   .billing-coupon__form { grid-template-columns: 1fr; }
   .billing-coupon__form label { grid-column: auto; }
   .billing-coupon__form .button { width: 100%; }
-  .billing-comparison__row { grid-template-columns: minmax(0, 1fr); }
+  .billing-comparison__row { grid-template-columns: minmax(0, 1fr); grid-auto-flow: row; }
   .billing-comparison__row > span { border-inline-end: 0; }
   .billing-comparison__row > [role="cell"]::before { content: attr(data-plan-label) ": "; font-weight: 700; }
   .billing-comparison__row--head {

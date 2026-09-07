@@ -8,7 +8,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from twobrain_rec_server.db.models import DeletionFence, Meeting, ProcessingAuditEvent
+from twobrain_rec_server.db.models import DeletionFence, Meeting, ProcessingAuditEvent, Workspace
 from twobrain_rec_server.processing.audit import safe_audit_metadata
 
 
@@ -35,13 +35,25 @@ def is_expired(value: datetime | None, *, now: datetime | None = None) -> bool:
     return expiry <= current
 
 
-async def lock_meeting_fence(db: AsyncSession, *, workspace_id: UUID, meeting_id: UUID) -> Meeting | None:
+async def lock_meeting_fence(
+    db: AsyncSession, *, workspace_id: UUID, meeting_id: UUID, skip_locked: bool = False,
+) -> Meeting | None:
     return await db.scalar(
         select(Meeting)
         .where(Meeting.workspace_id == workspace_id, Meeting.id == meeting_id)
-        .with_for_update()
+        .with_for_update(skip_locked=skip_locked)
         .execution_options(populate_existing=True)
     )
+
+
+async def lock_processing_meeting_fence(
+    db: AsyncSession, *, workspace_id: UUID, meeting_id: UUID, skip_locked: bool = False,
+) -> Meeting | None:
+    # Quota admission, import and release all lock Workspace before lifecycle rows.
+    # Taking it here prevents opposite lock order on terminal/error paths.
+    if await db.scalar(select(Workspace.id).where(Workspace.id == workspace_id).with_for_update(skip_locked=skip_locked)) is None:
+        return None
+    return await lock_meeting_fence(db, workspace_id=workspace_id, meeting_id=meeting_id, skip_locked=skip_locked)
 
 
 async def ensure_deletion_fence(db: AsyncSession, *, meeting: Meeting) -> DeletionFence:

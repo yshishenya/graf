@@ -196,7 +196,7 @@ async def admin_file_summary(
         db, workspace_id=context.workspace_id, meeting_id=meeting.id
     )
     access = admin_meeting_access(context)
-    egress_states = await artifact_egress_states(db, meeting=meeting, access=access, result=result)
+    egress_states = await artifact_egress_states(db, meeting=meeting, actor_user_id=context.actor_user_id, access=access, result=result)
     review_state = await review_playback_state(db, meeting=meeting, access=access)
     artifact_stats = await _artifact_stats(db, meeting=meeting)
     artifact_classes = _artifact_classes(artifact_stats, result)

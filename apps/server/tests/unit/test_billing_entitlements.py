@@ -91,7 +91,7 @@ async def test_confirmed_payment_grants_once_and_records_receipt_state(
         kind="personal",
         owner_user_id=OWNER_ID,
     )
-    db = _FakeDb([operation, invoice, None, workspace, owner, None])
+    db = _FakeDb([workspace, None, operation, invoice, None, owner])
 
     result = await entitlements.grant_confirmed_payment(
         db,
@@ -115,7 +115,7 @@ async def test_confirmed_payment_grants_once_and_records_receipt_state(
     assert subscription.capacity_bytes == 5_000_000_000
     assert subscription.paid_through == grant.ends_at
 
-    duplicate_db = _FakeDb([operation, invoice, grant])
+    duplicate_db = _FakeDb([workspace, subscription, operation, invoice, grant])
     assert (
         await entitlements.grant_confirmed_payment(
             duplicate_db,
@@ -137,7 +137,7 @@ async def test_confirmed_payment_grants_once_and_records_receipt_state(
 
     # A duplicate payment GET must not downgrade receipt truth or move a
     # previously succeeded operation into reconciliation_gap.
-    duplicate_pending_db = _FakeDb([operation, invoice, grant])
+    duplicate_pending_db = _FakeDb([workspace, subscription, operation, invoice, grant])
     assert (
         await entitlements.grant_confirmed_payment(
             duplicate_pending_db,
@@ -192,7 +192,7 @@ async def test_confirmed_payment_does_not_grant_personal_entitlement_to_linked_w
         role="owner",
         status="active",
     )
-    db = _FakeDb([operation, invoice, None, linked, owner])
+    db = _FakeDb([linked, None, operation, invoice, None, owner])
 
     result = await entitlements.grant_confirmed_payment(
         db,

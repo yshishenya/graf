@@ -24,6 +24,7 @@ from twobrain_rec_server.db.models import (
     BillingInvoice,
     BillingOperation,
     BillingPaymentMethod,
+    BillingPlanPrice,
     BillingPlanVersion,
     Workspace,
     WorkspaceMembership,
@@ -62,11 +63,15 @@ class FakeDb:
 
     async def scalar(self, _query: object) -> object:
         descriptions = getattr(_query, "column_descriptions", ())
+        if descriptions and descriptions[0].get("entity") is Workspace:
+            return self.workspace
+        if descriptions and descriptions[0].get("entity") is WorkspaceSubscription and hasattr(self, "subscription"):
+            return self.subscription
         if descriptions and descriptions[0].get("entity") is WorkspaceMembership:
             return self.membership
         return next(self._values)
 
-    async def get(self, model: object, _key: object) -> object | None:
+    async def get(self, model: object, _key: object, **_kwargs) -> object | None:
         return self.workspace if model is Workspace else None
 
     async def flush(self) -> None:
@@ -84,7 +89,8 @@ class PlanningDb(FakeDb):
         super().__init__(values)
 
     async def scalars(self, _query: object) -> list[WorkspaceSubscription]:
-        return [next(self._values)]  # type: ignore[return-value]
+        self.subscription = next(self._values)
+        return [self.subscription]  # type: ignore[return-value]
 
 
 class FakeProvider:
@@ -144,6 +150,7 @@ def _rows(
         paid_through=PAID_THROUGH,
         recurring_allowed=True,
         recurring_authority_version=4,
+        schedule_version=1,
     )
     operation = BillingOperation(
         id=OPERATION_ID,
@@ -156,6 +163,7 @@ def _rows(
             "cycle": "month",
             "billing_actor_user_id": str(OWNER_ID),
             "recurring_authority_version": 4,
+            "schedule_version": 1,
             "paid_through_at": PAID_THROUGH.isoformat(),
         },
     )
@@ -203,8 +211,15 @@ async def test_planner_persists_approved_catalog_and_receipt_snapshot() -> None:
         paid_through=PAID_THROUGH,
         recurring_allowed=True,
         recurring_authority_version=4,
+        schedule_version=1,
     )
+    subscription.pin_state = "pinned"
+    subscription.application_version = 9
+    subscription.pin_checked_application_version = 9
+    subscription.pinned_plan_version_id = UUID(int=25401)
+    subscription.pinned_price_id = UUID(int=25402)
     catalog = BillingPlanVersion(
+        id=subscription.pinned_plan_version_id,
         plan_code="personal",
         version=7,
         cycle="month",
@@ -212,10 +227,17 @@ async def test_planner_persists_approved_catalog_and_receipt_snapshot() -> None:
         currency="RUB",
         storage_bytes=2_000_000_000,
         processing_mode="unlimited",
-        enabled_for_checkout=True,
+        enabled_for_checkout=False,
         policy_snapshot={"offer_version": "personal-v7"},
     )
-    db = PlanningDb([subscription, None, catalog, UUID(int=1), "billing@2brain.pro", None])
+    price = BillingPlanPrice(
+        id=subscription.pinned_price_id,
+        version_id=catalog.id,
+        cycle="month",
+        currency="RUB",
+        amount_minor=79000,
+    )
+    db = PlanningDb([subscription, None, catalog, price, UUID(int=1), "billing@2brain.pro", None])
 
     planned = await plan_due_renewals(db, now=datetime(2026, 8, 8, tzinfo=UTC))
 
@@ -252,8 +274,10 @@ async def test_planner_skips_renewal_while_initial_checkout_is_unresolved() -> N
         blocker_query = None
 
         async def scalar(self, query: object) -> object:
-            self.blocker_query = query
-            return UUID(int=9)
+            if query.column_descriptions[0].get("entity") is BillingOperation:
+                self.blocker_query = query
+                return UUID(int=9)
+            return await super().scalar(query)
 
     db = BlockingPlanningDb([subscription])
 
@@ -344,7 +368,7 @@ async def test_charge_uses_saved_method_and_authority_snapshot(monkeypatch, tmp_
     )
 
     result = await charge_renewal_operation(
-        FakeDb([subscription, operation, invoice, method]),
+        FakeDb([subscription, operation, invoice, method] * 2),
         settings,
         operation_id=OPERATION_ID,
         workspace_id=WORKSPACE_ID,
@@ -437,7 +461,7 @@ async def test_charge_rejects_stale_billing_actor_before_decrypt_or_provider(
     )
 
     result = await charge_renewal_operation(
-        FakeDb([subscription, operation, invoice, method]),
+        FakeDb([subscription, operation, invoice, method] * 2),
         settings,
         operation_id=OPERATION_ID,
         workspace_id=WORKSPACE_ID,
@@ -469,7 +493,7 @@ async def test_charge_rejects_boolean_authority_version_before_decrypt_or_provid
     )
 
     result = await charge_renewal_operation(
-        FakeDb([subscription, operation, invoice, method]),
+        FakeDb([subscription, operation, invoice, method] * 2),
         settings,
         operation_id=OPERATION_ID,
         workspace_id=WORKSPACE_ID,
@@ -493,7 +517,7 @@ async def test_charge_waits_until_paid_through_boundary(monkeypatch, tmp_path: P
     )
 
     result = await charge_renewal_operation(
-        FakeDb([subscription, operation, invoice, method]),
+        FakeDb([subscription, operation, invoice, method] * 2),
         settings,
         operation_id=OPERATION_ID,
         workspace_id=WORKSPACE_ID,
@@ -518,7 +542,7 @@ async def test_transport_unknown_never_retries_without_provider_id(
     )
 
     result = await charge_renewal_operation(
-        FakeDb([subscription, operation, invoice, method]),
+        FakeDb([subscription, operation, invoice, method] * 2),
         settings,
         operation_id=OPERATION_ID,
         workspace_id=WORKSPACE_ID,
@@ -542,7 +566,7 @@ async def test_confirmed_provider_decline_turns_authority_off(monkeypatch, tmp_p
     )
 
     result = await charge_renewal_operation(
-        FakeDb([subscription, operation, invoice, method]),
+        FakeDb([subscription, operation, invoice, method] * 2),
         settings,
         operation_id=OPERATION_ID,
         workspace_id=WORKSPACE_ID,
@@ -569,7 +593,7 @@ async def test_schedule_change_cancels_stale_operation_without_provider_call(
     )
 
     result = await charge_renewal_operation(
-        FakeDb([subscription, operation, invoice, method]),
+        FakeDb([subscription, operation, invoice, method] * 2),
         settings,
         operation_id=OPERATION_ID,
         workspace_id=WORKSPACE_ID,
@@ -579,3 +603,53 @@ async def test_schedule_change_cancels_stale_operation_without_provider_call(
     assert result.status == "canceled"
     assert operation.state == "canceled"
     assert provider.calls == []
+
+
+@pytest.mark.parametrize("change", [None, "due", "price", "consent", "provider", "partial_pin", "invoice"])
+def test_legacy_schedule_pin_requires_untouched_exact_pre_cutoff_terms(tmp_path, change):
+    from copy import deepcopy
+    from uuid import uuid4
+
+    from twobrain_rec_server.billing.catalog import PlanCatalogSnapshot
+    from twobrain_rec_server.billing.renewal_charge import _pin_legacy_schedule, _snapshot
+
+    _settings(tmp_path)
+    subscription, operation, invoice, _ = _rows(tmp_path)
+    subscription.pin_state = "pinned"
+    subscription.pinned_plan_version_id = uuid4()
+    subscription.pinned_price_id = uuid4()
+    subscription.capacity_bytes = 2_000_000_000
+    operation.idempotency_key = renewal_operation_key(workspace_id=WORKSPACE_ID, paid_through=PAID_THROUGH)
+    catalog = PlanCatalogSnapshot("personal", 7, "month", 79000, "RUB", 2_000_000_000,
+        "unlimited", "synthetic-v7", {"offer_version":"synthetic-v7"})
+    snapshot = _snapshot(subscription=subscription, catalog=catalog)
+    for key in ("pinned_plan_version_id", "pinned_price_id", "schedule_version"):
+        snapshot.pop(key)
+    operation.request_snapshot = deepcopy(snapshot)
+    invoice.plan_snapshot = deepcopy(snapshot)
+    now = PAID_THROUGH-timedelta(hours=1)
+    if change == "due":
+        now = PAID_THROUGH
+    elif change == "price":
+        operation.request_snapshot["payable_amount_minor"] = 99000
+    elif change == "consent":
+        subscription.recurring_allowed = False
+    elif change == "provider":
+        operation.provider_id = "synthetic-already-sent"
+    elif change == "partial_pin":
+        operation.request_snapshot["schedule_version"] = None
+    elif change == "invoice":
+        invoice.plan_snapshot["catalog_snapshot"]["catalog_version"] = 8
+    original_operation = deepcopy(operation.request_snapshot)
+    original_invoice = deepcopy(invoice.plan_snapshot)
+    db = FakeDb([])
+    result = _pin_legacy_schedule(db, subscription=subscription, operation=operation,
+        invoice=invoice, catalog=catalog, now=now)
+    assert result == (change is None)
+    assert invoice.plan_snapshot == original_invoice
+    if result:
+        assert operation.request_snapshot["schedule_version"] == subscription.schedule_version
+        assert all(operation.request_snapshot[key] == value for key,value in original_operation.items())
+        assert len(db.added) == 1
+    else:
+        assert operation.request_snapshot == original_operation and db.added == []

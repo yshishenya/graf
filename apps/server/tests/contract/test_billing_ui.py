@@ -169,7 +169,7 @@ async def test_plans_default_to_current_personal_cycle_without_mislabeling_other
 
     class FakeSession:
         def __init__(self) -> None:
-            self.results = iter((subscription, None))
+            self.results = iter((None, subscription, None))
 
         async def scalar(self, _statement: object) -> object:
             return next(self.results)
@@ -178,8 +178,16 @@ async def test_plans_default_to_current_personal_cycle_without_mislabeling_other
         return "owner"
 
     async def empty_catalog(*_args: object, **_kwargs: object) -> dict[str, object]:
-        return {}
+        from twobrain_rec_server.billing.catalog import PlanCatalogSnapshot
+        return {"personal": {cycle: PlanCatalogSnapshot(
+            plan_code="personal",version=1,cycle=cycle,amount_minor=79000,currency="RUB",
+            storage_bytes=2000000000,processing_mode="unlimited",offer_version="synthetic-v1",policy_snapshot={},
+        ) for cycle in ("month", "year")}}
 
+    async def access(*_args, **_kwargs):
+        return SimpleNamespace(plan_code="personal", plan_label="Личный")
+
+    monkeypatch.setattr(billing_routes, "resolve_entitlements", access)
     captured: dict[str, object] = {}
 
     def capture_page(_title: str, **context: object) -> str:
@@ -187,7 +195,7 @@ async def test_plans_default_to_current_personal_cycle_without_mislabeling_other
         return "plans"
 
     monkeypatch.setattr(billing_routes, "_billing_role", owner_role)
-    monkeypatch.setattr(billing_routes, "_approved_personal_catalog", empty_catalog)
+    monkeypatch.setattr(billing_routes, "read_public_catalog", empty_catalog)
     monkeypatch.setattr(billing_routes, "_page_shell", capture_page)
     monkeypatch.setattr(billing_routes, "_csrf_token_for_principal", lambda *_a, **_k: "csrf")
     monkeypatch.setattr(
@@ -254,7 +262,7 @@ async def test_scheduled_renewal_uses_persisted_invoice_amount(
 
     class FakeSession:
         def __init__(self) -> None:
-            self.results = iter((subscription, None, 0, invoice, operation, invoice, None, None))
+            self.results = iter((None, subscription, 0, invoice, operation, invoice, None, None))
 
         async def scalar(self, _statement: object) -> object:
             return next(self.results)
@@ -268,6 +276,20 @@ async def test_scheduled_renewal_uses_persisted_invoice_amount(
     async def storage_projection(*_args: object, **_kwargs: object) -> object:
         return SimpleNamespace(used_bytes=0)
 
+    async def access(*_args: object, **_kwargs: object) -> object:
+        return SimpleNamespace(plan_code="personal", plan_label="Личный", base_source="paid",
+            access_until=subscription.paid_through,
+            capabilities={"processing_unlimited":True,"storage_bytes":2000000000})
+
+    async def usage(*_args: object, **_kwargs: object) -> object:
+        return SimpleNamespace(used=0,reserved=0,available=None,limit=None,freshness_state="fresh")
+
+    async def pinned(*_args: object, **_kwargs: object) -> object:
+        return SimpleNamespace(amount_minor=99000,cycle="month")
+
+    monkeypatch.setattr(billing_routes, "resolve_entitlements", access)
+    monkeypatch.setattr(billing_routes, "processing_usage_projection", usage)
+    monkeypatch.setattr(billing_routes, "read_pinned_subscription_catalog", pinned)
     captured: dict[str, object] = {}
 
     def capture_page(_title: str, **context: object) -> str:
@@ -275,7 +297,7 @@ async def test_scheduled_renewal_uses_persisted_invoice_amount(
         return "billing"
 
     monkeypatch.setattr(billing_routes, "_billing_role", owner_role)
-    monkeypatch.setattr(billing_routes, "_approved_personal_catalog", catalog)
+    monkeypatch.setattr(billing_routes, "_approved_checkout_catalog", catalog)
     monkeypatch.setattr(billing_routes, "project_active_playback_storage", storage_projection)
     monkeypatch.setattr(billing_routes, "_page_shell", capture_page)
     monkeypatch.setattr(billing_routes, "_csrf_token_for_principal", lambda *_a, **_k: "csrf")
@@ -355,7 +377,7 @@ async def test_checkout_page_only_offers_authorized_persisted_continuation(
         return "checkout"
 
     monkeypatch.setattr(billing_routes, "_billing_role", owner_role)
-    monkeypatch.setattr(billing_routes, "_approved_personal_catalog", empty_catalog)
+    monkeypatch.setattr(billing_routes, "_approved_checkout_catalog", empty_catalog)
     monkeypatch.setattr(billing_routes, "_page_shell", capture_page)
     monkeypatch.setattr(billing_routes, "_csrf_token_for_principal", lambda *_a, **_k: "csrf")
     monkeypatch.setattr(
@@ -415,6 +437,7 @@ def test_billing_hub_uses_exact_free_copy_and_external_refund_boundary() -> None
         processing_used=0,
         processing_used_label=format_duration(0),
         free_processing_limit_label="300 минут",
+        processing_remaining_label="300 минут",
         storage_capacity_label="250 MB",
         storage_capacity_exact_label="250 000 000",
         processing_threshold="normal",
@@ -449,6 +472,9 @@ def test_subscription_and_usage_surfaces_keep_no_grace_and_unlimited_copy() -> N
             paid_through=datetime(2026, 9, 1, tzinfo=UTC),
             recurring_allowed=False,
             recurring_authority_version=1,
+            pinned_plan_version_id=UUID(int=1),
+            pinned_price_id=UUID(int=2),
+            schedule_version=0,
         ),
         active=True,
         paid_through_label="01.09.2026, 03:00 (МСК)",
@@ -1004,7 +1030,7 @@ def test_workspace_owner_can_start_guarded_billing_takeover() -> None:
 
     assert "платёжный аккаунт закреплён за другим пользователем" in overview
     assert 'data-billing-primary href="/billing/plans"' in overview
-    assert 'href="/billing/checkout?cycle=month"' in plans
+    assert 'href="/billing/checkout?plan_code=personal&amp;cycle=month"' in plans
     assert "Выбрать «Личный»" in plans
 
     active_overview = render_template(
@@ -1129,8 +1155,8 @@ def test_plan_comparison_keeps_server_selected_cycle_and_real_checkout_links() -
 
     assert 'class="billing-period-switch"' in html
     assert 'href="/billing/plans?cycle=year" aria-current="true"' in html
-    assert 'href="/billing/checkout?cycle=year"' in html
-    assert 'href="/billing/checkout?cycle=month"' not in html
+    assert 'href="/billing/checkout?plan_code=personal&amp;cycle=year"' in html
+    assert 'href="/billing/checkout?plan_code=personal&amp;cycle=month"' not in html
     assert "7 900 ₽" in html
 
 
@@ -1157,6 +1183,7 @@ def test_plan_comparison_does_not_label_another_cycle_as_connected() -> None:
         ),
         selected_cycle="year",
         current_plan_code="personal",
+        has_paid_subscription=True,
         billing_owner=True,
         billing_enabled=True,
         catalog_ready=True,
@@ -1164,7 +1191,7 @@ def test_plan_comparison_does_not_label_another_cycle_as_connected() -> None:
         trial_state="already",
     )
 
-    assert "Другой период оплаты" in html
+    assert "Действующая подписка сохраняет свои условия" in html
     assert "Подключён сейчас" not in html
     assert 'href="/billing/checkout' not in html
 
@@ -1225,6 +1252,7 @@ def test_plan_comparison_hides_owner_only_links_from_takeover_owner() -> None:
         plans=(),
         selected_cycle="month",
         current_plan_code="personal",
+        has_paid_subscription=True,
         billing_role="owner",
         billing_owner=False,
         billing_enabled=True,

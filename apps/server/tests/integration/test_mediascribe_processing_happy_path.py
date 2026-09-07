@@ -1,7 +1,8 @@
 import asyncio
 from uuid import UUID
 
-from sqlalchemy import select
+import pytest
+from sqlalchemy import select, text
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fakes.fake_mediascribe import FakeMediaScribeClient
@@ -12,6 +13,7 @@ from tests.fixtures.processing import create_finalized_meeting, create_finalized
 from twobrain_rec_server.db.models import (
     DiarizationSegment,
     MediaScribeJob,
+    Meeting,
     MeetingOutcomeGenerationAttempt,
     MeetingOutcomeSet,
     ProcessingAuditEvent,
@@ -19,6 +21,7 @@ from twobrain_rec_server.db.models import (
     ProcessingResult,
     ProcessingWorkflow,
     TranscriptSegment,
+    Workspace,
 )
 from twobrain_rec_server.domain.statuses import (
     MediaScribeJobStatus,
@@ -40,11 +43,15 @@ from twobrain_rec_server.processing.submit import (
 )
 
 
-def test_processing_happy_path_imports_transcript_and_diarization(client) -> None:
+@pytest.mark.parametrize("ai_denied", [False, True])
+def test_processing_happy_path_imports_transcript_and_diarization(client, ai_denied) -> None:
     finalized = create_finalized_meeting(client, "processing-happy-path")
     meeting_id = UUID(finalized["meeting"]["meeting_id"])
     media_revision_id = UUID(finalized["meeting"]["media_revision"]["media_revision_id"])
     workspace_id = UUID(finalized["meeting"]["workspace_id"])
+    if ai_denied:
+        from tests.integration.test_commercial_egress import _deny
+        client.portal.call(lambda: _deny(client, "ai_outcomes"))
     fake_client = FakeMediaScribeClient(
         external_job_id="job_happy",
         status_sequence=[MediaScribeJobStatus.READY],
@@ -69,6 +76,18 @@ def test_processing_happy_path_imports_transcript_and_diarization(client) -> Non
             ],
         ),
     )
+
+    original_fetch = fake_client.fetch_result
+
+    async def fetch_without_database_locks(external_job_id):
+        async with client.app_state["sessionmaker"]() as observer:
+            await observer.execute(text("set local lock_timeout='500ms'"))
+            assert await observer.scalar(select(Workspace.id).where(Workspace.id == workspace_id).with_for_update()) == workspace_id
+            assert await observer.scalar(select(Meeting.id).where(Meeting.id == meeting_id).with_for_update()) == meeting_id
+            await observer.rollback()
+        return await original_fetch(external_job_id)
+
+    fake_client.fetch_result = fetch_without_database_locks
 
     async def run_pipeline() -> tuple[str, int, int, str, str]:
         async with client.app_state["sessionmaker"]() as db:
@@ -128,13 +147,18 @@ def test_processing_happy_path_imports_transcript_and_diarization(client) -> Non
                     MeetingOutcomeGenerationAttempt.meeting_id == meeting_id
                 )
             )
-            assert outcome_set is not None and attempt is not None
+            assert outcome_set is not None
+            if ai_denied:
+                assert attempt is None
+                assert outcome_set.failure_reason == "commercial_ai_generation_denied"
+            else:
+                assert attempt is not None
             return (
                 imported.status.value,
                 len(transcripts),
                 len(diarization),
                 outcome_set.status,
-                attempt.status,
+                attempt.status if attempt is not None else None,
             )
 
     status, transcript_count, diarization_count, outcome_status, attempt_status = asyncio.run(
@@ -143,8 +167,8 @@ def test_processing_happy_path_imports_transcript_and_diarization(client) -> Non
     assert status == "processed"
     assert transcript_count == 1
     assert diarization_count == 1
-    assert outcome_status == "generating"
-    assert attempt_status == "queued"
+    assert outcome_status == ("blocked" if ai_denied else "generating")
+    assert attempt_status == (None if ai_denied else "queued")
 
 
 def test_pending_provider_status_reaches_ready_without_resubmission(client) -> None:

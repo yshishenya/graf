@@ -248,7 +248,7 @@ def test_production_share_head_upgrades_to_regeneration_merge(
         promotion_counter_function,
         promotion_counter_config,
     ) = asyncio.run(inspect_schema())
-    assert versions == ["0087_merge_calendar_timezone"]
+    assert versions == ["0108_system_admin_mutation_audit"]
     assert "public.promotion_campaigns" in promotion_counter_function
     assert "search_path=pg_catalog, pg_temp" in promotion_counter_config
     assert {
@@ -822,6 +822,11 @@ def test_alembic_revision_ids_fit_default_version_table_length() -> None:
         "0050_referral_token_lookup_context",
         "0078_merge_summary_slots_provider_unlink",
         "0080_merge_summary_state_processing_recovery",
+        "0098_processing_quota_allocations",
+        "0103_system_admin_billing_console",
+        "0104_system_admin_subscription_commands",
+        "0105_system_admin_observability_console",
+        "0106_promotion_gift_redemptions",
     }
 
     for migration_path in versions.glob("*.py"):

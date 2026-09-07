@@ -1,6 +1,7 @@
 import json
 from datetime import UTC, datetime, timedelta
 from html.parser import HTMLParser
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -20,12 +21,18 @@ class _OfferDb:
     def __init__(self, catalog_rows):
         self._catalog_rows = catalog_rows
 
+    async def execute(self, _query):
+        return SimpleNamespace(all=lambda: [])
+
+    async def scalar(self, _query):
+        return None
+
     async def scalars(self, _query):
         return self._catalog_rows
 
 
 class _UnavailableOfferDb:
-    async def scalars(self, _query):
+    async def execute(self, _query):
         raise OSError("catalog database unavailable")
 
 
@@ -489,4 +496,4 @@ def test_public_legal_copy_matches_product_and_analytics_truth(client) -> None:
     assert "загружается сразу" in analytics
     assert "Вебвизор" in analytics
     assert "Вебвизор" in cookies
-    assert "Платёжный интерфейс временно недоступен" in offer
+    assert "Условия публичного предложения сейчас недоступны" in offer

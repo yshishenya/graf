@@ -398,7 +398,7 @@ def test_stale_start_reconciliation_records_scalar_audit_after_rollback(
     }
 
 
-def test_processing_pickup_keeps_paid_processing_unlimited_without_reservation(client) -> None:
+def test_processing_pickup_measures_paid_processing_without_a_limit(client) -> None:
     client.app.state.temporal_client = FakeTemporalClient()
     finalized = create_finalized_meeting(client, "pickup-paid-unlimited", duration_seconds=60)
     meeting_id = finalized["meeting"]["meeting_id"]
@@ -436,7 +436,7 @@ def test_processing_pickup_keeps_paid_processing_unlimited_without_reservation(c
     assert response.status_code == 202
     assert response.json()["started_count"] == 1
 
-    async def commit_usage_with_released_reservation() -> tuple[int, str]:
+    async def commit_usage_with_paid_reservation() -> tuple[int, str]:
         async with client.app_state["sessionmaker"]() as db:
             workflow = await db.scalar(
                 select(ProcessingWorkflow).where(ProcessingWorkflow.meeting_id == UUID(meeting_id))
@@ -465,7 +465,7 @@ def test_processing_pickup_keeps_paid_processing_unlimited_without_reservation(c
             assert reservation is not None
             return committed, reservation.state
 
-    assert asyncio.run(commit_usage_with_released_reservation()) == (0, "released")
+    assert asyncio.run(commit_usage_with_paid_reservation()) == (1, "active")
 
 
 def test_processing_pickup_reopens_blocked_workflow_after_temporal_recovers(client) -> None:

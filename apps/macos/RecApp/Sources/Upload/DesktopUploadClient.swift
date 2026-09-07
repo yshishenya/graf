@@ -247,7 +247,7 @@ public enum DesktopUploadClientError: Error, CustomStringConvertible, Sendable {
              "meeting_scope_denied", "device_scope_denied":
             return .authSession
         case "upload_part_bytes_exceeded", "track_bytes_exceeded", "package_bytes_exceeded",
-             "recording_duration_exceeded":
+             "recording_duration_exceeded", "commercial_audio_archive_denied":
             return .storageQuota
         case "network_unavailable", "storage_unavailable", "persistence_unavailable",
              "processing_store_unavailable", "cabinet_store_unavailable":
