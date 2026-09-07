@@ -95,4 +95,4 @@ PYTHONPATH=src .venv/bin/python scripts/backfill_billing_catalog.py --database-u
 apps/server/scripts/run_local_postgres_tests.sh --focused tests/integration/test_system_admin_entitlements.py tests/integration/test_system_admin_billing.py tests/integration/test_billing_rls.py tests/integration/test_system_admin_security.py -x -q
 ```
 
-Все данные синтетические. Сейчас это проверка immutable ledger и коммерческого расчёта, а не готовая пользовательская форма. Не включать назначения в production до завершения распределения резервов, общего resolver всех потребителей и T020. Ручная вставка ledger не является поддерживаемым способом назначения прав.
+Все данные синтетические. Сейчас это проверка immutable ledger и коммерческого расчёта, а не готовая пользовательская форма. Распределение резервов подключено к обработке и сохранению аудио. Не включать назначения в production до завершения остальных окон/исторического переноса, общего расчёта всех потребителей и T020. Ручная вставка ledger не является поддерживаемым способом назначения прав.

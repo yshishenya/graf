@@ -110,6 +110,10 @@ MEDIA_READ_ONLY_TABLES = (
     "meetings",
     "media_revisions",
     "workspace_subscriptions",
+    "billing_plans",
+    "billing_plan_versions",
+    "billing_access_adjustments",
+    "billing_access_revocations",
     "workspaces",
 )
 MEDIA_READ_WRITE_TABLES = (
@@ -631,6 +635,7 @@ async def test_account_linking_migration_has_exact_binding_and_operation_policie
                         select tablename, policyname, cmd, qual, with_check
                         from pg_policies
                         where schemaname = 'public'
+                          and roles = array['public']::name[]
                           and tablename in (
                               'user_identities', 'external_identities',
                               'auth_callback_states', 'workspace_provider_link_states',

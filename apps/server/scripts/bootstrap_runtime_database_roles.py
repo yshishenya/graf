@@ -23,6 +23,10 @@ MEDIA_READ_ONLY_TABLES = (
     "media_revisions",
     "upload_sessions",
     "workspace_subscriptions",
+    "billing_plans",
+    "billing_plan_versions",
+    "billing_access_adjustments",
+    "billing_access_revocations",
     "workspaces",
 )
 MEDIA_READ_WRITE_TABLES = (

@@ -132,6 +132,11 @@ RLS_OPERATOR_TABLES = frozenset(
 RLS_BILLING_TABLES = frozenset(
     {
         "billing_plan_versions",
+        "billing_plans",
+        "billing_plan_prices",
+        "billing_access_adjustments",
+        "billing_access_revocations",
+        "usage_quota_allocations",
         "promotion_campaigns",
         "promotion_redemptions",
         "workspace_subscriptions",

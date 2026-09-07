@@ -8,26 +8,18 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.auth.context import TenantScope
-from twobrain_rec_server.billing.entitlements import (
-    effective_plan_code,
-    entitlement_for_plan,
-    processing_admission,
-)
 from twobrain_rec_server.billing.usage import (
     QuotaExceeded,
-    moscow_window_for,
-    reserve_free_usage,
+    reserve_processing_usage,
 )
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.db.models import (
-    FreeUsageWindow,
     MediaRevision,
     Meeting,
     ProcessingWorkflow,
     UploadSession,
     UsageReservation,
     Workspace,
-    WorkspaceSubscription,
 )
 from twobrain_rec_server.db.tenant_context import apply_tenant_scope
 from twobrain_rec_server.domain.statuses import (
@@ -621,7 +613,7 @@ async def _reserve_processing_usage(
     media_revision: MediaRevision,
     archive_audio: bool,
 ) -> UsageReservation | None | bool:
-    """Reserve Free seconds once, while leaving paid/trial processing unlimited."""
+    """Reserve and measure processing once under the effective commercial permissions."""
     duration_seconds = media_revision.duration_seconds
     if (
         not isinstance(duration_seconds, int)
@@ -630,43 +622,16 @@ async def _reserve_processing_usage(
     ):
         return False
     now = datetime.now(UTC)
-    subscription = await db.scalar(
-        select(WorkspaceSubscription)
-        .where(WorkspaceSubscription.workspace_id == workspace_id)
-        .with_for_update()
-    )
-    effective_plan = effective_plan_code(
-        plan_code=(subscription.plan_code if subscription is not None else "free"),
-        state=(subscription.state if subscription is not None else "free"),
-        now=now,
-        paid_through=subscription.paid_through if subscription is not None else None,
-        trial_ends_at=subscription.trial_ends_at if subscription is not None else None,
-    )
-    entitlement = entitlement_for_plan(plan_code=effective_plan)
-    window_start, _ = moscow_window_for(now)
-    window = await db.scalar(
-        select(FreeUsageWindow).where(
-            FreeUsageWindow.workspace_id == workspace_id,
-            FreeUsageWindow.window_start == window_start,
-        )
-    )
-    committed = int(window.committed_seconds) if window is not None else 0
-    admitted, _reason = processing_admission(
-        entitlement=entitlement,
-        committed_free_seconds=committed,
-        accepted_seconds=duration_seconds,
-        save_audio=archive_audio,
-    )
-    if not admitted:
-        return False
-    if entitlement.processing_unlimited:
-        return None
+    subject_user_id = await db.scalar(select(Meeting.created_by_user_id).where(
+        Meeting.id == media_revision.meeting_id, Meeting.workspace_id == workspace_id,
+    ))
     reservation_key = f"processing:{media_revision.id}"
     try:
-        reservation = await reserve_free_usage(
+        reservation = await reserve_processing_usage(
             db,
             workspace_id=workspace_id,
             reservation_key=reservation_key,
+            subject_user_id=subject_user_id,
             declared_seconds=duration_seconds,
             now=now,
             expires_at=now + timedelta(hours=24),

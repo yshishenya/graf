@@ -256,9 +256,9 @@ class FreeUsageWindow(Base):
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
     window_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     window_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    included_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=18_000)
-    committed_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    reserved_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    included_seconds: Mapped[int] = mapped_column(BigInteger, nullable=False, default=18_000)
+    committed_seconds: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    reserved_seconds: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     freshness_state: Mapped[str] = mapped_column(String(32), nullable=False, default="fresh")
 
 
@@ -270,10 +270,25 @@ class UsageReservation(Base):
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
     window_id: Mapped[UUID] = mapped_column(ForeignKey("free_usage_windows.id"), nullable=False)
     idempotency_key: Mapped[str] = mapped_column(String(240), nullable=False)
-    declared_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
-    committed_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    declared_seconds: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    committed_seconds: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     state: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class UsageQuotaAllocation(Base):
+    __tablename__ = "usage_quota_allocations"
+    __table_args__ = (UniqueConstraint("reservation_id", "window_id", "source_key"),)
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
+    reservation_id: Mapped[UUID] = mapped_column(ForeignKey("usage_reservations.id"), nullable=False)
+    window_id: Mapped[UUID] = mapped_column(ForeignKey("free_usage_windows.id"), nullable=False)
+    source_key: Mapped[str] = mapped_column(String(36), nullable=False)
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    adjustment_id: Mapped[UUID | None] = mapped_column(ForeignKey("billing_access_adjustments.id"))
+    allocated_seconds: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    committed_seconds: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
 
 
 class UsageLedgerEntry(Base):

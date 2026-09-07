@@ -19,8 +19,7 @@ from sqlalchemy import and_, exists, func, or_, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from twobrain_rec_server.billing.catalog import FREE_STORAGE_BYTES
-from twobrain_rec_server.billing.entitlements import effective_plan_code
+from twobrain_rec_server.billing.entitlements import resolve_entitlements
 from twobrain_rec_server.billing.source_lifecycle import (
     clear_source_playback_verification,
     mark_source_playback_verified,
@@ -42,7 +41,6 @@ from twobrain_rec_server.db.models import (
     StorageReservation,
     TrackArtifact,
     Workspace,
-    WorkspaceSubscription,
 )
 from twobrain_rec_server.db.tenant_context import (
     rehydrate_tenant_context,
@@ -1670,32 +1668,18 @@ async def _reserve_playback_storage(
     ):
         return None
     await lock_storage_workspace(db, job.workspace_id)
-    subscription = await db.scalar(
-        select(WorkspaceSubscription).where(
-            WorkspaceSubscription.workspace_id == job.workspace_id
-        )
-    )
-    effective_plan = (
-        effective_plan_code(
-            plan_code=subscription.plan_code,
-            state=subscription.state,
-            now=now,
-            paid_through=subscription.paid_through,
-            trial_ends_at=subscription.trial_ends_at,
-        )
-        if subscription is not None
-        else "free"
+    subject_user_id = await db.scalar(select(Meeting.created_by_user_id).where(
+        Meeting.id == job.meeting_id, Meeting.workspace_id == job.workspace_id,
+    ))
+    access = await resolve_entitlements(
+        db, workspace_id=job.workspace_id, subject_user_id=subject_user_id, now=now,
     )
     return await reserve_storage(
         db,
         workspace_id=job.workspace_id,
         reservation_key=f"normalization:{attempt.id}",
         declared_bytes=declared_bytes,
-        capacity_bytes=(
-            subscription.capacity_bytes
-            if subscription is not None and effective_plan in {"trial", "personal"}
-            else FREE_STORAGE_BYTES
-        ),
+        capacity_bytes=access.capabilities["storage_bytes"],
         now=now,
     )
 

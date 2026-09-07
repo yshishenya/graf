@@ -31,6 +31,7 @@ from twobrain_rec_server.db.models.billing import (
     TimeCreditLedgerEntry,
     TrialActivation,
     UsageLedgerEntry,
+    UsageQuotaAllocation,
     UsageReservation,
     WorkspaceSubscription,
 )
@@ -247,6 +248,7 @@ __all__ = [
     "TimeCreditLedgerEntry",
     "TrialActivation",
     "UsageLedgerEntry",
+    "UsageQuotaAllocation",
     "UsageReservation",
     "WorkspaceSubscription",
     "AuthAuditEvent",

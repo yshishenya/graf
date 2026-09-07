@@ -14,7 +14,6 @@ from sqlalchemy import and_, delete, desc, exists, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from twobrain_rec_server.billing.entitlements import effective_plan_code, entitlement_for_plan
 from twobrain_rec_server.billing.source_lifecycle import (
     TRANSIENT_HARD_LIFETIME,
     TRANSIENT_PURGE_AFTER,
@@ -26,7 +25,7 @@ from twobrain_rec_server.billing.usage import (
     commit_free_usage_ranges,
     find_free_usage_reservation,
     release_free_usage,
-    reserve_free_usage,
+    reserve_processing_usage,
 )
 from twobrain_rec_server.db.models import (
     DiarizationSegment,
@@ -42,7 +41,6 @@ from twobrain_rec_server.db.models import (
     TrackArtifact,
     TranscriptSegment,
     UploadSession,
-    WorkspaceSubscription,
 )
 from twobrain_rec_server.domain.statuses import (
     MediaRevisionSourceKind,
@@ -1138,43 +1136,15 @@ async def _reserve_processing_attempt_quota(
         return False
     reservation_key = f"processing:{media_revision.id}"
     now = datetime.now(UTC)
-    reservation = await find_free_usage_reservation(
-        db,
-        workspace_id=workspace_id,
-        reservation_key=reservation_key,
-    )
-    if reservation is not None:
-        if reservation.state == "committed":
-            return True
-        if reservation.state == "active":
-            if reservation.expires_at is None or reservation.expires_at > now:
-                return True
-            await release_free_usage(db, reservation_id=reservation.id)
-        if (
-            reservation.state == "released"
-            and reservation.committed_seconds >= reservation.declared_seconds
-        ):
-            return True
-
-    subscription = await db.scalar(
-        select(WorkspaceSubscription)
-        .where(WorkspaceSubscription.workspace_id == workspace_id)
-        .with_for_update()
-    )
-    effective_plan = effective_plan_code(
-        plan_code=(subscription.plan_code if subscription is not None else "free"),
-        state=(subscription.state if subscription is not None else "free"),
-        now=now,
-        paid_through=subscription.paid_through if subscription is not None else None,
-        trial_ends_at=subscription.trial_ends_at if subscription is not None else None,
-    )
-    if entitlement_for_plan(plan_code=effective_plan).processing_unlimited:
-        return True
+    subject_user_id = await db.scalar(select(Meeting.created_by_user_id).where(
+        Meeting.id == media_revision.meeting_id, Meeting.workspace_id == workspace_id,
+    ))
     try:
-        await reserve_free_usage(
+        await reserve_processing_usage(
             db,
             workspace_id=workspace_id,
             reservation_key=reservation_key,
+            subject_user_id=subject_user_id,
             declared_seconds=duration_seconds,
             now=now,
             expires_at=expires_at or now + timedelta(hours=24),

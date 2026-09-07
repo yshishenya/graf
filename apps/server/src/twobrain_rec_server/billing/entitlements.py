@@ -1,18 +1,23 @@
 from __future__ import annotations
 
 import calendar
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from twobrain_rec_server.billing.admin_grants import AccessResolution, resolve_adjustments
 from twobrain_rec_server.billing.audit import metadata_only
 from twobrain_rec_server.billing.catalog import (
+    CAPABILITY_BOOLEANS,
+    EXPORT_FORMATS,
     FREE_PROCESSING_SECONDS,
+    CatalogNotApproved,
     PlanCode,
     storage_capacity_bytes,
+    validate_capabilities,
 )
 from twobrain_rec_server.billing.events import enqueue_billing_notification
 from twobrain_rec_server.billing.notifications import BillingNotification
@@ -31,6 +36,8 @@ from twobrain_rec_server.db.models import (
     BillingInvoice,
     BillingOperation,
     BillingPaymentMethod,
+    BillingPlan,
+    BillingPlanVersion,
     Workspace,
     WorkspaceMembership,
     WorkspaceSubscription,
@@ -60,13 +67,78 @@ def effective_plan_code(
             if trial_ends_at is not None and trial_ends_at.astimezone(UTC) > current
             else "free"
         )
-    if plan_code == "personal":
+    if plan_code not in {"free", "trial"}:
         return (
-            "personal"
+            plan_code
             if paid_through is not None and paid_through.astimezone(UTC) > current
             else "free"
         )
     return "free" if state not in {"free", "trial", "personal"} else plan_code
+
+
+def legacy_capabilities(plan_code: str, *, capacity_bytes: int | None = None) -> dict[str, object]:
+    """Exact pre-catalog product defaults; never invent capabilities for a new code."""
+    if plan_code not in {"free", "trial", "personal"}:
+        raise CatalogNotApproved("subscription requires a pinned capability version")
+    return validate_capabilities({
+        **dict.fromkeys(CAPABILITY_BOOLEANS, True),
+        "processing_unlimited": plan_code in {"trial", "personal"},
+        "storage_bytes": capacity_bytes if capacity_bytes is not None else storage_capacity_bytes(plan_code),
+        "processing_seconds": FREE_PROCESSING_SECONDS,
+        "processing_window": "calendar_month_moscow",
+        "export_formats": sorted(EXPORT_FORMATS),
+    })
+
+
+async def resolve_entitlements(
+    db: AsyncSession, *, workspace_id: UUID, subject_user_id: UUID | None,
+    now: datetime, hard_denies: frozenset[str] = frozenset(),
+) -> AccessResolution:
+    """Resolve exact paid terms and non-monetary sources without modifying billing."""
+    if now.tzinfo is None or now.utcoffset() is None:
+        raise ValueError("entitlement time must be timezone-aware")
+    subscription = await db.get(WorkspaceSubscription, workspace_id, populate_existing=True)
+    code = effective_plan_code(
+        plan_code=subscription.plan_code if subscription else "free",
+        state=subscription.state if subscription else "free", now=now,
+        paid_through=subscription.paid_through if subscription else None,
+        trial_ends_at=subscription.trial_ends_at if subscription else None,
+    )
+    version = None
+    access_until = None
+    if code == "free":
+        plan = await db.scalar(select(BillingPlan).where(BillingPlan.code == "free"))
+        if plan is not None and plan.current_version_id is not None:
+            version = await db.get(BillingPlanVersion, plan.current_version_id)
+    elif subscription is not None:
+        access_until = subscription.trial_ends_at if code == "trial" else subscription.paid_through
+        if subscription.pinned_plan_version_id is not None:
+            version = await db.get(BillingPlanVersion, subscription.pinned_plan_version_id)
+            if version is None or version.plan_code != code:
+                raise CatalogNotApproved("subscription capability pin is inconsistent")
+    if version is not None and version.status not in (None, "legacy"):
+        if version.status not in {"published", "retired"} or version.capability_schema_version != 1:
+            raise CatalogNotApproved("subscription capability version is unavailable")
+        capabilities = validate_capabilities(version.capabilities)
+        if subscription and code != "free":
+            capabilities["storage_bytes"] = max(capabilities["storage_bytes"], subscription.capacity_bytes or 0)
+    else:
+        capabilities = legacy_capabilities(
+            code, capacity_bytes=subscription.capacity_bytes if subscription and code != "free" else None,
+        )
+    access = await resolve_adjustments(
+        db, workspace_id=workspace_id, subject_user_id=subject_user_id,
+        base_capabilities=capabilities, now=now, hard_denies=hard_denies,
+    )
+    if access.plan_version_id is not None:
+        gift = await db.get(BillingPlanVersion, access.plan_version_id)
+        code = gift.plan_code
+    return replace(
+        access, plan_code=code,
+        base_source="gift" if access.plan_version_id else ("paid" if code not in {"free", "trial"} else code),
+        base_plan_version_id=version.id if version is not None else None,
+        access_until=access.plan_ends_at or access_until,
+    )
 
 
 def entitlement_for_plan(

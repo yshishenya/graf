@@ -290,6 +290,19 @@ async def test_ordinary_account_cannot_mint_assignments_or_read_another_subject(
             )
             await apply_tenant_context_to_connection(conn, context)
             assert await conn.scalar(text("select id from billing_access_adjustments")) == row_id
+            from sqlalchemy.ext.asyncio import AsyncSession
+
+            from twobrain_rec_server.billing.entitlements import resolve_entitlements
+            from twobrain_rec_server.billing.usage import reserve_processing_usage
+
+            async with AsyncSession(bind=conn) as session:
+                access = await resolve_entitlements(session, workspace_id=PERSONAL_WORKSPACE_ID,
+                    subject_user_id=USER_ID, now=now)
+                assert row_id in access.applied_ids
+                await reserve_processing_usage(session, workspace_id=PERSONAL_WORKSPACE_ID,
+                    subject_user_id=USER_ID, reservation_key="synthetic:actual-role", declared_seconds=60, now=now)
+                await session.flush()
+
             with pytest.raises(DBAPIError):
                 async with conn.begin_nested():
                     await conn.execute(
@@ -421,5 +434,214 @@ async def test_gift_interval_changes_access_without_touching_paid_history(
             await db.refresh(subscription)
             assert subscription.paid_through == before
             assert await db.scalar(select(func.count()).select_from(BillingInvoice)) == paid_count
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_processing_allocates_extra_once_and_honors_expired_source(postgres_seeded_database_url):
+    from twobrain_rec_server.billing.usage import (
+        QuotaExceeded,
+        SourceRange,
+        commit_free_usage_ranges,
+        reserve_processing_usage,
+    )
+    from twobrain_rec_server.db.models.billing import FreeUsageWindow
+
+    engine = create_async_engine(postgres_seeded_database_url)
+    now = datetime.now(UTC)
+    try:
+        async with async_sessionmaker(engine, expire_on_commit=False)() as db:
+            gift = await create_adjustment(
+                db, workspace_id=PERSONAL_WORKSPACE_ID, kind="extra_quota",
+                feature_key="processing_seconds", value=6000, unit="seconds",
+                starts_at=now-timedelta(days=1), ends_at=now+timedelta(seconds=1),
+                source_kind="migration", source_ref=f"synthetic:quota:{uuid4()}",
+                reason="Synthetic processing compensation",
+            )
+            first = await reserve_processing_usage(
+                db, workspace_id=PERSONAL_WORKSPACE_ID, reservation_key="synthetic:24k",
+                declared_seconds=24000, now=now,
+            )
+            await db.commit()
+            with pytest.raises(QuotaExceeded):
+                await reserve_processing_usage(
+                    db, workspace_id=PERSONAL_WORKSPACE_ID, reservation_key="synthetic:over",
+                    declared_seconds=1, now=now,
+                )
+            # Source expires/revokes, while the accepted reservation is still valid.
+            await revoke_adjustment(
+                db, workspace_id=PERSONAL_WORKSPACE_ID, adjustment_id=gift.id,
+                source_kind="migration", source_ref=f"synthetic:revoke:{uuid4()}",
+                reason="Synthetic compensation revoked",
+            )
+            replay = await reserve_processing_usage(
+                db, workspace_id=PERSONAL_WORKSPACE_ID, reservation_key="synthetic:24k",
+                declared_seconds=24000, now=now+timedelta(seconds=2),
+            )
+            assert replay.id == first.id
+            assert await commit_free_usage_ranges(
+                db, reservation_id=first.id, ranges=[SourceRange("synthetic:source",0,24000)]
+            ) == 24000
+            await db.commit()
+            window = await db.get(FreeUsageWindow, first.window_id)
+            assert (window.committed_seconds,window.reserved_seconds)==(24000,0)
+            with pytest.raises(QuotaExceeded):
+                await reserve_processing_usage(
+                    db, workspace_id=PERSONAL_WORKSPACE_ID, reservation_key="synthetic:over-expired",
+                    declared_seconds=1, now=now+timedelta(seconds=2),
+                )
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_processing_measures_unlimited_and_preserves_usage_on_limit_change(postgres_seeded_database_url):
+    from twobrain_rec_server.billing.usage import (
+        QuotaExceeded,
+        SourceRange,
+        commit_free_usage_ranges,
+        reserve_processing_usage,
+    )
+    from twobrain_rec_server.db.models.billing import WorkspaceSubscription
+
+    engine = create_async_engine(postgres_seeded_database_url)
+    now = datetime.now(UTC)
+    try:
+        async with async_sessionmaker(engine, expire_on_commit=False)() as db:
+            subscription = await db.get(WorkspaceSubscription, PERSONAL_WORKSPACE_ID)
+            if subscription is None:
+                subscription=WorkspaceSubscription(workspace_id=PERSONAL_WORKSPACE_ID)
+                db.add(subscription)
+            subscription.plan_code="personal"
+            subscription.state="personal"
+            subscription.paid_through=now+timedelta(days=1)
+            await db.flush()
+            first = await reserve_processing_usage(
+                db, workspace_id=PERSONAL_WORKSPACE_ID, reservation_key="synthetic:unlimited",
+                declared_seconds=20000, now=now,
+            )
+            assert await commit_free_usage_ranges(
+                db,reservation_id=first.id,ranges=[SourceRange("synthetic:paid",0,20000)]
+            ) == 20000
+            # Switching to a finite limit never resets already measured seconds.
+            await create_adjustment(
+                db, workspace_id=PERSONAL_WORKSPACE_ID,kind="exact_limit",
+                feature_key="processing_seconds",value=21000,unit="seconds",
+                starts_at=now,ends_at=now+timedelta(days=2),source_kind="migration",
+                source_ref=f"synthetic:limit:{uuid4()}",reason="Synthetic processing limit",
+            )
+            await reserve_processing_usage(
+                db,workspace_id=PERSONAL_WORKSPACE_ID,reservation_key="synthetic:remaining",
+                declared_seconds=1000,now=now,
+            )
+            with pytest.raises(QuotaExceeded):
+                await reserve_processing_usage(
+                    db,workspace_id=PERSONAL_WORKSPACE_ID,reservation_key="synthetic:exhausted",
+                    declared_seconds=1,now=now,
+                )
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_extra_allocation_order_release_and_concurrent_source_dedup(postgres_seeded_database_url):
+    import asyncio
+
+    from twobrain_rec_server.billing.usage import (
+        SourceRange,
+        commit_free_usage_ranges,
+        release_free_usage,
+        reserve_processing_usage,
+    )
+    from twobrain_rec_server.db.models.billing import UsageQuotaAllocation
+
+    engine = create_async_engine(postgres_seeded_database_url)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    now = datetime.now(UTC)
+    try:
+        async with sessions() as db:
+            args = dict(
+                workspace_id=PERSONAL_WORKSPACE_ID,feature_key="processing_seconds",unit="seconds",
+                starts_at=now,source_kind="migration",reason="Synthetic quota allocation order",
+            )
+            await create_adjustment(db,**args,kind="exact_limit",value=0,
+                ends_at=now+timedelta(days=3),source_ref=f"synthetic:{uuid4()}")
+            early = await create_adjustment(db,**args,kind="extra_quota",value=300,
+                ends_at=now+timedelta(days=1),source_ref=f"synthetic:{uuid4()}")
+            late = await create_adjustment(db,**args,kind="extra_quota",value=300,
+                ends_at=now+timedelta(days=2),source_ref=f"synthetic:{uuid4()}")
+            first = await reserve_processing_usage(db,workspace_id=PERSONAL_WORKSPACE_ID,
+                reservation_key="synthetic:partial",declared_seconds=450,now=now)
+            assert await commit_free_usage_ranges(db,reservation_id=first.id,
+                ranges=[SourceRange("synthetic:partial-source",0,350)])==350
+            allocations = {row.adjustment_id: row.committed_seconds for row in await db.scalars(
+                select(UsageQuotaAllocation).where(UsageQuotaAllocation.reservation_id==first.id)
+            )}
+            assert allocations=={early.id:300,late.id:50}
+            assert await release_free_usage(db,reservation_id=first.id)
+            # Only the unused 100 seconds are reacquired; prior consumption survives release.
+            replay = await reserve_processing_usage(db,workspace_id=PERSONAL_WORKSPACE_ID,
+                reservation_key="synthetic:partial",declared_seconds=450,now=now)
+            assert replay.id==first.id
+            second = await reserve_processing_usage(db,workspace_id=PERSONAL_WORKSPACE_ID,
+                reservation_key="synthetic:duplicate",declared_seconds=100,now=now)
+            await db.commit()
+        async def consume(reservation_id):
+            async with sessions() as db:
+                value = await commit_free_usage_ranges(db,reservation_id=reservation_id,
+                    ranges=[SourceRange("synthetic:concurrent-source",0,100)])
+                await db.commit()
+                return value
+        assert sorted(await asyncio.gather(consume(first.id),consume(second.id)))==[0,100]
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_processing_admission_cannot_overspend(postgres_seeded_database_url):
+    import asyncio
+
+    from twobrain_rec_server.billing.usage import QuotaExceeded, reserve_processing_usage
+
+    engine = create_async_engine(postgres_seeded_database_url)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    now = datetime.now(UTC)
+    try:
+        async def admit(key):
+            async with sessions() as db:
+                try:
+                    await reserve_processing_usage(db,workspace_id=PERSONAL_WORKSPACE_ID,
+                        reservation_key=key,declared_seconds=15000,now=now)
+                    await db.commit()
+                    return True
+                except QuotaExceeded:
+                    await db.rollback()
+                    return False
+        assert sorted(await asyncio.gather(admit("synthetic:first"),admit("synthetic:second")))==[False,True]
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_expired_hold_cleanup_preserves_other_live_reservations(postgres_seeded_database_url):
+    from twobrain_rec_server.billing.usage import (
+        release_expired_free_usage,
+        reserve_processing_usage,
+    )
+    from twobrain_rec_server.db.models.billing import FreeUsageWindow
+
+    engine = create_async_engine(postgres_seeded_database_url)
+    now = datetime.now(UTC)
+    try:
+        async with async_sessionmaker(engine, expire_on_commit=False)() as db:
+            await reserve_processing_usage(db, workspace_id=PERSONAL_WORKSPACE_ID,
+                reservation_key="synthetic:expired", declared_seconds=100,
+                now=now-timedelta(seconds=2), expires_at=now-timedelta(seconds=1))
+            current = await reserve_processing_usage(db, workspace_id=PERSONAL_WORKSPACE_ID,
+                reservation_key="synthetic:live", declared_seconds=60, now=now)
+            assert await release_expired_free_usage(db,workspace_id=PERSONAL_WORKSPACE_ID,now=now)==1
+            window = await db.get(FreeUsageWindow,current.window_id)
+            assert window.reserved_seconds==60
     finally:
         await engine.dispose()

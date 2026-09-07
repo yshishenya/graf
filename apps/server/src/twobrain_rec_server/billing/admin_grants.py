@@ -226,6 +226,10 @@ class AccessResolution:
     plan_version_id: UUID | None
     plan_ends_at: datetime | None
     denied_features: frozenset[str]
+    plan_code: str = "free"
+    base_source: str = "free"
+    base_plan_version_id: UUID | None = None
+    access_until: datetime | None = None
 
 
 async def resolve_adjustments(
