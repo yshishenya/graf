@@ -33,6 +33,7 @@ def test_compose_does_not_consume_inherited_env_file_or_disable_processing():
     assert "env_file:" not in COMPOSE
     assert 'TWOBRAIN_PROCESSING_ENABLED: "true"' in COMPOSE
     assert "GRAF_DEV_SOURCE_SHA is required" in COMPOSE
+    assert "GRAF_DEV_EXPECTED_MIGRATION_HEAD is required" in COMPOSE
     assert 'TWOBRAIN_LOCAL_HTTP_AUTH_COOKIE_ENABLED: "true"' in COMPOSE
     assert 'TWOBRAIN_LOCAL_EMAIL_LOGIN_CODE: "000000"' in COMPOSE
 
