@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import OSLog
 import SwiftUI
 import TwoBrainRecShared
 
@@ -275,10 +276,11 @@ public struct CalendarTrayView: View {
 }
 
 @MainActor
-public final class CalendarTrayController: NSObject {
+public final class CalendarTrayController: NSObject, NSPopoverDelegate {
     private let model: CalendarTrayModel
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let popover = NSPopover()
+    private var presentationStartedAt: TimeInterval?
     private let onOpenCalendar: () -> Void
     private let onOpenMeetings: () -> Void
     private let onUpdate: () -> Void
@@ -332,6 +334,7 @@ public final class CalendarTrayController: NSObject {
             self?.refreshStatusButton(snapshot)
         }
 
+        popover.delegate = self
         popover.behavior = .transient
         popover.animates = true
 
@@ -374,6 +377,7 @@ public final class CalendarTrayController: NSObject {
 
     public func showPopover() {
         guard let button = statusItem.button, let screen = button.window?.screen ?? NSScreen.main else { return }
+        if !popover.isShown { presentationStartedAt = ProcessInfo.processInfo.systemUptime }
         let size = Self.panelSize(in: screen.visibleFrame)
         let rootView = CalendarTrayView(model: model,
             onOpenCalendar: { [weak self] in self?.openCalendar() },
@@ -395,6 +399,16 @@ public final class CalendarTrayController: NSObject {
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         popover.contentViewController?.view.window?.makeKey()
         refreshNow()
+    }
+
+    public func popoverDidShow(_ notification: Notification) {
+        guard let started = presentationStartedAt else { return }
+        presentationStartedAt = nil
+        // Dev-only, metadata-only evidence from the native visible lifecycle event.
+        guard Bundle.main.bundleIdentifier == "pro.2brain.graf.dev" else { return }
+        let milliseconds = (ProcessInfo.processInfo.systemUptime - started) * 1_000
+        Logger(subsystem: "pro.2brain.graf.dev", category: "panel-performance")
+            .notice("presentation_ms=\(milliseconds, privacy: .public)")
     }
 
     public func showUpdate(_ presentation: AppUpdatePresentation, actionEnabled: Bool) {

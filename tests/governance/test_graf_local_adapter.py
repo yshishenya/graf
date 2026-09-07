@@ -780,9 +780,9 @@ def test_live_rollback_reinstalls_target_and_verifies_before_return(monkeypatch,
     )
 
     options = {}
+    for key in ("database", "storage", "temporal"):
+        target["components"][key]["digest"] = active["components"][key]["digest"]
     if cross_definition:
-        for key in ("database", "storage", "temporal"):
-            target["components"][key] = active["components"][key]
         target_adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path)
         for name in ("_assert_source_matches_checkout", "_compose_config", "_assert_manifest_images"):
             monkeypatch.setattr(target_adapter, name, lambda *_: None)
@@ -805,6 +805,8 @@ def test_live_rollback_reinstalls_target_and_verifies_before_return(monkeypatch,
 def test_live_rollback_validates_target_checkout_before_starting(monkeypatch, tmp_path):
     active = manifest(tmp_path, "c" * 40)
     target = manifest(tmp_path, "d" * 40)
+    for key in ("database", "storage", "temporal"):
+        target["components"][key]["digest"] = active["components"][key]["digest"]
     adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path)
     calls = []
 

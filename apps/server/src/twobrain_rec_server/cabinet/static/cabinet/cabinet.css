@@ -241,7 +241,7 @@ input[type="checkbox"], input[type="radio"] {
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
   background: var(--panel);
-  border-right: 1px solid var(--line);
+  border-right: 1px solid var(--line-soft);
   padding: 12px 10px;
   display: flex;
   flex-direction: column;
@@ -1670,7 +1670,7 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
 .upcoming.cabinet-card {
   margin: 2px 0 14px;
   overflow: hidden;
-  background: linear-gradient(135deg, rgba(124,92,255,.10), rgba(47,201,166,.04));
+  background: var(--surface);
 }
 .calendar-home-upcoming > summary {
   display: flex;
@@ -2188,9 +2188,9 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
   min-width: 0;
   min-height: 112px;
   padding: 14px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-soft);
   border-radius: var(--radius-compact);
-  background: var(--surface-2);
+  background: var(--surface);
   text-decoration: none;
   transition: border-color .15s ease, background .15s ease;
 }
@@ -2260,12 +2260,11 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
 .settings-scope-badge {
   min-height: 24px;
   padding: 2px 7px;
-  border-color: var(--line);
+  border-color: transparent;
   border-radius: 6px;
   color: var(--muted);
   background: transparent;
-  font-size: var(--font-size-caption);
-  font-weight: 600;
+  font: 500 var(--font-size-caption) var(--font-family-ui);
 }
 .settings-section__heading .button { flex: 0 0 auto; }
 .settings-boundary-card,
@@ -4876,7 +4875,9 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
 }
 
 @media (prefers-contrast: more) {
-  :root {
+  :root,
+  :root[data-theme] {
+    --line-soft: currentColor;
     --line: currentColor;
   }
   .cabinet-search-control input,
@@ -5622,10 +5623,10 @@ body {
 }
 
 .list-card.cabinet-card {
-  border-color: var(--line);
+  border-color: var(--line-soft);
   border-radius: var(--radius-card);
   background: var(--surface);
-  box-shadow: 0 8px 28px rgba(0,0,0,.10);
+  box-shadow: none;
 }
 
 .meeting-row.cabinet-row {

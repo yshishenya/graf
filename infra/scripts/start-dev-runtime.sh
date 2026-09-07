@@ -7,7 +7,7 @@ ROOT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)
 COMPOSE_FILE="$ROOT_DIR/infra/docker-compose.dev.yml"
 PROJECT="${GRAF_DEV_COMPOSE_PROJECT:-graf-dev}"
 SOURCE_SHA="${GRAF_DEV_SOURCE_SHA:-}"
-STATE_ROOT="${GRAF_DEV_STATE_ROOT:-${GRAF_DEV_STATE_DIR:-$HOME/Library/Application Support/GRAF Dev/$PROJECT}}"
+STATE_ROOT="${GRAF_DEV_STATE_ROOT:?start through dev-harness}"
 
 fail() { echo "GRAF Dev runtime: $1" >&2; exit 1; }
 require_image_id() {
@@ -31,6 +31,7 @@ require_image_id GRAF_DEV_STORAGE_INIT_IMAGE "${GRAF_DEV_STORAGE_INIT_IMAGE:-}"
 
 command -v docker >/dev/null 2>&1 || fail "docker is required"
 command -v python3 >/dev/null 2>&1 || fail "python3 is required"
+python3 "$ROOT_DIR/scripts/dev-harness.py" schema-start-guard --state-root "$STATE_ROOT" --sha "$SOURCE_SHA" >/dev/null
 mkdir -p "$STATE_ROOT"
 
 export GRAF_DEV_SOURCE_SHA="$SOURCE_SHA"

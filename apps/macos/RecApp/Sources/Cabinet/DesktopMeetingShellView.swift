@@ -32,11 +32,11 @@ public enum DesktopMeetingShellChrome {
     public static let recordingStripHex = "#342087"
     public static let shellAccentHex = "#8c73ff"
     public static let webEmbeddedBackgroundHex = shellBackgroundHex
-    public static let shellBackgroundColor = Color(red: 0.039, green: 0.039, blue: 0.043)
-    public static let shellRailColor = Color(red: 0.070, green: 0.070, blue: 0.078)
-    public static let shellSurfaceColor = Color(red: 0.110, green: 0.110, blue: 0.121)
-    public static let shellStrokeColor = Color.white.opacity(0.05)
-    public static let shellHighContrastStrokeColor = Color.white.opacity(0.42)
+    public static let shellBackgroundColor = Color(nsColor: .windowBackgroundColor)
+    public static let shellRailColor = Color(nsColor: .controlBackgroundColor)
+    public static let shellSurfaceColor = Color(nsColor: .controlBackgroundColor)
+    public static let shellStrokeColor = Color(nsColor: .separatorColor)
+    public static let shellHighContrastStrokeColor = Color.primary.opacity(0.65)
     public static let recordingStripColor = Color(red: 0.204, green: 0.125, blue: 0.529)
     public static let shellAccentColor = Color(red: 0.549, green: 0.451, blue: 1.000)
     public static let recordingStripHeight: CGFloat = 44
@@ -50,12 +50,7 @@ public enum DesktopMeetingShellChrome {
     public static let appUpdateLabel = "Доступно обновление"
     public static let appUpdateAccessibilityLabel = "Доступно обновление GRAF. Открыть проверку обновлений."
     public static let appUpdateHitSize: CGFloat = 40
-    public static let webEmbeddedBackgroundNSColor = NSColor(
-        srgbRed: 0.039,
-        green: 0.039,
-        blue: 0.043,
-        alpha: 1
-    )
+    public static let webEmbeddedBackgroundNSColor = NSColor.windowBackgroundColor
     public static let inspectorToggleHitSize: CGFloat = 44
     public static let inspectorToggleCornerRadius: CGFloat = 12
     public static let inspectorToggleTopInset: CGFloat = 10
@@ -282,19 +277,18 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     }
 
     public var body: some View {
-        HStack(spacing: 0) {
-            VStack(spacing: 0) {
-                HStack(alignment: .top, spacing: 0) {
-                    meetingsSurface
-                    Divider()
-                    inspectorContainer
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .clipped()
-            }
+        HStack(alignment: .top, spacing: 0) {
+            meetingsSurface
+            Divider()
+            inspectorContainer
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(DesktopMeetingShellChrome.shellBackgroundColor)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(DesktopMeetingShellChrome.spacingSmall)
+        .background(
+            DesktopMeetingShellChrome.shellBackgroundColor
+                .overlay(Color.primary.opacity(0.06))
+        )
         .tint(DesktopMeetingShellChrome.shellAccentColor)
         .background {
             RecordingTitlebarAccessory(

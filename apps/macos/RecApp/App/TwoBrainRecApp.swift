@@ -3414,7 +3414,6 @@ private struct AppContentRoot: View {
             appUpdateController: appUpdateController,
             workspaceZoom: workspaceZoomStore.preference
         )
-        .frame(minWidth: 1040, minHeight: 680)
     }
 }
 
