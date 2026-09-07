@@ -121,6 +121,9 @@ function userDetailList(detail) {
   add("Адрес",(detail.emails||[]).join(", ")); add("Имя",detail.display_name); add("Состояние",detail.status); add("Создан",detail.created_at);
   const subscription=detail.subscription;
   add("Тариф",subscription?.plan_code); add("Состояние подписки",subscription?.state); add("Доступ до",subscription?.paid_through);
+  const subscriptions=detail.subscriptions||[];
+  if(subscriptions.length>1) add("Пространств с подпиской",subscriptions.length);
+  for(const item of subscriptions) add(`Тариф пространства ${item.workspace_id}`,`${item.plan_code||"Нет тарифа"} · ${item.state||"Нет состояния"} · ${item.billing_owner_id||"Плательщик не указан"}`);
   add("Повторные списания",subscription?.recurring_allowed===true?"Разрешены":subscription?.recurring_allowed===false?"Запрещены":null);
   if(detail.financial_fields_available) {
     add("Платежей",(detail.payments||[]).length);
@@ -169,7 +172,7 @@ reasonForm?.addEventListener("submit",async event=>{
   event.preventDefault(); if(!reasonAction) return;
   const action=reasonAction, submit=reasonForm.querySelector("button[type=submit]");
   submit.disabled=true; action.button.disabled=true;
-  try {await command(action.path,{...action.data,reason:reasonForm.elements.reason.value},action.method); reasonDialog.close(); location.reload();}
+  try {const body={...action.data,reason:reasonForm.elements.reason.value}; const key=body.idempotency_key; delete body.idempotency_key; await command(action.path,body,action.method,key?{"Idempotency-Key":key}:{}); reasonDialog.close(); location.reload();}
   catch(error) {reasonDialog.querySelector(".dialog-message").textContent=error.message; action.button.disabled=false;}
   finally {submit.disabled=false;}
 });
@@ -181,25 +184,28 @@ planForm?.addEventListener("submit",async event=>{
   } catch(error) {planDialog.querySelector(".dialog-message").textContent=error.message;} finally {button.disabled=false;}
 });
 document.querySelectorAll(".publish-plan").forEach(button=>button.addEventListener("click",async()=>{
-  openReasonAction(button, `plans/${button.dataset.id}/publish`, {version_id:button.dataset.versionId}, "Опубликовать тариф");
+  openReasonAction(button, `plans/${button.dataset.id}/publish`, {version_id:button.dataset.versionId,expected_version:Number(button.dataset.version),idempotency_key:crypto.randomUUID()}, "Опубликовать тариф");
 }));
 document.querySelectorAll(".close-plan").forEach(button=>button.addEventListener("click",async()=>{
-  openReasonAction(button, `plans/${button.dataset.id}/state`, {state:"closed"}, "Закрыть продажи тарифа", "PATCH");
+  openReasonAction(button, `plans/${button.dataset.id}/state`, {state:"closed",expected_version:Number(button.dataset.version),idempotency_key:crypto.randomUUID()}, "Закрыть продажи тарифа", "PATCH");
 }));
 const campaignDialog=document.getElementById("campaign-dialog"), campaignForm=document.getElementById("campaign-form");
-document.getElementById("create-campaign")?.addEventListener("click",()=>{campaignForm.reset();campaignForm.elements.max_redemptions.value=1;campaignDialog.querySelector(".dialog-message").textContent="";campaignDialog.showModal();});
+const campaignAudience=campaignForm?.elements.audience, campaignTargetUser=campaignForm?.elements.target_user_id;
+function syncCampaignAudience(){if(campaignTargetUser){campaignTargetUser.required=campaignAudience?.value==="selected";campaignTargetUser.disabled=campaignAudience?.value!=="selected";}}
+campaignAudience?.addEventListener("change",syncCampaignAudience);
+document.getElementById("create-campaign")?.addEventListener("click",()=>{campaignForm.reset();campaignForm.elements.max_redemptions.value=1;syncCampaignAudience();campaignDialog.querySelector(".dialog-message").textContent="";campaignDialog.showModal();});
 campaignForm?.addEventListener("submit",async event=>{
   event.preventDefault(); const values=Object.fromEntries(new FormData(campaignForm)); const numberOrNull=name=>values[name]?Number(values[name]):null; const button=campaignForm.querySelector("button[type=submit]"); button.disabled=true;
-  try {const result=await command("campaigns",{code:values.code,campaign_version:values.campaign_version,plan_code:values.plan_code,cycle:values.cycle||null,benefit_kind:values.benefit_kind,discount_percent:numberOrNull("discount_percent"),gift_days:numberOrNull("gift_days"),audience:"all",target_user_id:null,max_redemptions:Number(values.max_redemptions),budget_minor:numberOrNull("budget_minor"),starts_at:null,ends_at:null,display_name:values.display_name||null,reason:values.reason}); campaignDialog.querySelector(".dialog-message").textContent=`Черновик сохранён: ${result.id||"готово"}`;} catch(error) {campaignDialog.querySelector(".dialog-message").textContent=error.message;} finally {button.disabled=false;}
+  try {const toIso=value=>value?new Date(value).toISOString():null; const result=await command("campaigns",{code:values.code,campaign_version:values.campaign_version,plan_code:values.plan_code,cycle:values.cycle||null,benefit_kind:values.benefit_kind,discount_percent:numberOrNull("discount_percent"),gift_days:numberOrNull("gift_days"),audience:values.audience||"all",target_user_id:values.target_user_id||null,max_redemptions:Number(values.max_redemptions),budget_minor:numberOrNull("budget_minor"),starts_at:toIso(values.starts_at),ends_at:toIso(values.ends_at),display_name:values.display_name||null,reason:values.reason}); campaignDialog.querySelector(".dialog-message").textContent=`Черновик сохранён: ${result.id||"готово"}`;} catch(error) {campaignDialog.querySelector(".dialog-message").textContent=error.message;} finally {button.disabled=false;}
 });
 document.querySelectorAll(".campaign-state").forEach(button=>button.addEventListener("click",async()=>{
-  openReasonAction(button, `campaigns/${button.dataset.id}/state`, {state:button.dataset.state}, "Изменить состояние акции", "PATCH");
+  openReasonAction(button, `campaigns/${button.dataset.id}/state`, {state:button.dataset.state,expected_version:Number(button.dataset.version),idempotency_key:crypto.randomUUID()}, "Изменить состояние акции", "PATCH");
 }));
 const codesDialog=document.getElementById("codes-dialog"), codesForm=document.getElementById("codes-form");
 document.querySelectorAll(".issue-codes").forEach(button=>button.addEventListener("click",()=>{codesForm.reset();codesForm.dataset.idempotencyKey=crypto.randomUUID();codesForm.elements.campaign_id.value=button.dataset.id;codesForm.elements.prefix.value="GRAF";codesDialog.querySelector(".dialog-message").textContent="";codesDialog.showModal();}));
 codesForm?.addEventListener("submit",async event=>{
   event.preventDefault(); const values=Object.fromEntries(new FormData(codesForm)); const button=codesForm.querySelector("button[type=submit]"); button.disabled=true;
-  try {const result=await command(`campaigns/${values.campaign_id}/codes`,{idempotency_key:codesForm.dataset.idempotencyKey||crypto.randomUUID(),count:Number(values.count),prefix:values.prefix,reason:values.reason}); document.getElementById("codes-output").textContent=result.codes?.join("\n")||"Партия создана. Открытые значения уже недоступны.";} catch(error) {document.getElementById("codes-output").textContent=error.message;} finally {button.disabled=false;}
+  try {const key=codesForm.dataset.idempotencyKey||crypto.randomUUID(); codesForm.dataset.idempotencyKey=key; const result=await command(`campaigns/${values.campaign_id}/codes`,{count:Number(values.count),prefix:values.prefix,reason:values.reason},"POST",{"Idempotency-Key":key}); document.getElementById("codes-output").textContent=result.codes?.join("\n")||"Партия создана. Открытые значения уже недоступны.";} catch(error) {document.getElementById("codes-output").textContent=error.message;} finally {button.disabled=false;}
 });
 
 const subscriptionDialog=document.getElementById("subscription-dialog"), subscriptionForm=document.getElementById("subscription-form");
@@ -232,7 +238,7 @@ subscriptionForm?.addEventListener("submit",async event=>{
     const numericValue=rawValue!==""&&!Number.isNaN(Number(rawValue))?Number(rawValue):rawValue;
     const payload={kind:"subscription.adjust",adjustment_kind:values.adjustment_kind,adjustment_id:null,
       subject_user_id:null,feature_key:values.feature_key,value:numericValue,unit:values.unit,
-      plan_version_id:null,plan_mode:"append",starts_at:new Date(values.starts_at).toISOString(),
+      plan_version_id:null,plan_mode:values.adjustment_kind==="plan_interval"?"append":null,starts_at:new Date(values.starts_at).toISOString(),
       ends_at:new Date(values.ends_at).toISOString(),timezone:"UTC",source_ref:values.source_ref,
       reason:values.reason,expected_version:Number(values.expected_version)};
     const preview=await command(`subscriptions/${values.workspace_id}/adjustments/preview`,payload);

@@ -10,7 +10,7 @@ import secrets
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 from uuid import UUID
 
 from cryptography.exceptions import InvalidTag
@@ -114,7 +114,7 @@ def create_app() -> FastAPI:
                 try:
                     storage_config = json.loads(Path(storage_file).read_text())
                     required = {"endpoint", "access_key", "secret_key", "bucket", "secure"}
-                    if set(storage_config) != required or type(storage_config["secure"]) is not bool:
+                    if set(storage_config) != required or not isinstance(storage_config["secure"], bool):
                         raise ValueError
                     if any(not isinstance(storage_config[key], str) or not storage_config[key]
                            for key in required - {"secure"}):
@@ -154,6 +154,10 @@ def create_app() -> FastAPI:
             response = JSONResponse({"error": "invalid_host"}, status_code=400)
         elif request.method not in ("GET", "HEAD", "POST", "PATCH", "DELETE"):
             response = JSONResponse({"error": "method_not_allowed"}, status_code=405)
+        elif request.method == "POST" and request.url.path == "/system-admin":
+            # This is a read-only search. Keep the address in the request body
+            # so it cannot leak through URL, history, or access logs.
+            response = await call_next(request)
         elif request.method not in ("GET", "HEAD") and (
             request.headers.get("origin") != origin
             or not request.cookies.get(CSRF_COOKIE)
@@ -211,6 +215,9 @@ def create_app() -> FastAPI:
     @app.get("/system-admin")
     async def console_page(request: Request, section: str = "home", after: UUID | None = None,
                            workspace_id: UUID | None = None, email: str | None = None):
+        if request.method != "POST":
+            # Email searches are accepted only from the private POST body.
+            email = None
         from twobrain_rec_server.system_admin import queries
         from twobrain_rec_server.system_admin.permissions import ROLE_PERMISSIONS
         from twobrain_rec_server.system_admin.web import ROLE_LABELS, administrators, current_admin
@@ -281,10 +288,11 @@ def create_app() -> FastAPI:
                     ),
                 )
                 result = await session.scalar(text("select system_control.list_billing_subscriptions(:after,null,null)"), {"after": after})
-            rows = result[:100] if result else []
+            source_rows = list(result or [])
+            rows = source_rows[:100]
             if workspace_id is not None:
-                rows = [row for row in rows if row.get("workspace_id") == workspace_id]
-            next_cursor = rows[-1].get("workspace_id") if result and len(result) > 100 else None
+                rows = [row for row in rows if str(row.get("workspace_id")) == str(workspace_id)]
+            next_cursor = source_rows[99].get("workspace_id") if len(source_rows) > 100 else None
             for row in rows:
                 for name in ("paid_amount_minor_rub", "refunded_amount_minor_rub"):
                     row[name] = format_money_minor(row.get(name))
@@ -433,6 +441,13 @@ def create_app() -> FastAPI:
                 "succeeded":"Успешно","failed":"Ошибка","cancelled":"Отменено","resolved":"Решено",
                 "unavailable":"Недоступно","paused":"Приостановлено"},
               "observed_at":datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")})
+
+    @app.post("/system-admin")
+    async def console_page_search(request: Request):
+        values = parse_qs((await request.body()).decode("utf-8"), keep_blank_values=True)
+        section = values.get("section", ["home"])[0]
+        email = values.get("email", [None])[0]
+        return await console_page(request, section=section, email=email)
 
     app.include_router(router)
     return app

@@ -15,8 +15,8 @@ async def create_case_context(
     *,
     reason: str,
 ) -> UUID:
-    if not reason.strip() or len(reason) > 1000:
-        raise ValueError("case reason must contain 1 to 1000 characters")
+    if not 10 <= len(reason.strip()) <= 500:
+        raise ValueError("case reason must contain 10 to 500 characters")
     if context.target_id is None:
         raise ValueError("case requires an exact target")
     async with sessions() as session:
@@ -66,4 +66,28 @@ async def record_admin_mutation(
     )
     if event_id is None:
         raise PermissionError("administrative mutation audit denied")
+    return event_id
+
+
+async def record_admin_denial(
+    sessions: async_sessionmaker[AsyncSession],
+    context: SystemDatabaseContext,
+    *,
+    permission: str,
+    action: str,
+    target_type: str | None,
+    target_id: UUID | None,
+    reason: str,
+) -> UUID | None:
+    """Persist a rejected sensitive command in a separate transaction."""
+    async with sessions() as session:
+        await apply_system_context(session, replace(
+            context, permission=permission, target_type=target_type, target_id=target_id,
+        ))
+        event_id = await session.scalar(text("""select system_control.record_admin_denial(
+            :permission,:action,:target_type,:target_id,:reason)"""), {
+                "permission": permission, "action": action, "target_type": target_type,
+                "target_id": target_id, "reason": reason,
+            })
+        await session.commit()
     return event_id

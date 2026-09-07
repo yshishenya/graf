@@ -48,18 +48,18 @@ async def test_invitation_has_no_session_and_role_update_revokes_access(system_d
         async with conn.transaction():
             await security._context(conn, db, **{"app.system_permission": "admins.manage"})
             invited = await conn.fetchval(
-                "select system_control.invite_administrator('invited@example.invalid','support',null,'Test',$1)", uuid4().hex*2,
+                "select system_control.invite_administrator('invited@example.invalid','support',null,'Test reason',$1)", uuid4().hex*2,
             )
             assert invited is not None
         assert await db["owner"].fetchval("select count(*) from system_control.sessions where principal_id=$1", invited) == 0
         async with conn.transaction():
             await security._context(conn, db, **{"app.system_permission": "admins.manage"})
             result = json.loads(await conn.fetchval(
-                "select system_control.update_administrator($1,1,'support','active',null,'Test')", invited,
+                "select system_control.update_administrator($1,1,'support','active',null,'Test reason')", invited,
             ))
             assert result["error"] == "enrolment_required"
             result = json.loads(await conn.fetchval(
-                "select system_control.update_administrator($1,1,'support','revoked',null,'Test')", invited,
+                "select system_control.update_administrator($1,1,'support','revoked',null,'Test reason')", invited,
             ))
             assert result["version"] == 2
         assert await db["owner"].fetchval(
@@ -88,7 +88,7 @@ async def test_concurrent_last_administrator_removals_are_serialized(system_data
             async with conn.transaction():
                 await security._context(conn, db, **{"app.system_permission": "admins.manage"})
                 return json.loads(await conn.fetchval(
-                    "select system_control.update_administrator($1,1,'support','blocked',null,'Race test')", target,
+                    "select system_control.update_administrator($1,1,'support','blocked',null,'Race test reason')", target,
                 ))
         finally:
             await conn.close()

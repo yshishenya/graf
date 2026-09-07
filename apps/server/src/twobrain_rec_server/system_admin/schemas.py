@@ -5,7 +5,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, TypeAdapter
 
-Reason = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=1000)]
+Reason = Annotated[str, StringConstraints(strip_whitespace=True, min_length=10, max_length=500)]
 
 
 class MeetingCommand(BaseModel):

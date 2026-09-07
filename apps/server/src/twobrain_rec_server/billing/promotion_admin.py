@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import secrets
 from datetime import UTC, datetime
+from hashlib import sha256
 from typing import Any
 from uuid import UUID
 
@@ -75,10 +76,16 @@ async def issue_codes(db: AsyncSession, *, campaign_id: UUID, idempotency_key: s
         target_user_ids = [None] * count
     if len(target_user_ids) != count:
         raise ValueError("число адресатов должно совпадать с числом кодов")
-    result = await db.scalar(text("select system_control.issue_promotion_codes(:campaign,:key,cast(:hashes as jsonb),cast(:targets as jsonb))"), {
+    request_hash = sha256(json.dumps({
+        "count": count,
+        "prefix": prefix,
+        "target_user_ids": [str(item) if item else None for item in target_user_ids],
+    }, sort_keys=True).encode()).hexdigest()
+    result = await db.scalar(text("select system_control.issue_promotion_codes(:campaign,:key,cast(:hashes as jsonb),cast(:targets as jsonb),:request_hash)"), {
         "campaign": campaign_id, "key": idempotency_key,
         "hashes": json.dumps([item[1] for item in generated]),
         "targets": json.dumps([str(item) if item else None for item in target_user_ids]),
+        "request_hash": request_hash,
     })
     result = dict(result or {})
     if result.get("duplicate"):

@@ -28,8 +28,12 @@ async def run_maintenance_worker() -> None:
     tasks = [
         asyncio.create_task(run_calendar_sync_reconciler(settings)),
         asyncio.create_task(run_billing_notification_reconciler(settings)),
-        asyncio.create_task(_run_temporal_maintenance(settings)),
     ]
+    if getattr(settings, "database_url", None):
+        # Subscription adjustments and revocations are database-local and
+        # must continue during a Temporal outage.
+        tasks.append(asyncio.create_task(run_system_operation_reconciler(settings, None, True)))
+    tasks.append(asyncio.create_task(_run_temporal_maintenance(settings)))
     try:
         await asyncio.gather(*tasks)
     finally:
@@ -48,8 +52,8 @@ async def _run_temporal_maintenance(settings) -> None:
             tasks = [
                 asyncio.create_task(reconcile(settings, client))
                 for reconcile in (
-                    run_system_operation_reconciler,
-                    run_account_closure_reconciler,
+                lambda settings, client: run_system_operation_reconciler(settings, client),
+                run_account_closure_reconciler,
                     run_billing_renewal_reconciler,
                     run_billing_reconciliation_reconciler,
                     run_deletion_purge_reconciler,

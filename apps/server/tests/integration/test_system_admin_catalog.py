@@ -75,11 +75,60 @@ async def test_catalog_plan_lifecycle_and_campaign_codes(system_database):
         async with conn.transaction():
             await security._context(conn, db, **{"app.system_permission": "promotions.manage"})
             hashes = [uuid4().hex * 2, uuid4().hex * 2]
+            batch_key = str(uuid4())
+            batch_hash = "a" * 64
             batch = json.loads(await conn.fetchval(
-                "select system_control.issue_promotion_codes($1,$2,$3::jsonb,$4::jsonb)",
-                campaign_id, str(uuid4()), json.dumps(hashes), json.dumps([None, None]),
+                "select system_control.issue_promotion_codes($1,$2,$3::jsonb,$4::jsonb,$5)",
+                campaign_id, batch_key, json.dumps(hashes), json.dumps([None, None]), batch_hash,
             ))
             assert batch["code_count"] == 2
+            replay = json.loads(await conn.fetchval(
+                "select system_control.issue_promotion_codes($1,$2,$3::jsonb,$4::jsonb,$5)",
+                campaign_id, batch_key, json.dumps(hashes), json.dumps([None, None]), batch_hash,
+            ))
+            assert replay["duplicate"] is True
+            conflict = json.loads(await conn.fetchval(
+                "select system_control.issue_promotion_codes($1,$2,$3::jsonb,$4::jsonb,$5)",
+                campaign_id, batch_key, json.dumps(hashes), json.dumps([None, None]), "b" * 64,
+            ))
+            assert conflict["error"] == "idempotency_conflict"
+    finally:
+        await conn.close()
+
+
+@pytest.mark.asyncio
+async def test_catalog_mutation_idempotency_distinguishes_new_replay_conflict_and_in_progress(system_database):
+    db = system_database
+    await db["owner"].execute("update system_control.role_assignments set role='superadmin'")
+    conn = await asyncpg.connect(db["url"].replace("+asyncpg", ""))
+    try:
+        async with conn.transaction():
+            await security._context(conn, db, **{"app.system_permission": "catalog.publish"})
+            key = uuid4()
+            first = json.loads(await conn.fetchval(
+                "select system_control.begin_catalog_mutation($1,$2,$3)",
+                "catalog.plan.publish", key, "c" * 64,
+            ))
+            assert first == {"_new": True}
+            in_progress = json.loads(await conn.fetchval(
+                "select system_control.begin_catalog_mutation($1,$2,$3)",
+                "catalog.plan.publish", key, "c" * 64,
+            ))
+            assert in_progress["error"] == "idempotency_in_progress"
+            await conn.fetchval(
+                "select system_control.finish_catalog_mutation($1,$2,$3::jsonb)",
+                "catalog.plan.publish", key, json.dumps({"status": "published"}),
+            )
+            replay = json.loads(await conn.fetchval(
+                "select system_control.begin_catalog_mutation($1,$2,$3)",
+                "catalog.plan.publish", key, "c" * 64,
+            ))
+            assert replay == {"_cached_result": {"status": "published"}}
+            conflict = json.loads(await conn.fetchval(
+                "select system_control.begin_catalog_mutation($1,$2,$3)",
+                "catalog.plan.publish", key, "d" * 64,
+            ))
+            assert conflict["error"] == "idempotency_conflict"
     finally:
         await conn.close()
 
@@ -238,6 +287,15 @@ async def test_subscription_adjustment_http_is_idempotent_and_scoped(system_data
             page = await client.get(f"/system-admin?section={section}")
             assert page.status_code == 200, f"section={section}: {page.text}"
             assert page.text.count("<thead>") == 1 and page.text.count("<tbody>") == 1
+        search = await client.post("/system-admin", data={
+            "section": "users", "email": "synthetic@example.invalid",
+        })
+        assert search.status_code == 200, search.text
+        assert "method=\"post\"" in search.text and "name=\"email\"" in search.text
+        assert "synthetic@example.invalid" not in str(search.url)
+        campaign_page = await client.get("/system-admin?section=campaigns")
+        assert 'name="audience"' in campaign_page.text
+        assert 'value="former_paid"' in campaign_page.text
         for path in ("/overview", "/operations", "/incidents", "/devices", "/integrations",
                      "/metrics", "/alerts", "/storage", "/dependencies", "/settings"):
             response = await client.get(f"{prefix}{path}")

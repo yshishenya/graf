@@ -159,7 +159,7 @@ async def execute_operation(
         await _observe(db, claim)
 
 
-async def run_system_operation_reconciler(settings, temporal_client) -> None:
+async def run_system_operation_reconciler(settings, temporal_client, subscriptions_only: bool = False) -> None:
     engine = create_engine(settings)
     sessions = create_sessionmaker(engine)
     storage = get_storage(settings)
@@ -170,10 +170,8 @@ async def run_system_operation_reconciler(settings, temporal_client) -> None:
                     await db.execute(text("select system_control.expire_media_tickets()"))
                     await db.commit()
                     pending = (await db.execute(text(
-                        "select * from system_control.pending_system_operations()"
-                    ))).all()
-                    pending += (await db.execute(text(
                         "select * from system_control.pending_subscription_operations()"
+                        if subscriptions_only else "select * from system_control.pending_system_operations()"
                     ))).all()
                 for operation_id, target_id in pending:
                     try:
@@ -216,6 +214,14 @@ async def _execute_subscription_operation(db: AsyncSession, claim: dict) -> None
     ))
     try:
         async with db.begin_nested():
+            if raw.get("kind") == "subscription.adjust" and await db.scalar(select(WorkspaceSubscription.workspace_id).where(
+                WorkspaceSubscription.workspace_id == workspace_id
+            )) is None:
+                # A free workspace may not have a subscription row yet. Create
+                # the version carrier before applying the first adjustment so
+                # the preview's version cannot be reused.
+                db.add(WorkspaceSubscription(workspace_id=workspace_id))
+                await db.flush()
             if raw.get("kind") == "subscription.adjust":
                 await create_adjustment(
                     db,

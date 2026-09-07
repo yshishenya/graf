@@ -1,6 +1,7 @@
 """Console HTTP routes use only the separate system session cookie."""
 
 import base64
+import hashlib
 import hmac
 import json
 import secrets
@@ -271,7 +272,7 @@ class AdministratorUpdate(BaseModel):
     role: str
     status: str
     expires_at: AwareDatetime | None = None
-    reason: Annotated[str, Field(min_length=1, max_length=1000)]
+    reason: Annotated[str, Field(min_length=10, max_length=500)]
 
 
 @router.get("/admins")
@@ -361,7 +362,7 @@ class AdministratorInvite(BaseModel):
     model_config = ConfigDict(extra="forbid")
     email: Annotated[str, Field(min_length=3,max_length=240)]
     role: str
-    reason: Annotated[str, Field(min_length=1,max_length=1000)]
+    reason: Annotated[str, Field(min_length=10,max_length=500)]
 
 
 @router.post("/admins", status_code=201)
@@ -516,12 +517,14 @@ class PlanCreateInput(BaseModel):
 class PlanStateInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     state: Literal["open", "closed", "archived"]
+    expected_version: Annotated[int, Field(strict=True, ge=1)]
     reason: Annotated[str, Field(min_length=10, max_length=500)]
 
 
 class PlanPublishInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     version_id: UUID
+    expected_version: Annotated[int, Field(strict=True, ge=1)]
     reason: Annotated[str, Field(min_length=10, max_length=500)]
 
 
@@ -547,12 +550,12 @@ class CampaignCreateInput(BaseModel):
 class CampaignStateInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     state: Literal["active", "paused", "finished", "archived"]
+    expected_version: Annotated[int, Field(strict=True, ge=1)]
     reason: Annotated[str, Field(min_length=10, max_length=500)]
 
 
 class CampaignCodesInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    idempotency_key: UUID
     count: Annotated[int, Field(strict=True, ge=1, le=1000)]
     prefix: Annotated[str, Field(min_length=3, max_length=20)] = "GRAF"
     target_user_ids: list[UUID | None] | None = None
@@ -599,13 +602,50 @@ def _catalog_error(result: dict) -> None:
     error = result.get("error")
     if not error:
         return
-    status = 403 if error == "access_denied" else 409 if error in {"already_exists", "promotion_exhausted", "campaign_unavailable"} else 422
+    status = 403 if error == "access_denied" else 409 if error in {"already_exists", "promotion_exhausted", "campaign_unavailable", "version_conflict", "idempotency_conflict", "idempotency_in_progress"} else 422
     messages = {"access_denied":"Недостаточно прав", "already_exists":"Такая запись уже существует",
                 "promotion_exhausted":"Лимит акции исчерпан", "campaign_unavailable":"Акция недоступна",
                 "invalid_catalog":"Условия тарифа не прошли проверку", "invalid_campaign":"Условия акции не прошли проверку",
                 "invalid_batch":"Партия кодов недействительна", "code_already_exists":"Коллизия кода, повторите выпуск",
-                "not_found":"Запись не найдена", "invalid_state":"Недопустимое состояние"}
+                "not_found":"Запись не найдена", "invalid_state":"Недопустимое состояние",
+                "version_conflict":"Данные изменились. Обновите страницу и повторите действие",
+                "idempotency_conflict":"Этот ключ уже использован для другого действия",
+                "idempotency_in_progress":"Операция с этим ключом уже выполняется. Повторите запрос позже"}
     raise HTTPException(status, messages.get(error, "Операция недоступна"))
+
+
+def _idempotency_key(request: Request) -> UUID:
+    raw = request.headers.get("Idempotency-Key", "")
+    try:
+        return UUID(raw)
+    except (ValueError, AttributeError):
+        raise HTTPException(400, "Требуется заголовок Idempotency-Key") from None
+
+
+async def _catalog_idempotency_begin(session, command: str, key: UUID, payload: dict):
+    digest = hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
+    value = await session.scalar(text("""select system_control.begin_catalog_mutation(
+        :command,:key,:request_hash)"""), {
+        "command": command, "key": key, "request_hash": digest,
+    })
+    if value is None:
+        return None, False
+    value = dict(value)
+    if value.get("_new") is True:
+        return None, False
+    if "_cached_result" in value:
+        return value["_cached_result"] or {}, True
+    # The SQL helper returns a terminal idempotency error (for example a
+    # payload hash conflict).  Mark it cached so callers never execute the
+    # domain mutation after the guard has rejected the request.
+    return value, True
+
+
+async def _catalog_idempotency_finish(session, command: str, key: UUID, result: dict) -> None:
+    await session.execute(text("""select system_control.finish_catalog_mutation(
+        :command,:key,cast(:result as jsonb))"""), {
+            "command": command, "key": key, "result": json.dumps(result),
+        })
 
 
 @router.get("/billing/subscriptions")
@@ -766,6 +806,10 @@ async def create_plan(request: Request, payload: PlanCreateInput):
         except (ValueError, CatalogNotApproved) as error:
             await session.rollback()
             raise HTTPException(422, "Условия тарифа не прошли проверку") from error
+    if result.get("error"):
+        from twobrain_rec_server.system_admin.audit import record_admin_denial
+        await record_admin_denial(request.app.state.system_sessions, context, permission="catalog.draft",
+                                  action="catalog.plan.create", target_type=None, target_id=None, reason=payload.reason)
     _catalog_error(result)
     return result
 
@@ -774,19 +818,31 @@ async def create_plan(request: Request, payload: PlanCreateInput):
 async def publish_plan(request: Request, plan_id: UUID, payload: PlanPublishInput):
     from dataclasses import replace
 
-    from twobrain_rec_server.billing.admin_catalog import publish_plan as publish
     from twobrain_rec_server.db.tenant_context import apply_system_context
     from twobrain_rec_server.system_admin.audit import record_admin_mutation
     if not request.app.state.commands_enabled:
         raise HTTPException(503, "Изменения временно отключены оператором")
     _, context = await current_admin(request)
+    key = _idempotency_key(request)
     async with request.app.state.system_sessions() as session:
         await apply_system_context(session, replace(context, permission="catalog.publish", target_type="plan", target_id=plan_id))
-        result = await publish(session, plan_id=plan_id, version_id=payload.version_id)
-        if not result.get("error"):
+        result, cached = await _catalog_idempotency_begin(session, "catalog.plan.publish", key,
+                                                          {"plan_id": plan_id, **payload.model_dump(mode="json")})
+        if not cached:
+            result = dict(await session.scalar(text("select system_control.publish_catalog_plan(:plan,:version,:expected)"),
+                                      {"plan": plan_id, "version": payload.version_id,
+                                       "expected": payload.expected_version}) or {})
+            await _catalog_idempotency_finish(session, "catalog.plan.publish", key, result)
+        else:
+            result = dict(result)
+        if not cached and not result.get("error"):
             await record_admin_mutation(session, permission="catalog.publish", action="catalog.plan.publish",
                                         target_type="plan", target_id=plan_id, reason=payload.reason)
         await session.commit()
+    if result.get("error") and not cached:
+        from twobrain_rec_server.system_admin.audit import record_admin_denial
+        await record_admin_denial(request.app.state.system_sessions, context, permission="catalog.publish",
+                                  action="catalog.plan.publish", target_type="plan", target_id=plan_id, reason=payload.reason)
     _catalog_error(result)
     return result
 
@@ -795,19 +851,31 @@ async def publish_plan(request: Request, plan_id: UUID, payload: PlanPublishInpu
 async def plan_state(request: Request, plan_id: UUID, payload: PlanStateInput):
     from dataclasses import replace
 
-    from twobrain_rec_server.billing.admin_catalog import set_plan_state
     from twobrain_rec_server.db.tenant_context import apply_system_context
     from twobrain_rec_server.system_admin.audit import record_admin_mutation
     if not request.app.state.commands_enabled:
         raise HTTPException(503, "Изменения временно отключены оператором")
     _, context = await current_admin(request)
+    key = _idempotency_key(request)
     async with request.app.state.system_sessions() as session:
         await apply_system_context(session, replace(context, permission="catalog.publish", target_type="plan", target_id=plan_id))
-        result = await set_plan_state(session, plan_id=plan_id, state=payload.state)
-        if not result.get("error"):
+        result, cached = await _catalog_idempotency_begin(session, "catalog.plan.state", key,
+                                                          {"plan_id": plan_id, **payload.model_dump(mode="json")})
+        if not cached:
+            result = dict(await session.scalar(text("select system_control.set_catalog_plan_state(:plan,:state,:expected)"),
+                                      {"plan": plan_id, "state": payload.state,
+                                       "expected": payload.expected_version}) or {})
+            await _catalog_idempotency_finish(session, "catalog.plan.state", key, result)
+        else:
+            result = dict(result)
+        if not cached and not result.get("error"):
             await record_admin_mutation(session, permission="catalog.publish", action="catalog.plan.state",
                                         target_type="plan", target_id=plan_id, reason=payload.reason)
         await session.commit()
+    if result.get("error") and not cached:
+        from twobrain_rec_server.system_admin.audit import record_admin_denial
+        await record_admin_denial(request.app.state.system_sessions, context, permission="catalog.publish",
+                                  action="catalog.plan.state", target_type="plan", target_id=plan_id, reason=payload.reason)
     _catalog_error(result)
     return result
 
@@ -939,6 +1007,10 @@ async def create_campaign_route(request: Request, payload: CampaignCreateInput):
         except ValueError as error:
             await session.rollback()
             raise HTTPException(422, "Условия акции не прошли проверку") from error
+    if result.get("error"):
+        from twobrain_rec_server.system_admin.audit import record_admin_denial
+        await record_admin_denial(request.app.state.system_sessions, context, permission="promotions.draft",
+                                  action="promotion.campaign.create", target_type=None, target_id=None, reason=payload.reason)
     _catalog_error(result)
     return result
 
@@ -952,15 +1024,27 @@ async def campaign_state(request: Request, campaign_id: UUID, payload: CampaignS
     if not request.app.state.commands_enabled:
         raise HTTPException(503, "Изменения временно отключены оператором")
     _, context = await current_admin(request)
+    key = _idempotency_key(request)
     async with request.app.state.system_sessions() as session:
         await apply_system_context(session, replace(context, permission="promotions.publish", target_type="campaign", target_id=campaign_id))
-        result = await session.scalar(text("select system_control.set_promotion_campaign_state(:id,:state)"),
-                                      {"id": campaign_id, "state": payload.state})
-        result = dict(result or {})
-        if not result.get("error"):
+        result, cached = await _catalog_idempotency_begin(session, "promotion.campaign.state", key,
+                                                          {"campaign_id": campaign_id, **payload.model_dump(mode="json")})
+        if not cached:
+            result = dict(await session.scalar(text("select system_control.set_promotion_campaign_state(:id,:state,:expected)"),
+                                      {"id": campaign_id, "state": payload.state,
+                                       "expected": payload.expected_version}) or {})
+            await _catalog_idempotency_finish(session, "promotion.campaign.state", key, result)
+        else:
+            result = dict(result)
+        if not cached and not result.get("error"):
             await record_admin_mutation(session, permission="promotions.publish", action="promotion.campaign.state",
                                         target_type="campaign", target_id=campaign_id, reason=payload.reason)
         await session.commit()
+    if result.get("error") and not cached:
+        from twobrain_rec_server.system_admin.audit import record_admin_denial
+        await record_admin_denial(request.app.state.system_sessions, context, permission="promotions.publish",
+                                  action="promotion.campaign.state", target_type="campaign", target_id=campaign_id,
+                                  reason=payload.reason)
     _catalog_error(dict(result or {}))
     return result
 
@@ -975,6 +1059,7 @@ async def campaign_codes(request: Request, campaign_id: UUID, payload: CampaignC
     if not request.app.state.commands_enabled:
         raise HTTPException(503, "Изменения временно отключены оператором")
     _, context = await current_admin(request)
+    key = _idempotency_key(request)
     # Code issuance is a sensitive catalog mutation. Keep its operator reason
     # in the same audited case stream used by the other campaign actions.
     from twobrain_rec_server.system_admin.audit import create_case_context
@@ -984,7 +1069,7 @@ async def campaign_codes(request: Request, campaign_id: UUID, payload: CampaignC
     async with request.app.state.system_sessions() as session:
         await apply_system_context(session, replace(context, permission="promotions.manage", target_type="campaign", target_id=campaign_id))
         try:
-            result = await issue_codes(session, campaign_id=campaign_id, idempotency_key=str(payload.idempotency_key),
+            result = await issue_codes(session, campaign_id=campaign_id, idempotency_key=str(key),
                                        count=payload.count, prefix=payload.prefix, target_user_ids=payload.target_user_ids)
             if not result.get("error"):
                 await record_admin_mutation(session, permission="promotions.manage", action="promotion.codes.issue",
@@ -993,6 +1078,11 @@ async def campaign_codes(request: Request, campaign_id: UUID, payload: CampaignC
         except ValueError as error:
             await session.rollback()
             raise HTTPException(422, "Партия кодов недействительна") from error
+    if result.get("error"):
+        from twobrain_rec_server.system_admin.audit import record_admin_denial
+        await record_admin_denial(request.app.state.system_sessions, context, permission="promotions.manage",
+                                  action="promotion.codes.issue", target_type="campaign", target_id=campaign_id,
+                                  reason=payload.reason)
     _catalog_error(result)
     response = JSONResponse(result, status_code=200 if result.get("duplicate") else 201)
     response.headers["Cache-Control"] = "no-store"
@@ -1002,7 +1092,7 @@ async def campaign_codes(request: Request, campaign_id: UUID, payload: CampaignC
 class InvitationResend(BaseModel):
     model_config = ConfigDict(extra="forbid")
     version: Annotated[int,Field(strict=True,ge=1)]
-    reason: Annotated[str,Field(min_length=1,max_length=1000)]
+    reason: Annotated[str,Field(min_length=10,max_length=500)]
 
 
 @router.post("/admins/{principal_id}/resend-invitation")
@@ -1035,7 +1125,7 @@ class GrantCreate(BaseModel):
     target_type: str
     target_id: UUID
     expires_at: AwareDatetime
-    reason: Annotated[str,Field(min_length=1,max_length=1000)]
+    reason: Annotated[str,Field(min_length=10,max_length=500)]
 
 
 @router.get("/admins/{principal_id}/grants")
@@ -1098,7 +1188,7 @@ async def revoke_grant(request: Request,grant_id: UUID,payload: InvitationResend
 
 class CaseInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    reason: Annotated[str, Field(min_length=1, max_length=1000)]
+    reason: Annotated[str, Field(min_length=10, max_length=500)]
 
 
 @router.post("/meetings/{meeting_id}/case", status_code=201)

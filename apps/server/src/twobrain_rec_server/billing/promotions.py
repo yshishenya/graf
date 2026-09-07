@@ -395,9 +395,10 @@ async def redeem_gift_promo(
 
 async def release_invoice_promo(db: AsyncSession, *, invoice_id: UUID, now: datetime) -> bool:
     """Release a pending reservation after authoritative cancellation/expiry."""
-    row = await db.scalar(
-        select(PromotionRedemption).where(PromotionRedemption.invoice_id == invoice_id).with_for_update()
-    )
+    # The transition helper owns the row lock and the guarded UPDATE. A
+    # plain read here keeps app/maintenance roles from needing UPDATE merely
+    # to inspect a pending reservation.
+    row = await db.scalar(select(PromotionRedemption).where(PromotionRedemption.invoice_id == invoice_id))
     if row is None or row.state != "reserved":
         return False
     return await _finalize_promotion_redemption(
