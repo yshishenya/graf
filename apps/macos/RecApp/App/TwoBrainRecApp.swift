@@ -539,7 +539,8 @@ private struct ContentView: View {
         value.transitioning = recordingStartInProgress || recordingStopInProgress
         value.stopping = recordingStopInProgress
         value.startAvailable = CaptureControlView.shouldShowRecordButton(for: captureSession) && effectivePermissionOnboardingStatus.isReady && !value.transitioning
-        value.blocker = recordingBlocker
+        value.permissionBlocker = recordingBlocker == nil && !effectivePermissionOnboardingStatus.isReady
+        value.blocker = recordingBlocker ?? (value.permissionBlocker ? "Разрешите доступ к микрофону и звуку Mac, чтобы начать запись." : nil)
         value.microphone = effectivePermissionOnboardingStatus.microphone == .granted ? (captureSession?.state == .paused ? "На паузе" : localRecordingActive ? (liveRecordingLevels.microphoneIsLive() ? "Поступают аудиоданные" : "Нет свежих аудиоданных") : "Доступ разрешён") : "Нужен доступ"
         value.systemAudio = effectivePermissionOnboardingStatus.systemAudio == .granted ? (localRecordingActive ? (liveRecordingLevels.incomingIsLive() ? "Поступают аудиоданные" : "Нет свежих аудиоданных") : "Доступ разрешён") : "Нужен доступ"
         if recordingStopInProgress {
@@ -557,13 +558,13 @@ private struct ContentView: View {
             case .pause: Task { await pauseManualRecording() }
             case .resume: Task { await resumeManualRecording() }
             case .stop: Task { await stopManualRecording() }
-            case .settings: (NSApp.delegate as? AppLifecycleDelegate)?.openSettings(nil)
+            case .settings: (NSApp.delegate as? AppLifecycleDelegate)?.openLocalRecordingSettings()
             case .localRecordings:
                 (NSApp.delegate as? AppLifecycleDelegate)?.openMeetingsFromTray()
                 NotificationCenter.default.post(name: .grafOpenLocalRecordingControls, object: nil)
             case .permissions:
                 (NSApp.delegate as? AppLifecycleDelegate)?.openMeetingsFromTray()
-                permissionOnboardingPresented = true
+                presentPermissionSetup()
             }
         }
         DesktopControlModel.shared.update(controlPanelSnapshot)
@@ -2781,7 +2782,7 @@ private struct ContentView: View {
     }
 
     private var meetingMuteTruthWarningText: String? {
-        guard localRecordingActive || localRecordingManifest?.meetingMuteTruth != nil else {
+        guard localRecordingActive || recordingStopInProgress else {
             return nil
         }
         return SystemAudioStatusLabels.meetingMuteTruthLimitationCopy
@@ -3366,7 +3367,7 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
             defer: false
         )
         window.title = MeetingDetectionSettingsView.windowTitle
-        window.minSize = NSSize(width: 780, height: 560)
+        window.minSize = MeetingDetectionSettingsView.windowSize
         window.isReleasedWhenClosed = false
         window.isRestorable = false
         window.identifier = NSUserInterfaceItemIdentifier("graf-settings-window")
@@ -3374,7 +3375,7 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
             TabView {
                 MeetingDetectionSettingsView().tabItem { Text("Автозапись") }
                 DesktopNotificationsSettingsView().tabItem { Text("Уведомления на этом Mac") }
-            }.frame(width: 780, height: 560)
+            }.frame(width: MeetingDetectionSettingsView.windowSize.width, height: MeetingDetectionSettingsView.windowSize.height)
         )
         window.center()
         settingsWindow = window

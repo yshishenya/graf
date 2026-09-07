@@ -11,6 +11,7 @@ public struct DesktopControlSnapshot: Equatable {
     public var stopping = false
     public var startAvailable = false
     public var blocker: String?
+    public var permissionBlocker = false
     public var microphone = "Проверяем доступ"
     public var systemAudio = "Проверяем доступ"
     public var uploadItems: [DesktopUploadQueueItem] = []
@@ -24,7 +25,7 @@ public struct DesktopControlSnapshot: Equatable {
         return DesktopUploadCustodySummary.summaries(for: uploadItems.filter { $0.sessionId == id }).first
     }
     public var recoveryAction: DesktopControlAction {
-        completedRecording || session?.state == .failed ? .localRecordings : .permissions
+        !permissionBlocker && (completedRecording || session?.state == .failed) ? .localRecordings : .permissions
     }
     public var localIssues: [DesktopUploadCustodySummary] {
         DesktopUploadCustodySummary.summaries(for: uploadItems.filter {

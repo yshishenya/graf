@@ -21,6 +21,19 @@ final class DesktopNotificationControlTests: XCTestCase {
         }
     }
 
+    func testPermissionRecoveryDoesNotOpenHistoricalRecording() {
+        var snapshot = DesktopControlSnapshot()
+        snapshot.session = CaptureSession(
+            id: "completed", mode: .audioRecording, state: .stopped,
+            sourceAppEligibility: .eligible, policySnapshotRef: "policy", triggerEvidence: [:],
+            visibleIndicatorState: .hidden, stopActionAvailable: false,
+            bufferSummaryId: nil, startedAt: Date(), stoppedAt: Date()
+        )
+        XCTAssertEqual(snapshot.recoveryAction, .localRecordings)
+        snapshot.permissionBlocker = true
+        XCTAssertEqual(snapshot.recoveryAction, .permissions)
+    }
+
     func testDeviceNavigationDoesNotMutateCapture() {
         let model = DesktopControlModel()
         var actions: [DesktopControlAction] = []

@@ -2,7 +2,7 @@
 import sqlalchemy as sa
 from alembic import op
 
-revision = '0086_notification_inbox'
+revision: str = "0086_notification_inbox"
 down_revision = '0085_merge_summary_mediascribe'
 branch_labels = None
 depends_on = None

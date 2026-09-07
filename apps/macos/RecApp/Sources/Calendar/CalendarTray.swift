@@ -328,13 +328,8 @@ public final class CalendarTrayController: NSObject {
         button.action = #selector(togglePopover(_:))
         button.setAccessibilityLabel("Ближайшие встречи GRAF")
         button.setAccessibilityRole(.button)
-        captureObservation = DesktopControlModel.shared.$snapshot.sink { [weak button] snapshot in
-            let label = snapshot.session.map { CaptureStatusItem.statusLabel(for: $0) } ?? (snapshot.startAvailable ? "Готово к записи" : "Проверьте доступ к записи")
-            button?.image = NSImage(systemSymbolName: snapshot.active ? (snapshot.session?.state == .paused ? "pause.circle.fill" : "record.circle") : "waveform", accessibilityDescription: "")
-            button?.image?.isTemplate = true
-            button?.title = snapshot.active ? (snapshot.session?.state == .paused ? " Микрофон на паузе" : " Запись") : ""
-            button?.toolTip = "GRAF · " + label
-            button?.setAccessibilityLabel("GRAF. " + label + ". Открыть управление")
+        captureObservation = DesktopControlModel.shared.$snapshot.sink { [weak self] snapshot in
+            self?.refreshStatusButton(snapshot)
         }
 
         popover.behavior = .transient
@@ -384,7 +379,11 @@ public final class CalendarTrayController: NSObject {
             onOpenCalendar: { [weak self] in self?.openCalendar() },
             onOpenMeetings: { [weak self] in self?.openMeetings() },
             onOpenMeetingLink: { [weak self] url in self?.openMeetingLink(url) },
-            onRefresh: { [weak self] in self?.refreshNow() }, panelSize: size)
+            onRefresh: { [weak self] in self?.refreshNow() },
+            onUpdate: { [weak self] in
+                self?.popover.performClose(nil)
+                self?.onUpdate()
+            }, panelSize: size)
         if let hosting = popover.contentViewController as? NSHostingController<CalendarTrayView> {
             hosting.rootView = rootView
         } else {
@@ -401,16 +400,22 @@ public final class CalendarTrayController: NSObject {
     public func showUpdate(_ presentation: AppUpdatePresentation, actionEnabled: Bool) {
         model.appUpdatePresentation = presentation
         model.canCheckForUpdates = actionEnabled
-        let version = presentation.showsSidebarBadge ? presentation.availableVersion : nil
-        let label = version.map { "GRAF — доступна версия \($0). Ближайшие встречи." }
-            ?? "Ближайшие встречи GRAF"
-        statusItem.button?.image = NSImage(
-            systemSymbolName: version == nil ? "calendar.badge.clock" : "arrow.down.circle.fill",
-            accessibilityDescription: nil
-        )
-        statusItem.button?.image?.isTemplate = true
-        statusItem.button?.toolTip = label
-        statusItem.button?.setAccessibilityLabel(label)
+        refreshStatusButton(DesktopControlModel.shared.snapshot)
+    }
+
+    private func refreshStatusButton(_ snapshot: DesktopControlSnapshot) {
+        guard let button = statusItem.button else { return }
+        let version = model.appUpdatePresentation.showsSidebarBadge ? model.appUpdatePresentation.availableVersion : nil
+        let label = snapshot.session.map { CaptureStatusItem.statusLabel(for: $0) }
+            ?? (snapshot.startAvailable ? "Готово к записи" : "Проверьте доступ к записи")
+        let updateLabel = version.map { ". Доступна версия \($0)" } ?? ""
+        button.image = NSImage(systemSymbolName: snapshot.active
+            ? (snapshot.session?.state == .paused ? "pause.circle.fill" : "record.circle")
+            : (version == nil ? "waveform" : "arrow.down.circle.fill"), accessibilityDescription: nil)
+        button.image?.isTemplate = true
+        button.title = snapshot.active ? (snapshot.session?.state == .paused ? " Микрофон на паузе" : " Запись") : ""
+        button.toolTip = "GRAF · " + label + updateLabel
+        button.setAccessibilityLabel("GRAF. " + label + updateLabel + ". Открыть управление")
     }
 
     public static func panelSize(in visibleFrame: NSRect) -> NSSize {

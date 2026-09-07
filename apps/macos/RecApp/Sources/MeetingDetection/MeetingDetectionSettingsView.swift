@@ -38,7 +38,7 @@ public struct MeetingDetectionSettingsView: View {
             Divider()
             content
         }
-        .frame(width: Self.windowSize.width, height: Self.windowSize.height)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
         .tint(DesktopMeetingShellChrome.shellAccentColor)
         .alert("Не удалось обновить настройки", isPresented: Binding(
