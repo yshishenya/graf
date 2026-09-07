@@ -554,6 +554,7 @@ async def cleanup_smoke_artifacts(
                 "ingest_audit_events",
                 "manifest_snapshots",
                 "track_artifacts",
+                "promotion_redemptions",
                 "temporary_upload_objects",
                 "upload_parts",
                 "upload_sessions",
@@ -596,15 +597,25 @@ async def cleanup_smoke_artifacts(
             )
 
             await apply_tenant_context_to_connection(conn, _maintenance_context())
+            if "promotion_redemptions" in available_tables:
+                removed_rows += int(
+                    await conn.scalar(
+                        text(
+                            "select public.rec_smoke_cleanup_promotion_redemptions("
+                            ":workspace_id,:organization_id)"
+                        ),
+                        {
+                            "workspace_id": smoke_identity["workspace_id"],
+                            "organization_id": smoke_identity["organization_id"],
+                        },
+                    )
+                    or 0
+                )
             identity_deletes = (
                 # Billing rows are workspace-scoped and must be removed before
                 # the synthetic workspace. Keep child rows ahead of their
                 # invoice/usage parents so cleanup remains safe after a smoke
                 # request exercises the billing path.
-                (
-                    "promotion_redemptions",
-                    "delete from promotion_redemptions where workspace_id=:workspace_id",
-                ),
                 (
                     "observed_provider_refunds",
                     "delete from observed_provider_refunds where workspace_id=:workspace_id",

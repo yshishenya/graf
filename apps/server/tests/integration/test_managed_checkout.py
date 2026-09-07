@@ -9,7 +9,7 @@ import pytest
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from tests.fakes.auth_contexts import USER_ID
+from tests.fakes.auth_contexts import ORG_ID, USER_ID
 from tests.integration.test_account_lifecycle import (
     _bind_web_session,
     _issue_web_session,
@@ -100,10 +100,16 @@ def checkout(client, monkeypatch):
 
     workspace, token, session, plan_id, versions = client.portal.call(seed)
     headers = _bind_web_session(client, token=token, session_id=session)
-    from tests.integration.test_rls_postgres_policies import _exact_app_role_engine
+    from tests.integration.test_rls_postgres_policies import (
+        _exact_app_role_engine,
+        _exact_maintenance_role_engine,
+    )
 
     role_context = _exact_app_role_engine(str(settings.database_url))
     app_engine = client.portal.call(role_context.__aenter__)
+    maintenance_context = _exact_maintenance_role_engine(str(settings.database_url))
+    maintenance_engine = client.portal.call(maintenance_context.__aenter__)
+    client.app_state["maintenance_engine"] = maintenance_engine
 
     async def grant_lock():
         async with client.app_state["sessionmaker"]() as db:
@@ -117,6 +123,7 @@ def checkout(client, monkeypatch):
     try:
         yield client, headers, calls, workspace, plan_id, versions
     finally:
+        client.portal.call(maintenance_context.__aexit__, None, None, None)
         client.portal.call(role_context.__aexit__, None, None, None)
 
 
@@ -222,7 +229,6 @@ def test_checkout_rejects_changed_or_unapproved_terms_without_invoice(checkout, 
 def test_catalog_close_serializes_with_admission_without_catalog_write_grant(checkout, target):
     from sqlalchemy.exc import DBAPIError
 
-    from tests.fakes.auth_contexts import ORG_ID
     from twobrain_rec_server.billing.catalog import lock_checkout_catalog, read_public_catalog
     from twobrain_rec_server.db.tenant_context import TenantDatabaseContext, apply_tenant_context
 
@@ -383,8 +389,18 @@ def test_issued_promo_code_is_accepted_and_consumed_after_payment(checkout):
 
     async def confirm():
         from twobrain_rec_server.billing.entitlements import grant_confirmed_payment
+        from twobrain_rec_server.db.tenant_context import (
+            MaintenanceTenantContext,
+            apply_tenant_context,
+        )
 
-        async with client.app_state["sessionmaker"]() as db:
+        async with async_sessionmaker(client.app_state["maintenance_engine"], expire_on_commit=False)() as db:
+            await apply_tenant_context(db, MaintenanceTenantContext(
+                operation_name="billing_reconciliation",
+                actor_id="test_managed_checkout",
+                reason_category="provider_payment_confirmation",
+                feature_area="billing",
+            ))
             invoice = await db.scalar(select(BillingInvoice))
             result = await grant_confirmed_payment(
                 db, workspace_id=workspace, provider_payment_id="synthetic-managed-payment",

@@ -470,6 +470,20 @@ async def user_list(request: Request, after: UUID | None = None, plan: str | Non
     return await users(request.app.state.system_sessions,context,after=after,plan=plan,status=status)
 
 
+@router.get("/users/{user_id}")
+async def user_detail(request: Request, user_id: UUID):
+    from dataclasses import replace
+
+    from twobrain_rec_server.db.tenant_context import apply_system_context
+    _, context = await current_admin(request)
+    async with request.app.state.system_sessions() as session:
+        await apply_system_context(session, replace(context, permission="users.read", target_type="user", target_id=user_id))
+        result = await session.scalar(text("select system_control.get_user_detail(:id)"), {"id": user_id})
+    if result is None:
+        raise HTTPException(404, "Пользователь не найден или недоступен")
+    return result
+
+
 class SearchInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     email: Annotated[str,Field(min_length=3,max_length=240)]
@@ -737,6 +751,7 @@ async def create_plan(request: Request, payload: PlanCreateInput):
 
     from twobrain_rec_server.billing.admin_catalog import create_plan as create
     from twobrain_rec_server.db.tenant_context import apply_system_context
+    from twobrain_rec_server.system_admin.audit import record_admin_mutation
     if not request.app.state.commands_enabled:
         raise HTTPException(503, "Изменения временно отключены оператором")
     _, context = await current_admin(request)
@@ -744,6 +759,9 @@ async def create_plan(request: Request, payload: PlanCreateInput):
         await apply_system_context(session, replace(context, permission="catalog.draft"))
         try:
             result = await create(session, payload.model_dump(exclude={"reason"}))
+            if not result.get("error"):
+                await record_admin_mutation(session, permission="catalog.draft", action="catalog.plan.create",
+                                            target_type=None, target_id=None, reason=payload.reason)
             await session.commit()
         except (ValueError, CatalogNotApproved) as error:
             await session.rollback()
@@ -758,12 +776,16 @@ async def publish_plan(request: Request, plan_id: UUID, payload: PlanPublishInpu
 
     from twobrain_rec_server.billing.admin_catalog import publish_plan as publish
     from twobrain_rec_server.db.tenant_context import apply_system_context
+    from twobrain_rec_server.system_admin.audit import record_admin_mutation
     if not request.app.state.commands_enabled:
         raise HTTPException(503, "Изменения временно отключены оператором")
     _, context = await current_admin(request)
     async with request.app.state.system_sessions() as session:
         await apply_system_context(session, replace(context, permission="catalog.publish", target_type="plan", target_id=plan_id))
         result = await publish(session, plan_id=plan_id, version_id=payload.version_id)
+        if not result.get("error"):
+            await record_admin_mutation(session, permission="catalog.publish", action="catalog.plan.publish",
+                                        target_type="plan", target_id=plan_id, reason=payload.reason)
         await session.commit()
     _catalog_error(result)
     return result
@@ -775,12 +797,16 @@ async def plan_state(request: Request, plan_id: UUID, payload: PlanStateInput):
 
     from twobrain_rec_server.billing.admin_catalog import set_plan_state
     from twobrain_rec_server.db.tenant_context import apply_system_context
+    from twobrain_rec_server.system_admin.audit import record_admin_mutation
     if not request.app.state.commands_enabled:
         raise HTTPException(503, "Изменения временно отключены оператором")
     _, context = await current_admin(request)
     async with request.app.state.system_sessions() as session:
         await apply_system_context(session, replace(context, permission="catalog.publish", target_type="plan", target_id=plan_id))
         result = await set_plan_state(session, plan_id=plan_id, state=payload.state)
+        if not result.get("error"):
+            await record_admin_mutation(session, permission="catalog.publish", action="catalog.plan.state",
+                                        target_type="plan", target_id=plan_id, reason=payload.reason)
         await session.commit()
     _catalog_error(result)
     return result
@@ -897,6 +923,7 @@ async def create_campaign_route(request: Request, payload: CampaignCreateInput):
 
     from twobrain_rec_server.billing.promotion_admin import create_campaign
     from twobrain_rec_server.db.tenant_context import apply_system_context
+    from twobrain_rec_server.system_admin.audit import record_admin_mutation
     if not request.app.state.commands_enabled:
         raise HTTPException(503, "Изменения временно отключены оператором")
     _, context = await current_admin(request)
@@ -905,6 +932,9 @@ async def create_campaign_route(request: Request, payload: CampaignCreateInput):
         await apply_system_context(session, replace(context, permission="promotions.draft"))
         try:
             result = await create_campaign(session, **values)
+            if not result.get("error"):
+                await record_admin_mutation(session, permission="promotions.draft", action="promotion.campaign.create",
+                                            target_type=None, target_id=None, reason=payload.reason)
             await session.commit()
         except ValueError as error:
             await session.rollback()
@@ -918,6 +948,7 @@ async def campaign_state(request: Request, campaign_id: UUID, payload: CampaignS
     from dataclasses import replace
 
     from twobrain_rec_server.db.tenant_context import apply_system_context
+    from twobrain_rec_server.system_admin.audit import record_admin_mutation
     if not request.app.state.commands_enabled:
         raise HTTPException(503, "Изменения временно отключены оператором")
     _, context = await current_admin(request)
@@ -925,6 +956,10 @@ async def campaign_state(request: Request, campaign_id: UUID, payload: CampaignS
         await apply_system_context(session, replace(context, permission="promotions.publish", target_type="campaign", target_id=campaign_id))
         result = await session.scalar(text("select system_control.set_promotion_campaign_state(:id,:state)"),
                                       {"id": campaign_id, "state": payload.state})
+        result = dict(result or {})
+        if not result.get("error"):
+            await record_admin_mutation(session, permission="promotions.publish", action="promotion.campaign.state",
+                                        target_type="campaign", target_id=campaign_id, reason=payload.reason)
         await session.commit()
     _catalog_error(dict(result or {}))
     return result
@@ -936,6 +971,7 @@ async def campaign_codes(request: Request, campaign_id: UUID, payload: CampaignC
 
     from twobrain_rec_server.billing.promotion_admin import issue_codes
     from twobrain_rec_server.db.tenant_context import apply_system_context
+    from twobrain_rec_server.system_admin.audit import record_admin_mutation
     if not request.app.state.commands_enabled:
         raise HTTPException(503, "Изменения временно отключены оператором")
     _, context = await current_admin(request)
@@ -950,6 +986,9 @@ async def campaign_codes(request: Request, campaign_id: UUID, payload: CampaignC
         try:
             result = await issue_codes(session, campaign_id=campaign_id, idempotency_key=str(payload.idempotency_key),
                                        count=payload.count, prefix=payload.prefix, target_user_ids=payload.target_user_ids)
+            if not result.get("error"):
+                await record_admin_mutation(session, permission="promotions.manage", action="promotion.codes.issue",
+                                            target_type="campaign", target_id=campaign_id, reason=payload.reason)
             await session.commit()
         except ValueError as error:
             await session.rollback()

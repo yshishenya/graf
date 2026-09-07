@@ -46,3 +46,24 @@ async def authorize_access(
     if not decision.allowed:
         raise PermissionError("system access denied")
     return replace(context, audit_event_id=decision.audit_event_id)
+
+
+async def record_admin_mutation(
+    session: AsyncSession,
+    *,
+    permission: str,
+    action: str,
+    target_type: str | None,
+    target_id: UUID | None,
+    reason: str,
+) -> UUID:
+    """Write the immutable audit event in the command transaction."""
+    event_id = await session.scalar(
+        text("""select system_control.record_admin_mutation(
+            :permission,:action,:target_type,:target_id,:reason)"""),
+        {"permission": permission, "action": action, "target_type": target_type,
+         "target_id": target_id, "reason": reason},
+    )
+    if event_id is None:
+        raise PermissionError("administrative mutation audit denied")
+    return event_id

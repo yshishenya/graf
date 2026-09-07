@@ -340,6 +340,23 @@ async def _verify_system_boundary(connection: asyncpg.Connection) -> None:
                   and p.polname='system_content_gate' and not p.polpermissive and p.polcmd='r'
                   and (select oid from pg_roles where rolname=$2)=any(p.polroles))""", table, SYSTEM_ROLE):
                 raise RuntimeError("system content mandatory RLS gate is missing")
+    if await connection.fetchval("select to_regclass('public.promotion_codes') is not null"):
+        for table in ("promotion_codes", "promotion_code_batches"):
+            protected = await connection.fetchval("""
+                select c.relrowsecurity and c.relforcerowsecurity
+                from pg_class c join pg_namespace n on n.oid=c.relnamespace
+                where n.nspname='public' and c.relname=$1
+            """, table)
+            if not protected:
+                raise RuntimeError("promotion code tables must use FORCE RLS")
+            if await connection.fetchval(
+                "select has_table_privilege($1::name, $2::text, 'INSERT,UPDATE,DELETE,TRUNCATE')",
+                APP_ROLE, f"public.{table}",
+            ) or await connection.fetchval(
+                "select has_table_privilege($1::name, $2::text, 'INSERT,UPDATE,DELETE,TRUNCATE')",
+                MAINTENANCE_ROLE, f"public.{table}",
+            ):
+                raise RuntimeError("runtime role can mutate promotion code tables directly")
     if {tuple(row.values()) for row in columns} != expected:
         raise RuntimeError("system database column privileges are unsafe")
     gate = await connection.fetchval(
@@ -388,6 +405,14 @@ async def _bootstrap() -> None:
                 "grant select, insert, update, delete on all tables in schema public "
                 f"to {APP_ROLE}, {MAINTENANCE_ROLE}",
                 f"revoke insert on public.billing_access_adjustments from {APP_ROLE}",
+                f"revoke all on public.promotion_codes, public.promotion_code_batches from {APP_ROLE}, {MAINTENANCE_ROLE}",
+                f"grant select on public.promotion_codes to {APP_ROLE}, {MAINTENANCE_ROLE}",
+                f"revoke insert, update, delete on public.promotion_campaigns, public.promotion_redemptions from {APP_ROLE}, {MAINTENANCE_ROLE}",
+                f"grant select on public.promotion_campaigns, public.promotion_redemptions to {APP_ROLE}, {MAINTENANCE_ROLE}",
+                "revoke all on function public.billing_transition_promotion_code(uuid,text) "
+                f"from {APP_ROLE}, {MAINTENANCE_ROLE}",
+                "revoke all on function public.billing_transition_promotion_code(uuid,text) "
+                f"from {APP_ROLE}, {MAINTENANCE_ROLE}",
                 "grant usage, select on all sequences in schema public "
                 f"to {APP_ROLE}, {MAINTENANCE_ROLE}",
                 "grant execute on function "
@@ -396,6 +421,9 @@ async def _bootstrap() -> None:
                 f"grant execute on function public.billing_lock_checkout_catalog(text) to {APP_ROLE}",
                 f"grant execute on function public.rec_share_recipient_is_member(uuid,uuid) to {APP_ROLE}",
                 f"grant execute on function public.billing_redeem_promotion_access(uuid,uuid,uuid,timestamptz,timestamptz,text,text,text) to {APP_ROLE}",
+                f"grant execute on function public.billing_reserve_promotion_redemption(uuid,uuid,uuid,text,text,bigint,bigint,integer,timestamptz) to {APP_ROLE}",
+                f"grant execute on function public.billing_finalize_promotion_redemption(uuid,text,timestamptz) to {APP_ROLE}",
+                f"grant execute on function public.billing_finalize_promotion_redemption(uuid,text,timestamptz) to {MAINTENANCE_ROLE}",
                 f"alter default privileges for role {OWNER_ROLE} in schema public "
                 "grant select, insert, update, delete on tables "
                 f"to {APP_ROLE}, {MAINTENANCE_ROLE}",

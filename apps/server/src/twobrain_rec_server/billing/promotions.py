@@ -9,19 +9,18 @@ from __future__ import annotations
 import unicodedata
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from typing import Literal
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.db.models import (
     BillingInvoice,
     BillingOperation,
     PromotionCampaign,
-    PromotionCode,
     PromotionRedemption,
 )
 
@@ -76,6 +75,55 @@ class PromoReservation:
     list_amount_minor: int
     payable_amount_minor: int
     state: PromoState = "reserved"
+
+
+async def _reserve_promotion_redemption(
+    db: AsyncSession,
+    *,
+    campaign_id: UUID,
+    workspace_id: UUID,
+    invoice_id: UUID | None,
+    reservation_key: str,
+    code_hash: str,
+    list_amount_minor: int,
+    payable_amount_minor: int,
+    discount_percent: int,
+    expires_at: datetime,
+) -> UUID:
+    redemption_id = await db.scalar(
+        text(
+            "select public.billing_reserve_promotion_redemption("
+            ":campaign_id,:workspace_id,:invoice_id,:reservation_key,:code_hash,"
+            ":list_amount,:payable_amount,:discount,:expires_at)"
+        ),
+        {
+            "campaign_id": campaign_id,
+            "workspace_id": workspace_id,
+            "invoice_id": invoice_id,
+            "reservation_key": reservation_key,
+            "code_hash": code_hash,
+            "list_amount": list_amount_minor,
+            "payable_amount": payable_amount_minor,
+            "discount": discount_percent,
+            "expires_at": expires_at,
+        },
+    )
+    if not isinstance(redemption_id, UUID):
+        raise PromoError("Промокод временно недоступен", code="promo_unavailable")
+    return redemption_id
+
+
+async def _finalize_promotion_redemption(
+    db: AsyncSession,
+    *,
+    redemption_id: UUID,
+    to_state: Literal["redeemed", "released", "expired"],
+    at: datetime,
+) -> bool:
+    return bool(await db.scalar(
+        text("select public.billing_finalize_promotion_redemption(:id,:state,:at)"),
+        {"id": redemption_id, "state": to_state, "at": at},
+    ))
 
 
 def promotion_cost_minor(*, amount_minor: int, promo: PromoCode) -> int:
@@ -265,7 +313,7 @@ def reserve_promo(
 async def redeem_invoice_promo(db: AsyncSession, *, invoice_id: UUID, now: datetime) -> Literal["redeemed", "duplicate", "none"]:
     """Commit a reservation only after authoritative provider success."""
     row = await db.scalar(
-        select(PromotionRedemption).where(PromotionRedemption.invoice_id == invoice_id).with_for_update()
+        select(PromotionRedemption).where(PromotionRedemption.invoice_id == invoice_id)
     )
     if row is None:
         return "none"
@@ -273,38 +321,16 @@ async def redeem_invoice_promo(db: AsyncSession, *, invoice_id: UUID, now: datet
         return "duplicate"
     if row.state != "reserved":
         return "none"
-    campaign = await db.scalar(select(PromotionCampaign).where(PromotionCampaign.id == row.campaign_id).with_for_update())
-    if campaign is None or campaign.redeemed_count >= campaign.max_redemptions:
-        row.state = "released"
-        row.released_at = _aware(now)
-        code = await db.scalar(select(PromotionCode).where(PromotionCode.code_hash == row.code_hash).with_for_update())
-        if code is not None and code.state == "reserved":
-            code.state = "available"
-            code.reserved_at = None
-        await db.flush()
+    current = _aware(now)
+    if await _finalize_promotion_redemption(db, redemption_id=row.id, to_state="redeemed", at=current):
+        return "redeemed"
+    # A provider success can race with the campaign cap.  Release the
+    # reservation through the same authority boundary; maintenance is the
+    # normal caller for this path and may release a succeeded invoice after
+    # the cap has been consumed by an earlier payment.
+    if await _finalize_promotion_redemption(db, redemption_id=row.id, to_state="released", at=current):
         return "none"
-    row.state = "redeemed"
-    row.redeemed_at = _aware(now)
-    code = await db.scalar(select(PromotionCode).where(
-        PromotionCode.campaign_id == row.campaign_id, PromotionCode.code_hash == row.code_hash
-    ).with_for_update())
-    if code is not None:
-        if code.state == "redeemed":
-            return "duplicate"
-        if code.state == "reserved":
-            code.state = "redeemed"
-            code.redeemed_at = _aware(now)
-    if campaign.budget_minor is not None:
-        # The immutable redemption stores the effective benefit type in the
-        # campaign row; gifts consume their catalog value, discounts consume
-        # only the discount amount.
-        campaign.budget_used_minor += (
-            row.list_amount_minor
-            if campaign.benefit_kind == "gift"
-            else max(0, row.list_amount_minor - row.payable_amount_minor)
-        )
-    await db.flush()
-    return "redeemed"
+    return "none"
 
 
 async def redeem_gift_promo(
@@ -313,49 +339,28 @@ async def redeem_gift_promo(
     campaign_id: UUID,
     code_hash: str,
     workspace_id: UUID,
+    subject_user_id: UUID,
+    plan_version_id: UUID,
+    starts_at: datetime,
+    ends_at: datetime,
+    timezone: str,
     reservation_key: str,
     list_amount_minor: int,
     now: datetime,
 ) -> Literal["redeemed", "duplicate"]:
     """Atomically consume a gift code without creating an invoice."""
     current = _aware(now)
-    campaign = await db.scalar(
-        select(PromotionCampaign).where(PromotionCampaign.id == campaign_id).with_for_update()
-    )
-    if campaign is None:
-        raise PromoError("Промокод не распознан")
     existing = await db.scalar(
         select(PromotionRedemption).where(
             PromotionRedemption.workspace_id == workspace_id,
             PromotionRedemption.code_hash == code_hash,
             PromotionRedemption.state == "redeemed",
-        ).with_for_update()
+        )
     )
     if existing is not None:
         return "duplicate"
-    if campaign.redeemed_count + campaign.reserved_count >= campaign.max_redemptions:
-        raise PromoError("Лимит акции уже исчерпан", code="promo_exhausted")
-    if campaign.budget_minor is not None:
-        reserved = await db.scalar(
-            select(func.coalesce(func.sum(PromotionRedemption.list_amount_minor), 0)).where(
-                PromotionRedemption.campaign_id == campaign_id,
-                PromotionRedemption.state == "reserved",
-            )
-        )
-        if campaign.budget_used_minor + int(reserved or 0) + list_amount_minor > campaign.budget_minor:
-            raise PromoError("Бюджет акции исчерпан", code="promo_budget_exhausted")
-    code = await db.scalar(
-        select(PromotionCode).where(
-            PromotionCode.campaign_id == campaign_id,
-            PromotionCode.code_hash == code_hash,
-        ).with_for_update()
-    )
-    if code is not None:
-        if code.state != "available":
-            raise PromoError("Промокод уже использован или отозван", code="promo_exhausted")
-        code.state = "reserved"
-        code.reserved_at = current
-    redemption = PromotionRedemption(
+    redemption_id = await _reserve_promotion_redemption(
+        db,
         campaign_id=campaign_id,
         workspace_id=workspace_id,
         invoice_id=None,
@@ -364,19 +369,27 @@ async def redeem_gift_promo(
         list_amount_minor=list_amount_minor,
         payable_amount_minor=0,
         discount_percent=0,
-        state="reserved",
-        expires_at=current,
+        expires_at=current + timedelta(minutes=15),
     )
-    db.add(redemption)
-    await db.flush()
-    redemption.state = "redeemed"
-    redemption.redeemed_at = current
-    if code is not None:
-        code.state = "redeemed"
-        code.redeemed_at = current
-    if campaign.budget_minor is not None:
-        campaign.budget_used_minor += list_amount_minor
-    await db.flush()
+    await db.scalar(
+        text(
+            "select public.billing_redeem_promotion_access("
+            ":workspace_id, :subject_user_id, :plan_version_id, :starts_at, :ends_at, "
+            ":timezone, :source_ref, :reason)"
+        ),
+        {
+            "workspace_id": workspace_id,
+            "subject_user_id": subject_user_id,
+            "plan_version_id": plan_version_id,
+            "starts_at": starts_at,
+            "ends_at": ends_at,
+            "timezone": timezone,
+            "source_ref": reservation_key,
+            "reason": "Подарочный доступ по опубликованной акции",
+        },
+    )
+    if not await _finalize_promotion_redemption(db, redemption_id=redemption_id, to_state="redeemed", at=current):
+        raise PromoError("Промокод не удалось подтвердить", code="promo_unavailable")
     return "redeemed"
 
 
@@ -387,16 +400,9 @@ async def release_invoice_promo(db: AsyncSession, *, invoice_id: UUID, now: date
     )
     if row is None or row.state != "reserved":
         return False
-    row.state = "released"
-    row.released_at = _aware(now)
-    code = await db.scalar(select(PromotionCode).where(
-        PromotionCode.campaign_id == row.campaign_id, PromotionCode.code_hash == row.code_hash
-    ).with_for_update())
-    if code is not None and code.state == "reserved":
-        code.state = "available"
-        code.reserved_at = None
-    await db.flush()
-    return True
+    return await _finalize_promotion_redemption(
+        db, redemption_id=row.id, to_state="released", at=_aware(now)
+    )
 
 
 async def release_payment_promo(
@@ -435,18 +441,12 @@ async def expire_promo_reservations(db: AsyncSession, *, now: datetime) -> int:
             BillingOperation.state == "scheduled",
             BillingOperation.provider_id.is_(None),
         )
-        .with_for_update()
     )
     expired = 0
     for row, _operation, _campaign in rows:
-        row.state = "expired"
-        row.released_at = current
-        code = await db.scalar(select(PromotionCode).where(
-            PromotionCode.campaign_id == row.campaign_id, PromotionCode.code_hash == row.code_hash
-        ).with_for_update())
-        if code is not None and code.state == "reserved":
-            code.state = "available"
-            code.reserved_at = None
-        expired += 1
+        if await _finalize_promotion_redemption(
+            db, redemption_id=row.id, to_state="expired", at=current
+        ):
+            expired += 1
     await db.flush()
     return expired

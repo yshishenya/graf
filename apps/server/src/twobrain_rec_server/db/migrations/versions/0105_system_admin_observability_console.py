@@ -156,7 +156,8 @@ def upgrade() -> None:
               ('processing_succeeded','Успешная обработка',(select count(*)::numeric from public.processing_workflows where status='processed' and updated_at>=started and updated_at<finished),'count'),
               ('processing_failed','Ошибки обработки',(select count(*)::numeric from public.processing_workflows where status in ('failed_terminal','blocked') and updated_at>=started and updated_at<finished),'count'),
               ('incidents_created','Обращения в поддержку',(select count(*)::numeric from public.support_incidents where created_at>=started and created_at<finished),'count'),
-              ('storage_reserved_bytes','Зарезервированное хранилище',(select coalesce(sum(declared_bytes),0)::numeric from public.storage_reservations where state in ('active','reserved')),'bytes')
+              ('storage_reserved_bytes','Зарезервированное хранилище',(select coalesce(sum(declared_bytes),0)::numeric from public.storage_reservations
+                where state in ('active','reserved') and (expires_at is null or expires_at > started)),'bytes')
             ) as metric(metric_key,label,value,unit)
           ) rows;
           return jsonb_build_object('definition_version','system-metrics.v1','interval_start',started,
@@ -181,12 +182,14 @@ def upgrade() -> None:
         begin
           if not system_control.permission_allowed('operations.read',null,null) then return null; end if;
           select coalesce(jsonb_agg(to_jsonb(rows) order by severity desc,code),'[]'::jsonb) into result from (
-            select 'dependency_unavailable' code,'high' severity,'Зависимость недоступна' title,
-              dependency detail,state,updated_at observed_at
-            from public.processing_dependency_states where state in ('failed','unavailable','expired')
-            union all
-            select 'operation_failed','medium','Системная операция завершилась ошибкой',o.kind,
-              o.state,o.updated_at from system_control.operations o where o.state='failed'
+            select * from (
+              select 'dependency_unavailable' code,'high' severity,'Зависимость недоступна' title,
+                dependency detail,state,updated_at observed_at
+              from public.processing_dependency_states where state in ('failed','unavailable','expired')
+              union all
+              select 'operation_failed','medium','Системная операция завершилась ошибкой',o.kind,
+                o.state,o.updated_at from system_control.operations o where o.state='failed'
+            ) events order by observed_at desc limit 200
           ) rows;
           return jsonb_build_object('observed_at',clock_timestamp(),'items',result);
         end""")

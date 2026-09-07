@@ -11,6 +11,10 @@ async function command(path, data = {}, method = "POST", extraHeaders = {}) {
   if (!response.ok) throw new Error(typeof result.detail === "string" ? result.detail : "Не удалось выполнить действие");
   return result;
 }
+function withTimeout(promise, milliseconds=10000) {
+  let timer;
+  return Promise.race([promise, new Promise((_, reject)=>{timer=setTimeout(()=>reject(new Error("Сервер не ответил вовремя")),milliseconds)})]).finally(()=>clearTimeout(timer));
+}
 const deliveryLabels={submitted:"Письмо принято почтовым сервисом. Доставка ещё не подтверждена.",
   unknown:"Результат отправки неизвестен. Можно повторить приглашение через минуту.",
   failed:"Почтовый сервис отклонил отправку. Можно повторить приглашение через минуту."};
@@ -105,6 +109,34 @@ grantForm.addEventListener("submit",async event=>{
   catch(error) {grantDialog.querySelector(".dialog-message").textContent=error.message;}
   finally {button.disabled=false;}
 });
+const userDialog=document.getElementById("user-dialog"), userFields=document.getElementById("user-fields");
+function moneyMinor(value) {
+  if(value===null||value===undefined) return "Нет данных";
+  const amount=Number(value); return `${Math.trunc(amount/100).toLocaleString("ru-RU")},${String(Math.abs(amount)%100).padStart(2,"0")} ₽`;
+}
+function userDetailList(detail) {
+  userFields.replaceChildren();
+  const dl=document.createElement("dl");
+  const add=(label,value)=>{const dt=document.createElement("dt"),dd=document.createElement("dd");dt.textContent=label;dd.textContent=value===null||value===undefined?"Нет данных":String(value);dl.append(dt,dd);};
+  add("Адрес",(detail.emails||[]).join(", ")); add("Имя",detail.display_name); add("Состояние",detail.status); add("Создан",detail.created_at);
+  const subscription=detail.subscription;
+  add("Тариф",subscription?.plan_code); add("Состояние подписки",subscription?.state); add("Доступ до",subscription?.paid_through);
+  add("Повторные списания",subscription?.recurring_allowed===true?"Разрешены":subscription?.recurring_allowed===false?"Запрещены":null);
+  if(detail.financial_fields_available) {
+    add("Платежей",(detail.payments||[]).length);
+    add("Назначений прав",(detail.adjustments||[]).length);
+    for(const payment of (detail.payments||[]).slice(0,10)) add(`Счёт ${payment.safe_number||payment.id}`,`${moneyMinor(payment.amount_minor)} · ${payment.status}`);
+  } else add("Платежи","Недоступны для этой роли");
+  userFields.append(dl);
+  if(subscription?.workspace_id) {
+    const link=document.createElement("a");link.className="button";link.href=`/system-admin?section=subscriptions&workspace_id=${subscription.workspace_id}`;link.textContent="Открыть управление подпиской";userFields.append(link);
+  }
+}
+document.querySelectorAll(".open-user").forEach(button=>button.addEventListener("click",async()=>{
+  userDialog.querySelector(".dialog-message").textContent="Загрузка карточки…";userFields.replaceChildren();userDialog.showModal();
+  try {userDetailList(await command(`users/${button.dataset.id}`,{},"GET"));userDialog.querySelector(".dialog-message").textContent="";}
+  catch(error) {userDialog.querySelector(".dialog-message").textContent=error.message;}
+}));
 document.querySelectorAll("[data-step-up]").forEach(button=>button.addEventListener("click",async()=>{
   const input=document.getElementById(button.dataset.stepUp),message=button.closest("dialog").querySelector(".dialog-message");button.disabled=true;
   try {await command("auth/step-up",{code:input.value});input.value="";message.textContent="Полномочия подтверждены на 5 минут";}
@@ -164,10 +196,69 @@ document.querySelectorAll(".campaign-state").forEach(button=>button.addEventList
   openReasonAction(button, `campaigns/${button.dataset.id}/state`, {state:button.dataset.state}, "Изменить состояние акции", "PATCH");
 }));
 const codesDialog=document.getElementById("codes-dialog"), codesForm=document.getElementById("codes-form");
-document.querySelectorAll(".issue-codes").forEach(button=>button.addEventListener("click",()=>{codesForm.reset();codesForm.elements.campaign_id.value=button.dataset.id;codesForm.elements.prefix.value="GRAF";codesDialog.querySelector(".dialog-message").textContent="";codesDialog.showModal();}));
+document.querySelectorAll(".issue-codes").forEach(button=>button.addEventListener("click",()=>{codesForm.reset();codesForm.dataset.idempotencyKey=crypto.randomUUID();codesForm.elements.campaign_id.value=button.dataset.id;codesForm.elements.prefix.value="GRAF";codesDialog.querySelector(".dialog-message").textContent="";codesDialog.showModal();}));
 codesForm?.addEventListener("submit",async event=>{
   event.preventDefault(); const values=Object.fromEntries(new FormData(codesForm)); const button=codesForm.querySelector("button[type=submit]"); button.disabled=true;
-  try {const result=await command(`campaigns/${values.campaign_id}/codes`,{idempotency_key:crypto.randomUUID(),count:Number(values.count),prefix:values.prefix,reason:values.reason}); document.getElementById("codes-output").textContent=result.codes?.join("\n")||"Партия создана. Открытые значения уже недоступны.";} catch(error) {document.getElementById("codes-output").textContent=error.message;} finally {button.disabled=false;}
+  try {const result=await command(`campaigns/${values.campaign_id}/codes`,{idempotency_key:codesForm.dataset.idempotencyKey||crypto.randomUUID(),count:Number(values.count),prefix:values.prefix,reason:values.reason}); document.getElementById("codes-output").textContent=result.codes?.join("\n")||"Партия создана. Открытые значения уже недоступны.";} catch(error) {document.getElementById("codes-output").textContent=error.message;} finally {button.disabled=false;}
+});
+
+const subscriptionDialog=document.getElementById("subscription-dialog"), subscriptionForm=document.getElementById("subscription-form");
+let subscriptionState=null;
+function localDateTime(value) {
+  const date=new Date(value), offset=date.getTimezoneOffset();
+  return new Date(date.getTime()-offset*60000).toISOString().slice(0,16);
+}
+document.querySelectorAll(".subscription-adjust").forEach(button=>button.addEventListener("click",()=>{
+  subscriptionForm.reset(); subscriptionState=null;
+  subscriptionForm.elements.reason.readOnly=false;
+  subscriptionForm.querySelector("button[type=submit]").hidden=false;
+  subscriptionForm.elements.workspace_id.value=button.dataset.id;
+  subscriptionForm.elements.expected_version.value=button.dataset.version||"1";
+  subscriptionForm.elements.source_ref.value=`admin:${button.dataset.id}:${Date.now()}`;
+  const now=Date.now(); subscriptionForm.elements.starts_at.value=localDateTime(now);
+  subscriptionForm.elements.ends_at.value=localDateTime(now+24*60*60*1000);
+  document.getElementById("subscription-target").textContent=`Пространство ${button.dataset.id} · плательщик ${button.dataset.owner||"не указан"}`;
+  document.getElementById("subscription-effects").replaceChildren();
+  document.getElementById("subscription-confirm").hidden=true;
+  document.getElementById("subscription-ack").checked=false;
+  subscriptionDialog.querySelector(".dialog-message").textContent=""; subscriptionDialog.showModal();
+}));
+subscriptionForm?.addEventListener("submit",async event=>{
+  event.preventDefault();
+  const values=Object.fromEntries(new FormData(subscriptionForm));
+  const submit=subscriptionForm.querySelector("button[type=submit]"); submit.disabled=true;
+  try {
+    const rawValue=values.value.trim();
+    const numericValue=rawValue!==""&&!Number.isNaN(Number(rawValue))?Number(rawValue):rawValue;
+    const payload={kind:"subscription.adjust",adjustment_kind:values.adjustment_kind,adjustment_id:null,
+      subject_user_id:null,feature_key:values.feature_key,value:numericValue,unit:values.unit,
+      plan_version_id:null,plan_mode:"append",starts_at:new Date(values.starts_at).toISOString(),
+      ends_at:new Date(values.ends_at).toISOString(),timezone:"UTC",source_ref:values.source_ref,
+      reason:values.reason,expected_version:Number(values.expected_version)};
+    const preview=await command(`subscriptions/${values.workspace_id}/adjustments/preview`,payload);
+    subscriptionState={workspaceId:values.workspace_id,preview,key:crypto.randomUUID()};
+    const effects=document.getElementById("subscription-effects");effects.textContent="";
+    for(const line of [...(preview.effects||[]),...(preview.warnings||[]),`Предпросмотр действует до ${new Date(preview.expires_at).toLocaleString()}`]) {
+      const p=document.createElement("p");p.textContent=line;effects.append(p);
+    }
+    document.getElementById("subscription-confirm").hidden=false;
+    subscriptionForm.elements.reason.readOnly=true; submit.hidden=true;
+    subscriptionDialog.querySelector(".dialog-message").textContent="Подтвердите свежим кодом второго фактора и нажмите кнопку подтверждения.";
+  } catch(error) {subscriptionDialog.querySelector(".dialog-message").textContent=error.message;}
+  finally {submit.disabled=false;}
+});
+document.getElementById("subscription-submit")?.addEventListener("click",async event=>{
+  const state=subscriptionState;
+  if(!state||!document.getElementById("subscription-ack").checked) {
+    subscriptionDialog.querySelector(".dialog-message").textContent="Проверьте последствия и отметьте подтверждение."; return;
+  }
+  event.target.disabled=true;
+  try {
+    const result=await command(`subscriptions/${state.workspaceId}/adjustments`,
+      {preview_id:state.preview.preview_id,expected_preview_hash:state.preview.effect_hash},"POST",{"Idempotency-Key":state.key});
+    subscriptionDialog.querySelector(".dialog-message").textContent=`Изменение поставлено в очередь: ${result.operation_id}`;
+    event.target.disabled=true;
+  } catch(error) {subscriptionDialog.querySelector(".dialog-message").textContent=error.message;event.target.disabled=false;}
 });
 
 const contentDialog=document.getElementById("content-dialog"),caseForm=document.getElementById("content-case-form"),contentText=document.getElementById("content-text");
@@ -223,7 +314,7 @@ document.getElementById("content-more").addEventListener("click",async event=>{
 async function recheckContent() {
   if(!contentDialog.open||!contentState?.caseId) return;
   const state=contentState;
-  try {await command(`meetings/${state.id}/content/access`,{case_context_id:state.caseId});}
+  try {await withTimeout(command(`meetings/${state.id}/content/access`,{case_context_id:state.caseId}));}
   catch(error) {if(contentState===state) {clearContent();contentDialog.querySelector(".dialog-message").textContent="Просмотр закрыт: доступ отозван, встреча удаляется или нет связи с сервером.";}}
 }
 setInterval(()=>{if(!document.hidden) recheckContent();},10000);
@@ -382,6 +473,6 @@ audioDialog.addEventListener("close",()=>{clearAudio();audioState=null;});
 document.addEventListener("visibilitychange",()=>{if(document.hidden&&audioDialog.open) {clearAudio();audioDialog.querySelector(".dialog-message").textContent="Воспроизведение остановлено. Нажмите «Прослушать», чтобы продолжить с проверкой доступа.";}});
 setInterval(async()=>{
   const state=audioState;if(!state?.active||document.hidden) return;
-  try {await command(`meetings/${state.id}/media/access`,{purpose:"listen",case_context_id:state.caseId,revision_id:state.revision});}
+  try {await withTimeout(command(`meetings/${state.id}/media/access`,{purpose:"listen",case_context_id:state.caseId,revision_id:state.revision}));}
   catch(error) {if(audioState===state) {clearAudio();audioDialog.querySelector(".dialog-message").textContent="Прослушивание прекращено: доступ отозван, запись удаляется или нет связи с сервером.";}}
 },10000);

@@ -10,7 +10,7 @@ from uuid import UUID, uuid4
 import httpx
 from fastapi import APIRouter, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import case, func, select, text, update
+from sqlalchemy import case, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -61,6 +61,7 @@ from twobrain_rec_server.billing.operations import (
 from twobrain_rec_server.billing.promotions import (
     PromoCode,
     PromoError,
+    _reserve_promotion_redemption,
     check_eligibility,
     choose_best_discount,
     normalize_promo,
@@ -873,10 +874,9 @@ async def _load_checkout_promo(
     """Load one campaign or issued code and re-evaluate its audience."""
     normalized = normalize_promo(raw_code)
     code_hash = promo_code_hash(normalized)
-    issued_code = await db.scalar(
-        select(PromotionCode).where(PromotionCode.code_hash == code_hash)
-        .with_for_update() if lock else select(PromotionCode).where(PromotionCode.code_hash == code_hash)
-    )
+    # Code state is changed only through the guarded transition function;
+    # SELECT FOR UPDATE would require direct UPDATE privilege for the app role.
+    issued_code = await db.scalar(select(PromotionCode).where(PromotionCode.code_hash == code_hash))
     query = select(PromotionCampaign).where(PromotionCampaign.enabled.is_(True))
     if issued_code is not None:
         if issued_code.state != "available":
@@ -884,8 +884,9 @@ async def _load_checkout_promo(
         query = query.where(PromotionCampaign.id == issued_code.campaign_id)
     else:
         query = query.where(PromotionCampaign.code_hash == code_hash)
-    if lock:
-        query = query.with_for_update()
+    # Campaign/code writes are owned by the database reservation function;
+    # the application role intentionally has no UPDATE privilege on these
+    # tables, so a direct SELECT ... FOR UPDATE would be rejected by Postgres.
     campaign = await db.scalar(query)
     if campaign is None:
         raise PromoError("Промокод не распознан")
@@ -1014,28 +1015,16 @@ async def _apply_gift_promo(
     )
     if existing is not None:
         return "duplicate"
-    await db.scalar(
-        text(
-            "select public.billing_redeem_promotion_access("
-            ":workspace_id, :subject_user_id, :plan_version_id, :starts_at, :ends_at, "
-            ":timezone, :source_ref, :reason)"
-        ),
-        {
-            "workspace_id": workspace_id,
-            "subject_user_id": subject_user_id,
-            "plan_version_id": plan_version_id,
-            "starts_at": starts,
-            "ends_at": ends,
-            "timezone": timezone,
-            "source_ref": source_ref,
-            "reason": "Подарочный доступ по опубликованной акции",
-        },
-    )
     await redeem_gift_promo(
         db,
         campaign_id=campaign.id,
         code_hash=promo_code_hash(promo.code),
         workspace_id=workspace_id,
+        subject_user_id=subject_user_id,
+        plan_version_id=plan_version_id,
+        starts_at=starts,
+        ends_at=ends,
+        timezone=timezone,
         reservation_key=source_ref,
         list_amount_minor=list_amount_minor,
         now=current,
@@ -3484,19 +3473,9 @@ async def start_billing_checkout(
         db.add(invoice)
         await db.flush()
         if promo is not None and promo_campaign is not None:
-            redemption = await db.scalar(
-                select(PromotionRedemption)
-                .where(
-                    PromotionRedemption.workspace_id == tenant_scope.workspace_id,
-                    PromotionRedemption.campaign_id == promo_campaign.id,
-                )
-                .with_for_update()
-            )
-            if redemption is not None and redemption.state not in {"released", "expired"}:
-                await db.rollback()
-                return _checkout_result_redirect(request, "promo_invalid", plan_code=plan_code, promo_code=promo_code)
-            if redemption is None:
-                redemption = PromotionRedemption(
+            try:
+                await _reserve_promotion_redemption(
+                    db,
                     campaign_id=promo_campaign.id,
                     workspace_id=tenant_scope.workspace_id,
                     invoice_id=invoice.id,
@@ -3505,32 +3484,13 @@ async def start_billing_checkout(
                     list_amount_minor=preview.list_amount_minor,
                     payable_amount_minor=preview.payable_amount_minor,
                     discount_percent=promo.discount_percent,
-                    state="reserved",
                     expires_at=datetime.now(UTC) + timedelta(minutes=15),
                 )
-                db.add(redemption)
-            else:
-                redemption.invoice_id = invoice.id
-                redemption.reservation_key = key
-                redemption.code_hash = promo_code_hash(promo.code)
-                redemption.list_amount_minor = preview.list_amount_minor
-                redemption.payable_amount_minor = preview.payable_amount_minor
-                redemption.discount_percent = promo.discount_percent
-                redemption.state = "reserved"
-                redemption.expires_at = datetime.now(UTC) + timedelta(minutes=15)
-                redemption.released_at = None
-                redemption.redeemed_at = None
-            if promo.code_id is not None:
-                issued_code = await db.scalar(
-                    select(PromotionCode).where(PromotionCode.id == promo.code_id).with_for_update()
+            except PromoError:
+                await db.rollback()
+                return _checkout_result_redirect(
+                    request, "promo_invalid", plan_code=plan_code, promo_code=promo_code,
                 )
-                if issued_code is None or issued_code.state != "available":
-                    await db.rollback()
-                    return _checkout_result_redirect(
-                        request, "promo_invalid", plan_code=plan_code, promo_code=promo_code,
-                    )
-                issued_code.state = "reserved"
-                issued_code.reserved_at = datetime.now(UTC)
         await db.commit()
         return_url = billing_checkout_return_url(request, safe_invoice_number=intent.invoice_number)
         payment = await _create_initial_checkout_payment(

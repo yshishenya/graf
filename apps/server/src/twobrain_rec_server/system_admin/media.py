@@ -28,8 +28,12 @@ class SystemAudioResponse(StreamingResponse):
             async with asyncio.timeout(0.1):
                 await slots.acquire()
         except TimeoutError:
+            cookie = next((value.decode("latin-1") for name, value in self.raw_headers if name.lower() == b"set-cookie"), None)
+            headers = {"Retry-After": "5", "Cache-Control": "no-store"}
+            if cookie:
+                headers["Set-Cookie"] = cookie
             await JSONResponse({"error": "media_busy"}, status_code=429,
-                headers={"Retry-After": "5", "Cache-Control": "no-store"})(scope, receive, send)
+                headers=headers)(scope, receive, send)
             return
         try:
             await super().__call__(scope, receive, send)

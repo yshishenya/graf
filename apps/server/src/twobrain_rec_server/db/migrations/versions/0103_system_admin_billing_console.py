@@ -91,6 +91,7 @@ def upgrade() -> None:
           select coalesce(jsonb_agg(to_jsonb(rows)),'[]'::jsonb) into result from (
             select s.workspace_id,s.billing_owner_id,s.state,s.plan_code,s.cycle,s.capacity_bytes,
               s.trial_ends_at,s.paid_through,s.recurring_allowed,s.next_charge_at,s.schedule_version,
+              s.application_version,
               s.pin_state,s.pinned_plan_version_id,s.pinned_price_id,
               coalesce(inv.invoice_count,0) invoice_count,coalesce(inv.paid_amount_minor_rub,0) paid_amount_minor_rub,
               coalesce(ref.refunded_amount_minor_rub,0) refunded_amount_minor_rub,
@@ -103,6 +104,8 @@ def upgrade() -> None:
             left join lateral (select sum(case when r.status='succeeded' and r.currency='RUB' then r.amount_minor else 0 end) refunded_amount_minor_rub
               from public.observed_provider_refunds r where r.workspace_id=s.workspace_id) ref on true
             where (p_after is null or s.workspace_id>p_after)
+              and (rec_setting('app.system_target_type') <> 'subscription'
+                   or s.workspace_id = rec_setting_uuid('app.system_target_id'))
               and (p_plan is null or s.plan_code=p_plan) and (p_state is null or s.state=p_state)
             order by s.workspace_id limit 101) rows;
           return result;
@@ -188,7 +191,7 @@ def upgrade() -> None:
     _fn("publish_catalog_plan(p_plan uuid,p_version uuid)", "jsonb", """
         declare p public.billing_plans; v public.billing_plan_versions; result jsonb;
         begin
-          if not system_control.permission_allowed('catalog.publish',null,null) then return jsonb_build_object('error','access_denied'); end if;
+          if not system_control.permission_allowed('catalog.publish','plan',p_plan) then return jsonb_build_object('error','access_denied'); end if;
           select * into p from public.billing_plans where id=p_plan for update;
           select * into v from public.billing_plan_versions where id=p_version and plan_id=p_plan for update;
           if p.id is null or v.id is null or v.status<>'draft' or exists(select 1 from public.billing_plan_prices where version_id=v.id) = false
@@ -204,12 +207,16 @@ def upgrade() -> None:
     _fn("set_catalog_plan_state(p_plan uuid,p_state text)", "jsonb", """
         declare p public.billing_plans;
         begin
-          if not system_control.permission_allowed('catalog.publish',null,null) then return jsonb_build_object('error','access_denied'); end if;
+          if not system_control.permission_allowed('catalog.publish','plan',p_plan) then return jsonb_build_object('error','access_denied'); end if;
           if p_state not in ('closed','archived','open') then return jsonb_build_object('error','invalid_state'); end if;
           select * into p from public.billing_plans where id=p_plan for update;
           if p.id is null or p.current_version_id is null and p_state='open' then return jsonb_build_object('error','invalid_catalog'); end if;
           update public.billing_plans set sales_state=p_state,version=version+1 where id=p_plan;
-          if p_state<>'open' then update public.billing_plan_versions set enabled_for_checkout=false where id=p.current_version_id; end if;
+          if p_state<>'open' then
+            update public.billing_plan_versions set enabled_for_checkout=false where id=p.current_version_id;
+          else
+            update public.billing_plan_versions set enabled_for_checkout=true where id=p.current_version_id;
+          end if;
           return jsonb_build_object('id',p.id,'sales_state',p_state,'version',p.version+1);
         end""")
 
@@ -222,6 +229,7 @@ def upgrade() -> None:
              or (p_kind='discount' and (p_discount is null or p_discount<1 or p_discount>99))
              or (p_kind='gift' and (p_gift_days is null or p_gift_days<1 or p_gift_days>365))
              or p_audience not in ('all','never_paid','first_purchase','selected','former_paid')
+             or (p_audience='selected' and p_target is null)
              or (p_ends is not null and p_starts is not null and p_ends<=p_starts) then return jsonb_build_object('error','invalid_campaign'); end if;
           insert into public.promotion_campaigns(id,code_hash,campaign_version,plan_code,cycle,discount_percent,max_redemptions,
             starts_at,ends_at,enabled,status,benefit_kind,gift_days,audience,target_user_id,budget_minor,display_name)
@@ -233,7 +241,7 @@ def upgrade() -> None:
     _fn("set_promotion_campaign_state(p_id uuid,p_state text)", "jsonb", """
         declare c public.promotion_campaigns;
         begin
-          if not system_control.permission_allowed('promotions.publish',null,null) then return jsonb_build_object('error','access_denied'); end if;
+          if not system_control.permission_allowed('promotions.publish','campaign',p_id) then return jsonb_build_object('error','access_denied'); end if;
           if p_state not in ('active','paused','finished','archived') then return jsonb_build_object('error','invalid_state'); end if;
           select * into c from public.promotion_campaigns where id=p_id for update;
           if c.id is null then return jsonb_build_object('error','not_found'); end if;
@@ -245,7 +253,7 @@ def upgrade() -> None:
         declare c public.promotion_campaigns; b public.promotion_code_batches; item text; target uuid;
                 ids jsonb := '[]'::jsonb; n integer := 0; idx integer := 0;
         begin
-          if not system_control.permission_allowed('promotions.manage',null,null) then return jsonb_build_object('error','access_denied'); end if;
+          if not system_control.permission_allowed('promotions.manage','campaign',p_campaign) then return jsonb_build_object('error','access_denied'); end if;
           if p_key is null or length(trim(p_key))<1 or length(p_key)>240 or jsonb_typeof(p_hashes)<>'array'
              or jsonb_array_length(p_hashes)<1 or jsonb_array_length(p_hashes)>1000 then return jsonb_build_object('error','invalid_batch'); end if;
           select * into c from public.promotion_campaigns where id=p_campaign for update;

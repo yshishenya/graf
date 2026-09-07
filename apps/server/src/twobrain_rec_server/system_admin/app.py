@@ -41,6 +41,12 @@ SECURITY_HEADERS = {
 }
 
 
+def format_money_minor(value: int | None) -> str | None:
+    if value is None:
+        return None
+    return f"{value // 100:,}".replace(",", " ") + f",{value % 100:02d} ₽"
+
+
 class PayloadTooLarge(HTTPException):
     def __init__(self):
         super().__init__(413, "Слишком большой запрос")
@@ -203,7 +209,8 @@ def create_app() -> FastAPI:
         return RedirectResponse("/system-admin", status_code=303)
 
     @app.get("/system-admin")
-    async def console_page(request: Request, section: str = "home", after: UUID | None = None):
+    async def console_page(request: Request, section: str = "home", after: UUID | None = None,
+                           workspace_id: UUID | None = None, email: str | None = None):
         from twobrain_rec_server.system_admin import queries
         from twobrain_rec_server.system_admin.permissions import ROLE_PERMISSIONS
         from twobrain_rec_server.system_admin.web import ROLE_LABELS, administrators, current_admin
@@ -246,16 +253,16 @@ def create_app() -> FastAPI:
                        ("status","Состояние"),("processing_status","Обработка"),("duration_seconds","Длительность, с"),
                        ("created_at","Создана"),("control_version","Версия")]
         elif section == "users":
-            result = await queries.users(request.app.state.system_sessions,context,after=after)
+            result = await queries.users(request.app.state.system_sessions,context,after=after,email=email)
             rows,next_cursor = result["items"],result["next_cursor"]
-            columns = [("email","Адрес"),("display_name","Имя"),("status","Состояние"),
+            columns = [("id","Пользователь"),("email","Адрес"),("display_name","Имя"),("status","Состояние"),
                        ("assigned_plan_code","Назначенный тариф"),("subscription_state","Подписка"),
                        ("paid_through","Доступ до")]
             if "billing.read" in permissions:
                 for row in rows:
                     for name in ("paid_amount_minor_rub","refunded_amount_minor_rub"):
                         value=row[name]
-                        row[name]=(f"{value//100:,}".replace(",", " ")+f",{value%100:02d} ₽") if value is not None else None
+                        row[name]=format_money_minor(value)
                 columns += [("paid_amount_minor_rub","Оплачено, ₽"),("refunded_amount_minor_rub","Возвращено, ₽")]
         elif section == "subscriptions":
             from dataclasses import replace
@@ -264,10 +271,23 @@ def create_app() -> FastAPI:
 
             from twobrain_rec_server.db.tenant_context import apply_system_context
             async with request.app.state.system_sessions() as session:
-                await apply_system_context(session, replace(context, permission="billing.read"))
+                await apply_system_context(
+                    session,
+                    replace(
+                        context,
+                        permission="billing.read",
+                        target_type="subscription" if workspace_id is not None else None,
+                        target_id=workspace_id,
+                    ),
+                )
                 result = await session.scalar(text("select system_control.list_billing_subscriptions(:after,null,null)"), {"after": after})
             rows = result[:100] if result else []
+            if workspace_id is not None:
+                rows = [row for row in rows if row.get("workspace_id") == workspace_id]
             next_cursor = rows[-1].get("workspace_id") if result and len(result) > 100 else None
+            for row in rows:
+                for name in ("paid_amount_minor_rub", "refunded_amount_minor_rub"):
+                    row[name] = format_money_minor(row.get(name))
             columns = [("workspace_id","Пространство"),("billing_owner_id","Плательщик"),("state","Состояние"),
                        ("plan_code","Тариф"),("cycle","Период"),("paid_through","Доступ до"),
                        ("invoice_count","Счетов"),("paid_amount_minor_rub","Оплачено, ₽"),
@@ -283,8 +303,10 @@ def create_app() -> FastAPI:
                 result = await session.scalar(text("select system_control.list_billing_invoices(:after,null,null)"), {"after": after})
             rows = result[:100] if result else []
             next_cursor = rows[-1].get("id") if result and len(result) > 100 else None
+            for row in rows:
+                row["amount_minor"] = format_money_minor(row.get("amount_minor"))
             columns = [("safe_number","Счёт"),("workspace_id","Пространство"),("plan_code","Тариф"),
-                       ("amount_minor","Сумма, коп."),("currency","Валюта"),("status","Состояние"),
+                       ("amount_minor","Сумма"),("currency","Валюта"),("status","Состояние"),
                        ("created_at","Создан")]
         elif section == "plans":
             from dataclasses import replace
@@ -297,6 +319,8 @@ def create_app() -> FastAPI:
                 result = await session.scalar(text("select system_control.list_catalog_plans(:after)"), {"after": after})
             rows = result[:100] if result else []
             next_cursor = rows[-1].get("id") if result and len(result) > 100 else None
+            for row in rows:
+                row["prices"] = {cycle: format_money_minor(amount) for cycle, amount in row.get("prices", {}).items()}
             columns = [("code","Код"),("display_name","Название"),("sales_state","Продажи"),
                        ("version_number","Версия"),("version_status","Состояние версии"),
                        ("enabled_for_checkout","Доступен в покупке"),("prices","Цены")]

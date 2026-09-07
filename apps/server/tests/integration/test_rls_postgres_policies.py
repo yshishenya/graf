@@ -221,15 +221,49 @@ async def _create_probe_role(
                     f"grant execute on function rec_account_merge_context_valid() to {quoted_role}"
                 )
             )
-            if role_name == "twobrain_rec_app":
+            if role_name == "twobrain_rec_app" or role_name.startswith("twobrain_rec_app_"):
                 await conn.execute(text(
-                    "revoke insert on public.billing_access_adjustments from twobrain_rec_app"
+                    f"revoke insert on public.billing_access_adjustments from {quoted_role}"
                 ))
                 await conn.execute(text(
-                    "grant execute on function rec_share_recipient_is_member(uuid,uuid) to twobrain_rec_app"
+                    f"revoke all on public.promotion_codes, public.promotion_code_batches from {quoted_role}"
                 ))
                 await conn.execute(text(
-                    "grant execute on function billing_redeem_promotion_access(uuid,uuid,uuid,timestamptz,timestamptz,text,text,text) to twobrain_rec_app"
+                    f"grant select on public.promotion_codes to {quoted_role}"
+                ))
+                await conn.execute(text(
+                    f"revoke insert, update, delete on public.promotion_campaigns, public.promotion_redemptions from {quoted_role}"
+                ))
+                await conn.execute(text(
+                    f"grant select on public.promotion_campaigns, public.promotion_redemptions to {quoted_role}"
+                ))
+                await conn.execute(text(
+                    f"grant execute on function rec_share_recipient_is_member(uuid,uuid) to {quoted_role}"
+                ))
+                await conn.execute(text(
+                    f"grant execute on function billing_redeem_promotion_access(uuid,uuid,uuid,timestamptz,timestamptz,text,text,text) to {quoted_role}"
+                ))
+                await conn.execute(text(
+                    f"grant execute on function billing_reserve_promotion_redemption(uuid,uuid,uuid,text,text,bigint,bigint,integer,timestamptz) to {quoted_role}"
+                ))
+                await conn.execute(text(
+                    f"grant execute on function billing_finalize_promotion_redemption(uuid,text,timestamptz) to {quoted_role}"
+                ))
+            if role_name == "twobrain_rec_maintenance":
+                await conn.execute(text(
+                    f"revoke all on public.promotion_codes, public.promotion_code_batches from {quoted_role}"
+                ))
+                await conn.execute(text(
+                    f"grant select on public.promotion_codes to {quoted_role}"
+                ))
+                await conn.execute(text(
+                    f"revoke insert, update, delete on public.promotion_campaigns, public.promotion_redemptions from {quoted_role}"
+                ))
+                await conn.execute(text(
+                    f"grant select on public.promotion_campaigns, public.promotion_redemptions to {quoted_role}"
+                ))
+                await conn.execute(text(
+                    f"grant execute on function billing_finalize_promotion_redemption(uuid,text,timestamptz) to {quoted_role}"
                 ))
     finally:
         await engine.dispose()
@@ -331,7 +365,7 @@ async def _drop_probe_role(migration_url: str, role_name: str) -> None:
             # later tests. It cannot be dropped safely from an owner-only
             # connection because those ACLs are shared dependencies; disable
             # login and reuse the isolated role instead.
-            if role_name == "twobrain_rec_app":
+            if role_name in {"twobrain_rec_app", "twobrain_rec_maintenance"}:
                 await conn.execute(text(f"alter role {quoted_role} nologin"))
                 return
             await conn.execute(text(f"drop owned by {quoted_role}"))
@@ -358,6 +392,28 @@ async def _exact_app_role_engine(migration_url: str) -> AsyncIterator[AsyncEngin
             yield app_engine
         finally:
             await app_engine.dispose()
+    finally:
+        await _drop_probe_role(migration_url, role_name)
+
+
+@asynccontextmanager
+async def _exact_maintenance_role_engine(migration_url: str) -> AsyncIterator[AsyncEngine]:
+    await _drop_probe_role(migration_url, "twobrain_rec_maintenance")
+    role_name, password = await _create_probe_role(
+        migration_url,
+        role_name="twobrain_rec_maintenance",
+    )
+    try:
+        maintenance_engine = create_async_engine(
+            make_url(migration_url)
+            .set(username=role_name, password=password)
+            .render_as_string(hide_password=False),
+            pool_pre_ping=True,
+        )
+        try:
+            yield maintenance_engine
+        finally:
+            await maintenance_engine.dispose()
     finally:
         await _drop_probe_role(migration_url, role_name)
 
@@ -3011,6 +3067,44 @@ async def test_runtime_roles_are_non_superuser_and_cannot_bypass_rls(
 
 
 @pytest.mark.asyncio
+async def test_issued_promotion_code_tables_are_force_rls_and_direct_dml_is_denied(
+    app_rls_engine: AsyncEngine,
+) -> None:
+    """The checkout role can inspect a code, but cannot rewrite code state."""
+    async with app_rls_engine.connect() as conn:
+        tables = await conn.execute(text("""
+            select c.relname, c.relrowsecurity, c.relforcerowsecurity
+            from pg_class c join pg_namespace n on n.oid=c.relnamespace
+            where n.nspname='public' and c.relname in ('promotion_codes','promotion_code_batches')
+            order by c.relname
+        """))
+        dml = await conn.execute(text("""
+            select relname,
+              has_table_privilege(current_user, 'public.' || relname, 'INSERT') as can_insert,
+              has_table_privilege(current_user, 'public.' || relname, 'UPDATE') as can_update,
+              has_table_privilege(current_user, 'public.' || relname, 'DELETE') as can_delete
+            from (values ('promotion_codes'::text), ('promotion_code_batches'::text),
+                         ('promotion_campaigns'::text), ('promotion_redemptions'::text)) names(relname)
+            order by relname
+        """))
+        function_execute = await conn.scalar(text(
+            "select has_function_privilege(current_user, "
+            "'billing_transition_promotion_code(uuid,text)', 'execute')"
+        ))
+    assert [tuple(row) for row in tables] == [
+        ("promotion_code_batches", True, True),
+        ("promotion_codes", True, True),
+    ]
+    assert [tuple(row) for row in dml] == [
+        ("promotion_campaigns", False, False, False),
+        ("promotion_code_batches", False, False, False),
+        ("promotion_codes", False, False, False),
+        ("promotion_redemptions", False, False, False),
+    ]
+    assert function_execute is False
+
+
+@pytest.mark.asyncio
 async def test_media_role_cannot_spoof_legacy_maintenance_access(
     rls_engine: AsyncEngine,
     media_rls_engine: AsyncEngine,
@@ -4774,6 +4868,15 @@ def test_production_smoke_setup_migration_downgrade_removes_operation(
         finally:
             await engine.dispose()
 
+    async def clear_issued_promotion_fixture_rows() -> None:
+        engine = create_async_engine(migrated_postgres_urls.migration_url)
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text("delete from promotion_code_batches"))
+                await conn.execute(text("delete from promotion_codes"))
+        finally:
+            await engine.dispose()
+
     monkeypatch.setenv("TWOBRAIN_DATABASE_URL", migrated_postgres_urls.migration_url)
     get_settings.cache_clear()
     config = Config(str(REPO_ROOT / "apps/server/alembic.ini"))
@@ -4785,6 +4888,7 @@ def test_production_smoke_setup_migration_downgrade_removes_operation(
     assert asyncio.run(setup_allowed()) is True
     asyncio.run(remove_linked_workspace_downgrade_guard())
     asyncio.run(clear_summary_slot_fixture_rows())
+    asyncio.run(clear_issued_promotion_fixture_rows())
     try:
         command.downgrade(config, "0022_playback_normalization")
         assert asyncio.run(setup_allowed()) is False
