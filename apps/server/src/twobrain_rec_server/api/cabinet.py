@@ -715,6 +715,7 @@ async def get_meeting_access_state_route(
             db,
             meeting,
             decision,
+            actor_user_id=principal.user_id,
             external_invitations_enabled=request.app.state.settings.share_external_invitations_enabled,
             invitation_encryption_key=(
                 request.app.state.settings.credential_encryption_key_file.read_bytes().strip()

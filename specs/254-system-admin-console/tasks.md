@@ -99,6 +99,8 @@
 
   - Дополнено: настоящие пользовательские/общие скачивания и экспорт ограничены resolver; точные форматы, повторный доступ к пакету, отзыв во время подготовки и временная граница выдачи аудио. Остальные consumers и полный lifecycle ещё открыты; см. implementation-evidence.md.
 
+  - Обязательный открытый дефект actual-role проверки обмена: новое внутреннее приглашение не видит membership адресата (grantee_not_found). Требуются ограниченная проверка/поиск адресата и положительный HTTP-тест без обхода RLS; проверка новых коммерческих запретов не закрывает этот дефект.
+
 - [ ] T018 [US7] Перевести покупку, продление и клиентов на произвольные поддерживаемые тарифы. Пути: `apps/server/src/twobrain_rec_server/billing/renewal_charge.py`; `apps/server/src/twobrain_rec_server/billing/renewal_resolution.py`; `apps/server/src/twobrain_rec_server/billing/subscription.py`; `apps/server/src/twobrain_rec_server/cabinet/web_routes/billing.py`; `apps/server/src/twobrain_rec_server/api/auth.py`; `apps/server/src/twobrain_rec_server/public/offers.py`; `apps/server/src/twobrain_rec_server/billing/maintenance.py`.
   - Результат: Все consumers из research, новые plan codes без новых веток, legacy personal workspace kind сохраняется, renewal pinned version, общий lock order, durable dispatch claim до сети, crash takeover и no mixed old writers.
   - Зависимости: T017. Приёмка: AC-016, AC-017, AC-018, AC-019, AC-020, AC-021, AC-041.

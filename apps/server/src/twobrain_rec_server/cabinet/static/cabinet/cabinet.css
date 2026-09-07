@@ -4904,11 +4904,12 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
   color: var(--text);
 }
 .share-dialog::backdrop { background: rgb(5 7 12 / 70%); }
-.share-dialog__surface { display: grid; gap: 20px; padding: 24px; }
+.share-dialog__surface { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; padding: 24px; overflow-wrap: anywhere; }
 .share-dialog__header,
 .share-recipient-row,
 .share-viewer-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .share-dialog__header { align-items: flex-start; }
+.share-dialog__header > div { min-width: 0; }
 .share-dialog__header h2,
 .share-dialog__header p,
 .share-viewers h3 { margin: 0; }
@@ -4927,7 +4928,8 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
 .share-viewers { display: grid; gap: 12px; }
 .share-viewer-row { padding: 10px 0; border-bottom: 1px solid var(--line); }
 .share-viewer-row > span:first-child { display: grid; gap: 3px; min-width: 0; }
-.share-viewer-row__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.share-viewer-row__actions { display: flex; min-width: 0; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.share-viewer-row__actions button { max-width: 100%; white-space: normal; }
 .share-dialog__status { min-height: 22px; margin: 0; }
 .share-dialog__status[data-tone="error"] { color: var(--danger-text); }
 .share-dialog__status[data-tone="success"] { color: var(--green); }

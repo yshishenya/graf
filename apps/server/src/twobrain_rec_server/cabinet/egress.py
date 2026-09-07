@@ -249,7 +249,7 @@ async def content_export_capabilities(
             duration_seconds=max(meeting.duration_seconds, 0),
         )
 
-    commercial = await _commercial_capabilities(db, meeting=meeting, actor_user_id=actor_user_id)
+    commercial = await meeting_commercial_capabilities(db, meeting=meeting, actor_user_id=actor_user_id)
     formats = {
         scope: [format for format in allowed if format in commercial["export_formats"]]
         for scope, allowed in FORMAT_COMPATIBILITY.items()
@@ -964,7 +964,7 @@ async def artifact_egress_states(
         access,
         states,
     )
-    commercial = await _commercial_capabilities(db, meeting=meeting, actor_user_id=actor_user_id)
+    commercial = await meeting_commercial_capabilities(db, meeting=meeting, actor_user_id=actor_user_id)
     for state in states + [package_state]:
         allowed = (
             commercial["audio_download"] if state.artifact_class == "audio"
@@ -1365,7 +1365,7 @@ async def download_artifact(
     device_id: UUID,
     recipient_proof: ShareRecipientAccessProof | None = None,
 ) -> DownloadArtifact:
-    await _lock_commercial_workspace(db, meeting.workspace_id)
+    await lock_commercial_workspace(db, meeting.workspace_id)
     locked_meeting = await lock_meeting_fence(
         db, workspace_id=meeting.workspace_id, meeting_id=meeting.id
     )
@@ -1509,7 +1509,7 @@ async def download_artifact(
 
     # Row locks fence mutations, but wall-clock access intervals can change
     # while the bounded audio body is materialized.
-    if artifact_class == "audio" and not (await _commercial_capabilities(
+    if artifact_class == "audio" and not (await meeting_commercial_capabilities(
         db, meeting=meeting, actor_user_id=actor_user_id,
     ))["audio_download"]:
         await record_egress_audit_event(
@@ -2150,7 +2150,7 @@ def meeting_deletion_active(meeting: Meeting) -> bool:
     return meeting_is_deleted_or_deleting(meeting)
 
 
-async def _commercial_capabilities(
+async def meeting_commercial_capabilities(
     db: AsyncSession, *, meeting: Meeting, actor_user_id: UUID,
 ) -> dict[str, object]:
     if await db.scalar(select(Workspace.id).where(Workspace.id == meeting.workspace_id)) is None:
@@ -2163,7 +2163,7 @@ async def _commercial_capabilities(
         raise ProblemDetail(status=503, code="billing_access_unavailable", title="Access terms unavailable") from exc
 
 
-async def _lock_commercial_workspace(db: AsyncSession, workspace_id: UUID) -> None:
+async def lock_commercial_workspace(db: AsyncSession, workspace_id: UUID) -> None:
     # Assignment/revocation and subscription writers lock Workspace before Meeting.
     if await db.scalar(select(Workspace.id).where(
         Workspace.id == workspace_id,
@@ -2172,7 +2172,7 @@ async def _lock_commercial_workspace(db: AsyncSession, workspace_id: UUID) -> No
 
 
 async def _lock_export_meeting(db: AsyncSession, meeting: Meeting) -> Meeting:
-    await _lock_commercial_workspace(db, meeting.workspace_id)
+    await lock_commercial_workspace(db, meeting.workspace_id)
     locked = await db.scalar(
         select(Meeting)
         .where(Meeting.workspace_id == meeting.workspace_id, Meeting.id == meeting.id)

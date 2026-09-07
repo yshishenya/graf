@@ -209,7 +209,7 @@ def test_egress_workspace_fence_serializes_assignment_before_bytes(commercial):
         async with client.app.state.db_sessionmaker() as db:
             await apply_tenant_context(db, TenantDatabaseContext(
                 organization_id=uuid4(), workspace_id=WORKSPACE_ID, user_id=USER_ID))
-            await egress._lock_commercial_workspace(db, WORKSPACE_ID)
+            await egress.lock_commercial_workspace(db, WORKSPACE_ID)
             task = asyncio.create_task(_deny(client, "audio_download"))
             try:
                 with pytest.raises(TimeoutError):
@@ -251,3 +251,66 @@ def test_scheduled_restriction_starting_during_audio_materialization_blocks_byte
     denied = client.get(f"/api/v1/cabinet/meetings/{meeting}/downloads/audio", headers=auth_headers())
     assert denied.status_code == 409 and "content-disposition" not in denied.headers
     assert audit_events(client, meeting)[-1].policy_reason == "commercial_audio_download_denied"
+
+
+@pytest.mark.parametrize("subject", [None, USER_ID])
+def test_sharing_deny_blocks_new_access_but_preserves_revoke(commercial, subject):
+    client, meeting = commercial
+    path = f"/api/v1/cabinet/meetings/{meeting}"
+    payload = {"audience_type":"user", "audience_id":str(SHARED_USER_ID),
+        "content_scope":"full_meeting", "can_download":True, "can_export":True}
+    from sqlalchemy import select
+
+    from twobrain_rec_server.db.models import MeetingShareGrant
+
+    async def prior_grant():
+        async with client.app_state["sessionmaker"]() as db:
+            return await db.scalar(select(MeetingShareGrant.id).where(MeetingShareGrant.meeting_id == meeting))
+    grant = str(client.portal.call(prior_grant))
+    assert client.post(path+f"/shares/{grant}/rotate", headers=auth_headers()).status_code == 200
+    client.portal.call(lambda: _deny(client, "meeting_sharing", subject=subject))
+    state = client.get(path+"/access", headers=auth_headers())
+    assert state.status_code == 200, state.text
+    assert state.json()["share"]["capability_state"] == "policy_blocked"
+    assert state.json()["share"]["active_grants"]
+    for response in (
+        client.post(path+"/shares", headers=auth_headers(), json=payload),
+        client.post(path+f"/shares/{grant}/rotate", headers=auth_headers()),
+    ):
+        assert response.status_code == 403 and response.json()["code"] == "commercial_sharing_denied"
+        assert "share_url" not in response.text
+    assert audit_events(client, meeting)[-1].policy_reason == "commercial_sharing_denied"
+    page = client.get(f"/meetings/{meeting}/share", headers=auth_headers())
+    assert page.status_code == 200 and "Новые приглашения недоступны" in page.text
+    assert "data-share-recipient-input disabled" in page.text
+    assert f'data-share-revoke-url="{path}/shares/{grant}"' in page.text
+    # No silent rewrite of previously admitted grants; owner can still revoke them.
+    assert client.get(path+"/downloads/transcript", headers=auth_headers_for()).status_code == 200
+    assert client.delete(path+f"/shares/{grant}", headers=auth_headers()).status_code == 204
+
+
+def test_sharing_deny_prevents_external_invitation_and_dispatch(commercial, monkeypatch, tmp_path):
+    from cryptography.fernet import Fernet
+    from sqlalchemy import func, select
+
+    from twobrain_rec_server.api import cabinet
+    from twobrain_rec_server.db.models import MeetingShareInvitation
+
+    client, meeting = commercial
+    key_file = tmp_path / "synthetic-invitation-key"
+    key_file.write_bytes(Fernet.generate_key())
+    monkeypatch.setattr(client.app.state.settings, "credential_encryption_key_file", key_file)
+    monkeypatch.setattr(client.app.state.settings, "share_external_invitations_enabled", True)
+
+    async def unexpected_dispatch(**_kwargs):
+        raise AssertionError("denied invitation must not dispatch")
+    monkeypatch.setattr(cabinet, "start_invitation_delivery_workflow", unexpected_dispatch)
+    client.portal.call(lambda: _deny(client, "meeting_sharing"))
+    response = client.post(f"/api/v1/cabinet/meetings/{meeting}/share-invitations", headers=auth_headers(),
+        json={"address":"synthetic@example.invalid", "content_scope":"full_meeting", "can_download":True, "can_export":True})
+    assert response.status_code == 403 and response.json()["code"] == "commercial_sharing_denied"
+
+    async def count():
+        async with client.app_state["sessionmaker"]() as db:
+            return await db.scalar(select(func.count()).select_from(MeetingShareInvitation))
+    assert client.portal.call(count) == 0

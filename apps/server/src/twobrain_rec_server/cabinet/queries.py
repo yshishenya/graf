@@ -1264,6 +1264,7 @@ async def get_cabinet_meeting_review(
             db,
             meeting,
             decision,
+            actor_user_id=viewer_user_id,
             external_invitations_enabled=external_invitations_enabled,
             invitation_encryption_key=invitation_encryption_key,
         ),
