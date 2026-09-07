@@ -33,7 +33,7 @@ public enum DesktopMeetingShellChrome {
     public static let shellAccentHex = "#8c73ff"
     public static let webEmbeddedBackgroundHex = shellBackgroundHex
     public static let shellBackgroundColor = Color(nsColor: .windowBackgroundColor)
-    public static let shellRailColor = Color(nsColor: .windowBackgroundColor)
+    public static let shellRailColor = Color(nsColor: .controlBackgroundColor)
     public static let shellSurfaceColor = Color(nsColor: .controlBackgroundColor)
     public static let shellStrokeColor = Color(nsColor: .separatorColor)
     public static let shellHighContrastStrokeColor = Color.primary.opacity(0.65)
@@ -289,18 +289,14 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     }
 
     public var body: some View {
-        HStack(spacing: 0) {
-            VStack(spacing: 0) {
-                HStack(alignment: .top, spacing: 0) {
-                    meetingsSurface
-                    Divider()
-                    inspectorContainer
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .clipped()
-            }
+        HStack(alignment: .top, spacing: 0) {
+            meetingsSurface
+            Divider()
+            inspectorContainer
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(DesktopMeetingShellChrome.spacingSmall)
         .background(DesktopMeetingShellChrome.shellBackgroundColor)
         .tint(DesktopMeetingShellChrome.shellAccentColor)
         .background {
