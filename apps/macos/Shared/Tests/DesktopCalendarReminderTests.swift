@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import TwoBrainRecAppCore
 import TwoBrainRecShared
@@ -586,6 +587,17 @@ final class DesktopCalendarReminderTests: XCTestCase {
         await first.value
 
         XCTAssertEqual(model.events.map(\.eventId), ["new"])
+    }
+
+    func testCalendarTrayPanelSizeFitsAvailableScreen() {
+        XCTAssertEqual(
+            CalendarTrayController.panelSize(in: NSRect(x: 0, y: 0, width: 1_440, height: 900)),
+            NSSize(width: 344, height: 420)
+        )
+        XCTAssertEqual(
+            CalendarTrayController.panelSize(in: NSRect(x: 0, y: 0, width: 320, height: 240)),
+            NSSize(width: 296, height: 216)
+        )
     }
 
     func testPromptAccessibilityCopyNamesManualAction() throws {
