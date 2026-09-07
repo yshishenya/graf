@@ -63,6 +63,10 @@ class FakeDb:
 
     async def scalar(self, _query: object) -> object:
         descriptions = getattr(_query, "column_descriptions", ())
+        if descriptions and descriptions[0].get("entity") is Workspace:
+            return self.workspace
+        if descriptions and descriptions[0].get("entity") is WorkspaceSubscription and hasattr(self, "subscription"):
+            return self.subscription
         if descriptions and descriptions[0].get("entity") is WorkspaceMembership:
             return self.membership
         return next(self._values)
@@ -85,7 +89,8 @@ class PlanningDb(FakeDb):
         super().__init__(values)
 
     async def scalars(self, _query: object) -> list[WorkspaceSubscription]:
-        return [next(self._values)]  # type: ignore[return-value]
+        self.subscription = next(self._values)
+        return [self.subscription]  # type: ignore[return-value]
 
 
 class FakeProvider:
@@ -269,8 +274,10 @@ async def test_planner_skips_renewal_while_initial_checkout_is_unresolved() -> N
         blocker_query = None
 
         async def scalar(self, query: object) -> object:
-            self.blocker_query = query
-            return UUID(int=9)
+            if query.column_descriptions[0].get("entity") is BillingOperation:
+                self.blocker_query = query
+                return UUID(int=9)
+            return await super().scalar(query)
 
     db = BlockingPlanningDb([subscription])
 

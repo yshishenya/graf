@@ -577,3 +577,54 @@ async def test_renewal_dispatch_claim_survives_process_loss(
             assert len(calls) == (1 if failure_mode == "crash" else 0)
     finally:
         await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_renewal_wait_does_not_hold_subscription_before_workspace(postgres_seeded_database_url):
+    import asyncio
+    from contextlib import suppress
+
+    from twobrain_rec_server.billing.renewal_charge import _lock_renewal_subscription
+    from twobrain_rec_server.db.models import Workspace
+
+    engine = create_async_engine(postgres_seeded_database_url)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    pending = None
+    try:
+        async with sessions() as holder:
+            if await holder.get(WorkspaceSubscription, PERSONAL_WORKSPACE_ID) is None:
+                holder.add(WorkspaceSubscription(workspace_id=PERSONAL_WORKSPACE_ID))
+                await holder.commit()
+            # Another product operation owns the workspace while a renewal arrives.
+            await holder.scalar(select(Workspace.id).where(
+                Workspace.id == PERSONAL_WORKSPACE_ID,
+            ).with_for_update())
+            pid_ready = asyncio.get_running_loop().create_future()
+            async def renewal():
+                async with sessions() as db:
+                    pid_ready.set_result(await db.scalar(text("select pg_backend_pid()")))
+                    workspace, subscription = await _lock_renewal_subscription(db, PERSONAL_WORKSPACE_ID)
+                    assert workspace is not None and subscription is not None
+                    await db.commit()
+            pending = asyncio.create_task(renewal())
+            pid = await pid_ready
+            async with sessions() as observer:
+                async def wait_until_blocked():
+                    while await observer.scalar(text(
+                        "select wait_event_type from pg_stat_activity where pid=:pid"
+                    ), {"pid":pid}) != "Lock":
+                        await asyncio.sleep(0.01)
+                await asyncio.wait_for(wait_until_blocked(), timeout=5)
+                # A reversed lock order would already own this row and fail NOWAIT.
+                assert await observer.scalar(select(WorkspaceSubscription.workspace_id).where(
+                    WorkspaceSubscription.workspace_id == PERSONAL_WORKSPACE_ID,
+                ).with_for_update(nowait=True)) == PERSONAL_WORKSPACE_ID
+                await observer.rollback()
+            await holder.commit()
+            await asyncio.wait_for(pending, timeout=5)
+    finally:
+        if pending is not None and not pending.done():
+            pending.cancel()
+            with suppress(asyncio.CancelledError):
+                await pending
+        await engine.dispose()

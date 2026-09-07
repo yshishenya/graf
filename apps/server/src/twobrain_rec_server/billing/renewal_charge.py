@@ -39,6 +39,7 @@ from twobrain_rec_server.billing.payment_methods import (
     read_billing_encryption_key,
 )
 from twobrain_rec_server.billing.provider_events import validate_provider_identifier
+from twobrain_rec_server.billing.storage import lock_storage_workspace
 from twobrain_rec_server.billing.yookassa import (
     YooKassaClient,
     YooKassaConfigurationError,
@@ -217,6 +218,21 @@ def _pin_legacy_schedule(
     return True
 
 
+async def _lock_renewal_subscription(
+    db: AsyncSession, workspace_id: UUID,
+) -> tuple[Workspace | None, WorkspaceSubscription | None]:
+    # Match checkout/payment confirmation: domain advisory lock, workspace, then
+    # subscription. Never hold a subscription while waiting for its workspace.
+    await lock_storage_workspace(db, workspace_id)
+    workspace = await db.scalar(select(Workspace).where(
+        Workspace.id == workspace_id,
+    ).with_for_update().execution_options(populate_existing=True))
+    subscription = await db.scalar(select(WorkspaceSubscription).where(
+        WorkspaceSubscription.workspace_id == workspace_id,
+    ).with_for_update().execution_options(populate_existing=True))
+    return workspace, subscription
+
+
 async def plan_due_renewals(
     db: AsyncSession,
     *,
@@ -258,10 +274,25 @@ async def plan_due_renewals(
         )
         .order_by(WorkspaceSubscription.paid_through, WorkspaceSubscription.workspace_id)
         .limit(limit)
-        .with_for_update(skip_locked=True)
     )
     planned: list[UUID] = []
-    for subscription in await db.scalars(query):
+    candidates = list(await db.scalars(query))
+    # Stable ordering when a caller commits a batch of several workspaces.
+    for candidate in sorted(candidates, key=lambda row: row.workspace_id):
+        workspace, subscription = await _lock_renewal_subscription(db, candidate.workspace_id)
+        owner = await db.scalar(select(WorkspaceMembership).where(
+            WorkspaceMembership.workspace_id == candidate.workspace_id,
+            WorkspaceMembership.user_id == (subscription.billing_owner_id if subscription else None),
+            WorkspaceMembership.role == "owner", WorkspaceMembership.status == "active",
+        ).with_for_update().execution_options(populate_existing=True))
+        if (
+            workspace is None or workspace.kind != "personal" or subscription is None
+            or workspace.owner_user_id != subscription.billing_owner_id or owner is None
+            or subscription.state != "personal" or subscription.plan_code != "personal"
+            or not subscription.recurring_allowed or subscription.paid_through is None
+            or not current < _utc(subscription.paid_through) <= current+timedelta(hours=RENEWAL_REMINDER_HOURS)
+        ):
+            continue
         initial_checkout = await db.scalar(
             select(BillingOperation.id)
             .where(
@@ -490,11 +521,16 @@ async def project_renewal_cutoffs(
         )
         .order_by(WorkspaceSubscription.paid_through, WorkspaceSubscription.workspace_id)
         .limit(limit)
-        .with_for_update(skip_locked=True)
     )
     projected = 0
-    for subscription in await db.scalars(query):
-        workspace = await db.get(Workspace, subscription.workspace_id)
+    candidates = list(await db.scalars(query))
+    for candidate in sorted(candidates, key=lambda row: row.workspace_id):
+        workspace, subscription = await _lock_renewal_subscription(db, candidate.workspace_id)
+        if (
+            subscription is None or subscription.plan_code != "personal"
+            or subscription.paid_through is None or _utc(subscription.paid_through) > current
+        ):
+            continue
         owner = await db.scalar(
             select(WorkspaceMembership).where(
                 WorkspaceMembership.workspace_id == subscription.workspace_id,
@@ -590,12 +626,7 @@ async def charge_renewal_operation(
     """Send one saved-method payment while holding the subscription authority lock."""
     current = _utc(now or datetime.now(UTC))
     await db.rollback()
-    subscription = await db.scalar(
-        select(WorkspaceSubscription)
-        .where(WorkspaceSubscription.workspace_id == workspace_id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
+    workspace, subscription = await _lock_renewal_subscription(db, workspace_id)
     operation = await db.scalar(
         select(BillingOperation)
         .where(
@@ -627,7 +658,6 @@ async def charge_renewal_operation(
         operation.state = "manual_resolution"
         await db.commit()
         return RenewalChargeResult(operation_id, "manual_resolution")
-    workspace = await db.get(Workspace, workspace_id, populate_existing=True)
     owner = await db.scalar(
         select(WorkspaceMembership)
         .where(
