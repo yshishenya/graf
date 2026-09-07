@@ -564,7 +564,7 @@ final class DesktopCalendarReminderTests: XCTestCase {
 
     func testCalendarTrayModelIgnoresAnOlderRefreshThatFinishesLast() async {
         let loader = CalendarTrayControlledLoader()
-        let model = CalendarTrayModel { await loader.load() }
+        let model = CalendarTrayModel { try await loader.load() }
 
         let first = Task { await model.refresh() }
         await loader.waitForRequestCount(1)
@@ -589,6 +589,50 @@ final class DesktopCalendarReminderTests: XCTestCase {
         XCTAssertEqual(model.events.map(\.eventId), ["new"])
     }
 
+    func testCalendarTrayStaysCompactWithoutConfirmedEventsAndRecoversAfterFailures() async {
+        let loader = CalendarTrayControlledLoader()
+        let model = CalendarTrayModel { try await loader.load() }
+        XCTAssertEqual(model.preferredPanelHeight, 64)
+        let first = Task { await model.refresh() }
+        await loader.waitForRequestCount(1)
+        XCTAssertEqual(model.state, .loading)
+        XCTAssertEqual(model.preferredPanelHeight, 64)
+        await loader.complete(request: 0, with: DesktopCalendarPromptResponse(events: []))
+        await first.value
+        XCTAssertEqual(model.state, .empty)
+        XCTAssertEqual(model.preferredPanelHeight, 64)
+
+        let failures: [any Error] = [
+            DesktopUploadClientError.httpStatus(401, "auth_required"),
+            DesktopUploadClientError.httpStatus(503, "unavailable"),
+            URLError(.notConnectedToInternet)
+        ]
+        for (index, error) in failures.enumerated() {
+            let success = Task { await model.refresh() }
+            await loader.waitForRequestCount(index * 2 + 2)
+            await loader.complete(request: index * 2 + 1, with: DesktopCalendarPromptResponse(
+                events: [makeEvent(startsAt: date(120), endsAt: date(180))]
+            ))
+            await success.value
+            XCTAssertEqual(model.state, .loaded)
+            XCTAssertEqual(model.events.count, 1)
+            XCTAssertEqual(model.preferredPanelHeight, 420)
+
+            let failure = Task { await model.refresh() }
+            await loader.waitForRequestCount(index * 2 + 3)
+            XCTAssertEqual(model.events.count, 1, "Background refresh keeps useful content until it finishes")
+            await loader.fail(request: index * 2 + 2, with: error)
+            await failure.value
+            XCTAssertEqual(model.state, index == 0 ? .needsSignIn : .unavailable)
+            XCTAssertTrue(model.events.isEmpty, "Do not expose outdated or signed-out calendar data")
+            XCTAssertEqual(model.preferredPanelHeight, 64)
+        }
+        model.appUpdatePresentation = AppUpdatePresentation(
+            phase: .available, availableVersion: "2026.09.08.1", isUserInitiated: false, message: nil
+        )
+        XCTAssertEqual(model.preferredPanelHeight, 208, "An actionable update still has space without calendar events")
+    }
+
     func testCalendarTrayKeepsInsideAndToggleClicksButDismissesOutside() {
         let panel = NSWindow()
         let statusItem = NSWindow()
@@ -599,6 +643,14 @@ final class DesktopCalendarReminderTests: XCTestCase {
         }
     }
 
+    func testCalendarTrayUsesPackagedGrafIconAtMenuBarHeight() {
+        let image = CalendarTrayController.statusIcon()
+        XCTAssertFalse(image.representations.isEmpty)
+        XCTAssertFalse(image.isTemplate)
+        XCTAssertEqual(image.size.width, NSStatusBar.system.thickness - 2)
+        XCTAssertEqual(image.size.width, image.size.height)
+    }
+
     func testCalendarTrayPanelSizeFitsAvailableScreen() {
         XCTAssertEqual(
             CalendarTrayController.panelSize(in: NSRect(x: 0, y: 0, width: 1_440, height: 900)),
@@ -607,9 +659,9 @@ final class DesktopCalendarReminderTests: XCTestCase {
         XCTAssertEqual(
             CalendarTrayController.panelSize(
                 in: NSRect(x: 0, y: 0, width: 1_440, height: 900),
-                compact: true
+                preferredHeight: 64
             ),
-            NSSize(width: 344, height: 160)
+            NSSize(width: 344, height: 64)
         )
         XCTAssertEqual(
             CalendarTrayController.panelSize(in: NSRect(x: 0, y: 0, width: 320, height: 240)),
@@ -659,10 +711,10 @@ final class DesktopCalendarReminderTests: XCTestCase {
 }
 
 private actor CalendarTrayControlledLoader {
-    private var continuations: [CheckedContinuation<DesktopCalendarPromptResponse, Never>] = []
+    private var continuations: [CheckedContinuation<DesktopCalendarPromptResponse, Error>] = []
 
-    func load() async -> DesktopCalendarPromptResponse {
-        await withCheckedContinuation { continuation in
+    func load() async throws -> DesktopCalendarPromptResponse {
+        try await withCheckedThrowingContinuation { continuation in
             continuations.append(continuation)
         }
     }
@@ -671,6 +723,10 @@ private actor CalendarTrayControlledLoader {
         while continuations.count < count {
             await Task.yield()
         }
+    }
+
+    func fail(request index: Int, with error: any Error) {
+        continuations[index].resume(throwing: error)
     }
 
     func complete(request index: Int, with response: DesktopCalendarPromptResponse) {

@@ -10,7 +10,6 @@ public enum CalendarTrayState: Equatable, Sendable {
     case empty
     case needsSignIn
     case unavailable
-    case stale
 }
 
 /// The menu-bar surface intentionally owns only a short-lived safe projection.
@@ -34,10 +33,15 @@ public final class CalendarTrayModel: ObservableObject {
         self.load = load
     }
 
+    var preferredPanelHeight: CGFloat {
+        let content: CGFloat = events.isEmpty ? 64 : 420
+        return content + (appUpdatePresentation.showsSidebarBadge ? 144 : 0)
+    }
+
     public func refresh() async {
         refreshGeneration += 1
         let generation = refreshGeneration
-        if events.isEmpty {
+        if events.isEmpty && lastUpdatedAt == nil {
             state = .loading
         }
         do {
@@ -53,16 +57,12 @@ public final class CalendarTrayModel: ObservableObject {
             lastUpdatedAt = Date()
         } catch let error as DesktopUploadClientError {
             guard generation == refreshGeneration else { return }
-            if error.failureCategory == .authSession {
-                state = .needsSignIn
-            } else if events.isEmpty {
-                state = .unavailable
-            } else {
-                state = .stale
-            }
+            events = []
+            state = error.failureCategory == .authSession ? .needsSignIn : .unavailable
         } catch {
             guard generation == refreshGeneration else { return }
-            state = events.isEmpty ? .unavailable : .stale
+            events = []
+            state = .unavailable
         }
     }
 }
@@ -74,7 +74,6 @@ public struct CalendarTrayView: View {
     private let onOpenCalendar: () -> Void
     private let onOpenMeetings: () -> Void
     private let onOpenMeetingLink: (URL) -> Void
-    private let onRefresh: () -> Void
     private let onUpdate: () -> Void
     private let panelSize: NSSize
 
@@ -83,7 +82,6 @@ public struct CalendarTrayView: View {
         onOpenCalendar: @escaping () -> Void,
         onOpenMeetings: @escaping () -> Void,
         onOpenMeetingLink: @escaping (URL) -> Void,
-        onRefresh: @escaping () -> Void,
         onUpdate: @escaping () -> Void = {},
         panelSize: NSSize = NSSize(width: 344, height: 420)
     ) {
@@ -91,7 +89,6 @@ public struct CalendarTrayView: View {
         self.onOpenCalendar = onOpenCalendar
         self.onOpenMeetings = onOpenMeetings
         self.onOpenMeetingLink = onOpenMeetingLink
-        self.onRefresh = onRefresh
         self.onUpdate = onUpdate
         self.panelSize = panelSize
     }
@@ -100,11 +97,15 @@ public struct CalendarTrayView: View {
         VStack(alignment: .leading, spacing: 0) {
             AppUpdateNotice(presentation: model.appUpdatePresentation,
                             isActionEnabled: model.canCheckForUpdates, onUpdate: onUpdate)
-            header
-            Divider()
-            if shouldRenderContent {
+            if !model.events.isEmpty {
+                header
+                Divider()
                 ScrollView(.vertical, showsIndicators: true) {
-                    content
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(model.events) { event in
+                            eventRow(event)
+                        }
+                    }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 Divider()
@@ -115,19 +116,7 @@ public struct CalendarTrayView: View {
         .background(.regularMaterial)
         .tint(DesktopMeetingShellChrome.shellAccentColor)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Ближайшие встречи GRAF")
-    }
-
-    private var shouldRenderContent: Bool {
-        if !model.events.isEmpty {
-            return true
-        }
-        switch model.state {
-        case .loading, .needsSignIn, .unavailable:
-            return true
-        case .idle, .loaded, .empty, .stale:
-            return false
-        }
+        .accessibilityLabel("Меню GRAF")
     }
 
     private var header: some View {
@@ -139,51 +128,13 @@ public struct CalendarTrayView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Ближайшие встречи")
                     .font(.headline)
-                Text(statusText)
+                Text("На ближайшие 24 часа")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            Button(action: onRefresh) {
-                Image(systemName: "arrow.clockwise")
-            }
-            .buttonStyle(.borderless)
-            .help("Обновить список. Google и Яндекс синхронизируются автоматически каждую минуту.")
-            .accessibilityLabel("Обновить список")
-            .disabled(model.state == .loading)
         }
         .padding(16)
-    }
-
-    @ViewBuilder
-    private var content: some View {
-        switch model.state {
-        case .loading where model.events.isEmpty:
-            stateRow("Загружаем календарь…", systemImage: "arrow.triangle.2.circlepath")
-        case .needsSignIn:
-            stateRow("Войдите в GRAF, чтобы увидеть встречи", systemImage: "person.crop.circle.badge.exclamationmark")
-        case .unavailable:
-            stateRow("Календарь временно недоступен", systemImage: "exclamationmark.triangle")
-        case .empty:
-            EmptyView()
-        default:
-            if model.events.isEmpty {
-                EmptyView()
-            } else {
-                VStack(alignment: .leading, spacing: 0) {
-                    if model.state == .stale {
-                        Label("Показаны последние данные", systemImage: "clock.arrow.circlepath")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 16)
-                            .padding(.top, 12)
-                    }
-                    ForEach(model.events) { event in
-                        eventRow(event)
-                    }
-                }
-            }
-        }
     }
 
     private func eventRow(_ event: DesktopCalendarPromptEvent) -> some View {
@@ -226,25 +177,11 @@ public struct CalendarTrayView: View {
         .accessibilityLabel(eventAccessibilityLabel(event))
     }
 
-    private func stateRow(_ title: String, systemImage: String) -> some View {
-        Label {
-            Text(title)
-                .fixedSize(horizontal: false, vertical: true)
-        } icon: {
-            Image(systemName: systemImage)
-                .foregroundStyle(.secondary)
-        }
-        .font(.callout)
-        .foregroundStyle(.secondary)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(20)
-    }
-
     private var footer: some View {
         HStack {
             Button("Открыть GRAF", action: onOpenMeetings)
                 .buttonStyle(.borderedProminent)
-                .foregroundStyle(.black)
+                .tint(Color(red: 98.0 / 255, green: 72.0 / 255, blue: 213.0 / 255))
                 .keyboardShortcut(.defaultAction)
             Spacer()
             Button("Настройки календаря", action: onOpenCalendar)
@@ -253,17 +190,6 @@ public struct CalendarTrayView: View {
         }
         .font(.caption)
         .padding(16)
-    }
-
-    private var statusText: String {
-        switch model.state {
-        case .loading: return "Обновляем…"
-        case .needsSignIn: return "Нужен вход"
-        case .unavailable: return "Недоступен"
-        case .stale: return "Последнее обновление не удалось"
-        case .empty: return "На ближайшие 24 часа"
-        default: return "На ближайшие 24 часа"
-        }
     }
 
     private func timeText(for event: DesktopCalendarPromptEvent) -> String {
@@ -336,12 +262,13 @@ public final class CalendarTrayController: NSObject, NSPopoverDelegate {
 
     public func start() {
         guard let button = statusItem.button else { return }
-        button.image = NSImage(systemSymbolName: "calendar.badge.clock", accessibilityDescription: "")
-        button.image?.isTemplate = true
-        button.toolTip = "Ближайшие встречи GRAF"
+        button.image = Self.statusIcon()
+        button.imagePosition = .imageLeading
+        button.imageScaling = .scaleProportionallyDown
+        button.toolTip = "GRAF"
         button.target = self
         button.action = #selector(togglePopover(_:))
-        button.setAccessibilityLabel("Ближайшие встречи GRAF")
+        button.setAccessibilityLabel("Меню GRAF")
         button.setAccessibilityRole(.button)
 
         popover.delegate = self
@@ -384,7 +311,7 @@ public final class CalendarTrayController: NSObject, NSPopoverDelegate {
         guard !popover.isShown else { return }
         guard let button = statusItem.button,
               let screen = button.window?.screen ?? NSScreen.main else { return }
-        let size = Self.panelSize(in: screen.visibleFrame, compact: isEmptyState)
+        let size = Self.panelSize(in: screen.visibleFrame, preferredHeight: model.preferredPanelHeight)
         let rootView = makeRootView(panelSize: size)
         if let hosting = popover.contentViewController as? NSHostingController<CalendarTrayView> {
             hosting.sizingOptions = []
@@ -423,25 +350,31 @@ public final class CalendarTrayController: NSObject, NSPopoverDelegate {
         globalMouseMonitor = nil
     }
 
-    public static func panelSize(in visibleFrame: NSRect, compact: Bool = false) -> NSSize {
-        let height = max(1, min(420, visibleFrame.height - 24))
-        return NSSize(width: max(1, min(344, visibleFrame.width - 24)),
-                      height: compact ? min(height, 160) : height)
+    static func statusIcon() -> NSImage {
+        let image = Bundle.module.url(forResource: "AppIcon", withExtension: "icns", subdirectory: "Resources")
+            .flatMap { NSImage(contentsOf: $0) }
+            ?? (NSApplication.shared.applicationIconImage.copy() as? NSImage ?? NSImage())
+        let side = max(1, NSStatusBar.system.thickness - 2)
+        image.size = NSSize(width: side, height: side)
+        image.isTemplate = false
+        return image
+    }
+
+    public static func panelSize(in visibleFrame: NSRect, preferredHeight: CGFloat = 420) -> NSSize {
+        NSSize(width: max(1, min(344, visibleFrame.width - 24)),
+               height: max(1, min(preferredHeight, visibleFrame.height - 24)))
     }
 
     public func showUpdate(_ presentation: AppUpdatePresentation, actionEnabled: Bool) {
         model.appUpdatePresentation = presentation
         model.canCheckForUpdates = actionEnabled
         let version = presentation.showsSidebarBadge ? presentation.availableVersion : nil
-        let label = version.map { "GRAF — доступна версия \($0). Ближайшие встречи." }
-            ?? "Ближайшие встречи GRAF"
-        statusItem.button?.image = NSImage(
-            systemSymbolName: version == nil ? "calendar.badge.clock" : "arrow.down.circle.fill",
-            accessibilityDescription: nil
-        )
-        statusItem.button?.image?.isTemplate = true
+        let label = version.map { "GRAF — доступна версия \($0)." }
+            ?? "Меню GRAF"
+        statusItem.button?.title = version == nil ? "" : "•"
         statusItem.button?.toolTip = label
         statusItem.button?.setAccessibilityLabel(label)
+        updatePopoverLayout()
     }
 
     @objc private func togglePopover(_ sender: Any?) {
@@ -461,17 +394,12 @@ public final class CalendarTrayController: NSObject, NSPopoverDelegate {
         }
     }
 
-    private var isEmptyState: Bool {
-        model.state == .empty && model.events.isEmpty
-    }
-
     private func makeRootView(panelSize: NSSize) -> CalendarTrayView {
         CalendarTrayView(
             model: model,
             onOpenCalendar: { [weak self] in self?.openCalendar() },
             onOpenMeetings: { [weak self] in self?.openMeetings() },
             onOpenMeetingLink: { [weak self] url in self?.openMeetingLink(url) },
-            onRefresh: { [weak self] in self?.refreshNow() },
             onUpdate: { [weak self] in
                 self?.popover.performClose(nil)
                 self?.onUpdate()
@@ -487,7 +415,7 @@ public final class CalendarTrayController: NSObject, NSPopoverDelegate {
               let hosting = popover.contentViewController as? NSHostingController<CalendarTrayView> else {
             return
         }
-        let size = Self.panelSize(in: screen.visibleFrame, compact: isEmptyState)
+        let size = Self.panelSize(in: screen.visibleFrame, preferredHeight: model.preferredPanelHeight)
         hosting.sizingOptions = []
         hosting.rootView = makeRootView(panelSize: size)
         popover.appearance = NSApplication.shared.appearance
