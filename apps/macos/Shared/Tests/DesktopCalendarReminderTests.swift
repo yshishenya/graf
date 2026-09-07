@@ -643,12 +643,60 @@ final class DesktopCalendarReminderTests: XCTestCase {
         }
     }
 
-    func testCalendarTrayUsesPackagedGrafIconAtMenuBarHeight() {
-        let image = CalendarTrayController.statusIcon()
-        XCTAssertFalse(image.representations.isEmpty)
-        XCTAssertFalse(image.isTemplate)
-        XCTAssertEqual(image.size.width, NSStatusBar.system.thickness - 2)
-        XCTAssertEqual(image.size.width, image.size.height)
+    func testCalendarTrayVectorIsMonochromeTransparentAndHasDistinctRecordingMarks() throws {
+        var rendered: [Data] = []
+        for state in [GrafTrayRecordingState.idle, .recording, .paused] {
+            let image = CalendarTrayController.statusIcon(recordingState: state)
+            XCTAssertTrue(image.isTemplate, "macOS supplies light/dark/selected menu-bar contrast")
+            XCTAssertEqual(image.size, NSSize(width: state == .idle ? 22 : 30, height: 22))
+            let data = try XCTUnwrap(image.tiffRepresentation)
+            rendered.append(data)
+            let bitmap = try XCTUnwrap(NSBitmapImageRep(data: data))
+            XCTAssertEqual(bitmap.colorAt(x: 0, y: 0)?.alphaComponent, 0)
+            var inkPixels = 0
+            for y in 0..<bitmap.pixelsHigh {
+                for x in 0..<bitmap.pixelsWide {
+                    let color = try XCTUnwrap(bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB))
+                    guard color.alphaComponent > 0 else { continue }
+                    inkPixels += 1
+                    XCTAssertEqual(color.redComponent, color.greenComponent, accuracy: 0.001)
+                    XCTAssertEqual(color.greenComponent, color.blueComponent, accuracy: 0.001)
+                }
+            }
+            XCTAssertGreaterThan(inkPixels, 60, "The vector must render, not just reserve a canvas")
+            XCTAssertLessThan(inkPixels, bitmap.pixelsWide * bitmap.pixelsHigh / 2, "No opaque app-icon background")
+        }
+        XCTAssertNotEqual(rendered[0], rendered[1])
+        XCTAssertNotEqual(rendered[1], rendered[2], "Pause must not look like ongoing recording")
+    }
+
+    func testCalendarTrayTracksRealCaptureAndPreservesItWhenAnUpdateArrives() {
+        let model = CalendarTrayModel { DesktopCalendarPromptResponse(events: []) }
+        let tray = CalendarTrayController(model: model, onOpenCalendar: {}, onOpenMeetings: {})
+        let transitions: [(CaptureSessionState?, Bool, Bool, GrafTrayRecordingState)] = [
+            (nil, false, false, .idle), (.starting, false, false, .idle),
+            (.failed, false, false, .idle), (.active, true, false, .recording),
+            (.paused, true, false, .paused), (.active, true, false, .recording),
+            (.degraded, true, false, .recording), (.active, false, true, .stopping),
+            (.stopped, false, false, .idle), (.finalized, false, false, .idle)
+        ]
+        for (session, active, stopping, expected) in transitions {
+            let state = GrafTrayRecordingState.resolve(sessionState: session, writerActive: active, stopping: stopping)
+            XCTAssertEqual(state, expected)
+            tray.showRecordingState(state)
+            XCTAssertEqual(model.recordingState, expected)
+            XCTAssertEqual(model.preferredPanelHeight, expected == .idle ? 64 : 96)
+            XCTAssertEqual(tray.statusItemLabel, expected.label.map { "GRAF — \($0)" } ?? "GRAF")
+        }
+        tray.showRecordingState(.recording)
+        tray.showUpdate(AppUpdatePresentation(phase: .available, availableVersion: "2026.09.08.1",
+                                             isUserInitiated: false, message: nil), actionEnabled: true)
+        XCTAssertEqual(model.recordingState, .recording)
+        XCTAssertTrue(tray.statusItemLabel.contains("Идёт запись"))
+        XCTAssertTrue(tray.statusItemLabel.contains("2026.09.08.1"))
+        tray.showRecordingState(.idle)
+        XCTAssertFalse(tray.statusItemLabel.contains("Идёт запись"))
+        XCTAssertTrue(tray.statusItemLabel.contains("2026.09.08.1"))
     }
 
     func testCalendarTrayPanelSizeFitsAvailableScreen() {

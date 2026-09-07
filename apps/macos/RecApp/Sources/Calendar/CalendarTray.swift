@@ -3,6 +3,25 @@ import Combine
 import SwiftUI
 import TwoBrainRecShared
 
+public enum GrafTrayRecordingState: Equatable, Sendable {
+    case idle, recording, paused, stopping
+
+    public static func resolve(sessionState: CaptureSessionState?, writerActive: Bool, stopping: Bool) -> Self {
+        if stopping { return .stopping }
+        guard writerActive else { return .idle }
+        return sessionState == .paused ? .paused : .recording
+    }
+
+    var label: String? {
+        switch self {
+        case .idle: nil
+        case .recording: "Идёт запись"
+        case .paused: "Запись на паузе"
+        case .stopping: "Завершаем запись"
+        }
+    }
+}
+
 public enum CalendarTrayState: Equatable, Sendable {
     case idle
     case loading
@@ -23,6 +42,7 @@ public final class CalendarTrayModel: ObservableObject {
     @Published public private(set) var showUpcomingTitle = true
     @Published public var appUpdatePresentation: AppUpdatePresentation = .idle
     @Published public var canCheckForUpdates = false
+    @Published public var recordingState: GrafTrayRecordingState = .idle
 
     private let load: @Sendable () async throws -> DesktopCalendarPromptResponse
     private var refreshGeneration = 0
@@ -36,6 +56,7 @@ public final class CalendarTrayModel: ObservableObject {
     var preferredPanelHeight: CGFloat {
         let content: CGFloat = events.isEmpty ? 64 : 420
         return content + (appUpdatePresentation.showsSidebarBadge ? 144 : 0)
+            + (recordingState == .idle ? 0 : 32)
     }
 
     public func refresh() async {
@@ -109,6 +130,13 @@ public struct CalendarTrayView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 Divider()
+            }
+            if let label = model.recordingState.label {
+                Label(label, systemImage: model.recordingState == .paused ? "pause.fill" : "record.circle")
+                    .font(.caption)
+                    .padding(.horizontal, 16)
+                    .frame(height: 32)
+                    .accessibilityIdentifier("graf.menu.recordingState")
             }
             footer
         }
@@ -262,13 +290,11 @@ public final class CalendarTrayController: NSObject, NSPopoverDelegate {
 
     public func start() {
         guard let button = statusItem.button else { return }
-        button.image = Self.statusIcon()
+        updateStatusItem()
         button.imagePosition = .imageLeading
         button.imageScaling = .scaleProportionallyDown
-        button.toolTip = "GRAF"
         button.target = self
         button.action = #selector(togglePopover(_:))
-        button.setAccessibilityLabel("Меню GRAF")
         button.setAccessibilityRole(.button)
 
         popover.delegate = self
@@ -350,14 +376,59 @@ public final class CalendarTrayController: NSObject, NSPopoverDelegate {
         globalMouseMonitor = nil
     }
 
-    static func statusIcon() -> NSImage {
-        let image = Bundle.module.url(forResource: "AppIcon", withExtension: "icns", subdirectory: "Resources")
-            .flatMap { NSImage(contentsOf: $0) }
-            ?? (NSApplication.shared.applicationIconImage.copy() as? NSImage ?? NSImage())
-        let side = max(1, NSStatusBar.system.thickness - 2)
-        image.size = NSSize(width: side, height: side)
-        image.isTemplate = false
+    // Redrawn from GRAF's owned phi/equalizer mark for the 22 pt menu-bar grid.
+    // Transparent template geometry lets macOS handle light, dark and selected backgrounds.
+    static func statusIcon(recordingState: GrafTrayRecordingState = .idle) -> NSImage {
+        let image = NSImage(size: NSSize(width: recordingState == .idle ? 22 : 30, height: 22),
+                            flipped: false) { _ in
+            NSColor.black.setFill()
+            NSColor.black.setStroke()
+            let ring = NSBezierPath(ovalIn: NSRect(x: 3, y: 3, width: 16, height: 16))
+            ring.lineWidth = 1.8
+            ring.stroke()
+            for rect in [NSRect(x: 10, y: 0.5, width: 2, height: 3.5),
+                         NSRect(x: 10, y: 18, width: 2, height: 3.5),
+                         NSRect(x: 7, y: 8, width: 1.8, height: 5),
+                         NSRect(x: 10.1, y: 8, width: 1.8, height: 7),
+                         NSRect(x: 13.2, y: 8, width: 1.8, height: 4)] {
+                NSBezierPath(roundedRect: rect, xRadius: 0.7, yRadius: 0.7).fill()
+            }
+            if recordingState == .paused {
+                for x in [24.0, 28.0] {
+                    NSBezierPath(roundedRect: NSRect(x: x, y: 8, width: 2, height: 6),
+                                 xRadius: 0.5, yRadius: 0.5).fill()
+                }
+            } else if recordingState != .idle {
+                NSBezierPath(ovalIn: NSRect(x: 24, y: 8, width: 6, height: 6)).fill()
+            }
+            return true
+        }
+        image.isTemplate = true
         return image
+    }
+
+    public func showRecordingState(_ state: GrafTrayRecordingState) {
+        guard model.recordingState != state else { return }
+        model.recordingState = state
+        updateStatusItem()
+        updatePopoverLayout()
+    }
+
+    var statusItemLabel: String {
+        var parts = ["GRAF"]
+        if let label = model.recordingState.label { parts.append(label) }
+        if model.appUpdatePresentation.showsSidebarBadge,
+           let version = model.appUpdatePresentation.availableVersion {
+            parts.append("Доступна версия \(version)")
+        }
+        return parts.joined(separator: " — ")
+    }
+
+    private func updateStatusItem() {
+        statusItem.button?.image = Self.statusIcon(recordingState: model.recordingState)
+        statusItem.button?.title = model.appUpdatePresentation.showsSidebarBadge ? "↑" : ""
+        statusItem.button?.toolTip = statusItemLabel
+        statusItem.button?.setAccessibilityLabel("Меню \(statusItemLabel)")
     }
 
     public static func panelSize(in visibleFrame: NSRect, preferredHeight: CGFloat = 420) -> NSSize {
@@ -368,12 +439,7 @@ public final class CalendarTrayController: NSObject, NSPopoverDelegate {
     public func showUpdate(_ presentation: AppUpdatePresentation, actionEnabled: Bool) {
         model.appUpdatePresentation = presentation
         model.canCheckForUpdates = actionEnabled
-        let version = presentation.showsSidebarBadge ? presentation.availableVersion : nil
-        let label = version.map { "GRAF — доступна версия \($0)." }
-            ?? "Меню GRAF"
-        statusItem.button?.title = version == nil ? "" : "•"
-        statusItem.button?.toolTip = label
-        statusItem.button?.setAccessibilityLabel(label)
+        updateStatusItem()
         updatePopoverLayout()
     }
 

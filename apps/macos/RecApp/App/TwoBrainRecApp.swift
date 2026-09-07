@@ -430,6 +430,9 @@ private struct ContentView: View {
             startMeetingDetectionIfNeeded()
             appUpdateController.updateProtectedWork(protectedUpdateWork)
         }
+        .onChange(of: trayRecordingState, initial: true) { _, state in
+            (NSApp.delegate as? AppLifecycleDelegate)?.updateTrayRecordingState(state)
+        }
         .onChange(of: protectedUpdateWork) { _, work in
             appUpdateController.updateProtectedWork(work)
         }
@@ -532,6 +535,12 @@ private struct ContentView: View {
             stopMeetingDetection()
             Task { await releaseCaptureResourcesForAppExit() }
         }
+    }
+
+    private var trayRecordingState: GrafTrayRecordingState {
+        GrafTrayRecordingState.resolve(sessionState: captureSession?.state,
+                                       writerActive: localRecordingActive,
+                                       stopping: recordingStopInProgress)
     }
 
     private var protectedUpdateWork: ProtectedUpdateWork {
@@ -2999,6 +3008,7 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
     private var mainWindow: NSWindow?
     private var settingsWindow: NSWindow?
     private var calendarTrayController: CalendarTrayController?
+    private var trayRecordingState: GrafTrayRecordingState = .idle
     private let workspaceZoomStore = WorkspaceZoomStore()
     private let appUpdateController: AppUpdateController
     private var appUpdateSubscription: AnyCancellable?
@@ -3020,6 +3030,11 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
 
     deinit {
         NotificationCenter.default.removeObserver(self)
+    }
+
+    func updateTrayRecordingState(_ state: GrafTrayRecordingState) {
+        trayRecordingState = state
+        calendarTrayController?.showRecordingState(state)
     }
 
     func applicationWillFinishLaunching(_: Notification) {
@@ -3066,6 +3081,7 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
             onUpdate: { [weak self] in self?.checkForUpdates(nil) }
         )
         calendarTrayController?.start()
+        calendarTrayController?.showRecordingState(trayRecordingState)
         appUpdateSubscription = appUpdateController.$presentation
             .combineLatest(appUpdateController.$isManualCheckActionEnabled)
             .sink { [weak self] presentation, enabled in
