@@ -1153,3 +1153,23 @@ Record/Pause/Resume/WebView reload/Stop с локальным сохранени
 
 Последняя проверка не выполняла commit, push, merge, deploy или публикацию.
 Все результаты metadata-safe; внешний выпуск не разрешён.
+
+## Windows host quickstart re-check (2026-09-07)
+
+После push повторно запущены проверки на Windows 11 Pro build `26200` в
+Parallels. Приложение и CTest — x64 под эмуляцией Windows ARM64; это не
+доказательство физического x64.
+
+- `validate-audio-contract.ps1 -Synthetic`: **4/4 PASS** —
+  `RecordingAudioTimelineTests`, `CaptureFaultStateTests`,
+  `AudioNormalizerTests`, `V5LocalRecordingWriterTests`.
+- `validate-webview-boundary.ps1 -Contract`: **4/4 PASS** — route policy,
+  bridge envelope, native recording при offline WebView и cabinet parity.
+- `validate-package-smoke.ps1 -UiMatrix` запущен без пути к MSIX и корректно
+  вернул metadata-safe статус: clean-image install/update/rollback и WebView2
+  repair остаются pending до подписанного пакета. Это не package PASS.
+- Windows execution policy разрешено только для текущего PowerShell-процесса,
+  чтобы выполнить проверочные скрипты; системная политика и UAC не менялись.
+
+Проверка снова не читала и не сохраняла raw audio, расшифровки, cookies,
+токены или private meeting data.
