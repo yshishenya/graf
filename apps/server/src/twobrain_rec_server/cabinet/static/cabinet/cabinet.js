@@ -4644,11 +4644,12 @@
           reportPlaybackFailure(player);
         }
       }
-      window.requestAnimationFrame(() => {
+      // Initial navigation must wait for the first header/player ResizeObserver layout.
+      window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
         scrollTranscriptTurnIntoView(target);
         target.focus({ preventScroll: true });
         if (live) live.textContent = `Открыт источник ${formatTime(Number(target.dataset.startSeconds))} в расшифровке.`;
-      });
+      }));
     }
   };
 
