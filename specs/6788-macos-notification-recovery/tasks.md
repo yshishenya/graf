@@ -101,3 +101,9 @@ T023 использует nullable summary_status в существующем Me
 ## Phase 11: Convergence
 
 - [X] T025 [US5] Согласовать обновление расшифровки с панелью F256 в apps/server/src/twobrain_rec_server/cabinet/static/cabinet/{cabinet,playback-comments}.js: обновлять дорожки, спикеров и проверенный контекст комментариев без пересоздания audio, потери проигрывания и черновика; добавить исполняемую регрессию audio-ready → transcript-ready в apps/server/tests/browser/playback-refresh.test.cjs с повтором существующих тестов progress и комментариев. FR012/SC007 (partial, HIGH), независимый P2 совместимости после переноса на F256; не менять права, схему и исходную ветку F256.
+
+## Phase 12: Convergence
+
+- [X] T026 [US5] Устранить цикл обновления списка для готовой расшифровки без заказанных итогов и при ещё готовящихся итогах в apps/server/src/twobrain_rec_server/cabinet/{rendering.py,static/cabinet/cabinet.js}; проверить реальные JS-функции через полный цикл request → swap → повторная инициализация, сохранение интервала и переход к готовым итогам в apps/server/tests/. FR011–012/SC007 (contradicts, HIGH): независимая диагностика воспроизвела четыре запроса/обновления при неподвижных часах; native список остаётся на «Загружаем встречи…».
+
+- [X] T027 Удалить оставшийся обход единственного Dev из apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh, переиспользовав отказ run-local-app.sh и обновив docs/agent-guidance/local-development.md; заменить устаревший contract на проверку отсутствия side effects. Исправить разбор фактического вывода afinfo в validate-system-audio-capture-pivot.sh с положительным/отрицательными примерами, сохранив требования AAC mono 48 kHz. SC006 (partial, MEDIUM): старый manual harness строит и запускает вторую копию; настоящая сохранённая запись отвергнута только из-за пробелов/кавычек в выводе afinfo. Аудиодвижок, подпись, TCC, стенд и файлы записи не менять.

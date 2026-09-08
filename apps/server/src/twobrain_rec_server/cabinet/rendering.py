@@ -1702,7 +1702,7 @@ def _render_meeting_row(
     )
     time_markup = f"{time_prefix}{user_time_element(time_value)}" if time_value else "Без даты"
     return f"""
-      <li class="meeting-row cabinet-row{row_state_classes}" data-meeting-row data-meeting-id="{item.meeting_id}" data-summary-pending="{'true' if item.notes_action_truth.source_basis == 'transcript_only' or item.notes_action_truth.summary.state == 'processing' else 'false'}" data-sort-started="{instant_attribute(start_value)}" data-sort-updated="{instant_attribute(item.updated_at)}" data-sort-duration="{item.duration_seconds}" data-sort-title="{title}">
+      <li class="meeting-row cabinet-row{row_state_classes}" data-meeting-row data-meeting-id="{item.meeting_id}" data-summary-pending="{'true' if item.notes_action_truth.summary.state == 'processing' else 'false'}" data-processing-transcript-visible="{str(item.transcript_available).lower()}" data-sort-started="{instant_attribute(start_value)}" data-sort-updated="{instant_attribute(item.updated_at)}" data-sort-duration="{item.duration_seconds}" data-sort-title="{title}">
         {selection_control}
         <span class="row-icon" data-media-kind="{source_label}" aria-hidden="true">{source_icon}</span>
         <div class="meeting-content">

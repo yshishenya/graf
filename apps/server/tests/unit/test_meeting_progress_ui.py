@@ -152,3 +152,72 @@ eval(section + ';global.refreshDetail = refreshProcessingDetailContentOnce;');
   assert(replacements === 1 && calls === 2 && next.dataset.processingSummaryContentReady === 'true');
 })().catch(error=>{console.error(error);process.exitCode=1;});
 ''', str(script)], check=True, capture_output=True, text=True)
+
+
+def test_list_summary_poll_does_not_loop_through_authoritative_swaps() -> None:
+    script = Path(__file__).parents[2] / "src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js"
+    subprocess.run(["node", "-e", r'''
+const fs = require('fs'), vm = require('vm'), assert = require('assert');
+const source = fs.readFileSync(process.argv[1], 'utf8');
+const section = (start, end) => source.slice(source.indexOf(start), source.indexOf(end, source.indexOf(start)));
+(async () => {
+  for (const pending of ['queued', 'generating', 'blocked_dependency']) {
+   for (const initiallyVisible of [true, false]) {
+    for (const terminal of ['available', 'partial', 'failed', 'unavailable']) {
+    let transcriptVisible = initiallyVisible;
+    const isPending = () => ['queued', 'generating', 'blocked_dependency'].includes(summary);
+    let now = 100000, refreshes = 0, fetches = 0, summary = pending, nextTimer = 0;
+    const timers = new Map(), swaps = [];
+    let row;
+    const makeRow = () => ({isConnected: true, dataset: {meetingId: 'synthetic', processingTranscriptVisible: String(transcriptVisible), summaryPending: String(isPending())},
+      contains: () => false, querySelector: (selector) => selector.includes('data-status-kind')
+        ? {dataset: {statusKind: isPending() ? 'processing' : 'ready'}}
+        : {dataset: {}, textContent: ''}});
+    row = makeRow();
+    const document = {activeElement: null, querySelector: () => null};
+    const context = vm.createContext({console, document, Map, WeakMap, WeakSet, Set, AbortController,
+      Date: {now: () => now}, currentList: () => ({contains: value => value === row}), allRows: () => [row],
+      processingSummaryState: p => p.summary_status, processingTranscriptReady: () => true,
+      processingTerminalFailure: () => false,
+      window: {setTimeout(fn, delay) {assert.strictEqual(delay, 15000); timers.set(++nextTimer, fn); return nextTimer;},
+        clearTimeout(id) {timers.delete(id);}},
+      fetch: async () => {fetches++; return {ok: true, json: async () => ({meeting_id: 'synthetic', state: 'processed', summary_status: summary})};},
+      requestMeetingListRefresh: () => {
+        refreshes++;
+        const event = {detail: {xhr: {}}};
+        context.beginAuthoritativeMeetingListRequest(event);
+        swaps.push(() => {row.isConnected = false; transcriptVisible = true; row = makeRow(); context.finishAuthoritativeMeetingListRequest(event); context.initProcessingListProjection();});
+        return true;
+      },
+    });
+    vm.runInContext(section('const processingListProjectionRequests =', 'const selectedMeetingIds =')
+      + section('let meetingListRequestGeneration =', 'const progressPollRequestGenerations =')
+      + section('const processingSummaryPending =', 'const processingTranscriptReady =')
+      + section('const beginAuthoritativeMeetingListRequest =', 'const rememberProgressPollGeneration =')
+      + section('const renderProcessingListProjection =', 'const initSummaryFormats =')
+      + ';Object.assign(globalThis, {beginAuthoritativeMeetingListRequest, finishAuthoritativeMeetingListRequest, initProcessingListProjection});', context);
+    context.initProcessingListProjection();
+    for (let i = 0; i < 4; i++) {
+      await new Promise(setImmediate);
+      swaps.shift()?.();
+      context.initProcessingListProjection();
+    }
+    const firstRefresh = initiallyVisible ? 0 : 1;
+    assert.strictEqual(refreshes, firstRefresh, pending + ': only first transcript readiness may refresh the list');
+    assert.strictEqual(fetches, firstRefresh + 1, pending + ': unchanged state must preserve the 15s throttle');
+    now += 15000;
+    summary = terminal;
+    const [id, tick] = timers.entries().next().value;
+    timers.delete(id); tick();
+    await new Promise(setImmediate);
+    assert.strictEqual(refreshes, firstRefresh + 1, 'publication must request one authoritative list refresh');
+    swaps.shift()();
+    for (let i = 0; i < 4; i++) {await new Promise(setImmediate); context.initProcessingListProjection();}
+    assert.strictEqual(fetches, firstRefresh + 2, 'ready row must stop polling after the real swap');
+    assert.strictEqual(refreshes, firstRefresh + 1);
+    assert.strictEqual(timers.size, 0);
+    }
+   }
+  }
+})().catch(error => {console.error(error); process.exitCode = 1;});
+''', str(script)], check=True, capture_output=True, text=True)

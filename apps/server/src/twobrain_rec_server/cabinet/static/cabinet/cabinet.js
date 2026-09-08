@@ -3135,15 +3135,19 @@
     ) return;
     const retryClass = String(projection?.retry_class || "none");
     const state = String(projection?.state || "").toLowerCase();
+    const transcriptReady = processingTranscriptReady(projection);
+    const summaryState = processingSummaryState(projection);
     if (
       retryClass === "terminal"
-      || ["processed", "blocked", "failed_terminal", "canceled"].includes(state)
+      || ["blocked", "failed_terminal", "canceled"].includes(state)
+      || (state === "processed" && (
+        !processingSummaryPending(summaryState)
+        || (transcriptReady && row.dataset.processingTranscriptVisible !== "true")
+      ))
     ) {
       const restoreFocus = row.contains(document.activeElement);
       if (requestMeetingListRefresh({ focusMeetingIds: [rowMeetingId], restoreFocus })) return;
     }
-    const transcriptReady = processingTranscriptReady(projection);
-    const summaryState = processingSummaryState(projection);
     const replacement = Number(projection?.attempt_ordinal ?? 0) > 1
       && projection?.content_available === true;
     const text = replacement && !processingTerminalFailure(projection)

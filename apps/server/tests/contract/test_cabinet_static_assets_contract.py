@@ -616,8 +616,8 @@ vm.runInThisContext(`
   const processingListProjectionLastFetchedAt = new Map();
   const processingListProjectionStates = new Map();
   const processingTranscriptReady = () => false;
-  const processingSummaryState = () => "processing";
-  const processingSummaryPending = () => true;
+  const processingSummaryState = (projection) => projection.state === "processed" ? "available" : "processing";
+  const processingSummaryPending = (state) => state === "processing";
   const requestMeetingListRefresh = () => { refreshes += 1; return true; };
   ${source}
   global.initProcessingListProjection = initProcessingListProjection;
