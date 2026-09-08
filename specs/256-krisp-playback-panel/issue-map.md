@@ -17,3 +17,5 @@
 
 Актуальное состояние задач в tasks.md; состояние issues проверяется по ссылкам.
 Umbrella #6793 остаётся открытым до merge и итогового live closeout.
+
+T013: https://github.com/yshishenya/graf/issues/6830 — дополнительная проверка collapse/resize,PR#6828.

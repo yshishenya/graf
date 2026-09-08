@@ -4712,7 +4712,7 @@
         }
         const maxHeight = maximumHeight();
         currentHeight = Math.max(minimumHeight, Math.min(maxHeight, requestedHeight));
-        handle.hidden = false;
+        handle.hidden = shell.classList.contains("is-collapsed");
         handle.setAttribute("aria-valuemin", String(minimumHeight));
         handle.setAttribute("aria-valuemax", String(maxHeight));
         handle.setAttribute("aria-valuenow", String(currentHeight));

@@ -239,12 +239,29 @@ async function playback(page) {
   await handle.focus(); await page.keyboard.press('End');
   await page.waitForFunction(() => Math.abs(document.querySelector('[data-speaker-timeline]').getBoundingClientRect().height - Number(document.querySelector('[data-speaker-timeline-resize]').getAttribute('aria-valuenow'))) <= 2);
   const expanded = await page.locator('[data-speaker-timeline]').evaluate(node => node.getBoundingClientRect().height);
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
   await page.locator('[data-playback-timeline-toggle]').click();
+  const closedShell = page.locator('[data-speaker-timeline-shell]');
+  await page.waitForFunction(() => document.querySelector('[data-speaker-timeline-shell]').getBoundingClientRect().height < 1);
+  assert.equal(await handle.isVisible(), false);
+  const expandedViewport = page.viewportSize();
+  await page.setViewportSize({ width: expandedViewport.width - 10, height: expandedViewport.height });
+  await settle(page);
+  assert.equal(await closedShell.evaluate(node => node.getBoundingClientRect().height), 0);
+  assert.equal(await handle.isVisible(), false, 'Collapsed resize grip must stay hidden after viewport resize');
+  await page.evaluate(() => { document.documentElement.style.zoom = '2'; });
+  await settle(page);
+  assert.equal(await closedShell.evaluate(node => node.getBoundingClientRect().height), 0);
+  assert.equal(await handle.isVisible(), false);
+  await page.evaluate(() => { document.documentElement.style.zoom = '1'; });
+  await page.setViewportSize(expandedViewport);
   assert.equal(await page.locator('[data-playback-progress]').isVisible(), true);
   assert.equal(await page.locator('[data-playback-toggle]').isVisible(), true);
   await page.locator('[data-playback-timeline-toggle]').click();
   await settle(page);
-  assert.ok(Math.abs(await page.locator('[data-speaker-timeline]').evaluate(node => node.getBoundingClientRect().height) - expanded) <= 2);
+  await page.waitForFunction(height => Math.abs(document.querySelector('[data-speaker-timeline-shell]').getBoundingClientRect().height - height) <= 2, expanded);
+  assert.equal(await handle.isVisible(), true);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
 
   // The retained player must navigate new transcript DOM after a main refresh.
   await position(page, 12);

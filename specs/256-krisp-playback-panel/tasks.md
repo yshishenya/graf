@@ -49,3 +49,7 @@ FR-012–014/019, US4 и аудио-часть FR-015: следующий эта
 Завершение задачи отмечается после проверки; issue закрывается только с evidence
 и соблюдением tracker-policy. Исторический reference JSON не является списком
 обязательных действий первого этапа без учёта delivery_stages.
+
+## Phase 1: Convergence после установленной приёмки
+
+- [ ] T013 Исправить возвращение ручки resize при изменении размера свёрнутой панели в apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js; дополнить specs/256-krisp-playback-panel/evidence/playback-panel-runtime-check.cjs измерением закрытого shell до/после resize и100/200%, перепроверить фактическое скрытие дорожек в установленном GRAF Dev и обновить PR evidence согласно FR-009/FR-017, SC-002/SC-006 (partial). (Issue #6830)
