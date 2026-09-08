@@ -46,6 +46,25 @@ assert.ok(observed.includes(detail), 'player resize must update the header witho
 resize(); assert.equal(scrolls, true, 'the header yields space in a short document');
 detail.clientHeight = 720;
 resize(); assert.equal(scrolls, false, 'the header remains sticky when space is available');
+(() => {
+  const frames = [];
+  let layoutReady = false, revealed = false;
+  const turn = {dataset:{sourceSegments:'current-segment', startSeconds:'2'}, focus:() => {}};
+  const document = {body:{dataset:{}}, addEventListener:() => {},
+    querySelectorAll:selector => selector === '[data-transcript-turn]' ? [turn] : [], querySelector:() => null};
+  const window = {location:{hash:'#graf-source=current-segment'}, requestAnimationFrame:fn => frames.push(fn)};
+  const activateDetailTab = () => {};
+  const scrollTranscriptTurnIntoView = target => {
+    assert.equal(target, turn);
+    assert.ok(layoutReady, 'initial source waits for the header/player resize delivery');
+    revealed = true;
+  };
+  eval(source.slice(source.indexOf('  const initSourceNavigation ='), source.indexOf('  const DEFAULT_TIMELINE_HEIGHT =')) + '\ninitSourceNavigation();');
+  frames.shift()();
+  layoutReady = true; // Browsers deliver the first ResizeObserver after animation callbacks.
+  while (frames.length) frames.shift()();
+  assert.ok(revealed, 'the current segment opens after initial layout');
+})();
 """
     result = subprocess.run(["node", "-e", harness, str(script)], capture_output=True, text=True, timeout=20)
     assert result.returncode == 0, result.stdout + result.stderr
