@@ -203,6 +203,10 @@
         if (sequence !== requestSequence || !shell.isConnected) return;
         if (data.media_revision_id !== shell.dataset.mediaRevisionId) throw new Error("Обсуждение относится к другой версии записи. Обновите страницу.");
         roots = [data]; nextCursor = null; render(); announce("");
+        loading = false; busy();
+        const target = list.querySelector(`[data-comment-card-id="${CSS.escape(id)}"]`);
+        target?.focus({ preventScroll: true });
+        target?.scrollIntoView({ block: "nearest", behavior: "instant" });
       } catch (error) { if (sequence === requestSequence) announce(error.message); }
       finally { if (sequence === requestSequence) { loading = false; busy(); } }
     }
@@ -235,7 +239,8 @@
           next.disabled = true;
           try {
             const data = await request(`/${encodeURIComponent(root.id)}/replies`, "GET", null, { limit: 50, cursor: root.next_reply_cursor });
-            root.replies = [...(root.replies || []), ...data.items.filter(item => !(root.replies || []).some(reply => reply.id === item.id))];
+            root.replies = [...(root.replies || []), ...data.items.filter(item => !(root.replies || []).some(reply => reply.id === item.id))]
+              .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at) || a.id.localeCompare(b.id));
             root.next_reply_cursor = data.next_cursor; render();
           } catch (error) { announce(error.message); next.disabled = false; }
         });
@@ -245,6 +250,8 @@
     }
     function commentCard(comment, root) {
       const card = el("article", "playback-comment");
+      card.dataset.commentCardId = comment.id;
+      card.tabIndex = -1;
       const meta = el("div", "playback-comment-meta");
       meta.append(el("strong", "", comment.author_label || "Участник"));
       const stamp = el("time"); stamp.dateTime = comment.created_at;

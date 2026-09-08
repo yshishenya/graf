@@ -2,11 +2,14 @@
 
 import hashlib
 import json
+from collections import defaultdict
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import delete, func, or_, select, text, tuple_
+from sqlalchemy import case, delete, func, or_, select, text, tuple_
+from sqlalchemy.orm import aliased
 
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.cabinet.access import decide_meeting_access
@@ -448,26 +451,32 @@ async def react(db, decision, user_id, row, payload):
     return row
 
 
-async def comment_view(db, row, decision, user_id, *, with_replies=False):
-    author = await db.get(UserIdentity, row.author_user_id)
-    mentions = [
-        dict(user_id=str(m.user_id), start=m.start, end=m.end)
-        for m in await db.scalars(
-            select(MeetingCommentMention).where(MeetingCommentMention.comment_id == row.id)
-        )
-    ]
-    reactions = {}
-    for r in await db.scalars(
-        select(MeetingCommentReaction).where(MeetingCommentReaction.comment_id == row.id)
-    ):
-        item = reactions.setdefault(r.emoji, dict(emoji=r.emoji, count=0, selected=False))
-        item["count"] += 1
-        item["selected"] |= r.user_id == user_id
-    result = dict(
+@asynccontextmanager
+async def comment_reader_context(db, meeting, decision, user_id):
+    """Carry the request dependency's already-validated ACL into label reads."""
+    if not decision.can_view or not decision.can_view_full_meeting:
+        problem(404, "meeting_not_found")
+    previous = db.info.get("comment_reader_access")
+    db.info["comment_reader_access"] = (meeting.id, user_id)
+    try:
+        yield
+    finally:
+        if previous is None:
+            db.info.pop("comment_reader_access", None)
+        else:
+            db.info["comment_reader_access"] = previous
+
+
+def _comment_cursor(row):
+    return f"{row.created_at.isoformat()}|{row.id}"
+
+
+def _comment_view(row, decision, user_id, labels, mentions, reactions):
+    return dict(
         id=str(row.id),
         parent_id=str(row.parent_id) if row.parent_id else None,
         author_user_id=str(row.author_user_id),
-        author_label=author.display_name if author else "Участник",
+        author_label=labels.get(row.author_user_id) or "Участник",
         media_revision_id=str(row.media_revision_id),
         processing_result_id=str(row.processing_result_id) if row.processing_result_id else None,
         source_segment_id=str(row.source_segment_id) if row.source_segment_id else None,
@@ -478,20 +487,131 @@ async def comment_view(db, row, decision, user_id, *, with_replies=False):
         resolved=row.resolved,
         created_at=row.created_at.isoformat(),
         edited_at=row.edited_at.isoformat() if row.edited_at else None,
-        mentions=mentions,
-        reactions=list(reactions.values()),
+        mentions=mentions.get(row.id, []),
+        reactions=reactions.get(row.id, []),
         can_edit=decision.can_comment and row.author_user_id == user_id,
         can_delete=decision.can_comment and (row.author_user_id == user_id or decision.can_edit),
         can_resolve=decision.can_comment
         and row.parent_id is None
         and (row.author_user_id == user_id or decision.can_edit),
     )
+
+
+async def _comment_views(db, rows, decision, user_id, *, with_replies=False):
+    if not rows:
+        return []
+    replies = defaultdict(list)
     if with_replies:
-        page = await list_comments(
-            db, row.meeting_id, row.media_revision_id, decision, user_id, parent_id=row.id
+        ranked = (
+            select(
+                MeetingComment,
+                func.row_number()
+                .over(
+                    partition_by=MeetingComment.parent_id,
+                    order_by=(MeetingComment.created_at, MeetingComment.id),
+                )
+                .label("reply_number"),
+            )
+            .where(
+                MeetingComment.workspace_id == rows[0].workspace_id,
+                MeetingComment.meeting_id == rows[0].meeting_id,
+                MeetingComment.media_revision_id == rows[0].media_revision_id,
+                MeetingComment.parent_id.in_([row.id for row in rows]),
+            )
+            .subquery()
         )
-        result.update(replies=page["items"], next_reply_cursor=page["next_cursor"])
-    return result
+        reply = aliased(MeetingComment, ranked)
+        for row in await db.scalars(
+            select(reply)
+            .where(ranked.c.reply_number <= 51)
+            .order_by(reply.parent_id, reply.created_at, reply.id)
+        ):
+            replies[row.parent_id].append(row)
+    visible = [*rows, *(row for group in replies.values() for row in group[:50])]
+    identifiers = [row.id for row in visible]
+    authors = {row.author_user_id for row in visible}
+    if db.bind.dialect.name == "postgresql":
+        meeting_id = rows[0].meeting_id
+        # Only the request dependency that performed the real ACL check may
+        # supply this proof. Ordinary workspace readers are authorized in SQL.
+        marked = (
+            decision.role is None
+            and decision.state != "owner"
+            and db.info.get("comment_reader_access") == (meeting_id, user_id)
+            and db.info.get("tenant_context", {}).get("app.user_id") == str(user_id)
+            and db.info.get("tenant_context", {}).get("app.workspace_id")
+            == str(rows[0].workspace_id)
+        )
+        marker_sql = text(
+            "SELECT set_config('app.comment_reader_meeting_id', :meeting, true), "
+            "set_config('app.comment_reader_user_id', :user, true)"
+        )
+        if marked:
+            await db.execute(marker_sql, dict(meeting=str(meeting_id), user=str(user_id)))
+        try:
+            labels = dict(
+                (
+                    await db.execute(
+                        text(
+                            "SELECT user_id, display_label FROM rec_comment_author_labels(:meeting, CAST(:users AS uuid[]))"
+                        ),
+                        dict(meeting=meeting_id, users=list(authors)),
+                    )
+                ).all()
+            )
+        finally:
+            if marked:
+                await db.execute(marker_sql, dict(meeting="", user=""))
+    else:
+        labels = dict(
+            (
+                await db.execute(
+                    select(UserIdentity.id, UserIdentity.display_name).where(
+                        UserIdentity.id.in_(authors)
+                    )
+                )
+            ).all()
+        )
+    mentions = defaultdict(list)
+    for mention in await db.scalars(
+        select(MeetingCommentMention)
+        .where(MeetingCommentMention.comment_id.in_(identifiers))
+        .order_by(MeetingCommentMention.start, MeetingCommentMention.id)
+    ):
+        mentions[mention.comment_id].append(
+            dict(user_id=str(mention.user_id), start=mention.start, end=mention.end)
+        )
+    reactions = defaultdict(list)
+    for comment, emoji, count, selected in await db.execute(
+        select(
+            MeetingCommentReaction.comment_id,
+            MeetingCommentReaction.emoji,
+            func.count(),
+            func.max(case((MeetingCommentReaction.user_id == user_id, 1), else_=0)),
+        )
+        .where(MeetingCommentReaction.comment_id.in_(identifiers))
+        .group_by(MeetingCommentReaction.comment_id, MeetingCommentReaction.emoji)
+        .order_by(MeetingCommentReaction.emoji)
+    ):
+        reactions[comment].append(dict(emoji=emoji, count=count, selected=bool(selected)))
+    items = []
+    for row in rows:
+        item = _comment_view(row, decision, user_id, labels, mentions, reactions)
+        if with_replies:
+            children = replies[row.id]
+            item.update(
+                replies=[
+                    _comment_view(child, decision, user_id, labels, mentions, reactions)
+                    for child in children[:50]
+                ],
+                next_reply_cursor=_comment_cursor(children[49]) if len(children) > 50 else None,
+            )
+        items.append(item)
+    return items
+
+
+async def comment_view(db, row, decision, user_id, *, with_replies=False):
+    return (await _comment_views(db, [row], decision, user_id, with_replies=with_replies))[0]
 
 
 async def list_comments(
@@ -555,11 +675,8 @@ async def list_comments(
             for source, count in counts
             if source is not None
         ],
-        items=[
-            await comment_view(db, row, decision, user_id, with_replies=parent_id is None)
-            for row in rows
-        ],
-        next_cursor=f"{rows[-1].created_at.isoformat()}|{rows[-1].id}" if more else None,
+        items=await _comment_views(db, rows, decision, user_id, with_replies=parent_id is None),
+        next_cursor=_comment_cursor(rows[-1]) if more else None,
         capabilities=capabilities(decision),
         media_revision_id=str(media_id),
     )

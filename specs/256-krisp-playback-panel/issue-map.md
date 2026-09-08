@@ -19,3 +19,6 @@
 Umbrella #6793 остаётся открытым до merge и итогового live closeout.
 
 T013: https://github.com/yshishenya/graf/issues/6830 — дополнительная проверка collapse/resize,PR#6828.
+
+Дополнительные задачи review PR: T014 → #6832; T015 → #6833; T016 → #6834.
+Все открыты до регрессий, независимого review и current-SHA gates.

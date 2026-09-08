@@ -14,7 +14,7 @@ from fastapi.responses import (
     StreamingResponse,
 )
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import nullslast, select
+from sqlalchemy import nullslast, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.admin.queries import load_admin_workspace_context
@@ -354,6 +354,7 @@ async def get_public_share_db_session(
 
 async def get_share_operation_db_session(
     request: Request,
+    meeting_id: UUID | None = None,
     workspace_id: UUID | None = None,
     tenant_scope: TenantScope = TenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
@@ -381,7 +382,56 @@ async def get_share_operation_db_session(
                 context_kind="request",
             ),
         )
-        yield session
+        editor_projection = False
+        if meeting_id is not None:
+            # Validate the recipient in its own identity scope before exposing
+            # owner-organization identities to the sharing operation.
+            meeting = await lock_shareable_meeting(
+                session, workspace_id=owner_workspace, meeting_id=meeting_id
+            )
+            decision = await decide_meeting_access(
+                session,
+                meeting,
+                workspace_id=owner_workspace,
+                viewer_user_id=principal.user_id,
+                recipient_proof=proof,
+            )
+            if not decision.can_view:
+                raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
+            if owner_workspace != tenant_scope.workspace_id:
+                owner = await session.get(Workspace, owner_workspace)
+                if owner is None:
+                    raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
+                await apply_tenant_context(
+                    session,
+                    TenantDatabaseContext(
+                        organization_id=owner.organization_id,
+                        workspace_id=owner_workspace,
+                        user_id=principal.user_id,
+                        context_kind="request",
+                    ),
+                )
+            if decision.can_edit and session.bind.dialect.name == "postgresql":
+                await session.execute(
+                    text(
+                        "SELECT set_config('app.comment_editor_meeting_id', :meeting, true), "
+                        "set_config('app.comment_editor_user_id', :actor, true)"
+                    ),
+                    {"meeting": str(meeting_id), "actor": str(principal.user_id)},
+                )
+                editor_projection = True
+        try:
+            yield session
+        finally:
+            # Commit/rollback clears these local settings; never replay them
+            # through session.info into a later transaction.
+            if editor_projection and session.is_active and session.in_transaction():
+                await session.execute(
+                    text(
+                        "SELECT set_config('app.comment_editor_meeting_id', '', true), "
+                        "set_config('app.comment_editor_user_id', '', true)"
+                    )
+                )
 
 
 ShareOperationDbDependency = Depends(get_share_operation_db_session)
@@ -4839,7 +4889,8 @@ async def comment_context(
         )
         if not decision.can_view or not decision.can_view_full_meeting:
             discussion.problem(404, "meeting_not_found")
-        yield session, meeting, decision, principal.user_id
+        async with discussion.comment_reader_context(session, meeting, decision, principal.user_id):
+            yield session, meeting, decision, principal.user_id
 
 
 CommentContext = Depends(comment_context)
@@ -4887,10 +4938,19 @@ async def meeting_comment_mentions(
 async def get_meeting_comment(comment_id: UUID, context=CommentContext):
     db, meeting, decision, user = context
     row = await discussion.find_comment(db, meeting, comment_id)
+    target = row if row.parent_id else None
     if row.parent_id:
         row = await discussion.find_comment(db, meeting, row.parent_id)
+    result = await discussion.comment_view(db, row, decision, user, with_replies=True)
+    if target is not None and not any(reply["id"] == str(target.id) for reply in result["replies"]):
+        # Keep a bounded first page and the explicitly linked reply. Resume
+        # before the displaced reply so following pages never lose siblings.
+        result["replies"] = result["replies"][:49]
+        last = result["replies"][-1]
+        result["next_reply_cursor"] = f"{last['created_at']}|{last['id']}"
+        result["replies"].append(await discussion.comment_view(db, target, decision, user))
     return JSONResponse(
-        await discussion.comment_view(db, row, decision, user, with_replies=True),
+        result,
         headers={"Cache-Control": "no-store"},
     )
 
@@ -5031,9 +5091,13 @@ class CommentGrantPermissions(BaseModel):
     dependencies=[WebCSRFDependency],
 )
 async def update_comment_grant_permissions(
-    grant_id: UUID, payload: CommentGrantPermissions, context=CommentContext
+    grant_id: UUID,
+    payload: CommentGrantPermissions,
+    context=CommentContext,
+    device: DeviceContext = DeviceDependency,
 ):
     from twobrain_rec_server.cabinet.access import validate_comment_grant
+    from twobrain_rec_server.cabinet.egress import record_egress_audit_event
 
     db, meeting, decision, user = context
     if not (decision.state == "owner" or decision.can_edit):
@@ -5068,6 +5132,17 @@ async def update_comment_grant_permissions(
     grant.content_scope = scope
     grant.can_comment = payload.can_comment
     grant.can_edit = payload.can_edit
+    await record_egress_audit_event(
+        db,
+        workspace_id=meeting.workspace_id,
+        meeting_id=meeting.id,
+        actor_user_id=user,
+        device_id=device.device_id,
+        event_type="share_updated",
+        outcome="allowed",
+        policy_reason="comment_permissions_updated",
+        metadata={"share_grant_id": str(grant.id)},
+    )
     await db.commit()
     return JSONResponse(
         grant_view(grant, display_name="Участник").model_dump(mode="json"),

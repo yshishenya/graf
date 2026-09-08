@@ -132,6 +132,22 @@ const stylesheet = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/s
       const box = await page.locator(selector).boundingBox();
       assert.ok(box && box.x >= 0 && box.x + box.width <= 390, JSON.stringify({ selector, box }));
     }
+    root = makeComment('Большое обсуждение');
+    root.replies = Array.from({ length: 50 }, (_, i) => makeComment(`Ответ ${i}`, `reply-${i}`, 'root'));
+    await page.goto('https://graf.test/meeting?comment_id=reply-49');
+    await page.addStyleTag({ path: stylesheet }); await page.addScriptTag({ path: asset });
+    await page.evaluate(() => window.GRAFPlaybackComments.init(document.querySelector('[data-playback-shell]')));
+    await page.getByText('Ответ 49', { exact: true }).waitFor();
+    assert.equal(await page.getByText('Ответ 49', { exact: true }).evaluate(node => {
+      const box = node.getBoundingClientRect();
+      return box.top >= 0 && box.bottom <= innerHeight && node.closest('article') === document.activeElement;
+    }), true, 'direct reply is visible and receives keyboard focus');
+    root.next_reply_cursor = 'cursor1';
+    await page.getByRole('combobox', { name: 'Состояние обсуждения' }).selectOption('all');
+    await page.getByRole('button', { name: 'Ещё ответы' }).click();
+    await page.getByText('Поздний ответ', { exact: true }).waitFor();
+    const ids = await page.locator('.playback-comment-replies article').evaluateAll(nodes => nodes.map(node => node.dataset.commentCardId));
+    assert.deepEqual(ids, [...ids].sort((a, b) => a.localeCompare(b)), 'loaded siblings restore chronological order around the linked reply');
     assert.deepEqual(failures, []);
     console.log('PASS: comments UI; plain text, Unicode mentions, retry identity, stale edit recovery, reactions, reply pagination, resolve, delete confirmation, narrow viewport, focus and idempotent init');
   } finally { await browser.close(); }
