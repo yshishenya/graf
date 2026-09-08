@@ -326,6 +326,7 @@ class DeletionArtifactClass(StrEnum):
     NORMALIZATION_JOB = "normalization_job"
     NORMALIZATION_BACKFILL = "normalization_backfill"
     TRANSCRIPT = "transcript"
+    COMMENTS = "comments"
     DIARIZATION = "diarization"
     NOTES_SUMMARY = "notes_summary"
     OUTCOME_ATTEMPT = "outcome_attempt"

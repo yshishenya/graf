@@ -56,7 +56,7 @@ async def inbox_page(request, db, scope, principal, filter, cursor, limit):
         or_(Meeting.deletion_state.is_(None), Meeting.deletion_state == 'none')))
     base = [Notice.recipient_id == principal.user_id,
             or_(Notice.expires_at.is_(None), Notice.expires_at > now),
-            or_((Notice.family == 'result') & visible_meeting, Notice.family == 'share')]
+            or_((Notice.family == 'result') & visible_meeting, Notice.family.in_(['share', 'comment']))]
     # The dot covers every accessible current action, independently of pagination.
     dot = bool(await db.scalar(select(exists(select(Notice.id).where(*base,
         Notice.family == 'result', Notice.requires_action.is_(True),

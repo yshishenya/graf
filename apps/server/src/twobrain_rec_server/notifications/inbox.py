@@ -20,6 +20,7 @@ COPY = {
     'summary_failed': ('Не удалось подготовить итоги', 'Расшифровка доступна. Откройте встречу для восстановления.'),
     'processing_failed': ('Не удалось обработать запись', 'Откройте встречу, чтобы проверить запись и доступные действия.'),
     'no_speech': ('Речь не распознана', 'Проверьте звук записи или загрузите другой файл.'),
+    'mentioned': ('Вас упомянули в обсуждении', 'Откройте встречу, чтобы прочитать комментарий.'),
     'shared': ('С вами поделились встречей', 'Откройте встречу, чтобы посмотреть доступный результат.'),
 }
 ACTION_KINDS = frozenset({'summary_failed', 'processing_failed', 'no_speech'})
@@ -113,7 +114,33 @@ async def authorized_card(db, row, *, tenant_scope, sessionmaker):
 
     if row.recipient_id != tenant_scope.user_id:
         return None
-    if row.family == 'result':
+    if row.family == 'comment':
+        from twobrain_rec_server.db.models import (
+            MeetingComment,
+            MeetingCommentMention,
+        )
+        proof = await recipient_share_access_proof(sessionmaker, recipient_scope=tenant_scope, owner_workspace_id=row.workspace_id)
+        if not proof.user_is_active:
+            return None
+        async with sessionmaker() as source_db:
+            await apply_tenant_context(source_db, TenantDatabaseContext(
+                organization_id=UUID(int=0), workspace_id=row.workspace_id, user_id=UUID(int=0)))
+            meeting = await source_db.get(Meeting, row.meeting_id)
+            comment = await source_db.get(MeetingComment, row.source_id)
+            mention = await source_db.scalar(select(MeetingCommentMention.id).where(
+                MeetingCommentMention.comment_id == row.source_id, MeetingCommentMention.user_id == tenant_scope.user_id,
+                MeetingCommentMention.meeting_id == row.meeting_id, MeetingCommentMention.workspace_id == row.workspace_id))
+            if meeting is None or comment is None or mention is None:
+                return None
+            decision = await decide_meeting_access(source_db, meeting, workspace_id=row.workspace_id,
+                viewer_user_id=tenant_scope.user_id, recipient_proof=proof)
+            from twobrain_rec_server.processing.store import latest_media_revision_for_meeting
+            media = await latest_media_revision_for_meeting(source_db, workspace_id=row.workspace_id, meeting_id=meeting.id)
+            if not decision.can_view or not decision.can_view_full_meeting or media is None or comment.media_revision_id != media.id:
+                return None
+        path = (f'/meetings/{meeting.id}?comment_id={comment.id}' if row.workspace_id == tenant_scope.workspace_id
+                else f'/shared-meetings/{meeting.id}?workspace_id={row.workspace_id}&comment_id={comment.id}')
+    elif row.family == 'result':
         if row.workspace_id != tenant_scope.workspace_id:
             return None
         meeting = await db.get(Meeting, row.meeting_id)
@@ -145,7 +172,7 @@ async def authorized_card(db, row, *, tenant_scope, sessionmaker):
     return dict(id=str(row.id), revision=row.revision, title=title, body=body,
                 meeting_title=meeting.title or 'Встреча', href=path,
                 requires_action=row.requires_action, unseen=row.read_revision < row.revision,
-                personal=row.family == 'share', created_at=row.created_at.isoformat(),
+                personal=row.family in {'share', 'comment'}, created_at=row.created_at.isoformat(),
                 updated_at=row.updated_at.isoformat(), resolved=row.resolved_at is not None)
 
 

@@ -2225,6 +2225,15 @@ async def _purge_server_controlled_content(
         result.materialized_classes.add(DeletionArtifactClass.UPLOAD_TEMP)
         result.purged_classes.add(DeletionArtifactClass.UPLOAD_TEMP)
 
+    from twobrain_rec_server.db.models import MeetingComment, ServerNotification
+    await db.execute(delete(ServerNotification).where(ServerNotification.workspace_id == meeting.workspace_id,
+        ServerNotification.meeting_id == meeting.id, ServerNotification.family == "comment"))
+    comments_deleted = await db.execute(delete(MeetingComment).where(MeetingComment.workspace_id == meeting.workspace_id,
+        MeetingComment.meeting_id == meeting.id))
+    if comments_deleted.rowcount:
+        result.materialized_classes.add(DeletionArtifactClass.COMMENTS)
+        result.purged_classes.add(DeletionArtifactClass.COMMENTS)
+
     transcript_delete = await db.execute(
         delete(TranscriptSegment)
         .where(TranscriptSegment.workspace_id == meeting.workspace_id)
@@ -2588,6 +2597,12 @@ def _initial_artifact_states(
             DeletionControlScope.CONTROLLED,
             _purge_state(DeletionArtifactClass.TRANSCRIPT, purged_artifact_classes),
             _purge_reason("Transcript", DeletionArtifactClass.TRANSCRIPT, purged_artifact_classes),
+        ),
+        (
+            DeletionArtifactClass.COMMENTS,
+            DeletionControlScope.CONTROLLED,
+            _purge_state(DeletionArtifactClass.COMMENTS, purged_artifact_classes),
+            _purge_reason("Comments", DeletionArtifactClass.COMMENTS, purged_artifact_classes),
         ),
         (
             DeletionArtifactClass.DIARIZATION,

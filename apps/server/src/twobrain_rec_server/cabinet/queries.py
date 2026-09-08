@@ -1313,7 +1313,7 @@ async def get_cabinet_meeting_review(
         default_summary_template_name=default_summary_template_name,
         outcome_items=await load_outcome_items(db, outcome_set=outcome_set),
         speaker_names=speaker_names,
-        can_rename_speakers=source_result_id is None and (decision.state == "owner" or decision.role in {"owner", "admin"}),
+        can_rename_speakers=source_result_id is None and (decision.state == "owner" or decision.can_edit or decision.role in {"owner", "admin"}),
         reprocess_available=reprocess_available,
     )
 

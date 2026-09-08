@@ -86,6 +86,8 @@
     "summary_source_revision_stale",
   ]);
   const sharingActionProblemCodes = new Set([
+    "comment_permission_forbidden",
+    "invalid_comment_permission",
     "grantee_not_found",
     "invalid_share_audience",
     "invitation_delivery_unavailable",
@@ -4534,7 +4536,10 @@
     if (playbackError) playbackError.hidden = false;
     const toggle = shell?.querySelector("[data-playback-toggle]");
     if (!toggle) return;
-    toggle.textContent = "▶";
+    const playIcon = toggle.querySelector("[data-playback-play-icon]");
+    const pauseIcon = toggle.querySelector("[data-playback-pause-icon]");
+    if (playIcon) playIcon.hidden = false;
+    if (pauseIcon) pauseIcon.hidden = true;
     toggle.setAttribute("aria-label", "Воспроизвести");
   };
 
@@ -4646,16 +4651,15 @@
     document.querySelectorAll("[data-speaker-timeline-shell]").forEach((shell) => {
       if (shell.dataset.speakerTimelineResizeReady === "true") return;
       const timeline = shell.querySelector("[data-speaker-timeline]");
-      const handle = shell.querySelector("[data-speaker-timeline-resize]");
       const playback = shell.closest("[data-playback-shell]");
+      const handle = playback?.querySelector("[data-speaker-timeline-resize]");
       if (!timeline || !handle || !playback) return;
       shell.dataset.speakerTimelineResizeReady = "true";
 
       const defaultHeight = Number.parseFloat(
         timeline.dataset.speakerTimelineDefaultHeight || String(DEFAULT_TIMELINE_HEIGHT),
       ) || DEFAULT_TIMELINE_HEIGHT;
-      const speakerCount = Number.parseInt(timeline.dataset.speakerTimelineCount || "0", 10) || 0;
-      let minimumHeight = defaultHeight;
+      let minimumHeight = 33;
       let currentHeight = minimumHeight;
       let baselineBarTop = playback.getBoundingClientRect().top;
       let drag = null;
@@ -4676,9 +4680,7 @@
       };
       const refreshNaturalHeight = () => {
         const measuredHeight = measureNaturalHeight();
-        if (speakerCount > 0 && speakerCount <= 3) {
-          minimumHeight = measuredHeight || defaultHeight;
-        }
+        minimumHeight = Math.min(33, measuredHeight || 33);
         return measuredHeight;
       };
       const contentHeight = () => Math.max(
@@ -4722,13 +4724,8 @@
         );
         shell.dataset.speakerTimelineExpandable = "true";
         shell.dataset.speakerTimelineHeight = String(currentHeight);
-        if (currentHeight <= minimumHeight + 1) {
-          timeline.style.height = "";
-          timeline.style.maxHeight = "";
-        } else {
-          timeline.style.height = `${currentHeight}px`;
-          timeline.style.maxHeight = `${currentHeight}px`;
-        }
+        timeline.style.height = `${currentHeight}px`;
+        timeline.style.maxHeight = `${currentHeight}px`;
       };
       const resetViewportBaseline = () => {
         const previousHeight = currentHeight;
@@ -4785,12 +4782,33 @@
       handle.hidden = false;
       baselineBarTop = playback.getBoundingClientRect().top;
       refreshNaturalHeight();
-      applyHeight(minimumHeight);
+      applyHeight(Math.min(defaultHeight, measureNaturalHeight()));
+      const collapse = playback.querySelector("[data-playback-timeline-toggle]");
+      collapse?.addEventListener("click", () => {
+        const collapsed = shell.classList.toggle("is-collapsed");
+        shell.inert = collapsed;
+        handle.hidden = collapsed || contentHeight() <= minimumHeight + 1;
+        collapse.setAttribute("aria-expanded", String(!collapsed));
+        collapse.setAttribute("aria-label", collapsed ? "Показать дорожки" : "Скрыть дорожки");
+      });
     });
+  };
+
+  const mergePlaybackIntervals = (intervals) => {
+    const ordered = intervals.filter(([start, end]) => Number.isFinite(start) && Number.isFinite(end) && end > Math.max(0, start))
+      .map(([start, end]) => [Math.max(0, start), end]).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    const merged = [];
+    for (const interval of ordered) {
+      const previous = merged[merged.length - 1];
+      if (previous && interval[0] <= previous[1]) previous[1] = Math.max(previous[1], interval[1]);
+      else merged.push(interval);
+    }
+    return merged;
   };
 
   const initPlayback = () => {
     document.querySelectorAll("[data-playback-shell]").forEach((shell) => {
+      window.GRAFPlaybackComments?.init(shell);
       if (shell.dataset.playbackReady === "true") return;
       shell.dataset.playbackReady = "true";
       const player = shell.querySelector("[data-playback-player]");
@@ -4802,130 +4820,220 @@
       const speedToggle = shell.querySelector("[data-playback-speed-toggle]");
       const playbackError = shell.querySelector("[data-playback-error]");
       const lanes = Array.from(shell.querySelectorAll("[data-speaker-lane]"));
-      const transcriptTurns = Array.from(document.querySelectorAll("[data-transcript-turn]"));
+      const avatars = Array.from(shell.querySelectorAll("[data-playback-avatar]"));
+      const transcriptTurns = () => Array.from(document.querySelectorAll("[data-transcript-turn]"));
+      const selectedSpeakers = new Set();
+      let allowedIntervals = [];
+      let highlightTimer;
+      let selectionTimer;
+      const live = shell.querySelector("[data-playback-listen-status]");
       const setToggleState = (playing) => {
-        if (!toggle) return;
-        toggle.textContent = playing ? "Ⅱ" : "▶";
-        toggle.setAttribute("aria-label", playing ? "Приостановить" : "Воспроизвести");
+        const playIcon = toggle?.querySelector("[data-playback-play-icon]");
+        const pauseIcon = toggle?.querySelector("[data-playback-pause-icon]");
+        if (playIcon) playIcon.hidden = playing;
+        if (pauseIcon) pauseIcon.hidden = !playing;
+        toggle?.setAttribute("aria-label", playing ? "Приостановить" : "Воспроизвести");
       };
-      const reportFailure = () => reportPlaybackFailure(player);
-      const play = () => {
-        if (playbackError) playbackError.hidden = true;
-        return player.play().catch(reportFailure);
-      };
-      const playbackDuration = () => {
-        if (Number.isFinite(player.duration) && player.duration > 0) return player.duration;
-        const fallback = Number.parseFloat(progress?.max || "0");
-        return Number.isFinite(fallback) && fallback > 0 ? fallback : 0;
-      };
+      const playbackDuration = () => Number.isFinite(player.duration) && player.duration > 0
+        ? player.duration : Number.parseFloat(progress?.max || "0") || 0;
       const currentTranscriptTurn = (seconds) => {
-        if (!transcriptTurns.length) return null;
-        return transcriptTurns.reduce((match, turn) => {
-          const start = Number.parseFloat(turn.dataset.startSeconds || "0");
-          return Number.isFinite(start) && start <= seconds ? turn : match;
-        }, transcriptTurns[0]);
+        const turns = transcriptTurns();
+        const active = turns.filter((turn) => Number(turn.dataset.startSeconds) <= seconds && seconds < Number(turn.dataset.endSeconds));
+        const selectedIds = (shell.dataset.playbackSourceSegments || "").split(/\s+/).filter(Boolean);
+        return active.find((turn) => selectedIds.some((id) => (turn.dataset.sourceSegments || "").split(/\s+/).includes(id))) || active.at(-1)
+          || turns.filter((turn) => Number(turn.dataset.startSeconds) <= seconds).at(-1) || null;
       };
-      const followTranscript = (seconds) => {
-        const turn = currentTranscriptTurn(seconds);
+      const followTranscript = (seconds, sourceIds = "") => {
+        const ids = sourceIds.split(/\s+/).filter(Boolean);
+        const turn = transcriptTurns().find((turn) => ids.some((id) => (turn.dataset.sourceSegments || "").split(/\s+/).includes(id)))
+          || currentTranscriptTurn(seconds);
         if (!turn) return;
-        const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-        turn.scrollIntoView({ block: "center", behavior: reducedMotion ? "auto" : "smooth" });
+        activateDetailTab("recording");
+        turn.scrollIntoView({ block: "center", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+        transcriptTurns().forEach((item) => item.classList.remove("is-source-highlight"));
+        turn.classList.add("is-source-highlight");
+        window.clearTimeout(highlightTimer);
+        highlightTimer = window.setTimeout(() => turn.classList.remove("is-source-highlight"), 2000);
       };
       const syncTime = () => {
         if (current) current.textContent = formatTime(player.currentTime);
-        if (progress) progress.value = String(player.currentTime || 0);
-        if (duration && Number.isFinite(player.duration)) duration.textContent = formatTime(player.duration);
+        if (progress) { progress.value = String(player.currentTime || 0); progress.setAttribute("aria-valuetext", formatTime(player.currentTime)); }
+        if (duration) duration.textContent = formatTime(playbackDuration());
         const max = playbackDuration();
-        const position = max > 0 ? Math.max(0, Math.min(100, player.currentTime / max * 100)) : 0;
-        shell.style.setProperty("--playback-position", `${position}%`);
+        shell.style.setProperty("--playback-position", `${max > 0 ? Math.max(0, Math.min(100, player.currentTime / max * 100)) : 0}%`);
+        const activeKeys = new Set();
         lanes.forEach((lane) => {
-          const active = Array.from(lane.querySelectorAll("[data-lane-segment]")).some((segment) => {
-            const start = Number.parseFloat(segment.dataset.startSeconds || "0");
-            const end = Number.parseFloat(segment.dataset.endSeconds || "0");
-            return start <= player.currentTime && player.currentTime < end;
-          });
+          const active = Array.from(lane.querySelectorAll("[data-lane-segment]")).some((segment) => Number(segment.dataset.startSeconds) <= player.currentTime && player.currentTime < Number(segment.dataset.endSeconds));
           lane.classList.toggle("is-active", active);
-          if (active) lane.setAttribute("aria-current", "true");
+          if (active) { lane.setAttribute("aria-current", "true"); activeKeys.add(lane.dataset.speakerKey); }
           else lane.removeAttribute("aria-current");
         });
+        avatars.forEach((avatar) => avatar.classList.toggle("is-active", activeKeys.has(avatar.dataset.playbackAvatar)));
         const activeTurn = currentTranscriptTurn(player.currentTime);
-        transcriptTurns.forEach((turn) => turn.classList.toggle("is-current", turn === activeTurn));
+        transcriptTurns().forEach((turn) => turn.classList.toggle("is-current", turn === activeTurn));
       };
-      const seekTo = (seconds, { follow = true, autoplay = false } = {}) => {
+      const enforceSelection = () => {
+        if (!selectedSpeakers.size) return true;
+        const interval = allowedIntervals.find(([, end]) => player.currentTime < end);
+        if (!interval) {
+          player.pause();
+          if (live) live.textContent = "Речь выбранных спикеров закончилась.";
+          return false;
+        }
+        if (player.currentTime < interval[0]) player.currentTime = interval[0];
+        return true;
+      };
+      const scheduleSelectionBoundary = () => {
+        window.clearTimeout(selectionTimer);
+        if (player.paused || !selectedSpeakers.size) return;
+        if (!enforceSelection()) return;
+        const interval = allowedIntervals.find(([, end]) => player.currentTime < end);
+        if (!interval) return;
+        selectionTimer = window.setTimeout(() => {
+          if (!shell.isConnected) return;
+          enforceSelection(); syncTime(); scheduleSelectionBoundary();
+        }, Math.max(10, (interval[1] - player.currentTime) / player.playbackRate * 1000));
+      };
+      const play = () => {
+        if (playbackError) playbackError.hidden = true;
+        if (!enforceSelection()) return;
+        try { void player.play().catch(() => reportPlaybackFailure(player)); }
+        catch (_error) { reportPlaybackFailure(player); }
+      };
+      const seekTo = (seconds, { follow = true, autoplay = false, sourceIds = "" } = {}) => {
         if (!Number.isFinite(seconds)) return;
-        const max = playbackDuration();
-        player.currentTime = Math.max(0, Math.min(max || Number.POSITIVE_INFINITY, seconds));
+        try { player.currentTime = Math.max(0, Math.min(playbackDuration() || Infinity, seconds)); }
+        catch (_error) { reportPlaybackFailure(player); return; }
+        shell.dataset.playbackSourceSegments = sourceIds;
         syncTime();
-        if (follow) followTranscript(player.currentTime);
+        if (follow) followTranscript(player.currentTime, sourceIds);
         if (autoplay) play();
       };
-      player.addEventListener("loadedmetadata", () => {
-        if (progress && Number.isFinite(player.duration)) progress.max = String(player.duration);
-        syncTime();
+      const navigateSpeech = (direction, speakerKey = null, autoplay = false) => {
+        const turns = transcriptTurns().filter((turn) => !speakerKey || turn.dataset.speakerKey === speakerKey)
+          .sort((a, b) => Number(a.dataset.startSeconds) - Number(b.dataset.startSeconds));
+        const target = direction > 0
+          ? turns.find((turn) => Number(turn.dataset.startSeconds) > player.currentTime)
+          : turns.filter((turn) => Number(turn.dataset.startSeconds) < player.currentTime).at(-1);
+        if (target) seekTo(Number(target.dataset.startSeconds), { autoplay, sourceIds: target.dataset.sourceSegments });
+        else if (live) live.textContent = direction > 0 ? "Следующей реплики нет." : "Предыдущей реплики нет.";
+      };
+      const syncSelection = () => {
+        allowedIntervals = mergePlaybackIntervals(lanes.filter((lane) => selectedSpeakers.has(lane.dataset.speakerKey))
+          .flatMap((lane) => Array.from(lane.querySelectorAll("[data-lane-segment]"), (segment) => [Number(segment.dataset.startSeconds), Number(segment.dataset.endSeconds)])));
+        lanes.forEach((lane) => lane.classList.toggle("is-unselected", selectedSpeakers.size > 0 && !selectedSpeakers.has(lane.dataset.speakerKey)));
+        const all = shell.querySelector("[data-listen-all]");
+        if (all) all.checked = !selectedSpeakers.size;
+        shell.querySelectorAll("[data-listen-speaker]").forEach((input) => { input.checked = selectedSpeakers.has(input.dataset.listenSpeaker); });
+        const count = shell.querySelector("[data-listen-count]");
+        if (count) { count.hidden = !selectedSpeakers.size; count.textContent = String(selectedSpeakers.size); }
+        if (live) live.textContent = selectedSpeakers.size ? `Выбрано спикеров: ${selectedSpeakers.size}. Остальные пропускаются.` : "Прослушиваются все спикеры.";
+      };
+      const menus = [
+        [speedToggle, shell.querySelector("[data-playback-speed-menu]")],
+        [shell.querySelector("[data-playback-listen-toggle]"), shell.querySelector("[data-playback-listen-menu]")],
+      ].filter(([button, menu]) => button && menu);
+      const closeMenus = (restore = false) => menus.forEach(([button, menu]) => {
+        if (menu.hidden) return;
+        menu.hidden = true; button.setAttribute("aria-expanded", "false");
+        if (restore) button.focus({ preventScroll: true });
       });
-      player.addEventListener("timeupdate", syncTime);
-      player.addEventListener("play", () => {
-        setToggleState(true);
-      });
-      player.addEventListener("pause", () => {
-        setToggleState(false);
-      });
-      player.addEventListener("ended", () => setToggleState(false));
-      player.addEventListener("error", reportFailure);
-      toggle?.addEventListener("click", () => {
-        if (player.paused) play();
-        else player.pause();
-      });
-      shell.querySelectorAll("[data-playback-skip]").forEach((button) => {
+      menus.forEach(([button, menu]) => {
         button.addEventListener("click", () => {
-          const delta = Number.parseFloat(button.dataset.playbackSkip || "0");
-          if (!Number.isFinite(delta)) return;
-          seekTo(player.currentTime + delta);
+          const opening = menu.hidden;
+          closeMenus(); menu.hidden = !opening; button.setAttribute("aria-expanded", String(opening));
+          if (opening) menu.querySelector('[aria-checked="true"], input:checked, button, input')?.focus();
+        });
+        menu.addEventListener("keydown", (event) => {
+          if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
+          const items = Array.from(menu.querySelectorAll("button,input"));
+          const index = items.indexOf(document.activeElement);
+          const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : (index + (["ArrowLeft", "ArrowUp"].includes(event.key) ? -1 : 1) + items.length) % items.length;
+          event.preventDefault(); items[next]?.focus();
         });
       });
-      progress?.addEventListener("input", () => {
-        const next = Number.parseFloat(progress.value || "0");
-        if (Number.isFinite(next)) {
-          seekTo(next);
-        }
+      shell.querySelectorAll("[data-playback-speed-option]").forEach((button) => button.addEventListener("click", () => {
+        player.playbackRate = Number(button.dataset.playbackSpeedOption);
+        closeMenus(true);
+      }));
+      player.addEventListener("ratechange", () => {
+        scheduleSelectionBoundary();
+        if (speedToggle) speedToggle.textContent = `${player.playbackRate}x`;
+        shell.querySelectorAll("[data-playback-speed-option]").forEach((button) => button.setAttribute("aria-checked", String(Number(button.dataset.playbackSpeedOption) === player.playbackRate)));
       });
+      shell.querySelectorAll("[data-listen-speaker]").forEach((input) => input.addEventListener("change", () => {
+        if (input.checked) selectedSpeakers.add(input.dataset.listenSpeaker); else selectedSpeakers.delete(input.dataset.listenSpeaker);
+        syncSelection(); play();
+      }));
+      shell.querySelector("[data-listen-all]")?.addEventListener("change", () => { selectedSpeakers.clear(); syncSelection(); play(); });
+      const togglePlayback = () => { if (player.paused) play(); else player.pause(); };
+      toggle?.addEventListener("click", togglePlayback);
+      shell.querySelectorAll("[data-playback-skip]").forEach((button) => button.addEventListener("click", () => seekTo(player.currentTime + Number(button.dataset.playbackSkip))));
+      shell.querySelector("[data-playback-next]")?.addEventListener("click", () => navigateSpeech(1));
+      progress?.addEventListener("input", () => seekTo(Number(progress.value)));
       lanes.forEach((lane) => {
         const track = lane.querySelector("[data-timeline-track]");
-        if (!track) return;
-        const setTrackPressed = (pressed) => track.classList.toggle("is-pressed", pressed);
-        track.addEventListener("click", (event) => {
+        track?.addEventListener("click", (event) => {
+          const segment = event.target.closest("[data-lane-segment]");
+          if (segment) { seekTo(Number(segment.dataset.startSeconds), { sourceIds: segment.dataset.sourceSegments }); return; }
+          if (!event.detail) return;
           const rect = track.getBoundingClientRect();
-          const clientX = event.detail === 0 ? rect.left + rect.width / 2 : event.clientX;
-          const ratio = rect.width > 0 ? Math.max(0, Math.min(1, (clientX - rect.left) / rect.width)) : 0;
-          seekTo(playbackDuration() * ratio);
+          if (rect.width) seekTo(playbackDuration() * Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)));
         });
-        track.addEventListener("pointerdown", () => setTrackPressed(true));
-        track.addEventListener("pointerup", () => setTrackPressed(false));
-        track.addEventListener("pointercancel", () => setTrackPressed(false));
-        track.addEventListener("pointerleave", () => setTrackPressed(false));
-        track.addEventListener("keydown", (event) => {
-          if (event.key !== "Enter" && event.key !== " ") return;
-          event.preventDefault();
-          setTrackPressed(true);
-          track.click();
+        track?.addEventListener("keydown", (event) => {
+          if (event.target !== track || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+          event.preventDefault(); event.stopPropagation();
+          seekTo(event.key === "Home" ? 0 : event.key === "End" ? playbackDuration() : player.currentTime + (event.key === "ArrowLeft" ? -15 : 15));
         });
-        track.addEventListener("keyup", (event) => {
-          if (event.key === "Enter" || event.key === " ") setTrackPressed(false);
+        track?.addEventListener("pointermove", (event) => {
+          const rect = track.getBoundingClientRect();
+          shell.style.setProperty("--playback-hover-position", `${Math.max(0, Math.min(100, (event.clientX - rect.left) / rect.width * 100))}%`);
+          shell.classList.add("is-timeline-hover");
         });
-        track.addEventListener("blur", () => setTrackPressed(false));
+        track?.addEventListener("pointerleave", () => shell.classList.remove("is-timeline-hover"));
       });
-      if (speedToggle) {
-        const speeds = (speedToggle.dataset.speedOptions || "1").split(",")
-          .map((value) => Number.parseFloat(value))
-          .filter((value) => Number.isFinite(value) && value > 0);
-        speedToggle.addEventListener("click", () => {
-          const currentSpeed = player.playbackRate || 1;
-          const index = speeds.findIndex((speed) => Math.abs(speed - currentSpeed) < 0.001);
-          const nextSpeed = speeds[(index + 1) % speeds.length] || 1;
-          player.playbackRate = nextSpeed;
-          speedToggle.textContent = `${nextSpeed}x`;
-        });
+      avatars.forEach((avatar) => avatar.addEventListener("click", () => {
+        selectedSpeakers.clear(); syncSelection(); navigateSpeech(1, avatar.dataset.playbackAvatar, true);
+      }));
+      const carousel = shell.querySelector("[data-playback-avatars]");
+      const syncCarousel = () => shell.querySelectorAll("[data-avatar-scroll]").forEach((button) => {
+        button.disabled = !carousel || (Number(button.dataset.avatarScroll) < 0 ? carousel.scrollLeft <= 1 : carousel.scrollLeft + carousel.clientWidth >= carousel.scrollWidth - 1);
+      });
+      shell.querySelectorAll("[data-avatar-scroll]").forEach((button) => button.addEventListener("click", () => {
+        carousel?.scrollBy({ left: Number(button.dataset.avatarScroll) * Math.max(32, carousel.clientWidth), behavior: "auto" });
+      }));
+      carousel?.addEventListener("scroll", syncCarousel, { passive: true });
+      if (carousel && typeof ResizeObserver !== "undefined") {
+        const observer = new ResizeObserver(() => { if (!shell.isConnected) observer.disconnect(); else syncCarousel(); });
+        observer.observe(carousel);
       }
+      syncCarousel();
+      player.addEventListener("loadedmetadata", () => { if (progress && Number.isFinite(player.duration)) progress.max = String(player.duration); syncTime(); });
+      player.addEventListener("timeupdate", () => { if (!player.paused) enforceSelection(); syncTime(); scheduleSelectionBoundary(); });
+      player.addEventListener("seeked", scheduleSelectionBoundary);
+      player.addEventListener("play", () => { if (enforceSelection()) setToggleState(true); scheduleSelectionBoundary(); });
+      player.addEventListener("pause", () => { window.clearTimeout(selectionTimer); setToggleState(false); });
+      player.addEventListener("ended", () => { player.pause(); seekTo(0, { follow: false }); setToggleState(false); });
+      player.addEventListener("error", () => reportPlaybackFailure(player));
+      const keyboard = (event) => {
+        if (!shell.isConnected) { document.removeEventListener("keydown", keyboard); document.removeEventListener("click", outside); return; }
+        if (event.defaultPrevented) return;
+        if (event.key === "Escape" && menus.some(([, menu]) => !menu.hidden)) { event.preventDefault(); closeMenus(true); return; }
+        if (event.altKey || event.ctrlKey || event.metaKey || event.target.closest?.('input,textarea,select,[contenteditable="true"],[role="menu"],[role="dialog"],dialog,[data-playback-listen-menu]') || document.querySelector('dialog[open], [role="dialog"][aria-modal="true"]') || menus.some(([, menu]) => !menu.hidden)) return;
+        if (event.key === " " && event.target.closest?.("button,a[href],[role=button]")) return;
+        if (![" ", "ArrowLeft", "ArrowRight"].includes(event.key)) return;
+        event.preventDefault();
+        if (event.key === " ") { if (!event.repeat) togglePlayback(); }
+        else if (event.shiftKey) navigateSpeech(event.key === "ArrowLeft" ? -1 : 1);
+        else seekTo(player.currentTime + (event.key === "ArrowLeft" ? -15 : 15));
+      };
+      const outside = (event) => {
+        if (!shell.isConnected) { document.removeEventListener("keydown", keyboard); document.removeEventListener("click", outside); return; }
+        if (!event.target.closest?.(".playback-menu-anchor")) closeMenus();
+      };
+      document.addEventListener("keydown", keyboard);
+      document.addEventListener("click", outside);
+      syncTime();
     });
   };
 
@@ -6765,11 +6873,23 @@
       if (simpleLabel) simpleLabel.textContent = displayLabel;
       const timelineSpeaker = node.querySelector?.(".timeline-speaker");
       if (timelineSpeaker) timelineSpeaker.title = displayLabel;
+      node.querySelectorAll?.("[data-speaker-initials]").forEach((initials) => { initials.textContent = displayLabel.slice(0, 1).toUpperCase(); });
+      if (node.hasAttribute?.("data-playback-avatar")) {
+        node.title = displayLabel;
+        node.setAttribute("aria-label", `Следующая реплика: ${displayLabel}`);
+      }
+      const listen = node.querySelector?.("[data-listen-speaker]");
+      listen?.setAttribute("aria-label", `Слушать: ${displayLabel}`);
       const track = node.querySelector?.("[data-timeline-track]");
       if (track) track.setAttribute(
         "aria-label",
-        `Перейти по дорожке ${displayLabel}: переместить воспроизведение к фрагменту записи`,
+        `Дорожка ${displayLabel}: стрелки перемещают позицию`,
       );
+      node.querySelectorAll?.("[data-lane-segment]").forEach((segment) => {
+        const label = `${displayLabel} ${formatTime(Number(segment.dataset.startSeconds))}-${formatTime(Number(segment.dataset.endSeconds))}`;
+        segment.title = label;
+        segment.setAttribute("aria-label", label);
+      });
       const nameInput = node.querySelector?.("input[name='display_name']");
       if (nameInput) nameInput.value = confirmedValue;
       const label = node.querySelector?.("label[for]");
@@ -7024,6 +7144,14 @@
       const viewers = dialog.querySelector("[data-share-viewers]");
       const recipientInput = form?.querySelector("[data-share-recipient-input]");
       const meetingId = form?.dataset.meetingId || "";
+      const shareRequestUrl = (path) => {
+        const url = new URL(path, window.location.origin);
+        if (dialog.dataset.shareWorkspaceId) url.searchParams.set("workspace_id", dialog.dataset.shareWorkspaceId);
+        return url;
+      };
+      const collaborationRole = dialog.querySelector("[data-share-comment-role]");
+      const rolePermissions = (role) => ({ can_comment: role === "commenter" || role === "editor", can_edit: role === "editor" });
+      const roleLabel = (grant) => grant?.can_edit ? "Редактирование" : grant?.can_comment ? "Комментирование" : "Просмотр";
       const externalInvitationsEnabled = dialog.dataset.shareExternalInvitations === "available";
       const setResultsVisible = (visible) => {
         if (results) results.hidden = !visible;
@@ -7054,6 +7182,8 @@
         status.dataset.tone = tone;
       };
       const shareErrorMessage = (code) => ({
+        comment_permission_forbidden: "Право менять роли больше недоступно. Обновите список доступа.",
+        invalid_comment_permission: "Эта роль недоступна для выбранного состава встречи.",
         share_invitations_disabled: "Внешние приглашения пока отключены. Выберите участника рабочей области.",
         meeting_not_found: "Доступ к встрече изменился. Обновите страницу.",
         invalid_invitation: "Проверьте адрес электронной почты.",
@@ -7096,7 +7226,7 @@
       };
       const isLikelyEmail = (address) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address);
       const mutate = async (url, options) => {
-        const response = await fetch(url, {
+        const response = await fetch(shareRequestUrl(url), {
           credentials: "same-origin",
           cache: "no-store",
           ...options,
@@ -7109,7 +7239,10 @@
         if (await recoverMeetingDetailFromResponse(response, { actionProblemCodes: sharingActionProblemCodes })) {
           throw meetingDetailRecoveredError();
         }
-        if (!response.ok) throw new Error(String(response.status));
+        if (!response.ok) {
+          const problem = await response.json().catch(() => ({}));
+          throw new Error(problem.code || String(response.status));
+        }
         return response.status === 204 ? null : response.json();
       };
       const copyShareUrl = async (shareUrl) => {
@@ -7142,16 +7275,34 @@
         viewers.append(empty);
       };
       const bindViewerRow = (row, shareUrl = "") => {
+        const role = row.querySelector("[data-share-existing-role]");
+        let savedRole = role?.value;
         const copy = row.querySelector("[data-share-copy-button]");
         const rotateUrl = row.querySelector("[data-share-rotate-url]")?.dataset.shareRotateUrl || "";
         const revoke = row.querySelector("[data-share-revoke-url]");
         let rowBusy = false;
         const setRowBusy = (busy) => {
           rowBusy = busy;
-          [copy, revoke].forEach((control) => {
+          [copy, revoke, role].forEach((control) => {
             if (control) control.disabled = busy;
           });
         };
+        role?.addEventListener("change", async () => {
+          if (rowBusy) return;
+          setRowBusy(true);
+          try {
+            const grant = await mutate(role.dataset.sharePermissionsUrl, { method: "PATCH", body: JSON.stringify(rolePermissions(role.value)) });
+            savedRole = role.value;
+            const label = row.querySelector("[data-share-role-label]");
+            if (label) label.textContent = roleLabel(grant);
+            const scope = row.querySelector("[data-share-scope-label]");
+            if (scope) scope.textContent = grant.content_scope === "full_meeting" ? "Запись" : "Итоги";
+            setStatus("Права получателя изменены.", "success");
+          } catch (error) {
+            role.value = savedRole;
+            setStatus(shareErrorMessage(error?.code || error?.message), "error");
+          } finally { setRowBusy(false); }
+        });
         copy?.addEventListener("click", async () => {
           if (rowBusy) return;
           setRowBusy(true);
@@ -7197,10 +7348,25 @@
         name.textContent = label;
         const scope = document.createElement("small");
         scope.className = "muted";
-        scope.textContent = "Итоги · ссылка готова";
-        identity.append(name, scope);
+        scope.dataset.shareScopeLabel = "true";
+        scope.textContent = payload?.grant?.content_scope === "full_meeting" ? "Запись" : "Итоги";
+        const roleText = document.createElement("small");
+        roleText.dataset.shareRoleLabel = "true";
+        roleText.textContent = roleLabel(payload?.grant);
+        identity.append(name, scope, roleText);
         const actions = document.createElement("span");
         actions.className = "share-viewer-row__actions";
+        if (dialog.dataset.shareCanManageRoles === "true" && payload?.grant?.grant_id) {
+          const role = document.createElement("select");
+          role.dataset.shareExistingRole = "true";
+          role.dataset.sharePermissionsUrl = `/api/v1/cabinet/meetings/${meetingId}/shares/${payload.grant.grant_id}/permissions`;
+          role.setAttribute("aria-label", `Права ${label}`);
+          for (const [value, text] of [["viewer", "Просмотр"], ["commenter", "Комментирование"], ["editor", "Редактирование"]]) {
+            const option = document.createElement("option"); option.value = value; option.textContent = text; role.append(option);
+          }
+          role.value = payload.grant.can_edit ? "editor" : payload.grant.can_comment ? "commenter" : "viewer";
+          actions.append(role);
+        }
         const copy = document.createElement("button");
         copy.type = "button";
         copy.dataset.shareCopyButton = "true";
@@ -7250,7 +7416,7 @@
           outcome_unknown: "Письмо не подтверждено — не отправляйте повторно сразу"
         }[invitation.status] || invitation.status || "Готовится к отправке";
         const scopeLabel = invitation.content_scope === "full_meeting" ? "запись" : "итоги";
-        status.textContent = `${statusLabel} · ${scopeLabel}${expiresAt && !Number.isNaN(expiresAt.valueOf()) ? ` · до ${window.GRAFTime.format(invitation.expires_at, { showZone: true })}` : ""}`;
+        status.textContent = `${statusLabel} · ${scopeLabel} · ${roleLabel(invitation)}${expiresAt && !Number.isNaN(expiresAt.valueOf()) ? ` · до ${window.GRAFTime.format(invitation.expires_at, { showZone: true })}` : ""}`;
         identity.append(label, status);
         const revoke = document.createElement("button");
         revoke.type = "button";
@@ -7269,9 +7435,10 @@
             body: JSON.stringify({
               audience_type: "user",
               audience_id: userId,
-              content_scope: "summary_only",
+              content_scope: collaborationRole ? "full_meeting" : "summary_only",
               can_download: false,
-              can_export: false
+              can_export: false,
+              ...(collaborationRole ? rolePermissions(collaborationRole.value) : {})
             })
           });
           setResultsVisible(false);
@@ -7284,7 +7451,7 @@
             outcome_unknown: " Статус письма не подтверждён — скопируйте ссылку вручную.",
             not_available: " Письмо не отправлено: у участника нет подтверждённого email."
           }[payload?.notification_status] || "";
-          setStatus(`Доступ к итогам открыт: ${label}. Ссылка готова для копирования.${notificationMessage}`, "success");
+          setStatus(`Доступ открыт: ${label}. ${roleLabel(payload?.grant)}. Ссылка готова для копирования.${notificationMessage}`, "success");
         } catch (error) {
           if (isMeetingDetailRecoveredError(error)) return;
           setStatus("Не удалось открыть доступ. Попробуйте ещё раз.", "error");
@@ -7316,7 +7483,8 @@
               address,
               content_scope: "full_meeting",
               can_download: true,
-              can_export: true
+              can_export: true,
+              ...(collaborationRole ? rolePermissions(collaborationRole.value) : {})
             })
           });
           setResultsVisible(false);
@@ -7376,7 +7544,9 @@
         searchController?.abort();
         searchController = new AbortController();
         try {
-          const response = await fetch(`${form.action}?query=${encodeURIComponent(query)}`, {
+          const searchUrl = shareRequestUrl(form.action);
+          searchUrl.searchParams.set("query", query);
+          const response = await fetch(searchUrl, {
             credentials: "same-origin",
             cache: "no-store",
             signal: searchController.signal

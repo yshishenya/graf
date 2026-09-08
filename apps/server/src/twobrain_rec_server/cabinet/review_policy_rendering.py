@@ -63,11 +63,12 @@ def _render_share_panel(review: MeetingReviewResponse) -> str:
     """
 
 
-def render_meeting_share_fragment(review: MeetingReviewResponse) -> str:
+def render_meeting_share_fragment(review: MeetingReviewResponse, *, share_workspace_id=None) -> str:
     return render_template(
         "cabinet/fragments/meeting_share.html",
         meeting_id=review.meeting.meeting_id,
         share=review.share,
+        share_workspace_id=share_workspace_id,
     )
 
 

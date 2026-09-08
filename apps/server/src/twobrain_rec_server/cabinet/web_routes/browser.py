@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.cabinet import (
     PublicShareDbDependency,
+    ShareOperationDbDependency,
     _recipient_share_access_proof,
 )
 from twobrain_rec_server.api.problems import ProblemDetail
@@ -1068,7 +1069,7 @@ async def meeting_share_fragment(
     tenant_scope: TenantScope = WebTenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     storage: object = StorageDependency,
-    db: AsyncSession | None = WebDbDependency,
+    db: AsyncSession | None = ShareOperationDbDependency,
 ) -> HTMLResponse:
     if db is None:
         raise ProblemDetail(
@@ -1076,7 +1077,7 @@ async def meeting_share_fragment(
         )
     response = await get_cabinet_meeting_review(
         db,
-        workspace_id=tenant_scope.workspace_id,
+        workspace_id=db.info.get("share_owner_workspace", tenant_scope.workspace_id),
         meeting_id=meeting_id,
         viewer_user_id=principal.user_id,
         storage=storage,
@@ -1092,4 +1093,4 @@ async def meeting_share_fragment(
             request,
             csrf_token=_csrf_token_for_principal(request, principal),
         )
-    return cabinet_html_response(render_meeting_share_fragment(response), hx_request=True)
+    return cabinet_html_response(render_meeting_share_fragment(response, share_workspace_id=db.info.get("share_owner_workspace")), hx_request=True)

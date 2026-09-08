@@ -43,6 +43,11 @@ from twobrain_rec_server.db.models.calendar import (
     RecordingCalendarContextLink,
     RecordingCalendarMatchAttempt,
 )
+from twobrain_rec_server.db.models.comments import (
+    MeetingComment,
+    MeetingCommentMention,
+    MeetingCommentReaction,
+)
 from twobrain_rec_server.db.models.deletion import (
     LocalPurgeTask,
     MeetingDeletionArtifactState,
@@ -130,6 +135,7 @@ from twobrain_rec_server.db.models.processing import (
 from twobrain_rec_server.db.models.support import SupportIncident, SupportIncidentRateLimitBucket
 
 __all__ = [
+    "MeetingComment", "MeetingCommentMention", "MeetingCommentReaction",
     "ServerNotification",
     "AdminAuditEvent",
     "AccountClosureRequest",
