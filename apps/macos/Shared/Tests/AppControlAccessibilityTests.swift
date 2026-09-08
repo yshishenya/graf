@@ -556,7 +556,7 @@ final class AppControlAccessibilityTests: XCTestCase {
             XCTAssertTrue(source.contains(command), "Missing edit command \(command)")
         }
         XCTAssertTrue(source.contains("installMainMenu(on: app, zoomTarget: appDelegate)"))
-        XCTAssertTrue(source.contains("withTitle: \"Settings...\""))
+        XCTAssertTrue(source.contains("withTitle: \"Настройки…\""))
         XCTAssertTrue(source.contains("#selector(AppLifecycleDelegate.openSettings(_:))"))
         XCTAssertTrue(source.contains("MeetingDetectionSettingsView()"))
         XCTAssertTrue(source.contains("WorkspaceZoomMenu.items"))

@@ -1,5 +1,4 @@
 import AppKit
-import Combine
 import TwoBrainRecShared
 
 public enum GrafTrayRecordingState: Equatable, Sendable {
@@ -23,27 +22,16 @@ public enum GrafTrayRecordingState: Equatable, Sendable {
     }
 }
 
-public enum CalendarTrayState: Equatable, Sendable {
-    case idle
-    case loading
-    case loaded
-    case empty
-    case needsSignIn
-    case unavailable
-}
-
 /// The menu-bar surface intentionally owns only a short-lived safe projection.
 /// Server truth remains authoritative; no calendar event is persisted locally.
 @MainActor
-public final class CalendarTrayModel: ObservableObject {
-    @Published public private(set) var events: [DesktopCalendarPromptEvent] = []
-    @Published public private(set) var state: CalendarTrayState = .idle
-    @Published public private(set) var lastUpdatedAt: Date?
-    @Published public private(set) var showUpcomingTime = true
-    @Published public private(set) var showUpcomingTitle = true
-    @Published public var appUpdatePresentation: AppUpdatePresentation = .idle
-    @Published public var canCheckForUpdates = false
-    @Published public var recordingState: GrafTrayRecordingState = .idle
+public final class CalendarTrayModel {
+    public private(set) var events: [DesktopCalendarPromptEvent] = []
+    public private(set) var showUpcomingTime = true
+    public private(set) var showUpcomingTitle = true
+    public var appUpdatePresentation: AppUpdatePresentation = .idle
+    public var canCheckForUpdates = false
+    public var recordingState: GrafTrayRecordingState = .idle
 
     private let load: @Sendable () async throws -> DesktopCalendarPromptResponse
     private var refreshGeneration = 0
@@ -57,9 +45,6 @@ public final class CalendarTrayModel: ObservableObject {
     public func refresh() async {
         refreshGeneration += 1
         let generation = refreshGeneration
-        if events.isEmpty && lastUpdatedAt == nil {
-            state = .loading
-        }
         do {
             let response = try await load()
             guard generation == refreshGeneration else { return }
@@ -69,16 +54,9 @@ public final class CalendarTrayModel: ObservableObject {
                 .sorted { $0.startsAt == $1.startsAt ? $0.eventId < $1.eventId : $0.startsAt < $1.startsAt }
                 .prefix(12)
                 .map { $0 }
-            state = events.isEmpty ? .empty : .loaded
-            lastUpdatedAt = Date()
-        } catch let error as DesktopUploadClientError {
-            guard generation == refreshGeneration else { return }
-            events = []
-            state = error.failureCategory == .authSession ? .needsSignIn : .unavailable
         } catch {
             guard generation == refreshGeneration else { return }
             events = []
-            state = .unavailable
         }
     }
 }
@@ -89,46 +67,38 @@ public final class CalendarTrayController: NSObject, NSMenuDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     let menu = NSMenu(title: "GRAF")
     private var menuIsOpen = false
-    private let onOpenCalendar: () -> Void
+    private var localMouseMonitor: Any?
+    private var globalMouseMonitor: Any?
+    var hasMouseMonitors: Bool { localMouseMonitor != nil || globalMouseMonitor != nil }
+    private let onOpenSettings: () -> Void
     private let onOpenMeetings: () -> Void
     private let onUpdate: () -> Void
     private let onStartRecording: () -> Void
     private let onStopRecording: () -> Void
+    private let onQuit: () -> Void
     private var refreshTask: Task<Void, Never>?
     private var observers: [(NotificationCenter, NSObjectProtocol)] = []
 
     public init(
         model: CalendarTrayModel,
-        onOpenCalendar: @escaping () -> Void,
+        onOpenSettings: @escaping () -> Void,
         onOpenMeetings: @escaping () -> Void,
-        onUpdate: @escaping () -> Void = {},
-        onStartRecording: @escaping () -> Void = {},
-        onStopRecording: @escaping () -> Void = {}
+        onStartRecording: @escaping () -> Void,
+        onStopRecording: @escaping () -> Void,
+        onQuit: @escaping () -> Void,
+        onUpdate: @escaping () -> Void = {}
     ) {
         self.model = model
-        self.onOpenCalendar = onOpenCalendar
+        self.onOpenSettings = onOpenSettings
         self.onOpenMeetings = onOpenMeetings
         self.onUpdate = onUpdate
         self.onStartRecording = onStartRecording
         self.onStopRecording = onStopRecording
+        self.onQuit = onQuit
         super.init()
         menu.delegate = self
         menu.autoenablesItems = false
         menu.minimumWidth = 240
-    }
-
-    public convenience init(
-        client: DesktopUploadClient,
-        onOpenCalendar: @escaping () -> Void,
-        onOpenMeetings: @escaping () -> Void
-    ) {
-        self.init(
-            model: CalendarTrayModel {
-                try await client.listDesktopCalendarUpcoming(beforeMinutes: 15, afterMinutes: 1_440)
-            },
-            onOpenCalendar: onOpenCalendar,
-            onOpenMeetings: onOpenMeetings
-        )
     }
 
     public func start() {
@@ -140,6 +110,11 @@ public final class CalendarTrayController: NSObject, NSMenuDelegate {
         button.setAccessibilityRole(.menuButton)
 
         observers = [
+            (NotificationCenter.default, NotificationCenter.default.addObserver(
+                forName: NSApplication.didResignActiveNotification, object: nil, queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in self?.menu.cancelTracking() }
+            }),
             (NotificationCenter.default, NotificationCenter.default.addObserver(
                 forName: NSApplication.didBecomeActiveNotification,
                 object: nil,
@@ -172,11 +147,14 @@ public final class CalendarTrayController: NSObject, NSMenuDelegate {
     }
 
     public func showMenu() {
-        // The app-menu entry also works when macOS hides a crowded status item.
-        if let button = statusItem.button, button.window?.isVisible == true {
-            button.performClick(nil)
-        } else {
-            menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+        // Finish the invoking app menu's tracking before opening the status menu.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, !self.menuIsOpen else { return }
+            if let button = self.statusItem.button, button.window?.isVisible == true {
+                button.performClick(nil)
+            } else {
+                self.menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+            }
         }
     }
 
@@ -185,12 +163,29 @@ public final class CalendarTrayController: NSObject, NSMenuDelegate {
     }
 
     public func menuWillOpen(_ menu: NSMenu) {
+        guard !menuIsOpen else { return }
         menuIsOpen = true
+        localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
+            if Self.isOutsideMenuWindow(event.window) { self?.menu.cancelTracking() }
+            return event
+        }
+        globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] _ in
+            self?.menu.cancelTracking()
+        }
         refreshNow()
     }
 
     public func menuDidClose(_ menu: NSMenu) {
         menuIsOpen = false
+        if let localMouseMonitor { NSEvent.removeMonitor(localMouseMonitor) }
+        if let globalMouseMonitor { NSEvent.removeMonitor(globalMouseMonitor) }
+        localMouseMonitor = nil
+        globalMouseMonitor = nil
+    }
+
+    static func isOutsideMenuWindow(_ window: NSWindow?) -> Bool {
+        guard let window else { return false }
+        return window.level.rawValue < NSWindow.Level.mainMenu.rawValue
     }
 
     func rebuildMenu() {
@@ -225,13 +220,15 @@ public final class CalendarTrayController: NSObject, NSMenuDelegate {
             menu.addItem(.separator())
         }
         addItem("Открыть GRAF", action: #selector(openMeetings), id: "graf.menu.open")
-        addItem("Настройки календаря…", action: #selector(openCalendar), id: "graf.menu.calendarSettings")
+        addItem("Настройки…", action: #selector(openSettings), id: "graf.menu.settings")
         if model.appUpdatePresentation.showsSidebarBadge,
            let version = model.appUpdatePresentation.availableVersion {
             menu.addItem(.separator())
             let item = addItem("Обновление GRAF \(version)…", action: #selector(updateApp), id: "graf.menu.update")
             item.isEnabled = model.canCheckForUpdates
         }
+        menu.addItem(.separator())
+        addItem("Выйти из GRAF", action: #selector(quitApp), id: "graf.menu.quit")
     }
 
     @discardableResult
@@ -266,26 +263,24 @@ public final class CalendarTrayController: NSObject, NSMenuDelegate {
                             flipped: false) { _ in
             NSColor.black.setFill()
             NSColor.black.setStroke()
+            let recording = recordingState == .recording || recordingState == .paused || recordingState == .stopping
             let ring = NSBezierPath(ovalIn: NSRect(x: 3, y: 3, width: 16, height: 16))
             ring.lineWidth = 1.8
-            ring.stroke()
+            if recording { ring.fill() } else { ring.stroke() }
             for rect in [NSRect(x: 10, y: 0.5, width: 2, height: 3.5),
-                         NSRect(x: 10, y: 18, width: 2, height: 3.5),
-                         NSRect(x: 7, y: 8, width: 1.8, height: 5),
+                         NSRect(x: 10, y: 18, width: 2, height: 3.5)] {
+                NSBezierPath(roundedRect: rect, xRadius: 0.7, yRadius: 0.7).fill()
+            }
+            // The same GRAF mark changes from outline to solid; no separate badge.
+            // A microphone pause still captures system audio, so it stays solid.
+            NSGraphicsContext.saveGraphicsState()
+            if recording { NSGraphicsContext.current?.compositingOperation = .clear }
+            for rect in [NSRect(x: 7, y: 8, width: 1.8, height: 5),
                          NSRect(x: 10.1, y: 8, width: 1.8, height: 7),
                          NSRect(x: 13.2, y: 8, width: 1.8, height: 4)] {
                 NSBezierPath(roundedRect: rect, xRadius: 0.7, yRadius: 0.7).fill()
             }
-            if recordingState == .recording || recordingState == .paused || recordingState == .stopping {
-                // Keep the status item's width stable when capture starts: a wider
-                // item can be displaced by macOS on a crowded menu bar.
-                NSGraphicsContext.saveGraphicsState()
-                NSGraphicsContext.current?.compositingOperation = .clear
-                NSBezierPath(ovalIn: NSRect(x: 14.5, y: 14.5, width: 9, height: 9)).fill()
-                NSGraphicsContext.restoreGraphicsState()
-                // A microphone pause still captures system audio: keep the recording mark.
-                NSBezierPath(ovalIn: NSRect(x: 16, y: 16, width: 6, height: 6)).fill()
-            }
+            NSGraphicsContext.restoreGraphicsState()
             return true
         }
         image.isTemplate = true
@@ -321,7 +316,6 @@ public final class CalendarTrayController: NSObject, NSMenuDelegate {
         model.appUpdatePresentation = presentation
         model.canCheckForUpdates = actionEnabled
         updateStatusItem()
-        if menuIsOpen { menu.cancelTracking() }
     }
 
     private func refreshNow() {
@@ -348,7 +342,8 @@ public final class CalendarTrayController: NSObject, NSMenuDelegate {
         onStopRecording()
     }
 
-    @objc private func openCalendar() { onOpenCalendar() }
+    @objc private func openSettings() { onOpenSettings() }
+    @objc private func quitApp() { onQuit() }
     @objc private func openMeetings() { onOpenMeetings() }
 
     @objc private func updateApp() {

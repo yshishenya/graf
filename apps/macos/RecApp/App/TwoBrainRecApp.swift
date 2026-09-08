@@ -40,14 +40,14 @@ private enum TwoBrainRecAppMain {
         updateItem.target = zoomTarget
         appMenu.addItem(NSMenuItem.separator())
         let settingsItem = appMenu.addItem(
-            withTitle: "Settings...",
+            withTitle: "Настройки…",
             action: #selector(AppLifecycleDelegate.openSettings(_:)),
             keyEquivalent: ","
         )
         settingsItem.target = zoomTarget
         let upcomingItem = appMenu.addItem(
             withTitle: "Меню GRAF",
-            action: #selector(AppLifecycleDelegate.openCalendarTray(_:)),
+            action: #selector(AppLifecycleDelegate.openGrafMenu(_:)),
             keyEquivalent: ""
         )
         upcomingItem.target = zoomTarget
@@ -181,7 +181,7 @@ private struct ContentView: View {
     @State private var activeCalendarMatchLocalRecordingId: String?
     @State private var meetingDetectionSettingsStore = MeetingDetectionSettingsStore()
     @State private var meetingDetectionSettings = MeetingDetectionSettings()
-    @State private var openingRecordingSettings = false
+    @State private var openingSettings = false
     @State private var meetingDetectionRegistryStore: MeetingTargetRegistryStore?
     @State private var meetingDetectionRegistry: MeetingTargetRegistryDocument?
     @State private var meetingDetectionRegistryRequiresRemoteRefresh = false
@@ -492,18 +492,9 @@ private struct ContentView: View {
             Task { await refreshCalendarReminder(reason: "desktop_auth_session_changed") }
             Task { await refreshMeetingDetectionRegistry(reason: "desktop_auth_session_changed") }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecOpenRecordingSettings)) { _ in
-            guard let configuration = desktopCabinetConfiguration, desktopCabinetState == .ready else {
-                (NSApp.delegate as? AppLifecycleDelegate)?.openLocalRecordingSettings()
-                return
-            }
-            let route = configuration.baseURL.appending(path: "desktop/settings/recording")
-            openingRecordingSettings = selectedCabinetRoute != route
-            selectedCabinetRoute = route
-        }
         .onChange(of: desktopCabinetState) { _, state in
-            guard openingRecordingSettings, state != .loading else { return }
-            openingRecordingSettings = false
+            guard openingSettings, state != .loading else { return }
+            openingSettings = false
             if state != .ready {
                 (NSApp.delegate as? AppLifecycleDelegate)?.openLocalRecordingSettings()
             }
@@ -515,9 +506,14 @@ private struct ContentView: View {
             guard localRecordingActive else { return }
             Task { await stopManualRecording() }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecOpenCalendarSettingsFromTray)) { _ in
-            guard let configuration = desktopCabinetConfiguration else { return }
-            selectedCabinetRoute = configuration.calendarSettingsURL()
+        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecOpenSettings)) { _ in
+            guard let configuration = desktopCabinetConfiguration, desktopCabinetState == .ready else {
+                (NSApp.delegate as? AppLifecycleDelegate)?.openLocalRecordingSettings()
+                return
+            }
+            let route = configuration.baseURL.appending(path: "desktop/settings")
+            openingSettings = selectedCabinetRoute != route
+            selectedCabinetRoute = route
         }
         .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecOpenMeetingsFromTray)) { _ in
             guard let configuration = desktopCabinetConfiguration else { return }
@@ -3084,11 +3080,12 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
         }
         calendarTrayController = CalendarTrayController(
             model: trayModel,
-            onOpenCalendar: { [weak self] in self?.openCalendarFromTray() },
+            onOpenSettings: { [weak self] in self?.openSettings(nil) },
             onOpenMeetings: { [weak self] in self?.openMeetingsFromTray() },
-            onUpdate: { [weak self] in self?.checkForUpdates(nil) },
             onStartRecording: { [weak self] in self?.recordFromTray(start: true) },
-            onStopRecording: { [weak self] in self?.recordFromTray(start: false) }
+            onStopRecording: { [weak self] in self?.recordFromTray(start: false) },
+            onQuit: { NSApp.terminate(nil) },
+            onUpdate: { [weak self] in self?.checkForUpdates(nil) }
         )
         calendarTrayController?.start()
         calendarTrayController?.showRecordingState(trayRecordingState)
@@ -3279,9 +3276,9 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
     }
 
     @objc func openSettings(_: Any?) {
-        presentMainWindow(reason: "recording_settings")
+        presentMainWindow(reason: "settings")
         DispatchQueue.main.async {
-            NotificationCenter.default.post(name: .twoBrainRecOpenRecordingSettings, object: nil)
+            NotificationCenter.default.post(name: .twoBrainRecOpenSettings, object: nil)
         }
     }
 
@@ -3289,7 +3286,7 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
         presentSettingsWindow(reason: "local_fallback")
     }
 
-    @objc func openCalendarTray(_: Any?) {
+    @objc func openGrafMenu(_: Any?) {
         calendarTrayController?.showMenu()
     }
 
@@ -3301,13 +3298,6 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
                 name: start ? .twoBrainRecStartRecordingFromTray : .twoBrainRecStopRecordingFromTray,
                 object: nil
             )
-        }
-    }
-
-    private func openCalendarFromTray() {
-        presentMainWindow(reason: "calendar_tray")
-        DispatchQueue.main.async {
-            NotificationCenter.default.post(name: .twoBrainRecOpenCalendarSettingsFromTray, object: nil)
         }
     }
 
@@ -3385,8 +3375,7 @@ private extension Notification.Name {
     static let twoBrainRecStopRecordingFromTray = Notification.Name("pro.2brain.graf.stopRecordingFromTray")
     static let twoBrainRecApplicationShouldTerminate = Notification.Name("pro.2brain.graf.applicationShouldTerminate")
     static let twoBrainRecApplicationTerminationCleanupFinished = Notification.Name("pro.2brain.graf.applicationTerminationCleanupFinished")
-    static let twoBrainRecOpenRecordingSettings = Notification.Name("pro.2brain.graf.openRecordingSettings")
-    static let twoBrainRecOpenCalendarSettingsFromTray = Notification.Name("pro.2brain.graf.openCalendarSettingsFromTray")
+    static let twoBrainRecOpenSettings = Notification.Name("pro.2brain.graf.openSettings")
     static let twoBrainRecOpenMeetingsFromTray = Notification.Name("pro.2brain.graf.openMeetingsFromTray")
 }
 
