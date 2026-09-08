@@ -4543,6 +4543,23 @@
     toggle.setAttribute("aria-label", "Воспроизвести");
   };
 
+  const scrollTranscriptTurnIntoView = (turn, behavior = "auto") => {
+    const main = turn.closest(".detail-page-main");
+    if (!main) { turn.scrollIntoView({ block: "center", behavior }); return; }
+    const bounds = main.getBoundingClientRect();
+    const header = main.querySelector("[data-meeting-detail-header]");
+    const top = header && getComputedStyle(header).position === "sticky"
+      ? Math.max(bounds.top, header.getBoundingClientRect().bottom) : bounds.top;
+    const height = Math.max(0, bounds.bottom - top);
+    const target = turn.getBoundingClientRect().height > height
+      ? turn.querySelector(".text") || turn : turn;
+    const rect = target.getBoundingClientRect();
+    main.scrollTo({
+      top: main.scrollTop + rect.top - top - Math.max(0, (height - rect.height) / 2),
+      behavior,
+    });
+  };
+
   const initSourceNavigation = () => {
     if (document.body.dataset.sourceNavigationReady === "true") return;
     document.body.dataset.sourceNavigationReady = "true";
@@ -4600,7 +4617,7 @@
       }, turns[0] || null);
       if (!target) return;
       window.requestAnimationFrame(() => {
-        target.scrollIntoView({ block: "center" });
+        scrollTranscriptTurnIntoView(target);
         target.focus({ preventScroll: true });
         const live = document.querySelector("[data-playback-live-status]");
         if (live) live.textContent = `Открыт источник ${formatTime(seconds)} в расшифровке.`;
@@ -4628,7 +4645,7 @@
         }
       }
       window.requestAnimationFrame(() => {
-        target.scrollIntoView({ block: "center" });
+        scrollTranscriptTurnIntoView(target);
         target.focus({ preventScroll: true });
         if (live) live.textContent = `Открыт источник ${formatTime(Number(target.dataset.startSeconds))} в расшифровке.`;
       });
@@ -4849,7 +4866,7 @@
           || currentTranscriptTurn(seconds);
         if (!turn) return;
         activateDetailTab("recording");
-        turn.scrollIntoView({ block: "center", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+        scrollTranscriptTurnIntoView(turn, window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth");
         transcriptTurns().forEach((item) => item.classList.remove("is-source-highlight"));
         turn.classList.add("is-source-highlight");
         window.clearTimeout(highlightTimer);
@@ -7729,20 +7746,20 @@
     meetingTitleHeaderObserver?.disconnect();
     if (!form) return;
     form.dataset.ready = "true";
+    const detail = form.closest("[data-meeting-id]");
     const header = form.closest("[data-meeting-detail-header]");
     const headerObserver = new ResizeObserver(() => {
       if (!form.isConnected) { headerObserver.disconnect(); return; }
-      header.classList.toggle("meeting-title-header-scrolls", header.offsetHeight > window.innerHeight / 2);
+      header.classList.toggle("meeting-title-header-scrolls", header.offsetHeight > detail.clientHeight / 2);
     });
     headerObserver.observe(header);
-    headerObserver.observe(document.documentElement);
+    headerObserver.observe(detail);
     meetingTitleHeaderObserver = headerObserver;
     const input = form.querySelector("[data-meeting-title-input]");
     const display = form.querySelector("[data-meeting-title-open]");
     const version = form.elements.expected_version;
     const error = form.querySelector("#meeting-title-error");
     const status = form.querySelector("[data-meeting-title-status]");
-    const detail = form.closest("[data-meeting-id]");
     let confirmed = form.dataset.confirmedTitle;
     let editing = !error.hidden;
     let pending = null;
