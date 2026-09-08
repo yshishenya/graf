@@ -2,7 +2,7 @@
 
 **Feature Branch**: `codex/257-krisp-meeting-detail`
 **Created**: 2026-09-08
-**Status**: Ready for implementation — подготовка T001/T002 завершена; код ещё не изменён
+**Status**: Implementation under acceptance — T001–T008 выполнены; T009/T010 завершаются по validation/closeout.md
 **Input**: Точно воспроизвести наблюдаемые UX, UI и IA страницы итогов Krisp после подробного исследования установленного приложения и веб-версии.
 
 ## Clarifications

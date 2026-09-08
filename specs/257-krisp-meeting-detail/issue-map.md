@@ -17,8 +17,8 @@
 | T009 | [#6809](https://github.com/yshishenya/graf/issues/6809) | OPEN |
 | T010 | [#6810](https://github.com/yshishenya/graf/issues/6810) | OPEN |
 
-Все10 задач получили canonical title,9 разделов, feature/priority/area/gate/type labels, критерии проверки, границы, ссылки на spec/plan/tasks и общую задачу. Документы пока подготовлены локально; ссылки на неопубликованный Git blob не выдаются за существующие.
+Все10 задач получили canonical title,9 разделов, feature/priority/area/gate/type labels, критерии проверки, границы, ссылки на spec/plan/tasks и общую задачу. Реализация опубликована в черновике [PR #6826](https://github.com/yshishenya/graf/pull/6826); текущие доказательства — [validation/closeout.md](validation/closeout.md).
 
-T001/T002 могут быть выполнены локально как условия начала реализации. Их GitHub issues остаются открыты до публикации результата, PR, точного SHA, governance-fast и обязательного validate-issue-closeout.py: этот validator требует PR и PASS со ссылкой на CI даже для task-backed подготовки. Они не являются незавершённым исследованием или причиной обходить проверку закрытия. T003–T008 выполнены локально; их issues остаются OPEN до PR/SHA/governance-fast и проверки закрытия. T009/T010 ещё не завершены. Актуальные доказательства — [validation/focused.md](validation/focused.md).
+T001–T008 выполнены; их issues остаются OPEN до проверки закрытия на текущем PR SHA через `validate-issue-closeout.py` и русского поясняющего комментария. Старый PASS GitHub не распространяется на новые коммиты. T009/T010 не завершены: после разблокировки нативная приёмка источника/сворачивания остаётся PARTIAL, формальная граница SC-003, итоговая сверка и актуальный governance-fast ещё требуются. Карта OPEN не означает отсутствия выполненной реализации; автоматическое закрытие в PR не запрошено.
 
 Mandatory ensure выполнен успешно без изменения общих файлов проекта. Итог validate и независимого принятия записывается в [readiness.md](readiness.md).
