@@ -243,3 +243,19 @@ Legacy remove: CalendarTrayState/loading/error/lastUpdatedAt, Combine/@Published
 Штатный dev-9d4e6248ab21 собран/установлен, smoke 13/13 PASS, governance-fast PASS https://github.com/yshishenya/graf/actions/runs/34174734710 на 9d4e6248ab212453c0ef464c2cd9a13db647b3e2. Владелец явно выбрал третий вариант 9 pt. Контрольный Start → Mute → Unmute → Stop выполнен из NSMenu клавиатурой, итог «Сохранено на Mac»; Mute менялся на «Включить микрофон», статус явно сохранял запись системного звука. Общие настройки открывают /desktop/settings, Escape работает. Синтетический MeetingMuteTruthRuntimeProof PASS, privacySegments=1; системная дорожка не прерывается. Первая запись с внешним вмешательством не засчитана как контрольный сценарий.
 
 Нативный Quit выявил дефект T034: cleanup_requested остаётся без cleanup_completed, процесс не завершился. sample главного потока доказал удержание dispatch main queue в CalendarTrayController.showMenu → NSStatusBarButton.performClick → NSMenu tracking → quitApp → NSApplication.terminate/terminateLater. Поэтому ни cleanup Task, ни 10-секундный main-queue timeout не исполняются. Внешние действия другого приложения через CUA не дали надёжного результата; не засчитаны PASS. Исправляется источник открытия меню через run-loop selector, а не ослабление сохранения/принудительный выход.
+
+## Финальная приёмка меню на a163c539f, 2026-09-08
+
+Exact source SHA: `a163c539f131db5fe20a28623ea35ebbf33941e1`; штатный manifest `dev-a163c539f131`, доступная ОС macOS 26.6.2. Build/promote dry-run/promote retry и smoke 13/13 PASS. Первая попытка установки была заблокирована зависшей предыдущей версией 9d4e6248a; принудительное восстановление старой версии не считается проверкой Quit новой.
+
+- Штатный Quit нового a163c539f: процесс завершился; `app_termination_cleanup_requested` → `app_termination_cleanup_completed reason=cleanup_finished` в 01:21:12 UTC. Timeout/kill не использованы. Затем Dev вновь запущен.
+- Start → Mute → Stop непосредственно из Mute: сохранено на Mac, остановка в 01:25:15 UTC. Start → Mute → Unmute → Stop ранее прошёл на 9d4e6248a; графика/capture-семантика последним исправлением run loop не менялись.
+- Общие настройки ведут в `/desktop/settings`; Escape и клик по пустой области собственного окна проверены. Проверка физического внешнего клика по другому приложению остаётся отдельным пунктом ниже.
+- Reduce Motion включён и восстановлен в исходное off. Activity Monitor возвращён в прежний раздел/фильтр. Тестовые записи остановлены; тема GRAF светлая по выбору владельца.
+- Synthetic MeetingMuteTruthRuntimeProof PASS: один privacy segment; системный звук остаётся ненулевым во время Mute микрофона. Использованы синтетические данные, в git аудио не включается.
+- Повторный merge-набор: 281 Swift PASS (DesktopCabinet/EmbeddedCabinet/Boundary/Sidebar/Menu/Capture/Writer/AppUpdate), 283 server PASS (навигация/формы/настройки/стили/account/normalization media matrix), 13 Dev contract PASS. Команды и новые exact-SHA GitHub gates записываются в финальном PR.
+- macOS 14.5 и VoiceOver: not_run_owner_accepted. Системный значок недоступен снимку CUA: вектор/raster/template/9 pt проверены тестами, вариант принят владельцем; это не заявляется визуальным снимком строки macOS.
+
+См. [совместимость с F249](f249-compatibility.md): merge-tree обнаружил реальные конфликты. Функции уведомлений F249 не включены и не засчитываются как совместно протестированные.
+
+Дополнительно: 9 PostgreSQL/FFmpeg finalize PASS через `bash apps/server/scripts/run_local_postgres_tests.sh -q tests/integration/test_playback_normalization_finalize.py`; временный контейнер удалён.
