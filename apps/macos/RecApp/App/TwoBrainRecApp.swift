@@ -40,14 +40,14 @@ private enum TwoBrainRecAppMain {
         updateItem.target = zoomTarget
         appMenu.addItem(NSMenuItem.separator())
         let settingsItem = appMenu.addItem(
-            withTitle: "Settings...",
+            withTitle: "Настройки…",
             action: #selector(AppLifecycleDelegate.openSettings(_:)),
             keyEquivalent: ","
         )
         settingsItem.target = zoomTarget
         let upcomingItem = appMenu.addItem(
-            withTitle: "Ближайшие встречи",
-            action: #selector(AppLifecycleDelegate.openCalendarTray(_:)),
+            withTitle: "Меню GRAF",
+            action: #selector(AppLifecycleDelegate.openGrafMenu(_:)),
             keyEquivalent: ""
         )
         upcomingItem.target = zoomTarget
@@ -181,7 +181,7 @@ private struct ContentView: View {
     @State private var activeCalendarMatchLocalRecordingId: String?
     @State private var meetingDetectionSettingsStore = MeetingDetectionSettingsStore()
     @State private var meetingDetectionSettings = MeetingDetectionSettings()
-    @State private var openingRecordingSettings = false
+    @State private var openingSettings = false
     @State private var meetingDetectionRegistryStore: MeetingTargetRegistryStore?
     @State private var meetingDetectionRegistry: MeetingTargetRegistryDocument?
     @State private var meetingDetectionRegistryRequiresRemoteRefresh = false
@@ -429,7 +429,12 @@ private struct ContentView: View {
             startUploadQueueNetworkMonitorIfNeeded()
             startMeetingDetectionIfNeeded()
             appUpdateController.updateProtectedWork(protectedUpdateWork)
+            syncControlPanel()
         }
+        .onChange(of: trayRecordingState, initial: true) { _, state in
+            (NSApp.delegate as? AppLifecycleDelegate)?.updateTrayRecordingState(state)
+        }
+        .onChange(of: controlPanelSnapshot) { _, _ in syncControlPanel() }
         .onChange(of: protectedUpdateWork) { _, work in
             appUpdateController.updateProtectedWork(work)
         }
@@ -489,25 +494,34 @@ private struct ContentView: View {
             Task { await refreshCalendarReminder(reason: "desktop_auth_session_changed") }
             Task { await refreshMeetingDetectionRegistry(reason: "desktop_auth_session_changed") }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecOpenRecordingSettings)) { _ in
-            guard let configuration = desktopCabinetConfiguration, desktopCabinetState == .ready else {
-                (NSApp.delegate as? AppLifecycleDelegate)?.openLocalRecordingSettings()
-                return
-            }
-            let route = configuration.baseURL.appending(path: "desktop/settings/recording")
-            openingRecordingSettings = selectedCabinetRoute != route
-            selectedCabinetRoute = route
-        }
         .onChange(of: desktopCabinetState) { _, state in
-            guard openingRecordingSettings, state != .loading else { return }
-            openingRecordingSettings = false
+            guard openingSettings, state != .loading else { return }
+            openingSettings = false
             if state != .ready {
                 (NSApp.delegate as? AppLifecycleDelegate)?.openLocalRecordingSettings()
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecOpenCalendarSettingsFromTray)) { _ in
-            guard let configuration = desktopCabinetConfiguration else { return }
-            selectedCabinetRoute = configuration.calendarSettingsURL()
+        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecStartRecordingFromTray)) { _ in
+            Task { await startManualRecording() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecStopRecordingFromTray)) { _ in
+            guard localRecordingActive else { return }
+            Task { await stopManualRecording() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecMuteMicrophoneFromTray)) { _ in
+            Task { await pauseManualRecording() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecUnmuteMicrophoneFromTray)) { _ in
+            Task { await resumeManualRecording() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecOpenSettings)) { _ in
+            guard let configuration = desktopCabinetConfiguration, desktopCabinetState == .ready else {
+                (NSApp.delegate as? AppLifecycleDelegate)?.openLocalRecordingSettings()
+                return
+            }
+            let route = configuration.baseURL.appending(path: "desktop/settings")
+            openingSettings = selectedCabinetRoute != route
+            selectedCabinetRoute = route
         }
         .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecOpenMeetingsFromTray)) { _ in
             guard let configuration = desktopCabinetConfiguration else { return }
@@ -527,11 +541,53 @@ private struct ContentView: View {
             Task { await uploadMeetingDetectionTelemetry(reason: "system_wake") }
             restartMeetingDetectionObservation(reason: "system_wake")
         }
-        .onDisappear {
-            guard !terminationCleanupInProgress else { return }
-            stopMeetingDetection()
-            Task { await releaseCaptureResourcesForAppExit() }
+        // Closing/hiding the cabinet must not end capture. The application
+        // termination notification above owns the awaited resource cleanup.
+    }
+
+    private var controlPanelSnapshot: DesktopControlSnapshot {
+        var value = DesktopControlSnapshot()
+        value.session = captureSession
+        value.calendarContextEventID = activeCalendarContextEventId
+        value.transitioning = recordingStartInProgress || recordingStopInProgress
+        value.stopping = recordingStopInProgress
+        value.startAvailable = CaptureControlView.shouldShowRecordButton(for: captureSession) && effectivePermissionOnboardingStatus.isReady && !value.transitioning
+        value.permissionBlocker = recordingBlocker == nil && !effectivePermissionOnboardingStatus.isReady
+        value.blocker = recordingBlocker ?? (value.permissionBlocker ? "Разрешите доступ к микрофону и звуку Mac, чтобы начать запись." : nil)
+        value.microphone = effectivePermissionOnboardingStatus.microphone == .granted ? (captureSession?.state == .paused ? "На паузе" : localRecordingActive ? (liveRecordingLevels.microphoneIsLive() ? "Поступают аудиоданные" : "Нет свежих аудиоданных") : "Доступ разрешён") : "Нужен доступ"
+        value.systemAudio = effectivePermissionOnboardingStatus.systemAudio == .granted ? (localRecordingActive ? (liveRecordingLevels.incomingIsLive() ? "Поступают аудиоданные" : "Нет свежих аудиоданных") : "Доступ разрешён") : "Нужен доступ"
+        if recordingStopInProgress {
+            value.microphone = "Завершаем захват"
+            value.systemAudio = "Завершаем захват"
         }
+        value.uploadItems = uploadQueueItems
+        return value
+    }
+
+    private func syncControlPanel() {
+        DesktopControlModel.shared.onAction = { action in
+            switch action {
+            case .start: Task { await startManualRecording() }
+            case .pause: Task { await pauseManualRecording() }
+            case .resume: Task { await resumeManualRecording() }
+            case .stop: Task { await stopManualRecording() }
+            case .settings: (NSApp.delegate as? AppLifecycleDelegate)?.openLocalRecordingSettings()
+            case .localRecordings:
+                (NSApp.delegate as? AppLifecycleDelegate)?.openMeetingsFromTray()
+                NotificationCenter.default.post(name: .grafOpenLocalRecordingControls, object: nil)
+            case .permissions:
+                (NSApp.delegate as? AppLifecycleDelegate)?.openMeetingsFromTray()
+                presentPermissionSetup()
+            }
+        }
+        DesktopControlModel.shared.update(controlPanelSnapshot)
+    }
+
+    private var trayRecordingState: GrafTrayRecordingState {
+        GrafTrayRecordingState.resolve(sessionState: captureSession?.state,
+                                       writerActive: localRecordingActive,
+                                       stopping: recordingStopInProgress,
+                                       starting: recordingStartInProgress)
     }
 
     private var protectedUpdateWork: ProtectedUpdateWork {
@@ -2180,7 +2236,7 @@ private struct ContentView: View {
                 detail: "sessionId=\(paused.id) localMicTreatment=silenced stopAvailable=\(paused.stopActionAvailable)"
             )
         } catch {
-            recordingBlocker = "Не удалось поставить запись на паузу. Запись продолжается; попробуйте ещё раз."
+            recordingBlocker = "Не удалось выключить микрофон в записи. Попробуйте ещё раз."
             AppLog.writeRaw(
                 event: AuditEventName.recordingFailed.rawValue,
                 detail: "pause_failed error=\(error)"
@@ -2204,7 +2260,7 @@ private struct ContentView: View {
                 detail: "sessionId=\(active.id) localMicTreatment=capturing stopAvailable=\(active.stopActionAvailable)"
             )
         } catch {
-            recordingBlocker = "Не удалось продолжить запись. Она остаётся на паузе; попробуйте ещё раз или остановите её."
+            recordingBlocker = "Не удалось включить микрофон в записи. Системный звук продолжает записываться; попробуйте ещё раз или остановите запись."
             AppLog.writeRaw(
                 event: AuditEventName.recordingFailed.rawValue,
                 detail: "resume_failed error=\(error)"
@@ -2237,7 +2293,7 @@ private struct ContentView: View {
         }
 
         do {
-            _ = try captureController.requestStop(reason: reason)
+            captureSession = try captureController.requestStop(reason: reason)
             enqueueLocalRecordingAsSaving(directoryURL: recordingDirectory)
             let systemAudioSession = try await systemAudioCaptureService.stop()
             activeMicrophoneSampleSource?.stop()
@@ -2746,7 +2802,7 @@ private struct ContentView: View {
     }
 
     private var meetingMuteTruthWarningText: String? {
-        guard localRecordingActive || localRecordingManifest?.meetingMuteTruth != nil else {
+        guard localRecordingActive || recordingStopInProgress else {
             return nil
         }
         return SystemAudioStatusLabels.meetingMuteTruthLimitationCopy
@@ -2998,7 +3054,9 @@ private struct MeetingDetectionPromptView: View {
 private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var mainWindow: NSWindow?
     private var settingsWindow: NSWindow?
+    private var recordingWidget: DesktopRecordingWidget?
     private var calendarTrayController: CalendarTrayController?
+    private var trayRecordingState: GrafTrayRecordingState = .idle
     private let workspaceZoomStore = WorkspaceZoomStore()
     private let appUpdateController: AppUpdateController
     private var appUpdateSubscription: AnyCancellable?
@@ -3020,6 +3078,11 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
 
     deinit {
         NotificationCenter.default.removeObserver(self)
+    }
+
+    func updateTrayRecordingState(_ state: GrafTrayRecordingState) {
+        trayRecordingState = state
+        calendarTrayController?.showRecordingState(state)
     }
 
     func applicationWillFinishLaunching(_: Notification) {
@@ -3061,16 +3124,29 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
         }
         calendarTrayController = CalendarTrayController(
             model: trayModel,
-            onOpenCalendar: { [weak self] in self?.openCalendarFromTray() },
+            onOpenSettings: { [weak self] in self?.openSettings(nil) },
             onOpenMeetings: { [weak self] in self?.openMeetingsFromTray() },
+            onStartRecording: { [weak self] in self?.captureCommandFromTray(.twoBrainRecStartRecordingFromTray) },
+            onStopRecording: { [weak self] in self?.captureCommandFromTray(.twoBrainRecStopRecordingFromTray) },
+            onMuteMicrophone: { [weak self] in self?.captureCommandFromTray(.twoBrainRecMuteMicrophoneFromTray) },
+            onUnmuteMicrophone: { [weak self] in self?.captureCommandFromTray(.twoBrainRecUnmuteMicrophoneFromTray) },
+            onQuit: { NSApp.terminate(nil) },
             onUpdate: { [weak self] in self?.checkForUpdates(nil) }
         )
+        DesktopNotificationPresenter.shared.onOpenCalendar = { [weak self] in self?.calendarTrayController?.showMenu() }
+        trayModel.onAuthInvalidated = { DesktopNotificationPresenter.shared.invalidate() }
+        trayModel.onProjection = { response in
+            if let response { DesktopNotificationPresenter.shared.updateCalendar(response) }
+            else { DesktopNotificationPresenter.shared.clearCalendar() }
+        }
         calendarTrayController?.start()
+        calendarTrayController?.showRecordingState(trayRecordingState)
         appUpdateSubscription = appUpdateController.$presentation
             .combineLatest(appUpdateController.$isManualCheckActionEnabled)
             .sink { [weak self] presentation, enabled in
                 self?.calendarTrayController?.showUpdate(presentation, actionEnabled: enabled)
             }
+        recordingWidget = DesktopRecordingWidget(model: .shared)
         appUpdateController.start()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             self.logWindowVisibility()
@@ -3253,9 +3329,9 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
     }
 
     @objc func openSettings(_: Any?) {
-        presentMainWindow(reason: "recording_settings")
+        presentMainWindow(reason: "settings")
         DispatchQueue.main.async {
-            NotificationCenter.default.post(name: .twoBrainRecOpenRecordingSettings, object: nil)
+            NotificationCenter.default.post(name: .twoBrainRecOpenSettings, object: nil)
         }
     }
 
@@ -3263,18 +3339,22 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
         presentSettingsWindow(reason: "local_fallback")
     }
 
-    @objc func openCalendarTray(_: Any?) {
-        calendarTrayController?.showPopover()
+    @objc func openGrafMenu(_: Any?) {
+        calendarTrayController?.showMenu()
     }
 
-    private func openCalendarFromTray() {
-        presentMainWindow(reason: "calendar_tray")
+    private func captureCommandFromTray(_ command: Notification.Name) {
+        // Reuse the existing window and capture path so permission/error recovery is visible.
+        presentMainWindow(reason: "tray_recording")
         DispatchQueue.main.async {
-            NotificationCenter.default.post(name: .twoBrainRecOpenCalendarSettingsFromTray, object: nil)
+            NotificationCenter.default.post(
+                name: command,
+                object: nil
+            )
         }
     }
 
-    private func openMeetingsFromTray() {
+    func openMeetingsFromTray() {
         presentMainWindow(reason: "calendar_tray")
         DispatchQueue.main.async {
             NotificationCenter.default.post(name: .twoBrainRecOpenMeetingsFromTray, object: nil)
@@ -3307,6 +3387,7 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
     }
 
     private func presentSettingsWindow(reason: String) {
+        Task { await DesktopNotificationPresenter.shared.refreshPermission() }
         if let settingsWindow {
             if settingsWindow.isMiniaturized {
                 settingsWindow.deminiaturize(nil)
@@ -3328,10 +3409,16 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
             defer: false
         )
         window.title = MeetingDetectionSettingsView.windowTitle
+        window.minSize = MeetingDetectionSettingsView.windowSize
         window.isReleasedWhenClosed = false
         window.isRestorable = false
         window.identifier = NSUserInterfaceItemIdentifier("graf-settings-window")
-        window.contentViewController = NSHostingController(rootView: MeetingDetectionSettingsView())
+        window.contentViewController = NSHostingController(rootView:
+            TabView {
+                MeetingDetectionSettingsView().tabItem { Text("Автозапись") }
+                DesktopNotificationsSettingsView().tabItem { Text("Уведомления на этом Mac") }
+            }.frame(width: MeetingDetectionSettingsView.windowSize.width, height: MeetingDetectionSettingsView.windowSize.height)
+        )
         window.center()
         settingsWindow = window
         AppLog.writeRaw(
@@ -3344,10 +3431,13 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
 }
 
 private extension Notification.Name {
+    static let twoBrainRecStartRecordingFromTray = Notification.Name("pro.2brain.graf.startRecordingFromTray")
+    static let twoBrainRecMuteMicrophoneFromTray = Notification.Name("pro.2brain.graf.muteMicrophoneFromTray")
+    static let twoBrainRecUnmuteMicrophoneFromTray = Notification.Name("pro.2brain.graf.unmuteMicrophoneFromTray")
+    static let twoBrainRecStopRecordingFromTray = Notification.Name("pro.2brain.graf.stopRecordingFromTray")
     static let twoBrainRecApplicationShouldTerminate = Notification.Name("pro.2brain.graf.applicationShouldTerminate")
     static let twoBrainRecApplicationTerminationCleanupFinished = Notification.Name("pro.2brain.graf.applicationTerminationCleanupFinished")
-    static let twoBrainRecOpenRecordingSettings = Notification.Name("pro.2brain.graf.openRecordingSettings")
-    static let twoBrainRecOpenCalendarSettingsFromTray = Notification.Name("pro.2brain.graf.openCalendarSettingsFromTray")
+    static let twoBrainRecOpenSettings = Notification.Name("pro.2brain.graf.openSettings")
     static let twoBrainRecOpenMeetingsFromTray = Notification.Name("pro.2brain.graf.openMeetingsFromTray")
 }
 
@@ -3369,7 +3459,6 @@ private struct AppContentRoot: View {
             appUpdateController: appUpdateController,
             workspaceZoom: workspaceZoomStore.preference
         )
-        .frame(minWidth: 1040, minHeight: 680)
     }
 }
 

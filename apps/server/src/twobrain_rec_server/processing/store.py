@@ -1637,6 +1637,11 @@ async def fail_processing_attempt_dispatch(
 ) -> bool:
     """Clear a pre-dispatch ``starting`` row without reopening terminal data."""
 
+    reference = await db.get(ProcessingWorkflow, workflow_id)
+    if reference is None:
+        await db.rollback()
+        return False
+    await lock_meeting_fence(db, workspace_id=reference.workspace_id, meeting_id=reference.meeting_id)
     workflow = await db.scalar(
         select(ProcessingWorkflow)
         .where(ProcessingWorkflow.id == workflow_id)
@@ -1676,6 +1681,7 @@ async def fail_processing_attempt_dispatch(
             workspace_id=workflow.workspace_id,
             meeting_id=workflow.meeting_id,
             media_revision_id=workflow.media_revision_id,
+            notification_workflow_id=workflow.id,
             status=ProcessingStatus.FAILED_TERMINAL,
         )
         await db.commit()
@@ -2036,6 +2042,7 @@ async def upsert_processing_workflow(
         workspace_id=workspace_id,
         meeting_id=meeting_id,
         media_revision_id=media_revision_id,
+        notification_workflow_id=workflow.id,
         status=status,
     )
     await db.commit()
@@ -2137,6 +2144,7 @@ async def set_workflow_status(
         workspace_id=current.workspace_id,
         meeting_id=current.meeting_id,
         media_revision_id=current.media_revision_id,
+        notification_workflow_id=current.id,
         status=status,
     )
     await db.commit()
@@ -2180,6 +2188,7 @@ async def _sync_meeting_processing_status(
     meeting_id: UUID,
     media_revision_id: UUID | None = None,
     status: ProcessingStatus,
+    notification_workflow_id: UUID | None = None,
 ) -> None:
     latest_revision = None
     meeting = await db.get(Meeting, meeting_id)
@@ -2192,6 +2201,14 @@ async def _sync_meeting_processing_status(
             and (latest_revision is None or latest_revision.id == media_revision_id)
         ) or (media_revision_id is None and latest_revision is None):
             meeting.processing_status = status.value
+            if status == ProcessingStatus.FAILED_TERMINAL and notification_workflow_id is not None:
+                current = await get_processing_workflow(db, workspace_id=workspace_id,
+                    meeting_id=meeting_id, media_revision_id=media_revision_id)
+                if current is not None and current.id == notification_workflow_id:
+                    from twobrain_rec_server.notifications.inbox import record_event
+                    await record_event(db, meeting=meeting,
+                        kind="no_speech" if current.last_reason_code == "no_recognizable_speech" else "processing_failed",
+                        source_revision=str(current.id))
     placeholder = await db.scalar(
         select(ProcessingPlaceholder).where(
             ProcessingPlaceholder.workspace_id == workspace_id,
@@ -2970,6 +2987,10 @@ async def persist_processing_result(
         job=job,
         transcript=result.transcript,
     )
+    from twobrain_rec_server.notifications.inbox import record_event
+    await record_event(db, meeting=meeting,
+                       kind="transcript_ready" if any(segment.text.strip() for segment in result.transcript) else "no_speech",
+                       source_revision=source_result_hash)
     await set_dependency_state(
         db,
         workspace_id=job.workspace_id,

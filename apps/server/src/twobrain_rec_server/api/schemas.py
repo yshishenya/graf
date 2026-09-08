@@ -327,6 +327,8 @@ class DesktopCalendarPromptEvent(CalendarEventSummary):
 
 
 class DesktopCalendarPromptResponse(BaseModel):
+    notification_owner_id: str | None = None
+    notification_workspace_id: str | None = None
     show_upcoming_time: bool = True
     show_upcoming_title: bool = True
     events: list[DesktopCalendarPromptEvent] = Field(default_factory=list)
@@ -1708,7 +1710,8 @@ class SummaryTypeReadResponse(SummaryStateEventV1):
     model_config = ConfigDict(extra="forbid")
 
     outcome_set_id: UUID | None = None
-    items: list["OutcomeItemView"] = Field(default_factory=list, max_length=256)
+    items: list["OutcomeItemView"] = Field(default_factory=list)
+    protocol: dict[str, Any] | None = None
     attempt: SummaryTypeAttemptStateV1 | None = None
 
 
@@ -1846,7 +1849,8 @@ class PublicShareSummaryResponse(BaseModel):
     meeting_label: str
     occurred_at: datetime
     duration_seconds: int = Field(ge=0)
-    summary_sections: list[dict[str, object]] = Field(default_factory=list, max_length=100)
+    summary_sections: list[dict[str, object]] = Field(default_factory=list)
+    protocol: dict[str, Any] | None = None
 
 
 class MeetingAccessState(BaseModel):
@@ -2146,6 +2150,7 @@ class NotesActionCategoryState(BaseModel):
 
 
 class NotesActionTruthState(BaseModel):
+    protocol: dict[str, Any] | None = None
     summary: NotesActionCategoryState
     key_points: NotesActionCategoryState = Field(default_factory=_default_deferred_notes_category)
     decisions: NotesActionCategoryState

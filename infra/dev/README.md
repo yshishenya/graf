@@ -14,6 +14,9 @@ looks like production is rejected. Origins must be loopback (`localhost`,
 `127.0.0.1` or `[::1]`). Set `GRAF_DEV_STATE_DIR` explicitly when a disposable
 fixture needs a worktree-local state directory.
 
+Перед ручными проверками установленного приложения прочитайте
+[обязательные правила GRAF Dev](../../docs/agent-guidance/local-development.md).
+
 ## Operations
 
 ```sh

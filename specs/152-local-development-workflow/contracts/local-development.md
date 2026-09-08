@@ -1,9 +1,8 @@
-# Local Contract
+# Local development contract — superseded launch path
 
-`infra/scripts/start-local.sh` → `http://127.0.0.1:8081/login`; email
-`local@graf.test`; code is visible only in development. The local flag selects
-`graf_dev_owner_session` over HTTP. `apps/macos/Scripts/run-local-app.sh` sets both
-cabinet and upload origins and accepts only loopback HTTP origins.
-`apps/macos/Scripts/build-local-app.sh` creates a disposable debug bundle under
-`.build/local`; its separate bundle identifier, no-feed Info.plist, and wrapper
-preserve the same loopback-only contract when launched outside a shell.
+Запуск старого отдельного приложения заменён единым GRAF Dev.
+Используйте [действующую инструкцию](/docs/agent-guidance/local-development.md):
+`build → promote → status → smoke` через `infra/scripts/dev-harness.sh`.
+Установленное приложение: `/Applications/GRAF Dev.app`, bundle ID
+`pro.2brain.graf.dev`; cabinet/upload используют только loopback HTTP.
+Dev-вход сохраняет `local@graf.test` и cookie `graf_dev_owner_session`.

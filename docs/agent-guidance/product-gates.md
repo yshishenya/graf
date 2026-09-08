@@ -69,25 +69,19 @@ Use this file with `.specify/memory/constitution.md`,
   approval for destination, data classes, retention/deletion limits, and
   rollback. Langfuse Prompt Config is the single editable authority for prompt
   text, selected LiteLLM model route, allowlisted request-level generation
-  settings, and strict response format. A multi-prompt pipeline MUST expose one
-  versioned root bundle Prompt Config as its only production label/activation
-  point; that root pins exact numeric child versions/hashes, schemas,
-  validators/verifiers, renderer and route/settings. Runtime never resolves
-  child labels. Langfuse label mutation is not assumed to provide native
-  expected-source CAS: production movement uses one authorized writer/lock,
-  expected-root read/compare, immutable candidate-root qualification,
-  protected-root-label move, exact read-back and immutable promotion-event
-  binding. Runtime, model calls and publication evidence MUST carry the complete
-  typed event binding and re-fetch/re-hash the passing event and qualification;
-  a bare event digest or label lookup is non-authorizing. The event remains
-  outside the already-hashed root/activation body to avoid a digest cycle.
-  Mismatch fails closed on last-known-good root + activation + event binding. A
-  mixed partially promoted bundle cannot execute. The root also pins a secret-free immutable LiteLLM
-  route-binding descriptor: exact alias, binding version/hash and allowlisted
-  actual provider/model pairs. The gateway MUST compare the expected hash before
-  provider egress and return that hash plus actual provider/model; absence,
-  mismatch or an unallowlisted pair fails closed. Mapping changes require a new
-  evaluated/promoted root. LiteLLM owns mapping to the approved upstream
+  settings, and strict response format. Meeting generation follows the
+  single-call boundary in Constitution §III: pin one exact prompt/config,
+  validate structure and source references, save and publish under existing
+  access/source/deletion fences. Do not add extraction/judge calls, semantic
+  rejection or root/qualification/promotion-event authorization to that path.
+  Development selection never falls back to production. Production label
+  movement is a separately approved release operation, not a runtime
+  qualification service; Langfuse label mutation is not native compare-and-set.
+  GRAF has no separate model allowlist, route-binding descriptor or special
+  route-binding request/response headers. Reported provider/model provenance
+  remains nullable and is not inferred from the requested alias. Historical
+  observation records retain their original hashes and provenance.
+  LiteLLM owns mapping to the approved upstream
   provider and upstream secrets; workflow code owns neither.
 - A private Langfuse Cloud EU project with public trace publishing disabled is
   explicitly approved for internal-MVP AI observability and prompt control; each
@@ -132,10 +126,8 @@ Use this file with `.specify/memory/constitution.md`,
 - Durable model calls and offline prompt optimization use Temporal. GEPA may
   create exact numeric candidate prompt versions and evaluation evidence with
   no manually assigned deployment label, but project-global
-  production labels require held-out validation, deployment-operator approval,
-  serialized expected-source verification, protected-label plus sole mutation
-  credential readiness, and a rollback target. Without that readiness,
-  automated promotion stays disabled.
+  production labels require exact-target evaluation, deployment-operator
+  approval and numeric read-back. Automated production promotion is disabled.
 - Feature 121 prompt optimization is synthetic-only. Any later use of real
   transcript/output/feedback requires an approved consent, provenance,
   retention, deletion-invalidation, and owner-controlled storage design.

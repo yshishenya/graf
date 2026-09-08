@@ -157,6 +157,13 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
                 userMessage: "Auth callback"
             )
         }
+        if components == ["desktop", "notifications"] || components == ["notifications"] ||
+           (components.count == 5 && Array(components.prefix(3)) == ["api", "v1", "notifications"] && UUID(uuidString: components[3]) != nil && components[4] == "read") {
+            return DesktopCabinetRouteDecision(
+                route: DesktopCabinetRoute(path: path, kind: .meetingList),
+                decision: .allow, reason: .allowedMeetingList, userMessage: "Уведомления"
+            )
+        }
         if components == ["desktop", "meetings"] {
             return DesktopCabinetRouteDecision(
                 route: DesktopCabinetRoute(path: path, kind: .meetingList),

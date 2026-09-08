@@ -1619,6 +1619,9 @@ def test_profile_menu_theme_and_disabled_action_contract_is_shared() -> None:
 
     assert 'form.dataset.accountPreferencesAutoSave === "true"' in script
     assert "form.requestSubmit()" in script
+    assert "fetch(form.action" in script
+    assert 'data-account-preferences-return' in sections
+    assert 'data-account-preferences-status' in sections
     assert 'data-profile-menu popover="manual" hidden' in sections
     assert "menu.showPopover()" in script
     assert "menu.hidePopover()" in script

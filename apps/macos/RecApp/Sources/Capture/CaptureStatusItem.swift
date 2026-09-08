@@ -44,8 +44,7 @@ public struct CaptureStatusItem: View {
                     .foregroundStyle(color(for: session))
                 Text(Self.statusLabel(for: session))
                     .font(.caption)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.85)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .accessibilityElement(children: .combine)
             .accessibilityLabel(Self.accessibilityLabel(for: session))
@@ -53,11 +52,11 @@ public struct CaptureStatusItem: View {
             .accessibilityRemoveTraits(.isSelected)
 
             if showsStopAction {
-                HStack(spacing: 8) {
+                VStack(spacing: 8) {
                     if Self.showsPauseButton(for: session) {
                         Button(action: onPause) {
-                            Label(SystemAudioStatusLabels.pauseButtonTitle, systemImage: "pause.fill")
-                                .lineLimit(1)
+                            Label(SystemAudioStatusLabels.pauseButtonTitle, systemImage: "mic.slash")
+                                .fixedSize(horizontal: false, vertical: true)
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(DesktopWebButtonStyle(.secondary))
@@ -70,8 +69,8 @@ public struct CaptureStatusItem: View {
 
                     if Self.showsResumeButton(for: session) {
                         Button(action: onResume) {
-                            Label(SystemAudioStatusLabels.resumeButtonTitle, systemImage: "play.fill")
-                                .lineLimit(1)
+                            Label(SystemAudioStatusLabels.resumeButtonTitle, systemImage: "mic")
+                                .fixedSize(horizontal: false, vertical: true)
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(DesktopWebButtonStyle(.secondary))
@@ -84,7 +83,7 @@ public struct CaptureStatusItem: View {
 
                     Button(action: onStop) {
                         Label(SystemAudioStatusLabels.stopButtonTitle, systemImage: "stop.fill")
-                            .lineLimit(1)
+                            .fixedSize(horizontal: false, vertical: true)
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(DesktopWebButtonStyle(.destructive))
@@ -120,7 +119,7 @@ public struct CaptureStatusItem: View {
         case .active:
             return "dot.radiowaves.left.and.right"
         case .paused:
-            return "pause.circle"
+            return "mic.slash"
         case .degraded:
             return "exclamationmark.triangle.fill"
         case .error:
@@ -172,7 +171,7 @@ public struct CaptureStatusItem: View {
         case .active:
             return "Идёт запись"
         case .paused:
-            return "Запись на паузе"
+            return "Идёт запись · микрофон выключен"
         case .degraded:
             return "Запись с ограничением"
         case .stopping:
@@ -228,7 +227,7 @@ public struct CaptureStatusItem: View {
         }
     }
 
-    public static func showsStopButton(for session: CaptureSession) -> Bool {
+    public nonisolated static func showsStopButton(for session: CaptureSession) -> Bool {
         session.state == .starting ||
             session.state == .active ||
             session.state == .paused ||

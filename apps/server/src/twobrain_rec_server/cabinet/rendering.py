@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from html import escape
-from urllib.parse import urlencode
+from urllib.parse import parse_qs, urlencode, urlsplit
 from uuid import UUID
 
 from twobrain_rec_server.api.schemas import (
@@ -11,6 +11,8 @@ from twobrain_rec_server.api.schemas import (
     MeetingListResponse,
     MeetingReviewResponse,
     NotesActionCategoryState,
+    OutcomeItemView,
+    OutcomeSourceReferenceView,
     PreviousRecurringMeetingView,
     SpeakerLane,
     TranscriptSegmentView,
@@ -38,6 +40,7 @@ from twobrain_rec_server.cabinet.deletion_rendering import (
 from twobrain_rec_server.cabinet.deletion_rendering import (
     render_deletion_report_page as render_deletion_report_page,
 )
+from twobrain_rec_server.cabinet.meeting_protocol import EMPTY, TASK_HEADING, protocol_blocks
 from twobrain_rec_server.cabinet.rendering_shared import (
     _base_path,
     _page_shell,
@@ -396,6 +399,7 @@ def render_shared_meeting_summary_page(
     occurred_at: datetime | None,
     duration_seconds: int,
     summary_sections: list[dict[str, object]],
+    protocol: dict | None = None,
     time_is_upload: bool = False,
     authenticated: bool = False,
     embedded: bool = False,
@@ -409,6 +413,9 @@ def render_shared_meeting_summary_page(
         time_is_upload=time_is_upload,
         duration_seconds=duration_seconds,
         summary_sections=_localized_shared_summary_sections(summary_sections),
+        protocol_html=_render_full_protocol(
+            protocol, source_destination_available=False, base_heading_level=2
+        ) if protocol else None,
         authenticated=authenticated,
         meeting_list_href=_base_path(embedded),
     )
@@ -590,7 +597,10 @@ def render_settings_page(
         "account_reauth_action": "/desktop/meetings" if embedded else "/logout",
         "account_reauth_next": "/login?next="
         + ("/desktop/settings/account" if embedded else "/settings/account"),
-        "notification_result": {"saved": "Настройки уведомлений сохранены."}.get(
+        "notification_result": {
+            "saved": "Настройки уведомлений сохранены.",
+            "conflict": "Настройки изменились или не прошли проверку. Ваш выбор сохранён в форме. Загрузите актуальные настройки перед повторным сохранением.",
+        }.get(
             notification_result
         ),
         "profile_result": {"saved": "Профиль сохранён."}.get(profile_result),
@@ -1035,6 +1045,11 @@ def _render_meeting_detail_content(
     transcript = trusted_component_html(
         _render_transcript(transcript_rows, speaker_palette), source="meeting_detail.transcript"
     )
+    if "source_result_id" in parse_qs(urlsplit(poll_url or "").query):
+        transcript = trusted_component_html(
+            '<div class="muted" role="status">Показана сохранённая редакция расшифровки из ссылки на источник.</div>'
+            + str(transcript), source="meeting_detail.transcript",
+        )
     if not review.transcript.available:
         transcript = trusted_component_html(
             f"""
@@ -2428,7 +2443,53 @@ def _render_revision_status(review: MeetingReviewResponse) -> str:
     """
 
 
+def _render_full_protocol(document, *, source_destination_available: bool, base_heading_level: int = 3, source_targets: frozenset[tuple[str, str]] = frozenset()) -> str:
+    def render_row(row):
+        item = OutcomeItemView(
+            category="summary", sequence=0, text=row.get("text", row.get("task")),
+            truth_label="supported",
+            source_refs=[OutcomeSourceReferenceView(
+                **ref, seekable=(str(ref["processing_result_id"]), str(ref["transcript_segment_id"])) in source_targets,
+            ) for ref in row.get("source_refs", [])],
+        )
+        return _render_outcome_item(item, source_destination_available=source_destination_available)
+
+    blocks = []
+    for level, title, rows in protocol_blocks(document):
+        heading = min(6, level + base_heading_level - 1)
+        body = "".join(render_row(row) for row in rows)
+        if title == TASK_HEADING and level == 2:
+            body = '<table class="notes-action-table"><caption>Задачи встречи</caption><thead><tr>'
+            body += ''.join(f'<th scope="col">{name}</th>' for name in ("Задача", "Ответственный", "Срок"))
+            body += '</tr></thead><tbody>'
+            for row in rows:
+                body += (f'<tr><td>{render_row(row)}</td>'
+                         f'<td>{escape(row["owner_text"] or "Не назначен")}</td>'
+                         f'<td>{escape(row["due_date_text"] or "Не указан")}</td></tr>')
+            if not rows:
+                body += '<tr><td>Задачи не зафиксированы</td><td>Не назначен</td><td>Не указан</td></tr>'
+            body += '</tbody></table>'
+        elif not rows and title in EMPTY and level == 2:
+            body = f'<p>{escape(EMPTY[title])}</p>'
+        blocks.append(f'<section class="notes-section"><h{heading}>{escape(title)}</h{heading}>{body}</section>')
+    return '<div class="notes-full-protocol">' + ''.join(blocks) + '</div>'
+
+
 def _render_notes_outcomes(review: MeetingReviewResponse) -> str:
+    if review.notes_action_truth.protocol is not None:
+        return _render_full_protocol(
+            review.notes_action_truth.protocol,
+            source_targets=frozenset(
+                (str(segment.processing_result_id), segment.segment_id)
+                for segment in review.transcript.segments
+            ) | frozenset(
+                (str(turn.processing_result_id), segment_id)
+                for turn in review.transcript.speaker_turns for segment_id in turn.source_segment_ids
+            ),
+            source_destination_available=review.transcript.available and bool(
+                review.playback.can_play or review.transcript.speaker_turns or review.transcript.segments
+            ),
+        )
     rows = {
         "summary": ("summary", "Summary", review.notes_action_truth.summary),
         "key_points": ("key_points", "Key points", review.notes_action_truth.key_points),

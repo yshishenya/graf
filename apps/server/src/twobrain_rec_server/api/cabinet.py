@@ -656,6 +656,7 @@ async def get_shared_meeting_summary_route(
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
     return PublicShareSummaryResponse.model_validate(
         narrow_summary_projection(
+            protocol=outcome_set.protocol_json if outcome_set else None,
             meeting_label=meeting.title or "Встреча",
             occurred_at=meeting.started_at or meeting.created_at,
             duration_seconds=meeting.duration_seconds,
@@ -2582,6 +2583,7 @@ async def resolve_login_required_share_link_route(
                 )
             ).all()
         projection = narrow_summary_projection(
+            protocol=outcome_set.protocol_json if outcome_set else None,
             meeting_label=meeting.title or "Встреча",
             occurred_at=meeting.started_at or meeting.created_at,
             duration_seconds=meeting.duration_seconds,
@@ -2602,6 +2604,7 @@ async def resolve_login_required_share_link_route(
                     time_is_upload=uploaded,
                     duration_seconds=int(projection["duration_seconds"]),
                     summary_sections=projection["summary_sections"],
+                    protocol=projection["protocol"],
                     authenticated=True,
                 )
             )
@@ -2694,6 +2697,7 @@ async def resolve_public_meeting_share_route(
             )
         ).all()
     projection = narrow_summary_projection(
+        protocol=outcome_set.protocol_json if outcome_set else None,
         meeting_label=meeting.title or "Встреча",
         occurred_at=meeting.started_at or meeting.created_at,
         duration_seconds=meeting.duration_seconds,
@@ -2713,6 +2717,7 @@ async def resolve_public_meeting_share_route(
                 time_is_upload=uploaded,
                 duration_seconds=int(projection["duration_seconds"]),
                 summary_sections=projection["summary_sections"],
+                protocol=projection["protocol"],
                 authenticated=False,
             )
         )
@@ -2794,6 +2799,7 @@ async def accept_meeting_share_invitation_route(
                 )
             ).all()
         projection = narrow_summary_projection(
+            protocol=outcome_set.protocol_json if outcome_set else None,
             meeting_label=meeting.title or "Встреча",
             occurred_at=meeting.started_at or meeting.created_at,
             duration_seconds=meeting.duration_seconds,
@@ -2812,6 +2818,7 @@ async def accept_meeting_share_invitation_route(
                 time_is_upload=uploaded,
                 duration_seconds=int(projection["duration_seconds"]),
                 summary_sections=projection["summary_sections"],
+                protocol=projection["protocol"],
                 authenticated=True,
             )
         )
@@ -3165,6 +3172,7 @@ async def create_shared_meeting_content_export_route(
         actor_user_id=principal.user_id,
         device_id=device.device_id,
         recipient_proof=recipient_proof,
+        meeting_url=f"{str(request.app.state.settings.public_base_url or '').rstrip('/')}/shared-meetings/{meeting_id}?workspace_id={workspace_id}",
         pinned_summary_revision=pinned_summary_revision,
     )
     await db.commit()
@@ -3232,6 +3240,7 @@ async def get_meeting_content_export_capabilities_route(
     dependencies=[PrincipalDependency, DeviceDependency, WebCSRFDependency],
 )
 async def create_meeting_content_export_route(
+    request: Request,
     meeting_id: UUID,
     payload: ContentExportSelectionRequest,
     tenant_scope: TenantScope = TenantDependency,
@@ -3276,6 +3285,7 @@ async def create_meeting_content_export_route(
         ),
         actor_user_id=principal.user_id,
         device_id=device.device_id,
+        meeting_url=f"{str(request.app.state.settings.public_base_url or '').rstrip('/')}/meetings/{meeting_id}",
     )
     await db.commit()
     filename = generated.filename
@@ -4028,6 +4038,7 @@ async def _summary_type_read_response(
         **event.model_dump(),
         outcome_set_id=current_outcome_set_id,
         items=items,
+        protocol=outcome.protocol_json if outcome is not None and outcome.status in {"available", "partial"} else None,
         attempt=attempt,
     )
 

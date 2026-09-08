@@ -11,6 +11,7 @@ from twobrain_rec_server.cabinet.web_routes import (
     deletion,
     desktop,
     fair_use,
+    notifications,
     provider_links,
     referrals,
     settings,
@@ -25,6 +26,7 @@ from twobrain_rec_server.product_analytics.telemetry_gate import build_required_
 
 router = APIRouter(tags=["cabinet-web"])
 router.include_router(static.router)
+router.include_router(notifications.router)
 router.include_router(auth.router)
 router.include_router(billing.router)
 router.include_router(settings.router)

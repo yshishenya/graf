@@ -280,7 +280,7 @@ def test_signed_app_identity_is_measured_from_codesign_output(monkeypatch, tmp_p
         return outputs[command[1]]
 
     def fake_run(command, *, cwd, env=None):
-        return outputs["-d"]
+        return outputs["-d"].split("\n", 1)[1]
 
     monkeypatch.setattr(dev_harness, "_run_command_combined", fake_combined)
     monkeypatch.setattr(dev_harness, "_run_command", fake_run)
@@ -527,7 +527,8 @@ def test_live_promote_relaunches_new_app_and_restores_previous_launch_state(monk
     assert calls == ["stop-backend", "stop-app", "install", "start-backend", "start-app"]
 
 
-def test_live_promote_restores_app_and_restarts_previous_backend_on_smoke_failure(monkeypatch, tmp_path):
+@pytest.mark.parametrize("cross_definition", [False, True])
+def test_live_promote_restores_app_and_restarts_previous_backend_on_smoke_failure(monkeypatch, tmp_path, cross_definition):
     old_sha = "a" * 40
     candidate_sha = "b" * 40
     old = manifest(tmp_path, old_sha, feature="229")
@@ -592,7 +593,20 @@ def test_live_promote_restores_app_and_restarts_previous_backend_on_smoke_failur
     monkeypatch.setattr(adapter, "_start_backend", fake_start)
     monkeypatch.setattr(adapter, "smoke", lambda _: {"backend_health": "fail", "mode": "live"})
 
-    with pytest.raises(dev_harness.HarnessError, match="live promotion smoke failed"):
+    if cross_definition:
+        candidate["migration_head"] = old["migration_head"]
+        for key in ("database", "storage", "temporal"):
+            candidate["components"][key] = old["components"][key]
+        predecessor = dev_harness.GrafLocalAdapter(tmp_path, tmp_path)
+        monkeypatch.setattr(adapter, "_previous_adapter", lambda *_: predecessor)
+        monkeypatch.setattr(predecessor, "_compose_config", lambda _: None)
+        monkeypatch.setattr(predecessor, "_assert_manifest_images", lambda *_: None)
+        def restore(*_):
+            calls.append("old-controller")
+            fake_start(old, predecessor._env(old))
+        monkeypatch.setattr(predecessor, "_restore_runtime", restore)
+        monkeypatch.setattr(predecessor, "smoke", lambda _: full_smoke())
+    with pytest.raises(dev_harness.HarnessError, match="smoke.*(failed|incomplete)"):
         adapter.promote(candidate)
 
     assert marker.read_text(encoding="utf-8") == "old"
@@ -605,6 +619,7 @@ def test_live_promote_restores_app_and_restarts_previous_backend_on_smoke_failur
         "start-app",
         "stop-app",
         "stop",
+        *(["old-controller"] if cross_definition else []),
         ("start", old_sha, old["components"]["backend"]["digest"]),
         "start-app",
     ]
@@ -717,7 +732,8 @@ def test_live_build_holds_repository_global_state_lock(monkeypatch, tmp_path):
     assert events == [("enter", tmp_path), ("build", tmp_path), ("exit", tmp_path)]
 
 
-def test_live_rollback_reinstalls_target_and_verifies_before_return(monkeypatch, tmp_path):
+@pytest.mark.parametrize("cross_definition", [False, True])
+def test_live_rollback_reinstalls_target_and_verifies_before_return(monkeypatch, tmp_path, cross_definition):
     active_sha = "c" * 40
     target_sha = "d" * 40
     active = manifest(tmp_path, active_sha)
@@ -763,7 +779,22 @@ def test_live_rollback_reinstalls_target_and_verifies_before_return(monkeypatch,
         lambda _: {"backend_health": "pass", "frontend_reachability": "pass", "mode": "live"},
     )
 
-    result = adapter.rollback(active, target)
+    options = {}
+    for key in ("database", "storage", "temporal"):
+        target["components"][key]["digest"] = active["components"][key]["digest"]
+    if cross_definition:
+        target_adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path)
+        for name in ("_assert_source_matches_checkout", "_compose_config", "_assert_manifest_images"):
+            monkeypatch.setattr(target_adapter, name, lambda *_: None)
+        monkeypatch.setattr(target_adapter, "_install_app", fake_install)
+        monkeypatch.setattr(target_adapter, "_start_backend", fake_start)
+        monkeypatch.setattr(target_adapter, "smoke", lambda _: full_smoke())
+        monkeypatch.setattr(adapter, "_checkout_adapter", lambda *_: target_adapter)
+        # Target methods must run, not the current implementation or old rollback.
+        monkeypatch.setattr(adapter, "_install_app", lambda *_: pytest.fail("wrong installer"))
+        monkeypatch.setattr(adapter, "_start_backend", lambda *_: pytest.fail("wrong starter"))
+        options["target_checkout"] = str(tmp_path)
+    result = adapter.rollback(active, target, **options)
 
     assert result["mode"] == "live"
     assert result["checks"]["backend_health"] == "pass"
@@ -774,6 +805,8 @@ def test_live_rollback_reinstalls_target_and_verifies_before_return(monkeypatch,
 def test_live_rollback_validates_target_checkout_before_starting(monkeypatch, tmp_path):
     active = manifest(tmp_path, "c" * 40)
     target = manifest(tmp_path, "d" * 40)
+    for key in ("database", "storage", "temporal"):
+        target["components"][key]["digest"] = active["components"][key]["digest"]
     adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path)
     calls = []
 
@@ -814,3 +847,64 @@ def test_live_rollback_validates_target_checkout_before_starting(monkeypatch, tm
     adapter.rollback(active, target)
 
     assert calls == [target["source_sha"]]
+
+
+def full_smoke():
+    return dict.fromkeys(("backend_health", "frontend_reachability", "auth_session_bootstrap",
+        "representative_api", "processing_worker_readiness", "media_worker_readiness",
+        "database_readiness", "storage_readiness", "temporal_readiness", "migration_readiness",
+        "exact_source_sha", "app_identity", "app_presentation"), "pass")
+
+
+@pytest.mark.parametrize("checks", [{}, {"backend_health": "pass"}, {**full_smoke(), "exact_source_sha": "fail"}])
+def test_transition_rejects_incomplete_or_failed_smoke(checks):
+    with pytest.raises(dev_harness.HarnessError, match="smoke"):
+        dev_harness.GrafLocalAdapter._assert_transition_smoke(checks)
+
+
+def test_transition_checks_exact_tracked_source_before_loading(monkeypatch, tmp_path):
+    import subprocess
+    def git(*args):
+        return subprocess.check_output(["git", *args], cwd=tmp_path).decode().strip()
+    git("init", "-q")
+    git("config", "user.name", "Test")
+    git("config", "user.email", "test@example.test")
+    source = (SOURCE_ROOT / "scripts/dev-harness.py").read_text()
+    # No native execution needed to prove the source trust boundary.
+    source = source.replace('if sys.platform != "darwin":', 'if False:')
+    for relative in (*dev_harness.RUNTIME_DEFINITION_PATHS, "apps/macos/Scripts/build-dev-app.sh"):
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(source if relative == "scripts/dev-harness.py" else "# fixture\n")
+    git("add", ".")
+    git("commit", "-qm", "fixture")
+    sha = git("rev-parse", "HEAD")
+    adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path / "state")
+    item = manifest(tmp_path, sha)
+    record = {"runtime_definition_digest": adapter._runtime_definition_digest()}
+    loaded = adapter._checkout_adapter(tmp_path, item, record)
+    assert loaded.root == tmp_path
+    assert loaded._runtime_definition_digest() == record["runtime_definition_digest"]
+    with pytest.raises(dev_harness.HarnessError, match="source_sha"):
+        adapter._checkout_adapter(tmp_path, {**item, "source_sha": "f" * 40}, record)
+    with pytest.raises(dev_harness.HarnessError, match="definition differs"):
+        adapter._checkout_adapter(tmp_path, item, {"runtime_definition_digest": "sha256:" + "f" * 64})
+    path = tmp_path / "scripts/dev-harness.py"
+    path.write_text(source + "\nraise RuntimeError('must not execute')\n")
+    with pytest.raises(dev_harness.HarnessError, match="clean checkout"):
+        adapter._checkout_adapter(tmp_path, item)
+    git("update-index", "--assume-unchanged", "scripts/dev-harness.py")
+    with pytest.raises(dev_harness.HarnessError, match="committed bytes"):
+        adapter._checkout_adapter(tmp_path, item)
+
+
+@pytest.mark.parametrize("field", ["database", "storage", "temporal", "migration_head"])
+def test_transition_cannot_change_persistent_formats(tmp_path, field):
+    old = manifest(tmp_path)
+    target = json.loads(json.dumps(old))
+    if field == "migration_head":
+        target[field] = "different"
+    else:
+        target["components"][field]["digest"] = "sha256:" + "f" * 64
+    with pytest.raises(dev_harness.HarnessError, match="matching database schema"):
+        dev_harness.GrafLocalAdapter._assert_transition_compatible(old, target)

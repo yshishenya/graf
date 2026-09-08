@@ -203,23 +203,6 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
             retryMode: .terminal,
             createdAt: Date(timeIntervalSince1970: 40)
         )
-        let serverConfirmed = makeQueueItem(
-            id: "server-confirmed",
-            state: .uploaded,
-            retryMode: .terminal,
-            meetingId: "meeting-033",
-            serverTruth: ServerTruthFingerprint(meetingId: "meeting-033"),
-            createdAt: Date(timeIntervalSince1970: 50)
-        )
-
-        let cabinetRows = DesktopMeetingShellLocalQueuePolicy.rowsNeedingNativeVisibility([
-            localQueued,
-            localUploadedWithoutServerTruth,
-            serverConfirmed
-        ])
-
-        XCTAssertTrue(cabinetRows.isEmpty)
-
         let localRows = DesktopMeetingShellLocalQueuePolicy.allRowsForLocalMode([
             localQueued,
             localUploadedWithoutServerTruth
@@ -394,7 +377,7 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
 
         XCTAssertTrue(shellSource.contains("DesktopSupportIncidentActionStrip("))
         XCTAssertTrue(shellSource.contains("ScrollView(.vertical, showsIndicators: true)"))
-        XCTAssertTrue(shellSource.contains(".clipped()"))
+        XCTAssertTrue(shellSource.contains(".clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))"))
         XCTAssertTrue(shellSource.contains("NSTitlebarAccessoryViewController()"))
         XCTAssertTrue(shellSource.contains("controller.layoutAttribute = .bottom"))
         XCTAssertTrue(shellSource.contains("controller.fullScreenMinHeight = DesktopMeetingShellChrome.recordingStripHeight"))

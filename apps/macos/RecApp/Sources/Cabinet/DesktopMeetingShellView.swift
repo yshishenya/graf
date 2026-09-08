@@ -32,11 +32,11 @@ public enum DesktopMeetingShellChrome {
     public static let recordingStripHex = "#342087"
     public static let shellAccentHex = "#8c73ff"
     public static let webEmbeddedBackgroundHex = shellBackgroundHex
-    public static let shellBackgroundColor = Color(red: 0.039, green: 0.039, blue: 0.043)
-    public static let shellRailColor = Color(red: 0.070, green: 0.070, blue: 0.078)
-    public static let shellSurfaceColor = Color(red: 0.110, green: 0.110, blue: 0.121)
-    public static let shellStrokeColor = Color.white.opacity(0.05)
-    public static let shellHighContrastStrokeColor = Color.white.opacity(0.42)
+    public static let shellBackgroundColor = Color(nsColor: .windowBackgroundColor)
+    public static let shellRailColor = Color(nsColor: .controlBackgroundColor)
+    public static let shellSurfaceColor = Color(nsColor: .controlBackgroundColor)
+    public static let shellStrokeColor = Color(nsColor: .separatorColor)
+    public static let shellHighContrastStrokeColor = Color.primary.opacity(0.65)
     public static let recordingStripColor = Color(red: 0.204, green: 0.125, blue: 0.529)
     public static let shellAccentColor = Color(red: 0.549, green: 0.451, blue: 1.000)
     public static let recordingStripHeight: CGFloat = 44
@@ -50,12 +50,7 @@ public enum DesktopMeetingShellChrome {
     public static let appUpdateLabel = "Доступно обновление"
     public static let appUpdateAccessibilityLabel = "Доступно обновление GRAF. Открыть проверку обновлений."
     public static let appUpdateHitSize: CGFloat = 40
-    public static let webEmbeddedBackgroundNSColor = NSColor(
-        srgbRed: 0.039,
-        green: 0.039,
-        blue: 0.043,
-        alpha: 1
-    )
+    public static let webEmbeddedBackgroundNSColor = NSColor.windowBackgroundColor
     public static let inspectorToggleHitSize: CGFloat = 44
     public static let inspectorToggleCornerRadius: CGFloat = 12
     public static let inspectorToggleTopInset: CGFloat = 10
@@ -160,13 +155,6 @@ public struct DesktopWebButtonStyle: ButtonStyle {
 }
 
 public enum DesktopMeetingShellLocalQueuePolicy {
-    public static func rowsNeedingNativeVisibility(
-        _ items: [DesktopUploadQueueItem],
-        limit: Int = 12
-    ) -> [DesktopUploadQueueItem] {
-        []
-    }
-
     public static func allRowsForLocalMode(
         _ items: [DesktopUploadQueueItem],
         limit: Int = 12
@@ -289,19 +277,18 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     }
 
     public var body: some View {
-        HStack(spacing: 0) {
-            VStack(spacing: 0) {
-                HStack(alignment: .top, spacing: 0) {
-                    meetingsSurface
-                    Divider()
-                    inspectorContainer
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .clipped()
-            }
+        HStack(alignment: .top, spacing: 0) {
+            meetingsSurface
+            Divider()
+            inspectorContainer
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(DesktopMeetingShellChrome.shellBackgroundColor)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(DesktopMeetingShellChrome.spacingSmall)
+        .background(
+            DesktopMeetingShellChrome.shellBackgroundColor
+                .overlay(Color.primary.opacity(0.06))
+        )
         .tint(DesktopMeetingShellChrome.shellAccentColor)
         .background {
             RecordingTitlebarAccessory(
@@ -324,6 +311,10 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                 attentionExpansionDismissed = false
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .grafOpenLocalRecordingControls)) { _ in
+            inspectorExpanded = true
+            attentionExpansionDismissed = false
+        }
         .accessibilityIdentifier("desktop-meeting-shell")
     }
 
@@ -342,16 +333,8 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     }
 
     private var cabinetMeetingsWorkspace: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if !localQueueRows.isEmpty {
-                localQueueCompactPanel
-                    .padding(.horizontal, 14)
-                    .padding(.top, 12)
-                    .padding(.bottom, 10)
-            }
-            meetingsWorkspace
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        }
+        meetingsWorkspace
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private var localMeetingsWorkspace: some View {
@@ -479,10 +462,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     }
 
     private var localQueueRows: [DesktopUploadQueueItem] {
-        if cabinetConfigured {
-            return DesktopMeetingShellLocalQueuePolicy.rowsNeedingNativeVisibility(uploadQueueItems)
-        }
-        return DesktopMeetingShellLocalQueuePolicy.allRowsForLocalMode(uploadQueueItems)
+        DesktopMeetingShellLocalQueuePolicy.allRowsForLocalMode(uploadQueueItems)
     }
 
     private var custodyDetailSummaries: [DesktopUploadCustodySummary] {
@@ -510,41 +490,6 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
             summary.primaryProjection.custodyState == .cannotSend ||
                 summary.primaryProjection.custodyState == .terminalUndelivered
         }
-    }
-
-    private var localQueueCompactPanel: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Label("Локально на этом Mac", systemImage: "internaldrive")
-                    .font(.caption)
-                    .fontWeight(.semibold)
-                Spacer()
-                Text("\(localQueueRows.count)")
-                    .font(.caption2.monospacedDigit())
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Capsule().fill(DesktopMeetingShellChrome.shellAccentColor.opacity(0.22)))
-            }
-            VStack(spacing: 0) {
-                ForEach(localQueueRows.prefix(3)) { item in
-                    localRecordingRow(item)
-                    if item.id != localQueueRows.prefix(3).last?.id {
-                        Divider()
-                            .padding(.leading, 42)
-                    }
-                }
-            }
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 9)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(DesktopMeetingShellChrome.shellSurfaceColor)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(shellStrokeColor, lineWidth: 1)
-        )
     }
 
     private func localRecordingRow(_ item: DesktopUploadQueueItem) -> some View {
@@ -998,7 +943,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         case .active, .starting:
             return "dot.radiowaves.left.and.right"
         case .paused:
-            return "pause.circle"
+            return "mic.slash"
         case .failed, .degraded:
             return "exclamationmark.triangle.fill"
         default:
@@ -1341,7 +1286,7 @@ private struct RecordingTitlebarHUD: View {
     private var controls: some View {
         if CaptureStatusItem.showsPauseButton(for: session) {
             Button(action: onPause) {
-                Label(SystemAudioStatusLabels.pauseButtonTitle, systemImage: "pause.fill")
+                Label(SystemAudioStatusLabels.pauseButtonTitle, systemImage: "mic.slash")
             }
             .buttonStyle(DesktopWebButtonStyle(.secondary))
             .disabled(!session.stopActionAvailable || transitionInProgress)
@@ -1349,7 +1294,7 @@ private struct RecordingTitlebarHUD: View {
             .help(SystemAudioStatusLabels.pauseButtonAccessibilityLabel)
         } else if CaptureStatusItem.showsResumeButton(for: session) {
             Button(action: onResume) {
-                Label(SystemAudioStatusLabels.resumeButtonTitle, systemImage: "play.fill")
+                Label(SystemAudioStatusLabels.resumeButtonTitle, systemImage: "mic")
             }
             .buttonStyle(DesktopWebButtonStyle(.secondary))
             .disabled(!session.stopActionAvailable || transitionInProgress)

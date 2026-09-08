@@ -1,12 +1,21 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from hashlib import sha256
+from io import BytesIO
 from typing import Final, Literal
+from uuid import UUID
 
+from twobrain_rec_server.outcomes.models import (
+    PROTOCOL_VERSION,
+    MeetingProtocol,
+    OutcomeSourceReference,
+    OutcomeTranscriptSegment,
+)
 from twobrain_rec_server.outcomes.templates import OUTCOME_CATEGORIES
 
 CONFIG_CONTRACT_VERSION: Final = 1
@@ -15,8 +24,13 @@ CONTROL_GATE_CONFIG_KEY: Final = "graf_control_gate"
 MAX_PROMPT_BYTES: Final = 65_536
 MAX_CONFIG_BYTES: Final = 65_536
 MAX_SCHEMA_BYTES: Final = 49_152
-MAX_CONFIG_DEPTH: Final = 12
-MAX_CONFIG_NODES: Final = 256
+MAX_PROTOCOL_BYTES: Final = 2 * 1024 * 1024
+MAX_CONFIG_DEPTH: Final = 24
+MAX_CONFIG_NODES: Final = 1024
+PROTOCOL_REQUEST_KEYS: Final = {
+    "temperature", "top_p", "presence_penalty", "frequency_penalty", "seed", "stop",
+    "max_tokens", "max_completion_tokens", "reasoning_effort", "response_format",
+}
 ALLOWED_MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$")
 PROMPT_VARIABLE_RE = re.compile(r"\{\{([a-z][a-z0-9_]*)\}\}")
 GENERIC_OWNER_LABEL_RE = re.compile(
@@ -57,6 +71,161 @@ JUDGE_VARIABLES: Final = {
         "required_categories_json",
     },
 }
+
+
+def meeting_protocol_schema() -> dict[str, object]:
+    schema = MeetingProtocol.model_json_schema()
+    definitions = schema.pop("$defs", {})
+
+    def inline(value):
+        if isinstance(value, dict):
+            if "$ref" in value:
+                return inline(definitions[value["$ref"].rsplit("/", 1)[-1]])
+            if "const" in value:
+                value = {**value, "enum": [value["const"]]}
+                del value["const"]
+            return {key: inline(child) for key, child in value.items()
+                    if not (key == "title" and isinstance(child, str))}
+        if isinstance(value, list):
+            return [inline(child) for child in value]
+        return value
+
+    return inline(schema)
+
+
+def validate_meeting_protocol(
+    result: object, *, segments: Sequence[OutcomeTranscriptSegment], processing_result_id: UUID,
+) -> dict[str, object]:
+    if len(canonical_json(result).encode("utf-8")) > MAX_PROTOCOL_BYTES:
+        raise ValueError("protocol size exceeds 2 MiB")
+    protocol = MeetingProtocol.model_validate(result).model_dump()
+    resolved_size = len(canonical_json(protocol).encode("utf-8"))
+    by_sequence = {segment.sequence: segment for segment in segments}
+    if len(by_sequence) != len(segments):
+        raise ValueError("source sequences are not unique")
+
+    def resolve(node):
+        nonlocal resolved_size
+        if isinstance(node, dict):
+            for key, child in node.items():
+                if key != "source_refs":
+                    resolve(child)
+                    continue
+                refs = []
+                seen = set()
+                for ref in child:
+                    segment = by_sequence.get(ref["sequence"])
+                    if segment is None or ref["sequence"] in seen:
+                        raise ValueError("source reference is unknown or duplicate")
+                    seen.add(ref["sequence"])
+                    if ref["quote"] is not None and ref["quote"] not in segment.text:
+                        raise ValueError("source quote is not literal")
+                    canonical_ref = {
+                        **OutcomeSourceReference(
+                            transcript_segment_id=segment.segment_id,
+                            sequence=segment.sequence,
+                            start_seconds=float(segment.start_seconds),
+                            end_seconds=float(segment.end_seconds),
+                            speaker_label=segment.speaker_label, source_role=segment.source_role,
+                        ).as_json(),
+                        "processing_result_id": str(processing_result_id), "quote": ref["quote"],
+                    }
+                    resolved_size += (
+                        len(canonical_json(canonical_ref).encode("utf-8"))
+                        - len(canonical_json(ref).encode("utf-8"))
+                    )
+                    if resolved_size > MAX_PROTOCOL_BYTES:
+                        raise ValueError("resolved protocol size exceeds 2 MiB")
+                    refs.append(canonical_ref)
+                node[key] = refs
+        elif isinstance(node, list):
+            for child in node:
+                resolve(child)
+
+    resolve(protocol)
+    groups = {category: [] for category in OUTCOME_CATEGORIES}
+    groups["summary"] = protocol["executive_summary"] + protocol["objectives"]
+    for topic in protocol["topics"]:
+        statements = [item for key in ("context", "discussion", "proposals", "outcome")
+                      for item in topic[key]]
+        refs = {ref["sequence"]: ref for item in statements for ref in item["source_refs"]}
+        groups["key_points"].append({"text": topic["title"], "source_refs": list(refs.values())})
+        groups["key_points"].extend(statements)
+    for category, field in (("decisions", "decisions"), ("action_items", "action_items"),
+                            ("followups", "next_steps"), ("questions", "open_questions"),
+                            ("evidence", "notes")):
+        groups[category] = protocol[field]
+    items = [
+        {"category": category, "sequence": index, "text": item.get("text", item.get("task")),
+         "owner_text": item.get("owner_text"), "due_date_text": item.get("due_date_text"),
+         "truth_label": "supported", "source_refs": item["source_refs"]}
+        for category, rows in groups.items() for index, item in enumerate(rows)
+    ]
+    states = {key: "available" if rows else "not_found" for key, rows in groups.items()}
+    states["risks"] = "unavailable"  # Risks stay in topics; no semantic extraction.
+    validated = {"protocol": protocol, "category_states": states, "items": items}
+    if len(canonical_json(validated).encode("utf-8")) > MAX_PROTOCOL_BYTES:
+        raise ValueError("resolved protocol size exceeds 2 MiB")
+    return validated
+
+
+def meeting_protocol_config(*, model: str, **parameters: object) -> dict[str, object]:
+    config = {
+        "contract_version": PROTOCOL_VERSION, "model": model,
+        "response_format": {"type": "json_schema", "json_schema": {
+            "name": "graf_meeting_protocol_v1", "strict": True,
+            "schema": meeting_protocol_schema(),
+        }},
+        **parameters,
+    }
+    _validate_protocol_config(config)
+    return config
+
+
+def _validate_protocol_config(
+    config: Mapping[str, object], *, require_current_schema: bool = True,
+) -> None:
+    required = {"contract_version", "model", "response_format"}
+    if (not required <= config.keys() or config.keys() - required - PROTOCOL_REQUEST_KEYS
+            or config["contract_version"] != PROTOCOL_VERSION):
+        raise ValueError("protocol config keys or version are invalid")
+    if not isinstance(config["model"], str) or not config["model"].strip():
+        raise ValueError("model must be explicitly selected")
+    for key, (low, high) in {
+        "temperature": (0, 2), "top_p": (0, 1),
+        "presence_penalty": (-2, 2), "frequency_penalty": (-2, 2),
+    }.items():
+        if key in config and (type(config[key]) not in (int, float)
+                              or not math.isfinite(config[key])
+                              or not low <= config[key] <= high):
+            raise ValueError(f"{key} is invalid")
+    for key in ("seed", "max_tokens", "max_completion_tokens"):
+        if key in config and (type(config[key]) is not int
+                              or (key != "seed" and config[key] <= 0)):
+            raise ValueError(f"{key} is invalid")
+    if "max_tokens" in config and "max_completion_tokens" in config:
+        raise ValueError("token limits are mutually exclusive")
+    if "reasoning_effort" in config and (
+        not isinstance(config["reasoning_effort"], str) or not config["reasoning_effort"].strip()
+    ):
+        raise ValueError("reasoning_effort is invalid")
+    if "stop" in config:
+        stop = config["stop"]
+        if not (isinstance(stop, str) and stop or isinstance(stop, list) and stop
+                and all(isinstance(item, str) and item for item in stop)):
+            raise ValueError("stop is invalid")
+    response = config["response_format"]
+    if not isinstance(response, dict) or set(response) != {"type", "json_schema"}:
+        raise ValueError("protocol response_format is invalid")
+    descriptor = response["json_schema"]
+    if (response["type"] != "json_schema" or not isinstance(descriptor, dict)
+            or set(descriptor) != {"name", "strict", "schema"}
+            or descriptor["strict"] is not True
+            or not isinstance(descriptor["name"], str)
+            or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,63}", descriptor["name"])
+            or not isinstance(descriptor["schema"], dict)
+            or (require_current_schema and descriptor["schema"] != meeting_protocol_schema())):
+        raise ValueError("protocol response schema does not match contract")
 
 
 def outcome_schema() -> dict[str, object]:
@@ -184,13 +353,13 @@ class PromptSnapshot:
         request: dict[str, object] = {
             "model": self.model,
             "messages": [dict(message) for message in messages],
-            "temperature": self.config["temperature"],
         }
-        if "max_completion_tokens" in self.config:
-            request["max_completion_tokens"] = self.config["max_completion_tokens"]
-        if "response_format" in self.config:
-            request["response_format"] = self.config["response_format"]
+        request.update(self.request_parameters)
         return request
+
+    @property
+    def request_parameters(self) -> dict[str, object]:
+        return {key: value for key, value in self.config.items() if key in PROTOCOL_REQUEST_KEYS}
 
 
 def canonical_json(value: object) -> str:
@@ -208,6 +377,38 @@ def prompt_variables(value: str) -> list[str]:
 def prompt_snapshot_hash(*, prompt: object, config: Mapping[str, object]) -> str:
     payload = canonical_json({"config": config, "prompt": prompt}).encode("utf-8")
     return sha256(payload).hexdigest()
+
+
+def prompt_cache_key(*, project_identity: str, name: str, label: str) -> str:
+    digest = sha256(canonical_json([project_identity, name, label]).encode()).hexdigest()
+    return f"_system/prompts/label-snapshots/{digest}.json"
+
+
+def persist_prompt_snapshot(storage, *, key: str, snapshot: PromptSnapshot) -> None:
+    payload = canonical_json({
+        "key": key, "name": snapshot.name, "version": snapshot.version,
+        "prompt": snapshot.prompt, "config": snapshot.config,
+        "canonical_hash": snapshot.canonical_hash,
+    }).encode("utf-8")
+    storage.put_stream(key, BytesIO(payload), len(payload))
+
+
+def load_prompt_snapshot(storage, *, key: str, name: str) -> PromptSnapshot:
+    payload = storage.get_bytes(key)
+    if len(payload) > MAX_PROMPT_BYTES + MAX_CONFIG_BYTES + 4096:
+        raise ValueError("prompt cache size is invalid")
+    data = json.loads(payload)
+    if (not isinstance(data, dict) or set(data) != {
+        "key", "name", "version", "prompt", "config", "canonical_hash",
+    } or data["key"] != key or data["name"] != name):
+        raise ValueError("prompt cache identity mismatch")
+    snapshot = validate_prompt_snapshot(
+        name=name, version=data["version"], prompt_type="chat", prompt=data["prompt"],
+        config=data["config"], source="verified_promoted_snapshot",
+    )
+    if snapshot.canonical_hash != data["canonical_hash"]:
+        raise ValueError("prompt cache hash mismatch")
+    return snapshot
 
 
 def normalize_langfuse_prompt(prompt: object) -> object:
@@ -244,6 +445,7 @@ def validate_prompt_snapshot(
     prompt: object,
     config: Mapping[str, object],
     source: str = "langfuse_production",
+    require_current_schema: bool = True,
 ) -> PromptSnapshot:
     if version < 1:
         raise ValueError("prompt version must be positive")
@@ -269,8 +471,14 @@ def validate_prompt_snapshot(
         _validate_outcome_config(config_copy, judge=True)
         _validate_prompt_variables(prompt, JUDGE_VARIABLES[name])
     elif name.startswith("graf/meeting-outcome/"):
-        _validate_outcome_config(config_copy, judge=False)
-        _validate_prompt_variables(prompt, OUTCOME_VARIABLES)
+        if config_copy.get("contract_version") == PROTOCOL_VERSION:
+            _validate_protocol_config(config_copy, require_current_schema=require_current_schema)
+            variables = OUTCOME_VARIABLES | {"meeting_metadata_json"}
+        else:
+            # Offline historical evaluations still read their pinned flat schema.
+            _validate_outcome_config(config_copy, judge=False)
+            variables = OUTCOME_VARIABLES
+        _validate_prompt_variables(prompt, variables)
         if prompt_type != "chat":
             raise ValueError("outcome prompt must be chat")
     else:

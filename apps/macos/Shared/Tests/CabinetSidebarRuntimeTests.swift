@@ -1,4 +1,5 @@
 import Foundation
+@testable import TwoBrainRecAppCore
 
 #if canImport(WebKit) && canImport(XCTest)
 import WebKit
@@ -335,6 +336,19 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
         XCTAssertEqual(try number("width", in: metrics), 40, accuracy: 0.5)
         XCTAssertEqual(try number("height", in: metrics), 40, accuracy: 0.5)
         XCTAssertLessThanOrEqual(try number("overflow", in: metrics), 0.5)
+        for zoom in [2.0, 1.0] {
+            webView.pageZoom = zoom
+            try await Task.sleep(for: .milliseconds(100))
+            let result = try await evaluatePageJavaScript(
+                """
+                ({viewport: innerHeight, shell: document.querySelector('.app-shell').getBoundingClientRect().height,
+                  sidebar: document.querySelector('.sidebar').getBoundingClientRect().height})
+                """, in: webView)
+            let resized = try XCTUnwrap(result as? [String: Any])
+            for key in ["viewport", "shell", "sidebar"] {
+                XCTAssertEqual(try number(key, in: resized), 720 / zoom, accuracy: 1, "\(key) at \(zoom)")
+            }
+        }
     }
 
     func testProfileDisclosureConsumesFirstEscapeBeforeRail() async throws {
@@ -406,6 +420,258 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
         XCTAssertEqual(state["railPinnedAfterMenuEscape"] as? Bool, true)
         XCTAssertEqual(state["railPinnedAfterSecondEscape"] as? Bool, false)
         XCTAssertEqual(state["storedRailState"] as? String, "collapsed")
+    }
+
+    func testProfileSubmenusFollowPointerExclusivelyAndRetainKeyboardAndTouch() async throws {
+        let root = try repositoryRoot()
+        let assets = root.appendingPathComponent("apps/server/src/twobrain_rec_server/cabinet/static/cabinet")
+        let script = try String(contentsOf: assets.appendingPathComponent("cabinet.js"), encoding: .utf8)
+        let css = try String(contentsOf: assets.appendingPathComponent("cabinet.css"), encoding: .utf8)
+        let webView = makeWebView(frame: CGRect(x: 0, y: 0, width: 1200, height: 844))
+        try await load("""
+            <!doctype html><html><head><style>\(css)</style></head><body>
+            <div data-profile-menu-root>
+              <button id="profile" data-profile-menu-trigger style="position:fixed;bottom:16px">Профиль</button>
+              <div class="sidebar-profile-menu" data-profile-menu popover="manual" hidden>
+                <details id="theme" class="sidebar-profile-menu__disclosure">
+                  <summary>Вид</summary><div class="sidebar-profile-menu__submenu" data-profile-menu-submenu>
+                    <form class="sidebar-profile-menu__theme-form"><div class="theme-picker__options">
+                      <label class="theme-picker__option"><input id="light" type="radio" name="theme"><span>Светлая</span></label>
+                      <label class="theme-picker__option"><input type="radio" name="theme" checked><span>Системная</span></label>
+                    </div></form>
+                  </div>
+                </details>
+                <a id="settings" href="#settings">Настройки</a>
+                <details id="resources" class="sidebar-profile-menu__disclosure">
+                  <summary>Документация</summary><div class="sidebar-profile-menu__submenu" data-profile-menu-submenu>
+                    <button disabled>Центр помощи</button>
+                  </div>
+                </details>
+              </div>
+            </div><button id="outside">Вне меню</button><script>\(script)</script>
+            </body></html>
+            """, in: webView)
+        let result = try await webView.callAsyncJavaScript("""
+            const menu = document.querySelector('[data-profile-menu]');
+            const theme = document.querySelector('#theme');
+            const resources = document.querySelector('#resources');
+            const settings = document.querySelector('#settings');
+            const profile = document.querySelector('#profile');
+            const pause = () => new Promise(resolve => setTimeout(resolve, 220));
+            const over = (element, pointerType = 'mouse') => element.dispatchEvent(
+              new PointerEvent('pointerover', { bubbles: true, pointerType }));
+            const opened = () => [...menu.querySelectorAll('details[open]')].map(d => d.id).join(',');
+            profile.click();
+            over(theme.querySelector('summary'));
+            const hoverOpened = opened();
+            theme.querySelector('summary').dispatchEvent(new MouseEvent('click', {bubbles:true, cancelable:true, detail:1}));
+            const clickKeptOpen = opened();
+            await pause();
+            const summaryRect = theme.querySelector('summary').getBoundingClientRect();
+            const submenuRect = theme.querySelector('[data-profile-menu-submenu]').getBoundingClientRect();
+            const paddingHit = document.elementFromPoint(
+              (summaryRect.right + submenuRect.left) / 2, summaryRect.top + summaryRect.height / 2);
+            over(paddingHit);
+            await pause();
+            const paddingKeptOpen = opened();
+            const paddingHitsMenu = paddingHit === menu || menu.contains(paddingHit);
+            over(resources.querySelector('summary'));
+            const switched = opened();
+            over(settings);
+            const ordinaryRowClosed = opened();
+            over(theme.querySelector('summary'));
+            menu.dispatchEvent(new PointerEvent('pointerleave', {pointerType:'mouse'}));
+            over(theme.querySelector('[data-profile-menu-submenu]'));
+            await pause();
+            const gapKeptOpen = opened();
+            menu.dispatchEvent(new PointerEvent('pointerleave', {
+              pointerType: 'mouse',
+              relatedTarget: theme.querySelector('[data-profile-menu-submenu]')
+            }));
+            await pause();
+            const relatedTargetKeptOpen = opened();
+            menu.dispatchEvent(new PointerEvent('pointerleave', {pointerType:'mouse'}));
+            await pause();
+            const leaveClosed = opened();
+            over(resources.querySelector('summary'), 'touch');
+            const touchDidNotHover = opened();
+            resources.querySelector('summary').click();
+            await pause();
+            const touchClickOpened = opened();
+            theme.querySelector('summary').click();
+            await pause();
+            const keyboardExclusive = opened();
+            const row = theme.querySelector('.theme-picker__option > span');
+            const rowBorder = getComputedStyle(row).borderTopWidth;
+            document.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape', bubbles:true}));
+            return {hoverOpened, clickKeptOpen, paddingKeptOpen, paddingHitsMenu, switched, ordinaryRowClosed, gapKeptOpen, relatedTargetKeptOpen, leaveClosed,
+              touchDidNotHover, touchClickOpened, keyboardExclusive, rowBorder,
+              closed:menu.hidden, focus:document.activeElement.id};
+            """, arguments: [:], in: nil, contentWorld: .page)
+        let state = try XCTUnwrap(result as? [String: Any])
+        for key in ["hoverOpened", "clickKeptOpen", "paddingKeptOpen", "gapKeptOpen", "relatedTargetKeptOpen", "keyboardExclusive"] {
+            XCTAssertEqual(state[key] as? String, "theme", key)
+        }
+        for key in ["switched", "touchClickOpened"] {
+            XCTAssertEqual(state[key] as? String, "resources", key)
+        }
+        for key in ["ordinaryRowClosed", "leaveClosed", "touchDidNotHover"] {
+            XCTAssertEqual(state[key] as? String, "", key)
+        }
+        XCTAssertEqual(state["rowBorder"] as? String, "0px")
+        XCTAssertEqual(state["paddingHitsMenu"] as? Bool, true)
+        XCTAssertEqual(state["closed"] as? Bool, true)
+        XCTAssertEqual(state["focus"] as? String, "profile")
+
+        webView.frame = CGRect(x: 0, y: 0, width: 720, height: 640)
+        let compact = try await webView.callAsyncJavaScript("""
+            document.querySelector('[data-profile-menu-root]').classList.add('cabinet-mobile-nav');
+            document.querySelector('#profile').click();
+            document.querySelector('#theme > summary').click();
+            await new Promise(resolve => setTimeout(resolve, 220));
+            const row = document.querySelector('#light').nextElementSibling;
+            const rect = row.getBoundingClientRect();
+            return {
+              position: getComputedStyle(row.closest('[data-profile-menu-submenu]')).position,
+              reachable: row.closest('label').contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)),
+              detail: JSON.stringify({rect:rect.toJSON(), hit:document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)?.tagName})
+            };
+            """, arguments: [:], in: nil, contentWorld: .page)
+        let compactState = try XCTUnwrap(compact as? [String: Any])
+        XCTAssertEqual(compactState["position"] as? String, "static")
+        XCTAssertEqual(compactState["reachable"] as? Bool, true, compactState["detail"] as? String ?? "")
+    }
+
+    func testProfileThemeAutosaveKeepsCurrentRoute() async throws {
+        let root = try repositoryRoot()
+        let script = try String(
+            contentsOf: root.appendingPathComponent(
+                "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js"
+            ),
+            encoding: .utf8
+        )
+        let webView = makeWebView(frame: CGRect(x: 0, y: 0, width: 1200, height: 844))
+        let origin = try XCTUnwrap(URL(string: "https://theme-autosave.graf.test/meetings"))
+        try await load(
+            """
+            <!doctype html><html><head><meta name="csrf-token" content="synthetic-csrf"></head><body>
+              <form data-account-preferences data-account-preferences-auto-save="true" action="/desktop/settings/account/preferences" method="post">
+                <input type="hidden" name="return_to" value="" data-account-preferences-return>
+                <input type="radio" name="theme" value="light">
+                <input type="radio" name="theme" value="system" checked>
+                <span data-account-preferences-status role="status"></span>
+              </form>
+              <script>
+                window.fetch = async (url, options) => {
+                  window.__themeFetch = {url, returnTo: options.body.get('return_to'),
+                    theme: options.body.get('theme'), csrf: options.headers?.['X-CSRF-Token']};
+                  return {ok: window.__themeFetch.theme === 'light' && window.__themeFetch.csrf === 'synthetic-csrf'};
+                };
+              </script>
+              <script>\(script)</script>
+            </body></html>
+            """,
+            in: webView,
+            baseURL: origin
+        )
+        let result = try await webView.callAsyncJavaScript(
+            """
+            const light = document.querySelector('input[value="light"]');
+            light.checked = true;
+            light.dispatchEvent(new Event('change', {bubbles: true}));
+            await new Promise(resolve => setTimeout(resolve, 40));
+            return {
+              path: location.pathname,
+              fetchUrl: window.__themeFetch?.url || '',
+              returnTo: window.__themeFetch?.returnTo || '',
+              sentTheme: window.__themeFetch?.theme || '',
+              csrf: window.__themeFetch?.csrf || '',
+              state: document.querySelector('form').dataset.state || '',
+              theme: document.documentElement.dataset.theme || '',
+              ready: document.querySelector('form').dataset.accountPreferencesReady || '',
+              cabinetReady: document.documentElement.dataset.cabinetJs || ''
+            };
+            """,
+            arguments: [:],
+            in: nil,
+            contentWorld: .page
+        )
+        let state = try XCTUnwrap(result as? [String: Any])
+        XCTAssertEqual(state["path"] as? String, "/meetings")
+        XCTAssertEqual(state["fetchUrl"] as? String, "https://theme-autosave.graf.test/desktop/settings/account/preferences")
+        XCTAssertEqual(state["returnTo"] as? String, "/meetings")
+        XCTAssertEqual(state["sentTheme"] as? String, "light")
+        XCTAssertEqual(state["csrf"] as? String, "synthetic-csrf")
+        XCTAssertEqual(state["state"] as? String, "saved")
+        XCTAssertEqual(state["theme"] as? String, "light")
+        XCTAssertEqual(state["ready"] as? String, "true")
+        XCTAssertEqual(state["cabinetReady"] as? String, "ready")
+
+        let failed = try await webView.callAsyncJavaScript(
+            """
+            window.fetch = async () => ({ok: false});
+            const system = document.querySelector('input[value="system"]');
+            system.checked = true;
+            system.dispatchEvent(new Event('change', {bubbles: true}));
+            await new Promise(resolve => setTimeout(resolve, 40));
+            return document.querySelector('form').dataset.state === 'error'
+              && document.documentElement.dataset.theme === 'light'
+              && document.querySelector('input[value="light"]').checked
+              && !document.querySelector('input:disabled');
+            """, arguments: [:], in: nil, contentWorld: .page)
+        XCTAssertEqual(failed as? Bool, true)
+    }
+
+    func testNativeAppearanceFollowsOnlyTheActiveFirstPartyMainDocument() async throws {
+        let application = NSApplication.shared
+        let original = application.appearance
+        defer { application.appearance = original }
+        let origin = try XCTUnwrap(URL(string: "https://appearance.graf.test"))
+        for allowed in [true, false] {
+            application.appearance = NSAppearance(named: .darkAqua)
+            let url = try XCTUnwrap(URL(string: allowed
+                ? "https://appearance.graf.test/desktop/meetings"
+                : "https://untrusted.graf.test/desktop/meetings"))
+            let view = makeWebView(frame: CGRect(x: 0, y: 0, width: 720, height: 720))
+            let policy = DesktopCabinetRoutePolicy(baseURL: origin)
+            let navigation = EmbeddedCabinetNavigationController()
+            let request = URLRequest(url: url)
+            navigation.attach(webView: view, routePolicy: policy, fallbackRequest: request,
+                              initialRequest: request, sessionExpired: false)
+            let coordinator = EmbeddedCabinetWebView.Coordinator(
+                routePolicy: policy, desktopHeaders: [:], cabinetState: .constant(.ready),
+                currentRoute: .constant(url), navigationEventLogger: nil, showsAppUpdateBadge: false,
+                onCheckForUpdates: {}, onOpenMeetingDetectionSettings: {}, supportIncidentBridge: nil,
+                navigationController: navigation
+            )
+            view.configuration.userContentController.add(coordinator, name: EmbeddedCabinetAppearanceBridge.messageHandlerName)
+            view.configuration.userContentController.addUserScript(WKUserScript(
+                source: EmbeddedCabinetAppearanceBridge.documentScript, injectionTime: .atDocumentEnd,
+                forMainFrameOnly: true))
+            try await load("<html data-theme='light'><body></body></html>", in: view, baseURL: url)
+            try await Task.sleep(for: .milliseconds(100))
+            XCTAssertEqual(application.appearance?.name, allowed ? .aqua : .darkAqua)
+            _ = try await evaluatePageJavaScript(
+                """
+                window.webkit.messageHandlers.grafAppAppearance.postMessage('invalid');
+                const child = document.createElement('iframe');
+                child.srcdoc = '<script>window.webkit.messageHandlers.grafAppAppearance.postMessage("dark")<\\/script>';
+                document.body.append(child);
+                """, in: view)
+            try await Task.sleep(for: .milliseconds(100))
+            XCTAssertEqual(application.appearance?.name, allowed ? .aqua : .darkAqua)
+            _ = try await evaluatePageJavaScript("document.documentElement.dataset.theme = 'dark'", in: view)
+            try await Task.sleep(for: .milliseconds(100))
+            XCTAssertEqual(application.appearance?.name, .darkAqua)
+            _ = try await evaluatePageJavaScript("delete document.documentElement.dataset.theme", in: view)
+            try await Task.sleep(for: .milliseconds(100))
+            XCTAssertEqual(application.appearance?.name, allowed ? nil : .darkAqua)
+            coordinator.detachNavigationController(from: view)
+            _ = try await evaluatePageJavaScript("document.documentElement.dataset.theme = 'light'", in: view)
+            try await Task.sleep(for: .milliseconds(100))
+            XCTAssertEqual(application.appearance?.name, allowed ? nil : .darkAqua)
+            view.configuration.userContentController.removeScriptMessageHandler(forName: EmbeddedCabinetAppearanceBridge.messageHandlerName)
+        }
     }
 
     private func railState(in webView: WKWebView) async throws -> [String: Any] {

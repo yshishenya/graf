@@ -122,6 +122,7 @@ def test_live_rollback_publishes_pointer_only_after_verified_adapter(monkeypatch
             return {"mode": "live", "checks": {"backend_health": "pass"}}
 
     monkeypatch.setattr(dev_harness, "GrafLocalAdapter", FakeAdapter)
+    monkeypatch.setattr(dev_harness, "state_dir", lambda **_: tmp_path)
     result = run("rollback", tmp_path, manifest_id=None, dry_run=False, live=True)
 
     after = json.loads((tmp_path / "active-manifest.json").read_text(encoding="utf-8"))
@@ -141,6 +142,29 @@ def test_build_same_active_sha_is_idempotent_and_preserves_active_record(tmp_pat
     assert rebuilt["idempotent"] is True
     assert rebuilt["manifest"]["status"] == "active"
     assert run("status", tmp_path)["manifest"]["status"] == "active"
+
+
+def test_repromote_active_manifest_recovers_stopped_runtime_without_self_parent(tmp_path, monkeypatch):
+    first = build(tmp_path, "a" * 40)
+    path = tmp_path / "manifests" / f"{first['manifest_id']}.json"
+    run("promote", tmp_path, manifest=str(path), dry_run=False)
+    assert run("promote", tmp_path, manifest=str(path), dry_run=False)["idempotent"]
+    monkeypatch.setattr(dev_harness, "state_dir", lambda **_: tmp_path)
+    monkeypatch.setattr(dev_harness.GrafLocalAdapter, "_runtime_is_live", lambda *a: False)
+    calls = []
+    def restart(self, manifest, **kwargs):
+        calls.append(manifest["source_sha"])
+        return {"mode": "live", "checks": {"backend_health": "pass"}}
+    monkeypatch.setattr(dev_harness.GrafLocalAdapter, "promote", restart)
+    result = run("promote", tmp_path, manifest=str(path), dry_run=False, live=True)
+    assert calls == ["a" * 40]
+    assert result["manifest"]["parent_manifest_id"] is None
+    altered = dict(result["manifest"], operator="changed")
+    alternate = tmp_path / "altered.json"
+    alternate.write_text(json.dumps(altered))
+    with pytest.raises(dev_harness.HarnessError, match="active manifest identity"):
+        run("promote", tmp_path, manifest=str(alternate), dry_run=False, live=True)
+    assert calls == ["a" * 40]
 
 
 def test_build_requires_or_resolves_feature_identity(tmp_path, monkeypatch):
@@ -249,3 +273,52 @@ def test_concurrent_promote_is_serialized(tmp_path):
     assert sum(outcome[0] == "pass" for outcome in outcomes) == 1
     assert sum(outcome[0] == "fail" for outcome in outcomes) == 1
     assert run("status", tmp_path)["manifest"]["source_sha"] == "f" * 40
+
+
+def test_signed_app_identity_ignores_paths_and_plist_order_but_detects_changes(monkeypatch, tmp_path):
+    import plistlib
+
+    app = dev_harness.GrafLocalAdapter(ROOT, tmp_path)
+    values = {"com.apple.security.device.audio-input": True, "test": False}
+
+    def command(argv, **_kwargs):
+        if "--entitlements" in argv:
+            # A change of key order must not change the measured identity.
+            content = dict(reversed(list(values.items()))) if "second" in argv[-1] else values
+            stdout = plistlib.dumps(content, sort_keys=False).decode()
+            stderr = f"Executable={argv[-1]}/Contents/MacOS/GRAF"
+        elif "-dr" in argv:
+            stdout, stderr = "", 'designated => identifier "pro.2brain.graf.dev"'
+        else:
+            stdout, stderr = "", "Authority=GRAF Local Code Signing"
+        if _kwargs.get("stderr") == dev_harness.subprocess.STDOUT:
+            stdout += "\n" + stderr
+        return dev_harness.subprocess.CompletedProcess(argv, 0, stdout, stderr)
+
+    monkeypatch.setattr(dev_harness.subprocess, "run", command)
+    first = app._measure_signed_app_identity(tmp_path / "first.app")
+    assert first == app._measure_signed_app_identity(tmp_path / "second.app")
+    values["com.apple.security.device.audio-input"] = False
+    assert first[2] != app._measure_signed_app_identity(tmp_path / "second.app")[2]
+    monkeypatch.setattr(dev_harness, "_run_command", lambda *_args, **_kwargs: "<plist>broken")
+    with pytest.raises(dev_harness.HarnessError, match="no readable entitlements"):
+        app._measure_signed_app_identity(tmp_path / "invalid.app")
+
+
+def test_live_publication_failure_requires_recovery(monkeypatch, tmp_path):
+    item = build(tmp_path, "e" * 40)
+    original = dev_harness._write_json
+    def fail_pointer(path, payload):
+        if path.name == "active-manifest.json":
+            raise OSError("injected pointer write failure")
+        original(path, payload)
+    monkeypatch.setattr(dev_harness, "_write_json", fail_pointer)
+    with pytest.raises(dev_harness.HarnessError, match="publication failed"):
+        dev_harness._publish_active(tmp_path, item, "live")
+    assert run("status", tmp_path)["status"] == "rollback_required"
+    assert json.loads((tmp_path / "rollback-required.json").read_text())["source_sha"] == item["source_sha"]
+
+
+def test_live_rollback_rejects_isolated_state_directory(tmp_path):
+    with pytest.raises(dev_harness.HarnessError, match="repository-global"):
+        run("rollback", tmp_path, manifest_id=None, dry_run=False, live=True)

@@ -2459,6 +2459,7 @@ def build_list_item(
     notes_truth = notes_action_truth_state(
         status=status, result=result, outcome_set=outcome_set, outcome_items=outcome_items or []
     )
+    notes_truth.protocol = None
     item = MeetingListItem(
         meeting_id=meeting.id,
         title=safe_title(meeting, source=source),
@@ -3281,11 +3282,13 @@ def stored_outcome_truth_state(
 
     def category_state(category: str, label: str) -> NotesActionCategoryState:
         state = getattr(outcome_set, f"{category}_state")
+        projection_only = category == "risks" and outcome_set.protocol_json is not None and state == "unavailable"
         return _notes_action_category(
             state=state,
             label=_outcome_state_label(state, label),
-            reason=_outcome_state_reason(state),
-            readiness_impact="closes_gap"
+            reason=("Риски отражены в обсуждениях полного протокола; отдельный список не создаётся"
+                    if projection_only else _outcome_state_reason(state)),
+            readiness_impact="non_blocking" if projection_only else "closes_gap"
             if state in {"available", "not_found", "not_inferable"}
             else "keeps_gap_open",
             copy_key=f"notes.{category}.{state}",
@@ -3293,6 +3296,7 @@ def stored_outcome_truth_state(
         )
 
     return NotesActionTruthState(
+        protocol=outcome_set.protocol_json if outcome_set.status in {"available", "partial"} else None,
         summary=category_state("summary", "Итоги готовы"),
         key_points=category_state("key_points", "Ключевые пункты"),
         decisions=category_state("decisions", "Решения"),

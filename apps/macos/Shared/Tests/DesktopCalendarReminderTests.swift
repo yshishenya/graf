@@ -1,5 +1,7 @@
+import AppKit
+import QuartzCore
 import Foundation
-import TwoBrainRecAppCore
+@testable import TwoBrainRecAppCore
 import TwoBrainRecShared
 
 #if canImport(XCTest)
@@ -542,28 +544,15 @@ final class DesktopCalendarReminderTests: XCTestCase {
 
         await model.refresh()
 
-        XCTAssertEqual(model.state, .loaded)
         XCTAssertEqual(model.events.map(\.eventId), ["earlier", "later"])
         XCTAssertEqual(model.events[0].safeDisplayTitle(), "Earlier meeting")
         XCTAssertFalse(model.showUpcomingTime)
         XCTAssertFalse(model.showUpcomingTitle)
     }
 
-    @MainActor
-    func testCalendarTrayModelShowsSignInState() async {
-        let model = CalendarTrayModel {
-            throw DesktopUploadClientError.httpStatus(401, "auth_required")
-        }
-
-        await model.refresh()
-
-        XCTAssertEqual(model.state, .needsSignIn)
-        XCTAssertTrue(model.events.isEmpty)
-    }
-
     func testCalendarTrayModelIgnoresAnOlderRefreshThatFinishesLast() async {
         let loader = CalendarTrayControlledLoader()
-        let model = CalendarTrayModel { await loader.load() }
+        let model = CalendarTrayModel { try await loader.load() }
 
         let first = Task { await model.refresh() }
         await loader.waitForRequestCount(1)
@@ -586,6 +575,304 @@ final class DesktopCalendarReminderTests: XCTestCase {
         await first.value
 
         XCTAssertEqual(model.events.map(\.eventId), ["new"])
+    }
+
+    func testCalendarProjectionInvalidationRejectsPendingResponseAndKeepsCaptureState() async {
+        let loader = CalendarTrayControlledLoader()
+        let model = CalendarTrayModel { try await loader.load() }
+        var projections: [DesktopCalendarPromptResponse?] = []
+        var invalidations = 0
+        model.onProjection = { projections.append($0) }
+        model.onAuthInvalidated = { invalidations += 1 }
+        model.recordingState = .recording
+        let pending = Task { await model.refresh() }
+        await loader.waitForRequestCount(1)
+        model.invalidate()
+        await loader.complete(request: 0, with: DesktopCalendarPromptResponse(
+            events: [makeEvent(eventId: "old-account", startsAt: date(120), endsAt: date(180))]
+        ))
+        await pending.value
+        XCTAssertEqual(projections.count, 1)
+        XCTAssertNil(projections[0])
+        XCTAssertEqual(invalidations, 1)
+        XCTAssertTrue(model.events.isEmpty)
+        XCTAssertEqual(model.recordingState, .recording)
+    }
+
+    func testCalendarTrayStaysCompactWithoutConfirmedEventsAndRecoversAfterFailures() async {
+        let loader = CalendarTrayControlledLoader()
+        let model = CalendarTrayModel { try await loader.load() }
+        let first = Task { await model.refresh() }
+        await loader.waitForRequestCount(1)
+        await loader.complete(request: 0, with: DesktopCalendarPromptResponse(events: []))
+        await first.value
+
+        let failures: [any Error] = [
+            DesktopUploadClientError.httpStatus(401, "auth_required"),
+            DesktopUploadClientError.httpStatus(503, "unavailable"),
+            URLError(.notConnectedToInternet)
+        ]
+        for (index, error) in failures.enumerated() {
+            let success = Task { await model.refresh() }
+            await loader.waitForRequestCount(index * 2 + 2)
+            await loader.complete(request: index * 2 + 1, with: DesktopCalendarPromptResponse(
+                events: [makeEvent(startsAt: date(120), endsAt: date(180))]
+            ))
+            await success.value
+            XCTAssertEqual(model.events.count, 1)
+
+            let failure = Task { await model.refresh() }
+            await loader.waitForRequestCount(index * 2 + 3)
+            XCTAssertEqual(model.events.count, 1, "Background refresh keeps useful content until it finishes")
+            await loader.fail(request: index * 2 + 2, with: error)
+            await failure.value
+            XCTAssertTrue(model.events.isEmpty, "Do not expose outdated or signed-out calendar data")
+        }
+        model.appUpdatePresentation = AppUpdatePresentation(
+            phase: .available, availableVersion: "2026.09.08.1", isUserInitiated: false, message: nil
+        )
+    }
+
+    func testCalendarTrayVectorIsMonochromeTransparentAndHasDistinctRecordingMarks() throws {
+        var rendered: [Data] = []
+        for state in [GrafTrayRecordingState.idle, .recording, .paused] {
+            let image = CalendarTrayController.statusIcon(recordingState: state)
+            XCTAssertTrue(image.isTemplate, "macOS supplies light/dark/selected menu-bar contrast")
+            XCTAssertEqual(image.size, NSSize(width: 22, height: 22), "Capture must not resize or displace the menu-bar anchor")
+            let data = try XCTUnwrap(image.tiffRepresentation)
+            rendered.append(data)
+            let bitmap = try XCTUnwrap(NSBitmapImageRep(data: data))
+            XCTAssertEqual(bitmap.colorAt(x: 0, y: 0)?.alphaComponent, 0)
+            XCTAssertEqual(bitmap.colorAt(x: 20, y: 2)?.alphaComponent, 0,
+                           "No separate mark outside the GRAF silhouette")
+            var inkPixels = 0
+            for y in 0..<bitmap.pixelsHigh {
+                for x in 0..<bitmap.pixelsWide {
+                    let color = try XCTUnwrap(bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB))
+                    guard color.alphaComponent > 0 else { continue }
+                    inkPixels += 1
+                    XCTAssertEqual(color.redComponent, color.greenComponent, accuracy: 0.001)
+                    XCTAssertEqual(color.greenComponent, color.blueComponent, accuracy: 0.001)
+                }
+            }
+            XCTAssertGreaterThan(inkPixels, 60, "The vector must render, not just reserve a canvas")
+            XCTAssertLessThan(inkPixels, bitmap.pixelsWide * bitmap.pixelsHigh / 2, "No opaque app-icon background")
+        }
+        XCTAssertNotEqual(rendered[0], rendered[1], "A large central recording light replaces the equalizer bars")
+        XCTAssertEqual(rendered[1], rendered[2], "Mute preserves the same GRAF contour")
+    }
+
+    func testRecordingLightStaysVisibleDuringMuteAndStopsMovingForAccessibility() throws {
+        let light = GrafRecordingLightView(frame: NSRect(x: 0, y: 0, width: 22, height: 22))
+        light.wantsLayer = true
+        XCTAssertNil(light.hitTest(NSPoint(x: 11, y: 6)), "The light cannot steal a status-button click")
+        for state in [GrafTrayRecordingState.recording, .paused] {
+            light.update(state: state, reduceMotion: false)
+            XCTAssertFalse(light.isHidden, "Mute still records system audio")
+            let pulse = try XCTUnwrap(light.layer?.animation(forKey: "recordingPulse") as? CABasicAnimation)
+            XCTAssertEqual(pulse.fromValue as? Double, 1)
+            XCTAssertEqual(pulse.toValue as? Double, 0.55)
+            XCTAssertEqual(pulse.duration, 0.9)
+            XCTAssertTrue(pulse.autoreverses)
+            light.update(state: state, reduceMotion: true)
+            XCTAssertFalse(light.isHidden)
+            XCTAssertNil(light.layer?.animation(forKey: "recordingPulse"))
+            XCTAssertEqual(light.layer?.opacity, 1)
+        }
+        for state in [GrafTrayRecordingState.stopping, .idle, .starting] {
+            light.update(state: state, reduceMotion: false)
+            XCTAssertEqual(light.isHidden, state != .stopping)
+            XCTAssertNil(light.layer?.animation(forKey: "recordingPulse"))
+        }
+        light.update(state: .recording, reduceMotion: true)
+        let bitmap = try XCTUnwrap(light.bitmapImageRepForCachingDisplay(in: light.bounds))
+        light.cacheDisplay(in: light.bounds, to: bitmap)
+        var redPixels = 0
+        for y in 0..<bitmap.pixelsHigh {
+            for x in 0..<bitmap.pixelsWide {
+                let color = try XCTUnwrap(bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB))
+                guard color.alphaComponent > 0 else { continue }
+                XCTAssertGreaterThan(color.redComponent, color.greenComponent)
+                redPixels += 1
+                let point = NSPoint(x: CGFloat(x) * 22 / CGFloat(bitmap.pixelsWide),
+                                    y: 22 - CGFloat(y) * 22 / CGFloat(bitmap.pixelsHigh))
+                XCTAssertTrue(NSRect(x: 5, y: 5, width: 12, height: 12).contains(point), "Red pixels stay inside the logo")
+            }
+        }
+        XCTAssertGreaterThan(redPixels, 40, "The central recording disk must be substantially larger than the old dot")
+        let centerX = bitmap.pixelsWide / 2
+        let centerY = bitmap.pixelsHigh / 2
+        XCTAssertGreaterThan(try XCTUnwrap(bitmap.colorAt(x: centerX, y: centerY)).alphaComponent, 0.9)
+        light.update(state: .paused, reduceMotion: true)
+        let mutedBitmap = try XCTUnwrap(light.bitmapImageRepForCachingDisplay(in: light.bounds))
+        light.cacheDisplay(in: light.bounds, to: mutedBitmap)
+        XCTAssertLessThan(try XCTUnwrap(mutedBitmap.colorAt(x: centerX, y: centerY)).alphaComponent, 0.1,
+                          "Mute leaves a flat transparent slot inside the still-visible red disk")
+    }
+
+    func testCalendarTrayTracksRealCaptureAndPreservesItWhenAnUpdateArrives() {
+        let model = CalendarTrayModel { DesktopCalendarPromptResponse(events: []) }
+        let tray = CalendarTrayController(model: model, onOpenSettings: {}, onOpenMeetings: {},
+                                          onStartRecording: {}, onStopRecording: {},
+                                          onMuteMicrophone: {}, onUnmuteMicrophone: {}, onQuit: {})
+        let transitions: [(CaptureSessionState?, Bool, Bool, GrafTrayRecordingState)] = [
+            (nil, false, false, .idle), (.starting, false, false, .idle),
+            (.failed, false, false, .idle), (.active, true, false, .recording),
+            (.paused, true, false, .paused), (.active, true, false, .recording),
+            (.degraded, true, false, .recording), (.active, false, true, .stopping),
+            (.stopped, false, false, .idle), (.finalized, false, false, .idle)
+        ]
+        for (session, active, stopping, expected) in transitions {
+            let state = GrafTrayRecordingState.resolve(sessionState: session, writerActive: active, stopping: stopping)
+            XCTAssertEqual(state, expected)
+            tray.showRecordingState(state)
+            XCTAssertEqual(model.recordingState, expected)
+            XCTAssertEqual(tray.statusItemLabel, expected.label.map { "GRAF — \($0)" } ?? "GRAF")
+        }
+        tray.showRecordingState(.recording)
+        tray.showUpdate(AppUpdatePresentation(phase: .available, availableVersion: "2026.09.08.1",
+                                             isUserInitiated: false, message: nil), actionEnabled: true)
+        XCTAssertEqual(model.recordingState, .recording)
+        XCTAssertTrue(tray.statusItemLabel.contains("Идёт запись"))
+        XCTAssertTrue(tray.statusItemLabel.contains("2026.09.08.1"))
+        tray.showRecordingState(.idle)
+        XCTAssertFalse(tray.statusItemLabel.contains("Идёт запись"))
+        XCTAssertTrue(tray.statusItemLabel.contains("2026.09.08.1"))
+    }
+
+    func testNativeTrayMenuCommandsFollowCaptureStateAndRejectStaleActions() throws {
+        let model = CalendarTrayModel { DesktopCalendarPromptResponse(events: []) }
+        var starts = 0
+        var stops = 0
+        var settings = 0
+        var quits = 0
+        var mutes = 0
+        var unmutes = 0
+        let tray = CalendarTrayController(model: model, onOpenSettings: { settings += 1 }, onOpenMeetings: {},
+                                          onStartRecording: { starts += 1 }, onStopRecording: { stops += 1 },
+                                          onMuteMicrophone: { mutes += 1 }, onUnmuteMicrophone: { unmutes += 1 },
+                                          onQuit: { quits += 1 })
+        tray.rebuildMenu()
+        XCTAssertEqual(tray.menu.items.filter { !$0.isSeparatorItem }.map(\.title),
+                       ["Начать запись", "Открыть GRAF", "Настройки…", "Выйти из GRAF"])
+        XCTAssertEqual(tray.menu.minimumWidth, 240)
+        XCTAssertTrue(tray.menu.items.allSatisfy { $0.view == nil }, "Native rows retain keyboard, theme and outside-click behavior")
+        tray.menu.performActionForItem(at: 0)
+        XCTAssertEqual(starts, 1)
+        XCTAssertEqual(GrafTrayRecordingState.resolve(sessionState: .starting, writerActive: false,
+                                                     stopping: false, starting: true), .starting)
+        for (state, title, enabled) in [(GrafTrayRecordingState.starting, "Начинаем запись…", false),
+                                       (.recording, "Остановить запись", true),
+                                       (.paused, "Остановить запись", true),
+                                       (.stopping, "Завершаем запись…", false)] {
+            tray.showRecordingState(state)
+            tray.rebuildMenu()
+            let first = try XCTUnwrap(tray.menu.items.first)
+            XCTAssertEqual(first.title, title)
+            XCTAssertEqual(first.isEnabled, enabled)
+            tray.startRecording()
+            XCTAssertEqual(starts, 1, "A queued stale Start must not invoke capture")
+            if enabled { tray.menu.performActionForItem(at: 0) }
+        }
+        XCTAssertEqual(stops, 2)
+        for state in [GrafTrayRecordingState.idle, .starting, .recording, .paused, .stopping] {
+            tray.showRecordingState(state)
+            tray.rebuildMenu()
+            let mute = tray.menu.items.first { $0.identifier?.rawValue == "graf.menu.mute" }
+            let unmute = tray.menu.items.first { $0.identifier?.rawValue == "graf.menu.unmute" }
+            XCTAssertEqual(mute != nil, state == .recording)
+            XCTAssertEqual(unmute != nil, state == .paused)
+            if let mute {
+                XCTAssertEqual(mute.title, "Mute микрофона")
+                XCTAssertTrue(mute.toolTip?.contains("Системный звук продолжает записываться") == true)
+                let index = try XCTUnwrap(tray.menu.items.firstIndex(of: mute))
+                tray.menu.performActionForItem(at: index)
+            }
+            if let unmute {
+                XCTAssertEqual(unmute.title, "Включить микрофон")
+                let index = try XCTUnwrap(tray.menu.items.firstIndex(of: unmute))
+                tray.menu.performActionForItem(at: index)
+            }
+        }
+        XCTAssertEqual(mutes, 1)
+        XCTAssertEqual(unmutes, 1)
+        tray.showRecordingState(.paused)
+        tray.muteMicrophone()
+        tray.showRecordingState(.recording)
+        tray.unmuteMicrophone()
+        tray.showRecordingState(.idle)
+        tray.muteMicrophone()
+        tray.unmuteMicrophone()
+        XCTAssertEqual(mutes, 1, "Stale Mute cannot reverse a newer state")
+        XCTAssertEqual(unmutes, 1, "Stale Unmute cannot enable a microphone outside paused capture")
+        tray.showRecordingState(.idle)
+        tray.stopRecording()
+        XCTAssertEqual(stops, 2, "A queued stale Stop must not finalize an idle writer")
+        tray.showUpdate(AppUpdatePresentation(phase: .available, availableVersion: "2026.09.08.1",
+                                             isUserInitiated: false, message: nil), actionEnabled: false)
+        tray.rebuildMenu()
+        XCTAssertEqual(tray.menu.items.first { $0.identifier?.rawValue == "graf.menu.update" }?.isEnabled, false)
+        let settingsIndex = try XCTUnwrap(tray.menu.items.firstIndex { $0.identifier?.rawValue == "graf.menu.settings" })
+        tray.menu.performActionForItem(at: settingsIndex)
+        tray.menu.performActionForItem(at: tray.menu.numberOfItems - 1)
+        XCTAssertEqual(settings, 1)
+        XCTAssertEqual(quits, 1)
+        XCTAssertEqual(starts, 1, "Settings and Quit never invoke recording")
+        XCTAssertEqual(tray.menu.items.first?.title, "Начать запись")
+    }
+
+    func testNativeMenuDismissesAppWindowsButKeepsItsOwnSurfaceAndReleasesMonitors() {
+        let window = NSWindow()
+        for (level, outside) in [(NSWindow.Level.normal, true), (.floating, true),
+                                 (.mainMenu, false), (.statusBar, false), (.popUpMenu, false)] {
+            window.level = level
+            XCTAssertEqual(CalendarTrayController.isOutsideMenuWindow(window), outside)
+        }
+        XCTAssertFalse(CalendarTrayController.isOutsideMenuWindow(nil))
+        let model = CalendarTrayModel { DesktopCalendarPromptResponse(events: []) }
+        let tray = CalendarTrayController(model: model, onOpenSettings: {}, onOpenMeetings: {},
+                                          onStartRecording: {}, onStopRecording: {},
+                                          onMuteMicrophone: {}, onUnmuteMicrophone: {}, onQuit: {})
+        for _ in 0..<2 {
+            XCTAssertFalse(tray.hasMouseMonitors)
+            tray.menuWillOpen(tray.menu)
+            tray.menuWillOpen(tray.menu)
+            XCTAssertTrue(tray.hasMouseMonitors)
+            tray.menuDidClose(tray.menu)
+            XCTAssertFalse(tray.hasMouseMonitors)
+        }
+    }
+
+    func testNativeTrayCalendarRespectsPrivacyAndOnlyEnablesSafeMeetingLinks() async throws {
+        let safe = makeEvent(eventId: "safe", startsAt: date(120), endsAt: date(180),
+                             title: String(repeating: "Long title ", count: 12), meetingLinkPresent: true,
+                             openMeetingURL: URL(string: "https://example.com/meeting"))
+        let unsafe = makeEvent(eventId: "unsafe", startsAt: date(240), endsAt: date(300),
+                               meetingLinkPresent: true, openMeetingURL: URL(string: "http://example.com/meeting"))
+        let privateEvent = makeEvent(eventId: "private", startsAt: date(360), endsAt: date(420),
+                                     title: "Must stay private", titleState: .privateRedacted)
+        for showDetails in [false, true] {
+            let model = CalendarTrayModel {
+                DesktopCalendarPromptResponse(events: [safe, unsafe, privateEvent],
+                                              showUpcomingTime: showDetails, showUpcomingTitle: showDetails)
+            }
+            await model.refresh()
+            let tray = CalendarTrayController(model: model, onOpenSettings: {}, onOpenMeetings: {},
+                                          onStartRecording: {}, onStopRecording: {},
+                                          onMuteMicrophone: {}, onUnmuteMicrophone: {}, onQuit: {})
+            tray.rebuildMenu()
+            let events = tray.menu.items.filter { $0.identifier?.rawValue == "graf.menu.event" }
+            XCTAssertEqual(events.count, 3)
+            XCTAssertEqual(events.map(\.isEnabled), [true, false, false])
+            XCTAssertFalse(events.contains { ($0.toolTip ?? "").contains("Must stay private") })
+            if showDetails {
+                XCTAssertTrue(events[0].title.hasSuffix("…"))
+                XCTAssertLessThan(events[0].title.count, 50)
+            } else {
+                XCTAssertEqual(events.map(\.title), ["Встреча", "Встреча", "Встреча"])
+                XCTAssertEqual(events.map(\.toolTip), ["Встреча", "Встреча", "Встреча"])
+            }
+        }
     }
 
     func testPromptAccessibilityCopyNamesManualAction() throws {
@@ -630,10 +917,10 @@ final class DesktopCalendarReminderTests: XCTestCase {
 }
 
 private actor CalendarTrayControlledLoader {
-    private var continuations: [CheckedContinuation<DesktopCalendarPromptResponse, Never>] = []
+    private var continuations: [CheckedContinuation<DesktopCalendarPromptResponse, Error>] = []
 
-    func load() async -> DesktopCalendarPromptResponse {
-        await withCheckedContinuation { continuation in
+    func load() async throws -> DesktopCalendarPromptResponse {
+        try await withCheckedThrowingContinuation { continuation in
             continuations.append(continuation)
         }
     }
@@ -642,6 +929,10 @@ private actor CalendarTrayControlledLoader {
         while continuations.count < count {
             await Task.yield()
         }
+    }
+
+    func fail(request index: Int, with error: any Error) {
+        continuations[index].resume(throwing: error)
     }
 
     func complete(request index: Int, with response: DesktopCalendarPromptResponse) {

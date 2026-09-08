@@ -351,8 +351,10 @@ final class CaptureControlTests: XCTestCase {
                 blockedReason: nil,
                 localRecordingStatus: nil
             ),
-            "Запись на паузе"
+            "Идёт запись · микрофон выключен"
         )
+        XCTAssertEqual(CaptureControlView.localRecordingSummary(for: SystemAudioStatusLabels.localRecordingPausedStatus),
+                       "Идёт запись · микрофон выключен")
         XCTAssertEqual(
             CaptureControlView.primaryStatus(
                 for: makePresentationSession(state: .stopping, indicator: .active, canStop: true),
@@ -616,6 +618,18 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertTrue(source.contains("reason: .meetingEnded"))
         XCTAssertTrue(source.contains("evidenceInitiator: .systemFailClosed"))
         XCTAssertTrue(source.contains("enqueueReason: \"meeting_detection_target_ended\""))
+    }
+
+    func testTrayStartAvailabilityDoesNotUseMainWindowCalendarButtonVisibility() throws {
+        let source = try String(contentsOf: repositoryRootForCaptureTests()
+            .appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"), encoding: .utf8)
+        let snapshot = try XCTUnwrap(source.components(separatedBy: "private var controlPanelSnapshot:").last?
+            .components(separatedBy: "private func syncControlPanel").first)
+        XCTAssertFalse(snapshot.contains("shouldShowDirectRecordButton"))
+        XCTAssertTrue(snapshot.contains("shouldShowRecordButton(for: captureSession) && effectivePermissionOnboardingStatus.isReady && !value.transitioning"))
+        XCTAssertTrue(CaptureControlView.shouldShowRecordButton(for: nil))
+        XCTAssertFalse(CaptureControlView.shouldShowRecordButton(for: makePresentationSession(
+            state: .active, indicator: .active, canStop: true)))
     }
 
     func testCalendarPromptUIWiresManualPrimaryAndDismissActions() throws {

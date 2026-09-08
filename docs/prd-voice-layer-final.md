@@ -1014,7 +1014,7 @@ Cross-surface state mapping:
 | `created` | `idle` or `ready` | Not shown or scheduled | Session exists but capture has not started |
 | `detecting` | `detecting` | Detecting | Meeting/audio activity detected |
 | `recording` | `recording` or `transcript_only` | Capturing | Audio is actively captured |
-| `paused` | `paused` | Paused | Capture is intentionally paused |
+| `paused` | `paused` | Paused | Local microphone is excluded from the GRAF recording; pause does not disable system capture; incoming audio continues only while the source is otherwise valid and user-visible (Feature 022) |
 | `uploading` | `uploading` | Uploading | Chunks are being sent to server |
 | `upload_interrupted` | `buffered_locally` or `upload_failed` | Upload interrupted | Audio exists locally and needs retry |
 | `uploaded` | `complete` | Uploaded | Required chunks are durably stored |
@@ -1220,7 +1220,11 @@ MVP notes:
 - Follow-up questions.
 - Risks/blockers.
 - Important timestamped quotes.
-- Summary/action-item generation is required in MVP and should use MediaScribe summary output when available; otherwise use the `2brain_rec` LLM pipeline.
+- Full meeting minutes are required in MVP. Feature 239 uses the original
+  owner-approved `draft-meeting-minutes` instruction, one model generation stage
+  over the complete canonical transcript and source timestamp links.
+  MediaScribe remains the transcription source, not a fallback generator for
+  new minutes.
 
 Quality rules:
 
@@ -1236,9 +1240,10 @@ Quality rules:
   call upstream providers directly.
 - Each outcome format resolves its promoted Langfuse prompt version. That
   version atomically contains prompt text, selected LiteLLM model route,
-  allowlisted generation parameters, and strict response schema. The initial
-  selected route is private `gpt-5.6-luna`; a later promoted Langfuse version
-  may select another approved route without changing GRAF workflow code.
+  allowlisted generation parameters, and strict response schema. The selected
+  route is configurable in Langfuse without changing GRAF workflow code or
+  passing a separate GRAF model allowlist. Development evaluation uses its own
+  label or exact version, never a production fallback.
   LiteLLM may remap the selected route to another approved upstream provider,
   and each generation records both the selected route and actual
   provider/model provenance returned by the gateway when available.
@@ -1265,23 +1270,16 @@ Quality rules:
   of the exact promoted Langfuse version; without either source, recording and
   transcription continue while notes generation reports a bounded dependency
   wait instead of silently using code-owned model settings.
-- GEPA prompt optimization runs as offline durable work over versioned
-  synthetic datasets, publishes exact numeric candidate prompt versions without
-  manually assigned deployment labels, never auto-promotes production, and
-  requires held-out evaluation plus explicit
-  deployment-operator promotion, expected-source verification, and rollback
-  evidence. Langfuse labels are not assumed to provide native expected-source
-  CAS: one authorized deployment writer/lock performs expected-root read/compare,
-  validates an immutable candidate-root qualification, performs protected-label
-  movement and exact read-back, then persists an immutable promotion event and
-  complete typed binding. Runtime/model/publication paths re-fetch/re-hash that
-  binding; a bare event digest or current label is non-authorizing, and the
-  event remains outside the root/activation hashes to avoid a cycle. Automated promotion also
-  requires protected-label capability and a sole deployment-service mutation
-  credential; otherwise it remains disabled and runtime uses last-known-good.
-  Workspace admins cannot change the project-global production label. Real
-  transcript/output/feedback optimization remains out of scope for this first
-  synthetic-only optimizer.
+- GRAF validates structure and exact source references, not semantic quality
+  after receiving a model answer. It never rewrites generated words, owners or
+  dates. Source/access/deletion fences and durable response storage remain
+  mandatory; observation delivery does not gate document readiness.
+- GEPA remains offline, durable and synthetic-only; it cannot move production
+  automatically. Production prompt changes require exact-target evaluation,
+  explicit deployment-operator approval and numeric read-back. Workspace admins
+  cannot change project-global production labels. Meeting generation does not
+  require root, activation, qualification or promotion-event artifacts; see
+  Constitution §III. Real-meeting optimization remains outside this feature.
 - Future regulated deployments may configure LLM generation to fail closed when Langfuse tracing is unavailable.
 
 AI chat, when enabled:

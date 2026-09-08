@@ -536,6 +536,8 @@ async def list_desktop_calendar_upcoming(
         preference=preference,
     )
     return DesktopCalendarPromptResponse(
+        notification_owner_id=str(tenant_scope.user_id),
+        notification_workspace_id=str(tenant_scope.workspace_id),
         show_upcoming_time=preference.show_upcoming_time,
         show_upcoming_title=preference.show_upcoming_title,
         events=[

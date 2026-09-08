@@ -56,6 +56,17 @@ Use the Codex skill names for Spec Kit, including `$speckit-specify`,
 `$speckit-plan`, `$speckit-analyze`, `$speckit-taskstoissues`, and
 `$speckit-implement`; the guidance index has the complete sequence.
 
+## Единственное приложение для локальных проверок macOS
+
+Все ручные и сквозные проверки выполняй в `/Applications/GRAF Dev.app`.
+Перед сборкой или запуском приложения прочитай `docs/agent-guidance/local-development.md`.
+Не создавай и не запускай отдельные GRAF Local/Preview/Test или копии приложения
+из worktree и `/tmp`; не запускай исполняемый файл через `swift run`.
+Обновляй единственный GRAF Dev через существующий `dev-harness` с сохранением
+bundle ID, подписи и разрешений. Ошибка этого пути не разрешает обход:
+исправь причину, сохрани защитные проверки. Исключение — только прямое
+указание пользователя на отдельную копию; общее разрешение на тесты им не является.
+
 ## Development flow
 
 Choose a risk/validation lane from `docs/agent-guidance/spec-kit-flow.md` and

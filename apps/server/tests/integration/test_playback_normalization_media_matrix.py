@@ -817,3 +817,13 @@ def test_manual_upload_duration_allowance_stays_bounded_for_long_recordings() ->
         3_598_749,
         expected_duration_seconds=3_600,
     )
+
+
+def test_desktop_duration_accepts_ceil_rounding_without_accepting_other_seconds() -> None:
+    for milliseconds in (4_001, 4_382, 4_437, 5_000):
+        _validate_authoritative_source_duration(milliseconds, expected_duration_seconds=5, rounded_up=True)
+    for milliseconds in (0, 4_000, 5_251):
+        with pytest.raises(MediaPolicyError, match="source_mismatch"):
+            _validate_authoritative_source_duration(milliseconds, expected_duration_seconds=5, rounded_up=True)
+    with pytest.raises(MediaPolicyError, match="source_mismatch"):
+        _validate_authoritative_source_duration(4_382, expected_duration_seconds=5)
