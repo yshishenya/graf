@@ -916,6 +916,9 @@ class DesktopSyncReviewState(BaseModel):
     transcript_available: bool = False
     diarization_available: bool = False
     content_available: bool = False
+    summary_status: str | None = None
+    summary_event_id: UUID | None = None
+    summary_updated_at: datetime | None = None
     web_url: str | None = None
     desktop_url: str | None = None
 

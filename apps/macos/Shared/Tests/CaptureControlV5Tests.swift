@@ -577,7 +577,7 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertTrue(source.contains("TimelineView(.periodic"))
         XCTAssertTrue(source.contains("private static let countdownSeconds: TimeInterval = 8"))
         XCTAssertTrue(source.contains("autoStartTask"))
-        XCTAssertTrue(source.contains("Началась встреча. Записать её сейчас?"))
+        XCTAssertTrue(source.contains("Записать встречу?"))
         XCTAssertTrue(source.contains("resolveDismiss(reason: .userSkipped)"))
         XCTAssertTrue(source.contains("resolveStart(reason: .promptTimeout)"))
         XCTAssertTrue(source.contains("MeetingDetectionPromptDecision("))

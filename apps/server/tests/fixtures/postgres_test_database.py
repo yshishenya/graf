@@ -37,6 +37,7 @@ MEDIA_READ_ONLY_TABLES = (
     "workspace_subscriptions",
     "workspaces",
 )
+MEDIA_WORKFLOW_COLUMNS = ("workflow_id", "workspace_id", "meeting_id", "media_revision_id", "purpose", "status", "attempt_ordinal", "created_at")
 MEDIA_READ_WRITE_TABLES = (
     "playback_backfill_runs",
     "playback_normalization_attempts",
@@ -212,6 +213,7 @@ async def ensure_disposable_media_role(
             f"revoke all privileges on all tables in schema public from {quoted_role}",
             f"revoke all privileges on all sequences in schema public from {quoted_role}",
             f"grant select on {_table_list(MEDIA_READ_ONLY_TABLES)} to {quoted_role}",
+            f"grant select ({', '.join(MEDIA_WORKFLOW_COLUMNS)}) on public.processing_workflows to {quoted_role}",
             f"grant select, insert, update on {_table_list(MEDIA_READ_WRITE_TABLES)} "
             f"to {quoted_role}",
             f"grant insert on {_table_list(MEDIA_INSERT_ONLY_TABLES)} to {quoted_role}",

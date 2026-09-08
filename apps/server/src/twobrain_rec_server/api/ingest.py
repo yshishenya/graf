@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, Query, Request, status
+from fastapi import APIRouter, Depends, Header, Query, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -323,6 +323,12 @@ async def get_recording_sync_state(
         local_recording_id=local_recording_id,
         local_media_revision_id=local_media_revision_id,
     )
+
+
+@router.get("/desktop/notification-context", dependencies=[PrincipalDependency, DeviceDependency])
+async def get_notification_context(response: Response, tenant_scope: TenantScope = TenantDependency) -> dict[str, str]:
+    response.headers["Cache-Control"] = "no-store"
+    return {"user_id": str(tenant_scope.user_id), "workspace_id": str(tenant_scope.workspace_id)}
 
 
 @router.post(

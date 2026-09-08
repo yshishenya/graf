@@ -523,9 +523,11 @@ private struct ContentView: View {
             openingSettings = selectedCabinetRoute != route
             selectedCabinetRoute = route
         }
-        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecOpenMeetingsFromTray)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecOpenMeetingsFromTray)) { notification in
             guard let configuration = desktopCabinetConfiguration else { return }
-            selectedCabinetRoute = configuration.meetingsURL()
+            if let meetingID = notification.object as? UUID {
+                selectedCabinetRoute = DesktopCabinetWorkspace.detailRoute(meetingId: meetingID.uuidString, configuration: configuration)
+            } else { selectedCabinetRoute = configuration.meetingsURL() }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             refreshPermissionOnboarding(reason: "app_became_active")
@@ -2923,11 +2925,11 @@ private struct MeetingDetectionPromptView: View {
                     .foregroundStyle(DesktopMeetingShellChrome.shellAccentColor)
                     .frame(width: 24)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(prompt.displayName)
+                    Text("Записать встречу?")
                         .font(.headline)
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
-                    Text("Началась встреча. Записать её сейчас?")
+                    Text("Встреча в \(prompt.displayName). GRAF сохранит запись и подготовит расшифровку.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
@@ -3134,6 +3136,10 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
             onUpdate: { [weak self] in self?.checkForUpdates(nil) }
         )
         DesktopNotificationPresenter.shared.onOpenCalendar = { [weak self] in self?.calendarTrayController?.showMenu() }
+        DesktopNotificationPresenter.shared.onOpenMeeting = { [weak self] meetingID in
+            self?.presentMainWindow(reason: "meeting_ready")
+            NotificationCenter.default.post(name: .twoBrainRecOpenMeetingsFromTray, object: meetingID)
+        }
         trayModel.onAuthInvalidated = { DesktopNotificationPresenter.shared.invalidate() }
         trayModel.onProjection = { response in
             if let response { DesktopNotificationPresenter.shared.updateCalendar(response) }

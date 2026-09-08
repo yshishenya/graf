@@ -6,6 +6,62 @@ import TwoBrainRecShared
 
 @MainActor
 final class DesktopNotificationControlTests: XCTestCase {
+    func testOlderPreferencesKeepExplicitFalseAndDoNotEnableRecaps() throws {
+        let data = Data(#"{"reminders":false,"offsetMinutes":5,"showTitles":false,"sound":false}"#.utf8)
+        let value = try JSONDecoder().decode(DesktopNotificationPreferences.self, from: data)
+        XCTAssertFalse(value.reminders)
+        XCTAssertFalse(value.sound)
+        XCTAssertFalse(value.showTitles)
+        XCTAssertFalse(value.recaps)
+        XCTAssertEqual(value.offsetMinutes, 5)
+    }
+
+    func testRecapRequiresFreshServerEventNotAnAdjacentSnapshotTransition() {
+        var pending = custodyFixtureQueueItem(id: "recap", state: .uploaded)
+        pending.serverTruth = ServerTruthFingerprint(meetingId: UUID().uuidString, mediaRevisionId: "revision",
+            deletionState: "none", accessState: "owner", reviewAvailable: true, summaryStatus: "generating")
+        var ready = pending
+        ready.serverTruth.summaryStatus = "available"
+        let now = Date()
+        XCTAssertNil(DesktopNotificationPresenter.freshRecapID(ready, context: "owner", now: now))
+        ready.serverTruth.transcriptAvailable = true
+        ready.serverTruth.summaryEventId = UUID().uuidString
+        ready.serverTruth.summaryUpdatedAt = now
+        XCTAssertNotNil(DesktopNotificationPresenter.freshRecapID(ready, context: "owner", now: now))
+        XCTAssertNil(DesktopNotificationPresenter.freshRecapID(ready, context: "owner", now: now.addingTimeInterval(300)))
+        ready.serverTruth.accessState = "revoked"
+        XCTAssertNil(DesktopNotificationPresenter.freshRecapID(ready, context: "owner", now: now))
+    }
+
+    func testIncidentRecursOnlyAfterObservedRecovery() throws {
+        let name = "graf-incident-recovery-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let store = DesktopNotificationPreferencesStore(defaults: defaults)
+        let now = Date()
+        let incident = DesktopLocalNotificationIncident(sessionID: "session", itemIDs: ["item"], expires: now.addingTimeInterval(300), fresh: true)
+        store.reconcileIncidents([incident], knownSessions: ["session"], owner: "owner")
+        XCTAssertTrue(store.claimLocalIncident(incident, owner: "owner", now: now))
+        store.reconcileIncidents([incident], knownSessions: ["session"], owner: "owner")
+        XCTAssertFalse(store.claimLocalIncident(incident, owner: "owner", now: now))
+        store.reconcileIncidents([], knownSessions: [], owner: "owner")
+        XCTAssertFalse(store.claimLocalIncident(incident, owner: "owner", now: now))
+        store.reconcileIncidents([], knownSessions: ["session"], owner: "owner")
+        XCTAssertTrue(store.claimLocalIncident(incident, owner: "owner", now: now))
+    }
+
+    func testEveryFailedRecordingHasFreshIncidentEvenAfterRetention() {
+        let now = Date()
+        var snapshot = DesktopControlSnapshot()
+        snapshot.uploadItems = (0..<8).map { index in
+            custodyFixtureQueueItem(id: "failure-\(index)", state: .failed,
+                retentionDeadline: now.addingTimeInterval(-1), updatedAt: now)
+        }
+        let incidents = DesktopLocalNotificationIncident.incidents(in: snapshot, now: now)
+        XCTAssertEqual(incidents.count, 8)
+        XCTAssertTrue(incidents.allSatisfy { $0.fresh && $0.expires > now })
+    }
+
     func testPanelFitsShortAndNegativeOriginScreens() {
         for bounds in [NSRect(x: 0, y: 24, width: 1440, height: 876),
                        NSRect(x: -1280, y: -320, width: 1280, height: 480)] {

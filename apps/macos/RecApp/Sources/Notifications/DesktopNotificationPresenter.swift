@@ -10,7 +10,17 @@ public struct DesktopNotificationPreferences: Codable, Equatable {
     public var offsetMinutes = 1
     public var showTitles = false
     public var sound = false
+    public var recaps = false
     public init() {}
+    private enum CodingKeys: String, CodingKey { case reminders, offsetMinutes, showTitles, sound, recaps }
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        reminders = try values.decodeIfPresent(Bool.self, forKey: .reminders) ?? true
+        offsetMinutes = try values.decodeIfPresent(Int.self, forKey: .offsetMinutes) ?? 1
+        showTitles = try values.decodeIfPresent(Bool.self, forKey: .showTitles) ?? false
+        sound = try values.decodeIfPresent(Bool.self, forKey: .sound) ?? false
+        recaps = try values.decodeIfPresent(Bool.self, forKey: .recaps) ?? false
+    }
 }
 
 public final class DesktopNotificationPreferencesStore {
@@ -47,10 +57,28 @@ public final class DesktopNotificationPreferencesStore {
         let ids = [incident.id] + incident.itemIDs.map { "graf.local.incident." + $0 }
         let digests = ids.map { SHA256.hash(data: Data($0.utf8)).map { String(format: "%02x", $0) }.joined() }
         let previous = digests.compactMap { claims[$0] }.max()
-        let expires = max(previous ?? 0, incident.expires.timeIntervalSince1970)
+        let expires = Date.distantFuture.timeIntervalSince1970
         for digest in digests { claims[digest] = expires }
         defaults.set(claims, forKey: name)
         return previous == nil
+    }
+    func reconcileIncidents(_ incidents: [DesktopLocalNotificationIncident], knownSessions: Set<String>, owner: String) {
+        guard !owner.isEmpty else { return }
+        let stateKey = key(owner) + ".activeIncidents"
+        var previous = defaults.dictionary(forKey: stateKey) as? [String: [String]] ?? [:]
+        let current = Set(incidents.map(\.sessionID))
+        let claimsKey = key(owner) + ".attempts"
+        var claims = defaults.dictionary(forKey: claimsKey) as? [String: Double] ?? [:]
+        for session in knownSessions.subtracting(current) {
+            guard let items = previous.removeValue(forKey: session) else { continue }
+            for id in ["graf.local.capture." + session] + items.map({ "graf.local.incident." + $0 }) {
+                let digest = SHA256.hash(data: Data(id.utf8)).map { String(format: "%02x", $0) }.joined()
+                claims.removeValue(forKey: digest)
+            }
+        }
+        for incident in incidents { previous[incident.sessionID] = incident.itemIDs }
+        defaults.set(claims, forKey: claimsKey)
+        defaults.set(previous, forKey: stateKey)
     }
     public func claim(id: String, owner: String, expires: Date, scheduledFor: Date? = nil, now: Date = Date()) -> Bool {
         guard !owner.isEmpty, expires > now else { return false }
@@ -88,12 +116,16 @@ struct DesktopLocalNotificationIncident {
 
     static func incidents(in snapshot: DesktopControlSnapshot, now: Date) -> [Self] {
         var grouped: [String: Self] = [:]
-        for issue in snapshot.localIssues {
-            let item = issue.primaryItem
+        for item in snapshot.uploadItems where item.state != .terminalDeleted {
+            let custody = DesktopUploadCustodyProjection(item: item, now: now)
+            // Opening a delivered result is not a local failure. Server-side
+            // processing owns its own outcome, not the local custody alarm.
+            guard custody.requiresUserAttention, custody.normalUserAction != .openReview,
+                  custody.custodyState != .processing else { continue }
             let previous = grouped[item.sessionId]
             grouped[item.sessionId] = Self(sessionID: item.sessionId,
                 itemIDs: snapshot.uploadItems.filter { $0.sessionId == item.sessionId }.map(\.id),
-                expires: max(previous?.expires ?? item.retentionDeadline, item.retentionDeadline),
+                expires: now.addingTimeInterval(300),
                 fresh: previous?.fresh == true || (0..<300).contains(now.timeIntervalSince(item.updatedAt)))
         }
         if let session = snapshot.session, snapshot.blocker?.isEmpty == false {
@@ -131,9 +163,16 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
     @Published public private(set) var owner = ""
     @Published public private(set) var message = ""
     public var onOpenCalendar: (() -> Void)?
-    private let center = UNUserNotificationCenter.current()
-    private let store = DesktopNotificationPreferencesStore()
+    public var onOpenMeeting: ((UUID) -> Void)?
+    private let center: UNUserNotificationCenter?
+    private let store: DesktopNotificationPreferencesStore
+    private let model: DesktopControlModel
+    private let statusProvider: (@MainActor () async -> UNAuthorizationStatus)?
+    private let submit: (@MainActor (UNNotificationRequest) async throws -> Void)?
+    private let remove: (@MainActor ([String]?) -> Void)?
+    private let reconcile: @MainActor (DesktopUploadQueueItem) async throws -> DesktopUploadReconciliation?
     private var context = ""
+    private var authEpoch = 0
     private var generation = 0
     private var schedulingReminders = false
     private var calendarEvents: [DesktopCalendarPromptEvent] = []
@@ -142,64 +181,123 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
     private var resultVisibilityObservation: AnyCancellable?
     private var activationObservation: AnyCancellable?
     private var settingsObservation: AnyCancellable?
+    private var authObservation: AnyCancellable?
+    private var wakeObservation: AnyCancellable?
+    private var contextGeneration = 0
+    private var recapTargets: [String: String] = [:]
     private var permissionGeneration = 0
     private var lastSnapshot = DesktopControlSnapshot()
-    public override init() {
+    // Inject the OS boundary and model so orchestration tests never initialize
+    // the system notification center, observers, or a configured network client.
+    init(center: UNUserNotificationCenter? = nil, store: DesktopNotificationPreferencesStore,
+         model: DesktopControlModel, status: (@MainActor () async -> UNAuthorizationStatus)? = nil,
+         submit: (@MainActor (UNNotificationRequest) async throws -> Void)? = nil,
+         remove: (@MainActor ([String]?) -> Void)? = nil,
+         reconcile: @escaping @MainActor (DesktopUploadQueueItem) async throws -> DesktopUploadReconciliation? = { _ in nil }) {
+        self.center = center; self.store = store; self.model = model
+        self.statusProvider = status; self.submit = submit; self.remove = remove; self.reconcile = reconcile
         super.init()
-        center.delegate = self
-        center.removeAllPendingNotificationRequests()
-        center.removeAllDeliveredNotifications()
+    }
+    public override convenience init() {
+        self.init(center: .current(), store: .init(), model: .shared, reconcile: { item in
+            guard let client = DesktopUploadClient.configuredFromEnvironment() else { return nil }
+            return try await client.reconcile(item)
+        })
+        center?.delegate = self
+        removeNotifications()
+        authObservation = NotificationCenter.default.publisher(for: .twoBrainRecDesktopAuthSessionDidChange).sink { [weak self] _ in
+            Task { @MainActor in
+                self?.invalidate()
+                await self?.refreshContext()
+            }
+        }
+        wakeObservation = NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification).sink { [weak self] _ in
+            Task { await self?.refreshContext(); await self?.refreshPermission() }
+        }
+        Task { await refreshContext() }
         activationObservation = NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification).sink { [weak self] _ in
-            Task { await self?.refreshPermission() }
+            Task { await self?.refreshContext(); await self?.refreshPermission() }
         }
         settingsObservation = NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)
             .filter { ($0.object as? NSWindow)?.identifier?.rawValue == "graf-settings-window" }
             .sink { [weak self] _ in Task { await self?.refreshPermission() } }
-        resultVisibilityObservation = DesktopControlModel.shared.$visibleResultSessionID.removeDuplicates().sink { [weak self] _ in
+        resultVisibilityObservation = model.$visibleResultSessionID.removeDuplicates().sink { [weak self] _ in
             guard let self else { return }
             self.generation += 1
             Task { await self.refreshLocal(self.lastSnapshot) }
         }
-        observation = DesktopControlModel.shared.$snapshot.sink { [weak self] snapshot in
-            guard let self, snapshot != self.lastSnapshot else { return }
-            let remindersChanged = snapshot.active != self.lastSnapshot.active || snapshot.calendarContextEventID != self.lastSnapshot.calendarContextEventID
-            if snapshot.active, snapshot.session?.id != self.lastSnapshot.session?.id || !self.lastSnapshot.active,
-               let id = snapshot.session?.id { self.store.bindSession(id, context: self.context) }
-            if remindersChanged { self.generation += 1 }
-            self.lastSnapshot = snapshot
-            Task {
-                if remindersChanged { await self.scheduleReminders() }
-                await self.refreshLocal(snapshot)
-            }
+        observation = model.$snapshot.sink { [weak self] snapshot in
+            self?.updateSnapshot(snapshot)
         }
     }
+    @discardableResult
+    func updateSnapshot(_ snapshot: DesktopControlSnapshot) -> Task<Void, Never>? {
+        guard snapshot != lastSnapshot else { return nil }
+        let remindersChanged = snapshot.active != lastSnapshot.active || snapshot.calendarContextEventID != lastSnapshot.calendarContextEventID
+        if snapshot.active, snapshot.session?.id != lastSnapshot.session?.id || !lastSnapshot.active,
+           let id = snapshot.session?.id { store.bindSession(id, context: context) }
+        if remindersChanged { generation += 1 }
+        lastSnapshot = snapshot
+        return Task {
+            if remindersChanged { await scheduleReminders() }
+            await refreshLocal(lastSnapshot)
+            await notifyReady()
+        }
+    }
+    private func removeNotifications(_ ids: [String]? = nil) {
+        if let ids {
+            center?.removePendingNotificationRequests(withIdentifiers: ids)
+            center?.removeDeliveredNotifications(withIdentifiers: ids)
+        } else {
+            center?.removeAllPendingNotificationRequests()
+            center?.removeAllDeliveredNotifications()
+        }
+        remove?(ids)
+    }
     public func invalidate() {
+        contextGeneration += 1
+        authEpoch += 1
         generation += 1
-        center.removeAllPendingNotificationRequests()
-        center.removeAllDeliveredNotifications()
+        removeNotifications()
         requests.removeAll(); calendarEvents.removeAll()
+        recapTargets.removeAll()
         owner = ""; context = ""; preferences = .init(); draft = preferences; message = ""
     }
     public func clearCalendar() {
         generation += 1
         let ids = requests.filter { $0.value.event != nil }.map(\.key)
-        center.removePendingNotificationRequests(withIdentifiers: ids)
-        center.removeDeliveredNotifications(withIdentifiers: ids)
+        removeNotifications(ids)
         ids.forEach { requests.removeValue(forKey: $0) }
         calendarEvents = []
     }
     public func updateCalendar(_ response: DesktopCalendarPromptResponse) {
         guard let user = response.notificationOwnerID, let workspace = response.notificationWorkspaceID else {
-            invalidate(); return
+            clearCalendar(); return
         }
-        let newContext = user + ":" + workspace
-        if context != newContext {
-            invalidate(); owner = user; context = newContext; preferences = store.load(owner: user); draft = preferences
-        }
-        guard calendarEvents != response.events else { return }
+        updateContext(user: user, workspace: workspace)
         generation += 1
         calendarEvents = response.events
-        Task { await scheduleReminders() }
+        Task { await scheduleReminders(); await notifyReady() }
+    }
+    func updateContext(user: String, workspace: String) {
+        let newContext = user.lowercased() + ":" + workspace.lowercased()
+        if context != newContext {
+            invalidate(); owner = user.lowercased(); context = newContext; preferences = store.load(owner: owner); draft = preferences
+        }
+    }
+    public func refreshContext() async {
+        contextGeneration += 1
+        let epoch = contextGeneration
+        guard let client = DesktopUploadClient.configuredFromEnvironment() else { return }
+        do {
+            let value = try await client.notificationContext()
+            guard epoch == contextGeneration else { return }
+            updateContext(user: value.user_id.uuidString, workspace: value.workspace_id.uuidString)
+            await refreshLocal(lastSnapshot)
+            await notifyReady()
+        } catch let error as DesktopUploadClientError {
+            if epoch == contextGeneration && error.failureCategory == .authSession { invalidate() }
+        } catch { /* Keep only the already confirmed context in this auth epoch. */ }
     }
     public func refreshPermission() async {
         permissionGeneration += 1
@@ -217,9 +315,14 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
         if permissionText != previous {
             message = ""
             await scheduleReminders()
+            await refreshLocal(lastSnapshot)
         }
+        // A delivery check may observe denial between permission-text refreshes.
+        // Reconsider unclaimed current events even when the displayed text matches.
+        await notifyReady()
     }
     public func enable() async {
+        guard let center else { return }
         do {
             _ = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Bool, Error>) in
                 center.requestAuthorization(options: [.alert, .sound]) { granted, error in
@@ -234,19 +337,29 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
     public func save(_ value: DesktopNotificationPreferences) {
         do {
             try store.save(value, owner: owner); generation += 1; preferences = value; draft = value
-            if !value.showTitles { center.removeAllDeliveredNotifications() }
+            if !value.showTitles { center?.removeAllDeliveredNotifications() }
+            if !value.recaps {
+                let ids = Array(recapTargets.keys)
+                removeNotifications(ids)
+                ids.forEach { requests.removeValue(forKey: $0) }
+                recapTargets.removeAll()
+            }
             message = "Сохранено на этом Mac"
-            Task { await scheduleReminders() }
+            Task { await scheduleReminders(); await notifyReady() }
         } catch { message = "Не удалось сохранить. Проверьте вход в GRAF и повторите попытку." }
     }
     private func authorizationStatus() async -> UNAuthorizationStatus {
-        await withCheckedContinuation { continuation in
+        if let statusProvider { return await statusProvider() }
+        guard let center else { return .denied }
+        return await withCheckedContinuation { continuation in
             center.getNotificationSettings { settings in
                 continuation.resume(returning: settings.authorizationStatus)
             }
         }
     }
     private func addNotification(_ request: UNNotificationRequest) async throws {
+        if let submit { try await submit(request); return }
+        guard let center else { throw CocoaError(.featureUnsupported) }
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             center.add(request) { error in
                 if let error { continuation.resume(throwing: error) }
@@ -287,8 +400,7 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
         let epoch = generation
         let desired = Set(calendarEvents.filter { Self.shouldRemind($0, snapshot: lastSnapshot, now: Date()) }.map { reminderID($0) })
         let obsolete = requests.filter { $0.value.event != nil && (!desired.contains($0.key) || !preferences.reminders) }.map(\.key)
-        center.removePendingNotificationRequests(withIdentifiers: obsolete)
-        center.removeDeliveredNotifications(withIdentifiers: obsolete)
+        removeNotifications(obsolete)
         obsolete.forEach { requests.removeValue(forKey: $0) }
         guard !owner.isEmpty, preferences.reminders, await allowed(), epoch == generation else { return }
         let now = Date()
@@ -307,7 +419,7 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
             let trigger = UNTimeIntervalNotificationTrigger(timeInterval: max(1, due.timeIntervalSince(now)), repeats: false)
             do { try await addNotification(UNNotificationRequest(identifier: id, content: content, trigger: trigger)) }
             catch { message = "Напоминание не передано macOS. Встреча доступна в календаре GRAF." }
-            if epoch != generation { center.removePendingNotificationRequests(withIdentifiers: [id]); center.removeDeliveredNotifications(withIdentifiers: [id]); return }
+            if epoch != generation { removeNotifications([id]); return }
         }
     }
     static func shouldRemind(_ event: DesktopCalendarPromptEvent, snapshot: DesktopControlSnapshot, now: Date) -> Bool {
@@ -323,24 +435,35 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
         return "graf.local.reminder." + SHA256.hash(data: Data(raw.utf8)).map { String(format: "%02x", $0) }.joined()
     }
     private func refreshLocal(_ snapshot: DesktopControlSnapshot) async {
-        let epoch = generation
+        guard snapshot == lastSnapshot else { return }
+        let epoch = authEpoch
         let incidents = DesktopLocalNotificationIncident.incidents(in: snapshot, now: Date())
             .filter { store.ownsSession($0.sessionID, context: context) }
+        store.reconcileIncidents(incidents, knownSessions: Set(snapshot.uploadItems.map(\.sessionId)), owner: owner)
+        for (id, session) in recapTargets {
+            if !preferences.recaps || !store.ownsSession(session, context: context) || !snapshot.uploadItems.contains(where: {
+                $0.sessionId == session && Self.recapID($0, context: context) == id
+            }) {
+                removeNotifications([id])
+                recapTargets.removeValue(forKey: id)
+                requests.removeValue(forKey: id)
+            }
+        }
         let desired = Set(incidents.map(\.id))
-        let obsolete = requests.filter { $0.value.event == nil && !desired.contains($0.key) }.map(\.key)
-        center.removePendingNotificationRequests(withIdentifiers: obsolete)
-        center.removeDeliveredNotifications(withIdentifiers: obsolete)
+        let obsolete = requests.filter { $0.value.event == nil && recapTargets[$0.key] == nil && !desired.contains($0.key) }.map(\.key)
+        removeNotifications(obsolete)
         obsolete.forEach { requests.removeValue(forKey: $0) }
-        guard !incidents.isEmpty, !owner.isEmpty, epoch == generation, snapshot == lastSnapshot, !snapshot.active else { return }
+        guard !incidents.isEmpty, !owner.isEmpty, epoch == authEpoch, snapshot == lastSnapshot else { return }
         // A visible result is already communicated, including when macOS delivery
         // is denied or GRAF is foreground. Do not replay it after hiding the panel.
-        for incident in incidents where incident.fresh && incident.sessionID == DesktopControlModel.shared.visibleResultSessionID {
+        for incident in incidents where incident.fresh && incident.sessionID == model.visibleResultSessionID {
             _ = store.claimLocalIncident(incident, owner: owner, now: Date())
         }
-        guard await allowed(), epoch == generation, snapshot == lastSnapshot, !snapshot.active, !NSApp.isActive else { return }
+        guard await allowed(), epoch == authEpoch, snapshot == lastSnapshot else { return }
         for incident in incidents where incident.fresh {
+            guard epoch == authEpoch, snapshot == lastSnapshot else { return }
             guard incident.claimForDelivery(store: store, owner: owner,
-                visibleResultSessionID: DesktopControlModel.shared.visibleResultSessionID, now: Date()) else { continue }
+                visibleResultSessionID: model.visibleResultSessionID, now: Date()) else { continue }
             let content = UNMutableNotificationContent()
             content.title = "Запись требует вашего внимания"
             content.body = "Откройте локальные записи в GRAF, чтобы проверить запись, отправку и восстановление."
@@ -348,16 +471,70 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
             requests[incident.id] = (owner, nil)
             do { try await addNotification(UNNotificationRequest(identifier: incident.id, content: content, trigger: nil)) }
             catch { message = "Не удалось передать уведомление macOS. Проверьте локальные записи в GRAF." }
-            if epoch != generation || requests[incident.id] == nil {
-                center.removePendingNotificationRequests(withIdentifiers: [incident.id])
-                center.removeDeliveredNotifications(withIdentifiers: [incident.id]); return
+            if epoch != authEpoch || requests[incident.id] == nil {
+                removeNotifications([incident.id]); return
+            }
+        }
+    }
+    static func canOpenRecap(_ item: DesktopUploadQueueItem) -> Bool {
+        item.state == .uploaded && item.syncConflictState == .none && item.serverTruth.reviewAvailable == true
+            && item.serverTruth.deletionState == "none" && item.serverTruth.accessState == "owner"
+            && item.serverTruth.meetingId.flatMap(UUID.init(uuidString:)) != nil
+    }
+    static func recapID(_ item: DesktopUploadQueueItem, context: String) -> String? {
+        guard canOpenRecap(item), !context.isEmpty, item.serverTruth.transcriptAvailable == true,
+              let event = item.serverTruth.summaryEventId.flatMap(UUID.init(uuidString:)),
+              let revision = item.serverTruth.mediaRevisionId, !revision.isEmpty,
+              ["available", "partial", "failed", "unavailable"].contains(item.serverTruth.summaryStatus ?? "") else { return nil }
+        let raw = [context, item.sessionId, item.serverTruth.meetingId ?? "", revision, event.uuidString].joined(separator: ":")
+        return "graf.local.ready." + SHA256.hash(data: Data(raw.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+    static func freshRecapID(_ item: DesktopUploadQueueItem, context: String, now: Date = Date()) -> String? {
+        // Tolerate bounded server clock skew; receiving metadata is not a new event.
+        guard let date = item.serverTruth.summaryUpdatedAt, (-60..<300).contains(now.timeIntervalSince(date)) else { return nil }
+        return recapID(item, context: context)
+    }
+    func notifyReady() async {
+        let epoch = authEpoch
+        guard preferences.recaps, !context.isEmpty, await allowed(), epoch == authEpoch, preferences.recaps else { return }
+        // Read current durable events after permission lookup, not a transition
+        // between incidental UI snapshots. Claims survive retries and restarts.
+        for candidate in lastSnapshot.uploadItems {
+            guard epoch == authEpoch, preferences.recaps else { return }
+            guard let item = lastSnapshot.uploadItems.first(where: { $0.id == candidate.id }),
+                  store.ownsSession(item.sessionId, context: context),
+                  let id = Self.freshRecapID(item, context: context) else { continue }
+            guard store.claim(id: id, owner: context, expires: .distantFuture) else { continue }
+            let content = UNMutableNotificationContent()
+            content.title = ["available", "partial"].contains(item.serverTruth.summaryStatus ?? "")
+                ? "Итоги встречи готовы" : "Расшифровка готова"
+            content.body = item.serverTruth.summaryStatus == "failed" || item.serverTruth.summaryStatus == "unavailable"
+                ? "Итоги не удалось подготовить. Запись и расшифровка доступны в GRAF."
+                : "Откройте встречу в GRAF, чтобы посмотреть результат."
+            if preferences.sound && !lastSnapshot.active { content.sound = .default }
+            requests[id] = (owner, nil)
+            recapTargets[id] = item.sessionId
+            do { try await addNotification(UNNotificationRequest(identifier: id, content: content, trigger: nil)) }
+            catch { message = "Не удалось передать уведомление macOS. Результат доступен в GRAF." }
+            if epoch != authEpoch || !preferences.recaps || !lastSnapshot.uploadItems.contains(where: {
+                $0.id == item.id && Self.recapID($0, context: context) == id
+            }) {
+                removeNotifications([id])
+                requests.removeValue(forKey: id)
+                recapTargets.removeValue(forKey: id)
             }
         }
     }
     public nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
-        guard notification.request.identifier == "graf.local.test" else { return [] }
+        let id = notification.request.identifier
         return await MainActor.run {
-            preferences.sound && !lastSnapshot.active ? [.banner, .list, .sound] : [.banner, .list]
+            guard id == "graf.local.test" || requests[id]?.owner == owner else { return [] }
+            if let session = recapTargets[id] {
+                guard preferences.recaps, store.ownsSession(session, context: context),
+                      lastSnapshot.uploadItems.contains(where: { $0.sessionId == session && Self.recapID($0, context: context) == id }) else { return [] }
+            }
+            if let event = requests[id]?.event, !Self.shouldRemind(event, snapshot: lastSnapshot, now: Date()) { return [] }
+            return preferences.sound && !lastSnapshot.active ? [.banner, .list, .sound] : [.banner, .list]
         }
     }
     public nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
@@ -376,9 +553,24 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
               let url = event.openMeetingURL, url.scheme == "https", url.host != nil else { return nil }
         return url
     }
-    private func openResponse(_ id: String) {
-        if id == "graf.local.test" { DesktopControlModel.shared.send(.settings); return }
+    func openResponse(_ id: String) async {
+        if id == "graf.local.test" { model.send(.settings); return }
         guard let target = requests[id], target.owner == owner, !owner.isEmpty else { return }
+        if let session = recapTargets[id] {
+            guard preferences.recaps, let item = lastSnapshot.uploadItems.first(where: { $0.sessionId == session && Self.recapID($0, context: context) == id }),
+                  store.ownsSession(session, context: context) else { return }
+            let epoch = authEpoch
+            guard let result = try? await reconcile(item), epoch == authEpoch, preferences.recaps,
+                  store.ownsSession(session, context: context), requests[id] != nil,
+                  lastSnapshot.uploadItems.contains(where: { $0.id == item.id && Self.recapID($0, context: context) == id }),
+                  result.conflictState == .none, result.serverTruth.reviewAvailable == true,
+                  result.serverTruth.accessState == "owner", result.serverTruth.deletionState == "none",
+                  result.serverTruth.meetingId == item.serverTruth.meetingId,
+                  result.serverTruth.mediaRevisionId == item.serverTruth.mediaRevisionId,
+                  let rawID = result.serverTruth.meetingId, let meetingID = UUID(uuidString: rawID) else { return }
+            onOpenMeeting?(meetingID)
+            return
+        }
         if let event = target.event {
             let now = Date()
             guard Self.currentMeeting(for: event, events: calendarEvents, now: now) != nil else { return }
@@ -387,7 +579,7 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
             } else {
                 onOpenCalendar?()
             }
-        } else { DesktopControlModel.shared.send(.localRecordings) }
+        } else { model.send(.localRecordings) }
     }
 }
 
@@ -408,12 +600,13 @@ public struct DesktopNotificationsSettingsView: View {
             }
             Section("Напоминания и приватность") {
             Toggle("Напоминать о встречах", isOn: $presenter.draft.reminders)
+            Toggle("Сообщать, когда итоги моей записи готовы", isOn: $presenter.draft.recaps)
             Picker("Когда напоминать", selection: $presenter.draft.offsetMinutes) {
                 Text("За минуту").tag(1); Text("За 5 минут").tag(5); Text("В момент начала").tag(0)
             }.disabled(!presenter.draft.reminders)
             Toggle("Показывать названия в системных уведомлениях", isOn: $presenter.draft.showTitles)
             Toggle("Звук уведомлений", isOn: $presenter.draft.sound)
-            Text("Во время записи звук выключен. Результаты встреч доступны в веб-кабинете. Проблемы записи и остановка всегда видны в GRAF.").font(.callout).foregroundStyle(.secondary)
+            Text("Во время записи звук выключен. Уведомление о готовности относится только к вашим записям на этом Mac. Запись и остановка всегда видны в GRAF.").font(.callout).foregroundStyle(.secondary)
             }
             Section {
             HStack {

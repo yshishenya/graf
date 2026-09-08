@@ -1201,6 +1201,7 @@ async def _latest_accepted_media_revision(
             MeetingSummarySlot.workspace_id == workspace_id,
             MeetingSummarySlot.meeting_id == meeting_id,
             MeetingSummarySlot.is_meeting_default.is_(True),
+            MeetingSummarySlot.current_outcome_set_id.is_not(None),
         )
     ) is not None:
         current = await current_outcome_set(

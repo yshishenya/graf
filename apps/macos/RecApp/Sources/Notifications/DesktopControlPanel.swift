@@ -28,6 +28,22 @@ public struct DesktopControlSnapshot: Equatable {
     public var recoveryAction: DesktopControlAction {
         !permissionBlocker && (completedRecording || session?.state == .failed) ? .localRecordings : .permissions
     }
+    public var progressText: String? {
+        guard let id = session?.id, let item = uploadItems.first(where: { $0.sessionId == id }) else { return nil }
+        if item.state == .uploaded, item.syncConflictState == .none {
+            guard item.serverTruth.transcriptAvailable == true else {
+                return item.serverTruth.transcriptAvailable == false ? "Готовим расшифровку" : "Проверяем готовность расшифровки"
+            }
+            switch item.serverTruth.summaryStatus {
+            case "available", "partial": return "Итоги встречи готовы"
+            case "queued", "generating": return "Расшифровка готова. Готовим итоги"
+            case "blocked_dependency": return "Расшифровка готова. Подготовка итогов задерживается"
+            case "failed", "unavailable": return "Расшифровка готова. Итоги не удалось подготовить"
+            default: return "Расшифровка готова"
+            }
+        }
+        return latestCustody?.title
+    }
     public var localIssues: [DesktopUploadCustodySummary] {
         DesktopUploadCustodySummary.summaries(for: uploadItems.filter {
             $0.serverTruth.finalizedAt == nil && $0.state != .terminalDeleted
@@ -83,9 +99,9 @@ public struct DesktopControlPanel: View {
             } else {
                 if model.snapshot.completedRecording {
                     Text("Запись остановлена").fontWeight(.medium)
-                    if let custody = model.snapshot.latestCustody {
-                        Text(custody.title).font(.callout).foregroundStyle(.secondary)
-                            .accessibilityLabel(custody.title + ". " + custody.detail).help(custody.detail)
+                    if let progress = model.snapshot.progressText {
+                        Text(progress).font(.callout).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                     Button("Открыть локальные записи") { model.send(.localRecordings) }
                         .buttonStyle(.borderless)

@@ -54,6 +54,14 @@ def test_processing_pickup_keys_workflow_by_media_revision(client) -> None:
     assert client.app.state.temporal_client.starts[workflow.workflow_id]["payload"]["media_revision_id"] == str(media_revision_id)
 
 
+def test_notification_context_is_scoped_and_does_not_need_calendar(client) -> None:
+    response = client.get("/api/v1/desktop/notification-context", headers=auth_headers())
+    assert response.headers["Cache-Control"] == "no-store"
+    assert response.status_code == 200
+    assert set(response.json()) == {"user_id", "workspace_id"}
+    assert client.get("/api/v1/desktop/notification-context").status_code in {401, 403}
+
+
 def test_processing_failure_keeps_upload_finalized_in_custody_read_model() -> None:
     meeting = type(
         "Meeting",

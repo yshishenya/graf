@@ -108,6 +108,9 @@ final class DesktopUploadClientTests: XCTestCase {
                 "transcript_available": false,
                 "diarization_available": false,
                 "content_available": false,
+                "summary_status": "failed",
+                "summary_event_id": "11111111-1111-4111-8111-111111111111",
+                "summary_updated_at": "2026-09-08T10:00:00.123456Z",
                 "web_url": "/meetings/private",
                 "desktop_url": "/desktop/meetings/private",
             ],
@@ -143,9 +146,43 @@ final class DesktopUploadClientTests: XCTestCase {
         XCTAssertEqual(reconciliation?.serverTruth.processingReasonCode, "provider_timeout")
         XCTAssertEqual(reconciliation?.serverTruth.reviewAvailable, false)
         XCTAssertEqual(reconciliation?.serverTruth.reviewStatus, "unavailable")
+        XCTAssertEqual(reconciliation?.serverTruth.transcriptAvailable, false)
+        XCTAssertEqual(reconciliation?.serverTruth.summaryStatus, "failed")
+        XCTAssertEqual(reconciliation?.serverTruth.summaryEventId, "11111111-1111-4111-8111-111111111111")
+        XCTAssertEqual(try XCTUnwrap(reconciliation?.serverTruth.summaryUpdatedAt).timeIntervalSince1970,
+                       1_788_861_600.123456, accuracy: 0.001)
         XCTAssertEqual(reconciliation?.serverTruth.conflictReason, "server_meeting_deleted")
         XCTAssertEqual(reconciliation?.serverTruth.nextAction, "send_support_report")
         XCTAssertEqual(reconciliation?.conflictState, .serverMeetingDeleted)
+    }
+
+    func testOptionalReviewEventMetadataAcceptsBothISOFormatsAndMissingOldServerFields() throws {
+        for timestamp in ["2026-09-08T10:00:00Z", "2026-09-08T10:00:00.123456+00:00", "invalid", ""] {
+            var object: [String: Any] = ["available": true, "status": "available", "transcript_available": true,
+                "diarization_available": true, "content_available": true]
+            if !timestamp.isEmpty { object["summary_updated_at"] = timestamp }
+            let review = try JSONDecoder().decode(DesktopSyncReviewState.self, from: JSONSerialization.data(withJSONObject: object))
+            XCTAssertEqual(review.summaryEventDate != nil, timestamp.hasPrefix("2026"))
+            XCTAssertNil(review.summary_event_id)
+        }
+    }
+
+    func testServerTruthEventMetadataRoundTripsAndCannotLeakThroughOmittedProgress() throws {
+        let old = try JSONDecoder().decode(ServerTruthFingerprint.self,
+            from: Data(#"{"acceptedBytesByTrack":{},"requiredTrackSha256":{}}"#.utf8))
+        XCTAssertNil(old.transcriptAvailable)
+        XCTAssertNil(old.summaryEventId)
+        XCTAssertNil(old.summaryUpdatedAt)
+        let ready = ServerTruthFingerprint(uploadSessionId: "session", acceptedBytesByTrack: ["media": 100],
+            summaryStatus: "available", transcriptAvailable: true, summaryEventId: UUID().uuidString,
+            summaryUpdatedAt: Date(timeIntervalSince1970: 1000))
+        XCTAssertEqual(try JSONDecoder().decode(ServerTruthFingerprint.self, from: JSONEncoder().encode(ready)), ready)
+        let merged = ready.mergingConfirmedProgress(.init(uploadSessionId: "session", acceptedBytesByTrack: ["media": 50]))
+        XCTAssertEqual(merged.acceptedBytesByTrack["media"], 100)
+        XCTAssertNil(merged.summaryStatus)
+        XCTAssertNil(merged.transcriptAvailable)
+        XCTAssertNil(merged.summaryEventId)
+        XCTAssertNil(merged.summaryUpdatedAt)
     }
 
     func testNewUploadSessionCanTruthfullyRestartConfirmedProgress() {

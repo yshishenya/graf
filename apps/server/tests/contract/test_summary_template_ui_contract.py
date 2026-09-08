@@ -61,8 +61,8 @@ def test_summary_selector_keeps_auto_four_recommendations_and_all_formats(client
     assert "Все форматы…" in listbox
     assert 'role="option"' in listbox
     assert 'aria-selected="true"' in listbox
-    assert "Расшифровка уже готова. Создайте итоги" in html
-    assert "после проверки они появятся здесь автоматически" in html
+    assert "Расшифровка готова. Выберите формат, чтобы подготовить итоги." in html
+    assert "после проверки они появятся здесь автоматически" not in html
 
 
 def test_meeting_detail_renders_the_selected_summary_slot_after_reload(client) -> None:
@@ -230,7 +230,11 @@ def test_candidate_ui_keeps_current_notes_without_a_decision_surface() -> None:
     assert 'text: "Использовать"' not in script
     assert 'text: "Оставить текущие"' not in script
     assert "const currentOutcomeSetIdForTemplate = async (template)" in script
-    assert 'url.searchParams.set("summary_format", templateKey)' in script
+    assert 'url.searchParams.set("summary_format", summaryTemplate)' in script
+    refresh = script[script.index("const reloadAfterSummaryChange"):script.index("const showStatus", script.index("const reloadAfterSummaryChange"))]
+    assert "refreshProcessingDetailContentOnce" in refresh
+    assert "location.reload" not in refresh
+    assert "history.replaceState" not in refresh
     assert "expected_current_outcome_set_id: expectedCurrentOutcomeSetId" in script
     assert "await currentOutcomeSetIdForTemplate(template)" in script
     assert "Обновить итоги" in script
@@ -1388,7 +1392,7 @@ def test_candidate_ui_ignores_stale_loads_and_retries_existing_poll() -> None:
     assert "let candidateRequestGeneration = 0" in script
     assert "const generation = ++candidateRequestGeneration" in script
     assert "const initialCandidateLoadGeneration = candidateRequestGeneration" in script
-    assert "if (initialCandidateLoadGeneration !== candidateRequestGeneration) return" in script
+    assert "if (initialCandidateLoadGeneration !== candidateRequestGeneration || !controls.isConnected) return" in script
     assert "const refreshGeneration = ++candidateRequestGeneration" in script
     assert "candidateRequestInFlightGeneration" in script
     assert "if (generation !== candidateRequestGeneration) return" in script

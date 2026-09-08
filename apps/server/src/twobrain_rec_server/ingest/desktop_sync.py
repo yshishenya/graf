@@ -47,6 +47,7 @@ from twobrain_rec_server.ingest.store import (
     persist_upload_session,
     restore_meeting_after_upload_session_lifecycle,
 )
+from twobrain_rec_server.outcomes.progress import summary_progress_snapshot
 from twobrain_rec_server.processing import store as processing_store
 from twobrain_rec_server.processing.fences import lock_meeting_fence, meeting_is_deleted_or_deleting
 from twobrain_rec_server.processing.results import (
@@ -878,6 +879,17 @@ async def get_desktop_recording_sync_state(
     custody_review_available = review_available and transcript_ready and diarization_ready
     review_desktop_url = f"/desktop/meetings/{meeting.id}" if review_available else None
     custody_review_desktop_url = f"/desktop/meetings/{meeting.id}" if custody_review_available else None
+    summary_status = None
+    summary_event_id = None
+    summary_updated_at = None
+    if db is not None and custody_review_available and conflict.state == SyncConflictState.NONE:
+        summary_meeting = await db.scalar(select(MeetingModel).where(
+            MeetingModel.id == meeting.id, MeetingModel.workspace_id == tenant_scope.workspace_id,
+        ))
+        if summary_meeting is not None:
+            summary_status, summary_event_id, summary_updated_at = await summary_progress_snapshot(
+                db, meeting=summary_meeting, result=review_projection_result,
+            )
     return DesktopRecordingSyncStateResponse(
         local_recording_id=meeting.local_recording_id,
         local_media_revision_id=meeting.local_media_revision_id or expected_revision_id,
@@ -920,6 +932,9 @@ async def get_desktop_recording_sync_state(
             transcript_available=transcript_ready,
             diarization_available=diarization_ready,
             content_available=transcript_ready,
+            summary_status=summary_status,
+            summary_event_id=summary_event_id,
+            summary_updated_at=summary_updated_at,
             web_url=f"/meetings/{meeting.id}" if review_available else None,
             desktop_url=review_desktop_url,
         ),
