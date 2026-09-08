@@ -5759,6 +5759,7 @@ html[data-theme="dark"] .detail-page-main {
 .meeting-detail-copy-status:empty { display: none; }
 .meeting-detail-copy-status[data-state="error"] { color: var(--danger-text); }
 .detail-page-main .detail-main { padding: 5px; }
+.detail-page-main [data-processing-summary-status][data-state="success"] { display: none; }
 .detail-page-main :is(.notes, .notes-full-protocol, .transcript .text) { font-size: 16px; line-height: 28px; }
 .detail-page-main .notes-section { padding: 20px 0; }
 .detail-page-main :is(.notes-section h4, .notes-full-protocol h3, .notes-full-protocol h4, .notes-full-protocol h5, .notes-full-protocol h6) { font-size: 20px; line-height: 24px; font-weight: 700; }

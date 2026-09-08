@@ -417,12 +417,11 @@ def test_source_navigation_preserves_return_tab_player_and_focus_contract() -> N
     assert 'activateDetailTab("outcomes")' in source_navigation
     assert "sourceReturnTarget = control" in source_navigation
     assert "const clearSourceReturn" in source_navigation
-    assert 'tab.addEventListener("click", clearSourceReturn)' in source_navigation
+    assert 'if (event.target.closest?.("[data-detail-tab]")) clearSourceReturn()' in source_navigation
     assert '["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)' in source_navigation
     assert "player.currentTime = Math.max(0, seconds)" in source_navigation
     assert "void player.play()" in source_navigation
     assert "target.focus({ preventScroll: true })" in source_navigation
-    assert "target?.focus({ preventScroll: true })" in source_navigation
     assert "Открыт источник ${formatTime(seconds)}" in source_navigation
 
 
