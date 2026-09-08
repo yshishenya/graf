@@ -205,10 +205,10 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
         permissionGeneration += 1
         let request = permissionGeneration
         let previous = permissionText
-        let settings = await center.notificationSettings()
+        let status = await authorizationStatus()
         guard request == permissionGeneration else { return }
-        canRequestPermission = settings.authorizationStatus == .notDetermined
-        switch settings.authorizationStatus {
+        canRequestPermission = status == .notDetermined
+        switch status {
         case .notDetermined: permissionText = "Разрешение ещё не запрашивалось"
         case .denied: permissionText = "Уведомления macOS выключены"
         case .authorized, .provisional, .ephemeral: permissionText = "Уведомления macOS разрешены"
@@ -220,7 +220,14 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
         }
     }
     public func enable() async {
-        do { _ = try await center.requestAuthorization(options: [.alert, .sound]) }
+        do {
+            _ = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Bool, Error>) in
+                center.requestAuthorization(options: [.alert, .sound]) { granted, error in
+                    if let error { continuation.resume(throwing: error) }
+                    else { continuation.resume(returning: granted) }
+                }
+            }
+        }
         catch { message = "Не удалось запросить разрешение. Откройте настройки macOS." }
         await refreshPermission(); await scheduleReminders()
     }
@@ -232,8 +239,23 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
             Task { await scheduleReminders() }
         } catch { message = "Не удалось сохранить. Проверьте вход в GRAF и повторите попытку." }
     }
+    private func authorizationStatus() async -> UNAuthorizationStatus {
+        await withCheckedContinuation { continuation in
+            center.getNotificationSettings { settings in
+                continuation.resume(returning: settings.authorizationStatus)
+            }
+        }
+    }
+    private func addNotification(_ request: UNNotificationRequest) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            center.add(request) { error in
+                if let error { continuation.resume(throwing: error) }
+                else { continuation.resume() }
+            }
+        }
+    }
     private func allowed() async -> Bool {
-        let status = await center.notificationSettings().authorizationStatus
+        let status = await authorizationStatus()
         return status == .authorized || status == .provisional
     }
     public func test() async {
@@ -246,7 +268,7 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
         content.body = "Это тестовое сообщение. Управление записью всегда доступно в приложении."
         if preferences.sound && !lastSnapshot.active { content.sound = .default }
         do {
-            try await center.add(UNNotificationRequest(identifier: "graf.local.test", content: content, trigger: nil))
+            try await addNotification(UNNotificationRequest(identifier: "graf.local.test", content: content, trigger: nil))
             message = "Тест передан macOS. Показ зависит от системных настроек и Фокусирования."
         } catch { message = "Не удалось передать тест macOS. Повторите попытку." }
     }
@@ -283,7 +305,7 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
             content.body = Self.reminderBody(startsAt: event.startsAt, due: due, offsetMinutes: preferences.offsetMinutes, now: now)
             if preferences.sound && !lastSnapshot.active { content.sound = .default }
             let trigger = UNTimeIntervalNotificationTrigger(timeInterval: max(1, due.timeIntervalSince(now)), repeats: false)
-            do { try await center.add(UNNotificationRequest(identifier: id, content: content, trigger: trigger)) }
+            do { try await addNotification(UNNotificationRequest(identifier: id, content: content, trigger: trigger)) }
             catch { message = "Напоминание не передано macOS. Встреча доступна в календаре GRAF." }
             if epoch != generation { center.removePendingNotificationRequests(withIdentifiers: [id]); center.removeDeliveredNotifications(withIdentifiers: [id]); return }
         }
@@ -324,7 +346,7 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
             content.body = "Откройте локальные записи в GRAF, чтобы проверить запись, отправку и восстановление."
             if preferences.sound && !snapshot.active { content.sound = .default }
             requests[incident.id] = (owner, nil)
-            do { try await center.add(UNNotificationRequest(identifier: incident.id, content: content, trigger: nil)) }
+            do { try await addNotification(UNNotificationRequest(identifier: incident.id, content: content, trigger: nil)) }
             catch { message = "Не удалось передать уведомление macOS. Проверьте локальные записи в GRAF." }
             if epoch != generation || requests[incident.id] == nil {
                 center.removePendingNotificationRequests(withIdentifiers: [incident.id])
@@ -369,6 +391,7 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
     }
 }
 
+@MainActor
 public struct DesktopNotificationsSettingsView: View {
     @ObservedObject private var presenter = DesktopNotificationPresenter.shared
     public init() {}
