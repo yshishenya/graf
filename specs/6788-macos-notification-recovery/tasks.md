@@ -93,3 +93,7 @@ T023 использует nullable summary_status в существующем Me
 (apps/server/src/twobrain_rec_server/api/schemas.py): ту же проверенную проекцию,
 что processing/desktop sync. Это метаданные состояния, не новый источник
 готовности или изменение прав; отсутствие поля у старого ответа допустимо.
+
+## Phase 10: Convergence
+
+- [X] T024 Исправить недетерминированное ожидание в tests/governance/test_dev_harness.py::test_concurrent_promote_is_serialized: два разных кандидата с общим родителем, ровно один победитель, точный stale-parent отказ второму и активный ID/SHA победителя; сохранить отдельную проверку повторного promote. SC006 (partial, MEDIUM), обязательная проверка единственного Dev. Только тест: scripts/dev-harness.py, блокировку, данные и установленное приложение не менять.
