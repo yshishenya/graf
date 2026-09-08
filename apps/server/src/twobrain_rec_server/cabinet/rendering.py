@@ -597,7 +597,10 @@ def render_settings_page(
         "account_reauth_action": "/desktop/meetings" if embedded else "/logout",
         "account_reauth_next": "/login?next="
         + ("/desktop/settings/account" if embedded else "/settings/account"),
-        "notification_result": {"saved": "Настройки уведомлений сохранены."}.get(
+        "notification_result": {
+            "saved": "Настройки уведомлений сохранены.",
+            "conflict": "Настройки изменились или не прошли проверку. Ваш выбор сохранён в форме. Загрузите актуальные настройки перед повторным сохранением.",
+        }.get(
             notification_result
         ),
         "profile_result": {"saved": "Профиль сохранён."}.get(profile_result),
@@ -2440,13 +2443,14 @@ def _render_revision_status(review: MeetingReviewResponse) -> str:
     """
 
 
-def _render_full_protocol(document, *, source_destination_available: bool, base_heading_level: int = 3) -> str:
+def _render_full_protocol(document, *, source_destination_available: bool, base_heading_level: int = 3, source_targets: frozenset[tuple[str, str]] = frozenset()) -> str:
     def render_row(row):
         item = OutcomeItemView(
             category="summary", sequence=0, text=row.get("text", row.get("task")),
             truth_label="supported",
-            source_refs=[OutcomeSourceReferenceView(**ref, seekable=True)
-                         for ref in row.get("source_refs", [])],
+            source_refs=[OutcomeSourceReferenceView(
+                **ref, seekable=(str(ref["processing_result_id"]), str(ref["transcript_segment_id"])) in source_targets,
+            ) for ref in row.get("source_refs", [])],
         )
         return _render_outcome_item(item, source_destination_available=source_destination_available)
 
@@ -2475,6 +2479,13 @@ def _render_notes_outcomes(review: MeetingReviewResponse) -> str:
     if review.notes_action_truth.protocol is not None:
         return _render_full_protocol(
             review.notes_action_truth.protocol,
+            source_targets=frozenset(
+                (str(segment.processing_result_id), segment.segment_id)
+                for segment in review.transcript.segments
+            ) | frozenset(
+                (str(turn.processing_result_id), segment_id)
+                for turn in review.transcript.speaker_turns for segment_id in turn.source_segment_ids
+            ),
             source_destination_available=review.transcript.available and bool(
                 review.playback.can_play or review.transcript.speaker_turns or review.transcript.segments
             ),

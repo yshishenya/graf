@@ -19,6 +19,7 @@ from twobrain_rec_server.db.models import (
     MeetingOutcomeSet,
     MeetingSummarySlot,
     ProcessingResult,
+    ServerNotification,
     UserIdentity,
     WorkspaceMembership,
 )
@@ -94,7 +95,7 @@ def test_candidate_owner_fence_with_restricted_worker_role(client, active):
     "identity", "identity_before_egress", "long_fields", "projection_failure",
     "projection_failure_expired", "projection_failure_cancelled", "projection_failure_deleted",
     "projection_failure_source", "projection_failure_access", "projection_failure_corrupt",
-    "error_finalization_failure", "validation_finalization_failure",
+    "error_finalization_failure", "validation_finalization_failure", "invalid_response",
 ])
 def test_generation_retains_response_and_fences_publication(client, monkeypatch, race):
     meeting_id = create_outcome_ready_meeting(client, f"protocol-{race}")
@@ -165,7 +166,7 @@ def test_generation_retains_response_and_fences_publication(client, monkeypatch,
             raise LiteLLMError("litellm_request_rejected", retryable=False, raw_response=raw)
         return LiteLLMGenerationResult(
             request=calls[-1], raw_response=raw,
-            parsed_content={} if race == "validation_finalization_failure" else document,
+            parsed_content={} if race in {"validation_finalization_failure", "invalid_response"} else document,
             actual_model="provider-model", actual_provider=None, provider_request_id="synthetic-response",
             token_usage=None, cost_details=None,
         )
@@ -245,7 +246,7 @@ def test_generation_retains_response_and_fences_publication(client, monkeypatch,
         else:
             result = await ai_service.execute_candidate_generation(actual, **kwargs)
             assert result["state"] == ("accepted" if race in {"none", "long_fields"} else {
-                "source": "stale", "access": "failed", "identity": "failed", "cancelled": "cancelled",
+                "source": "stale", "access": "failed", "identity": "failed", "cancelled": "cancelled", "invalid_response": "failed",
             }[race])
             if race == "identity":
                 assert result["failure_code"] == "summary_access_revoked"
@@ -277,6 +278,14 @@ def test_generation_retains_response_and_fences_publication(client, monkeypatch,
             assert replay["reused"] is True
             assert replay["state"] == "failed"
             assert replay["failure_code"] == "summary_response_invalid"
+        if race in {"validation_finalization_failure", "invalid_response"}:
+            async with actual() as db:
+                notices = (await db.scalars(select(ServerNotification).where(
+                    ServerNotification.meeting_id == meeting_id,
+                    ServerNotification.kind == "summary_failed",
+                ))).all()
+                assert len(notices) == 1
+            assert len(calls) == 1
         if race == "error_finalization_failure":
             with pytest.raises(ai_service.OutcomeGenerationTerminalError, match="summary_provider_attempt_not_retryable"):
                 await ai_service.execute_candidate_generation(actual, **kwargs)

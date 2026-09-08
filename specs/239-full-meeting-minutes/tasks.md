@@ -69,3 +69,5 @@ Umbrella остаётся открытым до отдельного релиз�
 ## Phase 7: Convergence — общий выпуск 2026-09-08
 
 - [X] T081 Исправить замечания ревью #6789 перед общим выпуском: чтение большого ModelCall, закреплённые ссылки источников, объявление нового формата XLSX, достоверные названия/часовой пояс и сохранение validation_error при повторе. Область: outcomes/ai_service.py, outcomes/prompt_optimization.py, cabinet/exports.py, cabinet/meeting_protocol.py, cabinet/queries.py, cabinet/web_routes/browser.py, cabinet/rendering.py и существующие unit/integration проверки. Владелец — существующий #6503, FR-006/008/011/012 и SC-003/004. Подтверждение — validation.md, отдельный release PR.
+
+- [X] T082 Устранить замечания общего релизного PR #6790: связывать переходы к источникам с показанной редакцией и сегментом; сохранять summary_failed при ошибке протокола, поставщика, публикации и повторе после сбоя финализации. Владелец — существующий #6503; проверка — test_meeting_protocol_generation.py и test_meeting_protocol_rendering.py.

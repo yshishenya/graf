@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
+import pytest
 from sqlalchemy import select
 
 from tests.fakes.auth_contexts import DEVICE_ID, USER_ID, WORKSPACE_ID, tenant_scope
@@ -100,17 +101,23 @@ def test_authenticated_inbox_http_pagination_csrf_and_read_race(client):
     assert client.post(path, data={'revision':item['revision']}, headers=headers).status_code == 404
 
 
-def test_notification_settings_save_conflict_and_html_draft(client):
+@pytest.mark.parametrize("path", ["/settings/notifications", "/desktop/settings/notifications"])
+def test_notification_settings_save_conflict_and_html_draft(client, path):
     session = client.portal.call(_seed_owner_review_session, client)
     client.cookies.set(AUTH_SESSION_COOKIE_NAME, OWNER_REVIEW_TEST_TOKEN)
     csrf = issue_csrf_token(secret=client.app.state.settings.web_csrf_secret, session_id=session.id)
     data = {'csrf_token':csrf,'version':'0','optional_email_enabled':'false','optional_in_app_enabled':'on'}
-    saved = client.post('/settings/notifications', data=data, follow_redirects=False)
+    saved = client.post(path, data=data, follow_redirects=False)
     assert saved.status_code == 303, saved.text
-    current = client.get('/settings/notifications')
+    current = client.get(path)
     assert 'name="version" value="1"' in current.text
-    conflict = client.post('/settings/notifications', data=data)
+    conflict = client.post(path, data=data)
     assert conflict.status_code == 409, conflict.text
     assert 'data-notification-settings' in conflict.text
+    assert 'Ваш выбор сохранён в форме' in conflict.text
+    assert 'Загрузите актуальные настройки' in conflict.text
+    invalid = client.post(path, data={**data, 'version':'1', 'optional_email_enabled':'invalid'})
+    assert invalid.status_code == 422
+    assert 'Загрузите актуальные настройки' in invalid.text
     data['version'] = '1'
-    assert client.post('/settings/notifications', data=data, follow_redirects=False).status_code == 303
+    assert client.post(path, data=data, follow_redirects=False).status_code == 303

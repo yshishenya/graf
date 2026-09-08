@@ -7,6 +7,7 @@ public enum DesktopControlAction: Equatable { case start, pause, resume, stop, s
 
 public struct DesktopControlSnapshot: Equatable {
     public var session: CaptureSession?
+    public var calendarContextEventID: String?
     public var transitioning = false
     public var stopping = false
     public var startAvailable = false

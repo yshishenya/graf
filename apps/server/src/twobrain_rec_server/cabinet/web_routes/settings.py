@@ -668,7 +668,7 @@ async def save_settings_notifications(
         response = await _render_settings(request, category="notifications",
             embedded=request.url.path.startswith("/desktop/"), tenant_scope=tenant_scope,
             principal=principal, db=db, notification_draft=draft,
-            notification="Настройки изменились или не прошли проверку. Ваш выбор сохранён в форме. Загрузите актуальные настройки перед повторным сохранением.")
+            notification="conflict")
         response.status_code = exc.status
         return response
     return RedirectResponse("/settings/notifications?notification=saved", status_code=303)
@@ -1717,7 +1717,7 @@ async def save_embedded_settings_notifications(
         response = await _render_settings(request, category="notifications",
             embedded=request.url.path.startswith("/desktop/"), tenant_scope=tenant_scope,
             principal=principal, db=db, notification_draft=draft,
-            notification="Настройки изменились или не прошли проверку. Ваш выбор сохранён в форме. Загрузите актуальные настройки перед повторным сохранением.")
+            notification="conflict")
         response.status_code = exc.status
         return response
     return RedirectResponse("/desktop/settings/notifications?notification=saved", status_code=303)

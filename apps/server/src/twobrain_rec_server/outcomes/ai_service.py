@@ -1378,6 +1378,7 @@ async def execute_candidate_generation(
                             outcome="failed",
                             failure_code=attempt.failure_code,
                         )
+                        await _record_failed_summary_notice(db, meeting, attempt)
                         await db.commit()
                         return {
                             "candidate_id": str(candidate_id),
@@ -1434,6 +1435,8 @@ async def execute_candidate_generation(
                     outcome="completed" if state == "candidate" else "failed",
                     failure_code=attempt.failure_code,
                 )
+                if attempt.status == "failed":
+                    await _record_failed_summary_notice(db, meeting, attempt)
                 await db.commit()
                 return {
                     "candidate_id": str(candidate_id),
@@ -1682,6 +1685,7 @@ async def execute_candidate_generation(
                 outcome="failed",
                 failure_code=exc.code,
             )
+            await _record_failed_summary_notice(db, meeting, attempt)
             await db.commit()
             return {
                 "candidate_id": str(candidate_id),
@@ -1754,6 +1758,8 @@ async def execute_candidate_generation(
                 db, workspace_id=workspace_id, candidate_id=candidate_id,
                 outcome="cancelled" if stale else "failed", failure_code=str(exc),
             )
+            if attempt.status == "failed":
+                await _record_failed_summary_notice(db, meeting, attempt)
             await db.commit()
             return {
                 "candidate_id": str(candidate_id), "generation_call_id": str(call_id),
@@ -1771,6 +1777,7 @@ async def execute_candidate_generation(
                 outcome="failed",
                 failure_code=validation_failure,
             )
+            await _record_failed_summary_notice(db, meeting, attempt)
             await db.commit()
             return {
                 "candidate_id": str(candidate_id),
@@ -1810,6 +1817,7 @@ async def execute_candidate_generation(
                 outcome="failed",
                 failure_code=attempt.failure_code,
             )
+            await _record_failed_summary_notice(db, meeting, attempt)
             await db.commit()
             return {
                 "candidate_id": str(candidate_id),

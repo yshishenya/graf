@@ -548,6 +548,7 @@ private struct ContentView: View {
     private var controlPanelSnapshot: DesktopControlSnapshot {
         var value = DesktopControlSnapshot()
         value.session = captureSession
+        value.calendarContextEventID = activeCalendarContextEventId
         value.transitioning = recordingStartInProgress || recordingStopInProgress
         value.stopping = recordingStopInProgress
         value.startAvailable = CaptureControlView.shouldShowRecordButton(for: captureSession) && effectivePermissionOnboardingStatus.isReady && !value.transitioning

@@ -172,6 +172,21 @@ final class DesktopNotificationControlTests: XCTestCase {
         XCTAssertNil(DesktopNotificationPresenter.currentMeeting(for: event, events: [blocked], now: now))
     }
 
+    func testRecordingSuppressesOnlyItsCalendarOccurrence() {
+        let now = Date(timeIntervalSince1970: 1000)
+        let event = DesktopCalendarPromptEvent(eventId: "other-meeting", startsAt: now, endsAt: now.addingTimeInterval(3600))
+        var snapshot = DesktopControlSnapshot()
+        snapshot.stopping = true
+        XCTAssertTrue(DesktopNotificationPresenter.shouldRemind(event, snapshot: snapshot, now: now), "Manual recording keeps calendar reminders")
+        snapshot.calendarContextEventID = "recorded-meeting"
+        XCTAssertTrue(DesktopNotificationPresenter.shouldRemind(event, snapshot: snapshot, now: now))
+        snapshot.calendarContextEventID = event.eventId
+        XCTAssertFalse(DesktopNotificationPresenter.shouldRemind(event, snapshot: snapshot, now: now))
+        snapshot.stopping = false
+        XCTAssertTrue(DesktopNotificationPresenter.shouldRemind(event, snapshot: snapshot, now: now))
+        XCTAssertFalse(DesktopNotificationPresenter.shouldRemind(event, snapshot: snapshot, now: now.addingTimeInterval(300)))
+    }
+
     func testLateReminderDoesNotPromiseOriginalFiveMinutes() {
         let start = Date(timeIntervalSince1970: 1000)
         let due = start.addingTimeInterval(-300)

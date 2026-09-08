@@ -162,13 +162,13 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
         }
         observation = DesktopControlModel.shared.$snapshot.sink { [weak self] snapshot in
             guard let self, snapshot != self.lastSnapshot else { return }
-            let activeChanged = snapshot.active != self.lastSnapshot.active
+            let remindersChanged = snapshot.active != self.lastSnapshot.active || snapshot.calendarContextEventID != self.lastSnapshot.calendarContextEventID
             if snapshot.active, snapshot.session?.id != self.lastSnapshot.session?.id || !self.lastSnapshot.active,
                let id = snapshot.session?.id { self.store.bindSession(id, context: self.context) }
-            if snapshot.active != self.lastSnapshot.active { self.generation += 1 }
+            if remindersChanged { self.generation += 1 }
             self.lastSnapshot = snapshot
             Task {
-                if activeChanged { await self.scheduleReminders() }
+                if remindersChanged { await self.scheduleReminders() }
                 await self.refreshLocal(snapshot)
             }
         }
@@ -263,17 +263,17 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
     }
     private func reconcileReminders() async {
         let epoch = generation
-        let desired = Set(calendarEvents.filter { $0.joinPromptState.canSurfacePrompt && min($0.endsAt, $0.startsAt.addingTimeInterval(300)) > Date() }.map { reminderID($0) })
-        let obsolete = requests.filter { $0.value.event != nil && (!desired.contains($0.key) || !preferences.reminders || lastSnapshot.active) }.map(\.key)
+        let desired = Set(calendarEvents.filter { Self.shouldRemind($0, snapshot: lastSnapshot, now: Date()) }.map { reminderID($0) })
+        let obsolete = requests.filter { $0.value.event != nil && (!desired.contains($0.key) || !preferences.reminders) }.map(\.key)
         center.removePendingNotificationRequests(withIdentifiers: obsolete)
         center.removeDeliveredNotifications(withIdentifiers: obsolete)
         obsolete.forEach { requests.removeValue(forKey: $0) }
-        guard !owner.isEmpty, preferences.reminders, !lastSnapshot.active, await allowed(), epoch == generation else { return }
+        guard !owner.isEmpty, preferences.reminders, await allowed(), epoch == generation else { return }
         let now = Date()
         for event in calendarEvents {
             guard epoch == generation else { return }
             let expires = min(event.endsAt, event.startsAt.addingTimeInterval(300))
-            guard event.joinPromptState.canSurfacePrompt, expires > now else { continue }
+            guard Self.shouldRemind(event, snapshot: lastSnapshot, now: now) else { continue }
             let due = event.startsAt.addingTimeInterval(-Double(preferences.offsetMinutes)*60)
             let id = reminderID(event)
             requests[id] = (owner, event)
@@ -281,12 +281,16 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
             let content = UNMutableNotificationContent()
             content.title = preferences.showTitles ? event.safeDisplayTitle() : "Встреча в календаре"
             content.body = Self.reminderBody(startsAt: event.startsAt, due: due, offsetMinutes: preferences.offsetMinutes, now: now)
-            if preferences.sound { content.sound = .default }
+            if preferences.sound && !lastSnapshot.active { content.sound = .default }
             let trigger = UNTimeIntervalNotificationTrigger(timeInterval: max(1, due.timeIntervalSince(now)), repeats: false)
             do { try await center.add(UNNotificationRequest(identifier: id, content: content, trigger: trigger)) }
             catch { message = "Напоминание не передано macOS. Встреча доступна в календаре GRAF." }
             if epoch != generation { center.removePendingNotificationRequests(withIdentifiers: [id]); center.removeDeliveredNotifications(withIdentifiers: [id]); return }
         }
+    }
+    static func shouldRemind(_ event: DesktopCalendarPromptEvent, snapshot: DesktopControlSnapshot, now: Date) -> Bool {
+        event.joinPromptState.canSurfacePrompt && min(event.endsAt, event.startsAt.addingTimeInterval(300)) > now
+            && !(snapshot.active && snapshot.calendarContextEventID == event.eventId)
     }
     public static func reminderBody(startsAt: Date, due: Date, offsetMinutes: Int, now: Date) -> String {
         let timing = now >= startsAt ? "Встреча уже началась." : due < now ? "Встреча скоро начнётся." : offsetMinutes == 0 ? "Встреча начинается." : "Встреча начнётся через \(offsetMinutes) мин."

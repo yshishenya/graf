@@ -28,7 +28,8 @@ def test_full_protocol_rendering_has_sections_task_table_and_canonical_links():
     assert "наверное, завтра" in text
     assert "[00:12](https://graf.example/cabinet/meetings/synthetic?source_result_id=00000000-0000-0000-0000-000000000001#graf-source=" in text
     assert "макет\\," not in text
-    html = _render_full_protocol(document, source_destination_available=True)
+    html = _render_full_protocol(document, source_destination_available=True,
+        source_targets=frozenset({("00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002")}))
     assert '<table' in html and '<th scope="col">Ответственный</th>' in html
     assert 'data-seek-seconds="12.25"' in html
     assert 'data-source-segment="00000000-0000-0000-0000-000000000002"' in html
@@ -147,3 +148,30 @@ def test_protocol_source_links_pin_revision_in_all_hyperlink_exports(export_fixt
             assert links and all("source_result_id=" in link for link in links)
         else:
             assert "?source_result_id=" in body.decode()
+
+
+@pytest.mark.parametrize("result_id,segment_id", [
+    ("other-revision", "00000000-0000-0000-0000-000000000002"),
+    ("00000000-0000-0000-0000-000000000001", "missing-segment"),
+])
+def test_protocol_never_seeks_into_a_different_source(result_id, segment_id):
+    document = validate(protocol_fixture())["protocol"]
+    html = _render_full_protocol(document, source_destination_available=True,
+                                source_targets=frozenset({(result_id, segment_id)}))
+    assert "Сделать макет" in html
+    assert "data-seek-seconds" not in html
+
+
+def test_meeting_notes_bind_inline_sources_to_the_displayed_transcript():
+    from types import SimpleNamespace
+
+    from twobrain_rec_server.cabinet.rendering import _render_notes_outcomes
+    document = validate(protocol_fixture())["protocol"]
+    ref = document["action_items"][0]["source_refs"][0]
+    segment = SimpleNamespace(processing_result_id=ref["processing_result_id"], segment_id=ref["transcript_segment_id"])
+    review = SimpleNamespace(notes_action_truth=SimpleNamespace(protocol=document),
+        transcript=SimpleNamespace(available=True, segments=[segment], speaker_turns=[]),
+        playback=SimpleNamespace(can_play=True))
+    assert 'data-seek-seconds="12.25"' in _render_notes_outcomes(review)
+    segment.processing_result_id = "newer-result"
+    assert "data-seek-seconds" not in _render_notes_outcomes(review)
