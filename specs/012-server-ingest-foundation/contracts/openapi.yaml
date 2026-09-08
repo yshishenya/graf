@@ -9751,6 +9751,289 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/notifications:
+    get:
+      tags:
+      - cabinet-web
+      - cabinet-web
+      summary: Notifications Api
+      operationId: notifications_api_api_v1_notifications_get
+      parameters:
+      - name: filter
+        in: query
+        required: false
+        schema:
+          enum:
+          - important
+          - history
+          type: string
+          default: important
+          title: Filter
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            maxLength: 2048
+          - type: 'null'
+          title: Cursor
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 30
+          title: Limit
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /desktop/notifications:
+    get:
+      tags:
+      - cabinet-web
+      - cabinet-web
+      summary: Notifications Html
+      operationId: notifications_html_desktop_notifications_get
+      parameters:
+      - name: filter
+        in: query
+        required: false
+        schema:
+          enum:
+          - important
+          - history
+          type: string
+          default: important
+          title: Filter
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            maxLength: 2048
+          - type: 'null'
+          title: Cursor
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            text/html:
+              schema:
+                type: string
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /notifications:
+    get:
+      tags:
+      - cabinet-web
+      - cabinet-web
+      summary: Notifications Html
+      operationId: notifications_html_notifications_get
+      parameters:
+      - name: filter
+        in: query
+        required: false
+        schema:
+          enum:
+          - important
+          - history
+          type: string
+          default: important
+          title: Filter
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            maxLength: 2048
+          - type: 'null'
+          title: Cursor
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            text/html:
+              schema:
+                type: string
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/notifications/{notification_id}/read:
+    post:
+      tags:
+      - cabinet-web
+      - cabinet-web
+      summary: Notification Read
+      operationId: notification_read_api_v1_notifications__notification_id__read_post
+      parameters:
+      - name: notification_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Notification Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
 components:
   schemas:
     AbortUploadRequest:
@@ -11720,6 +12003,16 @@ components:
             $ref: '#/components/schemas/DesktopCalendarPromptEvent'
           type: array
           title: Events
+        notification_owner_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Notification Owner Id
+        notification_workspace_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Notification Workspace Id
       type: object
       title: DesktopCalendarPromptResponse
     DesktopMeetingTitleSource:
@@ -14078,6 +14371,12 @@ components:
           anyOf:
           - $ref: '#/components/schemas/OutcomeProvenanceView'
           - type: 'null'
+        protocol:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Protocol
       type: object
       required:
       - summary
@@ -15379,8 +15678,13 @@ components:
             additionalProperties: true
             type: object
           type: array
-          maxItems: 100
           title: Summary Sections
+        protocol:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Protocol
       type: object
       required:
       - meeting_label
@@ -16666,12 +16970,17 @@ components:
           items:
             $ref: '#/components/schemas/OutcomeItemView'
           type: array
-          maxItems: 256
           title: Items
         attempt:
           anyOf:
           - $ref: '#/components/schemas/SummaryTypeAttemptStateV1'
           - type: 'null'
+        protocol:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Protocol
       additionalProperties: false
       type: object
       required:

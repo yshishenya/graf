@@ -157,7 +157,9 @@ def test_user_share_rotation_returns_recipient_bound_url_and_invalidates_old_tok
         "occurred_at",
         "duration_seconds",
         "summary_sections",
+        "protocol",
     }
+    assert resolved.json()["protocol"] is None
 
 
 def test_internal_grant_stops_working_after_membership_is_revoked(client) -> None:

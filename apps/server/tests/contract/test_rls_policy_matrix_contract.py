@@ -119,6 +119,10 @@ BILLING_NOTIFICATION_MIGRATION = (
     REPO_ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0048_billing_notification_preferences.py"
 )
+NOTIFICATION_INBOX_MIGRATION = (
+    REPO_ROOT
+    / "apps/server/src/twobrain_rec_server/db/migrations/versions/0086_notification_inbox.py"
+)
 ACCOUNT_CLOSURE_MIGRATION = (
     REPO_ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0049_account_closure_requests.py"
@@ -178,6 +182,7 @@ def test_rls_migration_covers_every_current_tenant_table() -> None:
         + BILLING_ENTITLEMENT_MIGRATION.read_text(encoding="utf-8")
         + BILLING_PROMOTIONS_MIGRATION.read_text(encoding="utf-8")
         + BILLING_NOTIFICATION_MIGRATION.read_text(encoding="utf-8")
+        + NOTIFICATION_INBOX_MIGRATION.read_text(encoding="utf-8")
         + ACCOUNT_CLOSURE_MIGRATION.read_text(encoding="utf-8")
         + REFERRAL_LINKS_MIGRATION.read_text(encoding="utf-8")
         + FAIR_USE_MIGRATION.read_text(encoding="utf-8")

@@ -561,3 +561,13 @@ T082 / F249 T040: переход к источнику проверяет точ
 `swift test --package-path apps/macos --parallel --num-workers 1 --filter 'DesktopNotificationControl|DesktopCalendarReminder'`: 48 PASS. Это локальная проверка; Swift 6.0.3 подтверждается отдельным `macos-diagnostic`, а выпуск — новым полным CI после слияния. Старый кандидат не разрешён к публикации.
 
 Первый `macos-diagnostic` (34184317004) подтвердил исправление первоначальных ошибок и обнаружил следующие диагностики того же SDK: async-методы `requestAuthorization` и `add` передавали весь `UNUserNotificationCenter`. Все вызовы переведены на стандартные callback API через checked continuation, ошибки и завершение добавления сохраняются. Проверки потоков не отключаются, `@unchecked Sendable` и `@preconcurrency` не добавлены.
+
+## Контракты общего релиза — 2026-09-08
+
+Серверная часть run 34183886878 на 0e7ebb7153bf6f1f00961f64f0f49d0ac4310f1f завершилась 7 FAIL, 4186 PASS и 37 SKIP. Сбои: устаревший OpenAPI, две строгие проверки старой формы публичной проекции без protocol, неучтённая миграция/документ политики server_notifications, подсчёт h2 во всей странице вместо main и отсутствие явного aria-live у статуса панели уведомлений. Новый run 34185038112 отменён после обнаружения тех же серверных исходников; PASS ему не присваивается.
+
+Обновлены точный OpenAPI, два строгих набора ключей проекции (protocol=None для старого результата), список миграций и описание существующей forced RLS политики. Проверка заголовков ограничена основным содержанием; статус уведомлений явно aria-live=polite. Права, ограничения запросов и проверка отсутствия исходных цитат не ослаблены.
+
+111 целевых PostgreSQL тестов PASS за 126.52 секунды: test_account_merge_contract, test_calendar_settings_contract, test_openapi_contract_drift, test_rls_policy_matrix_contract, test_recording_share_link_contract, test_meeting_share_links, test_recording_share_public_link. Проверки реального RLS и новый полный CI фиксируются отдельно.
+
+Реальный PostgreSQL: test_rls_postgres_policies.py, test_rls_postgres_migrations.py и test_rls_table_inventory_contract.py — 48 PASS за 12.12 секунды. Проверены принудительные политики и текущий перечень таблиц; изменения самих политик не потребовались.

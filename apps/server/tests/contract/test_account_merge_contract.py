@@ -85,7 +85,7 @@ def test_merge_page_continues_email_task_with_compact_ia_and_actual_providers() 
 
     assert "<h1>Один профиль — все способы входа</h1>" in page
     assert '<h2 id="account-linking-result-title">Что изменится</h2>' in page
-    assert page.count("<h2") == 1
+    assert page.split('<main id="cabinet-main"', 1)[1].split("</main>", 1)[0].count("<h2") == 1
     for copy in (
         "Сейчас",
         "После подключения",
