@@ -142,3 +142,57 @@ T024 меняет только tests/governance/test_dev_harness.py: общий 
 diff: t024-review.md, PASS/P1/P2=0, собственный запуск reviewer1 PASS.
 Convergence T024 закрыт; дополнительных задач в этом изменении не найдено.
 Установленная приёмка T014/T021 и итоговая T015 открыты.
+
+## Перенос поверх F256 и T025 (2026-09-09)
+
+Опубликованный F6788 SHA8497ae99b7adba3e6ecea19b7863f25659242ad4 прошёл
+GitHub governance-fast34264520246 (6мин51с). Скачанные CI evidence и receipt
+прошли оба валидатора; requested/start/end/component SHA совпали.
+Это fast, не release-full; после следующего commit/rebase результат исторический.
+
+Для совместимости с действующей схемой0090 выполнен чистый rebase поверх
+F25609e03ffec2b2ef29a39394be7c892bb2eef1c89f. Локальная база проверки
+73b9d814231b9ea61186e411c1d834445dd54a5a, tree
+d96e65851986ddb9b58152b19ae2b378aea5c595. Оба продуктовых коммита F6788
+сохранили range-diff `=`. F256 остаётся отдельной зависимостью PR6828.
+На этом дереве Swift focused148 PASS; совместный серверный набор194 PASS /
+2 SKIP (181.95с). Один SKIP был browser без GRAF_NODE_MODULES, второй —
+прежний full runtime-role bootstrap; они не названы PASS.
+
+Независимый review совместимости нашёл P2: первое появление расшифровки
+сохраняло оболочку аудио без новых дорожек, аватаров и контекста комментариев.
+T025 обновляет только изменяемое содержимое сохранённого плеера, использует
+один набор обработчиков и динамически читает спикеров. Звук, черновик, фокус
+и состояние раскрытия сохраняются; другой media revision останавливает
+и заменяет прежний плеер. playback-comments.js не изменён.
+
+- Новый реальный browser regression сначала воспроизвёл FAIL (0 вместо2
+  дорожек), затем PASS в Chromium и WebKit. Используются синтетический WAV,
+  реальные DOM/медиасобытия и существующий playback-comments.js.
+- Проверены непрерывность time, прежний audio node, отсутствие pause/loadstart,
+  textarea/draft/focus, повторный refresh, collapse, новый «К реплике»,
+  Next/track Home/lane/avatar/listen и смена media revision.
+- Второй независимый review выявил P2: recovery signature не учитывала
+  media/processing revision при одинаковом тексте. Дополнена существующая
+  сигнатура, без нового механизма обновления. Добавлен вызов настоящего
+  refreshPlaybackRecovery: RED на старом processingResultId, затем
+  Chromium PASS и WebKit PASS, включая остановку другого media revision.
+- Существующие playback-comments browser tests: Chromium PASS / WebKit PASS.
+- Затронутый server набор104 PASS /0 SKIP,41.53с, включая настоящий
+  HTTP/PostgreSQL comments browser test. Одноразовый PostgreSQL удалён штатно.
+- Pytest wrapper нового browser regression с GRAF_NODE_MODULES вместе
+  с progress tests:5 PASS,1.47с после исправления recovery signature.
+- Ruff изменённого Python test, node --check, git diff --check, changelog
+  validator и frozen Spec Kit governance:PASS. Issue canon269 PASS после
+  синхронизации единственного владельца #6825 для T001–T025.
+
+Повторное независимое review T025:t025-review.md, P1/P2=0. Reviewer сам
+выполнил Chromium PASS и WebKit PASS; зафиксировал SHA-256 обоих файлов.
+T025 закрыта, избыточной сложности не найдено. Код после review не менялся.
+Повторный bounded converge по FR012/SC007 не выявил новых задач;
+остаются ранее заведённые T014/T021/T015, без дублирования приёмки.
+Установленная приёмка F6788 всё ещё NOT RUN: активный Dev041cd8541e9d
+используется согласованной работой F256/F257. F256 сообщила о готовящейся
+следующей миграции; окончательный SHA зависимости ещё не зафиксирован.
+Стенд, схема, подпись и разрешения не менялись. T014/T021/T015 остаются
+открыты; чужая установленная приёмка100%/200% им не присваивается.

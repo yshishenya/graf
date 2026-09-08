@@ -1,6 +1,15 @@
 """Execute the real browser helpers with a deterministic clock/transport."""
+import os
 import subprocess
 from pathlib import Path
+
+import pytest
+
+
+@pytest.mark.skipif(not os.environ.get("GRAF_NODE_MODULES"), reason="Explicit installed Playwright path required")
+def test_first_transcript_refresh_keeps_live_audio_and_comment_draft() -> None:
+    script = Path(__file__).parents[1] / "browser/playback-refresh.test.cjs"
+    subprocess.run(["node", str(script)], check=True, capture_output=True, text=True, timeout=60)
 
 
 def test_partial_summary_is_available_with_limits_in_detail_and_list() -> None:

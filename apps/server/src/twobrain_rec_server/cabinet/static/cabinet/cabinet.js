@@ -2095,6 +2095,46 @@
     }, delay);
   };
 
+  const refreshPlaybackContent = (current, next) => {
+    if (!current.querySelector("[data-playback-player]") || !next.querySelector("[data-playback-player]")
+      || !current.dataset.meetingId || !current.dataset.mediaRevisionId
+      || ["meetingId", "workspaceId", "mediaRevisionId", "sourceMode"].some(key => current.dataset[key] !== next.dataset[key])) return false;
+    // Keep the live audio, comments and draft attached; only transcript-owned controls change.
+    for (const selector of [".playback-speaker-overview", "[data-playback-avatars]", "[data-playback-listen-menu]"]) {
+      const target = current.querySelector(selector), replacement = next.querySelector(selector);
+      if (target && replacement) target.replaceChildren(...replacement.childNodes);
+    }
+    const timeline = current.querySelector("[data-speaker-timeline]"), nextTimeline = next.querySelector("[data-speaker-timeline]");
+    if (timeline && nextTimeline) {
+      const wrapper = nextTimeline.closest("[data-speaker-timeline-shell]");
+      if (wrapper && !timeline.closest("[data-speaker-timeline-shell]")) timeline.replaceWith(wrapper);
+      else {
+        timeline.replaceChildren(...nextTimeline.childNodes);
+        Object.assign(timeline.dataset, nextTimeline.dataset);
+      }
+    }
+    const manager = current.querySelector("[data-speaker-manager]"), nextManager = next.querySelector("[data-speaker-manager]");
+    if (nextManager) {
+      if (!manager) current.querySelector(".playback-tools")?.append(nextManager);
+      else if (current.dataset.processingResultId !== next.dataset.processingResultId) manager.replaceWith(nextManager);
+    } else manager?.remove();
+    for (const selector of ["[data-playback-timeline-toggle]", "[data-playback-next]"]) {
+      const target = current.querySelector(selector), replacement = next.querySelector(selector);
+      if (target && replacement) target.disabled = replacement.disabled;
+    }
+    for (const selector of [".speaker-timeline-resize-row", "[data-playback-carousel]", "[data-playback-comment]"]) {
+      const target = current.querySelector(selector), replacement = next.querySelector(selector);
+      if (target && replacement) target.hidden = replacement.hidden;
+    }
+    const listen = current.querySelector("[data-playback-listen-toggle]")?.parentElement;
+    const nextListen = next.querySelector("[data-playback-listen-toggle]")?.parentElement;
+    if (listen && nextListen) listen.hidden = nextListen.hidden;
+    for (const key of ["processingResultId", "commentsAvailable", "commentsCanComment", "playbackReason"]) current.dataset[key] = next.dataset[key] || "";
+    speakerTimelineResizeHandlers.get(current.querySelector("[data-speaker-timeline-shell]"))?.();
+    current.dataset.playbackContextChanged = "true";
+    return true;
+  };
+
   const refreshProcessingDetailContentOnce = async (
     detail,
     projection,
@@ -2249,6 +2289,9 @@
       if (refreshReplacement) {
         currentPlayback?.querySelector("audio")?.pause();
         if (currentPlayback && nextPlayback) currentPlayback.replaceWith(nextPlayback);
+      } else if (refreshTranscript && currentPlayback && nextPlayback && !refreshPlaybackContent(currentPlayback, nextPlayback)) {
+        currentPlayback.querySelector("audio")?.pause();
+        currentPlayback.replaceWith(nextPlayback);
       }
       detail.replaceWith(nextDetail);
       window.setTimeout(() => {
@@ -4867,7 +4910,13 @@
   const initPlayback = () => {
     document.querySelectorAll("[data-playback-shell]").forEach((shell) => {
       window.GRAFPlaybackComments?.init(shell);
-      if (shell.dataset.playbackReady === "true") return;
+      if (shell.dataset.playbackReady === "true") {
+        if (shell.dataset.playbackContextChanged === "true") {
+          delete shell.dataset.playbackContextChanged;
+          shell.dispatchEvent(new Event("graf:playback-context-updated"));
+        }
+        return;
+      }
       shell.dataset.playbackReady = "true";
       const player = shell.querySelector("[data-playback-player]");
       if (!player) return;
@@ -4877,8 +4926,8 @@
       const progress = shell.querySelector("[data-playback-progress]");
       const speedToggle = shell.querySelector("[data-playback-speed-toggle]");
       const playbackError = shell.querySelector("[data-playback-error]");
-      const lanes = Array.from(shell.querySelectorAll("[data-speaker-lane]"));
-      const avatars = Array.from(shell.querySelectorAll("[data-playback-avatar]"));
+      const lanes = () => Array.from(shell.querySelectorAll("[data-speaker-lane]"));
+      const avatars = () => Array.from(shell.querySelectorAll("[data-playback-avatar]"));
       const transcriptTurns = () => Array.from(document.querySelectorAll("[data-transcript-turn]"));
       const selectedSpeakers = new Set();
       let allowedIntervals = [];
@@ -4920,13 +4969,13 @@
         const max = playbackDuration();
         shell.style.setProperty("--playback-position", `${max > 0 ? Math.max(0, Math.min(100, player.currentTime / max * 100)) : 0}%`);
         const activeKeys = new Set();
-        lanes.forEach((lane) => {
+        lanes().forEach((lane) => {
           const active = Array.from(lane.querySelectorAll("[data-lane-segment]")).some((segment) => Number(segment.dataset.startSeconds) <= player.currentTime && player.currentTime < Number(segment.dataset.endSeconds));
           lane.classList.toggle("is-active", active);
           if (active) { lane.setAttribute("aria-current", "true"); activeKeys.add(lane.dataset.speakerKey); }
           else lane.removeAttribute("aria-current");
         });
-        avatars.forEach((avatar) => avatar.classList.toggle("is-active", activeKeys.has(avatar.dataset.playbackAvatar)));
+        avatars().forEach((avatar) => avatar.classList.toggle("is-active", activeKeys.has(avatar.dataset.playbackAvatar)));
         const activeTurn = currentTranscriptTurn(player.currentTime);
         transcriptTurns().forEach((turn) => turn.classList.toggle("is-current", turn === activeTurn));
       };
@@ -4977,7 +5026,7 @@
         else if (live) live.textContent = direction > 0 ? "Следующей реплики нет." : "Предыдущей реплики нет.";
       };
       const syncSelection = () => {
-        allowedIntervals = mergePlaybackIntervals(lanes.filter((lane) => selectedSpeakers.has(lane.dataset.speakerKey))
+        allowedIntervals = mergePlaybackIntervals(lanes().filter((lane) => selectedSpeakers.has(lane.dataset.speakerKey))
           .flatMap((lane) => Array.from(lane.querySelectorAll("[data-lane-segment]"), (segment) => [Number(segment.dataset.startSeconds), Number(segment.dataset.endSeconds)])));
         shell.querySelectorAll("[data-speaker-lane], .playback-speaker-interval").forEach((lane) => lane.classList.toggle("is-unselected", selectedSpeakers.size > 0 && !selectedSpeakers.has(lane.dataset.speakerKey)));
         const all = shell.querySelector("[data-listen-all]");
@@ -5019,40 +5068,45 @@
         if (speedToggle) speedToggle.textContent = `${player.playbackRate}x`;
         shell.querySelectorAll("[data-playback-speed-option]").forEach((button) => button.setAttribute("aria-checked", String(Number(button.dataset.playbackSpeedOption) === player.playbackRate)));
       });
-      shell.querySelectorAll("[data-listen-speaker]").forEach((input) => input.addEventListener("change", () => {
-        if (input.checked) selectedSpeakers.add(input.dataset.listenSpeaker); else selectedSpeakers.delete(input.dataset.listenSpeaker);
+      shell.addEventListener("change", (event) => {
+        const input = event.target;
+        if (input.matches("[data-listen-all]")) selectedSpeakers.clear();
+        else if (input.matches("[data-listen-speaker]")) {
+          if (input.checked) selectedSpeakers.add(input.dataset.listenSpeaker); else selectedSpeakers.delete(input.dataset.listenSpeaker);
+        } else return;
         syncSelection(); play();
-      }));
-      shell.querySelector("[data-listen-all]")?.addEventListener("change", () => { selectedSpeakers.clear(); syncSelection(); play(); });
+      });
       const togglePlayback = () => { if (player.paused) play(); else player.pause(); };
       toggle?.addEventListener("click", togglePlayback);
       shell.querySelectorAll("[data-playback-skip]").forEach((button) => button.addEventListener("click", () => seekTo(player.currentTime + Number(button.dataset.playbackSkip))));
       shell.querySelector("[data-playback-next]")?.addEventListener("click", () => navigateSpeech(1));
       progress?.addEventListener("input", () => seekTo(Number(progress.value)));
-      lanes.forEach((lane) => {
-        const track = lane.querySelector("[data-timeline-track]");
-        track?.addEventListener("click", (event) => {
-          const segment = event.target.closest("[data-lane-segment]");
-          if (segment) { seekTo(Number(segment.dataset.startSeconds), { sourceIds: segment.dataset.sourceSegments }); return; }
-          if (!event.detail) return;
-          const rect = track.getBoundingClientRect();
-          if (rect.width) seekTo(playbackDuration() * Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)));
-        });
-        track?.addEventListener("keydown", (event) => {
-          if (event.target !== track || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
-          event.preventDefault(); event.stopPropagation();
-          seekTo(event.key === "Home" ? 0 : event.key === "End" ? playbackDuration() : player.currentTime + (event.key === "ArrowLeft" ? -15 : 15));
-        });
-        track?.addEventListener("pointermove", (event) => {
-          const rect = track.getBoundingClientRect();
-          shell.style.setProperty("--playback-hover-position", `${Math.max(0, Math.min(100, (event.clientX - rect.left) / rect.width * 100))}%`);
-          shell.classList.add("is-timeline-hover");
-        });
-        track?.addEventListener("pointerleave", () => shell.classList.remove("is-timeline-hover"));
+      shell.addEventListener("click", (event) => {
+        const avatar = event.target.closest("[data-playback-avatar]");
+        if (avatar) { selectedSpeakers.clear(); syncSelection(); navigateSpeech(1, avatar.dataset.playbackAvatar, true); return; }
+        const track = event.target.closest("[data-timeline-track]");
+        if (!track) return;
+        const segment = event.target.closest("[data-lane-segment]");
+        if (segment) { seekTo(Number(segment.dataset.startSeconds), { sourceIds: segment.dataset.sourceSegments }); return; }
+        if (!event.detail) return;
+        const rect = track.getBoundingClientRect();
+        if (rect.width) seekTo(playbackDuration() * Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)));
       });
-      avatars.forEach((avatar) => avatar.addEventListener("click", () => {
-        selectedSpeakers.clear(); syncSelection(); navigateSpeech(1, avatar.dataset.playbackAvatar, true);
-      }));
+      shell.addEventListener("keydown", (event) => {
+        if (!event.target.matches("[data-timeline-track]") || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+        event.preventDefault(); event.stopPropagation();
+        seekTo(event.key === "Home" ? 0 : event.key === "End" ? playbackDuration() : player.currentTime + (event.key === "ArrowLeft" ? -15 : 15));
+      });
+      shell.addEventListener("pointermove", (event) => {
+        const track = event.target.closest("[data-timeline-track]");
+        if (!track) return;
+        const rect = track.getBoundingClientRect();
+        shell.style.setProperty("--playback-hover-position", `${Math.max(0, Math.min(100, (event.clientX - rect.left) / rect.width * 100))}%`);
+        shell.classList.add("is-timeline-hover");
+      });
+      shell.addEventListener("pointerout", (event) => {
+        if (event.target.closest("[data-timeline-track]") && !event.relatedTarget?.closest?.("[data-timeline-track]")) shell.classList.remove("is-timeline-hover");
+      });
       const carousel = shell.querySelector("[data-playback-avatars]");
       const syncCarousel = () => shell.querySelectorAll("[data-avatar-scroll]").forEach((button) => {
         button.disabled = !carousel || (Number(button.dataset.avatarScroll) < 0 ? carousel.scrollLeft <= 1 : carousel.scrollLeft + carousel.clientWidth >= carousel.scrollWidth - 1);
@@ -5066,6 +5120,11 @@
         observer.observe(carousel);
       }
       syncCarousel();
+      shell.addEventListener("graf:playback-context-updated", () => {
+        const keys = new Set(lanes().map(lane => lane.dataset.speakerKey));
+        selectedSpeakers.forEach(key => { if (!keys.has(key)) selectedSpeakers.delete(key); });
+        syncSelection(); syncTime(); syncCarousel(); scheduleSelectionBoundary();
+      });
       player.addEventListener("loadedmetadata", () => { if (progress && Number.isFinite(player.duration)) progress.max = String(player.duration); syncTime(); });
       player.addEventListener("timeupdate", () => { if (!player.paused) enforceSelection(); syncTime(); scheduleSelectionBoundary(); });
       player.addEventListener("seeked", scheduleSelectionBoundary);
@@ -6746,6 +6805,7 @@
       const recoverySignature = (node) => [
         node.dataset.playbackState || "",
         node.dataset.sourceMode || "",
+        ...["meetingId", "workspaceId", "mediaRevisionId", "processingResultId", "commentsAvailable", "commentsCanComment"].map(key => node.dataset[key] || ""),
         (node.textContent || "").trim()
       ].join("\u001f");
       const playbackUnchanged = recoverySignature(currentPlayback) === recoverySignature(nextPlayback);
@@ -6759,9 +6819,14 @@
         initPlaybackRecoveryPolling();
         return;
       }
-      if (playbackChanged) currentPlayback.replaceWith(nextPlayback);
+      if (playbackChanged && !refreshPlaybackContent(currentPlayback, nextPlayback)) {
+        currentPlayback.querySelector("audio")?.pause();
+        currentPlayback.replaceWith(nextPlayback);
+      }
       if (transcriptChanged) currentTranscript.replaceWith(nextTranscript);
       initPlayback();
+      initSpeakerTimelineResize();
+      initSpeakerNameForms();
       initPlaybackRecoveryPolling();
     } catch {
       showPlaybackRecoveryNotice(detail);

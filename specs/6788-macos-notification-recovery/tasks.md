@@ -97,3 +97,7 @@ T023 использует nullable summary_status в существующем Me
 ## Phase 10: Convergence
 
 - [X] T024 Исправить недетерминированное ожидание в tests/governance/test_dev_harness.py::test_concurrent_promote_is_serialized: два разных кандидата с общим родителем, ровно один победитель, точный stale-parent отказ второму и активный ID/SHA победителя; сохранить отдельную проверку повторного promote. SC006 (partial, MEDIUM), обязательная проверка единственного Dev. Только тест: scripts/dev-harness.py, блокировку, данные и установленное приложение не менять.
+
+## Phase 11: Convergence
+
+- [X] T025 [US5] Согласовать обновление расшифровки с панелью F256 в apps/server/src/twobrain_rec_server/cabinet/static/cabinet/{cabinet,playback-comments}.js: обновлять дорожки, спикеров и проверенный контекст комментариев без пересоздания audio, потери проигрывания и черновика; добавить исполняемую регрессию audio-ready → transcript-ready в apps/server/tests/browser/playback-refresh.test.cjs с повтором существующих тестов progress и комментариев. FR012/SC007 (partial, HIGH), независимый P2 совместимости после переноса на F256; не менять права, схему и исходную ветку F256.

@@ -9,6 +9,9 @@ Lane: **high-risk-product**. Выполнять по текущей ветке/S
 swift test --package-path apps/macos --filter 'CaptureControlTests|DesktopNotificationControlTests|DesktopCalendarReminderTests|DesktopCabinetRoutePolicyTests|AppControlAccessibilityTests'
 swift build --package-path apps/macos --product TwoBrainRecApp
 git diff --check
+# GRAF_NODE_MODULES указывает на уже установленный Playwright.
+node apps/server/tests/browser/playback-refresh.test.cjs
+GRAF_BROWSER=webkit node apps/server/tests/browser/playback-refresh.test.cjs
 ```
 
 Для затронутого серверного шаблона выбрать существующий pytest contract/
