@@ -259,3 +259,11 @@ Exact source SHA: `a163c539f131db5fe20a28623ea35ebbf33941e1`; штатный man
 См. [совместимость с F249](f249-compatibility.md): merge-tree обнаружил реальные конфликты. Функции уведомлений F249 не включены и не засчитываются как совместно протестированные.
 
 Дополнительно: 9 PostgreSQL/FFmpeg finalize PASS через `bash apps/server/scripts/run_local_postgres_tests.sh -q tests/integration/test_playback_normalization_finalize.py`; временный контейнер удалён.
+
+## Заключительная приёмка владельцем, 2026-09-08
+
+Последний обязательный сценарий «верхнее меню закрывается обычным кликом вне приложения» — **PASS, проверено владельцем**. Дословное подтверждение: «работает. я проверил». Проверка относится к установленному GRAF Dev e7b609d04dfaba79e0d75f940ad96442581bbb71. Предыдущее неоднозначное AX-наблюдение не выдаётся за автоматический PASS и не требует изменения работающего NSMenu.
+
+На том же установленном SHA: build/promote dry-run/promote и smoke 13/13 PASS; Start → Mute → Unmute → Stop → Сохранено на Mac, Escape; Quit завершил cleanup_requested → cleanup_finished в 01:53:22 UTC, процесс вышел и Dev вновь запущен. GitHub governance-fast 34178210976 SUCCESS на e7b609d04dfaba79e0d75f940ad96442581bbb71. Программный код финального документационного коммита идентичен этой проверенной версии; новая identity и GitHub gate будут записаны в PR.
+
+Обязательных незакрытых сценариев принятого варианта нет. macOS 14.5/VoiceOver остаются not_run_owner_accepted, Liquid Glass не внедряется. Это завершение приёмки F255 к отдельному merge, не совместный выпуск F249 и не public release.

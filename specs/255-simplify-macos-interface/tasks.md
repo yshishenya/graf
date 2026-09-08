@@ -51,7 +51,7 @@ T019 выполняет точечный возврат, T020 — повторн
 ## Phase 6: Приёмка, PR и выпуск
 
 - [X] T012 Выполнить всю матрицу `specs/255-simplify-macos-interface/quickstart.md`, записать версии/SHA, сценарии/контраст/снимки и ограничения в `validation/acceptance.md`. FR-001–FR-016/SC-001–SC-006. Реальное native evidence и смешанные версии обязательны; незакрытые строки блокируют готовность. (Issue #6757)
-- [ ] T013 Провести converge и review простоты, обновить `specs/255-simplify-macos-interface/tasks.md`, записать `validation/convergence.md`, подготовить `changes/unreleased/F255.yaml`; после разрешения владельца на коммит оформить PR с exact-SHA governance-fast и согласовать закрытие выполненных issues. FR-012/FR-013/FR-014/FR-016. (Issue #6757)
+- [X] T013 Провести converge и review простоты, обновить `specs/255-simplify-macos-interface/tasks.md`, записать `validation/convergence.md`, подготовить `changes/unreleased/F255.yaml`; после разрешения владельца на коммит оформить PR с exact-SHA governance-fast и согласовать закрытие выполненных issues. FR-012/FR-013/FR-014/FR-016. (Issue #6757)
 - [ ] T014 После допуска к выпуску пройти frozen candidate/Full CI/CD dry-run и релизные проверки, Developer ID/notarization/stapling/Gatekeeper/Sparkle/live appcast, smoke и русский CalVer release по `docs/agent-guidance/release-and-validation.md` и `docs/agent-guidance/macos-notarization.md`; сохранить evidence в `specs/255-simplify-macos-interface/validation/release.md`. FR-016/SC-006; без разрешения/gates не публиковать. (Issue #6752)
 
 ## Dependencies & Execution Order
@@ -130,14 +130,20 @@ T012/T016/T028/T029 подтверждены совокупностью acceptan
 
 - [X] T031 [US2] Добавить прямой ручной Start/Stop и контекстный минимальный NSMenu вместо popover в `apps/macos/RecApp/Sources/Calendar/CalendarTray.swift`, подключить прежние защищённые команды в `apps/macos/RecApp/App/TwoBrainRecApp.swift`; сохранить тихий календарь/HTTPS/privacy/обновление, стабильный знак записи и проверить состояния/устаревшие команды в `DesktopCalendarReminderTests.swift`, затем фактический старт и Stop из меню в штатном Dev. Требования и сценарии — уточнение spec от 2026-09-08; evidence в `validation/acceptance.md`. (Issue #6755)
 
-- [ ] T032 [US2] По пяти замечаниям владельца встроить состояние записи в сам знак GRAF, явно закрывать меню по внешним кликам/потере активности без вложенного tracking, заменить календарные настройки общими и добавить безопасный выход; удалить мёртвую модель состояний, convenience и старые календарные callbacks в `CalendarTray.swift`/`TwoBrainRecApp.swift`, расширить `DesktopCalendarReminderTests.swift`, проверить официальный Dev и записать evidence в `validation/acceptance.md`. (Issue #6755)
+- [X] T032 [US2] По пяти замечаниям владельца встроить состояние записи в сам знак GRAF, явно закрывать меню по внешним кликам/потере активности без вложенного tracking, заменить календарные настройки общими и добавить безопасный выход; удалить мёртвую модель состояний, convenience и старые календарные callbacks в `CalendarTray.swift`/`TwoBrainRecApp.swift`, расширить `DesktopCalendarReminderTests.swift`, проверить официальный Dev и записать evidence в `validation/acceptance.md`. (Issue #6755)
 
 - [X] T033 [US2] По подтверждению владельца сохранить mic-only pause, добавить «Mute микрофона»/«Включить микрофон» в `CalendarTray.swift`/`TwoBrainRecApp.swift`, согласовать shared подписи и capture HUD, встроить красный индикатор с Reduce Motion и графикой Mute в знак; проверить переходы/устаревшие команды/графику и установленный Dev, записать evidence в `validation/acceptance.md`. (Issue #6755)
 
-- [ ] T034 [US2] Устранить удержание главной очереди запасным showMenu в `CalendarTray.swift`: после source-menu tracking использовать механизм цикла событий AppKit; проверить штатный Quit/cleanup и обработку внешних кликов/доступности на установленном Dev, записать metadata-only evidence в `validation/acceptance.md`. (Issue #6755)
+- [X] T034 [US2] Устранить удержание главной очереди запасным showMenu в `CalendarTray.swift`: после source-menu tracking использовать механизм цикла событий AppKit; проверить штатный Quit/cleanup и обработку внешних кликов/доступности на установленном Dev, записать metadata-only evidence в `validation/acceptance.md`. (Issue #6755)
 
 ## Подготовка merge и граница F249, 2026-09-08
 
 T013 включает live fetch и пробный merge-tree F249/F255; результат и обязательный порядок переноса описаны в `validation/f249-compatibility.md`. Владелец подтвердил: верхнее меню полностью остаётся из F255. F249 не включается автоматически: её текущая ревизия конфликтует в 15 файлах, требует переноса на master после F255 и самостоятельной совместной приёмки.
 
 T002–T009/T015 — отменённые задачи первоначального native-прототипа. Их `[ ]` сохраняет честную историю: они не выполнены и не являются открытой реализацией принятого варианта. Активные замены: T019/T021/T022/T025 (#6754), T016/T018/T023/T024/T027–T034 (#6755). Текущие issue ownership fields должны перечислять эти действующие задачи; первоначальные задачи остаются в исторических ссылках. T014 — отдельный будущий выпуск; его не закрывать при подготовке PR.
+
+## Завершение приёмки, 2026-09-08
+
+Владелец лично проверил обычный клик вне приложения и подтвердил: «работает. я проверил». На момент проверки установлен dev-e7b609d04dfa, source SHA e7b609d04dfaba79e0d75f940ad96442581bbb71. Это закрывает последний пункт T032/T034; источник — наблюдение владельца, а не автоматическое AX-состояние.
+
+T013 завершена: текущие требования сверены, review простоты пройден, ownership и closure evidence согласованы, F249 проверена и порядок объединения закреплён. Активные задачи принятого варианта выполнены. Исторические T002–T009/T015 остаются отменёнными, T014 — будущий выпуск. Финальный commit документов получает собственные governance-fast/Dev identity; их результат записывается в PR без нового изменения исходников.
