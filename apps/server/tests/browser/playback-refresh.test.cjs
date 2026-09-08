@@ -49,6 +49,7 @@ ${ready ? '<div data-speaker-timeline-shell>' : ''}<div data-speaker-timeline da
       const speakerTimelineResizeHandlers = new WeakMap();
       ${section('const refreshPlaybackContent =', 'const refreshProcessingDetailContentOnce =')}
       ${section('const refreshProcessingDetailContentOnce =', 'const renderProcessingProjection =')}
+      ${section('const scrollTranscriptTurnIntoView =', 'const initSourceNavigation =')}
       ${section('const DEFAULT_TIMELINE_HEIGHT =', 'const initCalendarSettings =')}
       ${section('const playbackRecoveryCopy =', 'const initPlaybackRecoveryPolling =')}
       const initCabinet = () => { initPlayback(); initSpeakerTimelineResize(); };
