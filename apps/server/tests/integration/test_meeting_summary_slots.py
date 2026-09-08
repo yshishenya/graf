@@ -7,8 +7,6 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
-from alembic import command
-from alembic.config import Config
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from sqlalchemy import func, select
@@ -16,6 +14,7 @@ from sqlalchemy.exc import IntegrityError
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fixtures.cabinet import create_outcome_ready_meeting
+from tests.fixtures.postgres_test_database import prepare_schema
 from twobrain_rec_server.cabinet import queries
 from twobrain_rec_server.cabinet.egress import (
     _latest_accepted_media_revision,
@@ -308,19 +307,10 @@ def test_mapped_metadata_create_all_is_compatible_with_migrated_slot_schema(clie
     asyncio.run(run())
 
 
-def test_slot_migration_head_is_idempotent(
-    postgres_schema_database_url: str,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("TWOBRAIN_DATABASE_URL", postgres_schema_database_url)
-    server_root = Path(__file__).resolve().parents[2]
-    config = Config(str(server_root / "alembic.ini"))
-    config.set_main_option(
-        "script_location",
-        str(server_root / "src/twobrain_rec_server/db/migrations"),
-    )
-    command.upgrade(config, "head")
-    command.upgrade(config, "head")
+def test_slot_migration_head_is_idempotent(postgres_schema_database_url: str) -> None:
+    # The shared helper clears cached settings and restores the caller's URL.
+    prepare_schema(postgres_schema_database_url)
+    prepare_schema(postgres_schema_database_url)
 
 
 def test_legacy_backfill_only_materializes_the_explicit_meeting_pointer(client) -> None:

@@ -211,3 +211,18 @@ playback-refresh.test.cjs. Удалено только это устаревше
 описанием: отказал по F256/F6788 identity и оформлению evidence. PR теперь
 имеет base F256, а описание заново прочитано с GitHub и прошло валидатор
 с настоящим SHA. Ни один из этих отказов не объявлен PASS.
+
+## Изоляция проверки миграций T021
+
+GitHub34269776829 на5f2ae23076557f2197c7daff2c3ff4a87cfea583:
+unit1565 PASS/1 SKIP; changed-server194 PASS/2 SKIP/1 FAIL. Отказ
+test_slot_migration_head_is_idempotent обращался к исходному run-prefix DB,
+хотя fixture передала созданную worker DB. Причина: Alembic env.py читает
+кэшированный get_settings(), а тест изменял только переменную окружения.
+
+В тесте повторно используется существующий prepare_schema из общей fixture:
+он очищает кэш до миграции, восстанавливает URL и снова очищает кэш после.
+Удалены дублированная настройка Alembic и неиспользуемые импорты. Два
+последовательных upgrade сохранены; migrations/env.py и рабочий код не менялись.
+Полный test_meeting_summary_slots.py:23 PASS,27.45с; Ruff/whitespace PASS.
+Изолированный PostgreSQL удалён штатно, данные Dev не затрагивались.
