@@ -6011,6 +6011,7 @@ html:not([data-cabinet-js="ready"]) .detail-page-main:not([data-processing-repla
 .meeting-title-error { margin: 8px 0 0; color: var(--danger-text); font-size: 13px; overflow-wrap: anywhere; }
 
 .meeting-detail-header.meeting-title-header-scrolls { position: static; }
+.detail-page-main > .meeting-detail-header.meeting-title-header-scrolls ~ .detail-main :is([data-transcript-turn], [data-outcome-source]) { scroll-margin-top: 0; }
 /* Quiet account inbox. Device/capture controls stay in the native shell. */
 .notification-entry { min-width: 0; }
 .notification-icon { position: relative; display: flex; flex: 0 0 20px; }
