@@ -40,7 +40,7 @@ dev не читает production fallback, авторизация шлюза и 
 
 - [X] T078 Провести GRAF HTTP/Temporal прогоны трёх реальных встреч и семи controls, полностью прочитать результаты и источники, проверить вторую модель и записать безопасные агрегаты в specs/239-full-meeting-minutes/validation.md.
 - [X] T079 Выполнить converge и проверку diff/сложности/приватности, подготовить changes/unreleased/F239.yaml и specs/239-full-meeting-minutes/quickstart.md с точными релизными предпосылками, устранить обязательные замечания.
-- [ ] T080 После проверки и разрешения коммита создать PR, дождаться governance-fast на точном SHA, проверить mergeability и metadata; записать ссылки в specs/239-full-meeting-minutes/validation.md, не merge/deploy.
+- [X] T080 После проверки и разрешения коммита создать PR, дождаться governance-fast на точном SHA, проверить mergeability и metadata; записать ссылки в specs/239-full-meeting-minutes/validation.md, не merge/deploy.
 
 ## Dependencies / Strategy
 
@@ -58,8 +58,9 @@ T001–T070 относятся к прежнему плану #6787, не отм
 Их окончательное согласование с заменяющим PR входит в T079–T080.
 
 Текущий checkpoint и подтверждение T072/T073/T074/T076:
-[validation.md](validation.md). T071–T079 выполнены; umbrella остаётся открытым
-до T080: подтверждение коммита, PR, GitHub governance-fast и mergeability.
+[validation.md](validation.md). T071–T080 оформлены в PR #6789; итоговая проверка
+каждого нового SHA обязательна и фиксируется в GitHub checks и комментарии PR.
+Umbrella остаётся открытым до отдельного релиза и согласования прежней истории.
 Старые T001–T070/#6787 остаются историей прежней схемы, их технические gates
 не заменяют приёмку чистого перезапуска. В новом PR используется Refs #6503;
 закрытие всей исторической группы не заявляется.

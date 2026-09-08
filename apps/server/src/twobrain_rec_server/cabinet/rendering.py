@@ -413,7 +413,9 @@ def render_shared_meeting_summary_page(
         time_is_upload=time_is_upload,
         duration_seconds=duration_seconds,
         summary_sections=_localized_shared_summary_sections(summary_sections),
-        protocol_html=_render_full_protocol(protocol, source_destination_available=False) if protocol else None,
+        protocol_html=_render_full_protocol(
+            protocol, source_destination_available=False, base_heading_level=2
+        ) if protocol else None,
         authenticated=authenticated,
         meeting_list_href=_base_path(embedded),
     )
@@ -2433,7 +2435,7 @@ def _render_revision_status(review: MeetingReviewResponse) -> str:
     """
 
 
-def _render_full_protocol(document, *, source_destination_available: bool) -> str:
+def _render_full_protocol(document, *, source_destination_available: bool, base_heading_level: int = 3) -> str:
     def render_row(row):
         item = OutcomeItemView(
             category="summary", sequence=0, text=row.get("text", row.get("task")),
@@ -2445,7 +2447,7 @@ def _render_full_protocol(document, *, source_destination_available: bool) -> st
 
     blocks = []
     for level, title, rows in protocol_blocks(document):
-        heading = min(6, level + 2)
+        heading = min(6, level + base_heading_level - 1)
         body = "".join(render_row(row) for row in rows)
         if title == TASK_HEADING and level == 2:
             body = '<table class="notes-action-table"><caption>Задачи встречи</caption><thead><tr>'

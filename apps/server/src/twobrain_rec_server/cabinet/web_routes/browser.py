@@ -196,6 +196,7 @@ async def _render_shared_summary_for_grant(
         occurred_at=meeting.started_at or meeting.created_at,
         duration_seconds=meeting.duration_seconds,
         summary_sections=[{"category": item.category, "text": item.text or ""} for item in items],
+        protocol=outcome.protocol_json if outcome is not None else None,
     )
     display_title, display_time, uploaded = await shared_meeting_display_metadata(session, meeting=meeting)
     return render_shared_meeting_summary_page(
@@ -204,6 +205,7 @@ async def _render_shared_summary_for_grant(
         time_is_upload=uploaded,
         duration_seconds=int(projection["duration_seconds"]),
         summary_sections=projection["summary_sections"],
+        protocol=projection.get("protocol"),
         authenticated=True,
         embedded=embedded,
     )

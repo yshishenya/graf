@@ -12,6 +12,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from tests.unit.test_meeting_protocol import protocol_fixture
 from twobrain_rec_server.cli.langfuse_prompts import desired_prompts
 from twobrain_rec_server.outcomes.prompt_optimization import (
     OPTIMIZATION_HISTORY_MAX_BYTES,
@@ -380,10 +381,9 @@ def test_adapter_uses_strict_shared_validation_and_content_observations() -> Non
 
     def executor(**kwargs):
         if kwargs["phase"] == "task":
-            result = {
-                "category_states": {category: "not_found" for category in OUTCOME_CATEGORIES},
-                "items": [],
-            }
+            result = protocol_fixture()
+            for key in ("executive_summary", "topics", "action_items"):
+                result[key] = []
         elif kwargs["phase"] == "reflection":
             result = f"```{canonical_json(_contract().source.prompt)}```"
         else:
@@ -461,16 +461,12 @@ def test_adapter_does_not_reuse_judges_when_candidate_output_changes() -> None:
         phase = kwargs["phase"]
         executed_phases.append(phase)
         if phase == "task":
-            state = "not_inferable" if "Candidate B." in kwargs["prompt_text"] else "not_found"
-            result = {
-                "category_states": {
-                    category: state if category == "summary" else "not_found"
-                    for category in OUTCOME_CATEGORIES
-                },
-                "items": [],
-            }
+            result = protocol_fixture()
+            for key in ("executive_summary", "topics", "action_items"):
+                result[key] = []
+            result["title"] = "Candidate B" if "Candidate B." in kwargs["prompt_text"] else "Candidate A"
         else:
-            changed = "not_inferable" in kwargs["variables"]["candidate_outcome_json"]
+            changed = "Candidate B" in kwargs["variables"]["candidate_outcome_json"]
             result = {
                 "score": 0 if changed else 1,
                 "verdict": "fail" if changed else "pass",

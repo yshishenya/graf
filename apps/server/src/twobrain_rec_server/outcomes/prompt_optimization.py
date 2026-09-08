@@ -17,9 +17,11 @@ from io import BytesIO
 from math import isfinite
 from pathlib import Path
 from typing import Any, Literal, Protocol
-from uuid import UUID, uuid4
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 from zipfile import ZIP_DEFLATED, ZipFile
 
+from twobrain_rec_server.outcomes.generator import canonical_transcript
+from twobrain_rec_server.outcomes.models import PROTOCOL_VERSION, OutcomeTranscriptSegment
 from twobrain_rec_server.outcomes.prompt_bundle import (
     bind_snapshot_from_metadata,
     snapshot_bundle_metadata,
@@ -31,6 +33,7 @@ from twobrain_rec_server.outcomes.prompts import (
     canonical_json,
     langfuse_prompt_payload,
     prompt_variables,
+    validate_meeting_protocol,
     validate_outcome_result,
     validate_prompt_snapshot,
 )
@@ -834,17 +837,25 @@ class PromptOptimizationAdapter:
         objective_scores: list[dict[str, float]] = []
         trajectories: list[OptimizationTrajectory] | None = [] if capture_traces else None
         for example in batch:
+            protocol = self.contract.source.config.get("contract_version") == PROTOCOL_VERSION
+            segments = _protocol_example_segments(example) if protocol else None
+            transcript_json = canonical_transcript(segments) if segments is not None else example.transcript_json
             _, validated = self._call_with_validation_retry(
                 phase="task",
                 snapshot=self.contract.source,
                 prompt_text=prompt_text,
-                variables=task_model_variables(example.transcript_json),
+                variables=task_model_variables(
+                    transcript_json, protocol=protocol,
+                ),
                 example_id=example.id,
-                validator=lambda value, allowed_categories=example.required_categories, allowed_segment_ids=frozenset(example.segment_ids): (
-                    validate_outcome_result(
+                validator=lambda value, segments=segments, example=example: (
+                    validate_meeting_protocol(
+                        value, segments=segments,
+                        processing_result_id=uuid5(NAMESPACE_URL, f"graf:synthetic:{example.id}"),
+                    ) if segments is not None else validate_outcome_result(
                         value,
-                        allowed_categories=allowed_categories,
-                        allowed_segment_ids=set(allowed_segment_ids),
+                        allowed_categories=example.required_categories,
+                        allowed_segment_ids=set(example.segment_ids),
                     )
                 ),
             )
@@ -857,7 +868,7 @@ class PromptOptimizationAdapter:
                 strict=True,
             ):
                 variables = {
-                    "source_segments_json": example.transcript_json,
+                    "source_segments_json": transcript_json,
                     "candidate_outcome_json": canonical_json(validated),
                 }
                 if judge_name.endswith("completeness"):
@@ -884,7 +895,7 @@ class PromptOptimizationAdapter:
                 trajectories.append(
                     OptimizationTrajectory(
                         example_id=example.id,
-                        transcript_json=example.transcript_json,
+                        transcript_json=transcript_json,
                         output=validated,
                         feedback=tuple(feedback),
                         score=score,
@@ -1330,13 +1341,45 @@ def optimization_call_key(
     return sha256(canonical_json(payload).encode("utf-8")).hexdigest()
 
 
-def task_model_variables(transcript_json: str) -> dict[str, str]:
-    return {
+def _protocol_example_segments(example: SyntheticExample) -> list[OutcomeTranscriptSegment]:
+    """Adapt legacy synthetic rows to canonical refs; never invent live meeting identity."""
+    rows = json.loads(example.transcript_json)
+    if not isinstance(rows, list):
+        raise ValueError("synthetic transcript must be a list")
+    segments = []
+    for index, row in enumerate(rows):
+        if not isinstance(row, dict) or not isinstance(row.get("text"), str):
+            raise ValueError("synthetic transcript segment is invalid")
+        sequence = row.get("sequence", index)
+        if type(sequence) is not int or sequence < 0:
+            raise ValueError("synthetic transcript sequence is invalid")
+        segment_id = row.get("transcript_segment_id", row.get("id"))
+        if example.segment_ids and segment_id not in example.segment_ids:
+            raise ValueError("synthetic transcript segment is not in the manifest")
+        try:
+            identifier = UUID(str(segment_id))
+        except ValueError:
+            identifier = uuid5(NAMESPACE_URL, f"graf:synthetic:{example.id}:{segment_id or index}")
+        segments.append(OutcomeTranscriptSegment(
+            segment_id=identifier, sequence=sequence,
+            start_seconds=Decimal(str(row.get("start_seconds", 0))),
+            end_seconds=Decimal(str(row.get("end_seconds", 0))),
+            speaker_label=row.get("speaker_label", ""),
+            source_role=row.get("source_role", "synthetic"), text=row["text"],
+        ))
+    return segments
+
+
+def task_model_variables(transcript_json: str, *, protocol: bool = False) -> dict[str, str]:
+    variables = {
         "transcript_json": transcript_json,
         "output_language": "ru",
         "detail_level": "standard",
         "template_sections_json": canonical_json(list(OUTCOME_CATEGORIES)),
     }
+    if protocol:
+        variables["meeting_metadata_json"] = canonical_json({})
+    return variables
 
 
 def checkpoint_key(run_id: UUID, revision: int) -> str:
@@ -2393,7 +2436,10 @@ class _ProductionModelExecutor:
         effective = snapshot
         if phase == "task":
             effective = validate_candidate_prompt(snapshot, prompt_text)
-            if set(variables) != TASK_MODEL_VARIABLE_KEYS:
+            expected_variables = TASK_MODEL_VARIABLE_KEYS
+            if effective.config.get("contract_version") == PROTOCOL_VERSION:
+                expected_variables = expected_variables | {"meeting_metadata_json"}
+            if set(variables) != expected_variables:
                 raise PromptOptimizationError("optimization_task_variables_invalid")
         messages = _compile_optimization_messages(effective, variables)
         result = asyncio.run(self.gateway.generate(snapshot=effective, messages=messages))

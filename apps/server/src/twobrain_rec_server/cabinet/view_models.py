@@ -2459,6 +2459,7 @@ def build_list_item(
     notes_truth = notes_action_truth_state(
         status=status, result=result, outcome_set=outcome_set, outcome_items=outcome_items or []
     )
+    notes_truth.protocol = None
     item = MeetingListItem(
         meeting_id=meeting.id,
         title=safe_title(meeting, source=source),
