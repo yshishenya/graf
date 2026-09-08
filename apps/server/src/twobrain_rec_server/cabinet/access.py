@@ -130,12 +130,16 @@ def narrow_summary_projection(
     occurred_at: datetime,
     duration_seconds: int,
     summary_sections: list[dict[str, object]],
+    protocol: dict | None = None,
 ) -> dict[str, object]:
+    from twobrain_rec_server.cabinet.meeting_protocol import without_protocol_evidence
+
     return {
         "meeting_label": meeting_label[:160],
         "occurred_at": occurred_at,
         "duration_seconds": max(0, duration_seconds),
         "summary_sections": summary_sections,
+        "protocol": without_protocol_evidence(protocol),
     }
 
 
@@ -964,6 +968,9 @@ async def create_scoped_share_grant(
                 metadata={"share_grant_id": str(existing.id)},
             )
             await db.flush()
+            from twobrain_rec_server.notifications.inbox import record_event
+            await record_event(db, meeting=meeting, kind="shared", source_revision=str(existing.rotated_at),
+                               recipient_id=audience_id, share_id=existing.id)
             return existing, raw_token
     elif audience_type not in {"workspace", "team", "link"} or not broader_audience_enabled:
         raise ProblemDetail(status=403, code="share_policy_blocked", title="Share is not available")
@@ -1062,6 +1069,10 @@ async def create_scoped_share_grant(
         metadata={"share_grant_id": str(grant.id)},
     )
     await db.flush()
+    if audience_type == "user" and audience_id is not None:
+        from twobrain_rec_server.notifications.inbox import record_event
+        await record_event(db, meeting=meeting, kind="shared", source_revision=str(grant.id),
+                           recipient_id=audience_id, share_id=grant.id)
     return grant, raw_token
 
 
@@ -1836,6 +1847,11 @@ async def accept_share_invitation(
         metadata={"share_grant_id": str(grant.id)},
     )
     await db.flush()
+    from twobrain_rec_server.notifications.inbox import record_event
+    meeting = await db.get(Meeting, invitation.meeting_id)
+    if meeting is not None:
+        await record_event(db, meeting=meeting, kind="shared", source_revision=str(grant.id),
+                           recipient_id=user_id, share_id=grant.id)
     return grant, grant_raw_token
 
 

@@ -105,6 +105,7 @@ from twobrain_rec_server.db.models.normalization import (
     PlaybackNormalizationAttempt,
     PlaybackNormalizationJob,
 )
+from twobrain_rec_server.db.models.notifications import ServerNotification
 from twobrain_rec_server.db.models.onboarding import WorkspaceJoinOffer
 from twobrain_rec_server.db.models.outcomes import (
     GenerationCall,
@@ -129,6 +130,7 @@ from twobrain_rec_server.db.models.processing import (
 from twobrain_rec_server.db.models.support import SupportIncident, SupportIncidentRateLimitBucket
 
 __all__ = [
+    "ServerNotification",
     "AdminAuditEvent",
     "AccountClosureRequest",
     "BillingAuditEvent",

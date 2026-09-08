@@ -36,7 +36,6 @@ from twobrain_rec_server.domain.statuses import (
     ProcessingResultStatus,
 )
 from twobrain_rec_server.ingest.media_revisions import source_fingerprint_for_revision
-from twobrain_rec_server.outcomes.generator import generate_outcomes
 from twobrain_rec_server.outcomes.models import OutcomeTranscriptSegment
 from twobrain_rec_server.outcomes.store import (
     OUTCOME_GENERATOR_VERSION,
@@ -257,7 +256,13 @@ async def ensure_outcomes_for_processing_result(
         "accepted",
         "superseded",
     }
-    if revision_scoped_ai_wait and existing is not None and not existing_is_immutable_history:
+    if (
+        existing is not None
+        and not existing_is_immutable_history
+        and not is_expired(existing.expires_at)
+        and transcript_is_available
+        and (revision_scoped_ai_wait or existing.failure_reason == AI_DISPATCH_UNAVAILABLE)
+    ):
         await _project_revision_scoped_ai_wait(
             db,
             outcome_set=existing,
@@ -332,6 +337,8 @@ async def ensure_outcomes_for_processing_result(
     )
     if replace_blocked_revision:
         outcome_set.supersedes_outcome_set_id = existing.id
+    outcome_set.template_key = outcome_set.template_key or template_key
+    outcome_set.template_version = outcome_set.template_version or template_version
     if revision_scoped_ai_wait:
         await _project_revision_scoped_ai_wait(
             db,
@@ -390,93 +397,9 @@ async def ensure_outcomes_for_processing_result(
         await db.flush()
         return outcome_set
 
-    segments = await load_outcome_transcript_segments(db, result=result)
-    try:
-        payload = generate_outcomes(segments)
-    except Exception:
-        ended_at = datetime.now(UTC)
-        outcome_set.status = OutcomeSetStatus.BLOCKED.value
-        outcome_set.failure_reason = "outcomes_generation_failed"
-        outcome_set.failure_source = None
-        outcome_set.generated_at = None
-        outcome_set.latency_ms = max(0, int((ended_at - started_at).total_seconds() * 1000))
-        set_outcome_category_states(outcome_set, OutcomeCategoryState.BLOCKED.value)
-        await record_generation_attempt(
-            db,
-            workspace_id=result.workspace_id,
-            meeting_id=result.meeting_id,
-            media_revision_id=result.media_revision_id,
-            processing_result_id=result.id,
-            outcome_set_id=outcome_set.id,
-            candidate_id=automatic_candidate_id,
-            # The deterministic local generator has no transient dependency to
-            # retry. Keep the failure terminal so reopening a meeting cannot
-            # loop indefinitely; an operator/manual re-run can create a new
-            # outcome lineage after the defect is fixed.
-            status=OutcomeGenerationAttemptStatus.FAILED_TERMINAL.value,
-            started_at=started_at,
-            ended_at=ended_at,
-            latency_ms=outcome_set.latency_ms,
-            failure_reason="outcomes_generation_failed",
-            idempotency_key=await _next_baseline_attempt_idempotency_key(db, result=result),
-            source_result_id=result.id,
-            source_result_hash=result.source_result_hash,
-            source_fingerprint=outcome_set.source_fingerprint,
-            generator_config_hash=generator_config_hash,
-            deletion_epoch_at_start=int(meeting.deletion_epoch or 0),
-            display_format_name="Базовые итоги",
-            template_key=template_key,
-            template_version=template_version,
-            metadata_json={
-                "segment_count": len(segments),
-                "speaker_attribution_revision": speaker_revision,
-            },
-        )
-        await db.flush()
-        return outcome_set
-    outcome_set.status = OutcomeSetStatus.AVAILABLE.value
-    if outcome_set.revision_state is None:
-        outcome_set.revision_state = "candidate"
-    outcome_set.generated_at = datetime.now(UTC)
-    outcome_set.latency_ms = max(
-        0, int((outcome_set.generated_at - started_at).total_seconds() * 1000)
+    await _project_revision_scoped_ai_wait(
+        db, outcome_set=outcome_set, ai_dispatch_planned=bool(ai_dispatch_planned),
     )
-    for category, state in payload.category_states.items():
-        setattr(outcome_set, f"{category}_state", state)
-    outcome_set.content_hash = _payload_hash(payload.items)
-    stored_items = [item.as_store_item() for item in payload.items]
-    await replace_outcome_items(db, outcome_set=outcome_set, items=stored_items)
-    await record_generation_attempt(
-        db,
-        workspace_id=result.workspace_id,
-        meeting_id=result.meeting_id,
-        media_revision_id=result.media_revision_id,
-        processing_result_id=result.id,
-        outcome_set_id=outcome_set.id,
-        status="candidate",
-        started_at=started_at,
-        ended_at=outcome_set.generated_at,
-        latency_ms=outcome_set.latency_ms,
-        candidate_id=automatic_candidate_id,
-        idempotency_key=await _next_baseline_attempt_idempotency_key(db, result=result),
-        request_intent="automatic_baseline",
-        source_result_id=result.id,
-        source_result_hash=result.source_result_hash,
-        source_fingerprint=outcome_set.source_fingerprint,
-        generator_config_hash=generator_config_hash,
-        deletion_epoch_at_start=int(meeting.deletion_epoch or 0),
-        expires_at=candidate_expires_at,
-        display_format_name="Базовые итоги",
-        template_key=template_key,
-        template_version=template_version,
-        metadata_json={
-            "segment_count": len(segments),
-            "category_count": len(payload.category_states),
-            "item_count": len(stored_items),
-            "speaker_attribution_revision": speaker_revision,
-        },
-    )
-    await db.flush()
     return outcome_set
 
 
@@ -867,11 +790,6 @@ async def load_outcome_transcript_segments(
             )
         )
     return segments
-
-
-def _payload_hash(items: list[object]) -> str:
-    payload = "|".join(repr(item) for item in items)
-    return sha256(payload.encode("utf-8")).hexdigest()
 
 
 async def load_outcome_items(

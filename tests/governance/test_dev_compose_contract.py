@@ -53,10 +53,11 @@ def test_every_compose_service_has_an_explicit_manifest_image_override():
         assert variable in COMPOSE
 
 
-def test_direct_runtime_start_rejects_mutable_image_defaults():
+def test_direct_runtime_start_rejects_mutable_image_defaults(tmp_path):
     startup = ROOT / "infra" / "scripts" / "start-dev-runtime.sh"
     env = os.environ.copy()
     env["GRAF_DEV_SOURCE_SHA"] = "a" * 40
+    env["GRAF_DEV_STATE_ROOT"] = str(tmp_path)
     env.pop("GRAF_DEV_API_IMAGE", None)
 
     result = subprocess.run(
@@ -83,3 +84,39 @@ def test_dev_start_waits_for_long_running_infra_before_one_shot_minio_init():
     startup = (ROOT / "infra/scripts/start-dev-runtime.sh").read_text()
     assert "compose up -d --wait --force-recreate rec-postgres rec-minio rec-temporal\n" in startup
     assert "compose run --rm rec-minio-init" in startup
+
+
+def test_runtime_monitor_does_not_stop_services_when_docker_inspection_fails():
+    startup = (ROOT / "infra/scripts/start-dev-runtime.sh").read_text()
+    loop = startup[startup.index("empty_observations=0"):]
+    # Command substitutions run in subshells; sleep advances the parent counter.
+    stubs = """set -eu
+attempt=0
+compose() {
+  case "$attempt" in 0) return 1;; 1|3) echo api;; 2|4|5) return 0;; *) exit 99;; esac
+}
+sleep() { attempt=$((attempt + 1)); }
+"""
+    result = subprocess.run(["sh", "-c", stubs + loop + '\nprintf "attempts=%s" "$attempt"'],
+                            capture_output=True, text=True, timeout=5)
+    assert result.returncode == 0
+    assert result.stdout == "attempts=5"
+    assert "service inspection failed; retrying" in result.stderr
+
+
+def test_runtime_termination_cleans_up_once_with_fixed_reason(tmp_path):
+    startup = (ROOT / "infra/scripts/start-dev-runtime.sh").read_text()
+    cleanup = startup[startup.index("cleanup() {"):startup.index("# Config is the first safety gate")]
+    script = 'set -eu\ncompose() { echo stop >> "$1.stop"; }\n' + cleanup + '\necho ready\nwhile :; do :; done\n'
+    process = subprocess.Popen(["sh", "-c", script], cwd=tmp_path, text=True,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        assert process.stdout.readline().strip() == "ready"
+        process.terminate()
+        output, _ = process.communicate(timeout=5)
+        assert "reason=terminate" in output
+        assert (tmp_path / "stop.stop").read_text().splitlines() == ["stop"]
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait()

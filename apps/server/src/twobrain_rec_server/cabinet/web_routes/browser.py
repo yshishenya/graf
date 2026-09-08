@@ -196,6 +196,7 @@ async def _render_shared_summary_for_grant(
         occurred_at=meeting.started_at or meeting.created_at,
         duration_seconds=meeting.duration_seconds,
         summary_sections=[{"category": item.category, "text": item.text or ""} for item in items],
+        protocol=outcome.protocol_json if outcome is not None else None,
     )
     display_title, display_time, uploaded = await shared_meeting_display_metadata(session, meeting=meeting)
     return render_shared_meeting_summary_page(
@@ -204,6 +205,7 @@ async def _render_shared_summary_for_grant(
         time_is_upload=uploaded,
         duration_seconds=int(projection["duration_seconds"]),
         summary_sections=projection["summary_sections"],
+        protocol=projection.get("protocol"),
         authenticated=True,
         embedded=embedded,
     )
@@ -872,6 +874,7 @@ async def shared_with_me_list_page(
 async def meeting_detail_page(
     request: Request,
     meeting_id: str,
+    source_result_id: Annotated[UUID | None, Query()] = None,
     calendar_context_action: str | None = Query(default=None, pattern="^change$"),
     tenant_scope: TenantScope = WebTenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
@@ -895,6 +898,7 @@ async def meeting_detail_page(
         meeting_id=parsed_meeting_id,
         viewer_user_id=principal.user_id,
         selected_summary_template_key=request.query_params.get("summary_format"),
+        source_result_id=source_result_id,
         storage=storage,
         include_calendar_correction_candidates=calendar_context_action == "change",
         external_invitations_enabled=request.app.state.settings.share_external_invitations_enabled,

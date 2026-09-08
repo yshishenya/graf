@@ -36,6 +36,14 @@ public final class CalendarTrayModel {
 
     private let load: @Sendable () async throws -> DesktopCalendarPromptResponse
     private var refreshGeneration = 0
+    public var onAuthInvalidated: (() -> Void)?
+    public var onProjection: ((DesktopCalendarPromptResponse?) -> Void)?
+    public func invalidate() {
+        refreshGeneration += 1
+        events = []
+        onProjection?(nil)
+        onAuthInvalidated?()
+    }
 
     public init(
         load: @escaping @Sendable () async throws -> DesktopCalendarPromptResponse
@@ -55,9 +63,16 @@ public final class CalendarTrayModel {
                 .sorted { $0.startsAt == $1.startsAt ? $0.eventId < $1.eventId : $0.startsAt < $1.startsAt }
                 .prefix(12)
                 .map { $0 }
+            onProjection?(response)
+        } catch let error as DesktopUploadClientError {
+            guard generation == refreshGeneration else { return }
+            events = []
+            onProjection?(nil)
+            if error.failureCategory == .authSession { invalidate() }
         } catch {
             guard generation == refreshGeneration else { return }
             events = []
+            onProjection?(nil)
         }
     }
 }
@@ -150,7 +165,7 @@ public final class CalendarTrayController: NSObject, NSMenuDelegate {
                 object: nil,
                 queue: .main
             ) { [weak self] _ in
-                Task { @MainActor in self?.refreshNow() }
+                Task { @MainActor in self?.model.invalidate(); self?.refreshNow() }
             }),
             (NSWorkspace.shared.notificationCenter, NSWorkspace.shared.notificationCenter.addObserver(
                 forName: NSWorkspace.didWakeNotification,

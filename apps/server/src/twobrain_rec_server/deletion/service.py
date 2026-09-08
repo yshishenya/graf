@@ -2440,6 +2440,7 @@ async def _purge_meeting_outcomes(db: AsyncSession, *, meeting: Meeting) -> None
         outcome_set.lifecycle_state = OutcomeLifecycleState.DELETED.value
         outcome_set.failure_reason = "meeting_deleted"
         outcome_set.content_hash = None
+        outcome_set.protocol_json = None
 
     outcome_items = (
         await db.scalars(

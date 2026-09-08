@@ -228,7 +228,8 @@ def test_settings_binary_controls_use_shared_switches_and_segmented_theme() -> N
     assert 'name="optional_email_enabled"' in notifications
     assert 'name="optional_in_app_enabled"' in notifications
     assert notifications.count('class="settings-control-row"') == 2
-    assert "Важные системные сообщения всегда включены." in notifications
+    assert "Эти настройки относятся к аккаунту." in notifications
+    assert "Готовые результаты доступны в списке встреч и тихой истории." in notifications
 
 
 def test_profile_menu_uses_semantic_disabled_actions_and_native_quit_marker() -> None:
@@ -279,7 +280,9 @@ def test_settings_forms_share_dirty_state_and_one_preferences_submit_handler() -
     notifications = render_settings_page(category="notifications")
     assert account.count("data-settings-form-disable-pristine") == 2
     assert account.count("data-settings-form-reset") == 2
-    assert "data-settings-form-disable-pristine" in notifications
+    # Notifications own version-conflict recovery and must have one form handler.
+    assert "data-notification-settings" in notifications
+    assert "data-settings-form-disable-pristine" not in notifications
     root = Path(__file__).resolve().parents[2]
     script = (root / "src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js").read_text()
     preferences = script.split("const initAccountPreferences =", 1)[1].split(

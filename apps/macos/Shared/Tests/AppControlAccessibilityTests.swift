@@ -140,7 +140,8 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertTrue(source.contains(".accessibilityElement(children: .contain)"))
         XCTAssertTrue(source.contains(".accessibilityElement(children: .combine)"))
         XCTAssertTrue(source.contains(".accessibilityIdentifier(SystemAudioAccessibilityIdentifier.statusSurface)"))
-        XCTAssertTrue(source.contains(".lineLimit(1)"))
+        XCTAssertFalse(source.contains(".lineLimit(1)"), "Capture actions must not truncate in the narrow widget")
+        XCTAssertTrue(source.contains(".fixedSize(horizontal: false, vertical: true)"))
         XCTAssertTrue(source.contains(".accessibilityRemoveTraits(.isSelected)"))
         XCTAssertTrue(source.contains("VStack(alignment: .leading, spacing: 8)"))
         XCTAssertGreaterThanOrEqual(
@@ -509,6 +510,10 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertTrue(source.contains("bulkRuleBinding"))
         XCTAssertTrue(source.contains("rule.displayName"))
         XCTAssertTrue(source.contains("selection?.displayName ?? \"Разные\""))
+        // A group label without containment was inherited by all three buttons
+        // in the installed app, hiding which recording rule each one selects.
+        XCTAssertTrue(source.contains(".accessibilityElement(children: .contain)"))
+        XCTAssertTrue(source.contains(#".accessibilityLabel("\(title): \(rule.displayName)")"#))
         XCTAssertTrue(source.contains(".accessibilityLabel(title)"))
         XCTAssertTrue(source.contains(".accessibilityValue"))
         XCTAssertTrue(source.contains(".accessibilityHint"))
@@ -563,6 +568,22 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertTrue(source.contains("increaseWorkspaceZoom"))
         XCTAssertTrue(source.contains("decreaseWorkspaceZoom"))
         XCTAssertTrue(source.contains("resetWorkspaceZoom"))
+    }
+
+    func testNotificationControlsKeepLifecycleAndSettingsRoutesAfterIntegration() throws {
+        let root = try Self.repositoryRoot()
+        let app = try String(contentsOf: root.appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"), encoding: .utf8)
+        let warning = try XCTUnwrap(app.components(separatedBy: "private var meetingMuteTruthWarningText").last)
+            .components(separatedBy: "\n    }").first ?? ""
+        XCTAssertTrue(warning.contains("localRecordingActive || recordingStopInProgress"))
+        XCTAssertFalse(warning.contains("localRecordingManifest"), "Historical truth must not keep an active-capture warning visible")
+        let actions = try XCTUnwrap(app.components(separatedBy: "private func syncControlPanel()").last)
+            .components(separatedBy: "private var protectedUpdateWork").first ?? ""
+        XCTAssertTrue(actions.contains("openLocalRecordingSettings()"))
+        XCTAssertTrue(actions.contains("presentPermissionSetup()"))
+        XCTAssertFalse(actions.contains("permissionOnboardingPresented = true"))
+        let settings = try String(contentsOf: root.appendingPathComponent("apps/macos/RecApp/Sources/MeetingDetection/MeetingDetectionSettingsView.swift"), encoding: .utf8)
+        XCTAssertFalse(settings.contains(".frame(width: Self.windowSize.width, height: Self.windowSize.height)"))
     }
 
     private static func repositoryRoot() throws -> URL {

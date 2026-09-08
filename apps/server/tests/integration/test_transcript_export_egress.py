@@ -820,9 +820,9 @@ def test_export_capability_never_pairs_an_accepted_summary_with_a_newer_result(c
                 ]
             )
             await db.commit()
-            return newer.id
+            return newer.id, current.id, current_segments[0].id
 
-    newer_result_id = asyncio.run(seed_newer_result())
+    newer_result_id, old_result_id, old_segment_id = asyncio.run(seed_newer_result())
     capability = client.get(
         f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
         headers=auth_headers(),
@@ -840,6 +840,17 @@ def test_export_capability_never_pairs_an_accepted_summary_with_a_newer_result(c
     page = client.get(f"/meetings/{seeds.ready_id}", headers=auth_headers())
     assert page.status_code == 200
     assert f'data-current-outcome-set-id="{accepted_id}"' in page.text
+
+    assert f'data-source-segments="{old_segment_id}' not in page.text
+    pinned = client.get(f"/meetings/{seeds.ready_id}?source_result_id={old_result_id}", headers=auth_headers())
+    assert pinned.status_code == 200, pinned.text
+    assert str(old_segment_id) in pinned.text
+    assert "Показана сохранённая редакция расшифровки" in pinned.text
+    for meeting_id, result_id in [(seeds.ready_id, uuid4()), (seeds.processing_id, old_result_id),
+                                  (seeds.foreign_id, old_result_id)]:
+        denied = client.get(f"/meetings/{meeting_id}?source_result_id={result_id}", headers=auth_headers())
+        assert denied.status_code == 404
+        assert SAFE_TRANSCRIPT_TEXT not in denied.text
 
     client.app.state.settings.outcome_generation_enabled = True
     temporal = FakeTemporalClient()

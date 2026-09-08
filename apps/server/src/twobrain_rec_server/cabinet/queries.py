@@ -1079,6 +1079,7 @@ async def get_cabinet_meeting_review(
     meeting_id: UUID,
     viewer_user_id: UUID,
     selected_summary_template_key: str | None = None,
+    source_result_id: UUID | None = None,
     storage: object | None = None,
     include_calendar_correction_candidates: bool = False,
     external_invitations_enabled: bool = False,
@@ -1118,6 +1119,20 @@ async def get_cabinet_meeting_review(
         meeting_id=meeting_id,
         media_revision_id=media_revision_id,
     )
+    if source_result_id is not None:
+        if not decision.can_view_full_meeting:
+            return None
+        # Keep playback on the same audio revision. A deleted/replaced recording
+        # must never resolve an old source link against different audio.
+        result = await db.scalar(select(ProcessingResult).where(
+            ProcessingResult.id == source_result_id,
+            ProcessingResult.workspace_id == workspace_id,
+            ProcessingResult.meeting_id == meeting_id,
+            ProcessingResult.media_revision_id == media_revision_id,
+            ProcessingResult.status == "imported",
+        ))
+        if result is None:
+            return None
     transcript_segments: list[TranscriptSegment] = []
     diarization_segments: list[DiarizationSegment] = []
     if result is not None:
@@ -1240,7 +1255,8 @@ async def get_cabinet_meeting_review(
             }
         )
     reprocess_available = bool(
-        decision.state == "owner"
+        source_result_id is None
+        and decision.state == "owner"
         and result_is_complete(result)
         and media_revision is not None
         and await load_processing_source(
@@ -1297,7 +1313,7 @@ async def get_cabinet_meeting_review(
         default_summary_template_name=default_summary_template_name,
         outcome_items=await load_outcome_items(db, outcome_set=outcome_set),
         speaker_names=speaker_names,
-        can_rename_speakers=decision.state == "owner" or decision.role in {"owner", "admin"},
+        can_rename_speakers=source_result_id is None and (decision.state == "owner" or decision.role in {"owner", "admin"}),
         reprocess_available=reprocess_available,
     )
 

@@ -155,6 +155,8 @@ public struct DesktopCalendarPromptChoice: Equatable, Identifiable, Sendable {
 }
 
 public struct DesktopCalendarPromptResponse: Codable, Equatable, Sendable {
+    public var notificationOwnerID: String?
+    public var notificationWorkspaceID: String?
     public var events: [DesktopCalendarPromptEvent]
     public var showUpcomingTime: Bool
     public var showUpcomingTitle: Bool
@@ -170,6 +172,8 @@ public struct DesktopCalendarPromptResponse: Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
+        case notificationOwnerID = "notification_owner_id"
+        case notificationWorkspaceID = "notification_workspace_id"
         case events
         case showUpcomingTime = "show_upcoming_time"
         case showUpcomingTitle = "show_upcoming_title"
@@ -177,6 +181,8 @@ public struct DesktopCalendarPromptResponse: Codable, Equatable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        notificationOwnerID = try container.decodeIfPresent(String.self, forKey: .notificationOwnerID)
+        notificationWorkspaceID = try container.decodeIfPresent(String.self, forKey: .notificationWorkspaceID)
         events = try container.decodeIfPresent([DesktopCalendarPromptEvent].self, forKey: .events) ?? []
         showUpcomingTime = try container.decodeIfPresent(Bool.self, forKey: .showUpcomingTime) ?? true
         showUpcomingTitle = try container.decodeIfPresent(Bool.self, forKey: .showUpcomingTitle) ?? true

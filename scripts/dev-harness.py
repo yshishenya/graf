@@ -14,6 +14,7 @@ import datetime as dt
 import hashlib
 import json
 import os
+import plistlib
 from pathlib import Path
 import re
 import signal
@@ -23,6 +24,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import types
 from typing import Any, Dict, Iterator, Optional
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
@@ -265,8 +267,16 @@ def _run_command(command: list[str], *, cwd: Path, env: Optional[Dict[str, str]]
     except OSError as exc:
         raise HarnessError(f"adapter command unavailable ({command[0]}): {exc}") from exc
     if completed.returncode:
+        detail = ""
+        installer = cwd / "apps/macos/Scripts/install-dev-app.sh"
+        if command[:2] == ["sh", str(installer)] and installer.is_file():
+            # Only exact fixed diagnostics from trusted source; never arbitrary
+            # stderr, interpolated paths, URLs or credential-bearing tool output.
+            safe = {"GRAF Dev install: " + value for value in re.findall(r'\bfail "([^"$`]+)"', installer.read_text())}
+            detail = next((line for line in completed.stderr.splitlines() if line in safe), "")
         raise HarnessError(
             f"adapter command failed ({command[0]}), exit={completed.returncode}"
+            + (": " + detail if detail else "")
         )
     return completed.stdout.strip()
 
@@ -331,6 +341,153 @@ def _origin_parts(origin: str) -> tuple[str, int]:
     if port is None:
         port = 443 if parsed.scheme == "https" else 80
     return parsed.hostname, port
+
+
+# Runs inside the pinned migration image. Stdlib only; never exports filenames.
+SCHEMA_VOLUME_TOOL = r'''
+import hashlib, json, os, pathlib, shutil, sys, tarfile
+mode, name, expected_json = sys.argv[1:]
+root, backup = pathlib.Path('/volume'), pathlib.Path('/backup')
+archive = backup / (name + '.tar')
+expected = json.loads(expected_json)
+def digest(path):
+    with path.open('rb') as f:
+        return hashlib.file_digest(f, 'sha256').hexdigest()
+def inventory():
+    h = hashlib.sha256()
+    size = 0
+    for p in [root, *sorted(root.rglob('*'))]:
+        st = p.lstat()
+        if p.is_symlink() or not (p.is_file() or p.is_dir()):
+            raise ValueError('unsupported volume entry')
+        kind = 'd' if p.is_dir() else 'f'
+        size += st.st_size if kind == 'f' else 0
+        value = [str(p.relative_to(root)), kind, st.st_uid, st.st_gid, st.st_mode & 0o7777, digest(p) if kind == 'f' else '']
+        h.update(json.dumps(value, separators=(',', ':')).encode() + b'\n')
+    return {'tree_sha256': h.hexdigest(), 'bytes': size}
+def validate(t):
+    members = t.getmembers()
+    seen = {}
+    for m in members:
+        p = pathlib.PurePosixPath(m.name)
+        if p.is_absolute() or '..' in p.parts or str(p) != m.name or m.name in seen or not (m.isfile() or m.isdir()) or m.uid < 0 or m.gid < 0 or m.mode & ~0o7777:
+            raise ValueError('unsafe archive member')
+        if m.name != '.' and not seen.get(str(p.parent)):
+            raise ValueError('archive parent absent')
+        seen[m.name] = m.isdir()
+    if not members or members[0].name != '.' or not members[0].isdir():
+        raise ValueError('archive root absent')
+    h = hashlib.sha256()
+    size = 0
+    for m in members:
+        kind = 'd' if m.isdir() else 'f'
+        content = ''
+        if kind == 'f':
+            with t.extractfile(m) as f: content = hashlib.file_digest(f, 'sha256').hexdigest()
+            size += m.size
+        h.update(json.dumps([m.name, kind, m.uid, m.gid, m.mode, content], separators=(',', ':')).encode() + b'\n')
+    if h.hexdigest() != expected['tree_sha256'] or size != expected['bytes']:
+        raise ValueError('archive content differs from cold volume')
+    return members
+if mode == 'snapshot':
+    before = inventory()
+    if shutil.disk_usage(backup).free < before['bytes'] * 2 + 64 * 1024 * 1024:
+        raise ValueError('insufficient snapshot space')
+    with archive.open('xb') as f:
+        os.chmod(archive, 0o600)
+        with tarfile.open(fileobj=f, mode='w', dereference=True) as t:
+            for p in [root, *sorted(root.rglob('*'))]:
+                t.add(p, arcname=str(p.relative_to(root)), recursive=False)
+        f.flush(); os.fsync(f.fileno())
+    fd = os.open(backup, os.O_RDONLY); os.fsync(fd); os.close(fd)
+    if inventory() != before:
+        raise ValueError('volume changed during snapshot')
+    expected = dict(before, sha256=digest(archive))
+if not expected or archive.is_symlink() or digest(archive) != expected['sha256']:
+    raise ValueError('snapshot integrity mismatch')
+with archive.open('rb') as f:
+    with tarfile.open(fileobj=f, mode='r:') as t:
+        members = validate(t)
+        if mode == 'restore':
+            for p in root.iterdir():
+                if p.is_dir() and not p.is_symlink(): shutil.rmtree(p)
+                else: p.unlink()
+            t.extractall(root, members=members, numeric_owner=True, filter='fully_trusted')
+            os.sync()
+            if inventory() != {k: expected[k] for k in ('tree_sha256', 'bytes')}:
+                raise ValueError('restored volume differs from snapshot')
+print(json.dumps(expected))
+'''
+
+
+def _schema_upgrade_path(graph, current, target):
+    parents = graph.get("parents", {})
+    if graph.get("heads") != [target] or current == target or current not in parents or target not in parents:
+        raise HarnessError("schema transition requires a known ancestor and one target head")
+    def ancestors(revision, visiting=None):
+        visiting = set() if visiting is None else visiting
+        if revision in visiting or revision not in parents:
+            raise HarnessError("migration graph is cyclic or incomplete")
+        result = {revision}
+        for parent in parents[revision]:
+            result |= ancestors(parent, visiting | {revision})
+        return result
+    target_set, current_set = ancestors(target), ancestors(current)
+    if current not in target_set or set(parents) != target_set:
+        raise HarnessError("migration graph is divergent")
+    return sorted(target_set - current_set)
+
+
+def _read_schema_transition(root):
+    path = root / "schema-transition.json"
+    if not path.exists() and not path.is_symlink():
+        return None
+    if path.is_symlink() or path.stat().st_mode & 0o077:
+        raise HarnessError("schema transition journal must be private and real")
+    journal = _read_json(path)
+    phases = {"prepared", "snapshots_complete", "migrating", "migrated", "restoring", "restored", "previous_writers_may_have_started", "writers_may_have_started", "verified", "complete", "recovered"}
+    if journal.get("schema_version") != "dev-schema-transition.v1" or journal.get("phase") not in phases or not re.fullmatch(r"upgrade-[0-9]+", str(journal.get("operation_id", ""))):
+        raise HarnessError("invalid schema transition journal; recovery required")
+    for key in ("previous", "target"):
+        if not isinstance(journal.get(key), dict):
+            raise HarnessError("schema journal manifest is missing")
+        _validate_manifest(journal[key])
+    if set(journal.get("volumes", {})) != {"graf-dev-postgres-data", "graf-dev-minio-data"}:
+        raise HarnessError("invalid schema transition volume pair")
+    return journal
+
+
+def _assert_no_schema_transition(root):
+    journal = _read_schema_transition(root)
+    if journal and journal["phase"] not in {"complete", "recovered"}:
+        raise HarnessError("unfinished schema transition; use recover-schema from its target checkout")
+
+
+def _schema_start_guard(root, source_sha):
+    if root.resolve() != state_dir(live=True):
+        raise HarnessError("startup requires the repository-global state directory; use dev-harness")
+    journal = _read_schema_transition(root)
+    if not journal or journal["phase"] in {"complete", "recovered"}:
+        return
+    phase = journal["phase"]
+    chosen = "target" if phase == "writers_may_have_started" else "previous" if phase == "previous_writers_may_have_started" else None
+    pid = journal.get("controller_pid")
+    adapter = GrafLocalAdapter(_repo_root(), root)
+    if not chosen or source_sha != journal[chosen]["source_sha"] or os.environ.get("GRAF_DEV_SCHEMA_OPERATION") != journal["operation_id"] or str(pid) != os.environ.get("GRAF_DEV_SCHEMA_CONTROLLER_PID") or not isinstance(pid, int) or not adapter._pid_alive(pid) or adapter._process_start_token(pid) != journal.get("controller_start"):
+        raise HarnessError("startup blocked by schema transition; use its recovery controller")
+    parent = _run_command(["ps", "-p", str(os.getppid()), "-o", "ppid="], cwd=_repo_root()).strip()
+    if parent != str(pid):
+        raise HarnessError("schema startup must be a child of its recovery controller")
+
+
+
+SCHEMA_STARTUP_GATE = """import os,sys
+fd = int(sys.argv[1])
+allowed = os.read(fd, 1) == b'1'
+os.close(fd)
+if not allowed: sys.exit(1)
+os.execv('/bin/sh', ['sh', sys.argv[2]])
+"""
 
 
 class GrafLocalAdapter:
@@ -470,8 +627,6 @@ class GrafLocalAdapter:
 
     def _assert_runtime_definition_compatible(self, record: Dict[str, Any]) -> None:
         expected = str(record.get("runtime_definition_digest", ""))
-        # ponytail: fail closed on orchestration drift; persist a tracked runtime
-        # snapshot if promotions across definition revisions become necessary.
         if not re.fullmatch(r"sha256:[0-9a-fA-F]{64}", expected):
             raise HarnessError(
                 "active Dev runtime predates runtime-definition binding; explicit operator cutover required"
@@ -480,6 +635,73 @@ class GrafLocalAdapter:
             raise HarnessError(
                 "active Dev runtime definition differs from checkout; explicit operator cutover required"
             )
+
+    def _checkout_adapter(self, checkout: Path, manifest: Dict[str, Any], record=None):
+        """Load only clean, exact-SHA tooling from this repository, before mutation."""
+        checkout = checkout.resolve()
+        probe = GrafLocalAdapter(checkout, self.state)
+        probe._assert_source_matches_checkout(manifest)
+        def common_dir(root):
+            return (root / _run_command(["git", "rev-parse", "--git-common-dir"], cwd=root)).resolve()
+        if common_dir(checkout) != common_dir(self.root):
+            raise HarnessError("transition checkout must belong to this Git repository")
+        if record is not None:
+            probe._assert_runtime_definition_compatible(record)
+        # Read tracked bytes explicitly: status can hide assume-unchanged files,
+        # and import loaders may execute an ignored stale __pycache__.
+        sources = {}
+        for relative in RUNTIME_DEFINITION_PATHS:
+            path = checkout / relative
+            if not path.is_file() or not path.resolve().is_relative_to(checkout):
+                raise HarnessError(f"transition input is not a checkout file: {relative}")
+            source = path.read_bytes()
+            expected = subprocess.check_output(
+                ["git", "show", f"{manifest['source_sha']}:{relative}"], cwd=checkout
+            )
+            if source != expected:
+                raise HarnessError(f"transition input differs from committed bytes: {relative}")
+            sources[relative] = source
+        source_path = checkout / "scripts" / "dev-harness.py"
+        module = types.ModuleType("graf_dev_transition")
+        module.__file__ = str(source_path)
+        exec(compile(sources["scripts/dev-harness.py"], str(source_path), "exec"), module.__dict__)
+        module.HarnessError = HarnessError
+        if module.RUNTIME_DEFINITION_PATHS != RUNTIME_DEFINITION_PATHS:
+            raise HarnessError("transition runtime-definition contract is unsupported")
+        adapter = module.GrafLocalAdapter(checkout, self.state)
+        adapter._assert_supported()
+        adapter._assert_source_matches_checkout(manifest)
+        if record is not None:
+            adapter._assert_runtime_definition_compatible(record)
+        return adapter
+
+    def _previous_adapter(self, record, manifest, checkout):
+        if checkout is not None:
+            return self._checkout_adapter(Path(checkout), manifest, record)
+        self._assert_runtime_definition_compatible(record)
+        return self
+
+    @staticmethod
+    def _assert_transition_compatible(previous, target):
+        # This lane changes tooling/app code, not persistent service formats.
+        if previous["migration_head"] != target["migration_head"] or any(
+            previous["components"][key]["digest"] != target["components"][key]["digest"]
+            for key in ("database", "storage", "temporal")
+        ):
+            raise HarnessError("cross-definition transition requires matching database schema and stateful images")
+
+    @staticmethod
+    def _assert_transition_smoke(checks, *, app_was_running=True):
+        required = {
+            "backend_health", "frontend_reachability", "auth_session_bootstrap",
+            "representative_api", "processing_worker_readiness", "media_worker_readiness",
+            "database_readiness", "storage_readiness", "temporal_readiness",
+            "migration_readiness", "exact_source_sha", "app_identity", "app_presentation",
+        }
+        if not app_was_running:
+            required.remove("app_presentation")
+        if not required.issubset(checks) or any(checks[key] != "pass" for key in required):
+            raise HarnessError("cross-definition transition smoke is incomplete or failed")
 
     def _assert_supported(self) -> None:
         if sys.platform != "darwin":
@@ -736,12 +958,18 @@ class GrafLocalAdapter:
         requirement_match = re.search(r"^designated => (.+)$", requirement_output, re.MULTILINE)
         if not requirement_match or not requirement_match.group(1).strip():
             raise HarnessError("signed Dev app has no designated requirement")
-        entitlements = _run_command_combined(
+        # codesign stderr includes the bundle path; identity comes only from the plist.
+        entitlements = _run_command(
             ["codesign", "-d", "--entitlements", ":-", str(app_bundle)], cwd=self.root
         )
-        if "<plist" not in entitlements:
-            raise HarnessError("signed Dev app has no readable entitlements")
-        return authorities[0].strip(), requirement_match.group(1).strip(), _digest(entitlements)
+        try:
+            values = plistlib.loads(entitlements.encode("utf-8"))
+            if not isinstance(values, dict):
+                raise ValueError("entitlements must be a dictionary")
+            canonical = plistlib.dumps(values, sort_keys=True).decode("utf-8")
+        except Exception as exc:
+            raise HarnessError("signed Dev app has no readable entitlements") from exc
+        return authorities[0].strip(), requirement_match.group(1).strip(), _digest(canonical)
 
     def _runtime_record(self) -> Path:
         return self.state / "runtime.json"
@@ -843,43 +1071,61 @@ class GrafLocalAdapter:
         return isinstance(pid, int) and self._pid_alive(pid) and self._pid_owned(record)
 
     def _start_backend(self, manifest: Dict[str, Any], env: Dict[str, str]) -> None:
+        journal = _read_schema_transition(self.state)
+        if journal and journal["phase"] not in {"complete", "recovered"}:
+            phase = "writers_may_have_started" if manifest["source_sha"] == journal["target"]["source_sha"] else "previous_writers_may_have_started"
+            if getattr(self, "_schema_operation", None) != journal["operation_id"] or journal["phase"] != phase:
+                raise HarnessError("backend start requires the schema recovery controller")
+        gated = journal is not None and journal["phase"] not in {"complete", "recovered"}
+        gate_read, gate_write = os.pipe() if gated else (None, None)
+        command = [sys.executable, "-c", SCHEMA_STARTUP_GATE, str(gate_read), str(self.start_script)] if gated else ["sh", str(self.start_script)]
         runtime = self._runtime_record()
         log_path = self.state / "logs" / "backend.log"
         log_path.parent.mkdir(parents=True, exist_ok=True)
         log_handle = log_path.open("a", encoding="utf-8")
         try:
             process = subprocess.Popen(
-                ["sh", str(self.start_script)],
+                command,
                 cwd=str(self.root),
                 env=env,
                 stdout=log_handle,
                 stderr=subprocess.STDOUT,
                 start_new_session=True,
+                pass_fds=(gate_read,) if gated else (),
             )
         except OSError as exc:
-            log_handle.close()
+            if gate_write is not None:
+                os.close(gate_write)
             raise HarnessError(f"could not start local backend: {exc}") from exc
         finally:
             log_handle.close()
-        _write_json(
-            runtime,
-            {
-                "pid": process.pid,
-                "source_sha": manifest["source_sha"],
-                "compose_project": "graf-dev",
-                "services": ["api", "rec-processing-worker", "rec-maintenance", "rec-media-worker"],
-                "images": {
-                    service: env[variable]
-                    for service, (_component, variable, _fallback, _source_bound) in COMPOSE_IMAGE_COMPONENTS.items()
-                    if variable in env
+            if gate_read is not None:
+                os.close(gate_read)
+        try:
+            _write_json(
+                runtime,
+                {
+                    "pid": process.pid,
+                    "source_sha": manifest["source_sha"],
+                    "compose_project": "graf-dev",
+                    "services": ["api", "rec-processing-worker", "rec-maintenance", "rec-media-worker"],
+                    "images": {
+                        service: env[variable]
+                        for service, (_component, variable, _fallback, _source_bound) in COMPOSE_IMAGE_COMPONENTS.items()
+                        if variable in env
+                    },
+                    "runtime_definition_digest": self._runtime_definition_digest(),
+                    "runtime_mode": "compose",
+                    "started_at": now(),
+                    "command": "sh " + str(self.start_script) if gated else self._process_command(process.pid),
+                    "start_token": self._process_start_token(process.pid),
                 },
-                "runtime_definition_digest": self._runtime_definition_digest(),
-                "runtime_mode": "compose",
-                "started_at": now(),
-                "command": self._process_command(process.pid),
-                "start_token": self._process_start_token(process.pid),
-            },
-        )
+            )
+            if gate_write is not None:
+                os.write(gate_write, b"1")
+        finally:
+            if gate_write is not None:
+                os.close(gate_write)
         try:
             self._wait_runtime_ready(manifest, env)
         except HarnessError:
@@ -933,9 +1179,7 @@ class GrafLocalAdapter:
         self._stop_previous()
         self._start_backend(manifest, env)
 
-    def _install_app(self, manifest: Dict[str, Any], env: Dict[str, str]) -> None:
-        env = dict(env)
-        env["GRAF_DEV_INSTALL_PATH"] = os.environ.get("GRAF_DEV_INSTALL_PATH", "/Applications/GRAF Dev.app")
+    def _checked_app_bundle(self, manifest: Dict[str, Any]) -> Path:
         app_bundle = self.state / "artifacts" / str(manifest["manifest_id"]) / "GRAF Dev.app"
         if not app_bundle.is_dir():
             raise HarnessError("live promote requires the exact app bundle produced by live build")
@@ -943,7 +1187,12 @@ class GrafLocalAdapter:
         actual_digest = _tree_digest(app_bundle)
         if actual_digest != expected_digest:
             raise HarnessError("live promote app bundle digest does not match the manifest")
-        env["GRAF_DEV_APP_SOURCE_BUNDLE"] = str(app_bundle)
+        return app_bundle
+
+    def _install_app(self, manifest: Dict[str, Any], env: Dict[str, str]) -> None:
+        env = dict(env)
+        env["GRAF_DEV_INSTALL_PATH"] = os.environ.get("GRAF_DEV_INSTALL_PATH", "/Applications/GRAF Dev.app")
+        env["GRAF_DEV_APP_SOURCE_BUNDLE"] = str(self._checked_app_bundle(manifest))
         _run_command(["sh", str(self.install_app_script)], cwd=self.root, env=env)
 
     def _app_is_running(self, destination: Path) -> bool:
@@ -1077,7 +1326,6 @@ class GrafLocalAdapter:
             "checks": {"compensation": "fail"},
         }
         _validate_manifest(blocked)
-        _write_json(_manifest_path(self.state, str(blocked["manifest_id"])), blocked)
         _write_json(
             self.state / "rollback-required.json",
             {
@@ -1088,8 +1336,258 @@ class GrafLocalAdapter:
                 "checked_at": now(),
             },
         )
+        _write_json(_manifest_path(self.state, str(blocked["manifest_id"])), blocked)
 
-    def promote(self, manifest: Dict[str, Any]) -> Dict[str, str]:
+    def _schema_compose(self, manifest, *args):
+        return _run_command(["docker", "compose", "-p", "graf-dev", "-f", str(self.compose_file), *args], cwd=self.root, env=self._env(manifest))
+
+    def _schema_revision(self, manifest):
+        value = self._schema_compose(manifest, "exec", "-T", "rec-postgres", "psql", "-U", "twobrain_rec", "-d", "twobrain_rec", "-At", "-c", "SELECT version_num FROM alembic_version ORDER BY version_num")
+        if not re.fullmatch(r"[A-Za-z0-9_.-]+", value):
+            raise HarnessError("schema transition requires one observed database revision")
+        return value
+
+    def _schema_container_ids(self, *, running=False, operation=None):
+        filters = ["label=com.docker.compose.project=graf-dev",
+                   "volume=graf-dev-postgres-data", "volume=graf-dev-minio-data"]
+        if operation:
+            filters.append("label=pro.2brain.graf.schema-operation=" + operation)
+        return sorted({cid for value in filters for cid in _run_command(
+            ["docker", "ps", "-q" if running else "-aq", "--filter", value], cwd=self.root
+        ).split()})
+
+    def _schema_inventory(self, manifest, *, cold=False):
+        """Inspect only bounded metadata; never return container environments."""
+        volumes = {"graf-dev-postgres-data": "rec-postgres-dev-data", "graf-dev-minio-data": "rec-minio-dev-data"}
+        identities = {}
+        for name, key in volumes.items():
+            info = json.loads(_run_command(["docker", "volume", "inspect", name], cwd=self.root))[0]
+            labels = info.get("Labels") or {}
+            if info.get("Name") != name or info.get("Driver") != "local" or info.get("Options") or labels.get("com.docker.compose.project") != "graf-dev" or labels.get("com.docker.compose.volume") != key:
+                raise HarnessError("schema transition volume ownership mismatch")
+            identities[name] = {k: info.get(k) for k in ("Name", "Driver", "CreatedAt", "Mountpoint", "Labels", "Options")}
+        ids = self._schema_container_ids()
+        stateful = {}
+        for cid in ids:
+            info = json.loads(_run_command(["docker", "inspect", cid], cwd=self.root))[0]
+            labels = info.get("Config", {}).get("Labels") or {}
+            running = info.get("State", {}).get("Running", False)
+            mounts = {m.get("Name"): m.get("Destination") for m in info.get("Mounts", []) if m.get("Type") == "volume"}
+            service = labels.get("com.docker.compose.service")
+            owned = labels.get("com.docker.compose.project") == "graf-dev"
+            touches = set(mounts) & set(volumes)
+            if touches and (not owned or service not in {"rec-postgres", "rec-minio"}):
+                raise HarnessError("unexpected container mounts a Dev state volume")
+            if cold and running and (touches or owned):
+                raise HarnessError("schema snapshot requires all Dev containers stopped")
+            if owned and running and service in COMPOSE_IMAGE_COMPONENTS:
+                component = COMPOSE_IMAGE_COMPONENTS[service][0]
+                if info.get("Image") != manifest["components"][component]["digest"]:
+                    raise HarnessError("running Dev image differs from manifest")
+                if service in {"rec-postgres", "rec-minio", "rec-temporal"}:
+                    stateful[service] = info["Image"]
+                # Dev has no external provider work; inspect actual values, never log them.
+                values = dict(v.split("=", 1) for v in info.get("Config", {}).get("Env", []) if "=" in v)
+                if service in {"api", "rec-processing-worker", "rec-media-worker", "rec-maintenance"}:
+                    empty = ("TWOBRAIN_MEDIASCRIBE_BASE_URL", "TWOBRAIN_MEDIASCRIBE_API_KEY_FILE", "TWOBRAIN_LITELLM_BASE_URL", "TWOBRAIN_LITELLM_API_KEY_FILE", "TWOBRAIN_LANGFUSE_BASE_URL", "TWOBRAIN_YANDEX_CLIENT_ID", "TWOBRAIN_VK_CLIENT_ID", "TWOBRAIN_TELEGRAM_CLIENT_ID", "TWOBRAIN_SUPPORT_INCIDENT_GITHUB_TOKEN_FILE")
+                    if any(values.get(k) != "" for k in empty) or values.get("TWOBRAIN_OUTCOME_GENERATION_ENABLED") != "false" or any(values.get(k, "false") != "false" for k in ("TWOBRAIN_EMAIL_LOGIN_DELIVERY_ENABLED", "TWOBRAIN_GOOGLE_CALENDAR_ENABLED", "TWOBRAIN_BILLING_CHECKOUT_ENABLED")):
+                        raise HarnessError("schema transition requires disabled external integrations")
+            if owned and service in {"rec-postgres", "rec-minio"}:
+                expected = {"rec-postgres": ("graf-dev-postgres-data", "/var/lib/postgresql/data"), "rec-minio": ("graf-dev-minio-data", "/data")}[service]
+                data_mounts = [m for m in info.get("Mounts", []) if m.get("Destination") == expected[1]]
+                if len(data_mounts) != 1 or data_mounts[0].get("Type") != "volume" or data_mounts[0].get("Name") != expected[0] or touches != {expected[0]}:
+                    raise HarnessError("Dev state volume mount mismatch")
+                mountpoint = identities[expected[0]].get("Mountpoint")
+                if not isinstance(mountpoint, str) or not mountpoint.startswith("/") or data_mounts[0].get("Source") != mountpoint:
+                    raise HarnessError("Dev data mount must expose the whole verified volume root")
+                if any(m.get("Target") == expected[1] and (m.get("VolumeOptions") or {}).get("Subpath") for m in info.get("HostConfig", {}).get("Mounts", [])):
+                    raise HarnessError("Dev data volume subpaths are not supported")
+                if any(m.get("Destination", "").startswith(expected[1] + "/") for m in info.get("Mounts", [])):
+                    raise HarnessError("nested mount hides data from the Dev snapshot")
+                values = dict(v.split("=", 1) for v in info.get("Config", {}).get("Env", []) if "=" in v)
+                if service == "rec-postgres" and values.get("PGDATA") != expected[1]:
+                    raise HarnessError("PostgreSQL data directory differs from the Dev volume")
+                if service == "rec-minio" and info.get("Config", {}).get("Cmd") != ["server", "/data", "--console-address", ":9001"]:
+                    raise HarnessError("MinIO data command differs from the Dev volume")
+        if not cold and set(stateful) != {"rec-postgres", "rec-minio", "rec-temporal"}:
+            raise HarnessError("schema transition requires all previous stateful images observed")
+        return identities
+
+    def _schema_graph(self, previous, target):
+        code = '''import json
+from alembic.config import Config
+from alembic.script import ScriptDirectory
+s = ScriptDirectory.from_config(Config("alembic.ini"))
+print(json.dumps({"heads": s.get_heads(), "parents": {r.revision: list(r._normalized_down_revisions) for r in s.walk_revisions()}}))'''
+        graph = json.loads(_run_command(["docker", "run", "--rm", "--network", "none", "--entrypoint", "python", target["components"]["migration"]["digest"], "-c", code], cwd=self.root, env=self._env(target)))
+        return _schema_upgrade_path(graph, previous["migration_head"], target["migration_head"])
+
+    def _schema_phase(self, journal, phase):
+        journal["phase"] = phase
+        journal["updated_at"] = now()
+        _write_json(self.state / "schema-transition.json", journal)
+
+    def _schema_stop(self, manifest):
+        self._terminate_dev_app(Path("/Applications/GRAF Dev.app"))
+        self._stop_previous()
+        self._schema_compose(manifest, "stop", "--timeout", "60")
+        journal = _read_schema_transition(self.state)
+        if journal:
+            # Docker clients can die while their migration/copy container survives.
+            ids = self._schema_container_ids(running=True, operation=journal["operation_id"])
+            for cid in ids:
+                info = json.loads(_run_command(["docker", "inspect", cid], cwd=self.root))[0]
+                labels = info.get("Config", {}).get("Labels") or {}
+                service = labels.get("com.docker.compose.service")
+                copy = labels.get("pro.2brain.graf.schema-operation") == journal["operation_id"]
+                project = labels.get("com.docker.compose.project") == "graf-dev"
+                if not copy and not project:
+                    continue
+                if copy:
+                    expected_image = journal["target"]["components"]["migration"]["digest"]
+                    mounts = info.get("Mounts", [])
+                    volume = next((m.get("Name") for m in mounts if m.get("Destination") == "/volume"), None)
+                    backup = str(self.state / "schema-transactions" / journal["operation_id"])
+                    if info.get("Image") != expected_image or volume not in journal["volumes"] or info.get("HostConfig", {}).get("NetworkMode") != "none" or not any(m.get("Destination") == "/backup" and m.get("Source") == backup for m in mounts):
+                        raise HarnessError("unverified schema tool container; recovery blocked")
+                elif service not in COMPOSE_IMAGE_COMPONENTS or info.get("Image") not in {j["components"][COMPOSE_IMAGE_COMPONENTS[service][0]]["digest"] for j in (journal["previous"], journal["target"])}:
+                    raise HarnessError("unverified Dev container; recovery blocked")
+                _run_command(["docker", "stop", "--time", "60", cid], cwd=self.root)
+        self._schema_inventory(manifest, cold=True)
+
+    def _schema_volume_tool(self, journal, volume, action):
+        backup = self.state / "schema-transactions" / journal["operation_id"]
+        if backup.is_symlink() or backup.parent.is_symlink() or not backup.is_dir() or backup.stat().st_mode & 0o077:
+            raise HarnessError("schema backup directory must be private and real")
+        return json.loads(_run_command([
+            "docker", "run", "--rm", "--network", "none", "--user", "0:0",
+            "--label", "pro.2brain.graf.schema-operation=" + journal["operation_id"],
+            "--mount", f"type=volume,src={volume},dst=/volume" + (",readonly" if action != "restore" else ""),
+            "--mount", f"type=bind,src={backup},dst=/backup",
+            "--entrypoint", "python", journal["target"]["components"]["migration"]["digest"],
+            "-c", SCHEMA_VOLUME_TOOL, action, volume,
+            json.dumps(journal.get("snapshots", {}).get(volume)),
+        ], cwd=self.root, env=self._env(journal["target"])))
+
+    def _schema_check_volumes(self, journal):
+        observed = self._schema_inventory(journal["target"], cold=True)
+        if observed != journal["volumes"]:
+            raise HarnessError("Dev volumes changed since transition preparation")
+
+    def _schema_restore_pair(self, journal):
+        self._schema_check_volumes(journal)
+        if set(journal.get("snapshots", {})) != set(journal["volumes"]):
+            raise HarnessError("complete snapshot pair is required")
+        for volume in journal["volumes"]:
+            self._schema_volume_tool(journal, volume, "verify")
+        self._schema_phase(journal, "restoring")
+        for volume in journal["volumes"]:
+            self._schema_check_volumes(journal)
+            self._schema_volume_tool(journal, volume, "restore")
+        self._schema_phase(journal, "restored")
+
+    def _schema_start_database(self, manifest):
+        self._schema_compose(manifest, "up", "-d", "--wait", "--no-deps", "rec-postgres")
+
+    def _schema_resume(self, journal, *, previous_adapter):
+        phase = journal["phase"]
+        forward = phase in {"writers_may_have_started", "verified"}
+        if not forward and phase not in {"prepared", "snapshots_complete", "migrating", "migrated", "restoring", "restored", "previous_writers_may_have_started"}:
+            raise HarnessError("unknown schema recovery phase")
+        chosen = journal["target"] if forward else journal["previous"]
+        adapter = self if forward else previous_adapter
+        self._schema_stop(journal["target"])
+        self._schema_check_volumes(journal)
+        if not forward and phase in {"migrating", "migrated", "restoring", "restored"}:
+            self._schema_restore_pair(journal)
+        self._schema_start_database(chosen)
+        if self._schema_revision(chosen) != chosen["migration_head"]:
+            raise HarnessError("recovery database revision mismatch; stack remains blocked")
+        databases = self._schema_compose(chosen, "exec", "-T", "rec-postgres", "psql", "-U", "twobrain_rec", "-d", "postgres", "-At", "-c", "SELECT datname FROM pg_database WHERE datname IN ('temporal','temporal_visibility','twobrain_rec') ORDER BY datname")
+        if databases.splitlines() != ["temporal", "temporal_visibility", "twobrain_rec"]:
+            raise HarnessError("recovery database inventory mismatch")
+        adapter._install_app(chosen, adapter._env(chosen))
+        self._schema_phase(journal, "writers_may_have_started" if forward else "previous_writers_may_have_started")
+        self._schema_start_authorized(adapter, chosen, journal)
+        if forward or journal["app_was_running"]:
+            self._launch_dev_app(Path("/Applications/GRAF Dev.app"))
+        checks = adapter.smoke(chosen)
+        self._assert_transition_smoke(checks, app_was_running=forward or journal["app_was_running"])
+        result = dict(chosen, status="active", health={"result": "pass", "checked_at": now(), "checks": checks})
+        _publish_active(self.state, result, "live")
+        self._schema_phase(journal, "complete" if forward else "recovered")
+        return {"mode": "live", "checks": checks, "manifest": result}
+
+    def _schema_start_authorized(self, adapter, manifest, journal):
+        # The frozen predecessor is called only by this controller after durable phase validation.
+        self._schema_operation = journal["operation_id"]
+        env = adapter._env(manifest)
+        env["GRAF_DEV_SCHEMA_CONTROLLER_PID"] = str(os.getpid())
+        env["GRAF_DEV_SCHEMA_OPERATION"] = journal["operation_id"]
+        adapter._schema_operation = journal["operation_id"]
+        GrafLocalAdapter._start_backend(adapter, manifest, env)
+
+    def _promote_schema(self, previous, target, previous_adapter):
+        _assert_no_schema_transition(self.state)
+        if any(previous["components"][k]["digest"] != target["components"][k]["digest"] for k in ("database", "storage", "temporal")):
+            raise HarnessError("schema transition cannot change stateful images")
+        if self._schema_revision(previous) != previous["migration_head"]:
+            raise HarnessError("observed schema differs from active manifest")
+        self._checkout_adapter(self.root, target)
+        for item in (previous, target):
+            self._checked_app_bundle(item)
+        path = self._schema_graph(previous, target)
+        volumes = self._schema_inventory(previous)
+        operation = "upgrade-" + str(time.time_ns())
+        directory = self.state / "schema-transactions" / operation
+        directory.mkdir(parents=True, mode=0o700)
+        os.chmod(directory.parent, 0o700)
+        journal = {"schema_version": "dev-schema-transition.v1", "operation_id": operation,
+                   "previous": previous, "target": target, "previous_checkout": str(previous_adapter.root),
+                   "target_checkout": str(self.root), "previous_runtime": _read_json(self._runtime_record()), "volumes": volumes, "migration_path": path,
+                   "app_was_running": self._app_is_running(Path("/Applications/GRAF Dev.app")),
+                   "controller_pid": os.getpid(), "controller_start": self._process_start_token(os.getpid()), "snapshots": {}}
+        self._schema_phase(journal, "prepared")
+        try:
+            self._schema_stop(previous)
+            self._schema_check_volumes(journal)
+            for volume in volumes:
+                self._schema_check_volumes(journal)
+                journal["snapshots"][volume] = self._schema_volume_tool(journal, volume, "snapshot")
+            self._schema_phase(journal, "snapshots_complete")
+            self._schema_phase(journal, "migrating")
+            self._schema_start_database(target)
+            self._schema_compose(target, "run", "--rm", "--no-deps", "rec-migrate")
+            if self._schema_revision(target) != target["migration_head"]:
+                raise HarnessError("target migration head was not reached")
+            self._schema_phase(journal, "migrated")
+            self._install_app(target, self._env(target))
+            self._schema_phase(journal, "writers_may_have_started")
+            self._schema_start_authorized(self, target, journal)
+            self._launch_dev_app(Path("/Applications/GRAF Dev.app"))
+            checks = self.smoke(target)
+            self._assert_transition_smoke(checks)
+            self._schema_phase(journal, "verified")
+            return {"mode": "live", "checks": checks, "schema_operation": operation}
+        except BaseException as failure:
+            # Re-read the durable phase: even a failed fsync may have published the marker.
+            durable = _read_schema_transition(self.state)
+            if durable and durable["phase"] in {"prepared", "snapshots_complete", "migrating", "migrated", "restoring", "restored"}:
+                try:
+                    self._schema_resume(durable, previous_adapter=previous_adapter)
+                except BaseException:
+                    with contextlib.suppress(Exception):
+                        self._schema_stop(target)
+                    self._mark_rollback_required(target)
+                    raise HarnessError("schema transition recovery incomplete; use recover-schema") from failure
+            else:
+                with contextlib.suppress(Exception):
+                    self._schema_stop(target)
+                self._mark_rollback_required(target)
+                raise HarnessError("schema transition requires forward recovery; snapshots must not be restored") from failure
+            raise
+
+    def promote(self, manifest: Dict[str, Any], *, previous_checkout=None) -> Dict[str, str]:
         self._assert_supported()
         self._assert_source_matches_checkout(manifest)
         env = self._env(manifest)
@@ -1105,12 +1603,21 @@ class GrafLocalAdapter:
             and previous_runtime.get("source_sha") != previous_manifest.get("source_sha")
         ):
             raise HarnessError("previous Dev runtime does not match the active manifest")
+        previous_adapter = self
         if previous_was_live and previous_runtime is not None:
-            self._assert_runtime_definition_compatible(previous_runtime)
+            previous_adapter = self._previous_adapter(previous_runtime, previous_manifest, previous_checkout)
+        schema_change = previous_manifest is not None and previous_manifest["migration_head"] != manifest["migration_head"]
+        if previous_adapter is not self and not schema_change:
+            self._assert_transition_compatible(previous_manifest, manifest)
         self._assert_manifest_images(manifest, env)
         if previous_was_live and previous_manifest is not None:
-            previous_env = self._env(previous_manifest)
-            self._assert_manifest_images(previous_manifest, previous_env)
+            previous_env = previous_adapter._env(previous_manifest)
+            previous_adapter._compose_config(previous_env)
+            previous_adapter._assert_manifest_images(previous_manifest, previous_env)
+        if schema_change:
+            if not previous_was_live or previous_adapter is self:
+                raise HarnessError("schema transition requires a live verified predecessor checkout")
+            return self._promote_schema(previous_manifest, manifest, previous_adapter)
         app_destination = Path(os.environ.get("GRAF_DEV_INSTALL_PATH", "/Applications/GRAF Dev.app"))
         previous_app_was_running = self._app_is_running(app_destination)
         app_backup = self._snapshot_app()
@@ -1121,6 +1628,8 @@ class GrafLocalAdapter:
             self._start_backend(manifest, env)
             self._launch_dev_app(app_destination)
             checks = self.smoke(manifest)
+            if previous_adapter is not self:
+                self._assert_transition_smoke(checks)
             if any(value != "pass" for key, value in checks.items() if key != "mode"):
                 raise HarnessError("live promotion smoke failed")
         except BaseException as failure:
@@ -1130,7 +1639,10 @@ class GrafLocalAdapter:
             except Exception as exc:  # pragma: no cover - defensive path
                 compensation_errors.append(f"app restore failed: {exc}")
             try:
-                self._restore_runtime(previous_runtime, previous_manifest, previous_was_live)
+                # Stop candidate with its controller; restart predecessor with its own tooling.
+                if previous_adapter is not self:
+                    self._stop_previous()
+                previous_adapter._restore_runtime(previous_runtime, previous_manifest, previous_was_live)
             except Exception as exc:  # pragma: no cover - defensive path
                 compensation_errors.append(f"runtime restore failed: {exc}")
             if previous_app_was_running and app_backup is not None:
@@ -1141,42 +1653,54 @@ class GrafLocalAdapter:
             if compensation_errors:
                 self._mark_rollback_required(previous_manifest or manifest)
                 raise HarnessError("live promotion failed; compensation failed: " + "; ".join(compensation_errors)) from failure
+            if previous_adapter is not self:
+                try:
+                    self._assert_transition_smoke(previous_adapter.smoke(previous_manifest), app_was_running=previous_app_was_running)
+                except Exception as exc:
+                    self._mark_rollback_required(previous_manifest)
+                    raise HarnessError(f"live promotion failed; compensation verification failed: {exc}") from failure
             raise
         else:
             if app_backup is not None:
                 shutil.rmtree(app_backup)
         return {"mode": "live", "backend": "started", "app": "installed", "checks": checks}
 
-    def rollback(self, active: Dict[str, Any], target: Dict[str, Any]) -> Dict[str, Any]:
+    def rollback(self, active: Dict[str, Any], target: Dict[str, Any], *, previous_checkout=None, target_checkout=None) -> Dict[str, Any]:
         """Restore one previously built Dev target and prove it before commit."""
         self._assert_supported()
-        # start-local.sh resolves backend code from its checkout. A rollback
-        # target may be older than the active runtime, so validating only the
-        # active manifest could start the target with the wrong backend code.
-        # Require the operator to check out the target SHA before touching the
-        # live runtime so app, backend and manifest share one source identity.
-        self._assert_source_matches_checkout(target)
-        env = self._env(target)
-        self._compose_config(env)
+        # Explicit target tooling lets the current controller retain compensation
+        # even when the target predates cross-definition transitions.
+        target_adapter = self._checkout_adapter(Path(target_checkout), target) if target_checkout else self
+        if target_checkout:
+            self._assert_source_matches_checkout(active)
+        target_adapter._assert_source_matches_checkout(target)
+        env = target_adapter._env(target)
+        target_adapter._compose_config(env)
         previous_runtime = _read_json(self._runtime_record()) if self._runtime_record().exists() else None
         previous_was_live = self._runtime_is_live(previous_runtime)
         if not previous_was_live:
             raise HarnessError("live rollback requires an owned active Dev backend")
         if previous_runtime.get("source_sha") != active.get("source_sha"):
             raise HarnessError("active Dev runtime does not match the active manifest")
-        self._assert_runtime_definition_compatible(previous_runtime)
-        self._assert_manifest_images(target, env)
-        self._assert_manifest_images(active, self._env(active))
+        previous_adapter = self._previous_adapter(previous_runtime, active, previous_checkout)
+        cross_definition = previous_adapter is not self or target_adapter is not self
+        self._assert_transition_compatible(active, target)
+        target_adapter._assert_manifest_images(target, env)
+        previous_env = previous_adapter._env(active)
+        previous_adapter._compose_config(previous_env)
+        previous_adapter._assert_manifest_images(active, previous_env)
         app_destination = Path(os.environ.get("GRAF_DEV_INSTALL_PATH", "/Applications/GRAF Dev.app"))
         previous_app_was_running = self._app_is_running(app_destination)
         app_backup = self._snapshot_app()
         try:
             self._stop_previous()
             self._terminate_dev_app(app_destination)
-            self._install_app(target, env)
-            self._start_backend(target, env)
+            target_adapter._install_app(target, env)
+            target_adapter._start_backend(target, env)
             self._launch_dev_app(app_destination)
-            checks = self.smoke(target)
+            checks = target_adapter.smoke(target)
+            if cross_definition:
+                self._assert_transition_smoke(checks)
             if any(value != "pass" for key, value in checks.items() if key != "mode"):
                 raise HarnessError("live rollback smoke failed")
         except BaseException as failure:
@@ -1186,7 +1710,9 @@ class GrafLocalAdapter:
             except Exception as exc:  # pragma: no cover - defensive path
                 compensation_errors.append(f"app restore failed: {exc}")
             try:
-                self._restore_runtime(previous_runtime, active, previous_was_live)
+                if cross_definition:
+                    self._stop_previous()
+                previous_adapter._restore_runtime(previous_runtime, active, previous_was_live)
             except Exception as exc:  # pragma: no cover - defensive path
                 compensation_errors.append(f"runtime restore failed: {exc}")
             if previous_app_was_running and app_backup is not None:
@@ -1197,6 +1723,12 @@ class GrafLocalAdapter:
             if compensation_errors:
                 self._mark_rollback_required(active)
                 raise HarnessError("live rollback failed; compensation failed: " + "; ".join(compensation_errors)) from failure
+            if cross_definition:
+                try:
+                    self._assert_transition_smoke(previous_adapter.smoke(active), app_was_running=previous_app_was_running)
+                except Exception as exc:
+                    self._mark_rollback_required(active)
+                    raise HarnessError(f"live rollback failed; compensation verification failed: {exc}") from failure
             raise
         else:
             if app_backup is not None:
@@ -1327,6 +1859,11 @@ def _atomic_write(path: Path, content: str) -> None:
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temp_name, path)
+        directory_fd = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
     finally:
         with contextlib.suppress(FileNotFoundError):
             os.unlink(temp_name)
@@ -1476,6 +2013,7 @@ def build_manifest(sha: str, feature_id: str, operator: str = "local", migration
 def operation_build(args: argparse.Namespace) -> Dict[str, Any]:
     root = state_dir(live=bool(getattr(args, "live", False)))
     with state_lock(root):
+        _assert_no_schema_transition(root)
         feature_id = args.feature_id or os.environ.get("GRAF_FEATURE_ID") or _active_feature_id()
         migration_head = args.migration_head
         if migration_head in {None, "", "unknown"}:
@@ -1511,6 +2049,22 @@ def operation_build(args: argparse.Namespace) -> Dict[str, Any]:
         return {"operation": "build", "dry_run": bool(args.dry_run), "adapter": adapter_info, "manifest": manifest}
 
 
+def _publish_active(root: Path, manifest: Dict[str, Any], mode: str) -> None:
+    try:
+        _mkdirs(root)
+        _write_json(_manifest_path(root, manifest["manifest_id"]), manifest)
+        _write_json(root / "active-manifest.json", {
+            "schema_version": POINTER_VERSION, "manifest_id": manifest["manifest_id"],
+            "runtime_mode": mode, "updated_at": now(),
+        })
+        with contextlib.suppress(FileNotFoundError):
+            (root / "rollback-required.json").unlink()
+    except OSError as exc:
+        if mode == "live":
+            GrafLocalAdapter(_repo_root(), root)._mark_rollback_required(manifest)
+        raise HarnessError("active Dev metadata publication failed; recovery required") from exc
+
+
 def operation_promote(args: argparse.Namespace) -> Dict[str, Any]:
     _assert_dev_environment()
     root = state_dir(live=bool(getattr(args, "live", False)))
@@ -1519,9 +2073,13 @@ def operation_promote(args: argparse.Namespace) -> Dict[str, Any]:
     if candidate.get("migration_head") in {None, "", "unknown"}:
         raise HarnessError("manifest migration_head must be resolved before promotion")
     with state_lock(root):
+        _assert_no_schema_transition(root)
         active = _load_active(root)
         expected_parent = candidate.get("parent_manifest_id")
-        if active and expected_parent != active["manifest_id"]:
+        same_active = active is not None and candidate["manifest_id"] == active["manifest_id"]
+        if same_active and candidate != active:
+            raise HarnessError("active manifest identity must not be changed")
+        if active and not same_active and expected_parent != active["manifest_id"]:
             raise HarnessError("candidate parent manifest is stale; rebuild from current active Dev manifest")
         if active is None and expected_parent is not None:
             raise HarnessError("candidate parent manifest is unavailable")
@@ -1542,11 +2100,12 @@ def operation_promote(args: argparse.Namespace) -> Dict[str, Any]:
         promoted = dict(candidate)
         promoted["status"] = "active"
         promoted["promoted_at"] = now()
-        promoted["parent_manifest_id"] = active["manifest_id"] if active else None
+        promoted["parent_manifest_id"] = expected_parent if same_active else active["manifest_id"] if active else None
         _validate_manifest(promoted)
         adapter_info: Dict[str, str] = {"mode": "metadata-only"}
         if getattr(args, "live", False) and not args.dry_run:
-            adapter_info = GrafLocalAdapter(_repo_root(), root).promote(promoted)
+            options = {"previous_checkout": args.previous_checkout} if getattr(args, "previous_checkout", None) else {}
+            adapter_info = GrafLocalAdapter(_repo_root(), root).promote(promoted, **options)
             checks = adapter_info.get("checks", {})
             promoted["health"] = {
                 "result": "pass" if checks and all(value == "pass" for value in checks.values()) else "fail",
@@ -1555,18 +2114,37 @@ def operation_promote(args: argparse.Namespace) -> Dict[str, Any]:
             }
             _validate_manifest(promoted)
         if not args.dry_run:
-            _mkdirs(root)
-            _write_json(_manifest_path(root, promoted["manifest_id"]), promoted)
-            pointer = {
-                "schema_version": POINTER_VERSION,
-                "manifest_id": promoted["manifest_id"],
-                "runtime_mode": adapter_info["mode"],
-                "updated_at": now(),
-            }
-            _write_json(root / "active-manifest.json", pointer)
-            with contextlib.suppress(FileNotFoundError):
-                (root / "rollback-required.json").unlink()
+            _publish_active(root, promoted, adapter_info["mode"])
+            if adapter_info.get("schema_operation"):
+                journal = _read_schema_transition(root)
+                GrafLocalAdapter(_repo_root(), root)._schema_phase(journal, "complete")
     return {"operation": "promote", "dry_run": bool(args.dry_run), "status": "ready" if args.dry_run else "active", "adapter": adapter_info, "manifest": promoted}
+
+
+def operation_recover_schema(args):
+    _assert_dev_environment()
+    root = state_dir(live=True)
+    with state_lock(root):
+        journal = _read_schema_transition(root)
+        if not journal or journal["phase"] in {"complete", "recovered"}:
+            raise HarnessError("no unfinished schema transition")
+        adapter = GrafLocalAdapter(_repo_root(), root)
+        adapter._assert_supported()
+        adapter._checkout_adapter(adapter.root, journal["target"])
+        previous = adapter._checkout_adapter(Path(journal["previous_checkout"]), journal["previous"], journal["previous_runtime"])
+        for controller, manifest in ((adapter, journal["target"]), (previous, journal["previous"])):
+            controller._assert_manifest_images(manifest, controller._env(manifest))
+        journal["controller_pid"] = os.getpid()
+        journal["controller_start"] = adapter._process_start_token(os.getpid())
+        adapter._schema_phase(journal, journal["phase"])
+        try:
+            result = adapter._schema_resume(journal, previous_adapter=previous)
+        except BaseException:
+            with contextlib.suppress(Exception):
+                adapter._schema_stop(journal["target"])
+            adapter._mark_rollback_required(journal["target"])
+            raise HarnessError("schema recovery incomplete; stack stopped, journal retained")
+        return {"operation": "recover-schema", "status": "active", "adapter": result}
 
 
 def operation_rehydrate(args: argparse.Namespace) -> Dict[str, Any]:
@@ -1582,6 +2160,9 @@ def operation_rehydrate(args: argparse.Namespace) -> Dict[str, Any]:
 def operation_status(args: argparse.Namespace) -> Dict[str, Any]:
     _assert_dev_environment()
     root = state_dir(live=bool(getattr(args, "live", False)))
+    journal = _read_schema_transition(root)
+    if journal and journal["phase"] not in {"complete", "recovered"}:
+        return {"operation": "status", "status": "rollback_required", "phase": journal["phase"], "source_sha": journal["target"]["source_sha"], "state_dir": str(root)}
     recovery_path = root / "rollback-required.json"
     if recovery_path.exists():
         recovery = _read_json(recovery_path)
@@ -1615,6 +2196,7 @@ def operation_smoke(args: argparse.Namespace) -> Dict[str, Any]:
     if not getattr(args, "live", False) and not getattr(args, "fixture", False):
         raise HarnessError("smoke requires an explicit --live or --fixture mode")
     root = state_dir(live=bool(getattr(args, "live", False)))
+    _assert_no_schema_transition(root)
     active = _load_active(root)
     if active is None:
         raise HarnessError("smoke requires an active Dev manifest")
@@ -1649,8 +2231,9 @@ def operation_rollback(args: argparse.Namespace) -> Dict[str, Any]:
     _assert_dev_environment()
     # Rollback may inspect an explicitly isolated fixture; live promotion/build
     # remain pinned to the repository-global runtime state.
-    root = state_dir()
+    root = state_dir(live=bool(getattr(args, "live", False)))
     with state_lock(root):
+        _assert_no_schema_transition(root)
         active = _load_active(root)
         if active is None:
             raise HarnessError("rollback requires an active Dev manifest")
@@ -1661,10 +2244,6 @@ def operation_rollback(args: argparse.Namespace) -> Dict[str, Any]:
                 raise HarnessError(
                     "live Dev state is active; refusing metadata-only rollback without runtime restoration"
                 )
-        if not args.dry_run and not getattr(args, "live", False) and pointer_path.exists():
-            pointer = _read_json(pointer_path)
-            if pointer.get("runtime_mode") == "live":
-                raise HarnessError("metadata-only reset cannot clear an active live Dev runtime")
         target_id = args.manifest_id or active.get("parent_manifest_id")
         if not target_id:
             raise HarnessError("no parent manifest is available for rollback")
@@ -1672,7 +2251,8 @@ def operation_rollback(args: argparse.Namespace) -> Dict[str, Any]:
         _validate_manifest(target)
         adapter_info: Dict[str, Any] = {"mode": "metadata-only"}
         if getattr(args, "live", False) and not args.dry_run:
-            adapter_info = GrafLocalAdapter(_repo_root(), root).rollback(active, target)
+            options = {key: getattr(args, key) for key in ("previous_checkout", "target_checkout") if getattr(args, key, None)}
+            adapter_info = GrafLocalAdapter(_repo_root(), root).rollback(active, target, **options)
         if not args.dry_run:
             target = dict(target)
             target["status"] = "active"
@@ -1683,18 +2263,7 @@ def operation_rollback(args: argparse.Namespace) -> Dict[str, Any]:
                     "checked_at": now(),
                     "checks": adapter_info.get("checks", {}),
                 }
-            _write_json(_manifest_path(root, target["manifest_id"]), target)
-            _write_json(
-                root / "active-manifest.json",
-                {
-                    "schema_version": POINTER_VERSION,
-                    "manifest_id": target["manifest_id"],
-                    "runtime_mode": adapter_info["mode"],
-                    "updated_at": now(),
-                },
-            )
-            with contextlib.suppress(FileNotFoundError):
-                (root / "rollback-required.json").unlink()
+            _publish_active(root, target, adapter_info["mode"])
     return {
         "operation": "rollback",
         "dry_run": bool(args.dry_run),
@@ -1710,6 +2279,7 @@ def operation_reset_data(args: argparse.Namespace) -> Dict[str, Any]:
     root = state_dir(live=bool(getattr(args, "live", False)))
     _assert_dev_environment()
     with state_lock(root):
+        _assert_no_schema_transition(root)
         if not args.dry_run:
             pointer_path = root / "active-manifest.json"
             if pointer_path.exists():
@@ -1742,6 +2312,7 @@ def parser() -> argparse.ArgumentParser:
     promote.add_argument("--manifest", required=True)
     promote.add_argument("--dry-run", action="store_true")
     promote.add_argument("--live", action="store_true", help="explicitly start the local stack and install GRAF Dev")
+    promote.add_argument("--previous-checkout", help="clean exact-SHA checkout of the active runtime for verified compensation")
     rehydrate = sub.add_parser("rehydrate")
     rehydrate.add_argument("--manifest", required=True)
     status = sub.add_parser("status")
@@ -1754,6 +2325,12 @@ def parser() -> argparse.ArgumentParser:
     rollback.add_argument("--manifest-id")
     rollback.add_argument("--dry-run", action="store_true")
     rollback.add_argument("--live", action="store_true", help="explicitly restore the local live Dev target")
+    rollback.add_argument("--previous-checkout", help="clean exact-SHA checkout of the active runtime for verified compensation")
+    rollback.add_argument("--target-checkout", help="clean exact-SHA checkout of the rollback target; run controller from the active SHA")
+    sub.add_parser("recover-schema")
+    guard = sub.add_parser("schema-start-guard")
+    guard.add_argument("--state-root", type=Path, required=True)
+    guard.add_argument("--sha", required=True)
     reset = sub.add_parser("reset-data")
     reset.add_argument("--confirm-dev-reset", action="store_true")
     reset.add_argument("--dry-run", action="store_true")
@@ -1761,6 +2338,11 @@ def parser() -> argparse.ArgumentParser:
 
 
 def dispatch(args: argparse.Namespace) -> Dict[str, Any]:
+    if args.operation == "schema-start-guard":
+        _schema_start_guard(args.state_root, args.sha)
+        return {"status": "allowed"}
+    if args.operation == "recover-schema":
+        return operation_recover_schema(args)
     return {"build": operation_build, "promote": operation_promote, "rehydrate": operation_rehydrate, "status": operation_status, "smoke": operation_smoke, "rollback": operation_rollback, "reset-data": operation_reset_data}[args.operation](args)
 
 
@@ -1772,7 +2354,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         print(json.dumps({"status": "blocked", "error": str(exc)}, ensure_ascii=False), file=sys.stderr)
         return 2
     print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
-    if args.operation == "status" and result.get("status") == "blocked":
+    if args.operation == "status" and result.get("status") in {"blocked", "rollback_required"}:
         return 1
     if args.operation == "smoke" and result.get("status") != "pass":
         return 1

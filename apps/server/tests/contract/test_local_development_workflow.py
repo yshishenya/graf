@@ -25,15 +25,13 @@ def test_local_files_and_dev_auth_contract() -> None:
     assert "GRAF_CREDENTIAL_ENCRYPTION_KEY_FILE" in start
     assert "cd-remote.sh" not in start
     assert "twobrain_rec_server.main:create_app --factory" in start
-    assert "GRAF_CABINET_REQUIRE_EXPLICIT_BASE_URL=1" in app
-    assert "GRAF_LOCAL_APP=1" in app
-    assert 'BUILD_DIR="${GRAF_LOCAL_APP_BUILD_DIR:-$MACOS_DIR/.build/local}"' in bundled_app
-    assert "pro.2brain.graf.local" in bundled_app
-    assert "GRAF_CABINET_BASE_URL=http://127.0.0.1:8081" in bundled_app
-    assert "GRAF_UPLOAD_BASE_URL=http://127.0.0.1:8081" in bundled_app
-    assert "GRAF_LOCAL_APP=1" in bundled_app
-    assert "SUFeedURL" not in bundled_app
-    assert 'open "$APP_BUNDLE"' in bundled_app
+    for retired in (app, bundled_app):
+        assert "/Applications/GRAF Dev.app" in retired
+        assert "dev-harness.sh" in retired
+        assert "exit 1" in retired
+        assert "swift run" not in retired
+        assert "swift build" not in retired
+
 
 
 def test_local_http_cookie_is_explicit_and_not_secure() -> None:

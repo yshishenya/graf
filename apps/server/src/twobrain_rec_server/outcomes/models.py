@@ -1,8 +1,71 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from decimal import Decimal
+from typing import Annotated, Literal
 from uuid import UUID
+
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field
+
+
+def _nonblank(value: str) -> str:
+    if not value.strip():
+        raise ValueError("text must not be blank")
+    return value
+
+
+ProtocolText = Annotated[str, AfterValidator(_nonblank)]
+PROTOCOL_VERSION = "graf-meeting-protocol-v1"
+
+
+class ProtocolObject(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+
+class ProtocolRef(ProtocolObject):
+    sequence: int = Field(ge=0)
+    quote: ProtocolText | None
+
+
+class ProtocolNote(ProtocolObject):
+    text: ProtocolText
+    source_refs: list[ProtocolRef]
+
+
+class ProtocolStatement(ProtocolNote):
+    source_refs: list[ProtocolRef] = Field(min_length=1)
+
+
+class ProtocolTopic(ProtocolObject):
+    title: ProtocolText
+    context: list[ProtocolStatement]
+    discussion: list[ProtocolStatement]
+    proposals: list[ProtocolStatement]
+    outcome: list[ProtocolStatement]
+
+
+class ProtocolTask(ProtocolObject):
+    task: ProtocolText
+    owner_text: ProtocolText | None
+    due_date_text: ProtocolText | None
+    source_refs: list[ProtocolRef] = Field(min_length=1)
+
+
+class MeetingProtocol(ProtocolObject):
+    schema_version: Literal["graf-meeting-protocol-v1"]
+    title: ProtocolText
+    date_and_time: ProtocolText | None
+    input_type: ProtocolText
+    meeting_type: ProtocolText
+    participants: list[ProtocolText]
+    executive_summary: list[ProtocolStatement]
+    objectives: list[ProtocolStatement]
+    topics: list[ProtocolTopic]
+    decisions: list[ProtocolStatement]
+    action_items: list[ProtocolTask]
+    open_questions: list[ProtocolStatement]
+    next_steps: list[ProtocolStatement]
+    notes: list[ProtocolNote]
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,40 +105,3 @@ class OutcomeSourceReference:
             "source_role": self.source_role,
             "evidence_kind": self.evidence_kind,
         }
-
-
-@dataclass(frozen=True, slots=True)
-class GeneratedOutcomeItem:
-    category: str
-    sequence: int
-    text: str | None
-    truth_label: str
-    source_refs: list[OutcomeSourceReference] = field(default_factory=list)
-    state: str = "available"
-    owner_text: str | None = None
-    due_date_text: str | None = None
-
-    def as_store_item(self) -> dict[str, object]:
-        return {
-            "category": self.category,
-            "sequence": self.sequence,
-            "state": self.state,
-            "text": self.text,
-            "owner_text": self.owner_text,
-            "due_date_text": self.due_date_text,
-            "truth_label": self.truth_label,
-            "source_refs_json": [ref.as_json() for ref in self.source_refs],
-        }
-
-
-@dataclass(frozen=True, slots=True)
-class GeneratedOutcomePayload:
-    category_states: dict[str, str]
-    items_by_category: dict[str, list[GeneratedOutcomeItem]]
-
-    @property
-    def items(self) -> list[GeneratedOutcomeItem]:
-        rows: list[GeneratedOutcomeItem] = []
-        for category_items in self.items_by_category.values():
-            rows.extend(category_items)
-        return rows

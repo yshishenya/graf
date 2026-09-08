@@ -44,6 +44,7 @@
   <a class="sidebar-download" data-sidebar-download href="/download" title="Скачать приложение">{{ icons.icon("download") }}<span class="sidebar-download__label">Скачать приложение</span></a>
   {%- endif %}
   <div class="sidebar-foot">
+    {% include "cabinet/components/notification_inbox.html" %}
     {% set profile_name = profile.display_name if profile and profile.display_name else "Профиль" %}
     {% set profile_email = profile.primary_email if profile and profile.primary_email else none %}
     <div class="sidebar-profile" data-profile-menu-root>
@@ -100,6 +101,7 @@
 <div class="app-shell{% if embedded %} desktop-embedded{% endif %}" data-shell-scroll="contained" data-cabinet-shell data-active-nav="{{ navigation.active }}" data-rail-tooltip="Показать боковую панель">
   <a class="skip-link" href="#{{ skip_target }}">К содержимому</a>
   {% if not embedded %}<noscript class="cabinet-mobile-noscript"><nav class="cabinet-mobile-noscript-nav" aria-label="Навигация кабинета без JavaScript">
+    <a href="/notifications">Уведомления</a>
     {% for item in navigation.items %}<a href="{{ item.href }}"{% if item.id == navigation.active %} data-current="true" aria-label="Текущая страница: {{ item.label }}"{% endif %}>{{ item.label }}</a>{% endfor %}
     {% if navigation.active == "settings" %}
     <a href="/settings">Обзор настроек</a>

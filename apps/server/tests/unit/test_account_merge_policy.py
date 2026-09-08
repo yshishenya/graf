@@ -61,6 +61,8 @@ USER_IDENTITY_FK_DISPOSITIONS = {
     ("registered_devices", "revoked_by"): "historical_only",
     ("registered_devices", "trusted_by"): "historical_only",
     ("registered_devices", "user_id"): "revoked",
+    # Historical inbox is not a new access grant after merging identities.
+    ("server_notifications", "recipient_id"): "historical_only",
     ("summary_templates", "owner_user_id"): "transfer_or_deduplicate",
     ("support_incident_rate_limit_buckets", "reporter_user_id"): "historical_only",
     ("support_incidents", "reporter_user_id"): "historical_only",

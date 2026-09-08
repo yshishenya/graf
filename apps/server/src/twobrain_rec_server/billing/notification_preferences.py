@@ -16,6 +16,7 @@ from twobrain_rec_server.billing.notifications import (
 class NotificationPreferences:
     optional_email_enabled: bool = True
     optional_in_app_enabled: bool = True
+    version: int = 0
 
 
 def channel_enabled(
@@ -49,3 +50,21 @@ def safe_action_path(value: str | None) -> str | None:
     ):
         return None
     return parsed.path
+
+
+def merge_preferences(current: NotificationPreferences, form) -> NotificationPreferences:
+    """Missing legacy fields preserve consent; new forms submit explicit false values."""
+    if form.get('version') is not None and str(current.version) != str(form.get('version')):
+        raise ValueError('notification_preferences_conflict')
+    values = {}
+    for name in ('optional_email_enabled', 'optional_in_app_enabled'):
+        value = form.get(name)
+        if value is None:
+            values[name] = getattr(current, name)
+        elif value in ('on', 'true', '1', True):
+            values[name] = True
+        elif value in ('false', '0', False):
+            values[name] = False
+        else:
+            raise ValueError('notification_preferences_invalid')
+    return NotificationPreferences(**values, version=current.version + 1)

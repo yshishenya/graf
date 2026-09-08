@@ -691,6 +691,29 @@ async def _generate_and_store(client, meeting_id, service) -> None:
         assert stored is not None
         stored.template_key = "graf-auto-v1"
         stored.template_version = 1
+        # Explicit historical fixture: opening a meeting no longer invokes an
+        # extractive generator to manufacture the saved document for this test.
+        stored.status = "available"
+        stored.generated_at = datetime.now(UTC)
+        stored.content_hash = "synthetic-saved-outcome"
+        stored.failure_reason = None
+        from twobrain_rec_server.outcomes.store import set_outcome_category_states
+        set_outcome_category_states(stored, "not_found")
+        segments = (await db.scalars(select(TranscriptSegment).where(
+            TranscriptSegment.processing_result_id == stored.processing_result_id
+        ).order_by(TranscriptSegment.sequence))).all()
+        for category in ("summary", "key_points", "evidence"):
+            setattr(stored, category + "_state", "available")
+            for sequence, segment in enumerate(segments):
+                db.add(MeetingOutcomeItem(
+                    workspace_id=meeting.workspace_id, meeting_id=meeting.id,
+                    outcome_set_id=stored.id, category=category, sequence=sequence,
+                    state="available", text=segment.text, truth_label="supported",
+                    source_refs_json=[{"transcript_segment_id": str(segment.id),
+                                       "start_seconds": float(segment.start_seconds),
+                                       "end_seconds": float(segment.end_seconds),
+                                       "sequence": segment.sequence}],
+                ))
         stored.revision_state = "accepted"
         stored.accepted_at = stored.generated_at or datetime.now(UTC)
         db.add(

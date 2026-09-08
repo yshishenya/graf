@@ -577,6 +577,28 @@ final class DesktopCalendarReminderTests: XCTestCase {
         XCTAssertEqual(model.events.map(\.eventId), ["new"])
     }
 
+    func testCalendarProjectionInvalidationRejectsPendingResponseAndKeepsCaptureState() async {
+        let loader = CalendarTrayControlledLoader()
+        let model = CalendarTrayModel { try await loader.load() }
+        var projections: [DesktopCalendarPromptResponse?] = []
+        var invalidations = 0
+        model.onProjection = { projections.append($0) }
+        model.onAuthInvalidated = { invalidations += 1 }
+        model.recordingState = .recording
+        let pending = Task { await model.refresh() }
+        await loader.waitForRequestCount(1)
+        model.invalidate()
+        await loader.complete(request: 0, with: DesktopCalendarPromptResponse(
+            events: [makeEvent(eventId: "old-account", startsAt: date(120), endsAt: date(180))]
+        ))
+        await pending.value
+        XCTAssertEqual(projections.count, 1)
+        XCTAssertNil(projections[0])
+        XCTAssertEqual(invalidations, 1)
+        XCTAssertTrue(model.events.isEmpty)
+        XCTAssertEqual(model.recordingState, .recording)
+    }
+
     func testCalendarTrayStaysCompactWithoutConfirmedEventsAndRecoversAfterFailures() async {
         let loader = CalendarTrayControlledLoader()
         let model = CalendarTrayModel { try await loader.load() }

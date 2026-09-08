@@ -574,6 +574,13 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
 .notes-section-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; min-width: 0; }
 .notes-section-title { min-width: 0; display: grid; gap: 3px; }
 .notes-section h4 { margin: 0; font-size: var(--font-size-label); }
+.notes-full-protocol :is(h3, h4, h5, h6) { margin: 0 0 10px; line-height: 1.4; }
+.notes-full-protocol h5 { font-size: var(--font-size-body); }
+.notes-full-protocol h6 { font-size: var(--font-size-label); }
+.notes-action-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.notes-action-table caption { text-align: left; margin-bottom: 10px; }
+.notes-action-table :is(th, td) { padding: 10px; text-align: left; vertical-align: top; border: 1px solid var(--line-soft); overflow-wrap: anywhere; }
+.notes-action-table :is(th, td):first-child { width: 55%; }
 .notes-state-copy { margin: 0; color: var(--muted); font-size: var(--font-size-helper); overflow-wrap: anywhere; }
 .notes-state-label { flex: 0 0 auto; color: var(--muted); font-size: var(--font-size-caption); }
 .notes-items { display: grid; gap: 10px; margin-top: 12px; min-width: 0; }
@@ -5937,3 +5944,31 @@ body {
 .meeting-title-error { margin: 8px 0 0; color: var(--danger-text); font-size: 13px; overflow-wrap: anywhere; }
 
 .meeting-detail-header.meeting-title-header-scrolls { position: static; }
+/* Quiet account inbox. Device/capture controls stay in the native shell. */
+.notification-entry { min-width: 0; }
+.notification-icon { position: relative; display: flex; flex: 0 0 20px; }
+.notification-dot { position: absolute; top: 0; right: 0; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+.notification-panel { position: fixed; z-index: 100; display: flex; flex-direction: column; width: min(400px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); overflow: hidden; padding: 18px; color: var(--text); background: var(--surface-2); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 12px 40px #0002; }
+.cabinet-mobile-nav .notification-entry { flex: 0 0 auto; }
+.cabinet-mobile-nav .notification-bell { width: 40px; min-height: 40px; padding: 8px; justify-content: center; }
+.cabinet-mobile-nav .notification-bell .cabinet-sidebar-nav__label { display: none; }
+.notification-panel[hidden] { display: none; }
+.notification-panel header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.notification-panel h2 { margin: 0; font-size: 17px; }
+.notification-panel nav { display: flex; gap: 8px; margin: 16px 0 0; }
+.notification-panel button { min-height: 36px; }
+.notification-panel [aria-pressed=true] { font-weight: 650; color: var(--accent); background: var(--surface-3); }
+[data-notification-items] { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+[data-notification-status]:empty { display: none; }
+.notification-card { padding: 16px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.notification-card h3 { margin: 0 0 6px; font-size: 15px; }
+.notification-card p { margin: 6px 0; }
+.notification-card time { display: block; margin: 10px 0; color: var(--muted); font-size: 12px; }
+.notification-card > a { display: inline-block; margin-top: 4px; text-decoration: underline; text-underline-offset: 3px; }
+.notification-card button { display: block; margin-top: 10px; }
+.notification-panel footer { margin-top: 16px; }
+.notification-history { max-width: 680px; margin: 32px auto; padding: 20px; }
+.notification-bell:focus-visible, .notification-panel :focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 3px; }
+@media (max-width: 600px) {
+  .notification-panel button, .notification-bell { min-height: 44px; }
+}

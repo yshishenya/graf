@@ -1,3 +1,5 @@
+> Путь запуска обновлён: используйте единственный `/Applications/GRAF Dev.app` через `infra/scripts/dev-harness.sh`; см. [действующую инструкцию](/docs/agent-guidance/local-development.md). Старые отдельные приложения больше не собираются.
+
 # Implementation Plan: Надёжность автоматической записи
 
 **Branch**: `193-automatic-recording-reliability` | **Date**: 2026-08-23 | **Spec**: [spec.md](spec.md)
@@ -96,8 +98,8 @@ platform evidence source (`audioHAL`, `sensorIndicator`)
    domain/path matching и deterministic selection.
 5. Запустить focused Swift suites, затем `infra/scripts/ci-local.sh --fast` и
    `infra/scripts/ci-local.sh --full`.
-6. Собрать отдельный GRAF Dev через
-   `sh apps/macos/Scripts/build-local-app.sh --open`; не заменять production app.
+6. Обновить единственный GRAF Dev через build/promote/smoke Dev harness
+   по действующей инструкции; не заменять production app.
 7. В dev runtime завершить child `/usr/bin/log stream` и доказать ровно один
    восстановленный observer в пределах 5 секунд; использовать только synthetic
    metadata и не записывать приватную встречу.

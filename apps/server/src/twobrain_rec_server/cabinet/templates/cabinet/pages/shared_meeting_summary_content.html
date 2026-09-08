@@ -7,7 +7,9 @@
     </p>
     <p class="shared-summary__notice">Вам открыли только итоги этой встречи. Аудио, расшифровка и внутренние данные не доступны.</p>
 
-    {% if summary_sections %}
+    {% if protocol_html %}
+      {{ protocol_html | safe }}
+    {% elif summary_sections %}
       <div class="shared-summary__sections">
         {% for section in summary_sections %}
           <article class="shared-summary__section">

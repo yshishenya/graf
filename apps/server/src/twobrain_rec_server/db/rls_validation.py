@@ -60,6 +60,7 @@ RLS_DIRECT_WORKSPACE_TABLES = frozenset(
         "meeting_outcome_items",
         "meeting_outcome_generation_attempts",
         "meeting_summary_slots",
+        "server_notifications",
         "summary_templates",
         "generation_calls",
         "meeting_share_invitations",

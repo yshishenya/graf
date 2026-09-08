@@ -155,13 +155,6 @@ public struct DesktopWebButtonStyle: ButtonStyle {
 }
 
 public enum DesktopMeetingShellLocalQueuePolicy {
-    public static func rowsNeedingNativeVisibility(
-        _ items: [DesktopUploadQueueItem],
-        limit: Int = 12
-    ) -> [DesktopUploadQueueItem] {
-        []
-    }
-
     public static func allRowsForLocalMode(
         _ items: [DesktopUploadQueueItem],
         limit: Int = 12
@@ -317,6 +310,10 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
             if !attentionSignature.isEmpty {
                 attentionExpansionDismissed = false
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .grafOpenLocalRecordingControls)) { _ in
+            inspectorExpanded = true
+            attentionExpansionDismissed = false
         }
         .accessibilityIdentifier("desktop-meeting-shell")
     }

@@ -39,7 +39,10 @@ from twobrain_rec_server.auth.workspace_onboarding import (
     list_active_workspaces,
     list_workspace_join_offers,
 )
-from twobrain_rec_server.billing.notification_preferences import NotificationPreferences
+from twobrain_rec_server.billing.notification_preferences import (
+    NotificationPreferences,
+    merge_preferences,
+)
 from twobrain_rec_server.cabinet.auth_rendering import render_email_code_page
 from twobrain_rec_server.cabinet.queries import (
     get_account_profile_view,
@@ -119,6 +122,7 @@ async def _render_settings(
     profile: str | None = None,
     preferences: str | None = None,
     provider_unlink: str | None = None,
+    notification_draft: NotificationPreferences | None = None,
 ) -> HTMLResponse:
     workspace_spaces = ()
     workspace_join_offers = ()
@@ -149,6 +153,7 @@ async def _render_settings(
             notification_preferences = NotificationPreferences(
                 optional_email_enabled=preference.optional_email_enabled,
                 optional_in_app_enabled=preference.optional_in_app_enabled,
+                version=preference.version,
             )
     elif category in {"workspace", "account"}:
         from twobrain_rec_server.cabinet import view_models as cabinet_view_models
@@ -185,7 +190,7 @@ async def _render_settings(
             account_active=(
                 "security" if request.url.path.endswith("/account/security") else "profile"
             ),
-            notification_preferences=notification_preferences,
+            notification_preferences=notification_draft or notification_preferences,
             show_account_navigation=request.url.path.startswith(("/account", "/desktop/account")),
             product_analytics_provider=build_request_browser_provider_context(
                 request,
@@ -610,12 +615,25 @@ async def _save_notification_preferences(
     user_id: UUID,
     form: object,
 ) -> None:
+    # Lock the owner even before their first preference row exists.
+    await db.get(UserIdentity, user_id, with_for_update=True)
     preference = await db.get(BillingNotificationPreference, user_id, with_for_update=True)
+    current = NotificationPreferences(
+        preference.optional_email_enabled, preference.optional_in_app_enabled,
+        version=preference.version,
+    ) if preference else NotificationPreferences()
+    try:
+        updated = merge_preferences(current, form)
+    except ValueError as exc:
+        conflict = str(exc) == "notification_preferences_conflict"
+        raise ProblemDetail(status=409 if conflict else 422, code=str(exc),
+                            title="Notification preferences could not be saved") from exc
     if preference is None:
         preference = BillingNotificationPreference(user_id=user_id)
         db.add(preference)
-    preference.optional_email_enabled = _form_checkbox(form, "optional_email_enabled")
-    preference.optional_in_app_enabled = _form_checkbox(form, "optional_in_app_enabled")
+    preference.optional_email_enabled = updated.optional_email_enabled
+    preference.optional_in_app_enabled = updated.optional_in_app_enabled
+    preference.version = updated.version
     await db.commit()
 
 
@@ -636,7 +654,23 @@ async def save_settings_notifications(
             status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
         )
     form = await request.form()
-    await _save_notification_preferences(db, user_id=principal.user_id, form=form)
+    try:
+        await _save_notification_preferences(db, user_id=principal.user_id, form=form)
+    except ProblemDetail as exc:
+        if exc.status not in {409, 422}:
+            raise
+        await db.rollback()
+        draft = NotificationPreferences(
+            optional_email_enabled=_form_checkbox(form, "optional_email_enabled"),
+            optional_in_app_enabled=_form_checkbox(form, "optional_in_app_enabled"),
+            version=int(form.get("version", "0")) if str(form.get("version", "0")).isdigit() else 0,
+        )
+        response = await _render_settings(request, category="notifications",
+            embedded=request.url.path.startswith("/desktop/"), tenant_scope=tenant_scope,
+            principal=principal, db=db, notification_draft=draft,
+            notification="Настройки изменились или не прошли проверку. Ваш выбор сохранён в форме. Загрузите актуальные настройки перед повторным сохранением.")
+        response.status_code = exc.status
+        return response
     return RedirectResponse("/settings/notifications?notification=saved", status_code=303)
 
 
@@ -1669,7 +1703,23 @@ async def save_embedded_settings_notifications(
             status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
         )
     form = await request.form()
-    await _save_notification_preferences(db, user_id=principal.user_id, form=form)
+    try:
+        await _save_notification_preferences(db, user_id=principal.user_id, form=form)
+    except ProblemDetail as exc:
+        if exc.status not in {409, 422}:
+            raise
+        await db.rollback()
+        draft = NotificationPreferences(
+            optional_email_enabled=_form_checkbox(form, "optional_email_enabled"),
+            optional_in_app_enabled=_form_checkbox(form, "optional_in_app_enabled"),
+            version=int(form.get("version", "0")) if str(form.get("version", "0")).isdigit() else 0,
+        )
+        response = await _render_settings(request, category="notifications",
+            embedded=request.url.path.startswith("/desktop/"), tenant_scope=tenant_scope,
+            principal=principal, db=db, notification_draft=draft,
+            notification="Настройки изменились или не прошли проверку. Ваш выбор сохранён в форме. Загрузите актуальные настройки перед повторным сохранением.")
+        response.status_code = exc.status
+        return response
     return RedirectResponse("/desktop/settings/notifications?notification=saved", status_code=303)
 
 

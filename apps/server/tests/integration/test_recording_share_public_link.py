@@ -87,6 +87,7 @@ def test_summary_only_user_cannot_open_full_meeting_routes(client) -> None:
         "occurred_at",
         "duration_seconds",
         "summary_sections",
+        "protocol",
     }
     access = client.get(
         f"/api/v1/cabinet/meetings/{seeds.ready_id}/access",
@@ -139,6 +140,11 @@ def test_summary_only_share_never_discloses_an_unaccepted_candidate(client) -> N
                 select(ProcessingResult).where(ProcessingResult.meeting_id == seeds.ready_id)
             )
             assert meeting is not None and result is not None
+            from tests.unit.test_meeting_protocol import protocol_fixture
+
+            published = await db.get(MeetingOutcomeSet, meeting.current_outcome_set_id)
+            published.protocol_json = protocol_fixture()
+            published.protocol_json["title"] = "Полный опубликованный протокол"
             candidate = MeetingOutcomeSet(
                 workspace_id=meeting.workspace_id,
                 meeting_id=meeting.id,
@@ -157,6 +163,7 @@ def test_summary_only_share_never_discloses_an_unaccepted_candidate(client) -> N
                 source_kind="litellm",
                 generator_kind="litellm",
                 generator_version="fixture-private-candidate-v1",
+                protocol_json={"title": "Непринятый приватный протокол"},
                 lifecycle_state="active",
                 revision_state="candidate",
                 generated_at=datetime.now(UTC),
@@ -179,6 +186,9 @@ def test_summary_only_share_never_discloses_an_unaccepted_candidate(client) -> N
             await db.commit()
 
     asyncio.run(seed_candidate())
+    listing = client.get("/api/v1/cabinet/meetings", headers=auth_headers())
+    assert listing.status_code == 200
+    assert all(item["notes_action_truth"]["protocol"] is None for item in listing.json()["items"])
     add_workspace_user(client)
     share = client.post(
         f"/api/v1/cabinet/meetings/{seeds.ready_id}/shares",
@@ -204,9 +214,27 @@ def test_summary_only_share_never_discloses_an_unaccepted_candidate(client) -> N
     assert api_summary.status_code == 200
     assert html_summary.status_code == 200
     assert "Сохранённый итог." in api_summary.text
-    assert "Сохранённый итог." in html_summary.text
+    assert "Полный опубликованный протокол" in html_summary.text
+    assert "Полный опубликованный протокол" in api_summary.text
+    assert "source_refs" not in api_summary.json()["protocol"].__str__()
+    assert "quote" not in api_summary.json()["protocol"].__str__()
+    assert "<table" in html_summary.text
+    assert "Непринятый приватный протокол" not in api_summary.text
+    assert "Непринятый приватный протокол" not in html_summary.text
     assert "Непринятый приватный вариант." not in api_summary.text
     assert "Непринятый приватный вариант." not in html_summary.text
+    for headers in (auth_headers_for(), {**auth_headers_for(), "X-GRAF-Client": "desktop"}):
+        canonical = client.get(
+            f"/shared-meetings/{seeds.ready_id}?workspace_id={WORKSPACE_ID}", headers=headers
+        )
+        assert canonical.status_code == 200
+        assert "Полный опубликованный протокол" in canonical.text
+        assert "Сделать макет" in canonical.text and "наверное, завтра" in canonical.text
+        assert '<h2>Название встречи/проекта</h2>' in canonical.text
+        assert '<h3>Ключевые обсуждения</h3>' in canonical.text
+        assert "Непринятый приватный" not in canonical.text
+        assert "data-source-segment" not in canonical.text
+        assert "data-seek-seconds" not in canonical.text
     assert (
         client.get(
             f"/api/v1/cabinet/meetings/{seeds.ready_id}/downloads/summary",
@@ -833,6 +861,7 @@ def test_external_invitation_accepts_from_another_workspace_and_resolves_share(
         "occurred_at",
         "duration_seconds",
         "summary_sections",
+        "protocol",
     }
     replay = client.post(
         f"/api/v1/cabinet/share-invitations/{api_raw_token}/accept",
