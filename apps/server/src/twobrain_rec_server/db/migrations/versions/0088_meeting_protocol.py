@@ -3,7 +3,7 @@
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0088_meeting_protocol"
+revision: str = "0088_meeting_protocol"
 down_revision = "0087_merge_calendar_timezone"
 branch_labels = None
 depends_on = None
