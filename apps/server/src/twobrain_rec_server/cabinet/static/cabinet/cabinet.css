@@ -5772,7 +5772,7 @@ html[data-theme="dark"] .detail-page-main {
 .detail-page-main .notes-header { padding: 0; border: 0; }
 .detail-page-main .notes-source-line { font-size: 12px; line-height: 16px; }
 .detail-page-main .notes-source-link { min-height: 28px; font-weight: 600; }
-.detail-page-main .segment { grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; padding-left: 12px; }
+.detail-page-main .segment { grid-template-columns: minmax(0, 1fr) auto; gap: 0 12px; padding-left: 12px; }
 .detail-page-main .segment .speaker { grid-column: 1; grid-row: 1; font-size: 12px; }
 .detail-page-main .segment .timestamp { grid-column: 2; grid-row: 1; min-height: 28px; }
 .detail-page-main .segment .text { grid-column: 1 / -1; }
