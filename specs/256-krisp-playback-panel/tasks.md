@@ -27,7 +27,7 @@
 ## Проверки и завершение
 
 - [X] T010 Проверить настоящее синтетическое audio, все переходы/темы/размеры/200% и комментарии в specs/256-krisp-playback-panel/evidence/playback-panel-runtime-check.cjs; выполнить scoped suites и existing F205 Chromium/WebKit geometry, сохранить только метаданные evidence.
-- [ ] T011 Выполнить независимый review, ponytail review и converge; устранить обязательные замечания, обновить changes/unreleased/F256.yaml и specs/256-krisp-playback-panel/evidence/validation.md, выполнить infra/scripts/ci-local.sh --fast.
+- [X] T011 Выполнить независимый review, ponytail review и converge; устранить обязательные замечания, обновить changes/unreleased/F256.yaml и specs/256-krisp-playback-panel/evidence/validation.md, выполнить infra/scripts/ci-local.sh --fast.
 - [ ] T012 После разрешённого проверенного коммита пройти GRAF Dev build/promote/status/smoke и ручную приёмку по infra/dev/README.md, сохранить evidence в specs/256-krisp-playback-panel/evidence/validation.md; согласовать task/issue и exact-SHA PR gates. Выпуск и production вне задачи.
 
 ## Dependencies / параллельная работа
