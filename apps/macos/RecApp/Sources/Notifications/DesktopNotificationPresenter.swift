@@ -205,10 +205,10 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
         permissionGeneration += 1
         let request = permissionGeneration
         let previous = permissionText
-        let settings = await center.notificationSettings()
+        let status = await authorizationStatus()
         guard request == permissionGeneration else { return }
-        canRequestPermission = settings.authorizationStatus == .notDetermined
-        switch settings.authorizationStatus {
+        canRequestPermission = status == .notDetermined
+        switch status {
         case .notDetermined: permissionText = "Разрешение ещё не запрашивалось"
         case .denied: permissionText = "Уведомления macOS выключены"
         case .authorized, .provisional, .ephemeral: permissionText = "Уведомления macOS разрешены"
@@ -232,8 +232,15 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
             Task { await scheduleReminders() }
         } catch { message = "Не удалось сохранить. Проверьте вход в GRAF и повторите попытку." }
     }
+    private func authorizationStatus() async -> UNAuthorizationStatus {
+        await withCheckedContinuation { continuation in
+            center.getNotificationSettings { settings in
+                continuation.resume(returning: settings.authorizationStatus)
+            }
+        }
+    }
     private func allowed() async -> Bool {
-        let status = await center.notificationSettings().authorizationStatus
+        let status = await authorizationStatus()
         return status == .authorized || status == .provisional
     }
     public func test() async {
@@ -369,6 +376,7 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
     }
 }
 
+@MainActor
 public struct DesktopNotificationsSettingsView: View {
     @ObservedObject private var presenter = DesktopNotificationPresenter.shared
     public init() {}
