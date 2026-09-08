@@ -4921,7 +4921,7 @@
       const syncSelection = () => {
         allowedIntervals = mergePlaybackIntervals(lanes.filter((lane) => selectedSpeakers.has(lane.dataset.speakerKey))
           .flatMap((lane) => Array.from(lane.querySelectorAll("[data-lane-segment]"), (segment) => [Number(segment.dataset.startSeconds), Number(segment.dataset.endSeconds)])));
-        lanes.forEach((lane) => lane.classList.toggle("is-unselected", selectedSpeakers.size > 0 && !selectedSpeakers.has(lane.dataset.speakerKey)));
+        shell.querySelectorAll("[data-speaker-lane], .playback-speaker-interval").forEach((lane) => lane.classList.toggle("is-unselected", selectedSpeakers.size > 0 && !selectedSpeakers.has(lane.dataset.speakerKey)));
         const all = shell.querySelector("[data-listen-all]");
         if (all) all.checked = !selectedSpeakers.size;
         shell.querySelectorAll("[data-listen-speaker]").forEach((input) => { input.checked = selectedSpeakers.has(input.dataset.listenSpeaker); });

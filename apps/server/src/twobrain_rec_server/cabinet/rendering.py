@@ -2231,6 +2231,7 @@ def _render_playback(
         speaker_palette = _speaker_palette(review)
         speakers = sorted(review.speakers.speakers, key=lambda speaker: -speaker.talk_time_percent)
         has_speakers = bool(speakers) and review.speakers.available
+        speaker_timeline, speaker_overview = _render_playback_speaker_timeline(review, speaker_palette=speaker_palette)
         listen_rows = ''.join(
             f'<label class="playback-listen-row {"speaker-color-" + str(speaker_palette.get(speaker.speaker_key, 0))}" data-speaker-key="{escape(speaker.speaker_key)}">'
             f'<span class="speaker-manager-dot" aria-hidden="true"></span><span class="speaker-manager-name">{escape(_speaker_display_label(speaker.label))}</span>'
@@ -2302,11 +2303,11 @@ def _render_playback(
               <span class="playback-time" data-playback-current>00:00</span>
               <span class="timeline-scale playback-scale">
                 <input class="playback-progress" data-playback-progress type="range" min="0" max="{review.playback.duration_seconds}" step="0.01" value="0" aria-label="Позиция записи">
-                <span class="playback-range-track" aria-hidden="true"><span class="playback-range-thumb"></span></span>
+                <span class="playback-range-track" aria-hidden="true"><span class="playback-speaker-overview">{speaker_overview}</span><span class="playback-range-thumb"></span></span>
               </span>
               <span class="playback-time" data-playback-duration>{_timecode(review.playback.duration_seconds)}</span>
             </div>
-            {_render_playback_speaker_timeline(review, speaker_palette=speaker_palette)}
+            {speaker_timeline}
             <span class="sr-only" data-playback-listen-status role="status"></span>
           </section>
         """
@@ -2326,11 +2327,12 @@ def _render_playback_speaker_timeline(
     review: MeetingReviewResponse,
     *,
     speaker_palette: dict[str, int],
-) -> str:
+) -> tuple[str, str]:
     if not review.speakers.available or not review.speakers.speakers:
-        return '<div id="speaker-timeline" class="speaker-timeline" data-speaker-timeline data-speaker-timeline-count="0"></div>'
+        return '<div id="speaker-timeline" class="speaker-timeline" data-speaker-timeline data-speaker-timeline-count="0"></div>', ""
     duration = max(1, review.playback.duration_seconds)
     lanes = []
+    overview = []
     turns = review.speakers.turns or review.transcript.speaker_turns
     turn_sources = {(turn.speaker_key, round(turn.start_seconds, 3)): " ".join(turn.source_segment_ids) for turn in turns}
     for speaker in sorted(review.speakers.speakers, key=lambda speaker: -speaker.talk_time_percent):
@@ -2344,6 +2346,10 @@ def _render_playback_speaker_timeline(
                 continue
             left = min(100.0, max(0.0, start / duration * 100))
             width = min(100.0 - left, (end - start) / duration * 100)
+            overview.append(
+                f'<span class="playback-speaker-interval {color_class}" data-speaker-key="{escape(speaker.speaker_key)}" '
+                f'style="left:{left:.6f}%;width:{width:.6f}%"></span>'
+            )
             source_ids = turn_sources.get((speaker.speaker_key, round(start, 3)), "")
             segment_label = f"{speaker_label} {_timecode(int(start))}-{_timecode(int(end))}"
             segments.append(
@@ -2362,7 +2368,7 @@ def _render_playback_speaker_timeline(
       <div class="speaker-timeline-shell" data-speaker-timeline-shell>
         <div id="speaker-timeline" class="speaker-timeline" data-speaker-timeline data-speaker-timeline-count="{len(lanes)}" data-speaker-timeline-default-height="120">{"".join(lanes)}</div>
       </div>
-    """
+    """, "".join(overview)
 
 
 def _render_speaker_manager(

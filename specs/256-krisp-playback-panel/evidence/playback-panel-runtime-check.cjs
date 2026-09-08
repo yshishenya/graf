@@ -240,10 +240,38 @@ async function playback(page) {
   await page.waitForFunction(() => Math.abs(document.querySelector('[data-speaker-timeline]').getBoundingClientRect().height - Number(document.querySelector('[data-speaker-timeline-resize]').getAttribute('aria-valuenow'))) <= 2);
   const expanded = await page.locator('[data-speaker-timeline]').evaluate(node => node.getBoundingClientRect().height);
   await page.emulateMedia({ reducedMotion: 'no-preference' });
+  const overview = page.locator('.playback-speaker-overview');
+  assert.equal(await overview.isVisible(), false);
   await page.locator('[data-playback-timeline-toggle]').click();
   const closedShell = page.locator('[data-speaker-timeline-shell]');
   await page.waitForFunction(() => document.querySelector('[data-speaker-timeline-shell]').getBoundingClientRect().height < 1);
   assert.equal(await handle.isVisible(), false);
+  assert.equal(await overview.isVisible(), true, 'Collapsed panel preserves the colored speaker overview');
+  const overviewGeometry = await page.evaluate(() => {
+    const track = document.querySelector('.playback-range-track').getBoundingClientRect();
+    return [...document.querySelectorAll('.playback-speaker-interval')].map(interval => {
+      const lane = [...document.querySelectorAll('[data-speaker-lane]')].find(node => node.dataset.speakerKey === interval.dataset.speakerKey);
+      const segment = [...lane.querySelectorAll('[data-lane-segment]')].find(node => node.style.left === interval.style.left && node.style.width === interval.style.width);
+      const rect = interval.getBoundingClientRect();
+      return !!segment && getComputedStyle(interval).backgroundColor === getComputedStyle(segment).backgroundColor
+        && Math.abs(rect.x - track.x - track.width * parseFloat(segment.style.left) / 100) < 1
+        && rect.height === 5;
+    });
+  });
+  assert.equal(overviewGeometry.length, 6);
+  assert.ok(overviewGeometry.every(Boolean), 'Compact colors and times match the detailed speaker lanes');
+  await page.locator('[data-playback-listen-toggle]').click();
+  await page.locator('[data-listen-speaker="alpha"]').check();
+  assert.equal(await page.locator('.playback-speaker-interval[data-speaker-key="beta"]').first().evaluate(node => getComputedStyle(node).opacity), '0.4');
+  assert.equal(await page.locator('.playback-speaker-interval[data-speaker-key="alpha"]').first().evaluate(node => getComputedStyle(node).opacity), '1');
+  await page.locator('[data-listen-all]').check();
+  assert.equal(await page.locator('.playback-speaker-interval[data-speaker-key="beta"]').first().evaluate(node => getComputedStyle(node).opacity), '1');
+  await page.keyboard.press('Escape');
+  await position(page, 10);
+  await page.waitForFunction(() => Number(document.querySelector('[data-playback-progress]').value) === 10);
+  await page.locator('[data-playback-progress]').focus();
+  await page.keyboard.press('ArrowRight');
+  assert.ok(await page.locator('audio').evaluate(audio => audio.currentTime > 10 && audio.currentTime < 11), 'Compact colors preserve native range seeking');
   const expandedViewport = page.viewportSize();
   await page.setViewportSize({ width: expandedViewport.width - 10, height: expandedViewport.height });
   await settle(page);
@@ -253,6 +281,7 @@ async function playback(page) {
   await settle(page);
   assert.equal(await closedShell.evaluate(node => node.getBoundingClientRect().height), 0);
   assert.equal(await handle.isVisible(), false);
+  assert.equal(await overview.isVisible(), true);
   await page.evaluate(() => { document.documentElement.style.zoom = '1'; });
   await page.setViewportSize(expandedViewport);
   assert.equal(await page.locator('[data-playback-progress]').isVisible(), true);
@@ -261,6 +290,7 @@ async function playback(page) {
   await settle(page);
   await page.waitForFunction(height => Math.abs(document.querySelector('[data-speaker-timeline-shell]').getBoundingClientRect().height - height) <= 2, expanded);
   assert.equal(await handle.isVisible(), true);
+  assert.equal(await overview.isVisible(), false);
   await page.emulateMedia({ reducedMotion: 'reduce' });
 
   // The retained player must navigate new transcript DOM after a main refresh.
