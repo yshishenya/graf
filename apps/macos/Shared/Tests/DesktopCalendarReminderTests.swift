@@ -592,15 +592,12 @@ final class DesktopCalendarReminderTests: XCTestCase {
     func testCalendarTrayStaysCompactWithoutConfirmedEventsAndRecoversAfterFailures() async {
         let loader = CalendarTrayControlledLoader()
         let model = CalendarTrayModel { try await loader.load() }
-        XCTAssertEqual(model.preferredPanelHeight, 64)
         let first = Task { await model.refresh() }
         await loader.waitForRequestCount(1)
         XCTAssertEqual(model.state, .loading)
-        XCTAssertEqual(model.preferredPanelHeight, 64)
         await loader.complete(request: 0, with: DesktopCalendarPromptResponse(events: []))
         await first.value
         XCTAssertEqual(model.state, .empty)
-        XCTAssertEqual(model.preferredPanelHeight, 64)
 
         let failures: [any Error] = [
             DesktopUploadClientError.httpStatus(401, "auth_required"),
@@ -616,7 +613,6 @@ final class DesktopCalendarReminderTests: XCTestCase {
             await success.value
             XCTAssertEqual(model.state, .loaded)
             XCTAssertEqual(model.events.count, 1)
-            XCTAssertEqual(model.preferredPanelHeight, 420)
 
             let failure = Task { await model.refresh() }
             await loader.waitForRequestCount(index * 2 + 3)
@@ -625,22 +621,10 @@ final class DesktopCalendarReminderTests: XCTestCase {
             await failure.value
             XCTAssertEqual(model.state, index == 0 ? .needsSignIn : .unavailable)
             XCTAssertTrue(model.events.isEmpty, "Do not expose outdated or signed-out calendar data")
-            XCTAssertEqual(model.preferredPanelHeight, 64)
         }
         model.appUpdatePresentation = AppUpdatePresentation(
             phase: .available, availableVersion: "2026.09.08.1", isUserInitiated: false, message: nil
         )
-        XCTAssertEqual(model.preferredPanelHeight, 208, "An actionable update still has space without calendar events")
-    }
-
-    func testCalendarTrayKeepsInsideAndToggleClicksButDismissesOutside() {
-        let panel = NSWindow()
-        let statusItem = NSWindow()
-        let other = NSWindow()
-        for (window, expected) in [(panel, false), (statusItem, false), (other, true), (nil, true)] as [(NSWindow?, Bool)] {
-            XCTAssertEqual(CalendarTrayController.shouldDismissClick(in: window,
-                popoverWindow: panel, statusItemWindow: statusItem), expected)
-        }
     }
 
     func testCalendarTrayVectorIsMonochromeTransparentAndHasDistinctRecordingMarks() throws {
@@ -648,7 +632,7 @@ final class DesktopCalendarReminderTests: XCTestCase {
         for state in [GrafTrayRecordingState.idle, .recording, .paused] {
             let image = CalendarTrayController.statusIcon(recordingState: state)
             XCTAssertTrue(image.isTemplate, "macOS supplies light/dark/selected menu-bar contrast")
-            XCTAssertEqual(image.size, NSSize(width: state == .idle ? 22 : 30, height: 22))
+            XCTAssertEqual(image.size, NSSize(width: 22, height: 22), "Capture must not resize or displace the menu-bar anchor")
             let data = try XCTUnwrap(image.tiffRepresentation)
             rendered.append(data)
             let bitmap = try XCTUnwrap(NSBitmapImageRep(data: data))
@@ -667,7 +651,7 @@ final class DesktopCalendarReminderTests: XCTestCase {
             XCTAssertLessThan(inkPixels, bitmap.pixelsWide * bitmap.pixelsHigh / 2, "No opaque app-icon background")
         }
         XCTAssertNotEqual(rendered[0], rendered[1])
-        XCTAssertNotEqual(rendered[1], rendered[2], "Pause must not look like ongoing recording")
+        XCTAssertEqual(rendered[1], rendered[2], "A microphone pause still records system audio")
     }
 
     func testCalendarTrayTracksRealCaptureAndPreservesItWhenAnUpdateArrives() {
@@ -685,7 +669,6 @@ final class DesktopCalendarReminderTests: XCTestCase {
             XCTAssertEqual(state, expected)
             tray.showRecordingState(state)
             XCTAssertEqual(model.recordingState, expected)
-            XCTAssertEqual(model.preferredPanelHeight, expected == .idle ? 64 : 96)
             XCTAssertEqual(tray.statusItemLabel, expected.label.map { "GRAF — \($0)" } ?? "GRAF")
         }
         tray.showRecordingState(.recording)
@@ -699,22 +682,74 @@ final class DesktopCalendarReminderTests: XCTestCase {
         XCTAssertTrue(tray.statusItemLabel.contains("2026.09.08.1"))
     }
 
-    func testCalendarTrayPanelSizeFitsAvailableScreen() {
-        XCTAssertEqual(
-            CalendarTrayController.panelSize(in: NSRect(x: 0, y: 0, width: 1_440, height: 900)),
-            NSSize(width: 344, height: 420)
-        )
-        XCTAssertEqual(
-            CalendarTrayController.panelSize(
-                in: NSRect(x: 0, y: 0, width: 1_440, height: 900),
-                preferredHeight: 64
-            ),
-            NSSize(width: 344, height: 64)
-        )
-        XCTAssertEqual(
-            CalendarTrayController.panelSize(in: NSRect(x: 0, y: 0, width: 320, height: 240)),
-            NSSize(width: 296, height: 216)
-        )
+    func testNativeTrayMenuCommandsFollowCaptureStateAndRejectStaleActions() throws {
+        let model = CalendarTrayModel { DesktopCalendarPromptResponse(events: []) }
+        var starts = 0
+        var stops = 0
+        let tray = CalendarTrayController(model: model, onOpenCalendar: {}, onOpenMeetings: {},
+                                          onStartRecording: { starts += 1 }, onStopRecording: { stops += 1 })
+        tray.rebuildMenu()
+        XCTAssertEqual(tray.menu.items.filter { !$0.isSeparatorItem }.map(\.title),
+                       ["Начать запись", "Открыть GRAF", "Настройки календаря…"])
+        XCTAssertEqual(tray.menu.minimumWidth, 240)
+        XCTAssertTrue(tray.menu.items.allSatisfy { $0.view == nil }, "Native rows retain keyboard, theme and outside-click behavior")
+        tray.menu.performActionForItem(at: 0)
+        XCTAssertEqual(starts, 1)
+        XCTAssertEqual(GrafTrayRecordingState.resolve(sessionState: .starting, writerActive: false,
+                                                     stopping: false, starting: true), .starting)
+        for (state, title, enabled) in [(GrafTrayRecordingState.starting, "Начинаем запись…", false),
+                                       (.recording, "Остановить запись", true),
+                                       (.paused, "Остановить запись", true),
+                                       (.stopping, "Завершаем запись…", false)] {
+            tray.showRecordingState(state)
+            tray.rebuildMenu()
+            let first = try XCTUnwrap(tray.menu.items.first)
+            XCTAssertEqual(first.title, title)
+            XCTAssertEqual(first.isEnabled, enabled)
+            tray.startRecording()
+            XCTAssertEqual(starts, 1, "A queued stale Start must not invoke capture")
+            if enabled { tray.menu.performActionForItem(at: 0) }
+        }
+        XCTAssertEqual(stops, 2)
+        tray.showRecordingState(.idle)
+        tray.stopRecording()
+        XCTAssertEqual(stops, 2, "A queued stale Stop must not finalize an idle writer")
+        tray.showUpdate(AppUpdatePresentation(phase: .available, availableVersion: "2026.09.08.1",
+                                             isUserInitiated: false, message: nil), actionEnabled: false)
+        tray.rebuildMenu()
+        XCTAssertEqual(tray.menu.items.last?.identifier?.rawValue, "graf.menu.update")
+        XCTAssertEqual(tray.menu.items.last?.isEnabled, false)
+        XCTAssertEqual(tray.menu.items.first?.title, "Начать запись")
+    }
+
+    func testNativeTrayCalendarRespectsPrivacyAndOnlyEnablesSafeMeetingLinks() async throws {
+        let safe = makeEvent(eventId: "safe", startsAt: date(120), endsAt: date(180),
+                             title: String(repeating: "Long title ", count: 12), meetingLinkPresent: true,
+                             openMeetingURL: URL(string: "https://example.com/meeting"))
+        let unsafe = makeEvent(eventId: "unsafe", startsAt: date(240), endsAt: date(300),
+                               meetingLinkPresent: true, openMeetingURL: URL(string: "http://example.com/meeting"))
+        let privateEvent = makeEvent(eventId: "private", startsAt: date(360), endsAt: date(420),
+                                     title: "Must stay private", titleState: .privateRedacted)
+        for showDetails in [false, true] {
+            let model = CalendarTrayModel {
+                DesktopCalendarPromptResponse(events: [safe, unsafe, privateEvent],
+                                              showUpcomingTime: showDetails, showUpcomingTitle: showDetails)
+            }
+            await model.refresh()
+            let tray = CalendarTrayController(model: model, onOpenCalendar: {}, onOpenMeetings: {})
+            tray.rebuildMenu()
+            let events = tray.menu.items.filter { $0.identifier?.rawValue == "graf.menu.event" }
+            XCTAssertEqual(events.count, 3)
+            XCTAssertEqual(events.map(\.isEnabled), [true, false, false])
+            XCTAssertFalse(events.contains { ($0.toolTip ?? "").contains("Must stay private") })
+            if showDetails {
+                XCTAssertTrue(events[0].title.hasSuffix("…"))
+                XCTAssertLessThan(events[0].title.count, 50)
+            } else {
+                XCTAssertEqual(events.map(\.title), ["Встреча", "Встреча", "Встреча"])
+                XCTAssertEqual(events.map(\.toolTip), ["Встреча", "Встреча", "Встреча"])
+            }
+        }
     }
 
     func testPromptAccessibilityCopyNamesManualAction() throws {

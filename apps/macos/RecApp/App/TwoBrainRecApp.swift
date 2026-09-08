@@ -46,7 +46,7 @@ private enum TwoBrainRecAppMain {
         )
         settingsItem.target = zoomTarget
         let upcomingItem = appMenu.addItem(
-            withTitle: "Ближайшие встречи",
+            withTitle: "Меню GRAF",
             action: #selector(AppLifecycleDelegate.openCalendarTray(_:)),
             keyEquivalent: ""
         )
@@ -508,6 +508,13 @@ private struct ContentView: View {
                 (NSApp.delegate as? AppLifecycleDelegate)?.openLocalRecordingSettings()
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecStartRecordingFromTray)) { _ in
+            Task { await startManualRecording() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecStopRecordingFromTray)) { _ in
+            guard localRecordingActive else { return }
+            Task { await stopManualRecording() }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecOpenCalendarSettingsFromTray)) { _ in
             guard let configuration = desktopCabinetConfiguration else { return }
             selectedCabinetRoute = configuration.calendarSettingsURL()
@@ -540,7 +547,8 @@ private struct ContentView: View {
     private var trayRecordingState: GrafTrayRecordingState {
         GrafTrayRecordingState.resolve(sessionState: captureSession?.state,
                                        writerActive: localRecordingActive,
-                                       stopping: recordingStopInProgress)
+                                       stopping: recordingStopInProgress,
+                                       starting: recordingStartInProgress)
     }
 
     private var protectedUpdateWork: ProtectedUpdateWork {
@@ -3078,7 +3086,9 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
             model: trayModel,
             onOpenCalendar: { [weak self] in self?.openCalendarFromTray() },
             onOpenMeetings: { [weak self] in self?.openMeetingsFromTray() },
-            onUpdate: { [weak self] in self?.checkForUpdates(nil) }
+            onUpdate: { [weak self] in self?.checkForUpdates(nil) },
+            onStartRecording: { [weak self] in self?.recordFromTray(start: true) },
+            onStopRecording: { [weak self] in self?.recordFromTray(start: false) }
         )
         calendarTrayController?.start()
         calendarTrayController?.showRecordingState(trayRecordingState)
@@ -3280,7 +3290,18 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
     }
 
     @objc func openCalendarTray(_: Any?) {
-        calendarTrayController?.showPopover()
+        calendarTrayController?.showMenu()
+    }
+
+    private func recordFromTray(start: Bool) {
+        // Reuse the existing window and capture path so permission/error recovery is visible.
+        presentMainWindow(reason: "tray_recording")
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(
+                name: start ? .twoBrainRecStartRecordingFromTray : .twoBrainRecStopRecordingFromTray,
+                object: nil
+            )
+        }
     }
 
     private func openCalendarFromTray() {
@@ -3360,6 +3381,8 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
 }
 
 private extension Notification.Name {
+    static let twoBrainRecStartRecordingFromTray = Notification.Name("pro.2brain.graf.startRecordingFromTray")
+    static let twoBrainRecStopRecordingFromTray = Notification.Name("pro.2brain.graf.stopRecordingFromTray")
     static let twoBrainRecApplicationShouldTerminate = Notification.Name("pro.2brain.graf.applicationShouldTerminate")
     static let twoBrainRecApplicationTerminationCleanupFinished = Notification.Name("pro.2brain.graf.applicationTerminationCleanupFinished")
     static let twoBrainRecOpenRecordingSettings = Notification.Name("pro.2brain.graf.openRecordingSettings")

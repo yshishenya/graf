@@ -1,13 +1,13 @@
 import AppKit
 import Combine
-import SwiftUI
 import TwoBrainRecShared
 
 public enum GrafTrayRecordingState: Equatable, Sendable {
-    case idle, recording, paused, stopping
+    case idle, starting, recording, paused, stopping
 
-    public static func resolve(sessionState: CaptureSessionState?, writerActive: Bool, stopping: Bool) -> Self {
+    public static func resolve(sessionState: CaptureSessionState?, writerActive: Bool, stopping: Bool, starting: Bool = false) -> Self {
         if stopping { return .stopping }
+        if starting { return .starting }
         guard writerActive else { return .idle }
         return sessionState == .paused ? .paused : .recording
     }
@@ -15,8 +15,9 @@ public enum GrafTrayRecordingState: Equatable, Sendable {
     var label: String? {
         switch self {
         case .idle: nil
+        case .starting: "Начинаем запись…"
         case .recording: "Идёт запись"
-        case .paused: "Запись на паузе"
+        case .paused: "Идёт запись · микрофон на паузе"
         case .stopping: "Завершаем запись"
         }
     }
@@ -53,12 +54,6 @@ public final class CalendarTrayModel: ObservableObject {
         self.load = load
     }
 
-    var preferredPanelHeight: CGFloat {
-        let content: CGFloat = events.isEmpty ? 64 : 420
-        return content + (appUpdatePresentation.showsSidebarBadge ? 144 : 0)
-            + (recordingState == .idle ? 0 : 32)
-    }
-
     public func refresh() async {
         refreshGeneration += 1
         let generation = refreshGeneration
@@ -89,175 +84,16 @@ public final class CalendarTrayModel: ObservableObject {
 }
 
 @MainActor
-public struct CalendarTrayView: View {
-    @ObservedObject private var userTimeContext = DesktopUserTimeContext.shared
-    @ObservedObject private var model: CalendarTrayModel
-    private let onOpenCalendar: () -> Void
-    private let onOpenMeetings: () -> Void
-    private let onOpenMeetingLink: (URL) -> Void
-    private let onUpdate: () -> Void
-    private let panelSize: NSSize
-
-    public init(
-        model: CalendarTrayModel,
-        onOpenCalendar: @escaping () -> Void,
-        onOpenMeetings: @escaping () -> Void,
-        onOpenMeetingLink: @escaping (URL) -> Void,
-        onUpdate: @escaping () -> Void = {},
-        panelSize: NSSize = NSSize(width: 344, height: 420)
-    ) {
-        self.model = model
-        self.onOpenCalendar = onOpenCalendar
-        self.onOpenMeetings = onOpenMeetings
-        self.onOpenMeetingLink = onOpenMeetingLink
-        self.onUpdate = onUpdate
-        self.panelSize = panelSize
-    }
-
-    public var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            AppUpdateNotice(presentation: model.appUpdatePresentation,
-                            isActionEnabled: model.canCheckForUpdates, onUpdate: onUpdate)
-            if !model.events.isEmpty {
-                header
-                Divider()
-                ScrollView(.vertical, showsIndicators: true) {
-                    VStack(alignment: .leading, spacing: 0) {
-                        ForEach(model.events) { event in
-                            eventRow(event)
-                        }
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                Divider()
-            }
-            if let label = model.recordingState.label {
-                Label(label, systemImage: model.recordingState == .paused ? "pause.fill" : "record.circle")
-                    .font(.caption)
-                    .padding(.horizontal, 16)
-                    .frame(height: 32)
-                    .accessibilityIdentifier("graf.menu.recordingState")
-            }
-            footer
-        }
-        .frame(width: panelSize.width, height: panelSize.height)
-        .background(.regularMaterial)
-        .tint(DesktopMeetingShellChrome.shellAccentColor)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Меню GRAF")
-    }
-
-    private var header: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "calendar.badge.clock")
-                .font(.title3)
-                .foregroundStyle(.tint)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Ближайшие встречи")
-                    .font(.headline)
-                Text("На ближайшие 24 часа")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-        }
-        .padding(16)
-    }
-
-    private func eventRow(_ event: DesktopCalendarPromptEvent) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack(alignment: .top, spacing: 10) {
-                Circle()
-                    .fill(event.overlaps(Date()) ? DesktopMeetingShellChrome.shellAccentColor : Color.secondary.opacity(0.45))
-                    .frame(width: 8, height: 8)
-                    .padding(.top, 5)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(model.showUpcomingTitle ? event.safeDisplayTitle() : "Название скрыто настройкой")
-                        .font(.body.weight(.medium))
-                        .lineLimit(2)
-                    if model.showUpcomingTime {
-                        Text(timeText(for: event))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    if event.meetingLinkPresent {
-                        Text("Есть ссылка на встречу")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                Spacer(minLength: 0)
-            }
-            if let link = safeMeetingLink(for: event) {
-                Button("Открыть встречу") {
-                    onOpenMeetingLink(link)
-                }
-                .buttonStyle(.link)
-                .font(.caption)
-                .accessibilityLabel("Открыть встречу")
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(eventAccessibilityLabel(event))
-    }
-
-    private var footer: some View {
-        HStack {
-            Button("Открыть GRAF", action: onOpenMeetings)
-                .buttonStyle(.borderedProminent)
-                .tint(Color(red: 98.0 / 255, green: 72.0 / 255, blue: 213.0 / 255))
-                .keyboardShortcut(.defaultAction)
-            Spacer()
-            Button("Настройки календаря", action: onOpenCalendar)
-                .buttonStyle(.link)
-                .foregroundStyle(.primary)
-        }
-        .font(.caption)
-        .padding(16)
-    }
-
-    private func timeText(for event: DesktopCalendarPromptEvent) -> String {
-        if event.allDay == true {
-            let formatter = DateFormatter()
-            formatter.locale = Locale(identifier: "ru_RU")
-            formatter.dateFormat = "dd.MM.yyyy"
-            formatter.timeZone = TimeZone(secondsFromGMT: 0)
-            return "\(formatter.string(from: event.startsAt)) · Весь день"
-        }
-        return UserTime.interval(start: event.startsAt, end: event.endsAt, timeZone: userTimeContext.timeZone)
-    }
-
-    private func safeMeetingLink(for event: DesktopCalendarPromptEvent) -> URL? {
-        guard event.meetingLinkPresent,
-              let url = event.openMeetingURL,
-              let scheme = url.scheme?.lowercased(),
-              scheme == "https",
-              url.host != nil else {
-            return nil
-        }
-        return url
-    }
-
-    private func eventAccessibilityLabel(_ event: DesktopCalendarPromptEvent) -> String {
-        let title = model.showUpcomingTitle ? event.safeDisplayTitle() : "Название скрыто настройкой"
-        return model.showUpcomingTime ? "\(title), \(timeText(for: event))" : title
-    }
-}
-
-@MainActor
-public final class CalendarTrayController: NSObject, NSPopoverDelegate {
+public final class CalendarTrayController: NSObject, NSMenuDelegate {
     private let model: CalendarTrayModel
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-    private let popover = NSPopover()
-    private var localMouseMonitor: Any?
-    private var globalMouseMonitor: Any?
+    let menu = NSMenu(title: "GRAF")
+    private var menuIsOpen = false
     private let onOpenCalendar: () -> Void
     private let onOpenMeetings: () -> Void
     private let onUpdate: () -> Void
+    private let onStartRecording: () -> Void
+    private let onStopRecording: () -> Void
     private var refreshTask: Task<Void, Never>?
     private var observers: [(NotificationCenter, NSObjectProtocol)] = []
 
@@ -265,13 +101,20 @@ public final class CalendarTrayController: NSObject, NSPopoverDelegate {
         model: CalendarTrayModel,
         onOpenCalendar: @escaping () -> Void,
         onOpenMeetings: @escaping () -> Void,
-        onUpdate: @escaping () -> Void = {}
+        onUpdate: @escaping () -> Void = {},
+        onStartRecording: @escaping () -> Void = {},
+        onStopRecording: @escaping () -> Void = {}
     ) {
         self.model = model
         self.onOpenCalendar = onOpenCalendar
         self.onOpenMeetings = onOpenMeetings
         self.onUpdate = onUpdate
+        self.onStartRecording = onStartRecording
+        self.onStopRecording = onStopRecording
         super.init()
+        menu.delegate = self
+        menu.autoenablesItems = false
+        menu.minimumWidth = 240
     }
 
     public convenience init(
@@ -293,13 +136,8 @@ public final class CalendarTrayController: NSObject, NSPopoverDelegate {
         updateStatusItem()
         button.imagePosition = .imageLeading
         button.imageScaling = .scaleProportionallyDown
-        button.target = self
-        button.action = #selector(togglePopover(_:))
-        button.setAccessibilityRole(.button)
-
-        popover.delegate = self
-        popover.behavior = .transient
-        popover.animates = false
+        statusItem.menu = menu
+        button.setAccessibilityRole(.menuButton)
 
         observers = [
             (NotificationCenter.default, NotificationCenter.default.addObserver(
@@ -333,53 +171,98 @@ public final class CalendarTrayController: NSObject, NSPopoverDelegate {
         refreshNow()
     }
 
-    public func showPopover() {
-        guard !popover.isShown else { return }
-        guard let button = statusItem.button,
-              let screen = button.window?.screen ?? NSScreen.main else { return }
-        let size = Self.panelSize(in: screen.visibleFrame, preferredHeight: model.preferredPanelHeight)
-        let rootView = makeRootView(panelSize: size)
-        if let hosting = popover.contentViewController as? NSHostingController<CalendarTrayView> {
-            hosting.sizingOptions = []
-            hosting.rootView = rootView
+    public func showMenu() {
+        // The app-menu entry also works when macOS hides a crowded status item.
+        if let button = statusItem.button, button.window?.isVisible == true {
+            button.performClick(nil)
         } else {
-            let hosting = NSHostingController(rootView: rootView)
-            hosting.sizingOptions = []
-            popover.contentViewController = hosting
+            menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
         }
-        popover.appearance = NSApplication.shared.appearance
-        popover.contentSize = size
-        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        popover.contentViewController?.view.window?.makeKey()
-        localMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
-            if let self, Self.shouldDismissClick(in: event.window,
-                popoverWindow: self.popover.contentViewController?.view.window,
-                statusItemWindow: self.statusItem.button?.window) {
-                self.popover.performClose(nil)
-            }
-            return event
-        }
-        globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] _ in
-            self?.popover.performClose(nil)
-        }
+    }
+
+    public func menuNeedsUpdate(_ menu: NSMenu) {
+        rebuildMenu()
+    }
+
+    public func menuWillOpen(_ menu: NSMenu) {
+        menuIsOpen = true
         refreshNow()
     }
 
-    static func shouldDismissClick(in window: NSWindow?, popoverWindow: NSWindow?, statusItemWindow: NSWindow?) -> Bool {
-        window == nil || (window !== popoverWindow && window !== statusItemWindow)
+    public func menuDidClose(_ menu: NSMenu) {
+        menuIsOpen = false
     }
 
-    public func popoverDidClose(_ notification: Notification) {
-        if let localMouseMonitor { NSEvent.removeMonitor(localMouseMonitor) }
-        if let globalMouseMonitor { NSEvent.removeMonitor(globalMouseMonitor) }
-        localMouseMonitor = nil
-        globalMouseMonitor = nil
+    func rebuildMenu() {
+        menu.removeAllItems()
+        switch model.recordingState {
+        case .idle:
+            addItem("Начать запись", action: #selector(startRecording), id: "graf.menu.start")
+        case .starting:
+            addItem("Начинаем запись…", id: "graf.menu.starting")
+        case .recording, .paused:
+            addItem("Остановить запись", action: #selector(stopRecording), id: "graf.menu.stop")
+            if model.recordingState == .paused {
+                addItem("Идёт запись · микрофон на паузе", id: "graf.menu.recordingState")
+            }
+        case .stopping:
+            addItem("Завершаем запись…", id: "graf.menu.stopping")
+        }
+        menu.addItem(.separator())
+        if !model.events.isEmpty {
+            addItem("Ближайшие 24 часа", id: "graf.menu.upcoming")
+            for event in model.events {
+                let title = model.showUpcomingTitle ? event.safeDisplayTitle() : "Встреча"
+                let time = model.showUpcomingTime ? timeText(for: event) + " · " : ""
+                // Bound dynamic text, not system menu metrics. Full safe text stays in the tooltip.
+                let shortTitle = title.count > 36 ? String(title.prefix(35)) + "…" : title
+                let item = addItem(time + shortTitle,
+                                   action: safeMeetingLink(for: event) == nil ? nil : #selector(openMeetingLink(_:)),
+                                   id: "graf.menu.event")
+                item.toolTip = time + title
+                item.representedObject = event.eventId
+            }
+            menu.addItem(.separator())
+        }
+        addItem("Открыть GRAF", action: #selector(openMeetings), id: "graf.menu.open")
+        addItem("Настройки календаря…", action: #selector(openCalendar), id: "graf.menu.calendarSettings")
+        if model.appUpdatePresentation.showsSidebarBadge,
+           let version = model.appUpdatePresentation.availableVersion {
+            menu.addItem(.separator())
+            let item = addItem("Обновление GRAF \(version)…", action: #selector(updateApp), id: "graf.menu.update")
+            item.isEnabled = model.canCheckForUpdates
+        }
+    }
+
+    @discardableResult
+    private func addItem(_ title: String, action: Selector? = nil, id: String) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+        item.target = self
+        item.identifier = NSUserInterfaceItemIdentifier(id)
+        item.isEnabled = action != nil
+        menu.addItem(item)
+        return item
+    }
+
+    private func timeText(for event: DesktopCalendarPromptEvent) -> String {
+        if event.allDay == true { return "Весь день" }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "ru_RU")
+        formatter.timeZone = DesktopUserTimeContext.shared.timeZone
+        formatter.dateFormat = "HH:mm"
+        return formatter.string(from: event.startsAt)
+    }
+
+    private func safeMeetingLink(for event: DesktopCalendarPromptEvent) -> URL? {
+        guard event.meetingLinkPresent, let url = event.openMeetingURL,
+              url.scheme?.lowercased() == "https", let host = url.host, !host.isEmpty else { return nil }
+        return url
     }
 
     // Redrawn from GRAF's owned phi/equalizer mark for the 22 pt menu-bar grid.
     // Transparent template geometry lets macOS handle light, dark and selected backgrounds.
     static func statusIcon(recordingState: GrafTrayRecordingState = .idle) -> NSImage {
-        let image = NSImage(size: NSSize(width: recordingState == .idle ? 22 : 30, height: 22),
+        let image = NSImage(size: NSSize(width: 22, height: 22),
                             flipped: false) { _ in
             NSColor.black.setFill()
             NSColor.black.setStroke()
@@ -393,13 +276,15 @@ public final class CalendarTrayController: NSObject, NSPopoverDelegate {
                          NSRect(x: 13.2, y: 8, width: 1.8, height: 4)] {
                 NSBezierPath(roundedRect: rect, xRadius: 0.7, yRadius: 0.7).fill()
             }
-            if recordingState == .paused {
-                for x in [24.0, 28.0] {
-                    NSBezierPath(roundedRect: NSRect(x: x, y: 8, width: 2, height: 6),
-                                 xRadius: 0.5, yRadius: 0.5).fill()
-                }
-            } else if recordingState != .idle {
-                NSBezierPath(ovalIn: NSRect(x: 24, y: 8, width: 6, height: 6)).fill()
+            if recordingState == .recording || recordingState == .paused || recordingState == .stopping {
+                // Keep the status item's width stable when capture starts: a wider
+                // item can be displaced by macOS on a crowded menu bar.
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current?.compositingOperation = .clear
+                NSBezierPath(ovalIn: NSRect(x: 14.5, y: 14.5, width: 9, height: 9)).fill()
+                NSGraphicsContext.restoreGraphicsState()
+                // A microphone pause still captures system audio: keep the recording mark.
+                NSBezierPath(ovalIn: NSRect(x: 16, y: 16, width: 6, height: 6)).fill()
             }
             return true
         }
@@ -411,7 +296,7 @@ public final class CalendarTrayController: NSObject, NSPopoverDelegate {
         guard model.recordingState != state else { return }
         model.recordingState = state
         updateStatusItem()
-        updatePopoverLayout()
+        if menuIsOpen { menu.cancelTracking() }
     }
 
     var statusItemLabel: String {
@@ -426,81 +311,56 @@ public final class CalendarTrayController: NSObject, NSPopoverDelegate {
 
     private func updateStatusItem() {
         statusItem.button?.image = Self.statusIcon(recordingState: model.recordingState)
-        statusItem.button?.title = model.appUpdatePresentation.showsSidebarBadge ? "↑" : ""
+        statusItem.button?.title = ""
         statusItem.button?.toolTip = statusItemLabel
         statusItem.button?.setAccessibilityLabel("Меню \(statusItemLabel)")
     }
 
-    public static func panelSize(in visibleFrame: NSRect, preferredHeight: CGFloat = 420) -> NSSize {
-        NSSize(width: max(1, min(344, visibleFrame.width - 24)),
-               height: max(1, min(preferredHeight, visibleFrame.height - 24)))
-    }
-
     public func showUpdate(_ presentation: AppUpdatePresentation, actionEnabled: Bool) {
+        guard model.appUpdatePresentation != presentation || model.canCheckForUpdates != actionEnabled else { return }
         model.appUpdatePresentation = presentation
         model.canCheckForUpdates = actionEnabled
         updateStatusItem()
-        updatePopoverLayout()
-    }
-
-    @objc private func togglePopover(_ sender: Any?) {
-        guard statusItem.button != nil else { return }
-        if popover.isShown {
-            popover.performClose(sender)
-        } else {
-            showPopover()
-        }
+        if menuIsOpen { menu.cancelTracking() }
     }
 
     private func refreshNow() {
         Task { [weak self] in
             guard let self else { return }
+            let previousEvents = self.model.events
+            let previousTitle = self.model.showUpcomingTitle
+            let previousTime = self.model.showUpcomingTime
             await self.model.refresh()
-            self.updatePopoverLayout()
+            if self.menuIsOpen && (previousEvents != self.model.events ||
+                previousTitle != self.model.showUpcomingTitle || previousTime != self.model.showUpcomingTime) {
+                self.menu.cancelTracking()
+            }
         }
     }
 
-    private func makeRootView(panelSize: NSSize) -> CalendarTrayView {
-        CalendarTrayView(
-            model: model,
-            onOpenCalendar: { [weak self] in self?.openCalendar() },
-            onOpenMeetings: { [weak self] in self?.openMeetings() },
-            onOpenMeetingLink: { [weak self] url in self?.openMeetingLink(url) },
-            onUpdate: { [weak self] in
-                self?.popover.performClose(nil)
-                self?.onUpdate()
-            },
-            panelSize: panelSize
-        )
+    @objc func startRecording() {
+        guard model.recordingState == .idle else { return }
+        onStartRecording()
     }
 
-    private func updatePopoverLayout() {
-        guard popover.isShown,
-              let button = statusItem.button,
-              let screen = button.window?.screen ?? NSScreen.main,
-              let hosting = popover.contentViewController as? NSHostingController<CalendarTrayView> else {
-            return
-        }
-        let size = Self.panelSize(in: screen.visibleFrame, preferredHeight: model.preferredPanelHeight)
-        hosting.sizingOptions = []
-        hosting.rootView = makeRootView(panelSize: size)
-        popover.appearance = NSApplication.shared.appearance
-        popover.contentSize = size
+    @objc func stopRecording() {
+        guard model.recordingState == .recording || model.recordingState == .paused else { return }
+        onStopRecording()
     }
 
-    private func openCalendar() {
-        popover.performClose(nil)
-        onOpenCalendar()
+    @objc private func openCalendar() { onOpenCalendar() }
+    @objc private func openMeetings() { onOpenMeetings() }
+
+    @objc private func updateApp() {
+        guard model.canCheckForUpdates else { return }
+        onUpdate()
     }
 
-    private func openMeetings() {
-        popover.performClose(nil)
-        onOpenMeetings()
-    }
-
-    private func openMeetingLink(_ url: URL) {
-        guard url.scheme?.lowercased() == "https", url.host != nil else { return }
-        popover.performClose(nil)
+    @objc private func openMeetingLink(_ sender: NSMenuItem) {
+        // Re-resolve after selection: a background refresh/sign-out may have removed the event.
+        guard let id = sender.representedObject as? String,
+              let event = model.events.first(where: { $0.eventId == id }),
+              let url = safeMeetingLink(for: event) else { return }
         NSWorkspace.shared.open(url)
     }
 }
