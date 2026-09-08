@@ -724,6 +724,10 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         return DesktopUploadResult(state: .uploaded, serverTruth: serverTruth)
     }
 
+    public func notificationContext() async throws -> DesktopNotificationContext {
+        try await perform(request(path: "/api/v1/desktop/notification-context", method: "GET", timeoutInterval: 15))
+    }
+
     public func reconcile(_ item: DesktopUploadQueueItem) async throws -> DesktopUploadReconciliation? {
         let request = try request(
             path: "/api/v1/desktop/recordings/\(item.directoryId)/sync-state",
@@ -749,6 +753,8 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
                 processingReasonCode: response.processing.reason_code,
                 reviewAvailable: response.review?.available,
                 reviewStatus: response.review?.status,
+                summaryStatus: response.review?.summary_status,
+                transcriptAvailable: response.review?.transcript_available,
                 conflictReason: response.conflict.reason,
                 nextAction: response.conflict.next_action
             )
@@ -1479,15 +1485,23 @@ private struct DesktopSyncProcessingState: Decodable {
     let reason_code: String?
 }
 
-private struct DesktopSyncReviewState: Decodable {
+public struct DesktopNotificationContext: Decodable, Sendable {
+    public let user_id: UUID
+    public let workspace_id: UUID
+}
+
+struct DesktopSyncReviewState: Decodable {
     let available: Bool
     let status: String
     let media_revision_id: String?
     let transcript_available: Bool
     let diarization_available: Bool
     let content_available: Bool
+    let summary_status: String?
     let web_url: String?
     let desktop_url: String?
+
+
 }
 
 private struct DesktopSyncConflict: Decodable {

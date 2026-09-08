@@ -336,7 +336,7 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
         XCTAssertTrue(cabinetSource.contains("data-icon=\"trash\""))
         XCTAssertFalse(cabinetSource.contains("remove.textContent = \"Удалить\""))
         XCTAssertFalse(cabinetSource.contains("serverRow.dataset.grafLocalRecordingId"))
-        XCTAssertTrue(shellSource.contains("DesktopUploadCustodySummary.summaries(for: uploadQueueItems)"))
+        XCTAssertTrue(shellSource.contains("DesktopUploadCustodySummary.summaries(for: uploadQueueItems, focusedSessionID: controlModel.selectedRecordingSessionID)"))
     }
 
     func testOfflineStatesExposeOnlySafeSameOriginRetryFromWorkspace() throws {

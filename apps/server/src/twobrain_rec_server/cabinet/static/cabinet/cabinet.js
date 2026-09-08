@@ -1623,6 +1623,7 @@
     "running",
     "generating",
     "submitted",
+    "blocked_dependency",
   ].includes(String(state || "").toLowerCase());
 
   const processingTranscriptReady = (projection) => (
@@ -1765,6 +1766,7 @@
     processing: ["Итоги готовятся отдельно. Расшифровка может быть доступна раньше.", "pending"],
     running: ["Итоги готовятся отдельно. Расшифровка может быть доступна раньше.", "pending"],
     generating: ["Итоги готовятся отдельно. Расшифровка может быть доступна раньше.", "pending"],
+    blocked_dependency: ["Подготовка итогов задерживается. Продолжим автоматически.", "pending"],
     submitted: ["Итоги готовятся отдельно. Расшифровка может быть доступна раньше.", "pending"],
     failed: [transcriptReady ? "Не удалось подготовить итоги. Расшифровка сохранена." : "Не удалось подготовить итоги.", "failed"],
     unavailable: [transcriptReady ? "Итоги пока недоступны. Расшифровка сохранена." : "Итоги пока недоступны.", "warning"],
@@ -2069,6 +2071,7 @@
     const shouldPoll = !terminalProjection && (
       (typeof processingTranscriptReady === "function" && !transcriptReady)
       || processingSummaryPending(summaryState)
+      || summaryState === "not_requested"
       || projection?.retry_class === "retryable" && projection?.next_attempt_at != null
       || projection?.retry_class === "unknown_outcome"
       || projection?.attempt_in_flight === true
@@ -2095,21 +2098,31 @@
   const refreshProcessingDetailContentOnce = async (
     detail,
     projection,
-    { resetRetryBudget = false } = {},
+    { resetRetryBudget = false, forceSummary = false, summaryTemplate = null } = {},
   ) => {
+    if (detail.dataset.requestedSummaryTemplate && !forceSummary) return false;
+    if (forceSummary && summaryTemplate) detail.dataset.requestedSummaryTemplate = summaryTemplate;
     if (titleEditorActive()) {
       if (!detail.dataset.titleRefreshDeferred) {
         detail.dataset.titleRefreshDeferred = "true";
         window.setTimeout(() => {
           delete detail.dataset.titleRefreshDeferred;
-          if (detail.isConnected) void refreshProcessingDetailContentOnce(detail, projection);
+          if (detail.isConnected) void refreshProcessingDetailContentOnce(detail, projection, {
+            forceSummary: forceSummary || Boolean(detail.dataset.requestedSummaryTemplate),
+            summaryTemplate: detail.dataset.requestedSummaryTemplate || summaryTemplate,
+          });
         }, 2000);
       }
       return false;
     }
     if (resetRetryBudget) delete detail.dataset.processingContentRefreshRetryCount;
     const transcriptReady = processingTranscriptReady(projection);
-    const summaryReady = processingSummaryState(projection).toLowerCase() === "available";
+    const summaryReady = ["available", "partial"].includes(processingSummaryState(projection).toLowerCase());
+    const summaryDisplayState = summaryReady ? "available"
+      : processingSummaryPending(processingSummaryState(projection)) ? "processing"
+      : ["failed", "unavailable"].includes(processingSummaryState(projection)) ? "unavailable" : "deferred";
+    const refreshSummaryState = transcriptReady && detail.dataset.summaryRenderedState
+      && detail.dataset.summaryRenderedState !== summaryDisplayState;
     const attemptOrdinal = Number(projection?.attempt_ordinal ?? 0);
     const refreshReplacement = Number.isSafeInteger(attemptOrdinal)
       && attemptOrdinal > 1
@@ -2117,11 +2130,16 @@
       && detail.dataset.processingPublishedAttempt !== String(attemptOrdinal);
     const refreshTranscript = transcriptReady
       && detail.dataset.processingTranscriptContentReady !== "true";
-    const refreshSummary = summaryReady
-      && detail.dataset.processingSummaryContentReady !== "true";
-    if (!refreshTranscript && !refreshSummary && !refreshReplacement) return false;
-    const pollUrl = detail.dataset.playbackPollUrl;
+    const refreshSummary = forceSummary || (summaryReady
+      && detail.dataset.processingSummaryContentReady !== "true");
+    if (!refreshTranscript && !refreshSummary && !refreshReplacement && !refreshSummaryState) return false;
+    let pollUrl = detail.dataset.playbackPollUrl;
     if (!pollUrl) return false;
+    if (summaryTemplate) {
+      const url = new URL(pollUrl, window.location.href);
+      url.searchParams.set("summary_format", summaryTemplate);
+      pollUrl = url.href;
+    }
     const titleVersion = detail.querySelector("[name='expected_version']")?.value;
     const refreshGeneration = processingRecoveryGeneration;
     const refreshScheduleGeneration = detail.dataset.processingScheduleGeneration || "0";
@@ -2132,6 +2150,8 @@
       transcriptReady,
       summaryReady,
       refreshReplacement,
+      summaryDisplayState,
+      summaryTemplate,
     ].join("|");
     if (detail.dataset.processingContentRefreshClaim === refreshClaim) return false;
     detail.dataset.processingContentRefreshClaim = refreshClaim;
@@ -2141,6 +2161,7 @@
       && (detail.dataset.processingScheduleGeneration || "0") === refreshScheduleGeneration
       && detail.dataset.processingContentRefreshClaim === refreshClaim
       && processingProjectionMatchesDetail(detail, projection)
+      && (!summaryTemplate || detail.dataset.requestedSummaryTemplate === summaryTemplate)
     );
     const releaseRefreshClaim = () => {
       if (detail.dataset.processingContentRefreshClaim === refreshClaim) {
@@ -2160,8 +2181,10 @@
         stopProcessingRecoveryPolling();
         processingRecoveryPollTimer = window.setTimeout(() => {
           processingRecoveryPollTimer = null;
-          if (detail.isConnected && refreshGeneration === processingRecoveryGeneration) {
-            void refreshProcessingStatus({ force: true, generation: refreshGeneration });
+          if (detail.isConnected && refreshGeneration === processingRecoveryGeneration
+            && (!summaryTemplate || detail.dataset.requestedSummaryTemplate === summaryTemplate)) {
+            if (forceSummary) void refreshProcessingDetailContentOnce(detail, projection, { forceSummary, summaryTemplate });
+            else void refreshProcessingStatus({ force: true, generation: refreshGeneration });
           }
         }, 15000);
         return;
@@ -2169,7 +2192,9 @@
       detail.dataset.processingContentRefreshRetryCount = String(retryCount);
       if (processingRecoveryPollTimer !== null) stopProcessingRecoveryPolling();
       window.setTimeout(() => {
-        if (detail.isConnected) void refreshProcessingDetailContentOnce(detail, projection);
+        if (detail.isConnected && (!summaryTemplate || detail.dataset.requestedSummaryTemplate === summaryTemplate)) {
+          void refreshProcessingDetailContentOnce(detail, projection, { forceSummary, summaryTemplate });
+        }
       }, Math.min(2000 * retryCount, 8000));
     };
     try {
@@ -2199,6 +2224,11 @@
         retryFragmentRefresh();
         return false;
       }
+      if (forceSummary && (nextDetail.dataset.summaryRenderedState !== "available"
+        || (summaryTemplate && nextDetail.querySelector("[data-summary-format-controls]")?.dataset.currentTemplateKey !== summaryTemplate))) {
+        retryFragmentRefresh();
+        return false;
+      }
       nextDetail.dataset.processingTranscriptContentReady =
         refreshTranscript ? "true" : detail.dataset.processingTranscriptContentReady || "false";
       nextDetail.dataset.processingSummaryContentReady =
@@ -2214,12 +2244,18 @@
       releaseRefreshClaim();
       stopProcessingRecoveryCountdown();
       stopProcessingRecoveryPolling();
+      const selectedTab = detail.querySelector('[data-detail-tab][aria-selected="true"]')?.dataset.detailTab;
+      const focusedID = detail.contains?.(document.activeElement) ? document.activeElement?.id : null;
       if (refreshReplacement) {
         currentPlayback?.querySelector("audio")?.pause();
         if (currentPlayback && nextPlayback) currentPlayback.replaceWith(nextPlayback);
       }
       detail.replaceWith(nextDetail);
-      window.setTimeout(initCabinet, 0);
+      window.setTimeout(() => {
+        initCabinet();
+        if (selectedTab && typeof activateDetailTab === "function") activateDetailTab(selectedTab, { updateUrl: false });
+        if (focusedID) document.getElementById(focusedID)?.focus({ preventScroll: true });
+      }, 0);
       return true;
     } catch {
       retryFragmentRefresh();
@@ -2317,10 +2353,11 @@
     updateProcessingStage(
       detail,
       "summary",
-      summaryState === "available" ? "ready"
+      ["available", "partial"].includes(summaryState) ? "ready"
         : ["failed", "unavailable"].includes(summaryState) ? "unavailable"
-        : processingSummaryPending(summaryState) ? "active" : "active",
+        : "active",
       summaryState === "available" ? "Готово"
+        : summaryState === "partial" ? "Доступно частично"
         : ["failed", "unavailable"].includes(summaryState) ? "Недоступно"
         : summaryState === "not_requested" ? "Не запрошены" : "Готовятся",
     );
@@ -3075,7 +3112,7 @@
       : retryClass === "terminal"
       ? "Требует внимания"
       : transcriptReady
-      ? `Расшифровка готова · ${summaryState === "available" ? "итоги готовы" : processingSummaryPending(summaryState) ? "итоги готовятся" : "итоги недоступны"}`
+      ? `Расшифровка готова · ${summaryState === "available" ? "итоги готовы" : summaryState === "partial" ? "итоги доступны частично" : processingSummaryPending(summaryState) ? "итоги готовятся" : "итоги недоступны"}`
       : "Спикеры определяются · расшифровка готовится";
     const node = row.querySelector(".meeting-content-readiness");
     if (node) node.dataset.processingListStatus = "true";
@@ -3132,7 +3169,7 @@
     if (!list) return;
     const rows = allRows().filter((row) => {
       const kind = row.querySelector(".meeting-status[data-status-kind]")?.dataset.statusKind || "";
-      return kind === "processing";
+      return kind === "processing" || row.dataset.summaryPending === "true";
     });
     if (!rows.length) {
       resetProcessingListProjectionState();
@@ -3172,6 +3209,7 @@
       const meetingId = controls.dataset.meetingId || "";
       const candidateStorageKey = `graf-summary-candidate-${meetingId}`;
       let currentOutcomeSetId = controls.dataset.currentOutcomeSetId || null;
+      let refreshBaselineOutcomeSetId = currentOutcomeSetId;
       let activeTemplate = null;
       let pollingTimer = null;
       let pollAttempts = 0;
@@ -3202,14 +3240,14 @@
         controls.setAttribute("aria-busy", busy ? "true" : "false");
       };
       const reloadAfterSummaryChange = (template = activeTemplate) => {
-        window.sessionStorage.setItem(acceptedFocusKey, "current");
         const templateKey = typeof template === "string" ? template : template?.key;
-        if (templateKey) {
-          const url = new URL(window.location.href);
-          url.searchParams.set("summary_format", templateKey);
-          window.history.replaceState(null, "", url);
-        }
-        window.location.reload();
+        const detail = controls.closest("[data-processing-status-url]");
+        if (!detail?.isConnected) return;
+        void refreshProcessingDetailContentOnce(detail, {
+          meeting_id: detail.dataset.meetingId,
+          media_revision_id: detail.dataset.mediaRevisionId,
+          summary_status: "available",
+        }, { forceSummary: true, summaryTemplate: templateKey });
       };
       const showStatus = (message, state = "generating", actions = []) => {
         if (!status || !statusLive || !statusActions) return;
@@ -3548,7 +3586,7 @@
         return true;
       };
       const schedulePoll = (candidate, generation = candidateRequestGeneration) => {
-        if (generation !== candidateRequestGeneration) return;
+        if (generation !== candidateRequestGeneration || !controls.isConnected) return;
         window.clearTimeout(pollingTimer);
         pollingTimer = null;
         if (document.hidden) {
@@ -3558,15 +3596,9 @@
           ]);
           return;
         }
-        if (document.hidden || pollAttempts >= 40 || (pollDeadline && Date.now() >= pollDeadline)) {
-          if (pollAttempts >= 40 || (pollDeadline && Date.now() >= pollDeadline)) {
-            setBusy(false);
-          showStatus("Генерация занимает больше обычного. Текущие итоги сохранены.", "slow", [
-            { text: "Проверить снова", action: () => resumeCandidatePolling(candidate, generation), primary: true },
-            { text: "Закрыть", action: dismissStatus }
-          ]);
-          }
-          return;
+        if (pollAttempts >= 40 || (pollDeadline && Date.now() >= pollDeadline)) {
+          pollDelay = 15000;
+          showStatus("Подготовка занимает больше обычного. Продолжим проверять автоматически.", "slow");
         }
         pollingTimer = window.setTimeout(() => {
           pollingTimer = null;
@@ -3574,7 +3606,7 @@
         }, pollDelay);
       };
       const pollCandidate = async (candidate, generation = candidateRequestGeneration) => {
-        if (generation !== candidateRequestGeneration) return;
+        if (generation !== candidateRequestGeneration || !controls.isConnected) return;
         if (document.hidden) {
           pollingTimer = null;
           setBusy(false);
@@ -3586,6 +3618,7 @@
         pollAttempts += 1;
         try {
           const response = await fetch(candidate.poll_url, { credentials: "same-origin", cache: "no-store" });
+          if (generation !== candidateRequestGeneration || !controls.isConnected) return;
           if (await recoverMeetingDetailFromResponse(response, { actionProblemCodes: summaryActionProblemCodes })) {
             throw meetingDetailRecoveredError();
           }
@@ -3598,7 +3631,7 @@
             throw error;
           }
           const next = await response.json();
-          if (generation !== candidateRequestGeneration) return;
+          if (generation !== candidateRequestGeneration || !controls.isConnected) return;
           renderCandidate(next, generation);
           if (next.state === "generating") {
             pollDelay = Math.min(10000, Math.round(pollDelay * 1.5));
@@ -3606,11 +3639,12 @@
           }
         } catch (error) {
           if (isMeetingDetailRecoveredError(error)) return;
-          if (generation !== candidateRequestGeneration) return;
+          if (generation !== candidateRequestGeneration || !controls.isConnected) return;
           pollingTimer = null;
           setBusy(false);
           const code = error instanceof Error ? error.message : "";
           const transientPollFailure = !code
+            || error instanceof TypeError
             || code === "summary_poll_failed"
             || code === "summary_poll_unavailable"
             || code === "summary_request_unavailable"
@@ -3630,6 +3664,10 @@
             "failed",
             retry ? [retry] : []
           );
+          if (transientPollFailure) {
+            pollDelay = 15000;
+            schedulePoll(candidate, generation);
+          }
         }
       };
       const requestCandidate = async (template, {
@@ -3755,14 +3793,9 @@
         return payload.current_outcome_set_id || null;
       };
        const pollSummaryRefresh = async (template, generation) => {
-        if (generation !== candidateRequestGeneration) return;
-        if (Date.now() > pollDeadline) {
-          pollingTimer = null;
-          candidateRequestInFlightGeneration = null;
-          setBusy(false);
-          showStatus("Не удалось дождаться обновления. Текущие итоги сохранены.", "failed", [
-            { text: "Обновить страницу", action: () => window.location.reload(), primary: true }
-          ]);
+        if (generation !== candidateRequestGeneration || !controls.isConnected) return;
+        if (document.hidden) {
+          pollingTimer = window.setTimeout(() => pollSummaryRefresh(template, generation), 15000);
           return;
         }
         try {
@@ -3770,6 +3803,7 @@
             `/api/v1/cabinet/meetings/${meetingId}/summaries/${encodeURIComponent(template.key)}`,
             { credentials: "same-origin", cache: "no-store" }
           );
+          if (generation !== candidateRequestGeneration || !controls.isConnected) return;
           if (await recoverMeetingDetailFromResponse(response, { actionProblemCodes: summaryActionProblemCodes })) {
             throw meetingDetailRecoveredError();
           }
@@ -3779,28 +3813,32 @@
             error.status = response.status;
             throw error;
           }
-          if (generation !== candidateRequestGeneration) return;
-          const previousOutcomeSetId = currentOutcomeSetId;
+          if (generation !== candidateRequestGeneration || !controls.isConnected) return;
           currentOutcomeSetId = payload.current_outcome_set_id || currentOutcomeSetId;
           const state = payload.catalog_entry?.generation_state;
-          if (["preparing", "updating", "blocked", "deferred", "ambiguous"].includes(state)) {
+          if (["preparing", "updating", "blocked", "deferred"].includes(state)) {
             showStatus("Обновляем итоги. Текущие итоги остаются доступны.");
-            pollingTimer = window.setTimeout(() => pollSummaryRefresh(template, generation), 1200);
+            pollingTimer = window.setTimeout(() => pollSummaryRefresh(template, generation), Date.now() > pollDeadline ? 15000 : 3000);
             return;
           }
           pollingTimer = null;
           candidateRequestInFlightGeneration = null;
           setBusy(false);
-          if (payload.current_outcome_set_id && payload.current_outcome_set_id !== previousOutcomeSetId && state === "idle") {
+          if (payload.current_outcome_set_id && payload.current_outcome_set_id !== refreshBaselineOutcomeSetId && state === "idle") {
             showStatus("Итоги обновлены. Обновляем экран.", "ready");
-            window.setTimeout(reloadAfterSummaryChange, 0);
+            window.setTimeout(() => reloadAfterSummaryChange(template), 0);
           } else {
             showStatus("Обновление не завершено. Текущие итоги сохранены.", "failed", [
               { text: "Обновить страницу", action: () => window.location.reload(), primary: true }
             ]);
           }
         } catch (error) {
-          if (isMeetingDetailRecoveredError(error) || generation !== candidateRequestGeneration) return;
+          if (isMeetingDetailRecoveredError(error) || generation !== candidateRequestGeneration || !controls.isConnected) return;
+          if (error instanceof TypeError || !error.status || error.status >= 500 || [408, 425, 429].includes(error.status)) {
+            showStatus("Связь временно недоступна. Продолжим проверять автоматически.", "slow");
+            pollingTimer = window.setTimeout(() => pollSummaryRefresh(template, generation), 15000);
+            return;
+          }
           pollingTimer = null;
           candidateRequestInFlightGeneration = null;
           setBusy(false);
@@ -3818,13 +3856,15 @@
         setBusy(true);
         showStatus("Обновляем итоги. Текущие итоги остаются доступны.");
         try {
+          refreshBaselineOutcomeSetId = await currentOutcomeSetIdForTemplate(template);
+          if (generation !== candidateRequestGeneration || !controls.isConnected) return;
           const payload = await mutate(
             `/api/v1/cabinet/meetings/${meetingId}/summaries/${encodeURIComponent(template.key)}/refresh`,
             "POST",
             {
               schema_version: 1,
               idempotency_key: requestIntentId,
-              expected_current_outcome_set_id: await currentOutcomeSetIdForTemplate(template),
+              expected_current_outcome_set_id: refreshBaselineOutcomeSetId,
               template_id: template.id || null,
               template_version: template.version,
               generation_options: {}
@@ -4109,7 +4149,7 @@
         credentials: "same-origin",
         cache: "no-store"
       }).then((response) => response.ok ? response.json() : null).then((payload) => {
-        if (initialCandidateLoadGeneration !== candidateRequestGeneration) return;
+        if (initialCandidateLoadGeneration !== candidateRequestGeneration || !controls.isConnected) return;
         const candidates = Array.isArray(payload) ? payload : (Array.isArray(payload?.candidates) ? payload.candidates : []);
         const acceptedIndex = candidates.findIndex((candidate) => (
           candidate.state === "accepted"

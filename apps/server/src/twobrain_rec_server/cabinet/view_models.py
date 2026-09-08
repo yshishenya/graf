@@ -1885,10 +1885,15 @@ def _meeting_list_content_readiness(item: MeetingListItem) -> str | None:
         return None
     transcript_ready = item.transcript_available
     outcomes_ready = item.notes_action_truth.source_basis == "stored_output"
+    if outcomes_ready and item.summary_status == "partial":
+        return "Расшифровка готова · итоги доступны частично" if transcript_ready else "Итоги доступны частично · расшифровка недоступна"
     if transcript_ready and outcomes_ready:
         return "Расшифровка и итоги готовы"
     if transcript_ready:
         outcome_copy = (
+            "итоги не удалось подготовить"
+            if item.notes_action_truth.summary.state == "unavailable"
+            else
             "итоги не запрошены"
             if item.notes_action_truth.source_basis == "transcript_only"
             else "итоги готовятся"
@@ -1938,13 +1943,15 @@ def _meeting_list_compact_status(
         return "uploading", "Отправляем", None
     if presentation_status in {"submitted", "processing"}:
         return "processing", "Обрабатывается", None
+    if item.notes_action_truth.summary.state == "processing":
+        return "processing", "Готовим итоги", None
 
     openable = item.primary_action == "open" or presentation_status in {"ready", "partial"}
     if openable and item.playback.state == "preparing":
         return "audio_preparing", "Аудио готовится", None
     if openable and item.playback.state in {"unavailable", "deleting", "deleted"}:
         return "without_audio", "Без аудио", None
-    if presentation_status == "partial":
+    if presentation_status == "partial" or item.summary_status == "partial":
         return "limited", "Готово с ограничениями", None
     return None, None, None
 
@@ -2445,6 +2452,7 @@ def build_list_item(
     calendar_context: RecordingCalendarContextLink | None = None,
     previous_recurring_meeting: PreviousRecurringMeetingView | None = None,
     playback: PlaybackPreparationState | None = None,
+    summary_progress_state: str | None = None,
 ) -> MeetingListItem:
     current_media_revision_id = media_revision.id if media_revision is not None else None
     status = review_status(
@@ -2457,7 +2465,8 @@ def build_list_item(
     access_state = access or owner_access_state()
     artifact_states = artifacts or []
     notes_truth = notes_action_truth_state(
-        status=status, result=result, outcome_set=outcome_set, outcome_items=outcome_items or []
+        status=status, result=result, outcome_set=outcome_set, outcome_items=outcome_items or [],
+        summary_progress_state=summary_progress_state,
     )
     notes_truth.protocol = None
     item = MeetingListItem(
@@ -2497,6 +2506,9 @@ def build_list_item(
             media_revision_id=current_media_revision_id,
         ),
         notes_available=notes_truth.summary.state == "available",
+        summary_status=(outcome_set.status
+                        if outcome_set is not None and notes_truth.source_basis == "stored_output"
+                        else summary_progress_state),
         notes_action_truth=notes_truth,
         updated_at=meeting.updated_at,
         access=access_state,
@@ -3122,9 +3134,24 @@ def notes_action_truth_state(
     result: ProcessingResult | None,
     outcome_set: MeetingOutcomeSet | None = None,
     outcome_items: list[MeetingOutcomeItem] | None = None,
+    summary_progress_state: str | None = None,
 ) -> NotesActionTruthState:
     if outcome_set is not None and status in {"ready", "partial"}:
         return stored_outcome_truth_state(outcome_set, outcome_items or [])
+    summary_status = summary_progress_state or (result.summary_status if result is not None else None)
+    if summary_status in {"queued", "generating", "blocked_dependency"} and status in {"ready", "partial"}:
+        category = _notes_action_category(
+            state="processing", label="Готовим итоги",
+            reason=("Подготовка итогов задерживается. Продолжим автоматически."
+                    if summary_status == "blocked_dependency"
+                    else "Расшифровка готова. Итоги появятся здесь автоматически."),
+            readiness_impact="non_blocking", copy_key="notes.outcomes.processing",
+        )
+        return NotesActionTruthState(
+            summary=category, key_points=category, decisions=category, action_items=category,
+            followups=category, risks=category, questions=category, evidence=category,
+            source_basis="processing_status",
+        )
     if status in {"processing", "submitted", "uploading"}:
         category = _notes_action_category(
             state="processing",
@@ -3166,7 +3193,7 @@ def notes_action_truth_state(
         )
 
     if status in {"ready", "partial"}:
-        if result is not None and result.summary_status in {
+        if summary_status in {
             SummaryStatus.FAILED.value,
             SummaryStatus.UNAVAILABLE.value,
         }:
@@ -3195,7 +3222,7 @@ def notes_action_truth_state(
                 evidence=deferred,
                 source_basis="processing_status",
             )
-        if result is not None and result.summary_status == SummaryStatus.AVAILABLE.value:
+        if summary_status == SummaryStatus.AVAILABLE.value:
             summary = _notes_action_category(
                 state="blocked",
                 label="Summary unavailable",
@@ -3221,11 +3248,11 @@ def notes_action_truth_state(
                 evidence=deferred,
                 source_basis="processing_status",
             )
-        if result is not None and result.summary_status == SummaryStatus.NOT_REQUESTED.value:
+        if summary_status == SummaryStatus.NOT_REQUESTED.value:
             category = _notes_action_category(
                 state="deferred",
                 label="Outcomes not requested",
-                reason="Расшифровка готова. Итоги будут подготовлены автоматически.",
+                reason="Расшифровка готова. Выберите формат, чтобы подготовить итоги.",
                 readiness_impact="keeps_gap_open",
                 copy_key="notes.outcomes.not_requested",
             )
@@ -3469,6 +3496,7 @@ def build_review_response(
     speaker_names: dict[str, str] | None = None,
     can_rename_speakers: bool = False,
     reprocess_available: bool = False,
+    summary_progress_state: str | None = None,
 ) -> MeetingReviewResponse:
     current_media_revision_id = media_revision.id if media_revision is not None else None
     current_lineage = result_lineage_is_current(
@@ -3529,6 +3557,7 @@ def build_review_response(
         artifacts=artifact_states,
         calendar_context=calendar_context,
         playback=review_playback,
+        summary_progress_state=summary_progress_state,
     )
     row_visibility = _same_result_transcript_rows(transcript_segments, diarization_segments)
     if not row_visibility:
@@ -3545,6 +3574,7 @@ def build_review_response(
         result=safe_result,
         outcome_set=safe_outcome_set,
         outcome_items=safe_outcome_items,
+        summary_progress_state=summary_progress_state,
     )
     item.notes_available = notes_truth.summary.state == "available"
     item.notes_action_truth = notes_truth

@@ -14,9 +14,11 @@ from alembic.operations import Operations
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
+from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fixtures.cabinet import create_outcome_ready_meeting
 from twobrain_rec_server.cabinet import queries
 from twobrain_rec_server.cabinet.egress import (
+    _latest_accepted_media_revision,
     _processing_result_is_current,
     current_outcome_set,
 )
@@ -39,6 +41,95 @@ from twobrain_rec_server.outcomes.service import (
     load_meeting_default_slot,
     mark_meeting_default_slot,
 )
+from twobrain_rec_server.processing.status import get_content_safe_processing_status
+
+
+@pytest.mark.parametrize("attempt_status", ["queued", "generating", "blocked_dependency", "failed"])
+def test_empty_summary_slot_keeps_audio_and_reports_current_attempt(client, attempt_status) -> None:
+    meeting_id = create_outcome_ready_meeting(client, "progress-empty-slot-" + attempt_status)
+
+    async def run() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            meeting = await db.get(Meeting, meeting_id)
+            slot = await mark_meeting_default_slot(
+                db, workspace_id=meeting.workspace_id, meeting_id=meeting.id,
+                template_key="graf-auto-v1", resolution_source="workspace",
+                resolution_version="progress-test", resolved_at=datetime.now(UTC),
+            )
+            candidate, attempt = await _seed_model_candidate(db, meeting=meeting)
+            attempt.status = attempt_status
+            attempt.ended_at = datetime.now(UTC) if attempt_status == "failed" else None
+            slot.current_outcome_set_id = None
+            await db.flush()
+            audio = await _latest_accepted_media_revision(
+                db, workspace_id=meeting.workspace_id, meeting_id=meeting.id,
+            )
+            assert audio is not None and audio.id == attempt.media_revision_id
+            status = await get_content_safe_processing_status(
+                db, workspace_id=meeting.workspace_id, meeting_id=meeting.id,
+            )
+            assert status.summary_status == attempt_status
+            assert not status.artifacts["summary"].visible
+            attempt.source_result_hash = "invalid-source"
+            await db.flush()
+            stale = await get_content_safe_processing_status(
+                db, workspace_id=meeting.workspace_id, meeting_id=meeting.id,
+            )
+            assert stale.summary_status not in {"generating", "blocked_dependency", "failed"}
+            attempt.source_result_hash = candidate.source_result_hash
+            await db.commit()
+            local_id = meeting.local_recording_id
+        response = client.get(f"/api/v1/desktop/recordings/{local_id}/sync-state", headers=auth_headers())
+        assert response.status_code == 200
+        assert response.json()["review"]["summary_status"] == attempt_status
+
+    asyncio.run(run())
+
+
+def test_published_partial_is_visible_but_invalid_pointer_never_substitutes_audio(client) -> None:
+    meeting_id = create_outcome_ready_meeting(client, "progress-published-fence")
+    async def run():
+        async with client.app_state["sessionmaker"]() as db:
+            meeting = await db.get(Meeting, meeting_id)
+            slot = await mark_meeting_default_slot(db, workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id, template_key="graf-auto-v1", resolution_source="workspace",
+                resolution_version="progress", resolved_at=datetime.now(UTC))
+            candidate, attempt = await _seed_model_candidate(db, meeting=meeting)
+            candidate.status = "partial"
+            candidate.accepted_at = datetime.now(UTC)
+            candidate.revision_state = "accepted"
+            attempt.status = "accepted"
+            slot.current_outcome_set_id = candidate.id
+            await db.flush()
+            status = await get_content_safe_processing_status(db, workspace_id=meeting.workspace_id, meeting_id=meeting.id)
+            assert status.summary_status == "partial" and status.artifacts["summary"].visible
+            from types import SimpleNamespace
+
+            from twobrain_rec_server.outcomes.progress import (
+                summary_progress,
+            )
+
+            result = await db.get(ProcessingResult, candidate.processing_result_id)
+            assert await summary_progress(db, meeting=meeting, result=result) == "partial"
+            await db.commit()
+            payload = client.get("/api/v1/cabinet/meetings", headers=auth_headers()).json()
+            row = next(item for item in payload["items"] if item["meeting_id"] == str(meeting_id))
+            assert row["summary_status"] == "partial"
+            for prefix in ("/meetings", "/desktop/meetings"):
+                page = client.get(prefix, headers=auth_headers())
+                assert page.status_code == 200
+                assert "итоги доступны частично" in page.text
+                assert "Расшифровка и итоги готовы" not in page.text
+            unrelated_result = SimpleNamespace(id=uuid4(), media_revision_id=uuid4(), summary_status="not_requested")
+            assert await summary_progress(db, meeting=meeting, result=unrelated_result) == "not_requested"
+            other = await get_content_safe_processing_status(db, workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id, summary_template_key="standup")
+            assert other.summary_status == "not_requested"
+            assert await _latest_accepted_media_revision(db, workspace_id=meeting.workspace_id, meeting_id=meeting.id) is not None
+            candidate.source_result_hash = "invalid-source"
+            await db.flush()
+            assert await _latest_accepted_media_revision(db, workspace_id=meeting.workspace_id, meeting_id=meeting.id) is None
+    asyncio.run(run())
 
 
 async def _seed_model_candidate(

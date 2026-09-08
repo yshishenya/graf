@@ -247,6 +247,9 @@ public final class CalendarTrayController: NSObject, NSMenuDelegate {
         case .stopping:
             addItem("Завершаем запись…", id: "graf.menu.stopping")
         }
+        if model.recordingState == .recording || model.recordingState == .paused {
+            addItem("Идёт запись · " + DesktopControlModel.shared.elapsed(), id: "graf.menu.elapsed")
+        }
         menu.addItem(.separator())
         if !model.events.isEmpty {
             addItem("Ближайшие 24 часа", id: "graf.menu.upcoming")

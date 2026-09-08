@@ -47,7 +47,7 @@ From a project initialized with Spec Kit:
 
 ```sh
 specify extension add github-issue-canon \
-  --from https://github.com/yshishenya/spec-kit-ext-github-issue-canon/releases/download/v0.3.2/github-issue-canon-0.3.2.zip
+  --from https://github.com/yshishenya/spec-kit-ext-github-issue-canon/releases/download/v0.3.3/github-issue-canon-0.3.3.zip
 ```
 
 For local development:
@@ -67,7 +67,7 @@ For a manual equivalent pinned to this release:
 
 ```sh
 specify extension add github-issue-canon \
-  --from https://github.com/yshishenya/spec-kit-ext-github-issue-canon/releases/download/v0.3.2/github-issue-canon-0.3.2.zip
+  --from https://github.com/yshishenya/spec-kit-ext-github-issue-canon/releases/download/v0.3.3/github-issue-canon-0.3.3.zip
 ```
 
 Published archives are built byte-for-byte reproducibly. The matching

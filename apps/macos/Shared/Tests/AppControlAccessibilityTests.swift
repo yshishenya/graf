@@ -539,7 +539,8 @@ final class AppControlAccessibilityTests: XCTestCase {
             encoding: .utf8
         )
 
-        XCTAssertTrue(source.contains("decision.route.kind == .meetingDetectionSettings"))
+        XCTAssertTrue(source.contains("[.meetingDetectionSettings, .notificationSettings].contains(decision.route.kind)"))
+        XCTAssertTrue(source.contains("if decision.route.kind == .notificationSettings { onOpenNotificationSettings() }"))
         XCTAssertTrue(source.contains("navigationController.cancelPendingNavigation(webView: webView)"))
         XCTAssertTrue(source.contains("onOpenMeetingDetectionSettings()"))
         XCTAssertTrue(source.contains("decisionHandler(.cancel)"))

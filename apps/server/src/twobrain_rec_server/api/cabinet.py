@@ -184,6 +184,7 @@ from twobrain_rec_server.outcomes.dispatch import (
     finalize_dispatch_for_candidate,
     reconcile_dispatch_intent,
 )
+from twobrain_rec_server.outcomes.progress import latest_summary_attempt
 from twobrain_rec_server.outcomes.service import (
     load_egress_default_outcome,
     load_meeting_default_slot,
@@ -3709,14 +3710,8 @@ async def _summary_type_runtime(
         else None
     )
     source_result = latest_result
-    attempt = await db.scalar(
-        select(MeetingOutcomeGenerationAttempt)
-        .where(
-            MeetingOutcomeGenerationAttempt.workspace_id == meeting.workspace_id,
-            MeetingOutcomeGenerationAttempt.meeting_id == meeting.id,
-            MeetingOutcomeGenerationAttempt.template_key == template_key,
-        )
-        .order_by(MeetingOutcomeGenerationAttempt.created_at.desc())
+    attempt = await latest_summary_attempt(
+        db, meeting=meeting, result=source_result, template_key=template_key,
     )
     if outcome is not None:
         result_state = "ready"

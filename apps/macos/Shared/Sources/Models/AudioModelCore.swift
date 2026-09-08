@@ -1189,6 +1189,8 @@ public struct ServerTruthFingerprint: Codable, Equatable, Sendable {
     public var processingReasonCode: String?
     public var reviewAvailable: Bool?
     public var reviewStatus: String?
+    public var summaryStatus: String?
+    public var transcriptAvailable: Bool?
     public var conflictReason: String?
     public var nextAction: String?
 
@@ -1209,6 +1211,8 @@ public struct ServerTruthFingerprint: Codable, Equatable, Sendable {
         processingReasonCode: String? = nil,
         reviewAvailable: Bool? = nil,
         reviewStatus: String? = nil,
+        summaryStatus: String? = nil,
+        transcriptAvailable: Bool? = nil,
         conflictReason: String? = nil,
         nextAction: String? = nil
     ) {
@@ -1228,6 +1232,8 @@ public struct ServerTruthFingerprint: Codable, Equatable, Sendable {
         self.processingReasonCode = processingReasonCode
         self.reviewAvailable = reviewAvailable
         self.reviewStatus = reviewStatus
+        self.summaryStatus = summaryStatus
+        self.transcriptAvailable = transcriptAvailable
         self.conflictReason = conflictReason
         self.nextAction = nextAction
     }
@@ -1297,6 +1303,9 @@ public struct ServerTruthFingerprint: Codable, Equatable, Sendable {
         merged.processingReasonCode = reported.processingReasonCode ?? processingReasonCode
         merged.reviewAvailable = reported.reviewAvailable ?? reviewAvailable
         merged.reviewStatus = reported.reviewStatus ?? reviewStatus
+        // Omitted metadata is unknown (old server/access loss), never a ready signal.
+        merged.summaryStatus = reported.summaryStatus
+        merged.transcriptAvailable = reported.transcriptAvailable
         merged.conflictReason = reported.conflictReason ?? conflictReason
         merged.nextAction = reported.nextAction ?? nextAction
         for (role, acceptedBytes) in acceptedBytesByTrack {

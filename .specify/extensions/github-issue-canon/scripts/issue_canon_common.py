@@ -56,14 +56,14 @@ DEFAULT_AREAS = {
 
 TITLE_FORMAT = "[<feature>][<priority>][<area>] T###: <русский результат>"
 TITLE_RE = re.compile(
-    r"^\[(?P<feature>\d{3})\]\[(?P<priority>P[0-3])\]\[(?P<area>[^\]]+)\] "
-    r"(?P<task>T\d{3}): (?P<outcome>\S(?:.*\S)?)\Z"
+    r"^\[(?P<feature>\d{3,})\]\[(?P<priority>P[0-3])\]\[(?P<area>[^\]]+)\] "
+    r"(?P<task>T\d{3,}): (?P<outcome>\S(?:.*\S)?)\Z"
 )
 LEGACY_TITLE_RE = re.compile(
-    r"^\[(?P<feature>\d{3})\]\[(?P<priority>P[0-3])\]\[(?P<area>[^\]]+)\] "
+    r"^\[(?P<feature>\d{3,})\]\[(?P<priority>P[0-3])\]\[(?P<area>[^\]]+)\] "
     r"(?P<outcome>\S(?:.*\S)?)\Z"
 )
-TASK_RE = re.compile(r"\bT\d{3}\b")
+TASK_RE = re.compile(r"\bT\d{3,}\b")
 
 
 def run(cmd: list[str], cwd: Path | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -268,18 +268,18 @@ def current_feature(root: Path) -> str | None:
         try:
             data = json.loads(feature_json.read_text(encoding="utf-8"))
             branch = str(data.get("branch") or data.get("feature_branch") or "")
-            match = re.search(r"(\d{3})", branch)
+            match = re.search(r"(?:^|/)(\d{3,})-", branch)
             if match:
                 return match.group(1)
-            spec_path = str(data.get("spec_path") or data.get("feature_dir") or "")
-            match = re.search(r"specs/(\d{3})-", spec_path)
+            spec_path = str(data.get("feature_directory") or data.get("spec_path") or data.get("feature_dir") or "")
+            match = re.search(r"specs/(\d{3,})-", spec_path)
             if match:
                 return match.group(1)
         except Exception:
             pass
     specs = root / "specs"
     if specs.exists():
-        candidates = sorted(p.name[:3] for p in specs.iterdir() if p.is_dir() and re.match(r"\d{3}-", p.name))
+        candidates = sorted((p.name.split("-", 1)[0] for p in specs.iterdir() if p.is_dir() and re.match(r"\d{3,}-", p.name)), key=int)
         if candidates:
             return candidates[-1]
     return None

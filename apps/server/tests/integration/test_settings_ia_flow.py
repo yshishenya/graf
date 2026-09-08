@@ -82,7 +82,10 @@ def test_account_center_aliases_are_reachable_from_cabinet_navigation(client) ->
         response = client.get(path, headers=auth_headers())
         assert response.status_code == 200, path
         if "notifications" in path:
-            assert "Дополнительные уведомления" in response.text
+            assert "Письма и подсказки" in response.text
+            assert "В кабинете" in response.text
+            assert ('data-native-notification-settings' in response.text) == path.startswith('/desktop/')
+            assert "меню GRAF → Настройки → Уведомления на этом Mac" not in response.text
         else:
             assert 'data-settings-primary-nav-item="account"' in response.text
             assert "Аккаунт и безопасность" in response.text

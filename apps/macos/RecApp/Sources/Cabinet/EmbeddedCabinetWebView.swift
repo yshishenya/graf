@@ -136,7 +136,7 @@ public enum EmbeddedCabinetNavigationPolicy {
     private static func isProtectedDocumentRoute(_ kind: DesktopCabinetRouteKind?) -> Bool {
         switch kind {
         case .meetingList, .meetingDetail, .meetingShare, .meetingDeletionReport,
-             .settings, .calendarSettings, .meetingDetectionSettings, .billing:
+             .settings, .calendarSettings, .meetingDetectionSettings, .notificationSettings, .billing:
             return true
         default:
             return false
@@ -549,7 +549,10 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
     fileprivate func shouldAllowReload(in webView: WKWebView) -> Bool {
         guard self.webView === webView, let routePolicy else { return false }
         guard !isLoading || controllerNavigationPending else { return false }
-        return canReload
+        let pendingReload = controllerNavigationPending
+            && pendingControllerNavigationKind == .reload
+            && pendingControllerNavigationTargetURL == webView.url
+        return (canReload || pendingReload)
             && isSafeHistoryDocument(webView.url, routePolicy: routePolicy)
             && (!sessionExpired || !isProtectedMeetingRoute(webView.url, routePolicy: routePolicy))
     }
@@ -802,7 +805,7 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
         let kind = routePolicy.decision(for: url).route.kind
         switch kind {
         case .meetingList, .meetingDetail, .meetingShare, .meetingDeletionReport,
-             .settings, .calendarSettings, .meetingDetectionSettings, .billing:
+             .settings, .calendarSettings, .meetingDetectionSettings, .notificationSettings, .billing:
             return true
         default:
             return false
@@ -1121,7 +1124,7 @@ public final class EmbeddedCabinetSupportIncidentBridge: DesktopSupportIncidentS
         switch decision.route.kind {
         case .meetingList, .meetingDetail, .meetingShare, .meetingDeletionReport:
             return true
-        case .artifactDownload, .settings, .calendarSettings, .meetingDetectionSettings, .billing, .admin, .authLogin, .authSignup,
+        case .artifactDownload, .settings, .calendarSettings, .meetingDetectionSettings, .notificationSettings, .billing, .admin, .authLogin, .authSignup,
              .authProvider, .authCallback, .unsupported, .external, .forbiddenAction:
             return false
         }
@@ -1249,6 +1252,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
     private let showsAppUpdateBadge: Bool
     private let onCheckForUpdates: CheckForUpdatesAction
     private let onOpenMeetingDetectionSettings: OpenMeetingDetectionSettingsAction
+    private let onOpenNotificationSettings: OpenMeetingDetectionSettingsAction
     private let supportIncidentBridge: EmbeddedCabinetSupportIncidentBridge?
     private let localRecordingRows: [EmbeddedCabinetLocalRecordingRow]
     private let onLocalRecordingAction: LocalRecordingAction
@@ -1267,6 +1271,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         showsAppUpdateBadge: Bool = false,
         onCheckForUpdates: @escaping CheckForUpdatesAction = {},
         onOpenMeetingDetectionSettings: @escaping OpenMeetingDetectionSettingsAction = {},
+        onOpenNotificationSettings: @escaping OpenMeetingDetectionSettingsAction = {},
         supportIncidentBridge: EmbeddedCabinetSupportIncidentBridge? = nil,
         localRecordingRows: [EmbeddedCabinetLocalRecordingRow] = [],
         onLocalRecordingAction: @escaping LocalRecordingAction = { _, _ in },
@@ -1280,6 +1285,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         self.showsAppUpdateBadge = showsAppUpdateBadge
         self.onCheckForUpdates = onCheckForUpdates
         self.onOpenMeetingDetectionSettings = onOpenMeetingDetectionSettings
+        self.onOpenNotificationSettings = onOpenNotificationSettings
         self.supportIncidentBridge = supportIncidentBridge
         self.localRecordingRows = localRecordingRows
         self.onLocalRecordingAction = onLocalRecordingAction
@@ -1452,7 +1458,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         switch routeKind {
         case .authLogin, .authSignup, .authProvider, .authCallback:
             return .expiredSession
-        case .meetingList, .meetingDetail, .meetingShare, .meetingDeletionReport, .settings, .calendarSettings, .meetingDetectionSettings, .billing:
+        case .meetingList, .meetingDetail, .meetingShare, .meetingDeletionReport, .settings, .calendarSettings, .meetingDetectionSettings, .notificationSettings, .billing:
             return .ready
         case .artifactDownload:
             return .ready
@@ -1598,6 +1604,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             showsAppUpdateBadge: showsAppUpdateBadge,
             onCheckForUpdates: onCheckForUpdates,
             onOpenMeetingDetectionSettings: onOpenMeetingDetectionSettings,
+            onOpenNotificationSettings: onOpenNotificationSettings,
             supportIncidentBridge: supportIncidentBridge,
             navigationController: navigationController
         )
@@ -1640,6 +1647,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         private var showsAppUpdateBadge: Bool
         private var onCheckForUpdates: CheckForUpdatesAction
         private let onOpenMeetingDetectionSettings: OpenMeetingDetectionSettingsAction
+        private let onOpenNotificationSettings: OpenMeetingDetectionSettingsAction
         private let supportIncidentBridge: EmbeddedCabinetSupportIncidentBridge?
         private let navigationController: EmbeddedCabinetNavigationController
         private var localRecordingRows: [EmbeddedCabinetLocalRecordingRow] = []
@@ -1664,6 +1672,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             showsAppUpdateBadge: Bool,
             onCheckForUpdates: @escaping CheckForUpdatesAction,
             onOpenMeetingDetectionSettings: @escaping OpenMeetingDetectionSettingsAction,
+            onOpenNotificationSettings: @escaping OpenMeetingDetectionSettingsAction = {},
             supportIncidentBridge: EmbeddedCabinetSupportIncidentBridge?,
             navigationController: EmbeddedCabinetNavigationController
         ) {
@@ -1678,6 +1687,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             self.showsAppUpdateBadge = showsAppUpdateBadge
             self.onCheckForUpdates = onCheckForUpdates
             self.onOpenMeetingDetectionSettings = onOpenMeetingDetectionSettings
+        self.onOpenNotificationSettings = onOpenNotificationSettings
             self.supportIncidentBridge = supportIncidentBridge
             self.navigationController = navigationController
             _cabinetState = cabinetState
@@ -1973,9 +1983,20 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                 allowExternalPaymentProvider: allowExternalPaymentProvider
             )
             if decision.decision == .allow,
-               decision.route.kind == .meetingDetectionSettings {
+               [.meetingDetectionSettings, .notificationSettings].contains(decision.route.kind) {
                 navigationController.cancelPendingNavigation(webView: webView)
-                onOpenMeetingDetectionSettings()
+                guard isActive, routePolicy.allowsNativeSettings(
+                    from: navigationAction.sourceFrame.documentRequestURL,
+                    sourceIsMainFrame: navigationAction.sourceFrame.isMainFrame,
+                    targetIsMainFrame: navigationAction.targetFrame?.isMainFrame == true,
+                    sessionReady: cabinetState == .ready
+                ), routePolicy.allowsNativeSettings(from: webView.url, sourceIsMainFrame: true,
+                    targetIsMainFrame: true, sessionReady: true) else {
+                    decisionHandler(.cancel)
+                    return
+                }
+                if decision.route.kind == .notificationSettings { onOpenNotificationSettings() }
+                else { onOpenMeetingDetectionSettings() }
                 decisionHandler(.cancel)
                 return
             }
@@ -2597,6 +2618,7 @@ public struct EmbeddedCabinetWebView: View {
         showsAppUpdateBadge _: Bool = false,
         onCheckForUpdates _: @escaping CheckForUpdatesAction = {},
         onOpenMeetingDetectionSettings _: @escaping OpenMeetingDetectionSettingsAction = {},
+        onOpenNotificationSettings _: @escaping OpenMeetingDetectionSettingsAction = {},
         supportIncidentBridge _: EmbeddedCabinetSupportIncidentBridge? = nil,
         fallbackRequest _: URLRequest,
         navigationController _: EmbeddedCabinetNavigationController

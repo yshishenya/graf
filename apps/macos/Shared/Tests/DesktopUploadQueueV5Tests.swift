@@ -2150,6 +2150,21 @@ final class DesktopUploadQueueTests: XCTestCase {
             processed,
             now: Date(timeIntervalSince1970: 130)
         ))
+        for status in ["queued", "generating", "blocked_dependency"] {
+            var pending = processed
+            pending.serverTruth.summaryStatus = status
+            XCTAssertTrue(DesktopUploadQueueService.needsProcessingFollowUp(
+                pending, now: Date(timeIntervalSince1970: 100_000)
+            ))
+            pending.serverTruth.accessState = "revoked"
+            XCTAssertFalse(DesktopUploadQueueService.needsProcessingFollowUp(pending))
+            pending.serverTruth.accessState = "owner"
+            pending.serverTruth.deletionState = "complete"
+            XCTAssertFalse(DesktopUploadQueueService.needsProcessingFollowUp(pending))
+            pending.serverTruth.deletionState = "none"
+            pending.serverTruth.summaryStatus = "available"
+            XCTAssertFalse(DesktopUploadQueueService.needsProcessingFollowUp(pending))
+        }
     }
 
     func testSupportIncidentSubmissionPersistsSentIncidentNumber() async throws {
