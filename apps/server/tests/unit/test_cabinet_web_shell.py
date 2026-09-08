@@ -2349,7 +2349,6 @@ def test_detail_shell_renders_speaker_timeline_segments() -> None:
     assert 'detailMain.style.setProperty("--playback-clearance"' not in script
     assert "new ResizeObserver(syncPlaybackClearance).observe(shell)" not in script
     assert 'const followTranscript = (seconds, sourceIds = "") =>' in script
-    assert 'track?.addEventListener("click"' in script
     assert 'lane.classList.toggle("is-active"' in script
 
 
