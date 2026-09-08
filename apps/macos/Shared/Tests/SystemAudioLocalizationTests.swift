@@ -8,8 +8,8 @@ final class SystemAudioLocalizationTests: XCTestCase {
         XCTAssertEqual(SystemAudioStatusLabels.recordingIdle, "Запись не идет")
         XCTAssertEqual(SystemAudioStatusLabels.recordButtonTitle, "Начать запись")
         XCTAssertEqual(SystemAudioStatusLabels.stopButtonTitle, "Остановить")
-        XCTAssertEqual(SystemAudioStatusLabels.pauseButtonTitle, "Пауза")
-        XCTAssertEqual(SystemAudioStatusLabels.resumeButtonTitle, "Продолжить")
+        XCTAssertEqual(SystemAudioStatusLabels.pauseButtonTitle, "Mute")
+        XCTAssertEqual(SystemAudioStatusLabels.resumeButtonTitle, "Включить микрофон")
         XCTAssertEqual(SystemAudioStatusLabels.activeState, "Есть звук")
         XCTAssertEqual(SystemAudioStatusLabels.silentState, "Тихо")
     }
@@ -52,11 +52,10 @@ final class SystemAudioLocalizationTests: XCTestCase {
     func testMuteTruthLimitationCopyDoesNotClaimMeetingAppMuteSupport() {
         XCTAssertEqual(
             SystemAudioStatusLabels.meetingMuteTruthLimitationCopy,
-            "GRAF не может проверить, выключен ли микрофон во встрече. Чтобы ваша речь не попала в запись, используйте «Паузу» или «Остановить» в GRAF."
+            "GRAF не может проверить, выключен ли микрофон во встрече. Чтобы ваша речь не попала в запись, используйте «Mute» или «Остановить» в GRAF."
         )
-        XCTAssertTrue(SystemAudioStatusLabels.meetingMuteTruthLimitationCopy.contains("«Паузу» или «Остановить»"))
+        XCTAssertTrue(SystemAudioStatusLabels.meetingMuteTruthLimitationCopy.contains("«Mute» или «Остановить»"))
         XCTAssertTrue(SystemAudioStatusLabels.meetingMuteTruthLimitationCopy.contains("не может проверить"))
-        XCTAssertFalse(SystemAudioStatusLabels.meetingMuteTruthLimitationCopy.localizedCaseInsensitiveContains("mute"))
         XCTAssertFalse(SystemAudioStatusLabels.meetingMuteTruthLimitationCopy.localizedCaseInsensitiveContains("mute-respecting"))
         XCTAssertFalse(SystemAudioStatusLabels.meetingMuteTruthLimitationCopy.localizedCaseInsensitiveContains("guarantee"))
     }

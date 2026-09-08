@@ -351,8 +351,10 @@ final class CaptureControlTests: XCTestCase {
                 blockedReason: nil,
                 localRecordingStatus: nil
             ),
-            "Запись на паузе"
+            "Идёт запись · микрофон выключен"
         )
+        XCTAssertEqual(CaptureControlView.localRecordingSummary(for: SystemAudioStatusLabels.localRecordingPausedStatus),
+                       "Идёт запись · микрофон выключен")
         XCTAssertEqual(
             CaptureControlView.primaryStatus(
                 for: makePresentationSession(state: .stopping, indicator: .active, canStop: true),

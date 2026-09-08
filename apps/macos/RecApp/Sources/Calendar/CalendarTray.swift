@@ -1,4 +1,5 @@
 import AppKit
+import QuartzCore
 import TwoBrainRecShared
 
 public enum GrafTrayRecordingState: Equatable, Sendable {
@@ -16,7 +17,7 @@ public enum GrafTrayRecordingState: Equatable, Sendable {
         case .idle: nil
         case .starting: "Начинаем запись…"
         case .recording: "Идёт запись"
-        case .paused: "Идёт запись · микрофон на паузе"
+        case .paused: "Идёт запись · микрофон выключен"
         case .stopping: "Завершаем запись"
         }
     }
@@ -75,7 +76,10 @@ public final class CalendarTrayController: NSObject, NSMenuDelegate {
     private let onUpdate: () -> Void
     private let onStartRecording: () -> Void
     private let onStopRecording: () -> Void
+    private let onMuteMicrophone: () -> Void
+    private let onUnmuteMicrophone: () -> Void
     private let onQuit: () -> Void
+    let recordingLight = GrafRecordingLightView(frame: NSRect(x: 0, y: 0, width: 22, height: 22))
     private var refreshTask: Task<Void, Never>?
     private var observers: [(NotificationCenter, NSObjectProtocol)] = []
 
@@ -85,6 +89,8 @@ public final class CalendarTrayController: NSObject, NSMenuDelegate {
         onOpenMeetings: @escaping () -> Void,
         onStartRecording: @escaping () -> Void,
         onStopRecording: @escaping () -> Void,
+        onMuteMicrophone: @escaping () -> Void,
+        onUnmuteMicrophone: @escaping () -> Void,
         onQuit: @escaping () -> Void,
         onUpdate: @escaping () -> Void = {}
     ) {
@@ -94,6 +100,8 @@ public final class CalendarTrayController: NSObject, NSMenuDelegate {
         self.onUpdate = onUpdate
         self.onStartRecording = onStartRecording
         self.onStopRecording = onStopRecording
+        self.onMuteMicrophone = onMuteMicrophone
+        self.onUnmuteMicrophone = onUnmuteMicrophone
         self.onQuit = onQuit
         super.init()
         menu.delegate = self
@@ -103,6 +111,16 @@ public final class CalendarTrayController: NSObject, NSMenuDelegate {
 
     public func start() {
         guard let button = statusItem.button else { return }
+        recordingLight.translatesAutoresizingMaskIntoConstraints = false
+        recordingLight.wantsLayer = true
+        recordingLight.setAccessibilityElement(false)
+        button.addSubview(recordingLight)
+        NSLayoutConstraint.activate([
+            recordingLight.widthAnchor.constraint(equalToConstant: 22),
+            recordingLight.heightAnchor.constraint(equalToConstant: 22),
+            recordingLight.centerXAnchor.constraint(equalTo: button.centerXAnchor),
+            recordingLight.centerYAnchor.constraint(equalTo: button.centerYAnchor)
+        ])
         updateStatusItem()
         button.imagePosition = .imageLeading
         button.imageScaling = .scaleProportionallyDown
@@ -110,6 +128,11 @@ public final class CalendarTrayController: NSObject, NSMenuDelegate {
         button.setAccessibilityRole(.menuButton)
 
         observers = [
+            (NSWorkspace.shared.notificationCenter, NSWorkspace.shared.notificationCenter.addObserver(
+                forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in self?.updateStatusItem() }
+            }),
             (NotificationCenter.default, NotificationCenter.default.addObserver(
                 forName: NSApplication.didResignActiveNotification, object: nil, queue: .main
             ) { [weak self] _ in
@@ -197,9 +220,12 @@ public final class CalendarTrayController: NSObject, NSMenuDelegate {
             addItem("Начинаем запись…", id: "graf.menu.starting")
         case .recording, .paused:
             addItem("Остановить запись", action: #selector(stopRecording), id: "graf.menu.stop")
-            if model.recordingState == .paused {
-                addItem("Идёт запись · микрофон на паузе", id: "graf.menu.recordingState")
-            }
+            let muted = model.recordingState == .paused
+            let item = addItem(muted ? SystemAudioStatusLabels.resumeButtonTitle : "Mute микрофона",
+                               action: muted ? #selector(unmuteMicrophone) : #selector(muteMicrophone),
+                               id: muted ? "graf.menu.unmute" : "graf.menu.mute")
+            item.toolTip = muted ? SystemAudioStatusLabels.resumeButtonAccessibilityLabel
+                                : SystemAudioStatusLabels.pauseButtonAccessibilityLabel
         case .stopping:
             addItem("Завершаем запись…", id: "graf.menu.stopping")
         }
@@ -263,24 +289,21 @@ public final class CalendarTrayController: NSObject, NSMenuDelegate {
                             flipped: false) { _ in
             NSColor.black.setFill()
             NSColor.black.setStroke()
-            let recording = recordingState == .recording || recordingState == .paused || recordingState == .stopping
             let ring = NSBezierPath(ovalIn: NSRect(x: 3, y: 3, width: 16, height: 16))
             ring.lineWidth = 1.8
-            if recording { ring.fill() } else { ring.stroke() }
+            ring.stroke()
             for rect in [NSRect(x: 10, y: 0.5, width: 2, height: 3.5),
                          NSRect(x: 10, y: 18, width: 2, height: 3.5)] {
                 NSBezierPath(roundedRect: rect, xRadius: 0.7, yRadius: 0.7).fill()
             }
-            // The same GRAF mark changes from outline to solid; no separate badge.
-            // A microphone pause still captures system audio, so it stays solid.
-            NSGraphicsContext.saveGraphicsState()
-            if recording { NSGraphicsContext.current?.compositingOperation = .clear }
-            for rect in [NSRect(x: 7, y: 8, width: 1.8, height: 5),
-                         NSRect(x: 10.1, y: 8, width: 1.8, height: 7),
-                         NSRect(x: 13.2, y: 8, width: 1.8, height: 4)] {
+            let bars = recordingState == .paused
+                ? [NSRect(x: 7, y: 10.5, width: 8, height: 1.8)]
+                : [NSRect(x: 7, y: 8, width: 1.8, height: 5),
+                   NSRect(x: 10.1, y: 8, width: 1.8, height: 7),
+                   NSRect(x: 13.2, y: 8, width: 1.8, height: 4)]
+            for rect in bars {
                 NSBezierPath(roundedRect: rect, xRadius: 0.7, yRadius: 0.7).fill()
             }
-            NSGraphicsContext.restoreGraphicsState()
             return true
         }
         image.isTemplate = true
@@ -306,6 +329,8 @@ public final class CalendarTrayController: NSObject, NSMenuDelegate {
 
     private func updateStatusItem() {
         statusItem.button?.image = Self.statusIcon(recordingState: model.recordingState)
+        recordingLight.update(state: model.recordingState,
+                              reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
         statusItem.button?.title = ""
         statusItem.button?.toolTip = statusItemLabel
         statusItem.button?.setAccessibilityLabel("Меню \(statusItemLabel)")
@@ -342,6 +367,16 @@ public final class CalendarTrayController: NSObject, NSMenuDelegate {
         onStopRecording()
     }
 
+    @objc func muteMicrophone() {
+        guard model.recordingState == .recording else { return }
+        onMuteMicrophone()
+    }
+
+    @objc func unmuteMicrophone() {
+        guard model.recordingState == .paused else { return }
+        onUnmuteMicrophone()
+    }
+
     @objc private func openSettings() { onOpenSettings() }
     @objc private func quitApp() { onQuit() }
     @objc private func openMeetings() { onOpenMeetings() }
@@ -357,5 +392,35 @@ public final class CalendarTrayController: NSObject, NSMenuDelegate {
               let event = model.events.first(where: { $0.eventId == id }),
               let url = safeMeetingLink(for: event) else { return }
         NSWorkspace.shared.open(url)
+    }
+}
+
+// A separate drawing layer keeps the logo a native template while preserving the red light.
+// It occupies the same 22 pt canvas and never intercepts the status button's mouse events.
+@MainActor
+final class GrafRecordingLightView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.systemRed.setFill()
+        NSBezierPath(ovalIn: NSRect(x: 9.4, y: 4.4, width: 3.2, height: 3.2)).fill()
+    }
+
+    func update(state: GrafTrayRecordingState, reduceMotion: Bool) {
+        isHidden = state == .idle || state == .starting
+        let animate = !reduceMotion && (state == .recording || state == .paused)
+        if animate {
+            guard layer?.animation(forKey: "recordingPulse") == nil else { return }
+            let pulse = CABasicAnimation(keyPath: "opacity")
+            pulse.fromValue = 1
+            pulse.toValue = 0.55
+            pulse.duration = 0.9
+            pulse.autoreverses = true
+            pulse.repeatCount = .infinity
+            pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            layer?.add(pulse, forKey: "recordingPulse")
+        } else {
+            layer?.removeAnimation(forKey: "recordingPulse")
+        }
     }
 }

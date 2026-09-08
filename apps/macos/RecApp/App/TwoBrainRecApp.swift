@@ -506,6 +506,12 @@ private struct ContentView: View {
             guard localRecordingActive else { return }
             Task { await stopManualRecording() }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecMuteMicrophoneFromTray)) { _ in
+            Task { await pauseManualRecording() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecUnmuteMicrophoneFromTray)) { _ in
+            Task { await resumeManualRecording() }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecOpenSettings)) { _ in
             guard let configuration = desktopCabinetConfiguration, desktopCabinetState == .ready else {
                 (NSApp.delegate as? AppLifecycleDelegate)?.openLocalRecordingSettings()
@@ -2193,7 +2199,7 @@ private struct ContentView: View {
                 detail: "sessionId=\(paused.id) localMicTreatment=silenced stopAvailable=\(paused.stopActionAvailable)"
             )
         } catch {
-            recordingBlocker = "Не удалось поставить запись на паузу. Запись продолжается; попробуйте ещё раз."
+            recordingBlocker = "Не удалось выключить микрофон в записи. Попробуйте ещё раз."
             AppLog.writeRaw(
                 event: AuditEventName.recordingFailed.rawValue,
                 detail: "pause_failed error=\(error)"
@@ -2217,7 +2223,7 @@ private struct ContentView: View {
                 detail: "sessionId=\(active.id) localMicTreatment=capturing stopAvailable=\(active.stopActionAvailable)"
             )
         } catch {
-            recordingBlocker = "Не удалось продолжить запись. Она остаётся на паузе; попробуйте ещё раз или остановите её."
+            recordingBlocker = "Не удалось включить микрофон в записи. Системный звук продолжает записываться; попробуйте ещё раз или остановите запись."
             AppLog.writeRaw(
                 event: AuditEventName.recordingFailed.rawValue,
                 detail: "resume_failed error=\(error)"
@@ -3082,8 +3088,10 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
             model: trayModel,
             onOpenSettings: { [weak self] in self?.openSettings(nil) },
             onOpenMeetings: { [weak self] in self?.openMeetingsFromTray() },
-            onStartRecording: { [weak self] in self?.recordFromTray(start: true) },
-            onStopRecording: { [weak self] in self?.recordFromTray(start: false) },
+            onStartRecording: { [weak self] in self?.captureCommandFromTray(.twoBrainRecStartRecordingFromTray) },
+            onStopRecording: { [weak self] in self?.captureCommandFromTray(.twoBrainRecStopRecordingFromTray) },
+            onMuteMicrophone: { [weak self] in self?.captureCommandFromTray(.twoBrainRecMuteMicrophoneFromTray) },
+            onUnmuteMicrophone: { [weak self] in self?.captureCommandFromTray(.twoBrainRecUnmuteMicrophoneFromTray) },
             onQuit: { NSApp.terminate(nil) },
             onUpdate: { [weak self] in self?.checkForUpdates(nil) }
         )
@@ -3290,12 +3298,12 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
         calendarTrayController?.showMenu()
     }
 
-    private func recordFromTray(start: Bool) {
+    private func captureCommandFromTray(_ command: Notification.Name) {
         // Reuse the existing window and capture path so permission/error recovery is visible.
         presentMainWindow(reason: "tray_recording")
         DispatchQueue.main.async {
             NotificationCenter.default.post(
-                name: start ? .twoBrainRecStartRecordingFromTray : .twoBrainRecStopRecordingFromTray,
+                name: command,
                 object: nil
             )
         }
@@ -3372,6 +3380,8 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
 
 private extension Notification.Name {
     static let twoBrainRecStartRecordingFromTray = Notification.Name("pro.2brain.graf.startRecordingFromTray")
+    static let twoBrainRecMuteMicrophoneFromTray = Notification.Name("pro.2brain.graf.muteMicrophoneFromTray")
+    static let twoBrainRecUnmuteMicrophoneFromTray = Notification.Name("pro.2brain.graf.unmuteMicrophoneFromTray")
     static let twoBrainRecStopRecordingFromTray = Notification.Name("pro.2brain.graf.stopRecordingFromTray")
     static let twoBrainRecApplicationShouldTerminate = Notification.Name("pro.2brain.graf.applicationShouldTerminate")
     static let twoBrainRecApplicationTerminationCleanupFinished = Notification.Name("pro.2brain.graf.applicationTerminationCleanupFinished")

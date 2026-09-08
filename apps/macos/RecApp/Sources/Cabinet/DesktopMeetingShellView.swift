@@ -946,7 +946,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         case .active, .starting:
             return "dot.radiowaves.left.and.right"
         case .paused:
-            return "pause.circle"
+            return "mic.slash"
         case .failed, .degraded:
             return "exclamationmark.triangle.fill"
         default:
@@ -1289,7 +1289,7 @@ private struct RecordingTitlebarHUD: View {
     private var controls: some View {
         if CaptureStatusItem.showsPauseButton(for: session) {
             Button(action: onPause) {
-                Label(SystemAudioStatusLabels.pauseButtonTitle, systemImage: "pause.fill")
+                Label(SystemAudioStatusLabels.pauseButtonTitle, systemImage: "mic.slash")
             }
             .buttonStyle(DesktopWebButtonStyle(.secondary))
             .disabled(!session.stopActionAvailable || transitionInProgress)
@@ -1297,7 +1297,7 @@ private struct RecordingTitlebarHUD: View {
             .help(SystemAudioStatusLabels.pauseButtonAccessibilityLabel)
         } else if CaptureStatusItem.showsResumeButton(for: session) {
             Button(action: onResume) {
-                Label(SystemAudioStatusLabels.resumeButtonTitle, systemImage: "play.fill")
+                Label(SystemAudioStatusLabels.resumeButtonTitle, systemImage: "mic")
             }
             .buttonStyle(DesktopWebButtonStyle(.secondary))
             .disabled(!session.stopActionAvailable || transitionInProgress)

@@ -1,4 +1,5 @@
 import AppKit
+import QuartzCore
 import Foundation
 @testable import TwoBrainRecAppCore
 import TwoBrainRecShared
@@ -635,14 +636,55 @@ final class DesktopCalendarReminderTests: XCTestCase {
             XCTAssertGreaterThan(inkPixels, 60, "The vector must render, not just reserve a canvas")
             XCTAssertLessThan(inkPixels, bitmap.pixelsWide * bitmap.pixelsHigh / 2, "No opaque app-icon background")
         }
-        XCTAssertNotEqual(rendered[0], rendered[1])
-        XCTAssertEqual(rendered[1], rendered[2], "A microphone pause still records system audio")
+        XCTAssertEqual(rendered[0], rendered[1], "Recording light is drawn separately to preserve native template contrast")
+        XCTAssertNotEqual(rendered[1], rendered[2], "Mute has a static flat line inside the same logo")
+    }
+
+    func testRecordingLightStaysVisibleDuringMuteAndStopsMovingForAccessibility() throws {
+        let light = GrafRecordingLightView(frame: NSRect(x: 0, y: 0, width: 22, height: 22))
+        light.wantsLayer = true
+        XCTAssertNil(light.hitTest(NSPoint(x: 11, y: 6)), "The light cannot steal a status-button click")
+        for state in [GrafTrayRecordingState.recording, .paused] {
+            light.update(state: state, reduceMotion: false)
+            XCTAssertFalse(light.isHidden, "Mute still records system audio")
+            let pulse = try XCTUnwrap(light.layer?.animation(forKey: "recordingPulse") as? CABasicAnimation)
+            XCTAssertEqual(pulse.fromValue as? Double, 1)
+            XCTAssertEqual(pulse.toValue as? Double, 0.55)
+            XCTAssertEqual(pulse.duration, 0.9)
+            XCTAssertTrue(pulse.autoreverses)
+            light.update(state: state, reduceMotion: true)
+            XCTAssertFalse(light.isHidden)
+            XCTAssertNil(light.layer?.animation(forKey: "recordingPulse"))
+            XCTAssertEqual(light.layer?.opacity, 1)
+        }
+        for state in [GrafTrayRecordingState.stopping, .idle, .starting] {
+            light.update(state: state, reduceMotion: false)
+            XCTAssertEqual(light.isHidden, state != .stopping)
+            XCTAssertNil(light.layer?.animation(forKey: "recordingPulse"))
+        }
+        light.update(state: .recording, reduceMotion: true)
+        let bitmap = try XCTUnwrap(light.bitmapImageRepForCachingDisplay(in: light.bounds))
+        light.cacheDisplay(in: light.bounds, to: bitmap)
+        var redPixels = 0
+        for y in 0..<bitmap.pixelsHigh {
+            for x in 0..<bitmap.pixelsWide {
+                let color = try XCTUnwrap(bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB))
+                guard color.alphaComponent > 0 else { continue }
+                XCTAssertGreaterThan(color.redComponent, color.greenComponent)
+                redPixels += 1
+                let point = NSPoint(x: CGFloat(x) * 22 / CGFloat(bitmap.pixelsWide),
+                                    y: 22 - CGFloat(y) * 22 / CGFloat(bitmap.pixelsHigh))
+                XCTAssertTrue(NSRect(x: 8, y: 3, width: 6, height: 6).contains(point), "Red pixels stay inside the logo")
+            }
+        }
+        XCTAssertGreaterThan(redPixels, 3)
     }
 
     func testCalendarTrayTracksRealCaptureAndPreservesItWhenAnUpdateArrives() {
         let model = CalendarTrayModel { DesktopCalendarPromptResponse(events: []) }
         let tray = CalendarTrayController(model: model, onOpenSettings: {}, onOpenMeetings: {},
-                                          onStartRecording: {}, onStopRecording: {}, onQuit: {})
+                                          onStartRecording: {}, onStopRecording: {},
+                                          onMuteMicrophone: {}, onUnmuteMicrophone: {}, onQuit: {})
         let transitions: [(CaptureSessionState?, Bool, Bool, GrafTrayRecordingState)] = [
             (nil, false, false, .idle), (.starting, false, false, .idle),
             (.failed, false, false, .idle), (.active, true, false, .recording),
@@ -674,8 +716,11 @@ final class DesktopCalendarReminderTests: XCTestCase {
         var stops = 0
         var settings = 0
         var quits = 0
+        var mutes = 0
+        var unmutes = 0
         let tray = CalendarTrayController(model: model, onOpenSettings: { settings += 1 }, onOpenMeetings: {},
                                           onStartRecording: { starts += 1 }, onStopRecording: { stops += 1 },
+                                          onMuteMicrophone: { mutes += 1 }, onUnmuteMicrophone: { unmutes += 1 },
                                           onQuit: { quits += 1 })
         tray.rebuildMenu()
         XCTAssertEqual(tray.menu.items.filter { !$0.isSeparatorItem }.map(\.title),
@@ -700,6 +745,36 @@ final class DesktopCalendarReminderTests: XCTestCase {
             if enabled { tray.menu.performActionForItem(at: 0) }
         }
         XCTAssertEqual(stops, 2)
+        for state in [GrafTrayRecordingState.idle, .starting, .recording, .paused, .stopping] {
+            tray.showRecordingState(state)
+            tray.rebuildMenu()
+            let mute = tray.menu.items.first { $0.identifier?.rawValue == "graf.menu.mute" }
+            let unmute = tray.menu.items.first { $0.identifier?.rawValue == "graf.menu.unmute" }
+            XCTAssertEqual(mute != nil, state == .recording)
+            XCTAssertEqual(unmute != nil, state == .paused)
+            if let mute {
+                XCTAssertEqual(mute.title, "Mute микрофона")
+                XCTAssertTrue(mute.toolTip?.contains("Системный звук продолжает записываться") == true)
+                let index = try XCTUnwrap(tray.menu.items.firstIndex(of: mute))
+                tray.menu.performActionForItem(at: index)
+            }
+            if let unmute {
+                XCTAssertEqual(unmute.title, "Включить микрофон")
+                let index = try XCTUnwrap(tray.menu.items.firstIndex(of: unmute))
+                tray.menu.performActionForItem(at: index)
+            }
+        }
+        XCTAssertEqual(mutes, 1)
+        XCTAssertEqual(unmutes, 1)
+        tray.showRecordingState(.paused)
+        tray.muteMicrophone()
+        tray.showRecordingState(.recording)
+        tray.unmuteMicrophone()
+        tray.showRecordingState(.idle)
+        tray.muteMicrophone()
+        tray.unmuteMicrophone()
+        XCTAssertEqual(mutes, 1, "Stale Mute cannot reverse a newer state")
+        XCTAssertEqual(unmutes, 1, "Stale Unmute cannot enable a microphone outside paused capture")
         tray.showRecordingState(.idle)
         tray.stopRecording()
         XCTAssertEqual(stops, 2, "A queued stale Stop must not finalize an idle writer")
@@ -726,7 +801,8 @@ final class DesktopCalendarReminderTests: XCTestCase {
         XCTAssertFalse(CalendarTrayController.isOutsideMenuWindow(nil))
         let model = CalendarTrayModel { DesktopCalendarPromptResponse(events: []) }
         let tray = CalendarTrayController(model: model, onOpenSettings: {}, onOpenMeetings: {},
-                                          onStartRecording: {}, onStopRecording: {}, onQuit: {})
+                                          onStartRecording: {}, onStopRecording: {},
+                                          onMuteMicrophone: {}, onUnmuteMicrophone: {}, onQuit: {})
         for _ in 0..<2 {
             XCTAssertFalse(tray.hasMouseMonitors)
             tray.menuWillOpen(tray.menu)
@@ -752,7 +828,8 @@ final class DesktopCalendarReminderTests: XCTestCase {
             }
             await model.refresh()
             let tray = CalendarTrayController(model: model, onOpenSettings: {}, onOpenMeetings: {},
-                                          onStartRecording: {}, onStopRecording: {}, onQuit: {})
+                                          onStartRecording: {}, onStopRecording: {},
+                                          onMuteMicrophone: {}, onUnmuteMicrophone: {}, onQuit: {})
             tray.rebuildMenu()
             let events = tray.menu.items.filter { $0.identifier?.rawValue == "graf.menu.event" }
             XCTAssertEqual(events.count, 3)

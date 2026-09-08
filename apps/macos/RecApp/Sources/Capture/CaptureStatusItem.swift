@@ -56,7 +56,7 @@ public struct CaptureStatusItem: View {
                 HStack(spacing: 8) {
                     if Self.showsPauseButton(for: session) {
                         Button(action: onPause) {
-                            Label(SystemAudioStatusLabels.pauseButtonTitle, systemImage: "pause.fill")
+                            Label(SystemAudioStatusLabels.pauseButtonTitle, systemImage: "mic.slash")
                                 .lineLimit(1)
                                 .frame(maxWidth: .infinity)
                         }
@@ -70,7 +70,7 @@ public struct CaptureStatusItem: View {
 
                     if Self.showsResumeButton(for: session) {
                         Button(action: onResume) {
-                            Label(SystemAudioStatusLabels.resumeButtonTitle, systemImage: "play.fill")
+                            Label(SystemAudioStatusLabels.resumeButtonTitle, systemImage: "mic")
                                 .lineLimit(1)
                                 .frame(maxWidth: .infinity)
                         }
@@ -120,7 +120,7 @@ public struct CaptureStatusItem: View {
         case .active:
             return "dot.radiowaves.left.and.right"
         case .paused:
-            return "pause.circle"
+            return "mic.slash"
         case .degraded:
             return "exclamationmark.triangle.fill"
         case .error:
@@ -172,7 +172,7 @@ public struct CaptureStatusItem: View {
         case .active:
             return "Идёт запись"
         case .paused:
-            return "Запись на паузе"
+            return "Идёт запись · микрофон выключен"
         case .degraded:
             return "Запись с ограничением"
         case .stopping:
