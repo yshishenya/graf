@@ -24,6 +24,7 @@ CONTROL_GATE_CONFIG_KEY: Final = "graf_control_gate"
 MAX_PROMPT_BYTES: Final = 65_536
 MAX_CONFIG_BYTES: Final = 65_536
 MAX_SCHEMA_BYTES: Final = 49_152
+MAX_PROTOCOL_BYTES: Final = 2 * 1024 * 1024
 MAX_CONFIG_DEPTH: Final = 24
 MAX_CONFIG_NODES: Final = 1024
 PROTOCOL_REQUEST_KEYS: Final = {
@@ -95,14 +96,16 @@ def meeting_protocol_schema() -> dict[str, object]:
 def validate_meeting_protocol(
     result: object, *, segments: Sequence[OutcomeTranscriptSegment], processing_result_id: UUID,
 ) -> dict[str, object]:
-    if len(canonical_json(result).encode("utf-8")) > 2 * 1024 * 1024:
+    if len(canonical_json(result).encode("utf-8")) > MAX_PROTOCOL_BYTES:
         raise ValueError("protocol size exceeds 2 MiB")
     protocol = MeetingProtocol.model_validate(result).model_dump()
+    resolved_size = len(canonical_json(protocol).encode("utf-8"))
     by_sequence = {segment.sequence: segment for segment in segments}
     if len(by_sequence) != len(segments):
         raise ValueError("source sequences are not unique")
 
     def resolve(node):
+        nonlocal resolved_size
         if isinstance(node, dict):
             for key, child in node.items():
                 if key != "source_refs":
@@ -117,7 +120,7 @@ def validate_meeting_protocol(
                     seen.add(ref["sequence"])
                     if ref["quote"] is not None and ref["quote"] not in segment.text:
                         raise ValueError("source quote is not literal")
-                    refs.append({
+                    canonical_ref = {
                         **OutcomeSourceReference(
                             transcript_segment_id=segment.segment_id,
                             sequence=segment.sequence,
@@ -126,7 +129,14 @@ def validate_meeting_protocol(
                             speaker_label=segment.speaker_label, source_role=segment.source_role,
                         ).as_json(),
                         "processing_result_id": str(processing_result_id), "quote": ref["quote"],
-                    })
+                    }
+                    resolved_size += (
+                        len(canonical_json(canonical_ref).encode("utf-8"))
+                        - len(canonical_json(ref).encode("utf-8"))
+                    )
+                    if resolved_size > MAX_PROTOCOL_BYTES:
+                        raise ValueError("resolved protocol size exceeds 2 MiB")
+                    refs.append(canonical_ref)
                 node[key] = refs
         elif isinstance(node, list):
             for child in node:
@@ -153,7 +163,10 @@ def validate_meeting_protocol(
     ]
     states = {key: "available" if rows else "not_found" for key, rows in groups.items()}
     states["risks"] = "unavailable"  # Risks stay in topics; no semantic extraction.
-    return {"protocol": protocol, "category_states": states, "items": items}
+    validated = {"protocol": protocol, "category_states": states, "items": items}
+    if len(canonical_json(validated).encode("utf-8")) > MAX_PROTOCOL_BYTES:
+        raise ValueError("resolved protocol size exceeds 2 MiB")
+    return validated
 
 
 def meeting_protocol_config(*, model: str, **parameters: object) -> dict[str, object]:

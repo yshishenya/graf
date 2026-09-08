@@ -1317,6 +1317,9 @@ async def execute_candidate_generation(
         provider_attempt = 1
         if existing is not None:
             if existing.call_state == "completed" and existing.validated_result_json is not None:
+                _verify_generation_call_hashes(existing)
+                if attempt.status in ACTIVE_CANDIDATE_STATUSES and "protocol" in existing.validated_result_json:
+                    await _store_candidate_protocol(db, attempt=attempt, call=existing)
                 state = "candidate" if attempt.status == "candidate" else "failed"
                 if state == "candidate" and attempt.outcome_set_id is not None:
                     try:
@@ -1477,13 +1480,6 @@ async def execute_candidate_generation(
         call_id = call.id
         meeting_id = attempt.meeting_id
         source_result_id = attempt.source_result_id
-        media_revision_id = attempt.media_revision_id
-        template_id = attempt.template_id
-        template_key = attempt.template_key
-        template_version = attempt.template_version
-        output_language = attempt.output_language
-        detail_level = attempt.detail_level
-        requested_by_user_id = attempt.requested_by_user_id
     gateway = LiteLLMGateway(
         base_url=str(settings.litellm_base_url),
         api_key=api_key,
@@ -1773,58 +1769,7 @@ async def execute_candidate_generation(
                 "failure_code": validation_failure,
                 "reused": False,
             }
-        outcome_set = MeetingOutcomeSet(
-            workspace_id=workspace_id,
-            meeting_id=meeting_id,
-            media_revision_id=media_revision_id,
-            processing_result_id=source_result_id,
-            candidate_id=candidate_id,
-            status="available",
-            source_kind="litellm",
-            generator_kind="litellm",
-            generator_version=AI_GENERATOR_VERSION,
-            source_result_hash=attempt.source_result_hash or transcript_hash,
-            source_fingerprint=attempt.source_fingerprint or attempt.source_result_hash,
-            deletion_epoch_at_start=attempt.deletion_epoch_at_start,
-            expires_at=attempt.expires_at,
-            content_hash=_content_hash(validated),
-            protocol_json=validated["protocol"],
-            template_id=template_id,
-            template_key=template_key,
-            template_version=template_version,
-            generator_config_hash=attempt.generator_config_hash,
-            output_language=output_language,
-            detail_level=detail_level,
-            revision_state="candidate",
-            requested_by_user_id=requested_by_user_id,
-            started_at=started_at,
-            generated_at=completed_at,
-            latency_ms=max(0, int((completed_at - started_at).total_seconds() * 1000)),
-        )
-        for category, state in validated["category_states"].items():
-            setattr(outcome_set, f"{category}_state", state)
-        db.add(outcome_set)
-        await db.flush()
-        for item in validated["items"]:
-            db.add(
-                MeetingOutcomeItem(
-                    workspace_id=workspace_id,
-                    meeting_id=meeting_id,
-                    outcome_set_id=outcome_set.id,
-                    category=item["category"],
-                    sequence=item["sequence"],
-                    state="available",
-                    text=item["text"],
-                    owner_text=item["owner_text"],
-                    due_date_text=item["due_date_text"],
-                    truth_label=item["truth_label"],
-                    source_refs_json=item["source_refs"],
-                )
-            )
-        attempt.outcome_set_id = outcome_set.id
-        attempt.status = "candidate"
-        attempt.ended_at = completed_at
-        attempt.failure_code = None
+        outcome_set = await _store_candidate_protocol(db, attempt=attempt, call=call)
         try:
             await publish_model_generated_outcome(
                 db,
@@ -1872,6 +1817,74 @@ async def execute_candidate_generation(
             "state": "accepted",
             "reused": False,
         }
+
+
+async def _store_candidate_protocol(
+    db: AsyncSession,
+    *,
+    attempt: MeetingOutcomeGenerationAttempt,
+    call: GenerationCall,
+) -> MeetingOutcomeSet:
+    """Project a durable validated response under the caller's lifecycle locks."""
+    _verify_generation_call_hashes(call)
+    validated = call.validated_result_json
+    if call.completed_at is None or not isinstance(validated, dict) or "protocol" not in validated:
+        raise OutcomeGenerationTerminalError("generation_call_content_incomplete")
+    if call.transcript_hash != attempt.temporal_transcript_hash:
+        raise OutcomeGenerationTerminalError("summary_transcript_changed")
+    outcome_set = MeetingOutcomeSet(
+        workspace_id=attempt.workspace_id,
+        meeting_id=attempt.meeting_id,
+        media_revision_id=attempt.media_revision_id,
+        processing_result_id=attempt.source_result_id,
+        candidate_id=attempt.candidate_id,
+        status="available",
+        source_kind="litellm",
+        generator_kind="litellm",
+        generator_version=AI_GENERATOR_VERSION,
+        source_result_hash=attempt.source_result_hash or call.transcript_hash,
+        source_fingerprint=attempt.source_fingerprint or attempt.source_result_hash,
+        deletion_epoch_at_start=attempt.deletion_epoch_at_start,
+        expires_at=attempt.expires_at,
+        content_hash=call.validated_result_hash,
+        protocol_json=validated["protocol"],
+        template_id=attempt.template_id,
+        template_key=attempt.template_key,
+        template_version=attempt.template_version,
+        generator_config_hash=attempt.generator_config_hash,
+        output_language=attempt.output_language,
+        detail_level=attempt.detail_level,
+        revision_state="candidate",
+        requested_by_user_id=attempt.requested_by_user_id,
+        started_at=call.started_at,
+        generated_at=call.completed_at,
+        latency_ms=max(0, int((call.completed_at - call.started_at).total_seconds() * 1000)),
+    )
+    for category, state in validated["category_states"].items():
+        setattr(outcome_set, f"{category}_state", state)
+    db.add(outcome_set)
+    await db.flush()
+    for item in validated["items"]:
+        db.add(
+            MeetingOutcomeItem(
+                workspace_id=attempt.workspace_id,
+                meeting_id=attempt.meeting_id,
+                outcome_set_id=outcome_set.id,
+                category=item["category"],
+                sequence=item["sequence"],
+                state="available",
+                text=item["text"],
+                owner_text=item["owner_text"],
+                due_date_text=item["due_date_text"],
+                truth_label=item["truth_label"],
+                source_refs_json=item["source_refs"],
+            )
+        )
+    attempt.outcome_set_id = outcome_set.id
+    attempt.status = "candidate"
+    attempt.ended_at = call.completed_at
+    attempt.failure_code = None
+    return outcome_set
 
 
 async def publish_generation_call(

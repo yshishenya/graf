@@ -19,8 +19,9 @@ from tests.fixtures.cabinet_access import (
 )
 from tests.fixtures.cabinet_components import COMPONENT_FORBIDDEN_MARKERS
 from tests.fixtures.processing import create_finalized_meeting, enable_processing_autostart
+from tests.integration.test_cabinet_meeting_outcomes import _generate_and_store
 from twobrain_rec_server.db.models import MeetingOutcomeItem
-from twobrain_rec_server.outcomes.service import ensure_outcomes_for_meeting
+from twobrain_rec_server.outcomes import service as outcomes_service
 
 SERVER_ROOT = Path(__file__).resolve().parents[2] / "src" / "twobrain_rec_server"
 
@@ -289,7 +290,8 @@ def test_notes_action_truth_egresses_only_metadata_safe_states(client) -> None:
 
 def test_cabinet_list_omits_stored_outcome_item_text(client) -> None:
     meeting_id = create_outcome_ready_meeting(client, "no-secret-outcome-list")
-    asyncio.run(ensure_outcomes_for_meeting(client.app_state["sessionmaker"], meeting_id=meeting_id))
+    # Seed a saved result explicitly; opening/listing must not generate one.
+    asyncio.run(_generate_and_store(client, meeting_id, outcomes_service))
     outcome_text = asyncio.run(_first_outcome_text(client, meeting_id))
     assert outcome_text
 

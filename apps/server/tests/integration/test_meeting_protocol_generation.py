@@ -92,6 +92,8 @@ def test_candidate_owner_fence_with_restricted_worker_role(client, active):
 @pytest.mark.parametrize("race", [
     "none", "expired", "cancelled", "deleted", "source", "access", "deleted_error",
     "identity", "identity_before_egress", "long_fields", "projection_failure",
+    "projection_failure_expired", "projection_failure_cancelled", "projection_failure_deleted",
+    "projection_failure_source", "projection_failure_access", "projection_failure_corrupt",
     "error_finalization_failure",
 ])
 def test_generation_retains_response_and_fences_publication(client, monkeypatch, race):
@@ -168,10 +170,18 @@ def test_generation_retains_response_and_fences_publication(client, monkeypatch,
         )
 
     monkeypatch.setattr(ai_service.LiteLLMGateway, "generate", generate)
-    if race == "projection_failure":
+    projection_failure = race.startswith("projection_failure")
+    if projection_failure:
+        publish = ai_service.publish_model_generated_outcome
+        projection_attempts = 0
+
         async def fail_projection(db, **_kwargs):
-            # A real PostgreSQL error aborts the projection transaction.
-            await db.execute(text("SELECT 1 / 0"))
+            nonlocal projection_attempts
+            projection_attempts += 1
+            if projection_attempts == 1:
+                # A real PostgreSQL error aborts the projection transaction.
+                await db.execute(text("SELECT 1 / 0"))
+            return await publish(db, **_kwargs)
 
         monkeypatch.setattr(ai_service, "publish_model_generated_outcome", fail_projection)
     elif race == "error_finalization_failure":
@@ -218,7 +228,7 @@ def test_generation_retains_response_and_fences_publication(client, monkeypatch,
                 )) is None
             assert calls == []
             return
-        if race in {"projection_failure", "error_finalization_failure"}:
+        if projection_failure or race == "error_finalization_failure":
             with pytest.raises(DBAPIError):
                 await ai_service.execute_candidate_generation(actual, **kwargs)
         elif race in {"expired", "deleted", "deleted_error"}:
@@ -250,19 +260,58 @@ def test_generation_retains_response_and_fences_publication(client, monkeypatch,
                     task = outcome.protocol_json["action_items"][0]
                     assert item.owner_text == task["owner_text"] == "  Исполнитель " + "я" * 241
                     assert item.due_date_text == task["due_date_text"] == "  После согласования " + "я" * 121
-            if race in {"projection_failure", "error_finalization_failure"}:
+            if projection_failure or race == "error_finalization_failure":
                 assert await db.scalar(select(MeetingOutcomeSet).where(
                     MeetingOutcomeSet.candidate_id == candidate_id,
                 )) is None
         if race == "error_finalization_failure":
             with pytest.raises(ai_service.OutcomeGenerationTerminalError, match="summary_provider_attempt_not_retryable"):
                 await ai_service.execute_candidate_generation(actual, **kwargs)
-        if race in {"none", "long_fields", "projection_failure"}:
+        if projection_failure and race != "projection_failure":
+            async with actual() as db:
+                attempt = await db.scalar(select(MeetingOutcomeGenerationAttempt).where(
+                    MeetingOutcomeGenerationAttempt.candidate_id == candidate_id,
+                ))
+                meeting = await db.get(Meeting, meeting_id)
+                if race.endswith("expired"):
+                    attempt.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+                elif race.endswith("cancelled"):
+                    attempt.status = "cancelled"
+                elif race.endswith("deleted"):
+                    meeting.deletion_epoch += 1
+                elif race.endswith("source"):
+                    source = await db.get(ProcessingResult, attempt.source_result_id)
+                    source.source_result_hash = "new-source-after-response"
+                elif race.endswith("access"):
+                    identity = await db.get(UserIdentity, meeting.created_by_user_id)
+                    identity.status = "inactive"
+                elif race.endswith("corrupt"):
+                    call = await db.scalar(select(GenerationCall).where(
+                        GenerationCall.candidate_id == candidate_id,
+                    ))
+                    call.validated_result_hash = "invalid"
+                await db.commit()
+            with pytest.raises(ai_service.OutcomeGenerationTerminalError):
+                await ai_service.execute_candidate_generation(actual, **kwargs)
+            async with actual() as db:
+                assert await db.scalar(select(MeetingOutcomeSet).where(
+                    MeetingOutcomeSet.candidate_id == candidate_id,
+                )) is None
+        elif race in {"none", "long_fields", "projection_failure"}:
             replay = await ai_service.execute_candidate_generation(actual, **kwargs)
             assert replay["reused"] is True
-            if race == "projection_failure":
-                assert replay["state"] == "failed"
-                assert replay["failure_code"] == "summary_generation_projection_missing"
+            assert replay["state"] == "accepted"
+            repeated = await ai_service.execute_candidate_generation(actual, **kwargs)
+            assert repeated["outcome_set_id"] == replay["outcome_set_id"]
+            async with actual() as db:
+                outcomes = (await db.scalars(select(MeetingOutcomeSet).where(
+                    MeetingOutcomeSet.candidate_id == candidate_id,
+                ))).all()
+                call = await db.scalar(select(GenerationCall).where(
+                    GenerationCall.candidate_id == candidate_id,
+                ))
+                assert len(outcomes) == 1
+                assert outcomes[0].protocol_json == call.validated_result_json["protocol"]
         assert len(calls) == 1
         assert "temperature" not in calls[0]
 

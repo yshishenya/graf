@@ -124,6 +124,29 @@ def test_protocol_size_limit_is_explicit_not_truncation():
         validate(document)
 
 
+@pytest.mark.parametrize("expansion", ["references", "flat_projection"])
+def test_resolved_protocol_size_is_bounded_after_reference_and_projection_expansion(expansion):
+    from dataclasses import replace
+
+    from twobrain_rec_server.outcomes.prompts import canonical_json
+
+    document = protocol_fixture()
+    segments = source_fixture()
+    if expansion == "references":
+        segments = [replace(segments[0], speaker_label="я" * 1024)]
+        document["executive_summary"] = [
+            {"text": "Решение", "source_refs": [{"sequence": 0, "quote": None}]}
+            for _ in range(1100)
+        ]
+    else:
+        document["executive_summary"][0]["text"] = "я" * 550_000
+    original = deepcopy(document)
+    assert len(canonical_json(document).encode("utf-8")) < 2 * 1024 * 1024
+    with pytest.raises(ValueError, match="size"):
+        validate(document, segments)
+    assert document == original
+
+
 def test_wire_schema_is_inline_and_has_no_nested_item_limits():
     def inspect(value):
         if isinstance(value, dict):

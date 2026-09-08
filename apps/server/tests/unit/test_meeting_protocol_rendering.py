@@ -3,13 +3,18 @@ from copy import deepcopy
 from dataclasses import replace
 from io import BytesIO
 
+import pytest
 from openpyxl import load_workbook
 
 from tests.unit.test_meeting_protocol import protocol_fixture, validate
 from tests.unit.test_transcript_exports import _snapshot
 from twobrain_rec_server.cabinet.access import narrow_summary_projection
 from twobrain_rec_server.cabinet.exports import render_content_export
-from twobrain_rec_server.cabinet.meeting_protocol import protocol_lines, without_protocol_evidence
+from twobrain_rec_server.cabinet.meeting_protocol import (
+    TASK_HEADING,
+    protocol_lines,
+    without_protocol_evidence,
+)
 from twobrain_rec_server.cabinet.rendering import _render_full_protocol
 
 
@@ -94,3 +99,27 @@ def test_summary_only_share_has_complete_protocol_without_transcript_refs():
     assert "source_refs" not in json.dumps(shared["protocol"]) and "quote" not in json.dumps(shared["protocol"])
     html = _render_full_protocol(shared["protocol"], source_destination_available=False)
     assert "Сделать макет" in html and "data-source-segment" not in html
+
+
+@pytest.mark.parametrize("field,column", [("task", 1), ("owner_text", 2), ("due_date_text", 3)])
+def test_xlsx_preserves_long_protocol_fields_in_continuation_rows(export_fixture, field, column):
+    document = validate(protocol_fixture())["protocol"]
+    # The second chunk starts with a formula marker; it must remain literal.
+    value = "я" * 32767 + "=SUM(1,2)\n" + "🙂" * 33000 + " конец"
+    document["action_items"][0][field] = value
+    snapshot = _snapshot(export_fixture, scope="summary", format="xlsx")
+    snapshot = replace(snapshot, summary=replace(snapshot.summary, protocol=document),
+                       selection=replace(snapshot.selection, include_evidence=False))
+    sheet = load_workbook(BytesIO(render_content_export(snapshot).body))["Протокол"]
+    rows = list(sheet.values)
+    start = next(index for index, row in enumerate(rows) if row[0] == TASK_HEADING) + 1
+    parts = []
+    for row in rows[start:]:
+        if row[0]:
+            break
+        if row[column] is not None:
+            parts.append(row[column])
+    assert "".join(parts) == value
+    assert len(parts) >= 3 and all(len(part.encode("utf-16-le")) <= 32767 * 2 for part in parts)
+    assert all(cell.data_type != "f" for row in sheet for cell in row)
+    assert document["action_items"][0][field] == value

@@ -6,6 +6,7 @@ import json
 import re
 from dataclasses import asdict, dataclass, replace
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from itertools import zip_longest
 from typing import Literal
 from uuid import UUID
 
@@ -1161,14 +1162,33 @@ def _xlsx_evidence_values(
 
 
 def _append_sheet_row(sheet: object, values: object) -> None:
-    cells = []
+    columns = []
     for value in values:
         if isinstance(value, str):
             value = _safe_spreadsheet_text(value)
-        cell = value if isinstance(value, Cell) else WriteOnlyCell(sheet, value=value)
-        cell.alignment = Alignment(wrap_text=True, vertical="top")
-        cells.append(cell)
-    sheet.append(cells)
+            # Excel limits a cell to 32767 UTF-16 units. Split before openpyxl
+            # can silently truncate; continuation rows preserve column order.
+            parts = []
+            start = units = 0
+            for index, character in enumerate(value):
+                width = 2 if ord(character) > 0xFFFF else 1
+                if units + width > 32767:
+                    parts.append(value[start:index])
+                    start, units = index, 0
+                units += width
+            columns.append(parts + [value[start:]])
+        else:
+            columns.append([value])
+    for values_part in zip_longest(*columns):
+        cells = []
+        for value in values_part:
+            cell = value if isinstance(value, Cell) else WriteOnlyCell(sheet, value=value)
+            if isinstance(value, str):
+                # A continuation can begin with '=' even when the field does not.
+                cell.data_type = "s"
+            cell.alignment = Alignment(wrap_text=True, vertical="top")
+            cells.append(cell)
+        sheet.append(cells)
 
 
 def _turn_row(
