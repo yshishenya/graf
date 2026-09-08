@@ -248,7 +248,7 @@ def test_production_share_head_upgrades_to_regeneration_merge(
         promotion_counter_function,
         promotion_counter_config,
     ) = asyncio.run(inspect_schema())
-    assert versions == ["0087_merge_calendar_timezone"]
+    assert versions == ["0088_meeting_protocol"]
     assert "public.promotion_campaigns" in promotion_counter_function
     assert "search_path=pg_catalog, pg_temp" in promotion_counter_config
     assert {
