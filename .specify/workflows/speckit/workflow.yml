@@ -1,24 +1,14 @@
 schema_version: "1.0"
 workflow:
   id: "speckit"
-  name: "Full SDD Cycle"
-  version: "1.0.0"
-  author: "GitHub"
-  description: "Runs specify → plan → tasks → implement with review gates"
+  name: "GRAF: разработка и завершение трекера"
+  version: "1.0.1"
+  author: "GRAF"
+  description: "Полный проектный цикл с обязательной приёмкой и сверкой issues"
 
 requires:
-  # 0.8.5 is the first release with engine-side resolution of the
-  # ``integration: "auto"`` default. Older versions would treat "auto"
-  # as a literal integration key and fail at dispatch.
-  speckit_version: ">=0.8.5"
+  speckit_version: ">=1.0.1"
   integrations:
-    # The four commands below (specify, plan, tasks, implement) are core
-    # spec-kit commands provided by every integration. The list here is an
-    # advisory, non-exhaustive compatibility hint following the documented
-    # ``any: [...]`` schema -- it is NOT a closed set. The workflow runs
-    # against any integration the project was initialized with, including
-    # ones not listed below, as long as that integration provides the four
-    # core commands referenced in ``steps``.
     any:
       - "alquimia"
       - "claude"
@@ -47,9 +37,15 @@ steps:
     input:
       args: "{{ inputs.spec }}"
 
+  - id: clarify
+    command: speckit.clarify
+    integration: "{{ inputs.integration }}"
+    input:
+      args: "Уточнить требования и обязательные проверки для {{ inputs.spec }}."
+
   - id: review-spec
     type: gate
-    message: "Review the generated spec before planning."
+    message: "Требования и существенные решения согласованы; неоднозначности устранены."
     options: [approve, reject]
     on_reject: abort
 
@@ -59,9 +55,15 @@ steps:
     input:
       args: "{{ inputs.spec }}"
 
+  - id: checklist
+    command: speckit.checklist
+    integration: "{{ inputs.integration }}"
+    input:
+      args: "Проверить требования по рискам текущего проекта и запланированного объёма."
+
   - id: review-plan
     type: gate
-    message: "Review the plan before generating tasks."
+    message: "План и необходимые reviewer-owned checklists проверены; автор реализации не подменяет приёмку."
     options: [approve, reject]
     on_reject: abort
 
@@ -71,8 +73,64 @@ steps:
     input:
       args: "{{ inputs.spec }}"
 
+  - id: analyze
+    command: speckit.analyze
+    integration: "{{ inputs.integration }}"
+    input:
+      args: "Устранить блокирующие расхождения через нужный этап; к реализации переходить только после чистой повторной проверки."
+
+  - id: review-analysis
+    type: gate
+    message: "Проверка analyze не оставила блокирующих расхождений; версии spec/plan/tasks согласованы."
+    options: [approve, reject]
+    on_reject: abort
+
+  - id: taskstoissues
+    command: speckit.taskstoissues
+    integration: "{{ inputs.integration }}"
+    input:
+      args: "Связать текущие задачи с существующими issues без дубликатов."
+
   - id: implement
     command: speckit.implement
     integration: "{{ inputs.integration }}"
     input:
       args: "{{ inputs.spec }}"
+
+  - id: converge
+    command: speckit.converge
+    integration: "{{ inputs.integration }}"
+    input:
+      args: "При остатке выполнить цикл taskstoissues → implement → converge. Не считать локальную реализацию закрытием issues."
+
+  - id: validation-release
+    type: gate
+    message: >-
+      Перед продолжением подтвердить review, нужные проверки, разрешённое слияние
+      и обязательную приёмку/выпуск на точном SHA по правилам проекта.
+      Одни локальные тесты не достаточны. Если условия не выполнены, остановиться
+      с конкретным остатком; approval этого gate не заменяет отсутствующие доказательства.
+    options: [approve, reject]
+    on_reject: abort
+
+  - id: tracker-closeout
+    command: speckit.taskstoissues
+    integration: "{{ inputs.integration }}"
+    input:
+      args: >-
+        closeout: перечитать tasks.md и live issues, подтвердить все исходные
+        критерии и merged PR/CI/runtime/release evidence. Через штатный
+        validate-issue-closeout.py --verify-live закрыть только подтверждённые
+        задачи с подробным русским комментарием; umbrella последним через live
+        feature validation. Соблюдать разрешённый пользователем объём действий.
+        Неполные задачи оставить открытыми с причиной. Выдать точный остаток,
+        не завершать создание issues повторно и не считать [X] достаточным доказательством.
+
+  - id: review-closeout
+    type: gate
+    message: >-
+      Подтверждена финальная сверка трекера: закрытые issues проверены,
+      все обязательные критерии выполнены. Если обязательные задачи ещё открыты,
+      результат tracker pending, а workflow не завершён.
+    options: [approve, reject]
+    on_reject: abort

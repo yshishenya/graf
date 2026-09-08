@@ -25,6 +25,13 @@ ID_RE = re.compile(r"(?:^|/)(\d{3,})-")
 GITHUB_COMMAND_TIMEOUT_SECONDS = 30
 
 
+def _sequential_id(name: str) -> int | None:
+    if re.match(r"^\d{7,8}-\d{6}(?:-|$)", name):
+        return None
+    match = re.fullmatch(r"(\d{3,})(?:-[A-Za-z0-9][A-Za-z0-9-]*)?", name)
+    return int(match.group(1)) if match else None
+
+
 def _ids_from_specs(root: Path) -> set[int]:
     specs = root / "specs"
     if not specs.is_dir():
@@ -32,33 +39,57 @@ def _ids_from_specs(root: Path) -> set[int]:
     result: set[int] = set()
     for path in specs.iterdir():
         if path.is_dir():
-            match = re.match(r"^(\d{3,})(?:-|$)", path.name)
-            if match:
-                result.add(int(match.group(1)))
+            feature_id = _sequential_id(path.name)
+            if feature_id is not None:
+                result.add(feature_id)
     return result
 
 
 def _git_refs(root: Path, *, strict: bool = False) -> list[str]:
     try:
         proc = subprocess.run(
-            ["git", "for-each-ref", "--format=%(refname:short)"],
+            ["git", "for-each-ref", "--format=%(refname)", "refs/heads/", "refs/remotes/"],
             cwd=root,
             check=True,
             capture_output=True,
             text=True,
         )
-    except (OSError, subprocess.CalledProcessError) as exc:
+        refs = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+        if strict:
+            remotes = subprocess.run(
+                ["git", "remote"], cwd=root, check=True, capture_output=True, text=True,
+            ).stdout.splitlines()
+            for remote in remotes:
+                advertised = subprocess.run(
+                    ["git", "ls-remote", "--heads", remote], cwd=root, check=True,
+                    capture_output=True, text=True, timeout=GITHUB_COMMAND_TIMEOUT_SECONDS,
+                    env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
+                )
+                refs.extend(line.split("\t", 1)[1] for line in advertised.stdout.splitlines() if "\t" in line)
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
         if strict:
             raise SystemExit(f"feature-claim: cannot inspect git refs: {exc}") from exc
         return []
-    return [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+    return refs
 
 
 def _ids_from_refs(refs: Iterable[str]) -> set[int]:
     result: set[int] = set()
     for ref in refs:
-        for match in ID_RE.finditer(ref):
-            result.add(int(match.group(1)))
+        if ref.startswith("refs/heads/"):
+            ref = ref.removeprefix("refs/heads/")
+        elif ref.startswith("refs/remotes/"):
+            ref = ref.removeprefix("refs/remotes/").partition("/")[2]
+        elif ref.startswith("refs/"):
+            continue
+        # Also accept short remote refs used by callers/tests.
+        ref = ref.removeprefix("origin/")
+        if ref.startswith(("codex/turn-diffs/", "codex/captures/", "graf-release/")):
+            continue
+        leaf = ref.rsplit("/", 1)[-1]
+        feature_id = _sequential_id(leaf) if "-" in leaf else None
+        if feature_id is not None:
+            result.add(feature_id)
     return result
 
 
@@ -116,7 +147,15 @@ def _github_ids(
                         cwd=root, check=True, capture_output=True, text=True,
                         timeout=max(1, deadline - time.monotonic()),
                     )
-                    pages.append(json.loads(proc.stdout or "{}"))
+                    page = json.loads(proc.stdout or "{}")
+                    if (
+                        not isinstance(page, dict)
+                        or not isinstance(page.get("items"), list)
+                        or page.get("incomplete_results")
+                        or page.get("total_count", 0) > len(page["items"])
+                    ):
+                        raise ValueError("GitHub feature search is incomplete")
+                    pages.append(page)
     except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired, json.JSONDecodeError, ValueError) as exc:
         if strict:
             raise SystemExit(
@@ -204,11 +243,11 @@ def _github_umbrella(root: Path, issue_number: int, feature_id: int) -> None:
         for label in labels
         if isinstance(label, dict)
     }
-    if f"feature:{feature_id}" not in label_names:
+    if f"feature:{feature_id:03d}" not in label_names:
         raise SystemExit(
-            f"feature-claim: umbrella issue #{issue_number} must have label feature:{feature_id}"
+            f"feature-claim: umbrella issue #{issue_number} must have label feature:{feature_id:03d}"
         )
-    marker = str(feature_id)
+    marker = f"{feature_id:03d}"
     text = f"{row.get('title', '')}\n{row.get('body', '')}"
     linked = (
         re.search(rf"^\[{re.escape(marker)}\]", str(row.get("title", "")), re.MULTILINE)
@@ -221,6 +260,7 @@ def _github_umbrella(root: Path, issue_number: int, feature_id: int) -> None:
 
 def _create_github_umbrella(root: Path, feature_id: int, slug: str) -> int:
     """Create the one canonical reservation issue while the shared claim lock is held."""
+    _ensure_feature_label(root, feature_id)
     title = f"[{feature_id:03d}][P1][governance] T000: Реализовать фичу {slug}"
     body = f"""## Кратко
 
@@ -290,6 +330,28 @@ def _create_github_umbrella(root: Path, feature_id: int, slug: str) -> int:
     issue_number = int(match.group(1))
     _github_umbrella(root, issue_number, feature_id)
     return issue_number
+
+
+def _ensure_feature_label(root: Path, feature_id: int) -> None:
+    label = f"feature:{feature_id:03d}"
+    try:
+        created = subprocess.run(
+            ["gh", "label", "create", label, "--color", "1D76DB"],
+            cwd=root, capture_output=True, text=True, timeout=GITHUB_COMMAND_TIMEOUT_SECONDS,
+        )
+        if created.returncode == 0:
+            return
+        # Creation also fails for an existing label. Verify the exact name;
+        # do not use --force, which would overwrite another owner's metadata.
+        existing = subprocess.run(
+            ["gh", "label", "list", "--search", label, "--limit", "1000", "--json", "name"],
+            cwd=root, check=True, capture_output=True, text=True, timeout=GITHUB_COMMAND_TIMEOUT_SECONDS,
+        )
+        if any(row.get("name") == label for row in json.loads(existing.stdout)):
+            return
+        raise ValueError("feature label was not created or found")
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired, ValueError) as exc:
+        raise SystemExit(f"feature-claim: cannot prepare label {label}: {exc}") from exc
 
 
 def _write_claims_atomic(path: Path, claims: dict[str, object]) -> None:
@@ -364,6 +426,18 @@ def _available_id(occupied: set[int], start: int) -> int:
     candidate = max(1, start)
     while candidate in occupied:
         candidate += 1
+    return candidate
+
+
+def _next_feature_id(root: Path, occupied: set[int], *, offline: bool = False,
+                     exclude_issue: int | None = None) -> int:
+    # Specs anchor the project's sequence. Refs and reservations prevent
+    # collisions but a stray large ID must not advance that sequence.
+    candidate = _available_id(occupied, max(_ids_from_specs(root), default=0) + 1)
+    while not offline and candidate in _github_ids(
+        root, candidates={candidate}, exclude_issue=exclude_issue, strict=True,
+    ):
+        candidate = _available_id(occupied, candidate + 1)
     return candidate
 
 
@@ -592,22 +666,7 @@ def main(argv: list[str] | None = None) -> int:
             # competing reservation.  Exclude its local and origin refs.
             refs = _refs_without_requested_branch(refs, args.branch)
             occupied = _ids_from_specs(root) | _ids_from_refs(refs) | set(int(key) for key in claims)
-            # Probe only the next candidate.  GitHub issue history is large;
-            # exact marker searches preserve freshness without a slow full scan.
-            occupied |= _github_ids(
-                root,
-                exclude_issue=args.issue_number,
-                strict=True,
-                candidates={max(1, max(occupied, default=0) + 1)},
-            )
-            feature_id = _available_id(occupied, max(1, max(occupied, default=0) + 1))
-            while _github_ids(
-                root,
-                exclude_issue=args.issue_number,
-                strict=True,
-                candidates={feature_id},
-            ):
-                feature_id += 1
+            feature_id = _next_feature_id(root, occupied, exclude_issue=args.issue_number)
             if requested_feature_id != feature_id:
                 raise SystemExit(
                     f"feature-claim: generated branch {args.branch!r} is not the next collision-free Feature {feature_id:03d}; retry bootstrap"
@@ -631,19 +690,8 @@ def main(argv: list[str] | None = None) -> int:
         print(output if args.json else f"feature-claim: {output}")
         return 0
     if args.feature_id is None:
-        occupied = _ids_from_specs(root) | _ids_from_refs(_git_refs(root)) | _local_claim_ids(root)
-        if not args.offline:
-            # A suggested number is useful only when it includes the same
-            # remote collision sources as an actual claim. Offline mode is
-            # explicitly a draft and must be labelled as such.
-            # Suggestions are advisory; keep them bounded to the next local
-            # candidate instead of scanning the complete historical backlog.
-            suggestion = _available_id(occupied, max(1, max(occupied, default=0) + 1))
-            while _github_ids(root, candidates={suggestion}):
-                suggestion += 1
-            print(json.dumps({"next_available": f"{suggestion:03d}", "occupied_count": len(occupied), "mode": "github-checked"}))
-            return 0
-        next_id = _available_id(occupied, max(1, max(occupied, default=0) + 1))
+        occupied = _ids_from_specs(root) | _ids_from_refs(_git_refs(root, strict=not args.offline)) | _local_claim_ids(root)
+        next_id = _next_feature_id(root, occupied, offline=args.offline)
         print(json.dumps({"next_available": f"{next_id:03d}", "occupied_count": len(occupied), "mode": "offline-draft" if args.offline else "github-checked"}))
         return 0
     try:

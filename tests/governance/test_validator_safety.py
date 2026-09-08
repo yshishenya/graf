@@ -422,7 +422,11 @@ def test_feature_claim_allocate_reuses_requested_issue_in_second_probe(monkeypat
 
     monkeypatch.setattr(validator, "_github_umbrella", lambda *_args: None)
     monkeypatch.setattr(validator, "_git_refs", lambda _root, strict=False: ["codex/001-old"])
-    monkeypatch.setattr(validator, "_github_ids", lambda _root, **kwargs: seen.append(kwargs.get("exclude_issue")) or set())
+    def github_ids(_root, **kwargs):
+        seen.append(kwargs.get("exclude_issue"))
+        return {2} if kwargs["candidates"] == {2} else set()
+
+    monkeypatch.setattr(validator, "_github_ids", github_ids)
 
     assert validator.main(
         [
@@ -432,7 +436,7 @@ def test_feature_claim_allocate_reuses_requested_issue_in_second_probe(monkeypat
             "--issue-number",
             "6090",
             "--branch",
-            "codex/002-x",
+            "codex/003-x",
             "--slug",
             "x",
             "--json",
@@ -1080,3 +1084,73 @@ def test_process_changed_legacy_scan_collects_committed_and_worktree_specs(tmp_p
         Path("specs/001-old/spec.md"),
         Path("specs/002-new/spec.md"),
     ]
+
+
+def test_single_issue_live_cli_checks_actual_pr_and_run(tmp_path, monkeypatch):
+    import sys
+    validator = load_script('validate-issue-closeout')
+    issue_path = tmp_path / 'issue.json'
+    tasks_path = tmp_path / 'tasks.md'
+    issue_path.write_text(json.dumps(_closeout_issue(_closeout_comment())))
+    tasks_path.write_text('- [X] T001 Проверить (Issue #6337)\n')
+    monkeypatch.setattr(sys, 'argv', ['validate-issue-closeout', '--issue-json', str(issue_path),
+        '--tasks', str(tasks_path), '--expected-sha', 'a'*40, '--repo', 'yshishenya/graf', '--verify-live'])
+    pr = {'mergedAt': '2026-09-08T00:00:00Z', 'state': 'MERGED',
+          'headRefOid': 'a'*40, 'body': 'Refs #6337'}
+    run = {'conclusion': 'success', 'workflowName': 'governance-fast', 'event': 'pull_request',
+           'workflowPath': '.github/workflows/governance-fast.yml', 'pullRequestNumbers': [6383], 'headSha': 'a'*40}
+    monkeypatch.setattr(validator, '_github_pr', lambda *_a: pr)
+    monkeypatch.setattr(validator, '_github_run', lambda *_a: run)
+    assert validator.main() == 0
+    # An unrelated expected SHA hidden elsewhere in the comment cannot stand in
+    # for the actual PR's tested SHA.
+    altered = _closeout_comment().replace('Exact source SHA: '+ 'a'*40, 'Exact source SHA: '+ 'b'*40)
+    issue_path.write_text(json.dumps(_closeout_issue(altered)))
+    sha_index = sys.argv.index('--expected-sha') + 1
+    sys.argv[sha_index] = 'b'*40
+    assert validator.main() == 1
+    sys.argv[sha_index] = 'a'*40
+    issue_path.write_text(json.dumps(_closeout_issue(_closeout_comment())))
+    pr['state'] = 'OPEN'
+    assert validator.main() == 1  # a green run does not prove merge
+    pr['state'] = 'MERGED'
+    run['headSha'] = 'b'*40
+    assert validator.main() == 1
+    run['headSha'] = 'a'*40
+    run['conclusion'] = 'failure'
+    assert validator.main() == 1
+    tasks_path.write_text('- [ ] T001 Проверить (Issue #6337)\n')
+    monkeypatch.setattr(validator, '_github_run', lambda *_a: (_ for _ in ()).throw(AssertionError('unchecked task reached network')))
+    assert validator.main() == 1
+
+
+def test_single_issue_live_cli_requires_repo(tmp_path, monkeypatch):
+    import sys
+    import pytest
+    validator = load_script('validate-issue-closeout')
+    monkeypatch.setattr(sys, 'argv', ['validate-issue-closeout', '--verify-live', '--issue-json', 'issue.json',
+        '--tasks', 'tasks.md', '--expected-sha', 'a'*40])
+    with pytest.raises(SystemExit) as error:
+        validator.main()
+    assert error.value.code == 2
+
+
+def test_installed_workflow_cannot_finish_at_implementation():
+    import yaml
+    workflow = yaml.safe_load((ROOT / '.specify/workflows/speckit/workflow.yml').read_text())
+    steps = workflow['steps']
+    commands = [step['command'] for step in steps if 'command' in step]
+    assert commands == ['speckit.'+name for name in (
+        'specify', 'clarify', 'plan', 'checklist', 'tasks', 'analyze',
+        'taskstoissues', 'implement', 'converge', 'taskstoissues')]
+    ids = [step['id'] for step in steps]
+    assert len(ids) == len(set(ids))
+    assert ids.index('validation-release') < ids.index('tracker-closeout') < ids.index('review-closeout')
+    closeout = next(step for step in steps if step['id'] == 'tracker-closeout')
+    assert closeout['input']['args'].startswith('closeout:')
+    assert '--verify-live' in closeout['input']['args']
+    assert steps[-1]['type'] == 'gate' and steps[-1]['on_reject'] == 'abort'
+    assert 'tracker pending' in steps[-1]['message']
+    skill = (ROOT / '.agents/skills/speckit-taskstoissues/SKILL.md').read_text()
+    assert skill.index('## Closeout mode') < skill.index('## Outline')
+    assert '--verify-live' in skill and 'This mode creates no new issues' in skill

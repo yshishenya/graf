@@ -202,6 +202,13 @@ check_existing_branches() {
         max_num=$highest_spec
     fi
 
+    local allocator="$REPO_ROOT/scripts/claim-feature.py"
+    if [ -f "$allocator" ] && [ "${GRAF_SKIP_FEATURE_CLAIM:-}" != "1" ]; then
+        local suggestion
+        suggestion=$(python3 "$allocator" --root "$REPO_ROOT" --json) || return 1
+        printf '%s' "$suggestion" | python3 -c 'import json,sys; print(int(json.load(sys.stdin)["next_available"]))'
+        return
+    fi
     echo $((max_num + 1))
 }
 

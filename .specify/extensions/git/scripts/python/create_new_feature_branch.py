@@ -274,6 +274,13 @@ def check_existing_branches(
         )
         highest_branch = get_highest_from_branches(repo_root, scope_prefix)
 
+    allocator = repo_root / "scripts" / "claim-feature.py"
+    if allocator.is_file() and os.environ.get("GRAF_SKIP_FEATURE_CLAIM") != "1":
+        suggestion = subprocess.run(
+            [sys.executable, str(allocator), "--root", str(repo_root), "--json"],
+            cwd=repo_root, check=True, capture_output=True, text=True,
+        )
+        return int(json.loads(suggestion.stdout)["next_available"])
     return max(highest_branch, get_highest_from_specs(specs_dir)) + 1
 
 

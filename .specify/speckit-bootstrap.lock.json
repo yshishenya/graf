@@ -8,7 +8,7 @@
     },
     "git": {
       "manifest_hash": "sha256:89711dec9716473fba4afc54f7224bcb28ebd3c55fb5aaa30df854ab02b07a75",
-      "tree_sha256": "c2f3d297346efd3768873bdf9962f0fcd7c2a45dad0d9c1fc1a28e73686a7bc0",
+      "tree_sha256": "2c6fd80b5dd1c51722d5ece233721aacf86ccf9f2d4180d107b43b0f9a3edb69",
       "version": "1.0.0"
     }
   },
@@ -42,11 +42,11 @@
     "speckit-github-issue-canon-ensure": "7dca2ed220c7d0324eb3dddba16e0f0a3a84b639aa96292d6c1542fdb579d87a",
     "speckit-github-issue-canon-normalize": "efa1227811028585ad85141dc9d158f0b3f64520bee6bde5277d8a060bcfb597",
     "speckit-github-issue-canon-validate": "873b6a5a33a440f65b90a3cd53d9fe7a20a73361192577e03546cec16a9ccd04",
-    "speckit-implement": "07efd8e7e11fa3805f88af93967c4de1583b4b2d85f515b1106a4e52e34c2a11",
+    "speckit-implement": "78f41855cf81346a2e832d20fc474d4013bf15baab7d7edfb723d9b3b9e989fa",
     "speckit-plan": "76007ddc5bdde51702f5ef34b86aebb32ce3d56eb0ba026450bf3a890f4a154a",
     "speckit-specify": "0584a00b601a13da79ee6d6161deefa6399f2e49e42ccb7c3a95515a34b8ae5f",
     "speckit-tasks": "1a33fa75d252a00cba4bca35fc9fddc1db8478335ae2fef6021f373403fb6654",
-    "speckit-taskstoissues": "a46fa310037c2e84ece06aac866a950d8a8bb5aade309f49ecea158e7b31640a"
+    "speckit-taskstoissues": "c3dc83bb9c01c4a3cbbfb070601a5362a4fa428b5bedb10f348d2df67e82e30e"
   },
   "schema_version": 3,
   "spec_kit": {
@@ -56,7 +56,7 @@
   },
   "workflow": {
     "id": "speckit",
-    "sha256": "b9a2a3c3d1e5f022d0369be7c83802a656c64e2d95306a7870a1f59b90c0e307",
+    "sha256": "abfb4225e4c68ad619efa5acc8bb841a4900772032bcf3e997e8df8747a87394",
     "source_url": "https://raw.githubusercontent.com/github/spec-kit/9118ed15a0ba65053469a94c560ea5d233f75884/workflows/speckit/workflow.yml",
     "version": "1.0.0"
   }
