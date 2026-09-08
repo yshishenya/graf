@@ -170,14 +170,17 @@ public final class CalendarTrayController: NSObject, NSMenuDelegate {
     }
 
     public func showMenu() {
-        // Finish the invoking app menu's tracking before opening the status menu.
-        DispatchQueue.main.async { [weak self] in
-            guard let self, !self.menuIsOpen else { return }
-            if let button = self.statusItem.button, button.window?.isVisible == true {
-                button.performClick(nil)
-            } else {
-                self.menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
-            }
+        // Finish the invoking menu first, without holding the main dispatch queue
+        // through NSMenu's nested event loop (capture cleanup and dismissal need it).
+        perform(#selector(openMenuAfterTracking), with: nil, afterDelay: 0)
+    }
+
+    @objc private func openMenuAfterTracking() {
+        guard !menuIsOpen else { return }
+        if let button = statusItem.button, button.window?.isVisible == true {
+            button.performClick(nil)
+        } else {
+            menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
         }
     }
 
