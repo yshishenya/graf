@@ -296,9 +296,8 @@ public final class CalendarTrayController: NSObject, NSMenuDelegate {
                          NSRect(x: 10, y: 18, width: 2, height: 3.5)] {
                 NSBezierPath(roundedRect: rect, xRadius: 0.7, yRadius: 0.7).fill()
             }
-            let bars = recordingState == .paused
-                ? [NSRect(x: 7, y: 10.5, width: 8, height: 1.8)]
-                : [NSRect(x: 7, y: 8, width: 1.8, height: 5),
+            let capturing = recordingState == .recording || recordingState == .paused || recordingState == .stopping
+            let bars = capturing ? [] : [NSRect(x: 7, y: 8, width: 1.8, height: 5),
                    NSRect(x: 10.1, y: 8, width: 1.8, height: 7),
                    NSRect(x: 13.2, y: 8, width: 1.8, height: 4)]
             for rect in bars {
@@ -399,14 +398,25 @@ public final class CalendarTrayController: NSObject, NSMenuDelegate {
 // It occupies the same 22 pt canvas and never intercepts the status button's mouse events.
 @MainActor
 final class GrafRecordingLightView: NSView {
+    private var microphoneMuted = false
+
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     override func draw(_ dirtyRect: NSRect) {
         NSColor.systemRed.setFill()
-        NSBezierPath(ovalIn: NSRect(x: 9.4, y: 4.4, width: 3.2, height: 3.2)).fill()
+        NSBezierPath(ovalIn: NSRect(x: 6.5, y: 6.5, width: 9, height: 9)).fill()
+        if microphoneMuted {
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current?.compositingOperation = .clear
+            NSBezierPath(roundedRect: NSRect(x: 8.2, y: 10.1, width: 5.6, height: 1.8),
+                         xRadius: 0.7, yRadius: 0.7).fill()
+            NSGraphicsContext.restoreGraphicsState()
+        }
     }
 
     func update(state: GrafTrayRecordingState, reduceMotion: Bool) {
+        microphoneMuted = state == .paused
+        needsDisplay = true
         isHidden = state == .idle || state == .starting
         let animate = !reduceMotion && (state == .recording || state == .paused)
         if animate {

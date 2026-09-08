@@ -636,8 +636,8 @@ final class DesktopCalendarReminderTests: XCTestCase {
             XCTAssertGreaterThan(inkPixels, 60, "The vector must render, not just reserve a canvas")
             XCTAssertLessThan(inkPixels, bitmap.pixelsWide * bitmap.pixelsHigh / 2, "No opaque app-icon background")
         }
-        XCTAssertEqual(rendered[0], rendered[1], "Recording light is drawn separately to preserve native template contrast")
-        XCTAssertNotEqual(rendered[1], rendered[2], "Mute has a static flat line inside the same logo")
+        XCTAssertNotEqual(rendered[0], rendered[1], "A large central recording light replaces the equalizer bars")
+        XCTAssertEqual(rendered[1], rendered[2], "Mute preserves the same GRAF contour")
     }
 
     func testRecordingLightStaysVisibleDuringMuteAndStopsMovingForAccessibility() throws {
@@ -674,10 +674,18 @@ final class DesktopCalendarReminderTests: XCTestCase {
                 redPixels += 1
                 let point = NSPoint(x: CGFloat(x) * 22 / CGFloat(bitmap.pixelsWide),
                                     y: 22 - CGFloat(y) * 22 / CGFloat(bitmap.pixelsHigh))
-                XCTAssertTrue(NSRect(x: 8, y: 3, width: 6, height: 6).contains(point), "Red pixels stay inside the logo")
+                XCTAssertTrue(NSRect(x: 5, y: 5, width: 12, height: 12).contains(point), "Red pixels stay inside the logo")
             }
         }
-        XCTAssertGreaterThan(redPixels, 3)
+        XCTAssertGreaterThan(redPixels, 40, "The central recording disk must be substantially larger than the old dot")
+        let centerX = bitmap.pixelsWide / 2
+        let centerY = bitmap.pixelsHigh / 2
+        XCTAssertGreaterThan(try XCTUnwrap(bitmap.colorAt(x: centerX, y: centerY)).alphaComponent, 0.9)
+        light.update(state: .paused, reduceMotion: true)
+        let mutedBitmap = try XCTUnwrap(light.bitmapImageRepForCachingDisplay(in: light.bounds))
+        light.cacheDisplay(in: light.bounds, to: mutedBitmap)
+        XCTAssertLessThan(try XCTUnwrap(mutedBitmap.colorAt(x: centerX, y: centerY)).alphaComponent, 0.1,
+                          "Mute leaves a flat transparent slot inside the still-visible red disk")
     }
 
     func testCalendarTrayTracksRealCaptureAndPreservesItWhenAnUpdateArrives() {
