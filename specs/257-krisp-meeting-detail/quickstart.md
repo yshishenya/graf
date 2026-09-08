@@ -10,8 +10,8 @@
 
 ```sh
 cd apps/server
-PYTHONPATH=src uv run pytest -q tests/contract/test_meeting_detail_reference_contract.py tests/unit/test_meeting_detail_copy_runtime.py tests/contract/test_summary_template_ui_contract.py tests/contract/test_cabinet_playback_contract.py tests/contract/test_transcript_export_contract.py tests/contract/test_meeting_sharing_contract.py tests/unit/test_meeting_protocol_rendering.py tests/integration/test_cabinet_meeting_detail.py
-uv run ruff check src/twobrain_rec_server/cabinet/rendering.py tests/contract/test_meeting_detail_reference_contract.py tests/unit/test_meeting_detail_copy_runtime.py
+PYTHONPATH=src uv run pytest -q tests/contract/test_meeting_detail_reference_contract.py tests/unit/test_meeting_detail_copy_runtime.py tests/unit/test_meeting_source_viewport_runtime.py tests/contract/test_summary_template_ui_contract.py tests/contract/test_cabinet_playback_contract.py tests/contract/test_transcript_export_contract.py tests/contract/test_meeting_sharing_contract.py tests/unit/test_meeting_protocol_rendering.py tests/integration/test_cabinet_meeting_detail.py
+uv run ruff check src/twobrain_rec_server/cabinet/rendering.py tests/contract/test_meeting_detail_reference_contract.py tests/unit/test_meeting_detail_copy_runtime.py tests/unit/test_meeting_source_viewport_runtime.py
 ```
 
 Если тестам нужен PostgreSQL, использовать существующий `apps/server/scripts/run_local_postgres_tests.sh --focused <пути> -q`, не production и не общий Dev. Синтетические данные; не имитировать HTTP 200 вместо настоящего действия.
@@ -24,7 +24,8 @@ uv run ruff check src/twobrain_rec_server/cabinet/rendering.py tests/contract/te
 4. Повторить 390/768/1024/1440, 200%, dark/light, keyboard/focus; отдельно длинное название, пустое/processing/stale/access-revoked. Сохранять только агрегаты/метаданные.
 5. Для копирования: переключение вкладки во время запроса не меняет scope; отключённая/replaced форма не записывает поздний результат в clipboard. Ошибка остаётся видимой; повтор доступен.
 6. Без JavaScript проверить обе разрешённые панели/якоря и разрешённые скачивания артефактов; для owner/shared, disabled и replacement состояния не создавать обходов. Выбор/генерация формата требуют JavaScript; это должно быть объяснено.
-7. Сопоставить с референсом при нормализованном масштабе; задокументировать отклонения, проверить совместимость с плеером F256, не менять его самостоятельно.
+7. Для источника проверять первую строку ниже закреплённой шапки и весь текст выше плеера, если текст помещается в доступную область. Если текст длиннее области, переход показывает его начало, остальное доступно прокруткой; одного пересечения блока реплики с viewport недостаточно. Повторить ссылку итогов, прямую ссылку на источник и переход из плеера. Сопоставить с референсом при нормализованном масштабе; задокументировать отклонения, проверить совместимость с плеером F256, не менять его самостоятельно.
+   Прямую ссылку `#graf-source` открывать полной навигацией, проверяя начальный и поздний кадр в Chromium/WebKit. В установленном GRAF Dev такой пользовательский вход отсутствует (N/A); доступную кнопку источника проверять отдельно в WKWebView.
 8. На синтетической встрече в web/embedded изменить существующую подпись голоса, проверить её после перезагрузки, восстановить исходную подпись и повторно проверить сохранение. Это проверка текущей функции GRAF; новая модель контактов и перенос отдельной реплики не добавляются.
 
 ## Closeout

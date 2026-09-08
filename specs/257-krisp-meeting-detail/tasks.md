@@ -2,14 +2,14 @@
 
 **Input**: [spec.md](spec.md), [plan.md](plan.md), [research.md](research.md), [contracts/ui.md](contracts/ui.md), [design-handoff.md](design-handoff.md), [quickstart.md](quickstart.md).
 
-**Подготовка 2026-09-08**: R01–R52 и подробная передача согласованы, задачи синхронизированы с GitHub. T001 принята независимым reviewer; T002 завершена: UX8/8, security5/5, analyze CRITICAL0/HIGH0/MEDIUM0, issue-canon validate PASS. Подробности — [readiness.md](readiness.md). Это не завершение всех конечных операций Krisp или проверки соответствия GRAF. Реализация T003–T008 выполнена локально; T009/T010 остаются открытыми. Доказательства — [validation/focused.md](validation/focused.md).
+**Подготовка 2026-09-08**: R01–R52 и подробная передача согласованы, задачи синхронизированы с GitHub. T001 принята независимым reviewer; T002 завершена: UX8/8, security5/5, analyze CRITICAL0/HIGH0/MEDIUM0, issue-canon validate PASS. Подробности — [readiness.md](readiness.md). Это не завершение всех конечных операций Krisp или проверки соответствия GRAF. T001–T010 выполнены; окончательная приёмка7f391 и GitHub governance-fast продукта4273ab прошли. Итоговый документационный SHA проходит отдельный PR gate. Доказательства — [validation/focused.md](validation/focused.md).
 
 ## Phase 1 — Исследование и подготовка
 
 - [X] T001 Завершить и связать наблюдения установленного Krisp и веба, включая редактор блоков/текста, сохранение/отмену/восстановление, различия переименования/переназначения/удаления голоса и секции, AI Chat полного тарифа с принятым объёмом в `specs/257-krisp-meeting-detail/reference-audit.md` (FR-001/015/016/017, SC-001). (Issue #6797)
 - [X] T002 Провести reviewer-owned UX/security review, analyze и синхронизировать задачи в `specs/257-krisp-meeting-detail/checklists/`, `analysis.md` и `issue-map.md` до реализации (FR-018). (Issue #6798)
 
-T001/T002 выполнены локально как подготовка. Issues #6797/#6798 остаются открыты до опубликованных PR/SHA/governance-fast и validator закрытия по tracker-policy; это не незавершённые условия старта кода. Карта — [issue-map.md](issue-map.md).
+T001/T002 выполнены как подготовка. Закрытие всех task issues связано с опубликованным PR, окончательным SHA, governance-fast и validator по tracker-policy; общая задача6794 остаётся открыта до merge. Карта — [issue-map.md](issue-map.md).
 
 ## Phase 2 — US1: композиция страницы
 
@@ -37,8 +37,8 @@ T001/T002 выполнены локально как подготовка. Issue
 ## Phase 5 — Проверка и закрытие
 
 - [X] T008 Выполнить focused suites, lint, synthetic browser/reflow/keyboard, существующую смену подписи голоса → reload → восстановление и актуализировать связанные assertions в `apps/server/tests/`; результаты записать в `specs/257-krisp-meeting-detail/validation/focused.md` (SC-004/005). (Issue #6808)
-- [ ] T009 После одобренного коммита проверить точный SHA через единственный GRAF Dev/dev-harness и Computer Use в вебе, включая смену подписи голоса → reload → восстановление на синтетических данных в обеих оболочках; сопоставить референс и FR/SC в `specs/257-krisp-meeting-detail/validation/ui-matrix.md` (SC-001/002/003/004/005). (Issue #6809)
-- [ ] T010 Выполнить ponytail review, converge, canonical fast, связать состояние tasks/issues и написать `changes/unreleased/F257.yaml` и `specs/257-krisp-meeting-detail/validation/closeout.md`; открытые гейты не объявлять завершёнными (FR-018, SC-001/002). (Issue #6810)
+- [X] T009 После одобренного коммита проверить точный SHA через единственный GRAF Dev/dev-harness и Computer Use в вебе, включая смену подписи голоса → reload → восстановление на синтетических данных в обеих оболочках; сопоставить референс и FR/SC в `specs/257-krisp-meeting-detail/validation/ui-matrix.md` (SC-001/002/003/004/005). (Issue #6809)
+- [X] T010 Выполнить ponytail review, converge, canonical fast, связать состояние tasks/issues и написать `changes/unreleased/F257.yaml` и `specs/257-krisp-meeting-detail/validation/closeout.md`; открытые гейты не объявлять завершёнными (FR-018, SC-001/002). (Issue #6810)
 
 ## Dependencies & Execution Order
 
@@ -47,3 +47,8 @@ T001/T002 → T003 → T004 → T005 → T007 → T008 → T009 → T010. T006 �
 ## Implementation Strategy
 
 Сначала существующий документ и шапка, затем безопасный перенос управления, затем один copy pipeline. Релиз, production и новая функциональность исключены. Не менять F256 и чужие правки.
+
+
+## Окончательная приёмка — 2026-09-09
+
+T009: установленный7f391 — штатные build/promote/status/smoke13PASS, Chromium24/24, WebKit12/12 и native source/return/compact100/200PASS; SC-003 принят независимо (6px при допуске8px). VoiceOver/тема приняты владельцем; native direct-URL N/A обоснован отсутствующим пользовательским входом. T010: независимые review/Ponytail/converge без новых пробелов реализации; tasks во время converge не менялся. Отметки выше поставлены отдельным closeout после приёмки и [GitHub governance-fast4273ab PASS](https://github.com/yshishenya/graf/actions/runs/34287778786). Итоговый документационный коммит требует нового GitHub gate, который фиксируется в PR/closure comments. Merge, release-full и выпуск не выполнялись.
