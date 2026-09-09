@@ -55,6 +55,14 @@ limit excludes queue time. API/identity/history errors fail without fallback
 to stale event text. A snapshot PASS is not atomic merge-time approval;
 failed, skipped or cancelled runs are not a metadata PASS.
 
+The additional check executes the proposed validator from the PR head. Its
+PASS is feedback on reviewed candidate code, not independent enforcement
+against a PR author who replaces the validator or workflow. Before required
+activation, both the workflow and policy implementation must be bound to an
+approved revision outside the PR's control, with negative tampering tests.
+Fetching only a base-branch validator from a PR-controlled workflow is not
+sufficient. A2 does not establish that trust boundary or authorize activation.
+
 The existing required `governance-fast`, edited-code reruns, merge-group path,
 receipts and release/closeout gates remain unchanged. Do not make `pr-metadata`
 required until merge-group, freshness/base-retarget, fork and closeout
