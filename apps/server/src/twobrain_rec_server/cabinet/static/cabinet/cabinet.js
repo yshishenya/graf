@@ -160,7 +160,8 @@
       const number = key === "sortDuration" ? Number(raw) : Date.parse(raw);
       return Number.isFinite(number) ? number : null;
     };
-    Array.from(list.querySelectorAll("[data-meeting-row]")).sort((left, right) => {
+    const focused = document.activeElement;
+    const sorted = Array.from(list.querySelectorAll("[data-meeting-row]")).sort((left, right) => {
       const a = value(left), b = value(right);
       if (a === null && b !== null) return 1;
       if (a !== null && b === null) return -1;
@@ -169,7 +170,16 @@
       const leftId = left.dataset.meetingId || left.dataset.grafLocalRecordingId || "";
       const rightId = right.dataset.meetingId || right.dataset.grafLocalRecordingId || "";
       return leftId < rightId ? -1 : leftId > rightId ? 1 : 0;
-    }).forEach((row) => list.append(row));
+    });
+    let previous = null;
+    for (const row of sorted) {
+      const next = previous ? previous.nextElementSibling : list.firstElementChild;
+      if (row !== next) list.insertBefore(row, next);
+      previous = row;
+    }
+    if (focused instanceof HTMLElement && focused.isConnected && document.activeElement !== focused) {
+      focused.focus({preventScroll: true});
+    }
   };
   const localRecordingMatches = (item) => {
     const access = document.querySelector("#meeting-access")?.value;
@@ -201,28 +211,45 @@
     }
   };
   let localRecordingRows = [];
+  const localRecordingMarkup = new WeakMap();
   const renderLocalRecordingRows = () => {
     const host = currentList();
     if (!host) return;
-    const focusedLocal = document.activeElement?.closest("[data-graf-local-recording-row]")?.dataset.grafLocalRecordingId;
+    const focused = document.activeElement;
+    const focusedLocal = focused?.closest("[data-graf-local-recording-row]")?.dataset.grafLocalRecordingId;
+    const focusedControl = focused?.matches("[data-meeting-select]") ? "[data-meeting-select]:not(:disabled)"
+      : focused?.matches("[data-row-delete]") ? "[data-row-delete]:not(:disabled)"
+      : focused?.dataset.grafLocalRecordingAction === "send" ? '[data-graf-local-recording-action="send"]:not(:disabled)'
+      : "[data-meeting-open]:not(:disabled)";
+    const existingRows = new Map([...host.querySelectorAll("[data-graf-local-recording-row]")].map(row => [row.dataset.grafLocalRecordingId, row]));
     let transferredFocus = null;
+    const restoreLocalFocus = () => {
+      if (!focusedLocal || document.activeElement === focused && focused.isConnected) return;
+      const row = transferredFocus?.isConnected ? transferredFocus
+        : allRows().find(row => row.dataset.grafLocalRecordingId === focusedLocal);
+      const target = [row?.querySelector(focusedControl), rowPrimaryFocusTarget(row),
+        ...allRows().map(rowPrimaryFocusTarget), document.querySelector("[data-list-title]")]
+        .find(target => isUsableFocusTarget(target) && !target.matches(':disabled, [aria-disabled="true"]'));
+      target?.focus({preventScroll: true});
+    };
     for (const item of localRecordingRows) {
       if (!item.meetingId) continue;
       if (selectedMeetingIds.delete(`local:${item.id}`)) selectedMeetingIds.add(item.meetingId);
       if (focusedLocal === item.id) transferredFocus = allRows().find(row => row.dataset.meetingId === item.meetingId);
     }
     applyNativeDeletionOperations(nativeDeletionOperations);
-    if (transferredFocus) rowPrimaryFocusTarget(transferredFocus)?.focus({preventScroll: true});
-    host.querySelectorAll("[data-graf-local-recording-row]").forEach((row) => row.remove());
     // A server identity belongs to the server result set, including filters and pagination.
     // Its absence must never turn a retained local copy into a new user recording.
     const localOnly = localRecordingRows.filter((item) => !item.localDeletionPending && !item.meetingId && localRecordingMatches(item));
+    const visibleIds = new Set(localOnly.map(item => item.id));
+    for (const [id, row] of existingRows) if (!visibleIds.has(id)) row.remove();
     let list = host.querySelector("ol.meeting-list");
     const emptyState = host.querySelector(":scope > .empty-state");
     if (!localOnly.length) {
-      host.querySelector("ol[data-graf-local-recording-list]")?.remove();
+      if (list?.hasAttribute("data-graf-local-recording-list") && !list.querySelector("[data-meeting-row]")) list.remove();
       if (emptyState) emptyState.hidden = false;
       updateMixedResultCount();
+      restoreLocalFocus();
       return;
     }
     if (!list) {
@@ -314,10 +341,18 @@
       if (timeValue && Number.isFinite(Date.parse(timeValue))) time.dateTime = timeValue;
       time.textContent = `${timeValue && meetingListSort().startsWith("updated") ? "Обновлено " : ""}${formatMeetingListDate(timeValue)}`;
       row.append(selection, icon, content, actions, time);
-      list.append(row);
+      // Compare the complete rendered output, including localized dates and sort
+      // context, while ignoring transient selection/focus mutations on the live row.
+      const markup = row.outerHTML;
+      const existing = existingRows.get(item.id);
+      if (existing && localRecordingMarkup.get(existing) === markup) return;
+      localRecordingMarkup.set(row, markup);
+      if (existing?.isConnected) existing.replaceWith(row);
+      else list.append(row);
     });
     sortMeetingRows(list);
     updateMixedResultCount();
+    restoreLocalFocus();
   };
   let nativeDeletionOperations = [];
   const nativeDeletionReplies = new Map();

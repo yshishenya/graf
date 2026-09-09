@@ -5,12 +5,25 @@ Risk/validation lane: **high-risk product area / full Spec Kit** (удалени
 
 Основной код опубликован в PR #6911. Итоговая приёмка и исправления продолжаются; T019–T023 пока открыты. Production и выпуск не выполнялись.
 
-База после rebase: `1768d78e5` (master). Первый опубликованный/установленный SHA F262: `2c9ffc01112d0584b53ff3cd5f1498ec1054f005`. Последующие исправления ниже пока относятся к рабочему снимку; [source-files.sha256.json](source-files.sha256.json) связывает проверенные исходники/тесты. Итоговый exact SHA будет записан в PR после проверки и коммита.
+База после последнего rebase: `921d51f30` (master). Первый опубликованный/установленный SHA F262: `2c9ffc01112d0584b53ff3cd5f1498ec1054f005`. Последующие исправления ниже пока относятся к рабочему снимку; [source-files.sha256.json](source-files.sha256.json) связывает проверенные исходники/тесты. Итоговый exact SHA будет записан в PR после проверки и коммита.
+
+## Установленная проверка SHA 43f7074 и исправление фокуса
+
+- `43f7074ac0a5d2ec07318a1875d141430fff4884`: штатные build/promote прошли, smoke **13/13 PASS**, schema0092. Журналы `/tmp/graf-262-final-build.log`, `/tmp/graf-262-final-promote.log`, `/tmp/graf-262-final-smoke.log`.
+- В GRAF Dev открыт управляемый локальный AVPlayer с собственным синтетическим тоном. Проверены пауза, переход к 00:50, повтор воспроизведения с начала. Удаление этой записи через основной список закрыло окно плеера; результат: удалена1, ожидают0, отклонено0, найдено0. Каталог синтетической записи отсутствует, сохранён `terminal_deleted`, `localArtifactsRetained=false`. Замер через GUI1112мс включает задержку инструмента и не доказывает SC-002≤1с; отдельный компонентный тест отзыва источника укладывается в1с.
+- Вторая синтетическая встреча создана штатной загрузкой WAV. Отдельная HTTP-сессия вошла через dev email-code flow и удалила только эту встречу. Сервер ответил202 за147мс; наблюдение через17,453с после принятия подтвердило исчезновение и строки, и завершённой карточки, найдено0. Это верхняя граница одного наблюдения SC-003, не точное время обновления и не p95. Cookies/код входа хранились только в памяти.
+- Начальная ошибка вспомогательного синтетического fixture (неполный `serverTruth`) корректно вызвала quarantine. После остановки приложения доказано отсутствие новых пользовательских изменений и восстановлены точные защищённые исходные bytes. Helper исправлен и проверяет всю очередь настоящим `DesktopUploadQueueDocument` до записи. Повтор прошёл, исходные77 элементов и1 операция сохранены; старые bytes больше не восстанавливаются поверх новых tombstones.
+- Найдено пересоздание local DOM при каждой native publication: фокус терялся. Строки теперь сопоставляются по ID и полному сформированному содержимому; неизменившийся DOM и элементы управления сохраняются. При изменении/исчезновении действия фокус получает доступная замена. Отрицательная проверка до исправления падает; `local-recording-focus.test.cjs` после исправления проходит:20 публикаций для4 контролов, отсутствие лишних перемещений, handoff флажка, сортировка/часовой пояс, фильтр/удаление. Дополнительно реальными клавишами Chromium проверены Space, Tab, Enter и Escape: выбор, активация локального открытия, диалог и возврат фокуса. Это не заменяет WKWebView/VoiceOver.
+- GitHub `governance-fast`34399753072:1569PASS,1skip,1FAIL — устаревшее статическое ожидание текста/сохранения выбора. После обновления теста `test_cabinet_web_shell.py`: **92PASS**, RuffPASS. Новый required run должен подтвердить итоговый SHA.
+- PostgreSQL: S49 manager owner/admin с другим creator, новая сессия и новый экземпляр приложения, снятие роли; S50 origin-only без Meeting/purge FK — **3 PASS**, `test_recording_deletion_scope_acceptance.py`. S13 create/part/finalize/cleanup journal при удалении — **4 PASS**, `/tmp/graf-262-upload-fences.log`.
+- Дополнительные native acceptance: `RecordingDeletionRecoveryAcceptanceTests` **4 PASS**, `/tmp/graf-262-recovery-acceptance-swift.log`: saving/unbound и явная отправка; настоящий HTTP429/Retry-After120 с restart до/после срока; отказ atomic-save до файлов/сети; восстановленные WAV/AAC и настоящий rescan без возвращения terminal origin.
+- `RecordingDeletionPurgeAcceptanceTests` **5 PASS**, `/tmp/graf-262-purge-acceptance.log`: реальный отказ unlink не мешает другому пакету, после repair/restart очистка завершается; потерянный ACK expired task повторяется с прежним ID без нового DELETE; отсутствие mapping/симлинк не дают verified; смена scope при задержанном ответе запрещает прежний purge/ACK; длинный upload не блокирует deletion, параллельный executor не дублирует запрос, поздний upload не снимает запрет. Первые ошибки нового test fixture исправлены до успешного прогона; продуктовых дефектов эти9 проверок не выявили.
+- VoiceOver был включён для проверки; до проверки речи/навигации Mac заблокировался. GUI-инструмент сообщил, что автоматическая разблокировка недоступна. VoiceOver/итоговый focus в WKWebView пока не считаются проверенными; после разблокировки вернуть VoiceOver в исходное выключенное состояние.
 
 ## Дополнительная приёмка 2026-09-09 UTC (журналы 2026-09-10 +05)
 
 - GRAF Dev на `2c9ffc01112d0584b53ff3cd5f1498ec1054f005`: штатные build/promote PASS, smoke **13/13 PASS**, схема `0092_recording_origin_cancel`. Логи `/tmp/graf-262-pr-build.log`, `/tmp/graf-262-pr-promote.log`, `/tmp/graf-262-pr-smoke.log`.
-- В установленном GRAF Dev создан и удалён только синтетический WAV. Space меняет выбор, Escape закрывает подтверждение и возвращает фокус на флажок, счётчик согласован. После подтверждения встреча исчезла, поиск показывает 0. Найден дефект: завершённая карточка загрузки сохранила ссылку. Исправление ожидает повторной установленной проверки.
+- В установленном GRAF Dev создан и удалён только синтетический WAV. Space меняет выбор, Escape закрывает подтверждение и возвращает фокус на флажок, счётчик согласован. После подтверждения встреча исчезла, поиск показывает 0. Найден дефект: завершённая карточка загрузки сохранила ссылку. Повтор на следующем установленном SHA описан ниже.
 - Дополнительная независимая проверка обнаружила поздний XHR после web-delete: сервер уже удалил встречу, но ответ загрузки возвращал карточку. Теперь страница запоминает отозванный meeting ID и не публикует позднюю ссылку. Chromium regression воспроизводит реальный порядок upload → delete → late response, а также remote deletion/unavailable. **3 PASS**, отрицательная проверка без исправления падает: `/tmp/graf-262-manual-upload-deletion.log`.
 - Mixed-list Chromium, включая pending → rejected с однократным обновлением и удаление карточки завершённой загрузки: **PASS**, `/tmp/graf-262-upload-revocation-browser.log`.
 - Swift: итоговый тематический набор **190 PASS**, `/tmp/graf-262-precommit-native.log`; прежний набор **186 PASS** после исправлений capability/target 404, `/tmp/graf-262-final-pr-native.log`. AVPlayer/AVPlayerView/NSWindow release/revoke/replacement: **1 PASS**, `/tmp/graf-262-player-release.log`; это компонентная проверка, а не установленный пользовательский путь.
@@ -70,33 +83,9 @@ Risk/validation lane: **high-risk product area / full Spec Kit** (удалени
 
 ## Покрытие S01–S51
 
-`AUTO` ниже означает проверку конкретного автоматического инварианта, **не** полную приёмку сценария во всех клиентах. `PARTIAL` требует дополнительных runtime/интеграционных доказательств. Ни один такой статус не заменяет T019/T022/T023.
+Подробная матрица и точные границы assertions находятся в [scenario-evidence.md](scenario-evidence.md). Она заменила прежнюю агрегированную таблицу, где S09/S48 и bulk100 ещё были отмечены непроверенными. Не требуется повторять каждый компонентный инвариант вручную; установленная приёмка отдельно проверяет соединение UI, очереди, файлов и настоящего сервера.
 
-| Сценарии | Текущее доказательство | Остаток |
-|---|---|---|
-| S01–S06 | AUTO/PARTIAL: repeat receipt, durable restart, mixed-list/HTMX, действие после intent заблокировано | установленный клиент и полный цикл до очистки |
-| S07–S08 | AUTO/PARTIAL: offline never-submitted tombstone, атомарная запись, файлы и retry | реальное отключение сети/перезапуск UI |
-| S09 | NOT RUN: browser offline end-to-end | проверить ошибку и отсутствие обещания долговечной команды |
-| S10–S12 | AUTO: cancel/create в обоих порядках, lost-create identity, repeat | проверить с установленным клиентом |
-| S13–S14 | AUTO/PARTIAL: существующие sync/workflow deletion races; callback guards | задержанные реальные part/finalize и обработчики при runtime-приёмке |
-| S15–S17 | PARTIAL: saving/action guards и существующие queue/artifact regressions | активный writer, остановка и повреждённый реальный пакет |
-| S18–S23 | AUTO/PARTIAL: checkbox, alias/focus, bulk, фильтры/счётчики/HTMX | полная смешанная выборка, пустой список, 100 повторов |
-| S24 | PARTIAL: bounded origin/meeting lookup, независимый цикл, reconnect triggers | два активных устройства и SC-003 |
-| S25–S26 | AUTO: expired→verified ACK, separate new-device task | Mac после долгого offline |
-| S27–S29 | AUTO/PARTIAL: scope, request headers, unknown access, deletion precedence | смена сессии во всех задержанных sibling callbacks |
-| S30–S31 | PARTIAL: AVKit source release и bounded deletion copy реализованы | прослушивание/seek в GRAF Dev; внешние копии вне контроля |
-| S32–S36 | AUTO/PARTIAL: ошибка одного пакета, unsafe path, missing package, atomic-save failure | crash между unlink/ACK, частичный реальный файловый отказ |
-| S37–S38 | AUTO/PARTIAL: legacy/future schema, corrupt queue guard, owner reconciliation | существующие legacy ghosts и восстановление состояния |
-| S39–S40 | PARTIAL: old bridge требует обновления, future queue не перезаписывается, migration downgrade запрещён | полная таблица binary/store/server совместимости и rollback |
-| S41 | PARTIAL: браузерный focus/checkbox/dialog | VoiceOver, клавиши и реальное native окно |
-| S42–S43 | PARTIAL/NOT RUN: прежние серверные fences сохранены | отказы зависимостей и backup restore |
-| S44–S46 | AUTO/PARTIAL: per-operation monotonic state, bounded payload, server-only store | 100 объектов, несколько окон, задержанные общие ответы |
-| S47 | AUTO/PARTIAL: explicit local-unbound/owner split, offline local deletion | полный путь новой записи до выбора аккаунта |
-| S48–S49 | NOT RUN: явный повторный импорт и manager другого creator | отдельные acceptance сценарии |
-| S50 | AUTO: cancellation без Meeting/FK; accepted без пакета не verified | пользовательский путь в installed app |
-| S51 | PARTIAL: meeting lookup, access resolver и browser revocation | две сессии, открытая чужая встреча |
-
-SC-003 измерен в Chromium, SC-006 на файловой системе; см. дополнительные результаты выше. Установленные части SC-002/007 ещё проверяются. p95 не заявляется. Актуальное сопоставление каждого сценария: [scenario-evidence.md](scenario-evidence.md).
+SC-003 измерен в Chromium и на установленном клиенте, SC-004/006 — в настоящей файловой очереди. Установленные части SC-002/007 требуют завершения на итоговых исходниках. p95 не заявляется.
 
 ## Обновление и откат
 

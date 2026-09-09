@@ -38,3 +38,9 @@ Outcome: `tasks_appended`, 2 partial findings, HIGH 2. Чистая конвер
 Ponytail: достаточно существующих Foundation/AVKit, одного Set отозванных upload IDs, существующей функции identity и обычного последовательного цикла HTTP порциями100. Старая пересборка диалога удалена; новый scheduler/БД/framework не нужны. Итог: разрешено фиксировать исходники и переходить к установленной приёмке; это ещё не положительный итог всей конвергенции.
 
 Дополнительные результаты bulk100, real polling/reconnect, заполненной v2, существующей БД0091/0092 и восстановленного содержимого перечислены в evidence.md. Матрица51 — в scenario-evidence.md. Открытые runtime условия не переименованы в PASS.
+
+## Дополнительная проверка фокуса и восстановления
+
+Root просмотрел изменение keyed DOM/focus и новые9 Swift/3 PostgreSQL acceptance tests; автор focus diff отдельно перепроверил свой код, что не названо независимым review. Подтверждённых новых продуктовых дефектов нет. Для focus достаточно существующих DOM/WeakMap, полное сравнение сформированной строки предотвращает устаревшие время/действия; новых абстракций и зависимостей нет. Реальные клавиши Chromium и сохранение DOM прошли.
+
+Прежние содержательные пробелы Retry-After, save-before-effects, restored rescan, missing mapping/symlink, lost ACK/restart, filesystem failure/recovery, scope-change и concurrent upload/delete закрыты новыми тематическими тестами; S49/S50 — настоящим PostgreSQL/API. Источники и границы перечислены в scenario-evidence.md. C1/C2 остаются partial до итогового WKWebView/VoiceOver и поддерживаемого восстановления. Mac locked блокирует только GUI-приёмку; это не основание объявлять ready.
