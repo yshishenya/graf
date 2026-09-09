@@ -204,6 +204,27 @@ def test_padded_feature_marker_is_validated(tmp_path, monkeypatch):
     module._github_umbrella(tmp_path, 42, 2)
 
 
+def test_generated_umbrella_matches_project_issue_canon(tmp_path, monkeypatch):
+    module = allocator()
+    created = {}
+    monkeypatch.setattr(module, '_ensure_feature_label', lambda *_args: None)
+    monkeypatch.setattr(module, '_github_umbrella', lambda *_args: None)
+
+    def create(args, **kwargs):
+        assert args[:3] == ['gh', 'issue', 'create']
+        created.update(title=args[args.index('--title') + 1], body=args[args.index('--body') + 1],
+                       labels=[{'name': label} for label in args[args.index('--label') + 1].split(',')])
+        return subprocess.CompletedProcess(args, 0, stdout='https://github.com/example/project/issues/42')
+
+    monkeypatch.setattr(module.subprocess, 'run', create)
+    assert module._create_github_umbrella(tmp_path, 259, 'next') == 42
+    spec = importlib.util.spec_from_file_location('issue_canon', ROOT / '.specify/extensions/github-issue-canon/scripts/issue_canon_common.py')
+    canon = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(canon)
+    assert canon.validate_issue(created) == []
+    assert '- Spec tasks: T000' in created['body']
+
+
 @pytest.fixture
 def git_project(tmp_path):
     project = tmp_path / 'project'

@@ -44,10 +44,17 @@ T013 уточняет действующее правило занятых но�
 
 ## Восстановление последовательности без перенумерации
 
-- [X] T014 [US3] Уточнить FR-023–FR-026/SC-006/007 в specs/259-audit-remediation/spec.md, plan.md и contracts/allocator.md; получить независимый checklist и синхронизировать существующий Issue #6837.
+- [X] T014 [US3] Уточнить FR-023–FR-026/SC-006/007 в specs/259-audit-remediation/spec.md, plan.md и contracts/allocator.md; получить независимый checklist и синхронизировать существующий Issue #6837. (Issue #6837)
 - [X] T015 [US3] Добавить регрессии исторического spec6788, правил политики, F1000+, инварианта занятости и общих входов в tests/governance/test_feature_allocator.py. (Issue #6837)
 - [X] T016 [US3] Исправить общий старт поиска в scripts/claim-feature.py через .specify/feature-numbering.json; уточнить начало новой работы в docs/agent-guidance/codex-worktrees.md. (Issue #6837)
 - [X] T017 [US3] Выполнить quickstart, review и converge; записать фактические результаты в specs/259-audit-remediation/validation.md и changes/unreleased/F259.yaml; оставшиеся commit/CI/merge gates не закрывать. (Issue #6837)
 
 Порядок: T014 → T015 → T016 → T017 → T006. Изменения последовательные,
 параллельных исполнителей кода нет. Это ремонт B019, не весь бэклог F259.
+
+## Завершение B019 перед общим аудитом
+
+- [X] T018 [US3] Согласовать генерируемый umbrella с каноном: область заголовка/метки и `Spec tasks: T000` в scripts/claim-feature.py; проверить готовое тело штатным валидатором в tests/governance/test_feature_allocator.py. (Issue #6837)
+- [X] T019 [US3] Сверить исходные задачи F225, сохранить её потерянные из master документы в specs/225-feature-id-allocator, восстановить service-ref regression внутри --self-test и подготовить acceptance.md/связи issues и сверить исходные критерии; само закрытие требует последующего точного CI, слияния и штатного валидатора. (Issue #6837)
+
+T018 следует существующему обязательному issue canon и FR-017/019–022, T019 реализует незавершённую приёмку T006 без изменения границ F225. Уточнение: T000 остаётся временной резервацией нового umbrella; перед закрытием получает реальную задачу. Анализ требований: переиспользуются общий generator и валидатор, новых схем или независимых источников номеров нет; исходные критерии F225 сохраняются. Порядок T018/T019 → T006.

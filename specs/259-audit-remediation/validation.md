@@ -153,3 +153,15 @@ Commit, push, GitHub governance-fast на новом точном SHA, merge и 
 коммита этого ремонта. Формат автоматически создаваемых umbrella требует
 отдельного исправления перед новой фичей; исправление старого #6852 не
 устраняет этот дефект генератора.
+
+## T018/T019 и приёмка F225 — 2026-09-09
+
+Общий PR продолжает готовый ремонт последовательности 67376a2ff без повторной реализации. Генератор umbrella согласует docs/governance в заголовке/контексте с существующей меткой и добавляет Spec tasks: T000. Новый тест до исправления падал с двумя ошибками штатного канона; после исправления готовое тело, заголовок и метки проходят validate_issue. Встроенный self-test получил искусственные service/internal/timestamp refs и обычную F225; удаление namespace guard в временной копии вызывает ожидаемый AssertionError.
+
+Целевые allocator/validator: 108 PASS, 2 SKIP (pwsh отсутствует), 9.42 s. Self-test, mutation check, agent-context, changelog, development-process и frozen governance с закреплёнными CLI/bootstrap: PASS. Live suggestion: 264, github-checked, occupied_count234; хеши pointer/policy/shared claims до/после совпали. Это предложение, не новая резервация.
+
+Исходные документы F225 перенесены из сохранённой рабочей копии; её код/dirty state не тронут. Матрица #6189–#6196 — specs/225-feature-id-allocator/acceptance.md. Исторические числа датированы; checklist не переотмечен. Task links, issue canon детей и реальные критерии сверены, umbrella получил T008 вместо временного T000. T006/точный CI и финальное закрытие остаются gates.
+
+Code-reviewer: авторский review общего parser/его потребителей, политики, generator и self-test — блокирующих замечаний нет. Ponytail-review: дополнительных зависимостей и дублирующих механизмов нет, net: 0 lines possible. Новая политика необходима для явного исторического исключения; удаление проверок malformed policy ослабило бы обязательные требования.
+
+Владелец уточнил общий объём: весь бэклог F259 до выкатки. Снимок execution-status.md фиксирует 257 OPEN/22 CLOSED из исходных279; это инвентарь, не новая содержательная приёмка всех issues. Full CI/продукт/production/выпуск не запускались.

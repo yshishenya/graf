@@ -317,7 +317,7 @@ def _github_umbrella(root: Path, issue_number: int, feature_id: int) -> None:
 def _create_github_umbrella(root: Path, feature_id: int, slug: str) -> int:
     """Create the one canonical reservation issue while the shared claim lock is held."""
     _ensure_feature_label(root, feature_id)
-    title = f"[{feature_id:03d}][P1][governance] T000: Реализовать фичу {slug}"
+    title = f"[{feature_id:03d}][P1][docs/governance] T000: Реализовать фичу {slug}"
     body = f"""## Кратко
 
 Зарезервировать Feature {feature_id:03d} и вести его работу через Spec Kit и GitHub.
@@ -326,7 +326,8 @@ def _create_github_umbrella(root: Path, feature_id: int, slug: str) -> int:
 
 - Фича: `{feature_id:03d}-{slug}`
 - Приоритет: `P1`
-- Область: `governance`
+- Область: `docs/governance`
+- Spec tasks: T000
 - Источник: автоматический feature bootstrap
 - Гейт: blocks PR
 
@@ -633,8 +634,14 @@ def self_test() -> int:
         subprocess.run(["git", "config", "user.name", "Feature Claim Test"], cwd=root, check=True)
         subprocess.run(["git", "add", "specs"], cwd=root, check=True)
         subprocess.run(["git", "commit", "-qm", "fixture"], cwd=root, check=True)
-        occupied = _ids_from_specs(root) | _ids_from_refs(["origin/codex/215-summary-auto-recovery", "origin/codex/1024-large-feature"])
-        assert occupied == {1, 215, 1024}
+        occupied = _ids_from_specs(root) | _ids_from_refs([
+            "origin/codex/215-summary-auto-recovery", "origin/codex/1024-large-feature",
+            "refs/heads/codex/225-feature-id-allocator",
+            "refs/heads/codex/turn-diffs/captures/99999999-synthetic",
+            "refs/codex/turn-diffs/captures/99999999-synthetic/base",
+            "refs/heads/codex/20260909-123456-synthetic",
+        ])
+        assert occupied == {1, 215, 225, 1024}
         assert _available_id(occupied, 1) == 2
         assert _available_id(occupied, 215) == 216
         try:
