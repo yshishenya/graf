@@ -52,3 +52,8 @@ T001/T002 → T003 → T004 → T005 → T007 → T008 → T009 → T010. T006 �
 ## Окончательная приёмка — 2026-09-09
 
 T009: установленный7f391 — штатные build/promote/status/smoke13PASS, Chromium24/24, WebKit12/12 и native source/return/compact100/200PASS; SC-003 принят независимо (6px при допуске8px). VoiceOver/тема приняты владельцем; native direct-URL N/A обоснован отсутствующим пользовательским входом. T010: независимые review/Ponytail/converge без новых пробелов реализации; tasks во время converge не менялся. Отметки выше поставлены отдельным closeout после приёмки и [GitHub governance-fast4273ab PASS](https://github.com/yshishenya/graf/actions/runs/34287778786). Итоговый документационный коммит требует нового GitHub gate, который фиксируется в PR/closure comments. Merge, release-full и выпуск не выполнялись.
+
+
+## Phase 6 — Convergence перед выпуском
+
+- [ ] T011 Обновлять состояние замены записи до события доступности экспорта в `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`; проверить начало замены и окончательный отказ в `apps/server/tests/contract/test_cabinet_static_assets_contract.py` согласно FR-018 и plan:replacement-active (partial). Источник — review PR #6826 от 2026-09-09. (Issue #6836)

@@ -2278,8 +2278,20 @@
     }
     const terminalProcessing = processingTerminalFailure(projection);
     if (pending) pending.hidden = transcriptVisible || terminalTranscript || terminalProcessing;
-    updateProcessingExportVisibility(transcriptReady);
     detail.dataset.processingTranscriptVisible = transcriptVisible ? "true" : "false";
+    const replacementAttempt = Number(
+      projection?.attempt_ordinal ?? detail.dataset.processingAttemptOrdinal ?? 0,
+    ) > 1 && (
+      projection?.content_available === true
+      || detail.dataset.processingTranscriptContentReady === "true"
+      || detail.dataset.processingTranscriptVisible === "true"
+    );
+    const replacementPublished = detail.dataset.processingPublishedAttempt === String(attemptOrdinal);
+    const replacementActive = replacementAttempt
+      && !terminalProcessing
+      && (projectionState !== "processed" || !replacementPublished);
+    detail.dataset.processingReplacementActive = replacementActive ? "true" : "false";
+    updateProcessingExportVisibility(transcriptReady);
     detail.dataset.processingRetryClass = String(projection?.retry_class || "none");
     detail.dataset.processingSummaryStatus = processingSummaryState(projection);
 
@@ -2329,19 +2341,7 @@
 
     const recovery = detail.querySelector("[data-processing-recovery]");
     if (!recovery) return true;
-    const replacementAttempt = Number(
-      projection?.attempt_ordinal ?? detail.dataset.processingAttemptOrdinal ?? 0,
-    ) > 1 && (
-      projection?.content_available === true
-      || detail.dataset.processingTranscriptContentReady === "true"
-      || detail.dataset.processingTranscriptVisible === "true"
-    );
-    const replacementPublished = detail.dataset.processingPublishedAttempt === String(attemptOrdinal);
     const copy = processingRecoveryCopy(projection, transcriptReady, replacementPublished);
-    const replacementActive = replacementAttempt
-      && !terminalProcessing
-      && (projectionState !== "processed" || !replacementPublished);
-    detail.dataset.processingReplacementActive = replacementActive ? "true" : "false";
     recovery.dataset.processingReplacement = replacementAttempt ? "true" : "false";
     if (replacementActive) {
       detail.nextElementSibling?.querySelector?.("audio")?.pause();
