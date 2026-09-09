@@ -62,4 +62,4 @@ FR-012–014/019, US4 и аудио-часть FR-015: следующий эта
 
 ## Phase 3: Convergence перед общим выпуском
 
-- [ ] T017 Исправить подтверждённую роль и состав приглашения в api/schemas.py и api/cabinet.py, объяснение устаревшего источника в cabinet/static/cabinet/playback-comments.js и область нажатия полосы в cabinet/static/cabinet/cabinet.css; проверить API и браузерные переходы согласно FR-010/011/016/017 (partial). Пути кода относительно apps/server/src/twobrain_rec_server/; источник — review PR #6828 от 2026-09-09. (Issue #6835)
+- [X] T017 Исправить подтверждённую роль и состав приглашения в api/schemas.py и api/cabinet.py, объяснение устаревшего источника в cabinet/static/cabinet/playback-comments.js и область нажатия полосы в cabinet/static/cabinet/cabinet.css; проверить API и браузерные переходы согласно FR-010/011/016/017 (partial). Пути кода относительно apps/server/src/twobrain_rec_server/; источник — review PR #6828 от 2026-09-09. (Issue #6835)

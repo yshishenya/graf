@@ -43,3 +43,14 @@ data-model, allocator contract, analysis/tasks, общий checklist и прав
 резервация отвергается; Windows не требует Unix import для read-only подсказки;
 новые convergence-задачи останавливают дальнейший release gate до выполнения
 цикла; каждая T001–T012 получает task-backed owner после проверки дубликатов.
+
+## Итог T012 в общем выпуске — 2026-09-09
+
+Четыре замечания PR6831 исправлены: сохранение существующего umbrella,
+переносимый read-only путь Windows, остановка после новых convergence-задач
+и task-backed связи T001–T012. Governance329 PASS/3 SKIP; пропуски PowerShell
+без pwsh и отдельного Docker restore rehearsal сохранены. Development-process,
+канон263 issues и frozen integrity с закреплённым CLI1.0.1 PASS.
+Общий governance-fast34335444153 PASS на bc76098240028958fe27c201809e416f2b1f81cb.
+T012 выполнена. T006 и исходная приёмка F225 остаются открыты; этот ограниченный
+этап не закрывает общий бэклог.

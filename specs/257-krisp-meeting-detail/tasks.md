@@ -56,4 +56,4 @@ T009: установленный7f391 — штатные build/promote/status/sm
 
 ## Phase 6 — Convergence перед выпуском
 
-- [ ] T011 Обновлять состояние замены записи до события доступности экспорта в `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`; проверить начало замены и окончательный отказ в `apps/server/tests/contract/test_cabinet_static_assets_contract.py` согласно FR-018 и plan:replacement-active (partial). Источник — review PR #6826 от 2026-09-09. (Issue #6836)
+- [X] T011 Обновлять состояние замены записи до события доступности экспорта в `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`; проверить начало замены и окончательный отказ в `apps/server/tests/contract/test_cabinet_static_assets_contract.py` согласно FR-018 и plan:replacement-active (partial). Источник — review PR #6826 от 2026-09-09. (Issue #6836)

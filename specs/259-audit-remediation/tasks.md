@@ -34,4 +34,4 @@ T006: PR создан и governance-fast на исходном SHA прошёл.
 
 ## Дополнительный review перед выпуском
 
-- [ ] T012 Устранить четыре замечания PR #6831 в scripts/claim-feature.py, .specify/workflows/speckit/workflow.yml и связях задач; проверить существующий umbrella, блокировку и подсказку Windows, остановку после convergence и task-backed ownership согласно FR-012–FR-022. (Issue #6837)
+- [X] T012 Устранить четыре замечания PR #6831 в scripts/claim-feature.py, .specify/workflows/speckit/workflow.yml и связях задач; проверить существующий umbrella, блокировку и подсказку Windows, остановку после convergence и task-backed ownership согласно FR-012–FR-022. (Issue #6837)
