@@ -2,6 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 import importlib.util
+import os
+import subprocess
+import textwrap
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -19,6 +24,93 @@ def load_validator():
 def test_governance_workflow_contract() -> None:
     validator = load_validator()
     assert validator.validate(ROOT / ".github/workflows/governance-fast.yml") == []
+
+
+@pytest.mark.parametrize(
+    ("event_name", "base_kind"),
+    [
+        ("pull_request", "valid"),
+        ("merge_group", "valid"),
+        ("workflow_dispatch", "diagnostic"),
+        ("pull_request", "missing"),
+        ("merge_group", "missing"),
+        ("pull_request", "invalid"),
+        ("merge_group", "invalid"),
+        ("pull_request", "unavailable"),
+        ("merge_group", "unavailable"),
+        ("pull_request", "unrelated"),
+        ("merge_group", "unrelated"),
+    ],
+)
+def test_fast_workflow_uses_the_event_base_for_real_diff(
+    tmp_path: Path, event_name: str, base_kind: str,
+) -> None:
+    source = (ROOT / ".github/workflows/governance-fast.yml").read_text()
+    step = source.split("- name: Run bounded fast lane\n", 1)[1].split("\n      - ", 1)[0]
+    assert "GRAF_CI_BASE_REF: ${{ steps.identity.outputs.base_sha }}" in step
+    assert "EVENT_NAME: ${{ github.event_name }}" in step
+    command = textwrap.dedent(step.split("run: |\n", 1)[1])
+
+    def git(*args: str) -> str:
+        return subprocess.check_output(
+            ["git", *args], cwd=tmp_path, text=True, stderr=subprocess.STDOUT,
+        ).strip()
+
+    git("init", "-q")
+    git("config", "user.name", "CI Contract")
+    git("config", "user.email", "ci-contract@example.test")
+    runner = tmp_path / "infra/scripts/ci-local.sh"
+    runner.parent.mkdir(parents=True)
+    # Execute the real selection helper, but never run product tests or emit CI evidence.
+    runner.write_text(
+        '#!/usr/bin/env bash\nsource "$GRAF_TEST_CI_SOURCE"\n'
+        'repo_root="$PWD"\nprintf "selection_started\\n"\nchanged_files\n',
+    )
+    runner.chmod(0o755)
+    git("add", ".")
+    git("commit", "-qm", "base")
+    event_base = git("rev-parse", "HEAD")
+    for name in ("server.txt", "macos.txt"):
+        (tmp_path / name).write_text(name + "\n")
+        git("add", name)
+        git("commit", "-qm", name)
+    git("update-ref", "refs/remotes/origin/master", "HEAD")
+    bases = {"valid": event_base, "diagnostic": "", "missing": "", "invalid": "origin/master", "unavailable": "f" * 40}
+    if base_kind == "unrelated":
+        bases[base_kind] = git("commit-tree", "HEAD^{tree}", "-m", "unrelated root")
+
+    def selected_paths() -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["bash", "-c", command], cwd=tmp_path, text=True, capture_output=True,
+            env={**os.environ, "EVENT_NAME": event_name, "GRAF_CI_BASE_REF": bases[base_kind],
+                 "GRAF_TEST_CI_SOURCE": str(ROOT / "infra/scripts/ci-local.sh")},
+        )
+
+    result = selected_paths()
+    if base_kind not in {"valid", "diagnostic"}:
+        assert result.returncode != 0
+        assert "selection_started" not in result.stdout
+        return
+    assert result.returncode == 0, result.stderr
+    expected = ["selection_started"] if base_kind == "diagnostic" else ["selection_started", "macos.txt", "server.txt"]
+    assert result.stdout.split() == expected
+    if base_kind == "valid":
+        git("update-ref", "refs/remotes/origin/master", "HEAD~1")
+        repeated = selected_paths()
+        assert repeated.returncode == 0, repeated.stderr
+        assert repeated.stdout.split() == expected
+
+
+@pytest.mark.parametrize("fragment", [
+    "GRAF_CI_BASE_REF: ${{ steps.identity.outputs.base_sha }}",
+    'git merge-base HEAD "$GRAF_CI_BASE_REF" >/dev/null',
+])
+def test_governance_validator_rejects_unbound_or_unchecked_base(tmp_path: Path, fragment: str) -> None:
+    source = (ROOT / ".github/workflows/governance-fast.yml").read_text()
+    assert fragment in source
+    path = tmp_path / "workflow.yml"
+    path.write_text(source.replace(fragment, "# base protection removed"))
+    assert any("base" in error for error in load_validator().validate(path))
 
 
 def test_governance_workflow_binds_merge_group_identity_and_receipt() -> None:
