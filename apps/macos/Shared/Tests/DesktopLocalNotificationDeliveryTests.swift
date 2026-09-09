@@ -50,7 +50,7 @@ final class DesktopLocalNotificationDeliveryTests: XCTestCase {
         f.store.bindSession(foreign.sessionId, context: "other:workspace")
         let old = (0..<8).map { f.item(id: "old-\($0)", at: Date().addingTimeInterval(-3600)) }
         let own = f.item(id: "own")
-        (old + [own]).forEach(f.bind)
+        for item in old + [own] { f.bind(item) }
         await presenter.updateSnapshot(f.snapshot([foreign] + old + [own]))?.value
         XCTAssertEqual(f.sent.map(\.identifier), ["graf.local.capture." + own.sessionId])
         await presenter.refreshLocal(f.snapshot([foreign] + old + [own]))

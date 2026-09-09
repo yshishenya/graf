@@ -648,3 +648,18 @@ Converged: новых задач не добавлено; T014/T031 заверш
 T015 — после сверки документов/review/фрагмента. Новый документационный SHA
 требует свежего governance-fast и финального Dev smoke; прежние UI-результаты
 остаются привязаны к403ce829. Это PR-gate перед merge, а не выполненный release-full.
+
+
+### Совместимость теста со Swift6.0.3 перед публикацией
+
+Первый frozen candidate3abaaab428256f72e4c5bcd12b247c117c712344 не прошёл
+macOS full job в release-full34356399062: Swift6.0.3 отклонил передачу
+MainActor-метода fixture в forEach как throwing argument. Локальный6.3.3
+этот исходный код принимал. Продуктовый код не затронут: один forEach заменён
+обычным for с теми же девятью элементами и порядком. Все assertions сохранены.
+Lane исправления: tiny low-risk test compatibility внутри T015; не новая фича.
+DesktopLocalNotificationDeliveryTests8/8 PASS на Swift6.3.3; независимый
+Code/Ponytail review подтвердил эквивалентность и отсутствие P0/P1/P2.
+Подтверждение Swift6.0.3 выполняется через macos-diagnostic на SHA PR.
+Старый Full CI не PASS; после merge необходим новый immutable candidate и
+полный release-full. Прежняя установленная матрица сохраняет свои SHA.
