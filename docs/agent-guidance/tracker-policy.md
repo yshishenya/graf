@@ -90,3 +90,21 @@ Rules:
 `.specify/linear.yml` is not active project state. If it reappears from an old
 worktree or branch, treat it as retired workflow residue and remove it unless
 the user explicitly reintroduces Linear.
+
+## Завершение разработки и сверка issues
+
+`implement` означает завершение локальной реализации, а не автоматически принятую фичу. Рабочий проектный workflow обязан продолжить `converge → validation/release gate → taskstoissues closeout → review-closeout`. При отсутствии обязательной приёмки статус — `implementation ready; tracker pending` с конкретным списком остатка.
+
+В режиме `$speckit-taskstoissues closeout` новые issues не создаются. Для каждой существующей задачи перечитываются live состояние/комментарии и исходные критерии. Перед записью готовится closure comment в временной копии JSON и выполняется:
+
+```sh
+python3 scripts/validate-issue-closeout.py --issue-json /tmp/issue.json \
+  --tasks specs/<feature>/tasks.md --expected-sha <SHA> \
+  --repo <owner/repo> --verify-live
+```
+
+Для обязательного выпуска добавить `--require-release-full` и использовать Candidate SHA; комментарий отдельно указывает PR SHA. Команда проверяет фактический merge и run identity через GitHub; она сама не публикует комментарий и не закрывает issue. Содержательная ручная/runtime приёмка обязательна сверх этой проверки.
+
+После успешной проверки и в пределах разрешённого tracker scope: перечитать состояние, добавить отсутствующий комментарий, повторить проверку фактического JSON, закрыть подтверждённое и перечитать состояние. При rate limit сохранить оставшиеся номера; не дублировать комментарии и не объявлять процесс завершённым. Umbrella проверяется и закрывается последней по правилам выше.
+
+`Refs #N` не закрывает issue. Использовать его для полного результата без объяснения незавершённых критериев нельзя: если остаётся merge/release/hardware gate, назвать его явно; иначе перечислить полностью принятые issues через closing keywords в PR. GitHub автоматически закрывает их при слиянии в default branch, после чего всё равно требуется проверка evidence и closure comment.

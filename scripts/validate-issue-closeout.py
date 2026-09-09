@@ -580,6 +580,7 @@ def main() -> int:
     parser.add_argument("--tasks", type=Path)
     parser.add_argument("--expected-sha")
     parser.add_argument("--repo")
+    parser.add_argument("--verify-live", action="store_true", help="verify merged PR and GitHub runs for one issue before close")
     parser.add_argument("--feature")
     parser.add_argument("--umbrella", type=int)
     parser.add_argument("--allow-open-umbrella", action="store_true")
@@ -592,9 +593,13 @@ def main() -> int:
         parser.error("--tasks is required unless --self-test is used")
     if not args.expected_sha:
         parser.error("--expected-sha is required unless --self-test is used")
+    if args.verify_live and (not args.repo or not args.issue_json or args.feature or args.umbrella):
+        parser.error("--verify-live requires --repo and --issue-json, without --feature/--umbrella")
+    if args.verify_live and not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", args.repo):
+        parser.error("--repo must be owner/name")
     try:
         tasks = args.tasks.read_text(encoding="utf-8")
-        if args.repo or args.feature or args.umbrella:
+        if (args.repo or args.feature or args.umbrella) and not args.verify_live:
             if not args.repo or not args.feature or not args.umbrella:
                 parser.error("--repo, --feature and --umbrella are required together")
             issues = _github_feature_issues(args.repo, args.feature)
@@ -624,6 +629,16 @@ def main() -> int:
                 expected_sha=args.expected_sha,
                 require_release_full=args.require_release_full,
             )
+            if args.verify_live and not errors:
+                pr_sha = PR_SHA_RE.search(_closure_comment(issue))
+                if not args.require_release_full and (
+                    not pr_sha or pr_sha.group(1).lower() != args.expected_sha.lower()
+                ):
+                    errors.append("expected exact SHA must match PR SHA for non-release closeout")
+                errors.extend(verify_feature_runs(
+                    args.repo, [issue], args.expected_sha,
+                    require_release_full=args.require_release_full,
+                ))
     except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as exc:
         print(f"issue-closeout: ERROR: {exc}", file=sys.stderr)
         return 1
@@ -631,7 +646,9 @@ def main() -> int:
         for error in errors:
             print(f"issue-closeout: ERROR: {error}", file=sys.stderr)
         return 1
-    if args.repo:
+    if args.verify_live:
+        print("issue-closeout: OK (live GitHub PR/run verification; acceptance criteria still require review)")
+    elif args.repo:
         print("feature-closeout: OK (live GitHub PR/run verification)")
     else:
         print("issue-closeout: OK (structural pre-close check only; final authority requires live feature mode)")

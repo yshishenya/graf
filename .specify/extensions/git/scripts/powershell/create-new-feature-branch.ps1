@@ -170,6 +170,12 @@ function Get-NextBranchNumber {
 
     $highestSpec = Get-HighestNumberFromSpecs -SpecsDir $SpecsDir
     $maxNum = [Math]::Max($highestBranch, $highestSpec)
+    $allocator = Join-Path $repoRoot 'scripts/claim-feature.py'
+    if ((Test-Path $allocator) -and $env:GRAF_SKIP_FEATURE_CLAIM -ne '1') {
+        $suggestion = & python $allocator --root $repoRoot --json
+        if ($LASTEXITCODE -ne 0) { throw 'Feature ID suggestion failed; branch creation stopped.' }
+        return [int](($suggestion | ConvertFrom-Json).next_available)
+    }
     return $maxNum + 1
 }
 

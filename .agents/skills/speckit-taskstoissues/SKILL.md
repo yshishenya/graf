@@ -53,6 +53,47 @@ You **MUST** consider the user input before proceeding (if not empty).
     After emitting the block above you MUST actually invoke the hook and wait for it to finish before continuing. Run it the same way you would run the command yourself in this agent/session (the invocation may differ from the literal `{command}` id shown above, e.g. a skills-mode agent runs it as `/skill:speckit-...` or `$speckit-...`). Emitting the block alone does not run the hook. Before invocation, classify the hook as read-only or state-changing. Commit, publish, deploy, destructive, or other state-changing hooks require explicit user confirmation at this point even when `optional: false`; without confirmation, STOP instead of executing them.
 - If no hooks are registered or `.specify/extensions.yml` does not exist, skip silently
 
+## Closeout mode
+
+When arguments explicitly contain `closeout` and the repository provides
+`scripts/validate-issue-closeout.py`, reconcile existing issues instead of running
+the creation Outline below. Read the project's tracker policy and current feature
+spec/plan/tasks. This mode creates no new issues and does not declare the feature
+complete while mandatory acceptance remains open.
+
+1. Re-read live issue bodies/comments/state and establish ownership from exact
+   task links plus canonical title/body fields. A checked task is a candidate,
+   not proof of every issue acceptance criterion. Do not infer ownership from
+   only a feature/task number or ordinary references.
+2. Verify the actual merged implementation, every original acceptance criterion,
+   required review/runtime/release evidence and the exact tested SHA. If merge,
+   release or manual acceptance is still pending, keep the issue open and report
+   the concrete missing requirement. Never turn missing evidence into cancellation.
+3. For a fully satisfied issue, prepare the detailed Russian closure comment
+   required by tracker policy, including PR number, explicit PR SHA,
+   `governance-fast: PASS` run URL and, when required, Candidate SHA and
+   `release-full: PASS` URL. First validate a temporary issue JSON containing that
+   proposed comment with `scripts/validate-issue-closeout.py --issue-json <path>
+   --tasks <tasks.md> --expected-sha <SHA> --repo <owner/repo> --verify-live`;
+   add `--require-release-full` for release-gated acceptance. A nonzero result
+   blocks closing. The command verifies metadata and live PR/runs; human/runtime
+   acceptance must also be evidenced, never inferred from a green run.
+4. Within the user's authorized tracker scope, re-read state/comments before
+   writing, add the approved-by-evidence comment only if absent, export the actual
+   issue again and repeat validation, then close as completed and verify state.
+   If GitHub already auto-closed it, validate its evidence and add the missing
+   comment; reopen when mandatory evidence/tasks are incomplete. For explicitly
+   superseded work use NOT_PLANNED with the actual replacement, not fabricated
+   completed tasks. Do not duplicate comments on retry; stop on rate limits and
+   preserve a resumable list of remaining issue numbers.
+5. Close the umbrella last, only after live feature-mode validation with
+   `--repo --feature --umbrella --tasks --expected-sha --allow-open-umbrella`
+   (and the release flag when required). Verify again without
+   `--allow-open-umbrella`. If unresolved criteria remain, the result is
+   `tracker pending`, even when implementation itself is complete.
+6. Run the Post-Execution Checks below and report exact closed/already-closed/
+   remaining issue numbers with reasons. Do not continue into the creation Outline.
+
 ## Outline
 
 1. Run `.specify/scripts/bash/check-prerequisites.sh --json --require-tasks --include-tasks` from repo root and parse FEATURE_DIR and AVAILABLE_DOCS list. All paths must be absolute. For single quotes in args like "I'm Groot", use escape syntax: e.g 'I'\''m Groot' (or double-quote if possible: "I'm Groot").
