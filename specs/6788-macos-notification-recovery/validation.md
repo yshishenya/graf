@@ -683,3 +683,14 @@ Risk lane: corrective work in active Spec Kit slices F256/F257/F6788, existing v
 - Нужны focused contracts/integration, независимый review, governance-fast на финальном SHA, новый master/candidate/release-full; прежние notarization/Dev результаты относятся только к ad31d06.
 
 Адресные результаты исправления: notification+comments boundary+OpenAPI18PASS; meeting outcomes29PASS и summary contract8PASS; UI/theme/settings/share/runtime74PASS; Ruff/diff-checkPASS. Browser comments scenarioPASS. Отдельный Chromium/WebKit computed-style probe на синтетическом DOM подтвердил16 текстовых пар actual inherited CSS для light/dark страницы/проигрывателя≥4.5. Это проверка каскада, не повтор всей native матрицы.
+
+### Проверка состава политик PostgreSQL — продолжение T015
+
+Full CI34362075200 на e0c89da83b1e3f0d8bfb878b3541ded038d4709f: основной серверный набор4254PASS/39SKIP, performance1PASS, macOSPASS; strict PostgreSQL54PASS/1FAIL/1SKIP. Отказ — устаревшее требование maintenance-условия для каждой политики identity-таблиц после появления SELECT-only политик комментариев0091. Этот кандидат не даёт release GO.
+
+Lane: corrective validation in active Spec Kit slice, T015; runtime/миграции не изменяются. Исправленный тест проверяет точный состав двух политик комментариев (таблица, выражение, SELECT, отсутствие WITH CHECK и присутствие обеих), а для всех остальных требует canonical имя и сохраняет прежние условия maintenance/account_merge и четыре операции каждой таблицы.
+
+Адресный весь strict_rls набор:55PASS/1прежнийSKIP/4294deselected; PostgreSQL17 в изолированном контейнере, штатный cleanupPASS. Ruff всего сервера, compileall, Compose config, deployment evidence scan47files, development-process, full-ci-workflow validator и diff-checkPASS. verify_rls_hardening.py без URL штатно сообщает blocked/postgres_test_database_required и exit0: это проверка команды, не доказательство production RLS. Реальные локальные RLS сценарии выполнены strict набором. Новый PR требует governance-fast текущего SHA; после merge нужны новый immutable candidate и release-full.
+
+Независимый code/Ponytail review подтвердил: P0/P1/P2 нет, незаявленные политики не разрешены, security boundaries и реальные отрицательные проверки сохранены.
+Дополнительно test_meeting_comments_api_review.py:5PASS, включая действительную ограниченную PostgreSQL роль и отрицательные проверки editor marker/grant/identity.

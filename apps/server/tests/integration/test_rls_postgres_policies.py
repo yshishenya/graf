@@ -640,8 +640,27 @@ async def test_account_linking_migration_has_exact_binding_and_operation_policie
     assert index_definition is not None
     assert "(verified_external_identity_id)" in index_definition
 
+    comment_read_policies = {
+        "comment_editor_member_read": (
+            "user_identities",
+            "rec_comment_editor_member_visible(id)",
+        ),
+        "comment_editor_verified_identity_read": (
+            "external_identities",
+            "(is_active AND is_verified AND (email IS NOT NULL) "
+            "AND rec_comment_editor_member_visible(user_id))",
+        ),
+    }
+    seen_comment_read_policies = set()
     policies_by_table: dict[str, dict[str, object]] = {}
     for row in policy_rows:
+        if row.policyname in comment_read_policies:
+            assert (row.tablename, row.qual) == comment_read_policies[row.policyname]
+            assert row.cmd == "SELECT"
+            assert row.with_check is None
+            seen_comment_read_policies.add(row.policyname)
+            continue
+        assert row.policyname == f"{row.tablename}_{row.cmd.lower()}_isolation"
         assert row.policyname != f"{row.tablename}_tenant_isolation"
         assert row.cmd != "ALL"
         rendered = f"{row.qual or ''} {row.with_check or ''}"
@@ -651,6 +670,7 @@ async def test_account_linking_migration_has_exact_binding_and_operation_policie
             assert "rec_account_merge_context_valid()" in rendered
         policies_by_table.setdefault(row.tablename, {})[row.cmd] = row
 
+    assert seen_comment_read_policies == set(comment_read_policies)
     assert set(policies_by_table) == set(table_names)
     assert all(
         set(command_rows) == {"SELECT", "INSERT", "UPDATE", "DELETE"}
