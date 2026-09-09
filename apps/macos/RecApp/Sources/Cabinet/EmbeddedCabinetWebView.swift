@@ -2526,6 +2526,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             layer?.masksToBounds = true
             webView.clipsToBounds = true
             webView.layer?.masksToBounds = true
+            webView.autoresizingMask = [.width, .height]
             addSubview(webView)
         }
 

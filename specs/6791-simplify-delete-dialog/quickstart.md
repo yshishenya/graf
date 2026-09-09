@@ -7,7 +7,7 @@ PYTHONPATH=src uv run --extra dev pytest tests/unit/test_cabinet_web_shell.py te
 # Из корня репозитория:
 node apps/server/tests/browser/meeting-delete-focus.test.cjs
 node --check apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js
-swift test --package-path apps/macos --filter 'DesktopCabinet(Route|NavigationRequest)PolicyTests'
+swift test --package-path apps/macos --filter 'DesktopCabinet(Route|NavigationRequest)PolicyTests|EmbeddedCabinetWebViewZoomTests|EmbeddedCabinetReloadRegressionTests'
 bash apps/server/scripts/run_local_postgres_tests.sh --focused tests/integration/test_cabinet_hx_delete_feedback.py tests/integration/test_cabinet_csrf.py -q
 ```
 
