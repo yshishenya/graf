@@ -2932,6 +2932,11 @@ private struct MeetingDetectionPromptView: View {
                         }
                         Toggle("Запомнить выбор", isOn: $autoRecordOptIn)
                             .toggleStyle(.checkbox)
+                            .focusable(interactions: .edit)
+                            .onKeyPress(.space) {
+                                autoRecordOptIn.toggle()
+                                return .handled
+                            }
                             .accessibilityHint("Сохранить решение для приложения \(prompt.displayName)")
 
                         let layout = geometry.size.width < 300
@@ -2943,6 +2948,11 @@ private struct MeetingDetectionPromptView: View {
                             }
                             .buttonStyle(.plain)
                             .keyboardShortcut(.cancelAction)
+                            .focusable(interactions: .edit)
+                            .onKeyPress(.space) {
+                                resolveDismiss(reason: .userSkipped)
+                                return .handled
+                            }
                             .frame(maxWidth: .infinity, minHeight: 34)
                             .background(.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 7))
 
@@ -3022,6 +3032,11 @@ private struct MeetingDetectionPromptView: View {
         .buttonStyle(.plain)
         .disabled(isStartDisabled)
         .keyboardShortcut(.defaultAction)
+        .focusable(!isStartDisabled, interactions: .edit)
+        .onKeyPress(.space) {
+            resolveStart(reason: .promptButton)
+            return .handled
+        }
         .accessibilityLabel("Записать")
         .accessibilityValue(
             isStartDisabled
