@@ -58,6 +58,15 @@ const stylesheet = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/s
     assert.equal(saves[1].mentions[0].start, 4, 'Unicode code points include unchanged leading whitespace');
     assert.equal(saves[1].mentions[0].end, 9);
     assert.equal(await page.locator('.playback-comment-body script').count(), 0, 'body always plain text');
+    root.source_segment_id = 'missing-source';
+    await page.getByRole('combobox', { name: 'Состояние обсуждения' }).selectOption('all');
+    await page.locator('.playback-comment-anchor').first().click();
+    await page.getByText('Источник комментария отсутствует в текущей расшифровке.', { exact: true }).waitFor();
+    assert.equal(await page.locator('audio').evaluate(node => node.currentTime), 0, 'missing source must not seek');
+    root.source_segment_id = 'segment';
+    await page.getByRole('combobox', { name: 'Состояние обсуждения' }).selectOption('open');
+    await page.locator('.playback-comment-anchor').first().click();
+    assert.equal(await page.locator('[data-source-segments="segment"]').evaluate(node => node === document.activeElement), true);
     assert.equal(await page.getByRole('button', { name: 'Обсуждения реплики: 53', exact: true }).count(), 1, 'server aggregate, not the single loaded root');
     await page.getByRole('button', { name: 'Закрыть', exact: true }).click();
     await page.getByRole('button', { name: 'Обсуждения реплики: 53', exact: true }).click();

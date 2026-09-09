@@ -19,6 +19,47 @@ from twobrain_rec_server.workflows.temporal_client import (
 from twobrain_rec_server.workflows.worker import invitation_delivery_failure_state
 
 
+@pytest.mark.parametrize("status", ["pending", "sent"])
+async def test_invitation_response_uses_saved_scope_and_roles(monkeypatch, tmp_path, status):
+    from datetime import UTC, datetime
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from twobrain_rec_server.api import cabinet
+
+    identity = UUID("10000000-0000-0000-0000-000000000121")
+    invitation = SimpleNamespace(
+        id=identity, status=status, expires_at=datetime.now(UTC),
+        content_scope="full_meeting", can_comment=True, can_edit=True,
+    )
+    key = tmp_path / "synthetic-key"
+    key.write_bytes(b"synthetic-test-key")
+    settings = SimpleNamespace(
+        share_external_invitations_enabled=True,
+        credential_encryption_key_file=key, share_invitation_ttl_seconds=60,
+    )
+    monkeypatch.setattr(cabinet, "_authorized_meeting", AsyncMock(return_value=(object(), None)))
+    monkeypatch.setattr(cabinet, "create_share_invitation", AsyncMock(return_value=invitation))
+    delivery = AsyncMock()
+    monkeypatch.setattr(cabinet, "start_invitation_delivery_workflow", delivery)
+    response = await cabinet.create_meeting_share_invitation_route(
+        request=SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(
+            settings=settings, temporal_client=object(),
+        ))),
+        meeting_id=identity,
+        payload=CreateMeetingShareInvitationRequest(address="synthetic@example.test"),
+        tenant_scope=SimpleNamespace(workspace_id=identity),
+        principal=SimpleNamespace(user_id=identity),
+        device=SimpleNamespace(device_id=identity),
+        db=SimpleNamespace(info={}, commit=AsyncMock()),
+    )
+    data = response.model_dump(mode="json")
+    assert data["content_scope"] == "full_meeting"
+    assert data["can_comment"] is True
+    assert data["can_edit"] is True
+    assert delivery.await_count == (1 if status == "pending" else 0)
+
+
 @pytest.mark.parametrize(
     ("content_scope", "can_download", "can_export", "error_text"),
     [

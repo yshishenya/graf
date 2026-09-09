@@ -6054,6 +6054,7 @@ html[data-theme="light"] .detail-playback {
 .detail-playback .timeline-track, .detail-playback .playback-range-track { height: 5px; border-radius: 5px; }
 .detail-playback .timeline-track { overflow: visible; }
 .detail-playback .timeline-segment { display: block; height: 5px; min-height: 0; min-width: 1px; padding: 0; border: 0; border-radius: 5px; box-shadow: none; cursor: pointer; }
+.detail-playback .timeline-segment::before { content: ""; position: absolute; inset: -10px 0; }
 .detail-playback .timeline-segment:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 3px; z-index: 3; }
 .detail-playback .timeline-lane.is-active .timeline-track { box-shadow: none; }
 .timeline-lane.is-unselected { opacity: .4; }

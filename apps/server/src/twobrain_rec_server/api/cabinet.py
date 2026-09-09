@@ -2501,6 +2501,9 @@ async def create_meeting_share_invitation_route(
             invitation_id=invitation.id,
             status=invitation.status,
             expires_at=invitation.expires_at,
+            content_scope=invitation.content_scope,
+            can_comment=invitation.can_comment,
+            can_edit=invitation.can_edit,
         )
     try:
         temporal_client = getattr(request.app.state, "temporal_client", None)
@@ -2526,6 +2529,9 @@ async def create_meeting_share_invitation_route(
         invitation_id=invitation.id,
         status=invitation.status,
         expires_at=invitation.expires_at,
+        content_scope=invitation.content_scope,
+        can_comment=invitation.can_comment,
+        can_edit=invitation.can_edit,
     )
 
 

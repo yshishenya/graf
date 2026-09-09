@@ -1835,6 +1835,9 @@ class MeetingShareInvitationResponse(BaseModel):
     invitation_id: UUID
     status: ShareInvitationStatus
     expires_at: datetime
+    content_scope: ShareContentScope
+    can_comment: bool
+    can_edit: bool
 
 
 class ShareRecipientView(BaseModel):

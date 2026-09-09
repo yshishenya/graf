@@ -103,12 +103,13 @@
         announce("Этот комментарий относится к другой версии записи."); return;
       }
       const sourceId = comment.source_segment_id;
+      const turn = sourceId && [...document.querySelectorAll("[data-transcript-turn]")].find(node => (node.dataset.sourceSegments || "").split(/[\s,]+/).includes(sourceId));
+      if (sourceId && !turn) {
+        announce("Источник комментария отсутствует в текущей расшифровке."); return;
+      }
       shell.dataset.playbackSourceSegments = sourceId || "";
       audio.currentTime = Math.max(0, Number(comment.start_ms) / 1000);
-      if (sourceId) {
-        const turn = [...document.querySelectorAll("[data-transcript-turn]")].find(node => (node.dataset.sourceSegments || "").split(/[\s,]+/).includes(sourceId));
-        if (turn) { turn.scrollIntoView({ block: "center" }); turn.focus({ preventScroll: true }); }
-      }
+      if (turn) { turn.scrollIntoView({ block: "center" }); turn.focus({ preventScroll: true }); }
     }
     function hide() {
       if (composer?.dataset.pending === "true") return;

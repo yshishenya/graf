@@ -152,6 +152,11 @@ async function geometry(page, width, theme, zoom, surface) {
 
 async function playback(page) {
   await page.waitForFunction(() => document.querySelector('audio').readyState >= 1);
+  assert.equal(await page.locator('.timeline-segment').first().evaluate(segment => {
+    const box = segment.getBoundingClientRect();
+    const scale = Number(document.documentElement.style.zoom) || 1;
+    return document.elementFromPoint((box.left + box.right) / 2, box.top - 8 * scale) === segment;
+  }), true, 'thin timeline segment accepts clicks above its visible line');
   assert.equal(await page.locator('[data-transcript-turn]').count(), 6);
   await page.locator('[data-playback-toggle]').click();
   await page.waitForFunction(() => !document.querySelector('audio').paused && document.querySelector('audio').currentTime > 0.1);
