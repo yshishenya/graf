@@ -5,6 +5,8 @@
 ```sh
 PYTHONPATH=src uv run --extra dev pytest tests/unit/test_cabinet_web_shell.py tests/contract/test_recording_governance_ui_contract.py tests/contract/test_recording_workflow_accessibility.py tests/unit/test_deletion_report_view_models.py tests/contract/test_deletion_no_secret_leakage.py -q
 # Из корня репозитория:
+node apps/server/tests/browser/meeting-delete-focus.test.cjs
+node --check apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js
 bash apps/server/scripts/run_local_postgres_tests.sh --focused tests/integration/test_cabinet_hx_delete_feedback.py tests/integration/test_cabinet_csrf.py -q
 ```
 

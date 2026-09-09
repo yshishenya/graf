@@ -17,7 +17,7 @@
 - Target Platform: браузерный кабинет и встроенный кабинет GRAF macOS.
 - Performance Goals: без новых запросов, обработчиков, зависимостей; уменьшение HTML.
 - Constraints: сохранить защиту формы, границу подтверждения, доступность и правдивость удаления.
-- Scope: один renderer, существующий контракт, один тест настоящего HTML, changelog fragment.
+- Scope: общий renderer, один параметр существующего обработчика фокуса, контракты HTML и проверка клавиатуры, changelog fragment.
 
 ## Constitution Check
 
@@ -33,9 +33,11 @@ Clarify: выполнен 2026-09-09, блокирующих вопросов н
 - `apps/server/src/twobrain_rec_server/cabinet/review_policy_rendering.py`: только _render_delete_confirmation.
 - `apps/server/tests/contract/test_recording_governance_ui_contract.py`: короткий текст вместо технического списка.
 - `apps/server/tests/unit/test_cabinet_web_shell.py`: проверка фактического HTML обоих кабинетов и скрытого состояния.
+- `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`: cycleAll для окна удаления.
+- `apps/server/tests/browser/meeting-delete-focus.test.cjs`: Tab/Shift-Tab на реальном обработчике с моделью DOM.
 - `changes/unreleased/F6791.yaml`: русский changelog.
 - Документы в этой папке: spec, plan, research, data-model, contracts, quickstart, checklists, tasks, validation.
 
 ## Implementation Strategy
 
-Ponytail: используется существующий renderer; удаляются лишние абзацы, ссылка и её вычисление. CSS/JS/сервис удаления сохраняются. Спецификация и независимый review не заменяют проверку работающего приложения перед выпуском.
+Ponytail: используется существующий renderer; удаляются лишние абзацы, ссылка и её вычисление. CSS и сервис удаления сохраняются. Для FR-005 обработчик окна использует существующий trapModalFocus с cycleAll: true: в установленном WebKit обычный Tab пропускал кнопку подтверждения и уходил в native-панель. Спецификация и независимый review не заменяют проверку работающего приложения перед выпуском.
