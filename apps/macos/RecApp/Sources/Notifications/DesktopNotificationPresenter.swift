@@ -522,16 +522,20 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
         }
     }
     public nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
-        let id = notification.request.identifier
-        return await MainActor.run {
-            guard id == "graf.local.test" || requests[id]?.owner == owner else { return [] }
-            if let session = requests[id]?.sessionID {
-                guard store.ownsSession(session, context: context),
-                      DesktopLocalNotificationIncident.incidents(in: lastSnapshot, now: Date()).contains(where: { $0.sessionID == session }) else { return [] }
-            }
-            if let event = requests[id]?.event, !Self.shouldRemind(event, snapshot: lastSnapshot, now: Date()) { return [] }
-            return preferences.sound && !lastSnapshot.active ? [.banner, .list, .sound] : [.banner, .list]
+        await presentationOptions(for: notification.request.identifier)
+    }
+    static func isTestNotification(_ id: String) -> Bool {
+        let prefix = "graf.local.test."
+        return id == "graf.local.test" || (id.hasPrefix(prefix) && UUID(uuidString: String(id.dropFirst(prefix.count))) != nil)
+    }
+    func presentationOptions(for id: String) -> UNNotificationPresentationOptions {
+        guard Self.isTestNotification(id) || requests[id]?.owner == owner else { return [] }
+        if let session = requests[id]?.sessionID {
+            guard store.ownsSession(session, context: context),
+                  DesktopLocalNotificationIncident.incidents(in: lastSnapshot, now: Date()).contains(where: { $0.sessionID == session }) else { return [] }
         }
+        if let event = requests[id]?.event, !Self.shouldRemind(event, snapshot: lastSnapshot, now: Date()) { return [] }
+        return preferences.sound && !lastSnapshot.active ? [.banner, .list, .sound] : [.banner, .list]
     }
     public nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
         await openResponse(response.notification.request.identifier, actionIdentifier: response.actionIdentifier)
@@ -549,7 +553,7 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
         return safeMeetingURL(event.openMeetingURL)
     }
     func openResponse(_ id: String, actionIdentifier: String) {
-        if id == "graf.local.test" {
+        if Self.isTestNotification(id) {
             if actionIdentifier == UNNotificationDefaultActionIdentifier { onOpenSettings?() }
             return
         }
