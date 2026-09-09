@@ -1,6 +1,7 @@
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, Query, Request, Response, status
+from fastapi import APIRouter, Depends, Header, Path, Query, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,6 +11,7 @@ from twobrain_rec_server.api.schemas import (
     CreateMediaRevisionUploadSessionRequest,
     CreateMeetingRequest,
     CreateUploadSessionRequest,
+    DeletionRequestResponse,
     DesktopRecordingSyncStateResponse,
     FinalizeUploadRequest,
     FinalizeUploadResponse,
@@ -20,7 +22,12 @@ from twobrain_rec_server.api.schemas import (
     MeetingResponse,
     MissingRange,
     MissingRangesResponse,
+    OriginCancellationReceipt,
+    OriginCancellationRequest,
     Problem,
+    RecordingLifecycleEntry,
+    RecordingLifecycleLookup,
+    SafeClientText,
     UploadPartResponse,
     UploadSessionResponse,
 )
@@ -34,12 +41,18 @@ from twobrain_rec_server.auth.dependencies import (
     get_device_context,
     get_principal,
     get_tenant_scope,
+    require_web_csrf,
 )
+from twobrain_rec_server.cabinet.access import enforce_share_rate_limit
 from twobrain_rec_server.db.models import RecordingCalendarContextLink
 from twobrain_rec_server.db.tenant_context import apply_tenant_scope
+from twobrain_rec_server.deletion.origin_cancellation import cancel_recording_origin
 from twobrain_rec_server.domain.statuses import ProcessingStatus, TrackRole
 from twobrain_rec_server.ingest.desktop_status import upload_session_desktop_status
-from twobrain_rec_server.ingest.desktop_sync import get_desktop_recording_sync_state
+from twobrain_rec_server.ingest.desktop_sync import (
+    get_desktop_recording_sync_state,
+    lookup_recording_lifecycle,
+)
 from twobrain_rec_server.ingest.finalize import finalize_upload
 from twobrain_rec_server.ingest.lifecycle import abort_upload_session
 from twobrain_rec_server.ingest.manual_media_upload import accept_manual_media_upload
@@ -542,3 +555,50 @@ async def finalize_session(
         workflow_started=processing.workflow_started,
         mediascribe_job_created=processing.mediascribe_job_created,
     )
+
+
+@router.post(
+    "/desktop/recordings/{local_recording_id}/deletion-requests",
+    response_model=DeletionRequestResponse | OriginCancellationReceipt,
+    status_code=202,
+    dependencies=[PrincipalDependency, DeviceDependency, Depends(require_web_csrf)],
+)
+async def cancel_desktop_recording(
+    local_recording_id: Annotated[SafeClientText, Path(min_length=1, max_length=240)],
+    payload: OriginCancellationRequest,
+    request: Request,
+    tenant_scope: TenantScope = TenantDependency,
+    db: AsyncSession | None = DbDependency,
+    storage: object = StorageDependency,
+):
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    await enforce_share_rate_limit(
+        db, workspace_id=tenant_scope.workspace_id, user_id=tenant_scope.user_id,
+        device_id=tenant_scope.device_id, action_key="recording_deletion",
+    )
+    receipt = await cancel_recording_origin(
+        db, scope=tenant_scope, local_recording_id=local_recording_id,
+        confirmation_boundary=payload.confirmation_boundary, storage=storage,
+        local_buffer_expiry_days=request.app.state.settings.retention_local_buffer_expiry_days,
+        temporal_client=getattr(request.app.state, "temporal_client", None),
+    )
+    await db.commit()
+    return receipt
+
+
+@router.post(
+    "/desktop/recordings/lifecycle",
+    response_model=list[RecordingLifecycleEntry],
+    dependencies=[PrincipalDependency, DeviceDependency, Depends(require_web_csrf)],
+)
+async def recording_lifecycle_lookup_route(
+    payload: RecordingLifecycleLookup,
+    response: Response,
+    tenant_scope: TenantScope = TenantDependency,
+    db: AsyncSession | None = DbDependency,
+):
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    response.headers["Cache-Control"] = "no-store"
+    return await lookup_recording_lifecycle(db, tenant_scope, payload)

@@ -60,6 +60,7 @@ TRUSTED_HTML_SOURCES = frozenset(
         "deletion_report.activity",
         "deletion_report.band",
         "deletion_report.content",
+        "deletion_index.content",
         "deletion_report.local_purge",
     }
 )

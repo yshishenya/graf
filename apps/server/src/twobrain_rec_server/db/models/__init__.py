@@ -54,6 +54,7 @@ from twobrain_rec_server.db.models.deletion import (
     MeetingDeletionReport,
     MeetingDeletionRequest,
     MeetingLifecycleAuditEvent,
+    RecordingOriginCancellation,
     RetentionPolicySnapshot,
 )
 from twobrain_rec_server.db.models.federated_auth import (
@@ -199,6 +200,7 @@ __all__ = [
     "ProcessingWorkflow",
     "PurgeJournal",
     "RegisteredDevice",
+    "RecordingOriginCancellation",
     "RetentionPolicySnapshot",
     "TemporaryUploadObject",
     "TrackArtifact",

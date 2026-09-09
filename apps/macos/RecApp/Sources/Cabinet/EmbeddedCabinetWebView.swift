@@ -929,13 +929,16 @@ public struct EmbeddedCabinetLocalRecordingRow: Codable, Equatable, Sendable {
     public let canSend: Bool
     public let canDelete: Bool
     public let uploadComplete: Bool
+    public var localDeletionPending: Bool = false
 
     public static func rows(
         for items: [DesktopUploadQueueItem],
         recordingsRootURL: URL
     ) -> [Self] {
         items.compactMap { item in
-            guard item.state != .terminalDeleted else { return nil }
+            let localDeletionPending = item.state == .terminalDeleted && item.serverCreationAttempted == false
+                && item.retentionDecision.localArtifactsRetained && item.retentionDecision.reason == "local_copy_deleted_by_user"
+            guard item.lifecycleAccessAvailable, !item.hasConfirmedDeletion || localDeletionPending else { return nil }
             let damaged = item.failureReason == "recording_recovery_not_possible"
             let startedAt = item.displayStartedAt
             let stoppedAt = item.recordingMetadata?.recordingStoppedAt
@@ -954,7 +957,11 @@ public struct EmbeddedCabinetLocalRecordingRow: Codable, Equatable, Sendable {
             let showsPartialDuration = localCaptureFailure
                 && canOpen
                 && item.artifactProfile.durationSeconds < sessionDurationSeconds
-            let status: String = if damaged {
+            let status: String = if item.deletionOperation?.blocksContent == true {
+                "Удаление ожидает подтверждения"
+            } else if !item.lifecycleAccessAvailable {
+                "Не удалось подтвердить доступ к записи"
+            } else if damaged {
                 "Запись повреждена"
             } else if localCaptureFailure && canOpen {
                 "Сохранена часть записи"
@@ -984,16 +991,46 @@ public struct EmbeddedCabinetLocalRecordingRow: Codable, Equatable, Sendable {
                 progressPercent: DesktopMeetingShellLocalQueuePolicy.progressPercent(for: item),
                 canOpen: canOpen,
                 showsPartialDuration: showsPartialDuration,
-                canSend: !damaged
+                canSend: !damaged && !item.lifecycleBlocksContent
                     && item.artifactProfile.isUploadable
                     && ![.saving, .uploading, .uploaded].contains(item.state),
-                canDelete: DesktopUploadQueueService.canDeleteLocalCopy(
-                    item: item,
-                    recordingsRootURL: recordingsRootURL
-                ),
-                uploadComplete: item.state == .uploaded
+                canDelete: !item.lifecycleBlocksContent && item.state != .saving &&
+                    (item.ownerScope != nil || DesktopUploadQueueService.canDeleteLocalCopy(item: item, recordingsRootURL: recordingsRootURL)),
+                uploadComplete: item.state == .uploaded,
+                localDeletionPending: localDeletionPending
             )
         }
+    }
+}
+
+public struct EmbeddedCabinetDeletionResult: Codable, Sendable {
+    public var accepted: Int = 0
+    public var pending: Int = 0
+    public var rejected: Int = 0
+    public var saved: Bool = true
+    public init(accepted: Int = 0, pending: Int = 0, rejected: Int = 0, saved: Bool = true) {
+        self.accepted = accepted; self.pending = pending; self.rejected = rejected; self.saved = saved
+    }
+    public static let failed = Self(saved: false)
+}
+
+public struct EmbeddedCabinetDeletionSelection: Sendable {
+    public let requestID: UUID
+    public let localIDs: [String]
+    public let meetingIDs: [String]
+
+    public static func parse(_ body: Any, rows: [EmbeddedCabinetLocalRecordingRow]) -> Self? {
+        guard let object = body as? [String: Any], object["version"] as? Int == 1,
+              object["action"] as? String == "deleteSelection",
+              let requestID = (object["requestId"] as? String).flatMap(UUID.init(uuidString:)),
+              let localIDs = object["localIds"] as? [String],
+              let meetingIDs = object["meetingIds"] as? [String],
+              (1...100).contains(localIDs.count + meetingIDs.count),
+              Set(localIDs).count == localIDs.count, Set(meetingIDs).count == meetingIDs.count,
+              meetingIDs.allSatisfy({ UUID(uuidString: $0) != nil }),
+              localIDs.allSatisfy({ id in rows.contains(where: { $0.id == id && $0.canDelete }) })
+        else { return nil }
+        return Self(requestID: requestID, localIDs: localIDs, meetingIDs: meetingIDs)
     }
 }
 
@@ -1007,6 +1044,7 @@ public enum EmbeddedCabinetLocalRecordingBridge {
     (() => {
       if (window.__grafLocalRecordingBridgeBound) return;
       window.__grafLocalRecordingBridgeBound = true;
+      window.GRAFRecordingDeletionBridgeVersion = 1;
       document.addEventListener('click', (event) => {
         const button = event.target instanceof Element
           ? event.target.closest('[data-graf-local-recording-action]')
@@ -1021,14 +1059,15 @@ public enum EmbeddedCabinetLocalRecordingBridge {
     })();
     """
 
-    public static func rowsScript(_ rows: [EmbeddedCabinetLocalRecordingRow]) -> String {
+    public static func rowsScript(_ rows: [EmbeddedCabinetLocalRecordingRow], operations: [RecordingDeletionOperation] = [], recoveryRequired: Bool = false) -> String {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
-        guard let data = try? encoder.encode(rows) else { return "" }
+        guard let data = try? encoder.encode(rows), let operationData = try? encoder.encode(operations) else { return "" }
         return """
         (() => {
           const bytes = Uint8Array.from(atob('\(data.base64EncodedString())'), character => character.charCodeAt(0));
-          window.GRAFLocalRecordings?.update(JSON.parse(new TextDecoder('utf-8').decode(bytes)));
+          const operations = Uint8Array.from(atob('\(operationData.base64EncodedString())'), character => character.charCodeAt(0));
+          window.GRAFLocalRecordings?.update(JSON.parse(new TextDecoder('utf-8').decode(bytes)), JSON.parse(new TextDecoder('utf-8').decode(operations)), \(recoveryRequired ? "true" : "false"));
         })();
         """
     }
@@ -1243,6 +1282,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
     public typealias NavigationEventLogger = @MainActor @Sendable (_ event: String, _ detail: String) -> Void
     public typealias CheckForUpdatesAction = @MainActor @Sendable () -> Void
     public typealias OpenMeetingDetectionSettingsAction = @MainActor @Sendable () -> Void
+    public typealias DeletionAction = @MainActor @Sendable (EmbeddedCabinetDeletionSelection) async -> EmbeddedCabinetDeletionResult
     public typealias LocalRecordingAction = @MainActor @Sendable (_ action: String, _ id: String) -> Void
 
     private let request: URLRequest
@@ -1254,7 +1294,10 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
     private let onOpenMeetingDetectionSettings: OpenMeetingDetectionSettingsAction
     private let onOpenNotificationSettings: OpenMeetingDetectionSettingsAction
     private let supportIncidentBridge: EmbeddedCabinetSupportIncidentBridge?
+    private let recoveryRequired: Bool
+    private let deletionOperations: [RecordingDeletionOperation]
     private let localRecordingRows: [EmbeddedCabinetLocalRecordingRow]
+    private let onDeleteRecordings: DeletionAction
     private let onLocalRecordingAction: LocalRecordingAction
     private let fallbackRequest: URLRequest
     private let navigationController: EmbeddedCabinetNavigationController
@@ -1274,7 +1317,10 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         onOpenNotificationSettings: @escaping OpenMeetingDetectionSettingsAction = {},
         supportIncidentBridge: EmbeddedCabinetSupportIncidentBridge? = nil,
         localRecordingRows: [EmbeddedCabinetLocalRecordingRow] = [],
+        deletionOperations: [RecordingDeletionOperation] = [],
+        recoveryRequired: Bool = false,
         onLocalRecordingAction: @escaping LocalRecordingAction = { _, _ in },
+        onDeleteRecordings: @escaping DeletionAction = { _ in .failed },
         fallbackRequest: URLRequest,
         navigationController: EmbeddedCabinetNavigationController
     ) {
@@ -1288,7 +1334,10 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         self.onOpenNotificationSettings = onOpenNotificationSettings
         self.supportIncidentBridge = supportIncidentBridge
         self.localRecordingRows = localRecordingRows
+        self.deletionOperations = deletionOperations
+        self.recoveryRequired = recoveryRequired
         self.onLocalRecordingAction = onLocalRecordingAction
+        self.onDeleteRecordings = onDeleteRecordings
         self.fallbackRequest = fallbackRequest
         self.navigationController = navigationController
         _cabinetState = cabinetState
@@ -1543,7 +1592,10 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             showsAppUpdateBadge: showsAppUpdateBadge,
             onCheckForUpdates: onCheckForUpdates,
             localRecordingRows: localRecordingRows,
-            onLocalRecordingAction: onLocalRecordingAction
+            deletionOperations: deletionOperations,
+            recoveryRequired: recoveryRequired,
+            onLocalRecordingAction: onLocalRecordingAction,
+            onDeleteRecordings: onDeleteRecordings
         )
         let container = WebViewContainer(webView: webView)
         container.lastLoadedRequestIdentity = Self.loadIdentity(for: request)
@@ -1563,7 +1615,10 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             showsAppUpdateBadge: showsAppUpdateBadge,
             onCheckForUpdates: onCheckForUpdates,
             localRecordingRows: localRecordingRows,
-            onLocalRecordingAction: onLocalRecordingAction
+            deletionOperations: deletionOperations,
+            recoveryRequired: recoveryRequired,
+            onLocalRecordingAction: onLocalRecordingAction,
+            onDeleteRecordings: onDeleteRecordings
         )
         supportIncidentBridge?.attach(webView: container.webView, routePolicy: routePolicy)
         navigationController.updateConfiguration(
@@ -1651,7 +1706,10 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         private let supportIncidentBridge: EmbeddedCabinetSupportIncidentBridge?
         private let navigationController: EmbeddedCabinetNavigationController
         private var localRecordingRows: [EmbeddedCabinetLocalRecordingRow] = []
+        private var recoveryRequired = false
+        private var deletionOperations: [RecordingDeletionOperation] = []
         private var onLocalRecordingAction: LocalRecordingAction = { _, _ in }
+        private var onDeleteRecordings: DeletionAction = { _ in .failed }
         private weak var downloadHostWindow: NSWindow?
         private var isActive = true
         private var userTimeDocumentRevision: UInt64 = 0
@@ -1699,12 +1757,18 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             showsAppUpdateBadge: Bool,
             onCheckForUpdates: @escaping CheckForUpdatesAction,
             localRecordingRows: [EmbeddedCabinetLocalRecordingRow],
-            onLocalRecordingAction: @escaping LocalRecordingAction
+            deletionOperations: [RecordingDeletionOperation],
+            recoveryRequired: Bool,
+            onLocalRecordingAction: @escaping LocalRecordingAction,
+            onDeleteRecordings: @escaping DeletionAction
         ) {
             self.showsAppUpdateBadge = showsAppUpdateBadge
             self.onCheckForUpdates = onCheckForUpdates
             self.localRecordingRows = localRecordingRows
+        self.deletionOperations = deletionOperations
+        self.recoveryRequired = recoveryRequired
             self.onLocalRecordingAction = onLocalRecordingAction
+        self.onDeleteRecordings = onDeleteRecordings
         }
 
         @MainActor
@@ -1739,7 +1803,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         @MainActor
         public func applyLocalRecordingRows(to webView: WKWebView) {
             webView.evaluateJavaScript(
-                EmbeddedCabinetLocalRecordingBridge.rowsScript(localRecordingRows),
+                EmbeddedCabinetLocalRecordingBridge.rowsScript(localRecordingRows, operations: deletionOperations, recoveryRequired: recoveryRequired),
                 completionHandler: nil
             )
         }
@@ -1863,18 +1927,24 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                 return
             }
             if message.name == EmbeddedCabinetLocalRecordingBridge.messageHandlerName {
-                guard isActive,
-                      message.frameInfo.isMainFrame,
-                      let sourceURL = message.frameInfo.documentRequestURL,
-                      routePolicy.decision(for: sourceURL).route.kind == .meetingList,
-                      let action = EmbeddedCabinetLocalRecordingBridge.allowedAction(
-                        from: message.body,
-                        rows: localRecordingRows
-                      )
-                else {
-                    return
+                guard isActive, message.frameInfo.isMainFrame,
+                      let webView = message.webView, navigationController.isAttached(to: webView),
+                      let sourceURL = message.frameInfo.documentRequestURL, sourceURL == webView.url,
+                      routePolicy.decision(for: sourceURL).decision == .allow else { return }
+                let route = routePolicy.decision(for: sourceURL).route
+                guard [.meetingList, .meetingDetail].contains(route.kind) else { return }
+                if let selection = EmbeddedCabinetDeletionSelection.parse(message.body, rows: localRecordingRows) {
+                    guard route.kind == .meetingList || (selection.localIDs.isEmpty && selection.meetingIDs == [route.meetingId].compactMap { $0 }) else { return }
+                    Task { @MainActor in
+                        let result = await onDeleteRecordings(selection)
+                        guard let data = try? JSONEncoder().encode(result),
+                              let payload = String(data: data, encoding: .utf8) else { return }
+                        guard isActive, webView.url == sourceURL else { return }
+                        webView.evaluateJavaScript("window.GRAFLocalRecordings?.deletionCompleted('\(selection.requestID.uuidString.lowercased())', \(payload))", completionHandler: nil)
+                    }
+                } else if route.kind == .meetingList, let action = EmbeddedCabinetLocalRecordingBridge.allowedAction(from: message.body, rows: localRecordingRows) {
+                    onLocalRecordingAction(action.action, action.id)
                 }
-                onLocalRecordingAction(action.action, action.id)
                 return
             }
             if message.name == EmbeddedCabinetQuitBridge.messageHandlerName {

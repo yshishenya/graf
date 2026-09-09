@@ -255,6 +255,8 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
         playable.captureFailureCode = "aec_capture_failed"
         playable.artifactProfile.isUploadable = false
         failed.failureReason = "recording_recovery_not_possible"
+        failed.isLocalUnbound = true
+        failed.serverCreationAttempted = false
         let rows = EmbeddedCabinetLocalRecordingRow.rows(
             for: [saving, failed, playable],
             recordingsRootURL: playbackRoot
@@ -326,7 +328,7 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
         XCTAssertTrue(cabinetSource.contains("data-graf-local-recording-row"))
         XCTAssertTrue(cabinetSource.contains("send.textContent = \"Отправить\""))
         XCTAssertTrue(cabinetSource.contains("renderLocalRecordingRows"))
-        XCTAssertTrue(cabinetSource.contains("item.uploadComplete !== true"))
+        XCTAssertFalse(cabinetSource.contains("item.uploadComplete !== true"))
         XCTAssertTrue(cabinetSource.contains("data-meeting-open"))
         XCTAssertTrue(cabinetSource.contains("data-icon=\"audio\""))
         XCTAssertTrue(cabinetSource.contains("item.showsPartialDuration"))

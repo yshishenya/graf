@@ -184,6 +184,15 @@
       .some((text) => text.toLowerCase().replace(/\s+/g, " ").includes(query));
   };
   const updateMixedResultCount = () => {
+    const host = currentList();
+    let empty = host?.querySelector("[data-deletion-empty]");
+    if (host && allRows().length === 0 && !host.querySelector(".empty-state")) {
+      empty = document.createElement("p");
+      empty.className = "empty-state";
+      empty.dataset.deletionEmpty = "";
+      empty.textContent = "Записей пока нет.";
+      host.append(empty);
+    } else if (allRows().length) { empty?.remove(); }
     const count = document.querySelector("[data-meeting-result-count]");
     if (count) {
       const incomplete = document.querySelector('[data-meeting-result-complete="false"]');
@@ -194,14 +203,19 @@
   const renderLocalRecordingRows = () => {
     const host = currentList();
     if (!host) return;
+    const focusedLocal = document.activeElement?.closest("[data-graf-local-recording-row]")?.dataset.grafLocalRecordingId;
+    let transferredFocus = null;
+    for (const item of localRecordingRows) {
+      if (!item.meetingId) continue;
+      if (selectedMeetingIds.delete(`local:${item.id}`)) selectedMeetingIds.add(item.meetingId);
+      if (focusedLocal === item.id) transferredFocus = allRows().find(row => row.dataset.meetingId === item.meetingId);
+    }
+    applyNativeDeletionOperations(nativeDeletionOperations);
+    if (transferredFocus) rowPrimaryFocusTarget(transferredFocus)?.focus({preventScroll: true});
     host.querySelectorAll("[data-graf-local-recording-row]").forEach((row) => row.remove());
-    const localOnly = localRecordingRows.filter((item) => {
-      if (!localRecordingMatches(item)) return false;
-      if (!item.meetingId) return true;
-      const serverRow = allRows().find((row) => row.dataset.meetingId === item.meetingId);
-      if (!serverRow || item.uploadComplete !== true) return true;
-      return false;
-    });
+    // A server identity belongs to the server result set, including filters and pagination.
+    // Its absence must never turn a retained local copy into a new user recording.
+    const localOnly = localRecordingRows.filter((item) => !item.localDeletionPending && !item.meetingId && localRecordingMatches(item));
     let list = host.querySelector("ol.meeting-list");
     const emptyState = host.querySelector(":scope > .empty-state");
     if (!localOnly.length) {
@@ -229,9 +243,15 @@
       row.dataset.sortUpdated = item.updatedAt || "";
       row.dataset.sortDuration = String(item.durationSeconds);
 
-      const selection = document.createElement("span");
-      selection.className = "row-select-hit row-contextual-placeholder";
-      selection.setAttribute("aria-hidden", "true");
+      const selection = document.createElement("label");
+      selection.className = "row-select-hit";
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.dataset.meetingSelect = "";
+      checkbox.disabled = !item.canDelete;
+      checkbox.checked = selectedMeetingIds.has(`local:${item.id}`);
+      checkbox.setAttribute("aria-label", `Выбрать запись ${localRecordingDisplayTitle(item)}`);
+      selection.append(checkbox);
       const icon = document.createElement("span");
       icon.className = "row-icon";
       icon.dataset.mediaKind = "recording";
@@ -281,7 +301,7 @@
         remove.type = "button";
         remove.innerHTML = '<svg class="ui-icon" data-icon="trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>';
         remove.setAttribute("aria-label", `Удалить локальную запись ${displayTitle}`);
-        remove.dataset.grafLocalRecordingAction = "delete";
+        remove.dataset.rowDelete = "";
         remove.dataset.grafLocalRecordingId = item.id;
         actions.append(remove);
       }
@@ -298,14 +318,109 @@
     sortMeetingRows(list);
     updateMixedResultCount();
   };
+  let nativeDeletionOperations = [];
+  const nativeDeletionReplies = new Map();
+  const recordingRowIdentity = (row) => row.dataset.meetingId || `local:${row.dataset.grafLocalRecordingId}`;
+  const applyNativeDeletionOperations = (operations) => {
+    for (const operation of operations) {
+      if (operation.phase === "rejected") continue;
+      const id = operation.target?.meeting?._0 || operation.receipt?.meeting_id;
+      if (!id) continue;
+      const detail = document.querySelector("main[data-meeting-id]");
+      if (detail?.dataset.meetingId === id) renderMeetingDetailRecovery(detail, operation.phase === "accepted" || operation.phase === "verified" ? "deleted" : "deleting");
+      for (const row of allRows().filter(row => row.dataset.meetingId === id)) {
+        selectedMeetingIds.delete(recordingRowIdentity(row));
+        if (["accepted", "verified"].includes(operation.phase)) {
+          row.remove();
+        } else {
+          row.querySelectorAll("button, input").forEach(control => { control.disabled = true; });
+          row.querySelectorAll("a").forEach(link => { link.removeAttribute("href"); link.setAttribute("aria-disabled", "true"); });
+          const status = row.querySelector(".row-meta");
+          if (status) status.textContent = "Удаление ожидает подтверждения";
+        }
+      }
+    }
+  };
+  const renderNativeDeletionStatus = (operations) => {
+    let details = document.querySelector("[data-native-deletion-status]");
+    const localPending = localRecordingRows.filter(item => item.localDeletionPending);
+    if (!operations.length && !localPending.length) { details?.remove(); return; }
+    if (!details) {
+      details = document.createElement("details");
+      details.dataset.nativeDeletionStatus = "";
+      details.className = "cabinet-fragment";
+      const summary = document.createElement("summary");
+      summary.textContent = "Удаления";
+      details.append(summary, document.createElement("ul"));
+      document.querySelector("#meeting-list-region")?.after(details);
+    }
+    const list = details.querySelector("ul");
+    list.replaceChildren();
+    for (const item of localPending) {
+      const row = document.createElement("li");
+      row.textContent = `${localRecordingDisplayTitle(item)}: очистка файлов на этом Mac ещё не завершена. Повторим попытку автоматически.`;
+      list.append(row);
+    }
+    for (const operation of operations.slice(-100).reverse()) {
+      const row = document.createElement("li");
+      const labels = {queued:"Удаление ожидает подключения", sending:"Удаляем…", resolving:"Проверяем, принято ли удаление",
+        accepted:"Запись удалена из списка. Очистка проверяется отдельно.", verified:"Данные этой записи очищены на этом Mac", rejected:"Нет права удалить запись"};
+      const waiting = {connection:"Ожидаем подключения для подтверждения удаления", authentication:"Войдите в исходный аккаунт для продолжения удаления",
+        rateLimit:"Сервер попросил подождать. Повторим запрос автоматически", serverUpdate:"Для завершения удаления требуется обновление сервера",
+        localCleanup:"Запись удалена из списка. Не удалось очистить файлы на этом Mac; повторим попытку"};
+      row.textContent = waiting[operation.waitReason] || labels[operation.phase] || "Состояние удаления неизвестно";
+      const meetingId = operation.receipt?.meeting_id;
+      if (typeof meetingId === "string" && /^[0-9a-f-]{36}$/i.test(meetingId)) {
+        const report = document.createElement("a");
+        report.href = `/desktop/meetings/${meetingId}/deletion-report`;
+        report.textContent = " Состояние удаления";
+        row.append(report);
+      }
+      list.append(row);
+    }
+  };
   window.GRAFLocalRecordings = {
-    update(rows) {
+    deletionCompleted(requestId, result) {
+      nativeDeletionReplies.get(requestId)?.(result);
+      nativeDeletionReplies.delete(requestId);
+    },
+    update(rows, operations = [], recoveryRequired = false) {
+      let recovery = document.querySelector("[data-local-account-recovery]");
+      if (!recoveryRequired) recovery?.remove();
+      else if (!recovery) {
+        recovery = document.createElement("p");
+        recovery.dataset.localAccountRecovery = "";
+        recovery.setAttribute("role", "status");
+        recovery.textContent = "Некоторые локальные записи скрыты: их аккаунт не подтверждён. Войдите в исходный аккаунт и дождитесь подключения. Если записи не появились, используйте диагностику GRAF. Файлы сохранены.";
+        document.querySelector("#meeting-list-region")?.after(recovery);
+      }
+      const rejected = operations.some(operation => operation.phase === "rejected" && nativeDeletionOperations.some(previous => previous.id === operation.id && previous.phase !== "rejected"));
+      nativeDeletionOperations = Array.isArray(operations) ? operations : [];
       localRecordingRows = Array.isArray(rows) ? rows : [];
       renderLocalRecordingRows();
+      applyNativeDeletionOperations(nativeDeletionOperations);
+      renderNativeDeletionStatus(nativeDeletionOperations);
+      updateMixedResultCount();
+      reconcileMeetingSelection();
+      if (rejected) requestMeetingListRefresh();
     },
   };
-  const rowPrimaryFocusTarget = (row) => row?.querySelector("[data-meeting-open]") || null;
-  const selectableRows = () => allRows().filter((row) => row.querySelector("[data-meeting-select]"));
+  const requestNativeDeletion = (rows) => new Promise((resolve) => {
+    const requestId = crypto.randomUUID();
+    const timer = setTimeout(() => {
+      nativeDeletionReplies.delete(requestId);
+      resolve({unknown: true});
+    }, 35000);
+    nativeDeletionReplies.set(requestId, (result) => { clearTimeout(timer); resolve(result); });
+    window.webkit.messageHandlers.grafLocalRecording.postMessage({
+      action: "deleteSelection", version: 1, requestId,
+      localIds: rows.filter(row => row.hasAttribute("data-graf-local-recording-row")).map(row => row.dataset.grafLocalRecordingId),
+      meetingIds: rows.filter(row => !row.hasAttribute("data-graf-local-recording-row")).map(row => row.dataset.meetingId),
+    });
+  });
+  const rowPrimaryFocusTarget = (row) => row?.querySelector("[data-meeting-open], [data-graf-local-recording-action=\"open\"]")
+    || row?.querySelector("[data-meeting-select]:not(:disabled)") || null;
+  const selectableRows = () => allRows().filter((row) => row.querySelector("[data-meeting-select]:not(:disabled)"));
   const selectedRows = () => selectableRows().filter((row) => row.querySelector("[data-meeting-select]")?.checked);
   const deletingLabel = (value) => `Вы удаляете ${value} ${plural(value, "запись", "записи", "записей")}.`;
 
@@ -546,7 +661,7 @@
         ?.focus({ preventScroll: true });
     }
     selectedMeetingIds.clear();
-    rows.forEach((row) => selectedMeetingIds.add(row.dataset.meetingId));
+    rows.forEach((row) => selectedMeetingIds.add(recordingRowIdentity(row)));
     countLabel.textContent = `Выбрано: ${rows.length}`;
     toolbar.hidden = rows.length === 0;
     if (selectionToggle) {
@@ -569,7 +684,7 @@
   const reconcileMeetingSelection = () => {
     allRows().forEach((row) => {
       const checkbox = row.querySelector("[data-meeting-select]");
-      if (checkbox) checkbox.checked = selectedMeetingIds.has(row.dataset.meetingId);
+      if (checkbox) checkbox.checked = selectedMeetingIds.has(recordingRowIdentity(row));
     });
     updateSelection();
   };
@@ -1247,6 +1362,45 @@
         document.querySelector("#delete-feedback-region")?.replaceChildren();
         confirm.disabled = true;
         confirm.textContent = "Удаляем…";
+        if (pendingDeleteRows.some(row => row.hasAttribute("data-graf-local-recording-row")) &&
+            !(window.GRAFRecordingDeletionBridgeVersion === 1 && window.webkit?.messageHandlers?.grafLocalRecording)) {
+          confirm.disabled = false;
+          confirm.textContent = "Удалить";
+          if (error) { error.textContent = "Для удаления локальных записей обновите приложение GRAF."; error.hidden = false; }
+          return;
+        }
+        if (window.GRAFRecordingDeletionBridgeVersion === 1 && window.webkit?.messageHandlers?.grafLocalRecording) {
+          const selection = [...pendingDeleteRows];
+          if (selection.length > 100) {
+            confirm.disabled = false;
+            confirm.textContent = "Удалить";
+            if (error) { error.textContent = "Выберите не более 100 записей."; error.hidden = false; }
+            return;
+          }
+          const result = await requestNativeDeletion(selection);
+          confirm.disabled = false;
+          confirm.textContent = "Удалить";
+          closeDeleteDialog();
+          if (result.saved) {
+            const message = `Удалено из списка: ${result.accepted}. Ожидают подтверждения: ${result.pending}. Отклонено: ${result.rejected}.`;
+            announceDeletionResult(message);
+            if (result.pending || result.rejected) publishDeletionFeedback(message + " Состояние очистки доступно в разделе «Удаления».", "warning");
+            if (result.accepted === selection.length) {
+              selection.forEach(row => { selectedMeetingIds.delete(recordingRowIdentity(row)); row.remove(); });
+            }
+            updateMixedResultCount();
+            if (!document.activeElement || document.activeElement === document.body) {
+              (rowPrimaryFocusTarget(allRows()[0]) || document.querySelector("[data-list-title]"))?.focus({preventScroll: true});
+            }
+            requestMeetingListRefresh({ restoreFocus: true });
+          } else {
+            publishDeletionFeedback(result.unknown
+              ? "Ответ приложения пока не получен. Проверьте раздел «Удаления» перед повторной попыткой."
+              : "Не удалось сохранить запрос удаления. Повторите попытку.", "error");
+          }
+          updateSelection();
+          return;
+        }
         const failedRows = [];
         let deletedCount = 0;
         let missingCount = 0;
@@ -6621,6 +6775,8 @@
     const copy = {
       session: ["Нужно войти снова", "Сессия завершилась.", "Войти"],
       workspace: ["Нужно выбрать пространство", "Доступ к выбранному пространству больше не подтверждён.", "Войти и выбрать пространство"],
+      deleting: ["Удаление ожидает подтверждения", "Запрос сохранён в приложении. Состояние доступно в разделе «Удаления».", "К списку встреч"],
+      deleted: ["Запись удалена из списка", "Состояние очистки доступно в разделе «Удаления».", "К списку встреч"],
       unavailable: ["Встреча больше недоступна", "Запись удалена или доступ закрыт.", "К списку встреч"],
     }[kind] || ["Встреча больше недоступна", "Запись удалена или доступ закрыт.", "К списку встреч"];
     const recoveryTemplate = document.querySelector("[data-meeting-detail-recovery-template]");
@@ -6856,6 +7012,63 @@
     } finally {
       playbackRecoveryRequest = null;
     }
+  };
+
+  let recordingLifecycleTimer = null;
+  let recordingLifecycleRequest = null;
+  const refreshRecordingLifecycle = async () => {
+    if (document.hidden || recordingLifecycleRequest) return;
+    const detail = document.querySelector("main[data-meeting-id][data-playback-poll-url]");
+    const rows = allRows().filter(row => /^[0-9a-f-]{36}$/i.test(row.dataset.meetingId || ""));
+    const targets = detail ? [detail] : rows.slice(0, 100);
+    const ids = [...new Set(targets.map(node => node.dataset.meetingId))];
+    const csrf = document.querySelector('meta[name="csrf-token"]')?.content;
+    if (!ids.length || !csrf) return;
+    const controller = new AbortController();
+    recordingLifecycleRequest = controller;
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    try {
+      const response = await fetch("/api/v1/desktop/recordings/lifecycle", {
+        method: "POST", credentials: "same-origin", cache: "no-store", signal: controller.signal,
+        headers: {"Content-Type":"application/json", "X-CSRF-Token":csrf, "Accept":"application/json"},
+        body: JSON.stringify({meeting_ids:ids}),
+      });
+      if (csrf !== document.querySelector('meta[name="csrf-token"]')?.content) return;
+      if (!response.ok) {
+        if (response.status === 401 && detail?.isConnected) renderMeetingDetailRecovery(detail, "session");
+        return;
+      }
+      const entries = await response.json();
+      if (!Array.isArray(entries)) return;
+      let changed = false;
+      for (const entry of entries) {
+        if (entry.target_type !== "meeting" || !ids.includes(entry.target_id) || entry.state === "allowed") continue;
+        if (!["deletion_accepted", "unavailable"].includes(entry.state)) continue;
+        for (const node of targets.filter(node => node.isConnected && node.dataset.meetingId === entry.target_id)) {
+          if (node === detail) { renderMeetingDetailRecovery(node, "unavailable"); return; }
+          selectedMeetingIds.delete(recordingRowIdentity(node));
+          node.remove();
+          changed = true;
+        }
+      }
+      if (changed) { updateSelection(); requestMeetingListRefresh({restoreFocus:true}); }
+    } catch (_error) {
+      // Lack of a response is not deletion authority. Existing media requests still enforce access.
+    } finally {
+      clearTimeout(timeout);
+      recordingLifecycleRequest = null;
+    }
+  };
+  const initRecordingLifecyclePolling = () => {
+    if (recordingLifecycleTimer) return;
+    recordingLifecycleTimer = setInterval(refreshRecordingLifecycle, 30000);
+    window.addEventListener("online", refreshRecordingLifecycle);
+    window.addEventListener("focus", refreshRecordingLifecycle);
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) recordingLifecycleRequest?.abort();
+      else refreshRecordingLifecycle();
+    });
+    refreshRecordingLifecycle();
   };
 
   const initPlaybackRecoveryPolling = () => {
@@ -7289,6 +7502,28 @@
     const opener = document.querySelector("[data-meeting-delete-dialog-open]");
     if (!dialog || !opener || dialog.dataset.ready === "true") return;
     dialog.dataset.ready = "true";
+    dialog.querySelector("form")?.addEventListener("submit", async event => {
+      if (window.GRAFRecordingDeletionBridgeVersion !== 1 || !window.webkit?.messageHandlers?.grafLocalRecording) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const detail = document.querySelector("main[data-meeting-id]");
+      if (!detail) return;
+      const submit = dialog.querySelector('[type="submit"]');
+      if (submit?.disabled) return;
+      if (submit) submit.disabled = true;
+      const result = await requestNativeDeletion([detail]);
+      if (result.saved && (result.accepted || result.pending)) {
+        detail.querySelectorAll("audio, video").forEach(player => { player.pause(); player.removeAttribute("src"); player.load(); });
+        location.assign("/desktop/meetings");
+      } else {
+        if (submit) submit.disabled = false;
+        let error = dialog.querySelector('[data-native-delete-error]');
+        if (!error) { error = document.createElement("p"); error.dataset.nativeDeleteError = ""; error.setAttribute("role","alert"); dialog.append(error); }
+        error.textContent = result.rejected ? "Нет права удалить запись." : result.unknown
+          ? "Ответ приложения пока не получен. Проверьте раздел «Удаления»."
+          : "Не удалось сохранить запрос удаления. Повторите попытку.";
+      }
+    }, true);
     let returnFocus = null;
     const close = () => {
       if (typeof dialog.close === "function") dialog.close();
@@ -8187,6 +8422,7 @@
     initDetailTabs();
     initProcessingRecovery();
     initProcessingListProjection();
+    initRecordingLifecyclePolling();
     initSummaryFormats();
     initSummaryTemplateSettings();
     initMeetingContextPanels();
