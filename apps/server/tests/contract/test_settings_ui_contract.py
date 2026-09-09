@@ -229,7 +229,9 @@ def test_settings_binary_controls_use_shared_switches_and_segmented_theme() -> N
     assert 'name="optional_in_app_enabled"' in notifications
     assert notifications.count('class="settings-control-row"') == 2
     assert "Эти настройки относятся к аккаунту." in notifications
-    assert "Готовые результаты доступны в списке встреч и тихой истории." in notifications
+    assert "Они не управляют записью или уведомлениями macOS." in notifications
+    assert "Результаты встреч и записи, которыми с вами поделились, сохраняются в истории без звука." in notifications
+    assert 'href="/notifications"' in notifications
 
 
 def test_profile_menu_uses_semantic_disabled_actions_and_native_quit_marker() -> None:

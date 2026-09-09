@@ -670,3 +670,16 @@ Code/Ponytail review подтвердил эквивалентность и от
 - Все четыре ошибки требовали старое окно F214: прямой NSPanel,360×286,центровка и отложенный повторный показ. Это противоречит принятой T031.
 - Контракт обновлён на MeetingDetectionPromptPanel320×192 и отсутствие отложенного показа; центровка удалена из source-check, якорь/clamp исполняются существующим AppLifecycleWindowRegressionTests. Countdown/timeout/решения не изменены.
 - Полный CI и merge остаются закрыты до новой успешной диагностики и governance-fast на текущем SHA.
+
+### Серверные проверки общего релиза — продолжение T015
+
+Первый Full CI34356399062:13 failed,4239 passed,39 skipped; серверная фаза32мин. Второй candidate ad31d06 отменён после успешной macOS-фазы, поскольку server source совпадает с первым и причины уже известны. Ни один не даёт release GO.
+
+Risk lane: corrective work in active Spec Kit slices F256/F257/F6788, existing validation tasks, без новой продуктовой функции. Источники требований: F257 FR014(WCAG2.2AA), F256 контракт comments/permissions, F6788 T015/T023 и общая summary projection.
+
+- Ошибка notification_family воспроизведена последовательной парой тестов: historical0086 roundtrip коммитил устаревшую схему в общий worker DB. Откат транзакции после assertion сохраняет исходную схему; миграции и production notification code не меняются. Пара до исправления1FAIL/1PASS; полный notification file+boundaries+OpenAPI после18PASS.
+- OpenAPI заново сформирован из create_app().openapi(): документирует уже принятые comments/permissions,summary_status,summary_format,notification-context. Runtime API не меняется.
+- Остальные source/evidence contracts сверяются с принятой компоновкой F257 и независимой summary projection F6788. Контраст scoped foreground обязан сохранить WCAG; фоны и геометрия не меняются.
+- Нужны focused contracts/integration, независимый review, governance-fast на финальном SHA, новый master/candidate/release-full; прежние notarization/Dev результаты относятся только к ad31d06.
+
+Адресные результаты исправления: notification+comments boundary+OpenAPI18PASS; meeting outcomes29PASS и summary contract8PASS; UI/theme/settings/share/runtime74PASS; Ruff/diff-checkPASS. Browser comments scenarioPASS. Отдельный Chromium/WebKit computed-style probe на синтетическом DOM подтвердил16 текстовых пар actual inherited CSS для light/dark страницы/проигрывателя≥4.5. Это проверка каскада, не повтор всей native матрицы.

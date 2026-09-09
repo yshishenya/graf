@@ -217,4 +217,6 @@ def test_additive_migration_roundtrip_preserves_existing_opt_out(client):
             await connection.run_sync(roundtrip)
             row = (await connection.execute(text('SELECT optional_email_enabled,optional_in_app_enabled,version FROM billing_notification_preferences WHERE user_id=:user'), {'user':USER_ID})).one()
             assert tuple(row) == (False, False, 0)
+            # Roll back this historical DDL probe so later tests retain the current schema.
+            await connection.rollback()
     client.portal.call(exercise)

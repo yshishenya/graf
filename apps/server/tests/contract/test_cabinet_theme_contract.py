@@ -1,7 +1,7 @@
 """F240 source-palette and synthetic-render contracts, not browser evidence.
 
 These checks calculate WCAG ratios for declared opaque sRGB palette pairs and
-guard theme inheritance. They do not calculate the browser cascade, opacity,
+guard theme inheritance, including the F256/F257 page and player palettes. They do not calculate the browser cascade, opacity,
 color-mix, layout, focus, or open-dialog styles. The CUA matrix covers those.
 """
 
@@ -62,8 +62,8 @@ def _contrast(foreground: str, background: str) -> float:
 def assert_theme_palette_contract(css: str) -> None:
     """Also callable with `git show <baseline>:.../cabinet.css` for negative control.
 
-    Match this stylesheet's three known palette blocks, not general CSS syntax.
-    The leaf-rule scan only rejects component overrides of shared root tokens.
+    Match the root and approved F256/F257 palette blocks, not general CSS syntax.
+    Every approved scope is checked with inherited tokens at the same contrast limits.
     """
     css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
     selectors = (":root", 'html[data-theme="light"]', ":root:not([data-theme])")
@@ -84,8 +84,23 @@ def assert_theme_palette_contract(css: str) -> None:
     assert explicit_light == system_light, "System light palette differs from explicit light"
     assert dark.keys() >= SHARED_COLORS, f"Missing shared colors: {SHARED_COLORS - dark.keys()}"
 
-    # Root overrides for accessibility (e.g. prefers-contrast) remain allowed.
-    # A sidebar/dialog may not shadow these tokens with its own dark palette.
+    scoped_selectors = (
+        'html[data-theme="dark"] .detail-page-main',
+        '.detail-playback',
+        'html[data-theme="light"] .detail-playback',
+        'html:not([data-theme]) .detail-playback',
+    )
+    scoped = {}
+    for selector in scoped_selectors:
+        matches = re.findall(rf"(?m)^\s*{re.escape(selector)}\s*\{{([^{{}}]*)\}}", css)
+        matches = [block for block in matches if _declarations(block).keys() & SHARED_COLORS]
+        assert len(matches) == 1, f"Expected one {selector} palette, got {len(matches)}"
+        scoped[selector] = _declarations(matches[0])
+    assert scoped[scoped_selectors[2]] == scoped[scoped_selectors[3]], (
+        "System light player palette differs from explicit light"
+    )
+
+    # Unreviewed component shadows remain forbidden; approved scopes are tested below.
     for match in re.finditer(r"([^{}]+)\{([^{}]*)\}", css):
         selector, body = match.groups()
         overrides = {
@@ -94,12 +109,15 @@ def assert_theme_palette_contract(css: str) -> None:
             if name in SHARED_COLORS or name.startswith("--surface")
         }
         if overrides:
-            assert selector.strip() in (*selectors, 'html[data-theme="dark"]'), (
+            assert selector.strip() in (*selectors, 'html[data-theme="dark"]', *scoped_selectors), (
                 f"Scoped theme-token shadow: {selector.strip()}: {sorted(overrides)}"
             )
 
     failures = []
-    for theme, palette in (("dark", dark), ("light", dark | explicit_light)):
+    palettes = [("dark", dark), ("light", dark | explicit_light)]
+    palettes.extend((selector, dark | (explicit_light if index >= 2 else {}) | scoped[selector])
+                    for index, selector in enumerate(scoped_selectors))
+    for theme, palette in palettes:
         pairs = (
             [(text, surface, 4.5) for text in TEXT_COLORS for surface in BACKGROUNDS]
             + [
@@ -189,6 +207,20 @@ def test_palette_contract_rejects_low_contrast_text() -> None:
     css = CABINET_CSS.read_text(encoding="utf-8")
     css = re.sub(r"--text:\s*#[\da-fA-F]+;", "--text: #fff;", css)
     with pytest.raises(AssertionError, match=r"light --text/--panel: 1\.00 < 4\.5"):
+        assert_theme_palette_contract(css)
+
+
+@pytest.mark.parametrize("selector", ['html[data-theme="dark"] .detail-page-main', 'html[data-theme="light"] .detail-playback'])
+def test_palette_contract_rejects_low_contrast_scoped_text(selector: str) -> None:
+    css = CABINET_CSS.read_text(encoding="utf-8")
+    background = "#474a4c" if '"dark"' in selector else "#e5e5e6"
+    css = re.sub(
+        rf"({re.escape(selector)}\s*\{{[^{{}}]*?--text:)\s*#[\da-fA-F]+;",
+        rf"\g<1> {background};", css,
+    )
+    if '"light"' in selector:
+        css = css.replace("--text: #242729;", f"--text: {background};")
+    with pytest.raises(AssertionError, match="Declared palette contrast"):
         assert_theme_palette_contract(css)
 
 

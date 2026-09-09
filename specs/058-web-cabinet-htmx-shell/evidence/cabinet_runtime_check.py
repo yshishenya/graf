@@ -331,7 +331,17 @@ def run_checks() -> dict[str, Any]:
     _add_check(checks, "responsive_contract", "@media (max-width: 980px)" in css and "@media (max-width: 540px)" in css, "desktop and mobile-width breakpoints exist")
     tab_rule = re.search(r"\.meeting-detail-tabs \.tab\s*\{([^}]+)\}", css)
     tab_height = re.search(r"min-height:\s*(\d+)px", tab_rule[1]) if tab_rule else None
-    _add_check(checks, "focus_contract", ":focus-visible" in css and tab_height is not None and int(tab_height[1]) >= 44, "focus visibility and at least 44px meeting navigation tabs are styled")
+    coarse_tabs = re.search(
+        r"@media\s*\(pointer:\s*coarse\)\s*\{\s*"
+        r"\.meeting-detail-navigation\s+:is\(\.tab,[^{}]+\{([^}]+)\}", css,
+    )
+    coarse_height = re.search(r"min-height:\s*(\d+)px", coarse_tabs[1]) if coarse_tabs else None
+    _add_check(
+        checks, "focus_contract",
+        ":focus-visible" in css and tab_height is not None and int(tab_height[1]) >= 28
+        and coarse_height is not None and int(coarse_height[1]) >= 44,
+        "F257 navigation keeps visible focus, 28px pointer targets and 44px coarse-pointer targets",
+    )
     _add_check(
         checks,
         "ephemeral_js",

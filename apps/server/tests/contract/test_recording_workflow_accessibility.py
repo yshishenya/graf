@@ -46,7 +46,7 @@ def test_processing_recovery_updates_terminal_header_and_hides_pending_copy() ->
     assert "const shouldPoll = !terminalProjection && (" in script
 
 
-def test_meeting_review_continuity_exposes_lane_hint_resize_separator_and_sticky_header() -> None:
+def test_meeting_review_continuity_exposes_named_segments_resize_separator_and_sticky_header() -> None:
     page = _source(MEETING_DETAIL)
     rendering = _source(RENDERING)
     script = _source(JAVASCRIPT)
@@ -54,7 +54,9 @@ def test_meeting_review_continuity_exposes_lane_hint_resize_separator_and_sticky
 
     assert page.count("data-meeting-detail-header") == 1
     header = page.split("data-meeting-detail-header", 1)[1].split('class="detail-main"', 1)[0]
-    assert 'class="topline"' in header
+    assert 'class="meeting-detail-actions"' in header
+    assert 'class="meeting-detail-identity"' in header
+    assert 'class="meeting-detail-navigation"' in header
     assert 'id="meeting-share-host"' in header
     assert header.count('role="tablist"') == 1
     assert 'class="tabs meeting-detail-tabs"' in header
@@ -62,17 +64,17 @@ def test_meeting_review_continuity_exposes_lane_hint_resize_separator_and_sticky
     assert "data-speaker-timeline-resize" in rendering
     assert 'role="separator"' in rendering
     assert 'aria-orientation="horizontal"' in rendering
-    assert "data-speaker-timeline-hint" in rendering
-    assert "Нажмите на цветной фрагмент, чтобы перейти к этому месту записи." in rendering
-    assert "переместить воспроизведение к фрагменту записи" in rendering
+    assert 'class="timeline-segment" data-lane-segment' in rendering
+    assert 'aria-label="{escape(segment_label)}"' in rendering
+    assert 'role="group" tabindex="0" aria-label="Дорожка' in rendering
+    assert "стрелки перемещают позицию" in rendering
     assert "data-speaker-timeline-resize" in script
     assert "aria-valuemin" in script
     assert ".meeting-detail-header" in styles
     assert "top: calc(var(--meeting-detail-header-offset) - var(--meeting-detail-main-padding-top))" in styles
     assert "margin-top: calc(-1 * var(--meeting-detail-main-padding-top))" in styles
     assert "padding-top: var(--meeting-detail-main-padding-top)" in styles
-    assert ".tab.active { color: var(--meeting-tab-active);" in styles
-    assert "--meeting-tab-active: #35238f" in styles
+    assert ".meeting-detail-tabs .tab.active { color: var(--text); background: var(--surface-3); }" in styles
     assert ".meeting-detail-tabs {\n  position: sticky" not in styles
     assert "scroll-margin-top" in styles
 
