@@ -2933,7 +2933,7 @@ private struct MeetingDetectionPromptView: View {
                         Toggle("Запомнить выбор", isOn: $autoRecordOptIn)
                             .toggleStyle(.checkbox)
                             .focusable(interactions: .edit)
-                            .onKeyPress(.space) {
+                            .onKeyPress(.space, phases: .down) { _ in
                                 autoRecordOptIn.toggle()
                                 return .handled
                             }
@@ -2949,7 +2949,7 @@ private struct MeetingDetectionPromptView: View {
                             .buttonStyle(.plain)
                             .keyboardShortcut(.cancelAction)
                             .focusable(interactions: .edit)
-                            .onKeyPress(.space) {
+                            .onKeyPress(.space, phases: .down) { _ in
                                 resolveDismiss(reason: .userSkipped)
                                 return .handled
                             }
@@ -3033,7 +3033,7 @@ private struct MeetingDetectionPromptView: View {
         .disabled(isStartDisabled)
         .keyboardShortcut(.defaultAction)
         .focusable(!isStartDisabled, interactions: .edit)
-        .onKeyPress(.space) {
+        .onKeyPress(.space, phases: .down) { _ in
             resolveStart(reason: .promptButton)
             return .handled
         }

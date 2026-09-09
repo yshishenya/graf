@@ -169,3 +169,47 @@ SHA-256 проверенных файлов:
 - TwoBrainRecApp.swift: `0cd1fe551b52928bb455c211f07beb18a243836d9d8b74b35523aa0b5fb966a2`.
 - CalendarTray.swift: `599b62b48ac201feed128e70661cb106cd8359f6d481b675d661e8b537f3fa4c`.
 - AppLifecycleWindowRegressionTests.swift: `2e8c48d111705f0d13d256d520e70e17198c4f776737dc142a39c72e5fac1c40`.
+
+## Проверка исправления локальной клавиатуры2098c5020
+
+Проверен коммит `2098c5020cb52270b236b3bb3eab87038c9d1393`: три локальных
+focusable/onKeyPress для checkbox и двух действий. Реализация reviewer не менялась.
+
+**P2 K031-1: Space повторяет переключение remember при удержании.**
+Сокращённый onKeyPress(.space) принимает key-down и key-repeat. Это прямо
+подтверждено актуальной документацией Apple:
+https://developer.apple.com/documentation/swiftui/view/onkeypress(_:action:)
+(«SwiftUI performs the action for key-down and key-repeat events»).
+Повтор autoRecordOptIn.toggle() может вернуть checkbox в исходное состояние,
+хотя пользователь выполнил одно удержанное нажатие. Это существенно для
+явного сохранения Always/Never. Минимальное исправление — использовать
+`onKeyPress(.space, phases: .down) { _ in ... }` на трёх контролах.
+У Record/Skip прежние countdown.resolveStart/cancel уже защищают от второго
+исхода, но одна фаза для всех трёх соответствует семантике кнопок и не требует
+нового состояния или собственного обработчика клавиатуры.
+
+Остальная форма минимальна: .edit делает фокус достижимым независимо от
+системной навигации, не превращает SwiftUI Toggle/Button в текстовые поля;
+onKeyPress локален сфокусированному view, .handled прекращает дальнейшую
+доставку события. У disabled Record явно запрещён фокус, resolveStart
+дополнительно сохраняет startIsTemporarilyDisabled. Ни глобального монитора,
+ни изменения key-window при показе не добавлено.
+
+С включённой системной навигацией установленный опыт должен проверить один
+последовательный Tab-маршрут checkbox→Skip→Record, обратный Shift-Tab и ровно
+одно изменение checkbox от короткого/удержанного Space. По source нельзя
+объявить PASS взаимодействия штатных и добавленных focus targets. До явного
+фокусирования карточки внешние Tab/Space/Enter/Escape не должны действовать
+на неё; после снятия фокуса клавиатура снова принадлежит внешней программе.
+Enter/Escape и countdown сохраняют отдельные прежние действия.
+
+Прочитан t031-extra-checks.json: actual-view rendering и anchor helper
+сообщают PASS на bf9fdc964, узкая область имеет достижимые через прокрутку
+кнопки/remember. Это устраняет прежний пробел проверки содержимого/anchor
+в ограниченном автоматическом объёме. Контролируемый native Tab/Space на
+bf9fdc964 дал FAIL при AppleKeyboardUIMode0; его нельзя отменить сборкой и
+48 focused tests. Новый2098 native ещё не проверен этим reviewer.
+
+Решение: исправить K031-1 до итогового принятия нового keyboard diff;
+остальное code/Ponytail замечаний не вызывает. Необходим установленный
+повтор после исправления, без фиктивного native PASS.
