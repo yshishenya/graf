@@ -3293,7 +3293,11 @@
       const focusOption = (option) => {
         options().forEach((item) => { item.tabIndex = item === option ? 0 : -1; });
         option?.focus({ preventScroll: true });
-        option?.scrollIntoView({ block: "nearest" });
+        if (!option) return;
+        const row = option.getBoundingClientRect();
+        const list = listbox.getBoundingClientRect();
+        if (row.top < list.top) listbox.scrollTop -= list.top - row.top;
+        else if (row.bottom > list.bottom) listbox.scrollTop += row.bottom - list.bottom;
       };
       const focusCurrentFormat = () => {
         const items = visibleOptions();

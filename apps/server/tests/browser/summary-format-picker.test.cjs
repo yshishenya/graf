@@ -139,7 +139,11 @@ const maliciousName = '<img src=x onerror=alert(1)> Личный формат с
     assert(zoomed.x >= 0 && zoomed.x + zoomed.width <= 1440 && zoomed.y + zoomed.height <= 860, `200% zoom stays within viewport: ${JSON.stringify(zoomed)}`);
     await page.keyboard.press('Escape');
     await page.evaluate(() => { document.documentElement.style.zoom = ''; });
+    await page.locator('.detail-main').evaluate(el => { el.style.minHeight = '1400px'; });
+    await page.locator('.detail-page-main').evaluate(el => { el.style.height = '450px'; el.style.overflow = 'auto'; el.scrollTop = 0; });
     await button.click(); await all.click();
+    await page.keyboard.press('End');
+    assert.equal(await page.locator('.detail-page-main').evaluate(el => el.scrollTop), 0, 'focusing a format only scrolls the list, not the meeting');
     // The installed cabinet clips main above the player. The menu must escape both layers.
     await page.locator('.detail-page-main').evaluate(el => { el.style.height = '450px'; el.style.overflow = 'hidden'; });
     await page.locator('.detail-playback').evaluate(el => { el.style.cssText += ';position:fixed;bottom:0;height:380px;z-index:100;width:100%'; });
