@@ -4,11 +4,19 @@
 
 **Created**: 2026-08-30
 
-**Status**: A1 implemented and focused-validated locally, 2026-09-09; GitHub review/merge pending, no current release approval
+**Status**: A1 validated in PR #6846, merge pending; A2 locally implemented and validated, issue #6850 open; publication approved after local validation, merge/release not approved
 
 **Input**: User description: "Упростить CI/CD, убрать повторные полные прогоны для маленьких изменений, ускорить выкладку, сохранить качество и не допускать просачивания дефектов в production; перед внедрением перепроверить процессы, документацию и фактическое поведение."
 
 ## Clarifications
+
+### Session 2026-09-09 — A2
+
+- Publication continuation after local validation: user requested to proceed with the stated next step. Commit, synchronization with current master, push, draft PR and its GitHub checks are in scope; merge, protection changes, Full CI and release remain excluded. The publication branch includes A1 + A2; A1 PR #6846 remains untouched.
+- User approved a separate local branch, independent requirements reviewer, GitHub task sync and local implementation/focused tests. Commits, push/PR publication, merge, branch protection, real Full CI and release remain excluded.
+- A2 adds a standalone PR-description check while preserving the combined required gate. It does not yet eliminate edited-code reruns or qualify the new check as a required merge-queue gate.
+- Clarification scan: scope, actors, identity, trust, failures, acceptance and authority are clear; no blocking question remains. The check uses the latest fetched PR title/body for matching event head/base, not stale event text. That snapshot is not an atomic merge-time approval.
+- Complete code/metadata separation, merge-group metadata validation, live required-check activation, base-retarget handling in the code-only workflow and closeout-consumer changes require a later reviewed stage. Existing merge-group, manual and release paths remain unchanged in A2.
 
 ### Session 2026-09-09
 
@@ -105,6 +113,23 @@ Release engineer получает один авторитетный резуль
 4. **Given** выбран серверный fast или full, **When** проходят статические проверки, **Then** те же команды lint и compile выполняются один раз до server/changed/performance tests; их ошибка не допускает эти тесты. Область и обязательность тестов не сокращаются.
 5. **Given** обычная разработка, **When** участник следует инструкциям, **Then** локально выполняет целевые проверки, перед слиянием получает обязательный GitHub `governance-fast` на exact SHA, а локальный широкий fast использует только для диагностики или резервной проверки.
 
+### User Story 6 - Отдельная проверка описания PR без ослабления защиты (Priority: P1, A2)
+
+Разработчик получает отдельный результат проверки описания PR без ожидания продуктовых тестов в этой проверке. Это подготовка безопасного разделения: прежняя обязательная проверка продолжает работать полностью.
+
+**Independent Test**: Корректное и ошибочное описание, устаревшее событие и разные ревизии проверяются на синтетических данных и реальном локальном Git. Новый путь не вызывает продуктовые тесты; старый обязательный путь не меняется.
+
+**Acceptance Scenarios**:
+
+1. **Given** открытие, обновление кода, повторное открытие, готовность к review или правка описания PR, **When** выполняется новая проверка, **Then** она проверяет актуальные полученные заголовок/описание по прежнему договору Feature ID, tasks, issue links, exact SHA, risk и Legacy Impact без продуктовых тестов.
+2. **Given** старый текст события при неизменных head/base, **When** актуальный полученный текст отличается, **Then** оценивается актуальный текст; старый корректный текст не скрывает новую ошибку и старый ошибочный текст не отменяет исправление.
+3. **Given** другой номер PR, закрытый PR, изменившиеся head/base или целевая ветка, недоступная база либо несовпадение checkout, **When** проводится проверка, **Then** она завершается ошибкой, а не выдаёт успешный результат по другому состоянию.
+4. **Given** добавление, удаление или переименование файлов фич, в том числе нескольких фич, **When** определяется область PR, **Then** идентичность берётся из полного diff по точной базе; отсутствие feature-файлов допускает только явный scoped-договор.
+5. **Given** ошибка получения актуальных данных, повреждённый документ или неверные типы обязательных полей, **When** выполняется новая проверка, **Then** результат неуспешен без вывода полного пользовательского текста или запуска команд из него.
+6. **Given** новый запуск проверки описания, **When** отменяется её прежний запуск, **Then** отмена не затрагивает workflow проверок кода; при этом его собственные существующие edited-прогоны в A2 ещё сохраняются.
+7. **Given** внешний PR, **When** запускается новая проверка, **Then** она не требует секретов или прав записи и использует те же правила проверки описания; требуемое GitHub одобрение запуска не обходится.
+8. **Given** A2 завершён локально, **When** оценивается готовность к следующему этапу, **Then** старый required gate и все release/closeout ограничения сохранены, а отсутствие merge-group поддержки и live-проверки нового check явно блокирует его включение как обязательного.
+
 ## Requirements *(mandatory)*
 
 ### Functional Requirements
@@ -127,6 +152,12 @@ Release engineer получает один авторитетный резуль
 - **FR-016**: Server lint и Python compile MUST выполнять прежние команды с прежней областью ровно один раз перед всеми выбранными серверными тестами fast/full; ошибка любого из них MUST блокировать эти тесты. Состав тестов, performance/RLS и правила результата MUST не ослабляться.
 - **FR-017**: Все активные инструкции MUST различать обязательный GitHub `governance-fast` на текущем PR SHA и необязательный локальный широкий fast; локальные целевые проверки MUST оставаться первым циклом обратной связи.
 - **FR-018**: A1 MUST не менять обязательные имена checks, события, concurrency, права GitHub, closeout trust или защиту веток. Разделение code/metadata MUST идти отдельно: сначала добавить metadata check при сохранении старого gate, затем с отдельным разрешением сделать оба обязательными, и только после подтверждения защиты убрать дублирующие edited-прогоны. Пропущенный check MUST не подменять успешную проверку кода.
+- **FR-019 (A2)**: Отдельный `pr-metadata` MUST запускаться на тех же PR-событиях для `master`, что и текущая проверка описания, без path filters и без условного пропуска задания. Он MUST не запускать продуктовые тесты, установку Spec Kit или full/fast runner и MUST иметь предел исполнения задания 5 минут без учёта очереди GitHub.
+- **FR-020 (A2)**: Новый путь MUST применять существующий договор проверки описания к последнему полученному из GitHub открытому PR. Номер PR, head SHA, base SHA и целевая ветка MUST совпадать с событием, checkout — с head SHA. Изменившийся текст при той же идентичности MUST проверяться в актуальном виде. Это снимок на время получения, не атомарная гарантия состояния в момент слияния.
+- **FR-021 (A2)**: Feature IDs MUST определяться по полному diff точных head/base, включая удалённые и оба пути переименованных файлов, без зависимости от `origin/master`. Множественные фичи и scoped MUST сохранять существующие правила описания.
+- **FR-022 (A2)**: Ошибки получения данных, JSON, обязательных типов/полей, Git/общей истории и договора описания MUST давать неуспех. Заголовок и описание MUST обрабатываться только как данные; токены, полный текст и содержимое API-ответа MUST не попадать в журнал диагностики. Новый путь MUST использовать только чтение и не получать пользовательские секреты.
+- **FR-023 (A2)**: Concurrency новой проверки MUST быть отдельной по номеру PR и MUST не отменять проверку кода. A2 MUST сохранять исходный workflow `governance-fast`, его события, имена, права, receipt и потребителей evidence; ручные и merge-group проверки остаются в прежнем пути.
+- **FR-024 (A2)**: Документация MUST называть новый check дополнительным и ещё не обязательным. Его пропуск/отмена/неуспех MUST не представляться успешным metadata-результатом, а его успех MUST не заменять проверку кода или релиза. Переход защиты ветки и удаление edited-code запусков запрещены до отдельно проверенных PR/merge-group, свежести/base-retarget, fork и closeout-контрактов и явного разрешения владельца.
 
 ### Key Entities
 
@@ -134,6 +165,7 @@ Release engineer получает один авторитетный резуль
 - **Release Candidate**: Точный commit и дерево, которые прошли требуемые gates и рассматриваются для deploy.
 - **Component Classification**: Консервативное отображение измененных путей в обязательный набор быстрых проверок.
 - **Stage Result**: Имя этапа, итог, длительность и доступный безопасный диагностический контекст.
+- **PR Metadata Snapshot (A2)**: Номер открытого PR, точные head/base, целевая ветка и актуальные полученные заголовок/описание. Это временные данные проверки, не новый долговечный receipt или разрешение слияния.
 
 ## Success Criteria *(mandatory)*
 
@@ -150,17 +182,19 @@ Release engineer получает один авторитетный резуль
 - **SC-009**: После внедрения p50 времени feedback loop для малого server-only или macOS-only изменения MUST быть не более 25% исходного full run (`351.59s` от baseline `1406.36s`); измерение выполняется минимум тремя последовательными component-only fast-прогонами.
 - **SC-010 (A1)**: Исполняемые проверки покрывают различающиеся event/default базы, PR и merge group, отсутствующую/невалидную/недоступную event base, diagnostic dispatch и остановку server tests при lint/compile failure. Набор проверок и терминальные результаты сохраняются.
 - **SC-011 (A1)**: В активных руководствах нет требования повторять GitHub fast локальным широким fast. Сокращение времени A1 доказывается порядком/ранней остановкой, не выдуманным процентом ускорения или новым замером SC-009. GitHub PR и release gates остаются отдельной непроверенной стадией до разрешённой публикации.
+- **SC-012 (A2)**: Целевые исполняемые проверки подтверждают все 8 сценариев US6, включая отличающиеся event/current тексты, небезопасные строки, scoped/multi-feature, удаления/переименования и ошибки идентичности. Старые тесты договора описания и workflow остаются успешными.
+- **SC-013 (A2)**: Новый workflow содержит только получение исходников/актуальных PR-данных и проверку описания; 0 вызовов продуктовых тестов или runner. Исходные governance-fast/release workflows и настройки защиты не изменены. Локальный PASS не объявляется live-приёмкой, устранением повторов или измеренной общей экономией.
 
 ## Assumptions
 
 - Неявный full и повторный full внутри deploy — исторические причины, уже устранённые до A1. Текущие причины A1: несогласованная база diff, поздние статические проверки и противоречивые инструкции о локальном fast.
 - Existing shell и Git достаточны; новая runtime-зависимость не требуется.
 - Локальный receipt не имеет независимого provenance против процесса того же пользователя и поэтому не используется как release gate.
-- Текущий пользователь разрешил локальное внедрение, отдельного рецензента требований и синхронизацию T033–T037 с GitHub; прежнее разрешение production/release/tag/push/commit не переносится на A1.
+- A1 опубликован по отдельному разрешению в PR #6846. Для A2 текущий пользователь разрешил ветку, независимого рецензента, GitHub task sync, локальную реализацию и целевые тесты; не разрешил коммиты, push, merge, изменение защиты, Full CI или релиз.
 - Immutable-image pipeline может дать дополнительное ускорение, но требует отдельного решения по registry и secrets; он не нужен для устранения текущего дублирования тестов.
 - Плановые release-окна полезны для batching, но остаются рекомендацией; аварийный hotfix должен оставаться доступен.
 
 ## Legacy Impact
 
 - Classification: untouched
-- A1 introduces no compatibility alias, fallback command, dependency or retained legacy runtime path. Existing diagnostic lanes and production compatibility boundaries are unchanged; historical full-inside-execute notes are archival only.
+- A1/A2 introduce no compatibility alias, fallback command, dependency or retained legacy runtime path. A2 retains the current required gate as the mandatory first stage of a protected migration, not as a newly introduced legacy alternative. Existing diagnostic/production boundaries remain unchanged.

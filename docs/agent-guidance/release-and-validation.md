@@ -47,6 +47,20 @@ once before selected server tests with the same commands and scope; a static
 failure stops before those tests. PR text edits still trigger the combined
 workflow; separating them requires the protected migration in Feature 211.
 
+Feature 211 A2 adds `pr-metadata`, an additional, not-yet-required PR-only
+check. It checks the latest fetched title/body against matching PR number,
+head/base/ref and checkout, without product tests or Spec Kit installation.
+Its separate concurrency cancels only older metadata runs; a five-minute job
+limit excludes queue time. API/identity/history errors fail without fallback
+to stale event text. A snapshot PASS is not atomic merge-time approval;
+failed, skipped or cancelled runs are not a metadata PASS.
+
+The existing required `governance-fast`, edited-code reruns, merge-group path,
+receipts and release/closeout gates remain unchanged. Do not make `pr-metadata`
+required until merge-group, freshness/base-retarget, fork and closeout
+contracts pass live acceptance and the owner separately approves a verified
+required-check migration. No new user command or development stage is required.
+
 For an iterative macOS-only failure, manually dispatch `macos-diagnostic` on
 the exact SHA instead of rerunning `release-full`. It runs no server-full job,
 publishes no authoritative evidence and cannot approve a release. After the

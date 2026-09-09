@@ -1,5 +1,33 @@
 # Implementation Plan: Быстрый и доказуемый CI/CD
 
+## Active follow-up A2 — 2026-09-09
+
+**Feature/branch**: `211-optimize-ci-cd` on `6789-pr-metadata-check`, based on A1 commit `5b436a7a771bd2ff14f47df2e0e328678ad1b066`. The branch number is not a new Feature ID. A1 PR #6846 remains untouched; synchronization with current master is a later publication gate.
+**Scope**: US6, FR-019–FR-024, SC-012–SC-013. Additive PR metadata only; current combined workflow, receipts, release and closeout consumers stay unchanged.
+**Lane/authority**: high-risk-product (CI/governance). User approved local work and, after its validation, continuation with commit, synchronization with current master, push, draft PR and GitHub checks. No merge, protection update, Full CI or release. A1 stays unchanged in PR #6846; the new publication branch includes A1 + A2.
+**Technical context**: Python stdlib and existing Git/gh/pytest; GitHub-hosted Ubuntu; existing actions/checkout v4 pinned to its verified commit. No package installation, application data, new persistent evidence store or runtime dependency.
+
+### Constitution check before research and after design
+
+PASS: current A2 clarify defines scope and authority; spec/checklist/tasks/analyze/issue gates preceded code. No capture, consent, AI, storage, deletion, public distribution or production change. PR text remains untrusted data; only read permissions, no secrets, no privileged pull_request_target. Existing required checks and release evidence are retained. No principle amendment or legacy exception is needed. Independent requirements review passed 10/10, analyze and issue sync passed; T038–T042 are locally complete. Quickstart records tests/review/converge evidence; publication and live acceptance remain pending.
+
+### Design
+
+1. Add `--event <event.json> --current-pr <pr.json>` to existing `scripts/validate-pr-metadata.py`. Keep the body-file CLI, `validate()` contract and self-test compatible. The adapter validates object/field types, open state, matching positive PR number, full head/base SHAs, base ref and checkout HEAD before resolving a real Git diff. Parse NUL-delimited `git diff --name-only --no-renames -z base...head`, including both sides of renames/deletions. Derive Feature IDs using the same spec/changelog ownership rules; call existing `validate()` on current title/body.
+2. The current PR JSON is fetched once by authenticated `gh api` from the repository PR endpoint. Use current text even if event text differs; identity drift fails. The result covers that fetched snapshot, not a transactional guarantee against later edits. A stale same-SHA event cannot validate its older body instead of current data. No raw body/API response or token is printed.
+3. Add `.github/workflows/pr-metadata.yml`: `pull_request` to master with opened/synchronize/reopened/ready_for_review/edited, one unconditional `pr-metadata` job, five-minute timeout, exact head checkout with full history and no persisted credentials. Permissions are contents:read and pull-requests:read; token only on the API-fetch step. Separate `graf-pr-metadata-<PR number>` concurrency cancels only older runs of this workflow. Body/title never enter shell expressions. API failure is a hard failure with a bounded generic message.
+4. This is deliberately PR-only and non-required. Do not modify `.github/workflows/governance-fast.yml`, release workflows, branch protection or receipt/closeout validators. Keeping the combined metadata extractor temporarily avoids changing the current authoritative path during introduction; both paths share the same description validator, not a second set of rules.
+5. Add focused cases in `tests/governance/test_pr_metadata_event.py`, reuse existing validator tests in `test_validator_safety.py` and current workflow tests. Exercise actual new workflow shell with a local gh fixture and real Git, including API error, edited current text, fork metadata, invalid identity/JSON/types, scoped/multiple features and rename/deletion ownership. No real API writes, test database or product tests are needed.
+6. Add a concise additive-stage note to `docs/agent-guidance/release-and-validation.md` and extend the owned `changes/unreleased/F211.yaml` after issue sync. Record commands/evidence in quickstart. No new user skill, required development stage or installation command.
+
+### Gate for the later cutover (not authorized in A2)
+
+Before making pr-metadata required: implement and test merge_group metadata/identity, current-body freshness, base retargets and code evidence/closeout compatibility; obtain successful exact-input live checks on PRs (including external PRs) and merge groups. Separately authorize and verify both required contexts with strict base protection, without any gap. Only then remove edited-body code reruns; base retarget or changed integrated inputs still require code checks. Failed, missing, skipped, cancelled, stale or ambiguous results are not evidence. Existing Full CI/artifact trust is not broadened. No general result cache or new receipt scheme is introduced here.
+
+### Optional hooks
+
+`after_specify` / `after_plan` agent-context hooks are optional and not invoked: the ignored feature pointer routes this slice and root AGENTS stays stable. Documentation auto-commit hooks are disabled. Requirements review, task sync and its mandatory canon hooks remain separate explicit stages.
+
 ## Active follow-up A1 — 2026-09-09
 
 **Feature**: `211-optimize-ci-cd`; work branch `codex/reduce-delivery-overhead`.

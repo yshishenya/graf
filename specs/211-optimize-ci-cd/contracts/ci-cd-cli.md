@@ -57,3 +57,10 @@ Fast classification is bounded and truthful:
 Active operator guidance and templates may not contain `infra/scripts/ci-local.sh` without `--fast` or `--full`. Historical specs, release/deployment receipts and changelog facts are excluded from rewriting.
 
 Ordinary development uses local focused checks; GitHub `governance-fast` on the exact PR SHA is mandatory. Local wide fast is diagnostic/fallback, not a second routine gate. A1 keeps existing events, names, concurrency, permissions and required checks; PR text edits still trigger the current combined workflow.
+# A2 additive PR metadata entrypoint
+
+The existing `scripts/validate-pr-metadata.py <body> --feature-id ... --expected-sha ... --title ... [--scoped]` and `--self-test` remain compatible.
+
+New internal invocation: `python3 scripts/validate-pr-metadata.py --event <event.json> --current-pr <current-pr.json>`. Both files are required together and cannot be mixed with body-file options. Git runs from the checkout root. Exit 0 means the fetched open PR snapshot matches event/check-out identity and the existing metadata contract passes; nonzero means invalid inputs, identity/diff or description. No network access occurs inside the validator; the workflow fetches the current PR and fails on API errors without fallback.
+
+The additive workflow runs only PR events. It is not a required gate in A2, does not emit code/release evidence and must not replace governance-fast or qualify merge groups. Required-check activation is a later separately approved migration.

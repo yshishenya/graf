@@ -31,5 +31,6 @@
 
 ## Notes
 
+- A2 spec-quality revalidation, 2026-09-09: 16/16 criteria still satisfied for the additive scope; no marker changed. US6/FR-019–FR-024/SC-012–SC-013 define value, failures, measurable acceptance and migration exclusions. Independent A2 requirements review is separate and pending; historical A1/custom checklist marks do not approve A2.
 - Validation iteration 1 passed on 2026-08-30.
 - Immutable container image delivery is explicitly a separate architectural slice because registry and secret custody are not established requirements for removing the current duplicate full-CI run.

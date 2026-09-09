@@ -1,5 +1,13 @@
 # Research: Быстрый и доказуемый CI/CD
 
+## A2 decisions — 2026-09-09
+
+- **Decision**: introduce a PR-only additional check; do not modify the combined required workflow. Live branch protection currently requires `governance-fast` with `strict=true`. **Reason**: native skipped jobs may count as success, and a required check needs merge_group support before a merge-queue cutover. A2 therefore is not activation-ready. **Rejected**: conditionally skip the current required job or remove its edited event now. [GitHub required-check guidance](https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/troubleshooting-required-status-checks).
+- **Decision**: extend the existing validator with an event/current-PR adapter, retain body-file mode. Current head/base/ref/number must match event; validate current API title/body. **Reason**: a same-SHA edited event can carry stale text; SHA alone does not identify metadata. **Rejected**: copying the whole validator, trusting old event body or building a persistent cache. One API snapshot is explicitly not an atomic merge-time guarantee; later cutover requires live race/retarget acceptance.
+- **Decision**: exact head checkout, read-only token for gh API, pinned checkout v4 commit `11d5960a326750d5838078e36cf38b85af677262` (resolved from actions/checkout tag via GitHub API), independent concurrency. PR body/title stay in JSON, never shell interpolation; API response remains temporary and is not uploaded. **Reason**: preserve fork isolation and avoid script injection. No application secrets or pull_request_target. [GitHub secure use](https://docs.github.com/en/actions/reference/security/secure-use), [GitHub fork-token permissions](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax).
+- **Decision**: real Git diff with NUL-delimited paths and rename detection disabled. **Reason**: both removed and added ownership paths must count; a renamed spec cannot hide a Feature ID, and a newline in a filename must not invent another path. **Rejected**: infer feature solely from branch number/body or use moving origin/master.
+- **Boundary**: receipt expiry/ambiguity and merge-group/closeout consumers are unchanged in A2; compatibility work belongs before separately authorized required-check activation. This package neither reuses code-check success nor claims saved test runtime yet.
+
 ## A1 decisions — 2026-09-09
 
 The workflow records event `base_sha` but did not pass it to the runner, which defaults to moving `origin/master`. Reuse `GRAF_CI_BASE_REF` to bind selection to the recorded SHA; reject invalid/unavailable PR/MG bases before tests. Manual dispatch keeps null base and diagnostic semantics. Prove the real Git diff, not only YAML tokens.

@@ -2,6 +2,14 @@
 
 No application or production database changes are required. These are local operational entities.
 
+## PRMetadataSnapshot (A2, temporary only)
+
+- Event: positive integer PR number; head/base full commit SHAs; nonempty base ref.
+- Current API object: same number/head/base/ref, state=open, nonempty title/body; head repository may be a fork.
+- Checkout HEAD equals event head. Base/head share history; changed paths are computed from their merge base with NUL delimiters and without rename collapsing.
+- Current title/body are authoritative for this check even when event text differs. Unknown/invalid JSON shapes and changed identity fail. This is snapshot validation, not a new persistent receipt, cache or atomic merge authorization.
+- No full response/body/title is written into logs or Git. A failed fetch never falls back to event text. Only the temporary runner file holds the API response.
+
 ## ValidationLane
 
 - `name`: `fast` or `full`; focused validation remains a direct feature command.

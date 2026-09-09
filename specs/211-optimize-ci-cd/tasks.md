@@ -3,7 +3,7 @@
 **Input**: Design documents from `specs/211-optimize-ci-cd/`
 **Tests**: Required by FR-011 and the user request to re-check all behavior before rollout.
 
-**Current continuation**: A1, 2026-09-09. T001–T032 and their old full-inside-execute strategy below are historical, not current acceptance or release permission. Current work is T033–T037; GitHub authoritative full reuse is unchanged.
+**Current continuation**: A2, 2026-09-09, T038–T042. A1 T033–T037 is locally complete in draft PR #6846, not merged. T001–T032 and their old full-inside-execute strategy below are historical, not current acceptance or release permission. GitHub authoritative checks and full reuse are unchanged.
 
 ## Phase 1: Baseline and contract
 
@@ -91,3 +91,24 @@
 - Possible independent execution after T033: documentation review for T036 alongside workflow work, but no extra implementation agent is needed or authorized.
 - A1 is the independently deliverable minimum. A later code/metadata split needs its own reviewed tasks and confirmed required-check migration; no live settings change or skip shortcut here.
 - Issue owner for T033–T037: [#6845](https://github.com/yshishenya/graf/issues/6845), open; canon.ensure and canon.validate passed on 2026-09-09. A checked local task does not imply merged/released acceptance or authorize issue closure.
+
+## Phase 10: US6 — Отдельная проверка описания PR (A2, P1)
+
+**Prerequisites**: independent `checklists/pr-metadata.md` PASS 10/10; current A2 spec/plan/contracts; clean analyze and issue ownership before tests/code.
+**Independent acceptance**: executable CLI and workflow-shell checks with disposable Git repositories and synthetic API responses. Existing body-file CLI and mandatory workflow remain compatible. No real product tests or Full CI.
+
+- [X] T038 [US6] Добавить первый падающий сценарий event/current PR и совместимость старого CLI в `tests/governance/test_pr_metadata_event.py`; затем добавлять по одному следующему поведению перед соответствующей реализацией: устаревший текст, идентичность/типы, scoped/multiple features, удаления/переименования и ошибочная история (FR-020–FR-022, SC-012)
+- [X] T039 [US6] Добавить парные `--event` / `--current-pr` в `scripts/validate-pr-metadata.py`, проверить текущий открытый PR и checkout, получить точные NUL-separated пути `--no-renames` и переиспользовать `validate()` без изменения правил старого CLI; ошибки закрывают проверку без возврата к event body (FR-020–FR-022)
+- [X] T040 [US6] После падающей проверки реального shell добавить `.github/workflows/pr-metadata.yml`: PR-only события, current API snapshot, read-only права, закреплённый checkout, отдельная concurrency и timeout 5 минут; проверить API failure, fork payload и shell injection в `tests/governance/test_pr_metadata_event.py`, не менять `governance-fast.yml` (FR-019, FR-022–FR-024, SC-012–SC-013)
+- [X] T041 [US6] Описать дополнительную, ещё необязательную проверку и границу будущего переключения в `docs/agent-guidance/release-and-validation.md`, дополнить существующий `changes/unreleased/F211.yaml` и ссылки на issue в `specs/211-optimize-ci-cd/tasks.md` (FR-023–FR-024)
+
+## Phase 11: Проверка A2
+
+- [X] T042 Выполнить целевые тесты, статические проверки, review и converge по `specs/211-optimize-ci-cd/quickstart.md`; записать результаты и ограничения в quickstart и issue. Отдельно доказать совместимость прежнего CLI и неизменность обязательного workflow; не объявлять локальные проверки live acceptance, устранением повторов или разрешением на commit/merge/Full CI/release (SC-012–SC-013, FR-024)
+
+### A2 dependencies and acceptance mapping
+
+- Requirements PASS → tasks → clean analyze → issue sync → T038/T039 in small test–implementation loops → T040 → T041 → T042. No `[P]`: shared files and one implementation owner; no new setup, dependencies or generic receipt/cache machinery.
+- US6 scenarios 1/7: T040; 2/3/4/5: T038–T039; 6: T040; 8: T041–T042. FR-019: T040; FR-020/021: T038–T039; FR-022: T038–T040; FR-023: T040–T041; FR-024: T040–T042. SC-012/013: T042 with executable evidence from T038–T040.
+- Local implementation was the initial A2 delivery boundary. After validation the user approved publication and GitHub checks; required-check activation, merge-group support, freshness/retarget race acceptance, edited-code rerun removal, tracker closure and release remain separate, unapproved steps.
+- Issue owner for T038–T042: [#6850](https://github.com/yshishenya/graf/issues/6850), open. Canon hooks passed on 2026-09-09 after correcting the auto-created branch-reservation issue #6848 (missing T000 context and mismatched area). That reservation is not Feature 211 task ownership. Local checked tasks never imply merged/live acceptance or issue closure.

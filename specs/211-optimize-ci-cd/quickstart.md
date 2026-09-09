@@ -1,5 +1,52 @@
 # Quickstart: проверка быстрого и доказуемого CI/CD
 
+## Publication continuation — 2026-09-09
+
+After the local A2 result below, the user approved continuation with commit,
+synchronization with current master, push, draft PR and exact-input GitHub
+checks. Merge, required-check changes, real Full CI and release remain excluded.
+The PR includes the existing A1 and new A2; A1 PR #6846 stays unchanged.
+Below, the local-only permission/evidence statements describe the completed
+pre-publication stage, not a prohibition on this separately approved step.
+Final SHA/run evidence belongs in the PR/status comment, not a self-referential
+source commit. No new implementation requirement or review checkbox changed.
+
+## A2 focused acceptance — 2026-09-09
+
+Run from the separate A2 checkout on `6789-pr-metadata-check`, Feature 211. Use the existing pytest/Ruff tools; frozen Spec Kit checks require the existing isolated pinned Specify 1.0.1 environment, not the global 1.0.4. Do not modify global tools or project lock.
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 pytest -q tests/governance/test_pr_metadata_event.py tests/governance/test_governance_workflow.py --tb=short
+PYTHONDONTWRITEBYTECODE=1 pytest -q tests/governance/test_validator_safety.py -k pr_metadata --tb=short
+python3 scripts/validate-pr-metadata.py --self-test
+python3 scripts/validate-governance-workflow.py
+ruff check scripts/validate-pr-metadata.py tests/governance/test_pr_metadata_event.py
+actionlint .github/workflows/pr-metadata.yml .github/workflows/governance-fast.yml
+python3 scripts/check-development-process.py
+python3 scripts/validate-changelog-fragments.py
+python3 scripts/check_spec_kit_governance.py
+git diff --check
+git diff --exit-code -- .github/workflows/governance-fast.yml .github/workflows/release-full.yml
+```
+
+Expected: US6's current text/identity/failure/fork/scope scenarios pass against real disposable Git and local API fixtures; actual new workflow shell fails on an API error without executing product commands. Existing metadata body-file CLI and governance tests pass. New workflow has separate concurrency and read-only permissions; combined gate/release files stay unchanged.
+
+Local gate only: no commits, push/PR, real Full CI, protection settings or release. Live workflows/fork approvals, merge-group metadata, base-retarget/race acceptance, required-check activation and tracker closeout remain pending. Publication will require synchronization with current master without modifying A1 PR #6846; this branch currently depends on its commit. No claim that edited-code reruns are eliminated.
+
+### A2 local evidence — 2026-09-09
+
+- HEAD/base: `5b436a7a771bd2ff14f47df2e0e328678ad1b066` plus uncommitted A2 changes on `6789-pr-metadata-check`; this is not a committed candidate or exact-SHA GitHub approval.
+- Test-first evidence: the initial event-mode/old-CLI test failed before the adapter; six workflow/shell cases failed before the new YAML. Follow-up regressions exposed scoped empty-title acceptance, trailing-newline feature misclassification and oversized-number traceback; all corrected in the event adapter without changing `validate()` or old CLI semantics.
+- Final pytest 9.1.1: **65 passed** in 10 seconds approximately (44 new event/workflow cases plus 21 existing workflow cases); **7 passed** existing metadata cases. All selected tests ran. Actual new workflow shell used real disposable Git and a local fake API; no product tests, database or network request was made by these tests.
+- Evidence covers stale event/current text in both directions; invalid identities/types/JSON/history/checkout; explicit scoped and multi-feature rules; deletion/rename ownership and moving default branch; newline filenames, long numeric values and command-looking text; positive old feature/scoped CLI compatibility.
+- Ruff, actionlint, PR metadata self-test, existing workflow validator, changelog fragments, development-process and whitespace: PASS. Frozen Spec Kit governance: PASS using existing isolated Specify 1.0.1; global tools and project lock unchanged.
+- Initial development-process check rejected inherited A1 paths missing from the local ownership pointer. The ignored pointer now enumerates the same Feature 211's inherited A1 paths because that validator checks the cumulative branch diff against master; the A1 files themselves are byte-for-byte unchanged from this branch base.
+- Independent requirements review: 10/10; clean pre-implementation analyze covered all six new FRs, two SCs and eight US6 scenarios. Local code review found no remaining blocking issue. Simplicity review removed unused test options and needless Git setup for CLI-argument errors; no new dependency, cache or receipt mechanism.
+- Canon hooks: PASS after correcting the automatically created branch-reservation issue #6848's task context/area. [#6850](https://github.com/yshishenya/graf/issues/6850) owns T038–T042; 268 open Spec Kit issues checked. Both records remain open, not completed by local evidence.
+- `governance-fast.yml`, `release-full.yml`, their validators/receipt/closeout consumers, root AGENTS, installed skills and protection settings were not changed by A2. The concurrency and fork checks here establish local workflow contracts, not live GitHub cancellation/approval behavior.
+- Not run: real Full CI, GitHub PR/merge-group execution of A2, application/runtime acceptance, deployment or release. No repository commit, push, PR creation, merge or tag; temporary Git fixture commits are test data only. Old edited-code reruns remain.
+- A2 converge: 6 FRs, 2 SCs, 8 US6 scenarios, 6 plan decisions and 7 constitution principles assessed (product-only principles unchanged/not exercised). Findings: missing/partial/contradictory/unrequested 0; CRITICAL/HIGH/MEDIUM/LOW 0. No convergence tasks appended; tasks digest before/after converge remained `80ce1c97a5df7576880cc2997b924a6edb1d91dafc92f3ee39526f20df1e0dea`. Subsequent checkbox updates record local completion only.
+
 Run from the repository root. A1 is local focused validation only: no real Full CI, deploy, release or live branch-protection changes.
 
 ## A1 focused acceptance — 2026-09-09
