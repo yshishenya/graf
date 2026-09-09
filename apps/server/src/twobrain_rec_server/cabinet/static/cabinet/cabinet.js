@@ -8004,7 +8004,7 @@
         try {
           const response = await fetch(form.action, {
             method: "POST", body: new FormData(form), credentials: "same-origin",
-            headers: { Accept: "application/json" }, signal: controller.signal,
+            headers: { Accept: "application/json", "X-CSRF-Token": csrfToken }, signal: controller.signal,
           });
           if (!current()) return false;
           const data = await response.clone().json().catch(() => ({}));

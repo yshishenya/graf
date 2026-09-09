@@ -40,6 +40,7 @@ ${ready ? '<div data-speaker-timeline-shell>' : ''}<div data-speaker-timeline da
       if (route.request().headers()['hx-request']) await fragmentGate;
       if (route.request().url().endsWith('/title')) {
         titleSaves++;
+        assert.equal(route.request().headers()['x-csrf-token'], 'synthetic-csrf');
         assert.match(route.request().postData(), /Saved draft/);
         assert.match(route.request().postData(), /v1/);
         return route.fulfill({ json: { meeting_id: 'meeting', title: 'Saved draft', title_version: 'v2' } });
@@ -55,6 +56,7 @@ ${ready ? '<div data-speaker-timeline-shell>' : ''}<div data-speaker-timeline da
       const initPlaybackRecoveryPolling = () => {}, initSpeakerNameForms = () => {};
       const processingTranscriptReady = () => true;
       const clearMeetingHistoryCache = () => {};
+      const csrfToken = 'synthetic-csrf';
       const processingSummaryState = projection => projection.summary_status || 'generating', processingSummaryPending = () => true;
       const processingProjectionMatchesDetail = () => true, recoverMeetingDetailFromResponse = async () => false;
       const stopProcessingRecoveryCountdown = () => {}, stopProcessingRecoveryPolling = () => {};
