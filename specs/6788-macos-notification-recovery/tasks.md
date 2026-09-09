@@ -49,8 +49,8 @@ read отдельно от resolved. FR008–009, SC004–005.
 
 ## Phase 7: Validation and closeout
 
-- [ ] T014 Выполнить quickstart в единственном GRAF Dev и записать точный SHA/результаты/исключённый VoiceOver в specs/6788-macos-notification-recovery/validation.md.
-- [ ] T015 Завершить независимый code/Ponytail review, convergence, changes/unreleased/F6788.yaml и готовый PR с governance-fast и точным source SHA; записать evidence в specs/6788-macos-notification-recovery/validation.md.
+- [X] T014 Выполнить quickstart в единственном GRAF Dev и записать точный SHA/результаты/исключённый VoiceOver в specs/6788-macos-notification-recovery/validation.md.
+- [X] T015 Завершить независимый code/Ponytail review, convergence, changes/unreleased/F6788.yaml и готовый PR с governance-fast и точным source SHA; записать evidence в specs/6788-macos-notification-recovery/validation.md.
 
 ## Dependencies and strategy
 
@@ -116,4 +116,4 @@ T023 использует nullable summary_status в существующем Me
 
 - [X] T030 [US2] Исправить контекстный вход «Автоопределение встреч» в apps/macos/RecApp/App/TwoBrainRecApp.swift на существующую нативную вкладку автозаписи; выполнить регрессию настоящего callback в AppLifecycleWindowRegressionTests.swift, отрицательную проверку старого кода и установленное AX-нажатие после обновления Dev. FR-003/FR-004, независимый review; неверный openSettings(nil) направлял в общий кабинет. (Issue #6841)
 
-- [ ] T031 [US1] Заменить большой запрос F214 компактной карточкой по наблюдённому Krisp в apps/macos/RecApp/App/TwoBrainRecApp.swift; переиспользовать якорь существующего меню в apps/macos/RecApp/Sources/Calendar/CalendarTray.swift, сохранить решения/таймер/клавиатуру и отсутствие постоянного окна. До кода независимый review FR015/SC009; после — исполняемая геометрия в apps/macos/Shared/Tests/AppLifecycleWindowRegressionTests.swift, существующие F214 tests и установленный Dev. (Issue #6842)
+- [X] T031 [US1] Заменить большой запрос F214 компактной карточкой по наблюдённому Krisp в apps/macos/RecApp/App/TwoBrainRecApp.swift; переиспользовать якорь существующего меню в apps/macos/RecApp/Sources/Calendar/CalendarTray.swift, сохранить решения/таймер/клавиатуру и отсутствие постоянного окна. До кода независимый review FR015/SC009; после — исполняемая геометрия в apps/macos/Shared/Tests/AppLifecycleWindowRegressionTests.swift, существующие F214 tests и установленный Dev. (Issue #6842)
