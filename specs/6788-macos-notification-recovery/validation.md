@@ -694,3 +694,14 @@ Lane: corrective validation in active Spec Kit slice, T015; runtime/миграц
 
 Независимый code/Ponytail review подтвердил: P0/P1/P2 нет, незаявленные политики не разрешены, security boundaries и реальные отрицательные проверки сохранены.
 Дополнительно test_meeting_comments_api_review.py:5PASS, включая действительную ограниченную PostgreSQL роль и отрицательные проверки editor marker/grant/identity.
+
+### Последовательная проверка общей роли — продолжение T015
+
+Full CI34366898800 на64a504169b81e68361b086759632124d6734170e:macOS876tests/1SKIP/0FAIL и ContractValidationPASS; server parallel4253PASS/1FAIL/39SKIP. Comments merge test удалял cluster-wide twobrain_rec_app, пока другая worker DB clean_gw3 ещё ссылалась на неё: DependentObjectsStillExistError. Performance/strict фазы этого прогона не запускались. Кандидат остаётся NO-GO.
+
+Корень: test_meeting_comments_merge_review импортирует exact-role helper, но не наследует module pytestmark его исходного файла. Независимый review обнаружил аналогичный пропуск в test_billing_rls: два exact-role caller также выполнялись параллельно, поскольку pytest_plugins не переносит module marker. Его модуль также перенесён в strict_rls. Все callers helper проверены по репозиторию. Минимальная правка переносит эти два модуля в существующую последовательную фазу через pytest.mark.strict_rls; тело, assertions, runtime и DDL не меняются. Это corrective validation существующей T015, без новой функции/инфраструктуры.
+
+Весь strict_rls после переноса:56PASS/1прежнийSKIP/4293deselected; ранее отсутствовавший тест собран ровно один раз в strict selection. Ruff изменённого файлаPASS. Новый full нужен после review, governance-fast и merge; старые public/Dev receipts остаются привязаны к64a504169b81.
+
+После независимого замечания и переноса billing-модуля:весь strict_rls66PASS/1прежнийSKIP/4283deselected; обе перемещённые группы содержат11tests в strict selection. Полная collection-only проверка штатного runner:4350tests, прежний digest a0c12da7a297babc0a2796739e3ad3c2cd2aa20bc0a4d0683d8bfd0d7b506155; объединение фаз совпадает, потерь нет. Контракт CI/CD58PASS; Ruff, development-process и diff-checkPASS.
+Повторный независимый code/Ponytail review:прежнее P2 закрыто, P0/P1/P2 нет. Все прямые exact-role callers находятся в трёх помеченных модулях; assertions и lifecycle роли не изменены, skips не добавлены.

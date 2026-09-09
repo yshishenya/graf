@@ -41,6 +41,8 @@ from twobrain_rec_server.db.tenant_context import (
 )
 
 pytest_plugins = ("tests.integration.test_rls_postgres_policies",)
+# Imported fixtures do not inherit the plugin module's cluster-wide role marker.
+pytestmark = pytest.mark.strict_rls
 
 
 def test_all_billing_tables_are_in_tenant_policy_inventory() -> None:

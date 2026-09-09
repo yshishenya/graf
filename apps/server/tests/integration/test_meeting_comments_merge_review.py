@@ -2,6 +2,7 @@
 
 from uuid import uuid4
 
+import pytest
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -26,6 +27,9 @@ from twobrain_rec_server.db.models import (
     Workspace,
 )
 from twobrain_rec_server.db.tenant_context import AccountMergeTenantContext, apply_tenant_context
+
+# The exact application role is cluster-wide, so use the existing serial RLS phase.
+pytestmark = pytest.mark.strict_rls
 
 
 def test_comments_merge_with_proof_and_deny_missing_proof(client):
