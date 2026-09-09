@@ -75,14 +75,14 @@
 **Prerequisites**: reviewed `checklists/ci-feedback.md` (8/8); current spec/plan/quickstart. Clean analyze and GitHub issue ownership must precede tests/code changes.
 **Independent acceptance**: exact event-base behavior in disposable Git repositories, unchanged server static/test scope with early failure, consistent focused/GitHub-fast instructions. No actual Full CI or deployment.
 
-- [X] T033 [US5] Добавить сначала падающие проверки event-base/default-base расхождения, недоступной базы, PR/MG/dispatch, ранних lint/compile и остановки до server tests в `apps/server/tests/contract/test_ci_cd_contract.py` и `tests/governance/test_governance_workflow.py`; использовать существующие identity tests и `run_stubbed_ci` (FR-015–FR-016, SC-010)
-- [X] T034 [US5] Связать реальный diff с `identity.base_sha` через `GRAF_CI_BASE_REF`, блокировать недоступную event base до тестов и закрепить контракт в `.github/workflows/governance-fast.yml` и `scripts/validate-governance-workflow.py`; сохранить diagnostic dispatch, события, права, имена, concurrency и terminal evidence (FR-015, FR-018)
-- [X] T035 [US5] Перенести прежние команды server lint/compile до выбранных серверных тестов fast/full в `infra/scripts/ci-local.sh` без изменения области, performance/RLS и терминальных результатов (FR-016)
-- [X] T036 [US5] Согласовать локальные focused и обязательный GitHub fast в `docs/agent-guidance/spec-kit-flow.md`, `docs/agent-guidance/release-and-validation.md`, проверить `.github/pull_request_template.md`; зафиксировать изменения и ограничения в `changes/unreleased/F211.yaml` (FR-008, FR-010, FR-017–FR-018)
+- [X] T033 [US5] Добавить сначала падающие проверки event-base/default-base расхождения, недоступной базы, PR/MG/dispatch, ранних lint/compile и остановки до server tests в `apps/server/tests/contract/test_ci_cd_contract.py` и `tests/governance/test_governance_workflow.py`; использовать существующие identity tests и `run_stubbed_ci` (FR-015–FR-016, SC-010) (Issue #6845)
+- [X] T034 [US5] Связать реальный diff с `identity.base_sha` через `GRAF_CI_BASE_REF`, блокировать недоступную event base до тестов и закрепить контракт в `.github/workflows/governance-fast.yml` и `scripts/validate-governance-workflow.py`; сохранить diagnostic dispatch, события, права, имена, concurrency и terminal evidence (FR-015, FR-018) (Issue #6845)
+- [X] T035 [US5] Перенести прежние команды server lint/compile до выбранных серверных тестов fast/full в `infra/scripts/ci-local.sh` без изменения области, performance/RLS и терминальных результатов (FR-016) (Issue #6845)
+- [X] T036 [US5] Согласовать локальные focused и обязательный GitHub fast в `docs/agent-guidance/spec-kit-flow.md`, `docs/agent-guidance/release-and-validation.md`, проверить `.github/pull_request_template.md`; зафиксировать изменения и ограничения в `changes/unreleased/F211.yaml` (FR-008, FR-010, FR-017–FR-018) (Issue #6845)
 
 ## Phase 9: Проверка A1
 
-- [X] T037 Выполнить focused/static проверки из `specs/211-optimize-ci-cd/quickstart.md`, сверить spec/plan/tasks/code и сохранить результаты в этой quickstart; явно оставить GitHub PR/full/release gates и tracker closeout ожидающими, без нового SC-009 замера и без заявления об устранении edited-повторов (SC-010–SC-011, FR-011–FR-012, FR-018)
+- [X] T037 Выполнить focused/static проверки из `specs/211-optimize-ci-cd/quickstart.md`, сверить spec/plan/tasks/code и сохранить результаты в этой quickstart; явно оставить GitHub PR/full/release gates и tracker closeout ожидающими, без нового SC-009 замера и без заявления об устранении edited-повторов (SC-010–SC-011, FR-011–FR-012, FR-018) (Issue #6845)
 
 ### A1 dependencies and incremental strategy
 
@@ -97,14 +97,14 @@
 **Prerequisites**: independent `checklists/pr-metadata.md` PASS 10/10; current A2 spec/plan/contracts; clean analyze and issue ownership before tests/code.
 **Independent acceptance**: executable CLI and workflow-shell checks with disposable Git repositories and synthetic API responses. Existing body-file CLI and mandatory workflow remain compatible. No real product tests or Full CI.
 
-- [X] T038 [US6] Добавить первый падающий сценарий event/current PR и совместимость старого CLI в `tests/governance/test_pr_metadata_event.py`; затем добавлять по одному следующему поведению перед соответствующей реализацией: устаревший текст, идентичность/типы, scoped/multiple features, удаления/переименования и ошибочная история (FR-020–FR-022, SC-012)
-- [X] T039 [US6] Добавить парные `--event` / `--current-pr` в `scripts/validate-pr-metadata.py`, проверить текущий открытый PR и checkout, получить точные NUL-separated пути `--no-renames` и переиспользовать `validate()` без изменения правил старого CLI; ошибки закрывают проверку без возврата к event body (FR-020–FR-022)
-- [X] T040 [US6] После падающей проверки реального shell добавить `.github/workflows/pr-metadata.yml`: PR-only события, current API snapshot, read-only права, закреплённый checkout, отдельная concurrency и timeout 5 минут; проверить API failure, fork payload и shell injection в `tests/governance/test_pr_metadata_event.py`, не менять `governance-fast.yml` (FR-019, FR-022–FR-024, SC-012–SC-013)
-- [X] T041 [US6] Описать дополнительную, ещё необязательную проверку и границу будущего переключения в `docs/agent-guidance/release-and-validation.md`, дополнить существующий `changes/unreleased/F211.yaml` и ссылки на issue в `specs/211-optimize-ci-cd/tasks.md` (FR-023–FR-024)
+- [X] T038 [US6] Добавить первый падающий сценарий event/current PR и совместимость старого CLI в `tests/governance/test_pr_metadata_event.py`; затем добавлять по одному следующему поведению перед соответствующей реализацией: устаревший текст, идентичность/типы, scoped/multiple features, удаления/переименования и ошибочная история (FR-020–FR-022, SC-012) (Issue #6850)
+- [X] T039 [US6] Добавить парные `--event` / `--current-pr` в `scripts/validate-pr-metadata.py`, проверить текущий открытый PR и checkout, получить точные NUL-separated пути `--no-renames` и переиспользовать `validate()` без изменения правил старого CLI; ошибки закрывают проверку без возврата к event body (FR-020–FR-022) (Issue #6850)
+- [X] T040 [US6] После падающей проверки реального shell добавить `.github/workflows/pr-metadata.yml`: PR-only события, current API snapshot, read-only права, закреплённый checkout, отдельная concurrency и timeout 5 минут; проверить API failure, fork payload и shell injection в `tests/governance/test_pr_metadata_event.py`, не менять `governance-fast.yml` (FR-019, FR-022–FR-024, SC-012–SC-013) (Issue #6850)
+- [X] T041 [US6] Описать дополнительную, ещё необязательную проверку и границу будущего переключения в `docs/agent-guidance/release-and-validation.md`, дополнить существующий `changes/unreleased/F211.yaml` и ссылки на issue в `specs/211-optimize-ci-cd/tasks.md` (FR-023–FR-024) (Issue #6850)
 
 ## Phase 11: Проверка A2
 
-- [X] T042 Выполнить целевые тесты, статические проверки, review и converge по `specs/211-optimize-ci-cd/quickstart.md`; записать результаты и ограничения в quickstart и issue. Отдельно доказать совместимость прежнего CLI и неизменность обязательного workflow; не объявлять локальные проверки live acceptance, устранением повторов или разрешением на commit/merge/Full CI/release (SC-012–SC-013, FR-024)
+- [X] T042 Выполнить целевые тесты, статические проверки, review и converge по `specs/211-optimize-ci-cd/quickstart.md`; записать результаты и ограничения в quickstart и issue. Отдельно доказать совместимость прежнего CLI и неизменность обязательного workflow; не объявлять локальные проверки live acceptance, устранением повторов или разрешением на commit/merge/Full CI/release (SC-012–SC-013, FR-024) (Issue #6850)
 
 ### A2 dependencies and acceptance mapping
 
