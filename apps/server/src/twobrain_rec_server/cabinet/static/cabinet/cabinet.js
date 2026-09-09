@@ -1510,7 +1510,10 @@
       controls.hidden = name !== "outcomes";
       if (controls.hidden) {
         const popover = controls.querySelector("[data-summary-format-popover]");
-        if (popover) popover.hidden = true;
+        if (popover) {
+          if (popover.matches(":popover-open")) popover.hidePopover();
+          popover.hidden = true;
+        }
         controls.querySelector("[data-summary-format-button]")?.setAttribute("aria-expanded", "false");
         const info = controls.querySelector(".summary-format-info");
         if (info) info.open = false;
@@ -2363,7 +2366,10 @@
     detail.dataset.processingReplacementActive = replacementActive ? "true" : "false";
     if (replacementActive) {
       const popover = detail.querySelector("[data-summary-format-popover]");
-      if (popover) popover.hidden = true;
+      if (popover) {
+        if (popover.matches(":popover-open")) popover.hidePopover();
+        popover.hidden = true;
+      }
       detail.querySelector("[data-summary-format-button]")?.setAttribute("aria-expanded", "false");
     }
     updateProcessingExportVisibility(transcriptReady);
@@ -3279,6 +3285,7 @@
       const options = () => Array.from(listbox.querySelectorAll('[role="option"]'));
       const visibleOptions = () => options().filter((option) => !option.disabled && !option.closest("[hidden]"));
       const close = ({ restoreFocus = true } = {}) => {
+        if (popover.matches(":popover-open")) popover.hidePopover();
         popover.hidden = true;
         button.setAttribute("aria-expanded", "false");
         if (restoreFocus && button.isConnected) button.focus({ preventScroll: true });
@@ -3294,13 +3301,17 @@
       };
       const sizePopover = () => {
         if (popover.hidden) return;
+        const anchor = button.getBoundingClientRect();
+        const scale = anchor.width / button.offsetWidth || 1;
+        popover.style.maxHeight = `${Math.max(0, Math.min(440, (window.innerHeight - 24) / scale))}px`;
         const bounds = popover.getBoundingClientRect();
-        const scale = bounds.width / popover.offsetWidth || 1;
-        popover.style.maxHeight = `${Math.max(0, Math.min(440, (window.innerHeight - bounds.top - 12) / scale))}px`;
+        popover.style.left = `${Math.max(12, Math.min(anchor.left, window.innerWidth - bounds.width - 12)) / scale}px`;
+        popover.style.top = `${Math.max(12, Math.min(anchor.bottom + 7, window.innerHeight - bounds.height - 12)) / scale}px`;
       };
       const open = (full = false) => {
         if (info) info.open = false;
         popover.hidden = false;
+        if (!popover.matches(":popover-open")) popover.showPopover();
         button.setAttribute("aria-expanded", "true");
         listbox.querySelectorAll("[data-summary-format-extra]").forEach((option) => { option.hidden = !full; });
         if (personalHost) personalHost.hidden = !full || !personalHost.children.length;
@@ -4097,6 +4108,7 @@
           loadStatus.hidden = !back || back.hidden;
         } finally {
           personalLoading = false;
+          if (controls.isConnected) sizePopover();
         }
       };
       const applyServerCandidate = (candidate) => {
@@ -4182,6 +4194,7 @@
         }, 0);
       });
       window.addEventListener("resize", sizePopover);
+      document.addEventListener("scroll", sizePopover, true);
       document.addEventListener("click", (event) => {
         if (!popover.hidden && event.target instanceof Node && !controls.contains(event.target)) {
           close({ restoreFocus: false });

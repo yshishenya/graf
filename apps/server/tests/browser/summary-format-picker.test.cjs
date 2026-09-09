@@ -140,6 +140,14 @@ const maliciousName = '<img src=x onerror=alert(1)> Личный формат с
     await page.keyboard.press('Escape');
     await page.evaluate(() => { document.documentElement.style.zoom = ''; });
     await button.click(); await all.click();
+    // The installed cabinet clips main above the player. The menu must escape both layers.
+    await page.locator('.detail-page-main').evaluate(el => { el.style.height = '450px'; el.style.overflow = 'hidden'; });
+    await page.locator('.detail-playback').evaluate(el => { el.style.cssText += ';position:fixed;bottom:0;height:380px;z-index:100;width:100%'; });
+    const footer = page.locator('[data-summary-format-settings]');
+    assert(await footer.evaluate(el => {
+      const r = el.getBoundingClientRect();
+      return el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2));
+    }), 'catalog footer must remain clickable above the clipping main and player');
     await personal.click();
     await page.waitForFunction(() => !document.querySelector('[data-summary-format-button]').disabled);
     assert.equal(writes.length, 1, 'one personal selection creates one request');

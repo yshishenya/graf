@@ -650,10 +650,9 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
 .summary-format-popover {
   display: flex;
   flex-direction: column;
-  position: absolute;
-  z-index: 40;
-  top: calc(100% + 7px);
-  left: 0;
+  position: fixed;
+  inset: auto;
+  margin: 0;
   width: min(288px, calc(100vw - 36px));
   max-height: min(440px, 60dvh);
   overflow-y: auto;

@@ -166,15 +166,6 @@ def test_meeting_detail_renders_the_selected_summary_slot_after_reload(client) -
     assert f'data-current-outcome-set-id="{selected_outcome_set_id}"' in html
 
 
-def test_summary_selector_stays_clickable_above_fixed_player() -> None:
-    css = CABINET_CSS.read_text(encoding="utf-8")
-    listbox = css.split(".summary-format-popover {", 1)[1].split("}", 1)[0]
-    player = css.split(".playback-bar {", 1)[1].split("}", 1)[0]
-
-    assert "z-index: 40" in listbox
-    assert "z-index: 30" in player
-
-
 def test_full_format_catalog_marks_and_describes_current_format_after_quick_four(client) -> None:
     meeting_id = seed_cabinet_meetings(client).ready_id
 
