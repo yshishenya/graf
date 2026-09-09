@@ -5628,7 +5628,7 @@
             ![0, 1, 5].includes(prefs.offsetMinutes) || typeof snapshot.canEdit !== 'boolean' ||
             typeof snapshot.canRequestPermission !== 'boolean' || typeof snapshot.permission !== 'string') throw new Error('unsupported');
         confirmed = snapshot; render(snapshot);
-        status.textContent = snapshot.error || (!snapshot.canEdit ? 'Войдите в GRAF и обновите страницу, чтобы изменить настройки.' : action === 'read' ? '' : snapshot.message || 'Готово.');
+        status.textContent = snapshot.error || (!snapshot.canEdit ? 'Войдите в GRAF и обновите страницу, чтобы изменить настройки.' : snapshot.message || (action === 'read' ? '' : 'Готово.'));
         retry.hidden = !snapshot.error;
         reload.hidden = snapshot.canEdit;
       } catch (_) {

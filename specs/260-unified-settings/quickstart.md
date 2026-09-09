@@ -20,7 +20,7 @@ swift test --package-path apps/macos --filter 'EmbeddedCabinetRecordingSettingsB
 Визуальная матрица продукта: 820×600, 1024×768, 1440×900, responsive 320/390/768 px, 200%, обе темы, длинные имена, keyboard/VoiceOver/forced-colors/reduced-motion. Никакого наложения/горизонтальной прокрутки; имя/правило доступны для всего допустимого реестра.
 
 ## Native / closeout
-Прочитать docs/agent-guidance/local-development.md. Только `/Applications/GRAF Dev.app` через harness status → build → promote → status → smoke; чистый авторизованный commit и точный SHA. Не запускать новую копию/swift run и не менять подпись/TCC. Проверить все точки входа, резерв без кабинета, возврат, реальное разрешение macOS и безопасную синтетическую запись. Отдельно фиксировать browser, WebKit и GRAF Dev.
+Прочитать docs/agent-guidance/local-development.md. Только `/Applications/GRAF Dev.app` через harness status → build → promote → status → smoke; чистый авторизованный commit и точный SHA. Не запускать новую копию/swift run и не менять подпись/TCC. Проверить все точки входа, резерв без кабинета, возврат и реальное разрешение macOS. Для FR-006 выполнить CaptureIndicatorTests, CaptureSessionSafetyTests и CaptureControlV5Tests вместе с notification-sound проверками и установленной навигацией/native controls. Независимая проверка diff 2026-09-09 подтвердила неизменность аудиотракта: новая реальная запись для PR не требуется; сквозной аудиоцикл этим не принимается. Отдельно фиксировать browser, WebKit и GRAF Dev.
 
 До closeout: reviewer checklists, analyze, canonical issue sync; после реализации — Ponytail review, convergence, required fast/governance-fast точного SHA. Full CI и выпуск — отдельный release gate. На этапе проекта продуктовые тесты и CI не доказываются проверками макета.
 

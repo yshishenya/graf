@@ -33,6 +33,7 @@ final class EmbeddedCabinetNotificationSettingsBridgeTests: XCTestCase {
         _ = try await web.evaluateJavaScript("const sound=document.querySelector('[data-local-notification-field=sound]');sound.focus();sound.checked=true;sound.dispatchEvent(new Event('change',{bubbles:true}));")
         try await wait("!document.querySelector('[data-local-notification-controls]').disabled", web)
         XCTAssertTrue(presenter.preferences.sound)
+        try await wait("document.querySelector('[data-local-notification-status]').textContent === 'Сохранено на этом Mac'", web)
         XCTAssertFalse(presenter.preferences.showTitles)
         var value = presenter.preferences; value.showTitles = true; presenter.save(value)
         try await wait("document.querySelector('[data-local-notification-field=showTitles]').checked", web)
