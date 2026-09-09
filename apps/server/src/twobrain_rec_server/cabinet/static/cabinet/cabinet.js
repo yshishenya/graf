@@ -1509,8 +1509,8 @@
     if (controls) {
       controls.hidden = name !== "outcomes";
       if (controls.hidden) {
-        const listbox = controls.querySelector("[data-summary-format-listbox]");
-        if (listbox) listbox.hidden = true;
+        const popover = controls.querySelector("[data-summary-format-popover]");
+        if (popover) popover.hidden = true;
         controls.querySelector("[data-summary-format-button]")?.setAttribute("aria-expanded", "false");
         const info = controls.querySelector(".summary-format-info");
         if (info) info.open = false;
@@ -2361,6 +2361,11 @@
       && !terminalProcessing
       && (projectionState !== "processed" || !replacementPublished);
     detail.dataset.processingReplacementActive = replacementActive ? "true" : "false";
+    if (replacementActive) {
+      const popover = detail.querySelector("[data-summary-format-popover]");
+      if (popover) popover.hidden = true;
+      detail.querySelector("[data-summary-format-button]")?.setAttribute("aria-expanded", "false");
+    }
     updateProcessingExportVisibility(transcriptReady);
     detail.dataset.processingRetryClass = String(projection?.retry_class || "none");
     detail.dataset.processingSummaryStatus = processingSummaryState(projection);
@@ -3246,7 +3251,15 @@
       const status = document.querySelector("[data-summary-candidate-status]");
       const statusLive = status?.querySelector("[data-summary-candidate-live]");
       const statusActions = status?.querySelector("[data-summary-candidate-actions]");
-      const dialog = document.querySelector("[data-summary-format-dialog]");
+      const popover = controls.querySelector("[data-summary-format-popover]");
+      const allFormats = controls.querySelector("[data-summary-format-all]");
+      const back = controls.querySelector("[data-summary-format-back]");
+      const settings = controls.querySelector("[data-summary-format-settings]");
+      const description = controls.querySelector("[data-summary-format-description]");
+      const personalHost = controls.querySelector("[data-summary-personal-options]");
+      const loadStatus = controls.querySelector("[data-summary-format-load-status]");
+      let personalLoading = false;
+      let personalLoaded = false;
       const meetingId = controls.dataset.meetingId || "";
       const candidateStorageKey = `graf-summary-candidate-${meetingId}`;
       let currentOutcomeSetId = controls.dataset.currentOutcomeSetId || null;
@@ -3261,22 +3274,45 @@
       let candidateRequestGeneration = 0;
       let candidateRequestInFlightGeneration = null;
       const acceptedFocusKey = `graf-summary-focus-${meetingId}`;
-      if (!button || !listbox) return;
+      if (!button || !listbox || !popover) return;
       controls.dataset.summaryFormatReady = "true";
       const options = () => Array.from(listbox.querySelectorAll('[role="option"]'));
+      const visibleOptions = () => options().filter((option) => !option.disabled && !option.closest("[hidden]"));
       const close = ({ restoreFocus = true } = {}) => {
-        listbox.hidden = true;
+        popover.hidden = true;
         button.setAttribute("aria-expanded", "false");
-        if (restoreFocus) button.focus({ preventScroll: true });
+        if (restoreFocus && button.isConnected) button.focus({ preventScroll: true });
       };
-      const open = () => {
+      const focusOption = (option) => {
+        options().forEach((item) => { item.tabIndex = item === option ? 0 : -1; });
+        option?.focus({ preventScroll: true });
+        option?.scrollIntoView({ block: "nearest" });
+      };
+      const focusCurrentFormat = () => {
+        const items = visibleOptions();
+        focusOption(items.find((item) => item.getAttribute("aria-selected") === "true") || items[0]);
+      };
+      const sizePopover = () => {
+        if (popover.hidden) return;
+        const bounds = popover.getBoundingClientRect();
+        const scale = bounds.width / popover.offsetWidth || 1;
+        popover.style.maxHeight = `${Math.max(0, Math.min(440, (window.innerHeight - bounds.top - 12) / scale))}px`;
+      };
+      const open = (full = false) => {
         if (info) info.open = false;
-        listbox.hidden = false;
+        popover.hidden = false;
         button.setAttribute("aria-expanded", "true");
-        const selected = listbox.querySelector('[role="option"][aria-selected="true"]');
-        (selected || options()[0])?.focus({ preventScroll: true });
+        listbox.querySelectorAll("[data-summary-format-extra]").forEach((option) => { option.hidden = !full; });
+        if (personalHost) personalHost.hidden = !full || !personalHost.children.length;
+        if (allFormats) allFormats.hidden = full;
+        if (back) back.hidden = !full;
+        if (settings) settings.hidden = !full;
+        if (loadStatus) loadStatus.hidden = !full || !loadStatus.textContent;
+        sizePopover();
+        focusCurrentFormat();
       };
       const setBusy = (busy) => {
+        if (busy) close({ restoreFocus: false });
         button.disabled = busy;
         if (refreshButton) refreshButton.disabled = busy;
         controls.setAttribute("aria-busy", busy ? "true" : "false");
@@ -3462,19 +3498,9 @@
         }
         return null;
       };
-      const focusCurrentDialogFormat = () => {
-        const current = dialog?.querySelector(
-          '[data-summary-format-current], [data-summary-format-option][aria-current="true"]'
-        );
-        (current || dialog?.querySelector("[data-summary-format-option]"))?.focus({ preventScroll: true });
-      };
       const openFormatPicker = () => {
-        if (dialog instanceof HTMLDialogElement) {
-          dialog.showModal();
-          focusCurrentDialogFormat();
-        } else {
-          open();
-        }
+        open(true);
+        void loadPersonalFormats();
       };
       const retryTerminalCandidateAction = (code = "") => retryCandidateAction(code);
       const templateFromCandidate = (candidate) => {
@@ -4017,54 +4043,61 @@
         version: Number(option.dataset.templateVersion || "1"),
         name: option.dataset.templateName || option.textContent.trim()
       });
-      const candidateSectionLabels = new Map([
-        ["summary", "Кратко"],
-        ["action_items", "Действия"],
-        ["decisions", "Решения"],
-        ["key_points", "Ключевые пункты"],
-        ["followups", "Следующие шаги"],
-        ["risks", "Риски"],
-        ["questions", "Вопросы"],
-        ["evidence", "Подтверждения"]
-      ]);
       const personalFormatOption = (template) => {
         const option = document.createElement("button");
         const safeName = typeof template.name === "string" && template.name.trim()
           ? template.name.trim()
           : "Личный формат";
-        const sections = Array.isArray(template.sections)
-          ? template.sections
-              .filter((section) => typeof section === "string" && section.trim())
-              .map((section) => candidateSectionLabels.get(section) || section)
-          : [];
         option.type = "button";
+        option.tabIndex = -1;
+        option.setAttribute("role", "option");
+        option.setAttribute("aria-describedby", "summary-format-description");
         option.dataset.summaryFormatOption = "";
         option.dataset.templateId = template.template_id || "";
         option.dataset.templateKey = template.template_key || "";
         option.dataset.templateVersion = String(Number(template.version) || 1);
         option.dataset.templateName = safeName;
-        const name = document.createElement("strong");
+        option.dataset.templatePurpose = typeof template.purpose === "string" && template.purpose.trim()
+          ? template.purpose.trim() : "Личный формат итогов";
+        const icon = document.createElement("span");
+        icon.className = "summary-format-icon";
+        icon.setAttribute("aria-hidden", "true");
+        icon.textContent = "▤";
+        const name = document.createElement("span");
+        name.className = "summary-format-name";
         name.textContent = safeName;
-        const purpose = document.createElement("span");
-        purpose.textContent = typeof template.purpose === "string" && template.purpose.trim()
-          ? template.purpose.trim()
-          : "Назначение личного формата не указано.";
-        const expectedSections = document.createElement("small");
-        expectedSections.textContent = `Ожидаемые разделы: ${sections.length ? sections.join(", ") : "не указаны"}`;
-        option.append(name, purpose, expectedSections);
-        const isCurrent = option.dataset.templateKey === (controls.dataset.currentSummaryFormatKey || "")
-          && option.dataset.templateId === (controls.dataset.currentSummaryFormatTemplateId || "")
-          && Number(option.dataset.templateVersion)
-            === Number(controls.dataset.currentSummaryFormatVersion || "0");
-        option.setAttribute("aria-current", isCurrent ? "true" : "false");
-        if (isCurrent) {
-          option.dataset.summaryFormatCurrent = "";
-          const marker = document.createElement("small");
-          marker.className = "summary-format-current";
-          marker.textContent = "Текущий формат";
-          option.append(marker);
-        }
+        const marker = document.createElement("span");
+        marker.className = "summary-format-check";
+        marker.setAttribute("aria-hidden", "true");
+        marker.textContent = "✓";
+        option.append(icon, name, marker);
+        option.setAttribute("aria-selected", isCurrentFormat(templateFrom(option)) ? "true" : "false");
         return option;
+      };
+      const loadPersonalFormats = async () => {
+        if (!personalHost || personalLoading || personalLoaded) return;
+        personalLoading = true;
+        if (loadStatus) {
+          loadStatus.textContent = "Загружаем личные форматы…";
+          loadStatus.hidden = false;
+        }
+        try {
+          const response = await fetch("/api/v1/cabinet/summary-templates", { credentials: "same-origin", cache: "no-store" });
+          if (!response.ok) throw new Error("personal_formats_unavailable");
+          const templates = await response.json();
+          if (!controls.isConnected) return;
+          const personal = Array.isArray(templates.personal) ? templates.personal : [];
+          personalHost.replaceChildren(...personal.filter((template) => template && typeof template === "object").map(personalFormatOption));
+          personalHost.hidden = !back || back.hidden || !personalHost.children.length;
+          personalLoaded = true;
+          if (loadStatus) { loadStatus.textContent = ""; loadStatus.hidden = true; }
+        } catch (_error) {
+          if (!controls.isConnected || !loadStatus) return;
+          loadStatus.textContent = "Личные форматы не загрузились. Откройте «Все форматы» ещё раз или перейдите в настройки.";
+          loadStatus.hidden = !back || back.hidden;
+        } finally {
+          personalLoading = false;
+        }
       };
       const applyServerCandidate = (candidate) => {
         currentOutcomeSetId = candidate.current_outcome_set_id || currentOutcomeSetId;
@@ -4074,7 +4107,7 @@
           pollingTimer = window.setTimeout(() => pollCandidate(candidate), 1200);
         }
       };
-      button.addEventListener("click", () => listbox.hidden ? open() : close());
+      button.addEventListener("click", () => popover.hidden ? open() : close());
       info?.addEventListener("toggle", () => {
         if (info.open) close({ restoreFocus: false });
       });
@@ -4085,7 +4118,7 @@
           event.stopPropagation();
           info.open = false;
           info.querySelector("summary")?.focus({ preventScroll: true });
-        } else if (!listbox.hidden) {
+        } else if (!popover.hidden) {
           event.preventDefault();
           event.stopPropagation();
           close();
@@ -4095,33 +4128,27 @@
         if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
         event.preventDefault();
         open();
-        const items = options();
+        const items = visibleOptions();
         const target = event.key === "ArrowUp" || event.key === "End"
           ? items[items.length - 1]
           : items[0];
-        target?.focus({ preventScroll: true });
+        focusOption(target);
       });
       listbox.addEventListener("keydown", (event) => {
         const option = event.target.closest?.('[role="option"]');
         if (!option) return;
-        if (event.key === "Escape") {
-          event.preventDefault();
-          event.stopPropagation();
-          close();
-          return;
-        }
         if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
         event.preventDefault();
-        const items = options();
+        const items = visibleOptions();
         const current = items.indexOf(option);
         const next = event.key === "Home" ? 0
           : event.key === "End" ? items.length - 1
           : (current + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
-        items[next]?.focus({ preventScroll: true });
+        focusOption(items[next]);
       });
       listbox.addEventListener("click", (event) => {
         const option = event.target.closest?.("[data-summary-format-option]");
-        if (!option) return;
+        if (!option || option.disabled || button.disabled || option.closest("[hidden]")) return;
         close();
         const template = templateFrom(option);
         if (isCurrentFormat(template)) {
@@ -4130,50 +4157,33 @@
         }
         requestTemplateVariant(template);
       });
-      const allFormats = listbox.querySelector("[data-summary-format-all]");
-      const closeDialog = () => {
-        if (!(dialog instanceof HTMLDialogElement)) return;
-        dialog.close();
-        button.focus({ preventScroll: true });
-      };
-      allFormats?.addEventListener("click", async () => {
-        close({ restoreFocus: false });
-        if (!(dialog instanceof HTMLDialogElement)) return;
-        dialog.showModal();
-        focusCurrentDialogFormat();
-        const personalHost = dialog.querySelector("[data-summary-personal-options]");
-        try {
-          const response = await fetch("/api/v1/cabinet/summary-templates", { credentials: "same-origin", cache: "no-store" });
-          if (!response.ok) return;
-          const templates = await response.json();
-          if (!personalHost || !templates.personal?.length) return;
-          personalHost.hidden = false;
-          personalHost.replaceChildren(...templates.personal.map(personalFormatOption));
-          if (dialog.open) focusCurrentDialogFormat();
-        } catch (_error) {
-          // Built-in formats remain usable when the optional personal list cannot refresh.
-        }
-      });
-      dialog?.querySelector("[data-summary-format-dialog-close]")?.addEventListener("click", closeDialog);
-      dialog?.addEventListener("cancel", (event) => {
+      popover.addEventListener("pointerdown", (event) => {
+        const target = event.target.closest?.("button, a");
+        if (!target || target.disabled || event.button !== 0) return;
+        // WebKit does not focus buttons on click; keep the menu focus inside until selection.
         event.preventDefault();
-        closeDialog();
+        target.focus({ preventScroll: true });
       });
-      dialog?.addEventListener("keydown", (event) => trapModalFocus(dialog, event));
-      dialog?.addEventListener("click", (event) => {
-        if (event.target === dialog) closeDialog();
+      allFormats?.addEventListener("click", openFormatPicker);
+      back?.addEventListener("click", () => open());
+      const describeOption = (event) => {
         const option = event.target.closest?.("[data-summary-format-option]");
-        if (!option) return;
-        closeDialog();
-        const template = templateFrom(option);
-        if (isCurrentFormat(template)) {
-          showCurrentFormatAction(template);
-          return;
+        if (!option || !description) return;
+        description.textContent = option.dataset.templatePurpose || "Личный формат итогов";
+        if (event.type === "focusin") {
+          options().forEach((item) => { item.tabIndex = item === option ? 0 : -1; });
         }
-        requestTemplateVariant(template);
+      };
+      listbox.addEventListener("focusin", describeOption);
+      listbox.addEventListener("mouseover", describeOption);
+      controls.addEventListener("focusout", () => {
+        window.setTimeout(() => {
+          if (!popover.hidden && !popover.contains(document.activeElement) && document.activeElement !== button) close({ restoreFocus: false });
+        }, 0);
       });
+      window.addEventListener("resize", sizePopover);
       document.addEventListener("click", (event) => {
-        if (!listbox.hidden && event.target instanceof Node && !controls.contains(event.target)) {
+        if (!popover.hidden && event.target instanceof Node && !controls.contains(event.target)) {
           close({ restoreFocus: false });
         }
         if (info?.open && event.target instanceof Node && !info.contains(event.target)) info.open = false;

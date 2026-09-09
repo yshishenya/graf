@@ -5,6 +5,7 @@ from uuid import UUID
 from sqlalchemy import select
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
+from tests.contract.test_meeting_detail_reference_contract import Elements
 from tests.fakes.auth_contexts import USER_ID, WORKSPACE_ID
 from tests.fakes.fake_temporal import FakeTemporalClient
 from tests.fixtures.cabinet import create_outcome_ready_meeting, seed_cabinet_meetings
@@ -50,17 +51,21 @@ def test_summary_selector_keeps_auto_four_recommendations_and_all_formats(client
 
     assert response.status_code == 200
     html = response.text
-    listbox = html.split('id="summary-format-listbox"', 1)[1].split("</div>", 1)[0]
-    assert 'data-summary-format-button aria-haspopup="listbox"' in html
-    assert 'data-summary-format-listbox data-recommended-limit="4" role="listbox"' in html
-    assert listbox.count("data-summary-format-option") == 4
-    assert "<strong>Авто</strong>" in listbox
-    assert "<span>" in listbox
-    assert listbox.count("Ожидаемые разделы:") == 4
-    assert '<small class="summary-format-current">Текущий формат</small>' in listbox
-    assert "Все форматы…" in listbox
-    assert 'role="option"' in listbox
-    assert 'aria-selected="true"' in listbox
+    dom = Elements(html)
+    listbox = dom.with_attr("data-summary-format-listbox")[0]
+    options = dom.with_attr("data-summary-format-option")
+    assert listbox[1]["role"] == "listbox"
+    assert len(options) == 9
+    assert len([option for option in options if "hidden" not in option[1]]) == 4
+    assert all(listbox in option[2] for option in options)
+    assert all(option[1]["role"] == "option" for option in options)
+    assert all(option[1]["aria-describedby"] == "summary-format-description" for option in options)
+    assert all(option[1].get("data-template-purpose") for option in options)
+    assert sum(option[1].get("aria-selected") == "true" for option in options) == 1
+    assert "Ожидаемые разделы:" not in html
+    assert "Текущий формат" not in html
+    assert "Все форматы…" in html
+    assert not dom.with_attr("data-summary-format-dialog")
     assert "Расшифровка готова. Выберите формат, чтобы подготовить итоги." in html
     assert "после проверки они появятся здесь автоматически" not in html
 
@@ -163,7 +168,7 @@ def test_meeting_detail_renders_the_selected_summary_slot_after_reload(client) -
 
 def test_summary_selector_stays_clickable_above_fixed_player() -> None:
     css = CABINET_CSS.read_text(encoding="utf-8")
-    listbox = css.split(".summary-format-listbox {", 1)[1].split("}", 1)[0]
+    listbox = css.split(".summary-format-popover {", 1)[1].split("}", 1)[0]
     player = css.split(".playback-bar {", 1)[1].split("}", 1)[0]
 
     assert "z-index: 40" in listbox
@@ -187,17 +192,16 @@ def test_full_format_catalog_marks_and_describes_current_format_after_quick_four
 
     assert response.status_code == 200
     html = response.text
-    dialog = html.split('data-summary-all-options', 1)[1].split(
-        'data-summary-personal-options', 1
-    )[0]
-    assert dialog.count("data-summary-format-option") == 9
-    assert dialog.count("Ожидаемые разделы:") == 9
-    current_key = 'data-template-key="graf-weekly-team-meeting-v1"'
-    key_index = dialog.index(current_key)
-    current_option = dialog[dialog.rfind("<button", 0, key_index) : dialog.index("</button>", key_index)]
-    assert 'aria-current="true"' in current_option
-    assert "data-summary-format-current" in current_option
-    assert '<small class="summary-format-current">Текущий формат</small>' in current_option
+    dom = Elements(html)
+    options = dom.with_attr("data-summary-format-option")
+    assert len(options) == 9
+    current_option = next(option for option in options if
+        option[1]["data-template-key"] == "graf-weekly-team-meeting-v1")
+    assert current_option[1]["aria-selected"] == "true"
+    assert "hidden" in current_option[1]
+    assert "data-summary-format-extra" in current_option[1]
+    assert current_option[1]["data-template-purpose"]
+    assert "Ожидаемые разделы:" not in html
 
 
 def test_personal_template_management_lives_in_settings_not_quick_selector(client) -> None:
@@ -368,26 +372,17 @@ def test_full_catalog_focus_and_personal_format_details_are_bounded_and_safe() -
     personal = script[
         script.index("const personalFormatOption") : script.index("const applyServerCandidate")
     ]
-    loaded_personal = script[
-        script.index("personalHost.replaceChildren") : script.index(
-            "} catch (_error)", script.index("personalHost.replaceChildren")
-        )
-    ]
-
-    assert "focusCurrentDialogFormat();" in script
-    assert "[data-summary-format-current]" in script
-    assert 'option.setAttribute("aria-current", isCurrent ? "true" : "false")' in personal
+    assert "focusCurrentFormat" in script
+    assert 'option.setAttribute("role", "option")' in personal
+    assert 'option.setAttribute("aria-selected"' in personal
     assert "template.purpose" in personal
-    assert "template.sections" in personal
-    assert "Назначение личного формата не указано." in personal
-    assert 'sections.length ? sections.join(", ") : "не указаны"' in personal
     assert "name.textContent = safeName" in personal
-    assert "purpose.textContent" in personal
+    assert "templatePurpose" in personal
     assert "innerHTML" not in personal
-    assert loaded_personal.index("personalHost.replaceChildren") < loaded_personal.index(
-        "focusCurrentDialogFormat();"
-    )
-    assert "if (dialog.open) focusCurrentDialogFormat();" in script
+    assert "Ожидаемые разделы:" not in personal
+    picker = script[script.index("const initSummaryFormats"):script.index("const initSummaryTemplateSettings")]
+    assert "showModal" not in picker
+    assert "trapModalFocus" not in picker
 
 
 def test_candidate_history_has_a_bounded_recovery_action() -> None:
@@ -1422,10 +1417,9 @@ def test_summary_selector_keyboard_focus_and_candidate_projection_are_simple(cli
     for key in ("ArrowUp", "ArrowDown", "Home", "End", "Escape"):
         assert key in script
     assert "button.focus({ preventScroll: true })" in script
-    assert "target?.focus({ preventScroll: true })" in script
-    assert "focusCurrentDialogFormat();" in script
-    assert "[data-summary-format-current]" in script
-    assert "trapModalFocus(dialog, event)" in script
+    assert "focusCurrentFormat" in script
+    assert "visibleOptions" in script
+    assert "data-summary-format-popover" in script
     assert 'role="status" aria-live="polite" aria-atomic="true"' in template
     assert ".summary-format-toolbar {\n  display: flex;\n  flex-wrap: wrap;" in styles
     assert ".summary-candidate-status {" in styles

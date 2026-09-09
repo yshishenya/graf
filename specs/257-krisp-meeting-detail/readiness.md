@@ -13,3 +13,22 @@ SC-003 независимо принят: одинаковая AX-опора 204
 Окончательные статусы, команды и границы доказательств — [validation/closeout.md](validation/closeout.md), история FAIL→исправление→повтор — [validation/ui-matrix.md](validation/ui-matrix.md). Старые CI и установки не квалифицируют новый SHA. T001–T010 выполнены. GitHub governance-fast продуктового 4273ab [PASS](https://github.com/yshishenya/graf/actions/runs/34287778786); для итогового документационного коммита проверка повторяется перед снятием draft.
 
 Новые редакторы, AI Chat, папки и назначаемые задачи исключены пользователем. Провайдер AI в Dev отключён: реальный отказ с сохранением документа не называется успешной генерацией. F256 владеет плеером, F6788 — нативной навигацией и уведомлениями; эти продуктовые функции не включены в PR F257. Чужие изменения общих инструментов сохранены вне коммитов. Full CI/release-full, merge, production и выпуск не выполнялись.
+
+
+## Готовность дополнения выбора формата — 2026-09-09
+
+Требования FR-020–024, R53/R54, уточнение, plan/contracts/quickstart и T012–T015 готовы. Независимый reviewer: `checklists/format-picker-ux.md`8/8 PASS; analyze CRITICAL0/HIGH0/MEDIUM0, coverage5/5. Mandatory ensure PASS; новые задачи #6854–6857 имеют четыре уникальных владельца, обратное чтение и scoped `validate_issue`4/4 PASS. Можно начинать T012/T013. Глобальный mandatory validate выполнен, но FAIL на несвязанной F6790 #6852; это исходный дефект трекера, основной агент принял ограниченный gate F257 без правки чужой задачи.
+
+Код, runtime, GRAF Dev и новый SHA этим заключением не проверены. T012–T015 открыты. Историческая приёмка выше не распространяется на дополнение. Коммит/установка не выполнены; T015 явно сохраняет отдельные разрешения и гейты.
+
+Дополнительная локальная проверка `check_spec_kit_governance.py` запущена: FAIL окружения bootstrap frozen doctor — установлен specify1.0.4/ref cb610277 вместо закреплённого1.0.1/ref9118ed15, состояние github-issue-canon отличается от lock. Lock/toolchain этим дополнением не менялись. Это не PASS repository governance; требуется устранить/повторить перед PR.
+
+`git diff --check` и `python3 scripts/validate-changelog-fragments.py`: PASS. Повторное обратное чтение #6854–6857 после уточнения путей T012: scoped validate4/4 PASS.
+
+
+## Промежуточная проверка реализации — 2026-09-09
+
+Независимый review нашёл P2 видимости назначения; причина устранена отдельной прокруткой списка, повторное чтение PASS. Duplicate Escape удалён. Продуктовых пробелов FR-020–024 в прочитанном объёме не выявлено; документационные названия initSummaryFormats/data-summary-format-extra приведены к реализации без изменения требований. Результаты178PASS/3FAIL/1SKIP и повтор исправленных3PASS, baseline15PASS, scoped16PASS/1SKIP записаны раздельно в validation/format-picker.md со ссылкой на сообщение исполнителя. Browser ещё выполняется; T014/T015 остаются открытыми. Tasks при промежуточном converge не менялись.
+
+
+Итог дополнения: T012–T014 выполнены локально, Chromium/WebKit PASS, review/Ponytail исправления проверены, Ruff/node/diff/changelog PASS. Подробности и границы пересекающихся наборов — validation/format-picker.md. T015 и issue closeout открыты: новый коммит/PR/current-SHA governance, установленный GRAF Dev и полная приёмка не выполнены. Прежние ограничения local governance/глобального canon выше не скрыты.

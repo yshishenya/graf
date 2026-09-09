@@ -57,3 +57,17 @@ T009: установленный7f391 — штатные build/promote/status/sm
 ## Phase 6 — Convergence перед выпуском
 
 - [X] T011 Обновлять состояние замены записи до события доступности экспорта в `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`; проверить начало замены и окончательный отказ в `apps/server/tests/contract/test_cabinet_static_assets_contract.py` согласно FR-018 и plan:replacement-active (partial). Источник — review PR #6826 от 2026-09-09. (Issue #6836)
+
+
+## Phase 7 — US2: компактный выбор формата, дополнение 2026-09-09
+
+Подготовка дополнения: FR-020–024, R53/R54, plan/contracts/quickstart; отдельные reviewer/analyze и issue sync фиксируются в readiness.md. Старые T001–T011 не переоткрываются и не являются evidence нового интерфейса.
+
+- [X] T012 [US2] Добавить исполняемые проверки немодального picker, quick/all/back, видимых option, фокуса/Tab/Escape и неизменного submit/current/busy в `apps/server/tests/browser/summary-format-picker.test.cjs` (pytest entrypoint в `apps/server/tests/contract/test_meeting_detail_reference_contract.py`); обновить пять существующих contract suites, `apps/server/tests/contract/test_summary_template_ui_contract.py`, `apps/server/tests/contract/test_meeting_detail_reference_contract.py`, `apps/server/tests/contract/test_cabinet_static_assets_contract.py`, `apps/server/tests/contract/test_graf_ux_ui_contract.py`, `apps/server/tests/contract/test_recording_workflow_accessibility.py` (FR-020–024, SC-005). (Issue #6854)
+- [X] T013 [US2] Заменить тяжёлые строки и отдельный каталог одной компактной панелью со списком, общей подсказкой назначения и All/Back в `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/meeting_detail_content.html`, `cabinet/static/cabinet/cabinet.js`, `cabinet/static/cabinet/cabinet.css`, сохранив генерацию и личные форматы (FR-020–024). (Issue #6855)
+- [X] T014 [US2] Выполнить focused suites и synthetic Chromium/WebKit, клавиатуру, темы,390/768/1024/1440 и200%; зафиксировать результаты и ограничения в `specs/257-krisp-meeting-detail/validation/format-picker.md` (FR-020–024, SC-001/004/005). (Issue #6856)
+- [ ] T015 [US2] После одобрения коммита проверить точный SHA через штатный dev-harness и единственный GRAF Dev, провести review/converge/current-SHA governance-fast и сверить tasks/issues; записать evidence в `specs/257-krisp-meeting-detail/validation/format-picker.md` и `changes/unreleased/F257.yaml` (FR-014/018, SC-001/002/005). (Issue #6857)
+
+Зависимости: review/analyze/issue sync → T012 → T013 → T014 → T015. Коммит, установка и выпуск не считаются разрешёнными старой исторической приёмкой. Без соответствующего разрешения T015 остаётся открытой с конкретной причиной.
+
+Локальное выполнение T012–T014 принято 2026-09-09 после Chromium/WebKit, focused тестов и review; evidence: `validation/format-picker.md`. Issues #6854–6856 остаются открыты до PR/merge и проверенного closeout; T015 сохраняет установленную приёмку и exact-SHA gates.

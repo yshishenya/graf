@@ -4946,7 +4946,7 @@ def test_feature_191_shared_button_contract_keeps_actions_centered_and_on_one_li
     assert ".calendar-section-head > .button { align-self: flex-start; }" in calendar_reflow
     for compound_action in [
         ".meeting-action-item {",
-        ".summary-format-grid > button,\n.summary-personal-formats > button {",
+        ".summary-format-popover :is(button, .summary-format-settings-link) {",
         ".calendar-provider-button {",
         ".share-recipient-results button { display: grid;",
         ".sidebar-profile__trigger {\n  width: 100%;",
