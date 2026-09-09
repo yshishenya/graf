@@ -3,9 +3,17 @@
 <main data-hx-history="false" id="cabinet-main" class="main detail-page-main" tabindex="-1" data-cabinet-embedded="{{ 'true' if embedded else 'false' }}" data-meeting-id="{{ meeting_id }}" data-media-revision-id="{{ media_revision_id }}" data-local-media-revision-id="{{ local_media_revision_id }}" data-processing-status-url="{% if media_revision_id %}/api/v1/meetings/{{ meeting_id }}/processing{% endif %}" data-processing-check-url="{% if media_revision_id %}/api/v1/meetings/{{ meeting_id }}/processing/check{% endif %}" data-processing-attempt-url="{% if media_revision_id %}/api/v1/meetings/{{ meeting_id }}/processing/attempt{% endif %}" data-processing-reprocess-url="{% if reprocess_available %}/api/v1/meetings/{{ meeting_id }}/processing/reprocess{% endif %}" data-processing-workflow-id="{{ processing_workflow_id }}" data-processing-attempt-ordinal="{{ processing_attempt_ordinal }}" data-processing-reprocess-available="{{ 'true' if reprocess_available else 'false' }}" data-processing-replacement-active="{{ 'true' if replacement_active else 'false' }}" data-processing-published-attempt="{{ processing_published_attempt }}" data-playback-poll-url="{{ playback_poll_url }}" data-playback-poll-active="{{ playback_poll_active }}" data-processing-state="{{ processing_state }}" data-processing-reason-code="{{ processing_reason_code }}" data-stored-outcomes-available="{{ 'true' if stored_outcomes_available else 'false' }}">
   <p class="sr-only" id="playback-live-status" data-playback-live-status role="status" aria-live="polite" aria-atomic="true">{{ playback_live_label }}</p>
   <div class="meeting-detail-header" data-meeting-detail-header>
-    <div class="topline">
+    <div class="meeting-detail-actions">
+      <a class="meeting-detail-back" href="{{ base_path }}" aria-label="Мои встречи" title="Мои встречи"><span aria-hidden="true">‹</span></a>
+      <div class="action-row">
+        {{ top_actions }}
+        {% if more_actions_available %}
+          {% include "cabinet/fragments/meeting_governance.html" %}
+        {% endif %}
+      </div>
+    </div>
+    <div class="meeting-detail-identity">
       <div class="page-title">
-        <div class="crumbs"><a href="{{ base_path }}">Мои встречи</a></div>
         {% if title_version %}
         <form class="meeting-title-editor" data-meeting-title-form data-confirmed-title="{{ meeting_title }}" method="post" action="{{ base_path }}/{{ meeting_id }}/title">
           <input type="hidden" name="csrf_token" value="{{ title_csrf_token }}">
@@ -25,18 +33,48 @@
           <span>{{ meeting_date }}</span><span>·</span><span>{{ meeting_duration }}</span><span data-meeting-status-label>{{ status_label }}</span>
         </div>
       </div>
-      <div class="action-row">
-        {{ top_actions }}
-        {% if more_actions_available %}
-          {% include "cabinet/fragments/meeting_governance.html" %}
-        {% endif %}
-      </div>
     </div>
     <div id="meeting-share-host" data-share-dialog-host></div>
+    <div class="meeting-detail-navigation" data-meeting-detail-navigation>
     <div class="tabs meeting-detail-tabs" role="tablist" aria-label="Содержимое встречи">
       <button type="button" class="tab{% if outcomes_selected %} active{% endif %}" role="tab" id="detail-tab-outcomes" aria-selected="{{ 'true' if outcomes_selected else 'false' }}" aria-controls="detail-panel-outcomes" data-detail-tab="outcomes" tabindex="{{ '0' if outcomes_selected else '-1' }}">Итоги</button>
       <button type="button" class="tab{% if not outcomes_selected %} active{% endif %}" role="tab" id="detail-tab-recording" aria-selected="{{ 'false' if outcomes_selected else 'true' }}" aria-controls="detail-panel-recording" data-detail-tab="recording" tabindex="{{ '-1' if outcomes_selected else '0' }}">Расшифровка</button>
     </div>
+    {% if summary_controls_available %}
+      <div class="summary-format-toolbar" data-summary-format-controls{% if not outcomes_selected %} hidden{% endif %} data-meeting-id="{{ meeting_id }}" data-summary-result-state="{{ summary_lifecycle.result_state }}" data-summary-generation-state="{{ summary_lifecycle.generation_state }}" data-summary-source-state="{{ summary_lifecycle.source_state }}" data-summary-availability-state="{{ summary_lifecycle.availability_state }}" data-summary-reason-code="{{ summary_lifecycle.reason_code }}" data-current-outcome-set-id="{{ current_outcome_set_id }}" data-current-summary-format-key="{{ current_summary_format_key }}" data-current-summary-format-template-id="{{ current_summary_format_template_id }}" data-current-summary-format-version="{{ current_summary_format_version }}" data-current-template-id="{{ current_summary_format_id }}" data-current-template-key="{{ current_summary_format_key }}" data-current-template-version="{{ current_summary_format_version }}" data-current-template-name="{{ current_summary_format }}">
+        <div class="summary-format-picker">
+          <button type="button" class="summary-format-button" data-summary-format-button aria-haspopup="listbox" aria-controls="summary-format-listbox" aria-expanded="false" aria-describedby="summary-format-help">
+            <span><span class="sr-only">Формат: </span><strong data-summary-format-label>{{ current_summary_format }}</strong></span>
+            <span aria-hidden="true">⌄</span>
+          </button>
+          <span class="summary-format-pending" data-summary-pending-format-label hidden aria-hidden="true"></span>
+          <div id="summary-format-listbox" class="summary-format-listbox" data-summary-format-listbox data-recommended-limit="4" role="listbox" aria-label="Формат итогов" hidden>
+            {% for format in summary_formats[:4] %}
+            <button type="button" role="option" aria-selected="{{ 'true' if format.key == current_summary_format_key else 'false' }}" data-summary-format-option data-template-key="{{ format.key }}" data-template-version="{{ format.version }}" data-template-name="{{ format.name }}"><strong>{{ format.name }}</strong><span>{{ format.purpose }}</span><small>Ожидаемые разделы: {% for section in format.sections %}{{ summary_section_labels.get(section, section) }}{% if not loop.last %}, {% endif %}{% endfor %}</small>{% if format.key == current_summary_format_key %}<small class="summary-format-current">Текущий формат</small>{% endif %}</button>
+            {% endfor %}
+            <button type="button" class="summary-format-all" data-summary-format-all aria-haspopup="dialog" aria-controls="summary-format-dialog">Все форматы…</button>
+          </div>
+        </div>
+        <details class="summary-format-info">
+          <summary aria-label="Создание и обновление итогов" title="Создание и обновление итогов">?</summary>
+          <div class="summary-format-info-content">
+            <p class="summary-format-help" id="summary-format-help">{% if current_outcome_set_id %}Выбор другого формата создаст новую версию. Текущие итоги останутся доступны до полной проверки новой версии, после чего она заменит их автоматически.{% else %}Расшифровка уже готова. Создайте итоги — после проверки они появятся здесь автоматически.{% endif %}</p>
+            {% if current_outcome_set_id %}<button type="button" class="button quiet" data-summary-refresh-button>Обновить итоги</button>{% endif %}
+          </div>
+        </details>
+        {% if not current_outcome_set_id %}<button type="button" class="button quiet" data-summary-refresh-button aria-describedby="summary-format-help">Создать итоги</button>{% endif %}
+      </div>
+    {% endif %}
+    {% if content_export_available %}
+    <button type="button" class="meeting-detail-copy" data-detail-copy aria-describedby="detail-copy-status" hidden disabled>Копировать</button>
+    <p id="detail-copy-status" class="meeting-detail-copy-status" data-detail-copy-status role="status" aria-live="polite"></p>
+    {% endif %}
+    </div>
+    <noscript>
+      <nav class="meeting-detail-fallback" aria-label="Содержимое встречи"><a href="#detail-panel-outcomes">Итоги</a> · <a href="#detail-panel-recording">Расшифровка</a></nav>
+      {% for download in no_script_downloads %}<p><a href="{{ download.href }}">{{ download.label }}</a></p>{% endfor %}
+      {% if summary_controls_available %}<p class="muted">Для выбора формата и обновления итогов включите JavaScript. <a href="{{ summary_settings_href }}">Личные форматы</a></p>{% endif %}
+    </noscript>
   </div>
   <section class="detail-main">
     {{ calendar_context_chooser }}
@@ -74,40 +112,19 @@
     </section>
     {% endif %}
     <section class="tab-panel{% if outcomes_selected %} active{% endif %}" role="tabpanel" id="detail-panel-outcomes" aria-labelledby="detail-tab-outcomes" data-detail-panel="outcomes" data-summary-current-result tabindex="-1"{% if not outcomes_selected %} hidden{% endif %} data-summary-result-state="{{ summary_lifecycle.result_state }}" data-summary-generation-state="{{ summary_lifecycle.generation_state }}" data-summary-source-state="{{ summary_lifecycle.source_state }}" data-summary-availability-state="{{ summary_lifecycle.availability_state }}" data-summary-reason-code="{{ summary_lifecycle.reason_code }}">
-      {% if summary_controls_available %}
-      <div class="summary-format-toolbar" data-summary-format-controls data-meeting-id="{{ meeting_id }}" data-summary-result-state="{{ summary_lifecycle.result_state }}" data-summary-generation-state="{{ summary_lifecycle.generation_state }}" data-summary-source-state="{{ summary_lifecycle.source_state }}" data-summary-availability-state="{{ summary_lifecycle.availability_state }}" data-summary-reason-code="{{ summary_lifecycle.reason_code }}" data-current-outcome-set-id="{{ current_outcome_set_id }}" data-current-summary-format-key="{{ current_summary_format_key }}" data-current-summary-format-template-id="{{ current_summary_format_template_id }}" data-current-summary-format-version="{{ current_summary_format_version }}" data-current-template-id="{{ current_summary_format_id }}" data-current-template-key="{{ current_summary_format_key }}" data-current-template-version="{{ current_summary_format_version }}" data-current-template-name="{{ current_summary_format }}">
-        <h2>Итоги{% if summary_source_stale %} <span class="summary-source-stale-notice" data-summary-source-stale>По предыдущей версии расшифровки</span>{% endif %}</h2>
-        <div class="summary-format-picker">
-          <button type="button" class="summary-format-button" data-summary-format-button aria-haspopup="listbox" aria-controls="summary-format-listbox" aria-expanded="false">
-            <span>Формат: <strong data-summary-format-label>{{ current_summary_format }}</strong></span>
-            <span aria-hidden="true">⌄</span>
-          </button>
-          <span class="summary-format-pending" data-summary-pending-format-label hidden aria-hidden="true"></span>
-          <div id="summary-format-listbox" class="summary-format-listbox" data-summary-format-listbox data-recommended-limit="4" role="listbox" aria-label="Формат итогов" hidden>
-            {% for format in summary_formats[:4] %}
-            <button type="button" role="option" aria-selected="{{ 'true' if format.key == current_summary_format_key else 'false' }}" data-summary-format-option data-template-key="{{ format.key }}" data-template-version="{{ format.version }}" data-template-name="{{ format.name }}"><strong>{{ format.name }}</strong><span>{{ format.purpose }}</span><small>Ожидаемые разделы: {% for section in format.sections %}{{ summary_section_labels.get(section, section) }}{% if not loop.last %}, {% endif %}{% endfor %}</small>{% if format.key == current_summary_format_key %}<small class="summary-format-current">Текущий формат</small>{% endif %}</button>
-            {% endfor %}
-            <button type="button" class="summary-format-all" data-summary-format-all aria-haspopup="dialog" aria-controls="summary-format-dialog">Все форматы…</button>
-          </div>
-        </div>
-        <button type="button" class="button quiet" data-summary-refresh-button>{% if current_outcome_set_id %}Обновить итоги{% else %}Создать итоги{% endif %}</button>
-        <p class="summary-format-help">{% if current_outcome_set_id %}Выбор другого формата создаст новую версию. Текущие итоги останутся доступны до полной проверки новой версии, после чего она заменит их автоматически.{% else %}Расшифровка уже готова. Создайте итоги — после проверки они появятся здесь автоматически.{% endif %}</p>
-      </div>
-      {% else %}
       <h2 class="sr-only">Итоги</h2>
       {% if summary_source_stale %}
       <p class="cabinet-banner summary-source-stale-notice" role="status" data-summary-source-stale>По предыдущей версии расшифровки</p>
-      {% endif %}
       {% endif %}
       <div class="summary-candidate-status" data-summary-candidate-status hidden>
         <p class="summary-candidate-live" data-summary-candidate-live role="status" aria-live="polite" aria-atomic="true"></p>
         <div class="summary-candidate-actions" data-summary-candidate-actions></div>
       </div>
-      <button type="button" class="source-return" data-source-return hidden>Вернуться к итогам</button>
       <div class="processing-summary-status" data-processing-summary-status role="status" aria-live="off" aria-atomic="true" hidden></div>
       {{ outcomes }}
     </section>
     <section class="tab-panel{% if not outcomes_selected %} active{% endif %}" role="tabpanel" id="detail-panel-recording" aria-labelledby="detail-tab-recording" data-detail-panel="recording"{% if outcomes_selected %} hidden{% endif %}>
+      <button type="button" class="source-return" data-source-return hidden>Вернуться к итогам</button>
       {% if media_revision_id and not transcript_available and processing_state in ["processing", "submitted", "partial"] and processing_reason_code != "no_recognizable_speech" and transcript_degraded_reason in ["diarization_pending", "processing"] %}
       <div class="transcript-processing-placeholder" data-transcript-pending>
         <span>Здесь появится расшифровка.</span>

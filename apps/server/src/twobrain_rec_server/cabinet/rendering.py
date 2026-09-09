@@ -1185,6 +1185,21 @@ def _render_meeting_detail_content(
         ),
         outcomes_selected=outcomes_selected,
         content_export_available=content_export_available,
+        no_script_downloads=[
+            {
+                "label": "Скачать расшифровку" if artifact.artifact_class == "transcript" else "Скачать итоги",
+                "href": (
+                    f"{shared_api_root}/downloads/{artifact.artifact_class}{shared_query}"
+                    if shared_workspace_id is not None
+                    else f"/api/v1/cabinet/meetings/{review.meeting.meeting_id}/downloads/{artifact.artifact_class}"
+                ),
+            }
+            for artifact in review.artifacts
+            if artifact.artifact_class in {"transcript", "summary"}
+            and artifact.state == "available"
+            and artifact.action == "download"
+            and not replacement_active
+        ],
         meeting_details_available=meeting_details_available,
         more_actions_available=more_actions_available,
         meeting_id=review.meeting.meeting_id,
@@ -2665,7 +2680,7 @@ def _render_notes_outcomes(review: MeetingReviewResponse) -> str:
         )
     secondary_html = (
         f"""
-        <details class="notes-more">
+        <details class="notes-more" open>
           <summary>{secondary_label}</summary>
           <div class="notes-outcomes notes-secondary-outcomes" aria-label="Дополнительные разделы">
             {secondary_rows}

@@ -1924,7 +1924,8 @@ def test_detail_shell_renders_tabs_and_gated_actions() -> None:
 
     assert page.count("data-meeting-detail-header") == 1
     header = page.split("data-meeting-detail-header", 1)[1].split('class="detail-main"', 1)[0]
-    assert 'class="topline"' in header
+    assert 'class="meeting-detail-actions"' in header
+    assert 'class="meeting-detail-identity"' in header
     assert 'id="meeting-share-host"' in header
     assert header.count('role="tablist"') == 1
     assert "Итоги" in page
@@ -3559,7 +3560,7 @@ def test_120_meeting_detail_renders_one_accessible_metadata_only_export_dialog()
     assert 'class="primary" data-export-submit>Сохранить…</button>' in embedded_page
     assert "data-export-copy" in page
     assert "setBusy(true)" in _cabinet_js()
-    assert 'requestExport("txt")' in _cabinet_js()
+    assert 'requestExport("txt", selectedScope)' in _cabinet_js()
     assert "navigator.clipboard.writeText" in _cabinet_js()
     assert "subtitle_timing_unavailable" in _cabinet_js()
     assert "export_generation_failed" in _cabinet_js()

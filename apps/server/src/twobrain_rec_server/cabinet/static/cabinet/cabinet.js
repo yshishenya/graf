@@ -1505,6 +1505,18 @@
       panel.classList.toggle("active", selected);
       panel.hidden = !selected;
     });
+    const controls = document.querySelector("[data-summary-format-controls]");
+    if (controls) {
+      controls.hidden = name !== "outcomes";
+      if (controls.hidden) {
+        const listbox = controls.querySelector("[data-summary-format-listbox]");
+        if (listbox) listbox.hidden = true;
+        controls.querySelector("[data-summary-format-button]")?.setAttribute("aria-expanded", "false");
+        const info = controls.querySelector(".summary-format-info");
+        if (info) info.open = false;
+      }
+    }
+    document.querySelector(".detail-page-main")?.dispatchEvent(new Event("detail-tab-change"));
     if (updateUrl && ["outcomes", "recording"].includes(name)) {
       const hash = `#${name}`;
       if (window.location.hash !== hash) {
@@ -1673,16 +1685,8 @@
           scope.dispatchEvent(new Event("change"));
         }
       }
-      const submit = form.querySelector("[data-export-submit]");
-      const hasAvailableScope = Array.from(scope.options).some((option) => !option.disabled);
-      if (!hasAvailableScope) {
-        if (submit) submit.disabled = true;
-        form.dataset.processingNoAvailableScope = "true";
-      } else if (form.dataset.processingNoAvailableScope === "true") {
-        if (submit) submit.disabled = false;
-        delete form.dataset.processingNoAvailableScope;
-      }
       form.dataset.processingTranscriptVisible = transcriptVisible ? "true" : "false";
+      form.dispatchEvent(new Event("export-availability-change"));
     });
   };
 
@@ -2276,8 +2280,20 @@
     }
     const terminalProcessing = processingTerminalFailure(projection);
     if (pending) pending.hidden = transcriptVisible || terminalTranscript || terminalProcessing;
-    updateProcessingExportVisibility(transcriptReady);
     detail.dataset.processingTranscriptVisible = transcriptVisible ? "true" : "false";
+    const replacementAttempt = Number(
+      projection?.attempt_ordinal ?? detail.dataset.processingAttemptOrdinal ?? 0,
+    ) > 1 && (
+      projection?.content_available === true
+      || detail.dataset.processingTranscriptContentReady === "true"
+      || detail.dataset.processingTranscriptVisible === "true"
+    );
+    const replacementPublished = detail.dataset.processingPublishedAttempt === String(attemptOrdinal);
+    const replacementActive = replacementAttempt
+      && !terminalProcessing
+      && (projectionState !== "processed" || !replacementPublished);
+    detail.dataset.processingReplacementActive = replacementActive ? "true" : "false";
+    updateProcessingExportVisibility(transcriptReady);
     detail.dataset.processingRetryClass = String(projection?.retry_class || "none");
     detail.dataset.processingSummaryStatus = processingSummaryState(projection);
 
@@ -2327,19 +2343,7 @@
 
     const recovery = detail.querySelector("[data-processing-recovery]");
     if (!recovery) return true;
-    const replacementAttempt = Number(
-      projection?.attempt_ordinal ?? detail.dataset.processingAttemptOrdinal ?? 0,
-    ) > 1 && (
-      projection?.content_available === true
-      || detail.dataset.processingTranscriptContentReady === "true"
-      || detail.dataset.processingTranscriptVisible === "true"
-    );
-    const replacementPublished = detail.dataset.processingPublishedAttempt === String(attemptOrdinal);
     const copy = processingRecoveryCopy(projection, transcriptReady, replacementPublished);
-    const replacementActive = replacementAttempt
-      && !terminalProcessing
-      && (projectionState !== "processed" || !replacementPublished);
-    detail.dataset.processingReplacementActive = replacementActive ? "true" : "false";
     recovery.dataset.processingReplacement = replacementAttempt ? "true" : "false";
     if (replacementActive) {
       detail.nextElementSibling?.querySelector?.("audio")?.pause();
@@ -3162,6 +3166,7 @@
     document.querySelectorAll("[data-summary-format-controls]").forEach((controls) => {
       if (controls.dataset.summaryFormatReady === "true") return;
       const button = controls.querySelector("[data-summary-format-button]");
+      const info = controls.querySelector(".summary-format-info");
       const refreshButton = controls.querySelector("[data-summary-refresh-button]");
       const listbox = controls.querySelector("[data-summary-format-listbox]");
       const pendingLabel = controls.querySelector("[data-summary-pending-format-label]");
@@ -3191,6 +3196,7 @@
         if (restoreFocus) button.focus({ preventScroll: true });
       };
       const open = () => {
+        if (info) info.open = false;
         listbox.hidden = false;
         button.setAttribute("aria-expanded", "true");
         const selected = listbox.querySelector('[role="option"][aria-selected="true"]');
@@ -3993,6 +3999,22 @@
         }
       };
       button.addEventListener("click", () => listbox.hidden ? open() : close());
+      info?.addEventListener("toggle", () => {
+        if (info.open) close({ restoreFocus: false });
+      });
+      controls.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape") return;
+        if (info?.open) {
+          event.preventDefault();
+          event.stopPropagation();
+          info.open = false;
+          info.querySelector("summary")?.focus({ preventScroll: true });
+        } else if (!listbox.hidden) {
+          event.preventDefault();
+          event.stopPropagation();
+          close();
+        }
+      });
       button.addEventListener("keydown", (event) => {
         if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
         event.preventDefault();
@@ -4008,6 +4030,7 @@
         if (!option) return;
         if (event.key === "Escape") {
           event.preventDefault();
+          event.stopPropagation();
           close();
           return;
         }
@@ -4077,6 +4100,7 @@
         if (!listbox.hidden && event.target instanceof Node && !controls.contains(event.target)) {
           close({ restoreFocus: false });
         }
+        if (info?.open && event.target instanceof Node && !info.contains(event.target)) info.open = false;
       });
       const resumeCandidate = window.sessionStorage.getItem(candidateStorageKey);
       const resumeCachedCandidate = () => {
@@ -4563,27 +4587,30 @@
   const initSourceNavigation = () => {
     if (document.body.dataset.sourceNavigationReady === "true") return;
     document.body.dataset.sourceNavigationReady = "true";
-    const returnButton = document.querySelector("[data-source-return]");
     let sourceReturnTarget = null;
+    let sourceReturnScrollTop = 0;
     const clearSourceReturn = () => {
       sourceReturnTarget = null;
+      const returnButton = document.querySelector("[data-source-return]");
       if (returnButton) returnButton.hidden = true;
     };
-    document.querySelectorAll("[data-detail-tab]").forEach((tab) => {
-      tab.addEventListener("click", clearSourceReturn);
-      tab.addEventListener("keydown", (event) => {
-        if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
-          clearSourceReturn();
-        }
-      });
-    });
-    returnButton?.addEventListener("click", () => {
-      const target = sourceReturnTarget;
-      activateDetailTab("outcomes");
-      clearSourceReturn();
-      window.requestAnimationFrame(() => target?.focus({ preventScroll: true }));
+    document.addEventListener("keydown", (event) => {
+      if (event.target.closest?.("[data-detail-tab]") && ["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) clearSourceReturn();
     });
     document.addEventListener("click", (event) => {
+      if (event.target.closest?.("[data-detail-tab]")) clearSourceReturn();
+      if (event.target.closest?.("[data-source-return]")) {
+        const target = sourceReturnTarget;
+        activateDetailTab("outcomes");
+        clearSourceReturn();
+        window.requestAnimationFrame(() => {
+          if (!target?.isConnected) return;
+          const main = target.closest(".detail-page-main");
+          if (main) main.scrollTop = sourceReturnScrollTop;
+          target.focus({ preventScroll: true });
+        });
+        return;
+      }
       const control = event.target.closest?.("[data-seek-seconds]");
       if (!control) return;
       const seconds = Number.parseFloat(control.dataset.seekSeconds || "0");
@@ -4591,6 +4618,8 @@
       const sourceJump = control.hasAttribute("data-source-segment");
       if (sourceJump) {
         sourceReturnTarget = control;
+        sourceReturnScrollTop = control.closest(".detail-page-main")?.scrollTop || 0;
+        const returnButton = document.querySelector("[data-source-return]");
         if (returnButton) returnButton.hidden = false;
         activateDetailTab("recording");
       }
@@ -6920,6 +6949,9 @@
     const form = dialog?.querySelector("[data-content-export-form]");
     if (!dialog || !form || dialog.dataset.contentExportReady === "true") return;
     dialog.dataset.contentExportReady = "true";
+    const main = form.closest(".detail-page-main");
+    const directCopy = main?.querySelector("[data-detail-copy]");
+    const directStatus = main?.querySelector("[data-detail-copy-status]");
     const scope = form.querySelector("[data-export-scope]");
     const format = form.querySelector("[data-export-format]");
     const title = dialog.querySelector("[data-export-dialog-title]");
@@ -6938,11 +6970,35 @@
     let returnFocus = null;
     let submitting = false;
 
-    const setStatus = (message, state = "") => {
-      if (!status) return;
-      status.textContent = message;
-      status.dataset.state = state;
+    const setStatus = (message, state = "", target = status) => {
+      if (!target?.isConnected) return;
+      target.textContent = message;
+      target.dataset.state = state;
     };
+    const detailScope = () => main?.querySelector('[data-detail-tab][aria-selected="true"]')?.dataset.detailTab === "outcomes" ? "summary" : "transcript";
+    const available = (selectedScope, requestedFormat) => {
+      const option = Array.from(scope?.options || []).find((item) => item.value === selectedScope);
+      const key = "exportFormats" + selectedScope.charAt(0).toUpperCase() + selectedScope.slice(1);
+      return form.isConnected
+        && main?.dataset.processingReplacementActive !== "true"
+        && !!option && !option.disabled
+        && (form.dataset[key] || "").split(",").includes(requestedFormat);
+    };
+    const syncAvailability = () => {
+      if (submit) submit.disabled = submitting || !available(scope?.value || "", format?.value);
+      if (copy) copy.disabled = submitting || !available(scope?.value || "", "txt");
+      if (directCopy) {
+        const allowed = available(detailScope(), "txt");
+        directCopy.hidden = false;
+        directCopy.disabled = submitting || !allowed;
+        directCopy.setAttribute("aria-busy", submitting ? "true" : "false");
+        directCopy.title = detailScope() === "summary" ? "Копировать итоги" : "Копировать расшифровку";
+        if (!allowed && !submitting) setStatus("Содержимое этой вкладки пока недоступно для копирования.", "unavailable", directStatus);
+        else if (directStatus?.dataset.state === "unavailable") setStatus("", "", directStatus);
+      }
+    };
+    main?.addEventListener("detail-tab-change", syncAvailability);
+    form.addEventListener("export-availability-change", syncAvailability);
     const updateOptions = () => {
       if (!scope || !format) return;
       const machineFormat = ["csv", "xlsx", "json"].includes(format.value);
@@ -6955,6 +7011,7 @@
         timestamps.disabled = machineFormat || format.value === "srt" || format.value === "vtt";
       }
       if (evidence) evidence.disabled = scope.value === "transcript";
+      syncAvailability();
     };
     const updateFormats = () => {
       if (!scope || !format) return;
@@ -7015,8 +7072,7 @@
     updateFormats();
 
     const include = (name) => form.querySelector("input[name='" + name + "']")?.checked === true;
-    const buildPayload = (requestedFormat = format?.value) => {
-      const selectedScope = scope?.value || "transcript";
+    const buildPayload = (requestedFormat = format?.value, selectedScope = scope?.value || "transcript") => {
       return {
         content_scope: selectedScope,
         format: requestedFormat,
@@ -7027,7 +7083,8 @@
         include_evidence: selectedScope !== "transcript" && include("include_evidence")
       };
     };
-    const requestExport = async (requestedFormat = format?.value) => {
+    const requestExport = async (requestedFormat = format?.value, selectedScope = scope?.value || "transcript") => {
+      if (!available(selectedScope, requestedFormat)) throw new Error("export_unavailable");
       const token = form.dataset.csrfToken || csrfToken;
       const response = await fetch(form.dataset.endpoint, {
         method: "POST",
@@ -7037,7 +7094,7 @@
           "Content-Type": "application/json",
           ...(token ? { "X-CSRF-Token": token } : {})
         },
-        body: JSON.stringify(buildPayload(requestedFormat))
+        body: JSON.stringify(buildPayload(requestedFormat, selectedScope))
       });
       if (await recoverMeetingDetailFromResponse(response)) return null;
       if (!response.ok) {
@@ -7048,8 +7105,7 @@
     };
     const setBusy = (busy) => {
       submitting = busy;
-      if (submit) submit.disabled = busy;
-      if (copy) copy.disabled = busy;
+      syncAvailability();
       if (busy) dialog.setAttribute("aria-busy", "true");
       else dialog.removeAttribute("aria-busy");
     };
@@ -7069,14 +7125,18 @@
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
       if (submitting || !scope || !format || !submit) return;
+      const selectedScope = scope.value;
+      const selectedFormat = format.value;
+      if (!available(selectedScope, selectedFormat)) return;
       setBusy(true);
       setStatus("Готовим файл…", "progress");
       try {
-        const response = await requestExport();
+        const response = await requestExport(selectedFormat, selectedScope);
         if (!response) return;
         const blob = await response.blob();
+        if (!submit.isConnected || !available(selectedScope, selectedFormat)) throw new Error("export_unavailable");
         const disposition = response.headers.get("Content-Disposition") || "";
-        const filename = disposition.match(/filename="([^"]+)"/)?.[1] || "graf-export." + format.value;
+        const filename = disposition.match(/filename="([^"]+)"/)?.[1] || "graf-export." + selectedFormat;
         const href = URL.createObjectURL(blob);
         const link = document.createElement("a");
         link.href = href;
@@ -7096,29 +7156,34 @@
         const code = error instanceof Error ? error.message : "export_failed";
         setStatus(errorMessage(code), "error");
         setBusy(false);
-        submit.focus({ preventScroll: true });
+        if (submit.isConnected && !submit.disabled && dialog.open) submit.focus({ preventScroll: true });
+      } finally {
+        setBusy(false);
       }
     });
-    copy?.addEventListener("click", async () => {
-      if (submitting) return;
+    const copyText = async (trigger, selectedScope) => {
+      if (submitting || !trigger.isConnected || !available(selectedScope, "txt")) return;
+      const feedback = trigger === directCopy ? directStatus : status;
       setBusy(true);
-      setStatus("Готовим текст для копирования…", "progress");
+      setStatus("Готовим текст для копирования…", "progress", feedback);
       try {
         if (!navigator.clipboard?.writeText) throw new Error("clipboard_unavailable");
-        const response = await requestExport("txt");
+        const response = await requestExport("txt", selectedScope);
         if (!response) return;
-        await navigator.clipboard.writeText(await response.text());
-        setStatus("Текст скопирован.", "success");
+        const text = await response.text();
+        if (!trigger.isConnected || !available(selectedScope, "txt")) throw new Error("export_unavailable");
+        await navigator.clipboard.writeText(text);
+        setStatus("Текст скопирован.", "success", feedback);
       } catch (error) {
         const code = error instanceof Error ? error.message : "export_failed";
-        setStatus(errorMessage(code), "error");
+        setStatus(errorMessage(code), "error", feedback);
       } finally {
-        if (copy.isConnected) {
-          setBusy(false);
-          copy.focus({ preventScroll: true });
-        }
+        setBusy(false);
       }
-    });
+    };
+    copy?.addEventListener("click", () => copyText(copy, scope?.value || "transcript"));
+    directCopy?.addEventListener("click", () => copyText(directCopy, detailScope()));
+    syncAvailability();
   };
 
   const initMeetingDeleteDialog = () => {

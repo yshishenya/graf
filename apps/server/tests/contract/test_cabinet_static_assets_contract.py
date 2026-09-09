@@ -1399,8 +1399,9 @@ const processingProjectionIsStale = () => false;
 const processingTimestamp = () => null;
 const processingTranscriptReady = () => false;
 const processingArtifactState = () => "unavailable";
-const processingTerminalFailure = () => true;
-const updateProcessingExportVisibility = () => {};
+const processingTerminalFailure = projection => projection.state === "failed_terminal";
+const exportStates = [];
+const updateProcessingExportVisibility = () => exportStates.push(detail.dataset.processingReplacementActive);
 const updateProcessingStage = () => {};
 const processingArtifactVisible = () => false;
 const processingSummaryState = () => "unavailable";
@@ -1456,6 +1457,16 @@ if (
   || uploadAnother.href !== uploadAnother.dataset.defaultHref
   || uploadAnother.textContent !== "Загрузить другой файл"
 ) throw new Error("upload recovery action did not return to its default state");
+global.renderProcessingProjection(detail, {
+  state: "processing", attempt_ordinal: 2, content_available: true,
+});
+global.renderProcessingProjection(detail, {
+  state: "failed_terminal", attempt_ordinal: 2, content_available: true,
+  retry_class: "terminal", manual_action: "upload_another", reason_code: "corrupt_source",
+});
+if (JSON.stringify(exportStates.slice(-2)) !== '["true","false"]')
+  throw new Error("export event observed stale replacement state");
+
 """
     completed = subprocess.run(
         ["node", "-e", harness, str(STATIC_DIR / "cabinet.js")],
