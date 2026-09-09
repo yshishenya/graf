@@ -53,6 +53,7 @@
   const handledMeetingListAuthorizationRequests = new WeakSet();
   const observedDetachedMeetingListRequests = new WeakSet();
   let scrubManualUploadPrivateState = () => false;
+  let revokeManualUploadMeeting = () => {};
   const speakerTimelineResizeHandlers = new WeakMap();
   const accessLossProblemCodes = new Set([
     "auth_session_rejected",
@@ -326,6 +327,7 @@
       if (operation.phase === "rejected") continue;
       const id = operation.target?.meeting?._0 || operation.receipt?.meeting_id;
       if (!id) continue;
+      revokeManualUploadMeeting(id);
       const detail = document.querySelector("main[data-meeting-id]");
       if (detail?.dataset.meetingId === id) renderMeetingDetailRecovery(detail, operation.phase === "accepted" || operation.phase === "verified" ? "deleted" : "deleting");
       for (const row of allRows().filter(row => row.dataset.meetingId === id)) {
@@ -607,7 +609,7 @@
       return false;
     }
     const focusRow = listRefreshFocusMeetingIds
-      .map((meetingId) => allRows().find((row) => row.dataset.meetingId === meetingId))
+      .map((meetingId) => allRows().find((row) => recordingRowIdentity(row) === meetingId))
       .find(Boolean);
     let focusTarget = rowPrimaryFocusTarget(focusRow) || document.querySelector("[data-list-title]");
     if (recovery instanceof HTMLElement) {
@@ -1098,17 +1100,17 @@
 
   const captureDeletionFocusFallback = (rows) => {
     const orderedRows = allRows();
-    const deletingIds = new Set(rows.map((row) => row.dataset.meetingId));
-    const anchorRow = orderedRows.find((row) => row.dataset.meetingId === deleteReturnMeetingId)
+    const deletingIds = new Set(rows.map(recordingRowIdentity));
+    const anchorRow = orderedRows.find((row) => recordingRowIdentity(row) === deleteReturnMeetingId)
       || rows[0];
     const anchorIndex = orderedRows.indexOf(anchorRow);
     const nextRow = orderedRows.slice(anchorIndex + 1).find(
-      (row) => !deletingIds.has(row.dataset.meetingId),
+      (row) => !deletingIds.has(recordingRowIdentity(row)),
     );
     const previousRow = orderedRows.slice(0, Math.max(anchorIndex, 0)).reverse().find(
-      (row) => !deletingIds.has(row.dataset.meetingId),
+      (row) => !deletingIds.has(recordingRowIdentity(row)),
     );
-    deleteFocusFallbackIds = [nextRow?.dataset.meetingId, previousRow?.dataset.meetingId].filter(Boolean);
+    deleteFocusFallbackIds = [nextRow, previousRow].filter(Boolean).map(recordingRowIdentity);
   };
 
   const openDeleteDialog = (rows) => {
@@ -1118,7 +1120,8 @@
     const count = dialog.querySelector("[data-delete-count]");
     const error = dialog.querySelector("[data-delete-error]");
     deleteReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    deleteReturnMeetingId = deleteReturnFocus?.closest("[data-meeting-row]")?.dataset.meetingId || "";
+    deleteReturnMeetingId = deleteReturnFocus?.closest("[data-meeting-row]")
+      ? recordingRowIdentity(deleteReturnFocus.closest("[data-meeting-row]")) : "";
     pendingDeleteRows = rows.filter(Boolean);
     if (!pendingDeleteRows.length) return;
     captureDeletionFocusFallback(pendingDeleteRows);
@@ -1137,10 +1140,12 @@
     if (!dialog) return;
     if (typeof dialog.close === "function") dialog.close();
     else dialog.removeAttribute("open");
-    const currentReturnRow = allRows().find((row) => row.dataset.meetingId === deleteReturnMeetingId);
-    const rowDeleteControl = currentReturnRow?.querySelector("[data-row-delete]");
+    const currentReturnRow = allRows().find((row) => recordingRowIdentity(row) === deleteReturnMeetingId);
+    const rowDeleteControl = deleteReturnFocus?.matches("[data-meeting-select]")
+      ? currentReturnRow?.querySelector("[data-meeting-select]")
+      : currentReturnRow?.querySelector("[data-row-delete]") || rowPrimaryFocusTarget(currentReturnRow);
     const fallbackRow = deleteFocusFallbackIds
-      .map((meetingId) => allRows().find((row) => row.dataset.meetingId === meetingId))
+      .map((meetingId) => allRows().find((row) => recordingRowIdentity(row) === meetingId))
       .find(Boolean);
     const fallbackControl = rowPrimaryFocusTarget(fallbackRow);
     const returnControl = isUsableFocusTarget(deleteReturnFocus)
@@ -1414,6 +1419,7 @@
             const deletionResult = await submitDeletionForm(form);
             if (deletionResult === "missing") {
               selectedMeetingIds.delete(row.dataset.meetingId);
+              revokeManualUploadMeeting(row.dataset.meetingId);
               row.replaceChildren();
               row.removeAttribute("data-meeting-id");
               row.remove();
@@ -1427,6 +1433,7 @@
             }
             const checkbox = row.querySelector("[data-meeting-select]");
             if (checkbox) checkbox.checked = false;
+            revokeManualUploadMeeting(row.dataset.meetingId);
             row.remove();
             deletedCount += 1;
           } catch (_err) {
@@ -6183,6 +6190,21 @@
       activeUploadActivities.clear();
     };
 
+    const revokedUploadMeetingIds = new Set();
+    revokeManualUploadMeeting = (meetingId) => {
+      revokedUploadMeetingIds.add(meetingId);
+      for (const activity of activeUploadActivities) {
+        if (activity.meetingId !== meetingId) continue;
+        clearUploadActivityPayload(activity);
+        activity.detailHref = "";
+        activity.detailLink?.removeAttribute("href");
+        activity.row?.remove();
+        activity.row = null;
+        activeUploadActivities.delete(activity);
+        document.querySelector("[data-upload-activity-announcer]")?.replaceChildren();
+      }
+    };
+
     const createUploadActivity = ({ file, title, duration, localId, archiveAudio }) => {
       const host = ensureUploadHost();
       uploadCounter += 1;
@@ -6309,6 +6331,14 @@
           activity.accepted = true;
           const meetingId = payload.meeting?.meeting_id;
           if (meetingId) {
+            activity.meetingId = meetingId;
+            // The server may commit before its upload response reaches this page.
+            if (revokedUploadMeetingIds.has(meetingId)) {
+              revokeManualUploadMeeting(meetingId);
+              return;
+            }
+            activity.row.dataset.uploadActivityMeetingId = meetingId;
+            activity.row.dataset.meetingId = meetingId;
             activity.detailHref = `${dialog.dataset.uploadDetailBase || "/meetings"}/${meetingId}`;
             if (activity.detailLink) activity.detailLink.href = activity.detailHref;
           }
@@ -6322,6 +6352,7 @@
             workflowStarted ? "success" : "warning"
           );
           clearUploadActivityPayload(activity);
+          applyNativeDeletionOperations(nativeDeletionOperations);
           await refreshMeetingList();
           return;
         }
@@ -7020,43 +7051,49 @@
     if (document.hidden || recordingLifecycleRequest) return;
     const detail = document.querySelector("main[data-meeting-id][data-playback-poll-url]");
     const rows = allRows().filter(row => /^[0-9a-f-]{36}$/i.test(row.dataset.meetingId || ""));
-    const targets = detail ? [detail] : rows.slice(0, 100);
+    const uploadRows = [...document.querySelectorAll("[data-upload-activity-meeting-id]")];
+    const targets = detail ? [detail] : [...uploadRows, ...rows];
     const ids = [...new Set(targets.map(node => node.dataset.meetingId))];
     const csrf = document.querySelector('meta[name="csrf-token"]')?.content;
     if (!ids.length || !csrf) return;
     const controller = new AbortController();
     recordingLifecycleRequest = controller;
     const timeout = setTimeout(() => controller.abort(), 10000);
+    let changed = false;
     try {
-      const response = await fetch("/api/v1/desktop/recordings/lifecycle", {
-        method: "POST", credentials: "same-origin", cache: "no-store", signal: controller.signal,
-        headers: {"Content-Type":"application/json", "X-CSRF-Token":csrf, "Accept":"application/json"},
-        body: JSON.stringify({meeting_ids:ids}),
-      });
-      if (csrf !== document.querySelector('meta[name="csrf-token"]')?.content) return;
-      if (!response.ok) {
-        if (response.status === 401 && detail?.isConnected) renderMeetingDetailRecovery(detail, "session");
-        return;
-      }
-      const entries = await response.json();
-      if (!Array.isArray(entries)) return;
-      let changed = false;
-      for (const entry of entries) {
-        if (entry.target_type !== "meeting" || !ids.includes(entry.target_id) || entry.state === "allowed") continue;
-        if (!["deletion_accepted", "unavailable"].includes(entry.state)) continue;
-        for (const node of targets.filter(node => node.isConnected && node.dataset.meetingId === entry.target_id)) {
-          if (node === detail) { renderMeetingDetailRecovery(node, "unavailable"); return; }
-          selectedMeetingIds.delete(recordingRowIdentity(node));
-          node.remove();
-          changed = true;
+      // Every visible alias participates; only the HTTP payload is capped.
+      for (let offset = 0; offset < ids.length; offset += 100) {
+        const batch = ids.slice(offset, offset + 100);
+        const response = await fetch("/api/v1/desktop/recordings/lifecycle", {
+          method: "POST", credentials: "same-origin", cache: "no-store", signal: controller.signal,
+          headers: {"Content-Type":"application/json", "X-CSRF-Token":csrf, "Accept":"application/json"},
+          body: JSON.stringify({meeting_ids:batch}),
+        });
+        if (csrf !== document.querySelector('meta[name="csrf-token"]')?.content) return;
+        if (!response.ok) {
+          if (response.status === 401 && detail?.isConnected) renderMeetingDetailRecovery(detail, "session");
+          return;
+        }
+        const entries = await response.json();
+        if (!Array.isArray(entries)) return;
+        for (const entry of entries) {
+          if (entry.target_type !== "meeting" || !batch.includes(entry.target_id) || entry.state === "allowed") continue;
+          if (!["deletion_accepted", "unavailable"].includes(entry.state)) continue;
+          revokeManualUploadMeeting(entry.target_id);
+          for (const node of targets.filter(node => node.isConnected && node.dataset.meetingId === entry.target_id)) {
+            if (node === detail) { renderMeetingDetailRecovery(node, "unavailable"); return; }
+            selectedMeetingIds.delete(recordingRowIdentity(node));
+            node.remove();
+            changed = true;
+          }
         }
       }
-      if (changed) { updateSelection(); requestMeetingListRefresh({restoreFocus:true}); }
     } catch (_error) {
       // Lack of a response is not deletion authority. Existing media requests still enforce access.
     } finally {
       clearTimeout(timeout);
       recordingLifecycleRequest = null;
+      if (changed) { updateMixedResultCount(); updateSelection(); requestMeetingListRefresh({restoreFocus:true}); }
     }
   };
   const initRecordingLifecyclePolling = () => {
@@ -8523,36 +8560,11 @@
     }
     if (target instanceof Element && (target.id === "meeting-list-region" || target.matches("[data-meeting-list]"))) {
       renderLocalRecordingRows();
-      if (pendingDeleteRows.length) {
-        const pendingMeetingIds = new Set(pendingDeleteRows.map((row) => row.dataset.meetingId));
-        pendingDeleteRows = allRows().filter((row) => pendingMeetingIds.has(row.dataset.meetingId));
-        if (!pendingDeleteRows.length) {
-          closeDeleteDialog();
-        } else {
-          const deleteDialog = document.querySelector("[data-delete-dialog]");
-          const title = deleteDialog?.querySelector("[data-delete-title]");
-          const count = deleteDialog?.querySelector("[data-delete-count]");
-          const error = deleteDialog?.querySelector("[data-delete-error]");
-          const confirm = deleteDialog?.querySelector("[data-delete-confirm]");
-          const failures = pendingDeleteRows.length;
-          if (title) {
-            title.textContent = failures === 1
-              ? deleteDialog.dataset.titleOne
-              : deleteDialog.dataset.titleMany;
-          }
-          if (count) count.textContent = deletingLabel(failures);
-          if (error) {
-            error.textContent = `Не удалось удалить ${failures} ${plural(
-              failures,
-              "запись",
-              "записи",
-              "записей",
-            )}. Попробуйте ещё раз.`;
-            error.hidden = false;
-          }
-          if (confirm) confirm.textContent = "Повторить";
-        }
-      }
+      // A refresh may replace aliases or change filters, but cannot enlarge or
+      // discard the set the user is confirming. Detached rows retain that intent.
+      pendingDeleteRows = pendingDeleteRows.map(row =>
+        allRows().find(current => recordingRowIdentity(current) === recordingRowIdentity(row)) || row
+      );
       reconcileMeetingSelection();
       announceMeetingResultCount();
       restoreMeetingListRequestFocus(event);

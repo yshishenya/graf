@@ -339,9 +339,9 @@ async def get_recording_sync_state(
 
 
 @router.get("/desktop/notification-context", dependencies=[PrincipalDependency, DeviceDependency])
-async def get_notification_context(response: Response, tenant_scope: TenantScope = TenantDependency) -> dict[str, str]:
+async def get_notification_context(response: Response, tenant_scope: TenantScope = TenantDependency) -> dict[str, str | int]:
     response.headers["Cache-Control"] = "no-store"
-    return {"user_id": str(tenant_scope.user_id), "workspace_id": str(tenant_scope.workspace_id)}
+    return {"user_id": str(tenant_scope.user_id), "workspace_id": str(tenant_scope.workspace_id), "recording_deletion_protocol_version": 1}
 
 
 @router.post(

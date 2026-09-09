@@ -3,9 +3,31 @@
 Дата: 2026-09-09. Ветка: `codex/262-recording-deletion-lifecycle`.
 Risk/validation lane: **high-risk product area / full Spec Kit** (удаление, хранение, авторизация, интерфейс).
 
-Основной код реализован, но фича **не завершена и не готова к выпуску**: открыты T019–T023. Коммита, PR, push, установки новой версии и production-изменений нет.
+Основной код опубликован в PR #6911. Итоговая приёмка и исправления продолжаются; T019–T023 пока открыты. Production и выпуск не выполнялись.
 
-База: `bc41c10bf7a561c04c8a51d2a034dd6d75a36aad`. Это исходный HEAD, а не SHA реализованных изменений. Код пока незакоммичен. Файлы кода/тестов привязаны к [source-files.sha256.json](source-files.sha256.json); SHA256 этого снимка: `57b9d6ee089e5a089f92178e3b6a746b431c2c6dcc9e52ddeaa4ebc62a889c54`. Он не заменяет обязательный точный SHA коммита для CI и стенда.
+База после rebase: `1768d78e5` (master). Первый опубликованный/установленный SHA F262: `2c9ffc01112d0584b53ff3cd5f1498ec1054f005`. Последующие исправления ниже пока относятся к рабочему снимку; [source-files.sha256.json](source-files.sha256.json) связывает проверенные исходники/тесты. Итоговый exact SHA будет записан в PR после проверки и коммита.
+
+## Дополнительная приёмка 2026-09-09 UTC (журналы 2026-09-10 +05)
+
+- GRAF Dev на `2c9ffc01112d0584b53ff3cd5f1498ec1054f005`: штатные build/promote PASS, smoke **13/13 PASS**, схема `0092_recording_origin_cancel`. Логи `/tmp/graf-262-pr-build.log`, `/tmp/graf-262-pr-promote.log`, `/tmp/graf-262-pr-smoke.log`.
+- В установленном GRAF Dev создан и удалён только синтетический WAV. Space меняет выбор, Escape закрывает подтверждение и возвращает фокус на флажок, счётчик согласован. После подтверждения встреча исчезла, поиск показывает 0. Найден дефект: завершённая карточка загрузки сохранила ссылку. Исправление ожидает повторной установленной проверки.
+- Дополнительная независимая проверка обнаружила поздний XHR после web-delete: сервер уже удалил встречу, но ответ загрузки возвращал карточку. Теперь страница запоминает отозванный meeting ID и не публикует позднюю ссылку. Chromium regression воспроизводит реальный порядок upload → delete → late response, а также remote deletion/unavailable. **3 PASS**, отрицательная проверка без исправления падает: `/tmp/graf-262-manual-upload-deletion.log`.
+- Mixed-list Chromium, включая pending → rejected с однократным обновлением и удаление карточки завершённой загрузки: **PASS**, `/tmp/graf-262-upload-revocation-browser.log`.
+- Swift: итоговый тематический набор **190 PASS**, `/tmp/graf-262-precommit-native.log`; прежний набор **186 PASS** после исправлений capability/target 404, `/tmp/graf-262-final-pr-native.log`. AVPlayer/AVPlayerView/NSWindow release/revoke/replacement: **1 PASS**, `/tmp/graf-262-player-release.log`; это компонентная проверка, а не установленный пользовательский путь.
+- SC-006: **100 пакетов по 100 MiB**, фактическая очистка **0,370283 с**, 100 повторных чтений и restart очереди без возвращения строк: `/tmp/graf-262-hundred-max.log`. Это один контрольный запуск, не p95 и не смешанные серверные операции.
+- PostgreSQL0091 →0092 с сохранением всех колонок существующих meeting/request/purge tasks; атомарный отказ при дублях; отказ downgrade с сохранением marker/history: **3 PASS**, `/tmp/graf-262-migration-acceptance.log`.
+- Capability protocol version1 подтверждается до мутации, старый сервер не получает DELETE; недоступная отдельная цель не блокирует следующие операции и не разрешает purge. **15 PostgreSQL PASS**, `/tmp/graf-262-review-fixes-server.log`; native проверки включены в набор выше.
+- Первый GitHub `governance-fast` на `2c9ffc0…` не прошёл: 4 ошибки устаревших unit fixtures (inventory marker, schema head, request URL). Исправления проверены: **52 PASS**, `/tmp/graf-262-ci-regressions.log`. Новый required run ещё ожидается.
+- Общий Spec Kit checker с закреплённым CLI: **PASS**, `/tmp/graf-262-governance-local.log`. Первоначальный конфликт установленного CLI/lock не был дефектом F262; использован совместимый runtime, lock не изменялся.
+
+- SC-004: отдельный тест 100 смешанных команд через настоящие queue/client. Первый проход 33 accepted/33 rejected/34 resolving; restart и повтор только pending дают67 accepted/33 rejected. Ни одна ошибка не считается успешной очисткой: `RecordingDeletionBulkAcceptanceTests` PASS.
+- Заполненная legacy v2 очередь: **2 Swift PASS**. Неизвестный/чужой владелец сохраняет файлы и запрещает действия; подтверждённый owner+deleted сохраняет запрет после restart. `RecordingDeletionLegacyAcceptanceTests`.
+- Восстановленные старые аудио/расшифровка с сохранённым tombstone: **1 PostgreSQL PASS**. API/web/desktop/download/playback не раскрывают возвращённое содержимое; другая встреча доступна. `test_recording_deletion_restore_fence.py`. Это не разрешение восстанавливать полную старую БД с потерей markers.
+- Chromium acceptance: **6 PASS** — замороженный mixed selection, изменение фильтра во время подтверждения, последняя строка/фокус/поздний HTML, 200 видимых aliases порциями≤100, частичный сетевой сбой, настоящий30-секундный polling. Измерение SC-003: remote30006мс, reconnect7мс, один образец, `/tmp/graf-262-timing-selection-browser.log`.
+- Проверка замороженного выбора выявила попадание новой невыбранной local строки через `undefined` identity. Исправлено: обновление DOM сохраняет исходный набор и использует общую identity. В больших списках lifecycle больше не пропускает серверные строки за карточками загрузки; успешная порция обновляет счётчик даже при последующей503.
+- Chromium recovery: **2 PASS** — настоящий offline без запроса на сервер и без обещания сохранённой команды; явный повтор после подключения; повторный импорт того же WAV с другим origin и meeting ID. `/tmp/graf-262-deletion-recovery-browser.log`.
+- Неизменённые защитные проверки harness/schema transition: **68 PASS**, `/tmp/graf-262-pr-check-harness.log`. Они подтверждают границу допуска новых writers и запрет отката к старой схеме, но не заменяют установленную проверку совместимого восстановления.
+- Итоговый независимый просмотр `deletion_release_review`: открытых подтверждённых P1/P2 в исправлениях нет; Ponytail review не требует новой инфраструктуры/зависимостей.
 
 ## Подтверждённая причина
 
@@ -26,9 +48,9 @@ Risk/validation lane: **high-risk product area / full Spec Kit** (удалени
 - Локальная очистка не зависит от сетевого успеха другого запроса. Ошибка одного пакета не мешает другому; unsafe path не удаляется.
 - Состояние незавершённой очистки, ожидание сервера/входа/обновления и существующие deletion reports доступны пользователю.
 
-## Выполненные проверки
+## Первоначальные проверки до дополнительных исправлений
 
-Все данные синтетические. PostgreSQL runner создавал отдельный disposable контейнер и удалял его после прогона. Данные действующего graf-dev не изменялись.
+Все данные синтетические. PostgreSQL runner создавал отдельный disposable контейнер и удалял его после прогона. В graf-dev добавлялась и удалялась только собственная синтетическая встреча для приёмки.
 
 | Проверка | Результат | Запись запуска |
 |---|---|---|
@@ -74,7 +96,7 @@ Risk/validation lane: **high-risk product area / full Spec Kit** (удалени
 | S50 | AUTO: cancellation без Meeting/FK; accepted без пакета не verified | пользовательский путь в installed app |
 | S51 | PARTIAL: meeting lookup, access resolver и browser revocation | две сессии, открытая чужая встреча |
 
-SC-002/003/006/007 не измерены; p95 и выполненная полная матрица не заявляются.
+SC-003 измерен в Chromium, SC-006 на файловой системе; см. дополнительные результаты выше. Установленные части SC-002/007 ещё проверяются. p95 не заявляется. Актуальное сопоставление каждого сценария: [scenario-evidence.md](scenario-evidence.md).
 
 ## Обновление и откат
 
@@ -88,11 +110,8 @@ Issue canon: штатный post-hook PASS (300 возвращённых issues)
 
 ## Незакрытые обязательные этапы
 
-- T019/T022: полная матрица, GRAF Dev, managed player, VoiceOver, нагрузка и измерения.
-- T023: upgrade/rollback и сочетания реальных версий.
-- T020/T021: итоговая независимая проверка кода/конвергенция и `governance-fast` на точном PR SHA. Выпуск дополнительно требует frozen candidate/release-full и обычные macOS gates.
-- Общий Spec Kit checker: installed specify v1.0.4/ref cb610277… против locked v1.0.1/ref 9118ed15…; state github-issue-canon отличается от lock. Эти файлы не исправлялись в рамках удаления.
-- Единственный GRAF Dev сейчас имеет active manifest `dev-9cf93b92eb60`, source `9cf93b92eb608ccf952b477f7bd0beb6a45c560c`. Выполнен только read-only status. Это другая версия и не acceptance F262.
-- Правило `docs/agent-guidance/local-development.md`: при dirty checkout закончить тесты и авторизованный коммит до build/promote; правило AGENTS.md: implementation commits требуют явного разрешения пользователя после проверки.
+- T019/T022: точное сопоставление S01–S51, итоговый GRAF Dev, управляемый плеер, VoiceOver, SC-003/004/007. SC-006 уже измерен отдельно.
+- T023: поддерживаемое восстановление v3/0092 без потери tombstones; старый бинарник поверх v3 не поддерживается. Миграционные проверки существующей БД выполнены.
+- T020/T021: итоговая независимая проверка/конвергенция и `governance-fast` на точном SHA. Выпуск отдельно требует frozen candidate/release-full и обычные macOS gates.
 
-Full CI, PR, commit, push, deploy, выпуск и изменение пользовательских записей не выполнялись.
+Предыдущая установленная версия не подтверждает последующие изменения. Финальная приёмка не объявляется выполненной до повторного build/promote/smoke и проверки сценария.

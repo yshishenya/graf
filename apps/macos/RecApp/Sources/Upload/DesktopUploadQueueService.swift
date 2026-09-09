@@ -336,6 +336,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 if error is RecordingDeletionRetryAfter { waitReason = .rateLimit }
                 else if case DesktopUploadClientError.httpStatus(401, _) = error { waitReason = .authentication }
                 else if case DesktopUploadClientError.httpStatus(404, "http_error") = error { waitReason = .serverUpdate }
+                else if case DesktopUploadClientError.httpStatus(426, "recording_deletion_update_required") = error { waitReason = .serverUpdate }
                 else { waitReason = .connection }
                 let retryDelay = (error as? RecordingDeletionRetryAfter)?.delay
                 try queue.sync {
@@ -353,7 +354,10 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 if firstFailure == nil { firstFailure = error }
                 // A shared network/auth/rate failure affects the whole scope. Keep the rest durable
                 // for the next bounded pass instead of waiting for 100 identical timeouts.
-                if !rejected { try await publishProgress(onProgress); break }
+                let targetUnavailable: Bool
+                if case DesktopUploadClientError.httpStatus(404, "meeting_not_found") = error { targetUnavailable = true }
+                else { targetUnavailable = false }
+                if !rejected && !targetUnavailable { try await publishProgress(onProgress); break }
             }
             try await publishProgress(onProgress)
         }

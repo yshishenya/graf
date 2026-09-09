@@ -788,6 +788,22 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
 
     public func requestRecordingDeletion(_ operation: RecordingDeletionOperation) async throws -> RecordingDeletionReceipt {
         let client = try scoped(to: operation.scope)
+        // An older server ignores the expected-account headers. Verify support before
+        // any mutation; a receipt decoding failure would be too late to protect it.
+        let context: DesktopNotificationContext
+        do { context = try await client.notificationContext() }
+        catch is DecodingError {
+            throw DesktopUploadClientError.httpStatus(426, "recording_deletion_update_required")
+        } catch DesktopUploadClientError.httpStatus(404, _) {
+            throw DesktopUploadClientError.httpStatus(426, "recording_deletion_update_required")
+        }
+        guard context.recording_deletion_protocol_version == 1 else {
+            throw DesktopUploadClientError.httpStatus(426, "recording_deletion_update_required")
+        }
+        guard context.user_id.uuidString.lowercased() == operation.scope.actorUserID,
+              context.workspace_id.uuidString.lowercased() == operation.scope.workspaceID else {
+            throw DesktopUploadClientError.httpStatus(409, "recording_scope_changed")
+        }
         let path: String
         var body = ["confirmation_boundary": "Delete this meeting everywhere GRAF controls."]
         // Identity is encoded by URLComponents as one path segment, never supplied as a URL.
@@ -803,7 +819,27 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        let receipt: RecordingDeletionReceipt = try await client.perform(request, honorRetryAfter: true)
+        let receipt: RecordingDeletionReceipt
+        do { receipt = try await client.perform(request, honorRetryAfter: true) }
+        catch DesktopUploadClientError.httpStatus(404, "meeting_not_found") {
+            // A target can disappear or become inaccessible while this durable request
+            // waits offline. Resolve it without treating absence as purge permission.
+            guard case .meeting(let meetingID) = operation.target else { throw DesktopUploadClientError.invalidResponse }
+            var lookup = try client.request(path: "/api/v1/desktop/recordings/lifecycle", method: "POST", timeoutInterval: 15)
+            lookup.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            lookup.httpBody = try JSONSerialization.data(withJSONObject: ["meeting_ids": [meetingID]])
+            let entries: [DesktopRecordingLifecycleEntry] = try await client.perform(lookup)
+            guard let entry = entries.first(where: { $0.target_type == "meeting" && $0.target_id == meetingID }) else {
+                throw DesktopUploadClientError.invalidResponse
+            }
+            if entry.state == "unavailable" {
+                throw DesktopUploadClientError.httpStatus(403, "deletion_forbidden")
+            }
+            guard entry.state == "deletion_accepted", let resolved = entry.receipt else {
+                throw DesktopUploadClientError.httpStatus(404, "meeting_not_found")
+            }
+            receipt = resolved
+        }
         guard receipt.matches(operation.target) else { throw RecordingDeletionError.invalidIdentity }
         return receipt
     }
@@ -1584,6 +1620,7 @@ private struct DesktopSyncProcessingState: Decodable {
 public struct DesktopNotificationContext: Decodable, Sendable {
     public let user_id: UUID
     public let workspace_id: UUID
+    public let recording_deletion_protocol_version: Int?
 }
 
 struct DesktopSyncReviewState: Decodable {

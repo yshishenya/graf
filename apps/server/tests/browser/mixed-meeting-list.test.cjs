@@ -99,6 +99,24 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
     const operation = {id:'synthetic-operation', target:{meeting:{_0:'server-a'}}, phase:'sending'};
     await page.evaluate(op => window.GRAFLocalRecordings.update([], [op]), operation);
     assert.equal(await page.locator('[data-meeting-id="server-a"] input').isDisabled(),true);
+    // A background rejection refreshes the list through the real form submission path.
+    await page.evaluate(() => {
+      const form = document.createElement('form'); form.className = 'cabinet-list-controls';
+      form.addEventListener('submit', event => {
+        event.preventDefault(); window.rejectionRefreshCount = (window.rejectionRefreshCount || 0) + 1;
+        const row = document.querySelector('[data-meeting-id="server-a"]');
+        row.querySelectorAll('input,button').forEach(control => { control.disabled = false; });
+        row.querySelector('.row-meta').textContent = 'Доступно';
+      });
+      document.body.append(form);
+    });
+    await page.evaluate(op => window.GRAFLocalRecordings.update([], [{...op,phase:'rejected'}]), operation);
+    assert.equal(await page.evaluate(() => window.rejectionRefreshCount),1);
+    assert.equal(await page.locator('[data-meeting-id="server-a"] input').isDisabled(),false);
+    await page.evaluate(op => window.GRAFLocalRecordings.update([], [{...op,phase:'rejected'}]), operation);
+    assert.equal(await page.evaluate(() => window.rejectionRefreshCount),1,'no refresh storm for unchanged rejection');
+    await page.locator('form.cabinet-list-controls').evaluate(form => form.remove());
+    await page.evaluate(op => window.GRAFLocalRecordings.update([], [op]), operation);
     await page.evaluate(op => window.GRAFLocalRecordings.update([], [{...op,phase:'accepted'}]), operation);
     assert.equal(await page.locator('[data-meeting-id="server-a"]').count(),0);
     await page.locator('ol.meeting-list').evaluate((list,html) => list.insertAdjacentHTML('beforeend',html),retainedServerRow);
@@ -127,6 +145,36 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
     assert.match(await page.locator('[data-local-account-recovery]').textContent(),/аккаунт не подтверждён/);
     await page.evaluate(() => window.GRAFLocalRecordings.update([], [], false));
     assert.equal(await page.locator('[data-local-account-recovery]').count(),0);
+    // A completed manual upload is another view of the same meeting, not a permanent link.
+    await page.reload();
+    await page.setContent(`<meta name="csrf-token" content="synthetic-csrf">
+      <div id="meeting-list-region"></div><div data-upload-activity-announcer></div>
+      <dialog data-manual-upload-dialog data-upload-available="true">
+      <form data-manual-upload-form><input type="file" data-manual-upload-file>
+      <input data-manual-upload-title><input data-manual-upload-duration><input data-manual-upload-local-id>
+      <input type="checkbox" data-manual-upload-archive checked><button data-manual-upload-submit>Загрузить</button></form></dialog>`);
+    await page.evaluate(() => {
+      window.XMLHttpRequest = class {
+        upload = {}; status = 200;
+        responseText = JSON.stringify({meeting:{meeting_id:'00000000-0000-0000-0000-000000000262'},workflow_started:true});
+        open() {} setRequestHeader() {} getResponseHeader() { return ''; }
+        send() { window.pendingSyntheticUpload = this; this.onload(); }
+      };
+    });
+    await page.addScriptTag({path:path.join(assets,'cabinet.js')});
+    const wav = Buffer.alloc(44 + 16000 * 2);
+    wav.write('RIFF'); wav.writeUInt32LE(wav.length-8,4); wav.write('WAVEfmt ',8);
+    wav.writeUInt32LE(16,16); wav.writeUInt16LE(1,20); wav.writeUInt16LE(1,22);
+    wav.writeUInt32LE(16000,24); wav.writeUInt32LE(32000,28); wav.writeUInt16LE(2,32); wav.writeUInt16LE(16,34);
+    wav.write('data',36); wav.writeUInt32LE(wav.length-44,40);
+    await page.locator('[data-manual-upload-file]').setInputFiles({name:'F262.wav',mimeType:'audio/wav',buffer:wav});
+    await page.waitForFunction(() => document.querySelector('[data-manual-upload-duration]').value === '1');
+    await page.locator('[data-manual-upload-dialog]').evaluate(dialog => dialog.showModal());
+    await page.locator('[data-manual-upload-submit]').click();
+    assert.equal(await page.locator('[data-upload-activity-detail]').getAttribute('href'),'/meetings/00000000-0000-0000-0000-000000000262');
+    await page.evaluate(() => window.GRAFLocalRecordings.update([], [{id:'manual-delete',phase:'accepted',target:{meeting:{_0:'00000000-0000-0000-0000-000000000262'}}}]));
+    assert.equal(await page.locator('[data-upload-activity-row]').count(),0);
+    assert.equal(await page.locator('[data-upload-activity-announcer]').textContent(),'');
     assert.deepEqual(errors,[]);
     console.log('mixed meeting list: seven sorts, stable ties, filters, dates, upload handoff and HTMX passed');
   } finally { await browser.close(); }

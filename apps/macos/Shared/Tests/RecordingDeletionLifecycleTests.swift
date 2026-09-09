@@ -269,7 +269,7 @@ final class RecordingDeletionLifecycleTests: XCTestCase {
                 let status = attempt == 1 ? 503 : 200
                 let body: [String: Any]
                 if context {
-                    body = ["workspace_id":scope.workspaceID, "user_id":scope.actorUserID]
+                    body = ["workspace_id":scope.workspaceID, "user_id":scope.actorUserID, "recording_deletion_protocol_version": 1]
                 } else {
                     XCTAssertEqual(request.value(forHTTPHeaderField: "X-Graf-Expected-Actor"), scope.actorUserID)
                     XCTAssertEqual(request.value(forHTTPHeaderField: "X-Graf-Expected-Workspace"), scope.workspaceID)
@@ -305,10 +305,128 @@ final class RecordingDeletionLifecycleTests: XCTestCase {
         try await other.processDeletionRequests()
     }
 
+    func testOldServerCannotMutateDeletionBeforeCapabilityConfirmation() async throws {
+        for version in [nil, 999] as [Int?] {
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let scope = try RecordingDeletionScope(serverOrigin: "https://graf.invalid", workspaceID: UUID().uuidString.lowercased(), actorUserID: UUID().uuidString.lowercased())
+            let mutations = DeletionCallCounter()
+            let client = DesktopUploadClient(baseURL: URL(string: scope.serverOrigin)!, headers: [:], partSizeBytes: 65536,
+                authSessionTokenProvider: { _ in "synthetic-session" }, requestExecutor: { request in
+                    if request.httpMethod != "GET" { _ = await mutations.increment(); XCTFail("Unsupported server must receive no deletion mutation") }
+                    var body: [String: Any] = ["workspace_id": scope.workspaceID, "user_id": scope.actorUserID]
+                    if let version { body["recording_deletion_protocol_version"] = version }
+                    return (try JSONSerialization.data(withJSONObject: body), HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+                })
+            let service = DesktopUploadQueueService(queueURL: root.appendingPathComponent("queue.json"), recordingsRootURL: root, client: client)
+            service.setDeletionScope(scope)
+            try service.persistDeletionRequests([RecordingDeletionOperation(scope: scope, target: .meeting(UUID().uuidString.lowercased()), requestedAt: Date())])
+            do { try await service.processDeletionRequests(); XCTFail("Unsupported server must wait for update") } catch {}
+            let operation = try XCTUnwrap(service.currentDeletionOperations().first)
+            XCTAssertEqual(operation.phase, .resolving)
+            XCTAssertEqual(operation.waitReason, .serverUpdate)
+            XCTAssertNil(operation.receipt)
+            let count = await mutations.count
+            XCTAssertEqual(count, 0)
+        }
+    }
+
+    func testUnavailableTargetDoesNotBlockNextDeletionAndNeverAuthorizesPurge() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let scope = try RecordingDeletionScope(serverOrigin: "https://graf.invalid", workspaceID: UUID().uuidString.lowercased(), actorUserID: UUID().uuidString.lowercased())
+        let unavailableID = UUID().uuidString.lowercased()
+        let allowedID = UUID().uuidString.lowercased()
+        let mutations = DeletionCallCounter()
+        let client = DesktopUploadClient(baseURL: URL(string: scope.serverOrigin)!, headers: [:], partSizeBytes: 65536,
+            authSessionTokenProvider: { _ in "synthetic-session" }, requestExecutor: { request in
+                XCTAssertEqual(request.value(forHTTPHeaderField: "X-Graf-Expected-Actor"), scope.actorUserID)
+                XCTAssertEqual(request.value(forHTTPHeaderField: "X-Graf-Expected-Workspace"), scope.workspaceID)
+                let path = request.url!.path
+                var status = 200
+                let body: Any
+                if path.hasSuffix("notification-context") {
+                    body = ["workspace_id": scope.workspaceID, "user_id": scope.actorUserID, "recording_deletion_protocol_version": 1]
+                } else if path.hasSuffix("/lifecycle") {
+                    let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: request.httpBody!) as? [String: [String]])
+                    XCTAssertEqual(payload["meeting_ids"], [unavailableID])
+                    body = [["target_type": "meeting", "target_id": unavailableID, "state": "unavailable"]]
+                } else {
+                    _ = await mutations.increment()
+                    if path.contains(unavailableID) {
+                        status = 404
+                        body = ["code": "meeting_not_found"]
+                    } else {
+                        XCTAssertTrue(path.contains(allowedID))
+                        body = ["receipt_type": "meeting_deletion", "request_id": UUID().uuidString,
+                                "meeting_id": allowedID, "deletion_epoch": 1]
+                    }
+                }
+                return (try JSONSerialization.data(withJSONObject: body), HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!)
+            })
+        let service = DesktopUploadQueueService(queueURL: root.appendingPathComponent("queue.json"), recordingsRootURL: root, client: client)
+        service.setDeletionScope(scope)
+        let operations = try [unavailableID, allowedID].map { try RecordingDeletionOperation(scope: scope, target: .meeting($0), requestedAt: Date()) }
+        try service.persistDeletionRequests(operations)
+        do { try await service.processDeletionRequests(); XCTFail("The unavailable target remains a reported failure") } catch {}
+        let results = try service.currentDeletionOperations()
+        XCTAssertEqual(results[0].phase, .rejected)
+        XCTAssertNil(results[0].receipt)
+        XCTAssertFalse(results[0].blocksContent)
+        XCTAssertEqual(results[1].phase, .accepted)
+        XCTAssertEqual(results[1].receipt?.meetingID, allowedID)
+        let count = await mutations.count
+        XCTAssertEqual(count, 2)
+    }
+
     func testTypedReceiptForAnotherTargetIsRejected() throws {
         let receipt = try JSONDecoder().decode(RecordingDeletionReceipt.self, from: Data(#"{"receipt_type":"origin_cancellation","request_id":"00000000-0000-0000-0000-000000000001","local_recording_id":"different"}"#.utf8))
         let operation = try makeOperation()
         XCTAssertThrowsError(try operation.accepting(receipt, at: Date()))
+    }
+
+    func testHundredLocalPackagesCleanWithinBudgetAndRemainDeletedAfterRestart() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let scope = try makeOperation().scope
+        var items: [DesktopUploadQueueItem] = []
+        // Real files: one MiB in CI; the acceptance run opts into the 100 MiB upper bound.
+        let packageBytes = min(104_857_600, max(1_048_576, Int(ProcessInfo.processInfo.environment["GRAF_DELETION_TEST_PACKAGE_BYTES"] ?? "") ?? 1_048_576))
+        let bytes = Data(repeating: 0x5a, count: packageBytes)
+        for number in 0..<100 {
+            let folder = root.appendingPathComponent("package-\(number)")
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try bytes.write(to: folder.appendingPathComponent("mic.wav"))
+            try Data("{}".utf8).write(to: folder.appendingPathComponent("manifest.json"))
+            var item = custodyFixtureQueueItem(id: "bulk-\(number)")
+            item.ownerScope = scope
+            item.serverCreationAttempted = false
+            item.directoryPath = folder.path
+            item.manifestPath = folder.appendingPathComponent("manifest.json").path
+            item.microphonePath = folder.appendingPathComponent("mic.wav").path
+            item.systemAudioPath = folder.appendingPathComponent("incoming.wav").path
+            items.append(item)
+        }
+        let file = root.appendingPathComponent("queue.json")
+        let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
+        try encoder.encode(DesktopUploadQueueDocument(updatedAt: Date(), items: items)).write(to: file)
+        let service = DesktopUploadQueueService(queueURL: file, recordingsRootURL: root, client: nil)
+        service.setDeletionScope(scope)
+        let start = Date()
+        XCTAssertTrue(try service.requestDeletion(itemIDs: items.map(\.id)).isEmpty)
+        try service.finishLocalOnlyDeletions()
+        let seconds = Date().timeIntervalSince(start)
+        XCTAssertLessThan(seconds, 60)
+        let restarted = DesktopUploadQueueService(queueURL: file, recordingsRootURL: root, client: nil)
+        restarted.setDeletionScope(scope)
+        for _ in 0..<100 {
+            let saved = try restarted.loadItems()
+            XCTAssertEqual(saved.count, 100)
+            XCTAssertTrue(saved.allSatisfy { $0.hasConfirmedDeletion && !$0.retentionDecision.localArtifactsRetained })
+            XCTAssertTrue(EmbeddedCabinetLocalRecordingRow.rows(for: saved, recordingsRootURL: root).isEmpty)
+        }
+        XCTAssertTrue(items.allSatisfy { !FileManager.default.fileExists(atPath: $0.directoryPath) })
+        print("F262 local cleanup: packages=100 bytes=\(100 * packageBytes) elapsedSeconds=\(seconds) reloads=100")
     }
 
     private func makeOperation() throws -> RecordingDeletionOperation {
