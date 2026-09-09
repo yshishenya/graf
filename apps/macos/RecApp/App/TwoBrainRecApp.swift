@@ -3010,7 +3010,7 @@ private struct MeetingDetectionPromptView: View {
                     )
                         .font(.callout)
                         .fontWeight(.semibold)
-                        .foregroundStyle(.white)
+                        .foregroundStyle(isStartDisabled ? Color.primary : Color.white)
                         .lineLimit(2)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 4)
