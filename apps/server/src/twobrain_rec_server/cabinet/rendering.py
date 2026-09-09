@@ -572,7 +572,7 @@ def render_settings_page(
         "account": "Аккаунт и безопасность",
         "notifications": "Уведомления",
     }
-    resolved_category = category if category in content_templates else "overview"
+    resolved_category = category if category in content_templates and category != "overview" else "account"
     settings_context = {
         "provider_link_options": provider_link_options,
         "provider_link_start_base_path": "/desktop/settings/provider-links"

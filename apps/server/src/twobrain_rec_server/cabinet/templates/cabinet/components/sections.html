@@ -23,12 +23,8 @@
       {{ icons.icon("calendar-days") }}
       <span class="cabinet-sidebar-nav__label">К встречам</span>
     </a>
-    <span class="cabinet-sidebar-nav__section-label">Настройки</span>
-    <a class="cabinet-sidebar-nav__item{% if settings_active == 'overview' %} is-selected{% endif %}" href="{{ '/desktop/settings' if embedded else '/settings' }}" aria-label="Обзор" title="Обзор" data-settings-primary-nav-item="overview"{% if settings_active == 'overview' %} aria-current="page"{% endif %}>
-      {{ icons.icon("settings") }}
-      <span class="cabinet-sidebar-nav__label">Обзор</span>
-    </a>
     {% for item in settings_navigation %}
+    {% if loop.changed(item.group_label) %}<span class="cabinet-sidebar-nav__section-label">{{ item.group_label }}</span>{% endif %}
     <a class="cabinet-sidebar-nav__item{% if item.id == settings_active %} is-selected{% endif %}" href="{{ item.href }}" aria-label="{{ item.label }}" title="{{ item.label }}" data-settings-primary-nav-item="{{ item.id }}"{% if item.id == settings_active %} aria-current="page"{% endif %}>
       {{ icons.icon(item.icon) }}
       <span class="cabinet-sidebar-nav__label">{{ item.label }}</span>
@@ -44,7 +40,7 @@
   <a class="sidebar-download" data-sidebar-download href="/download" title="Скачать приложение">{{ icons.icon("download") }}<span class="sidebar-download__label">Скачать приложение</span></a>
   {%- endif %}
   <div class="sidebar-foot">
-    {% include "cabinet/components/notification_inbox.html" %}
+    {% if navigation.active != "settings" %}{% include "cabinet/components/notification_inbox.html" %}{% endif %}
     {% set profile_name = profile.display_name if profile and profile.display_name else "Профиль" %}
     {% set profile_email = profile.primary_email if profile and profile.primary_email else none %}
     <div class="sidebar-profile" data-profile-menu-root>
@@ -104,7 +100,6 @@
     <a href="/notifications">Уведомления</a>
     {% for item in navigation.items %}<a href="{{ item.href }}"{% if item.id == navigation.active %} data-current="true" aria-label="Текущая страница: {{ item.label }}"{% endif %}>{{ item.label }}</a>{% endfor %}
     {% if navigation.active == "settings" %}
-    <a href="/settings">Обзор настроек</a>
     {% for item in settings_navigation %}<a href="{{ item.href }}"{% if item.id == settings_active %} data-current="true" aria-label="Текущая страница: {{ item.label }}"{% endif %}>{{ item.label }}</a>{% endfor %}
     {% endif %}
   </nav></noscript>{% endif %}

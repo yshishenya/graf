@@ -22,15 +22,15 @@ def test_settings_overview_exposes_supported_categories_in_primary_sidebar() -> 
     embedded = render_settings_page(embedded=True)
 
     for page, prefix in ((browser, "/settings"), (embedded, "/desktop/settings")):
-        assert "<h1>Настройки</h1>" in page
+        assert "<h1>Аккаунт</h1>" in page
         assert f'href="{prefix}/recording"' in page
         assert f'href="{prefix}/summaries"' in page
         assert f'href="{prefix}/integrations/calendar"' in page
         assert f'href="{prefix}/workspace"' in page
         assert f'href="{prefix}/account"' in page
         assert page.count("data-settings-primary-nav>") == 1
-        assert page.count("data-settings-primary-nav-item") == 9
-        assert '<span class="cabinet-sidebar-nav__section-label">Настройки</span>' in page
+        assert page.count("data-settings-primary-nav-item") == 8
+        assert '<span class="cabinet-sidebar-nav__section-label">Личное</span>' in page
         assert f'<a href="{prefix}/account">Настройки</a>' not in page
         assert 'class="settings-navigation"' not in page
         assert "provider_subject" not in page
@@ -38,17 +38,7 @@ def test_settings_overview_exposes_supported_categories_in_primary_sidebar() -> 
 
 
 def test_settings_sidebar_exposes_canonical_links_and_active_state() -> None:
-    expected_ids = (
-        "meetings",
-        "overview",
-        "recording",
-        "summaries",
-        "calendar",
-        "workspace",
-        "account",
-        "notifications",
-        "billing",
-    )
+    expected_ids = ("meetings", "account", "workspace", "billing", "recording", "summaries", "calendar", "notifications")
     expected_icons = {
         "recording": "video",
         "summaries": "transcript",
@@ -83,7 +73,7 @@ def test_settings_sidebar_exposes_canonical_links_and_active_state() -> None:
             )
             if category == "overview":
                 assert markup.count('aria-current="page"') == 1
-                assert 'data-settings-primary-nav-item="overview"' in markup
+                assert 'data-settings-primary-nav-item="account"' in markup
             else:
                 assert markup.count('aria-current="page"') == 1
                 assert f'data-settings-primary-nav-item="{category}"' in markup
@@ -185,30 +175,15 @@ def test_settings_templates_use_primary_sidebar_and_single_content_column() -> N
 def test_settings_overview_keeps_navigation_primary_and_copy_compact() -> None:
     page = render_settings_page()
 
-    assert "Все разделы в одном месте." in page
-    assert page.count('data-settings-category="') == 7
-    assert "Разрешения и автозапись на Mac." in page
-    assert "Тариф, хранилище и платежи." in page
-    assert page.count('data-settings-primary-nav-item="') == 9
+    assert 'data-settings-category="' not in page
+    assert page.count('data-settings-primary-nav-item="') == 8
+    assert 'account-notifications-title' not in page
 
 
 def test_settings_overview_matches_product_reference_geometry() -> None:
-    root = Path(__file__).resolve().parents[2]
-    css = (root / "src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css").read_text(
-        encoding="utf-8"
-    )
-    settings = css[css.index(".settings-page,") : css.index(".meeting-title {")]
-
-    assert "grid-template-columns: repeat(2, minmax(0, 1fr));" in settings
-    assert "max-width: 780px;" in settings
-    assert "min-height: 112px;" in settings
-    assert "border-radius: var(--radius-compact);" in settings
-    assert "background: var(--surface-2);" in settings
-    assert ".settings-scope-badge," in settings
-    assert ".settings-scope-badge {" in settings
-    assert "min-height: 24px;" in settings
-    assert "padding: 2px 7px;" in settings
-    assert "var(--font-size-caption)" in settings
+    css = (Path(__file__).resolve().parents[2] / "src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css").read_text()
+    assert "max-width: 760px" in css
+    assert "grid-template-columns: minmax(0, 1fr) 172px" in css
 
 
 def test_settings_binary_controls_use_shared_switches_and_segmented_theme() -> None:
@@ -262,8 +237,9 @@ def test_recording_settings_keep_native_boundary_copy_compact() -> None:
     assert 'data-sidebar-download href="/download"' in page
     assert page.count("data-sidebar-download") == 1
     assert "data-sidebar-download" not in embedded_page
-    assert 'href="/desktop/settings/meeting-detection"' in embedded_page
-    assert "Открыть локальные настройки" in embedded_page
+    assert 'href="/desktop/settings/meeting-detection"' not in embedded_page
+    assert "data-recording-settings-search" in embedded_page
+    assert "включая скрытые поиском" in embedded_page
     assert "data-recording-settings" in embedded_page
     assert "data-recording-settings-controls hidden" in embedded_page
     assert "data-recording-settings" not in page

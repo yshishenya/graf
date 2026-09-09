@@ -6,7 +6,7 @@
     <div class="settings-page__content">
     <header class="cabinet-topbar settings-page__topbar">
       <div class="page-title">
-        <h1>Аккаунт и безопасность</h1>
+        <h1>Аккаунт</h1>
         <p class="muted">Ваш профиль, оформление и доступ к GRAF.</p>
       </div>
     </header>
@@ -150,11 +150,7 @@
       {% endif %}
       <details class="session-help"><summary>Что означают эти данные?</summary><div class="muted"><p>На одном устройстве может быть несколько входов — например, в приложении и браузере.</p><p>Последняя активность включает фоновую работу приложения и обновляется с точностью до пяти минут. Она не означает, что человек сейчас в сети.</p><p>Чтобы выйти здесь, выберите «Выйти» в меню профиля.</p></div></details>
     </section>
-    <section class="settings-section" aria-labelledby="account-notifications-title">
-      <h2 id="account-notifications-title">Уведомления</h2>
-      <p class="muted">Управление уведомлениями. Важные системные и финансовые сообщения отключить нельзя.</p>
-      <a class="button quiet" href="{{ "/desktop/settings/notifications" if embedded else "/settings/notifications" }}">Настроить уведомления</a>
-    </section>
+
     <section class="settings-section account-close-card" aria-labelledby="account-close-title">
       <span class="settings-scope-badge">Необратимое действие</span>
       <h2 id="account-close-title">Закрытие аккаунта</h2>

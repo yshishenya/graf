@@ -181,7 +181,7 @@ private struct ContentView: View {
     @State private var activeCalendarMatchLocalRecordingId: String?
     @State private var meetingDetectionSettingsStore = MeetingDetectionSettingsStore()
     @State private var meetingDetectionSettings = MeetingDetectionSettings()
-    @State private var openingSettings = false
+    @State private var openingSettings: String?
     @State private var meetingDetectionRegistryStore: MeetingTargetRegistryStore?
     @State private var meetingDetectionRegistry: MeetingTargetRegistryDocument?
     @State private var meetingDetectionRegistryRequiresRemoteRefresh = false
@@ -349,7 +349,6 @@ private struct ContentView: View {
                     (NSApp.delegate as? AppLifecycleDelegate)?.openLocalRecordingSettings()
                 },
                 onOpenNotificationSettings: {
-                    guard desktopCabinetState == .ready else { return }
                     (NSApp.delegate as? AppLifecycleDelegate)?.openLocalNotificationSettings()
                 },
                 supportIncidentBridge: supportIncidentBridge,
@@ -499,20 +498,33 @@ private struct ContentView: View {
             Task { await refreshMeetingDetectionRegistry(reason: "desktop_auth_session_changed") }
         }
         .onChange(of: desktopCabinetState) { _, state in
-            guard openingSettings, state != .loading else { return }
-            openingSettings = false
-            if state != .ready {
-                (NSApp.delegate as? AppLifecycleDelegate)?.openLocalNotificationSettings()
+            guard let section = openingSettings, state != .loading else { return }
+            openingSettings = nil
+            if state == .ready {
+                (NSApp.delegate as? AppLifecycleDelegate)?.closeSettingsFallback()
+            } else {
+                (NSApp.delegate as? AppLifecycleDelegate)?.presentSettingsFallback(section: section)
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecOpenSettings)) { _ in
-            guard let configuration = desktopCabinetConfiguration, desktopCabinetState == .ready else {
-                (NSApp.delegate as? AppLifecycleDelegate)?.openLocalNotificationSettings()
+        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecOpenSettings)) { event in
+            let section = event.userInfo?["section"] as? String ?? "account"
+            guard let configuration = desktopCabinetConfiguration else {
+                (NSApp.delegate as? AppLifecycleDelegate)?.presentSettingsFallback(section: section)
                 return
             }
-            let route = configuration.baseURL.appending(path: "desktop/settings")
-            openingSettings = selectedCabinetRoute != route
-            selectedCabinetRoute = route
+            let retry = event.userInfo?["retry"] as? Bool == true
+            if desktopCabinetState != .ready && desktopCabinetState != .loading && !retry {
+                (NSApp.delegate as? AppLifecycleDelegate)?.presentSettingsFallback(section: section)
+                return
+            }
+            let route = configuration.baseURL.appending(path: "desktop/settings/\(section)")
+            if desktopCabinetState == .ready && selectedCabinetRoute == route {
+                (NSApp.delegate as? AppLifecycleDelegate)?.closeSettingsFallback()
+            } else {
+                openingSettings = section
+                selectedCabinetRoute = route
+                if retry { desktopCabinetState = .loading }
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecOpenMeetingsFromTray)) { _ in
             guard let configuration = desktopCabinetConfiguration else { return }
@@ -3353,19 +3365,20 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
         workspaceZoomStore.apply(.reset)
     }
 
-    @objc func openSettings(_: Any?) {
+    @objc func openSettings(_: Any?) { openSettingsSection("account") }
+
+    private func openSettingsSection(_ section: String, retry: Bool = false) {
         presentMainWindow(reason: "settings")
         DispatchQueue.main.async {
-            NotificationCenter.default.post(name: .twoBrainRecOpenSettings, object: nil)
+            NotificationCenter.default.post(name: .twoBrainRecOpenSettings, object: nil, userInfo: ["section": section, "retry": retry])
         }
     }
 
-    func openLocalRecordingSettings() {
-        presentSettingsWindow(reason: "local_fallback")
-    }
-
-    func openLocalNotificationSettings() {
-        presentSettingsWindow(reason: "notifications", notifications: true)
+    func openLocalRecordingSettings() { openSettingsSection("recording") }
+    func openLocalNotificationSettings() { openSettingsSection("notifications") }
+    func closeSettingsFallback() { settingsWindow?.close() }
+    func presentSettingsFallback(section: String) {
+        presentSettingsWindow(reason: "cabinet_unavailable", notifications: section == "notifications")
     }
 
     @objc func openGrafMenu(_: Any?) {
@@ -3421,7 +3434,7 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
     private func presentSettingsWindow(reason: String, notifications: Bool = false) {
         Task { await DesktopNotificationPresenter.shared.refreshPermission() }
         if let settingsWindow {
-            (settingsWindow.contentViewController as? NSTabViewController)?.selectedTabViewItemIndex = notifications ? 1 : 0
+            settingsWindow.contentViewController = NSHostingController(rootView: LocalSettingsFallbackView(notifications: notifications, onOpenAll: { [weak self] in self?.openSettingsSection("account", retry: true) }))
             if settingsWindow.isMiniaturized {
                 settingsWindow.deminiaturize(nil)
             }
@@ -3437,7 +3450,7 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
 
         let window = NSWindow(
             contentRect: NSRect(origin: .zero, size: MeetingDetectionSettingsView.windowSize),
-            styleMask: [.titled, .closable, .miniaturizable],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
@@ -3446,16 +3459,9 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
         window.isReleasedWhenClosed = false
         window.isRestorable = false
         window.identifier = NSUserInterfaceItemIdentifier("graf-settings-window")
-        let tabs = NSTabViewController()
-        tabs.tabStyle = .segmentedControlOnTop
-        let recordingTab = NSTabViewItem(viewController: NSHostingController(rootView: MeetingDetectionSettingsView()))
-        recordingTab.label = "Автозапись"
-        let notificationTab = NSTabViewItem(viewController: NSHostingController(rootView: DesktopNotificationsSettingsView()))
-        notificationTab.label = "Уведомления на этом Mac"
-        tabs.addTabViewItem(recordingTab)
-        tabs.addTabViewItem(notificationTab)
-        tabs.selectedTabViewItemIndex = notifications ? 1 : 0
-        window.contentViewController = tabs
+        window.contentViewController = NSHostingController(rootView: LocalSettingsFallbackView(
+            notifications: notifications, onOpenAll: { [weak self] in self?.openSettingsSection("account", retry: true) }
+        ))
         window.center()
         settingsWindow = window
         AppLog.writeRaw(

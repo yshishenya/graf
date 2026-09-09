@@ -210,14 +210,7 @@ async def settings_overview_page(
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
 ) -> HTMLResponse:
-    return await _render_settings(
-        request,
-        category="overview",
-        embedded=False,
-        tenant_scope=tenant_scope,
-        principal=principal,
-        db=db,
-    )
+    return RedirectResponse("/settings/account", status_code=303)
 
 
 @router.get("/settings/recording", response_class=HTMLResponse, include_in_schema=False)
@@ -1571,14 +1564,7 @@ async def embedded_settings_overview_page(
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = WebDbDependency,
 ) -> HTMLResponse:
-    return await _render_settings(
-        request,
-        category="overview",
-        embedded=True,
-        tenant_scope=tenant_scope,
-        principal=principal,
-        db=db,
-    )
+    return RedirectResponse("/desktop/settings/account", status_code=303)
 
 
 @router.get("/desktop/settings/recording", response_class=HTMLResponse, include_in_schema=False)

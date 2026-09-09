@@ -253,3 +253,12 @@ def test_session_compact_time_uses_local_calendar_without_claiming_online() -> N
     for value, zone, expected in cases:
         assert _session_time(value, zone, relative_to=now) == expected
     assert _session_time(cases[0][0], "Asia/Yekaterinburg") == "02.01.2026, 00:30 (UTC+05:00)"
+
+
+def test_settings_navigation_groups_have_one_canonical_home() -> None:
+    from twobrain_rec_server.cabinet.view_models import settings_category_navigation
+    items = settings_category_navigation(embedded=True)
+    assert [item.id for item in items] == ["account", "workspace", "billing", "recording", "summaries", "calendar", "notifications"]
+    assert [item.group_label for item in items] == ["Личное", "Рабочее пространство", "Рабочее пространство", "Встречи", "Встречи", "Встречи", "Приложение"]
+    assert items[0].href == "/desktop/settings/account"
+    assert items[2].href == "/billing"
