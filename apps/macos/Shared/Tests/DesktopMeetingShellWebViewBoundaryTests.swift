@@ -270,6 +270,14 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
         XCTAssertFalse(rows[0].canDelete)
         XCTAssertTrue(rows[1].canDelete)
         XCTAssertTrue(rows[2].canOpen)
+        XCTAssertTrue(rows[1].deletionIsLocalOnly)
+        for attempted in [nil, true, false] as [Bool?] {
+            failed.serverCreationAttempted = attempted
+            let row = try XCTUnwrap(EmbeddedCabinetLocalRecordingRow.rows(for: [failed], recordingsRootURL: playbackRoot).first)
+            XCTAssertEqual(row.deletionIsLocalOnly, attempted == false, "Unknown server creation must never promise local-only deletion")
+        }
+        failed.meetingId = UUID().uuidString
+        XCTAssertFalse(try XCTUnwrap(EmbeddedCabinetLocalRecordingRow.rows(for: [failed], recordingsRootURL: playbackRoot).first).deletionIsLocalOnly)
         XCTAssertFalse(json.contains("directoryPath"))
         XCTAssertFalse(json.contains("manifestPath"))
         XCTAssertFalse(json.contains("sessionId"))

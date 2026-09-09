@@ -82,6 +82,88 @@ async function mixedFrozenSelection(browser, hideSelected = false) {
   } finally { await page.close(); }
 }
 
+async function threeTypesOneConfirmation(browser) {
+  const state = {};
+  const page = await openPage(browser, row(1) + row(2), state);
+  try {
+    await page.addScriptTag({path: script});
+    await page.evaluate(meetingID => {
+      window.GRAFRecordingDeletionBridgeVersion = 1;
+      window.deletionMessages = [];
+      window.webkit = {messageHandlers: {grafLocalRecording: {postMessage(message) {
+        window.deletionMessages.push(message);
+        window.GRAFLocalRecordings.deletionCompleted(message.requestId, {saved: true, accepted: 1, pending: 2, rejected: 0});
+      }}}};
+      window.GRAFLocalRecordings.update([
+        {id: 'local-only', title: 'Synthetic local', durationSeconds: 1, canOpen: true, canDelete: true, deletionIsLocalOnly: true},
+        {id: 'uploaded-alias', meetingId: meetingID, title: 'Synthetic uploaded alias', durationSeconds: 1, canDelete: true, uploadComplete: true},
+      ]);
+    }, id(1));
+    assert.equal(await page.locator('[data-meeting-row]').count(), 3, 'local/server alias counts once');
+    for (const checkbox of await page.locator('[data-meeting-select]').all()) await checkbox.check();
+    assert.match(await page.locator('[data-selection-count]').textContent(), /3/);
+    await page.locator('[data-selection-delete]').click();
+    assert.equal(await page.locator('dialog[open]').count(), 1);
+    assert.match(await page.locator('[data-delete-count]').textContent(), /Вы удаляете 3 записи/);
+    assert.match(await page.locator('[data-delete-count]').textContent(), /Только на этом Mac: 1/);
+    assert.match(await page.locator('[data-delete-count]').textContent(), /На сервере или ожидают его подтверждения: 2/);
+    await page.locator('[data-delete-confirm]').click();
+    const messages = await page.evaluate(() => window.deletionMessages);
+    assert.equal(messages.length, 1);
+    assert.deepEqual(messages[0].localIds, ['local-only']);
+    assert.deepEqual(messages[0].meetingIds.sort(), [id(1), id(2)]);
+    for (const provenLocal of [true, undefined]) {
+      for (const checkbox of await page.locator('[data-meeting-select]').all()) await checkbox.uncheck();
+      await page.evaluate(provenLocal => window.GRAFLocalRecordings.update([
+        {id: 'local-only', title: 'Synthetic local', durationSeconds: 1, canOpen: true, canDelete: true, deletionIsLocalOnly: provenLocal},
+      ]), provenLocal);
+      await page.locator('[data-graf-local-recording-row] [data-meeting-select]').check();
+      await page.locator('[data-selection-delete]').click();
+      const copy = await page.locator('[data-delete-count]').textContent();
+      if (provenLocal) assert.match(copy, /Только на этом Mac: 1.*ещё не отправлялись на сервер/);
+      else {
+        assert.doesNotMatch(copy, /Только на этом Mac|ещё не отправлялись/);
+        assert.match(copy, /На сервере или ожидают его подтверждения: 1/);
+      }
+      await page.locator('[data-delete-cancel]').click();
+    }
+    assert.deepEqual(state.errors, []);
+  } finally { await page.close(); }
+}
+
+async function offlineNativePendingCopy(browser) {
+  const state = {};
+  const page = await openPage(browser, row(1), state);
+  try {
+    await page.addScriptTag({path: script});
+    await page.context().setOffline(true);
+    await page.evaluate(meetingID => {
+      window.GRAFRecordingDeletionBridgeVersion = 1;
+      window.deletionMessages = [];
+      window.webkit = {messageHandlers: {grafLocalRecording: {postMessage(message) {
+        window.deletionMessages.push(message);
+        window.pendingOperation = {id: 'offline-operation', target: {meeting: {_0: meetingID}}, phase: 'queued', waitReason: 'connection'};
+        window.GRAFLocalRecordings.update([], [window.pendingOperation]);
+        window.GRAFLocalRecordings.deletionCompleted(message.requestId, {saved: true, accepted: 0, pending: 1, rejected: 0});
+      }}}};
+    }, id(1));
+    await page.locator('[data-meeting-select]').check();
+    await page.locator('[data-selection-delete]').click();
+    await page.locator('[data-delete-confirm]').click();
+    assert.equal(await page.locator('[data-delete-dialog]').evaluate(node => node.open), false);
+    assert.match(await page.locator('#delete-feedback-region').textContent(), /Удалено из списка: 0.*Ожидают подтверждения: 1/);
+    assert.match(await page.locator('[data-native-deletion-status]').textContent(), /Ожидаем подключения для подтверждения удаления/);
+    assert.doesNotMatch(await page.locator('[data-native-deletion-status]').textContent(), /Запись удалена|Данные этой записи очищены/);
+    assert.equal(await page.locator('[data-meeting-select]').isDisabled(), true);
+    assert.equal(await page.locator('[data-meeting-open]').isDisabled(), true);
+    assert.equal(await page.locator('[data-meeting-row]').count(), 1, 'unconfirmed delete keeps honest pending row');
+    await page.evaluate(() => window.GRAFLocalRecordings.update([], [window.pendingOperation]));
+    assert.equal(await page.locator('[data-meeting-open]').isDisabled(), true);
+    assert.equal(await page.evaluate(() => window.deletionMessages.length), 1);
+    assert.deepEqual(state.errors, []);
+  } finally { await page.close(); }
+}
+
 async function lastRowAndStaleProjection(browser) {
   const state = {};
   const page = await openPage(browser, row(2), state);
@@ -176,7 +258,7 @@ async function realTimerAndReconnect(browser) {
 (async () => {
   const browser = await chromium.launch({headless: true});
   try {
-    const checks = {selection: mixedFrozenSelection, filter: browser => mixedFrozenSelection(browser, true), lastRow: lastRowAndStaleProjection,
+    const checks = {threeTypes: threeTypesOneConfirmation, offlineCopy: offlineNativePendingCopy, selection: mixedFrozenSelection, filter: browser => mixedFrozenSelection(browser, true), lastRow: lastRowAndStaleProjection,
       aliases: boundedAliasesCannotStarveRows, partialBatch: successfulBatchSurvivesLaterFailure, timing: realTimerAndReconnect};
     const selected = process.argv[2] ? [process.argv[2]] : Object.keys(checks);
     for (const name of selected) { assert.ok(checks[name], `unknown check: ${name}`); await checks[name](browser); }

@@ -1163,7 +1163,14 @@
     document.querySelector("#delete-feedback-region")?.replaceChildren();
     if (error) error.hidden = true;
     if (title) title.textContent = pendingDeleteRows.length === 1 ? dialog.dataset.titleOne : dialog.dataset.titleMany;
-    if (count) count.textContent = deletingLabel(pendingDeleteRows.length);
+    if (count) {
+      const localCount = pendingDeleteRows.filter(row => row.hasAttribute("data-graf-local-recording-row")
+        && localRecordingRows.some(item => item.id === row.dataset.grafLocalRecordingId && item.deletionIsLocalOnly === true)).length;
+      count.textContent = deletingLabel(pendingDeleteRows.length)
+        + (localCount ? ` Только на этом Mac: ${localCount}.`
+          + (localCount === pendingDeleteRows.length ? " Эти записи ещё не отправлялись на сервер." : "") : "")
+        + (localCount < pendingDeleteRows.length ? ` На сервере или ожидают его подтверждения: ${pendingDeleteRows.length - localCount}.` : "");
+    }
     if (typeof dialog.showModal === "function") dialog.showModal();
     else dialog.setAttribute("open", "");
     dialog.querySelector("[data-delete-cancel]")?.focus({ preventScroll: true });

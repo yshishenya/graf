@@ -930,6 +930,7 @@ public struct EmbeddedCabinetLocalRecordingRow: Codable, Equatable, Sendable {
     public let canDelete: Bool
     public let uploadComplete: Bool
     public var localDeletionPending: Bool = false
+    public var deletionIsLocalOnly: Bool = false
 
     public static func rows(
         for items: [DesktopUploadQueueItem],
@@ -997,7 +998,9 @@ public struct EmbeddedCabinetLocalRecordingRow: Codable, Equatable, Sendable {
                 canDelete: !item.lifecycleBlocksContent && item.state != .saving &&
                     (item.ownerScope != nil || DesktopUploadQueueService.canDeleteLocalCopy(item: item, recordingsRootURL: recordingsRootURL)),
                 uploadComplete: item.state == .uploaded,
-                localDeletionPending: localDeletionPending
+                localDeletionPending: localDeletionPending,
+                deletionIsLocalOnly: item.serverCreationAttempted == false
+                    && item.meetingId == nil && item.serverTruth.meetingId == nil
             )
         }
     }

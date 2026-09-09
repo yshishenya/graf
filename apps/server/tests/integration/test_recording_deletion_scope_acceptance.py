@@ -1,6 +1,8 @@
 """F262 scope and origin-only acceptance against PostgreSQL and real API auth."""
 
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 from unittest.mock import patch
 from uuid import UUID, uuid4
 
@@ -191,3 +193,62 @@ def test_origin_only_receipt_creates_no_meeting_or_meeting_purge_foreign_keys(cl
             assert marker.local_recording_id == origin
 
     asyncio.run(inspect_only_marker())
+
+
+def test_concurrent_existing_meeting_delete_has_one_receipt_and_purge(client, monkeypatch):
+    from twobrain_rec_server.api import cabinet
+    from twobrain_rec_server.deletion import service
+
+    created = client.post("/api/v1/meetings", headers=auth_headers(), json={
+        "local_recording_id": str(uuid4()), "duration_seconds": 10,
+        "title": "Synthetic concurrent deletion",
+    })
+    assert created.status_code == 200
+    meeting_id = UUID(created.json()["meeting_id"])
+    url = f"/api/v1/cabinet/meetings/{meeting_id}/deletion-requests"
+    ready = Barrier(2)
+    original = cabinet.request_meeting_deletion
+    purge = service._purge_server_controlled_content
+    purged = []
+
+    async def concurrent_request(*args, **kwargs):
+        # Both authenticated requests have already loaded the same live meeting.
+        # PostgreSQL must serialize them and refresh the second session's stale object.
+        assert kwargs["meeting"].deleted_at is None
+        await asyncio.to_thread(ready.wait, 10)
+        return await original(*args, **kwargs)
+
+    async def counted_purge(*args, **kwargs):
+        purged.append(kwargs["deletion_request_id"])
+        return await purge(*args, **kwargs)
+
+    monkeypatch.setattr(cabinet, "request_meeting_deletion", concurrent_request)
+    monkeypatch.setattr(service, "_purge_server_controlled_content", counted_purge)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        pending = [pool.submit(client.post, url, headers=auth_headers(), json={
+            "confirmation_boundary": BOUNDED_DELETE_COPY,
+        }) for _ in range(2)]
+        responses = [request.result(timeout=30) for request in pending]
+    assert [response.status_code for response in responses] == [202, 202]
+    receipts = [response.json() for response in responses]
+    assert receipts[0]["request_id"] == receipts[1]["request_id"]
+    assert receipts[0]["deletion_epoch"] == receipts[1]["deletion_epoch"] == 1
+    assert receipts[0]["meeting_id"] == receipts[1]["meeting_id"] == str(meeting_id)
+    assert purged == [UUID(receipts[0]["request_id"])]
+
+    async def inspect():
+        async with client.app_state["sessionmaker"]() as db:
+            assert db.bind.dialect.name == "postgresql"
+            meeting = await db.get(Meeting, meeting_id)
+            assert meeting.deleted_at is not None and meeting.deletion_epoch == 1
+            for model in (MeetingDeletionRequest, MeetingDeletionReport):
+                assert await db.scalar(select(func.count()).select_from(model)) == 1
+            assert await db.scalar(select(func.count()).select_from(MeetingLifecycleAuditEvent).where(
+                MeetingLifecycleAuditEvent.event_type == "deletion_requested",
+            )) == 1
+            tasks = (await db.scalars(select(LocalPurgeTask))).all()
+            assert len(tasks) == len({(task.deletion_request_id, task.device_id, task.task_type) for task in tasks})
+            artifacts = (await db.scalars(select(MeetingDeletionArtifactState))).all()
+            assert len(artifacts) == len({(artifact.deletion_request_id, artifact.artifact_class) for artifact in artifacts})
+
+    asyncio.run(inspect())
