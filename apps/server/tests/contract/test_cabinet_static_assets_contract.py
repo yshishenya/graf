@@ -269,7 +269,7 @@ def test_cabinet_js_keeps_fragment_state_ephemeral() -> None:
     assert "htmx:afterSwap" in script
     assert "meeting-list-region" in script
     assert "localStorage" not in script
-    assert script.count("sessionStorage") == 16
+    assert script.count("sessionStorage") == 15
     assert script.count('sessionStorage.removeItem("htmx-history-cache")') == 1
     assert script.count('sessionStorage.removeItem("htmx-current-path-for-history")') == 2
     assert "graf-summary-candidate-" in script
@@ -616,8 +616,8 @@ vm.runInThisContext(`
   const processingListProjectionLastFetchedAt = new Map();
   const processingListProjectionStates = new Map();
   const processingTranscriptReady = () => false;
-  const processingSummaryState = () => "processing";
-  const processingSummaryPending = () => true;
+  const processingSummaryState = (projection) => projection.state === "processed" ? "available" : "processing";
+  const processingSummaryPending = (state) => state === "processing";
   const requestMeetingListRefresh = () => { refreshes += 1; return true; };
   ${source}
   global.initProcessingListProjection = initProcessingListProjection;
@@ -846,6 +846,7 @@ const detail = {
 };
 const processingTranscriptReady = (projection) => projection.transcript_ready === true;
 const processingSummaryState = (projection) => projection.summary_status;
+const processingSummaryPending = (state) => ["queued", "generating", "processing", "blocked_dependency"].includes(state);
 const processingProjectionMatchesDetail = (node, projection) => (
   node.dataset.meetingId === projection.meeting_id
   && node.dataset.mediaRevisionId === projection.media_revision_id
@@ -998,6 +999,7 @@ const fragments = {
 };
 const processingTranscriptReady = (projection) => projection.transcript_ready === true;
 const processingSummaryState = (projection) => projection.summary_status;
+const processingSummaryPending = (state) => state === "processing";
 const processingProjectionMatchesDetail = (node, projection) => (
   node.dataset.meetingId === projection.meeting_id
   && node.dataset.mediaRevisionId === projection.media_revision_id

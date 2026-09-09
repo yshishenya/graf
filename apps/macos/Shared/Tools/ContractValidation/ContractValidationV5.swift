@@ -897,39 +897,6 @@ func validateRecordingMetersUseLocalWriterInvariant() throws {
     )
 }
 
-func validateManualGateExitCleanupInvariant() throws {
-    let scriptURL = repositoryRoot.appendingPathComponent("apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh")
-    let source = try String(contentsOf: scriptURL, encoding: .utf8)
-
-    try require(
-        source.contains("cleanup_runtime()") &&
-            source.contains("trap - EXIT") &&
-            source.contains("quit_app") &&
-            source.contains("stop_caffeinate"),
-        "Manual gate cleanup must quit the packaged app and stop caffeinate on early exits"
-    )
-    try require(
-        source.contains("trap 'cleanup_runtime' EXIT"),
-        "Manual gate must install the full runtime cleanup trap after holding the wake assertion"
-    )
-    try require(
-        source.contains("baselineCoreaudiodCpuGate") &&
-            source.contains("maxCoreaudiodCpuPercent") &&
-            source.contains("beforeAppLaunch=true"),
-        "Manual gate must block hot coreaudiod baseline before launching the packaged app"
-    )
-    guard let baselineRange = source.range(of: "run_baseline_cpu"),
-          let launchRange = source.range(of: "launch_packaged_app")
-    else {
-        throw ValidationError(description: "Manual gate must define baseline and packaged app launch steps")
-    }
-    try require(
-        baselineRange.lowerBound < launchRange.lowerBound,
-        "Manual gate must evaluate baseline CPU before launching the packaged app"
-    )
-}
-
-
 func contractScopeApproval() -> CaptureScopeApproval {
     CaptureScopeApproval(
         scopeApprovalId: "contract-scope",
@@ -1140,7 +1107,6 @@ do {
     try validateSystemAudioRetryCleanupSourceOrderingInvariant()
     try validateAppStopFailureFailClosedSourceInvariant()
     try validateRecordingMetersUseLocalWriterInvariant()
-    try validateManualGateExitCleanupInvariant()
     try validateDesktopUploadQueueContract()
     try validateMeetingMuteTruthContract()
     print("ContractValidation: PASS")

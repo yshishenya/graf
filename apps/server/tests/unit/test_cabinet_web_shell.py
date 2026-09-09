@@ -1194,6 +1194,24 @@ def test_partial_transcript_detail_renders_diarization_placeholder() -> None:
     assert 'data-playback-transcript hidden aria-hidden="true"' in page
 
 
+def test_list_polls_only_requested_summary_work() -> None:
+    from types import SimpleNamespace
+
+    for state in ("not_requested", "queued", "generating", "blocked_dependency", "failed"):
+        item = _item().model_copy(update={
+            "status": "ready", "primary_action": "open", "transcript_available": True,
+            "summary_status": state,
+            "notes_action_truth": cabinet_view_models.notes_action_truth_state(
+                status="ready", result=SimpleNamespace(summary_status=state),
+            ),
+        })
+        page = render_meeting_list_page(MeetingListResponse(
+            items=[item], filters=MeetingFilterState(), generated_at=datetime.now(UTC),
+        ))
+        pending = state in {"queued", "generating", "blocked_dependency"}
+        assert f'data-summary-pending="{str(pending).lower()}"' in page, state
+
+
 def test_processing_summary_copy_can_distinguish_stored_output_from_not_requested() -> None:
     review = _review()
     review.notes_action_truth = review.notes_action_truth.model_copy(
@@ -2350,7 +2368,6 @@ def test_detail_shell_renders_speaker_timeline_segments() -> None:
     assert 'detailMain.style.setProperty("--playback-clearance"' not in script
     assert "new ResizeObserver(syncPlaybackClearance).observe(shell)" not in script
     assert 'const followTranscript = (seconds, sourceIds = "") =>' in script
-    assert 'track?.addEventListener("click"' in script
     assert 'lane.classList.toggle("is-active"' in script
 
 

@@ -4,10 +4,8 @@ description: Normalize existing GitHub issues to the project issue canon.
 compatibility: Requires spec-kit project structure with .specify/ directory
 metadata:
   author: github-spec-kit
-  source: extension:github-issue-canon
+  source: github-issue-canon:commands/speckit.github-issue-canon.normalize.md
 ---
-
-# Github Issue Canon Normalize Skill
 
 ## Outline
 

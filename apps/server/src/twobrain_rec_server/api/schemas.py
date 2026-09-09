@@ -916,6 +916,7 @@ class DesktopSyncReviewState(BaseModel):
     transcript_available: bool = False
     diarization_available: bool = False
     content_available: bool = False
+    summary_status: str | None = None
     web_url: str | None = None
     desktop_url: str | None = None
 
@@ -2229,6 +2230,7 @@ class MeetingListItem(BaseModel):
     transcript_available: bool = False
     diarization_available: bool = False
     notes_available: bool = False
+    summary_status: str | None = None
     notes_action_truth: NotesActionTruthState = Field(default_factory=default_notes_action_truth)
     updated_at: datetime | None = None
     access: MeetingAccessState | None = None

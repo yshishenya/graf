@@ -659,12 +659,23 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         now: Date = Date()
     ) -> Bool {
         guard item.state == .uploaded,
-              item.serverTruth.meetingId != nil || item.meetingId != nil
+              item.serverTruth.meetingId != nil || item.meetingId != nil,
+              item.serverTruth.deletionState == nil || item.serverTruth.deletionState == "none",
+              item.serverTruth.accessState == nil || item.serverTruth.accessState == "owner"
         else {
             return false
         }
         guard let status = normalizedProcessingStatus(item.serverTruth.processingStatus) else {
             return true
+        }
+        if status == "processed", item.syncConflictState == .none,
+           let summary = item.serverTruth.summaryStatus,
+           ["queued", "generating", "blocked_dependency"].contains(summary) {
+            return true
+        }
+        if status == "processed", item.syncConflictState == .none, item.serverTruth.summaryStatus == "not_requested" {
+            // The automatic summary dispatcher can run after the transcript sync.
+            return now.timeIntervalSince(item.serverTruth.finalizedAt ?? item.createdAt) < 86400
         }
         guard !finalProcessingStatuses.contains(status) else {
             return false

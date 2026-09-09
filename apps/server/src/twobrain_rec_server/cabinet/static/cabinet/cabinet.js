@@ -1635,6 +1635,7 @@
     "running",
     "generating",
     "submitted",
+    "blocked_dependency",
   ].includes(String(state || "").toLowerCase());
 
   const processingTranscriptReady = (projection) => (
@@ -1769,6 +1770,7 @@
     processing: ["Итоги готовятся отдельно. Расшифровка может быть доступна раньше.", "pending"],
     running: ["Итоги готовятся отдельно. Расшифровка может быть доступна раньше.", "pending"],
     generating: ["Итоги готовятся отдельно. Расшифровка может быть доступна раньше.", "pending"],
+    blocked_dependency: ["Подготовка итогов задерживается. Продолжим автоматически.", "pending"],
     submitted: ["Итоги готовятся отдельно. Расшифровка может быть доступна раньше.", "pending"],
     failed: [transcriptReady ? "Не удалось подготовить итоги. Расшифровка сохранена." : "Не удалось подготовить итоги.", "failed"],
     unavailable: [transcriptReady ? "Итоги пока недоступны. Расшифровка сохранена." : "Итоги пока недоступны.", "warning"],
@@ -2073,6 +2075,7 @@
     const shouldPoll = !terminalProjection && (
       (typeof processingTranscriptReady === "function" && !transcriptReady)
       || processingSummaryPending(summaryState)
+      || summaryState === "not_requested"
       || projection?.retry_class === "retryable" && projection?.next_attempt_at != null
       || projection?.retry_class === "unknown_outcome"
       || projection?.attempt_in_flight === true
@@ -2096,24 +2099,74 @@
     }, delay);
   };
 
+  const refreshPlaybackContent = (current, next) => {
+    if (!current.querySelector("[data-playback-player]") || !next.querySelector("[data-playback-player]")
+      || !current.dataset.meetingId || !current.dataset.mediaRevisionId
+      || ["meetingId", "workspaceId", "mediaRevisionId", "sourceMode"].some(key => current.dataset[key] !== next.dataset[key])) return false;
+    // Keep the live audio, comments and draft attached; only transcript-owned controls change.
+    for (const selector of [".playback-speaker-overview", "[data-playback-avatars]", "[data-playback-listen-menu]"]) {
+      const target = current.querySelector(selector), replacement = next.querySelector(selector);
+      if (target && replacement) target.replaceChildren(...replacement.childNodes);
+    }
+    const timeline = current.querySelector("[data-speaker-timeline]"), nextTimeline = next.querySelector("[data-speaker-timeline]");
+    if (timeline && nextTimeline) {
+      const wrapper = nextTimeline.closest("[data-speaker-timeline-shell]");
+      if (wrapper && !timeline.closest("[data-speaker-timeline-shell]")) timeline.replaceWith(wrapper);
+      else {
+        timeline.replaceChildren(...nextTimeline.childNodes);
+        Object.assign(timeline.dataset, nextTimeline.dataset);
+      }
+    }
+    const manager = current.querySelector("[data-speaker-manager]"), nextManager = next.querySelector("[data-speaker-manager]");
+    if (nextManager) {
+      if (!manager) current.querySelector(".playback-tools")?.append(nextManager);
+      else if (current.dataset.processingResultId !== next.dataset.processingResultId) manager.replaceWith(nextManager);
+    } else manager?.remove();
+    for (const selector of ["[data-playback-timeline-toggle]", "[data-playback-next]"]) {
+      const target = current.querySelector(selector), replacement = next.querySelector(selector);
+      if (target && replacement) target.disabled = replacement.disabled;
+    }
+    for (const selector of [".speaker-timeline-resize-row", "[data-playback-carousel]", "[data-playback-comment]"]) {
+      const target = current.querySelector(selector), replacement = next.querySelector(selector);
+      if (target && replacement) target.hidden = replacement.hidden;
+    }
+    const listen = current.querySelector("[data-playback-listen-toggle]")?.parentElement;
+    const nextListen = next.querySelector("[data-playback-listen-toggle]")?.parentElement;
+    if (listen && nextListen) listen.hidden = nextListen.hidden;
+    for (const key of ["processingResultId", "commentsAvailable", "commentsCanComment", "playbackReason"]) current.dataset[key] = next.dataset[key] || "";
+    speakerTimelineResizeHandlers.get(current.querySelector("[data-speaker-timeline-shell]"))?.();
+    current.dataset.playbackContextChanged = "true";
+    return true;
+  };
+
   const refreshProcessingDetailContentOnce = async (
     detail,
     projection,
-    { resetRetryBudget = false } = {},
+    { resetRetryBudget = false, forceSummary = false, summaryTemplate = null } = {},
   ) => {
+    if (detail.dataset.requestedSummaryTemplate && !forceSummary) return false;
+    if (forceSummary && summaryTemplate) detail.dataset.requestedSummaryTemplate = summaryTemplate;
     if (titleEditorActive()) {
       if (!detail.dataset.titleRefreshDeferred) {
         detail.dataset.titleRefreshDeferred = "true";
         window.setTimeout(() => {
           delete detail.dataset.titleRefreshDeferred;
-          if (detail.isConnected) void refreshProcessingDetailContentOnce(detail, projection);
+          if (detail.isConnected) void refreshProcessingDetailContentOnce(detail, projection, {
+            forceSummary: forceSummary || Boolean(detail.dataset.requestedSummaryTemplate),
+            summaryTemplate: detail.dataset.requestedSummaryTemplate || summaryTemplate,
+          });
         }, 2000);
       }
       return false;
     }
     if (resetRetryBudget) delete detail.dataset.processingContentRefreshRetryCount;
     const transcriptReady = processingTranscriptReady(projection);
-    const summaryReady = processingSummaryState(projection).toLowerCase() === "available";
+    const summaryReady = ["available", "partial"].includes(processingSummaryState(projection).toLowerCase());
+    const summaryDisplayState = summaryReady ? "available"
+      : processingSummaryPending(processingSummaryState(projection)) ? "processing"
+      : ["failed", "unavailable"].includes(processingSummaryState(projection)) ? "unavailable" : "deferred";
+    const refreshSummaryState = transcriptReady && detail.dataset.summaryRenderedState
+      && detail.dataset.summaryRenderedState !== summaryDisplayState;
     const attemptOrdinal = Number(projection?.attempt_ordinal ?? 0);
     const refreshReplacement = Number.isSafeInteger(attemptOrdinal)
       && attemptOrdinal > 1
@@ -2121,11 +2174,16 @@
       && detail.dataset.processingPublishedAttempt !== String(attemptOrdinal);
     const refreshTranscript = transcriptReady
       && detail.dataset.processingTranscriptContentReady !== "true";
-    const refreshSummary = summaryReady
-      && detail.dataset.processingSummaryContentReady !== "true";
-    if (!refreshTranscript && !refreshSummary && !refreshReplacement) return false;
-    const pollUrl = detail.dataset.playbackPollUrl;
+    const refreshSummary = forceSummary || (summaryReady
+      && detail.dataset.processingSummaryContentReady !== "true");
+    if (!refreshTranscript && !refreshSummary && !refreshReplacement && !refreshSummaryState) return false;
+    let pollUrl = detail.dataset.playbackPollUrl;
     if (!pollUrl) return false;
+    if (summaryTemplate) {
+      const url = new URL(pollUrl, window.location.href);
+      url.searchParams.set("summary_format", summaryTemplate);
+      pollUrl = url.href;
+    }
     const titleVersion = detail.querySelector("[name='expected_version']")?.value;
     const refreshGeneration = processingRecoveryGeneration;
     const refreshScheduleGeneration = detail.dataset.processingScheduleGeneration || "0";
@@ -2136,6 +2194,8 @@
       transcriptReady,
       summaryReady,
       refreshReplacement,
+      summaryDisplayState,
+      summaryTemplate,
     ].join("|");
     if (detail.dataset.processingContentRefreshClaim === refreshClaim) return false;
     detail.dataset.processingContentRefreshClaim = refreshClaim;
@@ -2145,6 +2205,7 @@
       && (detail.dataset.processingScheduleGeneration || "0") === refreshScheduleGeneration
       && detail.dataset.processingContentRefreshClaim === refreshClaim
       && processingProjectionMatchesDetail(detail, projection)
+      && (!summaryTemplate || detail.dataset.requestedSummaryTemplate === summaryTemplate)
     );
     const releaseRefreshClaim = () => {
       if (detail.dataset.processingContentRefreshClaim === refreshClaim) {
@@ -2164,8 +2225,10 @@
         stopProcessingRecoveryPolling();
         processingRecoveryPollTimer = window.setTimeout(() => {
           processingRecoveryPollTimer = null;
-          if (detail.isConnected && refreshGeneration === processingRecoveryGeneration) {
-            void refreshProcessingStatus({ force: true, generation: refreshGeneration });
+          if (detail.isConnected && refreshGeneration === processingRecoveryGeneration
+            && (!summaryTemplate || detail.dataset.requestedSummaryTemplate === summaryTemplate)) {
+            if (forceSummary) void refreshProcessingDetailContentOnce(detail, projection, { forceSummary, summaryTemplate });
+            else void refreshProcessingStatus({ force: true, generation: refreshGeneration });
           }
         }, 15000);
         return;
@@ -2173,7 +2236,9 @@
       detail.dataset.processingContentRefreshRetryCount = String(retryCount);
       if (processingRecoveryPollTimer !== null) stopProcessingRecoveryPolling();
       window.setTimeout(() => {
-        if (detail.isConnected) void refreshProcessingDetailContentOnce(detail, projection);
+        if (detail.isConnected && (!summaryTemplate || detail.dataset.requestedSummaryTemplate === summaryTemplate)) {
+          void refreshProcessingDetailContentOnce(detail, projection, { forceSummary, summaryTemplate });
+        }
       }, Math.min(2000 * retryCount, 8000));
     };
     try {
@@ -2203,6 +2268,11 @@
         retryFragmentRefresh();
         return false;
       }
+      if (forceSummary && (nextDetail.dataset.summaryRenderedState !== "available"
+        || (summaryTemplate && nextDetail.querySelector("[data-summary-format-controls]")?.dataset.currentTemplateKey !== summaryTemplate))) {
+        retryFragmentRefresh();
+        return false;
+      }
       nextDetail.dataset.processingTranscriptContentReady =
         refreshTranscript ? "true" : detail.dataset.processingTranscriptContentReady || "false";
       nextDetail.dataset.processingSummaryContentReady =
@@ -2218,12 +2288,21 @@
       releaseRefreshClaim();
       stopProcessingRecoveryCountdown();
       stopProcessingRecoveryPolling();
+      const selectedTab = detail.querySelector('[data-detail-tab][aria-selected="true"]')?.dataset.detailTab;
+      const focusedID = detail.contains?.(document.activeElement) ? document.activeElement?.id : null;
       if (refreshReplacement) {
         currentPlayback?.querySelector("audio")?.pause();
         if (currentPlayback && nextPlayback) currentPlayback.replaceWith(nextPlayback);
+      } else if (refreshTranscript && currentPlayback && nextPlayback && !refreshPlaybackContent(currentPlayback, nextPlayback)) {
+        currentPlayback.querySelector("audio")?.pause();
+        currentPlayback.replaceWith(nextPlayback);
       }
       detail.replaceWith(nextDetail);
-      window.setTimeout(initCabinet, 0);
+      window.setTimeout(() => {
+        initCabinet();
+        if (selectedTab && typeof activateDetailTab === "function") activateDetailTab(selectedTab, { updateUrl: false });
+        if (focusedID) document.getElementById(focusedID)?.focus({ preventScroll: true });
+      }, 0);
       return true;
     } catch {
       retryFragmentRefresh();
@@ -2333,10 +2412,11 @@
     updateProcessingStage(
       detail,
       "summary",
-      summaryState === "available" ? "ready"
+      ["available", "partial"].includes(summaryState) ? "ready"
         : ["failed", "unavailable"].includes(summaryState) ? "unavailable"
-        : processingSummaryPending(summaryState) ? "active" : "active",
+        : "active",
       summaryState === "available" ? "Готово"
+        : summaryState === "partial" ? "Доступно частично"
         : ["failed", "unavailable"].includes(summaryState) ? "Недоступно"
         : summaryState === "not_requested" ? "Не запрошены" : "Готовятся",
     );
@@ -3059,15 +3139,19 @@
     ) return;
     const retryClass = String(projection?.retry_class || "none");
     const state = String(projection?.state || "").toLowerCase();
+    const transcriptReady = processingTranscriptReady(projection);
+    const summaryState = processingSummaryState(projection);
     if (
       retryClass === "terminal"
-      || ["processed", "blocked", "failed_terminal", "canceled"].includes(state)
+      || ["blocked", "failed_terminal", "canceled"].includes(state)
+      || (state === "processed" && (
+        !processingSummaryPending(summaryState)
+        || (transcriptReady && row.dataset.processingTranscriptVisible !== "true")
+      ))
     ) {
       const restoreFocus = row.contains(document.activeElement);
       if (requestMeetingListRefresh({ focusMeetingIds: [rowMeetingId], restoreFocus })) return;
     }
-    const transcriptReady = processingTranscriptReady(projection);
-    const summaryState = processingSummaryState(projection);
     const replacement = Number(projection?.attempt_ordinal ?? 0) > 1
       && projection?.content_available === true;
     const text = replacement && !processingTerminalFailure(projection)
@@ -3079,7 +3163,7 @@
       : retryClass === "terminal"
       ? "Требует внимания"
       : transcriptReady
-      ? `Расшифровка готова · ${summaryState === "available" ? "итоги готовы" : processingSummaryPending(summaryState) ? "итоги готовятся" : "итоги недоступны"}`
+      ? `Расшифровка готова · ${summaryState === "available" ? "итоги готовы" : summaryState === "partial" ? "итоги доступны частично" : processingSummaryPending(summaryState) ? "итоги готовятся" : "итоги недоступны"}`
       : "Спикеры определяются · расшифровка готовится";
     const node = row.querySelector(".meeting-content-readiness");
     if (node) node.dataset.processingListStatus = "true";
@@ -3136,7 +3220,7 @@
     if (!list) return;
     const rows = allRows().filter((row) => {
       const kind = row.querySelector(".meeting-status[data-status-kind]")?.dataset.statusKind || "";
-      return kind === "processing";
+      return kind === "processing" || row.dataset.summaryPending === "true";
     });
     if (!rows.length) {
       resetProcessingListProjectionState();
@@ -3177,6 +3261,7 @@
       const meetingId = controls.dataset.meetingId || "";
       const candidateStorageKey = `graf-summary-candidate-${meetingId}`;
       let currentOutcomeSetId = controls.dataset.currentOutcomeSetId || null;
+      let refreshBaselineOutcomeSetId = currentOutcomeSetId;
       let activeTemplate = null;
       let pollingTimer = null;
       let pollAttempts = 0;
@@ -3208,14 +3293,14 @@
         controls.setAttribute("aria-busy", busy ? "true" : "false");
       };
       const reloadAfterSummaryChange = (template = activeTemplate) => {
-        window.sessionStorage.setItem(acceptedFocusKey, "current");
         const templateKey = typeof template === "string" ? template : template?.key;
-        if (templateKey) {
-          const url = new URL(window.location.href);
-          url.searchParams.set("summary_format", templateKey);
-          window.history.replaceState(null, "", url);
-        }
-        window.location.reload();
+        const detail = controls.closest("[data-processing-status-url]");
+        if (!detail?.isConnected) return;
+        void refreshProcessingDetailContentOnce(detail, {
+          meeting_id: detail.dataset.meetingId,
+          media_revision_id: detail.dataset.mediaRevisionId,
+          summary_status: "available",
+        }, { forceSummary: true, summaryTemplate: templateKey });
       };
       const showStatus = (message, state = "generating", actions = []) => {
         if (!status || !statusLive || !statusActions) return;
@@ -3554,7 +3639,7 @@
         return true;
       };
       const schedulePoll = (candidate, generation = candidateRequestGeneration) => {
-        if (generation !== candidateRequestGeneration) return;
+        if (generation !== candidateRequestGeneration || !controls.isConnected) return;
         window.clearTimeout(pollingTimer);
         pollingTimer = null;
         if (document.hidden) {
@@ -3564,15 +3649,9 @@
           ]);
           return;
         }
-        if (document.hidden || pollAttempts >= 40 || (pollDeadline && Date.now() >= pollDeadline)) {
-          if (pollAttempts >= 40 || (pollDeadline && Date.now() >= pollDeadline)) {
-            setBusy(false);
-          showStatus("Генерация занимает больше обычного. Текущие итоги сохранены.", "slow", [
-            { text: "Проверить снова", action: () => resumeCandidatePolling(candidate, generation), primary: true },
-            { text: "Закрыть", action: dismissStatus }
-          ]);
-          }
-          return;
+        if (pollAttempts >= 40 || (pollDeadline && Date.now() >= pollDeadline)) {
+          pollDelay = 15000;
+          showStatus("Подготовка занимает больше обычного. Продолжим проверять автоматически.", "slow");
         }
         pollingTimer = window.setTimeout(() => {
           pollingTimer = null;
@@ -3580,7 +3659,7 @@
         }, pollDelay);
       };
       const pollCandidate = async (candidate, generation = candidateRequestGeneration) => {
-        if (generation !== candidateRequestGeneration) return;
+        if (generation !== candidateRequestGeneration || !controls.isConnected) return;
         if (document.hidden) {
           pollingTimer = null;
           setBusy(false);
@@ -3592,6 +3671,7 @@
         pollAttempts += 1;
         try {
           const response = await fetch(candidate.poll_url, { credentials: "same-origin", cache: "no-store" });
+          if (generation !== candidateRequestGeneration || !controls.isConnected) return;
           if (await recoverMeetingDetailFromResponse(response, { actionProblemCodes: summaryActionProblemCodes })) {
             throw meetingDetailRecoveredError();
           }
@@ -3604,7 +3684,7 @@
             throw error;
           }
           const next = await response.json();
-          if (generation !== candidateRequestGeneration) return;
+          if (generation !== candidateRequestGeneration || !controls.isConnected) return;
           renderCandidate(next, generation);
           if (next.state === "generating") {
             pollDelay = Math.min(10000, Math.round(pollDelay * 1.5));
@@ -3612,11 +3692,12 @@
           }
         } catch (error) {
           if (isMeetingDetailRecoveredError(error)) return;
-          if (generation !== candidateRequestGeneration) return;
+          if (generation !== candidateRequestGeneration || !controls.isConnected) return;
           pollingTimer = null;
           setBusy(false);
           const code = error instanceof Error ? error.message : "";
           const transientPollFailure = !code
+            || error instanceof TypeError
             || code === "summary_poll_failed"
             || code === "summary_poll_unavailable"
             || code === "summary_request_unavailable"
@@ -3636,6 +3717,10 @@
             "failed",
             retry ? [retry] : []
           );
+          if (transientPollFailure) {
+            pollDelay = 15000;
+            schedulePoll(candidate, generation);
+          }
         }
       };
       const requestCandidate = async (template, {
@@ -3761,14 +3846,9 @@
         return payload.current_outcome_set_id || null;
       };
        const pollSummaryRefresh = async (template, generation) => {
-        if (generation !== candidateRequestGeneration) return;
-        if (Date.now() > pollDeadline) {
-          pollingTimer = null;
-          candidateRequestInFlightGeneration = null;
-          setBusy(false);
-          showStatus("Не удалось дождаться обновления. Текущие итоги сохранены.", "failed", [
-            { text: "Обновить страницу", action: () => window.location.reload(), primary: true }
-          ]);
+        if (generation !== candidateRequestGeneration || !controls.isConnected) return;
+        if (document.hidden) {
+          pollingTimer = window.setTimeout(() => pollSummaryRefresh(template, generation), 15000);
           return;
         }
         try {
@@ -3776,6 +3856,7 @@
             `/api/v1/cabinet/meetings/${meetingId}/summaries/${encodeURIComponent(template.key)}`,
             { credentials: "same-origin", cache: "no-store" }
           );
+          if (generation !== candidateRequestGeneration || !controls.isConnected) return;
           if (await recoverMeetingDetailFromResponse(response, { actionProblemCodes: summaryActionProblemCodes })) {
             throw meetingDetailRecoveredError();
           }
@@ -3785,28 +3866,32 @@
             error.status = response.status;
             throw error;
           }
-          if (generation !== candidateRequestGeneration) return;
-          const previousOutcomeSetId = currentOutcomeSetId;
+          if (generation !== candidateRequestGeneration || !controls.isConnected) return;
           currentOutcomeSetId = payload.current_outcome_set_id || currentOutcomeSetId;
           const state = payload.catalog_entry?.generation_state;
-          if (["preparing", "updating", "blocked", "deferred", "ambiguous"].includes(state)) {
+          if (["preparing", "updating", "blocked", "deferred"].includes(state)) {
             showStatus("Обновляем итоги. Текущие итоги остаются доступны.");
-            pollingTimer = window.setTimeout(() => pollSummaryRefresh(template, generation), 1200);
+            pollingTimer = window.setTimeout(() => pollSummaryRefresh(template, generation), Date.now() > pollDeadline ? 15000 : 3000);
             return;
           }
           pollingTimer = null;
           candidateRequestInFlightGeneration = null;
           setBusy(false);
-          if (payload.current_outcome_set_id && payload.current_outcome_set_id !== previousOutcomeSetId && state === "idle") {
+          if (payload.current_outcome_set_id && payload.current_outcome_set_id !== refreshBaselineOutcomeSetId && state === "idle") {
             showStatus("Итоги обновлены. Обновляем экран.", "ready");
-            window.setTimeout(reloadAfterSummaryChange, 0);
+            window.setTimeout(() => reloadAfterSummaryChange(template), 0);
           } else {
             showStatus("Обновление не завершено. Текущие итоги сохранены.", "failed", [
               { text: "Обновить страницу", action: () => window.location.reload(), primary: true }
             ]);
           }
         } catch (error) {
-          if (isMeetingDetailRecoveredError(error) || generation !== candidateRequestGeneration) return;
+          if (isMeetingDetailRecoveredError(error) || generation !== candidateRequestGeneration || !controls.isConnected) return;
+          if (error instanceof TypeError || !error.status || error.status >= 500 || [408, 425, 429].includes(error.status)) {
+            showStatus("Связь временно недоступна. Продолжим проверять автоматически.", "slow");
+            pollingTimer = window.setTimeout(() => pollSummaryRefresh(template, generation), 15000);
+            return;
+          }
           pollingTimer = null;
           candidateRequestInFlightGeneration = null;
           setBusy(false);
@@ -3824,13 +3909,15 @@
         setBusy(true);
         showStatus("Обновляем итоги. Текущие итоги остаются доступны.");
         try {
+          refreshBaselineOutcomeSetId = await currentOutcomeSetIdForTemplate(template);
+          if (generation !== candidateRequestGeneration || !controls.isConnected) return;
           const payload = await mutate(
             `/api/v1/cabinet/meetings/${meetingId}/summaries/${encodeURIComponent(template.key)}/refresh`,
             "POST",
             {
               schema_version: 1,
               idempotency_key: requestIntentId,
-              expected_current_outcome_set_id: await currentOutcomeSetIdForTemplate(template),
+              expected_current_outcome_set_id: refreshBaselineOutcomeSetId,
               template_id: template.id || null,
               template_version: template.version,
               generation_options: {}
@@ -4133,7 +4220,7 @@
         credentials: "same-origin",
         cache: "no-store"
       }).then((response) => response.ok ? response.json() : null).then((payload) => {
-        if (initialCandidateLoadGeneration !== candidateRequestGeneration) return;
+        if (initialCandidateLoadGeneration !== candidateRequestGeneration || !controls.isConnected) return;
         const candidates = Array.isArray(payload) ? payload : (Array.isArray(payload?.candidates) ? payload.candidates : []);
         const acceptedIndex = candidates.findIndex((candidate) => (
           candidate.state === "accepted"
@@ -4856,7 +4943,13 @@
   const initPlayback = () => {
     document.querySelectorAll("[data-playback-shell]").forEach((shell) => {
       window.GRAFPlaybackComments?.init(shell);
-      if (shell.dataset.playbackReady === "true") return;
+      if (shell.dataset.playbackReady === "true") {
+        if (shell.dataset.playbackContextChanged === "true") {
+          delete shell.dataset.playbackContextChanged;
+          shell.dispatchEvent(new Event("graf:playback-context-updated"));
+        }
+        return;
+      }
       shell.dataset.playbackReady = "true";
       const player = shell.querySelector("[data-playback-player]");
       if (!player) return;
@@ -4866,8 +4959,8 @@
       const progress = shell.querySelector("[data-playback-progress]");
       const speedToggle = shell.querySelector("[data-playback-speed-toggle]");
       const playbackError = shell.querySelector("[data-playback-error]");
-      const lanes = Array.from(shell.querySelectorAll("[data-speaker-lane]"));
-      const avatars = Array.from(shell.querySelectorAll("[data-playback-avatar]"));
+      const lanes = () => Array.from(shell.querySelectorAll("[data-speaker-lane]"));
+      const avatars = () => Array.from(shell.querySelectorAll("[data-playback-avatar]"));
       const transcriptTurns = () => Array.from(document.querySelectorAll("[data-transcript-turn]"));
       const selectedSpeakers = new Set();
       let allowedIntervals = [];
@@ -4909,13 +5002,13 @@
         const max = playbackDuration();
         shell.style.setProperty("--playback-position", `${max > 0 ? Math.max(0, Math.min(100, player.currentTime / max * 100)) : 0}%`);
         const activeKeys = new Set();
-        lanes.forEach((lane) => {
+        lanes().forEach((lane) => {
           const active = Array.from(lane.querySelectorAll("[data-lane-segment]")).some((segment) => Number(segment.dataset.startSeconds) <= player.currentTime && player.currentTime < Number(segment.dataset.endSeconds));
           lane.classList.toggle("is-active", active);
           if (active) { lane.setAttribute("aria-current", "true"); activeKeys.add(lane.dataset.speakerKey); }
           else lane.removeAttribute("aria-current");
         });
-        avatars.forEach((avatar) => avatar.classList.toggle("is-active", activeKeys.has(avatar.dataset.playbackAvatar)));
+        avatars().forEach((avatar) => avatar.classList.toggle("is-active", activeKeys.has(avatar.dataset.playbackAvatar)));
         const activeTurn = currentTranscriptTurn(player.currentTime);
         transcriptTurns().forEach((turn) => turn.classList.toggle("is-current", turn === activeTurn));
       };
@@ -4966,7 +5059,7 @@
         else if (live) live.textContent = direction > 0 ? "Следующей реплики нет." : "Предыдущей реплики нет.";
       };
       const syncSelection = () => {
-        allowedIntervals = mergePlaybackIntervals(lanes.filter((lane) => selectedSpeakers.has(lane.dataset.speakerKey))
+        allowedIntervals = mergePlaybackIntervals(lanes().filter((lane) => selectedSpeakers.has(lane.dataset.speakerKey))
           .flatMap((lane) => Array.from(lane.querySelectorAll("[data-lane-segment]"), (segment) => [Number(segment.dataset.startSeconds), Number(segment.dataset.endSeconds)])));
         shell.querySelectorAll("[data-speaker-lane], .playback-speaker-interval").forEach((lane) => lane.classList.toggle("is-unselected", selectedSpeakers.size > 0 && !selectedSpeakers.has(lane.dataset.speakerKey)));
         const all = shell.querySelector("[data-listen-all]");
@@ -5008,40 +5101,45 @@
         if (speedToggle) speedToggle.textContent = `${player.playbackRate}x`;
         shell.querySelectorAll("[data-playback-speed-option]").forEach((button) => button.setAttribute("aria-checked", String(Number(button.dataset.playbackSpeedOption) === player.playbackRate)));
       });
-      shell.querySelectorAll("[data-listen-speaker]").forEach((input) => input.addEventListener("change", () => {
-        if (input.checked) selectedSpeakers.add(input.dataset.listenSpeaker); else selectedSpeakers.delete(input.dataset.listenSpeaker);
+      shell.addEventListener("change", (event) => {
+        const input = event.target;
+        if (input.matches("[data-listen-all]")) selectedSpeakers.clear();
+        else if (input.matches("[data-listen-speaker]")) {
+          if (input.checked) selectedSpeakers.add(input.dataset.listenSpeaker); else selectedSpeakers.delete(input.dataset.listenSpeaker);
+        } else return;
         syncSelection(); play();
-      }));
-      shell.querySelector("[data-listen-all]")?.addEventListener("change", () => { selectedSpeakers.clear(); syncSelection(); play(); });
+      });
       const togglePlayback = () => { if (player.paused) play(); else player.pause(); };
       toggle?.addEventListener("click", togglePlayback);
       shell.querySelectorAll("[data-playback-skip]").forEach((button) => button.addEventListener("click", () => seekTo(player.currentTime + Number(button.dataset.playbackSkip))));
       shell.querySelector("[data-playback-next]")?.addEventListener("click", () => navigateSpeech(1));
       progress?.addEventListener("input", () => seekTo(Number(progress.value)));
-      lanes.forEach((lane) => {
-        const track = lane.querySelector("[data-timeline-track]");
-        track?.addEventListener("click", (event) => {
-          const segment = event.target.closest("[data-lane-segment]");
-          if (segment) { seekTo(Number(segment.dataset.startSeconds), { sourceIds: segment.dataset.sourceSegments }); return; }
-          if (!event.detail) return;
-          const rect = track.getBoundingClientRect();
-          if (rect.width) seekTo(playbackDuration() * Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)));
-        });
-        track?.addEventListener("keydown", (event) => {
-          if (event.target !== track || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
-          event.preventDefault(); event.stopPropagation();
-          seekTo(event.key === "Home" ? 0 : event.key === "End" ? playbackDuration() : player.currentTime + (event.key === "ArrowLeft" ? -15 : 15));
-        });
-        track?.addEventListener("pointermove", (event) => {
-          const rect = track.getBoundingClientRect();
-          shell.style.setProperty("--playback-hover-position", `${Math.max(0, Math.min(100, (event.clientX - rect.left) / rect.width * 100))}%`);
-          shell.classList.add("is-timeline-hover");
-        });
-        track?.addEventListener("pointerleave", () => shell.classList.remove("is-timeline-hover"));
+      shell.addEventListener("click", (event) => {
+        const avatar = event.target.closest("[data-playback-avatar]");
+        if (avatar) { selectedSpeakers.clear(); syncSelection(); navigateSpeech(1, avatar.dataset.playbackAvatar, true); return; }
+        const track = event.target.closest("[data-timeline-track]");
+        if (!track) return;
+        const segment = event.target.closest("[data-lane-segment]");
+        if (segment) { seekTo(Number(segment.dataset.startSeconds), { sourceIds: segment.dataset.sourceSegments }); return; }
+        if (!event.detail) return;
+        const rect = track.getBoundingClientRect();
+        if (rect.width) seekTo(playbackDuration() * Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)));
       });
-      avatars.forEach((avatar) => avatar.addEventListener("click", () => {
-        selectedSpeakers.clear(); syncSelection(); navigateSpeech(1, avatar.dataset.playbackAvatar, true);
-      }));
+      shell.addEventListener("keydown", (event) => {
+        if (!event.target.matches("[data-timeline-track]") || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+        event.preventDefault(); event.stopPropagation();
+        seekTo(event.key === "Home" ? 0 : event.key === "End" ? playbackDuration() : player.currentTime + (event.key === "ArrowLeft" ? -15 : 15));
+      });
+      shell.addEventListener("pointermove", (event) => {
+        const track = event.target.closest("[data-timeline-track]");
+        if (!track) return;
+        const rect = track.getBoundingClientRect();
+        shell.style.setProperty("--playback-hover-position", `${Math.max(0, Math.min(100, (event.clientX - rect.left) / rect.width * 100))}%`);
+        shell.classList.add("is-timeline-hover");
+      });
+      shell.addEventListener("pointerout", (event) => {
+        if (event.target.closest("[data-timeline-track]") && !event.relatedTarget?.closest?.("[data-timeline-track]")) shell.classList.remove("is-timeline-hover");
+      });
       const carousel = shell.querySelector("[data-playback-avatars]");
       const syncCarousel = () => shell.querySelectorAll("[data-avatar-scroll]").forEach((button) => {
         button.disabled = !carousel || (Number(button.dataset.avatarScroll) < 0 ? carousel.scrollLeft <= 1 : carousel.scrollLeft + carousel.clientWidth >= carousel.scrollWidth - 1);
@@ -5055,6 +5153,11 @@
         observer.observe(carousel);
       }
       syncCarousel();
+      shell.addEventListener("graf:playback-context-updated", () => {
+        const keys = new Set(lanes().map(lane => lane.dataset.speakerKey));
+        selectedSpeakers.forEach(key => { if (!keys.has(key)) selectedSpeakers.delete(key); });
+        syncSelection(); syncTime(); syncCarousel(); scheduleSelectionBoundary();
+      });
       player.addEventListener("loadedmetadata", () => { if (progress && Number.isFinite(player.duration)) progress.max = String(player.duration); syncTime(); });
       player.addEventListener("timeupdate", () => { if (!player.paused) enforceSelection(); syncTime(); scheduleSelectionBoundary(); });
       player.addEventListener("seeked", scheduleSelectionBoundary);
@@ -6735,6 +6838,7 @@
       const recoverySignature = (node) => [
         node.dataset.playbackState || "",
         node.dataset.sourceMode || "",
+        ...["meetingId", "workspaceId", "mediaRevisionId", "processingResultId", "commentsAvailable", "commentsCanComment"].map(key => node.dataset[key] || ""),
         (node.textContent || "").trim()
       ].join("\u001f");
       const playbackUnchanged = recoverySignature(currentPlayback) === recoverySignature(nextPlayback);
@@ -6748,9 +6852,14 @@
         initPlaybackRecoveryPolling();
         return;
       }
-      if (playbackChanged) currentPlayback.replaceWith(nextPlayback);
+      if (playbackChanged && !refreshPlaybackContent(currentPlayback, nextPlayback)) {
+        currentPlayback.querySelector("audio")?.pause();
+        currentPlayback.replaceWith(nextPlayback);
+      }
       if (transcriptChanged) currentTranscript.replaceWith(nextTranscript);
       initPlayback();
+      initSpeakerTimelineResize();
+      initSpeakerNameForms();
       initPlaybackRecoveryPolling();
     } catch {
       showPlaybackRecoveryNotice(detail);

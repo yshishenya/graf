@@ -666,8 +666,13 @@ public struct DesktopUploadCustodySummary: Equatable, Sendable {
     public static func summaries(
         for items: [DesktopUploadQueueItem],
         now: Date = Date(),
-        limit: Int = 5
+        limit: Int = 5,
+        focusedSessionID: String? = nil
     ) -> [DesktopUploadCustodySummary] {
+        if limit > 0, let id = focusedSessionID,
+           let target = summary(for: items.filter { $0.sessionId == id }, now: now) {
+            return [target] + summaries(for: items.filter { $0.sessionId != id }, now: now, limit: limit - 1)
+        }
         let candidates = visibleCandidates(for: items, now: now)
         let grouped = Dictionary(grouping: candidates) { candidate in
             "\(candidate.projection.copyKey)|\(candidate.projection.owner.rawValue)"

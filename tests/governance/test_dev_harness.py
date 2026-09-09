@@ -258,21 +258,33 @@ def _promote_worker(root: str, manifest: str, queue) -> None:
 
 
 def test_concurrent_promote_is_serialized(tmp_path):
-    first = build(tmp_path, "f" * 40)
-    candidate = str(tmp_path / "manifests" / f"{first['manifest_id']}.json")
+    parent = build(tmp_path, "a" * 40)
+    parent_path = tmp_path / "manifests" / f"{parent['manifest_id']}.json"
+    run("promote", tmp_path, manifest=str(parent_path), dry_run=False)
+    candidates = [build(tmp_path, sha * 40) for sha in ("e", "f")]
+    assert all(candidate["parent_manifest_id"] == parent["manifest_id"] for candidate in candidates)
     queue = multiprocessing.Queue()
-    processes = [multiprocessing.Process(target=_promote_worker, args=(str(tmp_path), candidate, queue)) for _ in range(2)]
+    processes = [multiprocessing.Process(
+        target=_promote_worker,
+        args=(str(tmp_path), str(tmp_path / "manifests" / f"{candidate['manifest_id']}.json"), queue),
+    ) for candidate in candidates]
     for process in processes:
         process.start()
     for process in processes:
         process.join(10)
     outcomes = [queue.get(timeout=2) for _ in processes]
     assert all(process.exitcode == 0 for process in processes)
-    # The lock serializes the operation and the stale-parent check refuses the
-    # second writer; it must never silently replace the first active manifest.
-    assert sum(outcome[0] == "pass" for outcome in outcomes) == 1
-    assert sum(outcome[0] == "fail" for outcome in outcomes) == 1
-    assert run("status", tmp_path)["manifest"]["source_sha"] == "f" * 40
+    # Distinct candidates compete for one parent; rereading a shared manifest
+    # after publication would instead be a valid idempotent promote.
+    winners = [value for status, value in outcomes if status == "pass"]
+    failures = [value for status, value in outcomes if status == "fail"]
+    assert len(winners) == 1
+    assert failures == ["candidate parent manifest is stale; rebuild from current active Dev manifest"]
+    winner = next(candidate for candidate in candidates if candidate["manifest_id"] == winners[0])
+    active = run("status", tmp_path)["manifest"]
+    assert active["manifest_id"] == winner["manifest_id"]
+    assert active["source_sha"] == winner["source_sha"]
+    assert active["parent_manifest_id"] == parent["manifest_id"]
 
 
 def test_signed_app_identity_ignores_paths_and_plist_order_but_detects_changes(monkeypatch, tmp_path):
