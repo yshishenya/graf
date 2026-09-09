@@ -73,6 +73,17 @@ def validate(path: Path) -> list[str]:
             errors.append(f"missing workflow invariant: {label}")
     if not exact_identity:
         errors.append("checkout ref must bind pull-request, merge-group, and manual exact SHA identities")
+    fast_match = re.search(r"(?ms)^      - name: Run bounded fast lane\n(.*?)(?=^      - |\Z)", text)
+    fast_step = fast_match.group(1) if fast_match else ""
+    for invariant in (
+        "GRAF_CI_BASE_REF: ${{ steps.identity.outputs.base_sha }}",
+        "EVENT_NAME: ${{ github.event_name }}",
+        'if [[ "$EVENT_NAME" != "workflow_dispatch" ]]; then',
+        '[[ "$GRAF_CI_BASE_REF" =~ ^[0-9a-f]{40}$ ]]',
+        'git merge-base HEAD "$GRAF_CI_BASE_REF" >/dev/null',
+    ):
+        if invariant not in fast_step:
+            errors.append(f"missing workflow event-base invariant: {invariant}")
     for forbidden in FORBIDDEN:
         if forbidden in text:
             errors.append(f"forbidden command in workflow: {forbidden}")
@@ -122,7 +133,17 @@ jobs:
           PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
           python3 scripts/validate-pr-metadata.py "$RUNNER_TEMP/graf-pr-body.md" --feature-id "$FEATURE_ID" --expected-sha "$EXPECTED_SHA" --title "$PR_TITLE"
-      - run: infra/scripts/ci-local.sh --fast
+      - name: Run bounded fast lane
+        env:
+          GRAF_CI_BASE_REF: ${{ steps.identity.outputs.base_sha }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" != "workflow_dispatch" ]]; then
+            [[ "$GRAF_CI_BASE_REF" =~ ^[0-9a-f]{40}$ ]] || exit 1
+            git merge-base HEAD "$GRAF_CI_BASE_REF" >/dev/null
+          fi
+          infra/scripts/ci-local.sh --fast
       - run: python3 scripts/validate-ci-evidence.py .dev/ci-evidence/run.json
       - name: Assert mandatory governance outcomes
         if: ${{ always() }}

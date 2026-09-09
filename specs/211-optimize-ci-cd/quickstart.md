@@ -1,8 +1,43 @@
 # Quickstart: проверка быстрого и доказуемого CI/CD
 
-Run from the repository root. Dry-run is local-only; execute deploys production.
+Run from the repository root. A1 is local focused validation only: no real Full CI, deploy, release or live branch-protection changes.
 
-## Baseline and target
+## A1 focused acceptance — 2026-09-09
+
+```sh
+bash -n infra/scripts/ci-local.sh
+python3 scripts/validate-governance-workflow.py --self-test
+python3 scripts/validate-governance-workflow.py
+PYTHONDONTWRITEBYTECODE=1 pytest -q tests/governance/test_governance_workflow.py tests/governance/test_ci_event_identity.py tests/governance/test_ci_guard.py tests/governance/test_ci_evidence_producer.py
+PYTHONDONTWRITEBYTECODE=1 pytest -q --confcutdir=apps/server/tests/contract apps/server/tests/contract/test_ci_cd_contract.py
+ruff check apps/server/tests/contract/test_ci_cd_contract.py scripts/validate-governance-workflow.py tests/governance/test_governance_workflow.py
+actionlint .github/workflows/governance-fast.yml
+python3 scripts/check-development-process.py
+python3 scripts/validate-changelog-fragments.py
+git diff --check
+```
+
+Expected: real-Git selection follows event base despite a different/moving `origin/master`; invalid/unavailable PR/MG base blocks before tests; dispatch stays diagnostic. Existing stubbed fast/full checks prove unchanged lint/compile once before every selected server-test stage and no tests after either static failure. Workflow and documentation contracts pass. A stubbed full is not Full CI evidence.
+
+Local focused checks do not replace the mandatory exact-SHA GitHub `governance-fast` after separately approved publication. Local wide fast is only diagnostic/fallback. A1 leaves edited reruns and current required contexts unchanged; splitting them is a later protected migration. No new timing/token savings are claimed.
+
+Use the existing pytest/Ruff environment. `--confcutdir` excludes unrelated server database setup for this standalone CLI contract file; every test in that file still runs. No database, application build or actual full pipeline is needed for these contracts.
+
+For the separate frozen check, run `python3 scripts/check_spec_kit_governance.py` with Specify `1.0.1` from commit `9118ed15a0ba65053469a94c560ea5d233f75884` on PATH, as pinned by the project/workflow. A different globally installed CLI is not a reason to update the project lock. The verification here used an isolated `.dev/ci-specify-v1.0.1` environment, without changing global tools or generated project skills.
+
+### A1 local evidence — 2026-09-09
+
+- Source checkout HEAD: `3abaaab428256f72e4c5bcd12b247c117c712344` plus the uncommitted A1 changes; this is local evidence, not exact-SHA GitHub approval.
+- Before fixes: 11 workflow/base regression cases and 6 server-order/failure cases failed; the documentation regression also failed before its edit.
+- Final pytest `9.1.1`: 52 workflow/identity/CI-guard/evidence cases passed; 64 CLI contracts passed. This includes real Git selection across differing/moving bases, missing/invalid/unavailable/unrelated PR/MG bases, diagnostic dispatch and early lint/compile failure.
+- Bash syntax, Ruff, actionlint, workflow validator/self-test, changelog fragment, development-process preflight and `git diff --check`: PASS.
+- Frozen Spec Kit governance: PASS with isolated pinned Specify `1.0.1`. Initial checks correctly rejected global `1.0.4` and a transient tool installation without a discoverable commit record; neither failure was treated as a pass.
+- Independent requirements review: 8/8 in `checklists/ci-feedback.md`; local code review found no blocking issue in A1. Managed PR template, AGENTS, installed skills, lock, release implementation and required-check settings are unchanged.
+- Tracking: [#6845](https://github.com/yshishenya/graf/issues/6845) owns T033–T037; canon.ensure and canon.validate passed (266 open Spec Kit issues checked). Issue remains open pending reviewed merge and exact-SHA GitHub fast.
+- Not run: real Full CI, GitHub PR workflow, product/runtime acceptance or production/release. No commit/push/tag, no branch-protection change, no claim that edited reruns are eliminated.
+- A1 converge: 4 new FRs, 2 success criteria, 5 US5 scenarios and 6 plan decisions checked; no missing/partial/contradictory/unrequested implementation work found. No convergence tasks appended; `tasks.md` unchanged by the convergence pass. This is local implementation convergence, not merged/released acceptance.
+
+## Historical baseline and target (not an A1 measurement)
 
 Pre-change full at SHA `124e96dfff36beadb6d555b3402126ac13bf5a58`:
 
@@ -58,9 +93,11 @@ cd ../..
 ```
 
 Expected: explicit lanes, component selection, performance forwarding,
-documentation consistency and clean → sync → full → remote deploy ordering pass.
+documentation consistency and clean → sync → authoritative evidence verification → remote deploy ordering pass.
 
 ## 3. Fast lane
+
+Optional local diagnosis/fallback, not a second required pre-PR run:
 
 ```sh
 infra/scripts/ci-local.sh --fast
@@ -78,8 +115,7 @@ test files run directly; unrelated components are skipped.
 infra/scripts/ci-local.sh --full
 ```
 
-Use only for broad diagnosis. It does not replace the authoritative full inside
-production execute and is intentionally repeated there.
+Outside A1. Use only for broad diagnosis; it does not replace authoritative GitHub `release-full`. Deploy verifies that immutable authoritative evidence without a second Full CI.
 
 ## 5. CD dry-run
 
@@ -91,15 +127,7 @@ Expected: `local_ci=full_required` and the complete unchanged remote gate list.
 
 ## 6. Production execute
 
-```sh
-infra/scripts/cd-remote.sh --execute --branch master
-```
-
-Expected order: clean tracked/untracked worktree, branch check, fetch and exact
-`origin/master` equality, one `ci-local.sh --full`, post-full clean/local/remote
-SHA re-check, then remote deploy lock,
-backup/restore, migrations/RLS, secret checks, deployment, readiness, smoke,
-public health and rollback guard. Any hard failure stops the sequence.
+Not authorized in A1. Follow `docs/agent-guidance/release-and-validation.md` for the separately approved candidate/decision/evidence workflow. Clean tree, exact local/remote SHA, authoritative evidence verification and all remote safety gates remain mandatory. Historical commands without candidate/evidence are not current instructions.
 
 ## 7. Documentation reconciliation
 
@@ -108,10 +136,6 @@ cd apps/server
 PYTHONPATH=src uv run --extra dev pytest -q \
   tests/contract/test_ci_cd_contract.py -k documentation
 cd ../..
-rg -n "ci-receipt|receipt_reused|valid_full_receipt_or_full_fallback" \
-  infra/scripts apps/server/tests/contract docs/agent-guidance \
-  .github/pull_request_template.md specs/211-optimize-ci-cd
 ```
 
-Expected: the documentation test passes. The search may mention why receipt was
-removed, but no active executable path or reuse instruction remains.
+Expected: documentation tests pass; active guidance agrees on local focused, required GitHub fast and authoritative GitHub full reuse. Historical evidence is unchanged.

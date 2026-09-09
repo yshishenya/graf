@@ -191,7 +191,17 @@ jobs:
 
       - name: Run bounded fast lane
         id: fast_lane
-        run: infra/scripts/ci-local.sh --fast
+        shell: bash
+        env:
+          GRAF_CI_BASE_REF: ${{ steps.identity.outputs.base_sha }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" != "workflow_dispatch" ]]; then
+            [[ "$GRAF_CI_BASE_REF" =~ ^[0-9a-f]{40}$ ]] || { echo "event base must be a full SHA" >&2; exit 1; }
+            git merge-base HEAD "$GRAF_CI_BASE_REF" >/dev/null
+          fi
+          infra/scripts/ci-local.sh --fast
 
       - name: Prepare terminal metadata-only evidence and identity
         if: ${{ always() }}

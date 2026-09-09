@@ -9,11 +9,12 @@ No application or production database changes are required. These are local oper
 - `effective_name`: identical to the explicit operator request; fast never escalates.
 - `components`: unique ordered set of `docs`, `server`, `macos`, `infra`, `unknown`, or `full`.
 - `changed_paths`: metadata-safe repository-relative paths used for classification.
+- `base_sha`: full event base for PR/MG, the same identity recorded in receipt and used through `GRAF_CI_BASE_REF` for merge-base selection. Missing/invalid/unavailable event base blocks remote CI before tests. Manual dispatch keeps a null base and diagnostic default; no schema change.
 - `reason`: stable reason code for selection or coverage limitation.
 - `coverage`: `bounded` for reviewed low-risk component fast, `partial` for
   shared/high-risk/unknown/unresolvable fast, or `complete` for full.
 - `next_gate`: `full_before_release` for fast, `full_in_progress` while full is
-  running, `release_ready` only after a passing full, or `full_failed` after a
+  running, `full_diagnostic_only` after a passing local full, or `full_failed` after a
   failing full.
 - `result`: `pass` or `fail`.
 - `started_at`, `completed_at`, `duration_seconds`.
@@ -40,5 +41,5 @@ Validation rules:
 - Exact local commit and tree.
 - Matching `origin/<branch>` SHA.
 - Clean worktree.
-- Successful authoritative full inside the same execute flow.
+- Successful authoritative GitHub `release-full` for the immutable candidate, verified and reused by execute; a local full is not release evidence.
 - Existing independent production gates remain attached and follow that full gate.

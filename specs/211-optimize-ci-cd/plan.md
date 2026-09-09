@@ -1,5 +1,31 @@
 # Implementation Plan: Быстрый и доказуемый CI/CD
 
+## Active follow-up A1 — 2026-09-09
+
+**Feature**: `211-optimize-ci-cd`; work branch `codex/reduce-delivery-overhead`.
+**Scope**: US5, FR-015–FR-018; no application, database, dependency, installed-skill or deploy changes.
+**Lane**: high-risk CI/governance. Independent checklist, clean analyze and issue sync precede implementation.
+**Authority**: local implementation, requirements reviewer and T033–T037 issue sync approved; no Full CI, commit/push, release, production or live branch-protection change.
+
+Use existing Bash 3.2, Git, Python/pytest and helpers; no new dependency, command or evidence store. Constitution design check: no principle changes or conflicts; spec-first gates must actually pass, not inherit old marks. Privacy/runtime/production gates remain intact.
+
+### Design and validation
+
+1. Add a failing real-Git contract using different event base and `origin/master`. Selection must follow event base and remain stable when the default ref moves; an unavailable explicit base must not fall back.
+2. In `.github/workflows/governance-fast.yml`, pass `identity.base_sha` through existing `GRAF_CI_BASE_REF`. Existing identity validation rejects malformed/missing PR/MG SHA; verify that the base commit is available before tests. Manual dispatch retains `base_sha=null` and diagnostic default. Extend `scripts/validate-governance-workflow.py` and `tests/governance/test_governance_workflow.py` to reject a missing binding/guard, covering PR, MG and dispatch.
+3. In `apps/server/tests/contract/test_ci_cd_contract.py`, reuse `run_stubbed_ci`: same lint/compile commands execute once before all selected server/changed/performance test stages in fast/full; either static failure prevents tests. Move existing commands in `infra/scripts/ci-local.sh`, preserving selection, performance/RLS and final evidence semantics.
+4. Align `docs/agent-guidance/spec-kit-flow.md` and `docs/agent-guidance/release-and-validation.md` with already-correct AGENTS/development-process/infra README: local focused → mandatory GitHub fast; local wide fast only diagnostic/fallback. Review `.github/pull_request_template.md` unchanged: it already names GitHub fast as mandatory and local CI as diagnostic/fallback. Its installed extension owns the template; do not patch generated copies. Add `changes/unreleased/F211.yaml`, not root CHANGELOG.
+5. Run focused CLI contracts, workflow tests/validator/self-test, Bash syntax, Ruff, whitespace and active-doc consistency. Stubbed full is not real Full CI. Report ordering and fail-fast proof, not an invented speed percentage or a new SC-009 benchmark.
+6. After separately approved publication, GitHub `governance-fast` on exact PR SHA remains mandatory. Existing authoritative GitHub `release-full` and immutable evidence reuse at deploy remain separate release gates; no deploy command is run in A1.
+
+### Deferred metadata-check migration
+
+Keep check names, events, permissions, concurrency and closeout trust unchanged in A1. A later slice first adds metadata checks while retaining the combined required gate; with separate approval it activates and verifies both required contexts; only then removes duplicate edited-code runs. Cover separate concurrency, base retargeting, forks, merge_group, failed/skipped/cancelled runs, expired/ambiguous artifacts and workflow/closeout validators. A skipped required job is not code PASS. A1 does not claim to eliminate edited reruns.
+
+## Historical plan — 2026-08-30 (not current instructions)
+
+The remaining plan describes completed T001–T032. Its full-inside-execute design and release approval are superseded; do not use them for A1. Current contract: one authoritative GitHub `release-full` result, verified and reused by deploy. Historical validation/evidence is preserved.
+
 **Branch**: `211-optimize-ci-cd` | **Date**: 2026-08-30 | **Spec**: [spec.md](spec.md)
 
 **Input**: Feature specification from `/specs/211-optimize-ci-cd/spec.md`

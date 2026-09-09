@@ -1,5 +1,15 @@
 # Research: Быстрый и доказуемый CI/CD
 
+## A1 decisions — 2026-09-09
+
+The workflow records event `base_sha` but did not pass it to the runner, which defaults to moving `origin/master`. Reuse `GRAF_CI_BASE_REF` to bind selection to the recorded SHA; reject invalid/unavailable PR/MG bases before tests. Manual dispatch keeps null base and diagnostic semantics. Prove the real Git diff, not only YAML tokens.
+
+Move existing server lint/compile before server tests without changing scope. Reuse `run_stubbed_ci` for order/failure checks. No parallelism, test removal or new helper layer.
+
+Defer metadata/code separation until the explicit staged required-check migration in `plan.md`; simply skipping the old job can admit untested code. A1 keeps current triggers, permissions, names and concurrency.
+
+Decisions below describe historical T001–T032. Decision 2 now uses event base for PR/MG and the old default only for diagnostics. Decisions 3/4 are superseded by existing authoritative GitHub `release-full` evidence reuse at deploy; they are **not current instructions**. Local full is diagnostic, never release attestation.
+
 ## Decision 1 — Explicit lanes, no implicit full
 
 **Decision**: `ci-local.sh` exits with usage code when no lane is supplied. Focused commands remain feature-specific; the shared runner accepts explicit `--fast` or `--full` only.

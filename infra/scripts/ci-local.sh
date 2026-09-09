@@ -655,6 +655,11 @@ PY
   fi
   run_step "Spec Kit governance" python3 scripts/check_spec_kit_governance.py || return $?
 
+  if [[ "$effective_mode" == "full" || "$has_server" -eq 1 ]]; then
+    run_step "server lint" bash -c "cd apps/server && PYTHONPATH=src uv run --extra dev ruff check ." || return $?
+    run_step "python compile" python3 -m compileall -q apps/server/src apps/server/tests apps/server/scripts || return $?
+  fi
+
   if [[ "$effective_mode" == "full" || "$has_governance_tests" -eq 1 || "$has_infra" -eq 1 ]]; then
     run_step "governance tests" pytest -q tests/governance || return $?
     run_step "portable harness self-test" env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=harness/src \
@@ -676,8 +681,6 @@ PY
       skipped_gates="${skipped_gates}${skipped_gates:+$'\n'}macOS Swift validation (requires Darwin)"
     fi
     run_step "server tests" run_server_tests full "$performance_gate" || return $?
-    run_step "server lint" bash -c "cd apps/server && PYTHONPATH=src uv run --extra dev ruff check ." || return $?
-    run_step "python compile" python3 -m compileall -q apps/server/src apps/server/tests apps/server/scripts || return $?
     run_step "rls hardening validation boundary" bash -c "cd apps/server && PYTHONPATH=src uv run python scripts/verify_rls_hardening.py" || return $?
     run_step "production compose config" bash -c 'docker compose -f infra/docker-compose.yml config >/dev/null' || return $?
     run_step "deployment evidence scan" infra/scripts/scan-deployment-evidence.sh docs/deployments/2brain-rec || return $?
@@ -707,8 +710,6 @@ PY
         run_step "calendar performance proof" run_server_tests focused required \
           "$performance_proof" -m serial_performance || return $?
       fi
-      run_step "server lint" bash -c "cd apps/server && PYTHONPATH=src uv run --extra dev ruff check ." || return $?
-      run_step "python compile" python3 -m compileall -q apps/server/src apps/server/tests apps/server/scripts || return $?
     fi
     if [[ "$has_infra" -eq 1 || "$has_macos" -eq 1 ]]; then
       run_step "shell syntax" check_shell_syntax "$changed_list" || return $?
