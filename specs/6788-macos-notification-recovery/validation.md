@@ -541,3 +541,13 @@ Swift build PASS; независимый review не нашёл P0/P1/P2. Ста
   system Sleep/Wake нет. Ожидается решение о повторе/явном исключении.
 - Напоминания/названия/звук включены, offset1мин; новый временный календарный
   набор для sleep-проверки удалён после повторов. T014/T015 пока открыты.
+
+## T031 — подготовка установленной приёмки, 2026-09-09
+
+Компактная карточка по black-box наблюдению Krisp; reference и R031-1—3
+приняты независимым reviewer. Issue #6842, FR015/SC009. Swift build PASS,
+48 focused tests PASS (Countdown/Policy/RecordingLifecycle и настоящий расчёт
+геометрии/lifecycle callback), Spec Kit governance PASS. Code/Ponytail review
+без P0/P1/P2. T031 остаётся открытой до новой установленной приёмки тем, фокуса,
+клавиатуры, сжатого содержимого и матрицы F214. Предыдущий Dev29ec не является
+проверкой новой поверхности. Sleep/wake по-прежнему NOT PROVEN.

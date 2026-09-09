@@ -184,6 +184,14 @@ public final class CalendarTrayController: NSObject, NSMenuDelegate {
         refreshNow()
     }
 
+    public func visibleStatusItemFrame(on screen: NSScreen) -> NSRect? {
+        guard NSMenu.menuBarVisible(), statusItem.isVisible,
+              let button = statusItem.button, !button.isHidden,
+              let window = button.window, window.isVisible, window.screen == screen else { return nil }
+        let frame = window.convertToScreen(button.convert(button.bounds, to: nil))
+        return screen.frame.contains(frame) ? frame : nil
+    }
+
     public func showMenu() {
         // Finish the invoking menu first, without holding the main dispatch queue
         // through NSMenu's nested event loop (capture cleanup and dismissal need it).

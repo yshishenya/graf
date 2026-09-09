@@ -148,7 +148,7 @@ private enum TwoBrainRecAppMain {
 @MainActor
 private struct ContentView: View {
     private let meetingDetectionRegistryRefreshIntervalNanoseconds: UInt64 = 3_600_000_000_000
-    private static let meetingDetectionPromptWindowSize = NSSize(width: 360, height: 286)
+    private static let meetingDetectionPromptWindowSize = NSSize(width: 320, height: 192)
     private static let meetingDetectionPromptVisibleMargin: CGFloat = 22
 
     @ObservedObject private var appUpdateController: AppUpdateController
@@ -1476,9 +1476,9 @@ private struct ContentView: View {
         dismissMeetingDetectionPromptWindow()
         let promptWindowSize = Self.meetingDetectionPromptWindowSize
 
-        let window = NSPanel(
+        let window = MeetingDetectionPromptPanel(
             contentRect: NSRect(origin: .zero, size: promptWindowSize),
-            styleMask: [.borderless, .fullSizeContentView],
+            styleMask: [.borderless, .fullSizeContentView, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
@@ -1489,7 +1489,7 @@ private struct ContentView: View {
         window.hasShadow = true
         window.hidesOnDeactivate = false
         window.isReleasedWhenClosed = false
-        window.isMovableByWindowBackground = true
+        window.isMovableByWindowBackground = false
         window.identifier = NSUserInterfaceItemIdentifier("graf-meeting-detection-prompt")
         let hostingController = NSHostingController(
             rootView: MeetingDetectionPromptView(
@@ -1510,12 +1510,9 @@ private struct ContentView: View {
                     )
                 }
             )
-            .frame(width: promptWindowSize.width, height: promptWindowSize.height)
         )
         hostingController.view.frame = NSRect(origin: .zero, size: promptWindowSize)
         window.contentViewController = hostingController
-        window.minSize = promptWindowSize
-        window.maxSize = promptWindowSize
         window.setContentSize(promptWindowSize)
         positionMeetingDetectionPromptWindow(window)
         meetingDetectionPromptWindow = window
@@ -1525,14 +1522,7 @@ private struct ContentView: View {
         )
         window.orderFrontRegardless()
         window.contentView?.layoutSubtreeIfNeeded()
-        window.setContentSize(promptWindowSize)
         positionMeetingDetectionPromptWindow(window)
-        Task { @MainActor [weak window] in
-            guard let window, window.isVisible else { return }
-            window.contentView?.layoutSubtreeIfNeeded()
-            window.setContentSize(Self.meetingDetectionPromptWindowSize)
-            positionMeetingDetectionPromptWindow(window)
-        }
     }
 
     @MainActor
@@ -1580,7 +1570,8 @@ private struct ContentView: View {
         }
         let frame = meetingDetectionPromptFrame(
             windowSize: Self.meetingDetectionPromptWindowSize,
-            visibleFrame: screen.visibleFrame
+            visibleFrame: screen.visibleFrame,
+            anchorFrame: (NSApp.delegate as? AppLifecycleDelegate)?.meetingDetectionPromptAnchor(on: screen)
         )
         window.setFrame(frame, display: true)
     }
@@ -1597,7 +1588,7 @@ private struct ContentView: View {
             ?? NSScreen.screens.first
     }
 
-    private func meetingDetectionPromptFrame(windowSize: NSSize, visibleFrame: NSRect) -> NSRect {
+    private func meetingDetectionPromptFrame(windowSize: NSSize, visibleFrame: NSRect, anchorFrame: NSRect? = nil) -> NSRect {
         let margin = Self.meetingDetectionPromptVisibleMargin
         let horizontalMargin = min(margin, max(0, visibleFrame.width / 2 - 1))
         let verticalMargin = min(margin, max(0, visibleFrame.height / 2 - 1))
@@ -1607,8 +1598,8 @@ private struct ContentView: View {
         let maxX = safeFrame.maxX - width
         let maxY = safeFrame.maxY - height
         return NSRect(
-            x: clamp(safeFrame.midX - width / 2, lower: safeFrame.minX, upper: maxX),
-            y: clamp(safeFrame.maxY - height, lower: safeFrame.minY, upper: maxY),
+            x: clamp(anchorFrame.map { $0.midX - width / 2 } ?? maxX, lower: safeFrame.minX, upper: maxX),
+            y: clamp(anchorFrame.map { $0.minY - height - 8 } ?? maxY, lower: safeFrame.minY, upper: maxY),
             width: width,
             height: height
         )
@@ -2897,6 +2888,11 @@ private enum MeetingDetectionPromptDismissReason: String, Sendable {
     case userSkipped = "user_skipped"
 }
 
+private final class MeetingDetectionPromptPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { false }
+}
+
 private struct MeetingDetectionPromptView: View {
     private static let countdownSeconds: TimeInterval = 8
 
@@ -2911,51 +2907,62 @@ private struct MeetingDetectionPromptView: View {
     @State private var autoStartTask: Task<Void, Never>?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top, spacing: 10) {
-                Image(systemName: "video.badge.checkmark")
-                    .font(.title3)
-                    .foregroundStyle(DesktopMeetingShellChrome.shellAccentColor)
-                    .frame(width: 24)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Записать встречу?")
-                        .font(.headline)
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text("Встреча в \(prompt.displayName). GRAF сохранит запись и подготовит расшифровку.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
+        GeometryReader { geometry in
+            ScrollView(.vertical) {
+                VStack(spacing: 0) {
+                    Text("GRAF")
+                        .font(.system(size: 11, weight: .bold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 5)
+                        .background(.primary.opacity(0.06))
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(alignment: .top, spacing: 10) {
+                            Image(systemName: "record.circle")
+                                .font(.system(size: 25))
+                                .foregroundStyle(DesktopMeetingShellChrome.shellAccentColor)
+                                .accessibilityHidden(true)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("Записать встречу?")
+                                    .font(.headline)
+                                Text("Встреча в \(prompt.displayName)")
+                                    .font(.callout)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Toggle("Запомнить выбор", isOn: $autoRecordOptIn)
+                            .toggleStyle(.checkbox)
+                            .accessibilityHint("Сохранить решение для приложения \(prompt.displayName)")
 
-            Toggle("Запомнить выбор", isOn: $autoRecordOptIn)
-                .toggleStyle(.checkbox)
-                .accessibilityHint("Сохранить решение для приложения \(prompt.displayName)")
+                        let layout = geometry.size.width < 300
+                            ? AnyLayout(VStackLayout(spacing: 8))
+                            : AnyLayout(HStackLayout(spacing: 8))
+                        layout {
+                            Button("Не записывать") {
+                                resolveDismiss(reason: .userSkipped)
+                            }
+                            .buttonStyle(.plain)
+                            .keyboardShortcut(.cancelAction)
+                            .frame(maxWidth: .infinity, minHeight: 34)
+                            .background(.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 7))
 
-            VStack(spacing: 8) {
-                TimelineView(.periodic(from: appearedAt, by: 0.05)) { context in
-                    countdownButton(
-                        progress: progress(at: context.date),
-                        remainingSeconds: countdown.remainingWholeSeconds(at: context.date)
-                    )
+                            TimelineView(.periodic(from: appearedAt, by: 0.05)) { context in
+                                countdownButton(
+                                    progress: progress(at: context.date),
+                                    remainingSeconds: countdown.remainingWholeSeconds(at: context.date)
+                                )
+                            }
+                        }
+                    }
+                    .padding(12)
                 }
-
-                Button("Не записывать") {
-                    resolveDismiss(reason: .userSkipped)
-                }
-                .buttonStyle(.plain)
-                .keyboardShortcut(.cancelAction)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity)
+                .frame(maxWidth: .infinity, minHeight: geometry.size.height, alignment: .top)
             }
         }
-        .padding(18)
-        .frame(width: 360)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
         .overlay(
-            RoundedRectangle(cornerRadius: 10)
+            RoundedRectangle(cornerRadius: 16)
                 .stroke(.quaternary, lineWidth: 1)
         )
         .onAppear {
@@ -3004,12 +3011,13 @@ private struct MeetingDetectionPromptView: View {
                         .font(.callout)
                         .fontWeight(.semibold)
                         .foregroundStyle(.white)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.85)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 4)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
-            .frame(height: 34)
+            .frame(height: isStartDisabled ? 44 : 34)
         }
         .buttonStyle(.plain)
         .disabled(isStartDisabled)
@@ -3056,6 +3064,10 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
     private var appUpdateSubscription: AnyCancellable?
     private var terminationReplyPending = false
     private var relaunchAfterTermination = false
+
+    func meetingDetectionPromptAnchor(on screen: NSScreen) -> NSRect? {
+        calendarTrayController?.visibleStatusItemFrame(on: screen)
+    }
 
     override init() {
         appUpdateController = AppUpdateController { event, detail in

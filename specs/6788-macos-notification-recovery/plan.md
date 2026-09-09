@@ -127,3 +127,26 @@ body/label validation. Источник расширения и встроенн
 ingest,normalization}/`, `apps/server/scripts/bootstrap_runtime_database_roles.py`,
 `apps/macos/Shared/Sources/Models/AudioModelCore.swift`, существующий Upload.
 Новых таблиц, миграций, фоновых процессов и зависимостей нет.
+
+## T031: компактная карточка F214 по реальному Krisp
+
+Active high-risk-product slice, спецификация FR015/SC009; полный workflow
+уточнения выполняется внутри F6788 без дублирующей фичи. Конституция соблюдена:
+F214 countdown/decision/auth/source guards остаются, меняется только поверхность.
+Переиспользовать NSPanel/SwiftUI и текущий countdownButton; не добавлять presenter,
+модель, библиотеку или таймер. CalendarTrayController отдаёт frame существующего
+status button, AppLifecycleDelegate передаёт его текущему расчёту геометрии.
+Независимый requirements/UX review и analyze до кода. Затем issue sync, focused
+checks, Dev build/promote/smoke, native acceptance и convergence.
+
+R031-1: минимальный nonactivating NSPanel с canBecomeKey=true допускает
+явный фокус кликом; показ остаётся orderFrontRegardless без makeKey/activate.
+Клавиатурные действия SwiftUI локальны key window; глобальных мониторов нет.
+R031-2: убрать фиксированную ширину содержимого и повторные setContentSize.
+GeometryReader/ScrollView обеспечивают перенос и вертикальную прокрутку;
+кнопки вертикальны при ширине <300pt. Минимальная поддерживаемая visibleFrame
+240×160pt; меньшая область только геометрически ограничена. Disabled-текст
+переносится на две строки без уменьшения шрифта.
+R031-3: сохранить выбор экрана по курсору и текущие fallback. Read-only anchor
+проверяет видимость status item/window/menu bar и выбранный screen. Расчёт
+чистый, clamp учитывает отрицательные координаты и отсутствие якоря.
