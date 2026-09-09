@@ -76,3 +76,11 @@ GRAF Dev на 450ef2fbe14524efb5341f3d7d1704c1325388ab: текст, светла
 Для FR-004/005 точечное разрешение добавляется в классификацию страницы встречи после существующих проверок origin и перед deny-by-default. DesktopCabinetNavigationRequestPolicy по-прежнему пропускает POST без пересоздания запроса. План, контракт и T002 согласованы; уточнения пользователя не нужны, цель — работающее существующее подтверждение. Новые SHA/CI/приёмка фиксируются в PR.
 
 Native regression: до изменения 1 тест с 2 ожидаемыми FAIL (route blocked, meeting ID отсутствует); после изменения все 29 DesktopCabinetRoutePolicyTests и DesktopCabinetNavigationRequestPolicyTests PASS. Проверены внешние origin, другой порт, userinfo, лишний сегмент, неизвестное действие и отсутствие replay POST.
+
+## Проверка фактического POST и исправление имени защитного поля
+
+На c5a530f8448e96dfbe20ee0ed8e93a0625223bef независимая задача F257 проверила диалог/Tab и после прямого согласия владельца подтвердила удаление только созданной нами пустой F6791-встречи. Сервер вернул csrf_token_missing; БД подтвердила requests=[] и deletion_state=none. Это не PASS.
+
+Причина: форма отправляла _csrf, а require_web_csrf ожидает CSRF_FORM_FIELD_NAME=csrf_token. Renderer теперь использует существующую константу; проверка CSRF и генерация токена не меняются. Новая интеграционная проверка загружает страницу с cookie-сессией, извлекает фактически отрисованные hidden-поля и отправляет форму без дополнительных заголовков для /meetings и /desktop/meetings. До исправления оба сценария FAIL; isolated PostgreSQL удалена. Историческая запись reviewer-owned security checklist про имя _csrf описывает прежнее поле, актуальный контракт задаёт каноническое csrf_token; гарантия защиты сохраняется и теперь проверяется реальным запросом.
+
+После исправления имени поля: 135 PASS за 56.94s, включая оба реальных form-submit сценария; изолированная PostgreSQL удалена. Ruff четырёх Python-файлов, changelog validator, Node regression и diff --check PASS. Native-код после 29 PASS не менялся.

@@ -1987,7 +1987,7 @@ def test_detail_delete_dialog_is_brief_and_preserves_confirmation_form(
     dialog = match.group()
     base = "/desktop/meetings" if embedded else "/meetings"
     assert f'action="{base}/{review.meeting.meeting_id}/deletion-requests"' in dialog
-    assert 'name="_csrf" value="synthetic-csrf"' in dialog
+    assert 'name="csrf_token" value="synthetic-csrf"' in dialog
     assert 'name="confirmation_boundary" value="Delete this meeting everywhere GRAF controls."' in dialog
     assert 'aria-labelledby="meeting-delete-title"' in dialog
     assert "Встреча будет удалена из GRAF. Восстановить её не получится." in dialog

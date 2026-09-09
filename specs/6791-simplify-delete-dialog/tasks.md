@@ -12,7 +12,7 @@ Spec/clarify/plan готовы. До реализации обязательны
 Цель: точный короткий текст; прежнее поведение удаления и доступность. Независимая проверка: HTML web/embedded и существующие контракты.
 
 - [X] T001 [US1] Обновить контракт в apps/server/tests/contract/test_recording_governance_ui_contract.py и добавить проверку реального HTML обоих кабинетов в apps/server/tests/unit/test_cabinet_web_shell.py (FR-001–006, SC-001–003). (Issue #6853)
-- [X] T002 [US1] Сократить _render_delete_confirmation в apps/server/src/twobrain_rec_server/cabinet/review_policy_rendering.py до заданного текста и кнопок; убрать ссылку, сохранить защиту и доступность; включить cycleAll существующего trapModalFocus в cabinet.js и проверить Tab/Shift-Tab через tests/browser/meeting-delete-focus.test.cjs; разрешить существующий адрес формы в DesktopCabinetRoutePolicy.swift с регрессионной проверкой DesktopCabinetNavigationRequestPolicyTests (FR-001–006). (Issue #6853)
+- [X] T002 [US1] Сократить _render_delete_confirmation в apps/server/src/twobrain_rec_server/cabinet/review_policy_rendering.py до заданного текста и кнопок; убрать ссылку, сохранить защиту и доступность, использовать CSRF_FORM_FIELD_NAME для hidden-токена с проверкой реальной отправки обоих кабинетов в test_cabinet_csrf.py; включить cycleAll существующего trapModalFocus в cabinet.js и проверить Tab/Shift-Tab через tests/browser/meeting-delete-focus.test.cjs; разрешить существующий адрес формы в DesktopCabinetRoutePolicy.swift с регрессионной проверкой DesktopCabinetNavigationRequestPolicyTests (FR-001–006). (Issue #6853)
 
 ## Phase 3: Validation and closeout
 

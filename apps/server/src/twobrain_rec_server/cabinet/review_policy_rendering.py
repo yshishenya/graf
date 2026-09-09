@@ -3,6 +3,7 @@ from __future__ import annotations
 from html import escape
 
 from twobrain_rec_server.api.schemas import ArtifactEgressState, MeetingReviewResponse
+from twobrain_rec_server.auth.csrf import CSRF_FORM_FIELD_NAME
 from twobrain_rec_server.cabinet.rendering_shared import _base_path, _ui_text
 from twobrain_rec_server.cabinet.templates import render_icon, render_template
 from twobrain_rec_server.cabinet.user_time import format_user_datetime
@@ -129,7 +130,7 @@ def _render_delete_confirmation(
       <dialog id="meeting-delete-dialog" class="delete-dialog" data-meeting-delete-dialog
               aria-labelledby="meeting-delete-title">
         <form method="post" action="{escape(request_action)}" data-meeting-delete-form>
-          <input type="hidden" name="_csrf" value="{escape(csrf_token or "")}">
+          <input type="hidden" name="{CSRF_FORM_FIELD_NAME}" value="{escape(csrf_token or "")}">
           <input type="hidden" name="confirmation_boundary" value="{escape(BOUNDED_DELETE_COPY)}">
           <h2 id="meeting-delete-title" tabindex="-1" data-meeting-delete-dialog-title>Удалить встречу?</h2>
           <p>Встреча будет удалена из GRAF. Восстановить её не получится.</p>
