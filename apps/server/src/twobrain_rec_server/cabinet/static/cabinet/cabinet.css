@@ -6168,7 +6168,7 @@ html[data-theme="light"] .detail-playback {
 html[data-theme="dark"] .app-shell[data-active-nav="settings"] {
   --surface: #1e1f21; --surface-2: #252628; --surface-3: #2c2d31;
   --line-soft: #35363a; --text: #ececef; --muted: #aaabb2;
-  --accent-solid: #9581ff;
+  --accent-solid: #9581ff; --accent-hover: #a18cff; --accent-foreground: #202125;
 }
 
 .app-shell[data-active-nav="settings"] .cabinet-workspace-header { display: none; }

@@ -30,7 +30,22 @@ async page => {
       const bounds=await page.evaluate(()=>({width:innerWidth,scroll:document.documentElement.scrollWidth,
         bad:[...document.querySelectorAll('.settings-page input,.settings-page select,.settings-page button,.settings-control-row__title')].filter(el=>el.getClientRects().length).filter(el=>{const r=el.getBoundingClientRect();return r.left<0||r.right>innerWidth+1;}).map(el=>el.textContent||el.getAttribute('aria-label'))}));
       check(bounds.scroll<=width+1 && !bounds.bad.length,JSON.stringify({theme,width,section,bounds}));
-      results.push({theme,width,section,overflow:false});
+      const contrast = await page.locator('[data-cabinet-shell]').evaluate(shell => {
+        const style = getComputedStyle(shell);
+        const luminance = name => {
+          const hex = style.getPropertyValue(name).trim().replace('#','');
+          const rgb = hex.length === 3 ? [...hex].map(x => x+x).join('') : hex;
+          return [0,2,4].map(i => parseInt(rgb.slice(i,i+2),16)/255)
+            .map(v => v<=.04045 ? v/12.92 : ((v+.055)/1.055)**2.4)
+            .reduce((sum,v,i) => sum+v*[.2126,.7152,.0722][i],0);
+        };
+        return [['--text','--surface'],['--muted','--surface-2'],['--accent-foreground','--accent-solid'],['--accent-foreground','--accent-hover']].map(([a,b]) => {
+          const values=[luminance(a),luminance(b)].sort((x,y)=>x-y);
+          return (values[1]+.05)/(values[0]+.05);
+        });
+      });
+      check(contrast.every(value => value>=4.5),JSON.stringify({theme,width,section,contrast}));
+      results.push({theme,width,section,overflow:false,contrast});
       if(width===820)await page.screenshot({animations:'disabled',path:`output/playwright/f260-${section}-${theme}.png`});
     }
   }

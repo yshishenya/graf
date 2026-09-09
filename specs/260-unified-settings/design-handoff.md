@@ -72,7 +72,7 @@
 | dark background / rail | #1e1f21 / #252628 | Спокойные плоскости без стекла/градиентов |
 | dark text / secondary | #ececef / #aaabb2 | Контраст первичного/вторичного текста |
 | dark border / selected | #35363a / #38393c | Нейтральные границы/выбор раздела |
-| accent | #9581ff | Активный switch/фокус; не цвет каждого заголовка |
+| accent | #9581ff | Активный switch/фокус; не цвет каждого заголовка. Текст #202125; hover #a18cff для WCAG AA. |
 | light background / rail | #ffffff / #f6f6f7 | Светлая системная тема |
 | light text / secondary | #202125 / #62636b | Контраст в светлой теме |
 
