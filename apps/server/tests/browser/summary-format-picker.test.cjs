@@ -137,6 +137,13 @@ const maliciousName = '<img src=x onerror=alert(1)> Личный формат с
     assert(await page.locator('[data-summary-format-settings]').isVisible());
     const zoomed = await popover.boundingBox();
     assert(zoomed.x >= 0 && zoomed.x + zoomed.width <= 1440 && zoomed.y + zoomed.height <= 860, `200% zoom stays within viewport: ${JSON.stringify(zoomed)}`);
+    for (let i = 0; i < 12; i++) {
+      await page.keyboard.press('ArrowDown');
+      assert(await page.locator('[data-summary-format-listbox]').evaluate(list => {
+        const row = document.activeElement.getBoundingClientRect(), bounds = list.getBoundingClientRect();
+        return row.top >= bounds.top - 1 && row.bottom <= bounds.bottom + 1;
+      }), 'keyboard focus stays visible inside the independently scrolling list at 200%');
+    }
     await page.keyboard.press('Escape');
     await page.evaluate(() => { document.documentElement.style.zoom = ''; });
     await page.locator('.detail-main').evaluate(el => { el.style.minHeight = '1400px'; });

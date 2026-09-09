@@ -3296,8 +3296,9 @@
         if (!option) return;
         const row = option.getBoundingClientRect();
         const list = listbox.getBoundingClientRect();
-        if (row.top < list.top) listbox.scrollTop -= list.top - row.top;
-        else if (row.bottom > list.bottom) listbox.scrollTop += row.bottom - list.bottom;
+        const scale = list.height / listbox.offsetHeight || 1;
+        if (row.top < list.top) listbox.scrollTop -= (list.top - row.top) / scale;
+        else if (row.bottom > list.bottom) listbox.scrollTop += (row.bottom - list.bottom) / scale;
       };
       const focusCurrentFormat = () => {
         const items = visibleOptions();
