@@ -21,7 +21,7 @@
 
 ## Final Phase: Validation
 
-- [ ] T007 Запустить self-test, governance tests, обязательный GitHub `governance-fast`, analyze и converge на exact SHA. (Issue #6196)
+- [X] T007 Запустить self-test, governance tests, обязательный GitHub `governance-fast`, analyze и converge на exact SHA. (Issue #6196)
 
 ## Dependencies
 
@@ -33,6 +33,6 @@
 
 ## Итоговая приёмка исходного umbrella
 
-- [ ] T008 Сопоставить все исходные критерии #6189 с реализацией и матрицей acceptance.md, подготовить проверку точного SHA и штатный live closeout после дочерних задач; включение в master проверяется отдельно перед закрытием. (Issue #6189)
+- [X] T008 Сопоставить все исходные критерии #6189 с реализацией и матрицей acceptance.md, подготовить проверку точного SHA и штатный live closeout после дочерних задач; включение в master проверяется отдельно перед закрытием. (Issue #6196; umbrella #6189)
 
 Задачи перенесены из сохранённой рабочей копии F225 для сверки в общем PR F225/F259. Её незакоммиченные изменения не менялись. Исторические отметки не заменяют новую приёмку; доказательства текущей проверки — acceptance.md и PR.
