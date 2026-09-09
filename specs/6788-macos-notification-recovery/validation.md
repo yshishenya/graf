@@ -663,3 +663,10 @@ Code/Ponytail review подтвердил эквивалентность и от
 Подтверждение Swift6.0.3 выполняется через macos-diagnostic на SHA PR.
 Старый Full CI не PASS; после merge необходим новый immutable candidate и
 полный release-full. Прежняя установленная матрица сохраняет свои SHA.
+
+### Дополнительная диагностика Swift 6.0.3 — PR #6843
+
+- Run34357861360 собрал тесты после явного цикла:876 tests,1 skipped,4 failed assertions в одном source-contract test.
+- Все четыре ошибки требовали старое окно F214: прямой NSPanel,360×286,центровка и отложенный повторный показ. Это противоречит принятой T031.
+- Контракт обновлён на MeetingDetectionPromptPanel320×192 и отсутствие отложенного показа; центровка удалена из source-check, якорь/clamp исполняются существующим AppLifecycleWindowRegressionTests. Countdown/timeout/решения не изменены.
+- Полный CI и merge остаются закрыты до новой успешной диагностики и governance-fast на текущем SHA.
