@@ -2146,19 +2146,6 @@
   ) => {
     if (detail.dataset.requestedSummaryTemplate && !forceSummary) return false;
     if (forceSummary && summaryTemplate) detail.dataset.requestedSummaryTemplate = summaryTemplate;
-    if (titleEditorActive()) {
-      if (!detail.dataset.titleRefreshDeferred) {
-        detail.dataset.titleRefreshDeferred = "true";
-        window.setTimeout(() => {
-          delete detail.dataset.titleRefreshDeferred;
-          if (detail.isConnected) void refreshProcessingDetailContentOnce(detail, projection, {
-            forceSummary: forceSummary || Boolean(detail.dataset.requestedSummaryTemplate),
-            summaryTemplate: detail.dataset.requestedSummaryTemplate || summaryTemplate,
-          });
-        }, 2000);
-      }
-      return false;
-    }
     if (resetRetryBudget) delete detail.dataset.processingContentRefreshRetryCount;
     const transcriptReady = processingTranscriptReady(projection);
     const summaryReady = ["available", "partial"].includes(processingSummaryState(projection).toLowerCase());
@@ -2281,7 +2268,7 @@
         nextDetail.dataset.processingPublishedAttempt = String(attemptOrdinal);
       }
       if (discardStaleRefresh()) return false;
-      if (titleEditorActive() || titleVersion !== detail.querySelector("[name='expected_version']")?.value) {
+      if (titleVersion !== detail.querySelector("[name='expected_version']")?.value) {
         retryFragmentRefresh();
         return false;
       }
@@ -2297,7 +2284,9 @@
         currentPlayback.querySelector("audio")?.pause();
         currentPlayback.replaceWith(nextPlayback);
       }
-      detail.replaceWith(nextDetail);
+      if (titleEditorActive()) {
+        if (!meetingTitleEditor.refreshDetail(nextDetail)) { retryFragmentRefresh(); return false; }
+      } else detail.replaceWith(nextDetail);
       window.setTimeout(() => {
         initCabinet();
         if (selectedTab && typeof activateDetailTab === "function") activateDetailTab(selectedTab, { updateUrl: false });
@@ -8105,6 +8094,31 @@
     });
     showEditor(editing);
     meetingTitleEditor = {
+      refreshDetail: (nextDetail) => {
+        const nextForm = nextDetail.querySelector("[data-meeting-title-form]");
+        if (!current() || !nextForm || nextDetail.dataset.meetingId !== detail.dataset.meetingId
+          || nextForm.getAttribute("action") !== form.getAttribute("action")) return false;
+        const ancestors = [];
+        let node = form, nextNode = nextForm;
+        while (node !== detail && nextNode !== nextDetail) {
+          if (node.parentElement.tagName !== nextNode.parentElement.tagName) return false;
+          ancestors.push([node, nextNode]);
+          node = node.parentElement; nextNode = nextNode.parentElement;
+        }
+        if (node !== detail || nextNode !== nextDetail) return false;
+        // Keep the editor and its captured main/header connected: detaching would blur/save.
+        for (const [kept, incoming] of ancestors) {
+          const parent = kept.parentElement, nextParent = incoming.parentElement;
+          while (kept.previousSibling) kept.previousSibling.remove();
+          while (kept.nextSibling) kept.nextSibling.remove();
+          const siblings = Array.from(nextParent.childNodes), index = siblings.indexOf(incoming);
+          kept.before(...siblings.slice(0, index));
+          kept.after(...siblings.slice(index + 1));
+          for (const attribute of Array.from(parent.attributes)) parent.removeAttribute(attribute.name);
+          for (const attribute of nextParent.attributes) parent.setAttribute(attribute.name, attribute.value);
+        }
+        return true;
+      },
       active: () => current() && !terminal && (editing || Boolean(pending)),
       blocksNavigation: () => current() && !terminal && (dirty() || uncertain || Boolean(pending)),
       save,

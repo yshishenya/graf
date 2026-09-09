@@ -3151,13 +3151,9 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
         _ sender: NSApplication,
         hasVisibleWindows flag: Bool
     ) -> Bool {
-        presentMainWindow(reason: flag ? "reopen_visible" : "reopen")
+        // A notification may already have opened its target before macOS sends reopen.
+        if !flag { presentMainWindow(reason: "reopen") }
         return true
-    }
-
-    func applicationDidBecomeActive(_: Notification) {
-        guard mainWindow?.isVisible != true else { return }
-        presentMainWindow(reason: "became_active_recovery")
     }
 
     func applicationShouldTerminate(_: NSApplication) -> NSApplication.TerminateReply {
@@ -3305,8 +3301,6 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
         )
         if visibleWindowCount == 0 {
             presentMainWindow(reason: "visibility_recovery")
-        } else if mainWindow?.isKeyWindow != true || !NSApp.isActive {
-            presentMainWindow(reason: "activation_recovery")
         }
     }
 
