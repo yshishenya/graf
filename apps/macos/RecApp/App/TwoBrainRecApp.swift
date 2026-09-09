@@ -323,7 +323,7 @@ private struct ContentView: View {
                     dismissCalendarPrompt(prompt)
                 },
                 onMeetingDetectionSettings: {
-                    (NSApp.delegate as? AppLifecycleDelegate)?.openSettings(nil)
+                    (NSApp.delegate as? AppLifecycleDelegate)?.openLocalRecordingSettings()
                 },
                 onPermissionRecovery: {
                     presentPermissionSetup()

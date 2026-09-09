@@ -19,6 +19,12 @@ final class AppLifecycleWindowRegressionTests: XCTestCase {
             return String(source[range]).replacingOccurrences(of: "private func", with: "func")
         }
         let activation = try method("applicationDidBecomeActive", required: false)
+        let captureStart = try XCTUnwrap(source.range(of: "CaptureControlView("))
+        let callbackExpression = try NSRegularExpression(pattern: "onMeetingDetectionSettings: (\\{[\\s\\S]*?\\n                \\})")
+        let callbackMatch = try XCTUnwrap(callbackExpression.firstMatch(in: source,
+            range: NSRange(captureStart.upperBound..<source.endIndex, in: source)))
+        let callbackRange = try XCTUnwrap(Range(callbackMatch.range(at: 1), in: source))
+        let settingsCallback = String(source[callbackRange])
         let script = """
         import Foundation
         final class Window {
@@ -29,18 +35,22 @@ final class AppLifecycleWindowRegressionTests: XCTestCase {
             var occlusionState: UInt = 0
         }
         extension UInt { var rawValue: UInt { self } }
-        final class NSApplication { var windows: [Window] = []; var isActive = true }
+        final class NSApplication { var windows: [Window] = []; var isActive = true; var delegate: AnyObject? }
         let NSApp = NSApplication()
         enum AppLog { static func writeRaw(event: String, detail: String) {} }
         final class Delegate {
             var mainWindow: Window? = Window()
             var presentations: [String] = []
+            var settingsRoutes: [String] = []
             func presentMainWindow(reason: String) { presentations.append(reason) }
+            func openSettings(_: Any?) { settingsRoutes.append("generalSettings") }
+            func openLocalRecordingSettings() { settingsRoutes.append("localRecordingSettings") }
         \(try method("applicationShouldHandleReopen"))
         \(try method("logWindowVisibility"))
         \(activation)
             func activate() { \(activation.isEmpty ? "" : "applicationDidBecomeActive(Notification(name: Notification.Name(\"active\")))") }
         }
+        typealias AppLifecycleDelegate = Delegate
         func check(_ condition: Bool, _ message: String) {
             if !condition { fatalError(message) }
         }
@@ -68,6 +78,10 @@ final class AppLifecycleWindowRegressionTests: XCTestCase {
         check(delegate.presentations.isEmpty, "Activation alone must not reveal hidden cabinet")
         delegate.logWindowVisibility()
         check(delegate.presentations == ["visibility_recovery"], "Keep startup recovery with no visible windows")
+        NSApp.delegate = delegate
+        let openMeetingDetectionSettings = \(settingsCallback)
+        openMeetingDetectionSettings()
+        check(delegate.settingsRoutes == ["localRecordingSettings"], "Capture inspector settings must open native automatic recording, not general cabinet settings")
         """
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
