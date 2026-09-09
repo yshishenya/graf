@@ -72,3 +72,13 @@ unit29/29PASS. Lock обновлён штатными capture/write функци
 workflow SHA; версии и hash исходного архива сохранены. Frozen doctor с
 закреплённым specify1.0.1 и bootstrap0.9.9 PASS. Новый GitHub gate ожидается.
 T006 и T012 открыты до итоговой приёмки; F225 и общий бэклог не закрывались.
+
+## T013: существующие названия с `_` и `.` — 2026-09-09
+
+Замечание [PR #6831](https://github.com/yshishenya/graf/pull/6831#discussion_r3965958717) подтверждено на master 0ad486df265a2555be0284ce69119d9d68b10a4c. Общий `_sequential_id` ошибочно применял ограничения создания slug к инвентаризации существующих specs и refs. Исправление распознаёт префикс `NNN-` или голый числовой каталог; исключение timestamp остаётся перед ним, фильтр служебных refs — у вызывающей функции. Новые имена по-прежнему проходят прежнюю нормализацию и проверку.
+
+Регрессия на реальных Git refs и каталогах: оба символа × specs/локальная/удалённая ветка. До исправления 6 FAIL: занятый 259 пропущен. После исправления allocator/validator: **82 passed, 2 skipped**, 8.96 s; все шесть случаев сохраняют 259 занятым и предлагают 260. Пропуски — PowerShell без pwsh. `python3 scripts/claim-feature.py --self-test`: PASS, включая конкуренцию claims между worktrees.
+
+Авторский review/convergence T013: проверены оба потребителя общего parser и повторный выбор номера; FR-012/013 выполнены в ограниченном объёме. Дополнительных зависимостей, обходов проверки GitHub или изменений формата reservations нет. Общий reviewer-owned checklist сохранён. Lane: Active Spec Kit slice. Точный SHA и обязательный governance-fast фиксируются в новом PR после коммита; Full CI, продуктовая проверка и выпуск здесь не требуются. T006, #6837 и #6827 остаются открытыми до своей полной приёмки.
+
+Дополнительно: `validate-agent-context.py`, `validate-changelog-fragments.py`, `check_spec_kit_governance.py` с закреплёнными CLI/bootstrap, Bash syntax и `git diff --check`: PASS. Read-only `claim-feature.py --json` на живом репозитории вернул 6792, mode github-checked; хеши active pointer и shared claims до/после совпали. Это наблюдение текущего инвентаря, а не завершённая приёмка всей F225.

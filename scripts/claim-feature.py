@@ -52,7 +52,7 @@ def _claim_lock(path: Path):
 def _sequential_id(name: str) -> int | None:
     if re.match(r"^\d{7,8}-\d{6}(?:-|$)", name):
         return None
-    match = re.fullmatch(r"(\d{3,})(?:-[A-Za-z0-9][A-Za-z0-9-]*)?", name)
+    match = re.match(r"^(\d{3,})(?:-|$)", name)
     return int(match.group(1)) if match else None
 
 

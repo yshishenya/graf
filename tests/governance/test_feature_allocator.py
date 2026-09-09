@@ -149,6 +149,20 @@ def test_real_git_inventory_ignores_tags_and_internal_refs(git_project):
     assert module._ids_from_refs(module._git_refs(git_project, strict=True)) == {259, 1024}
 
 
+@pytest.mark.parametrize('slug', ['fix_v2', 'fix.v2'])
+@pytest.mark.parametrize('source', ['specs', 'refs/heads/codex', 'refs/remotes/origin/codex'])
+def test_existing_slug_characters_keep_feature_number_occupied(git_project, slug, source):
+    module = allocator()
+    name = f'259-{slug}'
+    if source == 'specs':
+        (git_project / source / name).mkdir()
+    else:
+        subprocess.run(['git', 'update-ref', f'{source}/{name}', 'HEAD'], cwd=git_project, check=True)
+    occupied = module._ids_from_specs(git_project) | module._ids_from_refs(module._git_refs(git_project))
+    assert occupied == {258, 259}
+    assert module._next_feature_id(git_project, occupied, offline=True) == 260
+
+
 def test_concurrent_stale_allocations_create_only_one_umbrella(git_project, monkeypatch):
     module = allocator()
     monkeypatch.setattr(module, '_github_ids', lambda *_a, **_k: set())
