@@ -2283,10 +2283,12 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                 guard let self, let webView, isCurrentDocument() else { return }
                 // Preferences belong to the authenticated document, after cookie reconciliation.
                 if EmbeddedCabinetNotificationSettingsBridge.isSettingsURL(url, policy: self.routePolicy) {
+                    let authEpoch = DesktopNotificationPresenter.shared.authEpoch
                     Task { @MainActor [weak self, weak webView] in
-                        await DesktopNotificationPresenter.shared.refreshContext()
-                        guard let self, let webView, isCurrentDocument() else { return }
-                        self.notificationSettingsBridge.activate(webView)
+                        guard let self, let webView else { return }
+                        await self.notificationSettingsBridge.activateAfterRefreshingContext(
+                            webView, expectedAuthEpoch: authEpoch, isCurrentDocument: isCurrentDocument
+                        )
                     }
                 }
                 guard DesktopUserTimeContext.canRead(from: url, routePolicy: self.routePolicy) else {

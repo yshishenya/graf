@@ -462,7 +462,7 @@ def render_settings_page(
     csrf_token: str | None = None,
     product_analytics_provider: dict[str, object] | None = None,
     profile=None,
-    category: str = "overview",
+    category: str = "account",
     provider_link_options: tuple[cabinet_view_models.ProviderLinkStartOption, ...] = (),
     workspace_spaces: tuple[WorkspaceAccessView, ...] = (),
     workspace_join_offers: tuple[WorkspaceJoinOfferView, ...] = (),
@@ -480,7 +480,7 @@ def render_settings_page(
     provider_unlink_result: str | None = None,
     account_active: str = "profile",
     notification_preferences: object | None = None,
-    show_account_navigation: bool = True,
+    show_account_navigation: bool = False,
 ) -> str:
     offer_result_copy = {
         "accepted": "Рабочее пространство добавлено. Текущее пространство не изменилось.",
@@ -557,7 +557,6 @@ def render_settings_page(
         default=None,
     )
     content_templates = {
-        "overview": "cabinet/pages/settings_content.html",
         "recording": "cabinet/pages/settings_recording_content.html",
         "summaries": "cabinet/pages/settings_summaries_content.html",
         "workspace": "cabinet/pages/settings_workspace_content.html",
@@ -565,14 +564,13 @@ def render_settings_page(
         "notifications": "cabinet/pages/settings_notifications_content.html",
     }
     titles = {
-        "overview": "Настройки",
         "recording": "Запись встреч",
         "summaries": "Итоги",
         "workspace": "Пространства",
         "account": "Аккаунт и безопасность",
         "notifications": "Уведомления",
     }
-    resolved_category = category if category in content_templates and category != "overview" else "account"
+    resolved_category = category if category in content_templates else "account"
     settings_context = {
         "provider_link_options": provider_link_options,
         "provider_link_start_base_path": "/desktop/settings/provider-links"

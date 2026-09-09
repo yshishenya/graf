@@ -163,6 +163,7 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
     private let submit: (@MainActor (UNNotificationRequest) async throws -> Void)?
     private let remove: (@MainActor ([String]?) -> Void)?
     private let requestPermission: (@MainActor () async throws -> Bool)?
+    private let contextProvider: (@MainActor () async throws -> DesktopNotificationContext)?
     private var context = ""
     @Published private(set) var authEpoch = 0
     private var generation = 0
@@ -183,10 +184,11 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
          model: DesktopControlModel, status: (@MainActor () async -> UNAuthorizationStatus)? = nil,
          submit: (@MainActor (UNNotificationRequest) async throws -> Void)? = nil,
          remove: (@MainActor ([String]?) -> Void)? = nil,
-         requestPermission: (@MainActor () async throws -> Bool)? = nil) {
+         requestPermission: (@MainActor () async throws -> Bool)? = nil,
+         contextProvider: (@MainActor () async throws -> DesktopNotificationContext)? = nil) {
         self.center = center; self.store = store; self.model = model
         self.statusProvider = status; self.submit = submit; self.remove = remove
-        self.requestPermission = requestPermission
+        self.requestPermission = requestPermission; self.contextProvider = contextProvider
         super.init()
     }
     public override convenience init() {
@@ -271,18 +273,24 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
             invalidate(); owner = user.lowercased(); context = newContext; preferences = store.load(owner: owner); draft = preferences
         }
     }
-    public func refreshContext() async {
+    @discardableResult
+    public func refreshContext() async -> Int? {
         contextGeneration += 1
         let epoch = contextGeneration
-        guard let client = DesktopUploadClient.configuredFromEnvironment() else { return }
         do {
-            let value = try await client.notificationContext()
-            guard epoch == contextGeneration else { return }
+            let value: DesktopNotificationContext
+            if let contextProvider { value = try await contextProvider() }
+            else if let client = DesktopUploadClient.configuredFromEnvironment() { value = try await client.notificationContext() }
+            else { return nil }
+            guard epoch == contextGeneration else { return nil }
             updateContext(user: value.user_id.uuidString, workspace: value.workspace_id.uuidString)
+            let confirmedEpoch = authEpoch
             await refreshLocal(lastSnapshot)
+            return confirmedEpoch == authEpoch ? confirmedEpoch : nil
         } catch let error as DesktopUploadClientError {
             if epoch == contextGeneration && error.failureCategory == .authSession { invalidate() }
         } catch { /* Keep only the already confirmed context in this auth epoch. */ }
+        return nil
     }
     public func refreshPermission() async {
         permissionGeneration += 1

@@ -1371,7 +1371,7 @@ def test_embedded_window_breakpoints_keep_sidebar_stable_until_tight_width() -> 
     assert ".cabinet-main { padding: 18px 14px; }" in css
     assert ".desktop-embedded .main { padding: var(--meeting-detail-main-padding-top) 14px 18px; }" in css
     assert ".desktop-embedded .cabinet-main { padding: 18px 14px; }" in css
-    assert "172px" not in css
+    assert "--app-sidebar-width: 172px" not in css
 
 
 def test_embedded_shell_exposes_compact_rail_toggle_and_lucide_nav_icons() -> None:
@@ -1474,7 +1474,8 @@ def test_cabinet_rail_collapses_at_surface_breakpoint_without_resize_handler() -
         'shell.classList.contains("desktop-embedded")',
         '"(min-width: 1121px)" : "(min-width: 981px)"',
         'expandedMedia.addEventListener("change", syncViewport)',
-        'sessionStorage.getItem("graf-cabinet-rail")',
+        'sessionStorage.getItem(railKey)',
+        '"graf-settings-rail" : "graf-cabinet-rail"',
     ):
         assert marker in js
     assert "if (!event.matches) setRailPinned(shell, toggle, false)" not in js
@@ -1682,7 +1683,7 @@ def test_feature_159_settings_use_one_primary_sidebar_and_canonical_meetings_ret
     for embedded, meetings_href in ((False, "/meetings"), (True, "/desktop/meetings")):
         page = render_settings_page(embedded=embedded, category="account")
         assert page.count("data-settings-primary-nav>") == 1
-        assert page.count("data-settings-primary-nav-item") == 9
+        assert page.count("data-settings-primary-nav-item") == 8
         assert f'href="{meetings_href}"' in page
         assert page.count('data-settings-primary-nav-item="account"') == 1
         primary_sidebar = re.search(

@@ -43,6 +43,44 @@ final class EmbeddedCabinetNotificationSettingsBridgeTests: XCTestCase {
         XCTAssertFalse(presenter.preferences.sound)
     }
 
+    func testAccountChangeWhileActivationWaitsCannotReconnectOldDocument() async throws {
+        let suite = "F260-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let gate = NotificationSettingsGate()
+        let user = UUID(), workspace = UUID()
+        let presenter = DesktopNotificationPresenter(store: .init(defaults: defaults), model: DesktopControlModel(),
+            status: { .denied }, contextProvider: {
+                await gate.wait()
+                return DesktopNotificationContext(user_id: user, workspace_id: workspace)
+            })
+        let url = URL(string: "https://graf.test/desktop/settings/notifications")!
+        let bridge = EmbeddedCabinetNotificationSettingsBridge(routePolicy: .init(baseURL: url), presenter: presenter)
+        let configuration = WKWebViewConfiguration(); configuration.websiteDataStore = .nonPersistent()
+        let web = WKWebView(frame: .zero, configuration: configuration)
+        Self.retainedViews.append(web)
+        defer { bridge.invalidate() }
+        web.loadHTMLString("<script>window.connections=0;window.GRAFNotificationSettings={connect(){connections++},disconnect(){}};</script>", baseURL: url)
+        try await wait("typeof window.connections === 'number'", web)
+        let epoch = presenter.authEpoch
+        let pending = Task { await bridge.activateAfterRefreshingContext(web, expectedAuthEpoch: epoch, isCurrentDocument: { true }) }
+        await gate.untilWaiting()
+        presenter.invalidate()
+        presenter.updateContext(user: UUID().uuidString, workspace: workspace.uuidString)
+        gate.release(); await pending.value
+        let connections = try await web.evaluateJavaScript("connections")
+        XCTAssertEqual(connections as? Int, 0)
+        // A fresh document may establish its initial owner during refresh.
+        let currentEpoch = presenter.authEpoch
+        let fresh = Task { await bridge.activateAfterRefreshingContext(web, expectedAuthEpoch: currentEpoch, isCurrentDocument: { true }) }
+        await gate.untilWaiting(); gate.release(); await fresh.value
+        try await wait("connections === 1", web)
+        XCTAssertEqual(presenter.owner, user.uuidString.lowercased())
+        // A task queued before an auth change must not start a new request either.
+        await bridge.activateAfterRefreshingContext(web, expectedAuthEpoch: epoch, isCurrentDocument: { true })
+        XCTAssertNil(gate.waiting)
+    }
+
     private func wait(_ condition: String, _ web: WKWebView) async throws {
         for _ in 0..<100 {
             if (try? await web.evaluateJavaScript(condition)) as? Bool == true { return }

@@ -42,6 +42,12 @@ final class EmbeddedCabinetNotificationSettingsBridge: NSObject, @preconcurrency
             Task { @MainActor in self?.refresh() }
         })
     }
+    func activateAfterRefreshingContext(_ webView: WKWebView, expectedAuthEpoch: Int, isCurrentDocument: () -> Bool) async {
+        guard expectedAuthEpoch == presenter.authEpoch, isCurrentDocument(),
+              let confirmedEpoch = await presenter.refreshContext(),
+              confirmedEpoch == presenter.authEpoch, isCurrentDocument() else { return }
+        activate(webView)
+    }
     func activate(_ webView: WKWebView) {
         guard !webView.isLoading, Self.isSettingsURL(webView.url, policy: routePolicy) else { return }
         self.webView = webView; epoch = presenter.authEpoch
