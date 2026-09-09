@@ -10,11 +10,12 @@ ci-local.sh --help
 
 - No argument or any unknown argument exits `2` before tests and prints usage.
 - `--fast` always prints `effective=fast`, selected components, coverage and the required next gate; it never invokes the full repository suite.
-- `--full` executes the canonical repository gate.
+- `--full` executes the broad local diagnostic; authoritative release evidence comes only from GitHub `release-full`.
 - Every completed stage emits `ci_stage=<name> status=<status> duration_seconds=<n>`.
 - Every exit emits exactly one `ci_local_result=<pass|fail> mode=<effective>
-  duration_seconds=<n> next_gate=<gate>`; full emits `release_ready` only in a
-  passing final result.
+  duration_seconds=<n> next_gate=<gate>`; a passing local full emits `next_gate=full_diagnostic_only`, never release approval.
+- PR/MG workflow supplies full `identity.base_sha` as `GRAF_CI_BASE_REF` and rejects a missing/invalid/unavailable event base before tests. The real diff uses its merge base; receipt records that same event base. Manual dispatch retains a null event base and diagnostic default.
+- Server lint and Python compile run unchanged, once, before selected server/changed/performance tests in fast/full. Either static failure prevents those tests; selection, performance/RLS and final evidence checks remain unchanged.
 
 Fast classification is bounded and truthful:
 
@@ -44,8 +45,8 @@ Fast classification is bounded and truthful:
 - Dry-run declares `local_ci=full_required` unless the incident bypass is explicitly selected.
 - Execute fails closed if the worktree status probe fails, then proves a clean
   worktree, branch equality and exact `origin/<branch>` SHA.
-- Execute runs `ci-local.sh --full`, re-checks clean worktree plus unchanged local
-  and remote SHA, prints `local_ci=full_passed`, and only then starts remote
+- Execute verifies and reuses immutable authoritative GitHub Full CI evidence, re-checks clean worktree plus unchanged local
+  and remote SHA, prints `local_ci=authoritative_full_reused` and `local_ci=full_passed`, and only then starts remote
   production gates. Candidate drift blocks with
   `reason=candidate_changed_during_full`.
 - `--skip-local-ci` behavior remains incident-only and does not bypass any remote gate.
@@ -54,3 +55,12 @@ Fast classification is bounded and truthful:
 ## Documentation consistency
 
 Active operator guidance and templates may not contain `infra/scripts/ci-local.sh` without `--fast` or `--full`. Historical specs, release/deployment receipts and changelog facts are excluded from rewriting.
+
+Ordinary development uses local focused checks; GitHub `governance-fast` on the exact PR SHA is mandatory. Local wide fast is diagnostic/fallback, not a second routine gate. A1 keeps existing events, names, concurrency, permissions and required checks; PR text edits still trigger the current combined workflow.
+# A2 additive PR metadata entrypoint
+
+The existing `scripts/validate-pr-metadata.py <body> --feature-id ... --expected-sha ... --title ... [--scoped]` and `--self-test` remain compatible.
+
+New internal invocation: `python3 scripts/validate-pr-metadata.py --event <event.json> --current-pr <current-pr.json>`. Both files are required together and cannot be mixed with body-file options. Git runs from the checkout root. Exit 0 means the fetched open PR snapshot matches event/check-out identity and the existing metadata contract passes; nonzero means invalid inputs, identity/diff or description. No network access occurs inside the validator; the workflow fetches the current PR and fails on API errors without fallback.
+
+The additive workflow runs only PR events. It is not a required gate in A2, does not emit code/release evidence and must not replace governance-fast or qualify merge groups. Required-check activation is a later separately approved migration.

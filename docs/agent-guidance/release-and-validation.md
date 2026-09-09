@@ -7,16 +7,17 @@ The workstation does not run repository-wide CI automatically. For explicit
 diagnosis or offline fallback, use one local lane:
 
 ```sh
-# Fast feedback before a code PR.
+# Optional bounded diagnosis or offline fallback.
 infra/scripts/ci-local.sh --fast
 
-# Full baseline for a release candidate or early broad diagnosis.
+# Optional broad local diagnosis, never authoritative release evidence.
 infra/scripts/ci-local.sh --full
 ```
 
 The lane is mandatory: a bare command exits before tests instead of silently
 choosing evidence strength. `--fast` derives the changed paths from the merge
-base with `origin/master` and always remains bounded: server, macOS,
+base with `GRAF_CI_BASE_REF` (default `origin/master` locally) and always remains bounded:
+server, macOS,
 infrastructure/tooling and documentation run their component checks; changed
 server contract/integration files run focused. Calendar performance paths run a
 focused required proof without changing the lane; a missing/renamed proof is
@@ -36,6 +37,37 @@ available only for an explicitly requested diagnosis or offline fallback; local
 evidence alone cannot authorize a merge. Use `--full` only for an early broad
 diagnosis or when the release workflow cannot provide the authoritative record;
 do not run it after every small edit.
+
+For PR and `merge_group` runs, the workflow pins `GRAF_CI_BASE_REF` to the
+event `base_sha` recorded in the receipt. Missing, invalid or unavailable bases
+and a missing merge base fail before tests; moving `origin/master` cannot change
+the selected diff. Manual dispatch retains a null event base and diagnostic
+default selection, not PR/merge-group provenance. Server lint and compile run
+once before selected server tests with the same commands and scope; a static
+failure stops before those tests. PR text edits still trigger the combined
+workflow; separating them requires the protected migration in Feature 211.
+
+Feature 211 A2 adds `pr-metadata`, an additional, not-yet-required PR-only
+check. It checks the latest fetched title/body against matching PR number,
+head/base/ref and checkout, without product tests or Spec Kit installation.
+Its separate concurrency cancels only older metadata runs; a five-minute job
+limit excludes queue time. API/identity/history errors fail without fallback
+to stale event text. A snapshot PASS is not atomic merge-time approval;
+failed, skipped or cancelled runs are not a metadata PASS.
+
+The additional check executes the proposed validator from the PR head. Its
+PASS is feedback on reviewed candidate code, not independent enforcement
+against a PR author who replaces the validator or workflow. Before required
+activation, both the workflow and policy implementation must be bound to an
+approved revision outside the PR's control, with negative tampering tests.
+Fetching only a base-branch validator from a PR-controlled workflow is not
+sufficient. A2 does not establish that trust boundary or authorize activation.
+
+The existing required `governance-fast`, edited-code reruns, merge-group path,
+receipts and release/closeout gates remain unchanged. Do not make `pr-metadata`
+required until merge-group, freshness/base-retarget, fork and closeout
+contracts pass live acceptance and the owner separately approves a verified
+required-check migration. No new user command or development stage is required.
 
 For an iterative macOS-only failure, manually dispatch `macos-diagnostic` on
 the exact SHA instead of rerunning `release-full`. It runs no server-full job,
@@ -79,11 +111,12 @@ Every change must record one risk/validation lane in the final response or PR.
 - **Tiny low-risk code**: run the focused test or lint command for the touched
   path. Add one small runnable check when the change adds non-trivial logic.
 - **Active Spec Kit slice**: use `quickstart.md` and focused tests during
-  development, then the fast lane before the PR. Run the full lane only for an
-  early broad baseline or when a release candidate is being prepared.
-- **Significant or high-risk feature**: run the feature quickstart and fast
-  lane before closeout/PR; add a full baseline before release when it helps
-  resolve risk early.
+  development, then require GitHub `governance-fast` on exact PR SHA. Local
+  wide lanes are diagnostic/fallback only; release uses GitHub `release-full`.
+- **Significant or high-risk feature**: run focused quickstart/domain checks
+  and require GitHub `governance-fast` on exact PR SHA before merge. A local
+  broad diagnostic is optional when needed to investigate risk, not a second
+  routine gate and not authoritative release evidence.
 - **Release / deploy**: run the CD dry-run and execute only after the release
   gate is met and approved. The release operator runs exactly one authoritative
   Full CI for the frozen candidate before `decide`; `--execute` synchronizes the
@@ -91,8 +124,8 @@ Every change must record one risk/validation lane in the final response or PR.
   production actions. It must not launch a second Full CI for the same candidate.
 
 Do not rerun full local CI after every small edit inside a slice. Accumulate
-focused checks while developing, use the fast lane for PR feedback, and rely on
-the full exact-SHA gate during the approved production deployment.
+focused checks while developing, use required GitHub fast for PR feedback, and
+rely on the full exact-SHA gate during the approved production deployment.
 
 ## Development-To-Release Workflow
 
@@ -107,8 +140,9 @@ accumulated.
 3. Push the branch and wait for the required GitHub `governance-fast` check;
    local CI is a manual fallback only.
 
-The fast lane is the normal feedback loop. It is not a release approval and it
-does not replace the full lane for a release candidate.
+Focused local checks and required GitHub fast form the normal feedback loop.
+Fast is not a release approval and does not replace the full lane for a release
+candidate.
 
 ### 2. PR and merge
 
@@ -132,7 +166,7 @@ commit SHA. The required `governance-fast` GitHub check must be successful on
 that exact SHA; local evidence may supplement it but cannot replace it. Do not
 run full CI after every local edit or every small commit.
 
-Before merging a significant or high-risk slice, the fast lane and the feature
+Before merging a significant or high-risk slice, required GitHub fast and the feature
 quickstart must pass. If the change affects capture, privacy, auth, storage,
 infrastructure, deletion, diagnostics, deployment, UX/QA expectations, or a
 shared code path, focused tests alone are insufficient.
@@ -303,7 +337,7 @@ GitHub run URLs, close the umbrella last, then rerun without
 Use this rule when deciding whether to spend the longer run:
 
 - local edit: focused check;
-- ready slice or PR: `--fast`;
+- ready slice or PR: required GitHub `governance-fast` on exact PR SHA;
 - release candidate: reviewed and merged exact SHA;
 - approved production execution: `cd-remote.sh --execute` verifies the one
   authoritative Full CI evidence record after synchronization and before remote
@@ -374,8 +408,9 @@ For the server app:
 
 Runtime dependency upgrades are significant maintenance when they affect backend
 frameworks, auth, storage, database, infra, or shared behavior. Use the relevant
-Spec Kit lane and finish with `infra/scripts/ci-local.sh --fast` before
-closeout. The fast result remains bounded and requires the separate exact-SHA
+Spec Kit lane, run focused checks locally and require GitHub `governance-fast`
+on exact PR SHA before merge. Local wide fast is diagnostic/fallback only.
+The fast result remains bounded and requires the separate exact-SHA
 full gate before release.
 
 ## Production Deployment And Smoke

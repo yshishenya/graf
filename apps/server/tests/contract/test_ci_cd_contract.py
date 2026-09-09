@@ -64,6 +64,9 @@ calendar_performance_test_path() {
 }
 run_step() {
   local name="$1"
+  if [[ "$name" == "server lint" || "$name" == "python compile" ]]; then
+    printf 'static_command=%s\n' "$*"
+  fi
   if [[ "$name" == "server tests" || "$name" == "calendar performance proof" ]]; then
     printf 'server_test_gate=%s\n' "$4"
   fi
@@ -109,6 +112,33 @@ def test_local_ci_help_is_explicit_and_runs_no_stage() -> None:
     assert result.returncode == 0
     assert "--fast|--full" in result.stdout
     assert "ci_stage=" not in result.stdout
+
+
+@pytest.mark.parametrize("mode", ["--fast", "--full"])
+@pytest.mark.parametrize("fail_stage", ["", "server lint", "python compile"])
+def test_server_static_checks_precede_tests_and_fail_fast(mode: str, fail_stage: str) -> None:
+    result = run_stubbed_ci(
+        "apps/server/src/twobrain_rec_server/calendar/matching.py\n"
+        "apps/server/tests/contract/test_ci_cd_contract.py",
+        mode, fail_stage=fail_stage,
+    )
+    stages = re.findall(r"ci_stage=(.*?) status=", result.stdout)
+    server_tests = {"server tests", "changed server tests", "calendar performance proof"}
+    assert stages.count("server lint") == 1
+    assert "static_command=server lint bash -c cd apps/server && PYTHONPATH=src uv run --extra dev ruff check ." in result.stdout
+    if fail_stage != "server lint":
+        assert stages.count("python compile") == 1
+        assert "static_command=python compile python3 -m compileall -q apps/server/src apps/server/tests apps/server/scripts" in result.stdout
+    if fail_stage:
+        assert result.returncode == 17, result.stdout
+        assert not server_tests.intersection(stages)
+        assert result.stdout.count("ci_local_result=fail") == 1
+    else:
+        assert result.returncode == 0, result.stdout
+        selected = server_tests if mode == "--fast" else {"server tests"}
+        assert selected.issubset(stages)
+        assert stages.index("server lint") < stages.index("python compile")
+        assert all(stages.index("python compile") < stages.index(stage) for stage in selected)
 
 
 @pytest.mark.parametrize(
@@ -577,6 +607,16 @@ def test_active_documentation_matches_bounded_fast_contract() -> None:
     assert "coverage, next gate, result, duration" in pull_request_template
     assert 'git diff --check "$(git merge-base origin/master HEAD)" HEAD' in quickstart
     assert 'bash -n "$script"' in quickstart
+    flow = (ROOT / "docs/agent-guidance/spec-kit-flow.md").read_text(encoding="utf-8")
+    for lane in ("Active Spec Kit slice", "Significant feature / architecture", "High-risk product area"):
+        row = next(line for line in flow.splitlines() if line.startswith(f"| {lane} |"))
+        assert "GitHub `governance-fast`" in row
+        assert "ci-local.sh --fast" not in row
+    assert "then the fast lane before the PR" not in release_guidance
+    assert "finish with `infra/scripts/ci-local.sh --fast`" not in release_guidance
+    assert "ready slice or PR: required GitHub `governance-fast`" in release_guidance
+    assert "обязательный authoritative PR" in pull_request_template
+    assert "только ручная диагностика/offline fallback" in pull_request_template
 
 
 def test_github_full_workflow_contract_is_self_validating() -> None:

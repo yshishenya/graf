@@ -1,0 +1,47 @@
+name: pr-metadata
+
+on:
+  pull_request:
+    branches: [master]
+    types: [opened, synchronize, reopened, ready_for_review, edited]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: graf-pr-metadata-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  pr-metadata:
+    name: pr-metadata
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact PR SHA
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Fetch current PR
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]] || { echo "Invalid PR number" >&2; exit 1; }
+          if ! gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" > "$RUNNER_TEMP/current-pr.json" 2>/dev/null; then
+            echo "Cannot fetch current PR metadata" >&2
+            exit 1
+          fi
+
+      - name: Validate current PR metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/validate-pr-metadata.py \
+            --event "$GITHUB_EVENT_PATH" --current-pr "$RUNNER_TEMP/current-pr.json"

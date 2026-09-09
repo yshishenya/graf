@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -160,6 +162,74 @@ def validate(
     return errors
 
 
+def _pr_identity(value: object) -> tuple[int, str, str, str]:
+    if not isinstance(value, dict):
+        raise ValueError("PR must be an object")
+    number, head, base = value.get("number"), value.get("head"), value.get("base")
+    if type(number) is not int or number <= 0:
+        raise ValueError("PR number must be a positive integer")
+    if not isinstance(head, dict) or not isinstance(base, dict):
+        raise ValueError("PR head/base must be objects")
+    for sha in (head.get("sha"), base.get("sha")):
+        if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-fA-F]{40}", sha):
+            raise ValueError("PR head/base must contain full SHAs")
+    if not isinstance(base.get("ref"), str) or not base["ref"].strip():
+        raise ValueError("PR base ref is required")
+    return number, head["sha"].lower(), base["sha"].lower(), base["ref"]
+
+
+def validate_event(event_path: Path, current_path: Path) -> list[str]:
+    try:
+        event = json.loads(event_path.read_text(encoding="utf-8"))
+        current = json.loads(current_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, ValueError, RecursionError):
+        return ["cannot read event/current PR JSON"]
+    try:
+        if not isinstance(event, dict):
+            raise ValueError("event must be an object")
+        identity = _pr_identity(event.get("pull_request"))
+        if type(event.get("number")) is not int or event["number"] != identity[0]:
+            raise ValueError("event PR number mismatch")
+        if _pr_identity(current) != identity:
+            raise ValueError("current PR identity differs from event")
+        if current.get("state") != "open":
+            raise ValueError("current PR must be open")
+        if not all(isinstance(current.get(key), str) and current[key].strip() for key in ("title", "body")):
+            raise ValueError("current PR title/body must be nonempty strings")
+    except ValueError as exc:
+        return [str(exc)]
+    _, head, base, _ = identity
+    try:
+        checkout = subprocess.run(
+            ["git", "rev-parse", "HEAD"], check=True, capture_output=True,
+        ).stdout.strip().decode("ascii")
+        if checkout != head:
+            return ["checkout HEAD differs from event PR head"]
+        paths = subprocess.run(
+            ["git", "diff", "--name-only", "--no-renames", "-z", f"{base}...{head}"],
+            check=True, capture_output=True,
+        ).stdout.decode("utf-8", errors="surrogateescape").split("\0")
+    except (OSError, UnicodeError, subprocess.CalledProcessError):
+        return ["cannot determine exact PR diff with shared history"]
+    patterns = (
+        re.compile(r"^specs/(\d{3,})-[^/]+/"),
+        re.compile(r"^changes/(?:unreleased|releases/v[^/]+)/F(\d{3,})\.yaml\Z"),
+    )
+    features = sorted({
+        match.group(1) for path in paths for pattern in patterns
+        if (match := pattern.match(path)) is not None
+    })
+    try:
+        errors = validate(
+            current["body"], ",".join(features), expected_sha=head,
+            title=current["title"], scoped=not features,
+        )
+    except ValueError:
+        return ["invalid PR metadata values"]
+    # Keep categories, not user-controlled values from title/body, in CI logs.
+    return [error.split(": ", 1)[0] for error in errors]
+
+
 def self_test() -> int:
     sha = "a" * 40
     title = "[F216] Перестроить процесс"
@@ -206,21 +276,31 @@ def main() -> int:
     parser.add_argument("--title")
     parser.add_argument("--scoped", action="store_true")
     parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("--event", type=Path)
+    parser.add_argument("--current-pr", type=Path)
     args = parser.parse_args()
-    if args.self_test:
-        return self_test()
-    if args.body is None:
-        parser.error("body is required unless --self-test is used")
-    if not args.feature_id:
-        parser.error("--feature-id is required unless --self-test is used")
-    if args.title is None:
-        parser.error("--title is required unless --self-test is used")
-    try:
-        body = args.body.read_text(encoding="utf-8")
-    except OSError as exc:
-        print(f"pr-metadata: ERROR: {exc}", file=sys.stderr)
-        return 1
-    errors = validate(body, args.feature_id, expected_sha=args.expected_sha, title=args.title, scoped=args.scoped)
+    if args.event is not None or args.current_pr is not None:
+        if args.event is None or args.current_pr is None:
+            parser.error("--event and --current-pr are required together")
+        if (args.body is not None or args.feature_id is not None or args.expected_sha is not None
+                or args.title is not None or args.scoped or args.self_test):
+            parser.error("event mode cannot be combined with body-file or self-test options")
+        errors = validate_event(args.event, args.current_pr)
+    else:
+        if args.self_test:
+            return self_test()
+        if args.body is None:
+            parser.error("body is required unless --self-test is used")
+        if not args.feature_id:
+            parser.error("--feature-id is required unless --self-test is used")
+        if args.title is None:
+            parser.error("--title is required unless --self-test is used")
+        try:
+            body = args.body.read_text(encoding="utf-8")
+        except OSError as exc:
+            print(f"pr-metadata: ERROR: {exc}", file=sys.stderr)
+            return 1
+        errors = validate(body, args.feature_id, expected_sha=args.expected_sha, title=args.title, scoped=args.scoped)
     if errors:
         for error in errors:
             print(f"pr-metadata: ERROR: {error}", file=sys.stderr)
