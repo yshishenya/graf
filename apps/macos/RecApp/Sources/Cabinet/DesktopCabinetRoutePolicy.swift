@@ -182,7 +182,7 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
                 userMessage: "Shared meeting list"
             )
         }
-        if components.count == 3,
+        if components.count == 3 || (components.count == 4 && components[3] == "deletion-requests"),
            components[0] == "desktop",
            components[1] == "meetings",
            isSafePathComponent(components[2]) {

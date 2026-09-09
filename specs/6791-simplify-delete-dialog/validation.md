@@ -68,3 +68,11 @@ GRAF Dev на 450ef2fbe14524efb5341f3d7d1704c1325388ab: текст, светла
 Независимый повторный review: code findings 0; reviewer воспроизвёл FAIL без исправления и PASS с ним. Устаревшая фраза «JS без изменений» в contracts/dialog.md согласована с планом.
 
 После исправления фокуса повторён полный целевой набор: 133 PASS за 49.70s; изолированная PostgreSQL удалена. Node regression, синтаксис JavaScript, changelog validator, Spec Kit governance и git diff --check: PASS.
+
+## Проверка подтверждения в установленном приложении
+
+На 94d7a4eea0f6a58c8810fe729c5685545382a8b8 GRAF Dev прошёл 13/13 health gates. Подтверждены текст, обе темы, ширина 840 px, увеличенный масштаб, пять переходов Tab/Shift-Tab, Escape, отмена и возврат к «Ещё». При submit своей синтетической встречи показано «Функция недоступна»: DesktopCabinetRoutePolicy не разрешает /desktop/meetings/{id}/deletion-requests, хотя серверный маршрут существует. Это не PASS полного сценария.
+
+Для FR-004/005 точечное разрешение добавляется в классификацию страницы встречи после существующих проверок origin и перед deny-by-default. DesktopCabinetNavigationRequestPolicy по-прежнему пропускает POST без пересоздания запроса. План, контракт и T002 согласованы; уточнения пользователя не нужны, цель — работающее существующее подтверждение. Новые SHA/CI/приёмка фиксируются в PR.
+
+Native regression: до изменения 1 тест с 2 ожидаемыми FAIL (route blocked, meeting ID отсутствует); после изменения все 29 DesktopCabinetRoutePolicyTests и DesktopCabinetNavigationRequestPolicyTests PASS. Проверены внешние origin, другой порт, userinfo, лишний сегмент, неизвестное действие и отсутствие replay POST.
