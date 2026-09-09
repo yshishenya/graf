@@ -1194,6 +1194,24 @@ def test_partial_transcript_detail_renders_diarization_placeholder() -> None:
     assert 'data-playback-transcript hidden aria-hidden="true"' in page
 
 
+def test_list_polls_only_requested_summary_work() -> None:
+    from types import SimpleNamespace
+
+    for state in ("not_requested", "queued", "generating", "blocked_dependency", "failed"):
+        item = _item().model_copy(update={
+            "status": "ready", "primary_action": "open", "transcript_available": True,
+            "summary_status": state,
+            "notes_action_truth": cabinet_view_models.notes_action_truth_state(
+                status="ready", result=SimpleNamespace(summary_status=state),
+            ),
+        })
+        page = render_meeting_list_page(MeetingListResponse(
+            items=[item], filters=MeetingFilterState(), generated_at=datetime.now(UTC),
+        ))
+        pending = state in {"queued", "generating", "blocked_dependency"}
+        assert f'data-summary-pending="{str(pending).lower()}"' in page, state
+
+
 def test_processing_summary_copy_can_distinguish_stored_output_from_not_requested() -> None:
     review = _review()
     review.notes_action_truth = review.notes_action_truth.model_copy(
@@ -1924,7 +1942,8 @@ def test_detail_shell_renders_tabs_and_gated_actions() -> None:
 
     assert page.count("data-meeting-detail-header") == 1
     header = page.split("data-meeting-detail-header", 1)[1].split('class="detail-main"', 1)[0]
-    assert 'class="topline"' in header
+    assert 'class="meeting-detail-actions"' in header
+    assert 'class="meeting-detail-identity"' in header
     assert 'id="meeting-share-host"' in header
     assert header.count('role="tablist"') == 1
     assert "Итоги" in page
@@ -1977,6 +1996,28 @@ def test_detail_shell_hides_more_when_no_action_or_detail_is_available() -> None
 
     assert 'data-meeting-panel-open="more"' not in page
     assert 'id="meeting-context-more"' not in page
+
+
+def test_playback_panel_reference_controls_and_true_short_segments() -> None:
+    review = _review()
+    review.playback = PlaybackReviewState(available=True, duration_seconds=7200, playback_path="/synthetic.wav")
+    review.speakers = SpeakerReviewState(available=True, assignment_state="available", speakers=[
+        SpeakerLane(speaker_key="alpha", label="А", talk_time_percent=20,
+                    segments=[SpeakerLaneSegment(start_seconds=2, end_seconds=2.05)]),
+        SpeakerLane(speaker_key="beta", label="Б", talk_time_percent=80,
+                    segments=[SpeakerLaneSegment(start_seconds=3, end_seconds=4)]),
+    ])
+    page = render_meeting_detail_page(review)
+    for marker in ("data-playback-timeline-toggle", "data-playback-listen-toggle", "data-playback-next",
+                   "data-playback-speed-menu", "data-listen-speaker", "data-playback-avatar"):
+        assert marker in page
+    assert page.count("data-playback-speed-option=") == 5
+    assert page.index('data-speaker-lane="beta"') < page.index('data-speaker-lane="alpha"')
+    assert 'timeline-lane speaker-color-1" data-speaker-lane="alpha"' in page
+    assert "width:0.000694%" in page
+    assert 'data-playback-progress type="range" min="0" max="7200" step="0.01"' in page
+    assert page.count("<audio ") == 1
+    assert "data-playback-trim" not in page
 
 
 def test_detail_shell_renders_playback_player_and_seekable_timestamps() -> None:
@@ -2035,7 +2076,9 @@ def test_detail_shell_renders_playback_player_and_seekable_timestamps() -> None:
     assert f'src="/api/v1/cabinet/meetings/{review.meeting.meeting_id}/playback"' in page
     assert 'data-source-mode="stored_review_m4a"' in page
     assert "data-playback-toggle" in page
-    assert 'data-playback-toggle aria-label="Воспроизвести">▶</button>' in page
+    assert 'data-playback-toggle aria-label="Воспроизвести"' in page
+    assert 'data-playback-play-icon' in page
+    assert 'data-playback-pause-icon hidden' in page
     assert "data-playback-error" in page
     assert 'role="status" aria-live="polite" hidden' in page
     assert "Воспроизведение временно недоступно." in page
@@ -2053,9 +2096,9 @@ def test_detail_shell_renders_playback_player_and_seekable_timestamps() -> None:
     assert 'toggle.setAttribute("aria-label", "Воспроизвести");' in script
     assert "syncTime();" in script
     assert (
-        'toggle.setAttribute("aria-label", playing ? "Приостановить" : "Воспроизвести")' in script
+        'toggle?.setAttribute("aria-label", playing ? "Приостановить" : "Воспроизвести")' in script
     )
-    assert 'player.addEventListener("error", reportFailure)' in script
+    assert 'player.addEventListener("error", () => reportPlaybackFailure(player))' in script
     assert "recoverySignature(currentPlayback) === recoverySignature(nextPlayback)" in script
     assert "currentPlayback.replaceWith(nextPlayback)" in script
     assert "currentTranscript.replaceWith(nextTranscript)" in script
@@ -2279,20 +2322,20 @@ def test_detail_shell_renders_speaker_timeline_segments() -> None:
 
     assert "data-speaker-timeline" in page
     assert 'data-speaker-timeline-default-height="120"' in page
-    assert 'aria-valuemin="120" aria-valuemax="120" aria-valuenow="120"' in page
-    assert page.count("data-speaker-timeline-hint") == 1
+    assert 'aria-valuemin="33" aria-valuemax="120" aria-valuenow="120"' in page
+    assert page.count("data-speaker-timeline-hint") == 0
     assert page.index("</main>") < page.index("data-playback-shell")
-    assert "Нажмите на цветной фрагмент, чтобы перейти к этому месту записи." in page
+    assert 'data-lane-segment' in page
     assert 'data-speaker-lane="speaker_00"' in page
     assert 'data-speaker-lane="speaker_01"' in page
     assert page.count("data-timeline-track") == 2
     assert (
-        'aria-label="Перейти по дорожке SPEAKER_00: переместить воспроизведение к фрагменту записи"'
+        'aria-label="Дорожка SPEAKER_00: стрелки перемещают позицию"'
         in page
     )
     assert page.count("data-timeline-playhead") == 2
-    assert 'event.key !== "Enter" && event.key !== " "' in _cabinet_js()
-    assert "track.click();" in _cabinet_js()
+    assert 'if (!event.detail) return' in _cabinet_js()
+    assert "track.click();" not in _cabinet_js()
     assert page.count("data-lane-segment") == 2
     assert 'title="SPEAKER_00 00:00-00:12"' in page
     assert 'aria-label="SPEAKER_01 00:30-01:30"' in page
@@ -2316,16 +2359,15 @@ def test_detail_shell_renders_speaker_timeline_segments() -> None:
     assert 'class="timeline-lane speaker-color-2"' in page
     assert page.count("speaker-color-1") >= 4
     assert 'class="segment speaker-color-1"' in page
-    assert "left:0.00%" in page
-    assert "width:10.00%" in page
-    assert "left:25.00%" in page
-    assert "width:50.00%" in page
+    assert "left:0.000000%" in page
+    assert "width:10.000000%" in page
+    assert "left:25.000000%" in page
+    assert "width:50.000000%" in page
     script = _cabinet_js()
-    assert "const seekTo = (seconds, { follow = true, autoplay = false } = {}) =>" in script
+    assert 'const seekTo = (seconds, { follow = true, autoplay = false, sourceIds = "" } = {}) =>' in script
     assert 'detailMain.style.setProperty("--playback-clearance"' not in script
     assert "new ResizeObserver(syncPlaybackClearance).observe(shell)" not in script
-    assert "const followTranscript = (seconds) =>" in script
-    assert 'track.addEventListener("click"' in script
+    assert 'const followTranscript = (seconds, sourceIds = "") =>' in script
     assert 'lane.classList.toggle("is-active"' in script
 
 
@@ -2387,6 +2429,13 @@ def test_detail_shell_renders_speaker_name_editor_only_for_authorized_review() -
     )
 
     editable = render_meeting_detail_page(review, csrf_token="synthetic-csrf")
+    workspace_id = uuid4()
+    shared_review = review.model_copy(update={"playback": PlaybackReviewState(available=True, duration_seconds=20, playback_path="/synthetic.m4a", source_mode="stored_review_m4a", included_sources=["canonical_mixed"])})
+    for embedded in (False, True):
+        shared = render_meeting_detail_page(shared_review, embedded=embedded, shared_workspace_id=workspace_id)
+        prefix = "/desktop/meetings" if embedded else "/meetings"
+        assert f'action="{prefix}/{review.meeting.meeting_id}/speakers/speaker_00?workspace_id={workspace_id}"' in shared
+        assert f'hx-get="{prefix}/{review.meeting.meeting_id}/share?workspace_id={workspace_id}"' in shared
     review.speakers.can_rename = False
     readonly = render_meeting_detail_page(review, csrf_token="synthetic-csrf")
 
@@ -2499,7 +2548,7 @@ def test_speaker_ui_counts_only_confirmed_people_and_labels_talk_time() -> None:
 
     assert "Спикеры · 1" in page
     assert "Спикеры · 2" not in page
-    assert "Проценты: доля распознанной речи каждого спикера." in page
+    assert 'title="Доля распознанной речи"' in page
     assert page.count("speaker-manager-marker ") == 1
     assert 'timeline-lane speaker-color-1" data-speaker-lane="speaker_00"' in page
     assert 'timeline-lane speaker-color-0" data-speaker-lane="unknown"' in page
@@ -3528,7 +3577,7 @@ def test_120_meeting_detail_renders_one_accessible_metadata_only_export_dialog()
     assert 'class="primary" data-export-submit>Сохранить…</button>' in embedded_page
     assert "data-export-copy" in page
     assert "setBusy(true)" in _cabinet_js()
-    assert 'requestExport("txt")' in _cabinet_js()
+    assert 'requestExport("txt", selectedScope)' in _cabinet_js()
     assert "navigator.clipboard.writeText" in _cabinet_js()
     assert "subtitle_timing_unavailable" in _cabinet_js()
     assert "export_generation_failed" in _cabinet_js()

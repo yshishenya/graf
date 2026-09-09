@@ -17,7 +17,7 @@ from sqlalchemy import select, text
 
 from twobrain_rec_server.auth.context import TenantScope
 from twobrain_rec_server.config import Settings, get_settings
-from twobrain_rec_server.db.models import PlaybackNormalizationJob
+from twobrain_rec_server.db.models import PlaybackNormalizationJob, ProcessingWorkflow
 from twobrain_rec_server.db.session import create_engine, create_sessionmaker
 from twobrain_rec_server.db.tenant_context import apply_tenant_scope
 from twobrain_rec_server.normalization.pickup import reconcile_normalization_jobs
@@ -39,7 +39,6 @@ from twobrain_rec_server.normalization.worker_readiness import (
     run_playback_normalization_readiness_activity,
 )
 from twobrain_rec_server.observability.logging import configure_logging
-from twobrain_rec_server.processing.store import get_processing_workflow
 from twobrain_rec_server.storage.minio_client import get_storage
 from twobrain_rec_server.workflows.playback_normalization_workflow import (
     PlaybackNormalizationWorkflow,
@@ -245,16 +244,18 @@ async def _wake_processing_after_normalization(
     if temporal_client is None:
         return
     try:
-        workflow = await get_processing_workflow(
-            db,
-            workspace_id=workspace_id,
-            meeting_id=meeting_id,
-            media_revision_id=media_revision_id,
-            active_only=True,
+        workflow_id = await db.scalar(
+            select(ProcessingWorkflow.workflow_id).where(
+                ProcessingWorkflow.workspace_id == workspace_id,
+                ProcessingWorkflow.meeting_id == meeting_id,
+                ProcessingWorkflow.media_revision_id == media_revision_id,
+                ProcessingWorkflow.purpose == "transcription",
+                ProcessingWorkflow.status.notin_({"processed", "blocked", "failed_terminal", "canceled"}),
+            ).order_by(ProcessingWorkflow.attempt_ordinal.desc(), ProcessingWorkflow.created_at.desc())
         )
-        if workflow is None:
+        if workflow_id is None:
             return
-        handle = temporal_client.get_workflow_handle(workflow.workflow_id)
+        handle = temporal_client.get_workflow_handle(workflow_id)
         await handle.signal(MediaScribeProcessingWorkflow.request_manual_check)
     except Exception as exc:
         # The processing workflow may not exist yet or Temporal may be briefly

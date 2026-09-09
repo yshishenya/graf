@@ -269,7 +269,7 @@ def test_cabinet_js_keeps_fragment_state_ephemeral() -> None:
     assert "htmx:afterSwap" in script
     assert "meeting-list-region" in script
     assert "localStorage" not in script
-    assert script.count("sessionStorage") == 16
+    assert script.count("sessionStorage") == 15
     assert script.count('sessionStorage.removeItem("htmx-history-cache")') == 1
     assert script.count('sessionStorage.removeItem("htmx-current-path-for-history")') == 2
     assert "graf-summary-candidate-" in script
@@ -616,8 +616,8 @@ vm.runInThisContext(`
   const processingListProjectionLastFetchedAt = new Map();
   const processingListProjectionStates = new Map();
   const processingTranscriptReady = () => false;
-  const processingSummaryState = () => "processing";
-  const processingSummaryPending = () => true;
+  const processingSummaryState = (projection) => projection.state === "processed" ? "available" : "processing";
+  const processingSummaryPending = (state) => state === "processing";
   const requestMeetingListRefresh = () => { refreshes += 1; return true; };
   ${source}
   global.initProcessingListProjection = initProcessingListProjection;
@@ -846,6 +846,7 @@ const detail = {
 };
 const processingTranscriptReady = (projection) => projection.transcript_ready === true;
 const processingSummaryState = (projection) => projection.summary_status;
+const processingSummaryPending = (state) => ["queued", "generating", "processing", "blocked_dependency"].includes(state);
 const processingProjectionMatchesDetail = (node, projection) => (
   node.dataset.meetingId === projection.meeting_id
   && node.dataset.mediaRevisionId === projection.media_revision_id
@@ -998,6 +999,7 @@ const fragments = {
 };
 const processingTranscriptReady = (projection) => projection.transcript_ready === true;
 const processingSummaryState = (projection) => projection.summary_status;
+const processingSummaryPending = (state) => state === "processing";
 const processingProjectionMatchesDetail = (node, projection) => (
   node.dataset.meetingId === projection.meeting_id
   && node.dataset.mediaRevisionId === projection.media_revision_id
@@ -1399,8 +1401,9 @@ const processingProjectionIsStale = () => false;
 const processingTimestamp = () => null;
 const processingTranscriptReady = () => false;
 const processingArtifactState = () => "unavailable";
-const processingTerminalFailure = () => true;
-const updateProcessingExportVisibility = () => {};
+const processingTerminalFailure = projection => projection.state === "failed_terminal";
+const exportStates = [];
+const updateProcessingExportVisibility = () => exportStates.push(detail.dataset.processingReplacementActive);
 const updateProcessingStage = () => {};
 const processingArtifactVisible = () => false;
 const processingSummaryState = () => "unavailable";
@@ -1456,6 +1459,16 @@ if (
   || uploadAnother.href !== uploadAnother.dataset.defaultHref
   || uploadAnother.textContent !== "Загрузить другой файл"
 ) throw new Error("upload recovery action did not return to its default state");
+global.renderProcessingProjection(detail, {
+  state: "processing", attempt_ordinal: 2, content_available: true,
+});
+global.renderProcessingProjection(detail, {
+  state: "failed_terminal", attempt_ordinal: 2, content_available: true,
+  retry_class: "terminal", manual_action: "upload_another", reason_code: "corrupt_source",
+});
+if (JSON.stringify(exportStates.slice(-2)) !== '["true","false"]')
+  throw new Error("export event observed stale replacement state");
+
 """
     completed = subprocess.run(
         ["node", "-e", harness, str(STATIC_DIR / "cabinet.js")],
@@ -1557,6 +1570,20 @@ def test_cabinet_collapsed_rail_uses_one_centered_control_geometry() -> None:
         "    margin-inline-start: 6px;\n"
         "    inset-block-start: 0;"
     ) in css
+
+
+def test_playback_listen_interval_union_rejects_invalid_and_does_not_repeat_overlap() -> None:
+    script = (STATIC_DIR / "cabinet.js").read_text()
+    start = script.index("  const mergePlaybackIntervals =")
+    end = script.index("  const initPlayback =", start)
+    harness = script[start:end] + r'''
+const assert = require("node:assert/strict");
+assert.deepEqual(mergePlaybackIntervals([[12,16],[2,6],[5,9],[9,10],[8,8],[NaN,4],[-2,1]]), [[0,1],[2,10],[12,16]]);
+assert.deepEqual(mergePlaybackIntervals([]), []);
+assert.deepEqual(mergePlaybackIntervals(Array.from({length:10000}, (_,i)=>[i,i+2])), [[0,10001]]);
+'''
+    result = subprocess.run(["node", "-e", harness], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
 
 
 def test_cabinet_playback_shares_ready_state_geometry() -> None:
@@ -1739,7 +1766,7 @@ def test_meeting_review_resize_uses_bounded_keyboard_and_pointer_contract() -> N
     for marker in [
         "data-speaker-timeline-shell",
         "data-speaker-timeline-resize",
-        "speakerTimelineCount",
+        "data-playback-timeline-toggle",
         "pointerdown",
         "pointermove",
         "pointerup",
@@ -1824,9 +1851,9 @@ timeline.dataset.speakerTimelineDefaultHeight = "120";
 const speakerCount = scenario === "one" ? 1 : scenario === "two" ? 2 : scenario === "fit" ? 3 : 12;
 timeline.dataset.speakerTimelineCount = String(speakerCount);
 timeline.scrollHeight = scenario === "one" ? 28 : scenario === "two" ? 56 : scenario === "fit" ? 80 : scenario === "viewport" ? 900 : 320;
+playback.querySelector = (selector) => selector === "[data-speaker-timeline-resize]" ? handle : shell.querySelector(selector);
 shell.querySelector = (selector) => {
   if (selector === "[data-speaker-timeline]") return timeline;
-  if (selector === "[data-speaker-timeline-resize]") return handle;
   return null;
 };
 global.Element = FakeElement;
@@ -1887,23 +1914,26 @@ const resizeListenerCount = (windowListeners.get("resize") || []).length;
 if (resizeListenerCount !== 2) throw new Error("expected playback and tooltip resize listeners");
 const currentTime = 42;
 playback.currentTime = currentTime;
-if (["one", "two", "fit"].includes(scenario)) {
-  if (!handle.hidden) throw new Error("fit rows exposed a resize affordance");
-  if (timeline.style.height !== "") throw new Error("natural rows received a fixed height");
-  const expectedNaturalHeight = scenario === "one" ? 28 : scenario === "two" ? 56 : 80;
-  if (handle.attributes["aria-valuemin"] !== String(expectedNaturalHeight)) throw new Error("wrong natural minimum");
+if (scenario === "one") {
+  if (!handle.hidden) throw new Error("single row exposed a useless resize affordance");
+  if (timeline.style.height !== "") throw new Error("single row received a fixed height");
+  if (handle.attributes["aria-valuemin"] !== "28") throw new Error("wrong natural minimum");
+} else if (["two", "fit"].includes(scenario)) {
+  if (handle.hidden) throw new Error("multiple rows cannot shrink");
+  handle.dispatch("keydown", { key: "Home", preventDefault() {} });
+  if (timeline.style.height !== "33px") throw new Error("minimum must retain one visible row");
 } else {
   if (handle.hidden) throw new Error("overflow rows hid the resize affordance");
   handle.dispatch("pointerdown", { button: 0, pointerId: 1, clientY: 100, preventDefault() {} });
   document.dispatch("pointermove", { pointerId: 1, clientY: 70 });
   document.dispatch("pointerup", { pointerId: 1 });
-  if (timeline.style.height !== "150px") throw new Error("pointer resize did not move the bounded panel");
+  if (timeline.style.height !== (scenario === "viewport" ? "141px" : "150px")) throw new Error("pointer resize did not move the bounded panel");
   handle.dispatch("keydown", { key: "End", preventDefault() {} });
-  const expectedMax = scenario === "viewport" ? 228 : 320;
+  const expectedMax = scenario === "viewport" ? 141 : 320;
   if (handle.attributes["aria-valuemax"] !== String(expectedMax)) throw new Error("wrong resize ceiling");
   if (timeline.style.height !== `${expectedMax}px`) throw new Error("End did not use bounded height");
   handle.dispatch("keydown", { key: "Home", preventDefault() {} });
-  if (timeline.style.height !== "") throw new Error("Home did not restore the default height");
+  if (timeline.style.height !== "33px") throw new Error("Home did not restore one visible row");
 }
 body.dispatch("htmx:afterSwap", { detail: { target: null } });
 if (handle.listenerCount("keydown") !== 1) throw new Error("partial update duplicated resize listeners");

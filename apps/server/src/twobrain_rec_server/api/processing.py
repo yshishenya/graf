@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -198,6 +198,7 @@ async def trigger_processing_pickup(
 async def get_processing_status(
     meeting_id: UUID,
     http_response: Response,
+    summary_format: str | None = Query(default=None, max_length=120, pattern=r"^[A-Za-z0-9_-]+$"),
     tenant_scope: TenantScope = TenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = DbDependency,
@@ -227,6 +228,7 @@ async def get_processing_status(
         db,
         workspace_id=tenant_scope.workspace_id,
         meeting_id=meeting_id,
+        summary_template_key=summary_format if meeting.created_by_user_id == principal.user_id else None,
     )
     if status is None:
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")

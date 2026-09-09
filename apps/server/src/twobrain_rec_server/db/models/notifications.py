@@ -22,8 +22,8 @@ class ServerNotification(Base):
     __table_args__ = (
         UniqueConstraint('recipient_id', 'workspace_id', 'family', 'source_id', name='uq_server_notification_source'),
         CheckConstraint('revision >= 1 AND read_revision >= 0 AND read_revision <= revision', name='notification_revision'),
-        CheckConstraint("family IN ('result', 'share')", name='notification_family'),
-        CheckConstraint("(family = 'share' AND kind = 'shared') OR (family = 'result' AND source_id = meeting_id AND kind IN ('transcript_ready', 'result_ready', 'summary_failed', 'processing_failed', 'no_speech'))", name='notification_source_family'),
+        CheckConstraint("family IN ('result', 'share', 'comment')", name='notification_family'),
+        CheckConstraint("(family = 'comment' AND kind = 'mentioned') OR (family = 'share' AND kind = 'shared') OR (family = 'result' AND source_id = meeting_id AND kind IN ('transcript_ready', 'result_ready', 'summary_failed', 'processing_failed', 'no_speech'))", name='notification_source_family'),
         Index('ix_server_notification_recipient', 'recipient_id', 'created_at', 'id'),
     )
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)

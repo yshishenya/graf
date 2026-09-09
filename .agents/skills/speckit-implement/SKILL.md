@@ -219,7 +219,15 @@ Check if `.specify/extensions.yml` exists in the project root.
 
 ## Completion Report
 
-Report final status with summary of completed work.
+Report implementation and tracker status separately. Local tests or checked tasks
+are not merged/released acceptance. Read the repository tracker policy and list
+which issues are fully closable, which require merge/release/manual evidence, and
+why. For fully satisfied acceptance use explicit closing keywords in the PR;
+`Refs` is only a relationship and never closes an issue. When merge and required
+acceptance are already verified, run `$speckit-taskstoissues closeout` in projects
+that provide the closeout validator. Otherwise report `implementation ready;
+tracker pending` with the remaining gates. Do not report overall completion merely
+because every local task checkbox is checked.
 
 ## Done When
 

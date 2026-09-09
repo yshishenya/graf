@@ -1,14 +1,11 @@
 ---
 name: speckit-github-issue-canon-ensure
-description: Install or refresh GitHub issue canon files and labels before task-to-issue
-  sync.
+description: Install or refresh GitHub issue canon files and labels before task-to-issue sync.
 compatibility: Requires spec-kit project structure with .specify/ directory
 metadata:
   author: github-spec-kit
-  source: extension:github-issue-canon
+  source: github-issue-canon:commands/speckit.github-issue-canon.ensure.md
 ---
-
-# Github Issue Canon Ensure Skill
 
 ## Outline
 

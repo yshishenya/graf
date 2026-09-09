@@ -916,6 +916,7 @@ class DesktopSyncReviewState(BaseModel):
     transcript_available: bool = False
     diarization_available: bool = False
     content_available: bool = False
+    summary_status: str | None = None
     web_url: str | None = None
     desktop_url: str | None = None
 
@@ -1783,6 +1784,8 @@ class SummaryCandidateListResponse(BaseModel):
 
 
 class CreateScopedShareGrantRequest(BaseModel):
+    can_comment: bool = False
+    can_edit: bool = False
     model_config = ConfigDict(extra="forbid")
 
     audience_type: ShareAudienceType = "user"
@@ -1802,6 +1805,8 @@ class CreateScopedShareGrantRequest(BaseModel):
 
 
 class CreateMeetingShareInvitationRequest(BaseModel):
+    can_comment: bool = False
+    can_edit: bool = False
     model_config = ConfigDict(extra="forbid")
 
     address: str = Field(min_length=3, max_length=320)
@@ -1831,6 +1836,9 @@ class MeetingShareInvitationResponse(BaseModel):
     invitation_id: UUID
     status: ShareInvitationStatus
     expires_at: datetime
+    content_scope: ShareContentScope
+    can_comment: bool
+    can_edit: bool
 
 
 class ShareRecipientView(BaseModel):
@@ -1854,6 +1862,8 @@ class PublicShareSummaryResponse(BaseModel):
 
 
 class MeetingAccessState(BaseModel):
+    can_comment: bool = False
+    can_edit: bool = False
     state: AccessState
     label: str
     reason: str | None = None
@@ -1875,6 +1885,8 @@ class ArtifactEgressState(BaseModel):
 
 
 class ShareGrantView(BaseModel):
+    can_comment: bool = False
+    can_edit: bool = False
     grant_id: UUID
     display_name: str
     role_label: Literal["Owner", "Team", "Can view"]
@@ -1886,6 +1898,8 @@ class ShareGrantView(BaseModel):
 
 
 class ShareInvitationView(BaseModel):
+    can_comment: bool = False
+    can_edit: bool = False
     invitation_id: UUID
     status: ShareInvitationStatus
     created_at: datetime
@@ -1898,6 +1912,7 @@ class SharePanelState(BaseModel):
     team_visibility: TeamVisibilityState
     active_grants: list[ShareGrantView] = Field(default_factory=list)
     active_invitations: list[ShareInvitationView] = Field(default_factory=list)
+    can_manage_roles: bool = False
     copy_link_state: CopyLinkState
     public_link_state: PublicLinkState
     capability_state: ShareCapabilityState = "available"
@@ -1933,6 +1948,8 @@ class MeetingAccessResponse(BaseModel):
 
 
 class CreateShareGrantRequest(BaseModel):
+    can_comment: bool = False
+    can_edit: bool = False
     model_config = ConfigDict(extra="forbid")
 
     grantee_user_id: UUID | None = None
@@ -2213,6 +2230,7 @@ class MeetingListItem(BaseModel):
     transcript_available: bool = False
     diarization_available: bool = False
     notes_available: bool = False
+    summary_status: str | None = None
     notes_action_truth: NotesActionTruthState = Field(default_factory=default_notes_action_truth)
     updated_at: datetime | None = None
     access: MeetingAccessState | None = None

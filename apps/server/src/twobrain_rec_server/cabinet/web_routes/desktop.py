@@ -6,6 +6,7 @@ from fastapi import APIRouter, Form, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from twobrain_rec_server.api.cabinet import ShareOperationDbDependency
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
 from twobrain_rec_server.auth.dependencies import (
@@ -311,7 +312,7 @@ async def embedded_meeting_share_fragment(
     tenant_scope: TenantScope = WebTenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     storage: object = StorageDependency,
-    db: AsyncSession | None = WebDbDependency,
+    db: AsyncSession | None = ShareOperationDbDependency,
 ) -> HTMLResponse:
     if db is None:
         raise ProblemDetail(
@@ -319,7 +320,7 @@ async def embedded_meeting_share_fragment(
         )
     response = await get_cabinet_meeting_review(
         db,
-        workspace_id=tenant_scope.workspace_id,
+        workspace_id=db.info.get("share_owner_workspace", tenant_scope.workspace_id),
         meeting_id=meeting_id,
         viewer_user_id=principal.user_id,
         storage=storage,
@@ -335,7 +336,7 @@ async def embedded_meeting_share_fragment(
             request,
             csrf_token=_csrf_token_for_principal(request, principal),
         )
-    return cabinet_html_response(render_meeting_share_fragment(response), hx_request=True)
+    return cabinet_html_response(render_meeting_share_fragment(response, share_workspace_id=db.info.get("share_owner_workspace")), hx_request=True)
 
 
 @router.get(

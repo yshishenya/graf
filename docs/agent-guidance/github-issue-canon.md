@@ -35,7 +35,7 @@ Examples:
 
 Rules:
 
-- `{feature}` is the three-digit Spec Kit feature number, e.g. `012`.
+- `{feature}` is the complete Spec Kit feature number (at least three digits), e.g. `012`.
 - `{priority}` is `P0`, `P1`, `P2`, or `P3`.
 - `{area}` is a compact ownership/scope tag.
 - `T###` is the task id from `tasks.md`; use the first task id in the title

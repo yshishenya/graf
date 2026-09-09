@@ -3,20 +3,31 @@
   <div class="cabinet-workspace settings-page">
     <div class="settings-page__content">
       <header class="cabinet-topbar settings-page__topbar">
-        <div class="page-title"><h1>Уведомления</h1><p class="muted">Выберите, какие подсказки получать от GRAF.</p></div>
+        <div class="page-title"><h1>Уведомления</h1><p class="muted">Только события, которые помогают вовремя действовать.</p></div>
       </header>
+      <section class="settings-section" aria-labelledby="notification-mac-title">
+        <div class="settings-section__heading">
+          <div><h2 id="notification-mac-title">На этом Mac</h2><p class="muted">Напоминания о встречах и проблемы с записью или отправкой. Обычное начало записи и временные повторы отправки проходят без уведомлений.</p></div>
+        </div>
+        {% if embedded %}
+        <a class="button quiet" href="/desktop/settings/notifications/mac" data-native-notification-settings>Настроить на этом Mac</a>
+        {% else %}
+        <p class="muted">Откройте приложение GRAF на нужном Mac: Настройки → Уведомления → Настроить на этом Mac.</p>
+        {% endif %}
+      </section>
+      <section class="settings-section" aria-labelledby="notification-cabinet-title">
+        <h2 id="notification-cabinet-title">В кабинете</h2>
+        <p class="muted">Результаты встреч и записи, которыми с вами поделились, сохраняются в истории без звука. Отметка у уведомлений появляется только для новых проблем, требующих действия.</p>
+        <a class="button quiet" href="{{ '/desktop/notifications' if embedded else '/notifications' }}">Открыть историю уведомлений</a>
+      </section>
       {% if notification_result %}<p class="settings-status" role="status" aria-live="polite">{{ notification_result }}</p>{% endif %}
       <section class="settings-section" aria-labelledby="notification-preferences-title">
         <div class="settings-section__heading">
-          <div><h2 id="notification-preferences-title">Дополнительные уведомления</h2><p class="muted">Эти настройки относятся к аккаунту. Они не управляют записью или уведомлениями macOS.</p><p class="muted">Напоминания на Mac: меню GRAF → Настройки → Уведомления на этом Mac.</p></div>
+          <div><h2 id="notification-preferences-title">Письма и подсказки</h2><p class="muted">Эти настройки относятся к аккаунту. Они не управляют записью или уведомлениями macOS.</p></div>
         </div>
         {{ notifications_ui.preferences_form(notification_preferences, csrf_token, embedded=embedded) }}
       </section>
-      <section class="settings-section" aria-labelledby="notification-legal-title">
-        <h2 id="notification-legal-title">Только важные события</h2>
-        <p class="muted">Колокольчик отмечает только новые проблемы, требующие вашего действия. Готовые результаты доступны в списке встреч и тихой истории. Обязательные финансовые письма сохраняются.</p>
-        <a class="button quiet" href="{{ "/desktop/billing" if embedded else "/billing" }}">Открыть тариф и оплату</a>
-      </section>
+      <p class="muted">Обязательные письма о безопасности аккаунта и оплате сохраняются.</p>
       <noscript><p class="settings-status" role="status">Сохранение уведомлений работает без JavaScript: после отправки откроется подтверждение.</p></noscript>
     </div>
   </div>

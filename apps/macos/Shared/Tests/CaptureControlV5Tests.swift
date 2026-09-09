@@ -577,7 +577,7 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertTrue(source.contains("TimelineView(.periodic"))
         XCTAssertTrue(source.contains("private static let countdownSeconds: TimeInterval = 8"))
         XCTAssertTrue(source.contains("autoStartTask"))
-        XCTAssertTrue(source.contains("Началась встреча. Записать её сейчас?"))
+        XCTAssertTrue(source.contains("Записать встречу?"))
         XCTAssertTrue(source.contains("resolveDismiss(reason: .userSkipped)"))
         XCTAssertTrue(source.contains("resolveStart(reason: .promptTimeout)"))
         XCTAssertTrue(source.contains("MeetingDetectionPromptDecision("))
@@ -626,10 +626,33 @@ final class CaptureControlTests: XCTestCase {
         let snapshot = try XCTUnwrap(source.components(separatedBy: "private var controlPanelSnapshot:").last?
             .components(separatedBy: "private func syncControlPanel").first)
         XCTAssertFalse(snapshot.contains("shouldShowDirectRecordButton"))
-        XCTAssertTrue(snapshot.contains("shouldShowRecordButton(for: captureSession) && effectivePermissionOnboardingStatus.isReady && !value.transitioning"))
+        XCTAssertFalse(snapshot.contains("value.startAvailable"), "The removed widget must not own tray command availability")
         XCTAssertTrue(CaptureControlView.shouldShowRecordButton(for: nil))
         XCTAssertFalse(CaptureControlView.shouldShowRecordButton(for: makePresentationSession(
             state: .active, indicator: .active, canStop: true)))
+    }
+
+    func testTrayCaptureCommandsUseSharedControlDispatcherForEveryAction() throws {
+        let source = try String(contentsOf: repositoryRootForCaptureTests()
+            .appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"), encoding: .utf8)
+        let bridge = try XCTUnwrap(
+            source.components(separatedBy: "private func captureCommandFromTray(").last?
+                .components(separatedBy: "    func openMeetingsFromTray()").first
+        )
+
+        XCTAssertTrue(source.contains("private func captureCommandFromTray(_ action: DesktopControlAction)"))
+        XCTAssertTrue(bridge.contains("DesktopControlModel.shared.send(action)"))
+        XCTAssertTrue(bridge.contains("source=tray action=\\(action)"))
+        XCTAssertFalse(bridge.contains("NotificationCenter.default.post"))
+
+        XCTAssertTrue(source.contains("self?.captureCommandFromTray(.start)"))
+        XCTAssertTrue(source.contains("self?.captureCommandFromTray(.stop)"))
+        XCTAssertTrue(source.contains("self?.captureCommandFromTray(.pause)"))
+        XCTAssertTrue(source.contains("self?.captureCommandFromTray(.resume)"))
+        XCTAssertFalse(source.contains("twoBrainRecStartRecordingFromTray"))
+        XCTAssertFalse(source.contains("twoBrainRecStopRecordingFromTray"))
+        XCTAssertFalse(source.contains("twoBrainRecMuteMicrophoneFromTray"))
+        XCTAssertFalse(source.contains("twoBrainRecUnmuteMicrophoneFromTray"))
     }
 
     func testCalendarPromptUIWiresManualPrimaryAndDismissActions() throws {

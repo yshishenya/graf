@@ -5,7 +5,7 @@ import json
 import math
 import re
 import secrets
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from uuid import UUID, uuid4
@@ -419,6 +419,8 @@ class AccessDecision:
     role: str | None = None
     content_scope: str = "full_meeting"
     can_view_full_meeting: bool = True
+    can_comment: bool = False
+    can_edit: bool = False
 
     def to_schema(self) -> MeetingAccessState:
         return MeetingAccessState(
@@ -432,6 +434,7 @@ class AccessDecision:
             can_export=self.can_export,
             content_scope=self.content_scope,
             can_view_full_meeting=self.can_view_full_meeting,
+            can_comment=self.can_comment, can_edit=self.can_edit,
         )
 
 
@@ -446,6 +449,7 @@ def owner_access_state() -> MeetingAccessState:
         can_download=True,
         can_export=True,
         role="owner",
+        can_comment=True, can_edit=True,
     ).to_schema()
 
 
@@ -474,6 +478,9 @@ async def decide_meeting_access(
     viewer_user_id: UUID,
     recipient_proof: ShareRecipientAccessProof | None = None,
 ) -> AccessDecision:
+    actor_proof = db.info.get("share_actor_proof")
+    if recipient_proof is None and actor_proof and actor_proof[0] == viewer_user_id:
+        recipient_proof = actor_proof[1]
     if meeting.workspace_id != workspace_id:
         return _denied_decision()
     if (
@@ -506,28 +513,38 @@ async def decide_meeting_access(
     )
     role = membership.role if membership is not None else None
     privileged = role in PRIVILEGED_ROLES
+    async def compose_grant(grant, capabilities, reason):
+        result = _grant_access_decision(grant=grant, capabilities=capabilities, privileged=privileged, role=role, reason=reason)
+        if membership is not None:
+            broader = await db.scalar(select(MeetingShareGrant).where(
+                MeetingShareGrant.workspace_id == workspace_id,
+                MeetingShareGrant.meeting_id == meeting.id,
+                MeetingShareGrant.audience_type == "workspace",
+                MeetingShareGrant.audience_id == workspace_id,
+                MeetingShareGrant.status == "active",
+                MeetingShareGrant.content_scope == "full_meeting",
+                or_(MeetingShareGrant.expires_at.is_(None), MeetingShareGrant.expires_at > datetime.now(UTC)),
+            ))
+            if broader is not None:
+                result = replace(result, can_view_full_meeting=True, content_scope="full_meeting",
+                    can_download=result.can_download or broader.can_download,
+                    can_export=result.can_export or broader.can_export,
+                    can_comment=result.can_comment or broader.can_comment,
+                    can_edit=result.can_edit or broader.can_edit,
+                    can_share=result.can_share or broader.can_edit)
+        if membership is not None and (meeting.visibility or "").lower() in TEAM_VISIBLE_VALUES:
+            result = replace(result, can_view_full_meeting=True, content_scope="full_meeting", can_download=True, can_export=True)
+        return result
 
     if meeting.created_by_user_id == viewer_user_id:
         return AccessDecision(
             state="owner",
             label="Owner",
             reason="You own this meeting.",
+            can_comment=True, can_edit=True,
             can_view=True,
             can_share=True,
             can_manage_team_visibility=True,
-            can_download=True,
-            can_export=True,
-            role=role,
-        )
-
-    if membership is not None and (meeting.visibility or "").lower() in TEAM_VISIBLE_VALUES:
-        return AccessDecision(
-            state="team",
-            label="Team",
-            reason="Visible to active workspace members.",
-            can_view=True,
-            can_share=privileged,
-            can_manage_team_visibility=privileged,
             can_download=True,
             can_export=True,
             role=role,
@@ -552,13 +569,7 @@ async def decide_meeting_access(
             viewer_user_id=viewer_user_id,
             recipient_proof=recipient_proof,
         ):
-            return _grant_access_decision(
-                grant=grant,
-                capabilities=capabilities,
-                privileged=privileged,
-                role=role,
-                reason="Access was granted with a login-required share.",
-            )
+            return await compose_grant(grant, capabilities, "Access was granted with a login-required share.")
 
     if membership is not None:
         workspace_grant = await db.scalar(
@@ -578,13 +589,20 @@ async def decide_meeting_access(
                 expires_at=workspace_grant.expires_at,
             )
             if capabilities.can_view_summary:
-                return _grant_access_decision(
-                    grant=workspace_grant,
-                    capabilities=capabilities,
-                    privileged=privileged,
-                    role=role,
-                    reason="Access was granted to active workspace members.",
-                )
+                return await compose_grant(workspace_grant, capabilities, "Access was granted to active workspace members.")
+
+    if membership is not None and (meeting.visibility or "").lower() in TEAM_VISIBLE_VALUES:
+        return AccessDecision(
+            state="team",
+            label="Team",
+            reason="Visible to active workspace members.",
+            can_view=True,
+            can_share=privileged,
+            can_manage_team_visibility=privileged,
+            can_download=True,
+            can_export=True,
+            role=role,
+        )
 
     return _denied_decision(role=role)
 
@@ -787,6 +805,7 @@ async def share_panel_state(
                 status="active",
                 created_at=grant.created_at,
                 audience_type=grant.audience_type,
+                can_comment=bool(grant.can_comment), can_edit=bool(grant.can_edit),
                 content_scope=grant.content_scope,
                 expires_at=grant.expires_at,
             )
@@ -831,10 +850,12 @@ async def share_panel_state(
                 "created_at": invitation.created_at,
                 "expires_at": invitation.expires_at,
                 "content_scope": invitation.content_scope,
+                "can_comment": bool(invitation.can_comment), "can_edit": bool(invitation.can_edit),
                 "display_label": display_label,
             }
         )
     return SharePanelState(
+        can_manage_roles=decision.state == "owner" or decision.can_edit,
         team_visibility=team_visibility,
         active_grants=grant_views,
         copy_link_state="available" if decision.can_share else "auth_required",
@@ -861,6 +882,8 @@ async def create_scoped_share_grant(
     can_export: bool,
     expires_at: datetime | None,
     broader_audience_enabled: bool = False,
+    can_comment: bool | None = None,
+    can_edit: bool | None = None,
 ) -> tuple[MeetingShareGrant, str]:
     from twobrain_rec_server.cabinet.egress import record_egress_audit_event
 
@@ -868,6 +891,9 @@ async def create_scoped_share_grant(
     decision = await decide_meeting_access(
         db, meeting, workspace_id=workspace_id, viewer_user_id=actor_user_id
     )
+    permissions_requested = can_comment is not None or can_edit is not None
+    can_comment, can_edit = bool(can_comment), bool(can_edit)
+    validate_comment_grant(decision, content_scope=content_scope, can_comment=can_comment, can_edit=can_edit)
     if not decision.can_share:
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
     default_slot = await load_meeting_default_slot(
@@ -946,10 +972,13 @@ async def create_scoped_share_grant(
             # Reuse the durable row after expiry; the partial unique index still
             # treats an expired row as active until its status changes.
             raw_token = secrets.token_urlsafe(32)
+            can_comment, can_edit = preserve_comment_permissions(existing, decision, content_scope, permissions_requested, can_comment, can_edit)
             existing.share_token_hash = hash_share_token(raw_token)
             existing.content_scope = content_scope
             existing.can_download = can_download
             existing.can_export = can_export
+            existing.can_comment = can_comment
+            existing.can_edit = can_edit
             existing.expires_at = expires_at
             existing.rotated_at = datetime.now(UTC)
             existing.metadata_json = _with_summary_revision_pin(
@@ -1015,10 +1044,13 @@ async def create_scoped_share_grant(
         .with_for_update()
     )
     if existing is not None:
+        can_comment, can_edit = preserve_comment_permissions(existing, decision, content_scope, permissions_requested, can_comment, can_edit)
         existing.share_token_hash = hash_share_token(raw_token)
         existing.content_scope = content_scope
         existing.can_download = can_download
         existing.can_export = can_export
+        existing.can_comment = can_comment
+        existing.can_edit = can_edit
         existing.expires_at = expires_at
         existing.rotated_at = datetime.now(UTC)
         existing.metadata_json = _with_summary_revision_pin(existing.metadata_json, summary_pin)
@@ -1047,6 +1079,7 @@ async def create_scoped_share_grant(
         content_scope=content_scope,
         can_download=can_download,
         can_export=can_export,
+        can_comment=can_comment, can_edit=can_edit,
         expires_at=expires_at,
         created_by_user_id=actor_user_id,
         status="active",
@@ -1317,6 +1350,8 @@ async def create_share_invitation(
     can_export: bool,
     encryption_key: bytes,
     ttl_seconds: int,
+    can_comment: bool | None = None,
+    can_edit: bool | None = None,
 ) -> MeetingShareInvitation:
     from twobrain_rec_server.cabinet.egress import record_egress_audit_event
 
@@ -1324,6 +1359,8 @@ async def create_share_invitation(
     decision = await decide_meeting_access(
         db, meeting, workspace_id=workspace_id, viewer_user_id=actor_user_id
     )
+    can_comment, can_edit = bool(can_comment), bool(can_edit)
+    validate_comment_grant(decision, content_scope=content_scope, can_comment=can_comment, can_edit=can_edit)
     if not decision.can_share:
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
     await enforce_share_rate_limit(
@@ -1418,6 +1455,7 @@ async def create_share_invitation(
         content_scope=content_scope,
         can_download=can_download,
         can_export=can_export,
+        can_comment=can_comment, can_edit=can_edit,
         token_hash=hash_share_token(raw_token),
         status="pending",
         expires_at=bounded_share_invitation_expiry(now=now, ttl_seconds=ttl_seconds),
@@ -1815,6 +1853,8 @@ async def accept_share_invitation(
     grant.content_scope = invitation.content_scope
     grant.can_download = invitation.can_download
     grant.can_export = invitation.can_export
+    grant.can_comment = bool(invitation.can_comment)
+    grant.can_edit = bool(invitation.can_edit)
     if grant.expires_at is None or grant.expires_at > invitation.expires_at:
         grant.expires_at = invitation.expires_at
     # The email bearer is an exchange credential, never the long-lived recipient
@@ -2017,6 +2057,7 @@ def grant_view(grant: MeetingShareGrant, *, display_name: str) -> ShareGrantView
         status=grant.status,  # type: ignore[arg-type]
         created_at=grant.created_at,
         audience_type=grant.audience_type,  # type: ignore[arg-type]
+        can_comment=bool(grant.can_comment), can_edit=bool(grant.can_edit),
         content_scope=grant.content_scope,  # type: ignore[arg-type]
         expires_at=grant.expires_at,
     )
@@ -2039,8 +2080,10 @@ def _grant_access_decision(
         label="Shared",
         reason=reason,
         can_view=True,
-        can_share=privileged,
+        can_share=privileged or (capabilities.can_view_full_meeting and bool(grant.can_edit)),
         can_manage_team_visibility=privileged,
+        can_comment=capabilities.can_view_full_meeting and bool(grant.can_comment or grant.can_edit),
+        can_edit=capabilities.can_view_full_meeting and bool(grant.can_edit),
         can_download=capabilities.can_download,
         can_export=capabilities.can_export,
         role=role,
@@ -2071,3 +2114,18 @@ def _denied_decision(role: str | None = None) -> AccessDecision:
         content_scope="summary_only",
         can_view_full_meeting=False,
     )
+
+
+def validate_comment_grant(decision, *, content_scope, can_comment, can_edit):
+    if (can_comment or can_edit) and content_scope != "full_meeting" or can_edit and not can_comment:
+        raise ProblemDetail(status=422, code="invalid_comment_permission", title="Недопустимое разрешение")
+    if (can_comment or can_edit) and not (decision.state == "owner" or decision.can_edit):
+        raise ProblemDetail(status=403, code="comment_permission_forbidden", title="Недостаточно прав")
+
+
+def preserve_comment_permissions(existing, decision, scope, requested, can_comment, can_edit):
+    if not requested and scope == 'full_meeting':
+        return bool(existing.can_comment), bool(existing.can_edit)
+    if (bool(existing.can_comment), bool(existing.can_edit)) != (can_comment, can_edit) and not (decision.state == 'owner' or decision.can_edit):
+        raise ProblemDetail(status=403, code='comment_permission_forbidden', title='Недостаточно прав')
+    return can_comment, can_edit

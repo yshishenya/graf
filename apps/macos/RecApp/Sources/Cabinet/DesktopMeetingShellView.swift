@@ -223,6 +223,9 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     private let captureControls: CaptureControls
     private let meetingsWorkspace: MeetingsWorkspace
     @State private var inspectorExpanded = false
+    @State private var custodyExpanded = false
+    @ObservedObject private var controlModel = DesktopControlModel.shared
+    @FocusState private var focusedRecordingSessionID: String?
     @ObservedObject private var userTimeContext = DesktopUserTimeContext.shared
     @State private var attentionExpansionDismissed = false
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
@@ -308,6 +311,13 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         }
         .onChange(of: attentionCustodySignature) { _, attentionSignature in
             if !attentionSignature.isEmpty {
+                attentionExpansionDismissed = false
+            }
+        }
+        .onChange(of: controlModel.recordingNavigationRequest, initial: true) { _, _ in
+            if controlModel.selectedRecordingSessionID != nil {
+                inspectorExpanded = true
+                custodyExpanded = true
                 attentionExpansionDismissed = false
             }
         }
@@ -466,7 +476,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     }
 
     private var custodyDetailSummaries: [DesktopUploadCustodySummary] {
-        return DesktopUploadCustodySummary.summaries(for: uploadQueueItems)
+        return DesktopUploadCustodySummary.summaries(for: uploadQueueItems, focusedSessionID: controlModel.selectedRecordingSessionID)
     }
 
     private var attentionCustodySummaries: [DesktopUploadCustodySummary] {
@@ -748,6 +758,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         VStack(spacing: 0) {
             inspectorDisclosureHeader(isExpanded: true)
 
+            ScrollViewReader { proxy in
             ScrollView(.vertical, showsIndicators: true) {
                 VStack(alignment: .leading, spacing: DesktopMeetingShellChrome.spacingMedium) {
                     HStack(alignment: .center) {
@@ -769,6 +780,9 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                     }
 
                     captureControls
+                        .id("capture:" + (session?.id ?? "none"))
+                        .focusable()
+                        .focused($focusedRecordingSessionID, equals: "capture:" + (session?.id ?? "none"))
                         .background(
                             RoundedRectangle(cornerRadius: 8)
                                 .fill(DesktopMeetingShellChrome.shellSurfaceColor)
@@ -786,6 +800,16 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                 .frame(maxWidth: .infinity, alignment: .topLeading)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .task(id: controlModel.recordingNavigationRequest) {
+                guard let id = controlModel.selectedRecordingSessionID else { return }
+                await Task.yield()
+                let target = attentionCustodySummaries.contains { $0.primaryItem.sessionId == id }
+                    ? "custody:" + id : "capture:" + id
+                proxy.scrollTo(target, anchor: .center)
+                focusedRecordingSessionID = target
+            }
+            }
+
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(DesktopMeetingShellChrome.shellRailColor)
@@ -805,7 +829,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     }
 
     private var custodyDetailsDisclosure: some View {
-        DisclosureGroup {
+        DisclosureGroup(isExpanded: $custodyExpanded) {
             VStack(alignment: .leading, spacing: 10) {
                 ForEach(attentionCustodySummaries, id: \.stableIdentity) { summary in
                     custodyDetailRow(summary)
@@ -821,7 +845,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
             }
             .padding(.top, 8)
         } label: {
-            Label("Локальная сохранность", systemImage: "internaldrive")
+            Label("Записи, требующие внимания", systemImage: "internaldrive")
                 .font(.system(size: 13, weight: .semibold))
         }
         .padding(12)
@@ -833,6 +857,9 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
 
     private func custodyDetailRow(_ summary: DesktopUploadCustodySummary) -> some View {
         VStack(alignment: .leading, spacing: 6) {
+            Text(localRecordingTitle(for: summary.primaryItem))
+                .font(.callout.weight(.medium))
+                .fixedSize(horizontal: false, vertical: true)
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Image(systemName: custodyDetailIcon(for: summary.primaryProjection))
                     .font(.caption)
@@ -866,8 +893,11 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                 onOpenSignIn: onOpenSupportSignIn
             )
         }
+        .id("custody:" + summary.primaryItem.sessionId)
+        .focusable()
+        .focused($focusedRecordingSessionID, equals: "custody:" + summary.primaryItem.sessionId)
         .accessibilityElement(children: summary.safeReport == nil ? .combine : .contain)
-        .accessibilityLabel("\(summary.title). \(summary.detail(timeZone: userTimeContext.timeZone)). Ответственный: \(summary.ownerLabel).")
+        .accessibilityLabel("\(localRecordingTitle(for: summary.primaryItem)). \(summary.title). \(summary.detail(timeZone: userTimeContext.timeZone)). Ответственный: \(summary.ownerLabel).")
     }
 
     private func custodyDetailIcon(for projection: DesktopUploadCustodyProjection) -> String {

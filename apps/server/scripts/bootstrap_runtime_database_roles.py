@@ -21,6 +21,7 @@ MEDIA_READ_ONLY_TABLES = (
     "workspace_subscriptions",
     "workspaces",
 )
+MEDIA_WORKFLOW_COLUMNS = ("workflow_id", "workspace_id", "meeting_id", "media_revision_id", "purpose", "status", "attempt_ordinal", "created_at")
 MEDIA_READ_WRITE_TABLES = (
     "playback_backfill_runs",
     "playback_normalization_attempts",
@@ -222,6 +223,15 @@ async def _verify_runtime_roles(
     }
     if actual_media_table_grants != expected_media_table_grants:
         raise RuntimeError("media database role table privileges are unsafe")
+    workflow_grants = await connection.fetch(
+        "select column_name, privilege_type from information_schema.role_column_grants "
+        "where grantee = $1 and table_schema = 'public' and table_name = 'processing_workflows'",
+        MEDIA_ROLE,
+    )
+    if {(row["column_name"], row["privilege_type"]) for row in workflow_grants} != {
+        (name, "SELECT") for name in MEDIA_WORKFLOW_COLUMNS
+    }:
+        raise RuntimeError("media workflow metadata privileges are unsafe")
 
     for table_name, column_name in MEDIA_LOCK_COLUMNS:
         has_lock_column = await connection.fetchval(
@@ -286,6 +296,7 @@ async def _bootstrap() -> None:
                 f"alter default privileges for role {OWNER_ROLE} in schema public "
                 f"revoke all privileges on sequences from {MEDIA_ROLE}",
                 f"grant select on {_table_list(MEDIA_READ_ONLY_TABLES)} to {MEDIA_ROLE}",
+                f"grant select ({', '.join(MEDIA_WORKFLOW_COLUMNS)}) on public.processing_workflows to {MEDIA_ROLE}",
                 f"grant select, insert, update on {_table_list(MEDIA_READ_WRITE_TABLES)} "
                 f"to {MEDIA_ROLE}",
                 f"grant insert on {_table_list(MEDIA_INSERT_ONLY_TABLES)} to {MEDIA_ROLE}",

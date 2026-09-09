@@ -131,6 +131,7 @@ from twobrain_rec_server.domain.statuses import (
     MediaRevisionStatus,
     UploadSessionStatus,
 )
+from twobrain_rec_server.outcomes.progress import summary_progress
 from twobrain_rec_server.outcomes.service import load_outcome_items
 from twobrain_rec_server.outcomes.templates import built_in_template_for_version
 from twobrain_rec_server.processing.results import (
@@ -524,6 +525,7 @@ async def list_cabinet_meetings(
         )
         item = build_list_item(
             meeting,
+            summary_progress_state=await summary_progress(db, meeting=meeting, result=result),
             media_revision=media_revision,
             result=result,
             workflow=workflow,
@@ -1221,6 +1223,8 @@ async def get_cabinet_meeting_review(
             if personal_default is not None:
                 default_summary_template_key = personal_default.template_key
                 default_summary_template_name = personal_default.name
+    if selected_summary_template_key:
+        default_summary_template_key = selected_summary_template_key
     dependency = await db.scalar(
         select(ProcessingDependencyState)
         .where(
@@ -1269,6 +1273,9 @@ async def get_cabinet_meeting_review(
     )
     return build_review_response(
         meeting,
+        summary_progress_state=await summary_progress(
+            db, meeting=meeting, result=result, template_key=selected_summary_template_key,
+        ),
         media_revision=media_revision,
         result=result,
         workflow=workflow,
@@ -1313,7 +1320,7 @@ async def get_cabinet_meeting_review(
         default_summary_template_name=default_summary_template_name,
         outcome_items=await load_outcome_items(db, outcome_set=outcome_set),
         speaker_names=speaker_names,
-        can_rename_speakers=source_result_id is None and (decision.state == "owner" or decision.role in {"owner", "admin"}),
+        can_rename_speakers=source_result_id is None and (decision.state == "owner" or decision.can_edit or decision.role in {"owner", "admin"}),
         reprocess_available=reprocess_available,
     )
 

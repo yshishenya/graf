@@ -1,9 +1,9 @@
-<dialog class="share-dialog" id="meeting-share-dialog" role="dialog" aria-modal="true" aria-labelledby="share-dialog-title" aria-describedby="share-dialog-status-{{ meeting_id }}" data-share-dialog data-share-external-invitations="{{ share.external_invitation_state }}">
+<dialog class="share-dialog" id="meeting-share-dialog" role="dialog" aria-modal="true" aria-labelledby="share-dialog-title" aria-describedby="share-dialog-status-{{ meeting_id }}" data-share-dialog data-share-workspace-id="{{ share_workspace_id or '' }}" data-share-can-manage-roles="{{ 'true' if share.can_manage_roles else 'false' }}" data-share-external-invitations="{{ share.external_invitation_state }}">
   <section class="share-dialog__surface">
     <header class="share-dialog__header">
       <div>
         <h2 id="share-dialog-title">Поделиться встречей</h2>
-        <p>Участник рабочей области получит итоги, а приглашённый по email — доступ к записи.</p>
+        <p>{% if share.can_manage_roles %}Выберите доступ к записи и обсуждениям для получателя.{% else %}Участник рабочей области получит итоги, а приглашённый по email — доступ к записи.{% endif %}</p>
       </div>
       <button type="button" class="icon-control" aria-label="Закрыть" data-share-dialog-close>×</button>
     </header>
@@ -16,6 +16,15 @@
       {% endif %}
     </div>
 
+    {% if share.can_manage_roles %}
+    <label class="share-role-label">Права получателя
+      <select data-share-comment-role aria-label="Права получателя">
+        <option value="viewer">Просмотр</option>
+        <option value="commenter">Комментирование</option>
+        <option value="editor">Редактирование</option>
+      </select>
+    </label>
+    {% endif %}
     <form class="share-recipient-form" method="get" action="/api/v1/cabinet/meetings/{{ meeting_id }}/share-recipients" data-share-recipient-form data-meeting-id="{{ meeting_id }}">
       <label for="share-recipient-{{ meeting_id }}">Кому отправить</label>
       <p class="muted">Найдите человека и нажмите «Пригласить», чтобы открыть доступ.</p>
@@ -39,9 +48,17 @@
           <div class="share-viewer-row" data-share-viewer-row>
             <span>
               <strong>{{ grant.display_name }}</strong>
-              <small class="muted">{% if grant.content_scope == "full_meeting" %}Запись{% else %}Итоги{% endif %}{% if grant.expires_at %} · до {{ user_time_element(grant.expires_at, show_zone=True) }}{% else %} · без срока{% endif %}</small>
+              <span data-share-role-label>{{ "Редактирование" if grant.can_edit else "Комментирование" if grant.can_comment else "Просмотр" }}</span>
+              <small class="muted"><span data-share-scope-label>{% if grant.content_scope == "full_meeting" %}Запись{% else %}Итоги{% endif %}</span>{% if grant.expires_at %} · до {{ user_time_element(grant.expires_at, show_zone=True) }}{% else %} · без срока{% endif %}</small>
             </span>
             <span class="share-viewer-row__actions">
+              {% if share.can_manage_roles and grant.audience_type != "link" %}
+              <select data-share-existing-role data-share-permissions-url="/api/v1/cabinet/meetings/{{ meeting_id }}/shares/{{ grant.grant_id }}/permissions" aria-label="Права {{ grant.display_name }}">
+                <option value="viewer" {% if not grant.can_comment and not grant.can_edit %}selected{% endif %}>Просмотр</option>
+                <option value="commenter" {% if grant.can_comment and not grant.can_edit %}selected{% endif %}>Комментирование</option>
+                <option value="editor" {% if grant.can_edit %}selected{% endif %}>Редактирование</option>
+              </select>
+              {% endif %}
               <button type="button" data-share-copy-button data-share-rotate-url="/api/v1/cabinet/meetings/{{ meeting_id }}/shares/{{ grant.grant_id }}/rotate">Создать и скопировать новую ссылку</button>
               <button type="button" data-share-revoke-url="/api/v1/cabinet/meetings/{{ meeting_id }}/shares/{{ grant.grant_id }}">Отозвать</button>
             </span>

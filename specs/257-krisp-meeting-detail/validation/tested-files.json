@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "scope": "local working tree before commit",
+  "sha256": {
+    "apps/server/src/twobrain_rec_server/cabinet/rendering.py": "92c0d730f6dc106fa011516ef14686298c360dd3885db04ebc284a147e51418f",
+    "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css": "8e1a7b2f783102b6542d1dcf88536eb92de44d9022ea564a097dac5ceb36789d",
+    "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js": "e8693c9c133a6c62c4ccf6364c381a38fd81607551089c5ad75a25f57e2ab4fa",
+    "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/meeting_detail_content.html": "0c4d50b98c9b03c9372f643811217651e565fd53f2870044813b52e0a223ebee",
+    "apps/server/tests/contract/test_meeting_detail_reference_contract.py": "985e73459acf9c0ce9cdecfa017d2bb4d6e26a910c1b82f703a93ad8dcaa4878",
+    "apps/server/tests/unit/test_meeting_detail_copy_runtime.py": "5220897dd44c1552cbc5d5988c4ac07d281d674a45160da5cac490cd3b3735cd",
+    "apps/server/tests/unit/test_cabinet_web_shell.py": "4a44efd70e3d1119cf864e57d6ce2b1927d40c465b898940052b1f50662dd2f8"
+  }
+}

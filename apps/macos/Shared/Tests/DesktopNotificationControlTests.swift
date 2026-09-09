@@ -1,21 +1,49 @@
 import AppKit
 import Foundation
 import XCTest
+import UserNotifications
 @testable import TwoBrainRecAppCore
 import TwoBrainRecShared
 
 @MainActor
 final class DesktopNotificationControlTests: XCTestCase {
-    func testPanelFitsShortAndNegativeOriginScreens() {
-        for bounds in [NSRect(x: 0, y: 24, width: 1440, height: 876),
-                       NSRect(x: -1280, y: -320, width: 1280, height: 480)] {
-            for candidate in [NSRect(x: 3000, y: 900, width: 290, height: 320),
-                              NSRect(x: -3000, y: -1200, width: 2000, height: 1200)] {
-                let placed = DesktopPanelPlacement.frame(candidate, within: bounds)
-                XCTAssertTrue(bounds.contains(placed))
-                XCTAssertEqual(DesktopPanelPlacement.frame(placed, within: bounds), placed)
-            }
+    func testIncidentRecursOnlyAfterObservedRecovery() throws {
+        let name = "graf-incident-recovery-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let store = DesktopNotificationPreferencesStore(defaults: defaults)
+        let now = Date()
+        let incident = DesktopLocalNotificationIncident(sessionID: "session", itemIDs: ["item"], expires: now.addingTimeInterval(300), fresh: true)
+        store.reconcileIncidents([incident], knownSessions: ["session"], owner: "owner")
+        XCTAssertTrue(store.claimLocalIncident(incident, owner: "owner", now: now))
+        store.reconcileIncidents([incident], knownSessions: ["session"], owner: "owner")
+        XCTAssertFalse(store.claimLocalIncident(incident, owner: "owner", now: now))
+        store.reconcileIncidents([], knownSessions: [], owner: "owner")
+        XCTAssertFalse(store.claimLocalIncident(incident, owner: "owner", now: now))
+        store.reconcileIncidents([], knownSessions: ["session"], owner: "owner")
+        XCTAssertTrue(store.claimLocalIncident(incident, owner: "owner", now: now))
+    }
+
+    func testEveryFailedRecordingHasFreshIncidentEvenAfterRetention() {
+        let now = Date()
+        var snapshot = DesktopControlSnapshot()
+        snapshot.uploadItems = (0..<8).map { index in
+            custodyFixtureQueueItem(id: "failure-\(index)", state: .failed,
+                retentionDeadline: now.addingTimeInterval(-1), updatedAt: now)
         }
+        let incidents = DesktopLocalNotificationIncident.incidents(in: snapshot, now: now)
+        XCTAssertEqual(incidents.count, 8)
+        XCTAssertTrue(incidents.allSatisfy { $0.fresh && $0.expires > now })
+    }
+
+    func testUnreadyDispatcherRejectsWithoutDeferringStart() {
+        let model = DesktopControlModel()
+        XCTAssertFalse(model.send(.start))
+        var actions: [DesktopControlAction] = []
+        model.onAction = { actions.append($0) }
+        XCTAssertTrue(actions.isEmpty)
+        XCTAssertTrue(model.send(.start))
+        XCTAssertEqual(actions, [.start])
     }
 
     func testPermissionRecoveryDoesNotOpenHistoricalRecording() {
@@ -39,6 +67,18 @@ final class DesktopNotificationControlTests: XCTestCase {
         model.send(.localRecordings)
         XCTAssertEqual(model.snapshot, snapshot)
         XCTAssertEqual(actions, [.localRecordings])
+    }
+
+    func testSharedControlDispatcherForwardsAllCaptureActions() {
+        let model = DesktopControlModel()
+        var actions: [DesktopControlAction] = []
+        model.onAction = { actions.append($0) }
+
+        for action in [DesktopControlAction.start, .stop, .pause, .resume] {
+            model.send(action)
+        }
+
+        XCTAssertEqual(actions, [.start, .stop, .pause, .resume])
     }
 
     func testElapsedContinuesDuringMicrophonePauseAndFreezesOnlyAfterStop() {
@@ -172,6 +212,42 @@ final class DesktopNotificationControlTests: XCTestCase {
         XCTAssertNil(DesktopNotificationPresenter.currentMeeting(for: event, events: [blocked], now: now))
     }
 
+    func testMovingReminderKeepsClaimAfterOriginalTimeAndAcrossRestart() throws {
+        let name = "graf-moving-reminder-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let store = DesktopNotificationPreferencesStore(defaults: defaults)
+        let now = Date(timeIntervalSince1970: 1000)
+        var event = DesktopCalendarPromptEvent(eventId: "occurrence", startsAt: now.addingTimeInterval(60), endsAt: now.addingTimeInterval(3600))
+        let id = DesktopNotificationPresenter.reminderID(event, context: "owner:workspace")
+        XCTAssertTrue(store.claim(id: id, owner: "owner", expires: .distantFuture, scheduledFor: now, now: now))
+        event.startsAt = now.addingTimeInterval(86400)
+        let movedID = DesktopNotificationPresenter.reminderID(event, context: "owner:workspace")
+        XCTAssertEqual(movedID, id)
+        let restored = DesktopNotificationPreferencesStore(defaults: defaults)
+        XCTAssertFalse(restored.claim(id: movedID, owner: "owner", expires: .distantFuture,
+            scheduledFor: event.startsAt, now: now.addingTimeInterval(7200)))
+        event.eventId = "next-occurrence"
+        XCTAssertNotEqual(DesktopNotificationPresenter.reminderID(event, context: "owner:workspace"), id)
+    }
+
+    func testLegacyReminderAttemptIsNotRepeatedOnUpgrade() throws {
+        let name = "graf-old-reminder-\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let store = DesktopNotificationPreferencesStore(defaults: defaults)
+        let now = Date(timeIntervalSince1970: 1000)
+        let event = DesktopCalendarPromptEvent(eventId: "event", startsAt: now, endsAt: now.addingTimeInterval(3600))
+        let legacy = DesktopNotificationPresenter.legacyReminderID(event, context: "owner:workspace")
+        XCTAssertTrue(store.claim(id: legacy, owner: "owner", expires: now.addingTimeInterval(300), now: now))
+        XCTAssertFalse(store.claim(id: DesktopNotificationPresenter.reminderID(event, context: "owner:workspace"),
+            aliases: [legacy], owner: "owner", expires: .distantFuture, scheduledFor: now, now: now))
+        var moved = event; moved.startsAt = now.addingTimeInterval(86400)
+        XCTAssertFalse(store.claim(id: DesktopNotificationPresenter.reminderID(moved, context: "owner:workspace"),
+            aliases: [DesktopNotificationPresenter.legacyReminderID(moved, context: "owner:workspace")],
+            owner: "owner", expires: .distantFuture, scheduledFor: moved.startsAt, now: now.addingTimeInterval(7200)))
+    }
+
     func testRecordingSuppressesOnlyItsCalendarOccurrence() {
         let now = Date(timeIntervalSince1970: 1000)
         let event = DesktopCalendarPromptEvent(eventId: "other-meeting", startsAt: now, endsAt: now.addingTimeInterval(3600))
@@ -187,12 +263,32 @@ final class DesktopNotificationControlTests: XCTestCase {
         XCTAssertFalse(DesktopNotificationPresenter.shouldRemind(event, snapshot: snapshot, now: now.addingTimeInterval(300)))
     }
 
-    func testLateReminderDoesNotPromiseOriginalFiveMinutes() {
-        let start = Date(timeIntervalSince1970: 1000)
-        let due = start.addingTimeInterval(-300)
-        XCTAssertTrue(DesktopNotificationPresenter.reminderBody(startsAt: start, due: due, offsetMinutes: 5, now: due).contains("через 5 мин"))
-        XCTAssertTrue(DesktopNotificationPresenter.reminderBody(startsAt: start, due: due, offsetMinutes: 5, now: start.addingTimeInterval(-30)).contains("скоро"))
-        XCTAssertTrue(DesktopNotificationPresenter.reminderBody(startsAt: start, due: due, offsetMinutes: 5, now: start).contains("уже началась"))
+    func testReminderContentUsesAbsoluteTimePrivateDefaultsAndOptionalJoin() {
+        let now = Date(timeIntervalSince1970: 0)
+        var event = DesktopCalendarPromptEvent(eventId: "event", startsAt: now, endsAt: now.addingTimeInterval(3600))
+        let hidden = DesktopNotificationPresenter.reminderContent(event: event, preferences: .init(), recording: false, timeZone: TimeZone(secondsFromGMT: 0)!)
+        XCTAssertEqual(hidden.title, "Встреча в календаре")
+        XCTAssertEqual(hidden.body, "Начало в 00:00. Запись ещё не начата.")
+        XCTAssertNil(hidden.sound)
+        let categories = DesktopNotificationPresenter.notificationCategories
+        XCTAssertFalse(categories.first { $0.identifier == hidden.categoryIdentifier }!.actions.contains { $0.identifier == "graf.join" })
+        event.openMeetingURL = URL(string: "https://example.test/meeting")
+        var preferences = DesktopNotificationPreferences()
+        preferences.sound = true
+        let linked = DesktopNotificationPresenter.reminderContent(event: event, preferences: preferences, recording: true)
+        XCTAssertNil(linked.sound)
+        XCTAssertEqual(categories.first { $0.identifier == linked.categoryIdentifier }!.actions.map(\.identifier), ["graf.join", "graf.settings"])
+    }
+
+    func testNotificationActionsNeverImplicitlyJoinOrCapture() {
+        XCTAssertEqual(DesktopNotificationPresenter.responseAction(UNNotificationDefaultActionIdentifier, calendar: true), .calendar)
+        XCTAssertEqual(DesktopNotificationPresenter.responseAction("graf.join", calendar: true), .join)
+        XCTAssertEqual(DesktopNotificationPresenter.responseAction("graf.settings", calendar: true), .settings)
+        XCTAssertEqual(DesktopNotificationPresenter.responseAction(UNNotificationDefaultActionIdentifier, calendar: false), .localRecording)
+        XCTAssertEqual(DesktopNotificationPresenter.responseAction("graf.openRecording", calendar: false), .localRecording)
+        for action in [UNNotificationDismissActionIdentifier, "unknown", "graf.start", "graf.join"] {
+            XCTAssertNil(DesktopNotificationPresenter.responseAction(action, calendar: false))
+        }
     }
 
     func testStopAndUploadFailureBecomeOneSessionIncident() {
@@ -231,29 +327,6 @@ final class DesktopNotificationControlTests: XCTestCase {
         }
     }
 
-    func testVisibleStopResultConsumesOnlyItsIncidentWithoutLosingOtherRecording() throws {
-        let name = "graf-notification-visible-\(UUID())"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: name))
-        defer { defaults.removePersistentDomain(forName: name) }
-        let store = DesktopNotificationPreferencesStore(defaults: defaults)
-        let now = Date()
-        let shown = DesktopLocalNotificationIncident(sessionID: "shown", itemIDs: ["a"],
-            expires: now.addingTimeInterval(3600), fresh: true)
-        let other = DesktopLocalNotificationIncident(sessionID: "other", itemIDs: ["b"],
-            expires: now.addingTimeInterval(3600), fresh: true)
-        let model = DesktopControlModel()
-        model.setVisibleResultSessionID("shown")
-        XCTAssertFalse(shown.claimForDelivery(store: store, owner: "owner",
-            visibleResultSessionID: model.visibleResultSessionID, now: now))
-        XCTAssertTrue(other.claimForDelivery(store: store, owner: "owner",
-            visibleResultSessionID: model.visibleResultSessionID, now: now))
-        model.setVisibleResultSessionID(nil)
-        XCTAssertFalse(shown.claimForDelivery(store: store, owner: "owner",
-            visibleResultSessionID: model.visibleResultSessionID, now: now.addingTimeInterval(8)))
-        XCTAssertFalse(other.claimForDelivery(store: store, owner: "owner",
-            visibleResultSessionID: model.visibleResultSessionID, now: now.addingTimeInterval(8)))
-        XCTAssertFalse(other.claimForDelivery(store: store, owner: "owner",
-            visibleResultSessionID: nil, now: now.addingTimeInterval(9)))
-    }
+
 
 }
