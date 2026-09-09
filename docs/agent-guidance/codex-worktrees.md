@@ -38,6 +38,28 @@ cat .specify/feature.json 2>/dev/null || true
 Use `SPECIFY_FEATURE_DIRECTORY=... .specify/scripts/bash/check-prerequisites.sh`
 when you need to force a specific feature anchor.
 
+## Starting New Work and Choosing a Feature ID
+
+For a new feature, verify a fresh `origin/master` and its exact SHA, then use a
+disposable worktree based on that revision. An existing session may intentionally
+remain on an older feature: never switch it, reset it, or discard its changes to
+start unrelated work. Continuing an existing feature uses its own branch and
+tasks, not a newly allocated number.
+
+Treat injected `spec_last`/`spec_next` values and local directory maxima as hints,
+not reservations. From the fresh worktree, run `python3 scripts/claim-feature.py
+--json` for a read-only online proposal. The branch-creation commands delegate to
+the same allocator, which repeats the choice under the shared lock when reserving
+it; a proposal can become stale before reservation. `--offline` only gives a local
+draft suggestion and does not establish availability on GitHub.
+
+`.specify/feature-numbering.json` lists explicit historical exceptions to the
+sequence start. F6788 is retained unchanged but does not push new features into
+the 6789+ range. Exceptions remain occupied in specs, refs, shared claims and
+GitHub; this file never releases a number. Normal F1000+ numbering remains valid.
+No policy means the existing highest-spec start; an unreadable or malformed
+policy stops selection. Do not add exceptions merely to obtain a preferred ID.
+
 ## Instruction Loading
 
 Codex reads `AGENTS.md` automatically and applies closer nested `AGENTS.md`

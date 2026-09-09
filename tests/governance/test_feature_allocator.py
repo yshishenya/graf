@@ -64,6 +64,85 @@ def test_spec_sequence_can_reach_1000(tmp_path):
     assert allocator()._next_feature_id(tmp_path, {999, 1000, 6788}, offline=True) == 1001
 
 
+@pytest.mark.parametrize('current,exceptions,expected', [
+    (259, [6788], 263),
+    (6787, [6788], 6789),  # The excluded historical ID is still occupied.
+    (999, [6788], 1001),
+    (1024, [6788], 1025),
+    (259, None, 6789),  # No policy preserves the existing behavior.
+    (259, [], 6789),
+])
+def test_historical_spec_policy_changes_start_not_occupancy(tmp_path, current, exceptions, expected):
+    module = allocator()
+    for feature in (current, 6788):
+        (tmp_path / f'specs/{feature}-existing').mkdir(parents=True)
+    if exceptions is not None:
+        (tmp_path / '.specify').mkdir()
+        (tmp_path / '.specify/feature-numbering.json').write_text(json.dumps({
+            'out_of_sequence_spec_ids': exceptions,
+        }))
+    specs = module._ids_from_specs(tmp_path)
+    assert specs == {current, 6788}
+    occupied = specs | {260, 261, 262, 1000}
+    assert module._next_feature_id(tmp_path, occupied, offline=True) == expected
+    assert occupied == specs | {260, 261, 262, 1000}
+
+
+def test_historical_policy_still_checks_github(tmp_path, monkeypatch):
+    module = allocator()
+    for feature in (259, 6788):
+        (tmp_path / f'specs/{feature}-existing').mkdir(parents=True)
+    (tmp_path / '.specify').mkdir()
+    (tmp_path / '.specify/feature-numbering.json').write_text('{"out_of_sequence_spec_ids":[6788]}')
+    calls = []
+
+    def github(_root, **kwargs):
+        assert kwargs['strict'] is True
+        calls.append(kwargs['candidates'])
+        return {263} if kwargs['candidates'] == {263} else set()
+
+    monkeypatch.setattr(module, '_github_ids', github)
+    assert module._next_feature_id(tmp_path, {259, 260, 261, 262, 6788}) == 264
+    assert calls == [{263}, {264}]
+
+
+@pytest.mark.parametrize('policy', [
+    '{', 'null', '[]', '{}',
+    '{"out_of_sequence_spec_ids":[],"extra":true}',
+    '{"out_of_sequence_spec_ids":null}',
+    '{"out_of_sequence_spec_ids":6788}',
+    '{"out_of_sequence_spec_ids":[true]}',
+    '{"out_of_sequence_spec_ids":["6788"]}',
+    '{"out_of_sequence_spec_ids":[6788.0]}',
+    '{"out_of_sequence_spec_ids":[0]}',
+    '{"out_of_sequence_spec_ids":[-1]}',
+    '{"out_of_sequence_spec_ids":[6788,6788]}',
+    '{"out_of_sequence_spec_ids":[],"out_of_sequence_spec_ids":[6788]}',
+    '{"out_of_sequence_spec_ids":[6788],"out_of_sequence_spec_ids":[]}',
+])
+def test_invalid_numbering_policy_fails_before_github(tmp_path, monkeypatch, policy):
+    module = allocator()
+    (tmp_path / '.specify').mkdir()
+    (tmp_path / '.specify/feature-numbering.json').write_text(policy)
+    monkeypatch.setattr(module, '_github_ids', lambda *_a, **_k: pytest.fail('invalid policy used GitHub'))
+    with pytest.raises(SystemExit, match='feature-numbering.json'):
+        module._next_feature_id(tmp_path, set())
+
+
+@pytest.mark.parametrize('kind', ['directory', 'invalid-utf8', 'broken-symlink'])
+def test_unreadable_numbering_policy_is_not_absent(tmp_path, kind):
+    (tmp_path / '.specify').mkdir()
+    policy = tmp_path / '.specify/feature-numbering.json'
+    if kind == 'directory':
+        policy.mkdir()
+    elif kind == 'invalid-utf8':
+        policy.write_bytes(b'\xff')
+    else:
+        policy.symlink_to(tmp_path / 'missing-policy')
+    with pytest.raises(SystemExit, match='feature-numbering.json'):
+        allocator()._next_feature_id(tmp_path, set(), offline=True)
+
+
 @pytest.mark.parametrize('response', [
     {'items': [], 'total_count': 1},
     {'items': [], 'total_count': 0, 'incomplete_results': True},
@@ -165,6 +244,15 @@ def test_existing_slug_characters_keep_feature_number_occupied(git_project, slug
 
 def test_concurrent_stale_allocations_create_only_one_umbrella(git_project, monkeypatch):
     module = allocator()
+    (git_project / 'specs/6788-historical').mkdir()
+    (git_project / 'specs/6788-historical/spec.md').write_text('Historical specification\n')
+    (git_project / '.specify').mkdir()
+    (git_project / '.specify/feature-numbering.json').write_text('{"out_of_sequence_spec_ids":[6788]}')
+    subprocess.run(['git', 'add', '.'], cwd=git_project, check=True)
+    subprocess.run(['git', 'commit', '-qm', 'historical fixture'], cwd=git_project, check=True)
+    with pytest.raises(SystemExit, match='collision for 6788'):
+        module.claim(git_project, 6788, issue_number=None,
+                     branch='codex/6788-new', slug='new', offline=True)
     monkeypatch.setattr(module, '_github_ids', lambda *_a, **_k: set())
     created = []
     monkeypatch.setattr(module, '_create_github_umbrella', lambda *_a: created.append(777) or 777)
@@ -192,6 +280,8 @@ def test_branch_entrypoints_use_allocator_not_largest_ref(git_project, tmp_path,
     project = git_project
     shutil.copytree(ROOT / '.specify', project / '.specify')
     (project / '.specify/feature.json').unlink(missing_ok=True)
+    (project / 'specs/6788-historical').mkdir()
+    (project / 'specs/6788-historical/spec.md').write_text('Historical specification\n')
     (project / 'scripts').mkdir()
     shutil.copy2(ROOT / 'scripts/claim-feature.py', project / 'scripts/claim-feature.py')
     subprocess.run(['git', 'add', '.'], cwd=project, check=True)
@@ -205,8 +295,10 @@ def test_branch_entrypoints_use_allocator_not_largest_ref(git_project, tmp_path,
                                 'if sys.argv[1] in ("ls-remote", "fetch"): sys.exit(0)\n'
                                 f'os.execv({real_git!r}, [{real_git!r}, *sys.argv[1:]])\n')
     (bin_dir / 'gh').write_text('''#!/usr/bin/env python3
-import json,sys
+import json,os,sys
 args=sys.argv[1:]
+if os.environ['ALLOCATOR_TEST_DRY_RUN']=='1' and args[:2] in (['label','create'],['issue','create']):
+    raise SystemExit('dry-run attempted a GitHub write')
 if args[:2]==['api','-X']: print(json.dumps({'items':[], 'total_count':0}))
 elif args[:2]==['label','create']: pass
 elif args[:2]==['issue','create']: print('https://github.com/example/project/issues/777')
@@ -216,6 +308,7 @@ else: raise SystemExit('unexpected gh command: '+str(args))
     for p in bin_dir.iterdir():
         p.chmod(0o755)
     monkeypatch.setenv('PATH', str(bin_dir) + os.pathsep + os.environ['PATH'])
+    monkeypatch.setenv('ALLOCATOR_TEST_DRY_RUN', '1' if dry_run else '0')
     for key in ('GRAF_SKIP_FEATURE_CLAIM', 'GRAF_UMBRELLA_ISSUE', 'GIT_BRANCH_NAME', 'SPECIFY_INIT_DIR', 'SPECIFY_FEATURE'):
         monkeypatch.delenv(key, raising=False)
     base = '.specify/extensions/git/scripts/'
@@ -228,12 +321,16 @@ else: raise SystemExit('unexpected gh command: '+str(args))
     if dry_run:
         args += ['-DryRun' if shell == 'powershell' else '--dry-run']
     args += ['Next feature']
+    refs_before = subprocess.check_output(['git', 'show-ref'], cwd=project)
     result = subprocess.run(args, cwd=project, text=True, capture_output=True)
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout)['FEATURE_NUM'] == '259'
     pointer = project / '.specify/feature.json'
     assert pointer.exists() is not dry_run
-    if not dry_run:
+    if dry_run:
+        assert subprocess.check_output(['git', 'show-ref'], cwd=project) == refs_before
+        assert not (project / '.git/feature-claims.json').exists()
+    else:
         assert json.loads(pointer.read_text())['feature_id'] == '259'
         assert subprocess.check_output(['git', 'branch', '--show-current'], cwd=project, text=True).strip() == '259-next'
 

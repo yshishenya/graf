@@ -41,3 +41,13 @@ T006: PR создан и governance-fast на исходном SHA прошёл.
 - [X] T013 [US3] Устранить замечание PR #6831 о пропуске существующих названий с `_` и `.` в scripts/claim-feature.py; в tests/governance/test_feature_allocator.py проверить реальные локальные/удалённые refs, specs и следующее предложение номера по FR-012/013; записать проверку в validation.md. (Issue #6837)
 
 T013 уточняет действующее правило занятых номеров: распознаётся числовой префикс `NNN-`, ограничения генерации новых slug не применяются к уже существующим именам. Исключения служебных refs и timestamps сохраняются. План: регрессия → общий parser → целевые проверки → governance-fast на точном SHA PR. Авторский analyze: FR-012/013, план общего parser и T013 согласованы, новых требований и блокирующих неоднозначностей нет. Независимая приёмка US3 уже записана в review.md; общий checklist не изменяется. T006 остаётся отдельным условием закрытия.
+
+## Восстановление последовательности без перенумерации
+
+- [X] T014 [US3] Уточнить FR-023–FR-026/SC-006/007 в specs/259-audit-remediation/spec.md, plan.md и contracts/allocator.md; получить независимый checklist и синхронизировать существующий Issue #6837.
+- [X] T015 [US3] Добавить регрессии исторического spec6788, правил политики, F1000+, инварианта занятости и общих входов в tests/governance/test_feature_allocator.py. (Issue #6837)
+- [X] T016 [US3] Исправить общий старт поиска в scripts/claim-feature.py через .specify/feature-numbering.json; уточнить начало новой работы в docs/agent-guidance/codex-worktrees.md. (Issue #6837)
+- [X] T017 [US3] Выполнить quickstart, review и converge; записать фактические результаты в specs/259-audit-remediation/validation.md и changes/unreleased/F259.yaml; оставшиеся commit/CI/merge gates не закрывать. (Issue #6837)
+
+Порядок: T014 → T015 → T016 → T017 → T006. Изменения последовательные,
+параллельных исполнителей кода нет. Это ремонт B019, не весь бэклог F259.

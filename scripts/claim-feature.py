@@ -69,6 +69,38 @@ def _ids_from_specs(root: Path) -> set[int]:
     return result
 
 
+def _sequence_spec_ids(root: Path) -> set[int]:
+    """Exclude explicitly documented historical IDs from the start, not occupancy."""
+    path = root / ".specify/feature-numbering.json"
+
+    def unique_keys(pairs):
+        result = dict(pairs)
+        if len(result) != len(pairs):
+            raise ValueError("duplicate policy key")
+        return result
+
+    try:
+        try:
+            raw = path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            if path.is_symlink():
+                raise
+            return _ids_from_specs(root)
+        policy = json.loads(raw, object_pairs_hook=unique_keys)
+        if not isinstance(policy, dict) or set(policy) != {"out_of_sequence_spec_ids"}:
+            raise ValueError("expected only out_of_sequence_spec_ids")
+        excluded = policy["out_of_sequence_spec_ids"]
+        if (
+            not isinstance(excluded, list)
+            or any(type(value) is not int or value <= 0 for value in excluded)
+            or len(set(excluded)) != len(excluded)
+        ):
+            raise ValueError("out_of_sequence_spec_ids must contain unique positive integers")
+    except (OSError, ValueError) as exc:
+        raise SystemExit(f"feature-claim: invalid numbering policy {path}: {exc}") from exc
+    return _ids_from_specs(root) - set(excluded)
+
+
 def _git_refs(root: Path, *, strict: bool = False) -> list[str]:
     try:
         proc = subprocess.run(
@@ -457,7 +489,7 @@ def _next_feature_id(root: Path, occupied: set[int], *, offline: bool = False,
                      exclude_issue: int | None = None) -> int:
     # Specs anchor the project's sequence. Refs and reservations prevent
     # collisions but a stray large ID must not advance that sequence.
-    candidate = _available_id(occupied, max(_ids_from_specs(root), default=0) + 1)
+    candidate = _available_id(occupied, max(_sequence_spec_ids(root), default=0) + 1)
     while not offline and candidate in _github_ids(
         root, candidates={candidate}, exclude_issue=exclude_issue, strict=True,
     ):
