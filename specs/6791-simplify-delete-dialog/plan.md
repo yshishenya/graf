@@ -1,0 +1,41 @@
+# Implementation Plan: Простое подтверждение удаления
+
+**Branch**: `codex/6791-simplify-delete-dialog` | **Date**: 2026-09-09 | **Spec**: [spec.md](spec.md)
+
+## Summary
+
+Сократить существующий HTML подтверждения: один короткий абзац, две кнопки, без технического перечня и неработающей до удаления ссылки.
+
+## Technical Context
+
+- Language/Version: Python 3.13+, существующий серверный HTML.
+- Primary Dependencies: существующие FastAPI/Jinja; новых зависимостей нет.
+- Storage: без изменений.
+- Testing: pytest, ruff; действующие контракты доступности и отчёта.
+- Risk / Validation Lane: high-risk-feature (deletion UX), полный Spec Kit с clarify, независимой проверкой требований и analyze.
+- Release Gate: no deploy в этой задаче; перед PR governance-fast на точном SHA, перед выпуском release-full на замороженном SHA. Продакшен только после отдельной авторизации и cd-remote.sh --dry-run.
+- Target Platform: браузерный кабинет и встроенный кабинет GRAF macOS.
+- Performance Goals: без новых запросов, обработчиков, зависимостей; уменьшение HTML.
+- Constraints: сохранить защиту формы, границу подтверждения, доступность и правдивость удаления.
+- Scope: один renderer, существующий контракт, один тест настоящего HTML, changelog fragment.
+
+## Constitution Check
+
+До и после проектирования: PASS. §IV/Deletion Truth: «из GRAF»; по прямому уточнению пользователя оговорка отсутствует в окне, подробности остаются в отчёте. Права, CSRF, lifecycle, локальная очистка, обработка ошибок и retention не меняются. Доступность обеспечивается существующими dialog/JS/CSS. Capture, AI и инфраструктура не меняются. Новых данных и сторонних материалов нет.
+Clarify: выполнен 2026-09-09, блокирующих вопросов нет. Пользователь явно просит минимальный текст.
+
+## Validation Plan
+
+Сначала обновить контракт и добавить параметризованный тест HTML для web/embedded и unavailable. Затем изменить renderer. Выполнить тесты короткого окна, shell, accessibility и deletion report, lint затронутых Python файлов, git diff --check. Проверки POST/CSRF выполняются, если доступна штатная тестовая БД; пропуски явно записать. Проверка установленного приложения требует чистого SHA и dev-harness; без коммита не выдавать её за пройденную. Полный CI не запускать для локальной итерации.
+
+## Project Structure
+
+- `apps/server/src/twobrain_rec_server/cabinet/review_policy_rendering.py`: только _render_delete_confirmation.
+- `apps/server/tests/contract/test_recording_governance_ui_contract.py`: короткий текст вместо технического списка.
+- `apps/server/tests/unit/test_cabinet_web_shell.py`: проверка фактического HTML обоих кабинетов и скрытого состояния.
+- `changes/unreleased/F6791.yaml`: русский changelog.
+- Документы в этой папке: spec, plan, research, data-model, contracts, quickstart, checklists, tasks, validation.
+
+## Implementation Strategy
+
+Ponytail: используется существующий renderer; удаляются лишние абзацы, ссылка и её вычисление. CSS/JS/сервис удаления сохраняются. Спецификация и независимый review не заменяют проверку работающего приложения перед выпуском.

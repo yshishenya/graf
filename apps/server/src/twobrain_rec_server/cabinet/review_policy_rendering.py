@@ -125,7 +125,6 @@ def _render_delete_confirmation(
     if review.governance.delete.state != "available":
         return ""
     request_action = f"{_base_path(embedded)}/{review.meeting.meeting_id}/deletion-requests"
-    report_href = f"{_base_path(embedded)}/{review.meeting.meeting_id}/deletion-report"
     return f"""
       <dialog id="meeting-delete-dialog" class="delete-dialog" data-meeting-delete-dialog
               aria-labelledby="meeting-delete-title">
@@ -133,14 +132,10 @@ def _render_delete_confirmation(
           <input type="hidden" name="_csrf" value="{escape(csrf_token or "")}">
           <input type="hidden" name="confirmation_boundary" value="{escape(BOUNDED_DELETE_COPY)}">
           <h2 id="meeting-delete-title" tabindex="-1" data-meeting-delete-dialog-title>Удалить встречу?</h2>
-          <p>Встреча и доступ к ней будут удалены везде, чем управляет GRAF.</p>
-          <p class="truth-copy" data-boundary-copy="{escape(BOUNDED_DELETE_COPY)}">{escape(_ui_text(BOUNDED_DELETE_COPY))}</p>
-          <p class="muted">Полные записи Generation Call, наблюдения Langfuse и Temporal History удалены не будут: они остаются по политике хранения оператора.</p>
-          <p class="muted">Резервные копии, локальные буферы, данные внешних сервисов и уже переданные копии отражаются отдельно в отчёте.</p>
-          <a class="mini-link" href="{report_href}">{escape(_ui_text("Report"))}</a>
+          <p>Встреча будет удалена из GRAF. Восстановить её не получится.</p>
           <div class="dialog-actions">
             <button type="button" data-meeting-delete-dialog-cancel>Отмена</button>
-            <button type="submit" class="danger-button" data-meeting-delete-dialog-confirm>Удалить встречу</button>
+            <button type="submit" class="danger-button" data-meeting-delete-dialog-confirm>Удалить</button>
           </div>
         </form>
       </dialog>
