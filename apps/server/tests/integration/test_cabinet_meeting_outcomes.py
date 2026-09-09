@@ -596,6 +596,9 @@ def test_summary_state_matrix_preserves_current_result_and_advances_version(clie
                 status="blocked_dependency",
                 provider_kind="test",
                 generator_version="test-state-matrix",
+                media_revision_id=result.media_revision_id,
+                source_result_hash=result.source_result_hash,
+                deletion_epoch_at_start=meeting.deletion_epoch,
                 template_key="graf-auto-v1",
                 template_version=1,
                 failure_code="summary_generation_unavailable",
@@ -1223,7 +1226,9 @@ def test_no_accepted_outcome_opens_preparing_result_without_transcript_mock(clie
     assert 'id="detail-tab-outcomes" aria-selected="true"' in response.text
     outcomes = _outcomes_panel(response.text)
     assert "Итоги не запрошены" in outcomes
-    assert "Формат: <strong data-summary-format-label>Авто</strong>" in outcomes
+    header = response.text.split('id="detail-panel-outcomes"', 1)[0]
+    assert 'data-summary-format-controls' in header
+    assert '<span class="sr-only">Формат: </span><strong data-summary-format-label>Авто</strong>' in header
     assert outcomes.count('class="notes-aggregate-state"') == 1
     assert "data-outcome-category" not in outcomes
     assert SAFE_TRANSCRIPT_TEXT not in outcomes
@@ -1250,7 +1255,8 @@ def test_no_accepted_outcome_opens_blocked_error_with_one_safe_action(client) ->
     outcomes = _outcomes_panel(response.text)
     assert outcomes.count('class="notes-aggregate-state"') == 1
     assert 'data-outcome-state="deferred"' in outcomes
-    assert outcomes.count("data-summary-refresh-button") == 1
+    assert response.text.count("data-summary-refresh-button") == 1
+    assert response.text.index("data-summary-refresh-button") < response.text.index('id="detail-panel-outcomes"')
     assert "data-outcome-category" not in outcomes
     assert SAFE_TRANSCRIPT_TEXT not in outcomes
 

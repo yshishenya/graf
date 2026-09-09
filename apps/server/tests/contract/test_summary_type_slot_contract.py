@@ -41,9 +41,9 @@ QUERY_OWNER_CLASSES = {
     "apps/server/src/twobrain_rec_server/deletion/service.py": "deletion_owner",
     "apps/server/src/twobrain_rec_server/outcomes/dispatch.py": "dispatch_owner",
     "apps/server/src/twobrain_rec_server/outcomes/ai_service.py": "publication_owner",
+    "apps/server/src/twobrain_rec_server/outcomes/progress.py": "pinned_summary_progress_projection",
     "apps/server/src/twobrain_rec_server/outcomes/service.py": "generation_owner",
     "apps/server/src/twobrain_rec_server/outcomes/store.py": "lineage_store",
-    "apps/server/src/twobrain_rec_server/processing/status.py": "processing_status_projection",
     "apps/server/src/twobrain_rec_server/workflows/temporal_client.py": "workflow_submission",
 }
 

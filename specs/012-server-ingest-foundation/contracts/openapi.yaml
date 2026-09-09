@@ -1321,6 +1321,112 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Problem'
+  /api/v1/desktop/notification-context:
+    get:
+      tags:
+      - ingest
+      summary: Get Notification Context
+      operationId: get_notification_context_api_v1_desktop_notification_context_get
+      parameters:
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: string
+                title: Response Get Notification Context Api V1 Desktop Notification
+                  Context Get
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '413':
+          description: Payload too large
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: Dependency unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
   /api/v1/meetings/{meeting_id}/upload-sessions:
     post:
       tags:
@@ -2443,6 +2549,16 @@ paths:
           type: string
           format: uuid
           title: Meeting Id
+      - name: summary_format
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            maxLength: 120
+            pattern: ^[A-Za-z0-9_-]+$
+          - type: 'null'
+          title: Summary Format
       - name: X-User-Id
         in: header
         required: false
@@ -7966,9 +8082,20 @@ paths:
         in: path
         required: true
         schema:
-          type: string
-          format: uuid
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
           title: Meeting Id
+      - name: workspace_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Workspace Id
       - name: X-User-Id
         in: header
         required: false
@@ -8052,6 +8179,15 @@ paths:
             format: uuid
           - type: 'null'
           title: Meeting Id
+      - name: workspace_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Workspace Id
       - name: X-User-Id
         in: header
         required: false
@@ -8116,8 +8252,10 @@ paths:
         in: path
         required: true
         schema:
-          type: string
-          format: uuid
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
           title: Meeting Id
       - name: query
         in: query
@@ -8127,6 +8265,15 @@ paths:
           minLength: 0
           maxLength: 80
           title: Query
+      - name: workspace_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Workspace Id
       - name: X-User-Id
         in: header
         required: false
@@ -8191,8 +8338,10 @@ paths:
         in: path
         required: true
         schema:
-          type: string
-          format: uuid
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
           title: Meeting Id
       - name: grant_id
         in: path
@@ -8201,6 +8350,15 @@ paths:
           type: string
           format: uuid
           title: Grant Id
+      - name: workspace_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Workspace Id
       - name: X-User-Id
         in: header
         required: false
@@ -8265,9 +8423,20 @@ paths:
         in: path
         required: true
         schema:
-          type: string
-          format: uuid
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
           title: Meeting Id
+      - name: workspace_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Workspace Id
       - name: X-User-Id
         in: header
         required: false
@@ -8338,8 +8507,10 @@ paths:
         in: path
         required: true
         schema:
-          type: string
-          format: uuid
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
           title: Meeting Id
       - name: invitation_id
         in: path
@@ -8348,6 +8519,15 @@ paths:
           type: string
           format: uuid
           title: Invitation Id
+      - name: workspace_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Workspace Id
       - name: X-User-Id
         in: header
         required: false
@@ -8408,8 +8588,10 @@ paths:
         in: path
         required: true
         schema:
-          type: string
-          format: uuid
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
           title: Meeting Id
       - name: grant_id
         in: path
@@ -8418,6 +8600,15 @@ paths:
           type: string
           format: uuid
           title: Grant Id
+      - name: workspace_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Workspace Id
       - name: X-User-Id
         in: header
         required: false
@@ -9751,6 +9942,998 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/meetings/{meeting_id}/comments:
+    get:
+      tags:
+      - cabinet
+      summary: List Meeting Comments
+      operationId: list_meeting_comments_api_v1_cabinet_meetings__meeting_id__comments_get
+      parameters:
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: source_segment_ids
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: array
+            items:
+              type: string
+              format: uuid
+            maxItems: 100
+          - type: 'null'
+          title: Source Segment Ids
+      - name: status
+        in: query
+        required: false
+        schema:
+          enum:
+          - open
+          - resolved
+          - all
+          type: string
+          default: open
+          title: Status
+      - name: author_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Author Id
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 50
+          title: Limit
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            maxLength: 200
+          - type: 'null'
+          title: Cursor
+      - name: workspace_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Workspace Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - cabinet
+      summary: Create Meeting Comment
+      operationId: create_meeting_comment_api_v1_cabinet_meetings__meeting_id__comments_post
+      parameters:
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: workspace_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Workspace Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateComment'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/meetings/{meeting_id}/comment-mention-candidates:
+    get:
+      tags:
+      - cabinet
+      summary: Meeting Comment Mentions
+      operationId: meeting_comment_mentions_api_v1_cabinet_meetings__meeting_id__comment_mention_candidates_get
+      parameters:
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: q
+        in: query
+        required: false
+        schema:
+          type: string
+          maxLength: 100
+          default: ''
+          title: Q
+      - name: workspace_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Workspace Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/meetings/{meeting_id}/comments/{comment_id}:
+    get:
+      tags:
+      - cabinet
+      summary: Get Meeting Comment
+      operationId: get_meeting_comment_api_v1_cabinet_meetings__meeting_id__comments__comment_id__get
+      parameters:
+      - name: comment_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Comment Id
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: workspace_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Workspace Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    patch:
+      tags:
+      - cabinet
+      summary: Edit Meeting Comment
+      operationId: edit_meeting_comment_api_v1_cabinet_meetings__meeting_id__comments__comment_id__patch
+      parameters:
+      - name: comment_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Comment Id
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: workspace_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Workspace Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EditComment'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      tags:
+      - cabinet
+      summary: Delete Meeting Comment
+      operationId: delete_meeting_comment_api_v1_cabinet_meetings__meeting_id__comments__comment_id__delete
+      parameters:
+      - name: comment_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Comment Id
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: workspace_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Workspace Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VersionInput'
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/meetings/{meeting_id}/comments/{comment_id}/replies:
+    get:
+      tags:
+      - cabinet
+      summary: List Meeting Comment Replies
+      operationId: list_meeting_comment_replies_api_v1_cabinet_meetings__meeting_id__comments__comment_id__replies_get
+      parameters:
+      - name: comment_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Comment Id
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 50
+          title: Limit
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            maxLength: 200
+          - type: 'null'
+          title: Cursor
+      - name: workspace_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Workspace Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    post:
+      tags:
+      - cabinet
+      summary: Reply Meeting Comment
+      operationId: reply_meeting_comment_api_v1_cabinet_meetings__meeting_id__comments__comment_id__replies_post
+      parameters:
+      - name: comment_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Comment Id
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: workspace_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Workspace Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReplyComment'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/meetings/{meeting_id}/comments/{comment_id}/resolution:
+    put:
+      tags:
+      - cabinet
+      summary: Resolve Meeting Comment
+      operationId: resolve_meeting_comment_api_v1_cabinet_meetings__meeting_id__comments__comment_id__resolution_put
+      parameters:
+      - name: comment_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Comment Id
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: workspace_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Workspace Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResolutionInput'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/meetings/{meeting_id}/comments/{comment_id}/reaction:
+    put:
+      tags:
+      - cabinet
+      summary: React Meeting Comment
+      operationId: react_meeting_comment_api_v1_cabinet_meetings__meeting_id__comments__comment_id__reaction_put
+      parameters:
+      - name: comment_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Comment Id
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: workspace_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Workspace Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReactionInput'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/cabinet/meetings/{meeting_id}/shares/{grant_id}/permissions:
+    patch:
+      tags:
+      - cabinet
+      summary: Update Comment Grant Permissions
+      operationId: update_comment_grant_permissions_api_v1_cabinet_meetings__meeting_id__shares__grant_id__permissions_patch
+      parameters:
+      - name: grant_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Grant Id
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: workspace_id
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Workspace Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommentGrantPermissions'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/notifications:
     get:
       tags:
@@ -10627,6 +11810,26 @@ components:
           type: boolean
           title: All Day
           default: false
+        event_id:
+          type: string
+          format: uuid
+          title: Event Id
+        provider_family:
+          type: string
+          title: Provider Family
+        starts_at:
+          type: string
+          format: date-time
+          title: Starts At
+        ends_at:
+          type: string
+          format: date-time
+          title: Ends At
+        title:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Title
         description:
           anyOf:
           - type: string
@@ -10659,26 +11862,6 @@ components:
           additionalProperties: true
           type: object
           title: Provider Extras
-        event_id:
-          type: string
-          format: uuid
-          title: Event Id
-        provider_family:
-          type: string
-          title: Provider Family
-        starts_at:
-          type: string
-          format: date-time
-          title: Starts At
-        ends_at:
-          type: string
-          format: date-time
-          title: Ends At
-        title:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Title
         title_state:
           type: string
           enum:
@@ -11005,6 +12188,20 @@ components:
       - sync_state
       - accepted
       title: CalendarSyncResponse
+    CommentGrantPermissions:
+      properties:
+        can_comment:
+          type: boolean
+          title: Can Comment
+        can_edit:
+          type: boolean
+          title: Can Edit
+      additionalProperties: false
+      type: object
+      required:
+      - can_comment
+      - can_edit
+      title: CommentGrantPermissions
     ConnectCalendarSourceRequest:
       properties:
         provider_family:
@@ -11196,6 +12393,57 @@ components:
       - format
       - processing_result_id
       title: ContentExportSelectionRequest
+    CreateComment:
+      properties:
+        body:
+          type: string
+          maxLength: 10000
+          minLength: 1
+          title: Body
+        mentions:
+          items:
+            $ref: '#/components/schemas/MentionInput'
+          type: array
+          maxItems: 20
+          title: Mentions
+        request_id:
+          type: string
+          format: uuid
+          title: Request Id
+        media_revision_id:
+          type: string
+          format: uuid
+          title: Media Revision Id
+        start_ms:
+          type: integer
+          minimum: 0.0
+          title: Start Ms
+        end_ms:
+          anyOf:
+          - type: integer
+            minimum: 0.0
+          - type: 'null'
+          title: End Ms
+        processing_result_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Processing Result Id
+        source_segment_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Source Segment Id
+      additionalProperties: false
+      type: object
+      required:
+      - body
+      - request_id
+      - media_revision_id
+      - start_ms
+      title: CreateComment
     CreateDeletionRequest:
       properties:
         confirmation_boundary:
@@ -11334,6 +12582,14 @@ components:
       title: CreateMeetingRequest
     CreateMeetingShareInvitationRequest:
       properties:
+        can_comment:
+          type: boolean
+          title: Can Comment
+          default: false
+        can_edit:
+          type: boolean
+          title: Can Edit
+          default: false
         address:
           type: string
           maxLength: 320
@@ -11361,6 +12617,14 @@ components:
       title: CreateMeetingShareInvitationRequest
     CreateShareGrantRequest:
       properties:
+        can_comment:
+          type: boolean
+          title: Can Comment
+          default: false
+        can_edit:
+          type: boolean
+          title: Can Edit
+          default: false
         grantee_user_id:
           anyOf:
           - type: string
@@ -11875,6 +13139,26 @@ components:
           type: boolean
           title: All Day
           default: false
+        event_id:
+          type: string
+          format: uuid
+          title: Event Id
+        provider_family:
+          type: string
+          title: Provider Family
+        starts_at:
+          type: string
+          format: date-time
+          title: Starts At
+        ends_at:
+          type: string
+          format: date-time
+          title: Ends At
+        title:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Title
         description:
           anyOf:
           - type: string
@@ -11907,26 +13191,6 @@ components:
           additionalProperties: true
           type: object
           title: Provider Extras
-        event_id:
-          type: string
-          format: uuid
-          title: Event Id
-        provider_family:
-          type: string
-          title: Provider Family
-        starts_at:
-          type: string
-          format: date-time
-          title: Starts At
-        ends_at:
-          type: string
-          format: date-time
-          title: Ends At
-        title:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Title
         title_state:
           type: string
           enum:
@@ -11990,6 +13254,16 @@ components:
       title: DesktopCalendarPromptEvent
     DesktopCalendarPromptResponse:
       properties:
+        notification_owner_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Notification Owner Id
+        notification_workspace_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Notification Workspace Id
         show_upcoming_time:
           type: boolean
           title: Show Upcoming Time
@@ -12003,16 +13277,6 @@ components:
             $ref: '#/components/schemas/DesktopCalendarPromptEvent'
           type: array
           title: Events
-        notification_owner_id:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Notification Owner Id
-        notification_workspace_id:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Notification Workspace Id
       type: object
       title: DesktopCalendarPromptResponse
     DesktopMeetingTitleSource:
@@ -12141,6 +13405,11 @@ components:
           type: boolean
           title: Content Available
           default: false
+        summary_status:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Summary Status
         web_url:
           anyOf:
           - type: string
@@ -12188,6 +13457,29 @@ components:
           default: server_ranges_authoritative
       type: object
       title: DesktopSyncUploadSessionState
+    EditComment:
+      properties:
+        body:
+          type: string
+          maxLength: 10000
+          minLength: 1
+          title: Body
+        mentions:
+          items:
+            $ref: '#/components/schemas/MentionInput'
+          type: array
+          maxItems: 20
+          title: Mentions
+        expected_version:
+          type: integer
+          minimum: 1.0
+          title: Expected Version
+      additionalProperties: false
+      type: object
+      required:
+      - body
+      - expected_version
+      title: EditComment
     EnsureSummaryTypeRequest:
       properties:
         schema_version:
@@ -12764,6 +14056,14 @@ components:
       title: MeetingAccessResponse
     MeetingAccessState:
       properties:
+        can_comment:
+          type: boolean
+          title: Can Comment
+          default: false
+        can_edit:
+          type: boolean
+          title: Can Edit
+          default: false
         state:
           type: string
           enum:
@@ -13630,11 +14930,6 @@ components:
       title: MeetingFilterState
     MeetingListItem:
       properties:
-        title_version:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Title Version
         meeting_id:
           type: string
           format: uuid
@@ -13642,6 +14937,11 @@ components:
         title:
           type: string
           title: Title
+        title_version:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Title Version
         started_at:
           anyOf:
           - type: string
@@ -13721,6 +15021,11 @@ components:
           type: boolean
           title: Notes Available
           default: false
+        summary_status:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Summary Status
         notes_action_truth:
           $ref: '#/components/schemas/NotesActionTruthState'
         updated_at:
@@ -14001,11 +15306,26 @@ components:
           type: string
           format: date-time
           title: Expires At
+        content_scope:
+          type: string
+          enum:
+          - summary_only
+          - full_meeting
+          title: Content Scope
+        can_comment:
+          type: boolean
+          title: Can Comment
+        can_edit:
+          type: boolean
+          title: Can Edit
       type: object
       required:
       - invitation_id
       - status
       - expires_at
+      - content_scope
+      - can_comment
+      - can_edit
       title: MeetingShareInvitationResponse
     MeetingStatus:
       type: string
@@ -14261,6 +15581,27 @@ components:
       additionalProperties: false
       type: object
       title: MembershipPatchRequest
+    MentionInput:
+      properties:
+        user_id:
+          type: string
+          format: uuid
+          title: User Id
+        start:
+          type: integer
+          minimum: 0.0
+          title: Start
+        end:
+          type: integer
+          exclusiveMinimum: 0.0
+          title: End
+      additionalProperties: false
+      type: object
+      required:
+      - user_id
+      - start
+      - end
+      title: MentionInput
     MissingRange:
       properties:
         start:
@@ -14341,6 +15682,12 @@ components:
       title: NotesActionCategoryState
     NotesActionTruthState:
       properties:
+        protocol:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Protocol
         summary:
           $ref: '#/components/schemas/NotesActionCategoryState'
         key_points:
@@ -14371,12 +15718,6 @@ components:
           anyOf:
           - $ref: '#/components/schemas/OutcomeProvenanceView'
           - type: 'null'
-        protocol:
-          anyOf:
-          - additionalProperties: true
-            type: object
-          - type: 'null'
-          title: Protocol
       type: object
       required:
       - summary
@@ -15712,6 +17053,20 @@ components:
       - event_id
       - context_reason
       title: PutMeetingCalendarContextRequest
+    ReactionInput:
+      properties:
+        emoji:
+          type: string
+          title: Emoji
+        selected:
+          type: boolean
+          title: Selected
+      additionalProperties: false
+      type: object
+      required:
+      - emoji
+      - selected
+      title: ReactionInput
     ReadyDetailResponse:
       properties:
         status:
@@ -15781,6 +17136,44 @@ components:
       - idempotency_key
       - template_version
       title: RefreshSummaryTypeRequest
+    ReplyComment:
+      properties:
+        body:
+          type: string
+          maxLength: 10000
+          minLength: 1
+          title: Body
+        mentions:
+          items:
+            $ref: '#/components/schemas/MentionInput'
+          type: array
+          maxItems: 20
+          title: Mentions
+        request_id:
+          type: string
+          format: uuid
+          title: Request Id
+      additionalProperties: false
+      type: object
+      required:
+      - body
+      - request_id
+      title: ReplyComment
+    ResolutionInput:
+      properties:
+        expected_version:
+          type: integer
+          minimum: 1.0
+          title: Expected Version
+        resolved:
+          type: boolean
+          title: Resolved
+      additionalProperties: false
+      type: object
+      required:
+      - expected_version
+      - resolved
+      title: ResolutionInput
     ResolveRecordingCalendarContextRequest:
       properties:
         recording_started_at:
@@ -15923,6 +17316,14 @@ components:
       title: ShareGrantResponse
     ShareGrantView:
       properties:
+        can_comment:
+          type: boolean
+          title: Can Comment
+          default: false
+        can_edit:
+          type: boolean
+          title: Can Edit
+          default: false
         grant_id:
           type: string
           format: uuid
@@ -15979,6 +17380,14 @@ components:
       title: ShareGrantView
     ShareInvitationView:
       properties:
+        can_comment:
+          type: boolean
+          title: Can Comment
+          default: false
+        can_edit:
+          type: boolean
+          title: Can Edit
+          default: false
         invitation_id:
           type: string
           format: uuid
@@ -16041,6 +17450,10 @@ components:
             $ref: '#/components/schemas/ShareInvitationView'
           type: array
           title: Active Invitations
+        can_manage_roles:
+          type: boolean
+          title: Can Manage Roles
+          default: false
         copy_link_state:
           type: string
           enum:
@@ -16971,16 +18384,16 @@ components:
             $ref: '#/components/schemas/OutcomeItemView'
           type: array
           title: Items
-        attempt:
-          anyOf:
-          - $ref: '#/components/schemas/SummaryTypeAttemptStateV1'
-          - type: 'null'
         protocol:
           anyOf:
           - additionalProperties: true
             type: object
           - type: 'null'
           title: Protocol
+        attempt:
+          anyOf:
+          - $ref: '#/components/schemas/SummaryTypeAttemptStateV1'
+          - type: 'null'
       additionalProperties: false
       type: object
       required:
@@ -17654,6 +19067,17 @@ components:
       - msg
       - type
       title: ValidationError
+    VersionInput:
+      properties:
+        expected_version:
+          type: integer
+          minimum: 1.0
+          title: Expected Version
+      additionalProperties: false
+      type: object
+      required:
+      - expected_version
+      title: VersionInput
     _ConsentCopy:
       properties:
         language:

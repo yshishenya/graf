@@ -59,7 +59,9 @@ def test_share_focus_and_isolated_styles_are_registered() -> None:
     assert "initShareDialogs" in javascript
     assert "dialog.showModal()" in javascript
     assert 'event.key !== "Tab"' in javascript
-    assert "content_scope: \"summary_only\"" in javascript
+    assert 'content_scope: collaborationRole ? "full_meeting" : "summary_only"' in javascript
+    assert 'role === "commenter" || role === "editor"' in javascript
+    assert 'can_edit: role === "editor"' in javascript
     assert "content_scope: \"full_meeting\"" in javascript
     assert "can_download: true" in javascript
     assert "can_export: true" in javascript
