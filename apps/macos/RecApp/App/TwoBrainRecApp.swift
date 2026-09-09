@@ -2893,6 +2893,24 @@ private final class MeetingDetectionPromptPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
+private struct MeetingPromptKeyboardNavigation: ViewModifier {
+    var isEnabled = true
+    let onSpace: () -> Void
+
+    func body(content: Content) -> some View {
+        if NSApp.isFullKeyboardAccessEnabled {
+            content
+        } else {
+            content
+                .focusable(isEnabled, interactions: .edit)
+                .onKeyPress(.space, phases: .down) { _ in
+                    onSpace()
+                    return .handled
+                }
+        }
+    }
+}
+
 private struct MeetingDetectionPromptView: View {
     private static let countdownSeconds: TimeInterval = 8
 
@@ -2932,11 +2950,7 @@ private struct MeetingDetectionPromptView: View {
                         }
                         Toggle("Запомнить выбор", isOn: $autoRecordOptIn)
                             .toggleStyle(.checkbox)
-                            .focusable(interactions: .edit)
-                            .onKeyPress(.space, phases: .down) { _ in
-                                autoRecordOptIn.toggle()
-                                return .handled
-                            }
+                            .modifier(MeetingPromptKeyboardNavigation { autoRecordOptIn.toggle() })
                             .accessibilityHint("Сохранить решение для приложения \(prompt.displayName)")
 
                         let layout = geometry.size.width < 300
@@ -2948,11 +2962,9 @@ private struct MeetingDetectionPromptView: View {
                             }
                             .buttonStyle(.plain)
                             .keyboardShortcut(.cancelAction)
-                            .focusable(interactions: .edit)
-                            .onKeyPress(.space, phases: .down) { _ in
+                            .modifier(MeetingPromptKeyboardNavigation {
                                 resolveDismiss(reason: .userSkipped)
-                                return .handled
-                            }
+                            })
                             .frame(maxWidth: .infinity, minHeight: 34)
                             .background(.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 7))
 
@@ -3032,11 +3044,9 @@ private struct MeetingDetectionPromptView: View {
         .buttonStyle(.plain)
         .disabled(isStartDisabled)
         .keyboardShortcut(.defaultAction)
-        .focusable(!isStartDisabled, interactions: .edit)
-        .onKeyPress(.space, phases: .down) { _ in
+        .modifier(MeetingPromptKeyboardNavigation(isEnabled: !isStartDisabled) {
             resolveStart(reason: .promptButton)
-            return .handled
-        }
+        })
         .accessibilityLabel("Записать")
         .accessibilityValue(
             isStartDisabled
