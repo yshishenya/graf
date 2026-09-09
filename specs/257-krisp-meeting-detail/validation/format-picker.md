@@ -1,6 +1,6 @@
 # F257: проверка компактного выбора формата
 
-Дата: 2026-09-09. Lane: active Spec Kit slice / high-risk reference-fidelity. Объём: дополнение FR-020–024, US2. Проверки относятся к рабочему дереву; новый commit SHA и установленная приёмка пока отсутствуют.
+Дата: 2026-09-09. Lane: active Spec Kit slice / high-risk reference-fidelity. Объём: дополнение FR-020–024, US2. История промежуточных проверок сохранена ниже; окончательная продуктовая приёмка приведена в последнем разделе.
 
 ## Независимый review и повторная проверка
 
@@ -81,3 +81,22 @@ GRAF_NODE_MODULES=<installed-node-modules> GRAF_BROWSER=webkit uv run pytest tes
 Этот проход также выявил прокрутку встречи от `option.scrollIntoView`: верхний слой не исключает DOM-предков из этой операции. Заменено расчётом только `listbox.scrollTop`; новый исполняемый assert сохраняет scrollTop встречи при открытии полного списка и End. Полный browser-сценарий Chromium3,04с / WebKit4,00с PASS. Серверная часть не изменена; установленный повтор нового SHA обязателен.
 
 Пересчёт смещения списка учитывает CSS scale: delta прямоугольника делится на масштаб перед записью scrollTop. Дополнительный browser-проход 12 стрелок вниз при200% требует полной видимости активной строки: Chromium3,05с / WebKit4,14с PASS. Ожидавшая lock сборка a84f7d2d5 остановлена до запуска адаптера, не является PASS и не меняла установленный стенд.
+
+## Окончательная продуктовая приёмка
+
+Продуктовый SHA: `6611b19ec08ec7d27d422f9de2e5c054da779fe6`. PR [#6897](https://github.com/yshishenya/graf/pull/6897).
+
+- Штатные build → promote → smoke: **PASS**,13/13 health checks. Все компоненты имеют один SHA, bundle/signing/TCC сохранены, схема0091. Smoke завершён до UI-действий.
+- Установленный GRAF Dev/WKWebView, существующая синтетическая встреча: **PASS** quick/all, End→Option+Tab→Enter, полный список в верхнем слое, прокрутка только строк, Escape с видимым возвратом фокуса, выход Tab без ловушки. При100% исходные метаданные/начало итогов остаются на месте; при200% End показывает последний формат целиком и видимую нижнюю ссылку, Escape оставляет строку навигации на прежнем месте. Нативные снимки изучены; частные данные в репозиторий не сохранялись. Возвращены100%,1040×680, тёмная тема, воспроизведение не запускалось.
+- GitHub `governance-fast`: **PASS**, [34385318470](https://github.com/yshishenya/graf/actions/runs/34385318470),5м59с; `pr-metadata`: PASS17с на том же SHA.
+- Чистый адресный PostgreSQL-набор:180 PASS/1 conditional browser SKIP. Browser-сценарий с окончательным JS отдельно: Chromium3,05с / WebKit4,14с PASS, включая12 стрелок приCSS200%, отсутствие прокрутки встречи, реальное попадание клика по footer поверх main/player, темы/ширины и ошибки/повтор. После PostgreSQL менялась только прокрутка списка в JS и его исполняемая browser-проверка.
+- Локальный frozen governance, node syntax, whitespace и четыре текущих canonical issues: PASS. Глобальный tracker validate по-прежнему ограничен чужой #6852; исключение не меняет required GitHub gate и не относится к реализации F257.
+- Итоговый review/Ponytail/converge: FR-020–024 реализованы; два найденных нативных дефекта устранены с исполняемыми regressions. Новых обязательных задач и блокеров в дополнении не найдено. Requirements checklist остаётся reviewer-owned, не менялся. T012–T015 выполнены; issues сохраняются открытыми до merge через PR. Umbrella/исторические T001–T011 не закрываются этим дополнением.
+
+Следующий документационный коммит не меняет продуктовые файлы. Его current-SHA GitHub проверки, установленная повторная сверка и live PR mergeability записываются в PR после завершения, без самоссылочного коммита evidence. До этого PR остаётся draft. Release-full/merge/production/выпуск не выполнялись и относятся к общему замороженному релизному кандидату. Реальная AI-генерация, VoiceOver и native system zoom не выдаются за проверки этого дополнения; native200% — штатный масштаб кабинета.
+
+Итоговые SHA-256 продуктовых файлов:
+
+- `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css`: `9e7604f261ba5b718e539680ff0987c047e5c649ef8a5084122bd260ef55da80`
+- `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`: `69c3e70254374498d64f3da5376e3938ea2d028be06da1af858b1f83bc49c25c`
+- `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/meeting_detail_content.html`: `991cf938da0797bd65a73a510f2b8d35be60581fef0c3d55449cf8a7e2461674`
