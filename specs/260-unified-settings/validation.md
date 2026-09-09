@@ -1,25 +1,35 @@
-# F260 — Проверка реализации
+# F260 — Результаты проверки
 
-Дата: 2026-09-09. Ветка `codex/260-unified-settings`. Lane: **High-risk product / reference-fidelity UX**. PR #6900. Первая проверка GitHub на `40c13ba96b5fb9af85e3cbfa253f7373a063a16a` выявила устаревшие ожидания shell-тестов и лишнюю account-навигацию в default renderer. Они исправлены; новый SHA требует повторного CI/Dev.
+Дата: 2026-09-09. Lane: **High-risk product / reference-fidelity UX**, полный Spec Kit.
+PR: https://github.com/yshishenya/graf/pull/6900.
 
-## Результаты
+## Матрица
 
-| Проверка | Результат | Границы доказательства |
+| Проверка | Результат | Граница доказательства |
 |---|---|---|
-| Требования и принятие макета | PASS, независимый reviewer 9/9; владелец «Подтверждаю, реализовать» | Принятие требований, отдельно от продукта |
-| Макет, Node | PASS, 79 имён, правила/patch/валидация/ошибки | Модель, без внешних действий |
-| Макет, Playwright | PASS: 42 сочетания ширины/раздела, 8 состояний; сохранение, ошибка, возврат и восстановление | `prototype-visual-check.js`, синтетические значения |
-| Swift | PASS: 80 тестов | Два моста настроек, маршруты, controls, доставка уведомлений и accessibility regression |
-| Настоящий WebKit | PASS внутри Swift suite | Production template + cabinet.js: запись, поиск, bulk для скрытых строк, подтверждённые значения, обновление native store, фокус, уведомления и смена аккаунта |
-| Сервер с изолированным PostgreSQL | PASS: 81 тест | Страницы/маршруты/модели/права/существующие операции, предпочтения и notification navigation; контейнер удалён runner |
-| Production templates, Playwright | PASS: 36 сочетаний: account/recording/notifications × 320/390/768/820/1024/1440 × light/dark | Синтетический мост, никаких настоящих настроек macOS; полный реестр 79, поиск Zoom, bulk, ошибка, disconnect, keyboard, forced-colors, reduced-motion, 200%, no-JS button/CSRF |
-| JavaScript syntax | PASS | `node --check` текущего cabinet.js |
-| Spec Kit governance | PASS с закреплённым specify-cli v1.0.1/ref 9118ed15a0ba65053469a94c560ea5d233f75884 | Изолированная временная среда; глобальный v1.0.4 и project lock не изменены |
-| Changelog / whitespace | PASS | validate-changelog-fragments.py; git diff --check |
-| Issue canon F260 | PASS 16/16 по прямому чтению | Общий validator ранее FAIL на посторонней #6852; чужая issue не изменена |
-| Установленный GRAF Dev | НЕ ВЫПОЛНЕНО | Нужны авторизованный commit, согласование общего стенда и harness |
-| Required governance-fast exact SHA | НЕ ВЫПОЛНЕНО | Нет коммита/PR; локальные проверки не заменяют GitHub check |
-| Full CI / merge / deploy / release | НЕ ВЫПОЛНЕНО | Не входят в выполненную локальную реализацию |
+| Требования / независимый review | PASS: checklist 9/9, CRITICAL 0 / HIGH 0 после исправления auth race | Заключение в requirements-review.md |
+| Макет | PASS: 42 сочетания ширины/раздела, 8 состояний, Node model | Синтетические значения |
+| Swift / настоящий WKWebView | PASS: 100/100 на d5aba78c1 | Production templates + cabinet.js, оба моста, auth race, сохранение/фокус, маршруты, доставка, доступность и 20 capture regressions |
+| Сервер / изолированный PostgreSQL | PASS: 81/81 | Маршруты, модели, права, операции и notification preferences |
+| Shell / settings после исправления CI | PASS: 126/126 | Default renderer, единственная навигация, размеры и contract regressions |
+| Production templates / Playwright | PASS: 36 сочетаний account/recording/notifications × 6 ширин × 2 темы | Реестр 79, поиск, bulk скрытых строк, ошибка, auth clear, keyboard, forced-colors, reduced-motion, 200%, no-JS/CSRF; четыре пары контраста >=4.5:1 |
+| GRAF Dev | PASS: harness 13/13 и установленная матрица на 113abd487180241b322f2716aa35e2eabb007abc | Подробности ниже; финальный повтор exact SHA публикуется в PR |
+| JavaScript / Ruff / changelog / whitespace | PASS | Синтаксис, lint сервера, fragment и git diff --check |
+| Spec Kit governance | PASS | Закреплённый CLI v1.0.1/ref 9118ed15a0ba65053469a94c560ea5d233f75884; глобальный CLI и lock не менялись |
+| Issue canon F260 | PASS 16/16 | Посторонняя #6852 не изменялась |
+| Required GitHub governance-fast | PASS на d5aba78c1f5e2f8dbb693d3ec03c153ac5e547c1, run 34389811229; pr-metadata run 34389811157 PASS | Окончательный exact-SHA check обязателен в PR перед ready; старый PASS его не заменяет |
+| Full CI / merge / deploy / release | НЕ ВЫПОЛНЕНО | Full CI выполняется для отдельного замороженного release candidate; PR не выпускает продукт |
+
+## Итоговая идентичность
+
+Последняя строка PR содержит полный source SHA. После документационного коммита required governance-fast, pr-metadata и повтор harness build/promote/status/smoke должны совпасть с ним; результаты добавляются в PR и machine-local harness receipts без нового коммита, который снова изменил бы SHA. До их PASS PR остаётся draft. Issues закрываются после merge, с явной связью tasks и evidence.
+
+## Исправления, проверенные повторно
+
+- Независимый reviewer обнаружил повторную активацию устаревшего документа после смены аккаунта. refreshContext возвращает подтверждённое поколение, а отложенная активация проверяет поколение до и после await. WKWebView-регрессия воспроизводит задержанный ответ и смену владельца.
+- Первый GitHub run 34384977227 выявил четыре shell assertions. Исправлены default renderer и устаревшие ожидания; повтор 126/126 PASS и последующие GitHub runs PASS.
+- Контраст белого текста на фиолетовом фоне тёмной темы был 3.06:1. Текст активного элемента #202125 теперь даёт 5.26:1; четыре пары проверяются в каждой теме. Это документированное отличие ради доступности.
+- Сохранение подтверждения при повторном read проверено настоящим WKWebView после save/refresh.
 
 ## Воспроизведение
 
@@ -36,26 +46,6 @@ git diff --check
 
 Для governance использована временная среда uv с установкой `git+https://github.com/github/spec-kit.git@9118ed15a0ba65053469a94c560ea5d233f75884`, добавленная первой в PATH только для команды проверки. Удалён созданный Python файл bytecode и пустой `__pycache__` в расширении issue-canon: они меняли hash дерева. Проверки целостности не отключались; tracked-файлы расширений/lock не менялись.
 
-## Оставшиеся проверки
-
-T014/T015: полная VoiceOver-проверка, ручные входы меню/Cmd+,/контекст, загрузка/отказ/восстановление кабинета в установленном приложении, фактические настройки macOS, проверка сигнала записи и системных ограничений. Результат Chromium или тестового WKWebView не считается этой приёмкой.
-
-Read-only harness status: единственный GRAF Dev активен на `450ef2fbe14524efb5341f3d7d1704c1325388ab` (другая feature `6791`). Состояние стенда не менялось. Перед переключением требуется повторный status и согласование занятости; результат прежнего smoke не относится к F260.
-
-T016: GitHub governance-fast на новом точном SHA, PR/closeout и согласование issue evidence. Все 16 issues остаются открытыми; локально выполненные задачи не выдаются за merged/released acceptance.
-
-## Исправления после проверки кандидата
-
-Независимый reviewer обнаружил гонку повторной активации моста после смены аккаунта. refreshContext теперь возвращает только подтверждённое поколение; отложенная активация проверяет поколение до подготовки и после неё. WKWebView-регрессия задерживает ответ, меняет аккаунт без навигации, отклоняет прежнее продолжение и отдельно проверяет первое успешное подключение. 80 профильных Swift-тестов PASS; повтор 5 notification bridge тестов с подтверждённым новым владельцем PASS.
-
-GitHub run 34384977227: FAIL в четырёх shell assertions, не PASS. Renderer по умолчанию теперь показывает account с одной навигацией; мёртвый overview template удалён. Тест ширины ограничен sidebar, не запрещает размер нового select. Ожидания реестра разделов и отдельного sessionStorage ключа настроек обновлены. Повтор shell/settings: 126 PASS. Полная повторная проверка GitHub потребуется на новом SHA.
-
-На `7336027b2244a3335469535a5e9e2db47bb496bf` required governance-fast PASS: https://github.com/yshishenya/graf/actions/runs/34385808940 (4m27s); pr-metadata PASS: https://github.com/yshishenya/graf/actions/runs/34385808961. Harness build PASS, установка ещё не выполнялась. Эти результаты не относятся автоматически к следующим коммитам.
-
-Дополнительная проверка контраста выявила белый текст на новом светло-фиолетовом фоне (3.06:1). В тёмных настройках текст активного элемента теперь #202125, фон наведения #a18cff; текст/основной акцент 5.26:1. В production-template матрицу добавлены четыре пары цветов в обеих темах с порогом 4.5:1. Повтор 36 сочетаний с contrast, search/bulk/error/keyboard/200%/no-JS PASS. Это собственное исправление доступности, обязательное отличие от цветовых пропорций референса.
-
-`2ee2c498bd04e2de461230571153c2990f70963c`: governance-fast PASS https://github.com/yshishenya/graf/actions/runs/34386431193; pr-metadata PASS https://github.com/yshishenya/graf/actions/runs/34386431160; signed harness build PASS. До promote общий стенд сменился на F257 d475d299577d9387760f7ac08c55d49cc8b6222b. Повтор build прежнего SHA отказал `manifest identity already exists with different metadata`; неизменяемый manifest не редактировался. Следующий документационный коммит создаёт отдельный candidate от актуального parent, без изменения продуктового кода.
-
 ## Установленная приёмка F260 — 113abd487180241b322f2716aa35e2eabb007abc
 
 Harness build/promote PASS13/13, единственный /Applications/GRAF Dev.app, pro.2brain.graf.dev; подпись и разрешения сохранены. Native UI проверен через CUA screenshot/AX и системную клавиатуру, без исполнения JavaScript в приложении.
@@ -68,4 +58,4 @@ Harness build/promote PASS13/13, единственный /Applications/GRAF Dev
 - Отказ кабинета воспроизведён остановкой толькоDevAPI; Cmd+, открыл единственное graf-settings-window с записью и уведомлениями. ПоискZoom и прежние правила доступны, local notifications сохраняют исходные значения. После запуска того жеAPI «Все настройки GRAF» открывает account и закрывает резерв. Данные/тома/TCC/подпись не менялись.
 - CaptureIndicatorTests/CaptureSessionSafetyTests/CaptureControlV5Tests:20/20PASS на кандидате; вместе с80 профильными и проверкой звука приrecording:true покрывают неизменённую семантику. Новая реальная аудиозапись не выполнялась: reviewer подтвердил, что изменённые пути не затрагивают аудиотракт, и принял соответствующее уточнение quickstart. Сквозной новый захват/артефакт не подтверждён.
 
-Во время приёмки выявлено слишком быстро исчезающее подтверждение локального сохранения при повторном чтении. JS теперь сохраняет presenter.message и приread; настоящая WKWebView-регрессия проверяет «Сохранено на этом Mac» послеsave/refresh. Эта правка требует повторного focused test, CI и финальной установки.
+Во время приёмки выявлено слишком быстро исчезающее подтверждение локального сохранения при повторном чтении. JS теперь сохраняет presenter.message и приread; настоящая WKWebView-регрессия проверяет «Сохранено на этом Mac» послеsave/refresh. Повтор 100 Swift/WebKit-тестов и 36 браузерных сочетаний прошёл на d5aba78c1f5e2f8dbb693d3ec03c153ac5e547c1. Финальная установка и CI привязываются к последнему SHA в PR.

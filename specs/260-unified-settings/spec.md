@@ -2,7 +2,7 @@
 
 **Feature Branch**: `codex/260-unified-settings`
 **Created**: 2026-09-09
-**Status**: Design review
+**Status**: Implemented; final PR validation
 **Input**: Исправить нечитаемые настройки и названия приложений, убрать два места редактирования, продумать весь путь записи и уведомлений, воспроизвести наблюдаемую структуру Krisp с учётом GRAF.
 **Lane**: High-risk product / reference-fidelity UX. Изменение представления и маршрутов; семантика записи сохраняется.
 
