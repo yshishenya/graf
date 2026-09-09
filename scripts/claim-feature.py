@@ -9,7 +9,7 @@ reservation record.
 from __future__ import annotations
 
 import argparse
-import fcntl
+from contextlib import contextmanager
 import json
 import os
 import re
@@ -23,6 +23,30 @@ from typing import Iterable
 
 ID_RE = re.compile(r"(?:^|/)(\d{3,})-")
 GITHUB_COMMAND_TIMEOUT_SECONDS = 30
+
+
+
+@contextmanager
+def _claim_lock(path: Path):
+    with path.open("a+b") as handle:
+        if os.name == "nt":
+            import msvcrt
+            if handle.tell() == 0:
+                handle.write(b"0")
+                handle.flush()
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield handle
+        finally:
+            if os.name == "nt":
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 def _sequential_id(name: str) -> int | None:
@@ -522,8 +546,7 @@ def claim(root: Path, feature_id: int, *, issue_number: int | None, branch: str,
         git_dir = root / git_dir
     lock_path = git_dir / "feature-claim.lock"
     lock_path.parent.mkdir(parents=True, exist_ok=True)
-    with lock_path.open("a+") as handle:
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+    with _claim_lock(lock_path):
         claims_path = lock_path.with_name("feature-claims.json")
         try:
             claims = json.loads(claims_path.read_text(encoding="utf-8")) if claims_path.exists() else {}
@@ -543,7 +566,6 @@ def claim(root: Path, feature_id: int, *, issue_number: int | None, branch: str,
                 raise SystemExit(f"feature-claim: local claim already exists with different metadata for {key}")
         claims[key] = requested_claim
         _write_claims_atomic(claims_path, claims)
-        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
     result = {
         "schema_version": 1,
         "feature_id": f"{feature_id:03d}",
@@ -622,7 +644,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path.cwd())
     parser.add_argument("--feature-id", type=int)
-    parser.add_argument("--issue-number", type=int)
+    parser.add_argument("--issue-number", type=int, default=os.environ.get("GRAF_UMBRELLA_ISSUE") or None)
     parser.add_argument("--branch", default="")
     parser.add_argument("--slug", default="")
     parser.add_argument("--owner", default=os.environ.get("GRAF_FEATURE_OWNER", "codex"))
@@ -646,8 +668,7 @@ def main(argv: list[str] | None = None) -> int:
             git_dir = root / git_dir
         lock_path = git_dir / "feature-claim.lock"
         lock_path.parent.mkdir(parents=True, exist_ok=True)
-        with lock_path.open("a+") as handle:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        with _claim_lock(lock_path):
             claims_path = lock_path.with_name("feature-claims.json")
             try:
                 claims = json.loads(claims_path.read_text(encoding="utf-8")) if claims_path.exists() else {}
@@ -691,7 +712,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.feature_id is None:
         occupied = _ids_from_specs(root) | _ids_from_refs(_git_refs(root, strict=not args.offline)) | _local_claim_ids(root)
-        next_id = _next_feature_id(root, occupied, offline=args.offline)
+        next_id = _next_feature_id(root, occupied, offline=args.offline, exclude_issue=args.issue_number)
+        if args.issue_number is not None and not args.offline:
+            _github_umbrella(root, args.issue_number, next_id)
         print(json.dumps({"next_available": f"{next_id:03d}", "occupied_count": len(occupied), "mode": "offline-draft" if args.offline else "github-checked"}))
         return 0
     try:

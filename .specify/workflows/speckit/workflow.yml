@@ -103,6 +103,16 @@ steps:
     input:
       args: "При остатке выполнить цикл taskstoissues → implement → converge. Не считать локальную реализацию закрытием issues."
 
+  - id: review-convergence
+    type: gate
+    message: >-
+      Converge завершился без новых обязательных задач. Если задачи добавлены,
+      выбрать reject: процесс останавливается; выполнить taskstoissues → implement
+      → converge и возобновить только после чистого результата. Approve допустим
+      лишь при отсутствии открытых обязательных задач текущего этапа.
+    options: [approve, reject]
+    on_reject: abort
+
   - id: validation-release
     type: gate
     message: >-

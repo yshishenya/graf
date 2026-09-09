@@ -56,7 +56,7 @@
   },
   "workflow": {
     "id": "speckit",
-    "sha256": "abfb4225e4c68ad619efa5acc8bb841a4900772032bcf3e997e8df8747a87394",
+    "sha256": "9583f6c10ce259b179a626bdb593d9689a01b74792abb11d02ac4cc03446043f",
     "source_url": "https://raw.githubusercontent.com/github/spec-kit/9118ed15a0ba65053469a94c560ea5d233f75884/workflows/speckit/workflow.yml",
     "version": "1.0.0"
   }

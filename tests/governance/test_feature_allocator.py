@@ -242,3 +242,41 @@ def test_remote_heads_are_checked_without_fetch(tmp_path, monkeypatch):
     calls.clear()
     module._git_refs(tmp_path, strict=False)
     assert len(calls) == 1  # offline inventory never contacts remotes
+
+
+def test_suggestion_preserves_and_validates_existing_umbrella(tmp_path, monkeypatch, capsys):
+    module = allocator()
+    (tmp_path / 'specs/258-current').mkdir(parents=True)
+    monkeypatch.setenv('GRAF_UMBRELLA_ISSUE', '42')
+    monkeypatch.setattr(module, '_git_refs', lambda *_a, **_k: [])
+    monkeypatch.setattr(module, '_local_claim_ids', lambda *_a: set())
+    validated = []
+    def github(_root, **kwargs):
+        assert kwargs['exclude_issue'] == 42
+        return set()
+    monkeypatch.setattr(module, '_github_ids', github)
+    monkeypatch.setattr(module, '_github_umbrella', lambda root, issue, feature: validated.append((issue, feature)))
+    assert module.main(['--root', str(tmp_path), '--json']) == 0
+    assert json.loads(capsys.readouterr().out)['next_available'] == '259'
+    assert validated == [(42, 259)]
+    def invalid(*_args):
+        raise SystemExit('wrong umbrella')
+    monkeypatch.setattr(module, '_github_umbrella', invalid)
+    with pytest.raises(SystemExit, match='wrong umbrella'):
+        module.main(['--root', str(tmp_path), '--json'])
+
+
+def test_windows_lock_releases_on_error_and_import_does_not_need_fcntl(tmp_path, monkeypatch):
+    import sys
+    from types import SimpleNamespace
+    monkeypatch.setitem(sys.modules, 'fcntl', None)
+    module = allocator()
+    calls = []
+    native = SimpleNamespace(LK_LOCK=1, LK_UNLCK=2, locking=lambda fd, mode, count: calls.append((mode, count)))
+    monkeypatch.setitem(sys.modules, 'msvcrt', native)
+    monkeypatch.setattr(module, 'os', SimpleNamespace(name='nt'))
+    path = tmp_path / 'claim.lock'
+    with pytest.raises(ValueError):
+        with module._claim_lock(path):
+            raise ValueError('synthetic failure')
+    assert calls == [(1, 1), (2, 1)]

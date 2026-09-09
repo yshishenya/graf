@@ -1146,6 +1146,11 @@ def test_installed_workflow_cannot_finish_at_implementation():
     ids = [step['id'] for step in steps]
     assert len(ids) == len(set(ids))
     assert ids.index('validation-release') < ids.index('tracker-closeout') < ids.index('review-closeout')
+    assert ids.index('converge') < ids.index('review-convergence') < ids.index('validation-release')
+    convergence_gate = next(step for step in steps if step['id'] == 'review-convergence')
+    assert convergence_gate['type'] == 'gate' and convergence_gate['on_reject'] == 'abort'
+    assert 'taskstoissues → implement' in convergence_gate['message']
+
     closeout = next(step for step in steps if step['id'] == 'tracker-closeout')
     assert closeout['input']['args'].startswith('closeout:')
     assert '--verify-live' in closeout['input']['args']
