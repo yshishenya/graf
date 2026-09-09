@@ -69,6 +69,8 @@ async def summary_progress(
             if attempt.status == "candidate":
                 return "candidate"
     # A stored-result flag alone never proves published summary content.
+    if template_key is None and result is not None and result.summary_status == "available":
+        return "unavailable"
     state = "not_requested" if result is None else (
         result.summary_status if result.summary_status in {"failed", "unavailable"}
         else "not_requested"

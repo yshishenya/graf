@@ -441,15 +441,27 @@ def test_cabinet_detail_keeps_complete_content_during_partial_replacement(client
         assert 'class="playback-bar detail-playback"' in failed.text
 
 
-def test_cabinet_summary_reported_without_stored_output_is_blocked(client) -> None:
+def test_cabinet_summary_reported_without_stored_output_is_unavailable(client) -> None:
     meeting_id = create_summary_reported_meeting(client)
 
     response = client.get(f"/api/v1/cabinet/meetings/{meeting_id}", headers=auth_headers())
 
     assert response.status_code == 200
     truth = response.json()["notes_action_truth"]
-    assert truth["summary"]["state"] == "blocked"
-    assert truth["summary"]["copy_key"] == "notes.summary.blocked_missing_stored_output"
+    assert truth["summary"]["state"] == "unavailable"
+    assert truth["summary"]["copy_key"] == "notes.summary.unavailable"
+    assert truth["source_basis"] != "stored_output"
+
+    async def check_unrequested_format() -> None:
+        from twobrain_rec_server.outcomes.progress import summary_progress
+
+        async with client.app_state["sessionmaker"]() as db:
+            meeting = await db.get(Meeting, meeting_id)
+            result = await db.scalar(select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id))
+            assert await summary_progress(db, meeting=meeting, result=result) == "unavailable"
+            assert await summary_progress(db, meeting=meeting, result=result, template_key="standup") == "not_requested"
+
+    asyncio.run(check_unrequested_format())
     assert truth["decisions"]["state"] == "deferred"
     assert truth["action_items"]["state"] == "deferred"
 
