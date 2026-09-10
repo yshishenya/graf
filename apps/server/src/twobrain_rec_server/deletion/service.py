@@ -170,11 +170,30 @@ async def request_meeting_deletion(
     if locked_meeting is None:
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
     meeting = locked_meeting
+    deletion_epoch = int(meeting.deletion_epoch or 0)
     if meeting.deleted_at is not None or (
         meeting.deletion_state or DeletionState.NONE.value
     ) != DeletionState.NONE.value:
-        raise ProblemDetail(
-            status=409, code="meeting_deletion_active", title="Meeting deletion is already active"
+        existing = await db.scalar(
+            select(MeetingDeletionRequest)
+            .where(
+                MeetingDeletionRequest.workspace_id == workspace_id,
+                MeetingDeletionRequest.meeting_id == meeting_id,
+            )
+            .order_by(desc(MeetingDeletionRequest.created_at))
+            .limit(1)
+        )
+        if existing is None:
+            # A tombstone without its receipt is not permission to rerun physical cleanup.
+            raise ProblemDetail(
+                status=409, code="meeting_deletion_active", title="Meeting deletion is already active"
+            )
+        return DeletionRequestResponse(
+            deletion_epoch=deletion_epoch,
+            request_id=existing.id,
+            meeting_id=meeting_id,
+            lifecycle=lifecycle_state(await lifecycle_for_meeting(meeting=meeting)),
+            report_url=f"/api/v1/cabinet/meetings/{meeting_id}/deletion-report",
         )
     active_request = await db.scalar(
         select(MeetingDeletionRequest)
@@ -189,7 +208,8 @@ async def request_meeting_deletion(
         )
 
     now = datetime.now(UTC)
-    meeting.deletion_epoch = int(meeting.deletion_epoch or 0) + 1
+    deletion_epoch += 1
+    meeting.deletion_epoch = deletion_epoch
     meeting.deleted_at = now
     meeting.current_outcome_set_id = None
     deletion_fence = await ensure_deletion_fence(db, meeting=meeting)
@@ -328,6 +348,7 @@ async def request_meeting_deletion(
         if report is not None and report.overall_state == DeletionState.ACTIVE_PURGE_COMPLETE.value:
             await db.rollback()
             return DeletionRequestResponse(
+                deletion_epoch=deletion_epoch,
                 request_id=request_id,
                 meeting_id=meeting_id,
                 lifecycle=lifecycle_state(DeletionState.ACTIVE_PURGE_COMPLETE),
@@ -358,6 +379,7 @@ async def request_meeting_deletion(
     if report is not None and report.overall_state == DeletionState.ACTIVE_PURGE_COMPLETE.value:
         await db.rollback()
         return DeletionRequestResponse(
+            deletion_epoch=deletion_epoch,
             request_id=request_id,
             meeting_id=meeting_id,
             lifecycle=lifecycle_state(DeletionState.ACTIVE_PURGE_COMPLETE),
@@ -412,6 +434,7 @@ async def request_meeting_deletion(
     fence.completed_at = completed_at
     await db.commit()
     return DeletionRequestResponse(
+        deletion_epoch=deletion_epoch,
         request_id=request_id,
         meeting_id=meeting_id,
         lifecycle=lifecycle_state(DeletionState.ACTIVE_PURGE_COMPLETE),
@@ -515,6 +538,7 @@ async def retry_meeting_deletion(
     if locked_meeting is None:
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
     meeting = locked_meeting
+    deletion_epoch = int(meeting.deletion_epoch or 0)
     report = await db.scalar(
         select(MeetingDeletionReport)
         .where(
@@ -640,6 +664,7 @@ async def retry_meeting_deletion(
         if report.overall_state == DeletionState.ACTIVE_PURGE_COMPLETE.value:
             await db.rollback()
             return DeletionRequestResponse(
+                deletion_epoch=deletion_epoch,
                 request_id=report_request_id,
                 meeting_id=meeting_id,
                 lifecycle=lifecycle_state(DeletionState.ACTIVE_PURGE_COMPLETE),
@@ -722,6 +747,7 @@ async def retry_meeting_deletion(
     if report.overall_state == DeletionState.ACTIVE_PURGE_COMPLETE.value:
         await db.rollback()
         return DeletionRequestResponse(
+            deletion_epoch=deletion_epoch,
             request_id=report_request_id,
             meeting_id=meeting_id,
             lifecycle=lifecycle_state(DeletionState.ACTIVE_PURGE_COMPLETE),
@@ -772,6 +798,7 @@ async def retry_meeting_deletion(
     fence.completed_at = completed_at
     await db.commit()
     return DeletionRequestResponse(
+        deletion_epoch=deletion_epoch,
         request_id=report_request_id,
         meeting_id=meeting_id,
         lifecycle=lifecycle_state(DeletionState.ACTIVE_PURGE_COMPLETE),

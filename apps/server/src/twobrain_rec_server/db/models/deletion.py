@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String
+from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
@@ -82,6 +82,7 @@ class RetentionPolicySnapshot(Base):
 
 class LocalPurgeTask(Base):
     __tablename__ = "local_purge_tasks"
+    __table_args__ = (UniqueConstraint("deletion_request_id", "device_id", "task_type", name="uq_local_purge_request_device_type"),)
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
@@ -112,3 +113,19 @@ class MeetingLifecycleAuditEvent(Base):
     safe_reason: Mapped[str | None] = mapped_column(String(240))
     metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class RecordingOriginCancellation(Base):
+    """Metadata-only tombstone; never materialize a meeting merely to cancel an origin."""
+
+    __tablename__ = "recording_origin_cancellations"
+    __table_args__ = (UniqueConstraint(
+        "workspace_id", "created_by_user_id", "local_recording_id",
+        name="uq_recording_origin_cancellation",
+    ),)
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
+    created_by_user_id: Mapped[UUID] = mapped_column(ForeignKey("user_identities.id"), nullable=False)
+    local_recording_id: Mapped[str] = mapped_column(String(240), nullable=False)
+    accepted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

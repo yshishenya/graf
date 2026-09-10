@@ -193,6 +193,10 @@ def test_format_selector_exposes_one_labelled_listbox_with_bounded_quick_choices
     assert 'role="option"' in source
     assert 'data-recommended-limit="4"' in source
     assert "Все форматы…" in source
+    assert "data-summary-format-popover" in source
+    assert "data-summary-format-back" in source
+    assert "data-summary-format-description" in source
+    assert "data-summary-format-dialog" not in _source(MEETING_DETAIL)
     for key in ("ArrowUp", "ArrowDown", "Home", "End", "Escape"):
         assert key in source
 

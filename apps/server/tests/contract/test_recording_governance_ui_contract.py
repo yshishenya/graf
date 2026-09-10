@@ -34,7 +34,7 @@ def test_more_menu_is_compact_ordered_and_keeps_details_separate() -> None:
     assert '<h2 id="meeting-context-more-title">Ещё</h2>' not in source
 
 
-def test_delete_confirmation_is_a_focused_named_dialog_with_retained_observability_copy() -> None:
+def test_delete_confirmation_is_a_focused_named_dialog_with_plain_copy() -> None:
     source = POLICY_RENDERING.read_text(encoding="utf-8")
     script = CABINET_JS.read_text(encoding="utf-8")
 
@@ -42,10 +42,11 @@ def test_delete_confirmation_is_a_focused_named_dialog_with_retained_observabili
     assert 'aria-labelledby="meeting-delete-title"' in source
     assert "data-meeting-delete-dialog-cancel" in source
     assert "data-meeting-delete-dialog-confirm" in source
-    assert "Generation Call" in source
-    assert "Langfuse" in source
-    assert "Temporal History" in source
-    assert "удалены не будут" in source
+    assert "Встреча будет удалена из GRAF. Восстановить её не получится." in source
+    assert "Удаление не затронет скачанные и отправленные копии." not in source
+    assert "Generation Call" not in source
+    assert "Langfuse" not in source
+    assert "Temporal History" not in source
     assert "initMeetingDeleteDialog" in script
     assert 'dialog.addEventListener("cancel"' in script
     assert 'event.key !== "Tab"' in script

@@ -60,11 +60,12 @@ def test_empty_states_and_unknown_task_fields():
     assert "Открытые вопросы не зафиксированы." in text
 
 
-def test_saved_protocol_exports_preserve_words_and_hide_evidence(export_fixture):
+@pytest.mark.parametrize("scope", ["summary", "combined"])
+def test_saved_protocol_exports_preserve_words_and_hide_evidence(export_fixture, scope):
     document = validate(protocol_fixture())["protocol"]
     document["title"] = "=SUM(1,2)"
     for format in ("md", "txt", "json", "xlsx"):
-        snapshot = _snapshot(export_fixture, scope="summary", format=format)
+        snapshot = _snapshot(export_fixture, scope=scope, format=format)
         snapshot = replace(snapshot, summary=replace(snapshot.summary, protocol=document),
                            selection=replace(snapshot.selection, include_evidence=False))
         exported = render_content_export(snapshot).body
@@ -82,6 +83,7 @@ def test_saved_protocol_exports_preserve_words_and_hide_evidence(export_fixture)
             assert any(row[1] == "Принятые решения в транскрипте не зафиксированы." for row in values)
             assert any(row[1] == "Сделать макет" and row[2] == "Участник 1" for row in values)
             assert all(not row[4] for row in values[1:])
+            assert all(cell.hyperlink is None for row in sheet for cell in row)
         else:
             text = exported.decode()
             assert "Сделать макет" in text and "наверное, завтра" in text

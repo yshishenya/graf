@@ -87,7 +87,7 @@ final class DesktopUploadQueueTests: XCTestCase {
             clock: { Date(timeIntervalSince1970: 100) }
         )
 
-        let blocked = try XCTUnwrap(queue.scanAndEnqueueCompletedRecordings().first)
+        let blocked = try XCTUnwrap(queue.scanTrustedSyntheticRecordingFixtures(localOnly: true).first)
         let retry = try queue.retry(itemId: blocked.id)
         let deleted = try queue.deleteLocalCopy(itemId: blocked.id)
 
@@ -171,8 +171,8 @@ final class DesktopUploadQueueTests: XCTestCase {
             clock: { Date(timeIntervalSince1970: 100) }
         )
 
-        let queued = try XCTUnwrap(service.scanAndEnqueueCompletedRecordings().first)
-        let finished = try await service.processDueItems { items in
+        let queued = try XCTUnwrap(service.scanTrustedSyntheticRecordingFixtures().first)
+        let finished = try await service.processTrustedSyntheticDueItems { items in
             await collector.append(items)
         }
         let observed = await collector.progressFractions(for: queued.id)
@@ -301,7 +301,7 @@ final class DesktopUploadQueueTests: XCTestCase {
             client: nil,
             clock: { Date(timeIntervalSince1970: 100) }
         )
-        var item = try XCTUnwrap(initialService.scanAndEnqueueCompletedRecordings().first)
+        var item = try XCTUnwrap(initialService.scanTrustedSyntheticRecordingFixtures().first)
         item.meetingId = meetingId
         try JSONEncoder.uploadQueueTestEncoder
             .encode(DesktopUploadQueueDocument(updatedAt: item.updatedAt, items: [item]))
@@ -323,7 +323,7 @@ final class DesktopUploadQueueTests: XCTestCase {
             clock: { Date(timeIntervalSince1970: 200) }
         )
 
-        _ = try await service.acknowledgePendingLocalPurgeTasks()
+        _ = try await service.acknowledgeTrustedSyntheticLocalPurgeTasks()
 
         XCTAssertEqual(client.acknowledgements.first?.state, .acknowledged)
         XCTAssertEqual(client.acknowledgements.first?.reasonCode, "local_artifacts_deleted")
@@ -350,7 +350,7 @@ final class DesktopUploadQueueTests: XCTestCase {
             client: nil,
             clock: { Date(timeIntervalSince1970: 100) }
         )
-        var item = try XCTUnwrap(initialService.scanAndEnqueueCompletedRecordings().first)
+        var item = try XCTUnwrap(initialService.scanTrustedSyntheticRecordingFixtures().first)
         item.meetingId = meetingId
         try JSONEncoder.uploadQueueTestEncoder
             .encode(DesktopUploadQueueDocument(updatedAt: item.updatedAt, items: [item]))
@@ -364,7 +364,7 @@ final class DesktopUploadQueueTests: XCTestCase {
             clock: { Date(timeIntervalSince1970: 200) }
         )
 
-        _ = try await service.acknowledgePendingLocalPurgeTasks()
+        _ = try await service.acknowledgeTrustedSyntheticLocalPurgeTasks()
 
         XCTAssertEqual(client.reconciledItems.map(\.id), [item.id])
         XCTAssertEqual(client.acknowledgements.first?.state, .failed)
@@ -390,7 +390,7 @@ final class DesktopUploadQueueTests: XCTestCase {
             client: nil,
             clock: { Date(timeIntervalSince1970: 100) }
         )
-        var item = try XCTUnwrap(initialService.scanAndEnqueueCompletedRecordings().first)
+        var item = try XCTUnwrap(initialService.scanTrustedSyntheticRecordingFixtures().first)
         item.meetingId = taskMeetingId
         try JSONEncoder.uploadQueueTestEncoder
             .encode(DesktopUploadQueueDocument(updatedAt: item.updatedAt, items: [item]))
@@ -412,7 +412,7 @@ final class DesktopUploadQueueTests: XCTestCase {
             clock: { Date(timeIntervalSince1970: 200) }
         )
 
-        _ = try await service.acknowledgePendingLocalPurgeTasks()
+        _ = try await service.acknowledgeTrustedSyntheticLocalPurgeTasks()
 
         XCTAssertEqual(client.reconciledItems.map(\.id), [item.id])
         XCTAssertEqual(client.acknowledgements.first?.state, .failed)
@@ -439,7 +439,7 @@ final class DesktopUploadQueueTests: XCTestCase {
             client: nil,
             clock: { Date(timeIntervalSince1970: 100) }
         )
-        var item = try XCTUnwrap(initialService.scanAndEnqueueCompletedRecordings().first)
+        var item = try XCTUnwrap(initialService.scanTrustedSyntheticRecordingFixtures().first)
         item.meetingId = meetingId
         try FileManager.default.removeItem(at: package.directoryURL)
         try JSONEncoder.uploadQueueTestEncoder
@@ -457,7 +457,7 @@ final class DesktopUploadQueueTests: XCTestCase {
             clock: { Date(timeIntervalSince1970: 200) }
         )
 
-        _ = try await service.acknowledgePendingLocalPurgeTasks()
+        _ = try await service.acknowledgeTrustedSyntheticLocalPurgeTasks()
 
         XCTAssertEqual(client.acknowledgements.first?.state, .acknowledged)
         XCTAssertEqual(client.acknowledgements.first?.reasonCode, "local_artifacts_deleted")
@@ -480,7 +480,7 @@ final class DesktopUploadQueueTests: XCTestCase {
             client: nil,
             clock: { Date(timeIntervalSince1970: 100) }
         )
-        var item = try XCTUnwrap(initialService.scanAndEnqueueCompletedRecordings().first)
+        var item = try XCTUnwrap(initialService.scanTrustedSyntheticRecordingFixtures().first)
         item.meetingId = meetingId
         try JSONEncoder.uploadQueueTestEncoder
             .encode(DesktopUploadQueueDocument(updatedAt: item.updatedAt, items: [item]))
@@ -494,7 +494,7 @@ final class DesktopUploadQueueTests: XCTestCase {
             clock: { Date(timeIntervalSince1970: 200) }
         )
 
-        _ = try await service.acknowledgePendingLocalPurgeTasks()
+        _ = try await service.acknowledgeTrustedSyntheticLocalPurgeTasks()
 
         XCTAssertEqual(client.acknowledgements.first?.state, .failed)
         XCTAssertEqual(client.acknowledgements.first?.reasonCode, "local_purge_unverified")
@@ -528,7 +528,7 @@ final class DesktopUploadQueueTests: XCTestCase {
             client: nil,
             clock: { Date(timeIntervalSince1970: 100) }
         )
-        var item = try XCTUnwrap(initialService.scanAndEnqueueCompletedRecordings().first)
+        var item = try XCTUnwrap(initialService.scanTrustedSyntheticRecordingFixtures().first)
         item.meetingId = meetingId
         item.directoryPath = outsideDirectory.path
         item.manifestPath = outsideManifest.path
@@ -554,7 +554,7 @@ final class DesktopUploadQueueTests: XCTestCase {
             clock: { Date(timeIntervalSince1970: 200) }
         )
 
-        _ = try await service.acknowledgePendingLocalPurgeTasks()
+        _ = try await service.acknowledgeTrustedSyntheticLocalPurgeTasks()
 
         XCTAssertEqual(client.acknowledgements.first?.state, .failed)
         XCTAssertEqual(client.acknowledgements.first?.reasonCode, "local_purge_failed")
@@ -579,7 +579,7 @@ final class DesktopUploadQueueTests: XCTestCase {
             client: nil,
             clock: { Date(timeIntervalSince1970: 100) }
         )
-        var item = try XCTUnwrap(initialService.scanAndEnqueueCompletedRecordings().first)
+        var item = try XCTUnwrap(initialService.scanTrustedSyntheticRecordingFixtures().first)
         item.meetingId = meetingId
         try JSONEncoder.uploadQueueTestEncoder
             .encode(DesktopUploadQueueDocument(updatedAt: item.updatedAt, items: [item]))
@@ -601,7 +601,7 @@ final class DesktopUploadQueueTests: XCTestCase {
             clock: { Date(timeIntervalSince1970: 200) }
         )
 
-        _ = try await service.acknowledgePendingLocalPurgeTasks()
+        _ = try await service.acknowledgeTrustedSyntheticLocalPurgeTasks()
 
         XCTAssertEqual(client.reconciledItems.map(\.id), [item.id])
         XCTAssertEqual(client.acknowledgements.first?.state, .failed)
@@ -628,7 +628,7 @@ final class DesktopUploadQueueTests: XCTestCase {
             client: nil,
             clock: { Date(timeIntervalSince1970: 100) }
         )
-        var item = try XCTUnwrap(initialService.scanAndEnqueueCompletedRecordings().first)
+        var item = try XCTUnwrap(initialService.scanTrustedSyntheticRecordingFixtures().first)
         item.meetingId = meetingId
         item.state = .uploaded
         item.retryMode = .terminal
@@ -651,7 +651,7 @@ final class DesktopUploadQueueTests: XCTestCase {
         )
 
         do {
-            _ = try await service.acknowledgePendingLocalPurgeTasks()
+            _ = try await service.acknowledgeTrustedSyntheticLocalPurgeTasks()
             XCTFail("acknowledgePendingLocalPurgeTasks should surface server ack failure")
         } catch DesktopUploadClientError.invalidResponse {
         }
@@ -1396,8 +1396,8 @@ final class DesktopUploadQueueTests: XCTestCase {
             clock: { Date(timeIntervalSince1970: 100) }
         )
 
-        _ = try service.scanAndEnqueueCompletedRecordings()
-        _ = try await service.processDueItems()
+        _ = try service.scanTrustedSyntheticRecordingFixtures()
+        _ = try await service.processTrustedSyntheticDueItems()
 
         let uploadedItem = try XCTUnwrap(client.uploadedItems.first)
         let savedItem = try XCTUnwrap(service.loadItems().first)
@@ -1439,8 +1439,8 @@ final class DesktopUploadQueueTests: XCTestCase {
             clock: { Date(timeIntervalSince1970: 100) }
         )
 
-        _ = try service.scanAndEnqueueCompletedRecordings()
-        let items = try await service.processDueItems()
+        _ = try service.scanTrustedSyntheticRecordingFixtures()
+        let items = try await service.processTrustedSyntheticDueItems()
 
         let savedItem = try XCTUnwrap(items.first)
         XCTAssertTrue(client.uploadedItems.isEmpty)
@@ -1474,6 +1474,7 @@ final class DesktopUploadQueueTests: XCTestCase {
             ),
             updatedAt: finalizedAt
         )
+        uploaded.ownerScope = syntheticRecordingScope
         uploaded.lastReconciledAt = finalizedAt
         uploaded.syncGeneration = 1
         let document = DesktopUploadQueueDocument(updatedAt: finalizedAt, items: [uploaded])
@@ -1505,7 +1506,7 @@ final class DesktopUploadQueueTests: XCTestCase {
             clock: { Date(timeIntervalSince1970: 130) }
         )
 
-        let items = try await service.processDueItems()
+        let items = try await service.processTrustedSyntheticDueItems()
 
         let savedItem = try XCTUnwrap(items.first)
         XCTAssertTrue(client.uploadedItems.isEmpty)
@@ -1550,8 +1551,8 @@ final class DesktopUploadQueueTests: XCTestCase {
             clock: { Date(timeIntervalSince1970: 100) }
         )
 
-        _ = try service.scanAndEnqueueCompletedRecordings()
-        _ = try await service.processDueItems()
+        _ = try service.scanTrustedSyntheticRecordingFixtures()
+        _ = try await service.processTrustedSyntheticDueItems()
 
         let savedItem = try XCTUnwrap(service.loadItems().first)
         XCTAssertTrue(client.uploadedItems.isEmpty)
@@ -1645,7 +1646,7 @@ final class DesktopUploadQueueTests: XCTestCase {
             client: nil,
             clock: { Date(timeIntervalSince1970: 100) }
         )
-        let item = try XCTUnwrap(service.scanAndEnqueueCompletedRecordings().first)
+        let item = try XCTUnwrap(service.scanTrustedSyntheticRecordingFixtures().first)
         _ = try service.stopRetry(itemId: item.id)
         _ = try service.retry(itemId: item.id)
         let expiredService = DesktopUploadQueueService(
@@ -1863,7 +1864,7 @@ final class DesktopUploadQueueTests: XCTestCase {
             clock: { Date(timeIntervalSince1970: 100) }
         )
 
-        let item = try XCTUnwrap(service.scanAndEnqueueCompletedRecordings().first)
+        let item = try XCTUnwrap(service.scanTrustedSyntheticRecordingFixtures().first)
 
         XCTAssertEqual(item.state, .blocked)
         XCTAssertEqual(item.failureCategory, .localResource)
@@ -1887,7 +1888,7 @@ final class DesktopUploadQueueTests: XCTestCase {
             clock: { Date(timeIntervalSince1970: 101) }
         )
 
-        let refreshed = try XCTUnwrap(refreshedService.scanAndEnqueueCompletedRecordings().first)
+        let refreshed = try XCTUnwrap(refreshedService.scanTrustedSyntheticRecordingFixtures().first)
         XCTAssertEqual(refreshed.state, .blocked)
         XCTAssertEqual(refreshed.failureCategory, .localResource)
         XCTAssertEqual(refreshed.failureReason, "aec_capture_failed")
@@ -1984,7 +1985,7 @@ final class DesktopUploadQueueTests: XCTestCase {
             client: nil,
             clock: { Date(timeIntervalSince1970: 100) }
         )
-        var item = try XCTUnwrap(initialService.scanAndEnqueueCompletedRecordings().first)
+        var item = try XCTUnwrap(initialService.scanTrustedSyntheticRecordingFixtures().first)
         item.state = .queued
         item.failureCategory = .none
         item.failureReason = nil
@@ -2062,7 +2063,7 @@ final class DesktopUploadQueueTests: XCTestCase {
             recordingsRootURL: root,
             client: nil
         )
-        let unreadableItem = try XCTUnwrap(unreadableService.scanAndEnqueueCompletedRecordings().first)
+        let unreadableItem = try XCTUnwrap(unreadableService.scanTrustedSyntheticRecordingFixtures().first)
         try FileManager.default.setAttributes(
             [.posixPermissions: 0],
             ofItemAtPath: unreadablePackage.reviewURL.path
@@ -2095,7 +2096,7 @@ final class DesktopUploadQueueTests: XCTestCase {
             client: nil,
             clock: { Date(timeIntervalSince1970: 100) }
         )
-        let item = try service.scanAndEnqueueCompletedRecordings().first!
+        let item = try service.scanTrustedSyntheticRecordingFixtures().first!
         _ = try service.stopRetry(itemId: item.id)
         _ = try service.retry(itemId: item.id)
         let expiredService = DesktopUploadQueueService(
@@ -2396,7 +2397,8 @@ final class DesktopUploadQueueTests: XCTestCase {
         let fixture = makeQueueV2Fixture(directoryId: "recording-sync-001")
 
         XCTAssertEqual(fixture.localMediaRevisionId, "recording-sync-001--initial")
-        XCTAssertEqual(DesktopUploadQueueDocument.schemaVersion, fixture.schemaVersion)
+        XCTAssertEqual(fixture.schemaVersion, "desktop-upload-queue.v2")
+        XCTAssertEqual(DesktopUploadQueueDocument.schemaVersion, "desktop-upload-queue.v3")
     }
 
     func testNextScheduledRetryDateSelectsEarliestFutureAutomaticRetry() {
@@ -3303,5 +3305,35 @@ private extension JSONEncoder {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         return encoder
+    }
+}
+
+// Upload/purge regressions start with a capture whose test account is known.
+// Unknown legacy recovery is exercised separately by RecordingDeletionLifecycleTests.
+private let syntheticRecordingScope = try! RecordingDeletionScope(
+    serverOrigin: "https://graf.invalid", workspaceID: "synthetic-workspace", actorUserID: "synthetic-owner"
+)
+
+private extension DesktopUploadQueueService {
+    func scanTrustedSyntheticRecordingFixtures(localOnly: Bool = false) throws -> [DesktopUploadQueueItem] {
+        setDeletionScope(localOnly ? nil : syntheticRecordingScope)
+        let service = LocalRecordingManifestService()
+        let knownIDs = Set(try loadItems().map(\.directoryId))
+        for directory in (try? FileManager.default.contentsOfDirectory(at: recordingsRootURL, includingPropertiesForKeys: nil)) ?? [] {
+            guard let manifest = try? service.read(from: directory.appendingPathComponent("manifest.json")),
+                  manifest.status != .active, !knownIDs.contains(manifest.directoryId) else { continue }
+            _ = try enqueue(manifest: manifest, directoryURL: directory)
+        }
+        return try scanAndEnqueueCompletedRecordings()
+    }
+
+    func processTrustedSyntheticDueItems(onProgress: @escaping ProgressObserver = { _ in }) async throws -> [DesktopUploadQueueItem] {
+        setDeletionScope(syntheticRecordingScope)
+        return try await processDueItems(onProgress: onProgress)
+    }
+
+    func acknowledgeTrustedSyntheticLocalPurgeTasks() async throws -> [DesktopLocalPurgeTask] {
+        setDeletionScope(syntheticRecordingScope)
+        return try await acknowledgePendingLocalPurgeTasks()
     }
 }

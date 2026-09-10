@@ -1,4 +1,7 @@
+import os
+import subprocess
 from html.parser import HTMLParser
+from pathlib import Path
 from uuid import UUID
 
 import pytest
@@ -67,6 +70,25 @@ def test_detail_controls_stay_inside_private_main_and_outside_tab_roles(embedded
     assert any(parent[1].get("data-detail-panel") == "recording" for parent in back[2])
 
 
+def test_summary_picker_keeps_catalog_and_actions_in_one_nonmodal_surface():
+    dom = Elements(render_meeting_detail_page(reference_review()))
+    popover = dom.with_attr("data-summary-format-popover")[0]
+    listbox = dom.with_attr("data-summary-format-listbox")[0]
+    assert "hidden" in popover[1]
+    assert popover in listbox[2]
+    assert len(dom.with_attr("data-summary-format-description")) == 1
+    assert not dom.with_attr("data-summary-format-dialog")
+    for marker in ("data-summary-format-all", "data-summary-format-back", "data-summary-format-settings"):
+        action = dom.with_attr(marker)[0]
+        assert popover in action[2]
+        assert listbox not in action[2]
+    for option in dom.with_attr("data-summary-format-option"):
+        assert listbox in option[2]
+        children = [node for node in dom.nodes if option in node[2]]
+        assert not any(node[0] in {"p", "small"} for node in children)
+        assert any(node[1].get("aria-hidden") == "true" for node in children)
+
+
 def test_unavailable_transcript_does_not_create_format_or_copy_capabilities():
     review = reference_review()
     review.transcript.available = False
@@ -112,3 +134,17 @@ def test_no_js_downloads_only_expose_permitted_current_artifacts(shared, availab
         href = links[0][1]["href"]
         assert href.endswith(f"/downloads/transcript?workspace_id={workspace_id}" if shared else "/downloads/transcript")
         assert ("/shared-meetings/" in href) == shared
+
+
+@pytest.mark.skipif(not os.environ.get("GRAF_NODE_MODULES"), reason="Explicit installed Playwright path required")
+def test_summary_picker_keyboard_catalog_and_narrow_layout_in_browser(tmp_path):
+    review = reference_review()
+    review.notes_action_truth.summary.state = "available"
+    review.template.reason = "graf-weekly-team-meeting-v1"
+    review.template.version = 1
+    review.template.outcome_set_id = UUID("00000000-0000-0000-0000-000000000001")
+    page = tmp_path / "summary-picker.html"
+    page.write_text(render_meeting_detail_page(review), encoding="utf-8")
+    script = Path(__file__).parents[1] / "browser/summary-format-picker.test.cjs"
+    result = subprocess.run(["node", str(script), str(page)], capture_output=True, text=True, timeout=90)
+    assert result.returncode == 0, result.stdout + result.stderr

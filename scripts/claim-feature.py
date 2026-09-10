@@ -52,7 +52,7 @@ def _claim_lock(path: Path):
 def _sequential_id(name: str) -> int | None:
     if re.match(r"^\d{7,8}-\d{6}(?:-|$)", name):
         return None
-    match = re.fullmatch(r"(\d{3,})(?:-[A-Za-z0-9][A-Za-z0-9-]*)?", name)
+    match = re.match(r"^(\d{3,})(?:-|$)", name)
     return int(match.group(1)) if match else None
 
 
@@ -67,6 +67,38 @@ def _ids_from_specs(root: Path) -> set[int]:
             if feature_id is not None:
                 result.add(feature_id)
     return result
+
+
+def _sequence_spec_ids(root: Path) -> set[int]:
+    """Exclude explicitly documented historical IDs from the start, not occupancy."""
+    path = root / ".specify/feature-numbering.json"
+
+    def unique_keys(pairs):
+        result = dict(pairs)
+        if len(result) != len(pairs):
+            raise ValueError("duplicate policy key")
+        return result
+
+    try:
+        try:
+            raw = path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            if path.is_symlink():
+                raise
+            return _ids_from_specs(root)
+        policy = json.loads(raw, object_pairs_hook=unique_keys)
+        if not isinstance(policy, dict) or set(policy) != {"out_of_sequence_spec_ids"}:
+            raise ValueError("expected only out_of_sequence_spec_ids")
+        excluded = policy["out_of_sequence_spec_ids"]
+        if (
+            not isinstance(excluded, list)
+            or any(type(value) is not int or value <= 0 for value in excluded)
+            or len(set(excluded)) != len(excluded)
+        ):
+            raise ValueError("out_of_sequence_spec_ids must contain unique positive integers")
+    except (OSError, ValueError) as exc:
+        raise SystemExit(f"feature-claim: invalid numbering policy {path}: {exc}") from exc
+    return _ids_from_specs(root) - set(excluded)
 
 
 def _git_refs(root: Path, *, strict: bool = False) -> list[str]:
@@ -285,7 +317,7 @@ def _github_umbrella(root: Path, issue_number: int, feature_id: int) -> None:
 def _create_github_umbrella(root: Path, feature_id: int, slug: str) -> int:
     """Create the one canonical reservation issue while the shared claim lock is held."""
     _ensure_feature_label(root, feature_id)
-    title = f"[{feature_id:03d}][P1][governance] T000: Реализовать фичу {slug}"
+    title = f"[{feature_id:03d}][P1][docs/governance] T000: Реализовать фичу {slug}"
     body = f"""## Кратко
 
 Зарезервировать Feature {feature_id:03d} и вести его работу через Spec Kit и GitHub.
@@ -294,7 +326,8 @@ def _create_github_umbrella(root: Path, feature_id: int, slug: str) -> int:
 
 - Фича: `{feature_id:03d}-{slug}`
 - Приоритет: `P1`
-- Область: `governance`
+- Область: `docs/governance`
+- Spec tasks: T000
 - Источник: автоматический feature bootstrap
 - Гейт: blocks PR
 
@@ -457,7 +490,7 @@ def _next_feature_id(root: Path, occupied: set[int], *, offline: bool = False,
                      exclude_issue: int | None = None) -> int:
     # Specs anchor the project's sequence. Refs and reservations prevent
     # collisions but a stray large ID must not advance that sequence.
-    candidate = _available_id(occupied, max(_ids_from_specs(root), default=0) + 1)
+    candidate = _available_id(occupied, max(_sequence_spec_ids(root), default=0) + 1)
     while not offline and candidate in _github_ids(
         root, candidates={candidate}, exclude_issue=exclude_issue, strict=True,
     ):
@@ -601,8 +634,14 @@ def self_test() -> int:
         subprocess.run(["git", "config", "user.name", "Feature Claim Test"], cwd=root, check=True)
         subprocess.run(["git", "add", "specs"], cwd=root, check=True)
         subprocess.run(["git", "commit", "-qm", "fixture"], cwd=root, check=True)
-        occupied = _ids_from_specs(root) | _ids_from_refs(["origin/codex/215-summary-auto-recovery", "origin/codex/1024-large-feature"])
-        assert occupied == {1, 215, 1024}
+        occupied = _ids_from_specs(root) | _ids_from_refs([
+            "origin/codex/215-summary-auto-recovery", "origin/codex/1024-large-feature",
+            "refs/heads/codex/225-feature-id-allocator",
+            "refs/heads/codex/turn-diffs/captures/99999999-synthetic",
+            "refs/codex/turn-diffs/captures/99999999-synthetic/base",
+            "refs/heads/codex/20260909-123456-synthetic",
+        ])
+        assert occupied == {1, 215, 225, 1024}
         assert _available_id(occupied, 1) == 2
         assert _available_id(occupied, 215) == 216
         try:

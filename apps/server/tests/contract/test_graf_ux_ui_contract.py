@@ -50,7 +50,7 @@ def test_meeting_detail_keeps_tabs_dialogs_and_recovery_hooks() -> None:
         'id="detail-tab-recording"',
         'id="detail-panel-outcomes"',
         'id="detail-panel-recording"',
-        'id="summary-format-dialog"',
+        "data-summary-format-popover",
         "data-processing-check",
         "data-processing-new-attempt",
         "data-processing-refresh",
