@@ -1547,7 +1547,6 @@ def _render_content_export_dialog(
               <div class="content-export-options">
                 <label data-export-option-speakers><input type="checkbox" name="include_speaker_labels" checked> Указывать участников</label>
                 <label data-export-option-timestamps><input type="checkbox" name="include_timestamps" checked> Добавлять время</label>
-                <label data-export-option-evidence><input type="checkbox" name="include_evidence" checked> Добавлять ссылки на фрагменты</label>
                 <button type="button" class="quiet content-export-copy" data-export-copy>Скопировать текст</button>
               </div>
             </details>

@@ -3579,6 +3579,10 @@ def test_120_meeting_detail_renders_one_accessible_metadata_only_export_dialog()
     assert 'class="primary" data-export-submit>Скачать файл</button>' in page
     assert 'class="primary" data-export-submit>Сохранить…</button>' in embedded_page
     assert "data-export-copy" in page
+    for rendered in (page, embedded_page):
+        assert 'name="include_evidence"' not in rendered
+        assert "Добавлять ссылки на фрагменты" not in rendered
+        assert 'name="include_timestamps"' in rendered
     assert "setBusy(true)" in _cabinet_js()
     assert 'requestExport("txt", selectedScope)' in _cabinet_js()
     assert "navigator.clipboard.writeText" in _cabinet_js()

@@ -7350,7 +7350,6 @@
     const copy = form.querySelector("[data-export-copy]");
     const speakers = form.querySelector("input[name='include_speaker_labels']");
     const timestamps = form.querySelector("input[name='include_timestamps']");
-    const evidence = form.querySelector("input[name='include_evidence']");
     const formatGroups = [
       ["Текст", [["txt", "Текст (.txt)"], ["md", "Markdown (.md)"]]],
       ["Таблицы", [["csv", "Таблица CSV (.csv)"], ["xlsx", "Excel (.xlsx)"]]],
@@ -7400,7 +7399,6 @@
         if (machineFormat || format.value === "srt" || format.value === "vtt") timestamps.checked = true;
         timestamps.disabled = machineFormat || format.value === "srt" || format.value === "vtt";
       }
-      if (evidence) evidence.disabled = scope.value === "transcript";
       syncAvailability();
     };
     const updateFormats = () => {
@@ -7470,7 +7468,7 @@
         outcome_set_id: selectedScope === "transcript" ? null : (form.dataset.outcomeSetId || null),
         include_speaker_labels: include("include_speaker_labels"),
         include_timestamps: include("include_timestamps"),
-        include_evidence: selectedScope !== "transcript" && include("include_evidence")
+        include_evidence: false
       };
     };
     const requestExport = async (requestedFormat = format?.value, selectedScope = scope?.value || "transcript") => {
