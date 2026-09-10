@@ -248,7 +248,7 @@ def test_production_share_head_upgrades_to_regeneration_merge(
         promotion_counter_function,
         promotion_counter_config,
     ) = asyncio.run(inspect_schema())
-    assert versions == ["0091_comment_reader_projection"]
+    assert versions == ["0092_recording_origin_cancel"]
     assert "public.promotion_campaigns" in promotion_counter_function
     assert "search_path=pg_catalog, pg_temp" in promotion_counter_config
     assert {
@@ -361,7 +361,7 @@ def test_linked_workspace_migration_handles_optional_legacy_check_and_adds_merge
         legacy_fair_use_using,
         legacy_fair_use_check,
     ) = asyncio.run(prepare_pre_upgrade_schema())
-    command.upgrade(alembic_config, "head")
+    command.upgrade(alembic_config, "0091_comment_reader_projection")
 
     async def inspect_schema() -> tuple[list[str], str, dict[str, tuple[bool, str]], str, str, str]:
         engine = create_async_engine(postgres_clean_database_url)
@@ -686,7 +686,7 @@ def test_linked_workspace_migration_handles_optional_legacy_check_and_adds_merge
     assert downgraded_fair_use_using == legacy_fair_use_using
     assert downgraded_fair_use_check == legacy_fair_use_check
 
-    command.upgrade(alembic_config, "head")
+    command.upgrade(alembic_config, "0091_comment_reader_projection")
 
     async def inspect_reupgraded_schema() -> tuple[list[str], str]:
         engine = create_async_engine(postgres_clean_database_url)
@@ -855,7 +855,7 @@ def test_workspace_onboarding_migration_downgrades_cleanly(
         "script_location", str(ROOT / "apps/server/src/twobrain_rec_server/db/migrations")
     )
 
-    command.upgrade(alembic_config, "head")
+    command.upgrade(alembic_config, "0091_comment_reader_projection")
     command.downgrade(alembic_config, "0026_active_cleanup")
 
     async def inspect_schema() -> tuple[set[str], set[str]]:

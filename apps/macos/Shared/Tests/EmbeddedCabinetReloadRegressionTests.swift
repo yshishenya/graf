@@ -3,7 +3,7 @@ import Combine
 import Foundation
 import Network
 import SwiftUI
-import TwoBrainRecAppCore
+@testable import TwoBrainRecAppCore
 import WebKit
 import XCTest
 
@@ -40,7 +40,10 @@ final class EmbeddedCabinetReloadRegressionTests: XCTestCase {
         let controller = EmbeddedCabinetNavigationController()
         let view = EmbeddedCabinetWebView(request: request,
             routePolicy: DesktopCabinetRoutePolicy(baseURL: origin), cabinetState: .constant(.ready),
-            fallbackRequest: request, navigationController: controller)
+            fallbackRequest: request,
+            notificationPresenter: DesktopNotificationPresenter(
+                store: .init(defaults: UserDefaults(suiteName: UUID().uuidString)!),
+                model: DesktopControlModel(), status: { .denied }), navigationController: controller)
         let host = NSHostingView(rootView: view)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
             styleMask: [.titled], backing: .buffered, defer: false)

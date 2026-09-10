@@ -212,7 +212,7 @@ def test_publish_registry_migration_downgrade_restores_previous_published_regist
     command.upgrade(alembic_config, "0017_meeting_detection")
     asyncio.run(_seed_previous_registry(postgres_clean_database_url, previous_registry))
 
-    command.upgrade(alembic_config, "head")
+    command.upgrade(alembic_config, "0091_comment_reader_projection")
     upgraded_rows = asyncio.run(_registry_rows(postgres_clean_database_url))
 
     command.downgrade(alembic_config, "0018_mediascribe_result")

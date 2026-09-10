@@ -3,7 +3,7 @@ import AppKit
 import Network
 import SwiftUI
 import WebKit
-import TwoBrainRecAppCore
+@testable import TwoBrainRecAppCore
 import TwoBrainRecShared
 
 #if canImport(XCTest)
@@ -44,6 +44,9 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         let cabinet = EmbeddedCabinetWebView(
             request: request, routePolicy: DesktopCabinetRoutePolicy(baseURL: origin),
             cabinetState: .constant(.expiredSession), fallbackRequest: request,
+            notificationPresenter: DesktopNotificationPresenter(
+                store: .init(defaults: UserDefaults(suiteName: UUID().uuidString)!),
+                model: DesktopControlModel(), status: { .denied }),
             navigationController: EmbeddedCabinetNavigationController()
         )
         let host = NSHostingView(rootView: cabinet)

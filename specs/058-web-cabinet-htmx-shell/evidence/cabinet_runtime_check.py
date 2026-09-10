@@ -316,12 +316,12 @@ def run_checks() -> dict[str, Any]:
     _add_check(
         checks,
         "settings_shell",
-        '<h1>Настройки</h1>' in settings_page
+        '<h1>Аккаунт</h1>' in settings_page
         and 'data-settings-primary-nav-item="calendar"' in settings_page
         and 'class="settings-navigation"' not in settings_page
         and 'href="/settings/integrations/calendar"' in settings_page
         and 'data-active-nav="settings"' in settings_page,
-        "settings overview exposes the calendar category",
+        "unified settings expose the account page and calendar category",
     )
     _add_check(checks, "native_controls_absent_from_webview", "Record live" not in embedded_detail_page and "Screen Recording" not in embedded_detail_page, "native capture copy stays outside WebView")
     _add_check(checks, "list_fragment_bounded", "<!doctype html>" not in list_fragment and 'data-cabinet-fragment="meeting-list"' in list_fragment, "list HTMX response is a bounded fragment")

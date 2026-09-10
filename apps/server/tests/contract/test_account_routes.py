@@ -951,32 +951,26 @@ def test_account_ia_aliases_cover_profile_security_and_notifications() -> None:
     } <= paths
 
 
-def test_account_menu_has_the_six_canonical_actions_and_csrf_logout_fallback() -> None:
+def test_account_menu_uses_unified_settings_and_csrf_logout_fallback() -> None:
     page = render_settings_page(category="account", csrf_token="safe-csrf")
 
-    for label in (
-        "Профиль",
-        "Безопасность",
-        "Уведомления",
-        "Тариф и оплата",
-        "Пригласить друзей",
-        "Выйти",
-    ):
+    for label in ("Аккаунт", "Уведомления", "Тариф и оплата", "Настройки", "Выйти"):
         assert label in page
-    assert 'href="/billing"' in page
-    assert 'href="/referrals"' in page
-    assert '<form class="account-navigation__logout" method="post" action="/logout">' in page
+    assert 'href="/settings/account"' in page
+    assert 'href="/settings/notifications"' in page
+    assert 'class="account-navigation"' not in page
+    assert '<form class="sidebar-logout" method="post" action="/logout">' in page
     assert '<input type="hidden" name="csrf_token" value="safe-csrf">' in page
     assert '<input type="hidden" name="next" value="/login?next=/meetings">' in page
 
 
-def test_embedded_account_menu_keeps_money_and_referrals_as_browser_handoffs() -> None:
+def test_embedded_account_menu_keeps_billing_handoff_and_native_logout() -> None:
     page = render_settings_page(embedded=True, category="account", csrf_token="embedded-csrf")
 
     assert 'href="/billing"' in page
-    assert 'href="/referrals"' in page
+    assert 'href="/desktop/settings/account"' in page
     assert (
-        '<form class="account-navigation__logout" method="post" action="/desktop/meetings">' in page
+        '<form class="sidebar-logout" method="post" action="/desktop/meetings">' in page
     )
     assert '<input type="hidden" name="next" value="/login?next=/desktop/meetings">' in page
 
