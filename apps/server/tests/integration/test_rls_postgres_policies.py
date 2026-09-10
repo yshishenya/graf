@@ -4717,10 +4717,16 @@ async def test_production_smoke_cleanup_discovers_partial_upload_and_normalizati
 
 def test_production_smoke_setup_migration_downgrade_removes_operation(
     migrated_postgres_urls: MigratedPostgresUrls,
+    postgres_clean_database_url: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # Keep the historical round trip off the shared head schema and deletion markers.
+    probe_url = make_url(migrated_postgres_urls.probe_url).set(
+        database=make_url(postgres_clean_database_url).database,
+    ).render_as_string(hide_password=False)
+
     async def setup_allowed() -> bool:
-        engine = create_async_engine(migrated_postgres_urls.probe_url, pool_pre_ping=True)
+        engine = create_async_engine(probe_url, pool_pre_ping=True)
         try:
             async with engine.connect() as conn:
                 await apply_tenant_context_to_connection(
@@ -4736,25 +4742,7 @@ def test_production_smoke_setup_migration_downgrade_removes_operation(
         finally:
             await engine.dispose()
 
-    async def remove_linked_workspace_downgrade_guard() -> None:
-        engine = create_async_engine(migrated_postgres_urls.migration_url)
-        try:
-            async with engine.begin() as conn:
-                await conn.execute(
-                    text("update workspaces set kind = 'corporate' where kind = 'linked'")
-                )
-        finally:
-            await engine.dispose()
-
-    async def clear_summary_slot_fixture_rows() -> None:
-        engine = create_async_engine(migrated_postgres_urls.migration_url)
-        try:
-            async with engine.begin() as conn:
-                await conn.execute(text("delete from meeting_summary_slots"))
-        finally:
-            await engine.dispose()
-
-    monkeypatch.setenv("TWOBRAIN_DATABASE_URL", migrated_postgres_urls.migration_url)
+    monkeypatch.setenv("TWOBRAIN_DATABASE_URL", postgres_clean_database_url)
     get_settings.cache_clear()
     config = Config(str(REPO_ROOT / "apps/server/alembic.ini"))
     config.set_main_option(
@@ -4762,14 +4750,13 @@ def test_production_smoke_setup_migration_downgrade_removes_operation(
         str(REPO_ROOT / "apps/server/src/twobrain_rec_server/db/migrations"),
     )
 
+    command.upgrade(config, "0023_production_smoke_setup")
     assert asyncio.run(setup_allowed()) is True
-    asyncio.run(remove_linked_workspace_downgrade_guard())
-    asyncio.run(clear_summary_slot_fixture_rows())
     try:
         command.downgrade(config, "0022_playback_normalization")
         assert asyncio.run(setup_allowed()) is False
     finally:
-        command.upgrade(config, "head")
+        command.upgrade(config, "0023_production_smoke_setup")
         get_settings.cache_clear()
     assert asyncio.run(setup_allowed()) is True
 
@@ -5021,7 +5008,6 @@ async def test_independent_billing_handoff_crosses_rls_contexts_atomically(
     settings = Settings(database_url=migrated_postgres_urls.app_url,
                         web_login_workspace_id=ids['workspace_b'], credential_encryption_key_file=key_file)
     request = _email_auth_request(settings, path='/billing/handoff')
-    # The preceding downgrade test recreates tables and drops their old role grants.
     # Build the existing non-bypass test role against the current migrated schema.
     async with (
         _exact_app_role_engine(migrated_postgres_urls.migration_url) as app_engine,
