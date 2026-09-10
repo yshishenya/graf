@@ -1,0 +1,18 @@
+<main id="cabinet-main" class="cabinet-main" tabindex="-1" data-hx-history="false">
+  <div class="cabinet-workspace">
+    <h1>Удаления</h1>
+    <p>Записи удалены из списка. В отчёте указано, какие данные GRAF уже очистил, а какие ещё ожидают очистки.</p>
+    <p><a href="{{ base_path }}/meetings">К списку встреч</a></p>
+    <ol>
+      {% for row in rows %}
+      <li><a href="{{ base_path }}/meetings/{{ row.meeting_id }}/deletion-report">Состояние удаления</a>
+        {{ user_time_element(row.created_at) }}
+      </li>
+      {% else %}<li>Подтверждённых запросов удаления пока нет.</li>{% endfor %}
+    </ol>
+    <nav aria-label="Страницы удалений">
+      {% if page > 1 %}<a href="{{ base_path }}/deletions?page={{ page - 1 }}">Предыдущая</a>{% endif %}
+      {% if has_more %}<a href="{{ base_path }}/deletions?page={{ page + 1 }}">Следующая</a>{% endif %}
+    </nav>
+  </div>
+</main>

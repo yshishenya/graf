@@ -5,6 +5,7 @@
     <header class="cabinet-topbar">
       <div class="cabinet-titleline">
         <h1 data-list-title tabindex="-1">Мои встречи</h1>
+        <a class="button quiet" href="{{ "/desktop" if embedded else "" }}/deletions">Удаления</a>
       </div>
       <form class="cabinet-list-controls" method="get" action="{{ filter_action }}"
         data-hx-get="{{ filter_action }}"

@@ -53,6 +53,7 @@
   const handledMeetingListAuthorizationRequests = new WeakSet();
   const observedDetachedMeetingListRequests = new WeakSet();
   let scrubManualUploadPrivateState = () => false;
+  let revokeManualUploadMeeting = () => {};
   const speakerTimelineResizeHandlers = new WeakMap();
   const accessLossProblemCodes = new Set([
     "auth_session_rejected",
@@ -159,7 +160,8 @@
       const number = key === "sortDuration" ? Number(raw) : Date.parse(raw);
       return Number.isFinite(number) ? number : null;
     };
-    Array.from(list.querySelectorAll("[data-meeting-row]")).sort((left, right) => {
+    const focused = document.activeElement;
+    const sorted = Array.from(list.querySelectorAll("[data-meeting-row]")).sort((left, right) => {
       const a = value(left), b = value(right);
       if (a === null && b !== null) return 1;
       if (a !== null && b === null) return -1;
@@ -168,7 +170,16 @@
       const leftId = left.dataset.meetingId || left.dataset.grafLocalRecordingId || "";
       const rightId = right.dataset.meetingId || right.dataset.grafLocalRecordingId || "";
       return leftId < rightId ? -1 : leftId > rightId ? 1 : 0;
-    }).forEach((row) => list.append(row));
+    });
+    let previous = null;
+    for (const row of sorted) {
+      const next = previous ? previous.nextElementSibling : list.firstElementChild;
+      if (row !== next) list.insertBefore(row, next);
+      previous = row;
+    }
+    if (focused instanceof HTMLElement && focused.isConnected && document.activeElement !== focused) {
+      focused.focus({preventScroll: true});
+    }
   };
   const localRecordingMatches = (item) => {
     const access = document.querySelector("#meeting-access")?.value;
@@ -184,6 +195,15 @@
       .some((text) => text.toLowerCase().replace(/\s+/g, " ").includes(query));
   };
   const updateMixedResultCount = () => {
+    const host = currentList();
+    let empty = host?.querySelector("[data-deletion-empty]");
+    if (host && allRows().length === 0 && !host.querySelector(".empty-state")) {
+      empty = document.createElement("p");
+      empty.className = "empty-state";
+      empty.dataset.deletionEmpty = "";
+      empty.textContent = "Записей пока нет.";
+      host.append(empty);
+    } else if (allRows().length) { empty?.remove(); }
     const count = document.querySelector("[data-meeting-result-count]");
     if (count) {
       const incomplete = document.querySelector('[data-meeting-result-complete="false"]');
@@ -191,23 +211,45 @@
     }
   };
   let localRecordingRows = [];
+  const localRecordingMarkup = new WeakMap();
   const renderLocalRecordingRows = () => {
     const host = currentList();
     if (!host) return;
-    host.querySelectorAll("[data-graf-local-recording-row]").forEach((row) => row.remove());
-    const localOnly = localRecordingRows.filter((item) => {
-      if (!localRecordingMatches(item)) return false;
-      if (!item.meetingId) return true;
-      const serverRow = allRows().find((row) => row.dataset.meetingId === item.meetingId);
-      if (!serverRow || item.uploadComplete !== true) return true;
-      return false;
-    });
+    const focused = document.activeElement;
+    const focusedLocal = focused?.closest("[data-graf-local-recording-row]")?.dataset.grafLocalRecordingId;
+    const focusedControl = focused?.matches("[data-meeting-select]") ? "[data-meeting-select]:not(:disabled)"
+      : focused?.matches("[data-row-delete]") ? "[data-row-delete]:not(:disabled)"
+      : focused?.dataset.grafLocalRecordingAction === "send" ? '[data-graf-local-recording-action="send"]:not(:disabled)'
+      : "[data-meeting-open]:not(:disabled)";
+    const existingRows = new Map([...host.querySelectorAll("[data-graf-local-recording-row]")].map(row => [row.dataset.grafLocalRecordingId, row]));
+    let transferredFocus = null;
+    const restoreLocalFocus = () => {
+      if (!focusedLocal || document.activeElement === focused && focused.isConnected) return;
+      const row = transferredFocus?.isConnected ? transferredFocus
+        : allRows().find(row => row.dataset.grafLocalRecordingId === focusedLocal);
+      const target = [row?.querySelector(focusedControl), rowPrimaryFocusTarget(row),
+        ...allRows().map(rowPrimaryFocusTarget), document.querySelector("[data-list-title]")]
+        .find(target => isUsableFocusTarget(target) && !target.matches(':disabled, [aria-disabled="true"]'));
+      target?.focus({preventScroll: true});
+    };
+    for (const item of localRecordingRows) {
+      if (!item.meetingId) continue;
+      if (selectedMeetingIds.delete(`local:${item.id}`)) selectedMeetingIds.add(item.meetingId);
+      if (focusedLocal === item.id) transferredFocus = allRows().find(row => row.dataset.meetingId === item.meetingId);
+    }
+    applyNativeDeletionOperations(nativeDeletionOperations);
+    // A server identity belongs to the server result set, including filters and pagination.
+    // Its absence must never turn a retained local copy into a new user recording.
+    const localOnly = localRecordingRows.filter((item) => !item.localDeletionPending && !item.meetingId && localRecordingMatches(item));
+    const visibleIds = new Set(localOnly.map(item => item.id));
+    for (const [id, row] of existingRows) if (!visibleIds.has(id)) row.remove();
     let list = host.querySelector("ol.meeting-list");
     const emptyState = host.querySelector(":scope > .empty-state");
     if (!localOnly.length) {
-      host.querySelector("ol[data-graf-local-recording-list]")?.remove();
+      if (list?.hasAttribute("data-graf-local-recording-list") && !list.querySelector("[data-meeting-row]")) list.remove();
       if (emptyState) emptyState.hidden = false;
       updateMixedResultCount();
+      restoreLocalFocus();
       return;
     }
     if (!list) {
@@ -229,9 +271,15 @@
       row.dataset.sortUpdated = item.updatedAt || "";
       row.dataset.sortDuration = String(item.durationSeconds);
 
-      const selection = document.createElement("span");
-      selection.className = "row-select-hit row-contextual-placeholder";
-      selection.setAttribute("aria-hidden", "true");
+      const selection = document.createElement("label");
+      selection.className = "row-select-hit";
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.dataset.meetingSelect = "";
+      checkbox.disabled = !item.canDelete;
+      checkbox.checked = selectedMeetingIds.has(`local:${item.id}`);
+      checkbox.setAttribute("aria-label", `Выбрать запись ${localRecordingDisplayTitle(item)}`);
+      selection.append(checkbox);
       const icon = document.createElement("span");
       icon.className = "row-icon";
       icon.dataset.mediaKind = "recording";
@@ -281,7 +329,7 @@
         remove.type = "button";
         remove.innerHTML = '<svg class="ui-icon" data-icon="trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>';
         remove.setAttribute("aria-label", `Удалить локальную запись ${displayTitle}`);
-        remove.dataset.grafLocalRecordingAction = "delete";
+        remove.dataset.rowDelete = "";
         remove.dataset.grafLocalRecordingId = item.id;
         actions.append(remove);
       }
@@ -293,19 +341,123 @@
       if (timeValue && Number.isFinite(Date.parse(timeValue))) time.dateTime = timeValue;
       time.textContent = `${timeValue && meetingListSort().startsWith("updated") ? "Обновлено " : ""}${formatMeetingListDate(timeValue)}`;
       row.append(selection, icon, content, actions, time);
-      list.append(row);
+      // Compare the complete rendered output, including localized dates and sort
+      // context, while ignoring transient selection/focus mutations on the live row.
+      const markup = row.outerHTML;
+      const existing = existingRows.get(item.id);
+      if (existing && localRecordingMarkup.get(existing) === markup) return;
+      localRecordingMarkup.set(row, markup);
+      if (existing?.isConnected) existing.replaceWith(row);
+      else list.append(row);
     });
     sortMeetingRows(list);
     updateMixedResultCount();
+    restoreLocalFocus();
+  };
+  let nativeDeletionOperations = [];
+  const nativeDeletionReplies = new Map();
+  const recordingRowIdentity = (row) => row.dataset.meetingId || `local:${row.dataset.grafLocalRecordingId}`;
+  const applyNativeDeletionOperations = (operations) => {
+    for (const operation of operations) {
+      if (operation.phase === "rejected") continue;
+      const id = operation.target?.meeting?._0 || operation.receipt?.meeting_id;
+      if (!id) continue;
+      revokeManualUploadMeeting(id);
+      const detail = document.querySelector("main[data-meeting-id]");
+      if (detail?.dataset.meetingId === id) renderMeetingDetailRecovery(detail, operation.phase === "accepted" || operation.phase === "verified" ? "deleted" : "deleting");
+      for (const row of allRows().filter(row => row.dataset.meetingId === id)) {
+        selectedMeetingIds.delete(recordingRowIdentity(row));
+        if (["accepted", "verified"].includes(operation.phase)) {
+          row.remove();
+        } else {
+          row.querySelectorAll("button, input").forEach(control => { control.disabled = true; });
+          row.querySelectorAll("a").forEach(link => { link.removeAttribute("href"); link.setAttribute("aria-disabled", "true"); });
+          const status = row.querySelector(".row-meta");
+          if (status) status.textContent = "Удаление ожидает подтверждения";
+        }
+      }
+    }
+  };
+  const renderNativeDeletionStatus = (operations) => {
+    let details = document.querySelector("[data-native-deletion-status]");
+    const localPending = localRecordingRows.filter(item => item.localDeletionPending);
+    if (!operations.length && !localPending.length) { details?.remove(); return; }
+    if (!details) {
+      details = document.createElement("details");
+      details.dataset.nativeDeletionStatus = "";
+      details.className = "cabinet-fragment";
+      const summary = document.createElement("summary");
+      summary.textContent = "Удаления";
+      details.append(summary, document.createElement("ul"));
+      document.querySelector("#meeting-list-region")?.after(details);
+    }
+    const list = details.querySelector("ul");
+    list.replaceChildren();
+    for (const item of localPending) {
+      const row = document.createElement("li");
+      row.textContent = `${localRecordingDisplayTitle(item)}: очистка файлов на этом Mac ещё не завершена. Повторим попытку автоматически.`;
+      list.append(row);
+    }
+    for (const operation of operations.slice(-100).reverse()) {
+      const row = document.createElement("li");
+      const labels = {queued:"Удаление ожидает подключения", sending:"Удаляем…", resolving:"Проверяем, принято ли удаление",
+        accepted:"Запись удалена из списка. Очистка проверяется отдельно.", verified:"Данные этой записи очищены на этом Mac", rejected:"Нет права удалить запись"};
+      const waiting = {connection:"Ожидаем подключения для подтверждения удаления", authentication:"Войдите в исходный аккаунт для продолжения удаления",
+        rateLimit:"Сервер попросил подождать. Повторим запрос автоматически", serverUpdate:"Для завершения удаления требуется обновление сервера",
+        localCleanup:"Запись удалена из списка. Не удалось очистить файлы на этом Mac; повторим попытку"};
+      row.textContent = waiting[operation.waitReason] || labels[operation.phase] || "Состояние удаления неизвестно";
+      const meetingId = operation.receipt?.meeting_id;
+      if (typeof meetingId === "string" && /^[0-9a-f-]{36}$/i.test(meetingId)) {
+        const report = document.createElement("a");
+        report.href = `/desktop/meetings/${meetingId}/deletion-report`;
+        report.textContent = " Состояние удаления";
+        row.append(report);
+      }
+      list.append(row);
+    }
   };
   window.GRAFLocalRecordings = {
-    update(rows) {
+    deletionCompleted(requestId, result) {
+      nativeDeletionReplies.get(requestId)?.(result);
+      nativeDeletionReplies.delete(requestId);
+    },
+    update(rows, operations = [], recoveryRequired = false) {
+      let recovery = document.querySelector("[data-local-account-recovery]");
+      if (!recoveryRequired) recovery?.remove();
+      else if (!recovery) {
+        recovery = document.createElement("p");
+        recovery.dataset.localAccountRecovery = "";
+        recovery.setAttribute("role", "status");
+        recovery.textContent = "Некоторые локальные записи скрыты: их аккаунт не подтверждён. Войдите в исходный аккаунт и дождитесь подключения. Если записи не появились, используйте диагностику GRAF. Файлы сохранены.";
+        document.querySelector("#meeting-list-region")?.after(recovery);
+      }
+      const rejected = operations.some(operation => operation.phase === "rejected" && nativeDeletionOperations.some(previous => previous.id === operation.id && previous.phase !== "rejected"));
+      nativeDeletionOperations = Array.isArray(operations) ? operations : [];
       localRecordingRows = Array.isArray(rows) ? rows : [];
       renderLocalRecordingRows();
+      applyNativeDeletionOperations(nativeDeletionOperations);
+      renderNativeDeletionStatus(nativeDeletionOperations);
+      updateMixedResultCount();
+      reconcileMeetingSelection();
+      if (rejected) requestMeetingListRefresh();
     },
   };
-  const rowPrimaryFocusTarget = (row) => row?.querySelector("[data-meeting-open]") || null;
-  const selectableRows = () => allRows().filter((row) => row.querySelector("[data-meeting-select]"));
+  const requestNativeDeletion = (rows) => new Promise((resolve) => {
+    const requestId = crypto.randomUUID();
+    const timer = setTimeout(() => {
+      nativeDeletionReplies.delete(requestId);
+      resolve({unknown: true});
+    }, 35000);
+    nativeDeletionReplies.set(requestId, (result) => { clearTimeout(timer); resolve(result); });
+    window.webkit.messageHandlers.grafLocalRecording.postMessage({
+      action: "deleteSelection", version: 1, requestId,
+      localIds: rows.filter(row => row.hasAttribute("data-graf-local-recording-row")).map(row => row.dataset.grafLocalRecordingId),
+      meetingIds: rows.filter(row => !row.hasAttribute("data-graf-local-recording-row")).map(row => row.dataset.meetingId),
+    });
+  });
+  const rowPrimaryFocusTarget = (row) => row?.querySelector("[data-meeting-open], [data-graf-local-recording-action=\"open\"]")
+    || row?.querySelector("[data-meeting-select]:not(:disabled)") || null;
+  const selectableRows = () => allRows().filter((row) => row.querySelector("[data-meeting-select]:not(:disabled)"));
   const selectedRows = () => selectableRows().filter((row) => row.querySelector("[data-meeting-select]")?.checked);
   const deletingLabel = (value) => `Вы удаляете ${value} ${plural(value, "запись", "записи", "записей")}.`;
 
@@ -492,7 +644,7 @@
       return false;
     }
     const focusRow = listRefreshFocusMeetingIds
-      .map((meetingId) => allRows().find((row) => row.dataset.meetingId === meetingId))
+      .map((meetingId) => allRows().find((row) => recordingRowIdentity(row) === meetingId))
       .find(Boolean);
     let focusTarget = rowPrimaryFocusTarget(focusRow) || document.querySelector("[data-list-title]");
     if (recovery instanceof HTMLElement) {
@@ -546,7 +698,7 @@
         ?.focus({ preventScroll: true });
     }
     selectedMeetingIds.clear();
-    rows.forEach((row) => selectedMeetingIds.add(row.dataset.meetingId));
+    rows.forEach((row) => selectedMeetingIds.add(recordingRowIdentity(row)));
     countLabel.textContent = `Выбрано: ${rows.length}`;
     toolbar.hidden = rows.length === 0;
     if (selectionToggle) {
@@ -569,7 +721,7 @@
   const reconcileMeetingSelection = () => {
     allRows().forEach((row) => {
       const checkbox = row.querySelector("[data-meeting-select]");
-      if (checkbox) checkbox.checked = selectedMeetingIds.has(row.dataset.meetingId);
+      if (checkbox) checkbox.checked = selectedMeetingIds.has(recordingRowIdentity(row));
     });
     updateSelection();
   };
@@ -983,17 +1135,17 @@
 
   const captureDeletionFocusFallback = (rows) => {
     const orderedRows = allRows();
-    const deletingIds = new Set(rows.map((row) => row.dataset.meetingId));
-    const anchorRow = orderedRows.find((row) => row.dataset.meetingId === deleteReturnMeetingId)
+    const deletingIds = new Set(rows.map(recordingRowIdentity));
+    const anchorRow = orderedRows.find((row) => recordingRowIdentity(row) === deleteReturnMeetingId)
       || rows[0];
     const anchorIndex = orderedRows.indexOf(anchorRow);
     const nextRow = orderedRows.slice(anchorIndex + 1).find(
-      (row) => !deletingIds.has(row.dataset.meetingId),
+      (row) => !deletingIds.has(recordingRowIdentity(row)),
     );
     const previousRow = orderedRows.slice(0, Math.max(anchorIndex, 0)).reverse().find(
-      (row) => !deletingIds.has(row.dataset.meetingId),
+      (row) => !deletingIds.has(recordingRowIdentity(row)),
     );
-    deleteFocusFallbackIds = [nextRow?.dataset.meetingId, previousRow?.dataset.meetingId].filter(Boolean);
+    deleteFocusFallbackIds = [nextRow, previousRow].filter(Boolean).map(recordingRowIdentity);
   };
 
   const openDeleteDialog = (rows) => {
@@ -1003,14 +1155,22 @@
     const count = dialog.querySelector("[data-delete-count]");
     const error = dialog.querySelector("[data-delete-error]");
     deleteReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    deleteReturnMeetingId = deleteReturnFocus?.closest("[data-meeting-row]")?.dataset.meetingId || "";
+    deleteReturnMeetingId = deleteReturnFocus?.closest("[data-meeting-row]")
+      ? recordingRowIdentity(deleteReturnFocus.closest("[data-meeting-row]")) : "";
     pendingDeleteRows = rows.filter(Boolean);
     if (!pendingDeleteRows.length) return;
     captureDeletionFocusFallback(pendingDeleteRows);
     document.querySelector("#delete-feedback-region")?.replaceChildren();
     if (error) error.hidden = true;
     if (title) title.textContent = pendingDeleteRows.length === 1 ? dialog.dataset.titleOne : dialog.dataset.titleMany;
-    if (count) count.textContent = deletingLabel(pendingDeleteRows.length);
+    if (count) {
+      const localCount = pendingDeleteRows.filter(row => row.hasAttribute("data-graf-local-recording-row")
+        && localRecordingRows.some(item => item.id === row.dataset.grafLocalRecordingId && item.deletionIsLocalOnly === true)).length;
+      count.textContent = deletingLabel(pendingDeleteRows.length)
+        + (localCount ? ` Только на этом Mac: ${localCount}.`
+          + (localCount === pendingDeleteRows.length ? " Эти записи ещё не отправлялись на сервер." : "") : "")
+        + (localCount < pendingDeleteRows.length ? ` На сервере или ожидают его подтверждения: ${pendingDeleteRows.length - localCount}.` : "");
+    }
     if (typeof dialog.showModal === "function") dialog.showModal();
     else dialog.setAttribute("open", "");
     dialog.querySelector("[data-delete-cancel]")?.focus({ preventScroll: true });
@@ -1022,10 +1182,12 @@
     if (!dialog) return;
     if (typeof dialog.close === "function") dialog.close();
     else dialog.removeAttribute("open");
-    const currentReturnRow = allRows().find((row) => row.dataset.meetingId === deleteReturnMeetingId);
-    const rowDeleteControl = currentReturnRow?.querySelector("[data-row-delete]");
+    const currentReturnRow = allRows().find((row) => recordingRowIdentity(row) === deleteReturnMeetingId);
+    const rowDeleteControl = deleteReturnFocus?.matches("[data-meeting-select]")
+      ? currentReturnRow?.querySelector("[data-meeting-select]")
+      : currentReturnRow?.querySelector("[data-row-delete]") || rowPrimaryFocusTarget(currentReturnRow);
     const fallbackRow = deleteFocusFallbackIds
-      .map((meetingId) => allRows().find((row) => row.dataset.meetingId === meetingId))
+      .map((meetingId) => allRows().find((row) => recordingRowIdentity(row) === meetingId))
       .find(Boolean);
     const fallbackControl = rowPrimaryFocusTarget(fallbackRow);
     const returnControl = isUsableFocusTarget(deleteReturnFocus)
@@ -1247,6 +1409,45 @@
         document.querySelector("#delete-feedback-region")?.replaceChildren();
         confirm.disabled = true;
         confirm.textContent = "Удаляем…";
+        if (pendingDeleteRows.some(row => row.hasAttribute("data-graf-local-recording-row")) &&
+            !(window.GRAFRecordingDeletionBridgeVersion === 1 && window.webkit?.messageHandlers?.grafLocalRecording)) {
+          confirm.disabled = false;
+          confirm.textContent = "Удалить";
+          if (error) { error.textContent = "Для удаления локальных записей обновите приложение GRAF."; error.hidden = false; }
+          return;
+        }
+        if (window.GRAFRecordingDeletionBridgeVersion === 1 && window.webkit?.messageHandlers?.grafLocalRecording) {
+          const selection = [...pendingDeleteRows];
+          if (selection.length > 100) {
+            confirm.disabled = false;
+            confirm.textContent = "Удалить";
+            if (error) { error.textContent = "Выберите не более 100 записей."; error.hidden = false; }
+            return;
+          }
+          const result = await requestNativeDeletion(selection);
+          confirm.disabled = false;
+          confirm.textContent = "Удалить";
+          closeDeleteDialog();
+          if (result.saved) {
+            const message = `Удалено из списка: ${result.accepted}. Ожидают подтверждения: ${result.pending}. Отклонено: ${result.rejected}.`;
+            announceDeletionResult(message);
+            if (result.pending || result.rejected) publishDeletionFeedback(message + " Состояние очистки доступно в разделе «Удаления».", "warning");
+            if (result.accepted === selection.length) {
+              selection.forEach(row => { selectedMeetingIds.delete(recordingRowIdentity(row)); row.remove(); });
+            }
+            updateMixedResultCount();
+            if (!document.activeElement || document.activeElement === document.body) {
+              (rowPrimaryFocusTarget(allRows()[0]) || document.querySelector("[data-list-title]"))?.focus({preventScroll: true});
+            }
+            requestMeetingListRefresh({ restoreFocus: true });
+          } else {
+            publishDeletionFeedback(result.unknown
+              ? "Ответ приложения пока не получен. Проверьте раздел «Удаления» перед повторной попыткой."
+              : "Не удалось сохранить запрос удаления. Повторите попытку.", "error");
+          }
+          updateSelection();
+          return;
+        }
         const failedRows = [];
         let deletedCount = 0;
         let missingCount = 0;
@@ -1260,6 +1461,7 @@
             const deletionResult = await submitDeletionForm(form);
             if (deletionResult === "missing") {
               selectedMeetingIds.delete(row.dataset.meetingId);
+              revokeManualUploadMeeting(row.dataset.meetingId);
               row.replaceChildren();
               row.removeAttribute("data-meeting-id");
               row.remove();
@@ -1273,6 +1475,7 @@
             }
             const checkbox = row.querySelector("[data-meeting-select]");
             if (checkbox) checkbox.checked = false;
+            revokeManualUploadMeeting(row.dataset.meetingId);
             row.remove();
             deletedCount += 1;
           } catch (_err) {
@@ -6029,6 +6232,21 @@
       activeUploadActivities.clear();
     };
 
+    const revokedUploadMeetingIds = new Set();
+    revokeManualUploadMeeting = (meetingId) => {
+      revokedUploadMeetingIds.add(meetingId);
+      for (const activity of activeUploadActivities) {
+        if (activity.meetingId !== meetingId) continue;
+        clearUploadActivityPayload(activity);
+        activity.detailHref = "";
+        activity.detailLink?.removeAttribute("href");
+        activity.row?.remove();
+        activity.row = null;
+        activeUploadActivities.delete(activity);
+        document.querySelector("[data-upload-activity-announcer]")?.replaceChildren();
+      }
+    };
+
     const createUploadActivity = ({ file, title, duration, localId, archiveAudio }) => {
       const host = ensureUploadHost();
       uploadCounter += 1;
@@ -6155,6 +6373,14 @@
           activity.accepted = true;
           const meetingId = payload.meeting?.meeting_id;
           if (meetingId) {
+            activity.meetingId = meetingId;
+            // The server may commit before its upload response reaches this page.
+            if (revokedUploadMeetingIds.has(meetingId)) {
+              revokeManualUploadMeeting(meetingId);
+              return;
+            }
+            activity.row.dataset.uploadActivityMeetingId = meetingId;
+            activity.row.dataset.meetingId = meetingId;
             activity.detailHref = `${dialog.dataset.uploadDetailBase || "/meetings"}/${meetingId}`;
             if (activity.detailLink) activity.detailLink.href = activity.detailHref;
           }
@@ -6168,6 +6394,7 @@
             workflowStarted ? "success" : "warning"
           );
           clearUploadActivityPayload(activity);
+          applyNativeDeletionOperations(nativeDeletionOperations);
           await refreshMeetingList();
           return;
         }
@@ -6621,6 +6848,8 @@
     const copy = {
       session: ["Нужно войти снова", "Сессия завершилась.", "Войти"],
       workspace: ["Нужно выбрать пространство", "Доступ к выбранному пространству больше не подтверждён.", "Войти и выбрать пространство"],
+      deleting: ["Удаление ожидает подтверждения", "Запрос сохранён в приложении. Состояние доступно в разделе «Удаления».", "К списку встреч"],
+      deleted: ["Запись удалена из списка", "Состояние очистки доступно в разделе «Удаления».", "К списку встреч"],
       unavailable: ["Встреча больше недоступна", "Запись удалена или доступ закрыт.", "К списку встреч"],
     }[kind] || ["Встреча больше недоступна", "Запись удалена или доступ закрыт.", "К списку встреч"];
     const recoveryTemplate = document.querySelector("[data-meeting-detail-recovery-template]");
@@ -6856,6 +7085,69 @@
     } finally {
       playbackRecoveryRequest = null;
     }
+  };
+
+  let recordingLifecycleTimer = null;
+  let recordingLifecycleRequest = null;
+  const refreshRecordingLifecycle = async () => {
+    if (document.hidden || recordingLifecycleRequest) return;
+    const detail = document.querySelector("main[data-meeting-id][data-playback-poll-url]");
+    const rows = allRows().filter(row => /^[0-9a-f-]{36}$/i.test(row.dataset.meetingId || ""));
+    const uploadRows = [...document.querySelectorAll("[data-upload-activity-meeting-id]")];
+    const targets = detail ? [detail] : [...uploadRows, ...rows];
+    const ids = [...new Set(targets.map(node => node.dataset.meetingId))];
+    const csrf = document.querySelector('meta[name="csrf-token"]')?.content;
+    if (!ids.length || !csrf) return;
+    const controller = new AbortController();
+    recordingLifecycleRequest = controller;
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    let changed = false;
+    try {
+      // Every visible alias participates; only the HTTP payload is capped.
+      for (let offset = 0; offset < ids.length; offset += 100) {
+        const batch = ids.slice(offset, offset + 100);
+        const response = await fetch("/api/v1/desktop/recordings/lifecycle", {
+          method: "POST", credentials: "same-origin", cache: "no-store", signal: controller.signal,
+          headers: {"Content-Type":"application/json", "X-CSRF-Token":csrf, "Accept":"application/json"},
+          body: JSON.stringify({meeting_ids:batch}),
+        });
+        if (csrf !== document.querySelector('meta[name="csrf-token"]')?.content) return;
+        if (!response.ok) {
+          if (response.status === 401 && detail?.isConnected) renderMeetingDetailRecovery(detail, "session");
+          return;
+        }
+        const entries = await response.json();
+        if (!Array.isArray(entries)) return;
+        for (const entry of entries) {
+          if (entry.target_type !== "meeting" || !batch.includes(entry.target_id) || entry.state === "allowed") continue;
+          if (!["deletion_accepted", "unavailable"].includes(entry.state)) continue;
+          revokeManualUploadMeeting(entry.target_id);
+          for (const node of targets.filter(node => node.isConnected && node.dataset.meetingId === entry.target_id)) {
+            if (node === detail) { renderMeetingDetailRecovery(node, "unavailable"); return; }
+            selectedMeetingIds.delete(recordingRowIdentity(node));
+            node.remove();
+            changed = true;
+          }
+        }
+      }
+    } catch (_error) {
+      // Lack of a response is not deletion authority. Existing media requests still enforce access.
+    } finally {
+      clearTimeout(timeout);
+      recordingLifecycleRequest = null;
+      if (changed) { updateMixedResultCount(); updateSelection(); requestMeetingListRefresh({restoreFocus:true}); }
+    }
+  };
+  const initRecordingLifecyclePolling = () => {
+    if (recordingLifecycleTimer) return;
+    recordingLifecycleTimer = setInterval(refreshRecordingLifecycle, 30000);
+    window.addEventListener("online", refreshRecordingLifecycle);
+    window.addEventListener("focus", refreshRecordingLifecycle);
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) recordingLifecycleRequest?.abort();
+      else refreshRecordingLifecycle();
+    });
+    refreshRecordingLifecycle();
   };
 
   const initPlaybackRecoveryPolling = () => {
@@ -7287,6 +7579,28 @@
     const opener = document.querySelector("[data-meeting-delete-dialog-open]");
     if (!dialog || !opener || dialog.dataset.ready === "true") return;
     dialog.dataset.ready = "true";
+    dialog.querySelector("form")?.addEventListener("submit", async event => {
+      if (window.GRAFRecordingDeletionBridgeVersion !== 1 || !window.webkit?.messageHandlers?.grafLocalRecording) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const detail = document.querySelector("main[data-meeting-id]");
+      if (!detail) return;
+      const submit = dialog.querySelector('[type="submit"]');
+      if (submit?.disabled) return;
+      if (submit) submit.disabled = true;
+      const result = await requestNativeDeletion([detail]);
+      if (result.saved && (result.accepted || result.pending)) {
+        detail.querySelectorAll("audio, video").forEach(player => { player.pause(); player.removeAttribute("src"); player.load(); });
+        location.assign("/desktop/meetings");
+      } else {
+        if (submit) submit.disabled = false;
+        let error = dialog.querySelector('[data-native-delete-error]');
+        if (!error) { error = document.createElement("p"); error.dataset.nativeDeleteError = ""; error.setAttribute("role","alert"); dialog.append(error); }
+        error.textContent = result.rejected ? "Нет права удалить запись." : result.unknown
+          ? "Ответ приложения пока не получен. Проверьте раздел «Удаления»."
+          : "Не удалось сохранить запрос удаления. Повторите попытку.";
+      }
+    }, true);
     let returnFocus = null;
     const close = () => {
       if (typeof dialog.close === "function") dialog.close();
@@ -8185,6 +8499,7 @@
     initDetailTabs();
     initProcessingRecovery();
     initProcessingListProjection();
+    initRecordingLifecyclePolling();
     initSummaryFormats();
     initSummaryTemplateSettings();
     initMeetingContextPanels();
@@ -8285,36 +8600,11 @@
     }
     if (target instanceof Element && (target.id === "meeting-list-region" || target.matches("[data-meeting-list]"))) {
       renderLocalRecordingRows();
-      if (pendingDeleteRows.length) {
-        const pendingMeetingIds = new Set(pendingDeleteRows.map((row) => row.dataset.meetingId));
-        pendingDeleteRows = allRows().filter((row) => pendingMeetingIds.has(row.dataset.meetingId));
-        if (!pendingDeleteRows.length) {
-          closeDeleteDialog();
-        } else {
-          const deleteDialog = document.querySelector("[data-delete-dialog]");
-          const title = deleteDialog?.querySelector("[data-delete-title]");
-          const count = deleteDialog?.querySelector("[data-delete-count]");
-          const error = deleteDialog?.querySelector("[data-delete-error]");
-          const confirm = deleteDialog?.querySelector("[data-delete-confirm]");
-          const failures = pendingDeleteRows.length;
-          if (title) {
-            title.textContent = failures === 1
-              ? deleteDialog.dataset.titleOne
-              : deleteDialog.dataset.titleMany;
-          }
-          if (count) count.textContent = deletingLabel(failures);
-          if (error) {
-            error.textContent = `Не удалось удалить ${failures} ${plural(
-              failures,
-              "запись",
-              "записи",
-              "записей",
-            )}. Попробуйте ещё раз.`;
-            error.hidden = false;
-          }
-          if (confirm) confirm.textContent = "Повторить";
-        }
-      }
+      // A refresh may replace aliases or change filters, but cannot enlarge or
+      // discard the set the user is confirming. Detached rows retain that intent.
+      pendingDeleteRows = pendingDeleteRows.map(row =>
+        allRows().find(current => recordingRowIdentity(current) === recordingRowIdentity(row)) || row
+      );
       reconcileMeetingSelection();
       announceMeetingResultCount();
       restoreMeetingListRequestFocus(event);

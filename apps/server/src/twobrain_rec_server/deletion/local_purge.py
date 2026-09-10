@@ -15,6 +15,7 @@ from twobrain_rec_server.db.models import (
     Meeting,
     MeetingDeletionArtifactState,
     MeetingDeletionReport,
+    MeetingDeletionRequest,
     MeetingLifecycleAuditEvent,
     RegisteredDevice,
 )
@@ -189,11 +190,15 @@ async def acknowledge_local_purge_task(
     if current_state in LOCAL_PURGE_TERMINAL_STATES:
         if current_state == requested_state:
             return _task_schema(task)
-        raise ProblemDetail(
-            status=409,
-            code="local_purge_task_terminal",
-            title="Local purge task is already terminal",
-        )
+        if requested_state != LocalPurgeTaskState.ACKNOWLEDGED:
+            raise ProblemDetail(
+                status=409,
+                code="local_purge_task_terminal",
+                title="Local purge task is already terminal",
+            )
+        # A verified late acknowledgement improves evidence; expiry never proves erasure.
+        if meeting.deleted_at is None or (meeting.deletion_state or "none") == "none":
+            raise ProblemDetail(status=409, code="meeting_deletion_unconfirmed", title="Meeting deletion is unconfirmed")
 
     now = datetime.now(UTC)
     task.state = payload.state.value
@@ -455,3 +460,44 @@ def _task_schema(task: LocalPurgeTaskModel) -> LocalPurgeTask:
         expires_at=task.expires_at,
         ack_url=f"/api/v1/desktop/local-purge-tasks/{task.id}/ack",
     )
+
+
+async def ensure_local_purge_task(
+    db: AsyncSession, *, workspace_id: UUID, meeting_id: UUID, user_id: UUID, device_id: UUID,
+) -> LocalPurgeTask:
+    meeting = await db.scalar(select(Meeting).where(
+        Meeting.workspace_id == workspace_id, Meeting.id == meeting_id,
+        Meeting.created_by_user_id == user_id,
+    ).with_for_update().execution_options(populate_existing=True))
+    device = await db.scalar(select(RegisteredDevice).where(
+        RegisteredDevice.id == device_id, RegisteredDevice.workspace_id == workspace_id,
+        RegisteredDevice.user_id == user_id, RegisteredDevice.status == "active",
+        RegisteredDevice.registration_state == "approved",
+    ))
+    if meeting is None or device is None:
+        raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
+    if meeting.deleted_at is None or (meeting.deletion_state or "none") == "none":
+        raise ProblemDetail(status=409, code="meeting_deletion_unconfirmed", title="Meeting deletion is unconfirmed")
+    deletion = await db.scalar(select(MeetingDeletionRequest).where(
+        MeetingDeletionRequest.workspace_id == workspace_id,
+        MeetingDeletionRequest.meeting_id == meeting_id,
+    ).order_by(MeetingDeletionRequest.created_at.desc()).limit(1))
+    if deletion is None:
+        raise ProblemDetail(status=409, code="meeting_deletion_unconfirmed", title="Meeting deletion is unconfirmed")
+    task = await db.scalar(select(LocalPurgeTaskModel).where(
+        LocalPurgeTaskModel.deletion_request_id == deletion.id,
+        LocalPurgeTaskModel.workspace_id == workspace_id,
+        LocalPurgeTaskModel.device_id == device_id,
+        LocalPurgeTaskModel.task_type == LocalPurgeTaskType.PURGE_LOCAL_BUFFERS.value,
+    ))
+    if task is None:
+        task = LocalPurgeTaskModel(
+            workspace_id=workspace_id, meeting_id=meeting_id, deletion_request_id=deletion.id,
+            device_id=device_id, task_type=LocalPurgeTaskType.PURGE_LOCAL_BUFFERS.value,
+            state=LocalPurgeTaskState.PENDING.value, reason_code="delete_requested",
+            expires_at=datetime.now(UTC) + timedelta(days=LOCAL_PURGE_TASK_EXPIRY_DAYS),
+        )
+        db.add(task)
+        await db.flush()
+        await _refresh_local_purge_report_state(db, task=task)
+    return _task_schema(task)

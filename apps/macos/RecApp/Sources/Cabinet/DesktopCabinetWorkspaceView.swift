@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import TwoBrainRecShared
 
 @MainActor
 public struct DesktopCabinetWorkspaceView: View {
@@ -18,7 +19,10 @@ public struct DesktopCabinetWorkspaceView: View {
     private let onOpenMeetingDetectionSettings: EmbeddedCabinetWebView.OpenMeetingDetectionSettingsAction
     private let onOpenNotificationSettings: EmbeddedCabinetWebView.OpenMeetingDetectionSettingsAction
     private let supportIncidentBridge: EmbeddedCabinetSupportIncidentBridge?
+    private let recoveryRequired: Bool
+    private let deletionOperations: [RecordingDeletionOperation]
     private let localRecordingRows: [EmbeddedCabinetLocalRecordingRow]
+    private let onDeleteRecordings: EmbeddedCabinetWebView.DeletionAction
     private let onLocalRecordingAction: EmbeddedCabinetWebView.LocalRecordingAction
     private let externalCabinetState: Binding<DesktopCabinetState>?
     @StateObject private var navigationController = EmbeddedCabinetNavigationController()
@@ -39,7 +43,10 @@ public struct DesktopCabinetWorkspaceView: View {
         onOpenNotificationSettings: @escaping EmbeddedCabinetWebView.OpenMeetingDetectionSettingsAction = {},
         supportIncidentBridge: EmbeddedCabinetSupportIncidentBridge? = nil,
         localRecordingRows: [EmbeddedCabinetLocalRecordingRow] = [],
+        deletionOperations: [RecordingDeletionOperation] = [],
+        recoveryRequired: Bool = false,
         onLocalRecordingAction: @escaping EmbeddedCabinetWebView.LocalRecordingAction = { _, _ in },
+        onDeleteRecordings: @escaping EmbeddedCabinetWebView.DeletionAction = { _ in .failed },
         initialState: DesktopCabinetState? = nil
     ) {
         let resolvedInitialState = initialState ?? (configuration == nil ? .notConfigured : .loading)
@@ -54,7 +61,10 @@ public struct DesktopCabinetWorkspaceView: View {
         self.onOpenNotificationSettings = onOpenNotificationSettings
         self.supportIncidentBridge = supportIncidentBridge
         self.localRecordingRows = localRecordingRows
+        self.deletionOperations = deletionOperations
+        self.recoveryRequired = recoveryRequired
         self.onLocalRecordingAction = onLocalRecordingAction
+        self.onDeleteRecordings = onDeleteRecordings
         self.externalCabinetState = cabinetState
         _internalCabinetState = State(initialValue: cabinetState?.wrappedValue ?? resolvedInitialState)
         _currentRoute = currentRoute
@@ -131,7 +141,10 @@ public struct DesktopCabinetWorkspaceView: View {
                 onOpenNotificationSettings: onOpenNotificationSettings,
                 supportIncidentBridge: supportIncidentBridge,
                 localRecordingRows: localRecordingRows,
+                deletionOperations: deletionOperations,
+            recoveryRequired: recoveryRequired,
                 onLocalRecordingAction: onLocalRecordingAction,
+                onDeleteRecordings: onDeleteRecordings,
                 fallbackRequest: configuration.urlRequest(for: configuration.meetingsURL()),
                 navigationController: navigationController
             )

@@ -172,6 +172,8 @@ private struct ContentView: View {
     @State private var recordingMicrophoneSelection: RecordingMicrophoneSelection?
     @State private var activeMicrophoneSampleSource: AppOwnedMicrophoneSampleSource?
     @State private var desktopUploadQueueService = DesktopUploadQueueService()
+    @State private var deletionSyncInProgress = false
+    @State private var recordingDeletionOperations: [RecordingDeletionOperation] = []
     @State private var uploadQueueItems: [DesktopUploadQueueItem] = []
     @State private var desktopCalendarReminderService = DesktopCalendarReminderService()
     @State private var desktopCalendarPrompt: DesktopCalendarPrompt?
@@ -357,9 +359,12 @@ private struct ContentView: View {
                     for: uploadQueueItems,
                     recordingsRootURL: desktopUploadQueueService.recordingsRootURL
                 ),
+                deletionOperations: recordingDeletionOperations,
+                recoveryRequired: uploadQueueItems.contains { !$0.lifecycleAccessAvailable },
                 onLocalRecordingAction: { action, itemId in
                     handleLocalRecordingAction(action, itemId: itemId)
-                }
+                },
+                onDeleteRecordings: { selection in await deleteRecordingSelection(selection) }
             )
         }
         .opacity(permissionOnboardingPresented ? 0 : 1)
@@ -447,6 +452,12 @@ private struct ContentView: View {
         }
         .task {
             while !Task.isCancelled {
+                await synchronizeRecordingDeletions()
+                try? await Task.sleep(nanoseconds: 30_000_000_000)
+            }
+        }
+        .task {
+            while !Task.isCancelled {
                 await refreshCalendarReminder(reason: "calendar_poll")
                 try? await Task.sleep(nanoseconds: 30_000_000_000)
             }
@@ -494,6 +505,11 @@ private struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecDesktopAuthSessionDidChange)) { _ in
             invalidateMeetingDetectionRegistryForAuthChange()
+            desktopUploadQueueService.setDeletionScope(nil)
+            uploadQueueItems = (try? desktopUploadQueueService.loadItems()) ?? []
+            recordingDeletionOperations = []
+            LocalRecordingPlayer.shared.close()
+            Task { await synchronizeRecordingDeletions() }
             refreshUploadQueueAndProcess(reason: "desktop_auth_session_changed")
             Task { await refreshCalendarReminder(reason: "desktop_auth_session_changed") }
             Task { await refreshMeetingDetectionRegistry(reason: "desktop_auth_session_changed") }
@@ -521,11 +537,13 @@ private struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             refreshPermissionOnboarding(reason: "app_became_active")
             Task { await refreshPermissionOnboardingWithFunctionalProbe(reason: "app_became_active") }
+            Task { await synchronizeRecordingDeletions() }
             refreshUploadQueueAndProcess(reason: "app_became_active")
             Task { await refreshCalendarReminder(reason: "app_became_active") }
             Task { await refreshMeetingDetectionRegistry(reason: "app_became_active") }
         }
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in
+            Task { await synchronizeRecordingDeletions() }
             refreshUploadQueueAndProcess(reason: "system_wake")
             Task { await refreshCalendarReminder(reason: "system_wake") }
             Task { await refreshMeetingDetectionRegistry(reason: "system_wake") }
@@ -2433,6 +2451,8 @@ private struct ContentView: View {
                         CaptureRecoveryService().recoverIncompleteRecordings(in: recoveryRoot)
                     }.value
                 }
+                try? await service.refreshDeletionScope()
+                try? await Task.detached(priority: .utility) { try service.finishLocalOnlyDeletions() }.value
                 _ = try service.scanAndEnqueueCompletedRecordings()
                 _ = try service.applyRetentionExpiry()
                 var items = try await service.processDueItems { progressItems in
@@ -2442,7 +2462,9 @@ private struct ContentView: View {
                 }
                 var shouldRetryLocalPurgeAcknowledgement = false
                 do {
-                    _ = try await service.acknowledgePendingLocalPurgeTasks()
+                    _ = try await service.acknowledgePendingLocalPurgeTasks { ids in
+                        await MainActor.run { LocalRecordingPlayer.shared.revoke(itemIDs: ids) }
+                    }
                     items = try service.loadItems()
                 } catch {
                     shouldRetryLocalPurgeAcknowledgement = true
@@ -2454,6 +2476,8 @@ private struct ContentView: View {
                 }
                 await MainActor.run {
                     uploadQueueItems = items
+                    recordingDeletionOperations = (try? service.currentDeletionOperations()) ?? []
+                    LocalRecordingPlayer.shared.reconcile(items: items)
                     uploadQueueRefreshInProgress = false
                     let refreshAgain = uploadQueueRefreshRequested
                     uploadQueueRefreshRequested = false
@@ -2596,6 +2620,7 @@ private struct ContentView: View {
                 let isSatisfied = path.status == .satisfied
                 defer { uploadQueueNetworkWasSatisfied = isSatisfied }
                 guard isSatisfied, !uploadQueueNetworkWasSatisfied else { return }
+                await synchronizeRecordingDeletions()
                 refreshUploadQueueAndProcess(reason: "network_recovered")
             }
         }
@@ -2672,18 +2697,101 @@ private struct ContentView: View {
     }
 
     @MainActor
+    private func synchronizeRecordingDeletions() async {
+        guard !deletionSyncInProgress else { return }
+        deletionSyncInProgress = true
+        defer { deletionSyncInProgress = false }
+        let service = desktopUploadQueueService
+        try? await service.synchronizeRecordingLifecycle()
+        uploadQueueItems = (try? service.loadItems()) ?? uploadQueueItems
+        recordingDeletionOperations = (try? service.currentDeletionOperations()) ?? recordingDeletionOperations
+        LocalRecordingPlayer.shared.reconcile(items: uploadQueueItems)
+        try? await Task.detached(priority: .utility) { try service.finishLocalOnlyDeletions() }.value
+        try? await executeRecordingDeletionRequests()
+        _ = try? await service.acknowledgePendingLocalPurgeTasks { ids in
+            await MainActor.run { LocalRecordingPlayer.shared.revoke(itemIDs: ids) }
+        }
+        uploadQueueItems = (try? service.loadItems()) ?? uploadQueueItems
+        recordingDeletionOperations = (try? service.currentDeletionOperations()) ?? recordingDeletionOperations
+        LocalRecordingPlayer.shared.reconcile(items: uploadQueueItems)
+    }
+
+    @MainActor
+    private func executeRecordingDeletionRequests() async throws {
+        let service = desktopUploadQueueService
+        try await service.processDeletionRequests { items in
+            await MainActor.run {
+                uploadQueueItems = items
+                recordingDeletionOperations = (try? service.currentDeletionOperations()) ?? []
+                LocalRecordingPlayer.shared.reconcile(items: items)
+            }
+        }
+    }
+
+    @MainActor
+    private func deleteRecordingSelection(_ selection: EmbeddedCabinetDeletionSelection) async -> EmbeddedCabinetDeletionResult {
+        let service = desktopUploadQueueService
+        let requested: [RecordingDeletionOperation]
+        do {
+            requested = try await Task.detached(priority: .utility) {
+                try service.requestDeletion(itemIDs: selection.localIDs, meetingIDs: selection.meetingIDs)
+            }.value
+        } catch { return .failed }
+        uploadQueueItems = (try? service.loadItems()) ?? uploadQueueItems
+        recordingDeletionOperations = (try? service.currentDeletionOperations()) ?? recordingDeletionOperations
+        LocalRecordingPlayer.shared.reconcile(items: uploadQueueItems)
+        // The batch is already durable. Failure of one executor must not suppress the other.
+        try? await Task.detached(priority: .utility) { try service.finishLocalOnlyDeletions() }.value
+        try? await executeRecordingDeletionRequests()
+        uploadQueueItems = (try? service.loadItems()) ?? uploadQueueItems
+        recordingDeletionOperations = (try? service.currentDeletionOperations()) ?? recordingDeletionOperations
+        refreshUploadQueueAndProcess(reason: "recording_deletion")
+        var result = EmbeddedCabinetDeletionResult()
+        let current = requested.first.flatMap { try? service.loadDeletionOperations(scope: $0.scope) }
+        for operation in Dictionary(requested.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }).values {
+            let phase = current?.first(where: { $0.id == operation.id })?.phase ?? operation.phase
+            if phase.isAccepted { result.accepted += 1 }
+            else if phase == .rejected { result.rejected += 1 }
+            else { result.pending += 1 }
+        }
+        for id in selection.localIDs {
+            guard let item = uploadQueueItems.first(where: { $0.id == id }),
+                  item.state == .terminalDeleted, item.serverCreationAttempted == false,
+                  item.retentionDecision.reason == "local_copy_deleted_by_user" else { continue }
+            if item.retentionDecision.localArtifactsRetained { result.pending += 1 }
+            else { result.accepted += 1 }
+        }
+        return result
+    }
+
+    @MainActor
     private func handleLocalRecordingAction(_ action: String, itemId: String) {
         do {
             switch action {
             case EmbeddedCabinetLocalRecordingBridge.openAction:
-                NSWorkspace.shared.open(try desktopUploadQueueService.localPlaybackURL(itemId: itemId))
+                Task { @MainActor in
+                    let service = desktopUploadQueueService
+                    do {
+                        guard let item = try service.loadItems().first(where: { $0.id == itemId }), !item.lifecycleBlocksContent else { return }
+                        if item.serverCreationAttempted == true || item.meetingId != nil {
+                            try await service.synchronizeRecordingLifecycle()
+                        }
+                        let url = try await Task.detached(priority: .utility) { try service.localPlaybackURL(itemId: itemId) }.value
+                        guard let current = try service.loadItems().first(where: { $0.id == itemId }), !current.lifecycleBlocksContent else { return }
+                        LocalRecordingPlayer.shared.open(url: url, itemID: itemId)
+                    } catch {
+                        uploadQueueItems = (try? service.loadItems()) ?? uploadQueueItems
+                    }
+                }
             case EmbeddedCabinetLocalRecordingBridge.sendAction:
                 _ = try desktopUploadQueueService.retry(itemId: itemId)
                 uploadQueueItems = try desktopUploadQueueService.loadItems()
                 refreshUploadQueueAndProcess(reason: "manual_send")
             case EmbeddedCabinetLocalRecordingBridge.deleteAction:
-                _ = try desktopUploadQueueService.deleteLocalCopy(itemId: itemId)
+                _ = try desktopUploadQueueService.requestDeletion(itemIDs: [itemId])
                 uploadQueueItems = try desktopUploadQueueService.loadItems()
+                LocalRecordingPlayer.shared.reconcile(items: uploadQueueItems)
+                Task { await synchronizeRecordingDeletions() }
             default:
                 return
             }

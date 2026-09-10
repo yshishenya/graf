@@ -1565,6 +1565,12 @@ public struct DesktopSupportIncidentSubmissionState: Codable, Equatable, Sendabl
 }
 
 public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable {
+    public var ownerScope: RecordingDeletionScope?
+    public var isLocalUnbound: Bool?
+    public var serverCreationAttempted: Bool?
+    // Read projection only; the queue document remains the sole source of operation state.
+    public var deletionOperation: RecordingDeletionOperation? = nil
+    public var lifecycleAccessAvailable: Bool = true
     public var id: String
     public var sessionId: String
     public var directoryId: String
@@ -1721,6 +1727,9 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
         serverTruth: ServerTruthFingerprint? = nil,
         retentionDecision: RetentionDecision? = nil
     ) -> DesktopUploadQueueItem {
+        if hasConfirmedDeletion && nextState != .terminalDeleted {
+            return self
+        }
         if state.isTerminal && !nextState.isTerminal {
             return self
         }
@@ -1764,6 +1773,7 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
     }
 
     enum CodingKeys: String, CodingKey {
+        case ownerScope, isLocalUnbound, serverCreationAttempted
         case id
         case sessionId
         case directoryId
@@ -1839,23 +1849,52 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
                 forKey: .supportIncidentSubmission
             )
         )
+        ownerScope = try container.decodeIfPresent(RecordingDeletionScope.self, forKey: .ownerScope)
+        isLocalUnbound = try container.decodeIfPresent(Bool.self, forKey: .isLocalUnbound)
+        serverCreationAttempted = try container.decodeIfPresent(Bool.self, forKey: .serverCreationAttempted)
     }
 }
 
 public struct DesktopUploadQueueDocument: Codable, Equatable, Sendable {
-    public static let schemaVersion = "desktop-upload-queue.v2"
+    public static let schemaVersion = "desktop-upload-queue.v3"
 
     public var schemaVersion: String
     public var updatedAt: Date
     public var items: [DesktopUploadQueueItem]
+    public var lastAuthenticatedContext: RecordingAuthenticatedContext?
+    public var deletionOperations: [RecordingDeletionOperation]
 
     public init(
         schemaVersion: String = Self.schemaVersion,
         updatedAt: Date,
-        items: [DesktopUploadQueueItem]
+        items: [DesktopUploadQueueItem],
+        deletionOperations: [RecordingDeletionOperation] = []
     ) {
         self.schemaVersion = schemaVersion
         self.updatedAt = updatedAt
         self.items = items
+        self.deletionOperations = deletionOperations
+    }
+
+    enum CodingKeys: String, CodingKey { case schemaVersion, updatedAt, items, deletionOperations, lastAuthenticatedContext }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        let schema = try values.decode(String.self, forKey: .schemaVersion)
+        guard ["desktop-upload-queue.v1", "desktop-upload-queue.v2", Self.schemaVersion].contains(schema) else {
+            throw RecordingDeletionError.unsupportedQueueSchema
+        }
+        self.init(
+            schemaVersion: schema,
+            updatedAt: try values.decode(Date.self, forKey: .updatedAt),
+            items: try values.decode([DesktopUploadQueueItem].self, forKey: .items),
+            deletionOperations: schema == Self.schemaVersion
+                ? try values.decode([RecordingDeletionOperation].self, forKey: .deletionOperations)
+                : try values.decodeIfPresent([RecordingDeletionOperation].self, forKey: .deletionOperations) ?? []
+        )
+        lastAuthenticatedContext = try values.decodeIfPresent(RecordingAuthenticatedContext.self, forKey: .lastAuthenticatedContext)
+        guard Set(deletionOperations.map(\.id)).count == deletionOperations.count else {
+            throw RecordingDeletionError.duplicateOperation
+        }
     }
 }
