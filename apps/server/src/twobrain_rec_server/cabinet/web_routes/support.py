@@ -20,14 +20,15 @@ from twobrain_rec_server.auth.dependencies import (
     get_web_owner_tenant_scope,
     require_web_csrf,
 )
-from twobrain_rec_server.cabinet.access import decide_meeting_access
+from twobrain_rec_server.cabinet.access import authorized_lifecycle_meeting, decide_meeting_access
 from twobrain_rec_server.db.models import (
     Meeting,
-    WorkspaceMembership,
 )
 from twobrain_rec_server.db.tenant_context import (
     apply_tenant_scope,
 )
+
+_authorized_lifecycle_meeting = authorized_lifecycle_meeting
 
 WebTenantDependency = Depends(get_web_owner_tenant_scope)
 PrincipalDependency = Depends(get_principal)
@@ -204,31 +205,3 @@ async def _authorized_meeting(
 def _ensure_lifecycle_manager(decision) -> None:
     if decision.state != "owner" and decision.role not in {"owner", "admin"}:
         raise ProblemDetail(status=403, code="deletion_forbidden", title="Deletion is not available")
-
-
-async def _authorized_lifecycle_meeting(
-    db: AsyncSession,
-    *,
-    workspace_id: UUID,
-    meeting_id: UUID,
-    viewer_user_id: UUID,
-) -> Meeting:
-    meeting = await db.scalar(
-        select(Meeting).where(
-            Meeting.workspace_id == workspace_id,
-            Meeting.id == meeting_id,
-        )
-    )
-    if meeting is None:
-        raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
-    membership = await db.scalar(
-        select(WorkspaceMembership).where(
-            WorkspaceMembership.workspace_id == workspace_id,
-            WorkspaceMembership.user_id == viewer_user_id,
-            WorkspaceMembership.status == "active",
-        )
-    )
-    role = membership.role if membership is not None else None
-    if meeting.created_by_user_id != viewer_user_id and role not in {"owner", "admin"}:
-        raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
-    return meeting

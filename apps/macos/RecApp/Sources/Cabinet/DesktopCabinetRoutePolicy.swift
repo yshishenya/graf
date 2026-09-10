@@ -166,6 +166,12 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
                 decision: .allow, reason: .allowedMeetingList, userMessage: "Уведомления"
             )
         }
+        if components == ["desktop", "deletions"] {
+            return DesktopCabinetRouteDecision(
+                route: DesktopCabinetRoute(path: path, kind: .meetingDeletionReport), decision: .allow,
+                reason: .allowedMeetingDeletionReport, userMessage: "Удаления"
+            )
+        }
         if components == ["desktop", "meetings"] {
             return DesktopCabinetRouteDecision(
                 route: DesktopCabinetRoute(path: path, kind: .meetingList),

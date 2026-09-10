@@ -22,3 +22,15 @@
 Карта хранит уникальную связь задач с issues; текущее состояние GitHub доступно по каждой ссылке. Состояние реализации и приёмки — в tasks.md и validation/closeout.md. Закрытие каждой task issue выполняется после чтения актуальной записи, понятного русского closure comment и validate-issue-closeout.py с окончательным PR SHA и его GitHub governance-fast. Общая задача6794 остаётся открытой до merge: её live validator дополнительно требует merged PR. Снятие draft не является слиянием или выпуском.
 
 Mandatory ensure выполнен успешно без изменения общих файлов проекта. Итог validate и независимого принятия записывается в [readiness.md](readiness.md).
+
+
+## Дополнение выбора формата — 2026-09-09
+
+| Task | GitHub | Состояние при создании |
+|---|---|---|
+| T012 | [#6854](https://github.com/yshishenya/graf/issues/6854) | OPEN, выполнение ожидается |
+| T013 | [#6855](https://github.com/yshishenya/graf/issues/6855) | OPEN, выполнение ожидается |
+| T014 | [#6856](https://github.com/yshishenya/graf/issues/6856) | OPEN, выполнение ожидается |
+| T015 | [#6857](https://github.com/yshishenya/graf/issues/6857) | OPEN, выполнение ожидается |
+
+Уникальная ownership4/4, чтение/validate_issue4/4 PASS; ensure PASS. Общий validate FAIL на постороннем F6790 #6852; scoped sync принят отдельно, чужое содержимое не изменено. Закрытие новых issues ждёт task evidence, PR/SHA/governance-fast и validate-issue-closeout.
