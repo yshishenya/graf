@@ -61,6 +61,7 @@ SHAREABLE_CALENDAR_CANDIDATE_CLASSES = {
 MAX_SHARE_INVITATION_TTL_SECONDS = 7 * 24 * 60 * 60
 SHARE_INVITATION_CONTINUATION_TTL_SECONDS = 15 * 60
 SHARE_RATE_LIMITS: dict[str, tuple[int, int]] = {
+    "recording_deletion": (120, 60),
     "recipient_search": (30, 60),
     "grant": (20, 60 * 60),
     "rotate": (20, 60 * 60),
@@ -304,8 +305,8 @@ async def _enforce_share_rate_limit_in_session(
         retry_after = max(1, math.ceil((blocked_until - now).total_seconds()))
         raise ProblemDetail(
             status=429,
-            code="share_rate_limited",
-            title="Share requests are temporarily limited",
+            code="recording_deletion_rate_limited" if action_key == "recording_deletion" else "share_rate_limited",
+            title="Requests are temporarily limited",
             detail="Try again later.",
             headers={"Retry-After": str(retry_after)},
         )
@@ -316,8 +317,8 @@ async def _enforce_share_rate_limit_in_session(
         await db.flush()
         raise ProblemDetail(
             status=429,
-            code="share_rate_limited",
-            title="Share requests are temporarily limited",
+            code="recording_deletion_rate_limited" if action_key == "recording_deletion" else "share_rate_limited",
+            title="Requests are temporarily limited",
             detail="Try again later.",
             headers={"Retry-After": str(retry_after)},
         )
@@ -2129,3 +2130,31 @@ def preserve_comment_permissions(existing, decision, scope, requested, can_comme
     if (bool(existing.can_comment), bool(existing.can_edit)) != (can_comment, can_edit) and not (decision.state == 'owner' or decision.can_edit):
         raise ProblemDetail(status=403, code='comment_permission_forbidden', title='Недостаточно прав')
     return can_comment, can_edit
+
+
+async def authorized_lifecycle_meeting(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+    viewer_user_id: UUID,
+) -> Meeting:
+    meeting = await db.scalar(
+        select(Meeting).where(
+            Meeting.workspace_id == workspace_id,
+            Meeting.id == meeting_id,
+        )
+    )
+    if meeting is None:
+        raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
+    membership = await db.scalar(
+        select(WorkspaceMembership).where(
+            WorkspaceMembership.workspace_id == workspace_id,
+            WorkspaceMembership.user_id == viewer_user_id,
+            WorkspaceMembership.status == "active",
+        )
+    )
+    role = membership.role if membership is not None else None
+    if meeting.created_by_user_id != viewer_user_id and role not in {"owner", "admin"}:
+        raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
+    return meeting

@@ -137,3 +137,13 @@ def _render_lifecycle_activity(activity: list) -> str:
         for item in activity
     )
     return f'<div class="state-list">{rows}</div>'
+
+
+def render_deletion_index(rows, *, page, has_more, embedded, profile, csrf_token):
+    base_path = "/desktop" if embedded else ""
+    content = render_template(
+        "cabinet/pages/deletion_index_content.html", rows=rows, page=page, has_more=has_more,
+        base_path=base_path,
+    )
+    return _page_shell("Удаления", content, embedded=embedded, profile=profile, csrf_token=csrf_token,
+                       content_source="deletion_index.content")

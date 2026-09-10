@@ -58,8 +58,41 @@ def test_notification_context_is_scoped_and_does_not_need_calendar(client) -> No
     response = client.get("/api/v1/desktop/notification-context", headers=auth_headers())
     assert response.headers["Cache-Control"] == "no-store"
     assert response.status_code == 200
-    assert set(response.json()) == {"user_id", "workspace_id"}
+    assert set(response.json()) == {"user_id", "workspace_id", "recording_deletion_protocol_version"}
+    assert response.json()["recording_deletion_protocol_version"] == 1
     assert client.get("/api/v1/desktop/notification-context").status_code in {401, 403}
+
+
+def test_unavailable_deletion_target_has_no_receipt_and_next_target_can_be_deleted(client) -> None:
+    from twobrain_rec_server.deletion.report import BOUNDED_DELETE_COPY
+
+    missing_id = str(uuid4())
+    confirmation = {"confirmation_boundary": BOUNDED_DELETE_COPY}
+    missing = client.post(
+        f"/api/v1/cabinet/meetings/{missing_id}/deletion-requests",
+        headers=auth_headers(), json=confirmation,
+    )
+    assert missing.status_code == 404
+    assert missing.json()["code"] == "meeting_not_found"
+    lookup = client.post(
+        "/api/v1/desktop/recordings/lifecycle", headers=auth_headers(),
+        json={"meeting_ids": [missing_id]},
+    )
+    assert lookup.status_code == 200
+    assert lookup.json()[0]["state"] == "unavailable"
+    assert lookup.json()[0]["receipt"] is None
+    created = client.post("/api/v1/meetings", headers=auth_headers(), json={
+        "local_recording_id": str(uuid4()), "duration_seconds": 10,
+    })
+    assert created.status_code == 200
+    meeting_id = created.json()["meeting_id"]
+    accepted = client.post(
+        f"/api/v1/cabinet/meetings/{meeting_id}/deletion-requests",
+        headers=auth_headers(), json=confirmation,
+    )
+    assert accepted.status_code == 202
+    assert accepted.json()["receipt_type"] == "meeting_deletion"
+    assert accepted.json()["meeting_id"] == meeting_id
 
 
 def test_processing_failure_keeps_upload_finalized_in_custody_read_model() -> None:

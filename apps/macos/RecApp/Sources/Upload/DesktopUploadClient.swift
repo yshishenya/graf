@@ -10,6 +10,10 @@ public protocol DesktopSupportIncidentSubmitting: Sendable {
 }
 
 public protocol DesktopUploadClientProtocol: Sendable {
+    var recordingSessionFingerprint: String? { get }
+    func recordingLifecycle(origins: [String], scope: RecordingDeletionScope) async throws -> [DesktopRecordingLifecycleEntry]
+    func recordingDeletionScope() async throws -> RecordingDeletionScope?
+    func requestRecordingDeletion(_ operation: RecordingDeletionOperation) async throws -> RecordingDeletionReceipt
     func reconcile(_ item: DesktopUploadQueueItem) async throws -> DesktopUploadReconciliation?
     func upload(_ item: DesktopUploadQueueItem) async throws -> DesktopUploadResult
     func upload(
@@ -17,6 +21,7 @@ public protocol DesktopUploadClientProtocol: Sendable {
         onProgress: @escaping DesktopUploadProgressHandler
     ) async throws -> DesktopUploadResult
     func supportIncidentContext() -> DesktopSupportIncidentReportContext
+    func ensureLocalPurgeTask(meetingID: String, scope: RecordingDeletionScope) async throws -> DesktopLocalPurgeTask?
     func listLocalPurgeTasks() async throws -> [DesktopLocalPurgeTask]
     func acknowledgeLocalPurgeTask(
         _ task: DesktopLocalPurgeTask,
@@ -27,6 +32,14 @@ public protocol DesktopUploadClientProtocol: Sendable {
 }
 
 public extension DesktopUploadClientProtocol {
+    func ensureLocalPurgeTask(meetingID: String, scope: RecordingDeletionScope) async throws -> DesktopLocalPurgeTask? { nil }
+    var recordingSessionFingerprint: String? { nil }
+    func recordingLifecycle(origins: [String], scope: RecordingDeletionScope) async throws -> [DesktopRecordingLifecycleEntry] { [] }
+    func recordingDeletionScope() async throws -> RecordingDeletionScope? { nil }
+    func requestRecordingDeletion(_ operation: RecordingDeletionOperation) async throws -> RecordingDeletionReceipt {
+        throw DesktopUploadClientError.invalidResponse
+    }
+
     func reconcile(_ item: DesktopUploadQueueItem) async throws -> DesktopUploadReconciliation? {
         nil
     }
@@ -588,9 +601,14 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         _ item: DesktopUploadQueueItem,
         onProgress: @escaping DesktopUploadProgressHandler
     ) async throws -> DesktopUploadResult {
+        if let scope = item.ownerScope,
+           headers["X-Graf-Expected-Actor"] != scope.actorUserID || headers["X-Graf-Expected-Workspace"] != scope.workspaceID {
+            return try await scoped(to: scope).upload(item, onProgress: onProgress)
+        }
         try Self.validatePackageForUpload(item)
         let initialSessionDescriptors = Self.uploadSessionFileDescriptors(for: item)
         try Self.validateDescriptorSet(initialSessionDescriptors, for: item)
+        try await onProgress(item.serverTruth)
         let meeting = if let meetingId = item.meetingId {
             MeetingResponse(
                 meeting_id: meetingId,
@@ -607,6 +625,7 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         } else {
             try await createMeeting(item)
         }
+        try await onProgress(ServerTruthFingerprint(meetingId: meeting.meeting_id))
         await linkCalendarContextIfNeeded(item, meetingId: meeting.meeting_id)
 
         let uploadSession: UploadSessionResponse
@@ -724,11 +743,116 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         return DesktopUploadResult(state: .uploaded, serverTruth: serverTruth)
     }
 
+    public var recordingSessionFingerprint: String? {
+        guard hasCurrentAuthentication,
+              let request = try? request(path: "/api/v1/desktop/notification-context", method: "GET"),
+              let data = try? JSONSerialization.data(withJSONObject: [
+                "origin": baseURL.absoluteString,
+                "headers": request.allHTTPHeaderFields ?? [:]
+              ], options: [.sortedKeys]) else { return nil }
+        return Self.sha256Hex(data: data)
+    }
+
+    public func ensureLocalPurgeTask(meetingID: String, scope: RecordingDeletionScope) async throws -> DesktopLocalPurgeTask? {
+        guard UUID(uuidString: meetingID) != nil else { throw RecordingDeletionError.invalidIdentity }
+        let client = try scoped(to: scope)
+        return try await client.perform(client.request(path: "/api/v1/desktop/meetings/\(meetingID)/local-purge-task", method: "POST", timeoutInterval: 15))
+    }
+
+    public func recordingLifecycle(origins: [String], scope: RecordingDeletionScope) async throws -> [DesktopRecordingLifecycleEntry] {
+        guard (1...100).contains(origins.count) else { throw RecordingDeletionError.invalidIdentity }
+        let client = try scoped(to: scope)
+        var request = try client.request(path: "/api/v1/desktop/recordings/lifecycle", method: "POST", timeoutInterval: 15)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["origins": origins])
+        return try await client.perform(request)
+    }
+
+    public func recordingDeletionScope() async throws -> RecordingDeletionScope? {
+        let context = try await notificationContext()
+        return try RecordingDeletionScope(
+            serverOrigin: baseURL.absoluteString, workspaceID: context.workspace_id.uuidString.lowercased(), actorUserID: context.user_id.uuidString.lowercased()
+        )
+    }
+
+    func scoped(to scope: RecordingDeletionScope) throws -> Self {
+        guard try RecordingDeletionScope(
+            serverOrigin: baseURL.absoluteString, workspaceID: scope.workspaceID, actorUserID: scope.actorUserID
+        ) == scope else { throw RecordingDeletionError.invalidIdentity }
+        var scopedHeaders = headers
+        scopedHeaders["X-Graf-Expected-Actor"] = scope.actorUserID
+        scopedHeaders["X-Graf-Expected-Workspace"] = scope.workspaceID
+        return Self(baseURL: baseURL, headers: scopedHeaders, partSizeBytes: partSizeBytes,
+                    authSessionTokenProvider: authSessionTokenProvider, requestExecutor: requestExecutor)
+    }
+
+    public func requestRecordingDeletion(_ operation: RecordingDeletionOperation) async throws -> RecordingDeletionReceipt {
+        let client = try scoped(to: operation.scope)
+        // An older server ignores the expected-account headers. Verify support before
+        // any mutation; a receipt decoding failure would be too late to protect it.
+        let context: DesktopNotificationContext
+        do { context = try await client.notificationContext() }
+        catch is DecodingError {
+            throw DesktopUploadClientError.httpStatus(426, "recording_deletion_update_required")
+        } catch DesktopUploadClientError.httpStatus(404, _) {
+            throw DesktopUploadClientError.httpStatus(426, "recording_deletion_update_required")
+        }
+        guard context.recording_deletion_protocol_version == 1 else {
+            throw DesktopUploadClientError.httpStatus(426, "recording_deletion_update_required")
+        }
+        guard context.user_id.uuidString.lowercased() == operation.scope.actorUserID,
+              context.workspace_id.uuidString.lowercased() == operation.scope.workspaceID else {
+            throw DesktopUploadClientError.httpStatus(409, "recording_scope_changed")
+        }
+        let path: String
+        var body = ["confirmation_boundary": "Delete this meeting everywhere GRAF controls."]
+        // Identity is encoded by URLComponents as one path segment, never supplied as a URL.
+        let id = operation.target.identifier
+        guard !id.contains("/"), !id.contains("?"), !id.contains("#") else { throw RecordingDeletionError.invalidIdentity }
+        switch operation.target {
+        case .meeting: path = "/api/v1/cabinet/meetings/\(id)/deletion-requests"
+        case .ownOrigin:
+            path = "/api/v1/desktop/recordings/\(id)/deletion-requests"
+            body["operation_id"] = operation.id.uuidString
+        }
+        var request = try client.request(path: path, method: "POST", timeoutInterval: 30)
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        let receipt: RecordingDeletionReceipt
+        do { receipt = try await client.perform(request, honorRetryAfter: true) }
+        catch DesktopUploadClientError.httpStatus(404, "meeting_not_found") {
+            // A target can disappear or become inaccessible while this durable request
+            // waits offline. Resolve it without treating absence as purge permission.
+            guard case .meeting(let meetingID) = operation.target else { throw DesktopUploadClientError.invalidResponse }
+            var lookup = try client.request(path: "/api/v1/desktop/recordings/lifecycle", method: "POST", timeoutInterval: 15)
+            lookup.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            lookup.httpBody = try JSONSerialization.data(withJSONObject: ["meeting_ids": [meetingID]])
+            let entries: [DesktopRecordingLifecycleEntry] = try await client.perform(lookup)
+            guard let entry = entries.first(where: { $0.target_type == "meeting" && $0.target_id == meetingID }) else {
+                throw DesktopUploadClientError.invalidResponse
+            }
+            if entry.state == "unavailable" {
+                throw DesktopUploadClientError.httpStatus(403, "deletion_forbidden")
+            }
+            guard entry.state == "deletion_accepted", let resolved = entry.receipt else {
+                throw DesktopUploadClientError.httpStatus(404, "meeting_not_found")
+            }
+            receipt = resolved
+        }
+        guard receipt.matches(operation.target) else { throw RecordingDeletionError.invalidIdentity }
+        return receipt
+    }
+
     public func notificationContext() async throws -> DesktopNotificationContext {
         try await perform(request(path: "/api/v1/desktop/notification-context", method: "GET", timeoutInterval: 15))
     }
 
     public func reconcile(_ item: DesktopUploadQueueItem) async throws -> DesktopUploadReconciliation? {
+        if let scope = item.ownerScope,
+           headers["X-Graf-Expected-Actor"] != scope.actorUserID || headers["X-Graf-Expected-Workspace"] != scope.workspaceID {
+            return try await scoped(to: scope).reconcile(item)
+        }
         let request = try request(
             path: "/api/v1/desktop/recordings/\(item.directoryId)/sync-state",
             method: "GET",
@@ -1303,7 +1427,7 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         return request
     }
 
-    private func perform<T: Decodable>(_ request: URLRequest) async throws -> T {
+    private func perform<T: Decodable>(_ request: URLRequest, honorRetryAfter: Bool = false) async throws -> T {
         let data: Data
         let response: URLResponse
         do {
@@ -1313,6 +1437,14 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         }
         guard let httpResponse = response as? HTTPURLResponse else {
             throw DesktopUploadClientError.invalidResponse
+        }
+        if honorRetryAfter, httpResponse.statusCode == 429 {
+            let raw = httpResponse.value(forHTTPHeaderField: "Retry-After") ?? "60"
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
+            let delay = TimeInterval(raw) ?? formatter.date(from: raw)?.timeIntervalSinceNow ?? 60
+            throw RecordingDeletionRetryAfter(delay: delay)
         }
         guard (200..<300).contains(httpResponse.statusCode) else {
             let problem = try? decoder.decode(Problem.self, from: data)
@@ -1488,6 +1620,7 @@ private struct DesktopSyncProcessingState: Decodable {
 public struct DesktopNotificationContext: Decodable, Sendable {
     public let user_id: UUID
     public let workspace_id: UUID
+    public let recording_deletion_protocol_version: Int?
 }
 
 struct DesktopSyncReviewState: Decodable {
@@ -1552,4 +1685,11 @@ private struct LocalPurgeTaskListResponse: Decodable {
 
 private struct Problem: Decodable {
     let code: String
+}
+
+public struct DesktopRecordingLifecycleEntry: Decodable, Sendable {
+    public let target_type: String
+    public let target_id: String
+    public let state: String
+    public let receipt: RecordingDeletionReceipt?
 }

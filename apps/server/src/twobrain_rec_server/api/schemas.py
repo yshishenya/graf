@@ -1207,6 +1207,10 @@ class DeletionVerificationReport(BaseModel):
 
 
 class DeletionRequestResponse(BaseModel):
+    receipt_type: Literal["meeting_deletion"] = "meeting_deletion"
+    phase: Literal["accepted"] = "accepted"
+    deletion_epoch: int = Field(ge=0)
+    local_recording_id: str | None = None
     request_id: UUID
     meeting_id: UUID
     lifecycle: DeletionLifecycleState
@@ -2433,3 +2437,37 @@ class MeetingReviewResponse(BaseModel):
     deletion_truth_copy: str | None = None
     assistant: SlotState
     template: SlotState
+
+
+class OriginCancellationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    operation_id: UUID
+    confirmation_boundary: str = Field(max_length=240)
+
+
+class OriginCancellationReceipt(BaseModel):
+    receipt_type: Literal["origin_cancellation"] = "origin_cancellation"
+    request_id: UUID
+    local_recording_id: str
+    accepted_at: datetime
+    phase: Literal["accepted"] = "accepted"
+
+
+class RecordingLifecycleLookup(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    origins: list[Annotated[SafeClientText, Field(min_length=1, max_length=240)]] = Field(default_factory=list, max_length=100)
+    meeting_ids: list[UUID] = Field(default_factory=list, max_length=100)
+
+    @model_validator(mode="after")
+    def bounded_selection(self) -> Self:
+        if not 1 <= len(self.origins) + len(self.meeting_ids) <= 100:
+            raise ValueError("Select between 1 and 100 recordings")
+        return self
+
+
+class RecordingLifecycleEntry(BaseModel):
+    target_type: Literal["own_origin", "meeting"]
+    target_id: str
+    state: Literal["allowed", "deletion_accepted", "canceled_before_creation", "unavailable"]
+    meeting_id: UUID | None = None
+    receipt: DeletionRequestResponse | OriginCancellationReceipt | None = None
