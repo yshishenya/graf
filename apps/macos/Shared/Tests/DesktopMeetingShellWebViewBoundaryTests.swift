@@ -503,7 +503,7 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
             "data-summary-format-button",
             "data-summary-format-listbox",
             "data-summary-refresh-button",
-            "data-summary-format-dialog",
+            "data-summary-format-popover",
             "data-summary-format-all"
         ] {
             XCTAssertTrue(detailSource.contains(marker), marker)
