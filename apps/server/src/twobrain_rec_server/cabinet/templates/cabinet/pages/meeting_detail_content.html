@@ -48,11 +48,19 @@
             <span aria-hidden="true">⌄</span>
           </button>
           <span class="summary-format-pending" data-summary-pending-format-label hidden aria-hidden="true"></span>
-          <div id="summary-format-listbox" class="summary-format-listbox" data-summary-format-listbox data-recommended-limit="4" role="listbox" aria-label="Формат итогов" hidden>
-            {% for format in summary_formats[:4] %}
-            <button type="button" role="option" aria-selected="{{ 'true' if format.key == current_summary_format_key else 'false' }}" data-summary-format-option data-template-key="{{ format.key }}" data-template-version="{{ format.version }}" data-template-name="{{ format.name }}"><strong>{{ format.name }}</strong><span>{{ format.purpose }}</span><small>Ожидаемые разделы: {% for section in format.sections %}{{ summary_section_labels.get(section, section) }}{% if not loop.last %}, {% endif %}{% endfor %}</small>{% if format.key == current_summary_format_key %}<small class="summary-format-current">Текущий формат</small>{% endif %}</button>
-            {% endfor %}
-            <button type="button" class="summary-format-all" data-summary-format-all aria-haspopup="dialog" aria-controls="summary-format-dialog">Все форматы…</button>
+          <div class="summary-format-popover" data-summary-format-popover popover="manual" hidden>
+            <button type="button" class="summary-format-back" data-summary-format-back hidden><span aria-hidden="true">←</span> Назад</button>
+            <div id="summary-format-listbox" class="summary-format-listbox" data-summary-format-listbox data-recommended-limit="4" role="listbox" aria-label="Формат итогов">
+              {% set format_icons = ['✦', '≡', '▤', '↻', '▦', '☷', '▥', '◇', '◎'] %}
+              {% for format in summary_formats %}
+              <button type="button" role="option" tabindex="-1" aria-selected="{{ 'true' if format.key == current_summary_format_key else 'false' }}" aria-describedby="summary-format-description" data-summary-format-option data-template-key="{{ format.key }}" data-template-version="{{ format.version }}" data-template-name="{{ format.name }}" data-template-purpose="{{ format.purpose }}"{% if loop.index > 4 %} data-summary-format-extra hidden{% endif %}><span class="summary-format-icon" aria-hidden="true">{{ format_icons[loop.index0] }}</span><span class="summary-format-name">{{ format.name }}</span><span class="summary-format-check" aria-hidden="true">✓</span></button>
+              {% endfor %}
+              <div class="summary-personal-formats" data-summary-personal-options role="group" aria-label="Личные форматы" hidden></div>
+            </div>
+            <button type="button" class="summary-format-all" data-summary-format-all>Все форматы… <span aria-hidden="true">›</span></button>
+            <a class="summary-format-settings-link" href="{{ summary_settings_href }}" data-summary-format-settings hidden>Управлять личными форматами <span aria-hidden="true">↗</span></a>
+            <p class="summary-format-description" id="summary-format-description" data-summary-format-description>Выберите формат итогов</p>
+            <p class="summary-format-load-status" data-summary-format-load-status role="status" hidden></p>
           </div>
         </div>
         <details class="summary-format-info">
@@ -134,23 +142,7 @@
     </section>
   </section>
   {{ content_export_dialog }}
-  {% if summary_controls_available %}
-  <dialog id="summary-format-dialog" class="summary-format-dialog" data-summary-format-dialog aria-labelledby="summary-format-dialog-title">
-    <div class="summary-format-dialog__surface">
-      <div class="summary-format-dialog__header">
-        <div><h2 id="summary-format-dialog-title">Все форматы</h2><p class="muted">Выберите структуру для нового варианта итогов.</p></div>
-        <button type="button" class="icon-button" data-summary-format-dialog-close aria-label="Закрыть">×</button>
-      </div>
-      <div class="summary-format-grid" data-summary-all-options>
-        {% for format in summary_formats %}
-        <button type="button" data-summary-format-option data-template-key="{{ format.key }}" data-template-version="{{ format.version }}" data-template-name="{{ format.name }}" aria-current="{{ 'true' if format.key == current_summary_format_key else 'false' }}"{% if format.key == current_summary_format_key %} data-summary-format-current{% endif %}><strong>{{ format.name }}</strong><span>{{ format.purpose }}</span><small>Ожидаемые разделы: {% for section in format.sections %}{{ summary_section_labels.get(section, section) }}{% if not loop.last %}, {% endif %}{% endfor %}</small>{% if format.key == current_summary_format_key %}<small class="summary-format-current">Текущий формат</small>{% endif %}</button>
-        {% endfor %}
-      </div>
-      <div class="summary-personal-formats" data-summary-personal-options hidden></div>
-      <a class="button quiet" href="{{ summary_settings_href }}">Управлять личными форматами</a>
-    </div>
-  </dialog>
-  {% endif %}
+
 </main>
 {{ playback }}
 <template data-meeting-detail-recovery-template>
