@@ -945,3 +945,79 @@ async def get_desktop_recording_sync_state(
             review_desktop_url=custody_review_desktop_url,
         ),
     )
+
+
+async def lookup_recording_lifecycle(db: AsyncSession, scope: TenantScope, payload):
+    """Bounded metadata projection; absence or denied access never authorizes local purge."""
+    from uuid import UUID
+
+    from twobrain_rec_server.api.schemas import (
+        DeletionRequestResponse,
+        OriginCancellationReceipt,
+        RecordingLifecycleEntry,
+    )
+    from twobrain_rec_server.cabinet.access import (
+        authorized_lifecycle_meeting,
+        decide_meeting_access,
+    )
+    from twobrain_rec_server.db.models import MeetingDeletionRequest
+    from twobrain_rec_server.deletion.origin_cancellation import origin_cancellation
+    from twobrain_rec_server.deletion.report import lifecycle_state
+    from twobrain_rec_server.deletion.service import lifecycle_for_meeting
+
+    results = []
+    targets = [("own_origin", origin) for origin in dict.fromkeys(payload.origins)]
+    targets += [("meeting", str(mid)) for mid in dict.fromkeys(payload.meeting_ids)]
+    for kind, identifier in targets:
+        entry = RecordingLifecycleEntry(target_type=kind, target_id=identifier, state="unavailable")
+        if kind == "own_origin":
+            marker = await origin_cancellation(db, scope, identifier)
+            if marker is not None:
+                entry.state = "canceled_before_creation"
+                entry.receipt = OriginCancellationReceipt(
+                    request_id=marker.id, local_recording_id=identifier, accepted_at=marker.accepted_at,
+                )
+                results.append(entry)
+                continue
+            query = select(MeetingModel).where(
+                MeetingModel.workspace_id == scope.workspace_id,
+                MeetingModel.created_by_user_id == scope.user_id,
+                MeetingModel.local_recording_id == identifier,
+            )
+        else:
+            query = select(MeetingModel).where(
+                MeetingModel.workspace_id == scope.workspace_id, MeetingModel.id == UUID(identifier),
+            )
+        meeting = await db.scalar(query)
+        if meeting is not None:
+            decision = await decide_meeting_access(
+                db, meeting, workspace_id=scope.workspace_id, viewer_user_id=scope.user_id,
+            )
+            if decision.state == "deleted":
+                try:
+                    await authorized_lifecycle_meeting(
+                        db, workspace_id=scope.workspace_id, meeting_id=meeting.id, viewer_user_id=scope.user_id,
+                    )
+                except ProblemDetail as error:
+                    if error.status != 404:
+                        raise
+                else:
+                    deletion = await db.scalar(select(MeetingDeletionRequest).where(
+                        MeetingDeletionRequest.workspace_id == scope.workspace_id,
+                        MeetingDeletionRequest.meeting_id == meeting.id,
+                    ).order_by(MeetingDeletionRequest.created_at.desc()).limit(1))
+                    if deletion is not None:
+                        entry.state = "deletion_accepted"
+                        entry.meeting_id = meeting.id
+                        entry.receipt = DeletionRequestResponse(
+                            request_id=deletion.id, meeting_id=meeting.id,
+                            deletion_epoch=int(meeting.deletion_epoch or 0),
+                            local_recording_id=meeting.local_recording_id if kind == "own_origin" else None,
+                            lifecycle=lifecycle_state(await lifecycle_for_meeting(meeting=meeting)),
+                            report_url=f"/api/v1/cabinet/meetings/{meeting.id}/deletion-report",
+                        )
+            elif decision.can_view:
+                entry.state = "allowed"
+                entry.meeting_id = meeting.id
+        results.append(entry)
+    return results

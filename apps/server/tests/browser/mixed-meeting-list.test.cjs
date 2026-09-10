@@ -55,6 +55,18 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
     await page.selectOption('#meeting-status','');
     await update([{...local, meetingId:'server-a',uploadComplete:true}]);
     assert.equal(await page.locator('[data-graf-local-recording-row]').count(),0);
+    // An absent server row (deletion, filters or pagination) cannot resurrect a local alias.
+    const retainedServerRow = await page.locator('[data-meeting-id="server-a"]').evaluate(row => { const html = row.outerHTML; row.remove(); return html; });
+    await update([{...local, meetingId:'server-a',uploadComplete:true}]);
+    assert.equal(await page.locator('[data-graf-local-recording-row]').count(),0);
+    await update([{...local, meetingId:'not-on-this-page',uploadComplete:false}]);
+    assert.equal(await page.locator('[data-graf-local-recording-row]').count(),0);
+    await update([local]);
+    assert.equal(await page.locator('[data-graf-local-recording-row] [data-meeting-select]').count(),1);
+    await update([{...local, canDelete:false, canOpen:false}]);
+    assert.equal(await page.locator('[data-graf-local-recording-row] [data-meeting-select]').isDisabled(),true);
+    assert.equal(await page.locator('[data-graf-local-recording-row] [data-meeting-open]').count(),0);
+    await page.locator("ol.meeting-list").evaluate((list, html) => list.insertAdjacentHTML("beforeend", html), retainedServerRow);
     // Equal instants are ordered by stable IDs regardless of incoming array order.
     await page.selectOption('#meeting-sort','started_asc');
     await update([{...local,id:'local-c'},{...local,id:'local-b',startedAt:'2026-09-06T00:30:00+03:00'}]);
@@ -73,6 +85,96 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
     await update([{...local,title:'Zoom — 06.09.2026, 02:30',generatedTitlePrefix:'Zoom — '}]);
     assert.equal(await page.locator('[data-graf-local-recording-row] .meeting-title').textContent(),'Zoom — 05.09.2026, 21:30 (UTC)');
     assert.equal(await page.locator('[data-graf-local-recording-row] time').textContent(),'05.09.2026, 21:30 (UTC)');
+    // Selection and focus follow the local alias when its server row arrives.
+    await page.evaluate(() => {
+      document.body.insertAdjacentHTML('beforeend', '<h1 data-list-title tabindex="-1">Встречи</h1><div data-selection-toolbar><span data-selection-count></span><button data-selection-delete>Удалить выбранные</button></div><div id="delete-feedback-region"></div><div data-meeting-result-announcer></div><dialog data-delete-dialog data-title-one="Удаление" data-title-many="Удаление"><h2 data-delete-title></h2><p data-delete-count></p><p data-delete-error hidden></p><button data-delete-cancel>Отмена</button><button data-delete-confirm>Удалить</button></dialog>');
+      for (const row of document.querySelectorAll('[data-meeting-id]')) row.insertAdjacentHTML('beforeend', '<input type="checkbox" data-meeting-select><button data-meeting-open>Открыть</button><span class="row-meta"></span>');
+    });
+    await update([local]);
+    await page.locator('[data-graf-local-recording-row] [data-meeting-select]').check();
+    await page.locator('[data-graf-local-recording-row] [data-graf-local-recording-action="open"]').focus();
+    await update([{...local,meetingId:'server-a'}]);
+    assert.equal(await page.locator('[data-meeting-id="server-a"] [data-meeting-select]').isChecked(),true);
+    assert.equal(await page.locator('[data-meeting-id="server-a"] [data-meeting-open]').evaluate(node => node === document.activeElement),true);
+    const operation = {id:'synthetic-operation', target:{meeting:{_0:'server-a'}}, phase:'sending'};
+    await page.evaluate(op => window.GRAFLocalRecordings.update([], [op]), operation);
+    assert.equal(await page.locator('[data-meeting-id="server-a"] input').isDisabled(),true);
+    // A background rejection refreshes the list through the real form submission path.
+    await page.evaluate(() => {
+      const form = document.createElement('form'); form.className = 'cabinet-list-controls';
+      form.addEventListener('submit', event => {
+        event.preventDefault(); window.rejectionRefreshCount = (window.rejectionRefreshCount || 0) + 1;
+        const row = document.querySelector('[data-meeting-id="server-a"]');
+        row.querySelectorAll('input,button').forEach(control => { control.disabled = false; });
+        row.querySelector('.row-meta').textContent = 'Доступно';
+      });
+      document.body.append(form);
+    });
+    await page.evaluate(op => window.GRAFLocalRecordings.update([], [{...op,phase:'rejected'}]), operation);
+    assert.equal(await page.evaluate(() => window.rejectionRefreshCount),1);
+    assert.equal(await page.locator('[data-meeting-id="server-a"] input').isDisabled(),false);
+    await page.evaluate(op => window.GRAFLocalRecordings.update([], [{...op,phase:'rejected'}]), operation);
+    assert.equal(await page.evaluate(() => window.rejectionRefreshCount),1,'no refresh storm for unchanged rejection');
+    await page.locator('form.cabinet-list-controls').evaluate(form => form.remove());
+    await page.evaluate(op => window.GRAFLocalRecordings.update([], [op]), operation);
+    await page.evaluate(op => window.GRAFLocalRecordings.update([], [{...op,phase:'accepted'}]), operation);
+    assert.equal(await page.locator('[data-meeting-id="server-a"]').count(),0);
+    await page.locator('ol.meeting-list').evaluate((list,html) => list.insertAdjacentHTML('beforeend',html),retainedServerRow);
+    await page.evaluate(() => document.body.dispatchEvent(new CustomEvent('htmx:afterSwap',{detail:{target:document.querySelector('#meeting-list-region')}})));
+    assert.equal(await page.locator('[data-meeting-id="server-a"]').count(),0,'stale HTML cannot resurrect accepted deletion');
+    // Native bulk keeps a frozen selection and reports accepted/pending/rejected separately.
+    await update([local]);
+    await page.locator('[data-graf-local-recording-row] [data-meeting-select]').check();
+    await page.locator('[data-selection-delete]').click();
+    await page.locator('[data-delete-confirm]').click();
+    assert.match(await page.locator('[data-delete-error]').textContent(),/обновите приложение GRAF/);
+    await page.locator('[data-delete-cancel]').click();
+    await page.evaluate(() => {
+      window.GRAFRecordingDeletionBridgeVersion = 1;
+      window.webkit = {messageHandlers:{grafLocalRecording:{postMessage(message) {
+        window.syntheticDeletionRequest = message;
+        window.GRAFLocalRecordings.deletionCompleted(message.requestId,{saved:true,accepted:0,pending:1,rejected:0});
+      }}}};
+    });
+    await page.locator('[data-selection-delete]').click();
+    await page.locator('[data-delete-confirm]').click();
+    assert.deepEqual(await page.evaluate(() => window.syntheticDeletionRequest.localIds),['local-b']);
+    assert.equal(await page.locator('[data-delete-dialog]').evaluate(node => node.open),false);
+    assert.match(await page.locator('#delete-feedback-region').textContent(),/Ожидают подтверждения: 1/);
+    await page.evaluate(() => window.GRAFLocalRecordings.update([], [], true));
+    assert.match(await page.locator('[data-local-account-recovery]').textContent(),/аккаунт не подтверждён/);
+    await page.evaluate(() => window.GRAFLocalRecordings.update([], [], false));
+    assert.equal(await page.locator('[data-local-account-recovery]').count(),0);
+    // A completed manual upload is another view of the same meeting, not a permanent link.
+    await page.reload();
+    await page.setContent(`<meta name="csrf-token" content="synthetic-csrf">
+      <div id="meeting-list-region"></div><div data-upload-activity-announcer></div>
+      <dialog data-manual-upload-dialog data-upload-available="true">
+      <form data-manual-upload-form><input type="file" data-manual-upload-file>
+      <input data-manual-upload-title><input data-manual-upload-duration><input data-manual-upload-local-id>
+      <input type="checkbox" data-manual-upload-archive checked><button data-manual-upload-submit>Загрузить</button></form></dialog>`);
+    await page.evaluate(() => {
+      window.XMLHttpRequest = class {
+        upload = {}; status = 200;
+        responseText = JSON.stringify({meeting:{meeting_id:'00000000-0000-0000-0000-000000000262'},workflow_started:true});
+        open() {} setRequestHeader() {} getResponseHeader() { return ''; }
+        send() { window.pendingSyntheticUpload = this; this.onload(); }
+      };
+    });
+    await page.addScriptTag({path:path.join(assets,'cabinet.js')});
+    const wav = Buffer.alloc(44 + 16000 * 2);
+    wav.write('RIFF'); wav.writeUInt32LE(wav.length-8,4); wav.write('WAVEfmt ',8);
+    wav.writeUInt32LE(16,16); wav.writeUInt16LE(1,20); wav.writeUInt16LE(1,22);
+    wav.writeUInt32LE(16000,24); wav.writeUInt32LE(32000,28); wav.writeUInt16LE(2,32); wav.writeUInt16LE(16,34);
+    wav.write('data',36); wav.writeUInt32LE(wav.length-44,40);
+    await page.locator('[data-manual-upload-file]').setInputFiles({name:'F262.wav',mimeType:'audio/wav',buffer:wav});
+    await page.waitForFunction(() => document.querySelector('[data-manual-upload-duration]').value === '1');
+    await page.locator('[data-manual-upload-dialog]').evaluate(dialog => dialog.showModal());
+    await page.locator('[data-manual-upload-submit]').click();
+    assert.equal(await page.locator('[data-upload-activity-detail]').getAttribute('href'),'/meetings/00000000-0000-0000-0000-000000000262');
+    await page.evaluate(() => window.GRAFLocalRecordings.update([], [{id:'manual-delete',phase:'accepted',target:{meeting:{_0:'00000000-0000-0000-0000-000000000262'}}}]));
+    assert.equal(await page.locator('[data-upload-activity-row]').count(),0);
+    assert.equal(await page.locator('[data-upload-activity-announcer]').textContent(),'');
     assert.deepEqual(errors,[]);
     console.log('mixed meeting list: seven sorts, stable ties, filters, dates, upload handoff and HTMX passed');
   } finally { await browser.close(); }

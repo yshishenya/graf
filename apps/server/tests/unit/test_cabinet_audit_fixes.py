@@ -51,7 +51,10 @@ async def test_deletion_full_page_loads_profile_but_fragment_does_not(
         display_name="Synthetic Profile", locale="en-US", timezone="UTC", theme="dark"
     )
     db = SimpleNamespace(get=AsyncMock(return_value=user), scalars=AsyncMock(return_value=[]))
-    request = Request({"type": "http", "headers": [(b"hx-request", b"true")] if fragment else []})
+    request = Request({"type": "http", "method": "GET", "scheme": "http",
+                       "server": ("testserver", 80), "query_string": b"",
+                       "path": ("/desktop" if embedded else "") + "/meetings/00000000-0000-0000-0000-000000000004/deletion-report",
+                       "headers": [(b"hx-request", b"true")] if fragment else []})
     response = await handler(
         request,
         UUID(int=4),

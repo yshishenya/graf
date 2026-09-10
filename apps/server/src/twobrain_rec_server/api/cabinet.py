@@ -118,6 +118,9 @@ from twobrain_rec_server.cabinet.access import (
     search_share_recipients,
     share_panel_state,
 )
+from twobrain_rec_server.cabinet.access import (
+    authorized_lifecycle_meeting as _authorized_lifecycle_meeting,
+)
 from twobrain_rec_server.cabinet.constants import DELETION_TRUTH_COPY
 from twobrain_rec_server.cabinet.egress import (
     activity_response,
@@ -163,6 +166,7 @@ from twobrain_rec_server.db.tenant_context import (
 )
 from twobrain_rec_server.deletion.local_purge import (
     acknowledge_local_purge_task,
+    ensure_local_purge_task,
     list_local_purge_tasks,
 )
 from twobrain_rec_server.deletion.report import lifecycle_state
@@ -820,13 +824,12 @@ async def create_meeting_deletion_request_route(
         raise ProblemDetail(
             status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
         )
-    meeting, decision = await _authorized_meeting(
+    meeting = await _authorized_lifecycle_meeting(
         db,
         workspace_id=tenant_scope.workspace_id,
         meeting_id=meeting_id,
         viewer_user_id=principal.user_id,
     )
-    _ensure_lifecycle_manager(decision)
     response = await request_meeting_deletion(
         db,
         meeting=meeting,
@@ -4807,32 +4810,6 @@ async def _authorized_content_export_meeting(
     return meeting, decision
 
 
-async def _authorized_lifecycle_meeting(
-    db: AsyncSession,
-    *,
-    workspace_id: UUID,
-    meeting_id: UUID,
-    viewer_user_id: UUID,
-) -> Meeting:
-    meeting = await db.scalar(
-        select(Meeting).where(
-            Meeting.workspace_id == workspace_id,
-            Meeting.id == meeting_id,
-        )
-    )
-    if meeting is None:
-        raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
-    membership = await db.scalar(
-        select(WorkspaceMembership).where(
-            WorkspaceMembership.workspace_id == workspace_id,
-            WorkspaceMembership.user_id == viewer_user_id,
-            WorkspaceMembership.status == "active",
-        )
-    )
-    role = membership.role if membership is not None else None
-    if meeting.created_by_user_id != viewer_user_id and role not in {"owner", "admin"}:
-        raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
-    return meeting
 
 
 def _ensure_lifecycle_manager(decision) -> None:
@@ -5149,3 +5126,24 @@ async def update_comment_grant_permissions(
         grant_view(grant, display_name="Участник").model_dump(mode="json"),
         headers={"Cache-Control": "no-store"},
     )
+
+
+@router.post(
+    "/desktop/meetings/{meeting_id}/local-purge-task",
+    response_model=LocalPurgeTask,
+    dependencies=[PrincipalDependency, DeviceDependency, WebCSRFDependency],
+)
+async def ensure_desktop_local_purge_task_route(
+    meeting_id: UUID,
+    tenant_scope: TenantScope = TenantDependency,
+    device: DeviceContext = DeviceDependency,
+    db: AsyncSession | None = DbDependency,
+):
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    task = await ensure_local_purge_task(
+        db, workspace_id=tenant_scope.workspace_id, meeting_id=meeting_id,
+        user_id=tenant_scope.user_id, device_id=device.device_id,
+    )
+    await db.commit()
+    return task

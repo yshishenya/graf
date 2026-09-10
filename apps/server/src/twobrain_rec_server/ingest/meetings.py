@@ -11,6 +11,10 @@ from twobrain_rec_server.auth.context import TenantScope
 from twobrain_rec_server.calendar.matching import consume_recording_calendar_match_attempt
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.db.models import Meeting as MeetingModel
+from twobrain_rec_server.deletion.origin_cancellation import (
+    lock_recording_origin,
+    origin_cancellation,
+)
 from twobrain_rec_server.domain.metadata_text import contains_forbidden_metadata_text
 from twobrain_rec_server.domain.statuses import MediaRevisionSourceKind
 from twobrain_rec_server.ingest import store as store_module
@@ -112,6 +116,12 @@ async def create_or_get_meeting(
         ),
         calendar_match_attempt_id=calendar_match_attempt_id,
     )
+    if db is not None:
+        await lock_recording_origin(db, tenant_scope, local_recording_id)
+        if await origin_cancellation(db, tenant_scope, local_recording_id) is not None:
+            raise ProblemDetail(
+                status=409, code="recording_deletion_active", title="Recording deletion is active"
+            )
     persisted = await load_meeting_record(
         db,
         workspace_id=tenant_scope.workspace_id,

@@ -923,7 +923,9 @@ def test_deletion_feedback_precedes_list_and_client_focus_recovery_is_determinis
         "captureDeletionFocusFallback",
         "nextRow",
         "previousRow",
-        "error.textContent = `Не удалось удалить ${failures}",
+        "const failureMessage = `Не удалось удалить ${failures}",
+        "error.textContent = failureMessage",
+        'publishDeletionFeedback(failureMessage, "error")',
         'confirm.textContent = "Повторить"',
         "pendingDeleteRows = failedRows",
         "requestMeetingListRefresh",
@@ -931,7 +933,8 @@ def test_deletion_feedback_precedes_list_and_client_focus_recovery_is_determinis
         "listRefreshShouldRestoreFocus",
         "listRefreshFocusOrigin",
         "userMovedFocus",
-        "pendingMeetingIds",
+        "pendingDeleteRows = pendingDeleteRows.map(row =>",
+        "recordingRowIdentity(current) === recordingRowIdentity(row)) || row",
         "authorizationRecoveryKind",
         'response.headers.get("X-GRAF-Cabinet-Recovery")',
         "renderMeetingListRecovery(recoveryKind)",
@@ -3576,6 +3579,10 @@ def test_120_meeting_detail_renders_one_accessible_metadata_only_export_dialog()
     assert 'class="primary" data-export-submit>Скачать файл</button>' in page
     assert 'class="primary" data-export-submit>Сохранить…</button>' in embedded_page
     assert "data-export-copy" in page
+    for rendered in (page, embedded_page):
+        assert 'name="include_evidence"' not in rendered
+        assert "Добавлять ссылки на фрагменты" not in rendered
+        assert 'name="include_timestamps"' in rendered
     assert "setBusy(true)" in _cabinet_js()
     assert 'requestExport("txt", selectedScope)' in _cabinet_js()
     assert "navigator.clipboard.writeText" in _cabinet_js()

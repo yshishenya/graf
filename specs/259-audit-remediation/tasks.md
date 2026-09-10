@@ -12,7 +12,7 @@
 - [X] T003 [US3] Исправить scripts/claim-feature.py: refs, единый выбор, strict online и создание метки без перезаписи. (Issue #6837)
 - [X] T004 [US3] Согласовать Bash/Python/PowerShell входы .specify/extensions/git/scripts и source overlay /Users/yshishenya/Documents/speckit-bootstrap/bin/speckit-bootstrap. (Issue #6837)
 - [X] T005 [US3] Выполнить quickstart, review и convergence; записать реальные результаты/ограничения в specs/259-audit-remediation/validation.md и changes/unreleased/F259.yaml. (Issue #6837)
-- [ ] T006 [US3] После разрешённого commit/PR получить governance-fast на exact SHA и согласовать исходные критерии F225 перед любым закрытием. (Issue #6837)
+- [X] T006 [US3] После разрешённого commit/PR получить governance-fast на exact SHA и согласовать исходные критерии F225 перед любым закрытием. (Issue #6837)
 
 Зависимости: T001 → T002/T003 → T004 → T005 → T006. Независимых write owners нет; все изменения последовательные. Новых дублирующих child issues не создаётся.
 
@@ -35,3 +35,30 @@ T006: PR создан и governance-fast на исходном SHA прошёл.
 ## Дополнительный review перед выпуском
 
 - [X] T012 Устранить четыре замечания PR #6831 в scripts/claim-feature.py, .specify/workflows/speckit/workflow.yml и связях задач; проверить существующий umbrella, блокировку и подсказку Windows, остановку после convergence и task-backed ownership согласно FR-012–FR-022. (Issue #6837)
+
+## Исправление распознавания занятых номеров
+
+- [X] T013 [US3] Устранить замечание PR #6831 о пропуске существующих названий с `_` и `.` в scripts/claim-feature.py; в tests/governance/test_feature_allocator.py проверить реальные локальные/удалённые refs, specs и следующее предложение номера по FR-012/013; записать проверку в validation.md. (Issue #6837)
+
+T013 уточняет действующее правило занятых номеров: распознаётся числовой префикс `NNN-`, ограничения генерации новых slug не применяются к уже существующим именам. Исключения служебных refs и timestamps сохраняются. План: регрессия → общий parser → целевые проверки → governance-fast на точном SHA PR. Авторский analyze: FR-012/013, план общего parser и T013 согласованы, новых требований и блокирующих неоднозначностей нет. Независимая приёмка US3 уже записана в review.md; общий checklist не изменяется. T006 принят после исходной проверки F225 и GitHub CI; само закрытие требует включения PR в master.
+
+## Восстановление последовательности без перенумерации
+
+- [X] T014 [US3] Уточнить FR-023–FR-026/SC-006/007 в specs/259-audit-remediation/spec.md, plan.md и contracts/allocator.md; получить независимый checklist и синхронизировать существующий Issue #6837. (Issue #6837)
+- [X] T015 [US3] Добавить регрессии исторического spec6788, правил политики, F1000+, инварианта занятости и общих входов в tests/governance/test_feature_allocator.py. (Issue #6837)
+- [X] T016 [US3] Исправить общий старт поиска в scripts/claim-feature.py через .specify/feature-numbering.json; уточнить начало новой работы в docs/agent-guidance/codex-worktrees.md. (Issue #6837)
+- [X] T017 [US3] Выполнить quickstart, review и converge; записать фактические результаты в specs/259-audit-remediation/validation.md и changes/unreleased/F259.yaml; оставшиеся commit/CI/merge gates не закрывать. (Issue #6837)
+
+Порядок: T014 → T015 → T016 → T017 → T006. Изменения последовательные,
+параллельных исполнителей кода нет. Это ремонт B019, не весь бэклог F259.
+
+## Завершение B019 перед общим аудитом
+
+- [X] T018 [US3] Согласовать генерируемый umbrella с каноном: область заголовка/метки и `Spec tasks: T000` в scripts/claim-feature.py; проверить готовое тело штатным валидатором в tests/governance/test_feature_allocator.py. (Issue #6837)
+- [X] T019 [US3] Сверить исходные задачи F225, сохранить её потерянные из master документы в specs/225-feature-id-allocator, восстановить service-ref regression внутри --self-test и подготовить acceptance.md/связи issues и сверить исходные критерии; само закрытие требует последующего точного CI, слияния и штатного валидатора. (Issue #6837)
+
+T018 следует существующему обязательному issue canon и FR-017/019–022, T019 реализует незавершённую приёмку T006 без изменения границ F225. Уточнение: T000 остаётся временной резервацией нового umbrella; перед закрытием получает реальную задачу. Анализ требований: переиспользуются общий generator и валидатор, новых схем или независимых источников номеров нет; исходные критерии F225 сохраняются. Порядок T018/T019 → T006.
+
+## Итог B019 — 2026-09-10
+
+T001–T019 выполнены в ограниченном объёме инструментов. Исходная приёмка F225 сверена в acceptance.md; governance-fast34391513703 PASS на2292e67fd043d357ece64defe52fc821b5f19349. Исторические записи об открытом T006 выше описывают прежние этапы. Финальный документационный commit требует обновлённого CI; merge и live closeout выполняются после него. Общий бэклог F259 остаётся открытым.

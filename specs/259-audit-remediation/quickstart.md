@@ -1,5 +1,13 @@
 # Проверки B019
 
+Для текущего ремонта T014–T017 дополнительно: specs259/6788 с явным
+исключением6788 →263 при занятых260..262; занятость263 в GitHub →264;
+исключённый ID всё ещё недоступен для резервирования. Проверить malformed,
+нечитаемую политику, unknown/duplicate keys, bool/string/zero/negative/duplicate IDs,
+отсутствие политики и F1000+. Все оболочки дают то же предложение.
+Live read-only сравнивает claims/pointer/refs до и после. Результат263 —
+снимок, не обещание будущего номера. Основной старый checkout не изменяется.
+
 1. `python3 scripts/claim-feature.py --self-test`.
 2. `python -m pytest tests/governance/test_feature_allocator.py tests/governance/test_validator_safety.py -q`.
 3. `bash -n .specify/extensions/git/scripts/bash/create-new-feature-branch.sh`; Python compile changed scripts.
