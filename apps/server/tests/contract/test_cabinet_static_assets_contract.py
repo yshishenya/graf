@@ -274,9 +274,10 @@ def test_cabinet_js_keeps_fragment_state_ephemeral() -> None:
     assert script.count('sessionStorage.removeItem("htmx-current-path-for-history")') == 2
     assert "graf-summary-candidate-" in script
     assert "sessionStorage.setItem(candidateStorageKey, JSON.stringify({" in script
-    assert 'sessionStorage.getItem("graf-cabinet-rail")' in script
+    assert 'const railKey = shell.dataset.activeNav === "settings" ? "graf-settings-rail" : "graf-cabinet-rail"' in script
+    assert "sessionStorage.getItem(railKey)" in script
     assert (
-        'sessionStorage.setItem("graf-cabinet-rail", pinned ? "expanded" : "collapsed")' in script
+        'sessionStorage.setItem(railKey, pinned ? "expanded" : "collapsed")' in script
     )
     assert "poll_url: candidate.poll_url" in script
     assert "template: activeTemplate" in script
@@ -4402,7 +4403,7 @@ def test_feature_159_shared_shell_static_contract_keeps_search_and_download_boun
     assert "data-graf-app-update" in sections
     assert 'aria-label="{{ item.label }}" title="{{ item.label }}"' in sections
     assert 'aria-label="К встречам" title="К встречам"' in sections
-    assert 'aria-label="Обзор" title="Обзор"' in sections
+    assert 'aria-label="Обзор" title="Обзор"' not in sections
 
 
 def test_meeting_list_css_keeps_reset_copy_and_touch_actions_visible() -> None:
@@ -4896,7 +4897,7 @@ def test_feature_191_centralizes_interaction_tokens_and_compact_upload_contract(
     assert "grid-template-columns: 30px minmax(0, 1fr) auto;" in css
     assert ".upload-activity-state" in css
     assert '<span class="upload-activity-state">' in script
-    assert len(re.findall(r"(?m)^\.settings-overview-card \{", css)) == 1
+    assert not re.findall(r"(?m)^\.settings-overview-card \{", css)
     assert ".cabinet-sidebar-nav__label" in css
     assert "text-overflow: ellipsis;" in css
     assert "white-space: nowrap;" in css

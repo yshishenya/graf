@@ -20,7 +20,7 @@ def test_cabinet_shell_preserves_primary_routes_and_landmarks() -> None:
     assert "navigation.items" in sections
     for marker in ("/meetings", "/shared-with-me"):
         assert marker in browser_routes
-    assert 'href="/settings"' in sections
+    assert "'/desktop/settings' if embedded else '/settings'" in sections
     all_templates = sections + list_page + detail_page + list_fragment + detail_fragment
     for marker in ('id="cabinet-main"', 'id="meeting-list-region"', 'id="meeting-detail-region"'):
         assert marker in all_templates
