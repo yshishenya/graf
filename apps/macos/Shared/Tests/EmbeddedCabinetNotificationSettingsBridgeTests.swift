@@ -53,7 +53,7 @@ final class EmbeddedCabinetNotificationSettingsBridgeTests: XCTestCase {
         let presenter = DesktopNotificationPresenter(store: .init(defaults: defaults), model: DesktopControlModel(),
             status: { .denied }, contextProvider: {
                 await gate.wait()
-                return DesktopNotificationContext(user_id: user, workspace_id: workspace)
+                return DesktopNotificationContext(user_id: user, workspace_id: workspace, recording_deletion_protocol_version: nil)
             })
         let url = URL(string: "https://graf.test/desktop/settings/notifications")!
         let bridge = EmbeddedCabinetNotificationSettingsBridge(routePolicy: .init(baseURL: url), presenter: presenter)
