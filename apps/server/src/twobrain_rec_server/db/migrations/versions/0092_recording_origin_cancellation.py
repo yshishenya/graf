@@ -3,10 +3,10 @@
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0092_recording_origin_cancel"
-down_revision = "0091_comment_reader_projection"
-branch_labels = None
-depends_on = None
+revision: str = "0092_recording_origin_cancel"
+down_revision: str = "0091_comment_reader_projection"
+branch_labels: str | None = None
+depends_on: str | None = None
 
 
 def upgrade():

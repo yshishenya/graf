@@ -45,7 +45,7 @@ def test_user_timezone_migration_preserves_choices_and_guards_rollback(postgres_
     query("""INSERT INTO auth_audit_events (id,workspace_id,user_id,event_type,outcome,metadata_json)
              VALUES (:id,:workspace,:user,'account_preferences_updated','failure','{"fields":["timezone"]}')""",
           {"id": uuid4(), "workspace": workspace, "user": default})
-    command.upgrade(config, "head")
+    command.upgrade(config, "0091_comment_reader_projection")
     rows = dict(query("SELECT id,timezone FROM user_identities"))
     assert rows == {default: None, chosen: "Europe/Moscow", utc: "UTC"}
     fresh = uuid4()
@@ -59,5 +59,5 @@ def test_user_timezone_migration_preserves_choices_and_guards_rollback(postgres_
     query("UPDATE user_identities SET timezone='UTC' WHERE id=:id", {"id": fresh})
     command.downgrade(config, "0085_merge_summary_mediascribe")
     assert query("SELECT timezone FROM user_identities WHERE id=:id", {"id": default})[0][0] == "Europe/Moscow"
-    command.upgrade(config, "head")
+    command.upgrade(config, "0091_comment_reader_projection")
     assert query("SELECT timezone FROM user_identities WHERE id=:id", {"id": chosen})[0][0] == "Europe/Moscow"

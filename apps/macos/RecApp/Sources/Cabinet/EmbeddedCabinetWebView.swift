@@ -1288,6 +1288,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
     public typealias DeletionAction = @MainActor @Sendable (EmbeddedCabinetDeletionSelection) async -> EmbeddedCabinetDeletionResult
     public typealias LocalRecordingAction = @MainActor @Sendable (_ action: String, _ id: String) -> Void
 
+    private let notificationPresenter: DesktopNotificationPresenter?
     private let request: URLRequest
     private let routePolicy: DesktopCabinetRoutePolicy
     private let workspaceZoom: WorkspaceZoomPreference
@@ -1325,8 +1326,10 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         onLocalRecordingAction: @escaping LocalRecordingAction = { _, _ in },
         onDeleteRecordings: @escaping DeletionAction = { _ in .failed },
         fallbackRequest: URLRequest,
+        notificationPresenter: DesktopNotificationPresenter? = nil,
         navigationController: EmbeddedCabinetNavigationController
     ) {
+        self.notificationPresenter = notificationPresenter
         self.request = request
         self.routePolicy = routePolicy
         self.workspaceZoom = workspaceZoom
@@ -1668,6 +1671,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             onOpenMeetingDetectionSettings: onOpenMeetingDetectionSettings,
             onOpenNotificationSettings: onOpenNotificationSettings,
             supportIncidentBridge: supportIncidentBridge,
+            notificationPresenter: notificationPresenter ?? .shared,
             navigationController: navigationController
         )
     }
@@ -1743,11 +1747,12 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             onOpenMeetingDetectionSettings: @escaping OpenMeetingDetectionSettingsAction,
             onOpenNotificationSettings: @escaping OpenMeetingDetectionSettingsAction = {},
             supportIncidentBridge: EmbeddedCabinetSupportIncidentBridge?,
+            notificationPresenter: DesktopNotificationPresenter = .shared,
             navigationController: EmbeddedCabinetNavigationController
         ) {
             self.routePolicy = routePolicy
             recordingSettingsBridge = EmbeddedCabinetRecordingSettingsBridge(routePolicy: routePolicy)
-            notificationSettingsBridge = EmbeddedCabinetNotificationSettingsBridge(routePolicy: routePolicy)
+            notificationSettingsBridge = EmbeddedCabinetNotificationSettingsBridge(routePolicy: routePolicy, presenter: notificationPresenter)
             self.desktopHeaders = desktopHeaders
             navigationRequestPolicy = DesktopCabinetNavigationRequestPolicy(
                 routePolicy: routePolicy,

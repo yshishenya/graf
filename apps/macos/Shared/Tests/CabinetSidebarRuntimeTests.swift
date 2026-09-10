@@ -642,6 +642,9 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
                 routePolicy: policy, desktopHeaders: [:], cabinetState: .constant(.ready),
                 currentRoute: .constant(url), navigationEventLogger: nil, showsAppUpdateBadge: false,
                 onCheckForUpdates: {}, onOpenMeetingDetectionSettings: {}, supportIncidentBridge: nil,
+                notificationPresenter: DesktopNotificationPresenter(
+                    store: .init(defaults: UserDefaults(suiteName: UUID().uuidString)!),
+                    model: DesktopControlModel(), status: { .denied }),
                 navigationController: navigation
             )
             view.configuration.userContentController.add(coordinator, name: EmbeddedCabinetAppearanceBridge.messageHandlerName)

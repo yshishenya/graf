@@ -1376,7 +1376,9 @@ paths:
               schema:
                 type: object
                 additionalProperties:
-                  type: string
+                  anyOf:
+                  - type: string
+                  - type: integer
                 title: Response Get Notification Context Api V1 Desktop Notification
                   Context Get
         '400':
@@ -2205,6 +2207,239 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/FinalizeUploadResponse'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '413':
+          description: Payload too large
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: Dependency unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /api/v1/desktop/recordings/{local_recording_id}/deletion-requests:
+    post:
+      tags:
+      - ingest
+      summary: Cancel Desktop Recording
+      operationId: cancel_desktop_recording_api_v1_desktop_recordings__local_recording_id__deletion_requests_post
+      parameters:
+      - name: local_recording_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 240
+          pattern: ^[^\x00-\x1f\x7f]+$
+          title: Local Recording Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OriginCancellationRequest'
+      responses:
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                anyOf:
+                - $ref: '#/components/schemas/DeletionRequestResponse'
+                - $ref: '#/components/schemas/OriginCancellationReceipt'
+                title: Response Cancel Desktop Recording Api V1 Desktop Recordings  Local
+                  Recording Id  Deletion Requests Post
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '404':
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '413':
+          description: Payload too large
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          description: Dependency unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+  /api/v1/desktop/recordings/lifecycle:
+    post:
+      tags:
+      - ingest
+      summary: Recording Lifecycle Lookup Route
+      operationId: recording_lifecycle_lookup_route_api_v1_desktop_recordings_lifecycle_post
+      parameters:
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecordingLifecycleLookup'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RecordingLifecycleEntry'
+                title: Response Recording Lifecycle Lookup Route Api V1 Desktop Recordings
+                  Lifecycle Post
         '400':
           description: Bad request
           content:
@@ -10934,6 +11169,73 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HTTPValidationError'
+  /api/v1/desktop/meetings/{meeting_id}/local-purge-task:
+    post:
+      tags:
+      - cabinet
+      summary: Ensure Desktop Local Purge Task Route
+      operationId: ensure_desktop_local_purge_task_route_api_v1_desktop_meetings__meeting_id__local_purge_task_post
+      parameters:
+      - name: meeting_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Meeting Id
+      - name: X-User-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-User-Id
+      - name: X-Organization-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Organization-Id
+      - name: X-Workspace-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Workspace-Id
+      - name: X-Device-Id
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Device-Id
+      - name: X-Client-Version
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: X-Client-Version
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LocalPurgeTask'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /api/v1/notifications:
     get:
       tags:
@@ -13042,6 +13344,25 @@ components:
       title: DeletionReasonCode
     DeletionRequestResponse:
       properties:
+        receipt_type:
+          type: string
+          const: meeting_deletion
+          title: Receipt Type
+          default: meeting_deletion
+        phase:
+          type: string
+          const: accepted
+          title: Phase
+          default: accepted
+        deletion_epoch:
+          type: integer
+          minimum: 0.0
+          title: Deletion Epoch
+        local_recording_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Local Recording Id
         request_id:
           type: string
           format: uuid
@@ -13057,6 +13378,7 @@ components:
           title: Report Url
       type: object
       required:
+      - deletion_epoch
       - request_id
       - meeting_id
       - lifecycle
@@ -15752,6 +16074,51 @@ components:
       - available
       - unavailable_reason
       title: NotesReviewState
+    OriginCancellationReceipt:
+      properties:
+        receipt_type:
+          type: string
+          const: origin_cancellation
+          title: Receipt Type
+          default: origin_cancellation
+        request_id:
+          type: string
+          format: uuid
+          title: Request Id
+        local_recording_id:
+          type: string
+          title: Local Recording Id
+        accepted_at:
+          type: string
+          format: date-time
+          title: Accepted At
+        phase:
+          type: string
+          const: accepted
+          title: Phase
+          default: accepted
+      type: object
+      required:
+      - request_id
+      - local_recording_id
+      - accepted_at
+      title: OriginCancellationReceipt
+    OriginCancellationRequest:
+      properties:
+        operation_id:
+          type: string
+          format: uuid
+          title: Operation Id
+        confirmation_boundary:
+          type: string
+          maxLength: 240
+          title: Confirmation Boundary
+      additionalProperties: false
+      type: object
+      required:
+      - operation_id
+      - confirmation_boundary
+      title: OriginCancellationRequest
     OutcomeItemView:
       properties:
         category:
@@ -17091,6 +17458,64 @@ components:
       required:
       - status
       title: ReadyResponse
+    RecordingLifecycleEntry:
+      properties:
+        target_type:
+          type: string
+          enum:
+          - own_origin
+          - meeting
+          title: Target Type
+        target_id:
+          type: string
+          title: Target Id
+        state:
+          type: string
+          enum:
+          - allowed
+          - deletion_accepted
+          - canceled_before_creation
+          - unavailable
+          title: State
+        meeting_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Meeting Id
+        receipt:
+          anyOf:
+          - $ref: '#/components/schemas/DeletionRequestResponse'
+          - $ref: '#/components/schemas/OriginCancellationReceipt'
+          - type: 'null'
+          title: Receipt
+      type: object
+      required:
+      - target_type
+      - target_id
+      - state
+      title: RecordingLifecycleEntry
+    RecordingLifecycleLookup:
+      properties:
+        origins:
+          items:
+            type: string
+            maxLength: 240
+            minLength: 1
+            pattern: ^[^\x00-\x1f\x7f]+$
+          type: array
+          maxItems: 100
+          title: Origins
+        meeting_ids:
+          items:
+            type: string
+            format: uuid
+          type: array
+          maxItems: 100
+          title: Meeting Ids
+      additionalProperties: false
+      type: object
+      title: RecordingLifecycleLookup
     RefreshSummaryTypeRequest:
       properties:
         schema_version:

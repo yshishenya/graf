@@ -89,6 +89,7 @@ def assert_theme_palette_contract(css: str) -> None:
         '.detail-playback',
         'html[data-theme="light"] .detail-playback',
         'html:not([data-theme]) .detail-playback',
+        'html[data-theme="dark"] .app-shell[data-active-nav="settings"]',
     )
     scoped = {}
     for selector in scoped_selectors:
@@ -115,7 +116,7 @@ def assert_theme_palette_contract(css: str) -> None:
 
     failures = []
     palettes = [("dark", dark), ("light", dark | explicit_light)]
-    palettes.extend((selector, dark | (explicit_light if index >= 2 else {}) | scoped[selector])
+    palettes.extend((selector, dark | (explicit_light if index in (2, 3) else {}) | scoped[selector])
                     for index, selector in enumerate(scoped_selectors))
     for theme, palette in palettes:
         pairs = (
