@@ -7650,7 +7650,7 @@
     dialog.addEventListener("click", (event) => {
       if (event.target === dialog) close();
     });
-    dialog.addEventListener("keydown", (event) => trapModalFocus(dialog, event));
+    dialog.addEventListener("keydown", (event) => trapModalFocus(dialog, event, { cycleAll: true }));
   };
 
   const initShareDialogs = () => {

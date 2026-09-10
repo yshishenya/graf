@@ -4,6 +4,8 @@ from html import escape
 from pathlib import Path
 from uuid import UUID, uuid4
 
+import pytest
+
 from twobrain_rec_server.api.schemas import (
     ArtifactDeletionState,
     ArtifactEgressState,
@@ -1969,6 +1971,36 @@ def test_detail_shell_renders_tabs_and_gated_actions() -> None:
     assert "Удалить встречу…" not in page
     assert "Request deletion" not in page
     assert "Удалить встречу?" not in page
+
+
+@pytest.mark.parametrize("embedded", [False, True])
+@pytest.mark.parametrize("delete_state", ["available", "disabled"])
+def test_detail_delete_dialog_is_brief_and_preserves_confirmation_form(
+    embedded: bool, delete_state: str
+) -> None:
+    review = _review()
+    review.governance.delete.state = delete_state
+    page = render_meeting_detail_page(review, embedded=embedded, csrf_token="synthetic-csrf")
+    match = re.search(r'<dialog id="meeting-delete-dialog".*?</dialog>', page, re.S)
+    if delete_state != "available":
+        assert match is None
+        return
+
+    assert match is not None
+    dialog = match.group()
+    base = "/desktop/meetings" if embedded else "/meetings"
+    assert f'action="{base}/{review.meeting.meeting_id}/deletion-requests"' in dialog
+    assert 'name="csrf_token" value="synthetic-csrf"' in dialog
+    assert 'name="confirmation_boundary" value="Delete this meeting everywhere GRAF controls."' in dialog
+    assert 'aria-labelledby="meeting-delete-title"' in dialog
+    assert "Встреча будет удалена из GRAF. Восстановить её не получится." in dialog
+    assert "Удаление не затронет скачанные и отправленные копии." not in dialog
+    assert dialog.count("<p") == 1
+    assert dialog.count("<button") == 2
+    assert 'type="button" data-meeting-delete-dialog-cancel>Отмена</button>' in dialog
+    assert 'type="submit" class="danger-button" data-meeting-delete-dialog-confirm>Удалить</button>' in dialog
+    assert "<a " not in dialog
+    assert all(name not in dialog for name in ("Generation Call", "Langfuse", "Temporal History"))
 
 
 def test_detail_shell_explains_disabled_share_without_hover_only_copy() -> None:

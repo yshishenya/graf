@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime, timedelta
+from html import unescape
 from uuid import uuid4
 
 import pytest
@@ -16,6 +18,28 @@ from twobrain_rec_server.db.models import AuthSession, AuthSessionDeviceBinding
 from twobrain_rec_server.deletion.report import BOUNDED_DELETE_COPY
 
 OWNER_REVIEW_TEST_TOKEN = "csrf-owner-review-session-cookie-token"
+
+
+@pytest.mark.parametrize("base_path", ["/meetings", "/desktop/meetings"])
+def test_cookie_authenticated_deletion_submits_rendered_form_fields(client, base_path) -> None:
+    seeds = seed_cabinet_meetings(client)
+    client.portal.call(_seed_owner_review_session, client)
+    client.cookies.set(AUTH_SESSION_COOKIE_NAME, OWNER_REVIEW_TEST_TOKEN)
+    page = client.get(f"{base_path}/{seeds.ready_id}")
+    assert page.status_code == 200
+    form = re.search(r'<form[^>]+data-meeting-delete-form[^>]*>(.*?)</form>', page.text, re.S)
+    assert form is not None
+    fields = {
+        name: unescape(value)
+        for name, value in re.findall(r'name="([^"]+)" value="([^"]*)"', form.group(1))
+    }
+    response = client.post(
+        f"{base_path}/{seeds.ready_id}/deletion-requests",
+        data=fields,
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert response.headers["location"] == base_path
 
 
 def test_owner_session_meetings_page_exposes_csrf_meta_without_secret(client) -> None:
