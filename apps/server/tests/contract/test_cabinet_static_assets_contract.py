@@ -1601,6 +1601,7 @@ def test_cabinet_rail_node_harness_keeps_responsive_defaults_and_manual_state() 
     script_path = STATIC_DIR / "cabinet.js"
     harness = r"""
 const fs = require("fs");
+global.setInterval = () => 1;
 const vm = require("vm");
 const surface = process.argv[2];
 const width = Number(process.argv[3]);
@@ -1755,6 +1756,7 @@ if ((toggle.listeners.get("click") || []).length !== 1) throw new Error("duplica
             capture_output=True,
             text=True,
             check=False,
+            timeout=15,
         )
         assert completed.returncode == 0, completed.stderr + completed.stdout
 
@@ -1797,6 +1799,7 @@ def test_meeting_review_resize_node_harness_keeps_bounds_and_one_listener() -> N
     script_path = STATIC_DIR / "cabinet.js"
     harness = r"""
 const fs = require("fs");
+global.setInterval = () => 1;
 const vm = require("vm");
 const scenario = process.argv[2];
 const listeners = new Map();
@@ -1952,6 +1955,7 @@ if (playback.currentTime !== currentTime) throw new Error("resize changed playba
             capture_output=True,
             text=True,
             check=False,
+            timeout=15,
         )
         assert completed.returncode == 0, completed.stderr
 
@@ -1960,6 +1964,7 @@ def test_speaker_rename_node_harness_preserves_playback_states() -> None:
     script_path = STATIC_DIR / "cabinet.js"
     harness = r"""
 const fs = require("fs");
+global.setInterval = () => 1;
 const vm = require("vm");
 const playing = process.argv[2] === "playing";
 const success = process.argv[3] === "success";
@@ -2091,6 +2096,7 @@ global.window = {
                 capture_output=True,
                 text=True,
                 check=False,
+                timeout=15,
             )
             assert completed.returncode == 0, completed.stderr
 
@@ -2120,7 +2126,7 @@ def test_meeting_list_js_separates_open_selection_and_fragment_reconciliation() 
         "rowPrimaryFocusTarget",
         "Выбрано: ${rows.length}",
         "reconcileMeetingSelection",
-        "selectedMeetingIds.has(row.dataset.meetingId)",
+        "selectedMeetingIds.has(recordingRowIdentity(row))",
     ]:
         assert marker in script
 
@@ -2257,7 +2263,7 @@ def test_meeting_list_js_closes_authorization_retry_and_deletion_boundaries() ->
         "restoreListRefreshFocus",
         "restoreMeetingListRequestFocus(requestEvent, recovery, { force: authorizationLost })",
         "restoreListRefreshFocus(recovery, { force: authorizationLost })",
-        ".map((meetingId) => allRows().find((row) => row.dataset.meetingId === meetingId))",
+        ".map((meetingId) => allRows().find((row) => recordingRowIdentity(row) === meetingId))",
         ".find(Boolean)",
         "xhrProblemCode",
         'JSON.parse(xhr?.responseText || "{}")',
@@ -2475,6 +2481,7 @@ def test_meeting_list_runtime_rejects_stale_poll_and_preserves_row_focus() -> No
     script_path = STATIC_DIR / "cabinet.js"
     harness = r"""
 const fs = require("fs");
+global.setInterval = () => 1;
 const vm = require("vm");
 const listeners = new Map();
 let modalOpen = false;
@@ -2487,6 +2494,7 @@ class FakeElement {
     this.isConnected = true;
     this.classList = { add() {}, remove() {}, toggle() {}, contains() { return false; } };
   }
+  append() {}
   addEventListener() {}
   closest() { return null; }
   contains() { return false; }
@@ -2530,6 +2538,7 @@ global.HTMLFormElement = FakeElement;
 global.HTMLButtonElement = FakeElement;
 global.Node = FakeElement;
 global.document = {
+  createElement(kind) { return new FakeElement(kind); },
   activeElement: new FakeElement("focused-row-control"),
   body,
   documentElement: { dataset: {} },
@@ -2571,7 +2580,7 @@ const selectedCheckbox = { checked: true };
 selectedCheckbox.closest = (selector) => selector === "[data-meeting-select]" ? selectedCheckbox : null;
 const selectedRow = new FakeElement("row");
 selectedRow.dataset.meetingId = "selected-meeting";
-selectedRow.querySelector = (selector) => selector === "[data-meeting-select]" ? selectedCheckbox : null;
+selectedRow.querySelector = (selector) => ["[data-meeting-select]", "[data-meeting-select]:not(:disabled)"].includes(selector) ? selectedCheckbox : null;
 list.querySelectorAll = (selector) => selector === "[data-meeting-row]" ? [selectedRow] : [];
 listeners.get("change")[0]({ target: selectedCheckbox });
 const eventFor = (xhr, source) => ({
@@ -2632,7 +2641,7 @@ replacementDelete.focus = () => { document.activeElement = replacementDelete; };
 const replacementRow = new FakeElement("row");
 replacementRow.dataset.meetingId = selectedRow.dataset.meetingId;
 replacementRow.querySelector = (selector) => {
-  if (selector === "[data-meeting-select]") return selectedCheckbox;
+  if (["[data-meeting-select]", "[data-meeting-select]:not(:disabled)"].includes(selector)) return selectedCheckbox;
   if (selector === "[data-row-delete]") return replacementDelete;
   return null;
 };
@@ -2670,7 +2679,7 @@ automaticReplacementDelete.focus = () => { document.activeElement = automaticRep
 const automaticReplacementRow = new FakeElement("row");
 automaticReplacementRow.dataset.meetingId = replacementRow.dataset.meetingId;
 automaticReplacementRow.querySelector = (selector) => {
-  if (selector === "[data-meeting-select]") return selectedCheckbox;
+  if (["[data-meeting-select]", "[data-meeting-select]:not(:disabled)"].includes(selector)) return selectedCheckbox;
   if (selector === "[data-row-delete]") return automaticReplacementDelete;
   return null;
 };
@@ -2761,6 +2770,7 @@ if (!modalPollStart.defaultPrevented) {
         capture_output=True,
         text=True,
         check=False,
+        timeout=15,
     )
 
     assert completed.returncode == 0, completed.stderr
@@ -2838,6 +2848,7 @@ def test_meeting_list_runtime_announces_only_user_refinements() -> None:
     script_path = STATIC_DIR / "cabinet.js"
     harness = r"""
 const fs = require("fs");
+global.setInterval = () => 1;
 const vm = require("vm");
 const listeners = new Map();
 class FakeElement {
@@ -2958,6 +2969,7 @@ if (announcer.textContent !== "Найдено: 3") {
         capture_output=True,
         text=True,
         check=False,
+        timeout=15,
     )
 
     assert completed.returncode == 0, completed.stderr
@@ -2967,6 +2979,7 @@ def test_meeting_list_runtime_reset_clears_refinements_preserves_sort_and_restor
     script_path = STATIC_DIR / "cabinet.js"
     harness = r"""
 const fs = require("fs");
+global.setInterval = () => 1;
 const vm = require("vm");
 const listeners = new Map();
 let countVisible = true;
@@ -3057,6 +3070,7 @@ global.HTMLFormElement = FakeElement;
 global.HTMLButtonElement = FakeElement;
 global.Node = FakeElement;
 global.document = {
+  createElement(kind) { return new FakeElement(kind); },
   activeElement: reset,
   body,
   documentElement: { dataset: {} },
@@ -3145,6 +3159,7 @@ form.requestSubmit = () => {
         capture_output=True,
         text=True,
         check=False,
+        timeout=15,
     )
 
     assert completed.returncode == 0, completed.stderr
@@ -3154,6 +3169,7 @@ def test_meeting_list_runtime_restores_focused_poll_error_to_recovery() -> None:
     script_path = STATIC_DIR / "cabinet.js"
     harness = r"""
 const fs = require("fs");
+global.setInterval = () => 1;
 const vm = require("vm");
 const listeners = new Map();
 class FakeElement {
@@ -3257,6 +3273,7 @@ if (!recovery || document.activeElement !== recovery) {
         capture_output=True,
         text=True,
         check=False,
+        timeout=15,
     )
 
     assert completed.returncode == 0, completed.stderr
@@ -3301,7 +3318,8 @@ let listRefreshShouldRestoreFocus = true;
 let listRefreshFocusOrigin = origin;
 const allRows = () => [row];
 const rowPrimaryFocusTarget = (candidate) => candidate?.querySelector("[data-meeting-open]") || null;
-eval(`${restoreSource}\n;global.restoreListRefreshFocus = restoreListRefreshFocus;`);
+const identitySource = script.split("\n").find(line => line.includes("const recordingRowIdentity ="));
+eval(`${identitySource}\n${restoreSource}\n;global.restoreListRefreshFocus = restoreListRefreshFocus;`);
 if (restoreListRefreshFocus()) {
   throw new Error("refresh reported focus restoration after the user moved elsewhere");
 }
@@ -3324,6 +3342,7 @@ if (!restoreListRefreshFocus() || document.activeElement !== link) {
         capture_output=True,
         text=True,
         check=False,
+        timeout=15,
     )
 
     assert completed.returncode == 0, completed.stderr
@@ -3340,6 +3359,7 @@ def test_meeting_list_runtime_scrubs_stale_poll_after_authorization_loss(
     script_path = STATIC_DIR / "cabinet.js"
     harness = r"""
 const fs = require("fs");
+global.setInterval = () => 1;
 const vm = require("vm");
 const listeners = new Map();
 let replacedPath = "";
@@ -3465,6 +3485,7 @@ if (replacedPath !== "" || navigatedPath !== "/meetings") {
         capture_output=True,
         text=True,
         check=False,
+        timeout=15,
     )
 
     assert completed.returncode == 0, completed.stderr
@@ -3474,6 +3495,7 @@ def test_meeting_list_runtime_invalidates_and_recovers_detached_authorization_re
     script_path = STATIC_DIR / "cabinet.js"
     harness = r"""
 const fs = require("fs");
+global.setInterval = () => 1;
 const vm = require("vm");
 const listeners = new Map();
 class FakeElement {
@@ -3607,6 +3629,7 @@ if (!rendered.includes("Нет доступа к встречам")) throw new E
         capture_output=True,
         text=True,
         check=False,
+        timeout=15,
     )
 
     assert completed.returncode == 0, completed.stderr
@@ -3616,6 +3639,7 @@ def test_meeting_detail_runtime_scrubs_private_dom_after_access_loss() -> None:
     script_path = STATIC_DIR / "cabinet.js"
     harness = r"""
 const fs = require("fs");
+global.setInterval = () => 1;
 const vm = require("vm");
 let intervalCallback = null;
 let currentMain = null;
@@ -3764,6 +3788,7 @@ const allText = (node) => [node.textContent, ...node.children.flatMap(allText)].
         capture_output=True,
         text=True,
         check=False,
+        timeout=15,
     )
 
     assert completed.returncode == 0, completed.stderr
@@ -3787,6 +3812,7 @@ def test_detail_fetch_actions_keep_accessible_detail_for_local_action_outcomes(
     script_path = STATIC_DIR / "cabinet.js"
     harness = r"""
 const fs = require("fs");
+global.setInterval = () => 1;
 const vm = require("vm");
 let submitHandler = null;
 let currentMain = null;
@@ -3923,6 +3949,7 @@ global.window = {
         capture_output=True,
         text=True,
         check=False,
+        timeout=15,
     )
 
     assert completed.returncode == 0, completed.stderr
@@ -3933,6 +3960,7 @@ def test_ready_meeting_detail_scrubs_private_dom_after_htmx_access_loss(status: 
     script_path = STATIC_DIR / "cabinet.js"
     harness = r"""
 const fs = require("fs");
+global.setInterval = () => 1;
 const vm = require("vm");
 const listeners = new Map();
 let currentMain = null;
@@ -4062,6 +4090,7 @@ if (rendered.includes("PRIVATE")) throw new Error("private detail leaked into re
         capture_output=True,
         text=True,
         check=False,
+        timeout=15,
     )
 
     assert completed.returncode == 0, completed.stderr
@@ -4100,6 +4129,7 @@ def test_share_fragment_404_keeps_accessible_detail_and_shows_local_error() -> N
     script_path = STATIC_DIR / "cabinet.js"
     harness = r"""
 const fs = require("fs");
+global.setInterval = () => 1;
 const vm = require("vm");
 const listeners = new Map();
 let currentMain = null;
@@ -4211,6 +4241,7 @@ if (!shareHost.children[0]?.textContent.includes("Не удалось откры
         capture_output=True,
         text=True,
         check=False,
+        timeout=15,
     )
 
     assert completed.returncode == 0, completed.stderr
