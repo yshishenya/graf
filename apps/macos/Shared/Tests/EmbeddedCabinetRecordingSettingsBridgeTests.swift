@@ -85,10 +85,17 @@ final class EmbeddedCabinetRecordingSettingsBridgeTests: XCTestCase {
         try await waitUntil("document.querySelector('[data-recording-target=two]').value === 'never'", in: webView)
         let focused = try await evaluate("document.activeElement.dataset.recordingTarget", in: webView)
         XCTAssertEqual(focused as? String, "one")
+        _ = try await evaluate("const search = document.querySelector('[data-recording-settings-search]'); search.value = 'one'; search.dispatchEvent(new Event('input'));", in: webView)
+        let visible = try await evaluate("document.querySelectorAll('[data-recording-settings-targets] label:not([hidden])').length", in: webView)
+        XCTAssertEqual(visible as? Int, 1)
+        _ = try await evaluate("const all = document.querySelector('[data-recording-settings-all]'); all.value = 'never'; all.dispatchEvent(new Event('change', {bubbles:true}));", in: webView)
+        try await waitUntil("!document.querySelector('[data-recording-settings-all]').disabled", in: webView)
+        XCTAssertEqual(try store.load().recordingRule(for: "one"), .never)
+        XCTAssertEqual(try store.load().recordingRule(for: "two"), .never)
         bridge.invalidate()
         _ = try await evaluate("window.GRAFRecordingSettings.refresh()", in: webView)
         try await waitUntil("!document.querySelector('[data-recording-settings-retry]').hidden", in: webView)
-        XCTAssertEqual(try store.load().recordingRule(for: "one"), .always)
+        XCTAssertEqual(try store.load().recordingRule(for: "one"), .never)
     }
 
     private func waitUntil(_ condition: String, in webView: WKWebView) async throws {

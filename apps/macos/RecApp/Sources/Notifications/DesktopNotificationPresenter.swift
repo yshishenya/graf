@@ -162,8 +162,10 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
     private let statusProvider: (@MainActor () async -> UNAuthorizationStatus)?
     private let submit: (@MainActor (UNNotificationRequest) async throws -> Void)?
     private let remove: (@MainActor ([String]?) -> Void)?
+    private let requestPermission: (@MainActor () async throws -> Bool)?
+    private let contextProvider: (@MainActor () async throws -> DesktopNotificationContext)?
     private var context = ""
-    private var authEpoch = 0
+    @Published private(set) var authEpoch = 0
     private var generation = 0
     private var schedulingReminders = false
     private var calendarEvents: [DesktopCalendarPromptEvent] = []
@@ -181,9 +183,12 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
     init(center: UNUserNotificationCenter? = nil, store: DesktopNotificationPreferencesStore,
          model: DesktopControlModel, status: (@MainActor () async -> UNAuthorizationStatus)? = nil,
          submit: (@MainActor (UNNotificationRequest) async throws -> Void)? = nil,
-         remove: (@MainActor ([String]?) -> Void)? = nil) {
+         remove: (@MainActor ([String]?) -> Void)? = nil,
+         requestPermission: (@MainActor () async throws -> Bool)? = nil,
+         contextProvider: (@MainActor () async throws -> DesktopNotificationContext)? = nil) {
         self.center = center; self.store = store; self.model = model
         self.statusProvider = status; self.submit = submit; self.remove = remove
+        self.requestPermission = requestPermission; self.contextProvider = contextProvider
         super.init()
     }
     public override convenience init() {
@@ -192,10 +197,13 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
         center?.setNotificationCategories(Self.notificationCategories)
         removeNotifications()
         authObservation = NotificationCenter.default.publisher(for: .twoBrainRecDesktopAuthSessionDidChange).sink { [weak self] _ in
-            Task { @MainActor in
-                self?.invalidate()
-                await self?.refreshContext()
+            // Auth notifications are delivered synchronously on the main queue.
+            if Thread.isMainThread {
+                MainActor.assumeIsolated { self?.invalidate() }
+            } else {
+                DispatchQueue.main.sync { MainActor.assumeIsolated { self?.invalidate() } }
             }
+            Task { @MainActor in await self?.refreshContext() }
         }
         wakeObservation = NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification).sink { [weak self] _ in
             Task { await self?.refreshContext(); await self?.refreshPermission() }
@@ -236,6 +244,7 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
     }
     public func invalidate() {
         contextGeneration += 1
+        permissionGeneration += 1
         authEpoch += 1
         generation += 1
         removeNotifications()
@@ -264,18 +273,24 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
             invalidate(); owner = user.lowercased(); context = newContext; preferences = store.load(owner: owner); draft = preferences
         }
     }
-    public func refreshContext() async {
+    @discardableResult
+    public func refreshContext() async -> Int? {
         contextGeneration += 1
         let epoch = contextGeneration
-        guard let client = DesktopUploadClient.configuredFromEnvironment() else { return }
         do {
-            let value = try await client.notificationContext()
-            guard epoch == contextGeneration else { return }
+            let value: DesktopNotificationContext
+            if let contextProvider { value = try await contextProvider() }
+            else if let client = DesktopUploadClient.configuredFromEnvironment() { value = try await client.notificationContext() }
+            else { return nil }
+            guard epoch == contextGeneration else { return nil }
             updateContext(user: value.user_id.uuidString, workspace: value.workspace_id.uuidString)
+            let confirmedEpoch = authEpoch
             await refreshLocal(lastSnapshot)
+            return confirmedEpoch == authEpoch ? confirmedEpoch : nil
         } catch let error as DesktopUploadClientError {
             if epoch == contextGeneration && error.failureCategory == .authSession { invalidate() }
         } catch { /* Keep only the already confirmed context in this auth epoch. */ }
+        return nil
     }
     public func refreshPermission() async {
         permissionGeneration += 1
@@ -296,26 +311,42 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
         }
         await refreshLocal(lastSnapshot)
     }
-    public func enable() async {
-        guard let center else { return }
+    public func enable(isCurrent: () -> Bool = { true }) async {
+        let epoch = authEpoch
+        guard !owner.isEmpty else { return }
         do {
-            _ = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Bool, Error>) in
-                center.requestAuthorization(options: [.alert, .sound]) { granted, error in
-                    if let error { continuation.resume(throwing: error) }
-                    else { continuation.resume(returning: granted) }
+            if let requestPermission { _ = try await requestPermission() }
+            else if let center {
+                _ = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Bool, Error>) in
+                    center.requestAuthorization(options: [.alert, .sound]) { granted, error in
+                        if let error { continuation.resume(throwing: error) }
+                        else { continuation.resume(returning: granted) }
+                    }
                 }
-            }
+            } else { return }
+        } catch {
+            guard epoch == authEpoch, isCurrent() else { return }
+            message = "Не удалось запросить разрешение. Откройте настройки macOS."
+            return
         }
-        catch { message = "Не удалось запросить разрешение. Откройте настройки macOS." }
-        await refreshPermission(); await scheduleReminders()
+        guard epoch == authEpoch, isCurrent() else { return }
+        await refreshPermission()
+        guard epoch == authEpoch, isCurrent() else { return }
+        await scheduleReminders()
     }
-    public func save(_ value: DesktopNotificationPreferences) {
+    @discardableResult
+    public func save(_ value: DesktopNotificationPreferences) -> Bool {
         do {
             try store.save(value, owner: owner); generation += 1; preferences = value; draft = value
             if !value.showTitles { center?.removeAllDeliveredNotifications() }
             message = "Сохранено на этом Mac"
             Task { await scheduleReminders() }
-        } catch { message = "Не удалось сохранить. Проверьте вход в GRAF и повторите попытку." }
+            return true
+        } catch {
+            draft = preferences
+            message = "Не удалось сохранить. Проверьте вход в GRAF и повторите попытку."
+            return false
+        }
     }
     private func authorizationStatus() async -> UNAuthorizationStatus {
         if let statusProvider { return await statusProvider() }
@@ -340,19 +371,29 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
         let status = await authorizationStatus()
         return status == .authorized || status == .provisional
     }
-    public func test() async {
+    public func test(isCurrent: () -> Bool = { true }) async {
+        let epoch = authEpoch
+        guard !owner.isEmpty else { return }
         await refreshPermission()
-        guard await allowed() else {
+        guard epoch == authEpoch, isCurrent() else { return }
+        let authorized = await allowed()
+        guard epoch == authEpoch, isCurrent() else { return }
+        guard authorized else {
             message = "Разрешите уведомления для GRAF в настройках macOS."; return
         }
         let content = UNMutableNotificationContent()
         content.title = "Проверка уведомлений GRAF"
         content.body = "Это тестовое сообщение. Управление записью всегда доступно в приложении."
         if preferences.sound && !lastSnapshot.active { content.sound = .default }
+        let id = "graf.local.test." + UUID().uuidString
         do {
-            try await addNotification(UNNotificationRequest(identifier: "graf.local.test", content: content, trigger: nil))
+            try await addNotification(UNNotificationRequest(identifier: id, content: content, trigger: nil))
+            guard epoch == authEpoch, isCurrent() else { removeNotifications([id]); return }
             message = "Тест передан macOS. Показ зависит от системных настроек и Фокусирования."
-        } catch { message = "Не удалось передать тест macOS. Повторите попытку." }
+        } catch {
+            guard epoch == authEpoch, isCurrent() else { removeNotifications([id]); return }
+            message = "Не удалось передать тест macOS. Повторите попытку."
+        }
     }
     private func scheduleReminders() async {
         guard !schedulingReminders else { return }
@@ -481,16 +522,20 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
         }
     }
     public nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
-        let id = notification.request.identifier
-        return await MainActor.run {
-            guard id == "graf.local.test" || requests[id]?.owner == owner else { return [] }
-            if let session = requests[id]?.sessionID {
-                guard store.ownsSession(session, context: context),
-                      DesktopLocalNotificationIncident.incidents(in: lastSnapshot, now: Date()).contains(where: { $0.sessionID == session }) else { return [] }
-            }
-            if let event = requests[id]?.event, !Self.shouldRemind(event, snapshot: lastSnapshot, now: Date()) { return [] }
-            return preferences.sound && !lastSnapshot.active ? [.banner, .list, .sound] : [.banner, .list]
+        await presentationOptions(for: notification.request.identifier)
+    }
+    static func isTestNotification(_ id: String) -> Bool {
+        let prefix = "graf.local.test."
+        return id == "graf.local.test" || (id.hasPrefix(prefix) && UUID(uuidString: String(id.dropFirst(prefix.count))) != nil)
+    }
+    func presentationOptions(for id: String) -> UNNotificationPresentationOptions {
+        guard Self.isTestNotification(id) || requests[id]?.owner == owner else { return [] }
+        if let session = requests[id]?.sessionID {
+            guard store.ownsSession(session, context: context),
+                  DesktopLocalNotificationIncident.incidents(in: lastSnapshot, now: Date()).contains(where: { $0.sessionID == session }) else { return [] }
         }
+        if let event = requests[id]?.event, !Self.shouldRemind(event, snapshot: lastSnapshot, now: Date()) { return [] }
+        return preferences.sound && !lastSnapshot.active ? [.banner, .list, .sound] : [.banner, .list]
     }
     public nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
         await openResponse(response.notification.request.identifier, actionIdentifier: response.actionIdentifier)
@@ -508,7 +553,7 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
         return safeMeetingURL(event.openMeetingURL)
     }
     func openResponse(_ id: String, actionIdentifier: String) {
-        if id == "graf.local.test" {
+        if Self.isTestNotification(id) {
             if actionIdentifier == UNNotificationDefaultActionIdentifier { onOpenSettings?() }
             return
         }
@@ -538,6 +583,13 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
 public struct DesktopNotificationsSettingsView: View {
     @ObservedObject private var presenter = DesktopNotificationPresenter.shared
     public init() {}
+    private func preference<Value>(_ keyPath: WritableKeyPath<DesktopNotificationPreferences, Value>) -> Binding<Value> {
+        Binding(get: { presenter.preferences[keyPath: keyPath] }, set: { value in
+            var next = presenter.preferences
+            next[keyPath: keyPath] = value
+            presenter.save(next)
+        })
+    }
     public var body: some View {
         Form {
             Section("Уведомления macOS") {
@@ -550,27 +602,25 @@ public struct DesktopNotificationsSettingsView: View {
             }
             }
             Section("Напоминания и приватность") {
-            Toggle("Напоминать о встречах", isOn: $presenter.draft.reminders)
-            Picker("Когда напоминать", selection: $presenter.draft.offsetMinutes) {
+            Toggle("Напоминать о встречах", isOn: preference(\.reminders))
+            Picker("Когда напоминать", selection: preference(\.offsetMinutes)) {
                 Text("За минуту").tag(1); Text("За 5 минут").tag(5); Text("В момент начала").tag(0)
             }.disabled(!presenter.draft.reminders)
-            Toggle("Показывать названия в системных уведомлениях", isOn: $presenter.draft.showTitles)
-            Toggle("Звук уведомлений", isOn: $presenter.draft.sound)
+            Toggle("Показывать названия в системных уведомлениях", isOn: preference(\.showTitles))
+            Toggle("Звук уведомлений", isOn: preference(\.sound))
             Text("Во время записи звук выключен. Результаты встреч доступны в веб-кабинете. Проблемы записи и остановка всегда видны в GRAF.").font(.callout).foregroundStyle(.secondary)
             }
             Section {
             HStack {
-                Button("Сохранить") { presenter.save(presenter.draft) }.disabled(presenter.draft == presenter.preferences || presenter.owner.isEmpty)
-                Button("Отменить") { presenter.draft = presenter.preferences }.disabled(presenter.draft == presenter.preferences)
                 Button("Проверить уведомление") { Task { await presenter.test() } }
             }
             if presenter.owner.isEmpty { Text("Войдите в GRAF, чтобы сохранить настройки для своего аккаунта.") }
-            if presenter.draft != presenter.preferences { Text("Изменения не сохранены. Вы можете вернуться к ним в этом окне или отменить их.").font(.callout) }
             Text(presenter.message).font(.callout)
             Text("Проверка использует сохранённые настройки. Показ разрешает macOS.")
                 .font(.callout).foregroundStyle(.secondary)
             }
         }.formStyle(.grouped)
+        .disabled(presenter.owner.isEmpty)
         .onAppear { Task { await presenter.refreshPermission() } }
         // macOS may persist an authorization change after the activation callback.
         .onReceive(Timer.publish(every: 2, on: .main, in: .common).autoconnect()) { _ in

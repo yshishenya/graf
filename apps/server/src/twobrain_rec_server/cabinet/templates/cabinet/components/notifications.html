@@ -8,10 +8,10 @@
   <input type="hidden" name="optional_email_enabled" value="false">
   <input type="hidden" name="optional_in_app_enabled" value="false">
   <div class="settings-control-list">
-    {{ ui.switch("optional_email_enabled", "Email-подсказки", checked=preferences.optional_email_enabled, description="Новости и советы о GRAF") }}
-    {{ ui.switch("optional_in_app_enabled", "Подсказки в кабинете", checked=preferences.optional_in_app_enabled, description="Советы рядом с функциями") }}
+    {{ ui.switch("optional_email_enabled", "Письма с новостями и советами", checked=preferences.optional_email_enabled, description="Новости и советы о GRAF") }}
+    {{ ui.switch("optional_in_app_enabled", "Подсказки в GRAF", checked=preferences.optional_in_app_enabled, description="Советы рядом с функциями") }}
   </div>
   <div class="settings-form-actions"><button class="button" type="submit">Сохранить</button><button class="button quiet" type="reset" data-settings-form-reset>Отменить</button><p class="settings-form-status" data-settings-form-status role="status" aria-live="polite" hidden></p></div>
-<a href="{{ "/desktop/settings/notifications" if embedded else "/settings/notifications" }}">Загрузить актуальные настройки</a>
+<a data-notification-settings-reload href="{{ "/desktop/settings/notifications" if embedded else "/settings/notifications" }}">Загрузить актуальные настройки</a>
 </form>
 {%- endmacro %}

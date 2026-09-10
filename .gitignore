@@ -112,3 +112,6 @@ out/
 specs/**/reference/private-appshots/
 docs/evidence/**/private-appshots/
 .playwright-cli/
+
+# Local synthetic browser checks (reproducible from feature scripts).
+/output/playwright/

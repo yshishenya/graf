@@ -5703,7 +5703,19 @@
     const status = root.querySelector('[data-recording-settings-status]');
     const retry = root.querySelector('[data-recording-settings-retry]');
     const template = root.querySelector('[data-recording-settings-select]');
+    const search = root.querySelector('[data-recording-settings-search]');
+    const empty = root.querySelector('[data-recording-settings-empty]');
     const rows = new Map();
+    const filter = () => {
+      const query = search.value.trim().toLocaleLowerCase();
+      let visible = 0;
+      for (const row of rows.values()) {
+        row.hidden = !row.firstElementChild.textContent.toLocaleLowerCase().includes(query);
+        if (!row.hidden) visible++;
+      }
+      empty.hidden = visible > 0 || rows.size === 0;
+    };
+    search.addEventListener('input', filter);
     let busy = false;
     let refreshPending = false;
     let confirmed = null;
@@ -5731,6 +5743,7 @@
         select.setAttribute('aria-label', `Автозапись: ${target.name}`);
         select.value = target.rule;
       }
+      filter();
       const rules = new Set(snapshot.targets.map((target) => target.rule));
       all.value = rules.size === 1 ? snapshot.targets[0].rule : '';
       all.disabled = busy || snapshot.targets.length === 0;
@@ -5742,7 +5755,7 @@
       if (busy) { if (action === 'read') refreshPending = true; return; }
       const bridge = window.webkit?.messageHandlers?.grafRecordingSettings;
       if (!bridge || !recordingSettingsNonce) {
-        status.textContent = 'Откройте локальные настройки. Для настройки на этой странице может потребоваться обновление GRAF.';
+        status.textContent = 'Не удалось подключить настройки этого Mac. Обновите страницу или приложение GRAF.';
         retry.hidden = false;
         return;
       }
@@ -5771,7 +5784,7 @@
         if (!root.isConnected || nonce !== recordingSettingsNonce) return;
         if (confirmed) render(confirmed);
         status.textContent = action === 'read'
-          ? 'Не удалось загрузить настройки. Повторите загрузку или откройте локальные настройки.'
+          ? 'Не удалось загрузить настройки. Повторите загрузку.'
           : 'Не удалось подтвердить сохранение. Повторите загрузку, чтобы проверить текущие настройки.';
         retry.hidden = false;
       } finally {
@@ -5796,6 +5809,99 @@
   window.GRAFRecordingSettings = {
     connect(nonce) { recordingSettingsNonce = nonce; initRecordingSettings(); this.refresh(); },
     refresh() { document.querySelector('[data-recording-settings]')?.dispatchEvent(new Event('graf:recording-settings-refresh')); },
+  };
+
+  let notificationSettingsNonce = null;
+  const initLocalNotificationSettings = () => {
+    const root = document.querySelector('[data-local-notification-settings]');
+    if (!root || root.dataset.ready === 'true') return;
+    root.dataset.ready = 'true';
+    const controls = root.querySelector('[data-local-notification-controls]');
+    const status = root.querySelector('[data-local-notification-status]');
+    const permission = root.querySelector('[data-local-notification-permission]');
+    const retry = root.querySelector('[data-local-notification-retry]');
+    const reload = root.querySelector('[data-local-notification-reload]');
+    const fields = [...controls.querySelectorAll('[data-local-notification-field]')];
+    let busy = false, confirmed = null, sequence = 0, refreshPending = false;
+    const render = (snapshot) => {
+      fields.forEach(input => {
+        const value = snapshot.preferences[input.dataset.localNotificationField];
+        if (input.type === 'checkbox') input.checked = value;
+        else input.value = String(value);
+        input.disabled = input.dataset.localNotificationField === 'offsetMinutes' && !snapshot.preferences.reminders;
+      });
+      permission.textContent = snapshot.permission;
+      controls.querySelector('[data-local-notification-action="requestPermission"]').hidden = !snapshot.canRequestPermission;
+      controls.disabled = busy || !snapshot.canEdit;
+    };
+    const request = async (action = 'read', patch = {}) => {
+      if (busy) { if (action === 'read') refreshPending = true; return; }
+      const bridge = window.webkit?.messageHandlers?.grafNotificationSettings;
+      if (!bridge || !notificationSettingsNonce) {
+        controls.disabled = true;
+        status.textContent = 'Не удалось подключить настройки этого Mac. Обновите страницу после входа в GRAF.';
+        reload.hidden = false;
+        return;
+      }
+      const nonce = notificationSettingsNonce, current = ++sequence;
+      const focused = root.contains(document.activeElement) ? document.activeElement : null;
+      busy = true; controls.disabled = true; retry.hidden = true; reload.hidden = true;
+      status.textContent = action === 'read' ? 'Проверяем настройки…' : action === 'set' ? 'Сохранение…' : 'Выполняем…';
+      let timer;
+      try {
+        const snapshot = await Promise.race([
+          bridge.postMessage({version: 1, nonce, action, ...patch}),
+          new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('timeout')), 5000); }),
+        ]);
+        if (!root.isConnected || nonce !== notificationSettingsNonce || current !== sequence) return;
+        const prefs = snapshot?.preferences;
+        if (snapshot?.version !== 1 || !prefs || !['reminders', 'showTitles', 'sound'].every(key => typeof prefs[key] === 'boolean') ||
+            ![0, 1, 5].includes(prefs.offsetMinutes) || typeof snapshot.canEdit !== 'boolean' ||
+            typeof snapshot.canRequestPermission !== 'boolean' || typeof snapshot.permission !== 'string') throw new Error('unsupported');
+        confirmed = snapshot; render(snapshot);
+        status.textContent = snapshot.error || (!snapshot.canEdit ? 'Войдите в GRAF и обновите страницу, чтобы изменить настройки.' : snapshot.message || (action === 'read' ? '' : 'Готово.'));
+        retry.hidden = !snapshot.error;
+        reload.hidden = snapshot.canEdit;
+      } catch (_) {
+        if (!root.isConnected || nonce !== notificationSettingsNonce || current !== sequence) return;
+        if (confirmed) render(confirmed);
+        status.textContent = 'Не удалось подтвердить изменение. Проверьте текущее значение.';
+        retry.hidden = false; reload.hidden = false;
+      } finally {
+        clearTimeout(timer);
+        if (current === sequence) {
+          busy = false;
+          controls.disabled = !notificationSettingsNonce || !confirmed?.canEdit;
+          if (focused?.isConnected && document.activeElement === document.body) focused.focus({preventScroll: true});
+          if (refreshPending) { refreshPending = false; request(); }
+        }
+      }
+    };
+    root.addEventListener('change', event => {
+      const input = event.target, field = input.dataset.localNotificationField;
+      if (field) request('set', {field, value: input.type === 'checkbox' ? input.checked : Number(input.value)});
+    });
+    controls.querySelectorAll('[data-local-notification-action]').forEach(button => {
+      button.addEventListener('click', () => request(button.dataset.localNotificationAction));
+    });
+    retry.addEventListener('click', () => request());
+    root.addEventListener('graf:notification-settings-refresh', () => request());
+    root.addEventListener('graf:notification-settings-disconnect', () => {
+      sequence++; busy = false; refreshPending = false; confirmed = null; controls.disabled = true;
+      fields.forEach(input => { if (input.type === 'checkbox') input.checked = false; else input.value = ''; });
+      permission.textContent = '';
+      status.textContent = 'Аккаунт изменился. Обновите страницу настроек.'; reload.hidden = false;
+    });
+    window.addEventListener('focus', () => { if (root.isConnected) request(); });
+    request();
+  };
+  window.GRAFNotificationSettings = {
+    connect(nonce) { notificationSettingsNonce = nonce; initLocalNotificationSettings(); this.refresh(); },
+    refresh() { document.querySelector('[data-local-notification-settings]')?.dispatchEvent(new Event('graf:notification-settings-refresh')); },
+    disconnect() {
+      notificationSettingsNonce = null;
+      document.querySelector('[data-local-notification-settings]')?.dispatchEvent(new Event('graf:notification-settings-disconnect'));
+    },
   };
 
   const initSettingsFormState = () => {
@@ -6651,10 +6757,11 @@
       if (!sidebar || !toggle || shell.dataset.railReady === "true") return;
       shell.dataset.railReady = "true";
       const expandedMedia = window.matchMedia(
-        shell.classList.contains("desktop-embedded") ? "(min-width: 1121px)" : "(min-width: 981px)"
+        shell.dataset.activeNav === "settings" ? "(min-width: 768px)" : shell.classList.contains("desktop-embedded") ? "(min-width: 1121px)" : "(min-width: 981px)"
       );
       const narrowMedia = window.matchMedia("(max-width: 640px)");
-      const storedRailState = sessionStorage.getItem("graf-cabinet-rail");
+      const railKey = shell.dataset.activeNav === "settings" ? "graf-settings-rail" : "graf-cabinet-rail";
+      const storedRailState = sessionStorage.getItem(railKey);
       let manuallySet = ["expanded", "collapsed"].includes(storedRailState);
       let preferredPinned = manuallySet
         ? storedRailState === "expanded"
@@ -6666,7 +6773,7 @@
       const setManualRailState = (pinned) => {
         manuallySet = true;
         preferredPinned = pinned;
-        sessionStorage.setItem("graf-cabinet-rail", pinned ? "expanded" : "collapsed");
+        sessionStorage.setItem(railKey, pinned ? "expanded" : "collapsed");
         setRailPinned(shell, toggle, pinned);
       };
       setRailPinned(shell, toggle, preferredPinned && !(narrowMedia.matches && shell.querySelector("main")?.contains(document.activeElement)));
@@ -8545,6 +8652,7 @@
     initCalendarUpcomingRefresh();
     initSettingsFormState();
     initRecordingSettings();
+    initLocalNotificationSettings();
     initAccountPreferences();
     initSettingsConfirmations();
     initShareInvitationAutoAccept();
@@ -8865,9 +8973,10 @@
 (() => {
   const form=document.querySelector('[data-notification-settings]'); if(!form)return;
   const save=form.querySelector('[type=submit]'), reset=form.querySelector('[type=reset]'), status=form.querySelector('[data-settings-form-status]');
+  const reload=form.querySelector('[data-notification-settings-reload]');
   const snapshot=()=>new URLSearchParams(new FormData(form)).toString(); let initial=snapshot(), saving=false;
-  const changed=()=>{const dirty=snapshot()!==initial;save.disabled=saving||!dirty;reset.disabled=saving||!dirty;form.dataset.state=dirty?'dirty':'pristine';};
-  form.addEventListener('change',changed); form.addEventListener('reset',()=>setTimeout(()=>{status.hidden=true;changed();},0));
+  const changed=()=>{const dirty=snapshot()!==initial;save.disabled=saving||!dirty;reset.disabled=saving||!dirty;save.hidden=reset.hidden=!dirty||saving;if(reload)reload.hidden=!dirty||saving;form.dataset.state=dirty?'dirty':'pristine';};
+  form.addEventListener('change',()=>{changed(); if(!saving && snapshot()!==initial)form.requestSubmit();}); form.addEventListener('reset',()=>setTimeout(()=>{status.hidden=true;changed();},0));
   window.addEventListener('beforeunload',event=>{if(!saving&&snapshot()!==initial){event.preventDefault();event.returnValue='';}});
   form.addEventListener('submit',async event=>{
     event.preventDefault(); if(saving)return; const submitted=new FormData(form); saving=true; changed(); form.querySelectorAll('input[type=checkbox]').forEach(input=>input.disabled=true); status.hidden=false;status.textContent='Сохраняем…';

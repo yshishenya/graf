@@ -2180,31 +2180,6 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
 }
 
 .settings-section p { margin: 0; }
-.settings-overview {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  max-width: var(--settings-content-width);
-}
-.settings-overview-card {
-  display: grid;
-  align-content: start;
-  gap: 9px;
-  min-width: 0;
-  min-height: 112px;
-  padding: 14px;
-  border: 1px solid var(--line-soft);
-  border-radius: var(--radius-compact);
-  background: var(--surface);
-  text-decoration: none;
-  transition: border-color .15s ease, background .15s ease;
-}
-.settings-overview-card:hover { border-color: var(--accent); background: var(--surface-3); }
-.settings-overview-card:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-.settings-overview-card h3,
-.settings-overview-card p { margin: 0; overflow-wrap: anywhere; }
-.settings-overview-card h3 { font-size: var(--font-size-subtitle); font-weight: 650; }
-.settings-overview-card__link { margin-top: auto; color: var(--accent); font-size: var(--font-size-helper); font-weight: 650; }
 .settings-page__topbar,
 .calendar-settings__topbar {
   align-items: flex-start;
@@ -2397,7 +2372,6 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
   }
   .settings-section__heading,
   .settings-choice-row, .settings-list-item { align-items: stretch; flex-direction: column; }
-  .settings-overview { grid-template-columns: 1fr; }
   .settings-form-grid,
   .account-email-form__controls { grid-template-columns: 1fr; }
   .account-email-form__controls .button { justify-self: start; }
@@ -6158,4 +6132,42 @@ html[data-theme="light"] .detail-playback {
     left: 8px; right: 8px; bottom: calc(100% + 8px); width: auto; max-width: none;
   }
   .detail-playback .playback-speed-menu { height: auto; flex-wrap: wrap; gap: 4px; }
+}
+
+/* F260: one settings rail and compact rows, including native preference controls. */
+.app-shell[data-active-nav="settings"] { --app-sidebar-width: 208px; }
+.settings-page, .calendar-settings { --settings-content-width: 760px; --settings-gap: 24px; font-size: 13px; }
+.settings-page > .settings-page__content, .calendar-settings > .calendar-settings__content { max-width: 760px; }
+.settings-page__topbar .page-title h1, .calendar-settings__topbar .page-title h1 { font-size: 22px; line-height: 1.3; }
+.settings-page .settings-section h2, .calendar-settings .settings-section h2 { font-size: 15px; line-height: 1.4; margin: 0; }
+.settings-page .settings-control-list { width: 100%; }
+.settings-page .settings-control-row { min-height: 58px; gap: 16px; }
+.settings-page [data-recording-settings-targets] .settings-control-row { min-height: 48px; }
+.settings-page .settings-control-row:has(select) { grid-template-columns: minmax(0, 1fr) 172px; }
+.settings-page .settings-control-row select { width: 172px; min-height: 32px; padding-block: 4px; }
+.settings-page .settings-control-row__title { font-size: 13px; font-weight: 500; overflow-wrap: anywhere; }
+.settings-page .settings-control-row__description { font-size: 12px; line-height: 1.5; }
+.settings-search { display: grid; gap: 8px; margin-block: 16px; }
+.settings-search input { width: 100%; min-height: 36px; }
+[data-local-notification-controls] { border: 0; margin: 0; padding: 0; min-width: 0; }
+[data-local-notification-permission] { padding-block: 16px; }
+.settings-page .settings-control-row[hidden] { display: none; }
+@media (max-width: 540px) {
+  .settings-page .settings-control-row:has(select) { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .settings-page .settings-control-row select { width: 100%; }
+  .settings-page .settings-control-row { padding-block: 12px; }
+}
+
+[data-local-notification-status]:empty { display: none; }
+html[data-theme="dark"] .app-shell[data-active-nav="settings"] {
+  --surface: #1e1f21; --surface-2: #252628; --surface-3: #2c2d31;
+  --line-soft: #35363a; --text: #ececef; --muted: #aaabb2;
+  --accent-solid: #9581ff; --accent-hover: #a18cff; --accent-foreground: #202125;
+}
+
+.app-shell[data-active-nav="settings"] .cabinet-workspace-header { display: none; }
+.app-shell[data-active-nav="settings"] .cabinet-sidebar-nav--settings { gap: 2px; }
+.app-shell[data-active-nav="settings"] .settings-section .settings-actions { margin-top: 12px; }
+@media (min-width: 768px) {
+  html[data-cabinet-js="ready"] .app-shell[data-active-nav="settings"].is-rail-pinned .cabinet-rail-toggle { display: none; }
 }

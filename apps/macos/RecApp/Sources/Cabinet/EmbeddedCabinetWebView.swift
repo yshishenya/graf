@@ -1572,6 +1572,10 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             contentWorld: .page,
             name: EmbeddedCabinetRecordingSettingsBridge.handlerName
         )
+        configuration.userContentController.addScriptMessageHandler(
+            context.coordinator.notificationSettingsBridge, contentWorld: .page,
+            name: EmbeddedCabinetNotificationSettingsBridge.handlerName
+        )
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.wantsLayer = true
         webView.underPageBackgroundColor = DesktopMeetingShellChrome.webEmbeddedBackgroundNSColor
@@ -1679,6 +1683,9 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             forName: EmbeddedCabinetRecordingSettingsBridge.handlerName, contentWorld: .page
         )
         container.webView.configuration.userContentController.removeScriptMessageHandler(
+            forName: EmbeddedCabinetNotificationSettingsBridge.handlerName, contentWorld: .page
+        )
+        container.webView.configuration.userContentController.removeScriptMessageHandler(
             forName: EmbeddedCabinetUpdateBridge.messageHandlerName
         )
         container.webView.configuration.userContentController.removeScriptMessageHandler(
@@ -1696,6 +1703,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
     @MainActor
     public final class Coordinator: NSObject, @preconcurrency WKNavigationDelegate, @preconcurrency WKUIDelegate, @preconcurrency WKScriptMessageHandler, @preconcurrency WKDownloadDelegate, @preconcurrency WKHTTPCookieStoreObserver {
         let recordingSettingsBridge: EmbeddedCabinetRecordingSettingsBridge
+        let notificationSettingsBridge: EmbeddedCabinetNotificationSettingsBridge
         private let routePolicy: DesktopCabinetRoutePolicy
         private let desktopHeaders: [String: String]
         private let navigationRequestPolicy: DesktopCabinetNavigationRequestPolicy
@@ -1739,6 +1747,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         ) {
             self.routePolicy = routePolicy
             recordingSettingsBridge = EmbeddedCabinetRecordingSettingsBridge(routePolicy: routePolicy)
+            notificationSettingsBridge = EmbeddedCabinetNotificationSettingsBridge(routePolicy: routePolicy)
             self.desktopHeaders = desktopHeaders
             navigationRequestPolicy = DesktopCabinetNavigationRequestPolicy(
                 routePolicy: routePolicy,
@@ -1824,6 +1833,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             userTimeWebView = nil
             cancelJavaScriptConfirmation()
             recordingSettingsBridge.invalidate()
+            notificationSettingsBridge.invalidate()
             navigationController.detach(webView: webView)
         }
 
@@ -2344,6 +2354,16 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                 isCurrentDocument: isCurrentDocument
             ) { [weak self, weak webView] in
                 guard let self, let webView, isCurrentDocument() else { return }
+                // Preferences belong to the authenticated document, after cookie reconciliation.
+                if EmbeddedCabinetNotificationSettingsBridge.isSettingsURL(url, policy: self.routePolicy) {
+                    let authEpoch = DesktopNotificationPresenter.shared.authEpoch
+                    Task { @MainActor [weak self, weak webView] in
+                        guard let self, let webView else { return }
+                        await self.notificationSettingsBridge.activateAfterRefreshingContext(
+                            webView, expectedAuthEpoch: authEpoch, isCurrentDocument: isCurrentDocument
+                        )
+                    }
+                }
                 guard DesktopUserTimeContext.canRead(from: url, routePolicy: self.routePolicy) else {
                     DesktopUserTimeContext.shared.reset()
                     return
@@ -2433,6 +2453,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         public func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
             guard navigationController.isAttached(to: webView) else { return }
             recordingSettingsBridge.invalidate()
+            notificationSettingsBridge.invalidate()
             userTimeDocumentRevision &+= 1
             if let url = webView.url,
                [.authLogin, .authSignup, .authCallback, .authProvider].contains(routePolicy.decision(for: url).route.kind) {
@@ -2446,6 +2467,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             guard navigationController.isAttached(to: webView) else { return }
             webContentProcessTerminated = true
             recordingSettingsBridge.invalidate()
+            notificationSettingsBridge.invalidate()
             cancelJavaScriptConfirmation()
             navigationController.cancelPendingNavigation(webView: webView)
             cabinetState = .malformedResponse
