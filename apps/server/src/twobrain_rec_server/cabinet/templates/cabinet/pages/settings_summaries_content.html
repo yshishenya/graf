@@ -17,7 +17,7 @@
         <button class="button quiet" type="button" data-summary-template-create aria-haspopup="dialog" aria-controls="summary-template-dialog">Создать формат</button>
       </div>
       <label class="summary-default-template">Формат новых итогов
-        <select data-summary-default-template disabled>
+        <select data-settings-combobox data-summary-default-template disabled>
           {% for format in summary_formats %}<option value="{{ format.key }}" data-template-version="{{ format.version }}">{{ format.name }}</option>{% endfor %}
         </select>
         <span class="muted" data-summary-default-help>Загружаем доступные форматы…</span>
@@ -59,8 +59,8 @@
             <label><input type="checkbox" name="sections" value="evidence"> Цитаты из встречи</label>
           </fieldset>
           <div class="summary-template-options">
-            <label>Язык<select name="output_language"><option value="ru">Русский</option><option value="en">English</option></select></label>
-            <label>Подробность<select name="detail_level"><option value="brief">Кратко</option><option value="standard" selected>Обычно</option><option value="detailed">Подробно</option></select></label>
+            <label>Язык<select data-settings-combobox name="output_language"><option value="ru">Русский</option><option value="en">English</option></select></label>
+            <label>Подробность<select data-settings-combobox name="detail_level"><option value="brief">Кратко</option><option value="standard" selected>Обычно</option><option value="detailed">Подробно</option></select></label>
           </div>
           <p class="summary-template-form-error" data-summary-template-form-error role="alert" tabindex="-1" hidden></p>
           <div class="dialog-actions"><button type="button" data-summary-template-dialog-cancel>Отмена</button><button type="submit" data-summary-template-submit>Сохранить</button></div>

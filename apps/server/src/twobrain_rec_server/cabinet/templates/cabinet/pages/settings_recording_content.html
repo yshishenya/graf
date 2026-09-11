@@ -16,17 +16,16 @@
       <div data-recording-settings-controls hidden>
         <label class="settings-control-row">
           <span class="settings-control-row__copy"><span class="settings-control-row__title">Для всех приложений</span><span class="settings-control-row__description">Для всех поддерживаемых приложений, включая скрытые поиском.</span></span>
-          <select data-recording-settings-all aria-label="Автозапись для всех приложений">
+          <select data-settings-combobox data-recording-settings-all aria-label="Автозапись для всех приложений">
             <option value="" disabled>Разные правила</option>
             <option value="always">Всегда</option><option value="ask">Спрашивать</option><option value="never">Никогда</option>
           </select>
         </label>
-        <label class="settings-search">Поиск приложений<input type="search" data-recording-settings-search placeholder="Название приложения" autocomplete="off"></label>
-        <p class="muted">Приложения</p>
+        <label class="settings-search">Приложения<input type="search" aria-label="Приложения" data-recording-settings-search placeholder="Выберите или найдите приложение" autocomplete="off"></label>
         <div data-recording-settings-targets tabindex="0" role="region" aria-label="Правила записи для приложений"></div>
         <p class="muted" data-recording-settings-empty hidden>Приложения не найдены. Измените поиск.</p>
       </div>
-      <template data-recording-settings-select><select><option value="always">Всегда</option><option value="ask">Спрашивать</option><option value="never">Никогда</option></select></template>
+      <template data-recording-settings-select><select data-settings-combobox><option value="always">Всегда</option><option value="ask">Спрашивать</option><option value="never">Никогда</option></select></template>
       <p class="muted" role="status" aria-live="polite" data-recording-settings-status>Загрузка настроек этого Mac…</p>
       <button type="button" class="button quiet" data-recording-settings-retry hidden>Повторить загрузку</button>
     </section>

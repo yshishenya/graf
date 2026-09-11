@@ -51,14 +51,12 @@
           <div class="settings-field"><span class="field-label">Язык интерфейса</span><span>Русский</span><input type="hidden" id="account-locale" name="locale" value="{{ account_surface.profile.locale if account_surface.profile else 'ru-RU' }}"><span class="muted" id="account-locale-help">Другие языки пока недоступны.</span></div>
           <div class="settings-field" data-timezone-field>
             <label class="field-label" for="account-timezone">Часовой пояс</label>
-            <label hidden data-timezone-search-wrap for="account-timezone-search"><span class="muted">Найти город или часовой пояс</span><input id="account-timezone-search" type="search" autocomplete="off" maxlength="100" placeholder="Например, Екатеринбург или UTC+05:00" aria-controls="account-timezone" data-timezone-search></label>
             {% set selected_timezone = display_timezone_name() %}
-            <select id="account-timezone" name="timezone" aria-describedby="account-timezone-help account-timezone-preview" data-timezone-select>
+            <select data-settings-combobox id="account-timezone" name="timezone" aria-describedby="account-timezone-help account-timezone-preview" data-timezone-select>
               {% for option in timezone_options(selected_timezone) %}<option value="{{ option.value }}"{% if option.value == selected_timezone %} selected{% endif %}>{{ option.label }}</option>{% endfor %}
             </select>
             <small class="muted" id="account-timezone-help">Время встреч на всех ваших устройствах.</small>
             <output class="muted" id="account-timezone-preview" data-timezone-preview aria-live="polite" hidden></output>
-            <small class="muted" data-timezone-search-result role="status" hidden></small>
           </div>
         </div>
         {{ ui.theme_picker(account_surface.profile.theme if account_surface.profile else "system") }}
