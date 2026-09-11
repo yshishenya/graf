@@ -136,12 +136,11 @@ struct NativeSettingsComboBox: NSViewRepresentable {
         }
 
         func comboBoxSelectionDidChange(_ notification: Notification) {
-            // AppKit distinguishes the completed popup choice (DidChange)
-            // from highlighted rows (IsChanging). Programmatic selectItem also
-            // sends DidChange, so exclude all refresh/restore operations.
+            // DidChange can also follow arrows in the real popup. Apply the
+            // same event guard as target/action before persisting a choice.
             guard !isUpdating, isPopupInteraction,
                   let control = notification.object as? NSComboBox else { return }
-            confirmSelection(in: control)
+            handleSelectionAction(in: control, event: NSApp.currentEvent)
         }
 
         func comboBoxSelectionIsChanging(_ notification: Notification) {

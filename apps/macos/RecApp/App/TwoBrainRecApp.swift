@@ -3577,6 +3577,7 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
         window.contentViewController = NSHostingController(rootView: LocalSettingsFallbackView(
             notifications: notifications, onOpenAll: { [weak self] in self?.openSettingsSection("account", retry: true) }
         ))
+        window.setContentSize(MeetingDetectionSettingsView.windowSize)
         window.center()
         if let screen = window.screen ?? NSScreen.main {
             let available = screen.visibleFrame.insetBy(dx: 16, dy: 16)
