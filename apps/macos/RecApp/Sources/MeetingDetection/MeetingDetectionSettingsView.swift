@@ -104,9 +104,13 @@ public struct MeetingDetectionSettingsView: View {
 
                     Text("Поддерживаемые приложения на macOS. Общее правило применяется ко всем, включая скрытые поиском.")
                         .font(.callout).foregroundStyle(.secondary)
-                    TextField("Поиск приложений", text: $search)
-                        .textFieldStyle(.roundedBorder)
-                        .accessibilityLabel("Поиск приложений")
+                    NativeSettingsComboBox(
+                        title: "Приложения",
+                        options: promptCapableTargets.map { .init(id: $0.id, label: $0.displayName) },
+                        placeholder: "Выберите приложение или начните вводить",
+                        filter: $search
+                    )
+                    .frame(height: 32)
                     Divider()
                     if !settingsAvailable {
                         Text("Не удалось прочитать сохранённые правила.").foregroundStyle(.secondary)
@@ -249,16 +253,17 @@ private struct AutomaticRecordingRulePicker: View {
     }
 
     var body: some View {
-        Picker(title, selection: $selection) {
-            if selection == nil {
-                Text("Разные правила").tag(Optional<AutomaticRecordingRule>.none).disabled(true)
-            }
-            ForEach(AutomaticRecordingRule.allCases, id: \.self) { rule in
-                Text(rule.displayName).tag(Optional(rule))
-            }
+        NativeSettingsComboBox(
+            title: title,
+            options: AutomaticRecordingRule.allCases.map { rule in
+                .init(id: rule.rawValue, label: rule.displayName)
+            },
+            selectedID: selection?.rawValue,
+            placeholder: selection?.displayName ?? "Разные правила"
+        ) { value in
+            guard let rule = AutomaticRecordingRule(rawValue: value) else { return }
+            selection = rule
         }
-        .pickerStyle(.menu)
-        .labelsHidden()
         .frame(width: 172, height: 32)
         .disabled(isDisabled)
         .accessibilityLabel(title)
