@@ -76,6 +76,10 @@ public enum DesktopMeetingShellChrome {
         manualExpanded || hasActionableProblem
     }
 
+    public static func shouldCompactInspectorOnEntry(isSettingsSurface: Bool, recordingActive: Bool, hasCaptureProblem: Bool = false) -> Bool {
+        isSettingsSurface && !recordingActive && !hasCaptureProblem
+    }
+
     public static func recordingTitle(for mode: CaptureMode) -> String {
         switch mode {
         case .audioRecording:
@@ -204,6 +208,7 @@ private extension Array where Element == DesktopUploadQueueItem {
 public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: View>: View {
     private let session: CaptureSession?
     private let uploadQueueItems: [DesktopUploadQueueItem]
+    private let isSettingsSurface: Bool
     private let cabinetConfigured: Bool
     private let cabinetState: DesktopCabinetState
     private let startRecordingAvailable: Bool
@@ -236,6 +241,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         uploadQueueItems: [DesktopUploadQueueItem],
         cabinetConfigured: Bool,
         cabinetState: DesktopCabinetState,
+        isSettingsSurface: Bool = false,
         startRecordingAvailable: Bool = false,
         recordingTransitionInProgress: Bool = false,
         hasActionableCaptureProblem: Bool = false,
@@ -261,6 +267,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         self.uploadQueueItems = uploadQueueItems
         self.cabinetConfigured = cabinetConfigured
         self.cabinetState = cabinetState
+        self.isSettingsSurface = isSettingsSurface
         self.startRecordingAvailable = startRecordingAvailable
         self.recordingTransitionInProgress = recordingTransitionInProgress
         self.hasActionableCaptureProblem = hasActionableCaptureProblem
@@ -304,6 +311,17 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
             .frame(width: 0, height: 0)
         }
         .animation(accessibilityReduceMotion ? nil : .easeInOut(duration: 0.18), value: expandedInspectorVisible)
+        .onChange(of: isSettingsSurface, initial: true) { _, isSettings in
+            if DesktopMeetingShellChrome.shouldCompactInspectorOnEntry(
+                isSettingsSurface: isSettings, recordingActive: recordingStripSession != nil,
+                hasCaptureProblem: hasActionableCaptureProblem
+            ) {
+                inspectorExpanded = false
+                attentionExpansionDismissed = hasInspectorAttention
+            } else if !isSettings {
+                attentionExpansionDismissed = false
+            }
+        }
         .onChange(of: hasActionableCaptureProblem) { _, isActionable in
             if isActionable {
                 attentionExpansionDismissed = false

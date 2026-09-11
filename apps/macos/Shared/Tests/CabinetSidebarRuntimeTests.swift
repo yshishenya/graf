@@ -13,6 +13,31 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
     private static var retainedWebViews: [WKWebView] = []
     private static var retainedNavigationDelegates: [NavigationDelegate] = []
 
+    func testWideSettingsKeepNamesAfterEscapeAndStoredCollapsedState() async throws {
+        let root = try repositoryRoot()
+        let script = try String(contentsOf: root.appendingPathComponent(
+            "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js"
+        ), encoding: .utf8)
+        let webView = makeWebView(frame: CGRect(x: 0, y: 0, width: 1000, height: 680))
+        try await load("""
+            <!doctype html><html><body>
+            <script>sessionStorage.setItem('graf-settings-rail', 'collapsed');</script>
+            <div class="app-shell desktop-embedded" data-cabinet-shell data-active-nav="settings">
+              <aside data-cabinet-navigation><button data-cabinet-rail-toggle>Разделы</button></aside>
+              <main><input aria-label="Имя"></main>
+            </div><script>\(script)</script></body></html>
+            """, in: webView, baseURL: URL(string: "https://settings-rail.graf.test/desktop/settings/account"))
+        let pinned = try await evaluatePageJavaScript("document.querySelector('[data-cabinet-shell]').classList.contains('is-rail-pinned')", in: webView)
+        XCTAssertEqual(pinned as? Bool, true)
+        _ = try await evaluatePageJavaScript("document.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape'}))", in: webView)
+        let afterEscape = try await evaluatePageJavaScript("document.querySelector('[data-cabinet-rail-toggle]').getAttribute('aria-expanded')", in: webView)
+        XCTAssertEqual(afterEscape as? String, "true")
+        webView.frame = CGRect(x: 0, y: 0, width: 600, height: 680)
+        try await Task.sleep(for: .milliseconds(100))
+        let narrow = try await evaluatePageJavaScript("document.querySelector('[data-cabinet-rail-toggle]').getAttribute('aria-expanded')", in: webView)
+        XCTAssertEqual(narrow as? String, "false")
+    }
+
     func testJavaScriptBridgePreservesNilValuesAndErrors() async throws {
         let webView = makeWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
         try await load("<!doctype html><html><body></body></html>", in: webView)

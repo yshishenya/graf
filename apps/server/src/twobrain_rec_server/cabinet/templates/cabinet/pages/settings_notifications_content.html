@@ -7,7 +7,7 @@
       </header>
       <section class="settings-section" aria-labelledby="notification-mac-title">
         <div class="settings-section__heading">
-          <div><h2 id="notification-mac-title">На этом Mac</h2><p class="muted">Напоминания из календаря и сообщения о проблемах с записью.</p></div>
+          <div><h2 id="notification-mac-title">{{ 'На этом Mac' if embedded else 'В приложении на Mac' }}</h2><p class="muted">Напоминания из календаря и сообщения о проблемах с записью.</p></div>
         </div>
         {% if embedded %}
         <div data-local-notification-settings>
@@ -25,9 +25,9 @@
             </div>
           </fieldset>
           <p class="muted" role="status" aria-live="polite" data-local-notification-status>Загрузка настроек этого Mac…</p>
-          <button class="button quiet" type="button" data-local-notification-retry hidden>Проверить текущее значение</button>
+          <button class="button quiet" type="button" data-local-notification-retry hidden>Повторить загрузку</button>
           <a class="button quiet" href="/desktop/settings/notifications" data-local-notification-reload hidden>Обновить страницу</a>
-          <noscript><p>Для локальных настроек требуется JavaScript в приложении GRAF.</p></noscript>
+          <noscript><p>Откройте этот раздел в приложении GRAF, чтобы изменить уведомления Mac.</p></noscript>
         </div>
         {% else %}
         <p class="muted">Откройте приложение GRAF на нужном Mac: Настройки → Уведомления.</p>
@@ -36,14 +36,14 @@
       {% if notification_result %}<p class="settings-status" role="status" aria-live="polite">{{ notification_result }}</p>{% endif %}
       <section class="settings-section" aria-labelledby="notification-preferences-title">
         <div class="settings-section__heading">
-          <div><h2 id="notification-preferences-title">Письма и подсказки</h2><p class="muted">Эти настройки относятся к аккаунту. Они не управляют записью или уведомлениями macOS.</p></div>
+          <div><h2 id="notification-preferences-title">Письма и подсказки</h2><p class="muted">Новости и помощь в использовании GRAF.</p></div>
         </div>
         {{ notifications_ui.preferences_form(notification_preferences, csrf_token, embedded=embedded) }}
       </section>
       <p class="muted">Обязательные письма о безопасности аккаунта и оплате сохраняются.</p>
       <p class="muted">Результаты встреч и записи, которыми с вами поделились, сохраняются в истории без звука.</p>
       <a href="{{ '/desktop/notifications' if embedded else '/notifications' }}">Открыть историю уведомлений</a>
-      <noscript><p class="settings-status" role="status">Сохранение уведомлений работает без JavaScript: после отправки откроется подтверждение.</p></noscript>
+      <noscript><p class="settings-status" role="status">После сохранения откроется подтверждение.</p></noscript>
     </div>
   </div>
 </main>

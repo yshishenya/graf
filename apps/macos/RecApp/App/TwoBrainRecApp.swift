@@ -239,12 +239,19 @@ private struct ContentView: View {
         self.workspaceZoom = workspaceZoom
     }
 
+    private var cabinetSettingsVisible: Bool {
+        guard let configuration = desktopCabinetConfiguration, let url = selectedCabinetRoute else { return false }
+        let route = DesktopCabinetRoutePolicy(baseURL: configuration.baseURL).decision(for: url)
+        return route.decision == .allow && [.settings, .calendarSettings, .meetingDetectionSettings, .notificationSettings, .billing].contains(route.route.kind)
+    }
+
     var body: some View {
         DesktopMeetingShellView(
             session: captureSession,
             uploadQueueItems: uploadQueueItems,
             cabinetConfigured: desktopCabinetConfiguration != nil,
             cabinetState: desktopCabinetState,
+            isSettingsSurface: cabinetSettingsVisible,
             startRecordingAvailable: CaptureControlView.shouldShowDirectRecordButton(
                 for: captureSession,
                 calendarPrompt: desktopCalendarPrompt

@@ -141,7 +141,7 @@ def test_calendar_settings_web_route_renders_working_settings_screen(client) -> 
     assert "Настройки" in html
     assert "Календари" in html
     assert (
-        '<a class="button primary" href="#calendar-providers-title">Выбрать провайдера</a>' in html
+        'data-calendar-provider-open="calendar-provider-dialog-caldav_yandex"' in html
     )
     assert '<a class="button quiet" href="#calendar-providers-title">Добавить</a>' not in html
     assert '<button class="primary" type="button">Подключить первый календарь</button>' not in html
@@ -180,7 +180,7 @@ def test_calendar_settings_connection_flow_uses_progressive_disclosure(client) -
     assert 'data-calendar-provider-open="calendar-provider-dialog-caldav_yandex"' in html
     assert 'id="calendar-provider-dialog-caldav_yandex"' in html
     assert 'aria-haspopup="dialog"' in html
-    assert "Доступные подключения работают только на чтение" in html
+    assert "GRAF только читает события и не меняет ваш календарь" in html
     assert "Яндекс Календарь" in html
     assert "Mail.ru Календарь" in html
     assert 'data-calendar-mutation="connect"' in html
@@ -197,7 +197,8 @@ def test_calendar_settings_connection_flow_uses_progressive_disclosure(client) -
     assert "calendar-provider-cta" not in css
     assert 'class="calendar-advanced-fields"' in html
     assert "https://calendar.example/caldav…" not in html
-    assert html.index('id="calendar-sources-title"') < html.index('id="calendar-providers-title"')
+    assert 'id="calendar-sources-title"' not in html
+    assert html.index('id="calendar-providers-title"') < html.index('id="calendar-behavior-title"')
     assert html.index('id="calendar-providers-title"') < html.index('id="calendar-boundary-title"')
     assert_no_forbidden_calendar_settings_content(html)
 
@@ -395,7 +396,7 @@ def test_calendar_settings_accessibility_contract_for_states_and_controls(client
     assert 'id="calendar-settings-region"' in html
     assert 'id="calendar-providers-title" tabindex="-1"' in html
     assert 'aria-labelledby="calendar-boundary-title"' in html
-    assert 'aria-labelledby="calendar-sources-title"' in html
+    assert 'aria-labelledby="calendar-sources-title"' not in html
     assert 'aria-labelledby="calendar-providers-title"' in html
     assert 'aria-label="Закрыть окно подключения"' in html
     status_nodes = re.findall(r"<[^>]*role=\"status\"[^>]*>", html)
@@ -447,7 +448,7 @@ def test_calendar_settings_provider_return_states_render_safe_messages(client) -
     assert response.status_code == 200
     html = response.text
     assert "Календарь не подключен" in html
-    assert "Провайдер не дал доступ только для чтения" in html
+    assert "Сервис не предоставил доступ только для чтения" in html
     assert "Ограничено политикой организации" in html
     assert (
         "Некоторые способы подключения или календари может включить только администратор организации"
@@ -516,7 +517,7 @@ def test_calendar_settings_embedded_route_reuses_settings_screen_inside_desktop_
     assert html.count('aria-current="page"') == 1
     assert "/desktop/settings/integrations/calendar" in html
     assert 'role="group" aria-labelledby="calendar-providers-title"' in html
-    assert "Ручной старт и стоп записи остаются доступны всегда" in html
+    assert "Начать и остановить запись можно вручную в любой момент" in html
     assert_no_forbidden_calendar_settings_content(html)
 
 
@@ -546,7 +547,7 @@ def test_calendar_settings_html_lists_all_required_providers(client) -> None:
     assert "Пароль приложения" in response.text
     assert "Подключить CalDAV" not in response.text
     assert "Показать условия подключения" not in response.text
-    assert "Неподдерживаемые сервисы отмечены честно" in response.text
+    assert "Сервисы, которые пока нельзя подключить" in response.text
     assert "Яндекс Календарь" in response.text
     assert "Mail.ru Календарь" in response.text
     assert 'class="calendar-provider-dialog"' in response.text

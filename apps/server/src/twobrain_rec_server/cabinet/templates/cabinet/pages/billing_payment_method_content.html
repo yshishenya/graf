@@ -18,7 +18,7 @@
         {% else %}
         <p role="status">Сохранённого способа оплаты нет.</p>
         <p class="muted">Добавление выполняется во время защищённой оплаты. Данные карты не проходят через GRAF.</p>
-        {% if billing_enabled %}<a class="button" href="/billing/checkout">Добавить способ оплаты</a>{% else %}<p class="muted" role="status">Добавление способа оплаты появится после включения магазина.</p>{% endif %}
+        {% if billing_enabled %}<a class="button" href="/billing/checkout">Добавить способ оплаты</a>{% else %}<p class="muted" role="status">Добавить способ оплаты сейчас нельзя. Попробуйте позже.</p>{% endif %}
         {% endif %}
       </section>
       <p class="billing-help"><a class="button quiet" href="/billing/history">Нужна помощь с оплатой?</a></p>

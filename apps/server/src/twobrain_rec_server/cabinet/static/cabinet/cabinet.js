@@ -4593,8 +4593,12 @@
           name.textContent = template.name;
           purpose.textContent = template.purpose;
           copy.append(name, purpose);
-          const actions = document.createElement("div");
+          const actions = document.createElement("details");
           actions.className = "summary-template-actions";
+          const summary = document.createElement("summary");
+          summary.textContent = "Действия";
+          summary.setAttribute("aria-label", `Действия с форматом «${template.name}»`);
+          actions.append(summary);
           [
             ["Изменить", () => openEditor(actions.querySelector("button"), template)],
             ["Копировать", () => mutateTemplate(template, "duplicate")],
@@ -5778,7 +5782,7 @@
         }
         confirmed = snapshot;
         render(snapshot);
-        if (!snapshot.error && snapshot.targets.length) status.textContent = action === 'read' ? 'Настройки этого Mac загружены.' : 'Сохранено на этом Mac.';
+        if (!snapshot.error && snapshot.targets.length) status.textContent = action === 'read' ? 'Изменения сохраняются сразу на этом Mac.' : 'Сохранено на этом Mac.';
         retry.hidden = !snapshot.error;
       } catch {
         if (!root.isConnected || nonce !== recordingSettingsNonce) return;
@@ -6744,7 +6748,9 @@
   const setRailPinned = (shell, toggle, pinned) => {
     shell.classList.toggle("is-rail-pinned", pinned);
     toggle.setAttribute("aria-expanded", pinned ? "true" : "false");
-    const label = pinned ? "Скрыть боковую панель" : "Показать боковую панель";
+    const label = shell.dataset.activeNav === "settings"
+      ? (pinned ? "Скрыть разделы настроек" : "Показать разделы настроек")
+      : (pinned ? "Скрыть боковую панель" : "Показать боковую панель");
     toggle.setAttribute("aria-label", label);
     toggle.setAttribute("title", label);
     shell.setAttribute("data-rail-tooltip", label);
@@ -6756,8 +6762,9 @@
       const toggle = shell.querySelector("[data-cabinet-rail-toggle]");
       if (!sidebar || !toggle || shell.dataset.railReady === "true") return;
       shell.dataset.railReady = "true";
+      const settingsRail = shell.dataset.activeNav === "settings";
       const expandedMedia = window.matchMedia(
-        shell.dataset.activeNav === "settings" ? "(min-width: 768px)" : shell.classList.contains("desktop-embedded") ? "(min-width: 1121px)" : "(min-width: 981px)"
+        settingsRail ? "(min-width: 768px)" : shell.classList.contains("desktop-embedded") ? "(min-width: 1121px)" : "(min-width: 981px)"
       );
       const narrowMedia = window.matchMedia("(max-width: 640px)");
       const railKey = shell.dataset.activeNav === "settings" ? "graf-settings-rail" : "graf-cabinet-rail";
@@ -6767,6 +6774,10 @@
         ? storedRailState === "expanded"
         : shell.classList.contains("is-rail-pinned") || expandedMedia.matches;
       const syncViewport = () => {
+        if (settingsRail && expandedMedia.matches) {
+          setRailPinned(shell, toggle, true);
+          return;
+        }
         if (!manuallySet) preferredPinned = expandedMedia.matches;
         setRailPinned(shell, toggle, preferredPinned && !(narrowMedia.matches && shell.querySelector("main")?.contains(document.activeElement)));
       };
@@ -6776,7 +6787,7 @@
         sessionStorage.setItem(railKey, pinned ? "expanded" : "collapsed");
         setRailPinned(shell, toggle, pinned);
       };
-      setRailPinned(shell, toggle, preferredPinned && !(narrowMedia.matches && shell.querySelector("main")?.contains(document.activeElement)));
+      syncViewport();
       expandedMedia.addEventListener("change", syncViewport);
       narrowMedia.addEventListener("change", syncViewport);
       shell.addEventListener("focusin", (event) => {
@@ -6790,8 +6801,10 @@
         const openOverlay = document.querySelector(
           "dialog[open], [data-profile-menu]:not([hidden])"
         );
-        if (event.key === "Escape" && !openOverlay) {
+        if (event.key === "Escape" && !openOverlay && !(settingsRail && expandedMedia.matches)) {
+          const focusWasInSidebar = settingsRail && sidebar.contains(document.activeElement);
           setManualRailState(false);
+          if (focusWasInSidebar) toggle.focus({ preventScroll: true });
         }
       });
     });
@@ -8989,7 +9002,7 @@
           const current=documentCopy.querySelector('[data-notification-settings]');
           if(!latest.ok||!current)throw new Error('unavailable');
           const enabled=name=>current.querySelector(`input[type=checkbox][name="${name}"]`)?.checked ? 'включены':'выключены';
-          status.textContent=`Настройки изменены на другом устройстве. На сервере: письма ${enabled('optional_email_enabled')}, подсказки ${enabled('optional_in_app_enabled')}. Ваш выбор остался в форме. `;
+          status.textContent=`Настройки изменены на другом устройстве. Сохранено: письма ${enabled('optional_email_enabled')}, подсказки ${enabled('optional_in_app_enabled')}. Ваш выбор остался в форме. `;
           const useMine=document.createElement('button');useMine.type='button';useMine.textContent='Сохранить мой выбор';
           useMine.onclick=()=>{form.elements.namedItem('version').value=current.elements.namedItem('version').value;form.requestSubmit();};status.append(useMine);
           return;

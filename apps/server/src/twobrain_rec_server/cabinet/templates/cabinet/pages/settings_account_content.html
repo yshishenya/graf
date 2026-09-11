@@ -25,7 +25,7 @@
     </section>
     {% endif %}
     {% if account_surface.unavailable %}
-    <section class="settings-section settings-unavailable-card" role="status" aria-live="polite"><h2>Данные аккаунта временно недоступны</h2><p class="muted">Попробуйте обновить страницу. Пока данные не загружены, мы не показываем частичную или непроверенную информацию.</p></section>
+    <section class="settings-section settings-unavailable-card" role="status" aria-live="polite"><h2>Данные аккаунта временно недоступны</h2><p class="muted">Обновите страницу или попробуйте позже.</p></section>
     {% else %}
     {% if profile_result %}<p class="settings-status" role="status" aria-live="polite">{{ profile_result }}</p>{% endif %}
     {% if preferences_result %}<p class="settings-status" role="status" aria-live="polite">{{ preferences_result }}</p>{% endif %}
@@ -44,32 +44,32 @@
     </section>
     {% else %}
     <section class="settings-section" aria-labelledby="account-profile-title">
-      <div class="settings-section__heading"><div><h2 id="account-profile-title">Профиль</h2><p class="muted">Имя в кабинете</p></div></div>
+      <div class="settings-section__heading"><div><h2 id="account-profile-title">Профиль</h2></div></div>
       {% if account_surface.profile %}
       <form class="account-profile-form" data-settings-form data-settings-form-disable-pristine method="post" action="{{ '/desktop/settings/account/profile' if embedded else '/settings/account/profile' }}">
         {{ sections.csrf_field(csrf_token) }}
-        <label class="field-label" for="account-display-name">Отображаемое имя</label>
+        <label class="field-label" for="account-display-name">Имя</label>
         <input id="account-display-name" name="display_name" type="text" maxlength="240" value="{{ account_surface.profile.display_name if account_surface.profile.display_name != 'Без имени' else '' }}" autocomplete="name">
-        {% if account_surface.profile.primary_email %}<p class="muted">Подтверждённый вход: {{ account_surface.profile.primary_email }}</p>{% else %}<p class="muted">Подтверждённый email не раскрывается в этой сессии.</p>{% endif %}
+        {% if account_surface.profile.primary_email %}<p class="muted">Email: {{ account_surface.profile.primary_email }}</p>{% else %}<p class="muted">Email можно проверить в способах входа.</p>{% endif %}
         <div class="account-profile-form__actions"><button class="button" type="submit">Сохранить</button><button class="button quiet" type="reset" data-settings-form-reset>Отменить</button></div>
         <p class="settings-form-status" data-settings-form-status hidden></p>
       </form>
       {% endif %}
     </section>
     <section class="settings-section" aria-labelledby="account-preferences-title">
-      <div class="settings-section__heading"><div><h2 id="account-preferences-title">Интерфейс</h2></div></div>
+      <div class="settings-section__heading"><div><h2 id="account-preferences-title">Оформление и время</h2></div></div>
       <form class="account-preferences-form" data-account-preferences data-settings-form data-settings-form-disable-pristine method="post" action="{{ '/desktop/settings/account/preferences' if embedded else '/settings/account/preferences' }}">
         {{ sections.csrf_field(csrf_token) }}
         <div class="settings-form-grid">
-          <label class="settings-field" for="account-locale"><span class="field-label">Язык</span><select id="account-locale" name="locale" aria-describedby="account-locale-help"><option value="ru-RU"{% if account_surface.profile and account_surface.profile.locale == 'ru-RU' %} selected{% endif %}>Русский</option><option value="en-US"{% if account_surface.profile and account_surface.profile.locale == 'en-US' %} selected{% endif %}>English</option></select><span class="muted" id="account-locale-help">Предпочтение сохраняется, но интерфейс пока доступен только на русском. Этот выбор не меняет язык расшифровки и итогов встречи.</span></label>
+          <div class="settings-field"><span class="field-label">Язык интерфейса</span><span>Русский</span><input type="hidden" id="account-locale" name="locale" value="{{ account_surface.profile.locale if account_surface.profile else 'ru-RU' }}"><span class="muted" id="account-locale-help">Другие языки пока недоступны.</span></div>
           <div class="settings-field" data-timezone-field>
             <label class="field-label" for="account-timezone">Часовой пояс</label>
-            <label hidden data-timezone-search-wrap for="account-timezone-search"><span class="muted">Найти город или часовой пояс</span><input id="account-timezone-search" type="search" autocomplete="off" maxlength="100" placeholder="Город, страна, IANA или UTC+05:00" aria-controls="account-timezone" data-timezone-search></label>
+            <label hidden data-timezone-search-wrap for="account-timezone-search"><span class="muted">Найти город или часовой пояс</span><input id="account-timezone-search" type="search" autocomplete="off" maxlength="100" placeholder="Например, Екатеринбург или UTC+05:00" aria-controls="account-timezone" data-timezone-search></label>
             {% set selected_timezone = display_timezone_name() %}
             <select id="account-timezone" name="timezone" aria-describedby="account-timezone-help account-timezone-preview" data-timezone-select>
               {% for option in timezone_options(selected_timezone) %}<option value="{{ option.value }}"{% if option.value == selected_timezone %} selected{% endif %}>{{ option.label }}</option>{% endfor %}
             </select>
-            <small class="muted" id="account-timezone-help">Исходный пояс определяется по устройству. После сохранения выбранный пояс используется на всех ваших устройствах.</small>
+            <small class="muted" id="account-timezone-help">Время встреч на всех ваших устройствах.</small>
             <output class="muted" id="account-timezone-preview" data-timezone-preview aria-live="polite" hidden></output>
             <small class="muted" data-timezone-search-result role="status" hidden></small>
           </div>
@@ -82,7 +82,7 @@
     </section>
     <section class="settings-section" aria-labelledby="account-providers-title">
       <div class="settings-section__heading">
-        <div><h2 id="account-providers-title">Способы входа</h2><p class="muted">Подключённые провайдеры относятся к вашему аккаунту.</p></div>
+        <div><h2 id="account-providers-title">Способы входа</h2><p class="muted">Используйте любой из подключённых способов.</p></div>
       </div>
       {% if account_surface.providers %}
       <ul class="settings-list" aria-label="Подключённые способы входа">
@@ -92,6 +92,7 @@
       </ul>
       {% else %}<p class="settings-empty-state" role="status">Подключённых способов входа пока нет.</p>{% endif %}
       <p class="muted" id="account-recovery-help">Для безопасности нельзя отключить последний подтверждённый способ входа.</p>
+      <details class="settings-disclosure"><summary>Добавить способ входа</summary>
       <form class="account-email-form" action="{{ '/desktop/settings/account/email-link/start' if embedded else '/settings/account/email-link/start' }}" method="post">
         {{ sections.csrf_field(csrf_token) }}
         <span class="account-email-form__heading"><label class="field-label" for="account-email-link">Email</label>{{ ui.tooltip("account-email-link-help", "Отправим код без пароля. Если email уже связан с профилем, сначала покажем результат подключения.") }}</span>
@@ -104,8 +105,9 @@
         {% endfor %}
       </div>
       {% endif %}
+      </details>
     </section>
-    <noscript><p class="settings-status" role="status">Настройки аккаунта работают без JavaScript: отправка форм откроет страницу с результатом.</p></noscript>
+    <noscript><p class="settings-status" role="status">После сохранения откроется страница с результатом.</p></noscript>
 
     {% macro session_row(session) %}
       <li class="session-card{% if session.current %} session-card--current{% endif %}">
@@ -152,7 +154,6 @@
     </section>
 
     <section class="settings-section account-close-card" aria-labelledby="account-close-title">
-      <span class="settings-scope-badge">Необратимое действие</span>
       <h2 id="account-close-title">Закрытие аккаунта</h2>
       {% if account_surface.account_close %}
       <p role="status" aria-live="polite">Закрытие запланировано на {{ user_time_element(account_surface.account_close.finalize_at, show_zone=True) }}. Будущие списания отключены.</p>
@@ -163,6 +164,7 @@
       </form>
       {% endif %}
       {% else %}
+      <details class="settings-disclosure"{% if account_outcome and account_outcome.kind == 'error' %} open{% endif %}><summary>Закрыть аккаунт</summary>
       <p class="muted">После подтверждения начнется 7-дневный период отмены. Доступ сохраняется, будущие списания отключаются.</p>
       <p id="account-close-confirmation" class="muted">Для подтверждения введите: <strong>Закрыть аккаунт</strong>.</p>
       <form action="{{ "/desktop/settings/account/close" if embedded else "/settings/account/close" }}" method="post">
@@ -172,6 +174,7 @@
         <p id="account-close-help" class="muted">Мы не удаляем данные до окончания периода отмены.</p>
         <button class="button quiet" type="submit">Запланировать закрытие</button>
       </form>
+      </details>
       {% endif %}
     </section>
     {% endif %}

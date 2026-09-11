@@ -16,15 +16,15 @@ def test_account_locale_is_preserved_without_claiming_ui_translation() -> None:
     page = render_settings_page(
         category="account", profile=profile, account_surface=AccountSettingsSurface(profile=profile)
     )
-    locale = re.search(r'<select id="account-locale"[^>]*>(.*?)</select>', page, re.S)
+    locale = re.search(r'<input type="hidden" id="account-locale"[^>]*>', page)
     assert locale is not None
-    assert '<option value="en-US" selected>' in locale.group(1)
-    assert 'aria-describedby="account-locale-help"' in locale.group(0)
+    assert 'name="locale" value="en-US"' in locale.group(0)
+    assert '<select id="account-locale"' not in page
+    assert '<span>Русский</span>' in page
     help_text = re.search(r'id="account-locale-help">(.*?)</span>', page, re.S).group(1)
-    assert "интерфейс пока доступен только на русском" in help_text
-    assert "не меняет язык расшифровки и итогов" in help_text
+    assert "Другие языки пока недоступны" in help_text
     summaries = render_settings_page(category="summaries")
-    assert "в ваших встречах текущего пространства" in summaries
+    assert "Личные форматы доступны только вам в этом пространстве" in summaries
     assert "во всех ваших встречах" not in summaries
     assert any(
         "Автозапись по приложениям настраивается отдельно" in text

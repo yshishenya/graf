@@ -8,6 +8,15 @@ import XCTest
 
 @MainActor
 final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
+    func testSettingsEntryCompactsOnlyIdleInspector() {
+        XCTAssertFalse(DesktopMeetingShellChrome.shouldCompactInspectorOnEntry(isSettingsSurface: true, recordingActive: false, hasCaptureProblem: true))
+        XCTAssertTrue(DesktopMeetingShellChrome.shouldCompactInspectorOnEntry(isSettingsSurface: true, recordingActive: false))
+        XCTAssertFalse(DesktopMeetingShellChrome.shouldCompactInspectorOnEntry(isSettingsSurface: true, recordingActive: true))
+        XCTAssertFalse(DesktopMeetingShellChrome.shouldCompactInspectorOnEntry(isSettingsSurface: false, recordingActive: false))
+        XCTAssertTrue(DesktopMeetingShellChrome.shouldShowExpandedInspector(manualExpanded: true, hasActionableProblem: false))
+        XCTAssertTrue(DesktopMeetingShellChrome.shouldShowExpandedInspector(manualExpanded: false, hasActionableProblem: true))
+    }
+
     func testOnlineProductSidebarIsWebOwnedWhileNativeCaptureChromeRemainsNative() {
         XCTAssertFalse(DesktopMeetingShellChrome.idleShowsNativeTopBar)
         XCTAssertEqual(DesktopMeetingShellChrome.compactRailLabels, ["Статус записи", "Локальная сохранность"])
