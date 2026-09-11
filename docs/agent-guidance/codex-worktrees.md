@@ -53,12 +53,17 @@ the same allocator, which repeats the choice under the shared lock when reservin
 it; a proposal can become stale before reservation. `--offline` only gives a local
 draft suggestion and does not establish availability on GitHub.
 
-`.specify/feature-numbering.json` lists explicit historical exceptions to the
-sequence start. F6788 is retained unchanged but does not push new features into
-the 6789+ range. Exceptions remain occupied in specs, refs, shared claims and
-GitHub; this file never releases a number. Normal F1000+ numbering remains valid.
-No policy means the existing highest-spec start; an unreadable or malformed
-policy stops selection. Do not add exceptions merely to obtain a preferred ID.
+`.specify/feature-numbering.json` sets GRAF's new feature range to `001–999`
+through `max_feature_id: 999`. Only in-range specs advance the sequence;
+historical IDs such as F6788/F6791/F6792 remain occupied and unchanged.
+Exhaustion stops allocation instead of issuing four digits or reusing old IDs.
+The branch, spec directory, active pointer and task feature markers reuse the
+same reserved ID. Spec creation must not independently rescan directory maxima
+or replace the allocator's pointer metadata. New explicit IDs must also satisfy
+the policy; exact retries of historical claims remain supported.
+Without a maximum, the generic highest-spec behavior remains available.
+An unreadable or malformed policy stops selection. Do not add exceptions merely
+to obtain a preferred ID.
 
 ## Instruction Loading
 

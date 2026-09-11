@@ -64,6 +64,103 @@ def test_spec_sequence_can_reach_1000(tmp_path):
     assert allocator()._next_feature_id(tmp_path, {999, 1000, 6788}, offline=True) == 1001
 
 
+def test_three_digit_policy_ignores_all_large_specs_but_checks_github(tmp_path, monkeypatch):
+    module = allocator()
+    for feature in (262, 6788, 6791, 6792):
+        (tmp_path / f'specs/{feature}-existing').mkdir(parents=True)
+    (tmp_path / '.specify').mkdir()
+    shutil.copy2(ROOT / '.specify/feature-numbering.json', tmp_path / '.specify/feature-numbering.json')
+    calls = []
+
+    def github(_root, **kwargs):
+        calls.append(kwargs['candidates'])
+        return {265} if kwargs['candidates'] == {265} else set()
+
+    monkeypatch.setattr(module, '_github_ids', github)
+    occupied = module._ids_from_specs(tmp_path) | {263, 264}
+    assert module._next_feature_id(tmp_path, occupied, offline=True) == 265
+    assert module._next_feature_id(tmp_path, occupied) == 266
+    assert calls == [{265}, {266}]
+    assert {6788, 6791, 6792} <= occupied
+
+
+def test_three_digit_exhaustion_never_wraps_or_checks_1000(tmp_path, monkeypatch):
+    module = allocator()
+    (tmp_path / 'specs/998-existing').mkdir(parents=True)
+    (tmp_path / '.specify').mkdir()
+    shutil.copy2(ROOT / '.specify/feature-numbering.json', tmp_path / '.specify/feature-numbering.json')
+    assert module._next_feature_id(tmp_path, {998}, offline=True) == 999
+    with pytest.raises(SystemExit, match='exhausted.*999'):
+        module._next_feature_id(tmp_path, {998, 999}, offline=True)
+    calls = []
+    monkeypatch.setattr(module, '_github_ids', lambda _r, **kw: calls.append(kw['candidates']) or {999})
+    with pytest.raises(SystemExit, match='exhausted.*999'):
+        module._next_feature_id(tmp_path, {998})
+    assert calls == [{999}]
+    assert not (tmp_path / '.specify/feature.json').exists()
+
+
+@pytest.mark.parametrize('maximum', [True, False, 0, -1, '999', 999.0, None])
+def test_invalid_max_feature_id_fails_closed(tmp_path, maximum):
+    (tmp_path / '.specify').mkdir()
+    (tmp_path / '.specify/feature-numbering.json').write_text(json.dumps({
+        'out_of_sequence_spec_ids': [], 'max_feature_id': maximum,
+    }))
+    with pytest.raises(SystemExit, match='invalid numbering policy'):
+        allocator()._next_feature_id(tmp_path, set(), offline=True)
+
+
+@pytest.mark.parametrize('feature,branch', [(6795, 'codex/6795-new'), (263, 'codex/0263-new')])
+def test_new_claim_cannot_bypass_three_digit_policy(git_project, monkeypatch, feature, branch):
+    module = allocator()
+    (git_project / '.specify').mkdir()
+    shutil.copy2(ROOT / '.specify/feature-numbering.json', git_project / '.specify/feature-numbering.json')
+    monkeypatch.setattr(module, '_assert_clean_worktree', lambda *_: None)
+    monkeypatch.setattr(module, '_git_refs', lambda *_a, **_k: [])
+    monkeypatch.setattr(module, '_github_ids', lambda *_a, **_k: set())
+    monkeypatch.setattr(module, '_github_umbrella', lambda *_a, **_k: None)
+    for offline in (True, False):
+        with pytest.raises(SystemExit, match='numbering policy'):
+            module.claim(git_project, feature, issue_number=None if offline else 777,
+                         branch=branch, slug='new', offline=offline)
+    assert not (git_project / '.git/feature-claims.json').exists()
+    assert not (git_project / '.specify/feature.json').exists()
+
+
+def test_existing_large_claim_retry_and_upgrade_survive_new_policy(git_project, monkeypatch):
+    module = allocator()
+    module.claim(git_project, 6792, issue_number=None, branch='codex/6792-existing',
+                 slug='existing', offline=True)
+    shutil.copy2(ROOT / '.specify/feature-numbering.json', git_project / '.specify/feature-numbering.json')
+    monkeypatch.setattr(module, '_assert_clean_worktree', lambda *_: None)
+    monkeypatch.setattr(module, '_git_refs', lambda *_a, **_k: [])
+    monkeypatch.setattr(module, '_github_ids', lambda *_a, **_k: set())
+    monkeypatch.setattr(module, '_github_umbrella', lambda *_a, **_k: None)
+    retry = module.claim(git_project, 6792, issue_number=None, branch='codex/6792-existing',
+                         slug='existing', offline=True)
+    assert retry['feature_id'] == '6792'
+    upgrade = module.claim(git_project, 6792, issue_number=777, branch='codex/6792-existing',
+                           slug='existing', offline=False)
+    assert upgrade['status'] == 'reserved'
+
+
+def test_number_check_and_invalid_allocation_never_reserve(git_project, monkeypatch):
+    module = allocator()
+    (git_project / '.specify').mkdir()
+    shutil.copy2(ROOT / '.specify/feature-numbering.json', git_project / '.specify/feature-numbering.json')
+    monkeypatch.setattr(module, '_assert_clean_worktree', lambda *_: None)
+    monkeypatch.setattr(module, '_create_github_umbrella', lambda *_a: pytest.fail('invalid ID created issue'))
+    monkeypatch.setattr(module, '_github_umbrella', lambda *_a: pytest.fail('invalid ID contacted GitHub'))
+    assert module.main(['--root', str(git_project), '--check-feature-id', '263', '--branch', 'codex/263-new']) == 0
+    for number, branch in [('6795', 'codex/6795-new'), ('263', 'codex/0263-new')]:
+        with pytest.raises(SystemExit, match='numbering policy'):
+            module.main(['--root', str(git_project), '--check-feature-id', number, '--branch', branch])
+        with pytest.raises(SystemExit, match='numbering policy'):
+            module.main(['--root', str(git_project), '--allocate', '--branch', branch, '--slug', 'new'])
+    assert not (git_project / '.git/feature-claims.json').exists()
+    assert not (git_project / '.specify/feature.json').exists()
+
+
 @pytest.mark.parametrize('current,exceptions,expected', [
     (259, [6788], 263),
     (6787, [6788], 6789),  # The excluded historical ID is still occupied.

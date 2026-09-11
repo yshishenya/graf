@@ -73,7 +73,7 @@ Given that feature description, do this:
 
 2. **Branch creation** (optional, via hook):
 
-   If a `before_specify` hook ran successfully in the Pre-Execution Checks above, it will have created/switched to a git branch and output JSON containing `BRANCH_NAME` and `FEATURE_NUM`. Note these values for reference, but the branch name does **not** dictate the spec directory name.
+   If a `before_specify` hook ran successfully in the Pre-Execution Checks above, it will have created/switched to a git branch and output JSON containing `BRANCH_NAME` and `FEATURE_NUM`. Keep these values for the specification step. In repositories with `scripts/claim-feature.py`, the reserved `FEATURE_NUM` is the shared identity for the branch, spec directory and tracker; never allocate a second number for the directory.
 
    If the user explicitly provided `GIT_BRANCH_NAME`, pass it through to the hook so the branch script uses the exact value as the branch name (bypassing all prefix/suffix generation).
 
@@ -81,7 +81,16 @@ Given that feature description, do this:
 
    Specs live under the default `specs/` directory unless the user explicitly provides `SPECIFY_FEATURE_DIRECTORY`.
 
-   **Resolution order for `SPECIFY_FEATURE_DIRECTORY`**:
+   **Repository allocator takes precedence**:
+   - If `scripts/claim-feature.py` exists, use the reservation from the successful branch hook and its complete `.specify/feature.json`; do not independently scan `specs/`, increment a number, or call the allocator for another suggestion after reserving.
+   - Before creating any directory, verify that the pointer's `feature_id` equals the hook's `FEATURE_NUM`, its `branch` equals `BRANCH_NAME` and the current Git branch, and its directory has that exact numeric prefix. A stale or mismatched pointer is a blocking error, not permission to overwrite it.
+   - If no reservation exists for this invocation, run `$speckit-git-feature` first within the user's authorized scope and wait for success. For an existing-feature update, reuse its validated reservation and pointer instead. A failed hook or missing allocator must never fall back to independent numbering in a repository configured with `.specify/feature-numbering.json`.
+   - Default to the reserved `feature_directory`. If the user explicitly provided `SPECIFY_FEATURE_DIRECTORY`, apply the path containment checks below and require its final directory component to start with the exact reserved `<FEATURE_NUM>-`; reject a mismatched number or missing numeric prefix before any write.
+   - New numbers must satisfy `.specify/feature-numbering.json`, including `max_feature_id` when configured. Do not bypass this with timestamp mode or `GRAF_SKIP_FEATURE_CLAIM`. Existing historical feature updates retain their validated identity.
+   - Preserve every field in the existing pointer. When an explicitly requested directory is valid, merge only `feature_directory` and its corresponding entry in `owned_paths`, retaining unrelated owned paths and all claim metadata. Write the merged object atomically; never replace a complete claim pointer with a directory-only object.
+   - The generic resolution and directory-only pointer example below apply only to repositories without a local allocator or numbering policy.
+
+   **Resolution order for `SPECIFY_FEATURE_DIRECTORY` (without a repository allocator)**:
    1. If the user explicitly provided `SPECIFY_FEATURE_DIRECTORY` (e.g., via environment variable, argument, or configuration), resolve it against the repository root and reject absolute paths, `..` segments, symlink escapes, or any target outside the repository
    2. Otherwise, auto-generate it under `specs/`:
       - Check `.specify/init-options.json` for `feature_numbering` (preferred) or `branch_numbering` (deprecated, migration only — will be removed in a future release)
@@ -96,7 +105,7 @@ Given that feature description, do this:
    - Resolve the active `spec-template` through the Spec Kit preset/template resolution stack (equivalent to `specify preset resolve spec-template`)
    - If `SPECIFY_FEATURE_DIRECTORY/spec.md` does not exist, copy the resolved `spec-template` there as the starting point; if it already exists, preserve it and load it for the update flow
    - Set `SPEC_FILE` to `SPECIFY_FEATURE_DIRECTORY/spec.md`
-   - Persist the resolved path to `.specify/feature.json`:
+   - Persist the resolved path to `.specify/feature.json` using the allocator merge rule above when applicable. Only repositories without an allocator use the following directory-only object:
      ```json
      {
        "feature_directory": "<resolved feature dir>"
@@ -107,7 +116,7 @@ Given that feature description, do this:
 
    **IMPORTANT**:
    - You must only create one feature per `$speckit-specify` invocation
-   - The spec directory name and the git branch name are independent — they may be the same but that is the user's choice
+   - The spec directory and branch may have different names, but allocator-backed features must share the same reserved numeric identity
    - A missing spec directory/file is created by this command, never by the hook; an existing spec is updated in place and never overwritten by the template
 
 4. Load the resolved active `spec-template` file to understand required sections.
