@@ -42,6 +42,7 @@ struct NativeSettingsComboBox: NSViewRepresentable {
         private var isEditing = false
         private var isUpdating = false
         private var isExpanded = false
+        private var isPopupInteraction = false
         private var didConfirmInPopup = false
         private(set) var visibleOptions: [Option] = []
 
@@ -92,6 +93,7 @@ struct NativeSettingsComboBox: NSViewRepresentable {
         func comboBoxWillPopUp(_ notification: Notification) {
             guard let control = notification.object as? NSComboBox else { return }
             isExpanded = true
+            isPopupInteraction = true
             didConfirmInPopup = false
             if !isEditing { query = "" }
             refresh(control)
@@ -103,19 +105,20 @@ struct NativeSettingsComboBox: NSViewRepresentable {
             // Dismissal itself is not confirmation (Escape, Tab, outside click).
             // Let AppKit deliver a click/Return action before restoring text.
             DispatchQueue.main.async { [weak self, weak control] in
-                guard let self, let control, !self.isExpanded, !self.didConfirmInPopup else { return }
-                self.restore(control)
+                guard let self, let control, !self.isExpanded else { return }
+                self.isPopupInteraction = false
+                if !self.didConfirmInPopup { self.restore(control) }
             }
         }
 
         func controlTextDidBeginEditing(_ notification: Notification) {
             guard let control = notification.object as? NSComboBox else { return }
-            // Defer until AppKit has installed the field editor. performClick
-            // uses the standard combo box popup and its native accessibility.
+            // The cell owns AXShowMenu; NSControl.performClick only sends the
+            // target action and does not open an NSComboBox popup.
             DispatchQueue.main.async { [weak self, weak control] in
                 guard let self, let control, control.isEnabled,
                       control.currentEditor() != nil, !self.isExpanded else { return }
-                control.performClick(nil)
+                control.cell?.accessibilityPerformShowMenu()
             }
         }
 
@@ -124,14 +127,25 @@ struct NativeSettingsComboBox: NSViewRepresentable {
             isEditing = true
             query = control.stringValue
             owner.filter?.wrappedValue = query
+            isUpdating = true
             if control.indexOfSelectedItem >= 0 { control.deselectItem(at: control.indexOfSelectedItem) }
             control.stringValue = query
+            isUpdating = false
             refresh(control)
+            controlTextDidBeginEditing(notification)
         }
 
         func comboBoxSelectionDidChange(_ notification: Notification) {
-            // AppKit sends this while navigating with arrows as well. It is
-            // deliberately not a persistence boundary.
+            // AppKit distinguishes the completed popup choice (DidChange)
+            // from highlighted rows (IsChanging). Programmatic selectItem also
+            // sends DidChange, so exclude all refresh/restore operations.
+            guard !isUpdating, isPopupInteraction,
+                  let control = notification.object as? NSComboBox else { return }
+            confirmSelection(in: control)
+        }
+
+        func comboBoxSelectionIsChanging(_ notification: Notification) {
+            // Highlighting alone never changes the stored setting.
         }
 
         @objc private func selected(_ control: NSComboBox) {
@@ -147,7 +161,8 @@ struct NativeSettingsComboBox: NSViewRepresentable {
         }
 
         func confirmSelection(in control: NSComboBox) {
-            guard control.isEnabled, (control.currentEditor() as? NSTextView)?.hasMarkedText() != true else { return }
+            guard !isUpdating, !(isPopupInteraction && didConfirmInPopup), control.isEnabled,
+                  (control.currentEditor() as? NSTextView)?.hasMarkedText() != true else { return }
             let index = control.indexOfSelectedItem >= 0 ? control.indexOfSelectedItem : (isEditing ? 0 : -1)
             guard visibleOptions.indices.contains(index) else { return }
             let option = visibleOptions[index]
@@ -162,15 +177,12 @@ struct NativeSettingsComboBox: NSViewRepresentable {
 
         func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
             guard let combo = control as? NSComboBox, !textView.hasMarkedText() else { return false }
-            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
-                confirmSelection(in: combo)
-                return true
-            }
             if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
                 restore(combo)
-                return true
             }
-            // Tab follows AppKit's normal key-view loop; end-editing restores.
+            // AppKit must handle Return/Escape to dismiss its popup. Return
+            // confirms through the target/action path, never twice here. Tab
+            // follows the normal key-view loop; end-editing restores.
             return false
         }
 
@@ -183,12 +195,14 @@ struct NativeSettingsComboBox: NSViewRepresentable {
             isEditing = false
             query = ""
             refresh(control)
+            isUpdating = true
             if let index = visibleOptions.firstIndex(where: { $0.id == owner.selectedID }) {
                 control.selectItem(at: index)
             } else if control.indexOfSelectedItem >= 0 {
                 control.deselectItem(at: control.indexOfSelectedItem)
             }
             control.stringValue = owner.filter?.wrappedValue ?? owner.options.first(where: { $0.id == owner.selectedID })?.label ?? ""
+            isUpdating = false
         }
     }
 }
