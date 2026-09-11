@@ -211,7 +211,7 @@ def test_personal_template_management_lives_in_settings_not_quick_selector(clien
         assert action in CABINET_JS.read_text(encoding="utf-8")
     assert "Создать формат" in settings_source
     assert html.count("data-summary-default-template") == 1
-    assert "Формат по умолчанию" in html
+    assert "Формат новых итогов" in html
 
 
 def test_candidate_ui_keeps_current_notes_without_a_decision_surface() -> None:

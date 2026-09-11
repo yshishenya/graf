@@ -6787,7 +6787,7 @@
         sessionStorage.setItem(railKey, pinned ? "expanded" : "collapsed");
         setRailPinned(shell, toggle, pinned);
       };
-      syncViewport();
+      setRailPinned(shell, toggle, (settingsRail && expandedMedia.matches || preferredPinned) && !(narrowMedia.matches && shell.querySelector("main")?.contains(document.activeElement)));
       expandedMedia.addEventListener("change", syncViewport);
       narrowMedia.addEventListener("change", syncViewport);
       shell.addEventListener("focusin", (event) => {
