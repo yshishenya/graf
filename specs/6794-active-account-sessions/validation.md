@@ -57,3 +57,14 @@ FR-010–011 покрыты T005, FR-001–009 сохранены. Единый 
 Блокер локального runtime doctor разрешён без изменения global tools: в игнорируемом `.dev/f6794-tools/` установлены specify-cli 1.0.1 из закреплённого ref и bootstrap 0.9.9 с SHA-256 из GitHub workflow. Полный `check_spec_kit_governance.py` с этим PATH: PASS (bootstrap integrity + GRAF invariants). Прежние записи о блокере описывают предыдущий запуск.
 
 Ponytail review: существующие модели доступа, icons, native details/forms и стандартный DOM; новых зависимостей или лишних абстракций нет, net: 0 lines to remove. Фокус и защита отмены сохранены. `release-preparation.md` содержит русские заметки, границы, порядок выпуска и откат. CD dry-run: PASS как план команд, candidate ещё не supplied; production не затронут.
+
+
+## GitHub PR evidence
+PR: https://github.com/yshishenya/graf/pull/6942
+PR SHA реализации: `0a54cf79a6e6a4418f42ac6212d26e7795208c5a`.
+- governance-fast: PASS https://github.com/yshishenya/graf/actions/runs/34609124722
+- pr-metadata: PASS https://github.com/yshishenya/graf/actions/runs/34609124829
+
+T004 закрыта в tasks.md по локальным проверкам, независимому review и GitHub gate. Последующее изменение только документации и синтетических снимков проходит новый GitHub gate на финальном SHA; итоговая ссылка находится в PR, чтобы не создавать рекурсивные evidence-коммиты. Перед merge обязательно проверить именно текущий SHA.
+
+Снимки для рецензента сохранены в `reference/` и снабжены описанием происхождения. PR и задачи связаны; ни task-backed issues, ни umbrella не закрываются этим evidence до предусмотренного closeout. Изменение готовится к выпуску, но не опубликовано.
