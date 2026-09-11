@@ -5,16 +5,16 @@
     <header class="cabinet-topbar settings-page__topbar">
       <div class="page-title">
         <h1>Пространства</h1>
-        <p class="muted">Место для новых встреч и приглашения в команды.</p>
+        <p class="muted">Ваши встречи и совместная работа.</p>
       </div>
     </header>
     {% if workspace_switch_result %}<p class="settings-status" role="status" aria-live="polite">{{ workspace_switch_result }}</p>{% endif %}
     <section class="settings-section" id="active-workspace" aria-labelledby="active-workspace-title">
       <div class="settings-section__heading">
         <div>
-          <span class="settings-scope-badge">Текущее пространство</span>
+
           <h2 id="active-workspace-title">Куда сохраняются новые встречи</h2>
-          <p class="muted">Новые встречи и загрузки сохраняются здесь. Уже начатые операции не переносятся.</p>
+          <p class="muted">Выберите пространство для новых встреч. Прежние записи останутся на своих местах.</p>
         </div>
       </div>
       {% if workspace_spaces %}
@@ -41,7 +41,7 @@
     <section class="settings-section" id="workspace-join-offers" aria-labelledby="workspace-join-offers-title">
       <div class="settings-section__heading">
         <div>
-          <span class="settings-scope-badge">Личная настройка</span>
+
           <h2 id="workspace-join-offers-title">Приглашения в рабочие пространства</h2>
           <p class="muted">Присоединение добавит рабочее пространство, но не перенесёт личные встречи.</p>
         </div>

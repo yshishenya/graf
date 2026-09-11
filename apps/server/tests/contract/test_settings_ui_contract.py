@@ -203,8 +203,8 @@ def test_settings_binary_controls_use_shared_switches_and_segmented_theme() -> N
     assert 'name="optional_email_enabled"' in notifications
     assert 'name="optional_in_app_enabled"' in notifications
     assert notifications.count('class="settings-control-row"') == 2
-    assert "Эти настройки относятся к аккаунту." in notifications
-    assert "Они не управляют записью или уведомлениями macOS." in notifications
+    assert "Новости и помощь в использовании GRAF." in notifications
+    assert "В приложении на Mac" in notifications
     assert "Результаты встреч и записи, которыми с вами поделились, сохраняются в истории без звука." in notifications
     assert 'href="/notifications"' in notifications
 
@@ -229,8 +229,8 @@ def test_recording_settings_keep_native_boundary_copy_compact() -> None:
     page = render_settings_page(category="recording")
     embedded_page = render_settings_page(category="recording", embedded=True)
 
-    assert "Настройка записи находится в приложении GRAF" in page
-    assert "Старт и стоп доступны всегда" in page
+    assert "Откройте GRAF на нужном Mac" in page
+    assert "если она разрешена в пространстве" in page
     assert "Здесь нельзя включить запись для всех встреч" not in page
     assert "Веб-интерфейс показывает результат записи" not in page
     assert "/desktop/settings/meeting-detection" not in page
@@ -383,7 +383,7 @@ def test_account_preferences_and_provider_unlink_are_csrf_protected() -> None:
 
 def test_account_surface_template_contains_profile_preference_and_session_controls() -> None:
     page = render_settings_page(category="account")
-    for label in ("Профиль", ">Язык<", "Часовой пояс", "Системная", "Где вы вошли"):
+    for label in ("Профиль", ">Язык интерфейса<", "Часовой пояс", "Системная", "Где вы вошли"):
         assert label in page
     assert "data-account-preferences" in page
     assert "session_token_hash" not in page
@@ -456,3 +456,19 @@ def test_settings_accessibility_contract_preserves_dialog_focus_and_form_state()
     assert 'form.dataset.state = dirty ? "dirty" : "pristine"' in script
     assert "data-settings-form-status" in calendar
     assert "data-settings-form" in calendar
+
+
+def test_product_settings_hide_new_destructive_form_and_preserve_locale() -> None:
+    profile = AccountProfileView("Тест", "owner@example.test", locale="en-US")
+    page = render_settings_page(category="account", account_surface=AccountSettingsSurface(profile=profile))
+    assert '<select id="account-locale"' not in page
+    assert 'name="locale" value="en-US"' in page
+    assert re.search(r'<details[^>]*><summary>Закрыть аккаунт</summary>.*?name="confirm_close".*?</details>', page, re.DOTALL)
+    assert 'IANA' not in page
+
+
+def test_recording_list_is_bounded_keyboard_region_with_full_rules() -> None:
+    page = render_settings_page(category="recording", embedded=True)
+    assert 'data-recording-settings-targets tabindex="0" role="region"' in page
+    assert 'value="always"' in page and 'value="ask"' in page and 'value="never"' in page
+    assert '8 секунд' in page

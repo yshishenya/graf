@@ -4,7 +4,7 @@
     <header class="cabinet-topbar settings-page__topbar">
       <div class="page-title">
         <h1>Запись встреч</h1>
-        <p class="muted">Разрешения и автозапись на вашем Mac.</p>
+        <p class="muted">Когда GRAF записывает встречи на вашем Mac.</p>
       </div>
     </header>
     {% if embedded %}
@@ -22,8 +22,8 @@
           </select>
         </label>
         <label class="settings-search">Поиск приложений<input type="search" data-recording-settings-search placeholder="Название приложения" autocomplete="off"></label>
-        <p class="muted">Поддерживаемые приложения на macOS</p>
-        <div data-recording-settings-targets></div>
+        <p class="muted">Приложения</p>
+        <div data-recording-settings-targets tabindex="0" role="region" aria-label="Правила записи для приложений"></div>
         <p class="muted" data-recording-settings-empty hidden>Приложения не найдены. Измените поиск.</p>
       </div>
       <template data-recording-settings-select><select><option value="always">Всегда</option><option value="ask">Спрашивать</option><option value="never">Никогда</option></select></template>
@@ -32,11 +32,11 @@
     </section>
     {% else %}
     <section class="settings-section" aria-labelledby="recording-handoff-title" data-recording-handoff>
-      <h2 id="recording-handoff-title">Настройка записи находится в приложении GRAF</h2>
+      <h2 id="recording-handoff-title">Запись на вашем Mac</h2>
       <p>Откройте GRAF на нужном Mac и выберите «Настройки → Запись».</p>
       <ul class="settings-boundary-list">
         <li><strong>Автозапись</strong><span>Правила действуют только на выбранном Mac.</span></li>
-        <li><strong>Ручная запись</strong><span>Старт и стоп доступны всегда.</span></li>
+        <li><strong>Ручная запись</strong><span>Начните или остановите запись в приложении, если она разрешена в пространстве.</span></li>
       </ul>
     </section>
     <section class="settings-section" aria-labelledby="recording-unavailable-title">

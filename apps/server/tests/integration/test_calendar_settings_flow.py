@@ -638,8 +638,8 @@ def test_calendar_settings_provider_limited_state_does_not_create_source(client)
         == "/settings/integrations/calendar?policy_limited=provider_limited"
     )
     rendered = client.get(response.headers["location"], headers=auth_headers())
-    assert "Есть ограничение провайдера" in rendered.text
-    assert "GRAF все равно работает только на чтение" in rendered.text
+    assert "Нужна настройка сервиса" in rendered.text
+    assert "GRAF только читает события" in rendered.text
 
     sessionmaker = client.app_state["sessionmaker"]
 
@@ -678,7 +678,7 @@ def test_google_calendar_connect_is_fail_closed_until_oauth_dependencies_exist(c
     )
     rendered = client.get(response.headers["location"], headers=auth_headers())
     assert "Google Calendar пока недоступен" in rendered.text
-    assert "Источник не добавлен" in rendered.text
+    assert "Календарь не подключён" in rendered.text
 
     sessionmaker = client.app_state["sessionmaker"]
 
@@ -930,7 +930,7 @@ def test_calendar_settings_provider_success_result_does_not_claim_connected_with
         )
         rendered = client.get(response.headers["location"], headers=auth_headers())
         assert "Календарь подключен" not in rendered.text
-        assert "Есть ограничение провайдера" in rendered.text
+        assert "Нужна настройка сервиса" in rendered.text
 
     sessionmaker = client.app_state["sessionmaker"]
 
@@ -1259,8 +1259,8 @@ def test_calendar_settings_saves_event_category_preferences_and_keeps_manual_rec
     )
     rendered = client.get(response.headers["location"], headers=auth_headers())
     assert "Настройки сохранены" in rendered.text
-    assert "Ручной старт и стоп записи остаются доступны всегда" in rendered.text
-    assert "Автоматическая запись пока недоступна" in rendered.text
+    assert "Начать и остановить запись можно вручную в любой момент" in rendered.text
+    assert "Эти подсказки не запускают запись автоматически" in rendered.text
 
     sessionmaker = client.app_state["sessionmaker"]
 
@@ -1684,7 +1684,7 @@ def test_calendar_settings_route_saves_prompt_toggles_without_auto_record_behavi
         response.headers["location"] == "/settings/integrations/calendar?preferences_result=saved"
     )
     rendered = client.get(response.headers["location"], headers=auth_headers())
-    assert "Автоматическая запись пока недоступна" in rendered.text
+    assert "Эти подсказки не запускают запись автоматически" in rendered.text
     assert "выбрать событие или продолжить без календарного контекста" in rendered.text
 
     sessionmaker = client.app_state["sessionmaker"]

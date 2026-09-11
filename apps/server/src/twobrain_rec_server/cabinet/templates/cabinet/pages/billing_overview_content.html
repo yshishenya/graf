@@ -25,8 +25,8 @@
         </div>
 
         {% if not billing_data_available %}
-        <p class="notice" role="alert">Данные биллинга временно недоступны. Оплата и изменения подписки скрыты; попробуйте обновить страницу позже.</p>
-        <p class="muted">Количественные данные подписки, обработки и хранилища не показываем, пока источник недоступен.</p>
+        <p class="notice" role="alert">Не удалось загрузить тариф и оплату. Обновите страницу или попробуйте позже.</p>
+        <p class="muted">Использование и остаток места появятся после загрузки.</p>
         {% elif billing_result == "pending" %}<p class="notice" role="status" aria-live="polite">Платёж уже создан. Проверяем его статус; повторную оплату пока не предлагаем.</p>
         {% elif billing_result == "returned" %}<p class="notice" role="status" aria-live="polite">Вы вернулись из ЮKassa. Доступ включится только после подтверждения платежа.</p>
         {% elif billing_result == "already_active" %}<p class="notice" role="status" aria-live="polite">Тариф «Личный» уже активен до {{ paid_through_label|default("указанной даты", true) }}. Повторная оплата не создана.</p>
@@ -62,19 +62,19 @@
           {% elif not billing_owner and billing_role == "owner" and operation_pending %}
           <p class="muted" role="status">Платёж проверяется. Новую оплату пока не предлагаем.</p>
           {% elif not billing_owner and billing_role == "owner" and plan_code == "personal" %}
-          <p class="muted" role="status">Активным тарифом управляет текущий владелец биллинга; новую оплату не создаём.</p>
+          <p class="muted" role="status">Активным тарифом управляет текущий плательщик; новую оплату не создаём.</p>
           {% elif not billing_owner and billing_role == "owner" and billing_enabled and catalog_ready|default(True) %}
           <a class="button" data-billing-primary href="/billing/plans">Подтвердить новую оплату</a>
           {% elif not billing_owner and billing_role == "owner" %}
-          <p class="muted" role="status">Смена владельца биллинга временно недоступна.</p>
+          <p class="muted" role="status">Смена плательщика временно недоступна.</p>
           {% elif billing_owner and plan_code == "personal" %}
           <a class="button" data-billing-primary href="/billing/subscription">Управлять подпиской</a>
           {% elif billing_owner and billing_enabled and catalog_ready|default(True) %}
           <a class="button" data-billing-primary href="/billing/plans">Сравнить тарифы</a>
           {% elif billing_owner and billing_enabled %}
-          <p class="muted" role="status">Оплата пока недоступна: ценовая версия магазина ещё не утверждена.</p>
+          <p class="muted" role="status">Оплата пока недоступна. Условия подключения появятся здесь.</p>
           {% elif billing_owner %}
-          <p class="muted" role="status">Оплата временно недоступна: магазин не включён.</p>
+          <p class="muted" role="status">Оплата временно недоступна. Попробуйте позже.</p>
           {% endif %}
           {% if billing_owner and plan_code == "free" and trial_state == "eligible" and not operation_pending %}
           {{ sections.trial_confirmation(csrf_token|default(None), trial_preview_starts_at_label|default(None), trial_preview_ends_at_label|default(None), primary=not (billing_enabled and catalog_ready|default(True))) }}
@@ -97,7 +97,7 @@
         <div>
           <p class="eyebrow">Возможности GRAF</p>
           <h2 id="billing-offer-title">Больше встреч без лимита обработки</h2>
-          <p>{% if plan_code == "personal" %}Тариф уже подключён. Здесь можно проверить условия, скидки и хранение.{% else %}Сравните Free, пробный период и «Личный» — только с реальными условиями GRAF.{% endif %}</p>
+          <p>{% if plan_code == "personal" %}Тариф уже подключён. Здесь можно проверить условия, скидки и хранение.{% else %}Сравните Free, пробный период и «Личный».{% endif %}</p>
         </div>
         {% if billing_owner %}<div class="billing-row-section__actions">
           {% if billing_enabled and catalog_ready|default(True) and not operation_pending %}<a class="button quiet" href="/billing/plans">Посмотреть возможности</a>{% endif %}
@@ -108,8 +108,8 @@
       <section class="billing-section billing-row-section" aria-labelledby="billing-workspace-title">
         <div>
           <h2 id="billing-workspace-title">Пространство и использование</h2>
-          {% if not billing_owner and billing_role == "owner" %}<p>Вы владелец пространства, но платёжный аккаунт закреплён за другим пользователем.</p><p class="muted">Чтобы стать владельцем биллинга, подтвердите новую оплату.</p>
-          {% elif not billing_owner or billing_role in ["member", "corporate_owner"] %}<p>Оплатой управляет владелец пространства. Точные объёмы использования видит владелец биллинга.</p><p class="muted">Способ оплаты и увеличение хранилища доступны только владельцу пространства.</p>
+          {% if not billing_owner and billing_role == "owner" %}<p>Вы владелец пространства, но платёжный аккаунт закреплён за другим пользователем.</p><p class="muted">Чтобы стать плательщиком, подтвердите новую оплату.</p>
+          {% elif not billing_owner or billing_role in ["member", "corporate_owner"] %}<p>Оплатой управляет владелец пространства. Точные объёмы использования видит плательщик.</p><p class="muted">Способ оплаты и увеличение хранилища доступны только владельцу пространства.</p>
           {% else %}<p>Вы управляете тарифом выбранного пространства. Хранилище: <strong>{{ storage_threshold_label|default("Состояние уточняется") }}</strong>.</p>{% endif %}
         </div>
         <div class="billing-row-section__actions">

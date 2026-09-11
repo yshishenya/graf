@@ -142,8 +142,8 @@ class ProviderLinkSettingsSurface:
 
 def provider_link_settings_surface(link: WorkspaceProviderLinkState) -> ProviderLinkSettingsSurface:
     status_labels = {
-        "initiated": "Ожидаем входа у провайдера",
-        "callback_verified": "Провайдер подтверждён — подтвердите подключение в GRAF",
+        "initiated": "Ожидаем подтверждения входа",
+        "callback_verified": "Вход подтверждён — добавьте этот способ в GRAF",
         "confirmed": "Способ входа подключён",
         "expired": "Срок подключения истёк. Начните заново.",
         "rejected": "Подключение не завершено. Начните заново.",
@@ -152,7 +152,7 @@ def provider_link_settings_surface(link: WorkspaceProviderLinkState) -> Provider
     return ProviderLinkSettingsSurface(
         link_state_id=link.id,
         provider=link.candidate_provider,
-        provider_label=PROVIDER_LINK_LABELS.get(link.candidate_provider or "", "Провайдер"),
+        provider_label=PROVIDER_LINK_LABELS.get(link.candidate_provider or "", "Сервис входа"),
         status=link.status,
         status_label=status_labels.get(link.status, "Подключение недоступно. Начните заново."),
         can_confirm=link.status == "callback_verified",
@@ -628,7 +628,7 @@ CALENDAR_PROVIDER_UI: dict[str, tuple[str, str, str]] = {
     "caldav_mailion_myoffice": (
         "Mailion / MyOffice",
         "manual_url",
-        "CalDAV URL или готовая настройка провайдера из параметров организации.",
+        "Адрес календаря из настроек организации.",
     ),
     "caldav_r7_office": (
         "R7-Office",
@@ -658,7 +658,7 @@ CALENDAR_PROVIDER_UI: dict[str, tuple[str, str, str]] = {
     "google_calendar": (
         "Google Calendar",
         "oauth",
-        "OAuth только для чтения. Доступность зависит от настроек Google Cloud и проверки приложения.",
+        "Подключение через аккаунт Google с доступом только для чтения.",
     ),
 }
 
@@ -666,7 +666,7 @@ CALENDAR_METHOD_LABELS = {
     "app_password": "Пароль приложения",
     "manual_url": "Ручной CalDAV URL",
     "provider_specific_limited": "Может требовать администратора",
-    "oauth": "OAuth только для чтения",
+    "oauth": "Вход через Google",
 }
 
 CALENDAR_PROVIDER_MARKS = {
@@ -727,37 +727,37 @@ CALENDAR_FORBIDDEN_ACTION_LABELS: tuple[str, ...] = (
 CALENDAR_NOTICE_COPY: dict[str, tuple[str, str, str]] = {
     "connect_success": (
         "Календарь подключен",
-        "Теперь выберите конкретные календари. До выбора событий источник не влияет на подсказки.",
+        "Выберите календари, встречи из которых вы хотите видеть в GRAF.",
         "success",
     ),
     "connect_cancelled": (
         "Подключение отменено",
-        "Источник не добавлен. Можно повторить подключение или продолжить ручную запись без календаря.",
+        "Календарь не подключён. Можно повторить подключение или продолжить ручную запись без календаря.",
         "warning",
     ),
     "connect_invalid_credentials": (
         "Неверные данные Яндекса",
-        "Проверьте логин и пароль приложения. Источник не добавлен.",
+        "Проверьте логин и пароль приложения. Календарь не подключён.",
         "warning",
     ),
     "connect_denied": (
         "Календарь не подключен",
-        "Провайдер не дал доступ только для чтения. Проверьте разрешения или выберите другой способ подключения.",
+        "Сервис не предоставил доступ только для чтения. Проверьте разрешения или выберите другой способ подключения.",
         "warning",
     ),
     "connect_failed": (
         "Не удалось подключить календарь",
-        "Мы скрыли технические детали ошибки. Проверьте данные подключения или попробуйте позже.",
+        "Проверьте данные подключения или попробуйте позже.",
         "error",
     ),
     "dependency_missing": (
         "Google Calendar пока недоступен",
-        "Владелец GRAF еще не настроил OAuth client, redirect URI и проверку доступа Google. Источник не добавлен.",
+        "Подключение Google Calendar ещё не настроено. Обратитесь к администратору GRAF или выберите другой сервис. Календарь не подключён.",
         "warning",
     ),
     "no_readable_calendars": (
         "Нет доступных для чтения календарей",
-        "Источник подключен, но провайдер не вернул календари, которые можно читать. Проверьте права доступа.",
+        "Подключение готово, но доступных календарей нет. Проверьте права доступа.",
         "warning",
     ),
     "policy_limited": (
@@ -766,8 +766,8 @@ CALENDAR_NOTICE_COPY: dict[str, tuple[str, str, str]] = {
         "warning",
     ),
     "provider_limited": (
-        "Есть ограничение провайдера",
-        "Для этого провайдера могут понадобиться настройки организации. GRAF все равно работает только на чтение.",
+        "Нужна настройка сервиса",
+        "Обратитесь к администратору организации для настройки подключения. GRAF только читает события.",
         "warning",
     ),
     "selection_saved": (
@@ -777,7 +777,7 @@ CALENDAR_NOTICE_COPY: dict[str, tuple[str, str, str]] = {
     ),
     "selection_empty": (
         "Календари не выбраны",
-        "Источник остается подключенным, но не влияет на будущие встречи и подсказки.",
+        "Подключение сохранено. Выберите календари, чтобы видеть их встречи и получать подсказки.",
         "warning",
     ),
     "selection_limit": (
@@ -792,7 +792,7 @@ CALENDAR_NOTICE_COPY: dict[str, tuple[str, str, str]] = {
     ),
     "sync_completed": (
         "Синхронизация завершена",
-        "Календарь обновлен. GRAF использует только выбранные события и не изменяет календарь у провайдера.",
+        "Календарь обновлен. GRAF использует только выбранные события и не меняет ваш календарь.",
         "success",
     ),
     "sync_catalog_updated": (
@@ -802,7 +802,7 @@ CALENDAR_NOTICE_COPY: dict[str, tuple[str, str, str]] = {
     ),
     "sync_accepted": (
         "Синхронизация поставлена в очередь",
-        "Мы приняли запрос и обновим состояние источника после безопасной проверки провайдера. Не нужно ждать на этом экране.",
+        "Обновляем календари. Можно продолжать работу в GRAF.",
         "success",
     ),
     "sync_already_running": (
@@ -812,12 +812,12 @@ CALENDAR_NOTICE_COPY: dict[str, tuple[str, str, str]] = {
     ),
     "sync_reconnect_required": (
         "Нужно действие",
-        "Переподключите календарь или обновите доступ. Детали ошибки скрыты безопасно.",
+        "Переподключите календарь или обновите доступ.",
         "warning",
     ),
     "sync_unavailable": (
         "Синхронизация недоступна",
-        "Источник отключен или ограничен политикой. Ручная запись остается доступной.",
+        "Календарь отключён или доступ ограничен организацией. Ручная запись остается доступной.",
         "warning",
     ),
     "sync_failed": (
@@ -992,22 +992,22 @@ class CalendarSettingsSurfaceView:
     unavailable_state_copy: str = "Если настройки календарей временно недоступны, секреты не показываются, ручная запись остается доступной."
     policy_constrained_copy: str = "Если настройка ограничена политикой организации, интерфейс покажет причину и безопасное следующее действие."
     no_readable_calendars_copy: str = (
-        "Источник подключен, но доступных для чтения календарей пока нет."
+        "Подключение готово, но доступных календарей пока нет."
     )
     no_selected_calendars_copy: str = (
-        "Календари не выбраны: источник подключен, но не влияет на будущие встречи и подсказки."
+        "Выберите хотя бы один календарь, чтобы увидеть его встречи."
     )
     no_matching_events_copy: str = "Нет будущих событий, которые подходят под выбранные настройки."
     private_free_busy_copy: str = (
-        "GRAF показывает сведения, которые провайдер передал владельцу, в том числе для приватных событий. "
+        "GRAF показывает сведения, к которым у вас есть доступ, в том числе для приватных событий. "
         "Если доступна только занятость, название и другие отсутствующие сведения не добавляются."
     )
     empty_state_title: str = "Календари пока не подключены"
-    empty_state_body: str = "Подключите источник календаря, затем выберите календари. Пока календарь не выбран, встречи из него не подтягиваются."
+    empty_state_body: str = "Подключите календарь, чтобы видеть ближайшие встречи и вовремя к ним присоединяться."
 
     @property
     def source_count_word(self) -> str:
-        return _russian_count_word(len(self.sources), "источник", "источника", "источников")
+        return _russian_count_word(len(self.sources), "подключение", "подключения", "подключений")
 
     @property
     def selected_calendar_count_total_word(self) -> str:
@@ -1041,7 +1041,7 @@ def calendar_provider_presets(
                 mark=CALENDAR_PROVIDER_MARKS.get(family, label[:2]),
                 method_category=method,
                 method_label=CALENDAR_METHOD_LABELS.get(
-                    method, "Способ подключения зависит от провайдера"
+                    method, "Способ подключения зависит от сервиса"
                 ),
                 action_label=calendar_provider_action_label(method),
                 credential_label=calendar_provider_credential_label(method),
@@ -1146,7 +1146,7 @@ def calendar_settings_surface(
     return CalendarSettingsSurfaceView(
         breadcrumb=("Настройки", "Интеграции", "Календари"),
         title="Календари",
-        subtitle="Подключите источник, выберите календари и получите подсказку перед встречей.",
+        subtitle="Ближайшие встречи из ваших календарей.",
         read_only_boundary_copy=CALENDAR_BOUNDARY_COPY,
         auto_context_boundary_copy=CALENDAR_AUTO_CONTEXT_BOUNDARY_COPY,
         boundary_items=calendar_boundary_items(),
@@ -1265,13 +1265,13 @@ def calendar_visibility_label(visibility: str) -> str:
     labels = {
         "available": "доступен",
         "selected": "выбран",
-        "hidden": "скрыт провайдером",
+        "hidden": "скрыт сервисом",
         "unavailable": "недоступен",
         "private": "приватный календарь",
         "shared": "общий календарь",
         "delegated": "делегированный календарь",
-        "removed": "удален у провайдера",
-        "disconnected": "источник отключен",
+        "removed": "удалён в календаре",
+        "disconnected": "календарь отключён",
     }
     return labels.get(visibility, "состояние неизвестно")
 
@@ -1358,11 +1358,11 @@ def calendar_sync_health_label(state: str) -> str:
         "synced": "синхронизация актуальна",
         "partial_sync": "синхронизация частичная",
         "stale": "синхронизация устарела",
-        "provider_unavailable": "провайдер недоступен",
-        "rate_limited": "провайдер ограничил синхронизацию",
+        "provider_unavailable": "сервис недоступен",
+        "rate_limited": "сервис просит подождать перед обновлением",
         "credential_failed": "нужно переподключить",
         "failed_closed": "синхронизация остановлена безопасно",
-        "disconnected": "источник отключен",
+        "disconnected": "календарь отключён",
     }
     return labels.get(state, "состояние синхронизации неизвестно")
 
@@ -1372,16 +1372,16 @@ def calendar_sync_recovery_label(state: str) -> str:
         "never_synced": "Запустите синхронизацию после выбора календарей.",
         "queued": "Дождитесь текущей синхронизации.",
         "syncing": "Дождитесь текущей синхронизации.",
-        "partial_sync": "Запустите синхронизацию еще раз или проверьте источник.",
+        "partial_sync": "Запустите синхронизацию еще раз или проверьте подключение.",
         "stale": "Запустите синхронизацию вручную.",
         "provider_unavailable": "Попробуйте позже.",
         "rate_limited": "Попробуйте позже.",
         "credential_failed": "Переподключите календарь.",
-        "failed_closed": "Проверьте подключение или переподключите источник.",
-        "disconnected": "Подключите источник заново.",
+        "failed_closed": "Проверьте подключение или переподключите календарь.",
+        "disconnected": "Подключите календарь заново.",
     }
     return labels.get(
-        state, "Если встреч не видно, запустите синхронизацию или переподключите источник."
+        state, "Если встреч не видно, запустите синхронизацию или переподключите календарь."
     )
 
 
@@ -1392,9 +1392,9 @@ def safe_calendar_error_message(code: str | None) -> str | None:
         "credential_failed": "Нужно переподключить календарь.",
         "invalid_credentials": "Нужно переподключить календарь.",
         "tenant_policy_denied": "Подключение ограничено политикой организации.",
-        "provider_timeout": "Провайдер календаря не ответил вовремя. Попробуйте позже.",
-        "rate_limited": "Провайдер временно ограничил синхронизацию. Попробуйте позже.",
-        "provider_unavailable": "Провайдер календаря временно недоступен.",
+        "provider_timeout": "Сервис календаря не ответил вовремя. Попробуйте позже.",
+        "rate_limited": "Сервис временно ограничил синхронизацию. Попробуйте позже.",
+        "provider_unavailable": "Сервис календаря временно недоступен.",
         "calendar_sync_stale": "Синхронизация устарела; встречи могут быть неактуальны.",
     }
     return messages.get(code, "Синхронизация не прошла. Проверьте подключение или повторите позже.")
@@ -1433,7 +1433,7 @@ def calendar_provider_limitation_copy(
     ):
         return "Часть возможностей зависит от политики организации."
     if method_category == "manual_url":
-        return "Если URL или пароль неверны, мы покажем безопасную ошибку без деталей провайдера."
+        return "Для подключения нужны адрес календаря и пароль приложения."
     if method_category == "oauth":
         if runtime_available is True:
             return None
@@ -1531,7 +1531,7 @@ def calendar_preview_empty_reason(
     has_matching_events: bool,
 ) -> str:
     if not has_sources:
-        return "Подключите источник календаря, чтобы увидеть будущие встречи."
+        return "Подключите календарь, чтобы увидеть ближайшие встречи."
     if not has_selected_calendar:
         return "Выберите хотя бы один календарь: без выбора будущие встречи и подсказки не подтягиваются."
     if not has_matching_events:
@@ -1682,7 +1682,7 @@ def settings_category_navigation(
         ("account", "Аккаунт", "Профиль, интерфейс и безопасность.", "Личная настройка", "/account", "Личное", "settings"),
         ("workspace", "Пространства", "Новые встречи и приглашения.", "В этом пространстве", "/workspace", "Рабочее пространство", "users-round"),
         ("billing", "Тариф и оплата", "Тариф, хранилище и платежи.", "В этом пространстве", "/billing", "Рабочее пространство", "activity"),
-        ("recording", "Запись", "Разрешения и автозапись на Mac.", "На этом Mac", "/recording", "Встречи", "video"),
+        ("recording", "Запись", "Правила автозаписи на Mac.", "На этом Mac", "/recording", "Встречи", "video"),
         ("summaries", "Итоги", "Форматы и структура итогов.", "В этом пространстве", "/summaries", "Встречи", "transcript"),
         ("calendar", "Календари", "Подключения, календари и подсказки.", "Личная настройка", "/integrations/calendar", "Встречи", "calendar-days"),
         ("notifications", "Уведомления", "Подсказки и системные сообщения.", "Личная настройка", "/notifications", "Приложение", "bell"),

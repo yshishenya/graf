@@ -43,7 +43,7 @@ def test_member_billing_surfaces_do_not_render_workspace_usage_values() -> None:
 
     assert 'billing_role in ["member", "corporate_owner"]' in overview
     assert 'billing_role in ["member", "corporate_owner"]' in usage
-    assert "Точные объёмы использования видит владелец биллинга" in usage
+    assert "Точные объёмы использования видит плательщик" in usage
 
 
 def test_checkout_uses_amount_specific_yookassa_actions_without_js() -> None:
@@ -135,7 +135,7 @@ def test_checkout_renders_server_calculated_promo_amounts() -> None:
         },
         promo_preview_error=None,
     )
-    assert "Цена по каталогу" in html
+    assert "Стоимость тарифа" in html
     assert "−79 ₽ (10%)" in html
     assert "711 ₽" in html
     assert 'Оплатить 711 ₽ в YooKassa — месяц' in html

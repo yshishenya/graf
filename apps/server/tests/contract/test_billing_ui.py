@@ -647,7 +647,7 @@ def test_billing_overview_hides_usage_cta_when_data_is_unavailable() -> None:
         billing_enabled=False,
         billing_owner=False,
     )
-    assert "Данные биллинга временно недоступны" in html
+    assert "Данные временно недоступны" in html
     assert 'href="/billing/usage"' not in html
     assert 'href="/billing/checkout"' not in html
 
@@ -1028,7 +1028,7 @@ def test_workspace_owner_can_start_guarded_billing_takeover() -> None:
         latest_invoice_summary=None,
         latest_operation_state=None,
     )
-    assert "Активным тарифом управляет текущий владелец биллинга" in active_overview
+    assert "Активным тарифом управляет текущий плательщик" in active_overview
     assert 'href="/billing/plans"' not in active_overview
 
 
@@ -1211,7 +1211,7 @@ def test_plan_comparison_explains_pending_and_disabled_checkout_states() -> None
 
     assert "Платёж проверяется" in pending
     assert 'href="/billing/checkout' not in pending
-    assert "магазин не включён" in disabled
+    assert "Оплата временно недоступна" in disabled
     assert "Цена появится после утверждения" not in disabled
 
 
@@ -1347,7 +1347,7 @@ def test_checkout_hides_publishable_price_when_store_is_disabled() -> None:
         checkout_idempotency_key="synthetic-key",
         checkout_result=None,
     )
-    assert "магазин не включён" in html
+    assert "Оплата пока недоступна" in html
     assert 'name="cycle" value="month"' not in html
     assert "Оплатить 790 ₽" not in html
 

@@ -58,7 +58,7 @@ def test_calendar_settings_provider_limitation_copy_is_plain_and_safe() -> None:
     )
     assert (
         view_models.calendar_provider_limitation_copy("manual_url", {})
-        == "Если URL или пароль неверны, мы покажем безопасную ошибку без деталей провайдера."
+        == "Для подключения нужны адрес календаря и пароль приложения."
     )
     assert (
         view_models.calendar_provider_limitation_copy(
@@ -239,13 +239,13 @@ def test_calendar_settings_safe_state_copy_covers_empty_loading_policy_and_priva
     assert "ручная запись остается доступной" in surface.loading_state_copy
     assert "секреты не показываются" in surface.unavailable_state_copy
     assert "политикой организации" in surface.policy_constrained_copy
-    assert "доступных для чтения календарей" in surface.no_readable_calendars_copy
-    assert "не влияет на будущие встречи" in surface.no_selected_calendars_copy
+    assert "доступных календарей пока нет" in surface.no_readable_calendars_copy
+    assert "Выберите хотя бы один календарь" in surface.no_selected_calendars_copy
     assert (
         surface.no_matching_events_copy
         == "Нет будущих событий, которые подходят под выбранные настройки."
     )
-    assert "провайдер передал владельцу" in surface.private_free_busy_copy
+    assert "к которым у вас есть доступ" in surface.private_free_busy_copy
     assert "только занятость" in surface.private_free_busy_copy
     assert "отсутствующие сведения не добавляются" in surface.private_free_busy_copy
     assert "raw_token" not in combined
@@ -273,10 +273,10 @@ def test_calendar_settings_count_words_use_russian_forms() -> None:
     two_surface = view_models.calendar_settings_surface(provider_payloads=[], sources=two_sources)
     five_surface = view_models.calendar_settings_surface(provider_payloads=[], sources=five_sources)
 
-    assert one_surface.source_count_word == "источник"
+    assert one_surface.source_count_word == "подключение"
     assert one_surface.selected_calendar_count_total_word == "календарь"
-    assert two_surface.source_count_word == "источника"
-    assert five_surface.source_count_word == "источников"
+    assert two_surface.source_count_word == "подключения"
+    assert five_surface.source_count_word == "подключений"
 
 
 def test_calendar_settings_source_state_needs_selection_after_connect() -> None:
@@ -684,7 +684,7 @@ def test_calendar_settings_preview_empty_reason_explains_next_step() -> None:
             has_selected_calendar=False,
             has_matching_events=False,
         )
-        == "Подключите источник календаря, чтобы увидеть будущие встречи."
+        == "Подключите календарь, чтобы увидеть ближайшие встречи."
     )
     assert (
         view_models.calendar_preview_empty_reason(

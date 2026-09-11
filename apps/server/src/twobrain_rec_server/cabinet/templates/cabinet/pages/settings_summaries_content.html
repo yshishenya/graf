@@ -12,11 +12,11 @@
         <div>
           <span class="settings-scope-badge">В этом пространстве</span>
           <h2 id="summary-formats-title">Форматы итогов</h2>
-          <p class="muted">Встроенные форматы доступны всем. Личные форматы видны только вам и доступны в ваших встречах текущего пространства.</p>
+          <p class="muted">Выберите готовый формат или создайте свой. Личные форматы доступны только вам в этом пространстве.</p>
         </div>
         <button class="button quiet" type="button" data-summary-template-create aria-haspopup="dialog" aria-controls="summary-template-dialog">Создать формат</button>
       </div>
-      <label class="summary-default-template">Формат по умолчанию
+      <label class="summary-default-template">Формат новых итогов
         <select data-summary-default-template disabled>
           {% for format in summary_formats %}<option value="{{ format.key }}" data-template-version="{{ format.version }}">{{ format.name }}</option>{% endfor %}
         </select>
@@ -24,17 +24,17 @@
       </label>
       <div class="summary-template-library" data-summary-template-library>
         <div class="summary-template-group">
-          <h3>Встроенные</h3>
+          <h3>Форматы GRAF</h3>
           <div class="summary-template-list">
             {% for format in summary_formats %}
             <article class="summary-template-row" data-summary-template-built-in data-template-key="{{ format.key }}" data-template-name="{{ format.name }}" data-template-purpose="{{ format.purpose }}" data-template-sections="{{ format.sections|join(',') }}"><div class="settings-list-item__content"><span class="settings-list-item__title">{{ format.name }}</span><span class="settings-list-item__desc">{{ format.purpose }}</span></div>
-              <button type="button" class="button quiet" data-summary-template-copy>Создать копию</button>
+              <details class="summary-template-actions"><summary>Действия<span class="sr-only">: {{ format.name }}</span></summary><button type="button" class="button quiet" data-summary-template-copy>Создать копию</button></details>
             </article>
             {% endfor %}
           </div>
         </div>
         <div class="summary-template-group">
-          <h3>Личные</h3>
+          <h3>Ваши форматы</h3>
           <div class="summary-template-list" data-summary-personal-template-list role="status" aria-live="polite" aria-atomic="true"><p class="muted">Загружаем…</p></div>
         </div>
       </div>
@@ -46,17 +46,17 @@
             <button type="button" class="icon-button" data-summary-template-dialog-close aria-label="Закрыть">×</button>
           </div>
           <label>Название<input name="name" maxlength="80" required autocomplete="off"></label>
-          <label>Для чего нужен<textarea name="purpose" maxlength="240" required rows="2"></textarea></label>
+          <label>Что включить в итоги<textarea name="purpose" maxlength="240" required rows="2" placeholder="Например, решения команды и задачи на следующую неделю"></textarea></label>
           <fieldset>
             <legend>Разделы</legend>
             <label><input type="checkbox" name="sections" value="summary" checked> Кратко</label>
             <label><input type="checkbox" name="sections" value="key_points"> Ключевое</label>
             <label><input type="checkbox" name="sections" value="decisions"> Решения</label>
-            <label><input type="checkbox" name="sections" value="action_items" checked> Действия</label>
-            <label><input type="checkbox" name="sections" value="followups"> Продолжение</label>
+            <label><input type="checkbox" name="sections" value="action_items" checked> Задачи</label>
+            <label><input type="checkbox" name="sections" value="followups"> Следующие шаги</label>
             <label><input type="checkbox" name="sections" value="risks"> Риски</label>
             <label><input type="checkbox" name="sections" value="questions"> Вопросы</label>
-            <label><input type="checkbox" name="sections" value="evidence"> Фрагменты</label>
+            <label><input type="checkbox" name="sections" value="evidence"> Цитаты из встречи</label>
           </fieldset>
           <div class="summary-template-options">
             <label>Язык<select name="output_language"><option value="ru">Русский</option><option value="en">English</option></select></label>
