@@ -12,10 +12,10 @@
 - [X] T005 Выполнить проверки, независимый review/Ponytail и converge; записать `specs/6793-unified-settings-combobox/validation/receipt.md` и `changes/unreleased/F6793.yaml` (FR-008).
 - [ ] T006 После разрешённого коммита проверить единственный `/Applications/GRAF Dev.app` через harness и exact-SHA PR governance-fast, записать evidence в `specs/6793-unified-settings-combobox/validation/receipt.md` (FR-006, FR-008, SC-004).
 
-- [ ] T007 [US3] Увеличить и ограничить экраном резервное окно в `apps/macos/RecApp/App/TwoBrainRecApp.swift`, уплотнить строки в `MeetingDetectionSettingsView.swift` и `cabinet.css`; проверить обе вкладки и длинные названия в установленном GRAF Dev (FR-009).
+- [ ] T007 [US3] Увеличить и ограничить экраном резервное окно в `apps/macos/RecApp/App/TwoBrainRecApp.swift`, уплотнить строки в `apps/macos/RecApp/Sources/MeetingDetection/MeetingDetectionSettingsView.swift` и `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css`; проверить обе вкладки и длинные названия в установленном GRAF Dev (FR-009).
 
 GitHub owner T001–T007: https://github.com/yshishenya/graf/issues/6924
 
-Dependencies: T001 → T002 → T003 → T004 → T005 → T006. Release/deploy вне текущего исполнения.
+Dependencies: T001 → T002 → T003 → T004 → T005 → T007 → T006. Release/deploy вне текущего исполнения.
 
 T004 implementation: `apps/macos/RecApp/Sources/Settings/NativeSettingsComboBox.swift`; tests: `apps/macos/Shared/Tests/NativeSettingsComboBoxTests.swift`.
