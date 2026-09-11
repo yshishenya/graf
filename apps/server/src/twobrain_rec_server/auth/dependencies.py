@@ -16,7 +16,6 @@ from twobrain_rec_server.auth.csrf import CSRF_FORM_FIELD_NAME, CSRF_HEADER_NAME
 from twobrain_rec_server.auth.sessions import (
     decode_session_token,
     is_session_token_valid,
-    record_session_activity,
     resolve_session_device,
 )
 from twobrain_rec_server.cabinet.user_time import apply_user_time_preference
@@ -367,9 +366,15 @@ async def _principal_from_session_token(request: Request, token: str) -> Authent
         logout_request = request.method == "POST" and request.url.path in {
             "/logout", "/desktop/meetings",
         }
-        if not logout_request:
-            await record_session_activity(db, session, device)
         await db.commit()
+        if not logout_request:
+            # Scope/device dependencies may still reject this request. Renew only
+            # after the final response proves those checks completed successfully.
+            request.state.auth_session_renewal = (token, session, device, TenantDatabaseContext(
+                organization_id=user.organization_id, workspace_id=session.workspace_id,
+                user_id=user.id, auth_session_id=session.id,
+                device_id=device.id if device is not None else None,
+            ))
         apply_user_time_preference(user_id=user.id, session_id=session.id, timezone=user.timezone)
         return AuthenticatedPrincipal(
             user_id=user.id,
