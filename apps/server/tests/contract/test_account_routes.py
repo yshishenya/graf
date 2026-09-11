@@ -997,7 +997,7 @@ def test_unverified_identity_surface_never_renders_an_unverified_email_as_login(
         ),
     )
 
-    assert "Подтверждённый email не раскрывается в этой сессии." in page
+    assert "Email можно проверить в способах входа." in page
     assert "Проверка не завершена" in page
     assert "Подключённых способов входа пока нет." not in page
     assert (

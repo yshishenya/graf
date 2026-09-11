@@ -41,7 +41,7 @@ def test_settings_provider_link_actions_share_browser_and_embedded_contract() ->
     assert 'name="csrf_token" value="safe-csrf"' in embedded
     for page in (browser, embedded):
         assert "Способы входа" in page
-        assert "Подключённые провайдеры относятся к вашему аккаунту" in page
+        assert "Используйте любой из подключённых способов." in page
         assert "provider_subject" not in page
         assert "candidate_email" not in page
         assert "candidate_phone" not in page
