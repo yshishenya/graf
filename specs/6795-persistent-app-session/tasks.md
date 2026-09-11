@@ -22,9 +22,9 @@ FR-001/002/003/004/006 → T002/T003; FR-003/004/005 → T004; FR-007, SC-001/00
 
 ## GitHub issues
 
-- T001: https://github.com/yshishenya/graf/issues/6931
-- T002: https://github.com/yshishenya/graf/issues/6932
-- T003: https://github.com/yshishenya/graf/issues/6933
-- T004: https://github.com/yshishenya/graf/issues/6934
-- T005: https://github.com/yshishenya/graf/issues/6935
-- T006: https://github.com/yshishenya/graf/issues/6936
+- T001 (Issue #6931): https://github.com/yshishenya/graf/issues/6931
+- T002 (Issue #6932): https://github.com/yshishenya/graf/issues/6932
+- T003 (Issue #6933): https://github.com/yshishenya/graf/issues/6933
+- T004 (Issue #6934): https://github.com/yshishenya/graf/issues/6934
+- T005 (Issue #6935): https://github.com/yshishenya/graf/issues/6935
+- T006 (Issue #6936): https://github.com/yshishenya/graf/issues/6936
