@@ -4,7 +4,7 @@ import TwoBrainRecShared
 
 public struct MeetingDetectionSettingsView: View {
     public static let windowTitle = "Настройки"
-    public static let windowSize = NSSize(width: 820, height: 600)
+    public static let windowSize = NSSize(width: 1040, height: 800)
     public static let pageTitle = "Автозапись"
     public static let autoRecordSectionTitle = "Приложения"
     public static let applyToAllTitle = "Для всех приложений"
@@ -124,19 +124,21 @@ public struct MeetingDetectionSettingsView: View {
                     } else if filteredTargets.isEmpty {
                         Text("Приложения не найдены. Измените поиск.").foregroundStyle(.secondary)
                     } else {
-                        ForEach(filteredTargets, id: \.id) { target in
-                            HStack(spacing: 12) {
-                                Text(target.displayName)
-                                    .fontWeight(.medium)
-                                    .fixedSize(horizontal: false, vertical: true)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                AutomaticRecordingRulePicker(
-                                    title: target.displayName,
-                                    selection: ruleBinding(for: target.id)
-                                )
+                        VStack(spacing: 0) {
+                            ForEach(filteredTargets, id: \.id) { target in
+                                HStack(spacing: 12) {
+                                    Text(target.displayName)
+                                        .fontWeight(.medium)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                    AutomaticRecordingRulePicker(
+                                        title: target.displayName,
+                                        selection: ruleBinding(for: target.id)
+                                    )
+                                }
+                                .frame(minHeight: 40)
+                                Divider()
                             }
-                            .frame(minHeight: 48)
-                            Divider()
                         }
                     }
                 }

@@ -29,3 +29,13 @@ Native tests проверяют AppKit delegate/action, а не реальный
 Проверены spec/plan/tasks/constitution и текущий код. Новых обязательных работ по реализации не обнаружено; все найденные требования имеют реализацию/локальные проверки. T005 завершён, T006 остаётся открытой задачей приёмки: коммит после отдельного разрешения, установка GRAF Dev через harness, системное меню/VoiceOver, затем exact-SHA PR governance-fast. Полная приёмка фичи и release не объявляются. Существующая T006 покрывает остаток, дублирующая convergence task не создаётся.
 
 Shared Dev status (read-only): active feature 6792, SHA `d73d9087f609e6c0e33de8238174e49e242218ad`, manifest `dev-d73d9087f609`; эта версия не содержит F6793. До разрешения коммита стенд не обновлялся.
+
+## Установленная проверка кандидата 65dccbaa567e
+Коммит/push и promote выполнены по разрешению пользователя «делай». GRAF Dev manifest dev-65dccbaa567e, SHA `65dccbaa567ee26a7d1c6ffb430bcc5de9d45af5`, promote 2026-09-11T13:52:08Z, harness health 13/13 PASS. GitHub governance-fast run 34606466186 и pr-metadata 34606466213 — PASS на этом SHA (первый metadata run требовал исправления формата SHA в PR body).
+
+В установленном WKWebView: timezone Москва → Escape вернул Екатеринбург; приложения zoom → две строки, mouse/Enter выбор, очистка вернула каталог; Ник → Никогда в правиле Zoom, Escape отменил; шаблон Протокол фильтруется; язык no-match/очистка, подробность Кратко выбрана Enter в отменённом черновике; напоминание начал → В момент начала, Escape отменил. Доступные имена/expanded состояния видны через AX.
+
+Для штатного fallback на 45 секунд приостановлен только graf-dev-api-1 с гарантированным unpause; API восстановлен и healthy, кабинет снова открылся. Установленная native проверка нашла ошибки: Enter не закрывал редактируемое меню, выбор через стрелку мог не сохраняться, фокус не раскрывал список. Эти ошибки исправлены в последующем diff; T006 остаётся открытым до повторной установленной проверки. Независимый native review не нашёл новых замечаний, но подтверждение реальных событий остаётся за установленным тестом. VoiceOver speech пока не проверялся.
+
+## Повторные проверки после native исправления и дополнения размера
+NSComboBox использует AXShowMenu у cell; Return/Escape передаются AppKit; завершённый выбор DidChange отделён от промежуточного IsChanging, programmatic selection защищён. Native focused regression 60/60 PASS, дополнительный итоговый набор NativeSettingsComboBox/AppLifecycleWindowRegression/AppControlAccessibility/оба EmbeddedCabinet bridge — 46/46 PASS. WebKit settings-combobox PASS после изменения плотности строк. Размер/отступы пока требуют установленной проверки T007 вместе с T006.

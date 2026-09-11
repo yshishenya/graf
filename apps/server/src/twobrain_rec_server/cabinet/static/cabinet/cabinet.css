@@ -6142,7 +6142,7 @@ html[data-theme="light"] .detail-playback {
 .settings-page .settings-section h2, .calendar-settings .settings-section h2 { font-size: 15px; line-height: 1.4; margin: 0; }
 .settings-page .settings-control-list { width: 100%; }
 .settings-page .settings-control-row { min-height: 58px; gap: 16px; border-bottom: 0; }
-.settings-page [data-recording-settings-targets] .settings-control-row { min-height: 48px; }
+.settings-page [data-recording-settings-targets] .settings-control-row { min-height: 44px; padding-block: 4px; }
 .settings-page .settings-control-row:has(select) { grid-template-columns: minmax(0, 1fr) 172px; }
 .settings-page .settings-control-row select { width: 172px; min-height: 32px; padding-block: 4px; }
 .settings-page .settings-control-row__title { font-size: 13px; font-weight: 500; overflow-wrap: anywhere; }

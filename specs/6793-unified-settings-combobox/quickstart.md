@@ -5,3 +5,5 @@
 4. Проверить diff и независимый review; записать команды/результаты без приватных данных в validation/receipt.md.
 5. После разрешения коммита: harness status → build → promote → status → smoke, проверка выбора в /Applications/GRAF Dev.app. До этого installed acceptance pending.
 6. PR governance-fast строго на SHA; release-full только для будущего frozen release, deploy отдельно.
+
+7. Резервное окно: начальный размер в пределах экрана, переключение Запись → Уведомления → Запись без уменьшения; поля уведомлений доступны, длинные имена приложений переносятся, строки компактны.
