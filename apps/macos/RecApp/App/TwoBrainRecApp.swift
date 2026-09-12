@@ -157,7 +157,8 @@ private struct ContentView: View {
     @State private var systemAudioCaptureService = SystemAudioCaptureService(
         runtimeStartFailureLogger: { detail in
             AppLog.writeRaw(event: "system_audio.runtime_start_failed", detail: detail)
-        }
+        },
+        diagnosticLogger: AppLog.writeCaptureTiming
     )
     @State private var microphoneCaptureService = MicrophoneCaptureService()
     @State private var systemAudioPermissionAuthorizer = CoreGraphicsSystemAudioPermissionAuthorizer()
@@ -1950,7 +1951,8 @@ private struct ContentView: View {
             localRecordingWriter = LocalRecordingWriter(
                 microphoneSampleSourceFactory: { microphoneSource },
                 incomingSampleSourceFactory: { incomingSource },
-                recordMicrophone: true
+                recordMicrophone: true,
+                diagnosticLogger: AppLog.writeCaptureTiming
             )
             let directory = try await localRecordingWriter.startAsync(
                 sessionId: starting.id,
@@ -3645,6 +3647,12 @@ private enum AppLog {
 
     static func writeRaw(event: String, detail: String) {
         writeLine("\(timestamp()) event=\(event) detail=\(sanitize(detail))\n")
+    }
+
+    static func writeCaptureTiming(_ detail: String) {
+        DispatchQueue.global(qos: .utility).async {
+            writeRaw(event: "capture.timing_anomaly", detail: detail)
+        }
     }
 
     private static func sanitize(_ detail: String) -> String {

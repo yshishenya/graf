@@ -194,6 +194,7 @@ public final class RecordingAudioTimeline: @unchecked Sendable {
     private let configuration: RecordingAudioTimelineConfiguration
     private let processEchoFrame: ([Float], [Float]) throws -> [Float]
     private let frameSink: (RecordingAudioTimelineChunk) throws -> Void
+    private let diagnosticLogger: ((String) -> Void)?
     private var pendingBootstrapBatches: [(source: RecordingAudioInput, batch: RecordingAudioBatch)] = []
     private var states: [RecordingAudioInput: SourceState] = [:]
     private var observedRouteGenerations: [RecordingAudioInput: Int] = [:]
@@ -208,22 +209,26 @@ public final class RecordingAudioTimeline: @unchecked Sendable {
 
     public init(
         configuration: RecordingAudioTimelineConfiguration = .init(),
+        diagnosticLogger: ((String) -> Void)? = nil,
         echoProcessor: RecordingEchoProcessor,
         frameSink: @escaping (RecordingAudioTimelineChunk) throws -> Void = { _ in }
     ) {
         self.configuration = configuration
         self.processEchoFrame = echoProcessor.process
         self.frameSink = frameSink
+        self.diagnosticLogger = diagnosticLogger
     }
 
     init(
         configuration: RecordingAudioTimelineConfiguration = .init(),
+        diagnosticLogger: ((String) -> Void)? = nil,
         processEchoFrame: @escaping ([Float], [Float]) throws -> [Float],
         frameSink: @escaping (RecordingAudioTimelineChunk) throws -> Void = { _ in }
     ) {
         self.configuration = configuration
         self.processEchoFrame = processEchoFrame
         self.frameSink = frameSink
+        self.diagnosticLogger = diagnosticLogger
     }
 
     /// Adds a source batch without ever deriving time from the drain order.
@@ -523,10 +528,10 @@ public final class RecordingAudioTimeline: @unchecked Sendable {
            ) == nil {
             reportedTimingGap = true
             // Relative frame positions only; never log source PTS or audio.
-            NSLog("recording_timeline_gap source=%@ expected_frame=%lld requested_frame=%lld input_frames=%ld converted_frames=%ld rate=%g channels=%ld continuous=%d",
+            diagnosticLogger?(String(format: "recording_timeline_gap source=%@ expected_frame=%lld requested_frame=%lld input_frames=%ld converted_frames=%ld rate=%g channels=%ld continuous=%d",
                   source.rawValue, expectedStart, requestedStart,
                   batch.samples.count / batch.format.channelCount, canonicalSamples.count,
-                  batch.format.sampleRate, batch.format.channelCount, batch.discontinuity == .none ? 1 : 0)
+                  batch.format.sampleRate, batch.format.channelCount, batch.discontinuity == .none ? 1 : 0))
         }
         try appendCanonicalSamples(
             canonicalSamples,

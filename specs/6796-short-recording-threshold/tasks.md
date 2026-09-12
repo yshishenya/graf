@@ -49,6 +49,6 @@ T006: exact-SHA CI и установка выполнены для 8f68e8697497;
 
 ## Phase 6: Диагностика блокера приёмки
 
-- [ ] T008 Зафиксировать первую техническую аномалию источника в `apps/macos/RecApp/Sources/Capture/SystemAudioCaptureService.swift` и разрыв в `RecordingAudioTimeline.swift`, проверить сохранение префикса в `apps/macos/Shared/Tests/RecordingAudioTimelineTests.swift`, выполнить профильные проверки/review/CI и получить метаданные штатного GRAF Dev для классификации `render_reference_missing`; записать результат в `validation.md`. До изменения механизма захвата установить причину. Зависит от T007, предшествует завершению T006.
+- [ ] T008 Зафиксировать первую техническую аномалию источника в `apps/macos/RecApp/Sources/Capture/SystemAudioCaptureService.swift` и разрыв в `RecordingAudioTimeline.swift`, подключить существующий AppLog через `V5LocalRecordingWriter.swift` и `App/TwoBrainRecApp.swift`, проверить сохранение префикса в `apps/macos/Shared/Tests/RecordingAudioTimelineTests.swift`, выполнить профильные проверки/review/CI и получить метаданные штатного GRAF Dev для классификации `render_reference_missing`; записать результат в `validation.md`. До изменения механизма захвата установить причину. Зависит от T007, предшествует завершению T006.
 
 T008: https://github.com/yshishenya/graf/issues/6954

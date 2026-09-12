@@ -66,15 +66,29 @@ Lane остаётся high-risk-feature (capture/diagnostics). Constitution chec
 В ScreenCaptureKitSystemAudioRuntime хранить предыдущие PTS и числа
 объявленных/декодированных кадров только в памяти, только на serial outputQueue.
 Сброс на start до регистрации callbacks. При первом nil extraction, расхождении
-числа кадров или интервала больше 1 ms написать ограниченное событие NSLog.
+числа кадров или интервала больше 1 ms передать ограниченное событие в существующий AppLog через переданный обработчик.
 В RecordingAudioTimeline.process при первом промежутке больше существующего
 допуска записать относительные expected/requested frame, источник, формат,
 размер batch/converted batch и discontinuity. Срабатывает до существующей
 проверки, без изменения samples или результативной ветви ошибки.
 
-Файлы: SystemAudioCaptureService.swift, RecordingAudioTimeline.swift и
+Файлы: SystemAudioCaptureService.swift, RecordingAudioTimeline.swift, V5LocalRecordingWriter.swift, App/TwoBrainRecApp.swift и
 Shared/Tests/RecordingAudioTimelineTests.swift. Проверить прежний целый
 префикс при gap >48 и отсутствие новых ошибок на непрерывном потоке; выполнить
 профильные timeline/system extractor/short recording tests, code review, CI,
 штатные build/promote и контролируемую реальную запись после handback Dev.
 Результат T008 — доказанная классификация сбоя, а не автоматическое снятие T006.
+
+Уточнение по наблюдаемости: NSLog виден в stderr теста, но контрольный
+запуск не появился в доступном unified log. Использовать существующий
+AppLog/BoundedLogFileWriter через optional diagnosticLogger в конструкторах
+writer/timeline и system runtime/service. Путь, лимиты и очистка существующего
+журнала не меняются. В тесте timeline передать collector и проверить ровно
+одно сообщение с предусмотренными полями. Это заменяет NSLog, не добавляет
+второй журнал и не отправляет метаданные.
+
+Обработчик AppLog не выполняет файловых операций на очередях захвата: готовая
+ограниченная строка асинхронно передаётся на DispatchQueue.global(qos: .utility),
+где вызывается существующий writeRaw. Флаг бюджета выставляется до callback
+на исходной serial queue. Callback nonthrowing, optional default nil.
+Reviewer подтвердил применимость CHK012–014 при этом уточнении.

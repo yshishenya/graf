@@ -24,6 +24,7 @@ public final class LocalRecordingWriter: @unchecked Sendable {
     private let microphoneSampleSourceFactory: @Sendable () -> TimestampedLocalRecordingSampleSource?
     private let incomingSampleSourceFactory: @Sendable () -> TimestampedLocalRecordingSampleSource?
     private let recordMicrophone: Bool
+    private let diagnosticLogger: (@Sendable (String) -> Void)?
     private let queue = DispatchQueue(label: "pro.2brain.graf.v5-local-recording-writer", qos: .userInitiated)
     private let interruptionLock = NSLock()
     private var interruptionRequested = false
@@ -41,13 +42,15 @@ public final class LocalRecordingWriter: @unchecked Sendable {
         manifestService: LocalRecordingManifestService = LocalRecordingManifestService(),
         microphoneSampleSourceFactory: @escaping @Sendable () -> TimestampedLocalRecordingSampleSource? = { nil },
         incomingSampleSourceFactory: @escaping @Sendable () -> TimestampedLocalRecordingSampleSource? = { nil },
-        recordMicrophone: Bool = true
+        recordMicrophone: Bool = true,
+        diagnosticLogger: (@Sendable (String) -> Void)? = nil
     ) {
         self.store = store
         self.manifestService = manifestService
         self.microphoneSampleSourceFactory = microphoneSampleSourceFactory
         self.incomingSampleSourceFactory = incomingSampleSourceFactory
         self.recordMicrophone = recordMicrophone
+        self.diagnosticLogger = diagnosticLogger
     }
 
     public var isRecording: Bool {
@@ -223,7 +226,7 @@ public final class LocalRecordingWriter: @unchecked Sendable {
             let incomingSource = incomingSampleSourceFactory()
             let canonicalWriter = try CanonicalRecordingWriter(directory: directory)
             let echoProcessor = try RecordingEchoProcessor()
-            let timeline = RecordingAudioTimeline(echoProcessor: echoProcessor) { [canonicalWriter] chunk in
+            let timeline = RecordingAudioTimeline(diagnosticLogger: diagnosticLogger, echoProcessor: echoProcessor) { [canonicalWriter] chunk in
                 try canonicalWriter.append(chunk)
             }
             try manifestService.write(
