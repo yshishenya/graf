@@ -45,6 +45,6 @@ T012 → T011. GitHub owner T012: https://github.com/yshishenya/graf/issues/6924
 T013/T014 → T011. GitHub owner: https://github.com/yshishenya/graf/issues/6924.
 
 ## Phase 8: Convergence GitHub CI
-- [ ] T015 Уточнить проверку единственного обработчика шкалы записи в `apps/server/tests/contract/test_cabinet_static_assets_contract.py`: допускать независимый resize обработчик списка настроек, сохранив проверки границ/повторного подключения; выполнить связанные проверки настроек и exact-SHA GitHub CI (FR-008, FR-011).
+- [X] T015 Уточнить проверку единственного обработчика шкалы записи в `apps/server/tests/contract/test_cabinet_static_assets_contract.py`: допускать независимый resize обработчик списка настроек, сохранив проверки границ/повторного подключения; выполнить связанные проверки настроек и exact-SHA GitHub CI (FR-008, FR-011).
 
 GitHub owner T015: https://github.com/yshishenya/graf/issues/6924.

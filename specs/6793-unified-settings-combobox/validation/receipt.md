@@ -154,3 +154,10 @@ CodeSHA0ec9eed61cf35a7ba4869e17db01a9a3d1a05395 собран и установл
 T015 изменяет только assertion теста: ровно один именованный resizeSpeakerTimelines; проверка неизменности общего количества после htmx swap, единственный keydown, границы и позиция воспроизведения сохранены. Production код не меняется. Независимый reviewer подтвердил исправление и отдельно запустил5 Node сценариев one/two/fit/overflow/viewport: PASS. Полный выбранный набор cabinetstatic/settingscontract/viewmodels:112PASS. Требуется повторный exact-SHA GitHub CI после этого test-only исправления.
 
 На три обсуждения review добавлены ответы с codeSHA и границами доказательств; code/Ponytail review PASS. Установленная приёмка остаётся обязательной: в соседней CUA сессии read/Raise выполняются, click снова недоступен. Ни этот сбой инструмента, ни unit callback не доказывают успешное нажатие в установленном приложении.
+
+## Итог проверки замечаний review
+GitHub governance-fast [34720119849](https://github.com/yshishenya/graf/actions/runs/34720119849) и pr-metadata [34720119892](https://github.com/yshishenya/graf/actions/runs/34720119892) PASS на7f5bb2c03e54488ab48bffe4e27214763f29a260. T015 выполнена. Все3 исходных review threads разрешены после исправлений, регрессий и независимого review; новые блокирующие code findings не найдены. С origin/master нет отставания.
+
+Активный installed production-code SHA0ec9eed61cf35a7ba4869e17db01a9a3d1a05395: build/promote/final smoke13/13PASS. Коммит7f5 и последующий отчёт меняют только тесты/метаданные, не исходники приложения. Сборка оставлена в единственном GRAF Dev, настройки не изменялись.
+
+T011/T012 остаются открыты: повторно подтверждено отсутствие вызываемого CUA click действия в root и независимой задаче, при работающем read/Raise. Это ограничение инструмента, не причина повторно просить unlock. Живые mouseDown/AXPress/ввод и окончательные темы/края требуют установленной проверки; PR не объявляется готовым к включению в релиз до неё. Публикация, merge и production deploy не выполнялись.
