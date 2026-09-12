@@ -97,6 +97,8 @@ main "$2"
         str(LOCAL_CI),
         mode,
         env={
+            # This fixture owns its synthetic diff; explicit test overrides follow.
+            "GRAF_CI_BASE_REF": "",
             "GRAF_PERFORMANCE_GATE": "auto",
             "GRAF_TEST_CHANGED_FILES": changed_files,
             "GRAF_TEST_DIFF_AVAILABLE": str(diff_available).lower(),
@@ -422,7 +424,8 @@ def test_explicit_fast_never_escalates_to_full(changed_files: str) -> None:
     assert "effective=full" not in result.stdout
 
 
-def test_unknown_and_unavailable_diffs_report_partial_fast_coverage() -> None:
+def test_unknown_and_unavailable_diffs_report_partial_fast_coverage(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GRAF_CI_BASE_REF", "a" * 40)
     unknown = run_stubbed_ci("unknown/surface.bin", "--fast")
     unavailable = run_stubbed_ci("", "--fast", diff_available=False)
 
