@@ -25,6 +25,14 @@ public final class LocalRecordingWriter: @unchecked Sendable {
     private let incomingSampleSourceFactory: @Sendable () -> TimestampedLocalRecordingSampleSource?
     private let recordMicrophone: Bool
     private let queue = DispatchQueue(label: "pro.2brain.graf.v5-local-recording-writer", qos: .userInitiated)
+    private let interruptionLock = NSLock()
+    private var interruptionRequested = false
+
+    /// May interrupt an in-flight Stop without waiting behind its writer queue.
+    public func preserveRecordingForInterruption() {
+        interruptionLock.withLock { interruptionRequested = true }
+    }
+
     private var active: V5ActiveRecording?
     private var lastFinalizedManifest: LocalRecordingManifest?
 
@@ -152,21 +160,24 @@ public final class LocalRecordingWriter: @unchecked Sendable {
 
     public func stop(
         stoppedAt: Date = Date(),
-        failureReason: LocalRecordingFailureReason = .none
+        failureReason: LocalRecordingFailureReason = .none,
+        stopReason: RecordingStopReason? = nil
     ) throws -> LocalRecordingManifest {
-        try queue.sync { try stopOnQueue(stoppedAt: stoppedAt, failureReason: failureReason) }
+        try queue.sync { try stopOnQueue(stoppedAt: stoppedAt, failureReason: failureReason, stopReason: stopReason) }
     }
 
     public func stopAsync(
         stoppedAt: Date = Date(),
-        failureReason: LocalRecordingFailureReason = .none
+        failureReason: LocalRecordingFailureReason = .none,
+        stopReason: RecordingStopReason? = nil
     ) async throws -> LocalRecordingManifest {
         try await withCheckedThrowingContinuation { continuation in
             queue.async {
                 do {
                     continuation.resume(returning: try self.stopOnQueue(
                         stoppedAt: stoppedAt,
-                        failureReason: failureReason
+                        failureReason: failureReason,
+                        stopReason: stopReason
                     ))
                 } catch {
                     continuation.resume(throwing: error)
@@ -197,6 +208,7 @@ public final class LocalRecordingWriter: @unchecked Sendable {
     ) throws -> LocalRecordingDirectory {
         guard active == nil else { throw LocalRecordingWriterError.alreadyRecording }
         lastFinalizedManifest = nil
+        interruptionLock.withLock { interruptionRequested = false }
         let directory: LocalRecordingDirectory
         do {
             directory = try store.createDirectory(sessionId: sessionId)
@@ -277,7 +289,8 @@ public final class LocalRecordingWriter: @unchecked Sendable {
 
     private func stopOnQueue(
         stoppedAt: Date,
-        failureReason: LocalRecordingFailureReason
+        failureReason: LocalRecordingFailureReason,
+        stopReason: RecordingStopReason?
     ) throws -> LocalRecordingManifest {
         guard let active else {
             if let lastFinalizedManifest {
@@ -350,7 +363,7 @@ public final class LocalRecordingWriter: @unchecked Sendable {
                 evidenceCodes: stream.frameCount > 0 ? ["app_owned_pts_capture"] : ["no_timestamped_mic_frames"]
             )
         }
-        let manifest = manifestService.v5Manifest(
+        var manifest = manifestService.v5Manifest(
             sessionId: active.sessionId,
             directoryId: active.directory.directoryId,
             startedAt: active.startedAt,
@@ -374,6 +387,9 @@ public final class LocalRecordingWriter: @unchecked Sendable {
                 artifactAvailable: artifact != nil
             )
         )
+        interruptionLock.withLock {
+            manifest.applyShortRecordingPolicy(stopReason: interruptionRequested ? nil : stopReason)
+        }
         try manifestService.write(manifest, to: active.directory.manifestURL)
         lastFinalizedManifest = manifest
         return manifest

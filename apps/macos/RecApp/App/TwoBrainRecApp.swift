@@ -171,6 +171,7 @@ private struct ContentView: View {
     @State private var selectedRecordingMicrophoneDeviceId: String?
     @State private var recordingMicrophoneSelection: RecordingMicrophoneSelection?
     @State private var activeMicrophoneSampleSource: AppOwnedMicrophoneSampleSource?
+    @State private var recordingNotice = DesktopRecordingNoticePresenter()
     @State private var desktopUploadQueueService = DesktopUploadQueueService()
     @State private var deletionSyncInProgress = false
     @State private var recordingDeletionOperations: [RecordingDeletionOperation] = []
@@ -502,6 +503,7 @@ private struct ContentView: View {
             dismissMeetingDetectionPrompt()
             guard !terminationCleanupInProgress else { return }
             terminationCleanupInProgress = true
+            localRecordingWriter.preserveRecordingForInterruption()
             Task {
                 await releaseCaptureResourcesForAppExit()
                 await MainActor.run {
@@ -1762,6 +1764,7 @@ private struct ContentView: View {
         guard !permissionSetupBlocksRecording else {
             return .retryable(reason: "permission_setup_in_progress")
         }
+        recordingNotice.dismiss()
         refreshPermissionOnboarding(reason: "recording_start_preflight")
         guard effectivePermissionOnboardingStatus.isReady else {
             if meetingDetectionTarget == nil { presentPermissionSetup() }
@@ -2322,7 +2325,8 @@ private struct ContentView: View {
             activeMicrophoneSampleSource?.stop()
             activeMicrophoneSampleSource = nil
             let manifest = try await localRecordingWriter.stopAsync(
-                failureReason: systemAudioSession.failureReason
+                failureReason: systemAudioSession.failureReason,
+                stopReason: terminationCleanupInProgress ? nil : reason
             )
             let stopped = try captureController.completeStop()
             captureSession = stopped
@@ -2335,6 +2339,15 @@ private struct ContentView: View {
                 )
             )
             recordingBlocker = nil
+            if manifest.shortRecordingDiscarded == true {
+                localRecordingManifest = nil
+                uploadQueueItems.removeAll { $0.sessionId == manifest.sessionId && $0.directoryId == manifest.directoryId }
+                clearActiveCalendarMatchState()
+                recordingNotice.showShortRecordingDiscarded()
+                AppLog.writeRaw(event: "recording.short_discarded", detail: "reason=short_recording_threshold")
+                refreshUploadQueueAndProcess(reason: "short_recording_discarded")
+                return
+            }
             let localEvent: AuditEventName = switch manifest.status {
             case .saved:
                 .localRecordingSaved
@@ -2472,7 +2485,7 @@ private struct ContentView: View {
                 }
                 try? await service.refreshDeletionScope()
                 try? await Task.detached(priority: .utility) { try service.finishLocalOnlyDeletions() }.value
-                _ = try service.scanAndEnqueueCompletedRecordings()
+                _ = try await Task.detached(priority: .utility) { try service.scanAndEnqueueCompletedRecordings() }.value
                 _ = try service.applyRetentionExpiry()
                 var items = try await service.processDueItems { progressItems in
                     await MainActor.run {

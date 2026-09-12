@@ -6,6 +6,116 @@ import TwoBrainRecShared
 import XCTest
 
 final class LocalRecordingWriterSystemAudioTests: XCTestCase {
+    func testShortRecordingThresholdUsesFramesAndOnlyNormalStops() throws {
+        let root = makeSystemWriterRoot("short-threshold")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let microphone = BufferedLocalRecordingSampleSource(channelCount: 1)
+        let system = BufferedLocalRecordingSampleSource(channelCount: 1)
+        let writer = makeSystemV5Writer(root: root, microphone: microphone, system: system)
+        let directory = try writer.start(sessionId: "short", startedAt: Date(timeIntervalSince1970: 10),
+            scopeApproval: systemScopeApproval(), permissions: systemGrantedPermissions())
+        microphone.append(systemBatch(samples: Array(repeating: 0, count: 4_800), seconds: 100))
+        system.append(systemBatch(samples: Array(repeating: 0.2, count: 4_800), seconds: 100))
+        // Ten minutes of wall time still represents only 100 ms of audio.
+        let original = try writer.stop(stoppedAt: Date(timeIntervalSince1970: 610))
+        XCTAssertTrue(original.isComplete)
+        XCTAssertNil(original.shortRecordingDiscarded)
+        for reason in [RecordingStopReason.userRequested, .meetingEnded] {
+            for frames: Int64 in [479_999, 480_000, 480_001] {
+                var manifest = original
+                let index = try XCTUnwrap(manifest.tracks.firstIndex { $0.role == .mixedMeetingAudio })
+                manifest.tracks[index].frameCount = frames
+                manifest.applyShortRecordingPolicy(stopReason: reason)
+                XCTAssertEqual(manifest.shortRecordingDiscarded == true, frames < 480_000)
+            }
+        }
+        for reason: RecordingStopReason? in [nil, .failed, .appRestarted, .indicatorLost, .storageUnsafe] {
+            var manifest = original
+            manifest.applyShortRecordingPolicy(stopReason: reason)
+            XCTAssertNil(manifest.shortRecordingDiscarded)
+        }
+        for invalidRate in [0.0, -1, Double.nan, Double.infinity, 48_000] {
+            var manifest = original
+            manifest.tracks[0].sampleRate = invalidRate
+            manifest.applyShortRecordingPolicy(stopReason: .userRequested)
+            XCTAssertNil(manifest.shortRecordingDiscarded)
+        }
+        var damaged = original
+        damaged.captureFailureCode = "recording_recovered_after_interruption"
+        damaged.applyShortRecordingPolicy(stopReason: .userRequested)
+        XCTAssertNil(damaged.shortRecordingDiscarded)
+        var missingFrames = original
+        missingFrames.tracks[0].frameCount = 0
+        missingFrames.applyShortRecordingPolicy(stopReason: .userRequested)
+        XCTAssertNil(missingFrames.shortRecordingDiscarded)
+        XCTAssertNil(try LocalRecordingManifestService().read(from: directory.manifestURL).shortRecordingDiscarded)
+    }
+
+    func testShortRecordingDecisionIsPublishedWithFinalManifest() async throws {
+        for reason in [RecordingStopReason.userRequested, .meetingEnded, .failed] {
+            let root = makeSystemWriterRoot("short-final")
+            defer { try? FileManager.default.removeItem(at: root) }
+            let microphone = BufferedLocalRecordingSampleSource(channelCount: 1)
+            let system = BufferedLocalRecordingSampleSource(channelCount: 1)
+            let writer = makeSystemV5Writer(root: root, microphone: microphone, system: system)
+            let directory = try writer.start(sessionId: "short", startedAt: Date(timeIntervalSince1970: 10),
+                scopeApproval: systemScopeApproval(), permissions: systemGrantedPermissions())
+            microphone.append(systemBatch(samples: Array(repeating: 0, count: 4_800), seconds: 100))
+            system.append(systemBatch(samples: Array(repeating: 0.2, count: 4_800), seconds: 100))
+            let manifest = try await writer.stopAsync(stopReason: reason)
+            XCTAssertEqual(manifest.shortRecordingDiscarded == true, reason != .failed)
+            let persisted = try LocalRecordingManifestService().read(from: directory.manifestURL)
+            XCTAssertEqual(persisted.shortRecordingDiscarded, manifest.shortRecordingDiscarded)
+            XCTAssertEqual(persisted.status, manifest.status)
+            XCTAssertEqual(persisted.tracks, manifest.tracks)
+            XCTAssertTrue(FileManager.default.fileExists(atPath: directory.transcriptionAudioURL.path))
+            if reason != .failed { XCTAssertEqual(manifest.status, .blocked) }
+        }
+    }
+
+    func testShortRecordingBoundaryKeepsThirtySecondsFromTheFirstFrame() async throws {
+        let root = makeSystemWriterRoot("thirty-seconds")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let frameCount = 1_440_000
+        let microphone = BufferedLocalRecordingSampleSource(capacity: frameCount, channelCount: 1)
+        let system = BufferedLocalRecordingSampleSource(capacity: frameCount, channelCount: 1)
+        let writer = makeSystemV5Writer(root: root, microphone: microphone, system: system)
+        let directory = try writer.start(sessionId: "thirty", startedAt: Date(timeIntervalSince1970: 10),
+            scopeApproval: systemScopeApproval(), permissions: systemGrantedPermissions())
+        for second in stride(from: 0, to: 30, by: 5) {
+            microphone.append(systemBatch(samples: Array(repeating: 0, count: 240_000), seconds: Double(100 + second)))
+            system.append(systemBatch(samples: Array(repeating: 0.2, count: 240_000), seconds: Double(100 + second)))
+            try await Task.sleep(for: .milliseconds(200))
+        }
+        let manifest = try writer.stop(stopReason: .userRequested)
+        XCTAssertTrue(manifest.isComplete)
+        XCTAssertNil(manifest.shortRecordingDiscarded)
+        let audio = try XCTUnwrap(manifest.tracks.first { $0.role == .mixedMeetingAudio })
+        XCTAssertEqual(audio.frameCount, 480_000)
+        XCTAssertEqual(audio.timelineStartMs, 0)
+        let wav = try Data(contentsOf: directory.transcriptionAudioURL)
+        XCTAssertEqual(wav.count, 44 + 480_000 * 2)
+        XCTAssertTrue(wav.dropFirst(44).prefix(3_200).contains { $0 != 0 })
+    }
+
+    func testShortRecordingInterruptionDuringStopPreservesAudio() async throws {
+        let root = makeSystemWriterRoot("short-interrupted-stop")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let microphone = BufferedLocalRecordingSampleSource(channelCount: 1)
+        let system = InterruptingShortRecordingSource()
+        let writer = LocalRecordingWriter(store: LocalRecordingStore(rootURL: root),
+            microphoneSampleSourceFactory: { microphone }, incomingSampleSourceFactory: { system }, recordMicrophone: true)
+        let directory = try writer.start(sessionId: "interrupted-stop", startedAt: Date(timeIntervalSince1970: 10),
+            scopeApproval: systemScopeApproval(), permissions: systemGrantedPermissions())
+        microphone.append(systemBatch(samples: Array(repeating: 0, count: 4_800), seconds: 100))
+        system.base.append(systemBatch(samples: Array(repeating: 0.2, count: 4_800), seconds: 100))
+        system.writer = writer
+        let manifest = try await writer.stopAsync(stopReason: .userRequested)
+        XCTAssertTrue(manifest.isComplete)
+        XCTAssertNil(manifest.shortRecordingDiscarded)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: directory.transcriptionAudioURL.path))
+    }
+
     func testWriterUsesPTSInsteadOfWallClockStopPadding() throws {
         let root = makeSystemWriterRoot("v5-pts-duration")
         defer { try? FileManager.default.removeItem(at: root) }
@@ -46,7 +156,7 @@ final class LocalRecordingWriterSystemAudioTests: XCTestCase {
         )
         microphone.append(systemBatch(samples: Array(repeating: 0.4, count: 4_800), seconds: 100))
         system.append(systemBatch(samples: Array(repeating: 0.2, count: 4_800), seconds: 100))
-        let manifest = try writer.stop(stoppedAt: Date(timeIntervalSince1970: 11), failureReason: .captureFailed)
+        let manifest = try writer.stop(stoppedAt: Date(timeIntervalSince1970: 11), failureReason: .captureFailed, stopReason: .userRequested)
 
         XCTAssertEqual(manifest.status, .failed)
         XCTAssertEqual(manifest.failureReason, .captureFailed)
@@ -248,6 +358,21 @@ private func systemGrantedPermissions() -> SystemAudioPermissionSnapshot {
         systemAudio: .granted,
         evaluatedAt: Date(timeIntervalSince1970: 9)
     )
+}
+
+private final class InterruptingShortRecordingSource: TimestampedLocalRecordingSampleSource, @unchecked Sendable {
+    let base = BufferedLocalRecordingSampleSource(channelCount: 1)
+    private let lock = NSLock()
+    private weak var storedWriter: LocalRecordingWriter?
+    var writer: LocalRecordingWriter? {
+        get { lock.withLock { storedWriter } }
+        set { lock.withLock { storedWriter = newValue } }
+    }
+    var hasTimestampedOverflow: Bool { base.hasTimestampedOverflow }
+    func readTimestampedBatch(maximumFrameCount: Int) -> RecordingAudioBatch? {
+        writer?.preserveRecordingForInterruption()
+        return base.readTimestampedBatch(maximumFrameCount: maximumFrameCount)
+    }
 }
 
 private final class InfiniteTimestampedSampleSource: TimestampedLocalRecordingSampleSource, @unchecked Sendable {
