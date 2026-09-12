@@ -11,71 +11,86 @@ final class NativeSettingsComboBoxTests: XCTestCase {
         NativeSettingsComboBox.Option(id: "never", label: "Никогда"),
     ]
 
-    func testTypingAndArrowSelectionNeverSaveAndBlurRestoresSelectedLabel() {
+    private func type(_ text: String, in control: NativeSettingsComboBox.Control, coordinator: NativeSettingsComboBox.Coordinator) {
+        control.field.stringValue = text
+        coordinator.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: control.field))
+    }
+
+    func testTypingAndArrowsNeverSaveAndEscapeRestoresSelectedLabel() {
         var saved: [String] = []
         let owner = NativeSettingsComboBox(title: "Правило", options: options, selectedID: "ask") { saved.append($0) }
         let coordinator = owner.makeCoordinator()
-        let combo = NSComboBox()
-        coordinator.update(owner, control: combo, enabled: true)
-        combo.stringValue = "ВСЕ"
-        coordinator.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: combo))
+        let control = NativeSettingsComboBox.Control()
+        coordinator.update(owner, control: control, enabled: true)
+        type("ВСЕ", in: control, coordinator: coordinator)
         XCTAssertEqual(coordinator.visibleOptions.map(\.id), ["always"])
-        combo.selectItem(at: 0)
-        coordinator.comboBoxSelectionDidChange(Notification(name: NSComboBox.selectionDidChangeNotification, object: combo))
-        XCTAssertEqual(saved, [])
-        coordinator.controlTextDidEndEditing(Notification(name: NSControl.textDidEndEditingNotification, object: combo))
-        XCTAssertEqual(combo.stringValue, "Спрашивать")
-        XCTAssertEqual(saved, [])
+        XCTAssertTrue(coordinator.control(control.field, textView: NSTextView(), doCommandBy: #selector(NSResponder.moveDown(_:))))
+        XCTAssertEqual(coordinator.activeIndex, 0)
+        XCTAssertTrue(saved.isEmpty)
+        XCTAssertTrue(coordinator.control(control.field, textView: NSTextView(), doCommandBy: #selector(NSResponder.cancelOperation(_:))))
+        XCTAssertEqual(control.field.stringValue, "Спрашивать")
+        XCTAssertTrue(saved.isEmpty)
     }
 
-    func testExplicitChoiceUsesStableIDAndNoMatchCannotSave() {
+    func testReturnExplicitlySavesHighlightedOptionOnceAndCloses() {
         var saved: [String] = []
         let owner = NativeSettingsComboBox(title: "Правило", options: options, selectedID: "ask") { saved.append($0) }
         let coordinator = owner.makeCoordinator()
-        let combo = NSComboBox()
-        coordinator.update(owner, control: combo, enabled: true)
-        combo.stringValue = "все"
-        coordinator.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: combo))
-        coordinator.confirmSelection(in: combo)
+        let control = NativeSettingsComboBox.Control()
+        coordinator.update(owner, control: control, enabled: true)
+        coordinator.open()
+        XCTAssertTrue(coordinator.control(control.field, textView: NSTextView(), doCommandBy: #selector(NSResponder.moveDown(_:))))
+        XCTAssertEqual(coordinator.activeIndex, 1)
+        XCTAssertTrue(saved.isEmpty)
+        XCTAssertTrue(coordinator.control(control.field, textView: NSTextView(), doCommandBy: #selector(NSResponder.insertNewline(_:))))
         XCTAssertEqual(saved, ["always"])
-        combo.stringValue = "произвольное значение"
-        coordinator.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: combo))
-        coordinator.confirmSelection(in: combo)
+        XCTAssertEqual(control.field.stringValue, "Всегда")
+        XCTAssertFalse(control.field.isAccessibilityExpanded())
+        coordinator.choose(index: 1)
         XCTAssertEqual(saved, ["always"])
-        XCTAssertEqual(coordinator.numberOfItems(in: combo), 1)
-        XCTAssertEqual(coordinator.comboBox(combo, objectValueForItemAt: 0) as? String, "Ничего не найдено")
     }
 
-    func testCatalogUpdateKeepsInputAndRemovedChoiceCannotSave() {
+    func testOptionClickUsesStableIDWithDuplicateLabelsAndNoMatchCannotSave() {
+        var saved: [String] = []
+        let owner = NativeSettingsComboBox(title: "Шаблон", options: [.init(id: "one", label: "Общий"), .init(id: "two", label: "Общий")], selectedID: "one") { saved.append($0) }
+        let coordinator = owner.makeCoordinator()
+        let control = NativeSettingsComboBox.Control()
+        coordinator.update(owner, control: control, enabled: true)
+        coordinator.open()
+        coordinator.choose(index: 1)
+        XCTAssertEqual(saved, ["two"])
+        type("неизвестное значение", in: control, coordinator: coordinator)
+        XCTAssertTrue(coordinator.visibleOptions.isEmpty)
+        coordinator.choose(index: 0)
+        XCTAssertEqual(saved, ["two"])
+    }
+
+    func testCatalogUpdatePreservesInputAndRemovedChoiceCannotSave() {
         var saved: [String] = []
         var owner = NativeSettingsComboBox(title: "Правило", options: options, selectedID: "ask") { saved.append($0) }
         let coordinator = owner.makeCoordinator()
-        let combo = NSComboBox()
-        coordinator.update(owner, control: combo, enabled: true)
-        combo.stringValue = "все"
-        coordinator.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: combo))
+        let control = NativeSettingsComboBox.Control()
+        coordinator.update(owner, control: control, enabled: true)
+        type("все", in: control, coordinator: coordinator)
         owner.options.removeAll { $0.id == "always" }
-        coordinator.update(owner, control: combo, enabled: true)
-        XCTAssertEqual(combo.stringValue, "все")
+        coordinator.update(owner, control: control, enabled: true)
+        XCTAssertEqual(control.field.stringValue, "все")
         XCTAssertTrue(coordinator.visibleOptions.isEmpty)
-        coordinator.confirmSelection(in: combo)
+        coordinator.choose(index: 0)
         XCTAssertTrue(saved.isEmpty)
     }
 
     func testAppQuerySurvivesBlurAndClearRestoresEntireCatalog() {
         var query = ""
-        let binding = Binding(get: { query }, set: { query = $0 })
-        let owner = NativeSettingsComboBox(title: "Приложения", options: options, filter: binding)
+        let owner = NativeSettingsComboBox(title: "Приложения", options: options, filter: Binding(get: { query }, set: { query = $0 }))
         let coordinator = owner.makeCoordinator()
-        let combo = NSComboBox()
-        coordinator.update(owner, control: combo, enabled: true)
-        combo.stringValue = "все"
-        coordinator.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: combo))
-        coordinator.controlTextDidEndEditing(Notification(name: NSControl.textDidEndEditingNotification, object: combo))
+        let control = NativeSettingsComboBox.Control()
+        coordinator.update(owner, control: control, enabled: true)
+        type("все", in: control, coordinator: coordinator)
+        coordinator.controlTextDidEndEditing(Notification(name: NSControl.textDidEndEditingNotification, object: control.field))
         XCTAssertEqual(query, "все")
-        XCTAssertEqual(combo.stringValue, "все")
-        combo.stringValue = ""
-        coordinator.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: combo))
+        XCTAssertEqual(control.field.stringValue, "все")
+        type("", in: control, coordinator: coordinator)
         XCTAssertEqual(query, "")
         XCTAssertEqual(coordinator.visibleOptions.count, 3)
     }
@@ -84,141 +99,121 @@ final class NativeSettingsComboBoxTests: XCTestCase {
         var saved: [String] = []
         let owner = NativeSettingsComboBox(title: "Правило", options: options, selectedID: "ask") { saved.append($0) }
         let coordinator = owner.makeCoordinator()
-        let combo = NSComboBox()
-        coordinator.update(owner, control: combo, enabled: false)
-        coordinator.comboBoxWillPopUp(Notification(name: NSComboBox.willPopUpNotification, object: combo))
-        XCTAssertEqual(coordinator.visibleOptions.count, 3)
-        coordinator.confirmSelection(in: combo)
+        let control = NativeSettingsComboBox.Control()
+        coordinator.update(owner, control: control, enabled: false)
+        coordinator.open()
+        coordinator.choose(index: 1)
         XCTAssertTrue(saved.isEmpty)
-    }
-    func testArrowAndTabActionsDoNotSaveButReturnConfirms() throws {
-        var saved: [String] = []
-        let owner = NativeSettingsComboBox(title: "Правило", options: options, selectedID: "ask") { saved.append($0) }
-        let coordinator = owner.makeCoordinator()
-        let combo = NSComboBox()
-        coordinator.update(owner, control: combo, enabled: true)
-        combo.selectItem(at: 1)
-        for keyCode: UInt16 in [125, 126, 48, 53] {
-            for type: NSEvent.EventType in [.keyDown, .keyUp] {
-                let event = try XCTUnwrap(NSEvent.keyEvent(with: type, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: keyCode))
-                coordinator.handleSelectionAction(in: combo, event: event)
-            }
-        }
-        XCTAssertTrue(saved.isEmpty)
-        let enter = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil, characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36))
-        coordinator.handleSelectionAction(in: combo, event: enter)
-        XCTAssertEqual(saved, ["always"])
+        XCTAssertFalse(control.arrow.isEnabled)
+        XCTAssertFalse(control.field.isEnabled)
     }
 
-    func testEscapeRestoresSettingAndIMEEnterDoesNotConfirm() {
+    func testIMEEnterDoesNotConfirmAndTabRestoresWithoutBlockingTraversal() {
         var saved: [String] = []
         let owner = NativeSettingsComboBox(title: "Правило", options: options, selectedID: "ask") { saved.append($0) }
         let coordinator = owner.makeCoordinator()
-        let combo = NSComboBox()
+        let control = NativeSettingsComboBox.Control()
         let editor = NSTextView()
-        coordinator.update(owner, control: combo, enabled: true)
-        combo.stringValue = "все"
-        coordinator.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: combo))
+        coordinator.update(owner, control: control, enabled: true)
+        type("все", in: control, coordinator: coordinator)
         editor.setMarkedText("все", selectedRange: NSRange(location: 3, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
-        XCTAssertFalse(coordinator.control(combo, textView: editor, doCommandBy: #selector(NSResponder.insertNewline(_:))))
+        XCTAssertFalse(coordinator.control(control.field, textView: editor, doCommandBy: #selector(NSResponder.insertNewline(_:))))
         XCTAssertTrue(saved.isEmpty)
         editor.unmarkText()
-        XCTAssertFalse(coordinator.control(combo, textView: editor, doCommandBy: #selector(NSResponder.cancelOperation(_:))))
-        XCTAssertEqual(combo.stringValue, "Спрашивать")
+        XCTAssertFalse(coordinator.control(control.field, textView: editor, doCommandBy: #selector(NSResponder.insertTab(_:))))
+        XCTAssertEqual(control.field.stringValue, "Спрашивать")
         XCTAssertTrue(saved.isEmpty)
     }
 
-    func testReturnLeavesDismissalToAppKitAndOnlyItsActionConfirms() throws {
+    func testAppFilterReturnUsesChosenNameAndExternalCloseRetainsIt() {
         var query = ""
-        let owner = NativeSettingsComboBox(
-            title: "Приложения",
-            options: [.init(id: "zoom", label: "Zoom"), .init(id: "zoom-room", label: "Zoom Rooms")],
-            filter: Binding(get: { query }, set: { query = $0 })
-        )
+        let owner = NativeSettingsComboBox(title: "Приложения", options: [.init(id: "zoom", label: "Zoom"), .init(id: "rooms", label: "Zoom Rooms")], filter: Binding(get: { query }, set: { query = $0 }))
         let coordinator = owner.makeCoordinator()
-        let combo = NSComboBox()
-        coordinator.update(owner, control: combo, enabled: true)
-        combo.stringValue = "zoom"
-        coordinator.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: combo))
-        coordinator.comboBoxWillPopUp(Notification(name: NSComboBox.willPopUpNotification, object: combo))
-        combo.delegate = nil
-        combo.selectItem(at: 0)
-        combo.delegate = coordinator
-        coordinator.comboBoxSelectionIsChanging(Notification(name: NSComboBox.selectionIsChangingNotification, object: combo))
-        XCTAssertFalse(coordinator.control(combo, textView: NSTextView(), doCommandBy: #selector(NSResponder.insertNewline(_:))))
-        XCTAssertEqual(query, "zoom", "The delegate must not update SwiftUI while AppKit still handles Return")
-        let enter = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil, characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36))
-        coordinator.handleSelectionAction(in: combo, event: enter)
-        coordinator.comboBoxWillDismiss(Notification(name: NSComboBox.willDismissNotification, object: combo))
+        let control = NativeSettingsComboBox.Control()
+        coordinator.update(owner, control: control, enabled: true)
+        type("zoom", in: control, coordinator: coordinator)
+        XCTAssertTrue(coordinator.control(control.field, textView: NSTextView(), doCommandBy: #selector(NSResponder.moveDown(_:))))
+        XCTAssertTrue(coordinator.control(control.field, textView: NSTextView(), doCommandBy: #selector(NSResponder.insertNewline(_:))))
+        coordinator.close()
         XCTAssertEqual(query, "Zoom")
-        XCTAssertEqual(combo.stringValue, "Zoom")
+        XCTAssertEqual(control.field.stringValue, "Zoom")
     }
 
-    func testTabLeavesKeyViewTraversalToAppKitAndMouseStillConfirms() throws {
+    func testAccessibilityAndDetachHaveNoContextMenuOrCommitSideEffects() {
         var saved: [String] = []
         let owner = NativeSettingsComboBox(title: "Правило", options: options, selectedID: "ask") { saved.append($0) }
         let coordinator = owner.makeCoordinator()
-        let combo = NSComboBox()
-        coordinator.update(owner, control: combo, enabled: true)
-        combo.stringValue = "все"
-        coordinator.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: combo))
-        XCTAssertFalse(coordinator.control(combo, textView: NSTextView(), doCommandBy: #selector(NSResponder.insertTab(_:))))
-        coordinator.controlTextDidEndEditing(Notification(name: NSControl.textDidEndEditingNotification, object: combo))
-        XCTAssertEqual(combo.stringValue, "Спрашивать")
+        let control = NativeSettingsComboBox.Control()
+        coordinator.update(owner, control: control, enabled: true)
+        XCTAssertEqual(control.field.accessibilityRole(), .comboBox)
+        XCTAssertEqual(control.field.accessibilityLabel(), "Правило")
+        XCTAssertEqual(control.field.accessibilityLinkedUIElements()?.count, 1)
+        type("все", in: control, coordinator: coordinator)
+        coordinator.detach()
+        XCTAssertNil(control.field.onFocus)
+        XCTAssertNil(control.field.delegate)
         XCTAssertTrue(saved.isEmpty)
-        combo.selectItem(at: 1)
-        let mouse = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseUp, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 0))
-        coordinator.handleSelectionAction(in: combo, event: mouse)
-        XCTAssertEqual(saved, ["always"])
+        XCTAssertEqual(control.field.stringValue, "Спрашивать")
     }
-
-    func testPopupFinalSelectionSavesWithoutTargetActionAndIgnoresRefresh() {
+    func testRepeatedArrowsTraverseOptionsWithoutSavingOrResettingToCurrentSetting() {
         var saved: [String] = []
         let owner = NativeSettingsComboBox(title: "Правило", options: options, selectedID: "ask") { saved.append($0) }
         let coordinator = owner.makeCoordinator()
-        let combo = NSComboBox()
-        coordinator.update(owner, control: combo, enabled: true)
-        coordinator.comboBoxWillPopUp(Notification(name: NSComboBox.willPopUpNotification, object: combo))
-        coordinator.update(owner, control: combo, enabled: true)
-        XCTAssertTrue(saved.isEmpty, "Programmatic selectItem during refresh must not save")
-        combo.delegate = nil
-        combo.selectItem(at: 1)
-        combo.delegate = coordinator
-        coordinator.comboBoxSelectionIsChanging(Notification(name: NSComboBox.selectionIsChangingNotification, object: combo))
-        XCTAssertTrue(saved.isEmpty, "A highlight is not a choice")
-        // AppKit may announce dismissal before the final selection notification.
-        coordinator.comboBoxWillDismiss(Notification(name: NSComboBox.willDismissNotification, object: combo))
-        coordinator.comboBoxSelectionDidChange(Notification(name: NSComboBox.selectionDidChangeNotification, object: combo))
-        XCTAssertEqual(saved, ["always"])
-        coordinator.handleSelectionAction(in: combo, event: nil)
-        XCTAssertEqual(saved, ["always"], "An optional target action must not duplicate the completed choice")
+        let control = NativeSettingsComboBox.Control()
+        coordinator.update(owner, control: control, enabled: true)
+        coordinator.open()
+        for expected in [1, 2, 2] {
+            XCTAssertTrue(coordinator.control(control.field, textView: NSTextView(), doCommandBy: #selector(NSResponder.moveDown(_:))))
+            XCTAssertEqual(coordinator.activeIndex, expected)
+        }
+        XCTAssertTrue(saved.isEmpty)
+        XCTAssertTrue(coordinator.control(control.field, textView: NSTextView(), doCommandBy: #selector(NSResponder.insertNewline(_:))))
+        XCTAssertEqual(saved, ["never"])
+        XCTAssertEqual(control.field.stringValue, "Никогда")
     }
 
-    func testFocusOpensTheNativeCellMenuWithoutSendingASelectionAction() async {
-        let owner = NativeSettingsComboBox(title: "Правило", options: options, selectedID: "ask")
+    func testReturnAfterEscapeCannotSaveFirstOption() {
+        var saved: [String] = []
+        let owner = NativeSettingsComboBox(title: "Правило", options: options, selectedID: "never") { saved.append($0) }
         let coordinator = owner.makeCoordinator()
-        let combo = EditingComboBox()
-        let cell = ShowMenuCell()
-        combo.cell = cell
-        coordinator.update(owner, control: combo, enabled: true)
-        coordinator.controlTextDidBeginEditing(Notification(name: NSControl.textDidBeginEditingNotification, object: combo))
+        let control = NativeSettingsComboBox.Control()
+        coordinator.update(owner, control: control, enabled: true)
+        type("спра", in: control, coordinator: coordinator)
+        XCTAssertTrue(coordinator.control(control.field, textView: NSTextView(), doCommandBy: #selector(NSResponder.cancelOperation(_:))))
+        XCTAssertFalse(coordinator.control(control.field, textView: NSTextView(), doCommandBy: #selector(NSResponder.insertNewline(_:))))
+        XCTAssertEqual(control.field.stringValue, "Никогда")
+        XCTAssertTrue(saved.isEmpty)
+    }
+
+    func testAccessibleOptionPressUsesStableChoiceAndCannotSaveAfterClose() throws {
+        var saved: [String] = []
+        let owner = NativeSettingsComboBox(title: "Правило", options: options, selectedID: "ask") { saved.append($0) }
+        let coordinator = owner.makeCoordinator()
+        let control = NativeSettingsComboBox.Control()
+        coordinator.update(owner, control: control, enabled: true)
+        coordinator.open()
+        let option = try XCTUnwrap(coordinator.tableView(NSTableView(), viewFor: nil, row: 1))
+        XCTAssertEqual(option.accessibilityRole(), .button)
+        XCTAssertTrue(option.accessibilityPerformPress())
+        XCTAssertEqual(saved, ["always"])
+        XCTAssertEqual(control.field.stringValue, "Всегда")
+        _ = option.accessibilityPerformPress()
+        XCTAssertEqual(saved, ["always"])
+    }
+
+    func testBlurRestoresLabelAfterTheCurrentClickWithoutSaving() async {
+        var saved: [String] = []
+        let owner = NativeSettingsComboBox(title: "Правило", options: options, selectedID: "ask") { saved.append($0) }
+        let coordinator = owner.makeCoordinator()
+        let control = NativeSettingsComboBox.Control()
+        coordinator.update(owner, control: control, enabled: true)
+        type("все", in: control, coordinator: coordinator)
+        coordinator.controlTextDidEndEditing(Notification(name: NSControl.textDidEndEditingNotification, object: control.field))
         await withCheckedContinuation { continuation in
             DispatchQueue.main.async { continuation.resume() }
         }
-        XCTAssertEqual(cell.showMenuCalls, 1)
-    }
-
-    private final class EditingComboBox: NSComboBox {
-        let editor = NSTextView()
-        override func currentEditor() -> NSText? { editor }
-    }
-
-    private final class ShowMenuCell: NSComboBoxCell {
-        var showMenuCalls = 0
-        override func accessibilityPerformShowMenu() -> Bool {
-            showMenuCalls += 1
-            return true
-        }
+        XCTAssertEqual(control.field.stringValue, "Спрашивать")
+        XCTAssertTrue(saved.isEmpty)
     }
 
 }

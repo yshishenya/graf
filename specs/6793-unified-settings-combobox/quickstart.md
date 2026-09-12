@@ -7,3 +7,5 @@
 6. PR governance-fast строго на SHA; release-full только для будущего frozen release, deploy отдельно.
 
 7. Резервное окно: начальный размер в пределах экрана, переключение Запись → Уведомления → Запись без уменьшения; поля уведомлений доступны, длинные имена приложений переносятся, строки компактны.
+
+8. Dev prerequisite FR-010: `uv run --project apps/server --extra dev pytest tests/governance/test_graf_local_adapter.py tests/governance/test_dev_harness.py -q`; build сохраняет локальные датированные образы MinIO, отсутствие образа+ошибка registry прерывает сборку. Promote изменённого harness выполняется с чистым previous-checkout активного SHA, сохраняя runtime-definition gate.
