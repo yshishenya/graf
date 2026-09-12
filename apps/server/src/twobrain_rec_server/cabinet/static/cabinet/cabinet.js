@@ -6284,6 +6284,26 @@
   };
 
   const initSettingsConfirmations = () => {
+    document.querySelectorAll("[data-session-confirmation]").forEach((panel) => {
+      if (panel.dataset.confirmReady === "true") return;
+      panel.dataset.confirmReady = "true";
+      const cancel = () => {
+        const target = document.getElementById(panel.dataset.returnFocus) || document.getElementById("account-sessions-title");
+        panel.remove();
+        target?.focus();
+      };
+      panel.querySelector("[data-session-cancel]")?.addEventListener("click", (event) => {
+        if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+        event.preventDefault();
+        cancel();
+      });
+      panel.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape") return;
+        event.preventDefault();
+        event.stopPropagation();
+        cancel();
+      });
+    });
     document.querySelectorAll("[data-confirm]").forEach((button) => {
       if (button.dataset.confirmReady === "true") return;
       button.dataset.confirmReady = "true";

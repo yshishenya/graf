@@ -319,6 +319,7 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
     private let decoder: JSONDecoder
     private let authSessionTokenProvider: @Sendable (URL) -> String?
     private let requestExecutor: @Sendable (URLRequest) async throws -> (Data, URLResponse)
+    private let sessionRenewalHandler: @Sendable (URLRequest, URLResponse, UInt64) async -> Void
 
     public init(
         baseURL: URL,
@@ -342,13 +343,17 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         headers: [String: String],
         partSizeBytes: Int,
         authSessionTokenProvider: @escaping @Sendable (URL) -> String?,
-        requestExecutor: @escaping @Sendable (URLRequest) async throws -> (Data, URLResponse)
+        requestExecutor: @escaping @Sendable (URLRequest) async throws -> (Data, URLResponse),
+        sessionRenewalHandler: @escaping @Sendable (URLRequest, URLResponse, UInt64) async -> Void = { request, response, generation in
+            await DesktopCabinetSessionBridge.renewAuthSessionCookies(request: request, response: response, expectedGeneration: generation)
+        }
     ) {
         self.baseURL = baseURL
         self.headers = headers
         self.partSizeBytes = max(64 * 1024, partSizeBytes)
         self.authSessionTokenProvider = authSessionTokenProvider
         self.requestExecutor = requestExecutor
+        self.sessionRenewalHandler = sessionRenewalHandler
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         self.encoder = encoder
@@ -783,7 +788,7 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         scopedHeaders["X-Graf-Expected-Actor"] = scope.actorUserID
         scopedHeaders["X-Graf-Expected-Workspace"] = scope.workspaceID
         return Self(baseURL: baseURL, headers: scopedHeaders, partSizeBytes: partSizeBytes,
-                    authSessionTokenProvider: authSessionTokenProvider, requestExecutor: requestExecutor)
+                    authSessionTokenProvider: authSessionTokenProvider, requestExecutor: requestExecutor, sessionRenewalHandler: sessionRenewalHandler)
     }
 
     public func requestRecordingDeletion(_ operation: RecordingDeletionOperation) async throws -> RecordingDeletionReceipt {
@@ -972,7 +977,7 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await requestExecutor(request)
+            (data, response) = try await execute(request)
         } catch {
             throw DesktopUploadClientError.httpStatus(503, "network_unavailable")
         }
@@ -1427,11 +1432,18 @@ public struct DesktopUploadClient: DesktopUploadClientProtocol {
         return request
     }
 
+    private func execute(_ request: URLRequest) async throws -> (Data, URLResponse) {
+        let generation = await DesktopCabinetSessionBridge.generation
+        let result = try await requestExecutor(request)
+        await sessionRenewalHandler(request, result.1, generation)
+        return result
+    }
+
     private func perform<T: Decodable>(_ request: URLRequest, honorRetryAfter: Bool = false) async throws -> T {
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await requestExecutor(request)
+            (data, response) = try await execute(request)
         } catch {
             throw DesktopUploadClientError.httpStatus(503, "network_unavailable")
         }

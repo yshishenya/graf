@@ -862,11 +862,11 @@ def test_account_security_renders_exact_bulk_and_per_session_actions() -> None:
     surface = account_settings_surface(sessions=(session,))
     page = render_settings_page(category="account", csrf_token="safe-csrf", account_surface=surface)
     assert "Где вы вошли" in page
-    assert "Выйти из остальных" in page
+    assert "Завершить остальные входы" in page
     assert "Выйти на всех устройствах" not in page
     assert 'action="/settings/account/sessions/revoke-others"' in page
     assert 'action="/settings/account/devices/revoke-others"' not in page
-    assert "Показаны входы в текущее рабочее пространство." in page
+    assert "Действующие входы в текущее рабочее пространство." in page
     assert "фоновую работу" in page
     empty = render_settings_page(category="account", csrf_token="safe-csrf")
     assert 'action="/settings/account/sessions/revoke-others"' not in empty
@@ -876,11 +876,12 @@ def test_account_security_renders_exact_bulk_and_per_session_actions() -> None:
 def test_session_confirmation_is_explicit_accessible_and_works_without_javascript(embedded) -> None:
     action = ("/desktop" if embedded else "") + "/settings/account/sessions/revoke-others"
     page = render_settings_page(category="account", csrf_token="safe-csrf", embedded=embedded,
-                                session_confirmation={"title": "Выйти из остальных?", "detail": "Здесь вы останетесь в аккаунте.", "action": action})
+                                session_confirmation={"title": "Завершить остальные входы?", "detail": "Здесь вы останетесь в аккаунте.", "action": action})
     assert f'action="{action}"' in page
     assert 'name="confirm" value="1"' in page
     assert 'name="csrf_token"' in page
     assert "Отмена" in page
+    assert "Подтвердить завершение" in page
     assert "Файлы на устройстве останутся" in page
     assert 'data-outcome-focus autofocus href=' in page
     assert 'aria-labelledby="session-confirmation-title" tabindex' not in page
@@ -1056,16 +1057,95 @@ def test_session_current_hierarchy_details_and_exit_order(embedded) -> None:
     surface = account_settings_surface(sessions=(other, expired, current), current_session_id=current.id, now=now)
     page = render_settings_page(category="account", csrf_token="safe-csrf", embedded=embedded, account_surface=surface)
     prefix = "/desktop" if embedded else ""
-    assert page.index("Вы здесь") < page.index('aria-label="Другие входы"') < page.index("Выйти из остальных")
+    assert page.index("Вы здесь") < page.index(f'id="session-revoke-{other.id}"') < page.index("Завершить остальные входы")
     assert f'/sessions/{current.id}/revoke' not in page
     assert f'/sessions/{expired.id}/revoke' not in page
     assert f'action="{prefix}/settings/account/sessions/{other.id}/revoke"' in page
-    assert 'aria-label="Выйти: Устройство не подключено, вход ' in page
-    assert "Последняя активность: сегодня," in page
-    assert "Предыдущие входы (1)" in page
+    assert 'aria-label="Завершить вход: Устройство не подключено, вход ' in page
+    assert "Активность сегодня," in page
+    assert "Предыдущие входы" not in page
+    assert 'aria-label="Действующих входов: 2"' in page
     # Exact date and zone remain in native, initially collapsed details.
     assert '<details class="session-details">' in page
     assert surface.active_sessions[0].last_seen_label in page
     alone = render_settings_page(category="account", account_surface=account_settings_surface(sessions=(current,), current_session_id=current.id))
     assert "Других входов нет." in alone
-    assert "Выйти из остальных" not in alone
+    assert "Завершить остальные входы" not in alone
+
+
+@pytest.mark.parametrize("embedded", [False, True])
+def test_sessions_show_only_effective_access_and_distinguish_empty_from_unavailable(embedded) -> None:
+    from dataclasses import replace
+
+    from twobrain_rec_server.cabinet.view_models import account_session_view
+    from twobrain_rec_server.db.models import AuthSession
+
+    now = datetime(2026, 9, 11, 12, tzinfo=UTC)
+    def row(label, *, status="active", expired=False, allowed=True):
+        session = AuthSession(id=uuid4(), provider="email", status=status,
+                              issued_at=now-timedelta(days=1), last_seen_at=now,
+                              expires_at=now+timedelta(hours=-1 if expired else 1))
+        return replace(account_session_view(session, current_session_id=None, now=now,
+                                            access_allowed=allowed), client_label=label)
+
+    active = (row("Неизвестный вход"), row("Chrome на macOS"), row("Chrome на macOS"))
+    inactive = (row("Expired hidden", expired=True), row("Revoked hidden", status="revoked"),
+                row("Replaced hidden", status="replaced"), row("Blocked hidden", allowed=False))
+    for rows in (active + inactive, inactive):
+        page = render_settings_page(category="account", embedded=embedded, csrf_token="safe-csrf",
+                                    account_surface=AccountSettingsSurface(sessions=rows))
+        section = page.split('aria-labelledby="account-sessions-title"', 1)[1].split('</section>', 1)[0]
+        assert "Предыдущие входы" not in section
+        assert all(item.client_label not in section for item in inactive)
+        assert section.count('class="session-row"') == (len(active) if rows == active + inactive else 0)
+        if rows == active + inactive:
+            assert 'aria-label="Действующих входов: 3"' in section
+            assert "Неизвестный вход" in section
+            for item in active:
+                assert f'/sessions/{item.session_id}/revoke' in section
+        else:
+            assert "Действующих входов не найдено." in section
+            assert '/sessions/' not in section
+    unavailable = render_settings_page(category="account", embedded=embedded,
+                                       account_surface=AccountSettingsSurface(unavailable=True))
+    assert "Данные аккаунта временно недоступны" in unavailable
+    assert "Действующих входов не найдено." not in unavailable
+    assert 'id="account-sessions-title"' not in unavailable
+
+
+@pytest.mark.parametrize("embedded", [False, True])
+@pytest.mark.parametrize("target", ["single", "bulk", "missing", "empty_bulk"])
+def test_compact_sessions_keep_confirmation_beside_target_and_safe_cancel(embedded, target) -> None:
+    from twobrain_rec_server.cabinet.view_models import account_settings_surface
+    from twobrain_rec_server.db.models import AuthSession
+
+    now = datetime.now(UTC)
+    current, other = [AuthSession(id=uuid4(), provider="email", status="active",
+                                 issued_at=now, last_seen_at=now,
+                                 expires_at=now+timedelta(hours=1)) for _ in range(2)]
+    base = ("/desktop" if embedded else "") + "/settings/account"
+    surface = account_settings_surface(sessions=(current,) if target == "empty_bulk" else (other, current),
+                                      current_session_id=current.id, now=now)
+    action = base + (f"/sessions/{other.id}/revoke" if target == "single" else
+                     f"/sessions/{uuid4()}/revoke" if target == "missing" else "/sessions/revoke-others")
+    return_id = f"session-revoke-{other.id}" if target == "single" else (
+        "session-revoke-others" if target == "bulk" else "account-sessions-title")
+    page = render_settings_page(category="account", embedded=embedded, csrf_token="safe-csrf",
+                                account_surface=surface, session_confirmation={
+                                    "title": "Завершить выбранный вход?", "detail": "Вход выполнен: 11.09.2026.", "action": action})
+    section = page.split('<section class="settings-section account-sessions"', 1)[1].split('</section>', 1)[0]
+    assert section.count('class="settings-session-list"') == 1
+    assert "session-card" not in section and ">Подробнее" not in section
+    assert 'id="account-profile-title"' in page and 'id="account-close-title"' in page
+    assert section.count('name="confirm" value="1"') == 1
+    assert section.count('id="session-confirmation-title"') == 1
+    assert f'data-return-focus="{return_id}"' in section
+    assert f'href="{base}#{return_id}"' in section
+    panel = section.index('data-session-confirmation')
+    if target == "single":
+        assert section.index(f'id="session-revoke-{other.id}"') < panel < section.index('</li>', panel)
+        assert panel < section.index('</ul>')
+    else:
+        assert section.index('</ul>') < panel
+    assert 'id="account-sessions-title" tabindex="-1"' in section
+    assert 'data-session-cancel data-outcome-focus autofocus' in section

@@ -3,6 +3,25 @@
 ## Local Validation (manual fallback)
 
 Use the feature `quickstart.md` first when working inside a Spec Kit slice.
+For cabinet/settings changes, the shared selection can be inspected and run
+locally before creating a PR:
+
+```sh
+infra/scripts/ci-local.sh --plan
+infra/scripts/ci-local.sh --focused
+```
+
+The plan reads the existing Git diff and lists related groups, environment and
+partial coverage without starting tests, Docker, an app, dependency installation
+or network access. Focused uses an already prepared `apps/server/.venv` and
+Node.js; prepare that checkout once with `uv sync --frozen --extra dev` from
+`apps/server` if needed. It accepts dirty changes as local diagnostics, emits no
+CI receipt and does not replace the exact-SHA GitHub check. Empty/unmatched
+focused selection fails with guidance to the feature quickstart. Missing,
+empty or skipped mandatory proof fails. The same map adds these checks to fast
+while retaining its unit/changed/performance safety sets without repeating
+mapped files. Mapping scope and validation: `specs/211-optimize-ci-cd/quickstart.md`.
+
 The workstation does not run repository-wide CI automatically. For explicit
 diagnosis or offline fallback, use one local lane:
 
@@ -33,7 +52,7 @@ remain the first check during implementation.
 GitHub Actions runs `governance-fast` automatically for each pull request and
 its exact-SHA result is the merge evidence. The workflow executes the bounded
 `ci-local.sh --fast` lane on a clean GitHub runner. Local `ci-local.sh` remains
-available only for an explicitly requested diagnosis or offline fallback; local
+available for focused feedback, explicitly requested diagnosis or offline fallback; local
 evidence alone cannot authorize a merge. Use `--full` only for an early broad
 diagnosis or when the release workflow cannot provide the authoritative record;
 do not run it after every small edit.

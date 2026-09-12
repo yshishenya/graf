@@ -188,6 +188,13 @@ REPO_ROOT=$(get_repo_root) || exit 1
 
 cd "$REPO_ROOT"
 
+# A repository allocator owns reservation and the complete feature pointer.
+# This legacy directory-only entrypoint cannot safely perform that lifecycle.
+if [ -f "$REPO_ROOT/scripts/claim-feature.py" ] || { [ -e "$REPO_ROOT/.specify/feature-numbering.json" ] || [ -L "$REPO_ROOT/.specify/feature-numbering.json" ]; }; then
+    echo 'Error: repository feature allocation requires speckit-git-feature followed by speckit-specify; create-new-feature.sh cannot allocate or replace a claimed identity.' >&2
+    exit 1
+fi
+
 SPECS_DIR="$REPO_ROOT/specs"
 if [ "$DRY_RUN" != true ]; then
     mkdir -p "$SPECS_DIR"

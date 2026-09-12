@@ -5933,29 +5933,42 @@ html:not([data-cabinet-js="ready"]) .detail-page-main:not([data-processing-repla
   }
 }
 
-/* Account access: clear current location, progressive disclosure, native forms. */
-.settings-session-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
-#account-sessions-title { scroll-margin-block-start: 76px; }
-.session-card { display: flex; align-items: flex-start; gap: 16px; padding: 18px; border: 1px solid var(--line); border-radius: 12px; }
-.session-card--current { background: var(--accent-surface); border-color: var(--accent-border); }
-.session-card__content { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.session-card__heading { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; }
-.session-card__title { font-weight: 600; }
-.session-current-badge { display: inline-flex; padding: 3px 9px; border-radius: 20px; background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: 600; }
-.session-card__activity { margin: 6px 0 0; color: var(--muted); font-size: 13px; }
-.session-card .button, .session-bulk-action .button { min-height: 44px; }
-.session-group-title { margin: 24px 0 12px; font-size: 14px; font-weight: 600; }
-.session-details { margin-top: 8px; font-size: 13px; }
-.session-details > summary, .session-help > summary { width: fit-content; cursor: pointer; padding-block: 8px; }
-.session-details p { margin: 8px 0 0; }
-.session-bulk-action { margin-top: 18px; }
-.session-bulk-action p, .session-empty { margin: 10px 0 0; }
-.session-scope { margin: 24px 0 12px; font-size: 13px; }
-.session-help { border-top: 1px solid var(--line-soft); padding-block: 6px; font-size: 13px; }
+/* Account access: one compact list, native disclosures and server confirmation. */
+.settings-session-list { list-style: none; margin: 0; padding: 0; }
+#account-sessions-title, .session-row__action .button, #session-revoke-others { scroll-margin-block-start: 76px; }
+.session-count { margin-inline-start: 6px; color: var(--muted); font-size: 14px; font-weight: 400; }
+.session-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; border-bottom: 1px solid var(--line-soft); }
+.session-row:first-child { border-top: 1px solid var(--line-soft); }
+.session-details { min-width: 0; grid-column: 1; }
+.session-details > summary { display: flex; align-items: center; gap: 12px; min-height: 68px; padding: 10px 0; box-sizing: border-box; cursor: pointer; list-style: none; }
+.session-details > summary::-webkit-details-marker { display: none; }
+.session-icon { display: flex; flex: 0 0 24px; color: var(--muted); }
+.session-icon svg { width: 22px; height: 22px; }
+.session-row__content { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.session-row__heading { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; }
+.session-row__title { font-size: 14px; font-weight: 600; }
+.session-current-badge { color: var(--accent); font-size: 12px; font-weight: 600; white-space: nowrap; }
+.session-row__activity { display: block; margin-top: 3px; color: var(--muted); font-size: 13px; }
+.session-chevron { color: var(--muted); font-size: 20px; }
+.session-details[open] .session-chevron { transform: rotate(90deg); }
+.session-details__body { padding: 0 0 14px 36px; font-size: 13px; overflow-wrap: anywhere; }
+.session-details__body p { margin: 6px 0; }
+.session-row__action { grid-column: 2; grid-row: 1; padding-top: 12px; }
+.account-sessions .button, .session-help > summary { min-height: 44px; }
+.session-row__action .button { padding-inline: 10px; }
+.session-bulk-action { margin-top: 12px; }
+.session-empty { margin: 12px 0; color: var(--muted); font-size: 13px; }
+.session-help { margin-top: 12px; font-size: 13px; }
+.session-help > summary { width: fit-content; margin-left: 14px; padding-block: 12px; box-sizing: border-box; cursor: pointer; }
 .session-help p { margin: 10px 0; }
+.session-confirmation { grid-column: 1 / -1; margin-block: 8px 16px; padding: 16px; border-inline-start: 2px solid var(--accent); background: var(--surface); overflow-wrap: anywhere; }
+.session-confirmation h3 { margin: 0; font-size: 14px; }
+.session-confirmation p { margin: 8px 0; font-size: 13px; }
 @media (max-width: 480px) {
-  .session-card { padding: 14px; gap: 10px; flex-wrap: wrap; }
-  .session-card__content { flex-basis: 100%; }
+  .session-row { column-gap: 4px; }
+  .session-details > summary { gap: 8px; }
+  .session-details__body { padding-left: 0; }
+  .session-confirmation { padding: 12px; }
 }
 
 /* The heading itself is the edit control; feedback appears only on failure. */

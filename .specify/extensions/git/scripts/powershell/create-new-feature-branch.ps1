@@ -171,7 +171,7 @@ function Get-NextBranchNumber {
     $highestSpec = Get-HighestNumberFromSpecs -SpecsDir $SpecsDir
     $maxNum = [Math]::Max($highestBranch, $highestSpec)
     $allocator = Join-Path $repoRoot 'scripts/claim-feature.py'
-    if ((Test-Path $allocator) -and $env:GRAF_SKIP_FEATURE_CLAIM -ne '1') {
+    if ((Test-Path $allocator) -and ($env:GRAF_SKIP_FEATURE_CLAIM -ne '1' -or (Get-Item -LiteralPath (Join-Path $repoRoot '.specify/feature-numbering.json') -Force -ErrorAction SilentlyContinue))) {
         $suggestion = & python $allocator --root $repoRoot --json
         if ($LASTEXITCODE -ne 0) { throw 'Feature ID suggestion failed; branch creation stopped.' }
         return [int](($suggestion | ConvertFrom-Json).next_available)
@@ -515,10 +515,21 @@ if ((Get-Utf8ByteCount -Value $branchName) -gt $maxBranchLength) {
     Write-Warning "[specify] Truncated to: $branchName ($(Get-Utf8ByteCount -Value $branchName) bytes)"
 }
 
+# Validate explicit/generated identity before dry-run output or writes.
+if (Get-Item -LiteralPath (Join-Path $repoRoot '.specify/feature-numbering.json') -Force -ErrorAction SilentlyContinue) {
+    $allocator = Join-Path $repoRoot 'scripts/claim-feature.py'
+    if (-not (Test-Path $allocator)) {
+        Write-Error 'Error: repository feature-numbering policy requires scripts/claim-feature.py'
+        exit 1
+    }
+    & python $allocator --root $repoRoot --check-feature-id $featureNum --branch $branchName
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
+
 if (-not $DryRun) {
     if ($hasGit) {
         $claimScript = Join-Path $repoRoot 'scripts/claim-feature.py'
-        if ((Test-Path $claimScript) -and $env:GRAF_SKIP_FEATURE_CLAIM -ne '1') {
+        if ((Test-Path $claimScript) -and ($env:GRAF_SKIP_FEATURE_CLAIM -ne '1' -or (Get-Item -LiteralPath (Join-Path $repoRoot '.specify/feature-numbering.json') -Force -ErrorAction SilentlyContinue))) {
             $claimArgs = @('--root', $repoRoot, '--allocate', '--branch', $branchName, '--slug', $branchSuffix, '--json')
             if ($env:GRAF_UMBRELLA_ISSUE) {
                 $claimArgs += @('--issue-number', $env:GRAF_UMBRELLA_ISSUE)
