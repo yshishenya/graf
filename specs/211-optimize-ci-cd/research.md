@@ -1,5 +1,13 @@
 # Research: Быстрый и доказуемый CI/CD
 
+## A3 / E01 decisions — 2026-09-12
+
+- **Decision**: add the existing cabinet/static and settings proofs to one shared selector; retain broad unit until E02 resource classification. **Evidence**: `ci-local.sh` selects only changed contract/integration files; unchanged rail test rejects JS `4fbddd...` but was omitted for a production-only JS diff. A dependency graph would add maintenance without fixing more of this first scoped delivery.
+- **Decision**: keep diff/base ownership in the runner; one Python stdlib helper owns group selection and diagnostic execution. Whole static-asset test file covers adjacent JS/CSS behaviors without inventing new tests or mirroring product code. Missing expected tests and unsupported control characters fail explicitly.
+- **Decision**: focused runs in a prepared local server venv, not through `run_local_postgres_tests.sh`; the selected groups need Python and Node, not a database. The current DB runner starts infrastructure before parsing its mode. Its resource redesign belongs to E02.
+- **Baseline**: audit of GitHub Full run `34599822538`: total 33:45; ordinary server 30:13 at 4 workers; performance 13 seconds; strict RLS 40 seconds; macOS 5:20 in parallel. Audit collected 4391 cases (4350 pass/41 skip). The prior minimal settings+rail group had 37 pass in 1.14 seconds of pytest time. These are historical samples, not A3 speed claims or reasons to rerun Full.
+- **Ownership**: E01/E02 continue F211; Full composition E06 coordinates with F236, merge-group/protected separation E07 with F227, pinned runners with F233. Existing release-candidate/receipt/merge-group implementations are retained. E03/E08/E09 require their own ownership search before any later implementation, not a new guessed feature number now.
+
 ## A2 decisions — 2026-09-09
 
 - **Decision**: introduce a PR-only additional check; do not modify the combined required workflow. Live branch protection currently requires `governance-fast` with `strict=true`. **Reason**: native skipped jobs may count as success, and a required check needs merge_group support before a merge-queue cutover. A2 therefore is not activation-ready. **Rejected**: conditionally skip the current required job or remove its edited event now. [GitHub required-check guidance](https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/troubleshooting-required-status-checks).

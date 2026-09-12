@@ -1,5 +1,14 @@
 # CI/CD CLI Contract
 
+## A3 / E01 additions — 2026-09-12
+
+- `infra/scripts/ci-local.sh --plan`: read-only JSON diagnostic selection, no test execution or receipt. Exit 0 means a valid partial plan, including empty/unmatched input. Invalid paths, an invalid explicit base, or missing/empty required test proof exit nonzero.
+- `infra/scripts/ci-local.sh --focused`: print the same groups and run their union once from the prepared server venv. Nonempty applicable proof must run and pass; no groups exits 2. Missing Python/Node, pytest collection or assertion failure propagates nonzero. A selected file with no executed cases, a skipped proof or the missing/deselected named rail regression fails after inspecting temporary standard JUnit output. Pytest addopts cannot silently narrow this mandatory set. No dependency installation, Docker, database or app startup.
+- The small map and internal `--covered` filtering live in `scripts/ci-behavior-tests.py`; both entrypoints and fast use it. `tests` is the pending set and `covered_tests` is included by the existing fast unit set. Mapped contract files run with behavior-proof validation and are removed from the later changed-file set. Coverage never means a past run can be trusted or skipped.
+- Plan fields identify changed paths, groups/reasons, test files, environment, HEAD/base, dirty worktree, diagnostic scope, partial coverage and next mandatory GitHub fast/release-full. Every path is data, never interpolated shell source.
+- NUL Git output preserves spaces, Unicode and metacharacters; unsupported control characters fail explicitly. Rename uses both endpoints. An unavailable implicit default base may produce a diagnostic empty partial plan; explicit invalid/unavailable base fails before execution.
+- Existing fast adds missing behavior proofs after lint/compile and before broad tests, retaining the previous safety set. Existing full and receipt schemas are unchanged. The result/evidence statements below describe fast/full; plan/focused do not emit their receipt or `ci_local_result`.
+
 ## `infra/scripts/ci-local.sh`
 
 ```text
@@ -27,9 +36,11 @@ Fast classification is bounded and truthful:
 - ordinary documentation/spec text → documentation consistency.
 - shared governance documents (`AGENTS.md`, PR template, release/Spec Kit
   guidance) → documentation checks with partial coverage.
-- shared/high-risk/unknown path, missing base or diff failure → bounded
+- shared/high-risk/unknown path or unavailable implicit diagnostic base → bounded
   component/common safety checks plus
   `coverage=partial next_gate=full_before_release`.
+- errors collecting tracked/untracked Git paths fail before selection; partial
+  output must never become a successful plan or focused run.
 - multiple known components execute their union once.
 - calendar performance paths run the focused required performance proof without
   changing the effective lane; the full suite remains a separate release gate.
@@ -54,7 +65,7 @@ Fast classification is bounded and truthful:
 
 ## Documentation consistency
 
-Active operator guidance and templates may not contain `infra/scripts/ci-local.sh` without `--fast` or `--full`. Historical specs, release/deployment receipts and changelog facts are excluded from rewriting.
+Active operator guidance and templates may not contain `infra/scripts/ci-local.sh` without an explicit supported mode: `--plan`, `--focused`, `--fast` or `--full`. Historical specs, release/deployment receipts and changelog facts are excluded from rewriting.
 
 Ordinary development uses local focused checks; GitHub `governance-fast` on the exact PR SHA is mandatory. Local wide fast is diagnostic/fallback, not a second routine gate. A1 keeps existing events, names, concurrency, permissions and required checks; PR text edits still trigger the current combined workflow.
 # A2 additive PR metadata entrypoint

@@ -1,5 +1,30 @@
 # Финальный анализ Feature 211
 
+## A3 / E01 pre-implementation analysis — 2026-09-12
+
+Scope: US7, FR-025–030, SC-014–015 and T043–T047. Read-only analyze of current spec/plan/tasks/contracts/data-model and constitution; report recorded here after the analysis. A1/A2 completion re-established from master and GitHub #6851/#6845/#6850; historical analysis below is not current release policy.
+
+| Requirement | Tasks | Acceptance |
+|---|---|---|
+| FR-025 | T043–T045 | unchanged related proof selected for production diff |
+| FR-026 | T044–T045 | one map, union, existing safety set retained |
+| FR-027 | T044–T046 | no-side-effect plan, diagnostic focused, next gates |
+| FR-028 | T044–T045 | real Git rename/delete/path/base failures |
+| FR-029 | T044–T045 | partial/empty/unknown, no hidden full |
+| FR-030 | T044–T047 | old workflow/receipt/full contracts, docs and validation |
+| SC-014 | T043/T045–T047 | all six US7 scenarios and historical negative control |
+| SC-015 | T046–T047 | measured prepared-environment execution below 60s |
+
+No uncovered new requirement, orphan task, blocking clarification, constitution violation or conflicting current authority. CRITICAL 0, HIGH 0. Historical SC-009 benchmarking and deployment acceptance are outside A3; they are not marked freshly satisfied. Implementation still requires the independent checklist and task-sync gates, not merely this analysis.
+
+## A3 / E01: converge после внедрения — 2026-09-12
+
+Проверены текущие исходники по 6 FR, 2 SC, 6 сценариям US7, 7 решениям плана и T043–T047. Семь принципов конституции сверены на сохранение границ; продуктовые сценарии записи/данных/публикации не менялись и заново не испытывались. Проверки исполнения и независимое review записаны в [quickstart.md](quickstart.md) и [чек-листе проверяющего](checklists/behavior-selection.md).
+
+Результат: **converged**. Незавершённых требований к реализации A3 нет: missing/partial/contradicts/unrequested — 0; CRITICAL/HIGH/MEDIUM/LOW — 0. Исправленное при review R2 не оставляет частичный Git-список успешным планом. Договор CLI уточнён в соответствии с уже предусмотренной ошибкой сбора путей; диагностическое отсутствие неявной базы сохраняет прежнюю семантику.
+
+В ходе converge `tasks.md` оставлен байт-в-байт неизменным: SHA-256 до/после `28c43803f424210ae454ac26d3bf61a8fb6709cfc92696744ab941e5f459c003`. Новая фаза и задачи не добавлялись. Последующие отметки T043–T047 фиксируют локальное выполнение вне команды converge. Согласование commit, PR/точный SHA GitHub, merge и релизный цикл остаются отдельными ожидающими состояниями; issue #6952 не закрывается по локальному результату. E02–E12 общего плана не входят в эту сверку и не объявляются завершёнными.
+
 ## Follow-up 2026-08-31
 
 Production feedback showed that the conservative v1 classification made most

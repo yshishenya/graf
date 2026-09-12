@@ -1,5 +1,63 @@
 # Quickstart: проверка быстрого и доказуемого CI/CD
 
+## A3 / E01 — 2026-09-12
+
+Продолжение после локальной проверки: пользователь поручил довести готовый E01 до PR для включения в релиз. Коммит, публикация PR и необходимые исправления по CI/review разрешены после полученных ниже результатов. На момент начала публикации `origin/master` повторно проверен: `ad71f2ce4db68d846d7c333213961c5f5f7d5e89`. Итоговый SHA и ссылки hosted CI фиксируются в PR и внешнем журнале, чтобы запись результата не меняла проверяемый коммит. Merge, замороженный релизный Full и выпуск остаются следующими отдельными состояниями. Записи о невыданном разрешении ниже — история предыдущего локального этапа.
+
+Active lane: high-risk CI/governance, local focused acceptance. A1/A2 are merged through #6851 and #6845/#6850 closed; older entries below are preserved as historical snapshots. Current base: `ad71f2ce4db68d846d7c333213961c5f5f7d5e89`.
+
+From the implementation checkout, on `codex/211-behavior-test-selection`:
+
+```sh
+# Inspect the exact chosen paths/groups; no environment startup or network.
+infra/scripts/ci-local.sh --plan
+# Run only related cabinet/settings proofs from an already prepared server venv.
+infra/scripts/ci-local.sh --focused
+```
+
+For a different known local base, set the existing `GRAF_CI_BASE_REF` explicitly. No diff means no relevant focused tests; do not substitute a passing test result. To prepare a new checkout once, run `uv sync --frozen --extra dev` from `apps/server`; Node must already be available. The plan/helper never installs dependencies. GitHub fast uses this same group map while retaining broad unit and changed-file tests; full remains a separate release gate.
+
+Acceptance before commit:
+
+```sh
+bash -n infra/scripts/ci-local.sh
+(cd apps/server && PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src .venv/bin/python -m pytest -q -o addopts= tests/contract/test_ci_cd_contract.py)
+PYTHONDONTWRITEBYTECODE=1 apps/server/.venv/bin/python -m pytest -q tests/governance/test_governance_workflow.py tests/governance/test_ci_event_identity.py tests/governance/test_ci_guard.py
+apps/server/.venv/bin/ruff check scripts/ci-behavior-tests.py apps/server/tests/contract/test_ci_cd_contract.py tests/governance/test_governance_workflow.py
+python3 scripts/validate-governance-workflow.py
+python3 scripts/check-development-process.py
+git diff --check
+```
+
+Also run the real chosen groups in the prepared environment and the unchanged rail regression against historical bad JS in an isolated temporary copy; record expected FAIL and current PASS with durations. Do not replace workspace source, launch GRAF Dev, run Full, or claim GitHub/merged/released acceptance from this local result.
+
+Environment preflight: shared Specify 1.0.6 conflicts with pinned 1.0.1. An ignored isolated installation of commit `9118ed15a0ba65053469a94c560ea5d233f75884` passes frozen bootstrap doctor; tracked generated tooling is unchanged. Use `PATH="$PWD/.dev/speckit-bin:$PATH"` for the frozen doctor and `scripts/check_spec_kit_governance.py` in this checkout. Server dependencies were prepared once with the existing lock, Python 3.14.6 and pytest 9.1.1.
+
+### A3: результат локального внедрения — 2026-09-12
+
+Основание: `ad71f2ce4db68d846d7c333213961c5f5f7d5e89` плюс незакоммиченные изменения A3. Рабочее дерево: `/Users/yshishenya/.codex/worktrees/ci-e01-20260912/crisp`; исходные 46 изменений дерева аудита не переносились. Это проверка местных файлов, не результат GitHub на опубликованном SHA.
+
+| Проверка | Результат | Граница доказательства |
+|---|---|---|
+| `test_ci_cd_contract.py`, окончательный прогон | **78 PASS, 11,72 с** | Выбор, порядок, сохранение прежних этапов, ошибки Git/базы/пути, обязательное выполнение, отсутствие побочных действий |
+| `test_governance_workflow.py`, `test_ci_event_identity.py`, `test_ci_guard.py` | **46 PASS, 4,28 с** | Реальный локальный Git и shell существующего workflow для PR/MG/manual; это не запуск на GitHub |
+| `GRAF_CI_BASE_REF=HEAD^ infra/scripts/ci-local.sh --focused` | **112 PASS, 0 skip; pytest 2,77 с, исполнитель 8,81 с** | Три существующих файла, включая неизменённую проверку меню; без Docker/БД/приложения |
+| Первый полный замер той же focused-команды | **13,25 с** от запуска до выхода | Подготовленное окружение; установка зависимостей, очередь и Full сюда не входят |
+| Исторический ошибочный JS `4fbddd00de10f89fa5644d581f32b6b4d19a7bbd` | Ожидаемый **FAIL, 0,2105 с** | `wrong initial class for embedded 1120`; временная копия JS, неизменённый существующий тест |
+| Текущий JS `ad71f2ce4db68d846d7c333213961c5f5f7d5e89` | **PASS, 0,2523 с** | Тот же `test_cabinet_rail_node_harness_keeps_responsive_defaults_and_manual_state` |
+| Ruff, `/bin/bash -n`, workflow validator, активные команды документации | **PASS** | Новые Python-файлы и договор существующего runner |
+| Frozen bootstrap doctor, Spec Kit governance, development-process, whitespace | **PASS** | Закреплённые инструменты, владение путями и changelog; generated tooling не обновлялся |
+
+Первый тест выбора упал на старом runner: изменение `cabinet.js` не добавляло `related behavior tests`. После внедрения он проходит. При независимом review также воспроизведён R2: ошибка `git ls-files` после успешного `diff` позволяла продолжить с неполным списком. Четыре проверки публичных `--plan`/`--focused` сначала упали; исправление в общей функции отделяет ошибку сбора путей (код 2) от отсутствующей неявной базы (код 1). Повторное независимое review: **PASS**, без незакрытых замечаний; [запись проверяющего](checklists/behavior-selection.md) содержит границы и хеши кода.
+
+Проверены пропуск и исключение обязательного теста из выполнения, отсутствие/пустота файла, ошибка pytest, влияние `PYTEST_ADDOPTS`, добавление/удаление/rename, Unicode/пробелы/кавычки/символы shell, отказ на управляющих символах, неполное покрытие неизвестной области, грязное дерево и неверная точная база. В fast связанные contract-файлы выполняются с проверкой JUnit один раз; файл unit уже покрывается прежним широким набором. Требования: независимое review 9/9, предварительный analyze без CRITICAL/HIGH. Два предупреждения существующего окружения pytest/Starlette не приводили к пропускам.
+
+Канонический владелец T043–T047 — [issue #6952](https://github.com/yshishenya/graf/issues/6952). Поиск дублей и обязательные issue-canon ensure/validate выполнены до кода; validator проверил 300 issues. Issue остаётся открытым до слияния и необходимого внешнего подтверждения.
+
+Converge A3: **converged**, без добавления задач; 6 FR, 2 SC, 6 сценариев US7, 7 решений плана и 7 принципов конституции сверены. Продуктовые области не менялись и повторно не испытывались. Findings всех типов/степеней — 0; `tasks.md` во время converge сохранил SHA-256 `28c43803f424210ae454ac26d3bf61a8fb6709cfc92696744ab941e5f459c003`. Отметки локального выполнения внесены отдельно после этой сверки.
+
+Следующие отдельные состояния: согласование implementation commit после проверки → публикация PR → обязательный `governance-fast` на точном SHA → review/merge. Full на замороженном релизном кандидате, production и публикация выполняются по релизному договору при соответствующем выпуске. В A3 не выполнены commit/push/PR/merge, hosted CI, Full, deploy или установка GRAF. Скорость Full и релиза этим этапом ещё не измерялась; E02 и дальнейшая оптимизация из общего плана остаются впереди.
+
 ## Publication continuation — 2026-09-09
 
 After the local A2 result below, the user approved continuation with commit,
