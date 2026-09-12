@@ -222,3 +222,26 @@ def test_renewal_commit_failure_preserves_success_without_publishing_deadline(cl
     assert response.status_code == 200
     assert "X-GRAF-Auth-Expires-At" not in response.headers
     assert deadline(client, session_id) == expires
+
+
+@pytest.mark.parametrize("transport", ["native", "cookie"])
+def test_request_finishing_after_idle_deadline_does_not_resume_expired_session(client, transport):
+    expires = datetime.now(UTC) + timedelta(minutes=10)
+    session_id = seed(client, expires=expires)
+    headers = {"X-Workspace-Id": str(WORKSPACE_ID)}
+    headers["X-Auth-Session" if transport == "native" else "Cookie"] = (
+        TOKEN if transport == "native" else f"{AUTH_SESSION_COOKIE_NAME}={TOKEN}")
+
+    async def complete_after_expiry(db, *args, **kwargs):
+        # Authentication used the real clock before expiry. Advance only the
+        # final renewal step, after the handler has completed successfully.
+        return await record_session_activity(db, *args, now=expires + timedelta(seconds=1), **kwargs)
+
+    with patch("twobrain_rec_server.auth.session_renewal.record_session_activity",
+               side_effect=complete_after_expiry) as renewal:
+        response = client.get("/api/v1/auth/me", headers=headers)
+    assert response.status_code == 200
+    renewal.assert_awaited_once()
+    assert deadline(client, session_id) == expires
+    assert "X-GRAF-Auth-Expires-At" not in response.headers
+    assert "set-cookie" not in response.headers

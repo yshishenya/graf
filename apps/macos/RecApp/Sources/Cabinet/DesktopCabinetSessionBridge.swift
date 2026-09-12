@@ -14,6 +14,32 @@ public enum DesktopCabinetSessionBridge {
 
     @MainActor static var generation: UInt64 = 0
     @MainActor private static var pendingRenewal: Task<Void, Never>?
+    @MainActor private static var navigationBarriers: Set<UUID> = []
+
+    @MainActor
+    static func beginNavigation() -> UUID {
+        generation &+= 1
+        let barrier = UUID()
+        navigationBarriers.insert(barrier)
+        return barrier
+    }
+
+    @MainActor
+    static func drainRenewal() async {
+        await pendingRenewal?.value
+    }
+
+    @MainActor
+    static func endNavigation(_ barrier: UUID) {
+        guard navigationBarriers.remove(barrier) != nil else { return }
+        // Responses dispatched during navigation must not become eligible afterwards.
+        generation &+= 1
+    }
+
+    @MainActor
+    private static func canRenew(_ expectedGeneration: UInt64) -> Bool {
+        navigationBarriers.isEmpty && generation == expectedGeneration
+    }
 
     @MainActor
     static func renewAuthSessionCookies(
@@ -23,6 +49,19 @@ public enum DesktopCabinetSessionBridge {
         storage: HTTPCookieStorage = .shared,
         cookieStore: WKHTTPCookieStore = WKWebsiteDataStore.default().httpCookieStore
     ) async {
+        await renewAuthSessionCookies(request: request, response: response, expectedGeneration: expectedGeneration,
+            storage: storage, readCookies: { await cookieStore.allCookies() },
+            writeCookie: { await cookieStore.setCookie($0) })
+    }
+
+    @MainActor
+    static func renewAuthSessionCookies(
+        request: URLRequest, response: URLResponse, expectedGeneration: UInt64,
+        storage: HTTPCookieStorage,
+        readCookies: @escaping @MainActor () async -> [HTTPCookie],
+        writeCookie: @escaping @MainActor (HTTPCookie) async -> Void
+    ) async {
+        guard canRenew(expectedGeneration) else { return }
         guard let response = response as? HTTPURLResponse,
               let expiry = renewalExpiry(request: request, response: response),
               let origin = request.url,
@@ -31,18 +70,18 @@ public enum DesktopCabinetSessionBridge {
         let previous = pendingRenewal
         let task = Task { @MainActor in
             await previous?.value
-            guard generation == expectedGeneration else { return }
-            let webCookies = await cookieStore.allCookies()
-            guard generation == expectedGeneration,
+            guard canRenew(expectedGeneration) else { return }
+            let webCookies = await readCookies()
+            guard canRenew(expectedGeneration),
                   let pair = renewalCookies(webCookies: webCookies, nativeCookies: storage.cookies ?? [],
                                             originURL: origin, token: token, expiresAt: expiry) else { return }
             // No suspension between the current native-token check and submitting the WebKit write.
-            if let web = pair.web { await cookieStore.setCookie(web) }
-            guard generation == expectedGeneration,
+            if let web = pair.web { await writeCookie(web) }
+            guard canRenew(expectedGeneration),
                   DesktopUploadClient.authSessionToken(from: storage.cookies ?? [], origin) == token else { return }
             // Re-read WebKit before touching native state: logout/account changes remain authoritative.
-            let currentWeb = await cookieStore.allCookies()
-            guard generation == expectedGeneration,
+            let currentWeb = await readCookies()
+            guard canRenew(expectedGeneration),
                   let current = renewalCookies(webCookies: currentWeb, nativeCookies: storage.cookies ?? [],
                                                originURL: origin, token: token, expiresAt: expiry) else { return }
             if let native = current.native { storage.setCookie(native) }
@@ -57,10 +96,15 @@ public enum DesktopCabinetSessionBridge {
         isCurrentDocument: @escaping @MainActor () -> Bool = { true },
         completion: @escaping @MainActor () -> Void = {}
     ) {
-        guard let originURL = webView.url else { return }
+        guard let originURL = webView.url else { completion(); return }
+        let snapshotGeneration = generation
         webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { cookies in
             Task { @MainActor in
-                guard isCurrentDocument() else { return }
+                guard isCurrentDocument() else { completion(); return }
+                guard generation == snapshotGeneration else {
+                    syncAuthSessionCookies(from: webView, isCurrentDocument: isCurrentDocument, completion: completion)
+                    return
+                }
                 let storage = HTTPCookieStorage.shared
                 let plan = reconciliation(
                     webCookies: cookies,
