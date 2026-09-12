@@ -31,6 +31,6 @@ FR-001/002/003/004/006 → T002/T003; FR-003/004/005 → T004; FR-007, SC-001/00
 
 ## Phase 4: Convergence
 
-- [ ] T007 [US2] Устранить гонку нативного продления с навигацией смены входа в apps/macos/RecApp/Sources/Cabinet/DesktopCabinetSessionBridge.swift и EmbeddedCabinetWebView.swift; добавить управляемые регрессии в apps/macos/Shared/Tests/DesktopCabinetSessionBridgeTests.swift, закрепить окончание срока долгого запроса в apps/server/tests/unit/test_auth_session_renewal.py, повторить независимую проверку и exact-SHA governance-fast по FR-004/FR-007 и SC-003 (partial).
+- [X] T007 [US2] Устранить гонку нативного продления с навигацией смены входа в apps/macos/RecApp/Sources/Cabinet/DesktopCabinetSessionBridge.swift и EmbeddedCabinetWebView.swift; добавить управляемые регрессии в apps/macos/Shared/Tests/DesktopCabinetSessionBridgeTests.swift, закрепить окончание срока долгого запроса в apps/server/tests/unit/test_auth_session_renewal.py, повторить независимую проверку и exact-SHA governance-fast по FR-004/FR-007 и SC-003 (partial).
 
 - T007 (Issue #6955): https://github.com/yshishenya/graf/issues/6955
