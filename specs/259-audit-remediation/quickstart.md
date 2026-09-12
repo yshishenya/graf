@@ -16,3 +16,13 @@ Live read-only сравнивает claims/pointer/refs до и после. Ре
 6. Тесты: service refs/tags/nested numbers/timestamps, real F1024 collision, GitHub error/partial response, occupied next ID, repeated allocation, existing/missing label, отсутствие изменения чужих меток.
 
 Полный CI, создание тестовых issues в реальном GitHub и release не требуются для локального исправления. Для frozen doctor использовать отдельное окружение с CLI 1.0.1 из ref, указанного в lock; глобальный CLI 1.0.4 не заменяется. Воспроизводимость и ограничения source refresh записаны в validation.md.
+
+## Регрессия 2026-09-11
+
+Проверить FR-027–029 через tests/governance/test_feature_allocator.py:
+каскад6788/6791/6792 не поднимает последовательность, GitHub проверяется,
+999 выдаётся если свободен, затем явная ошибка; неверные пределы отклоняются,
+новые большие claims запрещены, старые retries сохранены. Общие проекты без
+max_feature_id по-прежнему допускают1000+. Проверить совместный номер branch/
+spec/pointer и сохранение его полей, идемпотентность bootstrap overlay.
+Live online proposal не резервирует номер и не меняет refs/claims/pointer.

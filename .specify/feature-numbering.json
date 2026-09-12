@@ -1,3 +1,4 @@
 {
-  "out_of_sequence_spec_ids": [6788]
+  "out_of_sequence_spec_ids": [6788],
+  "max_feature_id": 999
 }

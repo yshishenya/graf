@@ -69,8 +69,7 @@ def _ids_from_specs(root: Path) -> set[int]:
     return result
 
 
-def _sequence_spec_ids(root: Path) -> set[int]:
-    """Exclude explicitly documented historical IDs from the start, not occupancy."""
+def _numbering_policy(root: Path) -> dict:
     path = root / ".specify/feature-numbering.json"
 
     def unique_keys(pairs):
@@ -85,10 +84,11 @@ def _sequence_spec_ids(root: Path) -> set[int]:
         except FileNotFoundError:
             if path.is_symlink():
                 raise
-            return _ids_from_specs(root)
+            return {"out_of_sequence_spec_ids": []}
         policy = json.loads(raw, object_pairs_hook=unique_keys)
-        if not isinstance(policy, dict) or set(policy) != {"out_of_sequence_spec_ids"}:
-            raise ValueError("expected only out_of_sequence_spec_ids")
+        if (not isinstance(policy, dict) or "out_of_sequence_spec_ids" not in policy
+                or set(policy) - {"out_of_sequence_spec_ids", "max_feature_id"}):
+            raise ValueError("expected out_of_sequence_spec_ids and optional max_feature_id")
         excluded = policy["out_of_sequence_spec_ids"]
         if (
             not isinstance(excluded, list)
@@ -96,9 +96,21 @@ def _sequence_spec_ids(root: Path) -> set[int]:
             or len(set(excluded)) != len(excluded)
         ):
             raise ValueError("out_of_sequence_spec_ids must contain unique positive integers")
+        if "max_feature_id" in policy:
+            maximum = policy["max_feature_id"]
+            if type(maximum) is not int or maximum <= 0:
+                raise ValueError("max_feature_id must be a positive integer")
     except (OSError, ValueError) as exc:
         raise SystemExit(f"feature-claim: invalid numbering policy {path}: {exc}") from exc
-    return _ids_from_specs(root) - set(excluded)
+    return policy
+
+
+def _check_feature_id(root: Path, feature_id: int, branch: str = "") -> None:
+    maximum = _numbering_policy(root).get("max_feature_id")
+    if feature_id <= 0 or (maximum is not None and feature_id > maximum):
+        raise SystemExit(f"feature-claim: numbering policy requires IDs 001..{maximum or 'unbounded'}")
+    if maximum is not None and branch and not branch.rsplit("/", 1)[-1].startswith(f"{feature_id:03d}-"):
+        raise SystemExit("feature-claim: numbering policy requires a canonical feature number in the branch")
 
 
 def _git_refs(root: Path, *, strict: bool = False) -> list[str]:
@@ -479,10 +491,12 @@ def _git_common_dir(root: Path) -> Path:
     return Path(output)
 
 
-def _available_id(occupied: set[int], start: int) -> int:
+def _available_id(occupied: set[int], start: int, maximum: int | None = None) -> int:
     candidate = max(1, start)
     while candidate in occupied:
         candidate += 1
+    if maximum is not None and candidate > maximum:
+        raise SystemExit(f"feature-claim: feature numbering exhausted at {maximum}; no ID reserved")
     return candidate
 
 
@@ -490,11 +504,16 @@ def _next_feature_id(root: Path, occupied: set[int], *, offline: bool = False,
                      exclude_issue: int | None = None) -> int:
     # Specs anchor the project's sequence. Refs and reservations prevent
     # collisions but a stray large ID must not advance that sequence.
-    candidate = _available_id(occupied, max(_sequence_spec_ids(root), default=0) + 1)
+    policy = _numbering_policy(root)
+    maximum = policy.get("max_feature_id")
+    sequence = _ids_from_specs(root) - set(policy["out_of_sequence_spec_ids"])
+    if maximum is not None:
+        sequence = {value for value in sequence if value <= maximum}
+    candidate = _available_id(occupied, max(sequence, default=0) + 1, maximum)
     while not offline and candidate in _github_ids(
         root, candidates={candidate}, exclude_issue=exclude_issue, strict=True,
     ):
-        candidate = _available_id(occupied, candidate + 1)
+        candidate = _available_id(occupied, candidate + 1, maximum)
     return candidate
 
 
@@ -525,6 +544,7 @@ def _assert_clean_worktree(root: Path, allowed_paths: Iterable[str] = (".specify
 
 def claim(root: Path, feature_id: int, *, issue_number: int | None, branch: str, slug: str, offline: bool,
           owner: str = "codex", risk_lane: str = "significant-feature") -> dict[str, object]:
+    _numbering_policy(root)  # Historical retries must also fail on a corrupt policy.
     if feature_id <= 0:
         raise SystemExit("feature-claim: feature_id must be greater than zero")
     if not branch or not slug:
@@ -562,6 +582,8 @@ def claim(root: Path, feature_id: int, *, issue_number: int | None, branch: str,
         and existing_claim.get("branch") == branch
         and existing_claim.get("slug") == slug
     )
+    if not (same_local_claim or draft_upgrade):
+        _check_feature_id(root, feature_id, branch)
     occupied = _ids_from_specs(root) | _ids_from_refs(refs) | set(int(key) for key in local_claims)
     if not offline:
         occupied |= _github_ids(root, exclude_issue=issue_number, strict=True, candidates={feature_id})
@@ -683,6 +705,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path.cwd())
     parser.add_argument("--feature-id", type=int)
+    parser.add_argument("--check-feature-id", type=int, help="validate numbering policy without reserving or writing state")
     parser.add_argument("--issue-number", type=int, default=os.environ.get("GRAF_UMBRELLA_ISSUE") or None)
     parser.add_argument("--branch", default="")
     parser.add_argument("--slug", default="")
@@ -696,6 +719,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.self_test:
         return self_test()
     root = args.root.resolve()
+    if args.check_feature_id is not None:
+        _check_feature_id(root, args.check_feature_id, args.branch)
+        return 0
     if args.allocate:
         if not args.branch or not args.slug:
             raise SystemExit("feature-claim: --allocate requires --branch and --slug")
@@ -717,6 +743,7 @@ def main(argv: list[str] | None = None) -> int:
             if not branch_match:
                 raise SystemExit("feature-claim: branch must end in <feature-id>-<slug>")
             requested_feature_id = int(branch_match.group(1))
+            _check_feature_id(root, requested_feature_id, args.branch)
             if args.issue_number is not None:
                 _github_umbrella(root, args.issue_number, requested_feature_id)
             _validate_claims(claims, claims_path)

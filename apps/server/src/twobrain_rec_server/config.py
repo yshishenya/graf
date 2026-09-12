@@ -8,6 +8,8 @@ from uuid import UUID
 from pydantic import AliasChoices, AnyUrl, Field, PositiveInt, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+AUTH_SESSION_TTL_SECONDS = 30 * 86_400
+
 ALLOWED_READINESS_VERDICTS = ("not_ready", "blocked", "infra_smoke_ready")
 FORBIDDEN_READINESS_VERDICTS = (
     "production_ready",
@@ -224,7 +226,7 @@ class Settings(BaseSettings):
     # Billing/media lifecycle contract: an upload may never remain active
     # beyond the 24-hour hard lifetime, even if deployment env is misconfigured.
     upload_session_ttl_seconds: PositiveInt = Field(default=86_400, le=86_400)
-    auth_session_ttl_seconds: PositiveInt = Field(default=86_400)
+    auth_session_ttl_seconds: PositiveInt = Field(default=AUTH_SESSION_TTL_SECONDS)
     web_csrf_secret: str = "twobrain_rec_dev_web_csrf_secret"
     share_identity_hash_secret: str = "twobrain_rec_dev_share_identity_hash_secret"
     share_identity_hash_secret_file: Path | None = None

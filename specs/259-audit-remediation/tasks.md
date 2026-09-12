@@ -62,3 +62,13 @@ T018 следует существующему обязательному issue 
 ## Итог B019 — 2026-09-10
 
 T001–T019 выполнены в ограниченном объёме инструментов. Исходная приёмка F225 сверена в acceptance.md; governance-fast34391513703 PASS на2292e67fd043d357ece64defe52fc821b5f19349. Исторические записи об открытом T006 выше описывают прежние этапы. Финальный документационный commit требует обновлённого CI; merge и live closeout выполняются после него. Общий бэклог F259 остаётся открытым.
+
+## Возврат к трёхзначным номерам — 2026-09-11
+
+Продолжение US3/B019 по FR-027–029, SC-008/009. Исторический Issue #6837
+остаётся закрытым; текущий ремонт связан с Issue #6938 и требует отдельного PR/CI evidence.
+
+- [X] T020 [US3] Уточнить spec.md, plan.md, contracts/allocator.md и quickstart.md; проверить требования нового диапазона и общего номера до реализации. (Issue #6938)
+- [X] T021 [US3] Добавить регрессии каскада больших specs, границы, ошибок и claims в tests/governance/test_feature_allocator.py; исправить scripts/claim-feature.py и .specify/feature-numbering.json. (Issue #6938)
+- [X] T022 [US3] Согласовать spec creation и pointer в .agents/skills/speckit-specify/SKILL.md, .specify/scripts/bash/create-new-feature.sh и source bootstrap; сохранить контрольные суммы генерируемых файлов. (Issue #6938)
+- [X] T023 [US3] Проверить quickstart, записать validation.md и changes/unreleased/F259.yaml; выполнить converge, отделить локальную готовность от commit/CI/merge. (Issue #6938)

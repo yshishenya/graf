@@ -3,7 +3,7 @@
 **Input**: Design documents from `specs/211-optimize-ci-cd/`
 **Tests**: Required by FR-011 and the user request to re-check all behavior before rollout.
 
-**Current continuation**: A2, 2026-09-09, T038–T042. A1 T033–T037 is locally complete in draft PR #6846, not merged. T001–T032 and their old full-inside-execute strategy below are historical, not current acceptance or release permission. GitHub authoritative checks and full reuse are unchanged.
+**Current continuation**: A3 / E01, 2026-09-12, T043–T047. A1/A2 merged via #6851; #6845/#6850 closed (verified live). T001–T042 and their historical authority/status notes below are preserved; the old full-inside-execute strategy is superseded by authoritative GitHub Full evidence reuse.
 
 ## Phase 1: Baseline and contract
 
@@ -112,3 +112,19 @@
 - US6 scenarios 1/7: T040; 2/3/4/5: T038–T039; 6: T040; 8: T041–T042. FR-019: T040; FR-020/021: T038–T039; FR-022: T038–T040; FR-023: T040–T041; FR-024: T040–T042. SC-012/013: T042 with executable evidence from T038–T040.
 - Local implementation was the initial A2 delivery boundary. After validation the user approved publication and GitHub checks; required-check activation, merge-group support, freshness/retarget race acceptance, edited-code rerun removal, tracker closure and release remain separate, unapproved steps.
 - Issue owner for T038–T042: [#6850](https://github.com/yshishenya/graf/issues/6850), open. Canon hooks passed on 2026-09-09 after correcting the auto-created branch-reservation issue #6848 (missing T000 context and mismatched area). That reservation is not Feature 211 task ownership. Local checked tasks never imply merged/live acceptance or issue closure.
+
+## Phase 12: US7 — Нужные проверки до PR (A3 / E01, P1)
+
+Prerequisites: reviewed `checklists/behavior-selection.md`; analyze with no CRITICAL/HIGH findings; current GitHub task ownership. One owner of the runner: current implementation agent. Release decision remains with the product/release owner.
+
+- [X] T043 [US7] Доказать сначала падающим тестом в `apps/server/tests/contract/test_ci_cd_contract.py`, что изменение общего JS обязано выбирать неизменённые проверки кабинета/настроек; использовать `run_stubbed_ci` (FR-025, SC-014). (Issue #6952)
+- [X] T044 [US7] Добавить единый выбор групп и безопасный Git diff в `scripts/ci-behavior-tests.py` и `infra/scripts/ci-local.sh`: план без побочных действий, локальный focused, включение в fast без потери unit/changed/performance и без дубликатов (FR-025–030). (Issue #6952)
+- [X] T045 [US7] Расширить существующие CI-контракты (`test_ci_cd_contract.py`, `test_local_postgres_test_runner.py`) и `tests/governance/test_governance_workflow.py`: реальные PR/MG/manual base, union, delete/rename/небезопасные пути, missing/empty/skipped proof, dirty/unknown, отсутствие побочных действий, остановка при ошибке и совместимость `check_active_docs` со всеми явными режимами (FR-026–030, SC-014). (Issue #6952)
+- [X] T046 [US7] Выполнить выбранные существующие группы и отрицательный контроль JS в изолированной копии; записать число/время/ограничения в `specs/211-optimize-ci-cd/quickstart.md`, обновить `specs/6792-settings-product-experience/quickstart.md`, focused-инструкцию `docs/agent-guidance/release-and-validation.md` и `changes/unreleased/F211.yaml` (FR-027, FR-030, SC-014–015). (Issue #6952)
+- [X] T047 Выполнить focused/static, review и converge A3; согласовать `specs/211-optimize-ci-cd/{spec,plan,tasks,quickstart}.md` с кодом. Записать отдельно местную готовность и ожидающие post-validation commit, PR/exact-SHA GitHub fast, merge/release/tracker closeout (FR-030, SC-014–015). (Issue #6952)
+
+Dependencies: review → analyze → task sync → T043 FAIL → T044 → T045 → T046 → T047. No parallel code edits; no Full run merely to repeat baseline. The external E00–E12 master plan references these tasks but does not replace this file.
+
+A3 local completion — 2026-09-12: T043–T047 реализованы и проверены; review PASS, converge без новых задач. Числа, команды и ограничения — в `quickstart.md`. Issue #6952 остаётся открытым: implementation commit требует согласования после проверки; PR, GitHub fast на точном SHA, merge и последующий релиз ещё не выполнены. Эти отметки не являются release/issue-closeout evidence.
+
+A3 publication continuation — 2026-09-12: после локальной проверки пользователь разрешил коммит и доведение до готового PR. Предыдущая строка сохраняет состояние локального этапа; итоговые SHA, CI и PR-состояние записываются в опубликованном PR. Issue #6952 закрывается только после merge и предусмотренного подтверждения.

@@ -1146,6 +1146,11 @@ def test_session_confirmation_preserves_access_until_confirm_and_protects_curren
     assert client.post(path, data={'confirm': '1'}, follow_redirects=False).status_code == 403
     confirmation = client.post(path, headers=headers, follow_redirects=False)
     assert confirmation.status_code == 200 and 'name="confirm" value="1"' in confirmation.text
+    assert 'Завершить вход в' in confirmation.text
+    assert 'Подтвердить завершение' in confirmation.text
+    assert f'href="{prefix}/settings/account#session-revoke-{other_id}"' in confirmation.text
+    assert 'id="account-profile-title"' in confirmation.text
+    assert confirmation.text.index('data-session-confirmation') < confirmation.text.index('</ul>', confirmation.text.index('data-session-confirmation'))
     client.cookies.clear()
     assert client.get('/api/v1/auth/me', headers={'X-Auth-Session': other_token, 'X-Workspace-Id': str(workspace_id)}).status_code == 200
     headers = _bind_web_session(client, token=token, session_id=current_id)
@@ -1156,6 +1161,11 @@ def test_session_confirmation_preserves_access_until_confirm_and_protects_curren
     assert client.get('/api/v1/auth/me', headers={'X-Auth-Session': other_token, 'X-Workspace-Id': str(workspace_id)}).status_code == 401
     headers = _bind_web_session(client, token=token, session_id=current_id)
     assert client.get('/api/v1/auth/me', headers={'X-Workspace-Id': str(workspace_id)}).status_code == 200
+    result = client.get(f'{prefix}/settings/account?session=revoked', headers=headers)
+    assert 'Здесь вы остались в аккаунте.' in result.text
+    assert 'Других входов нет.' in result.text
+    assert f'/sessions/{other_id}/revoke' not in result.text
+    assert 'Предыдущие входы' not in result.text
     for target in [f'sessions/{current_id}', f'devices/{device_id}']:
         response = client.post(f'{prefix}/settings/account/{target}/revoke', headers=headers, data={'confirm': '1'}, follow_redirects=False)
         assert response.status_code == 422

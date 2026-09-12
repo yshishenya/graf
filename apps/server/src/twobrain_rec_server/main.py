@@ -24,6 +24,7 @@ from twobrain_rec_server.api.processing import router as processing_router
 from twobrain_rec_server.api.product_analytics import router as product_analytics_router
 from twobrain_rec_server.api.product_analytics_guard import ProductAnalyticsIngressGuard
 from twobrain_rec_server.api.support_incidents import router as support_incidents_router
+from twobrain_rec_server.auth.session_renewal import session_renewal_middleware
 from twobrain_rec_server.cabinet.templates import CABINET_STATIC_URL, cabinet_static_dir
 from twobrain_rec_server.cabinet.web import router as cabinet_web_router
 from twobrain_rec_server.calendar.worker import run_calendar_sync_reconciler
@@ -84,6 +85,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     from twobrain_rec_server.cabinet.user_time import user_time_middleware
 
     app.middleware("http")(user_time_middleware)
+    app.middleware("http")(session_renewal_middleware)
     app.middleware("http")(request_logging_middleware)
     app.add_middleware(ProductAnalyticsIngressGuard)
     app.add_exception_handler(ProblemDetail, problem_exception_handler)

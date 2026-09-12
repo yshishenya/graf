@@ -1,5 +1,15 @@
 # Проверка F6792
 
+## Первый локальный цикл
+
+Перед PR просмотреть общий выбор через `infra/scripts/ci-local.sh --plan` и
+выполнить `infra/scripts/ci-local.sh --focused` в подготовленном окружении.
+Карта F211 включает существующие проверки общих assets, меню и настроек при
+изменении связанных исходников, даже если сами тесты не менялись; точный
+состав и окружение — в [quickstart F211](../211-optimize-ci-cd/quickstart.md).
+Пустой выбор не означает успешную проверку. Для изменений связанных API,
+календарей, браузерных или native-границ дополнительно действуют сценарии ниже.
+
 ## До изменения установленного приложения
 1. Прочитать `docs/agent-guidance/local-development.md`, проверить `infra/scripts/dev-harness.sh status --json`.
 2. Выполнить целевые pytest: `apps/server/tests/contract/test_settings_ui_contract.py`, `test_calendar_settings_contract.py`, `apps/server/tests/unit/test_settings_view_models.py`, `test_settings_outcomes.py`, `apps/server/tests/integration/test_settings_ia_flow.py`, `test_calendar_settings_flow.py` в существующем окружении тестов проекта.

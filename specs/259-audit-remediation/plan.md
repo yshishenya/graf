@@ -68,3 +68,24 @@ Classification: untouched. Generic ветка — действующий standal
 ## Дополнение: завершение workflow
 
 Scope US3/FR-019–FR-022: .specify/workflows/speckit/workflow.yml, project-local implement/taskstoissues skills и source bootstrap overlay; scripts/validate-issue-closeout.py получает только --verify-live режим чтения для одного issue. Существующая verify_feature_runs переиспользуется без нового сервиса. GitHub Actions permissions и production не изменяются. Проверки: CLI acceptance/rejection, YAML order/gates, загрузка workflow реальным specify, source overlay и governance tests.
+
+## Ремонт трёхзначного диапазона — 2026-09-11
+
+Lane: active-spec-kit, продолжение US3/B019, significant governance.
+Основание: актуальный origin/master ad71f2ce4db68d846d7c333213961c5f5f7d5e89.
+Constitution check до и после проектирования: PASS; продукт, данные,
+безопасность, Git lock и строгие проверки источников сохраняются.
+
+Текущее решение заменяет прежний отказ от предела999: необязательный
+max_feature_id в существующей политике, для GRAF 999. Общий распределитель
+фильтрует только начало и проверяет границу каждого кандидата. Новый explicit
+claim проверяется до записи; старые повторы/upgrade проходят прежние проверки.
+Никаких зависимостей и дополнительных счётчиков. Generated specify и старый
+script создания spec используют общий номер; изменения шаблонов закрепляются
+в source bootstrap с сохранением его имеющихся изменений.
+
+Порядок: уточнение/requirements review → регрессия → код → целевые тесты →
+converge. Issue #6837 — закрытое историческое основание, этот ремонт не выдаётся
+за уже принятую часть того issue. Новый внешний комментарий/публикация не
+входят в локальное поручение. Commit, PR CI и включение в master — отдельные
+этапы после представления проверенного diff владельцу.

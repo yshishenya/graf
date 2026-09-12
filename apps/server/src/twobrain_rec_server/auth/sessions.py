@@ -7,9 +7,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
-from sqlalchemy import and_, or_, select, update
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from twobrain_rec_server.config import AUTH_SESSION_TTL_SECONDS
 from twobrain_rec_server.db.models import (
     AuthCallbackState,
     AuthSession,
@@ -17,7 +18,7 @@ from twobrain_rec_server.db.models import (
     RegisteredDevice,
 )
 
-SESSION_TOKEN_TTL_SECONDS = 86_400
+SESSION_TOKEN_TTL_SECONDS = AUTH_SESSION_TTL_SECONDS
 CALLBACK_STATE_TTL_SECONDS = 900
 
 
@@ -312,15 +313,20 @@ async def resolve_session_device(
 
 async def record_session_activity(
     db: AsyncSession, session: AuthSession, device: RegisteredDevice | None,
-    *, now: datetime | None = None,
-) -> None:
+    *, now: datetime | None = None, ttl_seconds: int = SESSION_TOKEN_TTL_SECONDS,
+) -> datetime | None:
     now = now or datetime.now(UTC)
-    cutoff = now - timedelta(seconds=300)
+    interval = timedelta(seconds=min(300, ttl_seconds / 2))
+    cutoff = now - interval
+    expires_at = session_expiry(now, ttl_seconds=ttl_seconds)
     touched = await db.scalar(update(AuthSession).where(
         AuthSession.id == session.id, AuthSession.status == 'active',
         AuthSession.expires_at > now,
-        or_(AuthSession.last_seen_at.is_(None), AuthSession.last_seen_at <= cutoff),
-    ).values(last_seen_at=now).returning(AuthSession.id).execution_options(synchronize_session=False))
+        or_(AuthSession.last_seen_at.is_(None), AuthSession.last_seen_at <= cutoff,
+            AuthSession.expires_at <= expires_at - interval),
+    ).values(last_seen_at=func.greatest(AuthSession.last_seen_at, now),
+             expires_at=func.greatest(AuthSession.expires_at, expires_at)
+    ).returning(AuthSession.expires_at).execution_options(synchronize_session=False))
     if touched is not None and device is not None:
         await db.execute(update(RegisteredDevice).where(
             RegisteredDevice.id == device.id, RegisteredDevice.status == 'active',
@@ -330,3 +336,7 @@ async def record_session_activity(
             AuthSessionDeviceBinding.registered_device_id == device.id,
             AuthSessionDeviceBinding.device_state == 'trusted',
         ).values(last_heartbeat_at=now).execution_options(synchronize_session=False))
+    # Re-deliver the stored deadline after a lost response without another write.
+    return touched if touched is not None else await db.scalar(select(AuthSession.expires_at).where(
+        AuthSession.id == session.id, AuthSession.status == 'active', AuthSession.expires_at > now,
+    ))

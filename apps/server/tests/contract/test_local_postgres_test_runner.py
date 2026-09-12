@@ -120,7 +120,7 @@ def test_local_ci_requires_an_explicit_lane_and_exposes_component_selection() ->
     script = LOCAL_CI.read_text(encoding="utf-8")
 
     assert 'requested_mode="unselected"' in script
-    assert 'usage: $0 --fast|--full|--help' in script
+    assert 'usage: $0 --fast|--full|--plan|--focused|--help' in script
     assert 'classify_path()' in script
     assert 'run_server_tests full' in script
     assert 'run_server_tests fast' in script

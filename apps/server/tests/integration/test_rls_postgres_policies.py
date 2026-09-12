@@ -1833,6 +1833,40 @@ async def test_merged_billing_lineage_remains_visible_and_appealable_under_force
 
 
 @pytest.mark.asyncio
+async def test_session_renewal_commits_under_exact_app_role_without_cross_tenant_access(
+    rls_engine: AsyncEngine, migrated_postgres_urls: MigratedPostgresUrls,
+) -> None:
+    from starlette.responses import Response
+
+    from twobrain_rec_server.auth.session_renewal import session_renewal_middleware
+    from twobrain_rec_server.db.models import AuthSession, RegisteredDevice
+
+    ids = await _seed_probe_rows(rls_engine)
+    async with _exact_app_role_engine(migrated_postgres_urls.migration_url) as app_engine:
+        sessionmaker = async_sessionmaker(app_engine, expire_on_commit=False)
+        context = _request_context(ids, "a")
+        async with sessionmaker() as db:
+            await apply_tenant_context(db, context)
+            session = await db.get(AuthSession, ids["session_a"])
+            device = await db.get(RegisteredDevice, ids["device_a"])
+        request = Request({"type": "http", "method": "GET", "path": "/api/v1/auth/me",
+            "headers": [(b"x-auth-session", b"synthetic-rls-renewal")],
+            "app": SimpleNamespace(state=SimpleNamespace(settings=Settings(), db_sessionmaker=sessionmaker))})
+        request.state.auth_session_renewal = ("synthetic-rls-renewal", session, device, context)
+
+        async def next_response(_):
+            return Response(status_code=200)
+
+        response = await session_renewal_middleware(request, next_response)
+        expires = int(response.headers["X-GRAF-Auth-Expires-At"])
+        assert expires > (datetime.now(UTC) + timedelta(days=29)).timestamp()
+        async with sessionmaker() as db:
+            await apply_tenant_context(db, context)
+            assert int((await db.get(AuthSession, ids["session_a"])).expires_at.timestamp()) == expires
+            assert await db.get(RegisteredDevice, ids["device_b"]) is None
+
+
+@pytest.mark.asyncio
 async def test_auth_session_lookup_requires_context_kind(rls_engine: AsyncEngine) -> None:
     ids = await _seed_probe_rows(rls_engine)
 

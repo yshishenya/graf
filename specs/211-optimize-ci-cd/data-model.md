@@ -2,6 +2,14 @@
 
 No application or production database changes are required. These are local operational entities.
 
+## BehaviorTestPlan (A3, transient diagnostic only)
+
+- `changed_paths`, `head_sha`, `base_ref`, `dirty_worktree`: input identity from the existing diff and current checkout. Local snapshots are diagnostic, not exact-SHA evidence.
+- `groups`: named groups with matching input paths and mandatory existing test files.
+- `tests`, `covered_tests`: ordered union to execute and targets already selected by this fast run's unit stage, never a cache of old results. Mapped contract files execute in the behavior stage and are excluded from the later changed-file stage.
+- `environment`, `coverage=partial`, `next_gate`, `scope=working_tree_diagnostic`: resource requirements and limits. Missing mandatory files, empty test modules or removed named rail proof are errors.
+- No schema change for CI evidence/receipt; `--plan` and `--focused` never produce those records.
+
 ## PRMetadataSnapshot (A2, temporary only)
 
 - Event: positive integer PR number; head/base full commit SHAs; nonempty base ref.
@@ -12,7 +20,7 @@ No application or production database changes are required. These are local oper
 
 ## ValidationLane
 
-- `name`: `fast` or `full`; focused validation remains a direct feature command.
+- `name`: `fast` or `full` for CI evidence; A3 adds a diagnostic focused command and read-only plan outside this evidence model.
 - `requested_name`: explicit operator input.
 - `effective_name`: identical to the explicit operator request; fast never escalates.
 - `components`: unique ordered set of `docs`, `server`, `macos`, `infra`, `unknown`, or `full`.

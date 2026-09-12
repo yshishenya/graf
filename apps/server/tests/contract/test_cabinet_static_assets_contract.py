@@ -4985,7 +4985,7 @@ def test_feature_191_shared_button_contract_keeps_actions_centered_and_on_one_li
     ]:
         block = css[css.index(compound_action) : css.index("}", css.index(compound_action))]
         assert "white-space: normal;" in block
-    assert ">Выйти<" in account
+    assert ">Завершить</button>" in account
     assert ">Завершить сеанс<" not in account
 
 
