@@ -12,7 +12,7 @@ Independent test: переход через сутки/30 дней при акт
 ## Phase 3 — US2 Контроль доступа и closeout
 Independent test: expiry/logout/revoke, иной origin/token и отсутствие ложной смены аккаунта.
 - [X] T005 [US2] Выполнить целевые серверные/Swift проверки, включая apps/server/tests/integration/test_rls_postgres_policies.py, и анализ diff; записать результаты в specs/6795-persistent-app-session/validation.md и changes/unreleased/F6795.yaml, выполнить converge.
-- [ ] T006 [US2] После разрешённого коммита выполнить governance-fast на точном SHA и проверку установленного GRAF Dev через harness; записать evidence в specs/6795-persistent-app-session/validation.md.
+- [X] T006 [US2] После разрешённого коммита выполнить governance-fast на точном SHA и проверку установленного GRAF Dev через harness; записать evidence в specs/6795-persistent-app-session/validation.md.
 
 ## Dependencies and implementation strategy
 T001 → T002 → T003; T004 после T001 может выполняться параллельно с серверными T002/T003 по согласованному contracts/session-renewal.md; T003 + T004 → T005 → T006. Сервер и native должны выйти совместно. Нативная и серверная части имеют разных владельцев файлов; общий runtime не менять. Реализация не отмечает reviewer-owned checklist. T006 — отдельный внешний gate и не объявляется выполненным по локальным тестам.
