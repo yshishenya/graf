@@ -1,11 +1,11 @@
 # Проверка реализации F6796
 
-Lane: high-risk-feature (capture/storage/deletion/UX), полный Spec Kit. Ветка codex/6796-short-recording-threshold, база ad71f2ce4db68d846d7c333213961c5f5f7d5e89. Реализация пока без коммита; CI SHA отсутствует.
+Lane: high-risk-feature (capture/storage/deletion/UX), полный Spec Kit. Ветка codex/6796-short-recording-threshold, база ad71f2ce4db68d846d7c333213961c5f5f7d5e89. Код и стенд зафиксированы в 8f68e8697497582dc33d6d7148d84844057686ca; PR #6950. Итоговое обновление evidence меняет только документацию; exact PR HEAD и его CI указаны в описании PR.
 
 ## Локальные проверки
 
 - `swift test --package-path apps/macos --filter 'ShortRecording|LocalRecordingWriter|CaptureRecoveryService|DesktopUploadQueueTests'`: PASS, 95 тестов, 0 ошибок. Включена реальная финализация 30 секунд синтетического аудио, 480000 кадров WAV и ненулевые первые кадры.
-- `swift build --package-path apps/macos --product TwoBrainRecApp`: PASS; приложение не запускалось.
+- `swift build --package-path apps/macos --product TwoBrainRecApp`: PASS; установленная проверка описана ниже.
 - `git diff --check`, `validate-changelog-fragments.py`: PASS.
 
 - Требования: requirements 6/6, safety 8/8, независимый analyze PASS; GitHub issue canon PASS (300 задач проверено).
@@ -17,9 +17,9 @@ Lane: high-risk-feature (capture/storage/deletion/UX), полный Spec Kit. В
 
 ## Оставшиеся этапы
 
-T006 остаётся открытой: разрешённый коммит, PR и governance-fast на его точном SHA, затем ручная проверка через единственный GRAF Dev по quickstart. Производительность штатного Stop на установленной сборке, VoiceOver и видимость поверх других приложений ещё не подтверждены. Merge/публичный выпуск/production deploy не выполнены и не входят в текущую локальную приёмку.
+T006 остаётся открытой из-за сбоя захвата на установленном GRAF Dev. Обычная остановка до/после 30 секунд, автоматический сценарий, Stop ≤2 секунд, VoiceOver, темы и сообщение поверх другого приложения не подтверждены. PR можно проверять по коду, но обязательная native приёмка блокирует слияние. Merge, публичный выпуск и production deploy не выполнены.
 
-Issues #6943–#6949 остаются открытыми до выполнения соответствующей приёмки. Локальные тесты не заменяют CI и выпуск.
+Issues #6943–#6949 и #6951 остаются открытыми до соответствующей приёмки и слияния. Локальные тесты и smoke стенда не заменяют проверку реального захвата.
 
 ## Согласованность после реализации
 
@@ -32,3 +32,45 @@ speckit-converge: проверены FR-001–FR-009, SC-001–SC-004, обе и
 Пользователь 2026-09-12 разрешил все действия до PR ready. Коммит реализации 8621cded103f4ba0d724aea4282a009b2e307016, PR #6950. GitHub governance-fast PASS: https://github.com/yshishenya/graf/actions/runs/34694733949 ; pr-metadata PASS. Эти результаты относятся к исходному implementation SHA; дополнение стенда требует нового CI.
 
 T007: точный перенос только трёх файлов harness из e964bba55ed594f8bdccf94068d75fd07590c1b5 (F6793). `uv run --project apps/server --extra dev python -m pytest tests/governance/test_graf_local_adapter.py -q`: 43 PASS. Вторая функция/native settings не перенесена. Исходный shared Dev освобождён владельцем F6793; штатная сборка/установка F6796 разрешена, проверка exact SHA/lock не обходилась.
+
+## Установленный стенд и текущий блокер
+
+2026-09-12 штатный dev-harness выполнил build → promote → smoke для
+8f68e8697497582dc33d6d7148d84844057686ca, manifest `dev-8f68e8697497`.
+Единственный GRAF Dev установлен и запущен с сохранённой подписью/идентичностью.
+Smoke: 13/13 PASS, включая exact_source_sha, app_identity, app_presentation,
+сервер, хранилище и обработчики. Это подтверждение стенда, не качества захвата.
+
+Для этого SHA GitHub governance-fast PASS:
+https://github.com/yshishenya/graf/actions/runs/34695023497 ;
+pr-metadata PASS: https://github.com/yshishenya/graf/actions/runs/34695023443 .
+T007 завершена: 43 pytest, независимый infra-review, штатная сборка/установка,
+smoke и CI подтверждены. Последующее изменение evidence требует CI на новом
+PR HEAD; квитанции установленного приложения остаются привязаны к 8f68e8697497.
+
+Три попытки реальной записи синтетического звука завершились до порога:
+`status=failed`, `failureReason=capture_failed`,
+`captureFailureCode=render_reference_missing`, `shortRecordingDiscarded=nil`.
+Каждый аварийный фрагмент сохранён; правило короткой штатной записи к нему
+не применилось. Это PASS сохранения аварийного фрагмента, а не PASS штатного
+отбрасывания. Старые записи и пользовательские настройки не менялись.
+
+Независимый разбор capture_paths: RecordingAudioTimeline.swift и
+SystemAudioCaptureService.swift совпадают с базой ad71f2ce4. Ошибка означает
+непокрытый промежуток системного аудио; небольшие расхождения до 48 кадров
+при 48 кГц уже компенсируются. Доступные метаданные не содержат размера
+промежутка и соседних временных меток, поэтому конкретная причина на стороне
+источника пока не установлена. Порядок поступления обычных задержанных блоков
+сам по себе не объясняет разрыв: вывод ограничен более медленным источником.
+
+Следующий шаг для снятия блокера T006: получить только технические метаданные
+первого непокрытого промежутка (источник, ожидаемое/полученное начало, число
+кадров, частота, discontinuity), установить и устранить причину в захвате,
+затем повторить установленную матрицу quickstart. Порог/защиту целостности
+аудио ради прохождения проверки не ослабляли. Исправление источника аудио
+не включено в F6796 без установленной причины.
+
+Итог convergence: implementation ready; tracker pending. Проверка кода
+одобрена, но T006 и пользовательская приёмка остаются открытыми. Перевод PR
+из draft в ready for review означает приглашение к проверке кода и не снимает
+блокер слияния.
