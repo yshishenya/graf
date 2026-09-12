@@ -268,8 +268,6 @@ private struct AutomaticRecordingRulePicker: View {
         }
         .frame(width: 172, height: 32)
         .disabled(isDisabled)
-        .accessibilityLabel(title)
-        .accessibilityValue(selection?.displayName ?? "Разные правила")
     }
 }
 

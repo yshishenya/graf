@@ -3549,7 +3549,9 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
     private func presentSettingsWindow(reason: String, notifications: Bool = false) {
         Task { await DesktopNotificationPresenter.shared.refreshPermission() }
         if let settingsWindow {
+            let frame = settingsWindow.frame
             settingsWindow.contentViewController = NSHostingController(rootView: LocalSettingsFallbackView(notifications: notifications, onOpenAll: { [weak self] in self?.openSettingsSection("account", retry: true) }))
+            settingsWindow.setFrame(frame, display: false)
             if settingsWindow.isMiniaturized {
                 settingsWindow.deminiaturize(nil)
             }
