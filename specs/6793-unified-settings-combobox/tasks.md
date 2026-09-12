@@ -21,6 +21,6 @@ Dependencies: T001 → T002 → T003 → T004 → T005 → T007 → T006. Releas
 T004 implementation: `apps/macos/RecApp/Sources/Settings/NativeSettingsComboBox.swift`; tests: `apps/macos/Shared/Tests/NativeSettingsComboBoxTests.swift`.
 
 ## Phase 4: Предпосылка установленной проверки
-- [ ] T008 Исправить загрузку датированных MinIO образов в `scripts/dev-harness.py`, описать политику в `infra/dev/README.md` и проверить cache/fail-closed в `tests/governance/test_graf_local_adapter.py` и `tests/governance/test_dev_harness.py` (FR-010).
+- [X] T008 Исправить загрузку датированных MinIO образов в `scripts/dev-harness.py`, описать политику в `infra/dev/README.md` и проверить cache/fail-closed в `tests/governance/test_graf_local_adapter.py` и `tests/governance/test_dev_harness.py` (FR-010).
 
 T008 → T006; GitHub owner T008: https://github.com/yshishenya/graf/issues/6924.
