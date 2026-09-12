@@ -34,6 +34,11 @@ struct NativeSettingsComboBox: NSViewRepresentable {
 
     final class Field: NSTextField {
         var onClick: (() -> Void)?
+        weak var optionsList: NSView?
+        override func accessibilityChildren() -> [Any]? {
+            let children = super.accessibilityChildren() ?? []
+            return children + (optionsList.map { [$0] } ?? [])
+        }
         override func becomeFirstResponder() -> Bool {
             let accepted = super.becomeFirstResponder()
             if accepted { superview?.needsDisplay = true }
@@ -117,7 +122,23 @@ struct NativeSettingsComboBox: NSViewRepresentable {
         }
     }
 
-    private final class OptionCell: NSTableCellView {
+    private final class OptionCell: NSButton {
+        override init(frame: NSRect) {
+            super.init(frame: frame)
+            title = ""
+            isBordered = false
+            setButtonType(.momentaryChange)
+            refusesFirstResponder = true
+            focusRingType = .none
+            target = self
+            action = #selector(choose)
+        }
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+        // Labels must not request keyboard focus from the non-key popup panel.
+        override func hitTest(_ point: NSPoint) -> NSView? { super.hitTest(point) == nil ? nil : self }
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+        override var needsPanelToBecomeKey: Bool { false }
+        @objc private func choose() { onChoose?() }
         var onChoose: (() -> Void)?
         var savedSelection = false
         override func isAccessibilitySelected() -> Bool { savedSelection }
@@ -164,6 +185,9 @@ struct NativeSettingsComboBox: NSViewRepresentable {
     }
 
     private final class OptionsTable: NSTableView {
+        override func accessibilityChildren() -> [Any]? {
+            (0..<numberOfRows).compactMap { view(atColumn: 0, row: $0, makeIfNecessary: true) }
+        }
         // Arrow/Return handling belongs to the one text field, not the popup.
         override var acceptsFirstResponder: Bool { false }
     }
@@ -203,8 +227,7 @@ struct NativeSettingsComboBox: NSViewRepresentable {
             table.backgroundColor = .clear
             table.dataSource = self
             table.delegate = self
-            table.target = self
-            table.action = #selector(clickedOption(_:))
+            table.setAccessibilityElement(true)
             table.setAccessibilityRole(.list)
             scroll.hasVerticalScroller = true
             scroll.drawsBackground = false
@@ -271,6 +294,9 @@ struct NativeSettingsComboBox: NSViewRepresentable {
                 updateHighlight()
             }
             isOpen = true
+            control.field.optionsList = table
+            table.setAccessibilityParent(control.field)
+            NSAccessibility.post(element: control.field, notification: .layoutChanged)
             updateHighlight()
             guard !panel.isVisible, let parent = control.window, parent.isVisible else { return }
             isPresenting = true
@@ -390,8 +416,6 @@ struct NativeSettingsComboBox: NSViewRepresentable {
             scroll.reflectScrolledClipView(scroll.contentView)
         }
 
-        @objc private func clickedOption(_ sender: NSTableView) { choose(index: sender.clickedRow) }
-
         func choose(index: Int) {
             guard isOpen, let control, control.field.isEnabled,
                   (control.field.currentEditor() as? NSTextView)?.hasMarkedText() != true,
@@ -419,8 +443,11 @@ struct NativeSettingsComboBox: NSViewRepresentable {
             panel.parent?.removeChildWindow(panel)
             panel.orderOut(nil)
             stopObserving()
+            control?.field.optionsList = nil
+            table.setAccessibilityParent(nil)
             control?.field.setAccessibilitySharedFocusElements([])
             control?.field.setAccessibilityExpanded(false)
+            if let field = control?.field { NSAccessibility.post(element: field, notification: .layoutChanged) }
             control?.needsDisplay = true
             if !isCommitting { restoreLabel() }
         }
@@ -475,6 +502,7 @@ struct NativeSettingsComboBox: NSViewRepresentable {
             check.translatesAutoresizingMaskIntoConstraints = false
             cell.addSubview(check)
             cell.setAccessibilityElement(true)
+            cell.setAccessibilityParent(table)
             cell.setAccessibilityLabel(label.stringValue)
             if visibleOptions.indices.contains(row) {
                 let id = visibleOptions[row].id
@@ -497,7 +525,6 @@ struct NativeSettingsComboBox: NSViewRepresentable {
                 label.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -10),
                 label.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
             ])
-            cell.textField = label
             return cell
         }
     }

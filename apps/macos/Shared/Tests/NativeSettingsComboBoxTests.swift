@@ -322,4 +322,57 @@ final class NativeSettingsComboBoxTests: XCTestCase {
         coordinator.detach()
     }
 
+    func testOptionHitTargetAcceptsClickWithoutMakingPanelKey() throws {
+        var saved: [String] = []
+        let owner = NativeSettingsComboBox(title: "Правило", options: options, selectedID: "ask") { saved.append($0) }
+        let coordinator = owner.makeCoordinator()
+        let control = NativeSettingsComboBox.Control(frame: NSRect(x: 0, y: 0, width: 172, height: 32))
+        coordinator.update(owner, control: control, enabled: true)
+        coordinator.open()
+        let table = try XCTUnwrap(coordinator.scroll.documentView as? NSTableView)
+        let row = table.rect(ofRow: 1)
+        let target = try XCTUnwrap(table.hitTest(NSPoint(x: 80, y: row.midY)))
+        XCTAssertTrue(target.acceptsFirstMouse(for: nil))
+        XCTAssertFalse(target.needsPanelToBecomeKey)
+        let button = try XCTUnwrap(target as? NSButton)
+        XCTAssertTrue(button.refusesFirstResponder)
+        for x: CGFloat in [10, 80, 160] {
+            XCTAssertTrue(table.hitTest(NSPoint(x: x, y: row.midY)) === button)
+        }
+        // Invoke the native control action directly; no fabricated mouse event.
+        XCTAssertTrue(button.sendAction(button.action, to: button.target))
+        XCTAssertEqual(saved, ["always"])
+        _ = button.sendAction(button.action, to: button.target)
+        XCTAssertEqual(saved, ["always"])
+        XCTAssertEqual(control.field.stringValue, "Всегда")
+        coordinator.detach()
+    }
+
+    func testExpandedListIsReachableInFieldAccessibilityChildrenAndDetachesOnClose() throws {
+        let owner = NativeSettingsComboBox(title: "Правило", options: options, selectedID: "ask")
+        let coordinator = owner.makeCoordinator()
+        let control = NativeSettingsComboBox.Control(frame: NSRect(x: 0, y: 0, width: 172, height: 32))
+        coordinator.update(owner, control: control, enabled: true)
+        let table = try XCTUnwrap(coordinator.scroll.documentView as? NSTableView)
+        XCTAssertFalse(control.field.accessibilityChildren()?.contains { ($0 as? NSView) === table } ?? false)
+        coordinator.open()
+        XCTAssertTrue(control.field.accessibilityChildren()?.contains { ($0 as? NSView) === table } ?? false)
+        XCTAssertTrue((table.accessibilityParent() as? NSView) === control.field)
+        XCTAssertTrue(table.isAccessibilityElement())
+        XCTAssertEqual(table.accessibilityRole(), .list)
+        func labels(in element: Any, depth: Int = 0) -> [String] {
+            guard depth < 8, let element = element as? NSAccessibilityProtocol else { return [] }
+            return [element.accessibilityLabel()].compactMap { $0 }
+                + (element.accessibilityChildren() ?? []).flatMap { labels(in: $0, depth: depth + 1) }
+        }
+        XCTAssertTrue(labels(in: control.field).contains("Всегда"))
+        let row = try XCTUnwrap(table.view(atColumn: 0, row: 1, makeIfNecessary: true))
+        XCTAssertEqual(row.accessibilityLabel(), "Всегда")
+        XCTAssertTrue(row.accessibilityPerformPress())
+        XCTAssertEqual(control.field.stringValue, "Всегда")
+        XCTAssertNil(control.field.optionsList)
+        XCTAssertFalse(control.field.accessibilityChildren()?.contains { ($0 as? NSView) === table } ?? false)
+        coordinator.detach()
+    }
+
 }
