@@ -7,7 +7,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 export PYTHONDONTWRITEBYTECODE=1
 
 usage() {
-  echo "usage: $0 --fast|--full|--help" >&2
+  echo "usage: $0 --fast|--full|--plan|--focused|--help" >&2
 }
 
 classify_path() {
@@ -76,14 +76,50 @@ merge_base_commit() {
   git -C "$repo_root" merge-base HEAD "$base_ref"
 }
 
-changed_files() {
+changed_files() (
+  set -o pipefail
   local merge_base
-  local tracked_changes
-  local untracked_changes
   merge_base="$(merge_base_commit)" || return 1
-  tracked_changes="$(git -C "$repo_root" diff --no-renames --name-only "$merge_base" --)" || return 1
-  untracked_changes="$(git -C "$repo_root" ls-files --others --exclude-standard)" || return 1
-  printf '%s\n%s\n' "$tracked_changes" "$untracked_changes" | LC_ALL=C sort -u
+  {
+    # Status 1 is reserved for an unavailable implicit base, never a partial diff.
+    git -C "$repo_root" diff --no-renames --name-only -z "$merge_base" -- || exit 2
+    git -C "$repo_root" ls-files --others --exclude-standard -z || exit 2
+  } | python3 -c '
+import sys
+try:
+    paths = sorted(set(filter(None, sys.stdin.buffer.read().decode("utf-8").split("\0"))))
+except UnicodeError:
+    sys.exit(2)
+if any(ord(c) < 32 or ord(c) == 127 for path in paths for c in path):
+    print("unsupported_changed_path: control characters are not supported", file=sys.stderr)
+    sys.exit(2)
+if paths:
+    print("\n".join(paths))
+'
+)
+
+behavior_tests() {
+  local paths="$1"
+  shift
+  printf '%s\n' "$paths" | python3 "$repo_root/scripts/ci-behavior-tests.py" "$@"
+}
+
+focused_main() {
+  local paths=""
+  local status
+  local args=(--plan)
+  [[ "$1" == "--focused" ]] && args=(--run)
+  if paths="$(changed_files)"; then
+    :
+  else
+    status=$?
+    if [[ "$status" -ne 1 || -n "${GRAF_CI_BASE_REF:-}" ]]; then
+      printf 'ci_selection_error=invalid_diff_or_explicit_base\n' >&2
+      return 2
+    fi
+    args+=(--diff-unavailable)
+  fi
+  behavior_tests "$paths" "${args[@]}"
 }
 
 run_step() {
@@ -127,7 +163,7 @@ active.extend(sorted((root / "docs/agent-guidance").rglob("*.md")))
 ambiguous = []
 for path in dict.fromkeys(active):
     for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-        if "infra/scripts/ci-local.sh" in line and "--fast" not in line and "--full" not in line:
+        if "infra/scripts/ci-local.sh" in line and not any(mode in line for mode in ("--fast", "--full", "--plan", "--focused")):
             ambiguous.append(f"{path.relative_to(root)}:{number}")
 if ambiguous:
     print("ambiguous_ci_commands=" + ",".join(ambiguous), file=sys.stderr)
@@ -205,6 +241,10 @@ check_final_cleanliness() {
 
 main() (
   set -uo pipefail
+  if [[ "$#" -eq 1 && ( "$1" == "--plan" || "$1" == "--focused" ) ]]; then
+    focused_main "$1"
+    return $?
+  fi
   local requested_sha="${GRAF_CI_REQUESTED_SHA:-}"
   local observed_sha_start=""
   local observed_sha_end=""
@@ -218,6 +258,8 @@ main() (
   local pipeline_duration
   local changed_list=""
   local changed_server_tests=""
+  local behavior_args=(--allow-empty)
+  local behavior_targets=""
   local has_server=0
   local needs_server_unit=0
   local has_macos=0
@@ -498,7 +540,13 @@ PY
   unset GRAF_CI_ALLOW_DIRTY GRAF_CI_EVIDENCE_PATH
   performance_proof="$(calendar_performance_test_path)" || return 1
 
-  if ! changed_list="$(changed_files)"; then
+  local diff_status=0
+  changed_list="$(changed_files)" || diff_status=$?
+  if [[ "$diff_status" -ne 0 ]]; then
+    if [[ "$diff_status" -ne 1 || -n "${GRAF_CI_BASE_REF:-}" ]]; then
+      printf 'ci_selection_error=invalid_diff_or_explicit_base\n' >&2
+      return 2
+    fi
     if [[ "$requested_mode" == "full" ]]; then
       performance_required=1
     else
@@ -637,6 +685,20 @@ PY
 
   [[ "$performance_required" -eq 1 ]] && performance_gate="required"
 
+  if [[ "$effective_mode" == "fast" && "$has_server" -eq 1 ]]; then
+    [[ "$needs_server_unit" -eq 1 ]] && behavior_args+=(--covered tests/unit)
+    behavior_targets="$(behavior_tests "$changed_list" --targets "${behavior_args[@]}")" || return $?
+    # Whole behavior files execute in the added stage, not again in changed tests.
+    local remaining_tests=""
+    while IFS= read -r path; do
+      [[ -n "$path" ]] || continue
+      if [[ $'\n'"$behavior_targets"$'\n' != *$'\n'"${path#apps/server/}"$'\n'* ]]; then
+        remaining_tests="${remaining_tests}${remaining_tests:+$'\n'}${path}"
+      fi
+    done <<<"$changed_server_tests"
+    changed_server_tests="$remaining_tests"
+  fi
+
   printf 'ci_lane requested=%s effective=%s components=%s reason=%s performance_gate=%s coverage=%s next_gate=%s\n' \
     "$requested_mode" "$effective_mode" "$components" "$selection_reason" "$performance_gate" \
     "$coverage" "$next_gate"
@@ -698,6 +760,9 @@ PY
       fi
     fi
     if [[ "$has_server" -eq 1 ]]; then
+      if [[ -n "$behavior_targets" ]]; then
+        run_step "related behavior tests" behavior_tests "$changed_list" --run "${behavior_args[@]}" || return $?
+      fi
       if [[ "$needs_server_unit" -eq 1 ]]; then
         run_step "server tests" run_server_tests fast report || return $?
       fi

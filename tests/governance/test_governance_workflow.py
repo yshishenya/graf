@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 import importlib.util
+import json
 import os
+import shutil
 import subprocess
 import textwrap
 
@@ -64,13 +66,25 @@ def test_fast_workflow_uses_the_event_base_for_real_diff(
     # Execute the real selection helper, but never run product tests or emit CI evidence.
     runner.write_text(
         '#!/usr/bin/env bash\nsource "$GRAF_TEST_CI_SOURCE"\n'
-        'repo_root="$PWD"\nprintf "selection_started\\n"\nchanged_files\n',
+        'repo_root="$PWD"\nprintf "selection_started\\n"\n'
+        'paths="$(changed_files)" || exit $?\nbehavior_tests "$paths" --plan\n',
     )
     runner.chmod(0o755)
+    for relative in (
+        "scripts/ci-behavior-tests.py",
+        "apps/server/tests/contract/test_cabinet_static_assets_contract.py",
+        "apps/server/tests/contract/test_settings_ui_contract.py",
+        "apps/server/tests/unit/test_settings_view_models.py",
+    ):
+        target = tmp_path / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / relative, target)
     git("add", ".")
     git("commit", "-qm", "base")
     event_base = git("rev-parse", "HEAD")
-    for name in ("server.txt", "macos.txt"):
+    changed = ("apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js", "apps/macos/Sources/App.swift")
+    for name in changed:
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / name).write_text(name + "\n")
         git("add", name)
         git("commit", "-qm", name)
@@ -92,13 +106,22 @@ def test_fast_workflow_uses_the_event_base_for_real_diff(
         assert "selection_started" not in result.stdout
         return
     assert result.returncode == 0, result.stderr
-    expected = ["selection_started"] if base_kind == "diagnostic" else ["selection_started", "macos.txt", "server.txt"]
-    assert result.stdout.split() == expected
+    assert result.stdout.splitlines()[0] == "selection_started"
+    plan = json.loads(result.stdout.splitlines()[1])
+    assert plan["changed_paths"] == ([] if base_kind == "diagnostic" else sorted(changed))
+    assert len(plan["tests"]) == (0 if base_kind == "diagnostic" else 3)
+    local = subprocess.run(
+        ["bash", "-c", 'source "$GRAF_TEST_CI_SOURCE"; repo_root="$PWD"; focused_main --plan'],
+        cwd=tmp_path, text=True, capture_output=True,
+        env={**os.environ, "GRAF_CI_BASE_REF": bases[base_kind], "GRAF_TEST_CI_SOURCE": str(ROOT / "infra/scripts/ci-local.sh")},
+    )
+    assert local.returncode == 0, local.stderr
+    assert json.loads(local.stdout) == plan
     if base_kind == "valid":
         git("update-ref", "refs/remotes/origin/master", "HEAD~1")
         repeated = selected_paths()
         assert repeated.returncode == 0, repeated.stderr
-        assert repeated.stdout.split() == expected
+        assert json.loads(repeated.stdout.splitlines()[1]) == plan
 
 
 @pytest.mark.parametrize("fragment", [

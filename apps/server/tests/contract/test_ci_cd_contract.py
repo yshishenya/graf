@@ -3,7 +3,10 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
+import shutil
 import subprocess
+import sys
 import uuid
 from pathlib import Path
 
@@ -56,7 +59,7 @@ git() {
   command git "$@"
 }
 changed_files() {
-  [[ "$GRAF_TEST_DIFF_AVAILABLE" == "true" ]] || return 9
+  [[ "$GRAF_TEST_DIFF_AVAILABLE" == "true" ]] || return 1
   printf '%s\n' "$GRAF_TEST_CHANGED_FILES"
 }
 calendar_performance_test_path() {
@@ -64,6 +67,14 @@ calendar_performance_test_path() {
 }
 run_step() {
   local name="$1"
+  if [[ "$name" == "related behavior tests" ]]; then
+    # Use the real selector while leaving actual product execution to its
+    # separate focused acceptance. Drop only --run from this fixture call.
+    shift 2
+    local paths="$1"
+    shift 2
+    behavior_tests "$paths" "$@" || return $?
+  fi
   if [[ "$name" == "server lint" || "$name" == "python compile" ]]; then
     printf 'static_command=%s\n' "$*"
   fi
@@ -86,6 +97,8 @@ main "$2"
         str(LOCAL_CI),
         mode,
         env={
+            # This fixture owns its synthetic diff; explicit test overrides follow.
+            "GRAF_CI_BASE_REF": "",
             "GRAF_PERFORMANCE_GATE": "auto",
             "GRAF_TEST_CHANGED_FILES": changed_files,
             "GRAF_TEST_DIFF_AVAILABLE": str(diff_available).lower(),
@@ -112,6 +125,173 @@ def test_local_ci_help_is_explicit_and_runs_no_stage() -> None:
     assert result.returncode == 0
     assert "--fast|--full" in result.stdout
     assert "ci_stage=" not in result.stdout
+
+
+def test_shared_cabinet_change_selects_unchanged_behavior_proofs() -> None:
+    result = run_stubbed_ci(
+        "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js",
+        "--fast",
+    )
+
+    assert result.returncode == 0, result.stdout
+    assert "ci_stage=related behavior tests status=pass" in result.stdout
+    plan = next(json.loads(line) for line in result.stdout.splitlines() if line.startswith('{"'))
+    assert plan["tests"] == [
+        "tests/contract/test_cabinet_static_assets_contract.py",
+        "tests/contract/test_settings_ui_contract.py",
+    ]
+    assert plan["covered_tests"] == ["tests/unit/test_settings_view_models.py"]
+    assert "ci_stage=server tests status=pass" in result.stdout
+    assert "coverage=partial next_gate=full_before_release" in result.stdout
+
+
+def behavior_repo(tmp_path: Path) -> Path:
+    """Small real Git/pytest fixture, without product imports or a database."""
+    for relative in ("infra/scripts/ci-local.sh", "scripts/ci-behavior-tests.py"):
+        target = tmp_path / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / relative, target)
+    for relative in (
+        "contract/test_cabinet_static_assets_contract.py",
+        "contract/test_settings_ui_contract.py",
+        "unit/test_settings_view_models.py",
+    ):
+        target = tmp_path / "apps/server/tests" / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        name = ("test_cabinet_rail_node_harness_keeps_responsive_defaults_and_manual_state"
+                if "static_assets" in relative else "test_fixture")
+        target.write_text(f"def {name}():\n    assert True\n")
+    (tmp_path / ".gitignore").write_text(".venv/\n.pytest_cache/\n__pycache__/\n")
+    for args in (("init", "-q"), ("config", "user.email", "ci-contract@example.test"),
+                 ("config", "user.name", "CI Contract"), ("add", "."), ("commit", "-qm", "base")):
+        assert run("git", *args, cwd=tmp_path).returncode == 0
+    return tmp_path / "infra/scripts/ci-local.sh"
+
+
+def test_local_plan_and_fast_share_groups_without_repeating_changed_files() -> None:
+    paths = (
+        "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js\n"
+        "apps/server/src/twobrain_rec_server/cabinet/web_routes/settings.py\n"
+        "apps/server/tests/contract/test_cabinet_static_assets_contract.py\n"
+        "apps/server/tests/contract/test_settings_ui_contract.py\n"
+        "unknown/other.bin"
+    )
+    local = run_stubbed_ci(paths, "--plan")
+    fast = run_stubbed_ci(paths, "--fast")
+    assert local.returncode == fast.returncode == 0
+    local_plan = json.loads(local.stdout)
+    fast_plan = next(json.loads(line) for line in fast.stdout.splitlines() if line.startswith('{"'))
+    assert local_plan["groups"] == fast_plan["groups"]
+    assert set(local_plan["tests"]) == set(fast_plan["tests"] + fast_plan["covered_tests"])
+    assert local_plan["scope"] == "working_tree_diagnostic"
+    assert local_plan["coverage"] == "partial"
+    assert fast.stdout.count("ci_stage=related behavior tests status=pass") == 1
+    assert "ci_stage=changed server tests" not in fast.stdout
+    assert fast.stdout.index("ci_stage=python compile") < fast.stdout.index("ci_stage=related behavior tests")
+    assert fast.stdout.index("ci_stage=related behavior tests") < fast.stdout.index("ci_stage=server tests")
+
+
+def test_plan_is_read_only_and_preserves_real_git_rename_and_special_paths(tmp_path: Path) -> None:
+    runner = behavior_repo(tmp_path)
+    original = tmp_path / "apps/server/src/twobrain_rec_server/cabinet/templates/old file.html"
+    original.parent.mkdir(parents=True)
+    original.write_text("before\n")
+    assert run("git", "add", ".", cwd=tmp_path).returncode == 0
+    assert run("git", "commit", "-qm", "source", cwd=tmp_path).returncode == 0
+    base = run("git", "rev-parse", "HEAD", cwd=tmp_path).stdout.strip()
+    renamed = original.with_name("меню $() `touch injected` ' \".html")
+    original.rename(renamed)
+    spies = tmp_path / ".venv/bin"
+    spies.mkdir(parents=True)
+    for name in ("docker", "uv", "pytest", "node", "curl", "gh", "swift"):
+        executable = spies / name
+        executable.write_text("#!/bin/sh\ntouch injected\nexit 99\n")
+        executable.chmod(0o755)
+    before = set(tmp_path.rglob("*"))
+    result = run(str(runner), "--plan", cwd=tmp_path,
+                 env={"GRAF_CI_BASE_REF": base, "PATH": f"{spies}:{os.environ['PATH']}"})
+    assert result.returncode == 0, result.stdout
+    plan = json.loads(result.stdout)
+    assert plan["changed_paths"] == sorted([str(original.relative_to(tmp_path)), str(renamed.relative_to(tmp_path))])
+    assert [group["name"] for group in plan["groups"]] == ["cabinet-shell", "settings"]
+    assert plan["dirty_worktree"] is True
+    assert len(plan["tests"]) == 3
+    assert set(tmp_path.rglob("*")) == before
+    assert "ci_local_result" not in result.stdout and "ci_evidence_path" not in result.stdout
+    invalid = renamed.with_name("line\nbreak.html")
+    renamed.rename(invalid)
+    rejected = run(str(runner), "--plan", cwd=tmp_path, env={"GRAF_CI_BASE_REF": base})
+    assert rejected.returncode != 0
+    assert "unsupported_changed_path" in rejected.stdout
+    assert "ci_focused_result=pass" not in rejected.stdout
+
+
+@pytest.mark.parametrize("condition", ["missing", "empty", "rail_removed"])
+def test_missing_mandatory_behavior_proof_fails_before_execution(tmp_path: Path, condition: str) -> None:
+    runner = behavior_repo(tmp_path)
+    target = tmp_path / "apps/server/tests/contract/test_cabinet_static_assets_contract.py"
+    if condition == "missing":
+        target.unlink()
+    else:
+        target.write_text("" if condition == "empty" else "def test_other():\n    pass\n")
+    result = run(str(runner), "--focused", cwd=tmp_path, env={"GRAF_CI_BASE_REF": "HEAD"})
+    assert result.returncode != 0
+    assert "required_test_" in result.stdout
+    assert "server_venv_missing" not in result.stdout
+    assert not (tmp_path / "apps/server/.venv").exists()
+
+
+@pytest.mark.parametrize("condition", ["pass", "skip", "deselect", "failure"])
+def test_focused_requires_executed_proof_despite_pytest_filters(tmp_path: Path, condition: str) -> None:
+    runner = behavior_repo(tmp_path)
+    target = tmp_path / "apps/server/tests/contract/test_cabinet_static_assets_contract.py"
+    original = target.read_text()
+    if condition == "skip":
+        target.write_text("import pytest\n@pytest.mark.skip(reason='fixture')\n" + original)
+    elif condition == "failure":
+        target.write_text(original.replace("assert True", "assert False"))
+    if condition == "deselect":
+        (target.parent / "conftest.py").write_text(
+            "def pytest_collection_modifyitems(items):\n    items[:] = [i for i in items if 'rail_node' not in i.name]\n"
+        )
+    source = tmp_path / "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js"
+    source.parent.mkdir(parents=True)
+    source.write_text("// fixture\n")
+    python = tmp_path / "apps/server/.venv/bin/python"
+    python.parent.mkdir(parents=True)
+    python.write_text(f'#!/bin/sh\nexec {shlex.quote(sys.executable)} "$@"\n')
+    python.chmod(0o755)
+    result = run(str(runner), "--focused", cwd=tmp_path, env={
+        "GRAF_CI_BASE_REF": "HEAD", "PYTEST_ADDOPTS": "-k should_never_select_anything",
+    })
+    if condition == "pass":
+        assert result.returncode == 0, result.stdout
+        assert "3 passed" in result.stdout
+        assert "ci_focused_result=pass" in result.stdout
+    else:
+        assert result.returncode != 0, result.stdout
+        assert "ci_focused_result=fail" in result.stdout
+        expected = {"skip": "required_behavior_test_skipped", "deselect": "required_test_file_not_executed",
+                    "failure": "AssertionError"}
+        assert expected[condition] in result.stdout
+    assert not (tmp_path / ".dev/ci-evidence").exists()
+
+
+def test_focused_empty_missing_runtime_and_bad_base_do_not_pass(tmp_path: Path) -> None:
+    runner = behavior_repo(tmp_path)
+    (tmp_path / "unknown.bin").write_text("fixture\n")
+    empty = run(str(runner), "--focused", cwd=tmp_path, env={"GRAF_CI_BASE_REF": "HEAD"})
+    assert empty.returncode == 2 and "no_focused_tests_selected" in empty.stdout
+    invalid = run(str(runner), "--plan", cwd=tmp_path, env={"GRAF_CI_BASE_REF": "f" * 40})
+    assert invalid.returncode != 0 and "invalid_diff_or_explicit_base" in invalid.stdout
+    missing = run(str(runner), "--plan", cwd=tmp_path, env={"GRAF_CI_BASE_REF": ""})
+    assert missing.returncode == 0 and json.loads(missing.stdout)["diff_available"] is False
+    target = tmp_path / "apps/server/tests/contract/test_settings_ui_contract.py"
+    target.write_text(target.read_text() + "\n")
+    runtime = run(str(runner), "--focused", cwd=tmp_path, env={"GRAF_CI_BASE_REF": "HEAD"})
+    assert runtime.returncode != 0 and "server_venv_missing" in runtime.stdout
+    explicit_fast = run_stubbed_ci("", "--fast", diff_available=False, env={"GRAF_CI_BASE_REF": "f" * 40})
+    assert explicit_fast.returncode != 0 and "ci_stage=" not in explicit_fast.stdout
 
 
 @pytest.mark.parametrize("mode", ["--fast", "--full"])
@@ -244,7 +424,8 @@ def test_explicit_fast_never_escalates_to_full(changed_files: str) -> None:
     assert "effective=full" not in result.stdout
 
 
-def test_unknown_and_unavailable_diffs_report_partial_fast_coverage() -> None:
+def test_unknown_and_unavailable_diffs_report_partial_fast_coverage(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GRAF_CI_BASE_REF", "a" * 40)
     unknown = run_stubbed_ci("unknown/surface.bin", "--fast")
     unavailable = run_stubbed_ci("", "--fast", diff_available=False)
 
@@ -331,20 +512,31 @@ def test_synchronized_full_requires_performance_when_the_diff_is_empty() -> None
     assert "performance_gate=required" in result.stdout
 
 
-def test_changed_files_propagates_a_tracked_diff_failure() -> None:
+@pytest.mark.parametrize("command", ["diff", "ls-files"])
+@pytest.mark.parametrize("mode", ["--plan", "--focused"])
+def test_git_collection_failure_never_selects_partial_behavior_tests(command: str, mode: str) -> None:
     script = r'''
 source "$1"
+merge_base_commit() { printf 'HEAD\n'; }
 git() {
   case "$*" in
-    *diff*--name-only*) return 9 ;;
+    *diff*--name-only*)
+      [[ "$GRAF_TEST_GIT_FAILURE" != "diff" ]] || return 128
+      printf '%s\0' 'apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js'
+      ;;
+    *ls-files*--others*) return 128 ;;
     *) command git "$@" ;;
   esac
 }
-changed_files
+behavior_tests() { printf 'unexpected_behavior_selection\n'; }
+focused_main "$2"
 '''
-    result = run("bash", "-c", script, "contract", str(LOCAL_CI))
+    result = run("bash", "-c", script, "contract", str(LOCAL_CI), mode,
+                 env={"GRAF_TEST_GIT_FAILURE": command, "GRAF_CI_BASE_REF": ""})
 
-    assert result.returncode != 0
+    assert result.returncode == 2, result.stdout
+    assert "ci_selection_error=invalid_diff_or_explicit_base" in result.stdout
+    assert "unexpected_behavior_selection" not in result.stdout
 
 
 def test_changed_files_disables_rename_detection_for_both_endpoints() -> None:
@@ -588,7 +780,7 @@ def test_active_documentation_has_no_ambiguous_bare_ci_command() -> None:
     ambiguous: list[str] = []
     for path in dict.fromkeys(active):
         for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-            if "infra/scripts/ci-local.sh" in line and "--fast" not in line and "--full" not in line:
+            if "infra/scripts/ci-local.sh" in line and not any(mode in line for mode in ("--fast", "--full", "--plan", "--focused")):
                 ambiguous.append(f"{path.relative_to(ROOT)}:{line_number}")
 
     assert ambiguous == []

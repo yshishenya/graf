@@ -1,6 +1,35 @@
 # Implementation Plan: Быстрый и доказуемый CI/CD
 
-## Active follow-up A2 — 2026-09-09
+## Active follow-up A3 / E01 — 2026-09-12
+
+**Anchor**: F211, `codex/211-behavior-test-selection`, base `ad71f2ce4db68d846d7c333213961c5f5f7d5e89` (current master verified by GitHub). A1/A2 merged in #6851; #6845/#6850 closed. Historical text below is preserved as evidence, not current status.
+**Lane**: high-risk CI/governance, active Spec Kit continuation. US7, FR-025–030, SC-014–015. Requirements review, analyze and task ownership precede code. Local implementation/tests completed; after validation the user authorized the implementation commit and publication of a PR ready for release inclusion on 2026-09-12. Merge and release gates remain separate.
+**Constitution check before/after design**: compatible with version 7.0.0; no principle amendment, product/source/data/secret/publication change. Existing exact-SHA, release-full, deploy and macOS gates remain. No application install or full diagnostic is needed for selector acceptance.
+**Tooling**: Bash/Git/Python stdlib and existing pytest/Node. The shared Specify is 1.0.6 but this checkout pins 1.0.1; isolated ignored installation at the pinned commit passes `speckit-bootstrap . --doctor --frozen`. Generated files and lock stay unchanged.
+
+### Smallest shared selection
+
+1. Keep existing `merge_base_commit`/`changed_files` in `infra/scripts/ci-local.sh`. Decode Git NUL-delimited output before the existing line-based classifier, sort/deduplicate and reject control characters explicitly. Include both rename ends and dirty/untracked files. Propagate a bad explicit base or unsafe path as a failure; the unavailable implicit diagnostic base retains bounded fast fallback. Do not copy event-identity logic or change workflow guards.
+2. Add one stdlib helper, `scripts/ci-behavior-tests.py`, called by this runner for both local focused and GitHub fast. It owns only the following small map; no dependency graph or separate configuration file.
+
+| Source scope | Required group | Existing targets (server-relative) |
+|---|---|---|
+| `cabinet/static/**`, `cabinet/templates/**`, `cabinet/rendering*.py` | cabinet-shell and settings | all three files below |
+| `cabinet/view_models*.py`, `cabinet/web_routes/settings.py` | settings | `tests/unit/test_settings_view_models.py`, `tests/contract/test_settings_ui_contract.py` |
+| A mapped test file, including deletion/rename | its owning group | same group as production selection |
+| cabinet-shell group | shared normal/embedded behavior | `tests/contract/test_cabinet_static_assets_contract.py` including the existing rail regression |
+
+All production paths above start with `apps/server/src/twobrain_rec_server/`. Use the whole existing static-asset file to cover neighboring shared behavior, rather than copying selected assertions. Check mapped files contain tests and retain the named rail regression; missing or empty mandatory proof fails before product tests.
+
+3. Public entrypoints: `infra/scripts/ci-local.sh --plan` prints a JSON plan only; `--focused` prints the same plan and runs only these groups in the already prepared server environment. Both reuse the existing diff function and are diagnostic, including dirty trees. A missing diagnostic base gives a partial empty plan; focused execution then fails with guidance. Plan exit 0 means a valid plan, never passing tests. It does not write evidence, install dependencies, start Docker/app or access the network. Empty/unmatched focused execution exits 2. Git/path/proof errors exit nonzero, without a success result.
+4. Plan fields: input paths, head SHA, base ref, group names/reasons/targets, `tests`, `covered_tests`, required environment, dirty diagnostic state, partial coverage and next GitHub/release gates. Fast receives `--covered tests/unit` when its existing unit set is selected; remove those covered targets from added execution. Mapped contract files execute in the behavior stage with execution-proof validation; remove them from the later changed-file stage to avoid duplicate execution. Preserve all pre-existing unit/changed/performance/components. Local focused runs the union once. An empty added group starts no behavior stage, while all prior safety stages still run.
+5. Fast runs added tests after existing lint/compile and before broad server tests. Use prepared `apps/server/.venv/bin/python -m pytest` and explicit `PYTHONPATH`, argument arrays only; no `uv sync`, Docker or custom environment manager inside the helper. A missing interpreter/Node fails clearly. Clear pytest addopts for this mandatory group and inspect temporary standard JUnit output: each selected file and the named rail test (when selected) must actually execute, with zero skips. Missing/deselected/skipped mandatory proof is failure, not PASS. Existing fast lint still prepares its own server environment as before; full execution remains unchanged.
+6. Reuse `run_stubbed_ci` plus real temporary Git repositories in existing CI contracts. First prove unchanged rail test omission. Then verify union/coverage, absent/empty required proof, deletion/rename, spaces/shell metacharacters/Unicode, rejected control characters, no plan side effects, unknown/dirty identity and exact PR/MG/manual behavior. Exercise actual selected tests; negative control reads bad `cabinet.js` from `4fbddd00de10f89fa5644d581f32b6b4d19a7bbd` into a temporary copy, never replacing working source.
+7. Update this quickstart, F6792 quickstart and the focused paragraph in release guidance; add the owned F211 changelog fragment. Update existing `check_active_docs` and its contract to accept all explicit supported modes (`--plan`, `--focused`, `--fast`, `--full`) while still rejecting bare CI commands. Align the existing help assertion in `apps/server/tests/contract/test_local_postgres_test_runner.py` with those same public modes. Record measurements and converge locally. Commit/PR/GitHub-fast/merge/live acceptance remain outstanding until their actual gates, never inferred from local PASS.
+
+Optional agent-context hooks are skipped because the ignored feature pointer already identifies F211 and root AGENTS stays stable. The once-per-feature branch creation hook is not repeated for this existing feature. All commit hooks are disabled. Mandatory issue-canon hooks run at task sync.
+
+## Historical follow-up A2 — 2026-09-09
 
 **Feature/branch**: `211-optimize-ci-cd` on `6789-pr-metadata-check`, based on A1 commit `5b436a7a771bd2ff14f47df2e0e328678ad1b066`. The branch number is not a new Feature ID. A1 PR #6846 remains untouched; synchronization with current master is a later publication gate.
 **Scope**: US6, FR-019–FR-024, SC-012–SC-013. Additive PR metadata only; current combined workflow, receipts, release and closeout consumers stay unchanged.
@@ -28,7 +57,7 @@ Before making pr-metadata required: implement and test merge_group metadata/iden
 
 `after_specify` / `after_plan` agent-context hooks are optional and not invoked: the ignored feature pointer routes this slice and root AGENTS stays stable. Documentation auto-commit hooks are disabled. Requirements review, task sync and its mandatory canon hooks remain separate explicit stages.
 
-## Active follow-up A1 — 2026-09-09
+## Historical follow-up A1 — 2026-09-09
 
 **Feature**: `211-optimize-ci-cd`; work branch `codex/reduce-delivery-overhead`.
 **Scope**: US5, FR-015–FR-018; no application, database, dependency, installed-skill or deploy changes.
