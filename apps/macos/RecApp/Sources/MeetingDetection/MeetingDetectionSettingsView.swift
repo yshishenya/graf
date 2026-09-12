@@ -110,6 +110,7 @@ public struct MeetingDetectionSettingsView: View {
                         placeholder: "Выберите приложение или начните вводить",
                         filter: $search
                     )
+                    .frame(maxWidth: 380)
                     .frame(height: 32)
                     Divider()
                     if !settingsAvailable {

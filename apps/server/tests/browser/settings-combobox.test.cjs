@@ -33,7 +33,12 @@ const recording = fs.readFileSync(path.join(cabinet, 'templates/cabinet/pages/se
   await page.waitForFunction(()=>document.querySelectorAll('[data-recording-target]').length===3);
   const apps=page.getByRole('combobox',{name:'Приложения',exact:true});
   const options=page.getByRole('listbox').getByRole('option');
+  await apps.focus();
+  assert.equal(await apps.getAttribute('aria-expanded'),'false','Initial focus must not open the catalog');
   await apps.click(); assert.equal(await options.count(),3);
+  assert((await apps.boundingBox()).width<=380,'Application field should not stretch across settings');
+  assert(await options.evaluateAll(items=>items.every(item=>item.getAttribute('aria-selected')==='false')),'App filter must not imply a saved setting');
+
   await options.filter({hasText:'Microsoft Teams'}).click();
   assert.equal(await apps.inputValue(),'Microsoft Teams');
   assert.equal(await apps.getAttribute('aria-expanded'),'false');
@@ -45,13 +50,25 @@ const recording = fs.readFileSync(path.join(cabinet, 'templates/cabinet/pages/se
   assert.equal(await apps.inputValue(),'Zoom');
   assert.equal(await page.evaluate(()=>calls.length),callsBefore);
   const bulk=page.getByRole('combobox',{name:'Автозапись для всех приложений'});
-  await bulk.click(); await options.filter({hasText:'Никогда'}).click();
+  await bulk.click();
+  const shortGeometry=await page.locator('.settings-combobox__popup:visible').evaluate(el=>({
+    viewport:el.clientHeight, content:el.scrollHeight, radius:getComputedStyle(el).borderRadius,
+    last:el.querySelector('[role=option]:last-child').getBoundingClientRect().bottom,
+    bottom:el.getBoundingClientRect().bottom,
+  }));
+  assert.equal(shortGeometry.viewport,shortGeometry.content,'Three rules must fit without clipping or scrolling');
+  assert(shortGeometry.last<=shortGeometry.bottom-1,'Last rule must fit within the border');
+  assert.equal(shortGeometry.radius,'6px');
+  await options.filter({hasText:'Никогда'}).click();
   await page.waitForFunction(()=>targets.every(t=>t.rule==='never'));
   assert.equal(await apps.inputValue(),'Zoom');
   assert.equal(await page.locator('[data-recording-settings-targets] label:visible').count(),1);
   await apps.fill('');
   assert.equal(await page.locator('[data-recording-settings-targets] label:visible').count(),3);
   await apps.fill('нет такого приложения'); assert.equal(await options.count(),0);
+  await page.evaluate(()=>window.dispatchEvent(new Event('blur')));
+  assert.equal(await apps.getAttribute('aria-expanded'),'false');
+  assert.equal(await apps.inputValue(),'нет такого приложения','Deactivation preserves app query');
   await apps.press('Enter'); assert.equal(await apps.inputValue(),'нет такого приложения');
   await apps.fill(''); await apps.press('Tab');
 
@@ -70,10 +87,17 @@ const recording = fs.readFileSync(path.join(cabinet, 'templates/cabinet/pages/se
   const original=page.locator('select[name=language]');
   assert.equal(await original.isVisible(),false);
   await language.click(); assert.equal(await options.count(),3);
+  assert.equal(await options.locator('[aria-hidden=true]').allTextContents().then(values=>values.join('')),'✓');
+  assert.equal(await options.filter({hasText:'Русский'}).getAttribute('aria-selected'),'true');
   await language.press('ArrowDown'); await language.press('ArrowDown');
   assert.equal(await original.inputValue(),'ru');
+  assert.equal(await options.filter({hasText:'Русский'}).getAttribute('aria-selected'),'true','Arrows must not move the saved checkmark');
   await language.press('Enter'); assert.equal(await original.inputValue(),'en');
   assert.equal(await language.getAttribute('aria-expanded'),'false');
+  await language.fill('Рус');
+  await page.evaluate(()=>window.dispatchEvent(new Event('blur')));
+  assert.equal(await language.getAttribute('aria-expanded'),'false');
+  assert.equal(await language.inputValue(),'English','Deactivation cancels unconfirmed setting');
   await language.fill('Рус'); await language.press('Escape');
   assert.equal(await language.inputValue(),'English'); assert.equal(await original.inputValue(),'en');
   await language.fill('Нет'); await language.press('Enter'); assert.equal(await original.inputValue(),'en');
@@ -97,6 +121,15 @@ const recording = fs.readFileSync(path.join(cabinet, 'templates/cabinet/pages/se
   await language.click(); assert.equal(await options.count(),4);
   await language.press('Escape');
   const catalog=page.getByRole('combobox',{name:'Каталог',exact:true});
+  await catalog.click();
+  const longGeometry=await page.locator('.settings-combobox__popup:visible').evaluate(el=>({
+    viewport:el.clientHeight, content:el.scrollHeight,
+    eighth:el.querySelectorAll('[role=option]')[7].getBoundingClientRect().bottom,
+    bottom:el.getBoundingClientRect().bottom,
+  }));
+  assert(longGeometry.content>longGeometry.viewport,'Large catalog must scroll');
+  assert(Math.abs(longGeometry.eighth-(longGeometry.bottom-1))<=1,'Eight complete rows must fit before scrolling');
+  await catalog.press('Escape');
   const ms=await catalog.evaluate(el=>{el.focus();const start=performance.now();el.value='599';el.dispatchEvent(new Event('input',{bubbles:true}));return performance.now()-start;});
   assert(ms<=100,`600 option filter took ${ms}ms`);
   assert.equal(await options.count(),1); await catalog.press('Enter');
@@ -114,6 +147,19 @@ const recording = fs.readFileSync(path.join(cabinet, 'templates/cabinet/pages/se
    await page.evaluate(()=>document.documentElement.dataset.theme='dark');
    await page.screenshot({path:path.join(process.env.SCREENSHOT_DIR,'settings-combobox-dark.png')});
   }
+  // Regression: an ordinary scrollbar consumes width after a shorter catalog replaces a tall one.
+  await page.setViewportSize({width:900,height:1000});
+  const gutterStyle=await page.addStyleTag({content:'.settings-combobox__popup::-webkit-scrollbar { width:18px; } #large { width:220px; } .settings-combobox:has(#large) {width:220px;position:fixed;top:80px;left:20px;}'});
+  await page.locator('#large').evaluate(el=>el.replaceChildren(...Array.from({length:12},(_,i)=>new Option('Очень длинная строка '.repeat(5)+i,String(i)))));
+  await catalog.click(); await catalog.press('Escape');
+  await page.locator('#large').evaluate(el=>el.replaceChildren(...Array.from({length:9},(_,i)=>new Option('WWWWWWWWWWW'+i,String(i)))));
+  await catalog.click();
+  const gutter=await page.locator('.settings-combobox__popup:visible').evaluate(el=>({
+   eighth:el.querySelectorAll('[role=option]')[7].getBoundingClientRect().bottom,
+   bottom:el.getBoundingClientRect().bottom,
+  }));
+  assert(Math.abs(gutter.eighth-(gutter.bottom-1))<=1,'Non-overlay scrollbar must not change wrapping after measurement');
+  await catalog.press('Escape'); await gutterStyle.evaluate(el=>el.remove());
   for(const filename of fs.readdirSync(path.join(cabinet,'templates/cabinet/pages')).filter(name=>name.startsWith('settings_'))){
    const template=fs.readFileSync(path.join(cabinet,'templates/cabinet/pages',filename),'utf8');
    assert(!/<select(?![^>]*data-settings-combobox)/.test(template),`Unconverted select: ${filename}`);
