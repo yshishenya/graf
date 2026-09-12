@@ -128,3 +128,11 @@ GitHub governance-fast [34696402559](https://github.com/yshishenya/graf/actions/
 NativeSettingsComboBoxTests21/21 PASS: разные области строки, сохранение ровно один раз, рекурсивная AX достижимость, AXPress и очистка. Accessibility/window/оба embedded bridge35/35 PASS. Изолированный Spec Kit governance PASS. Установленный тест T011 требуется на новом SHA: этот локальный результат не отменяет failure кандидата faa7.
 
 Независимый build_recovery code/Ponytail review T012: PASS, блокирующих замечаний нет. Проверены стабильный ID, guard закрытого/disabled/IME, пустая выдача, AX parent/cleanup и отсутствие цикла владения. Реальный щелчок и установленная AX иерархия остаются gate T011.
+
+## Установка исправления T012
+Code SHA `8731f382fac5a8d80b25445c62921d184382f4dc`, manifest `dev-8731f382fac5`: build/promote PASS, health13/13 PASS на2026-09-12T18:11:10Z. Единственный GRAF Dev обновлён штатным harness с verified previous-checkout faa7; подпись, разрешения и данные сохранены.
+GitHub governance-fast [34710151995](https://github.com/yshishenya/graf/actions/runs/34710151995) и pr-metadata [34710152050](https://github.com/yshishenya/graf/actions/runs/34710152050): PASS на exact8731. Первый metadata run после push использовал прежнее описание, первый governance run был отменён последующим metadata-edit run; актуальные успешные runs указаны выше.
+
+Установленная повторная приёмка T011/T012 пока не выполнена: два независимых проверяющих через прямой CUA getApp получили «Mac is locked and automatic unlock could not unlock it». Root однократно получил AX главного окна, но это не подтверждает доставку щелчка в раскрытую панель. Настройки в этом прогоне не менялись; ограниченная пауза API автоматически снята, State.Paused=false. Финальный harness smoke exact8731:13/13 PASS. PR остаётся draft, T011/T012 открыты до доступной живой проверки; unit/AX тесты не заменяют её.
+
+Следующий шаг: на установленном8731 проверить настоящие щелчки по тексту и свободной области строк, дерево AX/AXPress, сохранение после вкладок, повторный ввод zoom, темы и край экрана. При передаче общего Dev другой задаче повторно установить этот код штатным harness перед приёмкой; чистый checkout8731 подготовлен.
