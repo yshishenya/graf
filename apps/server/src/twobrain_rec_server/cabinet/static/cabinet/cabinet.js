@@ -5704,6 +5704,7 @@
     if (settingsCombos.has(source)) return settingsCombos.get(source);
     const wrapper = document.createElement('span');
     wrapper.className = 'settings-combobox';
+    wrapper.classList.toggle('settings-combobox--filter', filterInput);
     source.before(wrapper);
     const input = filterInput ? source : document.createElement('input');
     if (!filterInput) {
@@ -5771,25 +5772,50 @@
       matches.forEach((option, index) => {
         const item = document.createElement('span');
         item.id = `${list.id}-${index}`; item.setAttribute('role', 'option');
-        item.setAttribute('aria-selected', String(option.value === (filterInput ? input.value : source.value)));
+        item.setAttribute('aria-selected', String(!filterInput && option.value === source.value));
         if (option.disabled) item.setAttribute('aria-disabled', 'true');
-        item.textContent = option.label;
+        const check = document.createElement('span');
+        check.className = 'settings-combobox__check';
+        check.setAttribute('aria-hidden', 'true');
+        check.textContent = !filterInput && option.value === source.value ? '✓' : '';
+        item.append(check, document.createTextNode(option.label));
         item.addEventListener('pointerdown', event => event.preventDefault());
         item.addEventListener('click', event => { event.preventDefault(); choose(index); });
         list.append(item);
       });
       status.textContent = matches.length ? '' : 'Совпадений нет. Измените запрос.';
       status.hidden = matches.length > 0;
+      popup.scrollTop = 0;
     };
     const reveal = () => {
       popup.hidden = false;
       if (popup.popover && !popup.matches(':popover-open')) popup.showPopover();
       const rect = input.getBoundingClientRect();
-      const below = window.innerHeight - rect.bottom - 8;
-      const above = rect.top - 8;
-      const upwards = below < 180 && above > below;
-      popup.style.left = `${rect.left}px`; popup.style.width = `${rect.width}px`;
-      popup.style.maxHeight = `${Math.max(48, Math.min(260, upwards ? above : below))}px`;
+      const below = Math.max(0, window.innerHeight - rect.bottom - 12);
+      const above = Math.max(0, rect.top - 12);
+      const width = Math.max(0, Math.min(rect.width, window.innerWidth - 16));
+      popup.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - width - 8))}px`;
+      popup.style.width = `${width}px`;
+      // Reserve a non-overlay scrollbar before measuring wrapped text.
+      popup.style.maxHeight = 'none';
+      popup.style.overflowY = 'scroll';
+      const rows = Array.from(list.children).slice(0, 8);
+      const measure = () => rows.length ? rows.map(row => row.getBoundingClientRect().height) : [status.getBoundingClientRect().height];
+      let heights = measure();
+      const desired = heights.reduce((sum, height) => sum + height, 2);
+      const upwards = below < desired && above > below;
+      const available = upwards ? above : below;
+      if (matches.length <= 8 && desired <= available) {
+        popup.style.overflowY = 'auto';
+        heights = measure();
+      }
+      let height = 2;
+      for (const rowHeight of heights) {
+        if (height + rowHeight > available) break;
+        height += rowHeight;
+      }
+      // Only an exceptionally tall row/small viewport needs partial-row scrolling.
+      popup.style.maxHeight = `${height > 2 ? height : available}px`;
       popup.style.top = upwards ? 'auto' : `${rect.bottom + 4}px`;
       popup.style.bottom = upwards ? `${window.innerHeight - rect.top + 4}px` : 'auto';
       input.setAttribute('aria-expanded', 'true');
@@ -5798,7 +5824,7 @@
       if (input.disabled) return;
       query = ''; draw(); reveal();
     };
-    input.addEventListener('focus', () => { if (!restoringFocus) { open(); if (!filterInput) input.select(); } });
+    input.addEventListener('focus', () => { if (!restoringFocus && !filterInput) input.select(); });
     input.addEventListener('click', () => { if (popup.hidden) open(); });
     input.addEventListener('input', () => {
       query = normalizeSettingSearch(input.value); draw();
@@ -5834,7 +5860,7 @@
       toggle.disabled = input.disabled;
       if (input.disabled) close();
       else if (popup.hidden && !filterInput) input.value = selectedLabel();
-      else if (!popup.hidden) draw();
+      else if (!popup.hidden) { draw(); reveal(); }
     };
     const api = { sync, input, close, restoreFocus() { restoringFocus = true; input.focus({preventScroll: true}); restoringFocus = false; } };
     settingsCombos.set(input, api);
@@ -5854,6 +5880,8 @@
   };
   document.addEventListener('scroll', closeMovedSettingsComboboxes, true);
   window.addEventListener('resize', closeMovedSettingsComboboxes);
+  window.addEventListener('blur', closeMovedSettingsComboboxes);
+  document.addEventListener('visibilitychange', event => { if (document.hidden) closeMovedSettingsComboboxes(event); });
   const initSettingsComboboxes = () => {
     document.querySelectorAll('[data-settings-combobox]').forEach(select => {
       createSettingsCombobox(select,

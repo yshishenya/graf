@@ -33,15 +33,15 @@ struct NativeSettingsComboBox: NSViewRepresentable {
     }
 
     final class Field: NSTextField {
-        var onFocus: (() -> Void)?
+        var onClick: (() -> Void)?
         override func becomeFirstResponder() -> Bool {
             let accepted = super.becomeFirstResponder()
-            if accepted { onFocus?() }
+            if accepted { superview?.needsDisplay = true }
             return accepted
         }
         override func mouseDown(with event: NSEvent) {
             super.mouseDown(with: event)
-            onFocus?()
+            onClick?()
         }
     }
 
@@ -56,7 +56,7 @@ struct NativeSettingsComboBox: NSViewRepresentable {
             layer?.borderWidth = 1
             field.isBezeled = false
             field.drawsBackground = false
-            field.focusRingType = .exterior
+            field.focusRingType = .none
             field.lineBreakMode = .byTruncatingTail
             field.setAccessibilityRole(.comboBox)
             field.setContentHuggingPriority(.defaultLow, for: .horizontal)
@@ -79,7 +79,35 @@ struct NativeSettingsComboBox: NSViewRepresentable {
             updateColors()
         }
         required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+        override func draw(_ dirtyRect: NSRect) {
+            super.draw(dirtyRect)
+            if field.currentEditor() != nil, window?.isKeyWindow == true {
+                NSGraphicsContext.saveGraphicsState()
+                NSFocusRingPlacement.only.set()
+                NSBezierPath(roundedRect: bounds, xRadius: 5, yRadius: 5).fill()
+                NSGraphicsContext.restoreGraphicsState()
+            }
+        }
         override var intrinsicContentSize: NSSize { NSSize(width: 160, height: 32) }
+        override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); updateColors() }
+        private func updateColors() {
+            effectiveAppearance.performAsCurrentDrawingAppearance {
+                layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
+                layer?.borderColor = NSColor.separatorColor.cgColor
+            }
+        }
+    }
+
+    private final class ControlBackground: NSView {
+        override init(frame: NSRect) {
+            super.init(frame: frame)
+            wantsLayer = true
+            layer?.cornerRadius = 6
+            layer?.borderWidth = 1
+            layer?.masksToBounds = true
+            updateColors()
+        }
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
         override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); updateColors() }
         private func updateColors() {
             effectiveAppearance.performAsCurrentDrawingAppearance {
@@ -91,11 +119,48 @@ struct NativeSettingsComboBox: NSViewRepresentable {
 
     private final class OptionCell: NSTableCellView {
         var onChoose: (() -> Void)?
+        var savedSelection = false
+        override func isAccessibilitySelected() -> Bool { savedSelection }
         override func accessibilityPerformPress() -> Bool {
             guard let onChoose else { return false }
             onChoose()
             return true
         }
+    }
+
+    private final class OptionRow: NSTableRowView {
+        var active = false { didSet { needsDisplay = true } }
+        var savedSelection = false
+        override func isAccessibilitySelected() -> Bool { savedSelection }
+        override func drawBackground(in dirtyRect: NSRect) {
+            if active {
+                NSColor.unemphasizedSelectedContentBackgroundColor.setFill()
+                bounds.fill()
+            }
+        }
+    }
+
+    private final class OptionsPanel: NSPanel {
+        override var canBecomeKey: Bool { false }
+        override var canBecomeMain: Bool { false }
+    }
+
+    /// Geometry uses actual table row ends, including variable-height labels.
+    static func popupFrame(anchor: NSRect, screen: NSRect, rowEnds: [CGFloat]) -> NSRect {
+        let available = screen.insetBy(dx: 8, dy: 8)
+        let below = min(available.height, max(0, anchor.minY - 4 - available.minY))
+        let above = min(available.height, max(0, available.maxY - anchor.maxY - 4))
+        let desired = (rowEnds.prefix(8).last ?? 32) + 2
+        let opensAbove = below < desired && above > below
+        let room = opensAbove ? above : below
+        let fullHeight = rowEnds.prefix(8).last(where: { $0 + 2 <= room }).map { $0 + 2 }
+        // Only a screen shorter than one row requires a partially visible row.
+        let height = min(room, fullHeight ?? desired)
+        let width = min(anchor.width, max(0, available.width))
+        let y = opensAbove ? anchor.maxY + 4 : anchor.minY - 4 - height
+        return NSRect(x: min(max(anchor.minX, available.minX), available.maxX - width),
+                      y: min(max(y, available.minY), available.maxY - height),
+                      width: width, height: height)
     }
 
     private final class OptionsTable: NSTableView {
@@ -104,19 +169,23 @@ struct NativeSettingsComboBox: NSViewRepresentable {
     }
 
     @MainActor
-    final class Coordinator: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTableViewDelegate, NSPopoverDelegate {
+    final class Coordinator: NSObject, NSTextFieldDelegate, NSTableViewDataSource, NSTableViewDelegate {
         private var owner: NativeSettingsComboBox
         private weak var control: Control?
         private var query = ""
         private var isEditing = false
         private var isOpen = false
-        private var suppressFocus = false
         private var isCommitting = false
         private var isPresenting = false
         private var mouseMonitor: Any?
-        private var activationObserver: NSObjectProtocol?
-        private let popover = NSPopover()
+        private var observers: [NSObjectProtocol] = []
+        private let panel = OptionsPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
+        let scroll = NSScrollView()
+        private let surface = ControlBackground()
+        private var contentWidth: CGFloat = 158
         private let table = OptionsTable()
+        var rowRects: [NSRect] { (0..<table.numberOfRows).map { table.rect(ofRow: $0) } }
+        var viewport: NSRect { scroll.contentView.bounds }
         private(set) var visibleOptions: [Option] = []
         private(set) var activeIndex: Int?
 
@@ -128,31 +197,37 @@ struct NativeSettingsComboBox: NSViewRepresentable {
             table.headerView = nil
             table.autoresizingMask = [.width]
             table.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
+            table.style = .plain
             table.intercellSpacing = .zero
+            table.selectionHighlightStyle = .none
             table.backgroundColor = .clear
             table.dataSource = self
             table.delegate = self
             table.target = self
             table.action = #selector(clickedOption(_:))
             table.setAccessibilityRole(.list)
-            let scroll = NSScrollView()
             scroll.hasVerticalScroller = true
             scroll.drawsBackground = false
             scroll.documentView = table
-            let content = NSViewController()
-            content.view = scroll
-            popover.contentViewController = content
-            // Typing in the anchor field must not dismiss a transient popup.
-            popover.behavior = .applicationDefined
-            popover.animates = false
-            popover.delegate = self
+            scroll.borderType = .noBorder
+            scroll.scrollerStyle = .overlay
+            scroll.automaticallyAdjustsContentInsets = false
+            scroll.contentInsets = NSEdgeInsetsZero
+            scroll.autoresizingMask = [.width, .height]
+            surface.addSubview(scroll)
+            panel.contentView = surface
+            panel.isOpaque = false
+            panel.backgroundColor = .clear
+            panel.hasShadow = true
+            panel.hidesOnDeactivate = true
+            panel.isReleasedWhenClosed = false
         }
 
         func update(_ owner: NativeSettingsComboBox, control: Control, enabled: Bool) {
             self.owner = owner
             self.control = control
             control.field.delegate = self
-            control.field.onFocus = { [weak self] in self?.scheduleOpen() }
+            control.field.onClick = { [weak self] in self?.scheduleOpen() }
             control.arrow.target = self
             control.arrow.action = #selector(toggleOptions(_:))
             control.field.isEnabled = enabled
@@ -171,14 +246,9 @@ struct NativeSettingsComboBox: NSViewRepresentable {
             let activeID = activeIndex.flatMap { visibleOptions.indices.contains($0) ? visibleOptions[$0].id : nil }
             visibleOptions = owner.options.filter { query.isEmpty || $0.label.localizedStandardContains(query) || $0.id.localizedStandardContains(query) }
             activeIndex = activeID.flatMap { id in visibleOptions.firstIndex { $0.id == id } }
-            table.reloadData()
+            layoutOptions()
             updateHighlight()
-            if let control {
-                let width = max(120, control.bounds.width)
-                table.frame.size.width = width
-                popover.contentSize = NSSize(width: width, height: min(256, (0..<max(1, visibleOptions.count)).reduce(0) { $0 + rowHeight($1, width: width) }))
-            }
-            if popover.isShown && visibleOptions.isEmpty {
+            if panel.isVisible && visibleOptions.isEmpty {
                 NSAccessibility.post(element: table, notification: .announcementRequested, userInfo: [.announcement: emptyMessage, .priority: NSAccessibilityPriorityLevel.medium.rawValue])
             }
         }
@@ -186,9 +256,8 @@ struct NativeSettingsComboBox: NSViewRepresentable {
         private var emptyMessage: String { owner.options.isEmpty ? "Список пока недоступен" : "Ничего не найдено" }
 
         private func scheduleOpen() {
-            guard !suppressFocus else { return }
             DispatchQueue.main.async { [weak self] in
-                guard let self, !self.suppressFocus, self.control?.field.currentEditor() != nil else { return }
+                guard let self, self.control?.field.currentEditor() != nil else { return }
                 self.open()
             }
         }
@@ -202,35 +271,40 @@ struct NativeSettingsComboBox: NSViewRepresentable {
                 updateHighlight()
             }
             isOpen = true
-            guard !popover.isShown, control.window?.isVisible == true else { return }
+            updateHighlight()
+            guard !panel.isVisible, let parent = control.window, parent.isVisible else { return }
             isPresenting = true
-            popover.show(relativeTo: control.bounds, of: control, preferredEdge: .minY)
+            layoutOptions()
+            updateHighlight()
+            parent.addChildWindow(panel, ordered: .above)
+            panel.orderFront(nil)
             control.field.setAccessibilityExpanded(true)
-            suppressFocus = true
             control.window?.makeKey()
             control.window?.makeFirstResponder(control.field)
-            suppressFocus = false
             isPresenting = false
-            // Observe only clicks; keyboard input remains with the anchor field.
-            mouseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+            // Outside clicks or scrolling cancel; keyboard input stays with the field.
+            mouseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .scrollWheel]) { [weak self] event in
                 guard let self, let control = self.control else { return event }
-                if event.window === self.popover.contentViewController?.view.window { return event }
-                if event.window === control.window && control.bounds.contains(control.convert(event.locationInWindow, from: nil)) { return event }
+                if event.window === self.panel { return event }
+                if event.type != .scrollWheel && event.window === control.window && control.bounds.contains(control.convert(event.locationInWindow, from: nil)) { return event }
                 self.close()
                 return event
             }
-            activationObserver = NotificationCenter.default.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.close() }
+            for name in [NSWindow.didMoveNotification, NSWindow.didResizeNotification,
+                         NSWindow.willCloseNotification, NSWindow.didMiniaturizeNotification,
+                         NSWindow.didResignKeyNotification] {
+                observe(name, object: parent)
             }
+            observe(NSApplication.didResignActiveNotification, object: nil)
         }
 
         @objc private func toggleOptions(_ sender: NSButton) {
-            if popover.isShown { close(); return }
-            suppressFocus = true
+            if panel.isVisible { close(); return }
             control?.window?.makeFirstResponder(control?.field)
-            suppressFocus = false
             open()
         }
+
+        func controlTextDidBeginEditing(_ notification: Notification) { control?.needsDisplay = true }
 
         func controlTextDidChange(_ notification: Notification) {
             guard let control, control.field.isEnabled, notification.object as? NSTextField === control.field else { return }
@@ -270,6 +344,7 @@ struct NativeSettingsComboBox: NSViewRepresentable {
         }
 
         func controlTextDidEndEditing(_ notification: Notification) {
+            control?.needsDisplay = true
             guard !isPresenting, !isCommitting, notification.object as? NSTextField === control?.field else { return }
             // Let an option's mouse/AX action finish before cancelling a blur.
             DispatchQueue.main.async { [weak self] in
@@ -279,10 +354,40 @@ struct NativeSettingsComboBox: NSViewRepresentable {
         }
 
         private func updateHighlight() {
-            if let index = activeIndex, visibleOptions.indices.contains(index) {
-                table.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
+            for row in 0..<table.numberOfRows {
+                (table.rowView(atRow: row, makeIfNecessary: false) as? OptionRow)?.active = row == activeIndex
+            }
+            if isOpen, let index = activeIndex, visibleOptions.indices.contains(index) {
                 table.scrollRowToVisible(index)
-            } else { table.deselectAll(nil) }
+                let active = table.view(atColumn: 0, row: index, makeIfNecessary: true)
+                control?.field.setAccessibilitySharedFocusElements(active.map { [$0] } ?? [])
+            } else {
+                control?.field.setAccessibilitySharedFocusElements([])
+            }
+        }
+
+        private func observe(_ name: Notification.Name, object: Any?) {
+            observers.append(NotificationCenter.default.addObserver(forName: name, object: object, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.close() }
+            })
+        }
+
+        func layoutOptions() {
+            let anchor = control.flatMap { view in view.window.map { $0.convertToScreen(view.convert(view.bounds, to: nil)) } }
+                ?? NSRect(x: 0, y: 400, width: max(120, control?.bounds.width ?? 160), height: 32)
+            let screen = control?.window?.screen?.visibleFrame ?? NSRect(x: -1000, y: -1000, width: 3000, height: 3000)
+            contentWidth = max(1, min(anchor.width, screen.width - 16) - 2)
+            table.frame.size.width = contentWidth
+            table.tableColumns.first?.width = contentWidth
+            table.reloadData()
+            table.layoutSubtreeIfNeeded()
+            let frame = NativeSettingsComboBox.popupFrame(anchor: anchor, screen: screen, rowEnds: rowRects.map(\.maxY))
+            panel.setFrame(frame, display: false)
+            scroll.frame = NSRect(origin: NSPoint(x: 1, y: 1), size: NSSize(width: contentWidth, height: max(0, frame.height - 2)))
+            scroll.tile()
+            // A new query must start at its first result, even after scrolling the old catalog.
+            scroll.contentView.scroll(to: .zero)
+            scroll.reflectScrolledClipView(scroll.contentView)
         }
 
         @objc private func clickedOption(_ sender: NSTableView) { choose(index: sender.clickedRow) }
@@ -304,22 +409,21 @@ struct NativeSettingsComboBox: NSViewRepresentable {
             }
             close()
             isCommitting = false
-            suppressFocus = true
             control.window?.makeKey()
             control.window?.makeFirstResponder(control.field)
-            suppressFocus = false
         }
 
         func close() {
             isOpen = false
             activeIndex = nil
-            if popover.isShown { popover.performClose(nil) }
+            panel.parent?.removeChildWindow(panel)
+            panel.orderOut(nil)
             stopObserving()
+            control?.field.setAccessibilitySharedFocusElements([])
             control?.field.setAccessibilityExpanded(false)
+            control?.needsDisplay = true
             if !isCommitting { restoreLabel() }
         }
-
-        func popoverDidClose(_ notification: Notification) { close() }
 
         private func restoreLabel() {
             isEditing = false
@@ -330,28 +434,46 @@ struct NativeSettingsComboBox: NSViewRepresentable {
 
         private func stopObserving() {
             if let mouseMonitor { NSEvent.removeMonitor(mouseMonitor); self.mouseMonitor = nil }
-            if let activationObserver { NotificationCenter.default.removeObserver(activationObserver); self.activationObserver = nil }
+            observers.forEach(NotificationCenter.default.removeObserver)
+            observers.removeAll()
         }
 
         func detach() {
             close()
-            control?.field.onFocus = nil
+            control?.field.onClick = nil
             control?.field.delegate = nil
             control = nil
         }
 
         func numberOfRows(in tableView: NSTableView) -> Int { max(1, visibleOptions.count) }
         func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool { visibleOptions.indices.contains(row) }
-        func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat { rowHeight(row, width: popover.contentSize.width) }
+        func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat { rowHeight(row, width: contentWidth) }
         private func rowHeight(_ row: Int, width: CGFloat) -> CGFloat {
             let label = visibleOptions.indices.contains(row) ? visibleOptions[row].label : emptyMessage
-            return max(32, ceil((label as NSString).boundingRect(with: NSSize(width: max(80, width - 24), height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin], attributes: [.font: NSFont.systemFont(ofSize: 13)]).height) + 12)
+            return max(32, ceil((label as NSString).boundingRect(with: NSSize(width: max(1, width - (owner.filter == nil ? 44 : 20)), height: .greatestFiniteMagnitude), options: [.usesLineFragmentOrigin], attributes: [.font: NSFont.systemFont(ofSize: 13)]).height) + 12)
         }
+        func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
+            let view = OptionRow()
+            view.active = row == activeIndex
+            view.savedSelection = isSaved(row)
+            return view
+        }
+
+        private func isSaved(_ row: Int) -> Bool {
+            owner.filter == nil && visibleOptions.indices.contains(row) && visibleOptions[row].id == owner.selectedID
+        }
+
         func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
             let label = NSTextField(wrappingLabelWithString: visibleOptions.indices.contains(row) ? visibleOptions[row].label : emptyMessage)
             label.font = .systemFont(ofSize: 13)
             label.textColor = visibleOptions.isEmpty ? .secondaryLabelColor : .labelColor
             let cell = OptionCell()
+            cell.savedSelection = isSaved(row)
+            let check = NSTextField(labelWithString: isSaved(row) ? "✓" : "")
+            check.font = .systemFont(ofSize: 13)
+            check.setAccessibilityElement(false)
+            check.translatesAutoresizingMaskIntoConstraints = false
+            cell.addSubview(check)
             cell.setAccessibilityElement(true)
             cell.setAccessibilityLabel(label.stringValue)
             if visibleOptions.indices.contains(row) {
@@ -368,7 +490,10 @@ struct NativeSettingsComboBox: NSViewRepresentable {
             label.translatesAutoresizingMaskIntoConstraints = false
             cell.addSubview(label)
             NSLayoutConstraint.activate([
-                label.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 10),
+                check.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 10),
+                check.widthAnchor.constraint(equalToConstant: 14),
+                check.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+                label.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: owner.filter == nil ? 34 : 10),
                 label.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -10),
                 label.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
             ])
