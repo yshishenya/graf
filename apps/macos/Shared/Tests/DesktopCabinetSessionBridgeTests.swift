@@ -89,31 +89,31 @@ final class DesktopCabinetSessionBridgeTests: XCTestCase {
         var request = URLRequest(url: origin)
         request.setValue(old.value, forHTTPHeaderField: "X-Auth-Session")
         storage.setCookie(old)
-        await store.setCookie(old)
+        await store.testSetCookie(old)
         defer { for cookie in storage.cookies ?? [] { storage.deleteCookie(cookie) } }
         let generation = DesktopCabinetSessionBridge.generation
         await DesktopCabinetSessionBridge.renewAuthSessionCookies(request: request, response: response(status: 304, expiry: expiry), expectedGeneration: generation, storage: storage, cookieStore: store)
         XCTAssertEqual(storage.cookies?.first?.expiresDate?.timeIntervalSince1970, Double(expiry))
-        let web = await store.allCookies()
+        let web = await store.testCookies()
         XCTAssertEqual(web.first?.expiresDate?.timeIntervalSince1970, Double(expiry))
 
         // Logout after request dispatch, before the response arrives.
         storage.deleteCookie(old)
-        await store.deleteCookie(old)
+        await store.testDeleteCookie(old)
         await DesktopCabinetSessionBridge.renewAuthSessionCookies(request: request, response: response(expiry: expiry), expectedGeneration: generation, storage: storage, cookieStore: store)
         XCTAssertTrue(storage.cookies?.isEmpty ?? true)
-        let loggedOut = await store.allCookies()
+        let loggedOut = await store.testCookies()
         XCTAssertTrue(loggedOut.isEmpty)
 
         let other = try cookie(value: "other-account", expiry: Date().addingTimeInterval(3600))
         storage.setCookie(other)
-        await store.setCookie(other)
+        await store.testSetCookie(other)
         await DesktopCabinetSessionBridge.renewAuthSessionCookies(request: request, response: response(expiry: expiry), expectedGeneration: generation, storage: storage, cookieStore: store)
         XCTAssertEqual(storage.cookies?.first?.value, other.value)
         XCTAssertEqual(storage.cookies?.first?.expiresDate, other.expiresDate)
 
         storage.setCookie(old)
-        await store.setCookie(old)
+        await store.testSetCookie(old)
         await DesktopCabinetSessionBridge.renewAuthSessionCookies(request: request, response: response(expiry: expiry), expectedGeneration: generation &- 1, storage: storage, cookieStore: store)
         XCTAssertEqual(storage.cookies?.first?.expiresDate, old.expiresDate)
     }
@@ -131,7 +131,7 @@ final class DesktopCabinetSessionBridgeTests: XCTestCase {
         let renewed = try cookie(expiry: Date().addingTimeInterval(30 * 86400))
         HTTPCookieStorage.shared.setCookie(old)
         defer { HTTPCookieStorage.shared.deleteCookie(old) }
-        await configuration.websiteDataStore.httpCookieStore.setCookie(renewed)
+        await configuration.websiteDataStore.httpCookieStore.testSetCookie(renewed)
         let notification = expectation(description: "no auth change for expiry")
         notification.isInverted = true
         let observer = NotificationCenter.default.addObserver(forName: .twoBrainRecDesktopAuthSessionDidChange, object: nil, queue: .main) { _ in notification.fulfill() }
@@ -268,7 +268,7 @@ final class DesktopCabinetSessionBridgeTests: XCTestCase {
         let old = try cookie(expiry: Date().addingTimeInterval(3600))
         let other = try cookie(value: "synthetic-account-B", expiry: Date().addingTimeInterval(3600))
         storage.setCookie(old)
-        await store.setCookie(old)
+        await store.testSetCookie(old)
         defer { coordinator.detachNavigationController(from: view); storage.deleteCookie(old) }
         var request = URLRequest(url: origin)
         request.setValue(old.value, forHTTPHeaderField: "X-Auth-Session")
@@ -278,9 +278,9 @@ final class DesktopCabinetSessionBridgeTests: XCTestCase {
         let before = DesktopCabinetSessionBridge.generation
         let pending = Task {
             await DesktopCabinetSessionBridge.renewAuthSessionCookies(request: request, response: reply,
-                expectedGeneration: before, storage: storage, readCookies: { await store.allCookies() }, writeCookie: {
+                expectedGeneration: before, storage: storage, readCookies: { await store.testCookies() }, writeCookie: {
                     await gate.wait()
-                    await store.setCookie($0)
+                    await store.testSetCookie($0)
                 })
         }
         await fulfillment(of: [started], timeout: 5)
@@ -301,7 +301,7 @@ final class DesktopCabinetSessionBridgeTests: XCTestCase {
         gate.resume()
         await pending.value
         await fulfillment(of: [dispatched], timeout: 5)
-        await store.setCookie(other) // login/space-switch response after dispatch
+        await store.testSetCookie(other) // login/space-switch response after dispatch
         coordinator.finishAuthNavigation(in: view, expectedURL: previousURL)
         await DesktopCabinetSessionBridge.renewAuthSessionCookies(request: request, response: reply,
             expectedGeneration: DesktopCabinetSessionBridge.generation, storage: storage,
@@ -317,9 +317,9 @@ final class DesktopCabinetSessionBridgeTests: XCTestCase {
         var renewedAfterFinish = false
         await DesktopCabinetSessionBridge.renewAuthSessionCookies(request: request, response: reply,
             expectedGeneration: DesktopCabinetSessionBridge.generation, storage: storage,
-            readCookies: { await store.allCookies() }, writeCookie: {
+            readCookies: { await store.testCookies() }, writeCookie: {
                 renewedAfterFinish = true
-                await store.setCookie($0)
+                await store.testSetCookie($0)
             })
         XCTAssertTrue(renewedAfterFinish)
         XCTAssertEqual(DesktopUploadClient.authSessionToken(from: storage.cookies ?? [], origin), other.value)
@@ -339,7 +339,7 @@ final class DesktopCabinetSessionBridgeTests: XCTestCase {
             let old = try cookie(expiry: Date().addingTimeInterval(3600))
             let other = try cookie(value: "synthetic-account-B", expiry: Date().addingTimeInterval(3600))
             storage.setCookie(old)
-            await store.setCookie(old)
+            await store.testSetCookie(old)
             let previous = try XCTUnwrap(view.loadHTMLString("<html></html>", baseURL: url))
             coordinator.webView(view, didStartProvisionalNavigation: previous)
             let allowed = expectation(description: "same URL form allowed")
@@ -359,7 +359,7 @@ final class DesktopCabinetSessionBridgeTests: XCTestCase {
                 readCookies: { XCTFail("old same-URL finish released the new barrier"); return [] }, writeCookie: { _ in XCTFail() })
             let current = try XCTUnwrap(view.loadHTMLString("<html></html>", baseURL: url))
             coordinator.webView(view, didStartProvisionalNavigation: current)
-            if logsOut { await store.deleteCookie(old) } else { await store.setCookie(other) }
+            if logsOut { await store.testDeleteCookie(old) } else { await store.testSetCookie(other) }
             let reconciled = expectation(description: "form cookie reconciled")
             let observer = NotificationCenter.default.addObserver(forName: .twoBrainRecDesktopAuthSessionDidChange,
                 object: nil, queue: .main) { _ in reconciled.fulfill() }
@@ -465,7 +465,7 @@ final class DesktopCabinetSessionBridgeTests: XCTestCase {
         view.loadHTMLString("<form method='post' action='\(url.absoluteString)'></form><a href='\(url.absoluteString)'>Open</a>",
             baseURL: URL(string: "https://renewal.example.test/desktop/settings/account")!)
         await fulfillment(of: [loaded], timeout: 10)
-        _ = try await view.evaluateJavaScript(submitsForm ? "document.forms[0].submit()" : "document.querySelector('a').click()")
+        _ = try await view.evaluateJavaScript(submitsForm ? "document.forms[0].submit(); true" : "document.querySelector('a').click(); true")
         await fulfillment(of: [captured], timeout: 5)
         let action = try XCTUnwrap(delegate.action)
         XCTAssertEqual(action.navigationType, submitsForm ? .formSubmitted : .linkActivated)
@@ -503,7 +503,7 @@ private actor RenewalRecorder {
 }
 
 @MainActor
-private final class RenewalNavigationDelegate: NSObject, WKNavigationDelegate {
+private final class RenewalNavigationDelegate: NSObject, @preconcurrency WKNavigationDelegate {
     let loaded: XCTestExpectation
     init(loaded: XCTestExpectation) { self.loaded = loaded }
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { loaded.fulfill() }
@@ -536,7 +536,7 @@ private final class RenewalTestWebView: WKWebView {
 }
 
 @MainActor
-private final class RenewalActionCapture: NSObject, WKNavigationDelegate {
+private final class RenewalActionCapture: NSObject, @preconcurrency WKNavigationDelegate {
     let loaded: XCTestExpectation
     let captured: XCTestExpectation
     let target: URL
@@ -554,5 +554,27 @@ private final class RenewalActionCapture: NSObject, WKNavigationDelegate {
             decisionHandler(.cancel)
             captured.fulfill()
         } else { decisionHandler(.allow) }
+    }
+}
+
+// Use WebKit callbacks on MainActor: older SDK async imports are nonisolated.
+@MainActor
+private extension WKHTTPCookieStore {
+    func testCookies() async -> [HTTPCookie] {
+        await withCheckedContinuation { continuation in
+            getAllCookies { continuation.resume(returning: $0) }
+        }
+    }
+
+    func testSetCookie(_ cookie: HTTPCookie) async {
+        await withCheckedContinuation { continuation in
+            setCookie(cookie) { continuation.resume() }
+        }
+    }
+
+    func testDeleteCookie(_ cookie: HTTPCookie) async {
+        await withCheckedContinuation { continuation in
+            delete(cookie) { continuation.resume() }
+        }
     }
 }
