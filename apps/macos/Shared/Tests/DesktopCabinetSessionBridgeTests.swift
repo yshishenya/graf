@@ -465,7 +465,7 @@ final class DesktopCabinetSessionBridgeTests: XCTestCase {
         view.loadHTMLString("<form method='post' action='\(url.absoluteString)'></form><a href='\(url.absoluteString)'>Open</a>",
             baseURL: URL(string: "https://renewal.example.test/desktop/settings/account")!)
         await fulfillment(of: [loaded], timeout: 10)
-        _ = try await view.evaluateJavaScript(submitsForm ? "document.forms[0].submit()" : "document.querySelector('a').click()")
+        _ = try await view.evaluateJavaScript(submitsForm ? "document.forms[0].submit(); true" : "document.querySelector('a').click(); true")
         await fulfillment(of: [captured], timeout: 5)
         let action = try XCTUnwrap(delegate.action)
         XCTAssertEqual(action.navigationType, submitsForm ? .formSubmitted : .linkActivated)
