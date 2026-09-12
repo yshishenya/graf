@@ -51,3 +51,7 @@ Focused XCTest для writer/queue/recovery/notification и сборка Swift p
 ## Complexity Tracking
 
 Новых зависимостей, сервисов и серверных таблиц нет. Устойчивый признак необходим для crash safety; манифест сохраняется последним до окончания очистки. Отдельный lifecycle пользовательского удаления не создаётся.
+
+## Дополнение для доступности штатного стенда
+
+Перед T006 выполнить T007: перенести точный scoped patch из e964bba55 для scripts/dev-harness.py, tests/governance/test_graf_local_adapter.py и infra/dev/README.md. Только MinIO pull policy missing; fake tests доказывают остановку до архива/сборки app при недоступном образе. Тег/digest verification/архив/подпись и все остальные guards сохраняются. Независимый infra checklist/review, focused pytest и exact-SHA CI до PR ready.

@@ -26,3 +26,9 @@ Issues #6943–#6949 остаются открытыми до выполнени
 speckit-converge: проверены FR-001–FR-009, SC-001–SC-004, обе истории и пять решений плана. Недостающего/противоречащего/необоснованного кода не выявлено; новые задачи не добавлены. Подтверждение пользовательских критериев SC-004 на установленной сборке и итоговые CI/приёмка остаются в существующей T006; полного завершения feature нет.
 
 Независимый code review: Approved, CR1 закрыт; см. code-review.md. T001–T005 завершены локально, T006 pending. Автокоммит hooks выключены; hooks converge отсутствуют.
+
+## Продолжение до PR ready
+
+Пользователь 2026-09-12 разрешил все действия до PR ready. Коммит реализации 8621cded103f4ba0d724aea4282a009b2e307016, PR #6950. GitHub governance-fast PASS: https://github.com/yshishenya/graf/actions/runs/34694733949 ; pr-metadata PASS. Эти результаты относятся к исходному implementation SHA; дополнение стенда требует нового CI.
+
+T007: точный перенос только трёх файлов harness из e964bba55ed594f8bdccf94068d75fd07590c1b5 (F6793). `uv run --project apps/server --extra dev python -m pytest tests/governance/test_graf_local_adapter.py -q`: 43 PASS. Вторая функция/native settings не перенесена. Исходный shared Dev освобождён владельцем F6793; штатная сборка/установка F6796 разрешена, проверка exact SHA/lock не обходилась.

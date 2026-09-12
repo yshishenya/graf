@@ -38,3 +38,9 @@ T001 → T002 → T004 → T003 → T005 → T006. Ветка US1/US2 поста
 - T004: https://github.com/yshishenya/graf/issues/6947
 - T005: https://github.com/yshishenya/graf/issues/6948
 - T006: https://github.com/yshishenya/graf/issues/6949
+
+## Phase 5: Штатный стенд
+
+- [ ] T007 Перенести проверенное исправление MinIO pull из F6793 только в `scripts/dev-harness.py`, `tests/governance/test_graf_local_adapter.py`, `infra/dev/README.md`; сохранить fail-closed сборку, проверить pytest, независимый review и повторный CI. Зависимость T006 → сначала T007; product scope не расширяется.
+
+T007: https://github.com/yshishenya/graf/issues/6951

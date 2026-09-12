@@ -47,6 +47,13 @@ dev_state="$(./infra/scripts/dev-harness.sh status --json | jq -r '.state_dir')"
 `build --live` под общим Dev lock проверяет `docker-compose.dev.yml`, импорт
 backend, собирает полный набор образов с label exact SHA и подписывает ровно
 один `GRAF Dev.app`.
+
+Для двух датированных образов MinIO используется
+`docker compose pull --policy missing`: уже загруженные версии используются
+повторно, отсутствующие требуют успешной загрузки. Postgres/Temporal продолжают
+загружаться как раньше. Image ID всех компонентов измеряются и архивируются;
+проверки точного SHA, подписи, блокировки и установки сохраняются.
+
 `promote --live` использует только `start-dev-runtime.sh`: Compose namespace
 `graf-dev` поднимает Postgres, MinIO, Temporal, migration, API и оба worker.
 Migration preflight и seed выполняются внутри выбранного immutable server image
