@@ -375,4 +375,81 @@ final class NativeSettingsComboBoxTests: XCTestCase {
         coordinator.detach()
     }
 
+    func testClickOnSavedLabelMakesTypingReplaceItWithoutSaving() throws {
+        var saved: [String] = []
+        let owner = NativeSettingsComboBox(title: "Правило", options: options, selectedID: "ask") { saved.append($0) }
+        let coordinator = owner.makeCoordinator()
+        let control = NativeSettingsComboBox.Control()
+        coordinator.update(owner, control: control, enabled: true)
+        let editor = NSTextView()
+        editor.string = control.field.stringValue
+        editor.setSelectedRange(NSRange(location: 3, length: 0))
+        // Exercise the same callback used after AppKit's mouseDown places the caret.
+        control.field.onClick?(editor)
+        XCTAssertEqual(editor.selectedRange(), NSRange(location: 0, length: ("Спрашивать" as NSString).length))
+        editor.insertText("Все", replacementRange: NSRange(location: NSNotFound, length: 0))
+        type(editor.string, in: control, coordinator: coordinator)
+        XCTAssertEqual(editor.string, "Все")
+        XCTAssertEqual(coordinator.visibleOptions.map(\.id), ["always"])
+        XCTAssertTrue(saved.isEmpty)
+        editor.setSelectedRange(NSRange(location: 1, length: 0))
+        control.field.onClick?(editor)
+        XCTAssertEqual(editor.selectedRange(), NSRange(location: 1, length: 0))
+        _ = coordinator.control(control.field, textView: editor, doCommandBy: #selector(NSResponder.cancelOperation(_:)))
+        XCTAssertEqual(control.field.stringValue, "Спрашивать")
+        editor.string = control.field.stringValue
+        editor.setSelectedRange(NSRange(location: 2, length: 0))
+        control.field.onClick?(editor)
+        XCTAssertEqual(editor.selectedRange().length, ("Спрашивать" as NSString).length)
+        XCTAssertTrue(saved.isEmpty)
+        coordinator.detach()
+    }
+
+    func testClickPreservesAppFilterCaretAndIMEComposition() {
+        let filterOwner = NativeSettingsComboBox(title: "Приложения", options: options, selectedID: "ask", filter: .constant("Спрашивать"))
+        let coordinator = filterOwner.makeCoordinator()
+        let control = NativeSettingsComboBox.Control()
+        coordinator.update(filterOwner, control: control, enabled: true)
+        let editor = NSTextView()
+        editor.string = control.field.stringValue
+        editor.setSelectedRange(NSRange(location: 3, length: 0))
+        control.field.onClick?(editor)
+        XCTAssertEqual(editor.selectedRange(), NSRange(location: 3, length: 0))
+        let settingOwner = NativeSettingsComboBox(title: "Правило", options: options, selectedID: "ask")
+        coordinator.update(settingOwner, control: control, enabled: true)
+        editor.setMarkedText("Спрашивать", selectedRange: NSRange(location: 2, length: 0), replacementRange: NSRange(location: 0, length: (editor.string as NSString).length))
+        let selection = editor.selectedRange()
+        let marked = editor.markedRange()
+        control.field.onClick?(editor)
+        XCTAssertEqual(editor.selectedRange(), selection)
+        XCTAssertEqual(editor.markedRange(), marked)
+        XCTAssertTrue(editor.hasMarkedText())
+        coordinator.detach()
+    }
+
+    func testAppFilterReopensWithRetainedNameQueryAndDoesNotMatchHiddenID() {
+        var query = "Zoom"
+        let owner = NativeSettingsComboBox(title: "Приложения", options: [
+            .init(id: "zoom", label: "Zoom"), .init(id: "teams", label: "Microsoft Teams")
+        ], filter: Binding(get: { query }, set: { query = $0 }))
+        let coordinator = owner.makeCoordinator()
+        let control = NativeSettingsComboBox.Control()
+        coordinator.update(owner, control: control, enabled: true)
+        coordinator.open()
+        XCTAssertEqual(coordinator.visibleOptions.map(\.id), ["zoom"])
+        coordinator.close()
+        coordinator.open()
+        XCTAssertEqual(control.field.stringValue, "Zoom")
+        XCTAssertEqual(coordinator.visibleOptions.map(\.id), ["zoom"])
+        type("teams", in: control, coordinator: coordinator)
+        coordinator.close()
+        coordinator.open()
+        XCTAssertEqual(coordinator.visibleOptions.map(\.id), ["teams"])
+        type("zoom", in: control, coordinator: coordinator)
+        let renamed = NativeSettingsComboBox(title: "Приложения", options: [.init(id: "zoom", label: "Renamed App")], filter: owner.filter)
+        coordinator.update(renamed, control: control, enabled: true)
+        XCTAssertTrue(coordinator.visibleOptions.isEmpty, "Application rows only match the displayed name")
+        coordinator.detach()
+    }
+
 }

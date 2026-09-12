@@ -33,7 +33,7 @@ struct NativeSettingsComboBox: NSViewRepresentable {
     }
 
     final class Field: NSTextField {
-        var onClick: (() -> Void)?
+        var onClick: ((NSTextView) -> Void)?
         weak var optionsList: NSView?
         override func accessibilityChildren() -> [Any]? {
             let children = super.accessibilityChildren() ?? []
@@ -46,7 +46,7 @@ struct NativeSettingsComboBox: NSViewRepresentable {
         }
         override func mouseDown(with event: NSEvent) {
             super.mouseDown(with: event)
-            onClick?()
+            if let editor = currentEditor() as? NSTextView { onClick?(editor) }
         }
     }
 
@@ -250,7 +250,15 @@ struct NativeSettingsComboBox: NSViewRepresentable {
             self.owner = owner
             self.control = control
             control.field.delegate = self
-            control.field.onClick = { [weak self] in self?.scheduleOpen() }
+            control.field.onClick = { [weak self] editor in
+                guard let self else { return }
+                // AppKit places the caret during mouseDown; replace the saved label on typing.
+                if !self.isEditing, self.owner.filter == nil, !editor.hasMarkedText(),
+                   self.owner.options.contains(where: { $0.id == self.owner.selectedID && $0.label == editor.string }) {
+                    editor.selectAll(nil)
+                }
+                self.scheduleOpen()
+            }
             control.arrow.target = self
             control.arrow.action = #selector(toggleOptions(_:))
             control.field.isEnabled = enabled
@@ -267,7 +275,7 @@ struct NativeSettingsComboBox: NSViewRepresentable {
 
         private func refresh() {
             let activeID = activeIndex.flatMap { visibleOptions.indices.contains($0) ? visibleOptions[$0].id : nil }
-            visibleOptions = owner.options.filter { query.isEmpty || $0.label.localizedStandardContains(query) || $0.id.localizedStandardContains(query) }
+            visibleOptions = owner.options.filter { query.isEmpty || $0.label.localizedStandardContains(query) || (owner.filter == nil && $0.id.localizedStandardContains(query)) }
             activeIndex = activeID.flatMap { id in visibleOptions.firstIndex { $0.id == id } }
             layoutOptions()
             updateHighlight()
@@ -288,7 +296,7 @@ struct NativeSettingsComboBox: NSViewRepresentable {
         func open() {
             guard let control, control.field.isEnabled else { return }
             if !isOpen && !isEditing {
-                query = ""
+                query = owner.filter?.wrappedValue ?? ""
                 refresh()
                 activeIndex = visibleOptions.firstIndex { $0.id == owner.selectedID }
                 updateHighlight()
@@ -454,7 +462,7 @@ struct NativeSettingsComboBox: NSViewRepresentable {
 
         private func restoreLabel() {
             isEditing = false
-            query = ""
+            query = owner.filter?.wrappedValue ?? ""
             activeIndex = nil
             control?.field.stringValue = owner.filter?.wrappedValue ?? owner.options.first(where: { $0.id == owner.selectedID })?.label ?? ""
         }
