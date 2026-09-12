@@ -5767,7 +5767,7 @@
       close();
     };
     const draw = () => {
-      matches = getOptions().filter(option => normalizeSettingSearch(`${option.label} ${option.value}`).includes(query));
+      matches = getOptions().filter(option => normalizeSettingSearch(filterInput ? option.label : `${option.label} ${option.value}`).includes(query));
       active = -1; list.replaceChildren(); input.removeAttribute('aria-activedescendant');
       matches.forEach((option, index) => {
         const item = document.createElement('span');
@@ -5822,7 +5822,7 @@
     };
     const open = () => {
       if (input.disabled) return;
-      query = ''; draw(); reveal();
+      query = filterInput ? normalizeSettingSearch(input.value) : ''; draw(); reveal();
     };
     input.addEventListener('focus', () => { if (!restoringFocus && !filterInput) input.select(); });
     input.addEventListener('click', () => { if (popup.hidden) open(); });
@@ -5906,10 +5906,10 @@
     const empty = root.querySelector('[data-recording-settings-empty]');
     const rows = new Map();
     const filter = () => {
-      const query = search.value.trim().toLocaleLowerCase();
+      const query = normalizeSettingSearch(search.value);
       let visible = 0;
       for (const row of rows.values()) {
-        row.hidden = !row.firstElementChild.textContent.toLocaleLowerCase().includes(query);
+        row.hidden = !normalizeSettingSearch(row.firstElementChild.textContent).includes(query);
         if (!row.hidden) visible++;
       }
       empty.hidden = visible > 0 || rows.size === 0;

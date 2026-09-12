@@ -43,6 +43,21 @@ const recording = fs.readFileSync(path.join(cabinet, 'templates/cabinet/pages/se
   assert.equal(await apps.inputValue(),'Microsoft Teams');
   assert.equal(await apps.getAttribute('aria-expanded'),'false');
   assert.equal(await page.locator('[data-recording-settings-targets] label:visible').count(),1);
+  // Reopening must keep the retained application query on every opening path.
+  for (const reopen of [() => apps.click(), () => apps.press('ArrowDown'),
+    () => apps.locator('..').getByRole('button',{name:'Показать варианты'}).click()]) {
+    await apps.press('Tab');
+    await reopen();
+    assert.equal(await options.count(),1,'Reopened app list must retain its query');
+    assert.equal(await options.first().innerText(),'Microsoft Teams');
+    await apps.press('Escape');
+  }
+  for (const query of ['Microsoft  Teams', 'Ｍicrosoft　Teams', '  MICROSOFT Teams  ', 'Teams Microsoft']) {
+    await apps.fill(query);
+    const expected = query === 'Teams Microsoft' ? 0 : 1;
+    assert.equal(await options.count(),expected,`Popup matching: ${query}`);
+    assert.equal(await page.locator('[data-recording-settings-targets] label:visible').count(),expected,`Row matching: ${query}`);
+  }
   await apps.fill('zOo'); assert.equal(await options.count(),1);
   assert.equal(await page.locator('[data-recording-settings-targets] label:visible').count(),1);
   const callsBefore=await page.evaluate(()=>calls.length);

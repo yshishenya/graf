@@ -37,3 +37,9 @@ Dependencies: T009 → T010 → T011. GitHub owner T009–T011: https://github.c
 - [ ] T012 [US2] Исправить подтверждение щелчком в новой нативной панели в `apps/macos/RecApp/Sources/Settings/NativeSettingsComboBox.swift`, проверить доступность списка вариантов и добавить регрессионную проверку в `apps/macos/Shared/Tests/NativeSettingsComboBoxTests.swift`; повторить установленную приёмку T011 (FR-004, FR-006, FR-011).
 
 T012 → T011. GitHub owner T012: https://github.com/yshishenya/graf/issues/6924.
+
+## Phase 7: Convergence по GitHub review
+- [X] T013 [US2] Выделять подтверждённое название при начале редактирования нативной настройки в `apps/macos/RecApp/Sources/Settings/NativeSettingsComboBox.swift`, не сбрасывая уже введённый запрос или фильтр приложений; добавить регрессию в `apps/macos/Shared/Tests/NativeSettingsComboBoxTests.swift` (FR-003, FR-004, review3997548962).
+- [X] T014 [US1] Сохранять запрос приложений при повторном раскрытии и использовать одинаковое нормализованное сравнение для вариантов и строк в `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`; применить тот же контракт сохранения запроса и поиска по имени в `apps/macos/RecApp/Sources/Settings/NativeSettingsComboBox.swift`, проверить в `apps/server/tests/browser/settings-combobox.test.cjs` и `apps/macos/Shared/Tests/NativeSettingsComboBoxTests.swift` (FR-002, FR-003, review3997548965, review3997548968).
+
+T013/T014 → T011. GitHub owner: https://github.com/yshishenya/graf/issues/6924.
