@@ -8,6 +8,8 @@
 
 Active lane: high-risk CI/governance, local focused acceptance. A1/A2 are merged through #6851 and #6845/#6850 closed; older entries below are preserved as historical snapshots. Current base: `ad71f2ce4db68d846d7c333213961c5f5f7d5e89`.
 
+Запуск [34709948521](https://github.com/yshishenya/graf/actions/runs/34709948521) подтвердил предыдущую поправку: 78 CI-контрактов и 420 governance-проверок прошли (один прежний условный governance skip). Позднее этап `CI contracts` обнаружил старую строку help в соседнем `test_local_postgres_test_runner.py`. Его существующее утверждение согласовано с четырьмя явными режимами; новая runtime-логика не добавлялась. Область T045 и команда ниже теперь явно включают оба файла: **86 PASS, 13,84 с** с внешней базой, Ruff/process/whitespace PASS. Ошибки совместимости найдены в независимых этапах CI, а окончательная готовность определяется только последним успешным run PR.
+
 From the implementation checkout, on `codex/211-behavior-test-selection`:
 
 ```sh
@@ -23,7 +25,7 @@ Acceptance before commit:
 
 ```sh
 bash -n infra/scripts/ci-local.sh
-(cd apps/server && PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src .venv/bin/python -m pytest -q -o addopts= tests/contract/test_ci_cd_contract.py)
+(cd apps/server && GRAF_CI_BASE_REF=origin/master PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src .venv/bin/python -m pytest -q -o addopts= tests/contract/test_ci_cd_contract.py tests/contract/test_local_postgres_test_runner.py)
 PYTHONDONTWRITEBYTECODE=1 apps/server/.venv/bin/python -m pytest -q tests/governance/test_governance_workflow.py tests/governance/test_ci_event_identity.py tests/governance/test_ci_guard.py
 apps/server/.venv/bin/ruff check scripts/ci-behavior-tests.py apps/server/tests/contract/test_ci_cd_contract.py tests/governance/test_governance_workflow.py
 python3 scripts/validate-governance-workflow.py
