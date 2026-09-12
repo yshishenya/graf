@@ -32,3 +32,8 @@ T008 → T006; GitHub owner T008: https://github.com/yshishenya/graf/issues/6924
 - [ ] T011 [US3] Проверить установленный GRAF Dev с раскрытыми меню обеих вкладок, темы, длинные строки, край экрана и сохранение поведения; выполнить independent review/converge, обновить `specs/6793-unified-settings-combobox/validation/receipt.md` и `changes/unreleased/F6793.yaml`, exact-SHA PR checks (FR-008, FR-009, FR-011, SC-004, SC-005).
 
 Dependencies: T009 → T010 → T011. GitHub owner T009–T011: https://github.com/yshishenya/graf/issues/6924.
+
+## Phase 6: Convergence после установленной проверки
+- [ ] T012 [US2] Исправить подтверждение щелчком в новой нативной панели в `apps/macos/RecApp/Sources/Settings/NativeSettingsComboBox.swift`, проверить доступность списка вариантов и добавить регрессионную проверку в `apps/macos/Shared/Tests/NativeSettingsComboBoxTests.swift`; повторить установленную приёмку T011 (FR-004, FR-006, FR-011).
+
+T012 → T011. GitHub owner T012: https://github.com/yshishenya/graf/issues/6924.

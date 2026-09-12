@@ -109,3 +109,22 @@ Web reviewer selector_inventory нашёл2 P2: non-overlay scrollbar меняе
 Повторные Chromium/WebKit и timezone PASS после2 web P2 исправлений. Native каталог не резервирует пустые24pt под отсутствующую галочку: текст/расчёт переноса используют поля10pt, правила сохраняют место галочки; Native19/19 PASS повторно.
 
 Повторная сверка реализации: FR-001–FR-010 сохраняют прежние доказательства; FR-011/SC-005 имеют новое browser/native покрытие и независимый review. Локальная реализация T010 завершена; T011 требует нового установленного результата и exact-SHA PR CI. Общий Dev возвращён от F6796: активный8f68e8697497582dc33d6d7148d84844057686ca; штатная смена выполняется через проверенный previous-checkout.
+
+## Кандидат faa7: точный SHA, установка и остановка приёмки
+Source SHA `faa7e1f5fe428efe9508cb5a3a26f5327c817057`; build PASS, manifest `dev-faa7e1f5fe42`. Штатный promote 2026-09-12T13:26:09Z с проверенным предыдущим checkout активного8f68e869 PASS; здоровье 13/13 PASS. Политики подписи, образов, чистого SHA и runtime digest сохранены.
+
+GitHub governance-fast [34696402559](https://github.com/yshishenya/graf/actions/runs/34696402559) и pr-metadata [34696402474](https://github.com/yshishenya/graf/actions/runs/34696402474): PASS на exact faa7. Первые два запуска после push упали на ожидаемом старом exact source SHA в прежнем описании; после обновления описания новые успешные runs относятся к текущему SHA. PR MERGEABLE/CLEAN, остаётся draft.
+
+Финальный независимый web reviewer повторил оба P2 в Chromium/WebKit: обычная полоса18px учтена до измерений (WebKit viewport410px, восьмая строка полностью видима, отклонение0px); window blur и document hidden закрывают без сохранения. Web/Ponytail PASS. Native reviewer: PASS, AX активного/сохранённого разделён,19 focused tests;35 regression tests также PASS.
+
+Независимый установленный проверяющий задачи `01a090a9-ac47-7893-a74d-e18f37e33986` подтвердил actual manifest faa7, затем CUA отказал: Mac locked, automatic unlock failed, требуется ручная разблокировка. Проверяющий UI/runtime не менял, API не приостанавливал. Ранее root делал два ограниченных45s pause для открытия fallback; оба автоматически восстановились, новый fallback не был открыт. Реальная новая приёмка раскрытых меню НЕ проведена; T011 остаётся открытой. Пользователю отправлен запрос разблокировки. Прежний e964 behavioral PASS не подменяет новую приёмку.
+
+## Продолжение после разблокировки
+Установленный reviewer подтвердил на faa7 полные8 строк каталога и3 строки правил/напоминаний, отсутствие указателя и вложенного фокуса. Обнаружен обязательный дефект: щелчок по «За5минут» в новой NSPanel дважды не подтверждает выбор, тогда как Down/Return сохраняет. Полное CUA AX дерево открытой панели не содержит списка/опций; причина требует проверки. T011 не завершена, по converge добавлена T012. Новый код не признаётся готовым по одним unit tests.
+
+## T012: причина щелчка и локальная регрессия
+До исправления фактический hit target строки — NSTextField с needsPanelToBecomeKey=true; nonactivating NSPanel по контракту не получает key focus. Строка заменена на плоскую NSButton: штатный target/action, единая область нажатия, acceptsFirstMouse=true и needsPanelToBecomeKey=false. Ручной tracking событий не добавлен. Поле предоставляет публичную AX иерархию раскрытого списка и реальных кнопок; обратные parent согласованы, close удаляет связь.
+
+NativeSettingsComboBoxTests21/21 PASS: разные области строки, сохранение ровно один раз, рекурсивная AX достижимость, AXPress и очистка. Accessibility/window/оба embedded bridge35/35 PASS. Изолированный Spec Kit governance PASS. Установленный тест T011 требуется на новом SHA: этот локальный результат не отменяет failure кандидата faa7.
+
+Независимый build_recovery code/Ponytail review T012: PASS, блокирующих замечаний нет. Проверены стабильный ID, guard закрытого/disabled/IME, пустая выдача, AX parent/cleanup и отсутствие цикла владения. Реальный щелчок и установленная AX иерархия остаются gate T011.
