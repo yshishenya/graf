@@ -12,8 +12,7 @@ const zones = [
 const formHTML = `<meta charset="utf-8"><meta name="graf-timezone" content="Asia/Yekaterinburg"><meta name="graf-time-preferred" content=""><meta name="graf-time-reload" content="false"><meta name="csrf-token" content="synthetic-csrf">
  <form data-account-preferences data-settings-form method="post" action="/settings/account/preferences">
  <input type="hidden" name="_csrf" value="synthetic-csrf">
- <label hidden data-timezone-search-wrap>Найти город<input type="search" data-timezone-search></label>
- <label>Часовой пояс<select name="timezone" data-timezone-select>${zones.map(([value,label],i)=>`<option value="${value}" ${i?'':'selected'}>${label}</option>`).join('')}</select></label>
+ <label>Часовой пояс<select name="timezone" data-timezone-select data-settings-combobox>${zones.map(([value,label],i)=>`<option value="${value}" ${i?'':'selected'}>${label}</option>`).join('')}</select></label>
  <output data-timezone-preview hidden></output><span data-timezone-search-result hidden></span>
  <select name="theme"><option value="system">Системная</option><option value="dark">Тёмная</option></select>
  <button type="submit">Сохранить</button><button type="reset">Отменить</button><p data-settings-form-status hidden></p></form>`;
@@ -49,31 +48,34 @@ const formHTML = `<meta charset="utf-8"><meta name="graf-timezone" content="Asia
   const page = await context.newPage();
   const errors=[]; page.on('pageerror', error=>errors.push(error.message));
   await page.goto(`${origin}/settings/account`);
+  await page.addStyleTag({path:path.join(assets,'cabinet.css')});
   await page.addScriptTag({path:path.join(assets,'user-time.js')});
   await page.addScriptTag({path:path.join(assets,'cabinet.js')});
   const select=page.locator('[data-timezone-select]');
-  const search=page.locator('[data-timezone-search]');
+  const search=page.getByRole('combobox', {name:'Часовой пояс'});
   assert.equal(await select.inputValue(),'Asia/Yekaterinburg');
   assert.equal(await search.isVisible(),true);
   for(const query of ['Москва','Europe/Moscow','UTC+03:00']) {
    await search.fill(query);
-   assert.equal(await select.locator('option').count(),2); // Match plus current draft.
+   assert.equal(await page.getByRole('listbox').getByRole('option').count(),1);
    assert.equal(await select.inputValue(),'Asia/Yekaterinburg');
   }
   await search.fill('UTC+05:45');
   assert.equal(await select.locator('option[value="Asia/Kathmandu"]').count(),1);
-  await select.selectOption('Asia/Kathmandu');
+  await page.getByRole('listbox').getByRole('option').click();
   assert.match(await page.locator('[data-timezone-preview]').textContent(),/UTC\+05:45/);
   assert.equal(await page.evaluate(()=>window.GRAFTime.timezone),'Asia/Yekaterinburg');
   await search.fill('ничего-похожего');
-  assert.match(await page.locator('[data-timezone-search-result]').textContent(),/Совпадений нет/);
+  assert.match(await page.locator('[data-combobox-status]').textContent(),/Совпадений нет/);
   assert.equal(await select.inputValue(),'Asia/Kathmandu');
   await page.getByRole('button',{name:'Отменить'}).click();
-  await page.waitForFunction(()=>document.querySelector('[data-timezone-select]').value==='Asia/Yekaterinburg');
-  assert.equal(await search.inputValue(),'');
+  await page.waitForFunction(()=>document.querySelector('[data-timezone-select]').value==='Asia/Yekaterinburg', null, {timeout:3000});
+  await page.waitForFunction(()=>document.querySelector('input[role=combobox]').value.includes('Екатеринбург'), null, {timeout:3000});
   assert.equal(await select.locator('option').count(),4);
   assert.equal(await page.locator('form').getAttribute('data-state'),'pristine');
-  await select.selectOption('America/New_York');
+  await search.fill('Нью-Йорк');
+  await search.press('ArrowDown');
+  await search.press('Enter');
   await page.selectOption('[name="theme"]','dark');
   await page.getByRole('button',{name:'Сохранить'}).click();
   await page.waitForFunction(()=>document.querySelector('form').dataset.state==='error');
@@ -97,7 +99,7 @@ const formHTML = `<meta charset="utf-8"><meta name="graf-timezone" content="Asia
   // Native form submission remains usable when JavaScript is disabled.
   const noJS = await browser.newContext({javaScriptEnabled:false});
   const plain=await noJS.newPage(); await plain.goto(`${origin}/settings/account`);
-  assert.equal(await plain.locator('[data-timezone-search]').isVisible(),false);
+  assert.equal(await plain.locator('[data-timezone-search]').count(),0);
   assert.equal(await plain.locator('[data-timezone-select]').isEnabled(),true);
   assert.equal(await plain.locator('[data-timezone-select] option').count(),4);
   await plain.locator('[data-timezone-select]').selectOption('Asia/Kathmandu');

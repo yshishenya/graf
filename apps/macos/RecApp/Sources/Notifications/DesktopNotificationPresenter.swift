@@ -603,9 +603,22 @@ public struct DesktopNotificationsSettingsView: View {
             }
             Section("Напоминания и приватность") {
             Toggle("Напоминать о встречах", isOn: preference(\.reminders))
-            Picker("Когда напоминать", selection: preference(\.offsetMinutes)) {
-                Text("За минуту").tag(1); Text("За 5 минут").tag(5); Text("В момент начала").tag(0)
-            }.disabled(!presenter.draft.reminders)
+            LabeledContent("Когда напоминать") {
+                NativeSettingsComboBox(
+                    title: "Когда напоминать",
+                    options: [
+                        .init(id: "1", label: "За минуту"),
+                        .init(id: "5", label: "За 5 минут"),
+                        .init(id: "0", label: "В момент начала"),
+                    ],
+                    selectedID: String(presenter.preferences.offsetMinutes)
+                ) { value in
+                    guard let minutes = Int(value), [0, 1, 5].contains(minutes) else { return }
+                    preference(\.offsetMinutes).wrappedValue = minutes
+                }
+                .frame(width: 190, height: 32)
+                .disabled(!presenter.draft.reminders)
+            }
             Toggle("Показывать названия в системных уведомлениях", isOn: preference(\.showTitles))
             Toggle("Звук уведомлений", isOn: preference(\.sound))
             Text("Во время записи звук выключен. Результаты встреч доступны в веб-кабинете. Проблемы записи и остановка всегда видны в GRAF.").font(.callout).foregroundStyle(.secondary)

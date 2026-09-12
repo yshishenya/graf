@@ -4547,6 +4547,7 @@
           if (purpose) purpose.value = template.purpose;
           if (language) language.value = template.output_language || "ru";
           if (detail) detail.value = template.detail_level || "standard";
+          initSettingsComboboxes();
           setSections(template.sections || ["summary", "action_items"]);
         }
         dialog.showModal();
@@ -5696,6 +5697,200 @@
     }, 30000);
   };
 
+  let settingsComboID = 0;
+  const settingsCombos = new WeakMap();
+  const normalizeSettingSearch = value => value.toLocaleLowerCase().normalize('NFKC').replace(/[−–]/g, '-').replace(/\s+/g, ' ').trim();
+  const createSettingsCombobox = (source, getOptions, onChoose, filterInput = false) => {
+    if (settingsCombos.has(source)) return settingsCombos.get(source);
+    const wrapper = document.createElement('span');
+    wrapper.className = 'settings-combobox';
+    wrapper.classList.toggle('settings-combobox--filter', filterInput);
+    source.before(wrapper);
+    const input = filterInput ? source : document.createElement('input');
+    if (!filterInput) {
+      source.hidden = true;
+      source.tabIndex = -1;
+      const labels = Array.from(source.labels || []);
+      input.id = `settings-combo-${++settingsComboID}`;
+      input.setAttribute('aria-label', source.getAttribute('aria-label') || labels.map(label => {
+        const copy = label.cloneNode(true);
+        copy.querySelectorAll('select, input, .settings-combobox').forEach(control => control.remove());
+        return copy.textContent.trim();
+      }).join(' ') || 'Выберите вариант');
+      for (const attr of ['aria-labelledby', 'aria-describedby']) {
+        if (source.hasAttribute(attr)) input.setAttribute(attr, source.getAttribute(attr));
+      }
+      labels.filter(label => label.htmlFor === source.id && source.id).forEach(label => { label.htmlFor = input.id; });
+      input.type = 'text';
+      input.autocomplete = 'off';
+      wrapper.append(input, source);
+    } else {
+      input.id ||= `settings-combo-${++settingsComboID}`;
+      wrapper.append(input);
+    }
+    input.setAttribute('role', 'combobox');
+    input.setAttribute('aria-autocomplete', 'list');
+    input.setAttribute('aria-expanded', 'false');
+    const toggle = document.createElement('button');
+    toggle.type = 'button'; toggle.tabIndex = -1;
+    toggle.className = 'settings-combobox__toggle';
+    toggle.setAttribute('aria-label', 'Показать варианты');
+    toggle.textContent = '⌄';
+    const popup = document.createElement('span');
+    popup.className = 'settings-combobox__popup'; popup.hidden = true;
+    if (typeof popup.showPopover === 'function') popup.popover = 'manual';
+    const list = document.createElement('span');
+    list.id = `${input.id}-options`; list.setAttribute('role', 'listbox');
+    input.setAttribute('aria-controls', list.id);
+    const status = document.createElement('span');
+    status.className = 'settings-combobox__status'; status.dataset.comboboxStatus = '';
+    status.setAttribute('role', 'status');
+    popup.append(list, status); wrapper.append(toggle, popup);
+    let query = '', matches = [], active = -1, restoringFocus = false;
+    const selectedLabel = () => source.selectedOptions?.[0]?.textContent || '';
+    const close = () => {
+      if (popup.popover) popup.hidePopover();
+      popup.hidden = true; input.setAttribute('aria-expanded', 'false');
+      input.removeAttribute('aria-activedescendant'); active = -1;
+      if (!filterInput) input.value = selectedLabel();
+    };
+    const highlight = () => {
+      Array.from(list.children).forEach((item, index) => item.classList.toggle('is-active', index === active));
+      const item = list.children[active];
+      if (item) { input.setAttribute('aria-activedescendant', item.id); item.scrollIntoView({block: 'nearest'}); }
+      else input.removeAttribute('aria-activedescendant');
+    };
+    const choose = index => {
+      const option = matches[index];
+      if (!option || option.disabled || input.disabled) return;
+      onChoose(option.value);
+      close();
+    };
+    const draw = () => {
+      matches = getOptions().filter(option => normalizeSettingSearch(filterInput ? option.label : `${option.label} ${option.value}`).includes(query));
+      active = -1; list.replaceChildren(); input.removeAttribute('aria-activedescendant');
+      matches.forEach((option, index) => {
+        const item = document.createElement('span');
+        item.id = `${list.id}-${index}`; item.setAttribute('role', 'option');
+        item.setAttribute('aria-selected', String(!filterInput && option.value === source.value));
+        if (option.disabled) item.setAttribute('aria-disabled', 'true');
+        const check = document.createElement('span');
+        check.className = 'settings-combobox__check';
+        check.setAttribute('aria-hidden', 'true');
+        check.textContent = !filterInput && option.value === source.value ? '✓' : '';
+        item.append(check, document.createTextNode(option.label));
+        item.addEventListener('pointerdown', event => event.preventDefault());
+        item.addEventListener('click', event => { event.preventDefault(); choose(index); });
+        list.append(item);
+      });
+      status.textContent = matches.length ? '' : 'Совпадений нет. Измените запрос.';
+      status.hidden = matches.length > 0;
+      popup.scrollTop = 0;
+    };
+    const reveal = () => {
+      popup.hidden = false;
+      if (popup.popover && !popup.matches(':popover-open')) popup.showPopover();
+      const rect = input.getBoundingClientRect();
+      const below = Math.max(0, window.innerHeight - rect.bottom - 12);
+      const above = Math.max(0, rect.top - 12);
+      const width = Math.max(0, Math.min(rect.width, window.innerWidth - 16));
+      popup.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - width - 8))}px`;
+      popup.style.width = `${width}px`;
+      // Reserve a non-overlay scrollbar before measuring wrapped text.
+      popup.style.maxHeight = 'none';
+      popup.style.overflowY = 'scroll';
+      const rows = Array.from(list.children).slice(0, 8);
+      const measure = () => rows.length ? rows.map(row => row.getBoundingClientRect().height) : [status.getBoundingClientRect().height];
+      let heights = measure();
+      const desired = heights.reduce((sum, height) => sum + height, 2);
+      const upwards = below < desired && above > below;
+      const available = upwards ? above : below;
+      if (matches.length <= 8 && desired <= available) {
+        popup.style.overflowY = 'auto';
+        heights = measure();
+      }
+      let height = 2;
+      for (const rowHeight of heights) {
+        if (height + rowHeight > available) break;
+        height += rowHeight;
+      }
+      // Only an exceptionally tall row/small viewport needs partial-row scrolling.
+      popup.style.maxHeight = `${height > 2 ? height : available}px`;
+      popup.style.top = upwards ? 'auto' : `${rect.bottom + 4}px`;
+      popup.style.bottom = upwards ? `${window.innerHeight - rect.top + 4}px` : 'auto';
+      input.setAttribute('aria-expanded', 'true');
+    };
+    const open = () => {
+      if (input.disabled) return;
+      query = filterInput ? normalizeSettingSearch(input.value) : ''; draw(); reveal();
+    };
+    input.addEventListener('focus', () => { if (!restoringFocus && !filterInput) input.select(); });
+    input.addEventListener('click', () => { if (popup.hidden) open(); });
+    input.addEventListener('input', () => {
+      query = normalizeSettingSearch(input.value); draw();
+      reveal();
+    });
+    input.addEventListener('blur', close);
+    input.addEventListener('keydown', event => {
+      if (event.isComposing) return;
+      if (event.key === 'Escape') { if (!popup.hidden) { event.preventDefault(); event.stopPropagation(); close(); } }
+      else if (event.key === 'Tab') close();
+      else if (event.key === 'Enter' && !popup.hidden) {
+        event.preventDefault();
+        choose(active >= 0 ? active : matches.findIndex(option => !option.disabled));
+      } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        if (popup.hidden) open();
+        const step = event.key === 'ArrowDown' ? 1 : -1;
+        let next = active < 0 ? (step > 0 ? 0 : matches.length - 1) : active + step;
+        while (next >= 0 && next < matches.length && matches[next].disabled) next += step;
+        if (next >= 0 && next < matches.length) active = next;
+        highlight();
+      }
+    });
+    toggle.addEventListener('pointerdown', event => event.preventDefault());
+    toggle.addEventListener('click', () => {
+      if (input.disabled) return;
+      const wasOpen = !popup.hidden;
+      input.focus();
+      if (wasOpen) close(); else open();
+    });
+    const sync = () => {
+      if (!filterInput) input.disabled = source.disabled;
+      toggle.disabled = input.disabled;
+      if (input.disabled) close();
+      else if (popup.hidden && !filterInput) input.value = selectedLabel();
+      else if (!popup.hidden) { draw(); reveal(); }
+    };
+    const api = { sync, input, close, restoreFocus() { restoringFocus = true; input.focus({preventScroll: true}); restoringFocus = false; } };
+    settingsCombos.set(input, api);
+    popup.addEventListener('settings:close', close);
+    settingsCombos.set(source, api);
+    source.addEventListener('change', sync);
+    source.form?.addEventListener('reset', () => window.setTimeout(() => { close(); sync(); }, 0));
+    new MutationObserver(sync).observe(source, {childList: true, subtree: true, attributes: true, attributeFilter: ['disabled', 'selected']});
+    sync();
+    return api;
+  };
+  // Close on viewport movement, but keep keyboard scrolling inside the menu.
+  const closeMovedSettingsComboboxes = event => {
+    document.querySelectorAll('.settings-combobox__popup:not([hidden])').forEach(popup => {
+      if (!(event.target instanceof Node) || !popup.contains(event.target)) popup.dispatchEvent(new Event('settings:close'));
+    });
+  };
+  document.addEventListener('scroll', closeMovedSettingsComboboxes, true);
+  window.addEventListener('resize', closeMovedSettingsComboboxes);
+  window.addEventListener('blur', closeMovedSettingsComboboxes);
+  document.addEventListener('visibilitychange', event => { if (document.hidden) closeMovedSettingsComboboxes(event); });
+  const initSettingsComboboxes = () => {
+    document.querySelectorAll('[data-settings-combobox]').forEach(select => {
+      createSettingsCombobox(select,
+        () => Array.from(select.options, option => ({value: option.value, label: option.textContent, disabled: option.disabled})),
+        value => { if (select.value !== value) { select.value = value; select.dispatchEvent(new Event('change', {bubbles: true})); } }
+      ).sync();
+    });
+  };
+
   let recordingSettingsNonce = null;
   const initRecordingSettings = () => {
     const root = document.querySelector('[data-recording-settings]');
@@ -5711,15 +5906,19 @@
     const empty = root.querySelector('[data-recording-settings-empty]');
     const rows = new Map();
     const filter = () => {
-      const query = search.value.trim().toLocaleLowerCase();
+      const query = normalizeSettingSearch(search.value);
       let visible = 0;
       for (const row of rows.values()) {
-        row.hidden = !row.firstElementChild.textContent.toLocaleLowerCase().includes(query);
+        row.hidden = !normalizeSettingSearch(row.firstElementChild.textContent).includes(query);
         if (!row.hidden) visible++;
       }
       empty.hidden = visible > 0 || rows.size === 0;
     };
     search.addEventListener('input', filter);
+    const appCombo = createSettingsCombobox(search,
+      () => Array.from(rows.values(), row => ({value: row.firstElementChild.textContent, label: row.firstElementChild.textContent})),
+      value => { search.value = value; filter(); }, true);
+
     let busy = false;
     let refreshPending = false;
     let confirmed = null;
@@ -5748,15 +5947,25 @@
         select.value = target.rule;
       }
       filter();
+      appCombo.sync();
       const rules = new Set(snapshot.targets.map((target) => target.rule));
       all.value = rules.size === 1 ? snapshot.targets[0].rule : '';
       all.disabled = busy || snapshot.targets.length === 0;
       controls.hidden = false;
+      initSettingsComboboxes();
       status.textContent = snapshot.error || (snapshot.targets.length ? '' : 'Приложения для автозаписи пока недоступны.');
     };
 
     const request = async (action = 'read', fields = {}) => {
       if (busy) { if (action === 'read') refreshPending = true; return; }
+      const editing = controls.querySelector('input[role="combobox"][aria-expanded="true"]:focus');
+      if (action === 'read' && editing && editing !== search) {
+        if (!refreshPending) editing.addEventListener('blur', () => {
+          refreshPending = false; request();
+        }, {once: true});
+        refreshPending = true;
+        return;
+      }
       const bridge = window.webkit?.messageHandlers?.grafRecordingSettings;
       if (!bridge || !recordingSettingsNonce) {
         status.textContent = 'Не удалось подключить настройки этого Mac. Обновите страницу или приложение GRAF.';
@@ -5797,7 +6006,11 @@
         if (root.isConnected) {
           controls.querySelectorAll('select').forEach((select) => { select.disabled = false; });
           all.disabled = !confirmed?.targets.length;
-          if (focused?.isConnected && document.activeElement === document.body) focused.focus({ preventScroll: true });
+          initSettingsComboboxes();
+          if (focused?.isConnected && document.activeElement === document.body) {
+            if (settingsCombos.has(focused)) settingsCombos.get(focused).restoreFocus();
+            else focused.focus({preventScroll: true});
+          }
           if (refreshPending) { refreshPending = false; request(); }
         }
       }
@@ -5832,6 +6045,7 @@
         const value = snapshot.preferences[input.dataset.localNotificationField];
         if (input.type === 'checkbox') input.checked = value;
         else input.value = String(value);
+        settingsCombos.get(input)?.sync();
         input.disabled = input.dataset.localNotificationField === 'offsetMinutes' && !snapshot.preferences.reminders;
       });
       permission.textContent = snapshot.permission;
@@ -5876,7 +6090,11 @@
         if (current === sequence) {
           busy = false;
           controls.disabled = !notificationSettingsNonce || !confirmed?.canEdit;
-          if (focused?.isConnected && document.activeElement === document.body) focused.focus({preventScroll: true});
+          initSettingsComboboxes();
+          if (focused?.isConnected && document.activeElement === document.body) {
+            if (settingsCombos.has(focused)) settingsCombos.get(focused).restoreFocus();
+            else focused.focus({preventScroll: true});
+          }
           if (refreshPending) { refreshPending = false; request(); }
         }
       }
@@ -5976,32 +6194,12 @@
       });
 
       const timezoneSelect = form.querySelector("[data-timezone-select]");
-      const search = form.querySelector("[data-timezone-search]");
       const preview = form.querySelector("[data-timezone-preview]");
-      const result = form.querySelector("[data-timezone-search-result]");
-      const initialTimezone = timezoneSelect?.value;
-      const options = timezoneSelect ? Array.from(timezoneSelect.options).map(option => option.cloneNode(true)) : [];
-      const normalizeSearch = (value) => value.toLowerCase().normalize("NFKC").replace(/[−–]/g, "-").replace(/\s+/g, " ").trim();
-      const filterTimezones = () => {
-        if (!timezoneSelect || !search) return;
-        const selected = timezoneSelect.value;
-        const query = normalizeSearch(search.value);
-        const matches = options.filter(option => normalizeSearch(`${option.textContent} ${option.value}`).includes(query));
-        // Keep the draft selection while searching; typing alone never changes the setting.
-        timezoneSelect.replaceChildren(...options.filter(option => option.value === selected || matches.includes(option)).map(option => option.cloneNode(true)));
-        timezoneSelect.value = selected;
-        if (result) {
-          result.hidden = !query;
-          result.textContent = matches.length ? `Найдено: ${matches.length}` : "Совпадений нет. Измените запрос; выбранный пояс сохранён в поле.";
-        }
-      };
       const updateTimezonePreview = () => {
         if (!timezoneSelect || !preview) return;
         preview.hidden = false;
         preview.textContent = `Сейчас: ${window.GRAFTime.format(new Date(), { timeZone: timezoneSelect.value, showZone: true })}`;
       };
-      form.querySelector("[data-timezone-search-wrap]")?.removeAttribute("hidden");
-      search?.addEventListener("input", filterTimezones);
       timezoneSelect?.addEventListener("change", updateTimezonePreview);
       updateTimezonePreview();
 
@@ -6078,12 +6276,7 @@
       });
       form.addEventListener("reset", () => window.setTimeout(() => {
         applyTheme(form.elements.namedItem("theme")?.value || "system");
-        if (timezoneSelect) {
-          timezoneSelect.replaceChildren(...options.map(option => option.cloneNode(true)));
-          timezoneSelect.value = initialTimezone;
-        }
-        if (search) search.value = "";
-        filterTimezones();
+        settingsCombos.get(timezoneSelect)?.sync();
         updateTimezonePreview();
         form.dispatchEvent(new Event("change", { bubbles: true }));
       }, 0));
@@ -8687,6 +8880,7 @@
     initRecordingSettings();
     initLocalNotificationSettings();
     initAccountPreferences();
+    initSettingsComboboxes();
     initSettingsConfirmations();
     initShareInvitationAutoAccept();
     initBillingCopyControls();

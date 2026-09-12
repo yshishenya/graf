@@ -3549,7 +3549,9 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
     private func presentSettingsWindow(reason: String, notifications: Bool = false) {
         Task { await DesktopNotificationPresenter.shared.refreshPermission() }
         if let settingsWindow {
+            let frame = settingsWindow.frame
             settingsWindow.contentViewController = NSHostingController(rootView: LocalSettingsFallbackView(notifications: notifications, onOpenAll: { [weak self] in self?.openSettingsSection("account", retry: true) }))
+            settingsWindow.setFrame(frame, display: false)
             if settingsWindow.isMiniaturized {
                 settingsWindow.deminiaturize(nil)
             }
@@ -3570,14 +3572,24 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
             defer: false
         )
         window.title = MeetingDetectionSettingsView.windowTitle
-        window.minSize = MeetingDetectionSettingsView.windowSize
+        window.minSize = NSSize(width: 820, height: 680)
         window.isReleasedWhenClosed = false
         window.isRestorable = false
         window.identifier = NSUserInterfaceItemIdentifier("graf-settings-window")
         window.contentViewController = NSHostingController(rootView: LocalSettingsFallbackView(
             notifications: notifications, onOpenAll: { [weak self] in self?.openSettingsSection("account", retry: true) }
         ))
+        window.setContentSize(MeetingDetectionSettingsView.windowSize)
         window.center()
+        if let screen = window.screen ?? NSScreen.main {
+            let available = screen.visibleFrame.insetBy(dx: 16, dy: 16)
+            var frame = window.frame
+            frame.size.width = min(frame.width, available.width)
+            frame.size.height = min(frame.height, available.height)
+            frame.origin = NSPoint(x: available.midX - frame.width / 2, y: available.midY - frame.height / 2)
+            window.minSize = NSSize(width: min(window.minSize.width, frame.width), height: min(window.minSize.height, frame.height))
+            window.setFrame(frame, display: false)
+        }
         settingsWindow = window
         AppLog.writeRaw(
             event: "app_settings_window_presented",
