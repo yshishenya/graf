@@ -202,6 +202,7 @@ public final class RecordingAudioTimeline: @unchecked Sendable {
     private var epoch: RecordingAudioPresentationTimestamp?
     private var emittedThroughFrame: Int64 = 0
     private var finished = false
+    private var reportedTimingGap = false
     private var processingTimeHistogram = [Int64](repeating: 0, count: 12)
     private static let processingTimeBoundsMs = [0.1, 0.25, 0.5, 1, 2, 3, 5, 7.5, 10, 15, 25]
 
@@ -511,6 +512,21 @@ public final class RecordingAudioTimeline: @unchecked Sendable {
                 state.lastInputEndFrame = max(state.lastInputEndFrame ?? 0, 0)
                 return
             }
+        }
+        if !reportedTimingGap,
+           let expectedStart = state.lastInputEndFrame,
+           requestedStart > expectedStart,
+           Self.recoverableClockDelta(
+               requestedStart: requestedStart,
+               expectedStart: expectedStart,
+               limit: configuration.maximumClockRecoveryFramesPerBatch
+           ) == nil {
+            reportedTimingGap = true
+            // Relative frame positions only; never log source PTS or audio.
+            NSLog("recording_timeline_gap source=%@ expected_frame=%lld requested_frame=%lld input_frames=%ld converted_frames=%ld rate=%g channels=%ld continuous=%d",
+                  source.rawValue, expectedStart, requestedStart,
+                  batch.samples.count / batch.format.channelCount, canonicalSamples.count,
+                  batch.format.sampleRate, batch.format.channelCount, batch.discontinuity == .none ? 1 : 0)
         }
         try appendCanonicalSamples(
             canonicalSamples,

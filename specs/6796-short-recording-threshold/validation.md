@@ -74,3 +74,16 @@ SystemAudioCaptureService.swift совпадают с базой ad71f2ce4. Ош
 одобрена, но T006 и пользовательская приёмка остаются открытыми. Перевод PR
 из draft в ready for review означает приглашение к проверке кода и не снимает
 блокер слияния.
+
+## Продолжение T008
+
+Добавлена разовая локальная диагностика источника и временной шкалы, без
+изменения PTS/аудио/допуска. Проверка требований capture-diagnostics 3/3 PASS,
+согласованность spec/plan/tasks проверена независимым reviewer. T008 → #6954,
+канон GitHub проверен. Исходный PR HEAD 8942e821329f прошёл также автоматические
+Code Review и Security Review Codex; новых замечаний не опубликовано.
+
+`swift test --package-path apps/macos --filter 'RecordingAudioTimelineTests|SystemAudioSampleExtractor|ShortRecording|LocalRecordingWriter|CaptureRecoveryService|DesktopUploadQueueTests'`: 125 PASS, 0 ошибок. Синтетический разрыв 10 ms
+даёт `recording_timeline_gap`, прежний renderReferenceMissing и сохраняет
+480 кадров обработанного префикса. Подтверждение причины реального сбоя
+и T006 пока открыты.

@@ -55,3 +55,26 @@ Focused XCTest для writer/queue/recovery/notification и сборка Swift p
 ## Дополнение для доступности штатного стенда
 
 Перед T006 выполнить T007: перенести точный scoped patch из e964bba55 для scripts/dev-harness.py, tests/governance/test_graf_local_adapter.py и infra/dev/README.md. Только MinIO pull policy missing; fake tests доказывают остановку до архива/сборки app при недоступном образе. Тег/digest verification/архив/подпись и все остальные guards сохраняются. Независимый infra checklist/review, focused pytest и exact-SHA CI до PR ready.
+
+## T008: разовая диагностика незавершённой приёмки
+
+Lane остаётся high-risk-feature (capture/diagnostics). Constitution check:
+локальный журнал содержит только технические метаданные, без raw audio,
+личных данных, абсолютных часов, путей и новых сетевых вызовов. Никакого
+изменения защит захвата/PTS/порога. Не создаём отдельную систему диагностики.
+
+В ScreenCaptureKitSystemAudioRuntime хранить предыдущие PTS и числа
+объявленных/декодированных кадров только в памяти, только на serial outputQueue.
+Сброс на start до регистрации callbacks. При первом nil extraction, расхождении
+числа кадров или интервала больше 1 ms написать ограниченное событие NSLog.
+В RecordingAudioTimeline.process при первом промежутке больше существующего
+допуска записать относительные expected/requested frame, источник, формат,
+размер batch/converted batch и discontinuity. Срабатывает до существующей
+проверки, без изменения samples или результативной ветви ошибки.
+
+Файлы: SystemAudioCaptureService.swift, RecordingAudioTimeline.swift и
+Shared/Tests/RecordingAudioTimelineTests.swift. Проверить прежний целый
+префикс при gap >48 и отсутствие новых ошибок на непрерывном потоке; выполнить
+профильные timeline/system extractor/short recording tests, code review, CI,
+штатные build/promote и контролируемую реальную запись после handback Dev.
+Результат T008 — доказанная классификация сбоя, а не автоматическое снятие T006.

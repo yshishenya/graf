@@ -66,6 +66,8 @@ final class RecordingAudioTimelineTests: XCTestCase {
         }
         XCTAssertEqual(missingReference.metrics.outputFrameCount, 480)
         XCTAssertEqual(missingReference.metrics.hostUnderrunCount, 1)
+        XCTAssertTrue(missingReference.finishPreservingAvailableAudio())
+        XCTAssertEqual(missingReference.metrics.outputFrameCount, 480)
 
         let collector = TimelineCollector()
         let spy = EchoFrameSpy(failOnCall: 2)

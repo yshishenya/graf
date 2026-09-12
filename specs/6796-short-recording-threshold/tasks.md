@@ -46,3 +46,9 @@ T001 → T002 → T004 → T003 → T005 → T006. Ветка US1/US2 поста
 T007: https://github.com/yshishenya/graf/issues/6951
 
 T006: exact-SHA CI и установка выполнены для 8f68e8697497; штатная native приёмка блокируется `render_reference_missing` в существующем коде захвата. Подробности и следующий диагностический шаг — `validation.md`. Задача не закрыта.
+
+## Phase 6: Диагностика блокера приёмки
+
+- [ ] T008 Зафиксировать первую техническую аномалию источника в `apps/macos/RecApp/Sources/Capture/SystemAudioCaptureService.swift` и разрыв в `RecordingAudioTimeline.swift`, проверить сохранение префикса в `apps/macos/Shared/Tests/RecordingAudioTimelineTests.swift`, выполнить профильные проверки/review/CI и получить метаданные штатного GRAF Dev для классификации `render_reference_missing`; записать результат в `validation.md`. До изменения механизма захвата установить причину. Зависит от T007, предшествует завершению T006.
+
+T008: https://github.com/yshishenya/graf/issues/6954
