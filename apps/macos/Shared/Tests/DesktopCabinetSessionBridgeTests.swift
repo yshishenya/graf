@@ -503,7 +503,7 @@ private actor RenewalRecorder {
 }
 
 @MainActor
-private final class RenewalNavigationDelegate: NSObject, WKNavigationDelegate {
+private final class RenewalNavigationDelegate: NSObject, @preconcurrency WKNavigationDelegate {
     let loaded: XCTestExpectation
     init(loaded: XCTestExpectation) { self.loaded = loaded }
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { loaded.fulfill() }
@@ -536,7 +536,7 @@ private final class RenewalTestWebView: WKWebView {
 }
 
 @MainActor
-private final class RenewalActionCapture: NSObject, WKNavigationDelegate {
+private final class RenewalActionCapture: NSObject, @preconcurrency WKNavigationDelegate {
     let loaded: XCTestExpectation
     let captured: XCTestExpectation
     let target: URL
