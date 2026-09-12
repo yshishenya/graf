@@ -152,7 +152,8 @@ public actor SystemAudioCaptureService {
         runtimeStartCleanupTimeoutSeconds: TimeInterval = 2,
         runtimeStopTimeoutSeconds: TimeInterval = 120,
         waitForTimedOutRuntimeStartCleanup: Bool? = nil,
-        runtimeStartFailureLogger: (@Sendable (String) -> Void)? = nil
+        runtimeStartFailureLogger: (@Sendable (String) -> Void)? = nil,
+        diagnosticLogger: (@Sendable (String) -> Void)? = nil
     ) {
         precondition(runtime == nil || runtimeFactory == nil, "Pass runtime or runtimeFactory, not both")
         let resolvedSampleSource = sampleSource ?? BufferedLocalRecordingSampleSource(
@@ -165,7 +166,7 @@ public actor SystemAudioCaptureService {
             resolvedRuntimeFactory = { runtime }
         } else {
             resolvedRuntimeFactory = {
-                Self.makeDefaultRuntime(sampleSource: resolvedSampleSource)
+                Self.makeDefaultRuntime(sampleSource: resolvedSampleSource, diagnosticLogger: diagnosticLogger)
             }
         }
         self.bufferedSampleSource = resolvedSampleSource
@@ -406,10 +407,11 @@ public actor SystemAudioCaptureService {
     }
 
     private nonisolated static func makeDefaultRuntime(
-        sampleSource: BufferedLocalRecordingSampleSource
+        sampleSource: BufferedLocalRecordingSampleSource,
+        diagnosticLogger: (@Sendable (String) -> Void)?
     ) -> SystemAudioCaptureRuntime {
         #if canImport(ScreenCaptureKit) && canImport(CoreMedia) && canImport(AudioToolbox)
-        return ScreenCaptureKitSystemAudioRuntime { batch in
+        return ScreenCaptureKitSystemAudioRuntime(diagnosticLogger: diagnosticLogger) { batch in
             sampleSource.append(batch)
         }
         #else
@@ -555,6 +557,7 @@ private final class RuntimeStopCompletion: @unchecked Sendable {
 #if canImport(ScreenCaptureKit) && canImport(CoreMedia) && canImport(AudioToolbox) && canImport(CoreAudio)
 public final class ScreenCaptureKitSystemAudioRuntime: NSObject, SystemAudioCaptureRuntime, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
     private let sampleHandler: @Sendable (RecordingAudioBatch) -> Void
+    private let diagnosticLogger: (@Sendable (String) -> Void)?
     private let outputQueue = DispatchQueue(label: "pro.2brain.graf.screencapturekit.audio", qos: .userInitiated)
     private let streamLock = NSLock()
     private var stream: SCStream?
@@ -562,9 +565,13 @@ public final class ScreenCaptureKitSystemAudioRuntime: NSObject, SystemAudioCapt
     private var lastPresentationTime: RecordingAudioPresentationTimestamp?
     private var outputRouteListener: AudioObjectPropertyListenerBlock?
     private var outputRouteChangePublished = false
+    // Only accessed on outputQueue; retained for one bounded diagnostic per recording.
+    private var previousBatchTiming: (pts: Double, declaredFrames: Int, decodedFrames: Int, rate: Double)?
+    private var reportedTimingAnomaly = false
 
-    public init(sampleHandler: @escaping @Sendable (RecordingAudioBatch) -> Void) {
+    public init(diagnosticLogger: (@Sendable (String) -> Void)? = nil, sampleHandler: @escaping @Sendable (RecordingAudioBatch) -> Void) {
         self.sampleHandler = sampleHandler
+        self.diagnosticLogger = diagnosticLogger
         super.init()
     }
 
@@ -589,6 +596,10 @@ public final class ScreenCaptureKitSystemAudioRuntime: NSObject, SystemAudioCapt
         configuration.showsCursor = false
 
         let stream = SCStream(filter: filter, configuration: configuration, delegate: self)
+        outputQueue.sync {
+            previousBatchTiming = nil
+            reportedTimingAnomaly = false
+        }
         try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: outputQueue)
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: outputQueue)
         setCurrentStream(stream)
@@ -624,7 +635,33 @@ public final class ScreenCaptureKitSystemAudioRuntime: NSObject, SystemAudioCapt
     ) {
         guard outputType == .audio else { return }
         guard isCurrentStream(stream) else { return }
-        guard let batch = SystemAudioSampleExtractor.extractRecordingAudioBatch(from: sampleBuffer) else { return }
+        let extractedBatch = SystemAudioSampleExtractor.extractRecordingAudioBatch(from: sampleBuffer)
+        if !reportedTimingAnomaly {
+            let declaredFrames = CMSampleBufferGetNumSamples(sampleBuffer)
+            if let batch = extractedBatch {
+                let decodedFrames = batch.samples.count / batch.format.channelCount
+                let declaredGap = previousBatchTiming.map {
+                    batch.presentationTime.seconds - $0.pts - Double($0.declaredFrames) / $0.rate
+                } ?? 0
+                let decodedGap = previousBatchTiming.map {
+                    batch.presentationTime.seconds - $0.pts - Double($0.decodedFrames) / $0.rate
+                } ?? 0
+                if declaredFrames != decodedFrames || abs(declaredGap) > 0.001 || abs(decodedGap) > 0.001 {
+                    reportedTimingAnomaly = true
+                    diagnosticLogger?(String(format: "system_audio_timing_anomaly declared_frames=%ld decoded_frames=%ld rate=%g channels=%ld declared_gap_ms=%g decoded_gap_ms=%g",
+                          declaredFrames, decodedFrames, batch.format.sampleRate, batch.format.channelCount,
+                          declaredGap * 1_000, decodedGap * 1_000))
+                }
+                previousBatchTiming = (batch.presentationTime.seconds, declaredFrames, decodedFrames, batch.format.sampleRate)
+            } else {
+                reportedTimingAnomaly = true
+                diagnosticLogger?(String(format: "system_audio_batch_rejected declared_frames=%ld data_ready=%d pts_valid=%d has_format=%d",
+                      declaredFrames, CMSampleBufferDataIsReady(sampleBuffer) ? 1 : 0,
+                      CMTIME_IS_VALID(CMSampleBufferGetPresentationTimeStamp(sampleBuffer)) ? 1 : 0,
+                      CMSampleBufferGetFormatDescription(sampleBuffer) != nil ? 1 : 0))
+            }
+        }
+        guard let batch = extractedBatch else { return }
         let routedBatch = RecordingAudioBatch(
             samples: batch.samples,
             format: batch.format,

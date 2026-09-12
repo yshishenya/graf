@@ -4,6 +4,7 @@ import Foundation
 import TwoBrainRecShared
 
 public enum DesktopUploadQueueServiceError: Error, CustomStringConvertible, Sendable {
+    case shortRecordingDiscarded
     case manifestMissing(URL)
     case packageNotFound(String)
     case localArtifactOutsideRecordingsRoot(String)
@@ -12,6 +13,8 @@ public enum DesktopUploadQueueServiceError: Error, CustomStringConvertible, Send
 
     public var description: String {
         switch self {
+        case .shortRecordingDiscarded:
+            return "short_recording_discarded"
         case .manifestMissing(let url):
             return "manifest_missing:\(url.lastPathComponent)"
         case .packageNotFound(let id):
@@ -37,7 +40,8 @@ public enum DesktopUploadFollowUpReason {
 
 private extension LocalRecordingManifest {
     var isServerUploadEligible: Bool {
-        Self.sessionStatusAllowsUpload(status, failureReason: failureReason) &&
+        shortRecordingDiscarded != true &&
+            Self.sessionStatusAllowsUpload(status, failureReason: failureReason) &&
             !externalEgressStarted &&
             !transcriptionStarted &&
             scopeApproval?.isAcceptedForMeetingRecording == true &&
@@ -184,7 +188,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                context.sessionFingerprint == client?.recordingSessionFingerprint {
                 activeDeletionScope = context.scope
             }
-            return document.items.map { projectLifecycle($0, in: document) }.sortedForDisplay()
+            return document.items.filter { !isShortRecordingDiscarded($0) }.map { projectLifecycle($0, in: document) }.sortedForDisplay()
         }
     }
 
@@ -526,7 +530,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             var document = try loadDocumentOnQueue()
             guard !document.items.contains(where: { $0.syncConflictState == .queueDocumentMalformed }) else {
                 // Recovery must establish the old identities before any package is sent again.
-                return document.items.sortedForDisplay()
+                return document.items.filter { !isShortRecordingDiscarded($0) }.sortedForDisplay()
             }
             let directories = (try? FileManager.default.contentsOfDirectory(
                 at: recordingsRootURL,
@@ -540,6 +544,14 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 guard FileManager.default.fileExists(atPath: manifestURL.path),
                       let manifest = try? manifestService.read(from: manifestURL)
                 else {
+                    continue
+                }
+                if manifest.shortRecordingDiscarded == true {
+                    do {
+                        try discardShortRecordingOnQueue(manifest, directory: directory, document: &document)
+                    } catch {
+                        NSLog("short_recording_cleanup_pending")
+                    }
                     continue
                 }
                 guard manifest.status != .active else { continue }
@@ -574,7 +586,7 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
                 document.updatedAt = clock()
                 try saveDocumentOnQueue(document)
             }
-            return document.items.sortedForDisplay()
+            return document.items.filter { !isShortRecordingDiscarded($0) }.sortedForDisplay()
         }
     }
 
@@ -954,7 +966,8 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             let now = clock()
             let projected = document.items.map { projectLifecycle($0, in: document) }
             return projected.filter { item in
-                guard item.ownerScope != nil, !item.state.isTerminal, !item.lifecycleBlocksContent,
+                guard item.ownerScope != nil, item.state != .saving, !isShortRecordingDiscarded(item),
+                      !item.state.isTerminal, !item.lifecycleBlocksContent,
                       item.retryMode == .automatic, item.artifactProfile.isUploadable else { return false }
                 return (item.nextRetryAt ?? now) <= now
             }
@@ -1240,6 +1253,78 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         }
     }
 
+    private func isShortRecordingDiscarded(_ item: DesktopUploadQueueItem) -> Bool {
+        let directoryManifest = URL(fileURLWithPath: item.directoryPath).appendingPathComponent("manifest.json")
+        return [directoryManifest, URL(fileURLWithPath: item.manifestPath)].contains {
+            (try? manifestService.read(from: $0))?.shortRecordingDiscarded == true
+        }
+    }
+
+    /// The marker outlives all audio. Interrupted cleanup is retried by the next scan.
+    private func discardShortRecordingOnQueue(
+        _ manifest: LocalRecordingManifest,
+        directory: URL,
+        document: inout DesktopUploadQueueDocument
+    ) throws {
+        let files = FileManager.default
+        let manifestURL = directory.appendingPathComponent("manifest.json")
+        guard manifest.shortRecordingDiscarded == true, manifest.isV5Package,
+              manifest.status == .blocked, manifest.failureReason == .none,
+              manifest.captureFailureCode == nil, !manifest.externalEgressStarted, !manifest.transcriptionStarted,
+              manifest.directoryId == directory.lastPathComponent, manifest.manifestFileName == "manifest.json",
+              !manifest.sessionId.isEmpty, isInsideRecordingsRoot(directory.path),
+              (try directory.resourceValues(forKeys: [.isSymbolicLinkKey])).isSymbolicLink != true,
+              isInsideRecordingsRoot(manifestURL.path)
+        else { throw DesktopUploadQueueServiceError.shortRecordingDiscarded }
+        let id = DesktopUploadQueueItem.deterministicId(directoryId: manifest.directoryId, sessionId: manifest.sessionId)
+        func matchesPath(_ path: String, _ expected: URL) -> Bool {
+            func normalized(_ url: URL) -> String {
+                let url = url.standardizedFileURL
+                return url.deletingLastPathComponent().resolvingSymlinksInPath()
+                    .appendingPathComponent(url.lastPathComponent).path
+            }
+            return normalized(URL(fileURLWithPath: path)) == normalized(expected)
+        }
+        let matching = document.items.filter {
+            $0.id == id || $0.directoryId == manifest.directoryId || $0.sessionId == manifest.sessionId ||
+                matchesPath($0.directoryPath, directory)
+        }
+        guard matching.count <= 1, matching.allSatisfy({ item in
+            item.id == id && item.sessionId == manifest.sessionId && item.directoryId == manifest.directoryId &&
+                matchesPath(item.directoryPath, directory) && matchesPath(item.manifestPath, manifestURL) &&
+                matchesPath(item.microphonePath, directory.appendingPathComponent("mic.wav")) &&
+                matchesPath(item.systemAudioPath, directory.appendingPathComponent("incoming.wav")) &&
+                item.state == .saving && item.attemptCount == 0 && item.serverCreationAttempted == false &&
+                item.meetingId == nil && item.mediaRevisionId == nil && item.uploadSessionId == nil &&
+                item.serverTruth == ServerTruthFingerprint() && item.retryRecords.isEmpty &&
+                item.syncConflictState == .none && item.retentionDecision.localArtifactsRetained &&
+                !projectLifecycle(item, in: document).lifecycleBlocksContent
+        }), !document.deletionOperations.contains(where: { $0.target == .ownOrigin(manifest.directoryId) })
+        else { throw DesktopUploadQueueServiceError.shortRecordingDiscarded }
+        let children = try files.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+        for child in children {
+            let values = try child.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+            guard isInsideRecordingsRoot(child.path), values.isRegularFile == true, values.isSymbolicLink != true else {
+                throw DesktopUploadQueueServiceError.shortRecordingDiscarded
+            }
+        }
+        if !matching.isEmpty {
+            var updated = document
+            updated.items.removeAll { $0.id == id }
+            updated.updatedAt = clock()
+            try saveDocumentOnQueue(updated)
+            document = updated
+        }
+        for child in children where child.lastPathComponent != "manifest.json" {
+            try files.removeItem(at: child)
+        }
+        try files.removeItem(at: manifestURL)
+        // Do not recursively remove anything created since the directory was inspected.
+        if try files.contentsOfDirectory(atPath: directory.path).isEmpty {
+            try files.removeItem(at: directory)
+        }
+    }
+
     private func deleteLocalArtifacts(for items: [DesktopUploadQueueItem]) throws {
         let paths = try Set(items.flatMap(localArtifactPathsInsideRecordingsRoot))
         for path in paths.sorted(by: { $0.count > $1.count }) where FileManager.default.fileExists(atPath: path) {
@@ -1342,7 +1427,9 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
     ) async throws {
         let generation = queue.sync { deletionScopeGeneration }
         let started = try updateItem(itemId: item.id, expectedGeneration: generation) { current, now in
-            guard !current.lifecycleBlocksContent else { return current }
+            guard current.state != .saving, !current.state.isTerminal,
+                  current.retryMode == .automatic, current.artifactProfile.isUploadable,
+                  !isShortRecordingDiscarded(current), !current.lifecycleBlocksContent else { return current }
             var next = current.withTransition(
                 to: .uploading,
                 now: now,
@@ -1364,7 +1451,8 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
             )
             return next
         }
-        guard !started.lifecycleBlocksContent else { return }
+        guard started.state == .uploading, !isShortRecordingDiscarded(started),
+              !started.lifecycleBlocksContent else { return }
         try await publishProgress(onProgress)
 
         do {
@@ -1647,6 +1735,10 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         calendarContextEventId: String? = nil,
         calendarMatchAttemptId: String? = nil
     ) throws -> DesktopUploadQueueItem {
+        guard manifest.shortRecordingDiscarded != true,
+              (try? manifestService.read(from: directoryURL.appendingPathComponent("manifest.json")))?.shortRecordingDiscarded != true else {
+            throw DesktopUploadQueueServiceError.shortRecordingDiscarded
+        }
         let manifestURL = directoryURL.appendingPathComponent(manifest.manifestFileName)
         let microphoneURL = directoryURL.appendingPathComponent("mic.wav")
         let systemAudioURL = directoryURL.appendingPathComponent("incoming.wav")

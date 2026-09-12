@@ -648,6 +648,8 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
         "local-recording-manifest.v4"
     ]
 
+    /// Durable local-only decision; absent in historical packages.
+    public var shortRecordingDiscarded: Bool? = nil
     public var schemaVersion: String
     public var sessionId: String
     public var createdAt: Date
@@ -755,6 +757,20 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
         self.recordingMetadata = recordingMetadata
         self.echoProcessor = echoProcessor
         self.echoProcessingHealth = echoProcessingHealth
+    }
+
+    /// Applied only while finalizing a new, normally stopped recording.
+    public mutating func applyShortRecordingPolicy(stopReason: RecordingStopReason?) {
+        guard stopReason == .userRequested || stopReason == .meetingEnded,
+              isV5Package, isComplete, captureFailureCode == nil,
+              let audio = tracks.first(where: { $0.role == .mixedMeetingAudio }),
+              audio.isCanonicalTranscriptionArtifact,
+              audio.sampleRate.isFinite, audio.sampleRate == 16_000,
+              audio.frameCount > 0, audio.frameCount < 480_000,
+              tracks.allSatisfy({ $0.failureReason == .none }) else { return }
+        shortRecordingDiscarded = true
+        status = .blocked
+        transcriptionReadiness = .degraded
     }
 
     public var isComplete: Bool {

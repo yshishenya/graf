@@ -44,8 +44,10 @@ final class RecordingAudioTimelineTests: XCTestCase {
     }
 
     func testMissingRenderReferenceAndProcessorFailureKeepOnlyCleanedPrefix() throws {
+        var diagnostics: [String] = []
         let missingReference = RecordingAudioTimeline(
             configuration: .init(reorderWindowFrames: 0),
+            diagnosticLogger: { diagnostics.append($0) },
             processEchoFrame: { _, microphone in microphone }
         )
         try missingReference.append(
@@ -66,6 +68,14 @@ final class RecordingAudioTimelineTests: XCTestCase {
         }
         XCTAssertEqual(missingReference.metrics.outputFrameCount, 480)
         XCTAssertEqual(missingReference.metrics.hostUnderrunCount, 1)
+        XCTAssertEqual(diagnostics, ["recording_timeline_gap source=systemAudio expected_frame=480 requested_frame=960 input_frames=480 converted_frames=480 rate=48000 channels=1 continuous=1"])
+        XCTAssertThrowsError(try missingReference.append(
+            source: .systemAudio,
+            batch: batch(samples: Array(repeating: 0.2, count: 480), at: 0.04)
+        ))
+        XCTAssertEqual(diagnostics.count, 1)
+        XCTAssertTrue(missingReference.finishPreservingAvailableAudio())
+        XCTAssertEqual(missingReference.metrics.outputFrameCount, 480)
 
         let collector = TimelineCollector()
         let spy = EchoFrameSpy(failOnCall: 2)
