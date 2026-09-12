@@ -98,6 +98,7 @@ def test_unique_login_devices_do_not_revive_and_activity_is_bounded(client):
             await record_session_activity(db, row, second, now=now + timedelta(seconds=310))
             seen = await db.scalar(select(AuthSession.last_seen_at).where(AuthSession.id == row.id))
             assert seen == now + timedelta(seconds=300)
+            await db.refresh(row)
             expiry = row.expires_at
             await revoke_registered_devices(db, [second], actor_user_id=USER_ID)
             await record_session_activity(db, row, second, now=now + timedelta(seconds=900))
