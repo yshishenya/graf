@@ -5869,8 +5869,12 @@
       input.focus();
       if (wasOpen) close(); else open();
     });
+    const defaultAccessibleLabel = input.getAttribute('aria-label');
     const sync = () => {
-      if (!filterInput) input.disabled = source.disabled;
+      if (!filterInput) {
+        input.disabled = source.disabled;
+        input.setAttribute('aria-label', source.getAttribute('aria-label') || defaultAccessibleLabel);
+      }
       toggle.disabled = input.disabled;
       if (input.disabled) close();
       else if (popup.hidden && !filterInput) input.value = selectedLabel();
@@ -5887,7 +5891,7 @@
     settingsCombos.set(source, api);
     source.addEventListener('change', sync);
     source.form?.addEventListener('reset', () => window.setTimeout(() => { close(); sync(); }, 0));
-    new MutationObserver(sync).observe(source, {childList: true, subtree: true, attributes: true, attributeFilter: ['disabled', 'selected']});
+    new MutationObserver(sync).observe(source, {childList: true, subtree: true, attributes: true, attributeFilter: ['disabled', 'selected', 'aria-label']});
     sync();
     return api;
   };

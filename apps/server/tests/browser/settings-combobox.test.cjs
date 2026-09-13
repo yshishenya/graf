@@ -91,6 +91,14 @@ const recording = fs.readFileSync(path.join(cabinet, 'templates/cabinet/pages/se
   await apps.press('Enter'); assert.equal(await apps.inputValue(),'нет такого приложения');
   await apps.fill(''); await apps.press('Tab');
 
+  const beforeRename=await page.evaluate(()=>calls.length);
+  await page.evaluate(()=>{targets[0].name='Zoom Workplace';window.GRAFRecordingSettings.refresh();});
+  await page.getByRole('combobox',{name:'Автозапись: Zoom Workplace',exact:true}).waitFor({timeout:2000});
+  assert.equal(await page.getByRole('combobox',{name:'Автозапись: Zoom',exact:true}).count(),0);
+  assert(!(await page.evaluate(start=>calls.slice(start).some(call=>['set','setAll'].includes(call.action)),beforeRename)));
+  await page.evaluate(()=>{targets[0].name='Zoom';window.GRAFRecordingSettings.refresh();});
+  await page.getByRole('combobox',{name:'Автозапись: Zoom',exact:true}).waitFor({timeout:2000});
+
   const zoom=page.getByRole('combobox',{name:'Автозапись: Zoom',exact:true});
   await zoom.fill('Спра');
   const beforeRefresh=await page.evaluate(()=>calls.length);
