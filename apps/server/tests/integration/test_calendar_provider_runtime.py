@@ -186,7 +186,10 @@ def test_provider_sync_unseals_server_secret_and_persists_pages(client) -> None:
         async with client.app_state["sessionmaker"]() as session:
             source = await session.get(CalendarSource, source_id)
             calendar = await session.scalar(
-                select(ExternalCalendar).where(ExternalCalendar.calendar_source_id == source_id)
+                select(ExternalCalendar).where(
+                    ExternalCalendar.calendar_source_id == source_id,
+                    ExternalCalendar.provider_calendar_id == "primary",
+                )
             )
             count = await session.scalar(
                 select(func.count())
@@ -353,7 +356,10 @@ def test_incremental_page_does_not_delete_unmentioned_snapshot(client) -> None:
         async with client.app_state["sessionmaker"]() as session:
             source = await session.get(CalendarSource, source_id)
             calendar = await session.scalar(
-                select(ExternalCalendar).where(ExternalCalendar.calendar_source_id == source_id)
+                select(ExternalCalendar).where(
+                    ExternalCalendar.calendar_source_id == source_id,
+                    ExternalCalendar.provider_calendar_id == "primary",
+                )
             )
             from twobrain_rec_server.calendar.sync import apply_calendar_sync_result
 
@@ -430,7 +436,10 @@ def test_cursor_invalidation_retries_as_full_sync_and_replaces_stale_snapshot(cl
         async with client.app_state["sessionmaker"]() as session:
             source = await session.get(CalendarSource, source_id)
             calendar = await session.scalar(
-                select(ExternalCalendar).where(ExternalCalendar.calendar_source_id == source_id)
+                select(ExternalCalendar).where(
+                    ExternalCalendar.calendar_source_id == source_id,
+                    ExternalCalendar.provider_calendar_id == "primary",
+                )
             )
             from twobrain_rec_server.calendar.sync import apply_calendar_sync_result
 
@@ -479,7 +488,10 @@ def test_cursor_invalidation_retries_as_full_sync_and_replaces_stale_snapshot(cl
     async def read_back() -> tuple[ExternalCalendar, list[CalendarEventSnapshot]]:
         async with client.app_state["sessionmaker"]() as session:
             calendar = await session.scalar(
-                select(ExternalCalendar).where(ExternalCalendar.calendar_source_id == source_id)
+                select(ExternalCalendar).where(
+                    ExternalCalendar.calendar_source_id == source_id,
+                    ExternalCalendar.provider_calendar_id == "primary",
+                )
             )
             snapshots = list(
                 await session.scalars(
