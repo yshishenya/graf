@@ -53,7 +53,7 @@ def test_non_payer_billing_surfaces_keep_quota_state_without_usage_values() -> N
                    plan=plan_descriptor("free"), plan_code="free", meetings_href="/meetings",
                    processing_threshold="approaching", processing_reset_at_label="later",
                    free_processing_limit_label="300 минут", storage_capacity_label="2 ГБ", **values)
-    for role in ("member", "corporate_owner", "owner"):
+    for role in (None, "member", "corporate_owner", "owner"):
         for plan_code in ("personal", "free"):
             for threshold in ("normal", "approaching", "exhausted"):
                 context.update(plan_code=plan_code, plan=plan_descriptor(plan_code),
