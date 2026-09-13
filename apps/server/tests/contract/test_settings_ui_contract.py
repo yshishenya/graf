@@ -300,15 +300,14 @@ def test_calendar_settings_keeps_sidebar_content_gap_after_late_rules() -> None:
     assert "--settings-gap: 24px" in css
 
 
-def test_calendar_provider_anchor_preserves_keyboard_focus_target() -> None:
+def test_calendar_provider_disclosure_preserves_keyboard_focus_target() -> None:
     root = Path(__file__).resolve().parents[2]
     template = (
         root / "src/twobrain_rec_server/cabinet/templates/cabinet/fragments/calendar_settings.html"
     ).read_text(encoding="utf-8")
-    assert 'id="calendar-providers-title" tabindex="-1"' in template
-    assert "scroll-margin-block-start" in (
-        root / "src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css"
-    ).read_text(encoding="utf-8")
+    assert '<summary id="calendar-providers-title">' in template
+    assert 'data-calendar-add-source' in template
+    assert 'id="calendar-providers-title" tabindex="-1"' not in template
 
 
 def test_settings_route_map_has_no_arbitrary_category_redirect() -> None:
