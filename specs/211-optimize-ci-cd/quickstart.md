@@ -661,3 +661,13 @@ production-образа:3 PASS/3,96 с. Временный контейнер б
 Независимый implementation review T092 PASS; Ruff/diff checks PASS. Локальная
 задача завершена. Фактические Ubuntu required checks и итоговый Full остаются
 T077; результаты старого failed run34770443870 не переименованы в успех.
+
+
+T093 исходный случай `--focused --partitioned -q -- <path>` воспроизведён
+существующей real-pytest/xdist fixture: exit4,0 cases, `file or directory not
+found: --graf-phase-file`. Новая регрессия сначала1 FAIL/1,84 с, после переноса
+служебных phase/worker options перед selectors1 PASS/2,96 с. Все5 synthetic
+cases выполнены ровно один раз;2 обычных — workers, остальные3 — последовательно,
+cleanup подтверждён. Bash/Ruff/fragments/diff PASS. T093 остаётся открытой до
+включения окончательного #6997, проверки общего config/report entrypoint и
+независимой приёмки объединённого runner. Benchmark131 не повторялся.

@@ -277,6 +277,18 @@ def test_ordinary_focused_remains_serial(partition_run):
     assert len(rows) == 5 and all(row["worker"] == "master" for row in rows)
 
 
+def test_partition_keeps_path_separator(partition_run):
+    result, rows, calls = partition_run("--partitioned", "-q", "--")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert {row["name"] for row in rows} == {
+        "test_plain", "test_other", "test_performance", "test_strict", "test_both",
+    }
+    assert len(rows) == 5
+    assert all(row["worker"].startswith("gw") for row in rows[:2])
+    assert all(row["worker"] == "master" for row in rows[2:])
+    assert calls[-1][0] == "rm"
+
+
 def test_partition_keeps_env_and_config_selection(partition_run):
     result, rows, _ = partition_run("--partitioned", "-q", addopts="-m selected", config_addopts="-k 'not other'")
     assert result.returncode == 0, result.stdout + result.stderr

@@ -331,8 +331,8 @@ PY_PURE
       phase_workers=0
       [[ "$phase" != parallel ]] || phase_workers="$workers"
       run_phase "focused-$phase" uv run --extra dev --extra evaluation pytest \
-        "${timing_args[@]}" "${pytest_args[@]}" --graf-phase-file "$metadata_directory/$phase.json" \
-        -n "$phase_workers" --dist=loadfile
+        --graf-phase-file "$metadata_directory/$phase.json" -n "$phase_workers" --dist=loadfile \
+        "${timing_args[@]}" "${pytest_args[@]}"
     done
   else
     run_phase focused uv run --extra dev --extra evaluation pytest "${timing_args[@]}" "${pytest_args[@]}"

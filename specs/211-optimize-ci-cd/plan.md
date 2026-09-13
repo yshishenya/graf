@@ -430,3 +430,15 @@ helper сохраняет4-байтовый заголовок и поврежд
 пакет даёт подтверждённый strict failure и на6.1.1, и на8.1.2. Проверка5.1.9
 из production-образа также прошла; recovery/выход/число subprocess проверяются
 старыми assertions. Независимый review PASS, новые зависимости не требуются.
+
+
+T093 integration convergence: A10 добавляет phase/xdist options после selectors.
+Реальный существующий synthetic runner с `--focused --partitioned -q -- <path>`
+завершился4: `file or directory not found: --graf-phase-file`, выполнено0 случаев.
+Служебные options должны идти перед пользовательскими positional arguments;
+это существующий FR-055, новый продуктовый scope отсутствует. После #6997 все
+run_phase callers используют единый pytest/config/report entrypoint. Regression
+fixture перенаправляет только стандартный project config в свой изолированный
+config; реальные report tests отдельно проверяют неизменённый project config.
+Все прежние selection/xdist/cleanup/phase-order assertions остаются. Clean analyze:
+CRITICAL0/HIGH0, требование→T093→#6993, решение не требует новой зависимости.
