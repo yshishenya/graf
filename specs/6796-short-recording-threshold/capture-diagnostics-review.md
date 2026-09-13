@@ -173,3 +173,34 @@ indefinite и positiveInfinity проверены nan duration/outputDuration.
 Одобрение не предсказывает значения raw/output PTS реального проблемного
 буфера. Их наблюдение на установленном кандидате остаётся следующим шагом
 T008; T006 и защита аудио сохраняются.
+
+
+## Независимая проверка требования converted_host_gap_ms
+
+Reviewer: существующая задача `01a090a9-ac47-7893-a74d-e18f37e33986`,
+2026-09-13, read-only; результат получен сообщением и сохранён автором
+реализации без изменения reviewer-owned checkboxes.
+**PASS требований до реализации** поверх ddb5376a82ee:
+spec blob `1e009f25e303afe6ab0ad9a7cacae440a840754e`,
+plan blob `571f99d80ea8da7c1a05ebd97485beeca061b8b8`.
+CHK012–014 применимы. Только одно signed residual поле в прежнем событии;
+числа только в памяти; serial queue/audio/current stream guards; nil/invalid
+и отсутствие previous дают nan, без fallback. Рабочие PTS/сэмплы/допуск48
+и аварийный префикс неизменны. Оценка связи часов может измениться между
+callbacks; исчезновение residual не доказывает непрерывность аудио.
+Target macOS14 совместим с API13+. Реализация и установленный прогон
+требуют отдельной проверки. Это не установление причины и не снятие T006.
+
+
+**Approved реализации converted_host_gap_ms**, тот же независимый reviewer,
+2026-09-13. Проверены callback и extractor; runtime blob
+`c6551e20f7aeed99c568d4cc7ca2c8e2b8253967`, test blob
+`1d6545184a8a330e9389d6edb4a18472ddc8ca2b` поверх ddb5376a82ee.
+Подтверждённых замечаний нет. Conversion идёт после guards внутри бюджета,
+clock взят из callback stream. Invalid/nonfinite rawPTS ранее отклоняется
+extractor и остаётся прежним batch_rejected, до conversion не доходит.
+Nil clock/result/previous дают nan; snapshot не удерживает объекты.
+В журнале только signed residual; рабочие batch/PTS/samples/guard неизменны.
+Прочитан результат 126 focused XCTest PASS; reviewer не повторял тесты.
+Синтетический тест проверяет числовую диагностику и исходный batch, но не
+реальное соответствие часов. Причина, installed acceptance и T006 открыты.

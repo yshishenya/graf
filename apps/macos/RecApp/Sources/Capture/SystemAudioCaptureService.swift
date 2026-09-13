@@ -657,7 +657,11 @@ public final class ScreenCaptureKitSystemAudioRuntime: NSObject, SystemAudioCapt
                 } ?? 0
                 let timing = SystemAudioBatchTiming(sampleBuffer: sampleBuffer,
                     decodedFrames: decodedFrames, rate: batch.format.sampleRate,
-                    arrival: callbackStart ?? .nan)
+                    arrival: callbackStart ?? .nan,
+                    convertedHostTime: stream.synchronizationClock.map {
+                        CMSyncConvertTime(CMSampleBufferGetPresentationTimeStamp(sampleBuffer),
+                            from: $0, to: CMClockGetHostTimeClock())
+                    } ?? .invalid)
                 if declaredFrames != decodedFrames || abs(declaredGap) > 0.001 || abs(decodedGap) > 0.001 {
                     reportedTimingAnomaly = true
                     diagnosticLogger?(String(format: "system_audio_timing_anomaly declared_frames=%ld decoded_frames=%ld rate=%g channels=%ld declared_gap_ms=%g decoded_gap_ms=%g",
@@ -808,6 +812,7 @@ public final class ScreenCaptureKitSystemAudioRuntime: NSObject, SystemAudioCapt
 struct SystemAudioBatchTiming {
     let pts: Double
     let outputPTS: Double
+    let convertedHostPTS: Double
     let duration: Double
     let outputDuration: Double
     let declaredFrames: Int
@@ -815,13 +820,15 @@ struct SystemAudioBatchTiming {
     let rate: Double
     let arrival: Double
 
-    init(sampleBuffer: CMSampleBuffer, decodedFrames: Int, rate: Double, arrival: Double) {
+    init(sampleBuffer: CMSampleBuffer, decodedFrames: Int, rate: Double, arrival: Double,
+        convertedHostTime: CMTime = .invalid) {
         func seconds(_ time: CMTime) -> Double {
             let value = CMTimeGetSeconds(time)
             return value.isFinite ? value : .nan
         }
         pts = seconds(CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
         outputPTS = seconds(CMSampleBufferGetOutputPresentationTimeStamp(sampleBuffer))
+        convertedHostPTS = seconds(convertedHostTime)
         duration = seconds(CMSampleBufferGetDuration(sampleBuffer))
         outputDuration = seconds(CMSampleBufferGetOutputDuration(sampleBuffer))
         declaredFrames = CMSampleBufferGetNumSamples(sampleBuffer)
@@ -831,7 +838,7 @@ struct SystemAudioBatchTiming {
     }
 
     func relativeDiagnostic(previous: Self?, maxCompletedCallbackDuration: Double) -> String {
-        String(format: " previous_declared_frames=%ld previous_decoded_frames=%ld previous_rate=%g output_gap_ms=%g raw_duration_gap_ms=%g output_duration_gap_ms=%g previous_output_minus_raw_ms=%g output_minus_raw_ms=%g previous_duration_ms=%g duration_ms=%g previous_output_duration_ms=%g output_duration_ms=%g arrival_gap_ms=%g max_completed_callback_ms=%g",
+        String(format: " previous_declared_frames=%ld previous_decoded_frames=%ld previous_rate=%g output_gap_ms=%g raw_duration_gap_ms=%g output_duration_gap_ms=%g previous_output_minus_raw_ms=%g output_minus_raw_ms=%g previous_duration_ms=%g duration_ms=%g previous_output_duration_ms=%g output_duration_ms=%g arrival_gap_ms=%g max_completed_callback_ms=%g converted_host_gap_ms=%g",
             previous?.declaredFrames ?? 0, previous?.decodedFrames ?? 0, previous?.rate ?? .nan,
             previous.map { (outputPTS - $0.outputPTS - Double($0.declaredFrames) / $0.rate) * 1_000 } ?? .nan,
             previous.map { (pts - $0.pts - $0.duration) * 1_000 } ?? .nan,
@@ -841,7 +848,8 @@ struct SystemAudioBatchTiming {
             (previous?.duration ?? .nan) * 1_000, duration * 1_000,
             (previous?.outputDuration ?? .nan) * 1_000, outputDuration * 1_000,
             previous.map { (arrival - $0.arrival) * 1_000 } ?? .nan,
-            maxCompletedCallbackDuration * 1_000)
+            maxCompletedCallbackDuration * 1_000,
+            previous.map { (convertedHostPTS - $0.convertedHostPTS - Double($0.declaredFrames) / $0.rate) * 1_000 } ?? .nan)
     }
 }
 

@@ -106,3 +106,26 @@ CMTime представлены техническим nan, не нулём. Ч�
 относительных полей проверить синтетическими CMSampleBuffer с отличающимся
 outputPTS; extractor и передача реального batch не меняются. Файл теста:
 apps/macos/Shared/Tests/SystemAudioSampleExtractorTests.swift.
+
+
+Измерение часов T008: на outputQueue до формирования снимка получить
+stream.synchronizationClock и выполнить CMSyncConvertTime(rawPTS, clock,
+CMClockGetHostTimeClock()). В SystemAudioBatchTiming добавить числовой
+convertedHostPTS, не удерживая clock/sampleBuffer. Отсутствующий clock,
+invalid/indefinite/infinite результат — nan. Вывести только
+converted_host_gap_ms = (currentConverted - previousConverted -
+previousDeclaredFrames / previousRate) * 1000. Предыдущая преобразованная
+метка фиксируется при предыдущем callback. Пересчёт не является использованием
+времени доставки, не заменяет rawPTS и не изменяет предикат аномалии/бюджет.
+Синтетический тест проверяет отличие converted gap и nan при отсутствии
+валидной метки. Причина остаётся открытой до установленного наблюдения.
+
+
+Уточнение независимого reviewer: converted_host_gap_ms — знаковый остаток
+относительно номинальной длительности, не размер доказанной потери аудио.
+CMSyncConvertTime компенсирует измеренное расхождение часов; разность значений
+из двух callbacks может включать изменение оценки связи часов. Даже нулевой
+converted gap не доказывает непрерывность сэмплов и не снимает T006.
+Вызов только внутри !reportedTimingAnomaly после audio/isCurrentStream guards;
+invalid/indefinite/infinite вход и отсутствие previous также дают nan, без fallback. API macOS13+
+совместим с текущим target macOS14+. Clock objects/pointers не журналируются.

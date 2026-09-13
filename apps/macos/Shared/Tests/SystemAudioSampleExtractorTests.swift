@@ -121,9 +121,11 @@ final class SystemAudioSampleExtractorTests: XCTestCase {
         XCTAssertEqual(CMSampleBufferSetOutputPresentationTimeStamp(current,
             newValue: CMTime(value: 480_960, timescale: 48_000)), noErr)
         let previousTiming = SystemAudioBatchTiming(sampleBuffer: previous,
-            decodedFrames: 960, rate: 48_000, arrival: 100)
+            decodedFrames: 960, rate: 48_000, arrival: 100,
+            convertedHostTime: CMTime(value: 480_000, timescale: 48_000))
         let timing = SystemAudioBatchTiming(sampleBuffer: current,
-            decodedFrames: 960, rate: 48_000, arrival: 100.021)
+            decodedFrames: 960, rate: 48_000, arrival: 100.021,
+            convertedHostTime: CMTime(value: 480_912, timescale: 48_000))
         let fields = Dictionary(uniqueKeysWithValues: timing.relativeDiagnostic(
             previous: previousTiming, maxCompletedCallbackDuration: 0.002)
             .split(separator: " ").map { field in
@@ -131,6 +133,9 @@ final class SystemAudioSampleExtractorTests: XCTestCase {
                 return (String(pair[0]), Double(pair[1])!)
             })
         XCTAssertEqual(fields["output_gap_ms"]!, 0, accuracy: 0.000001)
+        XCTAssertEqual(fields["converted_host_gap_ms"]!, -1, accuracy: 0.000001)
+        XCTAssertTrue(timing.relativeDiagnostic(previous: nil,
+            maxCompletedCallbackDuration: 0).contains("converted_host_gap_ms=nan"))
         XCTAssertEqual(fields["raw_duration_gap_ms"]!, 15.4375, accuracy: 0.000001)
         XCTAssertEqual(fields["output_minus_raw_ms"]!, -15.4375, accuracy: 0.000001)
         XCTAssertEqual(fields["previous_duration_ms"]!, 20, accuracy: 0.000001)
@@ -147,6 +152,12 @@ final class SystemAudioSampleExtractorTests: XCTestCase {
                 decodedFrames: 960, rate: 48_000, arrival: 101)
             XCTAssertTrue(snapshot.duration.isNaN)
             XCTAssertTrue(snapshot.outputDuration.isNaN)
+            XCTAssertTrue(snapshot.relativeDiagnostic(previous: previousTiming,
+                maxCompletedCallbackDuration: 0).contains("converted_host_gap_ms=nan"))
+            let invalidConversion = SystemAudioBatchTiming(sampleBuffer: current,
+                decodedFrames: 960, rate: 48_000, arrival: 101,
+                convertedHostTime: invalidDuration)
+            XCTAssertTrue(invalidConversion.convertedHostPTS.isNaN)
         }
     }
 

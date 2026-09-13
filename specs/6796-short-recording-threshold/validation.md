@@ -182,3 +182,40 @@ T006/T008 остаются открыты. Остались полная мат�
 синтетическое различие raw/output PTS, invalid/indefinite/infinite duration и
 неизменность извлечённого аудио); Spec Kit governance, changelog и diff-check
 PASS. Эти проверки не доказывают результат следующего установленного прогона.
+
+
+## Реальный прогон расширенной диагностики
+
+Источник `ddb5376a82ee3b5acf8c70d78dcdbef7ebb556f1`; build/promote и smoke
+13/13 PASS. GitHub governance-fast/pr-metadata PASS:
+https://github.com/yshishenya/graf/actions/runs/34745770214 и
+https://github.com/yshishenya/graf/actions/runs/34745770215.
+Непрерывный синтетический тон начат за 2 с до Start через меню:
+штатно сохранено 583265 кадров16кГц (36,4540625 с), разрывов/ошибок нет.
+В первых100мс WAV обнаружен тон440Гц (амплитуда0,03652, RMS0,02585);
+начало записи сохранено. Это количественная проверка только созданного тона.
+
+Следующий прогон с тем же заранее начатым тоном снова завершился аварийно
+до подтверждения выключения микрофона. Входной разрыв720кадров/15мс:
+raw/output gaps=15мс; previous/current declared=decoded=960@48кГц;
+duration/outputDuration=20мс у обоих блоков; output-minus-raw=0;
+arrival gap=31,8478мс; max completed callback=0,170083мс.
+Timeline expected=42292, requested=43012; processedFrameCount=88,
+underrun=1, ptsGap=2, processError/nonFinite=0, p95=0,5мс;
+аварийный префикс сохранён, shortRecordingDiscarded отсутствует.
+Это исключает различие raw/outputPTS и долгую работу завершённых callbacks
+как объяснение данного сбоя. Конвертер не создаёт этот входной разрыв.
+
+Системный журнал replayd при запуске сообщает clockMightDrift=1 для
+аудио- и host-часов; overload в журнале наблюдался уже после остановки и
+не доказывает причину предыдущего разрыва. Следующая проверка — диагностическое
+преобразование PTS через SCStream.synchronizationClock. Физическая потеря
+отсчётов и исправление причины пока не доказаны. T006/T008 открыты.
+После прогона слот передан F6793, штатно установлен их2b33941; текущий Dev
+не приравнивается к проверенному ddb5376. Личные данные/аудио/скриншоты вgit
+не включены.
+
+
+Дополнение converted_host_gap_ms: 126 профильных XCTest PASS; независимый
+code review Approved; Spec Kit governance/changelog/diff-check PASS.
+Установленное значение нового поля пока не получено.
