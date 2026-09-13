@@ -48,3 +48,8 @@ T013/T014 → T011. GitHub owner: https://github.com/yshishenya/graf/issues/6924
 - [X] T015 Уточнить проверку единственного обработчика шкалы записи в `apps/server/tests/contract/test_cabinet_static_assets_contract.py`: допускать независимый resize обработчик списка настроек, сохранив проверки границ/повторного подключения; выполнить связанные проверки настроек и exact-SHA GitHub CI (FR-008, FR-011).
 
 GitHub owner T015: https://github.com/yshishenya/graf/issues/6924.
+
+## Phase 9: Convergence повторного GitHub review
+- [X] T016 [US2] Сохранять текущий вариант активным при открытии веб-настройки в `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`, чтобы открытие и Enter не меняли значение на первый пункт; проверить стрелки, обновление списка, disabled и независимый фильтр приложений в `apps/server/tests/browser/settings-combobox.test.cjs` (FR-003, FR-004, FR-006; partial; review3997752781).
+
+T016 → T011. GitHub owner T016: https://github.com/yshishenya/graf/issues/6924.

@@ -226,6 +226,54 @@ const recording = fs.readFileSync(path.join(cabinet, 'templates/cabinet/pages/se
   await extra.waitForFunction(()=>!document.querySelector('input[aria-label="Когда напоминать"]').disabled);
   assert.equal(await offset.inputValue(),'За 5 минут');
   await extra.close();
+
+  // Opening a saved middle/last option must not silently select the first one.
+  const selection=await browser.newPage(); selection.setDefaultTimeout(5000);
+  selection.on('pageerror',error=>errors.push(error.message));
+  await selection.setContent('<label>Правило<select data-settings-combobox id="rule"><option value="first">Первое</option><option value="middle" selected>Среднее</option><option value="blocked" disabled>Недоступное</option><option value="last">Последнее</option></select></label>');
+  await selection.addStyleTag({path:path.join(assets,'cabinet.css')});
+  await selection.evaluate(()=>{window.changes=0;document.querySelector('#rule').addEventListener('change',()=>changes++);});
+  await selection.addScriptTag({path:path.join(assets,'cabinet.js')});
+  const rule=selection.getByRole('combobox',{name:'Правило',exact:true});
+  const ruleSource=selection.locator('#rule');
+  const ruleToggle=selection.getByRole('button',{name:'Показать варианты',exact:true});
+  const setRule=async value=>{
+   await ruleSource.evaluate((el,value)=>{el.value=value;el.dispatchEvent(new Event('change'));},value);
+  };
+  for(const value of ['middle','last']){
+   for(const trigger of [rule,ruleToggle]){
+    await setRule(value);
+    const before=await selection.evaluate(()=>changes);
+    await trigger.click(); await rule.press('Enter');
+    assert.equal(await ruleSource.inputValue(),value,'Opening and Enter must preserve the saved option');
+    assert.equal(await selection.evaluate(()=>changes),before,'Confirming the saved option must not dispatch change');
+   }
+  }
+  await setRule('middle');
+  await rule.press('ArrowDown'); await rule.press('Enter');
+  assert.equal(await ruleSource.inputValue(),'last','Opening with ArrowDown advances from saved option and skips disabled');
+  await rule.press('ArrowUp'); await rule.press('Enter');
+  assert.equal(await ruleSource.inputValue(),'middle','Opening with ArrowUp advances from saved option and skips disabled');
+  await rule.click();
+  await ruleSource.evaluate(el=>el.options[2].disabled=true);
+  await rule.press('Enter');
+  assert.equal(await ruleSource.inputValue(),'middle','Unchanged source refresh must preserve the saved active option');
+  await rule.click(); await rule.press('ArrowDown');
+  await ruleSource.evaluate(el=>el.options[2].setAttribute('disabled',''));
+  await rule.press('Enter');
+  assert.equal(await ruleSource.inputValue(),'last','Unchanged refresh must preserve keyboard navigation');
+  await rule.click();
+  await ruleSource.evaluate(el=>el.options[3].disabled=true);
+  await rule.press('Enter');
+  assert.notEqual(await ruleSource.inputValue(),'last','A newly disabled active option must not be selected');
+  await rule.fill('Сре');
+  const beforeInput=await selection.evaluate(()=>changes);
+  await ruleSource.evaluate(el=>el.add(new Option('Новое','new')));
+  assert.equal(await rule.inputValue(),'Сре','Catalog refresh keeps the query');
+  assert.equal(await rule.getAttribute('aria-activedescendant'),null,'Typing does not activate a saved option');
+  assert.equal(await selection.evaluate(()=>changes),beforeInput);
+  await rule.press('Enter'); assert.equal(await ruleSource.inputValue(),'middle');
+  await selection.close();
   assert.deepEqual(errors,[]);
   console.log(`${engine.name()}: settings coverage, app filter/bulk, explicit selection, keyboard/IME, reset, disabled/catalog updates, 600 options (${ms.toFixed(1)}ms), narrow layout passed`);
  } finally {await browser.close();}

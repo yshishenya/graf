@@ -161,3 +161,8 @@ GitHub governance-fast [34720119849](https://github.com/yshishenya/graf/actions/
 Активный installed production-code SHA0ec9eed61cf35a7ba4869e17db01a9a3d1a05395: build/promote/final smoke13/13PASS. Коммит7f5 и последующий отчёт меняют только тесты/метаданные, не исходники приложения. Сборка оставлена в единственном GRAF Dev, настройки не изменялись.
 
 T011/T012 остаются открыты: повторно подтверждено отсутствие вызываемого CUA click действия в root и независимой задаче, при работающем read/Raise. Это ограничение инструмента, не причина повторно просить unlock. Живые mouseDown/AXPress/ввод и окончательные темы/края требуют установленной проверки; PR не объявляется готовым к включению в релиз до неё. Публикация, merge и production deploy не выполнялись.
+
+## T016: новое замечание повторного review
+Повторная живая проверка GitHub обнаружила review3997752781, опубликованное после прошлого closeout: open веб-настройки оставлял active=-1, поэтому Enter заменял сохранённый средний/последний вариант первым. До исправления браузерная регрессия воспроизвела first != middle. Общий open теперь выделяет доступный source.value; sync сохраняет активный вариант по стабильному value и исключает disabled. Ввод и app filter не получают фиктивного выбранного значения.
+
+Chromium PASS (600 вариантов 0.9 ms), WebKit PASS (1.0 ms), timezone PASS, settings contract/viewmodels 36 PASS. Spec Kit governance и diff --check PASS. Независимый code/Ponytail review native_combobox не нашёл блокирующих замечаний. T016 выполнена; новое exact-SHA CI и установленная приёмка T011/T012 следуют отдельно.

@@ -5823,6 +5823,10 @@
     const open = () => {
       if (input.disabled) return;
       query = filterInput ? normalizeSettingSearch(input.value) : ''; draw(); reveal();
+      if (!filterInput) {
+        active = matches.findIndex(option => option.value === source.value && !option.disabled);
+        highlight();
+      }
     };
     input.addEventListener('focus', () => { if (!restoringFocus && !filterInput) input.select(); });
     input.addEventListener('click', () => { if (popup.hidden) open(); });
@@ -5860,7 +5864,12 @@
       toggle.disabled = input.disabled;
       if (input.disabled) close();
       else if (popup.hidden && !filterInput) input.value = selectedLabel();
-      else if (!popup.hidden) { draw(); reveal(); }
+      else if (!popup.hidden) {
+        const activeValue = matches[active]?.value;
+        draw(); reveal();
+        active = matches.findIndex(option => option.value === activeValue && !option.disabled);
+        highlight();
+      }
     };
     const api = { sync, input, close, restoreFocus() { restoringFocus = true; input.focus({preventScroll: true}); restoringFocus = false; } };
     settingsCombos.set(input, api);
