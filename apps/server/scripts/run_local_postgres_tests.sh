@@ -231,12 +231,11 @@ start_postgres() {
   export GRAF_TEST_POSTGRES_ADMIN_URL="$admin_url"
   export GRAF_TEST_POSTGRES_MEDIA_PASSWORD="$media_password"
   export RLS_TEST_MEDIA_DATABASE_URL="$rls_media_url"
-  export PYTHONPATH=src
 
 }
 
 cd "$repo_root/apps/server"
-export PYTHONPATH=src UV_FROZEN=1
+export PYTHONPATH="$repo_root/apps/server:$repo_root/apps/server/src" UV_FROZEN=1
 # Collection and pure tests must never inherit an operator database target.
 unset TWOBRAIN_DATABASE_URL RLS_TEST_DATABASE_URL RLS_TEST_PROBE_DATABASE_URL \
   RLS_TEST_MEDIA_DATABASE_URL GRAF_TEST_DATABASE_PREFIX GRAF_TEST_POSTGRES_ADMIN_URL \
