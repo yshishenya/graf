@@ -74,11 +74,18 @@ struct NativeSettingsComboBox: NSViewRepresentable {
             .children: [Any](), .expanded: false,
         ]
         override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
-            let inherited = super.accessibilityAttributeNames()
-            return inherited + popupAttributes.keys.filter { !inherited.contains($0) }
+            MainActor.assumeIsolated {
+                let inherited = super.accessibilityAttributeNames()
+                return inherited + popupAttributes.keys.filter { !inherited.contains($0) }
+            }
         }
         override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
-            popupAttributes[attribute] ?? super.accessibilityAttributeValue(attribute)
+            // NSCell descendants are main-thread-only; Any stays in this synchronous call.
+            nonisolated(unsafe) var value: Any?
+            MainActor.assumeIsolated {
+                value = popupAttributes[attribute] ?? super.accessibilityAttributeValue(attribute)
+            }
+            return value
         }
     }
 

@@ -78,3 +78,7 @@ T020/T021 → T011. GitHub owner: https://github.com/yshishenya/graf/issues/6924
 ## Phase 13: Проверка общего релиза
 
 - [X] T022 Синхронизировать доступное имя видимого поля при переименовании приложения в `cabinet.js`; проверить обновление реестра с прежним ID и отсутствие записи настроек в `settings-combobox.test.cjs` (FR-006; review3999323463). (Issue #6924)
+
+## Phase 14: Совместимость релизной сборки
+
+- [X] T023 Уточнить главный поток для двух старых методов доступности `NativeSettingsComboBox.FieldCell` в `NativeSettingsComboBox.swift`; сохранить штатные значение/выделение/фокус, проверить существующие `NativeSettingsComboBoxTests` и macos-diagnostic на Swift6.0.3, затем новый общий release-full (FR-006/FR-008; исходный release-full34751488543 failed). (Issue #6924)

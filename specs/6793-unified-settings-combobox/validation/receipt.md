@@ -222,3 +222,13 @@ GitHub governance-fast34748200852 и pr-metadata34748200877 PASS на8d816b478. 
 Сценарий реального refresh реестра Zoom → Zoom Workplace → Zoom сначала воспроизвёл ошибку на прежнем коде. После исправления полный settings-combobox.test.cjs прошёл в Chromium/WebKit; дополнительно проверено отсутствие set/setAll при переименовании. Связанные Python проверки:112 PASS, node --check и проверка фрагментов PASS. Это браузерная проверка доступного имени; VoiceOver и установленная матрица не повторялись по указанию пользователя. Независимый обзор совместимости объединённых TwoBrainRecApp.swift/cabinet.css: Approved; проверка T022 перед слиянием записывается отдельно в PR.
 
 Независимый code/Ponytail review T022: Approved, findings0. Проверены разделение source/input, отсутствие mutation loop и сохранение выбора; повторять native/VoiceOver для этой веб-правки не требуется.
+
+## T023: релизная сборка Swift 6.0.3
+
+Первый общий кандидат5b4dbbab5 не принят: release-full34751488543 остановился при компиляции двух legacy NSCell accessibility overrides. Их объявление nonisolated в старом SDK не разрешало читать MainActor popupAttributes. Публичной публикации/выкладки этого кандидата нет.
+
+Исправление сохраняет словарь на MainActor и явно проверяет главный поток через MainActor.assumeIsolated в двух синхронных AppKit hooks. Для Objective-C результата Any использована только локальная переменная nonisolated(unsafe), которая живёт в одном вызове и не передаётся другому потоку; shared состояние/тип не ослаблены. Штатные value/selection/focus продолжают читать super. Обязательны existing NativeSettingsComboBoxTests, независимый review, точный GitHub macos-diagnostic Swift6.0.3 и новый release-full кандидата.
+
+Локальная полная компиляция и27NativeSettingsComboBoxTests: PASS, включая hosted editable value/selection/focus. Независимый code/Ponytail review Approved. Apple Thread Safety Summary требует главный поток для NSCell и всех наследников; явное предположение проверяет этот существующий контракт. Результаты Swift6.0.3 записываются в PR после запуска, T023 до них остаётся открытой.
+
+GitHub macos-diagnostic34751902861 на fbb63060ac0e9027bd885bc0a55760e3db601705: PASS, Swift6.0.3 build + полный Swift test suite + ContractValidation. governance-fast34751923848 и pr-metadata34751923859 на этомSHA: PASS. T023 implementation/diagnostic завершены; релизный кандидат после merge ещё требует нового release-full. Следующий документационный коммит не меняет runtime и требует собственного governance-fast.
