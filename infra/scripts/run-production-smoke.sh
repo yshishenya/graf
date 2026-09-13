@@ -102,6 +102,15 @@ if [[ "${TWOBRAIN_PRODUCTION_RELEASE_LOCK_HELD:-0}" != "1" ]]; then
     exit 1
   fi
 fi
+if [[ -z "${GRAF_RELEASE_IMAGE_OVERRIDE:-}" ]]; then
+  GRAF_RELEASE_IMAGE_OVERRIDE="$(python3 infra/scripts/release-images.py current-override)"
+  export GRAF_RELEASE_IMAGE_OVERRIDE
+fi
+compose=(docker compose -f infra/docker-compose.yml)
+if [[ -n "${GRAF_RELEASE_IMAGE_OVERRIDE:-}" ]]; then
+  python3 infra/scripts/release-images.py validate-override "$GRAF_RELEASE_IMAGE_OVERRIDE"
+  compose+=(-f "$GRAF_RELEASE_IMAGE_OVERRIDE")
+fi
 SMOKE_RUN_DIR="$(mktemp -d "/tmp/twobrain-rec-smoke-${RUN_ID}.XXXXXX")"
 chmod 700 "$SMOKE_RUN_DIR"
 SMOKE_SEED_JSON="$SMOKE_RUN_DIR/seed.json"
@@ -122,7 +131,7 @@ OUTCOME_SMOKE_ENABLED="${TWOBRAIN_OUTCOME_SMOKE_ENABLED:-false}"
 cleanup_smoke_container_files() {
   local mode="${1:-required}"
   if [[ "$mode" == "best_effort" ]]; then
-    docker compose -f infra/docker-compose.yml exec -T rec-api \
+    "${compose[@]}" exec -T rec-api \
       sh -eu -c '
         for path in "$1" "$2"; do
           case "$path" in
@@ -141,7 +150,7 @@ cleanup_smoke_container_files() {
       >/dev/null 2>&1 || true
     return 0
   fi
-  docker compose -f infra/docker-compose.yml exec -T rec-api \
+  "${compose[@]}" exec -T rec-api \
     sh -eu -c '
       for path in "$1" "$2"; do
         case "$path" in
@@ -170,13 +179,13 @@ cleanup_smoke_auth_session() {
     cleanup_args+=(--auth-session-id "$SMOKE_AUTH_SESSION_ID")
   fi
   if [[ "$mode" == "best_effort" ]]; then
-    docker compose -f infra/docker-compose.yml run --rm --no-deps -T rec-maintenance \
+    "${compose[@]}" run --pull never --rm --no-deps -T rec-maintenance \
       "${cleanup_args[@]}" \
       >"$SMOKE_AUTH_CLEANUP_JSON" 2>"$SMOKE_AUTH_CLEANUP_ERR" || true
     return 0
   fi
 
-  docker compose -f infra/docker-compose.yml run --rm --no-deps -T rec-maintenance \
+  "${compose[@]}" run --pull never --rm --no-deps -T rec-maintenance \
     "${cleanup_args[@]}" \
     >"$SMOKE_AUTH_CLEANUP_JSON"
   require_json_status "$SMOKE_AUTH_CLEANUP_JSON" auth_cleanup_result pass
@@ -205,13 +214,13 @@ cleanup_smoke_artifacts() {
     fi
   fi
   if [[ "$mode" == "best_effort" ]]; then
-    docker compose -f infra/docker-compose.yml run --rm --no-deps -T rec-maintenance \
+    "${compose[@]}" run --pull never --rm --no-deps -T rec-maintenance \
       "${cleanup_args[@]}" \
       >"$SMOKE_ARTIFACT_CLEANUP_JSON" 2>"$SMOKE_ARTIFACT_CLEANUP_ERR" || true
     return 0
   fi
 
-  docker compose -f infra/docker-compose.yml run --rm --no-deps -T rec-maintenance \
+  "${compose[@]}" run --pull never --rm --no-deps -T rec-maintenance \
     "${cleanup_args[@]}" \
     >"$SMOKE_ARTIFACT_CLEANUP_JSON"
   require_json_status "$SMOKE_ARTIFACT_CLEANUP_JSON" cleanup_result pass
@@ -250,12 +259,12 @@ trap cleanup_on_exit EXIT
 infra/scripts/validate-production-config.sh
 infra/scripts/verify-rec-migration.sh --execute
 
-docker compose -f infra/docker-compose.yml exec -T rec-api \
+"${compose[@]}" exec -T rec-api \
   python scripts/create_test_artifact.py \
   --out "$SMOKE_ARTIFACT_DIR" \
   --duration-seconds "${TWOBRAIN_SMOKE_DURATION_SECONDS:-3}" >"$SMOKE_ARTIFACT_JSON"
 
-docker compose -f infra/docker-compose.yml exec -T rec-api \
+"${compose[@]}" exec -T rec-api \
   sh -eu -c '
     path="$1"
     [ "${path%/*}" = /tmp ]
@@ -263,13 +272,13 @@ docker compose -f infra/docker-compose.yml exec -T rec-api \
     [ -d "$path" ]
   ' _ "$SMOKE_ARTIFACT_DIR"
 
-docker compose -f infra/docker-compose.yml run --rm --no-deps -T rec-maintenance \
+"${compose[@]}" run --pull never --rm --no-deps -T rec-maintenance \
   python scripts/seed_smoke_identity.py \
   --run-id "$RUN_ID" \
   --execute >"$SMOKE_SEED_JSON"
 require_json_status "$SMOKE_SEED_JSON" seed_result pass
 
-docker compose -f infra/docker-compose.yml exec -T rec-api \
+"${compose[@]}" exec -T rec-api \
   python scripts/issue_smoke_auth_session.py \
   --run-id "$RUN_ID" \
   --execute \
@@ -287,7 +296,7 @@ SMOKE_AUTH_SESSION_ID="$(
   python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8")).get("auth_session_id") or "")' "$SMOKE_AUTH_JSON"
 )"
 
-docker compose -f infra/docker-compose.yml exec -T rec-api \
+"${compose[@]}" exec -T rec-api \
   python scripts/upload_test_artifact.py \
   --api "${TWOBRAIN_PUBLIC_BASE_URL:-https://rec.2brain.pro}" \
   --organization "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["X-Organization-Id"])' "$SMOKE_AUTH_JSON")" \
@@ -302,13 +311,13 @@ outcome_seed_result='{"status":"skipped"}'
 outcome_proof_result='{"status":"skipped"}'
 if [[ "$OUTCOME_SMOKE_ENABLED" == "true" ]]; then
   SMOKE_MEETING_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["meeting_id"])' "$SMOKE_UPLOAD_JSON")"
-  docker compose -f infra/docker-compose.yml run --rm --no-deps -T rec-maintenance \
+  "${compose[@]}" run --pull never --rm --no-deps -T rec-maintenance \
     python scripts/seed_smoke_outcome.py \
     --run-id "$RUN_ID" \
     --meeting-id "$SMOKE_MEETING_ID" \
     --execute >"$SMOKE_OUTCOME_SEED_JSON"
 
-  docker compose -f infra/docker-compose.yml exec -T rec-api \
+  "${compose[@]}" exec -T rec-api \
     python scripts/prove_meeting_outcome_live.py \
     --api "${TWOBRAIN_PUBLIC_BASE_URL:-https://rec.2brain.pro}" \
     --token-file "$SMOKE_TOKEN_FILE" \

@@ -443,3 +443,21 @@ Final narrow corrections suite: 24 PASS /6.19 s, Ruff/diff PASS.
 Independent final A6 delta review PASS: both original P1 and fetch-order P2
 resolved, no open P1/P2. Local scope complete; T087 keeps hosted/post-merge
 acceptance open.
+
+### A8 local implementation acceptance — 2026-09-13
+
+- Runtime/media builds preserve all 68 installed distributions (`pip check` PASS) and 1099 application/package resource files. Both old/new content manifests have SHA-256 `1278d910beb56156ad3be65940c92fda1148861438b22a45ed045b1eefde663d`. FFmpeg exists only in media-runtime. Local Docker platform is linux/arm64; these are not production timing measurements.
+- New SHA with identical source bytes: runtime 0.83 s, media 0.31 s. Actual source edit: runtime 7.18 s, media 0.53 s, changed application bytes observed; dependency and FFmpeg layers remain CACHED. Both targets use the same frozen dependency/application prefix, with source metadata after expensive layers.
+- The existing deploy lock owns a create-once attempt in Git-private `graf-release-images`. Previous actual container IDs and one-off IDs are captured before builds/pulls; same-SHA/platform reuse validates image ID, source label and environment. Candidate/previous overrides pin all services; runtime, downgrade/compatibility, actual rollback and standalone smoke/migration/backup/restore rehearsal use the appropriate saved IDs. A running prompt worker is upgraded and restored symmetrically.
+- New helper regression checks and related executable rollback/smoke/backup/RLS contracts: 114 PASS / 3.33 s. Final prompt-worker extension: both previous-safe-processing cases PASS / 0.21 s. Run with the prepared Python 3.13 venv first in PATH so subprocess entrypoints use the same dependencies:
+
+```sh
+PATH="$PWD/apps/server/.venv/bin:$PATH" PYTHONPATH=apps/server/src apps/server/.venv/bin/python -m pytest --noconftest -q   tests/governance/test_release_images.py   apps/server/tests/integration/test_production_smoke_boundary.py   apps/server/tests/integration/test_deployment_readiness_gates.py   apps/server/tests/integration/test_deployment_backup_restore_rehearsal.py   apps/server/tests/contract/test_rls_production_boundary.py
+```
+
+- Independent implementation review: PASS after all five findings were fixed: signal-safe finalization before trap removal/cleanup, prompt-worker rollback, saved IDs for standalone callers, cache publication after final clean-source check, and preservation of pending active.json when directory fsync fails. Regression coverage includes source drift and failed replacement of an existing active pointer.
+- No new service, registry, credentials or dependency. No change to PostgreSQL/RLS/migration/backup/restore/public health/Full requirements. Hosted exact-SHA evidence, final Full and release dry-run remain separate gates; local tests do not prove production deployment.
+
+A8 final related validation after review fixes and documentation: 229 PASS / 39.65 s (image lifecycle, Compose hardening, smoke/readiness, backup/restore, RLS boundary and CI/CD contracts). Ruff, shell syntax, development-process, changelog fragments and diff check PASS.
+
+A6 final hosted proof on `c82b1f5db28f60b664b6cc7efbf50f92e31614eb`: governance-fast 34761402527 PASS (996 s bounded lane), Swift/macOS 34761402545 PASS, metadata 34761675889 PASS. The body-only edit at 14:05:51 UTC produced only text scope/metadata and did not cancel/repeat code/native. Live common validator accepted all three exact head/base/run/attempt proofs and the text-scope artifact. Required protection read-back stayed strict with all three contexts bound to app 15368. The reviewed REST metadata-head concern was disproved by the actual filtered API response. GitHub merge eligibility remains a separate live check.

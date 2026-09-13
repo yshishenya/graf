@@ -180,9 +180,9 @@ FR-042 / SC-020. Requirements checklist and current owner precede code; baseline
 
 FR-044–048 / SC-021; reviewer-owned image-reuse checklist and clean analyze before code. T067 is reserved for the native-fixture convergence in foundation.
 
-- [ ] T068 Переставить слои `infra/server/Dockerfile`, сохранив два targets, пакетные ресурсы и pinned dependencies/FFmpeg; доказать реальную сборку и reuse дорогих слоёв. (Issue #6989)
-- [ ] T069 Добавить минимальный `infra/scripts/release-images.py` с реальными previous IDs, двумя candidate builds, platform/source validation, сторонними refs, create-once attempts и Compose overrides; покрыть `tests/governance/test_release_images.py`. (Issue #6989)
-- [ ] T070 Подключить проверенные candidate/decision/evidence identity и images в `infra/scripts/cd-remote.sh`, `infra/scripts/cd-remote-runtime.sh`, `infra/scripts/run-production-smoke.sh`; сохранить gates и правильные candidate/previous rollback ветки без пересборки/pull. (Issue #6989)
+- [X] T068 Переставить слои `infra/server/Dockerfile`, сохранив два targets, пакетные ресурсы и pinned dependencies/FFmpeg; доказать реальную сборку и reuse дорогих слоёв. (Issue #6989)
+- [X] T069 Добавить минимальный `infra/scripts/release-images.py` с реальными previous IDs, двумя candidate builds, platform/source validation, сторонними refs, create-once attempts и Compose overrides; покрыть `tests/governance/test_release_images.py`. (Issue #6989)
+- [X] T070 Подключить проверенные candidate/decision/evidence identity и images в `infra/scripts/cd-remote.sh`, `infra/scripts/cd-remote-runtime.sh`, `infra/scripts/run-production-smoke.sh`, `infra/scripts/verify-rec-migration.sh`, `infra/scripts/backup-rec-stack.sh`, `infra/scripts/rehearse-rec-restore.sh`; сохранить gates и правильные candidate/previous rollback ветки без пересборки/pull. (Issue #6989)
 - [ ] T071 Проверить lifecycle/rollback/smoke отрицательные ветки и реальные образы; review/converge, quickstart, инструкции выкатки и `changes/unreleased/F211.yaml`, exact-SHA hosted проверки. (Issue #6989)
 
 ## Phase 19: Native-check convergence after A7
