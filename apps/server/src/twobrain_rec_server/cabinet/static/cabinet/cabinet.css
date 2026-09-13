@@ -5697,6 +5697,20 @@ html[data-theme="dark"] .detail-page-main {
   --surface-3: #474a4c;
   background: var(--bg);
 }
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme]) .detail-page-main {
+    --bg: #1c1f20;
+    --text: #f5f5f5;
+    --muted: #b4b9c3;
+    --subtle: #b4b9c3;
+    --accent: #c0b6ff;
+    --line: #8d97a7;
+    --surface: #242729;
+    --surface-2: #2e3133;
+    --surface-3: #474a4c;
+    background: var(--bg);
+  }
+}
 .meeting-detail-header { padding-bottom: 10px; box-shadow: none; }
 .meeting-detail-actions { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; min-height: 32px; margin-bottom: 16px; }
 .meeting-detail-actions .action-row { justify-content: flex-end; min-width: 0; }
@@ -6177,6 +6191,14 @@ html[data-theme="dark"] .app-shell[data-active-nav="settings"] {
   --surface: #202123; --surface-2: #27282a; --surface-3: #383a3d;
   --line-soft: #35363a; --text: #ececef; --muted: #aaabb2;
   --accent-solid: #9581ff; --accent-hover: #a18cff; --accent-foreground: #202125;
+}
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme]) .app-shell[data-active-nav="settings"] {
+    --bg: #202123; --panel: #202123;
+    --surface: #202123; --surface-2: #27282a; --surface-3: #383a3d;
+    --line-soft: #35363a; --text: #ececef; --muted: #aaabb2;
+    --accent-solid: #9581ff; --accent-hover: #a18cff; --accent-foreground: #202125;
+  }
 }
 
 .app-shell[data-active-nav="settings"] .cabinet-workspace-header { display: none; }
