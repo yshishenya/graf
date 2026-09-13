@@ -128,10 +128,10 @@ run_phase() {
   local completed_at
   local duration_seconds
   started_at="$(date +%s)"
-  local report_args=()
+  local report_args=(-c "$repo_root/apps/server/pyproject.toml")
   if [[ -n "${GRAF_TEST_REPORT_DIR:-}" ]]; then
     mkdir -p "$GRAF_TEST_REPORT_DIR"
-    report_args=(-p tests.fixtures.test_resources --graf-report-file "$GRAF_TEST_REPORT_DIR/$phase.jsonl")
+    report_args+=(-p tests.fixtures.test_resources --graf-report-file "$GRAF_TEST_REPORT_DIR/$phase.jsonl")
   fi
   if "$@" "${report_args[@]}"; then
     completed_at="$(date +%s)"
@@ -243,7 +243,7 @@ unset TWOBRAIN_DATABASE_URL RLS_TEST_DATABASE_URL RLS_TEST_PROBE_DATABASE_URL \
 metadata_directory="$(mktemp -d "${TMPDIR:-/tmp}/graf-postgres-test.XXXXXX")"
 selection=("${pytest_args[@]}")
 if [[ "$mode" == fast ]]; then selection=(-q tests/unit); fi
-if uv run --extra dev --extra evaluation pytest --collect-only \
+if uv run --extra dev --extra evaluation pytest -c "$repo_root/apps/server/pyproject.toml" --collect-only \
   --graf-collection-file "$metadata_directory/collection.json" "${selection[@]}" \
   > "$metadata_directory/collection.log" 2>&1; then
   :

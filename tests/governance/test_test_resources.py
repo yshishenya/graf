@@ -86,7 +86,7 @@ def test_runner_phase_loads_report_options_in_parallel_workers(tmp_path):
     result = subprocess.run(
         ["bash", str(ROOT / "apps/server/scripts/run_local_postgres_tests.sh"),
          "--focused", "-q", "-n", "2",
-         "tests/unit/test_account_closure.py::test_account_close_rejects_linked_workspace_even_for_sole_owner"],
+         "-k", "test_request_context_is_isolated_and_reset_on_errors"],
         cwd=ROOT,
         env={**os.environ, "GRAF_TEST_REPORT_DIR": str(tmp_path / "reports")},
         capture_output=True, text=True, check=False,

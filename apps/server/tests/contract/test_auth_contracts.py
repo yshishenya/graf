@@ -3373,7 +3373,7 @@ def test_active_space_list_and_switch_replace_the_scoped_session(client: TestCli
 
     current_settings = client.get("/settings/workspace")
     assert current_settings.status_code == 200
-    assert "Куда сохраняются новые встречи" in current_settings.text
+    assert 'aria-label="Доступные пространства"' in current_settings.text
     assert "Текущее" in current_settings.text
     assert 'name="workspace_id"' not in current_settings.text
 
@@ -3520,7 +3520,7 @@ def test_workspace_join_offers_require_explicit_csrf_protected_decisions(
 
     settings = client.get("/settings/workspace")
     assert settings.status_code == 200
-    assert "Приглашения в рабочие пространства" in settings.text
+    assert '<h2 id="workspace-join-offers-title">Приглашения</h2>' in settings.text
     assert "Команда для принятия" in settings.text
     assert "offer-owner@example.test" not in settings.text
 

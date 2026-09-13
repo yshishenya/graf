@@ -279,8 +279,8 @@ def test_settings_and_login_results_share_the_focusable_outcome_contract() -> No
     for page in (settings, login):
         assert page.count("data-outcome-focus") == 1
         assert re.search(r'tabindex="-1"[^>]*data-outcome-focus', page)
-    assert settings.count('role="alert"') == 1
-    assert login.count('role="status"') == 1
+    assert 'role="alert"' in re.search(r"<[^>]*data-outcome-focus[^>]*>", settings).group()
+    assert 'role="status"' in re.search(r"<[^>]*data-outcome-focus[^>]*>", login).group()
     assert "Яндекс ID подключён" in login
 
 
