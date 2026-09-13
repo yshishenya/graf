@@ -18369,6 +18369,14 @@ components:
       title: SummaryCopyCapabilityV1
     SummaryTemplateListResponse:
       properties:
+        actor:
+          type: string
+          title: Actor
+          default: ''
+        workspace:
+          type: string
+          title: Workspace
+          default: ''
         default_template_key:
           type: string
           title: Default Template Key
@@ -18394,6 +18402,14 @@ components:
       title: SummaryTemplateListResponse
     SummaryTemplateView:
       properties:
+        actor:
+          type: string
+          title: Actor
+          default: ''
+        workspace:
+          type: string
+          title: Workspace
+          default: ''
         template_id:
           anyOf:
           - type: string
