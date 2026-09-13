@@ -46,12 +46,13 @@ def test_non_payer_billing_surfaces_keep_quota_state_without_usage_values() -> N
     from twobrain_rec_server.billing.catalog import plan_descriptor
 
     values = {name: "private-" + name for name in (
-        "processing_used_label", "free_processing_limit_label", "processing_remaining_label",
-        "storage_used_label", "storage_capacity_label", "storage_reserved_label", "storage_available_label",
+        "processing_used_label", "processing_remaining_label",
+        "storage_used_label", "storage_reserved_label", "storage_available_label",
     )}
     context = dict(embedded=False, settings_navigation=[], settings_active="billing",
                    plan=plan_descriptor("free"), plan_code="free", meetings_href="/meetings",
-                   processing_threshold="approaching", processing_reset_at_label="later", **values)
+                   processing_threshold="approaching", processing_reset_at_label="later",
+                   free_processing_limit_label="300 минут", storage_capacity_label="2 ГБ", **values)
     for role in ("member", "corporate_owner", "owner"):
         for plan_code in ("personal", "free"):
             for threshold in ("normal", "approaching", "exhausted"):
@@ -62,6 +63,9 @@ def test_non_payer_billing_surfaces_keep_quota_state_without_usage_values() -> N
                     html = render_template("cabinet/pages/" + page, billing_role=role,
                                            billing_owner=False, **context)
                     assert all(value not in html for value in values.values())
+                    assert "2 ГБ" in html
+                    if plan_code == "free":
+                        assert "300 минут" in html
                     assert ("Дождитесь сброса later" in html) == (
                         plan_code == "free" and threshold != "normal"
                     )
@@ -83,6 +87,7 @@ def test_non_payer_billing_surfaces_keep_quota_state_without_usage_values() -> N
         assert "Количественные данные хранилища временно недоступны" in unavailable
         assert "доступны плательщику" not in unavailable and "видит плательщик" not in unavailable
         assert all(value not in unavailable for value in values.values())
+        assert "2 ГБ" not in unavailable and "300 минут" not in unavailable
     owner = render_template("cabinet/pages/billing_overview_content.html",
                             billing_role="owner", billing_owner=True, **context)
     assert values["processing_used_label"] in owner
