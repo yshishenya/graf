@@ -91,6 +91,33 @@ def test_live_build_runs_compose_backend_and_signed_app_adapter(monkeypatch, tmp
     ]
     assert calls[-1][0:2] == ["sh", str(adapter.build_app_script)]
     assert result["app_bundle_digest"].startswith("sha256:")
+    pulls = [command[command.index("pull"):] for command in calls if "pull" in command]
+    assert pulls == [
+        ["pull", "--quiet", "rec-temporal", "rec-postgres"],
+        ["pull", "--quiet", "--policy", "missing", "rec-minio", "rec-minio-init"],
+    ]
+
+@pytest.mark.parametrize("missing_service", ["rec-minio", "rec-minio-init"])
+def test_live_build_stops_before_archive_and_app_when_missing_image_cannot_pull(monkeypatch, tmp_path, missing_service):
+    adapter = dev_harness.GrafLocalAdapter(tmp_path, tmp_path / "state")
+    monkeypatch.setattr(adapter, "_assert_supported", lambda: None)
+    monkeypatch.setattr(adapter, "_assert_source_matches_checkout", lambda _: None)
+    monkeypatch.setattr(adapter, "_compose_config", lambda _: None)
+    calls = []
+
+    def run(command, *, cwd, env=None):
+        calls.append(command)
+        if "pull" in command and missing_service in command:
+            assert command[command.index("--policy") + 1] == "missing"
+            raise dev_harness.HarnessError("image unavailable")
+        return ""
+
+    monkeypatch.setattr(dev_harness, "_run_command", run)
+    with pytest.raises(dev_harness.HarnessError, match="image unavailable"):
+        adapter.build(manifest(tmp_path))
+    assert not any(command[:3] == ["docker", "image", "save"] for command in calls)
+    assert not any(command[0] == "sh" for command in calls)
+    assert not (adapter.state / "artifacts").exists()
 
 
 def test_live_build_records_and_preserves_every_compose_image_for_future_features(monkeypatch, tmp_path):

@@ -405,7 +405,7 @@ public struct LocalRecordingTrack: Codable, Equatable, Sendable {
             format == "m4a-aac-lc" &&
             sampleRate == 48_000 &&
             channelCount == 1 &&
-            aacPresentationFrameDelta.map { abs($0) <= Self.maximumAACPresentationDeltaFrames } == true &&
+            aacPresentationFrameDelta.map { (-Self.maximumAACPresentationDeltaFrames...Self.maximumAACPresentationDeltaFrames).contains($0) } == true &&
             timelineStartMs == 0 &&
             timelineAligned
     }
@@ -648,6 +648,8 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
         "local-recording-manifest.v4"
     ]
 
+    /// Durable local-only decision; absent in historical packages.
+    public var shortRecordingDiscarded: Bool? = nil
     public var schemaVersion: String
     public var sessionId: String
     public var createdAt: Date
@@ -755,6 +757,22 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
         self.recordingMetadata = recordingMetadata
         self.echoProcessor = echoProcessor
         self.echoProcessingHealth = echoProcessingHealth
+    }
+
+    /// Applied only while finalizing a new, normally stopped recording.
+    public mutating func applyShortRecordingPolicy(stopReason: RecordingStopReason?) {
+        guard stopReason == .userRequested || stopReason == .meetingEnded,
+              isV5Package, isComplete, captureFailureCode == nil,
+              let playback = tracks.first(where: { $0.role == .reviewPlayback }),
+              let presentationDelta = playback.aacPresentationFrameDelta,
+              tracks.allSatisfy({ $0.failureReason == .none }) else { return }
+        // Recover the exact 48 kHz timeline; the 16 kHz WAV count is rounded.
+        let canonicalFrames = playback.frameCount.subtractingReportingOverflow(presentationDelta)
+        guard !canonicalFrames.overflow,
+              canonicalFrames.partialValue > 0, canonicalFrames.partialValue < 1_440_000 else { return }
+        shortRecordingDiscarded = true
+        status = .blocked
+        transcriptionReadiness = .degraded
     }
 
     public var isComplete: Bool {

@@ -194,6 +194,7 @@ public final class RecordingAudioTimeline: @unchecked Sendable {
     private let configuration: RecordingAudioTimelineConfiguration
     private let processEchoFrame: ([Float], [Float]) throws -> [Float]
     private let frameSink: (RecordingAudioTimelineChunk) throws -> Void
+    private let diagnosticLogger: ((String) -> Void)?
     private var pendingBootstrapBatches: [(source: RecordingAudioInput, batch: RecordingAudioBatch)] = []
     private var states: [RecordingAudioInput: SourceState] = [:]
     private var observedRouteGenerations: [RecordingAudioInput: Int] = [:]
@@ -202,27 +203,32 @@ public final class RecordingAudioTimeline: @unchecked Sendable {
     private var epoch: RecordingAudioPresentationTimestamp?
     private var emittedThroughFrame: Int64 = 0
     private var finished = false
+    private var reportedTimingGap = false
     private var processingTimeHistogram = [Int64](repeating: 0, count: 12)
     private static let processingTimeBoundsMs = [0.1, 0.25, 0.5, 1, 2, 3, 5, 7.5, 10, 15, 25]
 
     public init(
         configuration: RecordingAudioTimelineConfiguration = .init(),
+        diagnosticLogger: ((String) -> Void)? = nil,
         echoProcessor: RecordingEchoProcessor,
         frameSink: @escaping (RecordingAudioTimelineChunk) throws -> Void = { _ in }
     ) {
         self.configuration = configuration
         self.processEchoFrame = echoProcessor.process
         self.frameSink = frameSink
+        self.diagnosticLogger = diagnosticLogger
     }
 
     init(
         configuration: RecordingAudioTimelineConfiguration = .init(),
+        diagnosticLogger: ((String) -> Void)? = nil,
         processEchoFrame: @escaping ([Float], [Float]) throws -> [Float],
         frameSink: @escaping (RecordingAudioTimelineChunk) throws -> Void = { _ in }
     ) {
         self.configuration = configuration
         self.processEchoFrame = processEchoFrame
         self.frameSink = frameSink
+        self.diagnosticLogger = diagnosticLogger
     }
 
     /// Adds a source batch without ever deriving time from the drain order.
@@ -511,6 +517,21 @@ public final class RecordingAudioTimeline: @unchecked Sendable {
                 state.lastInputEndFrame = max(state.lastInputEndFrame ?? 0, 0)
                 return
             }
+        }
+        if !reportedTimingGap,
+           let expectedStart = state.lastInputEndFrame,
+           requestedStart > expectedStart,
+           Self.recoverableClockDelta(
+               requestedStart: requestedStart,
+               expectedStart: expectedStart,
+               limit: configuration.maximumClockRecoveryFramesPerBatch
+           ) == nil {
+            reportedTimingGap = true
+            // Relative frame positions only; never log source PTS or audio.
+            diagnosticLogger?(String(format: "recording_timeline_gap source=%@ expected_frame=%lld requested_frame=%lld input_frames=%ld converted_frames=%ld rate=%g channels=%ld continuous=%d",
+                  source.rawValue, expectedStart, requestedStart,
+                  batch.samples.count / batch.format.channelCount, canonicalSamples.count,
+                  batch.format.sampleRate, batch.format.channelCount, batch.discontinuity == .none ? 1 : 0))
         }
         try appendCanonicalSamples(
             canonicalSamples,

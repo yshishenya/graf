@@ -857,7 +857,15 @@ class GrafLocalAdapter:
         _run_command(
             [
                 "docker", "compose", "-p", "graf-dev", "-f", str(self.compose_file),
-                "pull", "--quiet", "rec-temporal", "rec-postgres", "rec-minio", "rec-minio-init",
+                "pull", "--quiet", "rec-temporal", "rec-postgres",
+            ],
+            cwd=self.root,
+            env=env,
+        )
+        _run_command(
+            [
+                "docker", "compose", "-p", "graf-dev", "-f", str(self.compose_file),
+                "pull", "--quiet", "--policy", "missing", "rec-minio", "rec-minio-init",
             ],
             cwd=self.root,
             env=env,

@@ -8,6 +8,156 @@ import TwoBrainRecShared
 import XCTest
 
 final class DesktopUploadQueueTests: XCTestCase {
+    func testShortRecordingCleanupAndRestartLeaveHistoricalPackageAlone() throws {
+        for saving in [false, true] {
+            let root = temporaryRoot()
+            defer { try? FileManager.default.removeItem(at: root) }
+            let package = try makeV5RecordingPackage(root: root, directoryId: "short", sessionId: "short-session")
+            let historical = try makeV5RecordingPackage(root: root, directoryId: "historical", sessionId: "old-session")
+            let service = DesktopUploadQueueService(queueURL: root.appendingPathComponent("queue.json"), recordingsRootURL: root, client: nil)
+            var manifest = try LocalRecordingManifestService().read(from: package.manifestURL)
+            if saving { _ = try service.enqueueSaving(manifest: manifest, directoryURL: package.directoryURL) }
+            manifest.applyShortRecordingPolicy(stopReason: .userRequested)
+            XCTAssertEqual(manifest.shortRecordingDiscarded, true)
+            try LocalRecordingManifestService().write(manifest, to: package.manifestURL)
+            XCTAssertThrowsError(try service.enqueue(manifest: manifest, directoryURL: package.directoryURL))
+            let restarted = DesktopUploadQueueService(queueURL: root.appendingPathComponent("queue.json"), recordingsRootURL: root, client: nil)
+            XCTAssertEqual(try restarted.scanAndEnqueueCompletedRecordings().map(\.sessionId), ["old-session"])
+            XCTAssertFalse(FileManager.default.fileExists(atPath: package.directoryURL.path))
+            XCTAssertTrue(FileManager.default.fileExists(atPath: historical.transcriptionURL.path))
+            XCTAssertEqual(try restarted.scanAndEnqueueCompletedRecordings().count, 1)
+        }
+    }
+
+    func testShortRecordingRefusesUncertainQueueOwnershipAndUpload() async throws {
+        let mutations: [(inout DesktopUploadQueueItem) -> Void] = [
+            { $0.attemptCount = 1 }, { $0.serverCreationAttempted = true },
+            { $0.serverCreationAttempted = nil }, { $0.meetingId = "server" },
+            { $0.mediaRevisionId = "revision" }, { $0.uploadSessionId = "upload" },
+            { $0.serverTruth = ServerTruthFingerprint(meetingId: "server") },
+            { $0.sessionId = "other" }, { $0.manifestPath += ".other" },
+            { $0.state = .queued; $0.retryMode = .automatic }
+        ]
+        for mutate in mutations {
+            let root = temporaryRoot()
+            defer { try? FileManager.default.removeItem(at: root) }
+            let package = try makeV5RecordingPackage(root: root, directoryId: "short", sessionId: "short-session")
+            let queueURL = root.appendingPathComponent("queue.json")
+            let client = ReconcileThenUploadClient(reconciliation: nil, result: DesktopUploadResult(state: .uploaded, serverTruth: .init()))
+            let service = DesktopUploadQueueService(queueURL: queueURL, recordingsRootURL: root, client: client)
+            var manifest = try LocalRecordingManifestService().read(from: package.manifestURL)
+            var item = try service.enqueueSaving(manifest: manifest, directoryURL: package.directoryURL)
+            mutate(&item)
+            try JSONEncoder.uploadQueueTestEncoder.encode(DesktopUploadQueueDocument(updatedAt: Date(), items: [item])).write(to: queueURL)
+            manifest.applyShortRecordingPolicy(stopReason: .meetingEnded)
+            try LocalRecordingManifestService().write(manifest, to: package.manifestURL)
+            let restarted = DesktopUploadQueueService(queueURL: queueURL, recordingsRootURL: root, client: client)
+            _ = try restarted.scanAndEnqueueCompletedRecordings()
+            _ = try await restarted.processTrustedSyntheticDueItems()
+            XCTAssertTrue(client.uploadedItems.isEmpty)
+            XCTAssertTrue(client.reconciledItems.isEmpty)
+            XCTAssertTrue(FileManager.default.fileExists(atPath: package.transcriptionURL.path))
+            XCTAssertEqual(try LocalRecordingManifestService().read(from: package.manifestURL).shortRecordingDiscarded, true)
+        }
+    }
+
+    func testShortRecordingCleanupRefusesOtherArtifactReferences() throws {
+        for withSaving in [false, true] {
+            for reference in ["manifest", "microphone", "system", "parent", "symlink", "derived", "sibling"] {
+                let root = temporaryRoot()
+                defer { try? FileManager.default.removeItem(at: root) }
+                let package = try makeV5RecordingPackage(root: root, directoryId: "short", sessionId: "short-session")
+                let queueURL = root.appendingPathComponent("queue.json")
+                let service = DesktopUploadQueueService(queueURL: queueURL, recordingsRootURL: root, client: nil)
+                var manifest = try LocalRecordingManifestService().read(from: package.manifestURL)
+                let own = try service.enqueueSaving(manifest: manifest, directoryURL: package.directoryURL)
+                var other = own
+                other.id = "other-id"
+                other.sessionId = "other-session"
+                other.directoryId = "other-directory"
+                other.directoryPath = root.appendingPathComponent("other").path
+                other.manifestPath = other.directoryPath + "/manifest.json"
+                other.microphonePath = other.directoryPath + "/mic.wav"
+                other.systemAudioPath = other.directoryPath + "/incoming.wav"
+                switch reference {
+                case "manifest": other.manifestPath = package.manifestURL.path
+                case "microphone": other.microphonePath = package.transcriptionURL.path
+                case "system": other.systemAudioPath = package.transcriptionURL.path
+                case "parent": other.microphonePath = root.path + "/short/../short/meeting-transcription.wav"
+                case "symlink":
+                    try FileManager.default.createSymbolicLink(at: root.appendingPathComponent("alias"), withDestinationURL: root)
+                    other.systemAudioPath = root.path + "/alias/short/meeting-transcription.wav"
+                case "derived": other.directoryPath = package.directoryURL.path + "/nested"
+                default: other.microphonePath = root.path + "/short2/meeting-transcription.wav"
+                }
+                let items = (withSaving ? [own] : []) + [other]
+                try JSONEncoder.uploadQueueTestEncoder.encode(DesktopUploadQueueDocument(updatedAt: Date(), items: items)).write(to: queueURL)
+                manifest.applyShortRecordingPolicy(stopReason: .meetingEnded)
+                try LocalRecordingManifestService().write(manifest, to: package.manifestURL)
+                let itemsBefore = try JSONDecoder.uploadQueueTestDecoder.decode(DesktopUploadQueueDocument.self, from: Data(contentsOf: queueURL)).items
+                let audioBefore = try Data(contentsOf: package.transcriptionURL)
+                let markerBefore = try Data(contentsOf: package.manifestURL)
+                for _ in 0..<2 {
+                    let restarted = DesktopUploadQueueService(queueURL: queueURL, recordingsRootURL: root, client: nil)
+                    _ = try restarted.scanAndEnqueueCompletedRecordings()
+                    if reference == "sibling" {
+                        XCTAssertFalse(FileManager.default.fileExists(atPath: package.directoryURL.path))
+                        XCTAssertEqual(try restarted.loadItems().map(\.id), [other.id])
+                    } else {
+                        XCTAssertEqual(try Data(contentsOf: package.transcriptionURL), audioBefore, reference)
+                        XCTAssertEqual(try Data(contentsOf: package.manifestURL), markerBefore, reference)
+                        let persisted = try JSONDecoder.uploadQueueTestDecoder.decode(DesktopUploadQueueDocument.self, from: Data(contentsOf: queueURL))
+                        XCTAssertEqual(persisted.items, itemsBefore, reference)
+                    }
+                }
+            }
+        }
+    }
+
+    func testShortRecordingCleanupFailureRetainsMarkerAndRetries() throws {
+        let root = temporaryRoot()
+        let outside = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root); try? FileManager.default.removeItem(at: outside) }
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        let foreignFile = outside.appendingPathComponent("keep")
+        try Data([1, 2, 3]).write(to: foreignFile)
+        let package = try makeV5RecordingPackage(root: root, directoryId: "short", sessionId: "short-session")
+        let service = DesktopUploadQueueService(queueURL: root.appendingPathComponent("queue.json"), recordingsRootURL: root, client: nil)
+        var manifest = try LocalRecordingManifestService().read(from: package.manifestURL)
+        _ = try service.enqueueSaving(manifest: manifest, directoryURL: package.directoryURL)
+        manifest.applyShortRecordingPolicy(stopReason: .userRequested)
+        try LocalRecordingManifestService().write(manifest, to: package.manifestURL)
+        let link = package.directoryURL.appendingPathComponent("escape")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: outside)
+        XCTAssertTrue(try service.scanAndEnqueueCompletedRecordings().isEmpty)
+        XCTAssertTrue(try service.loadItems().isEmpty)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: package.manifestURL.path))
+        XCTAssertEqual(try Data(contentsOf: foreignFile), Data([1, 2, 3]))
+        try FileManager.default.removeItem(at: link)
+        // A partial cleanup after a crash is also safe to finish.
+        try FileManager.default.removeItem(at: package.reviewURL)
+        XCTAssertTrue(try service.scanAndEnqueueCompletedRecordings().isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: package.directoryURL.path))
+        XCTAssertEqual(try Data(contentsOf: foreignFile), Data([1, 2, 3]))
+    }
+
+    func testShortRecordingSavingSnapshotCannotStartUpload() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let package = try makeV5RecordingPackage(root: root, directoryId: "saving", sessionId: "saving-session")
+        let queueURL = root.appendingPathComponent("queue.json")
+        let client = ReconcileThenUploadClient(reconciliation: nil, result: DesktopUploadResult(state: .uploaded, serverTruth: .init()))
+        let service = DesktopUploadQueueService(queueURL: queueURL, recordingsRootURL: root, client: client)
+        let manifest = try LocalRecordingManifestService().read(from: package.manifestURL)
+        var item = try service.enqueueSaving(manifest: manifest, directoryURL: package.directoryURL)
+        item.retryMode = .automatic // Simulate a stale otherwise-uploadable saving snapshot.
+        try JSONEncoder.uploadQueueTestEncoder.encode(DesktopUploadQueueDocument(updatedAt: Date(), items: [item])).write(to: queueURL)
+        let restarted = DesktopUploadQueueService(queueURL: queueURL, recordingsRootURL: root, client: client)
+        _ = try await restarted.processTrustedSyntheticDueItems()
+        XCTAssertTrue(client.uploadedItems.isEmpty)
+        XCTAssertTrue(client.reconciledItems.isEmpty)
+    }
+
     func testSavingStateRoundTripsAndCannotUpload() throws {
         let data = try JSONEncoder().encode(UploadItemState.saving)
         let decoded = try JSONDecoder().decode(UploadItemState.self, from: data)

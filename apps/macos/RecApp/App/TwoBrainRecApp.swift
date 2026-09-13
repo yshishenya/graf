@@ -157,7 +157,8 @@ private struct ContentView: View {
     @State private var systemAudioCaptureService = SystemAudioCaptureService(
         runtimeStartFailureLogger: { detail in
             AppLog.writeRaw(event: "system_audio.runtime_start_failed", detail: detail)
-        }
+        },
+        diagnosticLogger: AppLog.writeCaptureTiming
     )
     @State private var microphoneCaptureService = MicrophoneCaptureService()
     @State private var systemAudioPermissionAuthorizer = CoreGraphicsSystemAudioPermissionAuthorizer()
@@ -171,6 +172,7 @@ private struct ContentView: View {
     @State private var selectedRecordingMicrophoneDeviceId: String?
     @State private var recordingMicrophoneSelection: RecordingMicrophoneSelection?
     @State private var activeMicrophoneSampleSource: AppOwnedMicrophoneSampleSource?
+    @State private var recordingNotice = DesktopRecordingNoticePresenter()
     @State private var desktopUploadQueueService = DesktopUploadQueueService()
     @State private var deletionSyncInProgress = false
     @State private var recordingDeletionOperations: [RecordingDeletionOperation] = []
@@ -502,6 +504,7 @@ private struct ContentView: View {
             dismissMeetingDetectionPrompt()
             guard !terminationCleanupInProgress else { return }
             terminationCleanupInProgress = true
+            localRecordingWriter.preserveRecordingForInterruption()
             Task {
                 await releaseCaptureResourcesForAppExit()
                 await MainActor.run {
@@ -1762,6 +1765,7 @@ private struct ContentView: View {
         guard !permissionSetupBlocksRecording else {
             return .retryable(reason: "permission_setup_in_progress")
         }
+        recordingNotice.dismiss()
         refreshPermissionOnboarding(reason: "recording_start_preflight")
         guard effectivePermissionOnboardingStatus.isReady else {
             if meetingDetectionTarget == nil { presentPermissionSetup() }
@@ -1947,7 +1951,8 @@ private struct ContentView: View {
             localRecordingWriter = LocalRecordingWriter(
                 microphoneSampleSourceFactory: { microphoneSource },
                 incomingSampleSourceFactory: { incomingSource },
-                recordMicrophone: true
+                recordMicrophone: true,
+                diagnosticLogger: AppLog.writeCaptureTiming
             )
             let directory = try await localRecordingWriter.startAsync(
                 sessionId: starting.id,
@@ -2322,7 +2327,8 @@ private struct ContentView: View {
             activeMicrophoneSampleSource?.stop()
             activeMicrophoneSampleSource = nil
             let manifest = try await localRecordingWriter.stopAsync(
-                failureReason: systemAudioSession.failureReason
+                failureReason: systemAudioSession.failureReason,
+                stopReason: terminationCleanupInProgress ? nil : reason
             )
             let stopped = try captureController.completeStop()
             captureSession = stopped
@@ -2335,6 +2341,15 @@ private struct ContentView: View {
                 )
             )
             recordingBlocker = nil
+            if manifest.shortRecordingDiscarded == true {
+                localRecordingManifest = nil
+                uploadQueueItems.removeAll { $0.sessionId == manifest.sessionId && $0.directoryId == manifest.directoryId }
+                clearActiveCalendarMatchState()
+                recordingNotice.showShortRecordingDiscarded()
+                AppLog.writeRaw(event: "recording.short_discarded", detail: "reason=short_recording_threshold")
+                refreshUploadQueueAndProcess(reason: "short_recording_discarded")
+                return
+            }
             let localEvent: AuditEventName = switch manifest.status {
             case .saved:
                 .localRecordingSaved
@@ -2472,7 +2487,7 @@ private struct ContentView: View {
                 }
                 try? await service.refreshDeletionScope()
                 try? await Task.detached(priority: .utility) { try service.finishLocalOnlyDeletions() }.value
-                _ = try service.scanAndEnqueueCompletedRecordings()
+                _ = try await Task.detached(priority: .utility) { try service.scanAndEnqueueCompletedRecordings() }.value
                 _ = try service.applyRetentionExpiry()
                 var items = try await service.processDueItems { progressItems in
                     await MainActor.run {
@@ -3632,6 +3647,12 @@ private enum AppLog {
 
     static func writeRaw(event: String, detail: String) {
         writeLine("\(timestamp()) event=\(event) detail=\(sanitize(detail))\n")
+    }
+
+    static func writeCaptureTiming(_ detail: String) {
+        DispatchQueue.global(qos: .utility).async {
+            writeRaw(event: "capture.timing_anomaly", detail: detail)
+        }
     }
 
     private static func sanitize(_ detail: String) -> String {
