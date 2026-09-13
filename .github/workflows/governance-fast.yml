@@ -32,13 +32,24 @@ jobs:
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.event_name == 'merge_group' && github.event.merge_group.head_sha || inputs.requested_sha }}
           fetch-depth: 0
           persist-credentials: false
+      - name: Checkout current workflow tools
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .ci-tools
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: |
+            scripts
+            .github/pr-check-policy.json
+          sparse-checkout-cone-mode: false
       - name: Resolve exact code scope
         id: scope
         env:
           EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
-          python3 scripts/ci-pr-scope.py "$GITHUB_EVENT_PATH" --event-name "$EVENT_NAME" \
+          python3 .ci-tools/scripts/ci-pr-scope.py "$GITHUB_EVENT_PATH" --event-name "$EVENT_NAME" \
             --result "$RUNNER_TEMP/code-scope.json" > /dev/null
           python3 - "$RUNNER_TEMP/code-scope.json" "$GITHUB_OUTPUT" <<'PY'
           import json, pathlib, sys
@@ -87,6 +98,19 @@ jobs:
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.event_name == 'merge_group' && github.event.merge_group.head_sha || inputs.requested_sha }}
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Checkout current workflow tools
+        if: needs.scope.outputs.text_only == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .ci-tools
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: |
+            scripts
+            .github/pr-check-policy.json
+          sparse-checkout-cone-mode: false
 
       - name: Configure fixture git identity
         if: needs.scope.outputs.text_only == 'false'
@@ -145,9 +169,10 @@ jobs:
         shell: bash
         env:
           EVENT_NAME: ${{ github.event_name }}
+          TOOL_ROOT: ${{ needs.scope.outputs.text_only == 'true' && '.ci-tools' || '.' }}
         run: |
           set -euo pipefail
-          identity="$(python3 scripts/ci-event-identity.py "$GITHUB_EVENT_PATH" --event-name "$EVENT_NAME")"
+          identity="$(python3 "$TOOL_ROOT/scripts/ci-event-identity.py" "$GITHUB_EVENT_PATH" --event-name "$EVENT_NAME")"
           printf '%s\n' "$identity" > "$RUNNER_TEMP/graf-event-identity.json"
           python3 - "$RUNNER_TEMP/graf-event-identity.json" "$GITHUB_OUTPUT" <<'PY'
           import json
@@ -231,7 +256,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          python3 -I scripts/validate-pr-checks.py --repository "$GITHUB_REPOSITORY" \
+          python3 -I .ci-tools/scripts/validate-pr-checks.py --repository "$GITHUB_REPOSITORY" \
             --reuse-component governance-fast --event "$GITHUB_EVENT_PATH" \
             --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --wait-seconds 2640
 

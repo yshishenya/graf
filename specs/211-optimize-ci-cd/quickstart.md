@@ -614,3 +614,23 @@ Bash, fragment validation and diff checks PASS. FFmpeg version probing uses
 T089 implementation review, hosted and release acceptance remain separate.
 Apple notary profile read-only preflight succeeded; no submission or
 publication was performed by this preflight.
+
+### T089 независимый review и T090 исторические инструменты — 2026-09-13
+
+T089 independent implementation review PASS на `91fc8039ef428c32a32c36c5a6904f37f2e7b543`: все три настоящих media entrypoints и оба ресурсных YAML шага соответствуют требованиям. Сохранённые 50 PASS/0 SKIP и 106 contracts PASS проверены независимым рецензентом без повторного выполнения. T089 завершена локально; Ubuntu/Full остаются T077.
+
+T090 FR-040/SC-019: независимый разбор требований PASS, clean analyze без critical/high, задача и #6986 уточнены до реализации. В обеих scope jobs штатный sparse checkout `.ci-tools` закреплён на `github.workflow_sha`; основной checkout сохраняет точный PR head. В terminal jobs этот checkout доступен только text-only. Identity/reuse helpers читают соседние инструменты из `.ci-tools`, а Git — основной checkout. Общий release PR validator получает `cwd=root`.
+
+Проверка: 7 FAIL до исправления; первоначальные 76 PASS/21,23 с; окончательные 265 consumer cases PASS/56,66 с. Последний набор включает реальные Git-истории старого merged head без новых helpers, текущий sparse checkout, YAML shell execution, импорты verifier/policy, отказ при подмене primary HEAD и абсолютный вызов freeze из чужой папки. Actionlint, workflow validator, Bash syntax и diff checks PASS. Независимый implementation review T090 PASS. Повторных source receipts или продуктовых наборов текстовый путь не создаёт.
+
+T087 остаётся открытой: после merge нужна настоящая правка описания #6990 и старого merged #6991, успешные постоянные required contexts и общий validator с исходными code proofs. Локальный PASS не заменяет эту приёмку.
+
+Следующий обнаруженный остаток T091: hosted macos-pr source 34770443873 корректно отказал на двух проверках (972 cases,1 opt-in skip,2 failures). InstallerLifecycleEvidenceTests искал прежний прямой upload в shell, хотя проверенный A9 перенёс его в существующий helper. ShortRecordingNoticeTests сравнил результат после собственного sleep6,2 с, не учитывая планирование отдельной MainActor-задачи с production6 с. Исправление ограничено этими двумя тестами; поведение продукта не меняется.
+
+T091 local validation:22 Swift tests PASS/9,164 с, включая все21 InstallerLifecycleEvidenceTests и ShortRecordingNoticeTests. Устаревшее ожидание заменено точным вызовом upload helper вместе с release-inputs.json; runtime upload и запрет clobber уже покрыты исполняемыми A9-тестами. Проверка уведомления использует существующий ContinuousClock и ограниченное10-секундное ожидание реального panel=nil, сохраняя все прежние assertions и дополнительное подтверждение третьего показа. Product-код,6 секунд и30-секундный порог не менялись. Независимый implementation review перед закрытием T091 обязателен.
+
+### Фактические пропуски Full34769888625 до A12
+
+Неуспешный Full предыдущего v2026.09.13.3 на master b48999dbb2c8fe258f636b263b154377c0fd8fa5 оставил артефакт graf-test-timings-b48999dbb2c8fe258f636b263b154377c0fd8fa5-34769888625-1. Его parallel.jsonl подтверждает37 skipped case IDs:28 media_matrix,4 finalize,1 workflow,3 reuse и1 private TestRec. Первые36 сходятся к существующим media-tool helpers, которые T089 уже делает обязательными; private TestRec opt-in сохранён. В этом прогоне4321 call PASS,22 call FAIL,2 setup FAIL; strict/performance не начались из-за старого порядка Full. Его37 пропусков нельзя объявлять полным сопоставлением с41 историческим пропуском другого выпуска. Требуется окончательный Full с T088/T089 и правильной pytest-конфигурацией; новый результат учитывается по фактическим фазам.
+
+Независимый заключительный review: T083/A11 PASS (14 файлов опубликованного v0.3.4 равны installed, digest ZIP=lock, остальные записи lock и проектный template неизменны); T086/A12 PASS по текущим исходникам,5 дублям, порядку Full и сохранённым69/50 случаям. T091 implementation review PASS: цельная upload-команда содержит правильные inputs; ожидание уведомления не блокирует MainActor, XCTAssertNil выполняется до defer cleanup. Все три локальные задачи завершены. Действительные GitHub/release gates остаются открытыми.

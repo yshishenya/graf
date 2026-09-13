@@ -66,7 +66,9 @@ failure stops before those tests. Proven title/body-only edits run a cheap scope
 step, trusted metadata and source-proof verification in the existing fixed-name
 `governance-fast` and `macos-pr` checks. They do not enter code-job concurrency,
 install test resources, repeat product tests or create new source receipts.
-For a merged PR, text scope and reuse recover the checked base from the actual
+Scope and text-reuse tools come from the exact running workflow SHA in a
+separate sparse checkout; Git still reads the exact primary PR head, including
+older heads that do not contain the newer helpers. For a merged PR, text scope and reuse recover the checked base from the actual
 linear squash/rebase history and retain the real merge SHA; advancing master
 does not invalidate that immutable history. The fixed-name check passes only after verifying the latest actual source
 execution for the exact PR/head/base, workflow and run attempt. A running source

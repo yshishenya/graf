@@ -803,3 +803,24 @@ def test_incomplete_pr_checks_block_freeze_and_current_candidate(tmp_path: Path,
     monkeypatch.setenv("TEST_PR_CHECKS_FAIL", "1")
     result = run(script, "validate", str(frozen), "--current", cwd=root)
     assert result.returncode != 0 and "complete release PR checks" in result.stderr
+
+
+def test_absolute_freeze_runs_pr_validator_in_repository_from_external_cwd(tmp_path: Path) -> None:
+    root = fixture(tmp_path / "repo")
+    validator = root / "scripts/validate-pr-checks.py"
+    validator.write_text(
+        'from pathlib import Path\nimport subprocess\n'
+        'expected = Path(__file__).resolve().parents[1]\n'
+        'actual = subprocess.check_output(["git", "rev-parse", "--show-toplevel"], text=True).strip()\n'
+        'assert Path(actual).resolve() == expected == Path.cwd().resolve()\nprint("[]")\n'
+    )
+    subprocess.run(["git", "add", "scripts/validate-pr-checks.py"], cwd=root, check=True)
+    subprocess.run(["git", "commit", "-qm", "check real validator git cwd"], cwd=root, check=True)
+    sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    frozen = outside / "candidate.json"
+    result = run(root / "infra/scripts/release-candidate.sh", "freeze", "--sha", sha,
+                 "--features", "216,217", "--operator", "release", "--output", str(frozen), cwd=outside)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(frozen.read_text())["source_sha"] == sha

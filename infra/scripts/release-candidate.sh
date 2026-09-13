@@ -269,7 +269,7 @@ def verify_release_pr_checks(source_sha, included_prs=None):
                "--repository", f"{owner}/{repo}", "--source-sha", source_sha]
     if included_prs is not None:
         command += ["--included-prs", ",".join(str(number) for number in included_prs)]
-    result = subprocess.run(command, text=True, capture_output=True)
+    result = subprocess.run(command, cwd=root, text=True, capture_output=True)
     if result.returncode:
         die("current complete release PR checks could not be verified")
     return json.loads(result.stdout)

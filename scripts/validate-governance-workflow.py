@@ -112,7 +112,14 @@ def validate(path: Path) -> list[str]:
         name = re.match(r"name: (.+)", step)
         if name and name.group(1) in shared:
             continue
-        if name and name.group(1) == "Verify existing code proof":
+        if name and name.group(1) == "Checkout current workflow tools":
+            if not all(item in step for item in (
+                "if: needs.scope.outputs.text_only == 'true'", "uses: actions/checkout@v4",
+                "ref: ${{ github.workflow_sha }}", "path: .ci-tools", "persist-credentials: false",
+                "sparse-checkout-cone-mode: false",
+            )):
+                errors.append("text tools checkout must bind current workflow without entering code scope")
+        elif name and name.group(1) == "Verify existing code proof":
             if "if: needs.scope.outputs.text_only == 'true'" not in step or "--reuse-component governance-fast" not in step:
                 errors.append("text proof must execute only for verified text scope")
         elif "needs.scope.outputs.text_only == 'false'" not in step:

@@ -181,7 +181,12 @@ def test_governance_text_event_cannot_enter_heavy_or_receipt_steps() -> None:
     for step in steps:
         if step.get('name') in shared:
             continue
-        if '--reuse-component' in step.get('run', ''):
+        if step.get('name') == 'Checkout current workflow tools':
+            assert step['if'] == "needs.scope.outputs.text_only == 'true'"
+            assert step['uses'] == 'actions/checkout@v4'
+            assert step['with']['ref'] == '${{ github.workflow_sha }}'
+            assert step['with']['path'] == '.ci-tools'
+        elif '--reuse-component' in step.get('run', ''):
             reuse_steps.append(step)
             assert step['if'] == "needs.scope.outputs.text_only == 'true'"
         else:
@@ -205,15 +210,15 @@ def test_actual_governance_text_path_propagates_proof_result_without_new_receipt
     }
     selected = [step for step in steps if conditions[step.get('if', '').replace('${{', '').replace('}}', '').strip()]]
     assert [step['name'] for step in selected] == [
-        'Require valid code scope', 'Checkout exact PR SHA', 'Resolve event identity',
+        'Require valid code scope', 'Checkout exact PR SHA', 'Checkout current workflow tools', 'Resolve event identity',
         'Verify exact SHA', 'Verify existing code proof',
     ]
     subprocess.run(['git', 'init', '-q'], cwd=tmp_path, check=True)
     subprocess.run(['git', '-c', 'user.name=Workflow Contract', '-c', 'user.email=workflow@example.test',
                     'commit', '--allow-empty', '-qm', 'fixture'], cwd=tmp_path, check=True)
     sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=tmp_path, text=True).strip()
-    scripts = tmp_path / 'scripts'
-    scripts.mkdir()
+    scripts = tmp_path / '.ci-tools/scripts'
+    scripts.mkdir(parents=True)
     shutil.copy2(ROOT / 'scripts/ci-event-identity.py', scripts)
     event = tmp_path / 'event.json'
     event.write_text(json.dumps(dict(action='edited', number=7, changes={'body': {'from': 'previous'}},
@@ -221,7 +226,7 @@ def test_actual_governance_text_path_propagates_proof_result_without_new_receipt
     bin_dir = tmp_path / 'bin'
     bin_dir.mkdir()
     shim = bin_dir / 'python3'
-    shim.write_text('#!/bin/sh\nif [ "$1" = -I ] && [ "$2" = scripts/validate-pr-checks.py ]; then\n'
+    shim.write_text('#!/bin/sh\nif [ "$1" = -I ] && [ "$2" = .ci-tools/scripts/validate-pr-checks.py ]; then\n'
                     '  printf "%s\\n" "$*" > "$REUSE_CALL"\n  exit "$REUSE_STATUS"\nfi\n'
                     'exec "$REAL_PYTHON" "$@"\n')
     shim.chmod(0o755)
@@ -229,12 +234,16 @@ def test_actual_governance_text_path_propagates_proof_result_without_new_receipt
     environment = {**os.environ, 'PATH': str(bin_dir) + os.pathsep + os.environ['PATH'],
                    'REAL_PYTHON': sys.executable, 'REUSE_CALL': str(marker), 'REUSE_STATUS': str(reuse_status),
                    'SCOPE_RESULT': 'success', 'TEXT_ONLY': 'true', 'EVENT_NAME': 'pull_request',
+                   'TOOL_ROOT': '.ci-tools',
                    'GRAF_CI_REQUESTED_SHA': sha, 'GITHUB_EVENT_PATH': str(event), 'RUNNER_TEMP': str(tmp_path),
                    'GITHUB_OUTPUT': str(tmp_path / 'outputs'), 'GITHUB_REPOSITORY': 'owner/repo',
                    'GITHUB_RUN_ID': '25', 'GITHUB_RUN_ATTEMPT': '1'}
     for step in selected:
         if 'uses' in step:
             assert step['uses'] == 'actions/checkout@v4'
+            if step['name'] == 'Checkout current workflow tools':
+                assert step['with']['ref'] == '${{ github.workflow_sha }}'
+                assert step['with']['path'] == '.ci-tools'
             continue  # The fixture above is already checked out at the exact SHA.
         command = step['run'].replace('${{ steps.identity.outputs.target_sha }}', sha)
         result = subprocess.run(['bash', '-c', command], cwd=tmp_path, env=environment, capture_output=True, text=True)

@@ -270,6 +270,16 @@ Execute real Git history and fake-provider ZIP regressions before acceptance;
 retain full-consumer metadata/source/gate validation. No workflow dispatcher,
 new evidence schema, product-test change, or permission expansion is needed.
 
+T090 completes the same historical-PR contract: keep the primary checkout at
+the exact event head, but read scope/reuse tools from `github.workflow_sha` in
+a second sparse `.ci-tools` checkout. Scope always uses those tools; result
+jobs obtain them only for proven text events. The verifier resolves sibling
+helpers/policy beside its own file while Git still reads the primary checkout.
+The shared release PR-check subprocess runs with `cwd=root`, matching the
+script's other Git readers. Regressions cover old heads without these tools,
+real merged history, failure propagation and invocation from another directory.
+Post-merge acceptance must edit an older merged PR (#6991), as well as #6990.
+
 
 ## A9 implementation design
 
@@ -397,3 +407,10 @@ tools, failed install, and non-server fast scope. Actual acceptance runs the
 unchanged 49-case media matrix plus one dual-source workflow test exactly once,
 with metadata-only collection/outcomes and no private audio. Requirements
 review, issue6994 ownership and clean analyze precede implementation.
+
+T091 convergence after hosted native failures is test-only: the existing signing
+entrypoint contract follows the actual upload helper and its bound input record;
+the notice test waits for panel removal with ContinuousClock and a finite10 s
+deadline. Existing nonactivating/replacement/dismissal assertions stay; production
+6 s notice lifetime and30 s capture threshold are unchanged. No new runtime
+helper, injected clock or test framework is needed.

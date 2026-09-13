@@ -5,10 +5,13 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 
 import pytest
+
+from test_pr_metadata_event import git, snapshot as snapshot
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -109,6 +112,10 @@ def test_actual_native_text_terminal_runs_verifier_instead_of_unconditional_pass
     import yaml
     final = yaml.safe_load((ROOT / '.github/workflows/macos-pr.yml').read_text())['jobs']['result']
     assert final['name'] == 'macos-pr'
+    tools = next(step for step in final['steps'] if step.get('name') == 'Checkout current workflow tools')
+    assert tools['if'] == "needs.scope.outputs.text_only == 'true'"
+    assert tools['with']['ref'] == '${{ github.workflow_sha }}'
+    assert tools['with']['path'] == '.ci-tools'
     reuse = [step for step in final['steps'] if '--reuse-component' in step.get('run', '')]
     assert len(reuse) == 1
     marker = tmp_path / 'called'
@@ -122,3 +129,71 @@ def test_actual_native_text_terminal_runs_verifier_instead_of_unconditional_pass
                                  'GITHUB_RUN_ID':'25', 'GITHUB_RUN_ATTEMPT':'1'})
     assert result.returncode == reuse_status
     assert '--reuse-component macos-pr' in marker.read_text()
+    assert '-I .ci-tools/scripts/validate-pr-checks.py' in marker.read_text()
+
+
+@pytest.mark.parametrize('workflow', ['governance-fast', 'macos-pr'])
+def test_actual_scope_uses_current_tools_with_historical_merged_head(snapshot, monkeypatch, workflow):
+    import yaml
+
+    root, event, pr = snapshot
+    head, base = pr['head']['sha'], pr['base']['sha']
+    merge = git(root, 'commit-tree', head + '^{tree}', '-p', base, '-m', 'squashed PR')
+    git(root, 'checkout', '--detach', merge)
+    for name in ('ci-pr-scope.py', 'ci-event-identity.py', 'validate-pr-metadata.py',
+                 'validate-pr-checks.py', 'validate-ci-receipt.py'):
+        shutil.copy2(ROOT / 'scripts' / name, root / 'scripts' / name)
+    (root / '.github').mkdir()
+    shutil.copy2(ROOT / '.github/pr-check-policy.json', root / '.github/pr-check-policy.json')
+    git(root, 'add', 'scripts', '.github')
+    git(root, 'commit', '-qm', 'current workflow tools after older PR merge')
+    workflow_sha = git(root, 'rev-parse', 'HEAD')
+    pr.update(merged=True, state='closed', merge_commit_sha=merge, commits=1)
+    pr['base']['sha'] = workflow_sha
+    event.update(action='edited', changes={'body': {'from': 'old'}}, pull_request=pr)
+    git(root, 'checkout', '--detach', head)
+    assert not (root / 'scripts/ci-pr-scope.py').exists()
+    assert not (root / 'scripts/validate-pr-checks.py').exists()
+
+    steps = yaml.load((ROOT / f'.github/workflows/{workflow}.yml').read_text(), Loader=yaml.BaseLoader)['jobs']['scope']['steps']
+    checkout = next(step for step in steps if step.get('name') == 'Checkout current workflow tools')
+    config = checkout['with']
+    assert config['ref'] == '${{ github.workflow_sha }}'
+    assert config['persist-credentials'] == 'false'
+    assert config['sparse-checkout-cone-mode'] == 'false'
+    # Execute the configured sparse checkout with real Git, retaining the old primary HEAD.
+    tools = root / config['path']
+    git(root, 'clone', '--quiet', '--no-checkout', str(root), str(tools))
+    git(tools, 'sparse-checkout', 'set', '--no-cone', *config['sparse-checkout'].splitlines())
+    git(tools, 'checkout', '--quiet', workflow_sha)
+    event_path = root / 'event.json'
+    event_path.write_text(json.dumps(event))
+    output = root / 'outputs'
+    command = next(step['run'] for step in steps if step.get('id') == 'scope')
+    environment = {**os.environ, 'GITHUB_EVENT_PATH': str(event_path), 'EVENT_NAME': 'pull_request',
+                   'RUNNER_TEMP': str(root), 'GITHUB_OUTPUT': str(output),
+                   'GITHUB_REPOSITORY': 'owner/repo', 'GITHUB_RUN_ID': '25', 'GITHUB_RUN_ATTEMPT': '1'}
+    result = subprocess.run(['bash', '-c', command], cwd=root, text=True, capture_output=True, env=environment)
+    assert result.returncode == 0, result.stderr
+    proof_path = root / ('code-scope.json' if workflow == 'governance-fast' else 'native-scope.json')
+    proof = json.loads(proof_path.read_text())
+    assert proof['text_only'] is True and 'text_only=true' in output.read_text()
+    assert proof['base_sha'] == base != workflow_sha
+    assert proof['target_sha'] == git(root, 'rev-parse', 'HEAD') == head
+    # The real verifier also loads siblings and policy from the tools checkout,
+    # while its Git reader must still inspect the historical primary checkout.
+    monkeypatch.chdir(root)
+    spec = importlib.util.spec_from_file_location('current_pr_checks', tools / 'scripts/validate-pr-checks.py')
+    verifier = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(verifier)
+    assert verifier.ROOT == tools
+    assert verifier.metadata.checked_base(pr) == base
+    assert verifier.module('ci-pr-scope').resolve(event, 'pull_request') == {
+        key: value for key, value in proof.items() if key not in {'repository', 'run_id', 'run_attempt'}
+    }
+    assert json.loads((verifier.ROOT / '.github/pr-check-policy.json').read_text()) == json.loads(
+        (ROOT / '.github/pr-check-policy.json').read_text())
+    git(root, 'checkout', '--detach', workflow_sha)
+    proof_path.unlink()
+    rejected = subprocess.run(['bash', '-c', command], cwd=root, text=True, capture_output=True, env=environment)
+    assert rejected.returncode != 0 and not proof_path.exists()
