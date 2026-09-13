@@ -4526,7 +4526,7 @@
         return payload;
       };
       const closeDialog = async () => {
-        if(editorQueue?.pending() && !await window.GRAFSettings.prepareToLeave())return;
+        if(editingTemplate && !await window.GRAFSettings.prepareToLeave())return;
         if (!(dialog instanceof HTMLDialogElement)) return;
         dialog.close();
         if(editingTemplate)await loadTemplates();
@@ -4569,9 +4569,7 @@
             render(state,message,values){
               if(editingTemplate?.template_key!==templateKey)return;
               showSaveStatus(error,editorQueue,state,message);
-              for(const [key,value] of Object.entries(values)) {
-                if(key==='sections')setSections(value);else form.elements.namedItem(key).value=value;
-              }
+              window.GRAFSettings.write(form,values);
               initSettingsComboboxes();
             },
             async save(fields,values,previous,version){

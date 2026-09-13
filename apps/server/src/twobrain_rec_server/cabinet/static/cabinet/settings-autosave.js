@@ -1,6 +1,7 @@
 /* One queue per preference resource, shared by the page and profile menu. */
 (() => {
   const queues = new Map();
+  let composingInput = null;
   const meta = (name, doc = document) => doc.querySelector(`meta[name="${name}"]`)?.content || '';
   const actor = meta('graf-time-user'), workspace = meta('graf-workspace');
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
@@ -23,7 +24,7 @@
   };
   const write = (form, values) => {
     for (const input of form.elements) {
-      if (!(input.name in values)) continue;
+      if (!(input.name in values) || input === composingInput) continue;
       const value = values[input.name];
       if (input.type === 'checkbox') input.checked = Array.isArray(value) ? value.includes(input.value) : value;
       else if (input.type === 'radio') input.checked = input.value === value;
@@ -187,14 +188,17 @@
       form.addEventListener('submit',event=>{event.preventDefault();queue.flush();});
     });
   }
-  const pending=()=>Array.from(queues.values()).some(q=>q.pending());
+  document.addEventListener('compositionstart', event=>{if(event.target.closest('form[data-settings-autosave], [data-summary-template-form]'))composingInput=event.target;},true);
+  document.addEventListener('compositionend', event=>{if(event.target===composingInput)composingInput=null;},true);
+  const pending=()=>!!composingInput || Array.from(queues.values()).some(q=>q.pending());
   const flushAll=async()=> (await Promise.all(Array.from(queues.values(),q=>q.flush()))).every(Boolean);
   const prepareToLeave=async()=>{
+    if(composingInput){composingInput.blur();if(composingInput)return false;}
     if(!pending()||await flushAll())return true;
     if(!window.confirm('Изменения не сохранены. Выйти без сохранения?'))return false;
     await Promise.all(Array.from(queues.values(),q=>q.discard()));return true;
   };
-  window.GRAFSettings={init,create,request,headers,pending,flushAll,prepareToLeave};
+  window.GRAFSettings={init,create,request,headers,write,pending,flushAll,prepareToLeave};
   window.addEventListener('beforeunload',event=>{if(pending()){event.preventDefault();event.returnValue='';}});
   document.addEventListener('click',async event=>{
     const link=event.target.closest('a[href]');

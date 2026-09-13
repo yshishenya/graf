@@ -83,6 +83,15 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
     // Composition must not submit intermediate input.
     const beforeIME=requests;await name.dispatchEvent('compositionstart');await name.fill('Составной ввод');await page.waitForTimeout(650);assert.equal(requests,beforeIME);
     await name.dispatchEvent('compositionend');await page.waitForFunction(()=>!window.GRAFSettings.pending());assert.equal(saved.display_name,'Составной ввод');
+    // An older acknowledgement must not replace an active composed value.
+    delay=300;await name.fill('Перед составным вводом');await name.press('Tab');
+    await page.waitForFunction(()=>document.querySelector('[action$="/profile"]').dataset.state==='saving');
+    await name.focus();await name.dispatchEvent('compositionstart');await name.fill('Незавершённый IME');
+    await page.waitForTimeout(450);assert.equal(await name.inputValue(),'Незавершённый IME','In-flight acknowledgement preserves composition');
+    assert.equal(await page.evaluate(()=>GRAFSettings.pending()),true,'Composition keeps exit protection active');
+    assert.equal(await page.evaluate(()=>GRAFSettings.prepareToLeave()),false,'Unfinished composition cannot be discarded by closing');
+    await name.dispatchEvent('compositionend');await page.waitForFunction(()=>!window.GRAFSettings.pending());
+    assert.equal(saved.display_name,'Незавершённый IME');delay=150;
     const scopedCount=requests;
     await page.evaluate(()=>document.querySelector('meta[name="graf-workspace"]').content='other');
     await name.fill('Старая область');await name.press('Tab');
