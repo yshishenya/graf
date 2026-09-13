@@ -511,7 +511,7 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertTrue(source.contains("selection?.displayName ?? \"Разные правила\""))
         XCTAssertTrue(source.contains("NativeSettingsComboBox("))
         XCTAssertTrue(source.contains("selectedID: selection?.rawValue"))
-        XCTAssertTrue(source.contains("localizedStandardContains(search)"))
+        XCTAssertTrue(source.contains("NativeSettingsComboBox.matchesSearch($0.displayName, query: search)"))
         XCTAssertFalse(source.contains(".frame(width: 112"))
         XCTAssertFalse(source.contains("app.dashed"))
         XCTAssertTrue(source.contains(".disabled(isDisabled)"))

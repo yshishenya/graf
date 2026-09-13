@@ -514,6 +514,29 @@ final class NativeSettingsComboBoxTests: XCTestCase {
         coordinator.detach()
     }
 
+    func testAppSearchNormalizesWhitespaceAndCompatibilityCharacters() {
+        var query = ""
+        let owner = NativeSettingsComboBox(title: "Приложения", options: [
+            .init(id: "teams", label: "Ｍicrosoft　 Teams"), .init(id: "zoom", label: "Zoom")
+        ], filter: Binding(get: { query }, set: { query = $0 }))
+        let coordinator = owner.makeCoordinator()
+        let control = NativeSettingsComboBox.Control()
+        coordinator.update(owner, control: control, enabled: true)
+        for input in ["Microsoft  Teams", " Microsoft Teams ", "Ｍicrosoft　Teams", "  MICROSOFT\tTeams\n"] {
+            type(input, in: control, coordinator: coordinator)
+            XCTAssertEqual(coordinator.visibleOptions.map(\.id), ["teams"], input)
+            let rows = owner.options.filter { NativeSettingsComboBox.matchesSearch($0.label, query: input) }
+            XCTAssertEqual(rows.map(\.id), coordinator.visibleOptions.map(\.id), "Popup and application rows share matching")
+            XCTAssertEqual(query, input, "Normalization must not overwrite the displayed query")
+        }
+        XCTAssertTrue(NativeSettingsComboBox.matchesSearch("UTC−05:00", query: " utc–05 "))
+        type("Teams Microsoft", in: control, coordinator: coordinator)
+        XCTAssertTrue(coordinator.visibleOptions.isEmpty)
+        type(" \t\n ", in: control, coordinator: coordinator)
+        XCTAssertEqual(coordinator.visibleOptions.map(\.id), ["teams", "zoom"])
+        coordinator.detach()
+    }
+
     func testAppFilterReopensWithRetainedNameQueryAndDoesNotMatchHiddenID() {
         var query = "Zoom"
         let owner = NativeSettingsComboBox(title: "Приложения", options: [

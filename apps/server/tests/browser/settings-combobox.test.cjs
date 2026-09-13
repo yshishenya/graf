@@ -256,6 +256,9 @@ const recording = fs.readFileSync(path.join(cabinet, 'templates/cabinet/pages/se
   await modal.getByRole('button',{name:'Отмена',exact:true}).click();
   assert.equal(await modal.isVisible(),false);
   const offset=extra.getByRole('combobox',{name:'Когда напоминать',exact:true});
+  // Settle scrolling before typing: viewport movement intentionally cancels open menus.
+  await offset.scrollIntoViewIfNeeded();
+  await extra.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
   await offset.fill('За 5'); assert.equal(await extra.evaluate(()=>notificationWrites.length),0);
   await offset.press('ArrowDown'); await offset.press('Enter');
   await extra.waitForFunction(()=>prefs.offsetMinutes===5);
@@ -265,6 +268,17 @@ const recording = fs.readFileSync(path.join(cabinet, 'templates/cabinet/pages/se
   await extra.getByRole('switch',{name:'Напоминать о встречах',exact:true}).check();
   await extra.waitForFunction(()=>!document.querySelector('input[aria-label="Когда напоминать"]').disabled);
   assert.equal(await offset.inputValue(),'За 5 минут');
+  const writesBeforeDisconnect=await extra.evaluate(()=>notificationWrites.length);
+  await offset.click();
+  await extra.evaluate(()=>window.GRAFNotificationSettings.disconnect());
+  assert.equal(await offset.inputValue(),'','Disconnect must clear the previous account reminder label');
+  assert.equal(await offset.isDisabled(),true);
+  assert.equal(await offset.getAttribute('aria-expanded'),'false');
+  assert.equal(await extra.evaluate(()=>notificationWrites.length),writesBeforeDisconnect,'Disconnect must not save');
+  await extra.evaluate(()=>{prefs.offsetMinutes=1;window.GRAFNotificationSettings.connect('next-synthetic-nonce');});
+  await extra.waitForFunction(()=>document.querySelector('input[aria-label="Когда напоминать"]').value==='За минуту');
+  assert.equal(await offset.isDisabled(),false);
+  assert.equal(await extra.evaluate(()=>notificationWrites.length),writesBeforeDisconnect,'Reconnect read must not save');
   await extra.close();
   }
 

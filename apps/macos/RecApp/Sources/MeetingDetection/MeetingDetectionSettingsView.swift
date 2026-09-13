@@ -62,7 +62,7 @@ public struct MeetingDetectionSettingsView: View {
     }
 
     private var filteredTargets: [MeetingTargetRegistryTarget] {
-        promptCapableTargets.filter { search.isEmpty || $0.displayName.localizedStandardContains(search) }
+        promptCapableTargets.filter { NativeSettingsComboBox.matchesSearch($0.displayName, query: search) }
     }
 
     private var content: some View {

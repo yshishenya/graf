@@ -6129,7 +6129,11 @@
     root.addEventListener('graf:notification-settings-refresh', () => request());
     root.addEventListener('graf:notification-settings-disconnect', () => {
       sequence++; busy = false; refreshPending = false; confirmed = null; controls.disabled = true;
-      fields.forEach(input => { if (input.type === 'checkbox') input.checked = false; else input.value = ''; });
+      fields.forEach(input => {
+        if (input.type === 'checkbox') input.checked = false; else input.value = '';
+        const combo = settingsCombos.get(input);
+        combo?.close(); combo?.sync();
+      });
       permission.textContent = '';
       status.textContent = 'Аккаунт изменился. Обновите страницу настроек.'; reload.hidden = false;
     });

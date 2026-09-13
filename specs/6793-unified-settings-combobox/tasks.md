@@ -64,3 +64,11 @@ T017 → T011/T012. GitHub owner T017: https://github.com/yshishenya/graf/issues
 - [X] T019 [US2] Синхронизировать загруженное значение недоступного для изменения формата итогов и отделить динамическую подсказку от доступного имени в `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js` и `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/settings_summaries_content.html`; проверить настоящий шаблон и пользователя без личных форматов в `apps/server/tests/browser/settings-combobox.test.cjs` (FR-004, FR-005, FR-006; partial; review3999124387, review3999124389).
 
 T018/T019 → T011. GitHub owner: https://github.com/yshishenya/graf/issues/6924.
+
+## Phase 12: Convergence повторного ревью отключения и поиска
+- [X] T020 [US2] Очистить видимое поле напоминания при отключении моста в `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`; проверить disconnect/reconnect и отсутствие записи в `apps/server/tests/browser/settings-combobox.test.cjs` (FR-003, FR-005, FR-006; partial; review3999206098).
+- [X] T021 [US1] Нормализовать пробелы и NFKC одинаково в нативных вариантах и строках приложений в `apps/macos/RecApp/Sources/Settings/NativeSettingsComboBox.swift` и `apps/macos/RecApp/Sources/MeetingDetection/MeetingDetectionSettingsView.swift`; добавить регрессию в `apps/macos/Shared/Tests/NativeSettingsComboBoxTests.swift` (FR-002, FR-006; partial; review3999206100).
+
+T020/T021 → T011. GitHub owner: https://github.com/yshishenya/graf/issues/6924.
+
+Пользовательская приёмка 2026-09-13: «я все проверил. все нормально. войсовер больше не проверяй». Внешний вид и проверенное пользователем поведение приняты; дальнейшая проверка VoiceOver исключена прямым указанием. Итоговый исправленный SHA требует build/promote/smoke и точного GitHub gate. T021 также уточняет прежний source assertion в `apps/macos/Shared/Tests/AppControlAccessibilityTests.swift`.

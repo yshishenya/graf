@@ -8,6 +8,16 @@ struct NativeSettingsComboBox: NSViewRepresentable {
         let label: String
     }
 
+    static func matchesSearch(_ text: String, query: String) -> Bool {
+        func normalized(_ value: String) -> String {
+            value.lowercased(with: .current).precomposedStringWithCompatibilityMapping
+                .replacingOccurrences(of: "−", with: "-").replacingOccurrences(of: "–", with: "-")
+                .split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        }
+        let query = normalized(query)
+        return query.isEmpty || normalized(text).contains(query)
+    }
+
     let title: String
     var options: [Option]
     var selectedID: String? = nil
@@ -296,7 +306,7 @@ struct NativeSettingsComboBox: NSViewRepresentable {
 
         private func refresh() {
             let activeID = activeIndex.flatMap { visibleOptions.indices.contains($0) ? visibleOptions[$0].id : nil }
-            visibleOptions = owner.options.filter { query.isEmpty || $0.label.localizedStandardContains(query) || (owner.filter == nil && $0.id.localizedStandardContains(query)) }
+            visibleOptions = owner.options.filter { NativeSettingsComboBox.matchesSearch($0.label, query: query) || (owner.filter == nil && NativeSettingsComboBox.matchesSearch($0.id, query: query)) }
             activeIndex = activeID.flatMap { id in visibleOptions.firstIndex { $0.id == id } }
             layoutOptions()
             updateHighlight()
