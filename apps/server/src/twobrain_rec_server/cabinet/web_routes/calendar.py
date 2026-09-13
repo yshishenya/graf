@@ -44,6 +44,7 @@ from twobrain_rec_server.cabinet.web_routes.calendar_helpers import (
     record_calendar_source_event,
     safe_calendar_provider_result,
 )
+from twobrain_rec_server.cabinet.web_routes.settings_save import autosave_requested, settings_saved
 from twobrain_rec_server.cabinet.web_routes.support import (
     PrincipalDependency,
     WebCSRFDependency,
@@ -61,6 +62,7 @@ from twobrain_rec_server.calendar.google import (
 )
 from twobrain_rec_server.calendar.providers import CalendarProviderError
 from twobrain_rec_server.calendar.service import (
+    calendars_for_source,
     connect_source,
     disconnect_calendar_source,
     get_source,
@@ -744,18 +746,29 @@ async def calendar_source_calendar_selection(
     selected_ids = [
         str(value) for value in form.getlist("selected_provider_calendar_ids") if str(value).strip()
     ]
+    expected = None
+    if autosave_requested(request):
+        try:
+            expected = json.loads(str(form.get("expected_selected_ids", "null")))
+            if not isinstance(expected, list) or not all(isinstance(value, str) for value in expected):
+                raise ValueError()
+        except (ValueError, TypeError) as exc:
+            raise ProblemDetail(status=422, code="invalid_calendar_selection_baseline", title="Обновите список календарей") from exc
     source = await get_source(db, tenant_scope, source_id)
     requested_at = datetime.now(UTC)
     try:
         await replace_selected_calendars(
-            db, tenant_scope, source, selected_ids, allow_missing=False
+            db, tenant_scope, source, selected_ids, allow_missing=False, expected_selected_ids=expected
         )
     except ProblemDetail as error:
-        if error.code != "calendar_selection_limit_exceeded":
+        if autosave_requested(request) or error.code != "calendar_selection_limit_exceeded":
             raise
         await db.rollback()
         return calendar_settings_redirect(request, selection_result="limit_exceeded")
     await db.commit()
+    if autosave_requested(request):
+        values = sorted(calendar.provider_calendar_id for calendar in await calendars_for_source(db, source.id) if calendar.selected)
+        return settings_saved(tenant_scope, {"selected_provider_calendar_ids": values})
     sync_result = (
         calendar_manual_sync_result(source, requested_at=requested_at)
         if source.selected_calendar_count
@@ -899,24 +912,13 @@ async def calendar_settings_preferences(
             status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
         )
     form = await request.form()
-    await save_calendar_settings_preferences(
-        db,
-        tenant_scope,
-        join_prompt_enabled=calendar_form_checkbox(form, "join_prompt_enabled"),
-        record_prompt_enabled=calendar_form_checkbox(form, "record_prompt_enabled"),
-        show_upcoming_time=calendar_form_checkbox(form, "show_upcoming_time"),
-        show_upcoming_title=calendar_form_checkbox(form, "show_upcoming_title"),
-        include_events_without_participants=calendar_form_checkbox(
-            form, "include_events_without_participants"
-        ),
-        include_events_without_link_or_location=calendar_form_checkbox(
-            form, "include_events_without_link_or_location"
-        ),
-        include_all_day_events=calendar_form_checkbox(form, "include_all_day_events"),
-        include_private_free_busy_prompt_candidates=calendar_form_checkbox(
-            form,
-            "include_private_free_busy_prompt_candidates",
-        ),
-    )
+    names = ("join_prompt_enabled", "record_prompt_enabled", "show_upcoming_time", "show_upcoming_title",
+             "include_events_without_participants", "include_events_without_link_or_location",
+             "include_all_day_events", "include_private_free_busy_prompt_candidates")
+    values = {name: calendar_form_checkbox(form, name) for name in names
+              if not autosave_requested(request) or name in form}
+    await save_calendar_settings_preferences(db, tenant_scope, **values)
     await db.commit()
+    if autosave_requested(request):
+        return settings_saved(tenant_scope, values)
     return calendar_settings_redirect(request, preferences_result="saved")

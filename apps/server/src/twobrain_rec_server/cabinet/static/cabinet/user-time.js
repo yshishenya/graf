@@ -46,6 +46,9 @@
       element.textContent = timezone;
     });
   };
+  window.GRAFTime.setTimezone = (value) => {
+    timezone = validTimezone(value); window.GRAFTime.timezone = timezone; hydrate();
+  };
   document.addEventListener("DOMContentLoaded", hydrate);
   document.addEventListener("htmx:afterSwap", hydrate);
   window.addEventListener("pageshow", hydrate);

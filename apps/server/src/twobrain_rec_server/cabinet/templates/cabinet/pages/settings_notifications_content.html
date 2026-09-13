@@ -1,23 +1,22 @@
+{% import "cabinet/components/primitives.html" as ui %}
 {% import "cabinet/components/notifications.html" as notifications_ui %}
 <main id="cabinet-main" class="cabinet-main" tabindex="-1">
   <div class="cabinet-workspace settings-page">
     <div class="settings-page__content">
-      <header class="cabinet-topbar settings-page__topbar">
-        <div class="page-title"><h1>Уведомления</h1><p class="muted">Только события, которые помогают вовремя действовать.</p></div>
-      </header>
+      {{ ui.settings_header("Уведомления") }}
       <section class="settings-section" aria-labelledby="notification-mac-title">
         <div class="settings-section__heading">
-          <div><h2 id="notification-mac-title">{{ 'На этом Mac' if embedded else 'В приложении на Mac' }}</h2><p class="muted">Напоминания из календаря и сообщения о проблемах с записью.</p></div>
+          <div><h2 id="notification-mac-title">{{ 'На этом Mac' if embedded else 'В приложении на Mac' }}</h2></div>
         </div>
         {% if embedded %}
         <div data-local-notification-settings>
           <fieldset data-local-notification-controls disabled>
             <legend class="sr-only">Уведомления на этом Mac</legend>
             <p class="muted" data-local-notification-permission>Проверяем разрешение macOS…</p>
-            <label class="settings-control-row"><span class="settings-control-row__title">Напоминать о встречах</span><span class="cabinet-switch"><input type="checkbox" role="switch" data-local-notification-field="reminders"><span class="cabinet-switch__track" aria-hidden="true"></span></span></label>
+            {{ ui.switch("mac-reminders", "Напоминать о встречах", local_notification_field="reminders") }}
             <label class="settings-control-row"><span class="settings-control-row__title">Когда напоминать</span><select data-settings-combobox data-local-notification-field="offsetMinutes"><option value="0">В момент начала</option><option value="1">За минуту</option><option value="5">За 5 минут</option></select></label>
-            <label class="settings-control-row"><span class="settings-control-row__title">Показывать названия встреч</span><span class="cabinet-switch"><input type="checkbox" role="switch" data-local-notification-field="showTitles"><span class="cabinet-switch__track" aria-hidden="true"></span></span></label>
-            <label class="settings-control-row"><span class="settings-control-row__copy"><span class="settings-control-row__title">Звук уведомлений</span><span class="settings-control-row__description">Во время записи звук выключен.</span></span><span class="cabinet-switch"><input type="checkbox" role="switch" aria-label="Звук уведомлений" data-local-notification-field="sound"><span class="cabinet-switch__track" aria-hidden="true"></span></span></label>
+            {{ ui.switch("mac-showTitles", "Показывать названия встреч", local_notification_field="showTitles") }}
+            {{ ui.switch("mac-sound", "Звук уведомлений", local_notification_field="sound", hint="Во время записи звук выключен.", hint_id="notification-sound-help") }}
             <div class="settings-actions">
               <button class="button quiet" type="button" data-local-notification-action="requestPermission" hidden>Разрешить уведомления</button>
               <button class="button quiet" type="button" data-local-notification-action="openSystemSettings">Настройки macOS</button>
@@ -36,14 +35,13 @@
       {% if notification_result %}<p class="settings-status" role="status" aria-live="polite">{{ notification_result }}</p>{% endif %}
       <section class="settings-section" aria-labelledby="notification-preferences-title">
         <div class="settings-section__heading">
-          <div><h2 id="notification-preferences-title">Письма и подсказки</h2><p class="muted">Новости и помощь в использовании GRAF.</p></div>
+          <div><h2 id="notification-preferences-title">Письма и подсказки</h2></div>
         </div>
         {{ notifications_ui.preferences_form(notification_preferences, csrf_token, embedded=embedded) }}
       </section>
-      <p class="muted">Обязательные письма о безопасности аккаунта и оплате сохраняются.</p>
-      <p class="muted">Результаты встреч и записи, которыми с вами поделились, сохраняются в истории без звука.</p>
+
       <a href="{{ '/desktop/notifications' if embedded else '/notifications' }}">Открыть историю уведомлений</a>
-      <noscript><p class="settings-status" role="status">После сохранения откроется подтверждение.</p></noscript>
+
     </div>
   </div>
 </main>

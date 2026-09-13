@@ -1,12 +1,11 @@
+{% import "cabinet/components/primitives.html" as ui %}
 {% set billing_owner = billing_owner|default(False) %}
 {% set billing_role = billing_role|default(None) %}
 {% set meetings_href = '/desktop/meetings' if embedded else '/meetings' %}
 <main id="cabinet-main" class="cabinet-main billing-page" tabindex="-1">
   <div class="cabinet-workspace settings-page">
     <div class="settings-page__content">
-      <header class="cabinet-topbar settings-page__topbar">
-        <div class="page-title"><h1>Использование и хранение</h1><p class="muted">{% if billing_role in ["member", "corporate_owner"] %}Показаны доступные возможности тарифа.{% else %}Показаны точные данные выбранного пространства.{% endif %}</p></div>
-      </header>
+      {{ ui.settings_header("Использование и хранение") }}
       <section class="settings-section cabinet-card" aria-labelledby="usage-processing-title">
         <h2 id="usage-processing-title">Обработка</h2>
         {% if billing_role in ["member", "corporate_owner"] %}

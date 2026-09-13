@@ -1,50 +1,37 @@
+{% import "cabinet/components/primitives.html" as ui %}
 <main id="cabinet-main" class="cabinet-main" tabindex="-1">
   <div class="cabinet-workspace settings-page">
     <div class="settings-page__content">
-    <header class="cabinet-topbar settings-page__topbar">
-      <div class="page-title">
-        <h1>Итоги</h1>
-        <p class="muted">Выберите, как оформлять результаты ваших встреч.</p>
-      </div>
-    </header>
-    <section class="settings-section summary-format-settings" id="summary-formats" aria-labelledby="summary-formats-title" data-summary-template-settings data-template-endpoint="/api/v1/cabinet/summary-templates" data-summary-default-endpoint="/api/v1/cabinet/summary-templates/default">
-      <div class="settings-section__heading">
-        <div>
-          <span class="settings-scope-badge">В этом пространстве</span>
-          <h2 id="summary-formats-title">Форматы итогов</h2>
-          <p class="muted">Выберите готовый формат или создайте свой. Личные форматы доступны только вам в этом пространстве.</p>
-        </div>
-        <button class="button quiet" type="button" data-summary-template-create aria-haspopup="dialog" aria-controls="summary-template-dialog">Создать формат</button>
-      </div>
-      <div class="summary-default-template">
-        <label for="summary-default-template">Формат новых итогов</label>
-        <select id="summary-default-template" data-settings-combobox data-summary-default-template aria-describedby="summary-default-help" disabled>
+    {{ ui.settings_header("Итоги") }}
+    <section class="settings-section summary-format-settings" id="summary-formats" aria-label="Форматы итогов" data-summary-template-settings data-template-endpoint="/api/v1/cabinet/summary-templates" data-summary-default-endpoint="/api/v1/cabinet/summary-templates/default">
+      <div class="settings-control-row summary-default-template"><span class="settings-control-row__copy"><span class="settings-control-row__title"><label for="summary-default-template">Формат по умолчанию</label>{{ ui.tooltip("summary-default-scope", "Для новых итогов, если во встрече не выбран другой формат.", "Где применяется формат") }}</span><span class="settings-control-row__description" id="summary-default-help" data-summary-default-help>Загружаем доступные форматы…</span></span>
+        <select id="summary-default-template" aria-label="Формат по умолчанию" data-settings-combobox aria-describedby="summary-default-help" data-summary-default-template disabled>
           {% for format in summary_formats %}<option value="{{ format.key }}" data-template-version="{{ format.version }}">{{ format.name }}</option>{% endfor %}
         </select>
-        <span id="summary-default-help" class="muted" data-summary-default-help>Загружаем доступные форматы…</span>
       </div>
       <div class="summary-template-library" data-summary-template-library>
         <div class="summary-template-group">
-          <h3>Форматы GRAF</h3>
+          <div class="settings-section__heading"><div class="settings-heading-label"><h2>Ваши форматы</h2>{{ ui.tooltip("summary-personal-scope", "Доступны только вам в этом пространстве.", "Кто видит личные форматы") }}</div><button class="button quiet" type="button" data-summary-template-create aria-haspopup="dialog" aria-controls="summary-template-dialog">Создать формат</button></div>
+          <div class="summary-template-list" data-summary-personal-template-list role="status" aria-live="polite" aria-atomic="true"><p class="muted">Загружаем…</p></div>
+        </div>
+
+        <div class="summary-template-group">
+          <h2>Форматы GRAF</h2>
           <div class="summary-template-list">
             {% for format in summary_formats %}
             <article class="summary-template-row" data-summary-template-built-in data-template-key="{{ format.key }}" data-template-name="{{ format.name }}" data-template-purpose="{{ format.purpose }}" data-template-sections="{{ format.sections|join(',') }}"><div class="settings-list-item__content"><span class="settings-list-item__title">{{ format.name }}</span><span class="settings-list-item__desc">{{ format.purpose }}</span></div>
-              <details class="summary-template-actions"><summary>Действия<span class="sr-only">: {{ format.name }}</span></summary><button type="button" class="button quiet" data-summary-template-copy>Создать копию</button></details>
+              <details class="summary-template-actions"><summary aria-label="Действия с форматом «{{ format.name }}»">⋯</summary><button type="button" class="button quiet" data-summary-template-copy>Создать копию</button></details>
             </article>
             {% endfor %}
           </div>
-        </div>
-        <div class="summary-template-group">
-          <h3>Ваши форматы</h3>
-          <div class="summary-template-list" data-summary-personal-template-list role="status" aria-live="polite" aria-atomic="true"><p class="muted">Загружаем…</p></div>
         </div>
       </div>
       <p class="summary-template-settings-status" data-summary-template-settings-status role="status" aria-live="polite" aria-atomic="true"></p>
       <dialog id="summary-template-dialog" class="summary-template-dialog" data-summary-template-dialog aria-labelledby="summary-template-dialog-title">
         <form data-summary-template-form>
           <div class="summary-format-dialog__header">
-            <div><h2 id="summary-template-dialog-title" data-summary-template-dialog-title>Новый формат</h2><p class="muted">Выберите только то, что должно появиться в итогах.</p></div>
-            <button type="button" class="icon-button" data-summary-template-dialog-close aria-label="Закрыть">×</button>
+            <div><h2 id="summary-template-dialog-title" data-summary-template-dialog-title>Новый формат</h2></div>
+            <button type="button" class="button quiet icon-button" data-summary-template-dialog-close aria-label="Закрыть">×</button>
           </div>
           <label>Название<input name="name" maxlength="80" required autocomplete="off"></label>
           <label>Что включить в итоги<textarea name="purpose" maxlength="240" required rows="2" placeholder="Например, решения команды и задачи на следующую неделю"></textarea></label>
@@ -64,7 +51,7 @@
             <label>Подробность<select data-settings-combobox name="detail_level"><option value="brief">Кратко</option><option value="standard" selected>Обычно</option><option value="detailed">Подробно</option></select></label>
           </div>
           <p class="summary-template-form-error" data-summary-template-form-error role="alert" tabindex="-1" hidden></p>
-          <div class="dialog-actions"><button type="button" data-summary-template-dialog-cancel>Отмена</button><button type="submit" data-summary-template-submit>Сохранить</button></div>
+          <div class="dialog-actions"><button class="button quiet" type="button" data-summary-template-dialog-cancel>Отмена</button><button class="button primary" type="submit" data-summary-template-submit>Создать</button></div>
         </form>
       </dialog>
     </section>

@@ -800,14 +800,14 @@ async def _validate_tenant_scope(
 
     expected_actor = request.headers.get("X-Graf-Expected-Actor")
     expected_workspace = request.headers.get("X-Graf-Expected-Workspace")
-    if (expected_actor is not None or expected_workspace is not None) and (
+    if (expected_actor is not None or expected_workspace is not None or request.headers.get("X-Graf-Settings-Autosave") == "true") and (
         expected_actor != str(principal.user_id) or expected_workspace != str(workspace_id)
     ):
         raise ProblemDetail(
             status=409, code="recording_scope_changed", title="Recording account context changed"
         )
 
-    apply_user_time_preference(user_id=user.id, session_id=principal.session_id, timezone=user.timezone)
+    apply_user_time_preference(user_id=user.id, session_id=principal.session_id, timezone=user.timezone, workspace_id=workspace_id)
     return TenantScope(
         organization_id=principal.organization_id,
         workspace_id=workspace_id,

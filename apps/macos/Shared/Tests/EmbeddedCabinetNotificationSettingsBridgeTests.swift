@@ -23,17 +23,30 @@ final class EmbeddedCabinetNotificationSettingsBridgeTests: XCTestCase {
         defer { bridge.invalidate(); config.userContentController.removeScriptMessageHandler(forName: EmbeddedCabinetNotificationSettingsBridge.handlerName, contentWorld: .page) }
         let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let base = repo.appendingPathComponent("apps/server/src/twobrain_rec_server/cabinet")
-        let template = try String(contentsOf: base.appendingPathComponent("templates/cabinet/pages/settings_notifications_content.html"), encoding: .utf8)
-        let html = try XCTUnwrap(template.components(separatedBy: "{% if embedded %}").last?.components(separatedBy: "{% else %}").first)
+        // Template rendering is covered by the browser suite; this fixture exercises the real WK bridge.
+        let html = """
+        <div data-local-notification-settings>
+          <fieldset data-local-notification-controls disabled>
+            <p data-local-notification-permission></p>
+            <input type="checkbox" data-local-notification-field="reminders">
+            <select data-settings-combobox aria-label="Когда напоминать" data-local-notification-field="offsetMinutes"><option value="0">Сейчас</option><option value="1">За минуту</option><option value="5">За 5 минут</option></select>
+            <input type="checkbox" data-local-notification-field="showTitles">
+            <input type="checkbox" data-local-notification-field="sound">
+            <button data-local-notification-action="requestPermission"></button>
+          </fieldset>
+          <p data-local-notification-status></p><button data-local-notification-retry></button><a data-local-notification-reload></a>
+        </div>
+        """
         let script = try String(contentsOf: base.appendingPathComponent("static/cabinet/cabinet.js"), encoding: .utf8)
-        web.loadHTMLString("<!doctype html><body>\(html)<script>\(script)</script></body>", baseURL: url)
+        let autosave = try String(contentsOf: base.appendingPathComponent("static/cabinet/settings-autosave.js"), encoding: .utf8)
+        web.loadHTMLString("<!doctype html><body>\(html)<meta name='graf-time-user' content='a'><meta name='graf-workspace' content='w'><script>\(autosave)</script><script>\(script)</script></body>", baseURL: url)
         try await wait("document.querySelector('[data-local-notification-settings]')?.dataset.ready === 'true'", web)
         bridge.activate(web)
         try await wait("!document.querySelector('[data-local-notification-controls]').disabled", web)
         _ = try await web.evaluateJavaScript("const sound=document.querySelector('[data-local-notification-field=sound]');sound.focus();sound.checked=true;sound.dispatchEvent(new Event('change',{bubbles:true}));")
         try await wait("!document.querySelector('[data-local-notification-controls]').disabled", web)
+        try await wait("document.querySelector('[data-local-notification-status]').textContent === 'Сохранено'", web)
         XCTAssertTrue(presenter.preferences.sound)
-        try await wait("document.querySelector('[data-local-notification-status]').textContent === 'Сохранено на этом Mac'", web)
         XCTAssertFalse(presenter.preferences.showTitles)
         var value = presenter.preferences; value.showTitles = true; presenter.save(value)
         try await wait("document.querySelector('[data-local-notification-field=showTitles]').checked", web)
@@ -80,6 +93,35 @@ final class EmbeddedCabinetNotificationSettingsBridgeTests: XCTestCase {
         // A task queued before an auth change must not start a new request either.
         await bridge.activateAfterRefreshingContext(web, expectedAuthEpoch: epoch, isCurrentDocument: { true })
         XCTAssertNil(gate.waiting)
+    }
+
+    func testSettingsExitFlushesTheBrowserQueueAndKeepsFailedDraftUntilDiscarded() async throws {
+        let config = WKWebViewConfiguration(); config.websiteDataStore = .nonPersistent()
+        let web = WKWebView(frame: .zero, configuration: config)
+        Self.retainedViews.append(web)
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let script = try String(contentsOf: root.appendingPathComponent("apps/server/src/twobrain_rec_server/cabinet/static/cabinet/settings-autosave.js"), encoding: .utf8)
+        web.loadHTMLString("<meta name='graf-time-user' content='a'><meta name='graf-workspace' content='w'><script>\(script)</script>", baseURL: URL(string: "https://graf.test/desktop/settings/account"))
+        try await wait("typeof window.GRAFSettings === 'object'", web)
+        _ = try await web.evaluateJavaScript("""
+          window.saved='old'; window.fail=false;
+          window.queue=GRAFSettings.create('test', {initial:{name:'old'},
+            async save(fields){await new Promise(r=>setTimeout(r,30));if(window.fail)throw Error('offline');window.saved=fields.name;return {saved:true,actor:'a',workspace:'w',values:fields};},
+            async load(){return {values:{name:window.saved}};}
+          });queue.edit({name:'new'},500);
+        """)
+        let flushed = await EmbeddedCabinetWebView.prepareSettingsToLeave(in: web)
+        XCTAssertTrue(flushed)
+        let saved = try await web.evaluateJavaScript("window.saved")
+        XCTAssertEqual(saved as? String, "new")
+        _ = try await web.evaluateJavaScript("window.fail=true;window.confirm=()=>false;queue.edit({name:'draft'});")
+        let retained = await EmbeddedCabinetWebView.prepareSettingsToLeave(in: web)
+        XCTAssertFalse(retained)
+        let pending = try await web.evaluateJavaScript("GRAFSettings.pending()")
+        XCTAssertEqual(pending as? Bool, true)
+        _ = try await web.evaluateJavaScript("window.confirm=()=>true;void 0;")
+        let discarded = await EmbeddedCabinetWebView.prepareSettingsToLeave(in: web)
+        XCTAssertTrue(discarded)
     }
 
     private func wait(_ condition: String, _ web: WKWebView) async throws {

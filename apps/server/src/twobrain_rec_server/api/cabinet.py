@@ -1493,6 +1493,7 @@ async def list_summary_templates_route(
                 default_template_key = personal_default.template_key
     built_ins = [_built_in_template_view(definition) for definition in BUILT_IN_TEMPLATES]
     return SummaryTemplateListResponse(
+        actor=str(principal.user_id), workspace=str(tenant_scope.workspace_id),
         default_template_key=default_template_key,
         can_manage_default=membership is not None and membership.role == "owner",
         recommended=built_ins[:4],
@@ -1560,7 +1561,7 @@ async def update_default_summary_template_route(
         workspace.default_summary_template_id = personal.id
         workspace.default_summary_template_version = personal.version
         await db.commit()
-        return _personal_template_view(personal)
+        return _personal_template_view(personal).model_copy(update={"actor": str(principal.user_id), "workspace": str(tenant_scope.workspace_id)})
     definition = BUILT_IN_BY_KEY.get(payload.template_key)
     if definition is None or definition.version != payload.template_version:
         raise ProblemDetail(
@@ -1573,7 +1574,7 @@ async def update_default_summary_template_route(
     workspace.default_summary_template_id = selected.template_id
     workspace.default_summary_template_version = selected.version
     await db.commit()
-    return selected
+    return selected.model_copy(update={"actor": str(principal.user_id), "workspace": str(tenant_scope.workspace_id)})
 
 
 async def _ensure_personal_template_capacity(
@@ -1697,7 +1698,7 @@ async def update_summary_template_route(
         default_workspace.default_summary_template_id = revised.id
         default_workspace.default_summary_template_version = revised.version
     await db.commit()
-    return _personal_template_view(revised)
+    return _personal_template_view(revised).model_copy(update={"actor": str(principal.user_id), "workspace": str(tenant_scope.workspace_id)})
 
 
 @router.post(

@@ -18,6 +18,7 @@ from twobrain_rec_server.cabinet.rendering import (
     render_settings_page,
 )
 from twobrain_rec_server.cabinet.templates import render_template
+from twobrain_rec_server.cabinet.user_time import apply_user_time_preference
 from twobrain_rec_server.cabinet.view_models import (
     AccountDeviceView,
     AccountProfileView,
@@ -26,6 +27,12 @@ from twobrain_rec_server.cabinet.view_models import (
     AccountSettingsSurface,
     ProviderLinkSettingsSurface,
 )
+
+
+@app.middleware("http")
+async def synthetic_settings_scope(request, call_next):
+    apply_user_time_preference(user_id=UUID(int=1), workspace_id=UUID(int=4), session_id="synthetic", timezone="UTC")
+    return await call_next(request)
 
 
 @app.get("/settings", response_class=HTMLResponse)
@@ -54,6 +61,7 @@ def settings_preview(request: Request, category: str = "overview"):
             )
         )
     if category == "billing":
+        free = request.query_params.get("plan") == "free"
         return HTMLResponse(
             _page_shell(
                 "Тариф и оплата",
@@ -63,17 +71,19 @@ def settings_preview(request: Request, category: str = "overview"):
                 profile=profile,
                 csrf_token="synthetic-csrf",
                 content_template="cabinet/pages/billing_overview_content.html",
-                plan=plan_descriptor("personal"),
-                plan_code="personal",
+                plan=plan_descriptor("free" if free else "personal"),
+                plan_code="free" if free else "personal",
                 billing_data_available=request.query_params.get("mode") != "unavailable",
                 billing_owner=True,
                 billing_role="owner",
-                billing_enabled=True,
-                processing_used_label="2 ч 15 мин",
-                current_price_label="1 000 ₽",
-                current_cycle_label="в месяц",
-                storage_used_label="200 MB",
-                storage_capacity_label="2 GB",
+                billing_enabled=request.query_params.get("payments") != "off",
+                processing_used_label="0 мин 0 сек" if free else "2 ч 15 мин",
+                free_processing_limit_label="300 минут",
+                current_price_label="0 ₽" if free else "1 000 ₽",
+                current_cycle_label="без оплаты" if free else "в месяц",
+                storage_used_label="127,88 MB" if free else "200 MB",
+                storage_capacity_label="250 MB" if free else "2 GB",
+                trial_state="eligible" if free else "unavailable",
             )
         )
     if category == "provider-links":
@@ -138,3 +148,15 @@ def settings_preview(request: Request, category: str = "overview"):
             account_close_result=request.query_params.get("account_close"),
         )
     )
+
+
+@app.get("/api/v1/cabinet/summary-templates")
+def synthetic_summary_formats():
+    return {
+        "actor": str(UUID(int=1)), "workspace": str(UUID(int=4)),
+        "can_manage_default": True, "default_template_key": "graf-auto-v1", "personal": [{
+            "template_id": str(UUID(int=20)), "template_key": "synthetic", "version": 1,
+            "name": "Планёрка команды", "purpose": "Решения и следующие шаги",
+            "sections": ["summary", "action_items"], "output_language": "ru", "detail_level": "standard",
+        }],
+    }

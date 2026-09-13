@@ -51,7 +51,7 @@ from twobrain_rec_server.cabinet.queries import (
 )
 from twobrain_rec_server.cabinet.rendering import render_settings_page
 from twobrain_rec_server.cabinet.templates import cabinet_html_response
-from twobrain_rec_server.cabinet.user_time import valid_timezone_choice
+from twobrain_rec_server.cabinet.user_time import display_timezone_name, valid_timezone_choice
 from twobrain_rec_server.cabinet.web_routes.auth_email_flow import (
     EMAIL_LINK_PROVIDER,
     _create_email_login_state,
@@ -60,6 +60,11 @@ from twobrain_rec_server.cabinet.web_routes.auth_email_flow import (
     _normalize_email,
     _should_echo_email_code,
     consume_email_link_code,
+)
+from twobrain_rec_server.cabinet.web_routes.settings_save import (
+    autosave_requested,
+    settings_saved,
+    validate_settings_baseline,
 )
 from twobrain_rec_server.cabinet.web_routes.support import (
     PrincipalDependency,
@@ -607,7 +612,7 @@ async def _save_notification_preferences(
     *,
     user_id: UUID,
     form: object,
-) -> None:
+) -> NotificationPreferences:
     # Lock the owner even before their first preference row exists.
     await db.get(UserIdentity, user_id, with_for_update=True)
     preference = await db.get(BillingNotificationPreference, user_id, with_for_update=True)
@@ -628,6 +633,7 @@ async def _save_notification_preferences(
     preference.optional_in_app_enabled = updated.optional_in_app_enabled
     preference.version = updated.version
     await db.commit()
+    return updated
 
 
 @router.post(
@@ -648,7 +654,9 @@ async def save_settings_notifications(
         )
     form = await request.form()
     try:
-        await _save_notification_preferences(db, user_id=principal.user_id, form=form)
+        updated = await _save_notification_preferences(db, user_id=principal.user_id, form=form)
+        if autosave_requested(request):
+            return settings_saved(tenant_scope, {"optional_email_enabled": updated.optional_email_enabled, "optional_in_app_enabled": updated.optional_in_app_enabled}, version=updated.version)
     except ProblemDetail as exc:
         if exc.status not in {409, 422}:
             raise
@@ -673,7 +681,7 @@ async def _save_account_profile(
     principal: AuthenticatedPrincipal,
     tenant_scope: TenantScope,
     request: Request,
-) -> None:
+) -> dict[str, str]:
     form = await request.form()
     display_name = " ".join(str(form.get("display_name") or "").split())
     if len(display_name) > 240:
@@ -683,6 +691,7 @@ async def _save_account_profile(
     user = await db.get(UserIdentity, principal.user_id, with_for_update=True)
     if user is None:
         raise ProblemDetail(status=404, code="account_not_found", title="Аккаунт не найден")
+    validate_settings_baseline(form, {"display_name": user.display_name or ""})
     user.display_name = display_name or None
     await write_auth_audit_event(
         db,
@@ -693,6 +702,7 @@ async def _save_account_profile(
         metadata={"fields": ["display_name"]},
     )
     await db.commit()
+    return {"display_name": display_name}
 
 
 def _account_preference_value(form: object, name: str, allowed: frozenset[str]) -> str:
@@ -712,7 +722,7 @@ async def _save_account_preferences(
     principal: AuthenticatedPrincipal,
     tenant_scope: TenantScope,
     request: Request,
-) -> None:
+) -> dict[str, str]:
     form = await request.form()
     user = await db.get(UserIdentity, principal.user_id, with_for_update=True)
     if user is None or user.organization_id != tenant_scope.organization_id:
@@ -736,6 +746,7 @@ async def _save_account_preferences(
         raise ProblemDetail(
             status=422, code="empty_account_preferences", title="Выберите настройку аккаунта"
         )
+    validate_settings_baseline(form, {name: (getattr(user, name) or display_timezone_name()) if name == "timezone" else getattr(user, name) for name in preferences})
     for name, value in preferences.items():
         setattr(user, name, value)
     await write_auth_audit_event(
@@ -747,6 +758,7 @@ async def _save_account_preferences(
         metadata={"fields": list(preferences)},
     )
     await db.commit()
+    return preferences
 
 
 def _account_preferences_redirect_target(
@@ -999,7 +1011,9 @@ async def save_settings_account_profile(
         raise ProblemDetail(
             status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
         )
-    await _save_account_profile(db, principal=principal, tenant_scope=tenant_scope, request=request)
+    values = await _save_account_profile(db, principal=principal, tenant_scope=tenant_scope, request=request)
+    if autosave_requested(request):
+        return settings_saved(tenant_scope, values)
     return RedirectResponse("/settings/account?profile=saved", status_code=303)
 
 
@@ -1018,7 +1032,9 @@ async def save_embedded_settings_account_profile(
         raise ProblemDetail(
             status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
         )
-    await _save_account_profile(db, principal=principal, tenant_scope=tenant_scope, request=request)
+    values = await _save_account_profile(db, principal=principal, tenant_scope=tenant_scope, request=request)
+    if autosave_requested(request):
+        return settings_saved(tenant_scope, values)
     return RedirectResponse("/desktop/settings/account?profile=saved", status_code=303)
 
 
@@ -1037,9 +1053,11 @@ async def save_settings_account_preferences(
         raise ProblemDetail(
             status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
         )
-    await _save_account_preferences(
+    values = await _save_account_preferences(
         db, principal=principal, tenant_scope=tenant_scope, request=request
     )
+    if autosave_requested(request):
+        return settings_saved(tenant_scope, values)
     form = await request.form()
     return RedirectResponse(
         _account_preferences_redirect_target(form.get("return_to"), embedded=False),
@@ -1062,9 +1080,11 @@ async def save_embedded_settings_account_preferences(
         raise ProblemDetail(
             status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
         )
-    await _save_account_preferences(
+    values = await _save_account_preferences(
         db, principal=principal, tenant_scope=tenant_scope, request=request
     )
+    if autosave_requested(request):
+        return settings_saved(tenant_scope, values)
     form = await request.form()
     return RedirectResponse(
         _account_preferences_redirect_target(form.get("return_to"), embedded=True),
@@ -1690,7 +1710,9 @@ async def save_embedded_settings_notifications(
         )
     form = await request.form()
     try:
-        await _save_notification_preferences(db, user_id=principal.user_id, form=form)
+        updated = await _save_notification_preferences(db, user_id=principal.user_id, form=form)
+        if autosave_requested(request):
+            return settings_saved(tenant_scope, {"optional_email_enabled": updated.optional_email_enabled, "optional_in_app_enabled": updated.optional_in_app_enabled}, version=updated.version)
     except ProblemDetail as exc:
         if exc.status not in {409, 422}:
             raise

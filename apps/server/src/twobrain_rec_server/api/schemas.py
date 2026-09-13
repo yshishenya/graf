@@ -1509,6 +1509,8 @@ class UpdateSummaryTemplateRequest(CreateSummaryTemplateRequest):
 
 
 class SummaryTemplateView(BaseModel):
+    actor: str = ""
+    workspace: str = ""
     template_id: UUID | None = None
     template_key: str
     kind: SummaryTemplateKind
@@ -1524,6 +1526,8 @@ class SummaryTemplateView(BaseModel):
 
 
 class SummaryTemplateListResponse(BaseModel):
+    actor: str = ""
+    workspace: str = ""
     default_template_key: str
     can_manage_default: bool = False
     recommended: list[SummaryTemplateView] = Field(default_factory=list, max_length=4)

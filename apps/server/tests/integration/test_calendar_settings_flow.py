@@ -18,6 +18,7 @@ from twobrain_rec_server.auth.dependencies import (
     DESKTOP_CALENDAR_AUTH_COOKIE_NAME,
     DESKTOP_CALENDAR_AUTH_COOKIE_PATH,
 )
+from twobrain_rec_server.cabinet.queries import get_calendar_settings_surface
 from twobrain_rec_server.calendar.credentials import unseal_credential
 from twobrain_rec_server.calendar.google import GoogleOAuthConfig, GoogleTokenSet
 from twobrain_rec_server.calendar.providers import (
@@ -48,6 +49,15 @@ MIGRATION = (
     REPO_ROOT
     / "apps/server/src/twobrain_rec_server/db/migrations/versions/0014_calendar_settings_preferences.py"
 )
+
+
+def _calendar_projection(client):
+    async def load():
+        async with client.app_state["sessionmaker"]() as session:
+            return await get_calendar_settings_surface(session, TenantScope(
+                organization_id=ORG_ID, workspace_id=WORKSPACE_ID, user_id=USER_ID, device_id=DEVICE_ID,
+            ))
+    return asyncio.run(load())
 
 
 def _csrf_token_from(html: str) -> str:
@@ -639,7 +649,7 @@ def test_calendar_settings_provider_limited_state_does_not_create_source(client)
     )
     rendered = client.get(response.headers["location"], headers=auth_headers())
     assert "Нужна настройка сервиса" in rendered.text
-    assert "GRAF только читает события" in rendered.text
+    assert "GRAF только читает события" not in rendered.text
 
     sessionmaker = client.app_state["sessionmaker"]
 
@@ -1061,7 +1071,8 @@ def test_calendar_settings_selection_save_empty_and_no_retrospective_matching(cl
     rendered = client.get(selected.headers["location"], headers=auth_headers())
     assert "Выбор календарей сохранен" in rendered.text
     assert "1 из 2" in rendered.text
-    assert "Selected preview meeting" in rendered.text
+    assert "Selected preview meeting" not in rendered.text
+    assert [event.title for event in _calendar_projection(client).preview] == ["Selected preview meeting"]
     assert "Unselected preview meeting" not in rendered.text
 
     async def load_after_selected() -> list[ExternalCalendar]:
@@ -1081,6 +1092,17 @@ def test_calendar_settings_selection_save_empty_and_no_retrospective_matching(cl
         "unavailable": False,
     }
 
+    autosave_headers = {**auth_headers(), "X-Graf-Settings-Autosave": "true",
+                        "X-Graf-Expected-Actor": str(USER_ID), "X-Graf-Expected-Workspace": str(WORKSPACE_ID)}
+    selection_path = f"/settings/integrations/calendar/sources/{source_id}/calendars"
+    conflict = client.post(selection_path, headers=autosave_headers,
+                           data={"expected_selected_ids": "[]", "selected_provider_calendar_ids": "noisy"})
+    assert conflict.status_code == 409
+    confirmed = client.post(selection_path, headers=autosave_headers,
+                            data={"expected_selected_ids": '["primary"]', "selected_provider_calendar_ids": "primary"})
+    assert confirmed.status_code == 200
+    assert confirmed.json()["values"] == {"selected_provider_calendar_ids": ["primary"]}
+
     empty = client.post(
         f"/settings/integrations/calendar/sources/{source_id}/calendars",
         headers=auth_headers(),
@@ -1092,7 +1114,7 @@ def test_calendar_settings_selection_save_empty_and_no_retrospective_matching(cl
     rendered_empty = client.get(empty.headers["location"], headers=auth_headers())
     assert "Календари не выбраны" in rendered_empty.text
     assert "0 из 2" in rendered_empty.text
-    assert "Выберите хотя бы один календарь" in rendered_empty.text
+    assert not _calendar_projection(client).preview
     assert "Selected preview meeting" not in rendered_empty.text
 
     forged_only = client.post(
@@ -1234,7 +1256,7 @@ def test_calendar_selection_accepts_twenty_and_rejects_twenty_one_without_trunca
     assert asyncio.run(selected_ids()) == sorted(provider_ids)
 
 
-def test_calendar_settings_saves_event_category_preferences_and_keeps_manual_recording_copy(
+def test_calendar_settings_saves_event_category_preferences_without_static_recording_copy(
     client,
 ) -> None:
     response = client.post(
@@ -1259,8 +1281,8 @@ def test_calendar_settings_saves_event_category_preferences_and_keeps_manual_rec
     )
     rendered = client.get(response.headers["location"], headers=auth_headers())
     assert "Настройки сохранены" in rendered.text
-    assert "Начать и остановить запись можно вручную в любой момент" in rendered.text
-    assert "Эти подсказки не запускают запись автоматически" in rendered.text
+    assert "Начать и остановить запись можно вручную в любой момент" not in rendered.text
+    assert "Эти подсказки не запускают запись автоматически" not in rendered.text
 
     sessionmaker = client.app_state["sessionmaker"]
 
@@ -1350,8 +1372,8 @@ def test_calendar_settings_preview_respects_hidden_time_and_title_preferences(
     upcoming = client.get("/api/v1/calendar/events/upcoming", headers=auth_headers())
 
     assert rendered.status_code == 200
-    assert "Время скрыто настройкой" in rendered.text
-    assert "Название скрыто настройкой" in rendered.text
+    assert "Время скрыто настройкой" not in rendered.text
+    assert "Название скрыто настройкой" not in rendered.text
     assert "Hidden preview meeting" not in rendered.text
     assert home.status_code == 200
     assert "Время скрыто настройкой" in home.text
@@ -1445,9 +1467,10 @@ def test_calendar_settings_preview_shows_active_overlap_started_before_now(clien
     rendered = client.get("/settings/integrations/calendar", headers=auth_headers())
 
     assert rendered.status_code == 200
-    assert "Нужно выбрать событие для пересечения" in rendered.text
-    assert "GRAF не выбирает событие автоматически" in rendered.text
-    assert "Можно продолжить без календарного контекста" in rendered.text
+    assert "Нужно выбрать событие для пересечения" not in rendered.text
+    conflicts = _calendar_projection(client).conflicts
+    assert len(conflicts) == 1
+    assert len(conflicts[0].events) == 2
 
 
 def test_calendar_settings_preview_applies_preferences_before_limit(client) -> None:
@@ -1526,7 +1549,7 @@ def test_calendar_settings_preview_applies_preferences_before_limit(client) -> N
     rendered = client.get("/settings/integrations/calendar", headers=auth_headers())
 
     assert rendered.status_code == 200
-    assert "Preview valid meeting after noise" in rendered.text
+    assert [event.title for event in _calendar_projection(client).preview] == ["Preview valid meeting after noise"]
     assert "Preview all-day noise" not in rendered.text
 
 
@@ -1588,7 +1611,7 @@ def test_calendar_settings_preview_empty_reason_when_selected_calendar_has_no_ma
     rendered = client.get("/settings/integrations/calendar", headers=auth_headers())
 
     assert rendered.status_code == 200
-    assert "Нет будущих событий, которые подходят под выбранные настройки" in rendered.text
+    assert not _calendar_projection(client).preview
     assert "All-day hold" not in rendered.text
 
 
@@ -1660,10 +1683,12 @@ def test_calendar_settings_preview_preserves_owner_private_title_and_stale_state
     rendered = client.get("/settings/integrations/calendar", headers=auth_headers())
 
     assert rendered.status_code == 200
-    assert "Private board review" in rendered.text
-    assert "Личный календарь" in rendered.text
-    assert "данные синхронизации могут быть устаревшими" in rendered.text
-    assert "есть ссылка на встречу" in rendered.text
+    assert "Private board review" not in rendered.text
+    event = _calendar_projection(client).preview[0]
+    assert event.title == "Private board review"
+    assert "Личный календарь" in event.calendar_labels
+    assert event.sync_confidence_state == "stale"
+    assert event.meeting_link_present
     assert "attendee@example" not in rendered.text
 
 
@@ -1684,8 +1709,8 @@ def test_calendar_settings_route_saves_prompt_toggles_without_auto_record_behavi
         response.headers["location"] == "/settings/integrations/calendar?preferences_result=saved"
     )
     rendered = client.get(response.headers["location"], headers=auth_headers())
-    assert "Эти подсказки не запускают запись автоматически" in rendered.text
-    assert "выбрать событие или продолжить без календарного контекста" in rendered.text
+    assert "Эти подсказки не запускают запись автоматически" not in rendered.text
+    assert "выбрать событие или продолжить без календарного контекста" not in rendered.text
 
     sessionmaker = client.app_state["sessionmaker"]
 
