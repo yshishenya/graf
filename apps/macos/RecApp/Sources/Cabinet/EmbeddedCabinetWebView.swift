@@ -192,10 +192,12 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
         guard let webView, !isLoading else { return false }
         guard !checkingSettings else { return true }
         checkingSettings = true
+        syncNavigationState()
         Task { [weak self, weak webView] in
             guard let self else { return }
             let allowed = await EmbeddedCabinetWebView.prepareSettingsToLeave(in: webView)
             self.checkingSettings = false
+            self.syncNavigationState()
             guard allowed, self.webView === webView else { return }
             self.settingsNavigationApproved = true
             action()
@@ -689,7 +691,7 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
     }
 
     private func syncNavigationState() {
-        guard let webView, let routePolicy else {
+        guard !checkingSettings, let webView, let routePolicy else {
             canGoBack = false
             canGoForward = false
             canReload = false

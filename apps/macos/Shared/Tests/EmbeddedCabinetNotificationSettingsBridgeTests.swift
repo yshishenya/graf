@@ -108,18 +108,18 @@ final class EmbeddedCabinetNotificationSettingsBridgeTests: XCTestCase {
           window.queue=GRAFSettings.create('test', {initial:{name:'old'},
             async save(fields){await new Promise(r=>setTimeout(r,30));if(window.fail)throw Error('offline');window.saved=fields.name;return {saved:true,actor:'a',workspace:'w',values:fields};},
             async load(){return {values:{name:window.saved}};}
-          });queue.edit({name:'new'},500);
+          });queue.edit({name:'new'},500); true;
         """)
         let flushed = await EmbeddedCabinetWebView.prepareSettingsToLeave(in: web)
         XCTAssertTrue(flushed)
         let saved = try await web.evaluateJavaScript("window.saved")
         XCTAssertEqual(saved as? String, "new")
-        _ = try await web.evaluateJavaScript("window.fail=true;window.confirm=()=>false;queue.edit({name:'draft'});")
+        _ = try await web.evaluateJavaScript("window.fail=true;window.confirm=()=>false;queue.edit({name:'draft'}); true;")
         let retained = await EmbeddedCabinetWebView.prepareSettingsToLeave(in: web)
         XCTAssertFalse(retained)
         let pending = try await web.evaluateJavaScript("GRAFSettings.pending()")
         XCTAssertEqual(pending as? Bool, true)
-        _ = try await web.evaluateJavaScript("window.confirm=()=>true;void 0;")
+        _ = try await web.evaluateJavaScript("window.confirm=()=>true;true;")
         let discarded = await EmbeddedCabinetWebView.prepareSettingsToLeave(in: web)
         XCTAssertTrue(discarded)
     }

@@ -575,25 +575,28 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
             ),
             encoding: .utf8
         )
+        let autosave = try String(contentsOf: root.appendingPathComponent(
+            "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/settings-autosave.js"
+        ), encoding: .utf8)
         let webView = makeWebView(frame: CGRect(x: 0, y: 0, width: 1200, height: 844))
         let origin = try XCTUnwrap(URL(string: "https://theme-autosave.graf.test/meetings"))
         try await load(
             """
-            <!doctype html><html><head><meta name="csrf-token" content="synthetic-csrf"></head><body>
-              <form data-account-preferences data-account-preferences-auto-save="true" action="/desktop/settings/account/preferences" method="post">
+            <!doctype html><html><head><meta name="csrf-token" content="synthetic-csrf"><meta name="graf-time-user" content="actor"><meta name="graf-workspace" content="workspace"></head><body>
+              <form data-account-preferences data-settings-autosave action="/desktop/settings/account/preferences" method="post">
                 <input type="hidden" name="return_to" value="" data-account-preferences-return>
                 <input type="radio" name="theme" value="light">
                 <input type="radio" name="theme" value="system" checked>
-                <span data-account-preferences-status role="status"></span>
+                <span data-settings-form-status role="status"></span>
               </form>
               <script>
                 window.fetch = async (url, options) => {
                   window.__themeFetch = {url, returnTo: options.body.get('return_to'),
                     theme: options.body.get('theme'), csrf: options.headers?.['X-CSRF-Token']};
-                  return {ok: window.__themeFetch.theme === 'light' && window.__themeFetch.csrf === 'synthetic-csrf'};
+                  return new Response(JSON.stringify({saved:true,actor:'actor',workspace:'workspace',values:{theme:'light'}}), {status:200});
                 };
               </script>
-              <script>\(script)</script>
+              <script>\(script)</script><script>\(autosave)</script>
             </body></html>
             """,
             in: webView,
@@ -604,7 +607,8 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
             const light = document.querySelector('input[value="light"]');
             light.checked = true;
             light.dispatchEvent(new Event('change', {bubbles: true}));
-            await new Promise(resolve => setTimeout(resolve, 40));
+            await Promise.resolve();
+            await window.GRAFSettings.flushAll();
             return {
               path: location.pathname,
               fetchUrl: window.__themeFetch?.url || '',
@@ -613,7 +617,7 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
               csrf: window.__themeFetch?.csrf || '',
               state: document.querySelector('form').dataset.state || '',
               theme: document.documentElement.dataset.theme || '',
-              ready: document.querySelector('form').dataset.accountPreferencesReady || '',
+              ready: document.querySelector('form').dataset.autosaveReady || '',
               cabinetReady: document.documentElement.dataset.cabinetJs || ''
             };
             """,
@@ -624,7 +628,7 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
         let state = try XCTUnwrap(result as? [String: Any])
         XCTAssertEqual(state["path"] as? String, "/meetings")
         XCTAssertEqual(state["fetchUrl"] as? String, "https://theme-autosave.graf.test/desktop/settings/account/preferences")
-        XCTAssertEqual(state["returnTo"] as? String, "/meetings")
+        XCTAssertEqual(state["returnTo"] as? String, "")
         XCTAssertEqual(state["sentTheme"] as? String, "light")
         XCTAssertEqual(state["csrf"] as? String, "synthetic-csrf")
         XCTAssertEqual(state["state"] as? String, "saved")
@@ -638,10 +642,11 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
             const system = document.querySelector('input[value="system"]');
             system.checked = true;
             system.dispatchEvent(new Event('change', {bubbles: true}));
-            await new Promise(resolve => setTimeout(resolve, 40));
+            await Promise.resolve();
+            await window.GRAFSettings.flushAll();
             return document.querySelector('form').dataset.state === 'error'
-              && document.documentElement.dataset.theme === 'light'
-              && document.querySelector('input[value="light"]').checked
+              && !document.documentElement.dataset.theme
+              && document.querySelector('input[value="system"]').checked
               && !document.querySelector('input:disabled');
             """, arguments: [:], in: nil, contentWorld: .page)
         XCTAssertEqual(failed as? Bool, true)
