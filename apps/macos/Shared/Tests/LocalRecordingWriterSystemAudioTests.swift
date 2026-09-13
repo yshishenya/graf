@@ -21,12 +21,12 @@ final class LocalRecordingWriterSystemAudioTests: XCTestCase {
         XCTAssertTrue(original.isComplete)
         XCTAssertNil(original.shortRecordingDiscarded)
         for reason in [RecordingStopReason.userRequested, .meetingEnded] {
-            for frames: Int64 in [479_999, 480_000, 480_001] {
+            for frames: Int64 in [1_439_999, 1_440_000, 1_440_001] {
                 var manifest = original
-                let index = try XCTUnwrap(manifest.tracks.firstIndex { $0.role == .mixedMeetingAudio })
-                manifest.tracks[index].frameCount = frames
+                let index = try XCTUnwrap(manifest.tracks.firstIndex { $0.role == .reviewPlayback })
+                manifest.tracks[index].frameCount = frames + (try XCTUnwrap(manifest.tracks[index].aacPresentationFrameDelta))
                 manifest.applyShortRecordingPolicy(stopReason: reason)
-                XCTAssertEqual(manifest.shortRecordingDiscarded == true, frames < 480_000)
+                XCTAssertEqual(manifest.shortRecordingDiscarded == true, frames < 1_440_000)
             }
         }
         for reason: RecordingStopReason? in [nil, .failed, .appRestarted, .indicatorLost, .storageUnsafe] {
@@ -37,6 +37,20 @@ final class LocalRecordingWriterSystemAudioTests: XCTestCase {
         for invalidRate in [0.0, -1, Double.nan, Double.infinity, 48_000] {
             var manifest = original
             manifest.tracks[0].sampleRate = invalidRate
+            manifest.applyShortRecordingPolicy(stopReason: .userRequested)
+            XCTAssertNil(manifest.shortRecordingDiscarded)
+        }
+        let playbackIndex = try XCTUnwrap(original.tracks.firstIndex { $0.role == .reviewPlayback })
+        for delta: Int64? in [nil, Int64.min, Int64.max, -4_801, 4_801] {
+            var manifest = original
+            manifest.tracks[playbackIndex].aacPresentationFrameDelta = delta
+            manifest.applyShortRecordingPolicy(stopReason: .userRequested)
+            XCTAssertNil(manifest.shortRecordingDiscarded)
+        }
+        for (frames, delta): (Int64, Int64) in [(Int64.max, -1), (1, 1), (1, 2)] {
+            var manifest = original
+            manifest.tracks[playbackIndex].frameCount = frames
+            manifest.tracks[playbackIndex].aacPresentationFrameDelta = delta
             manifest.applyShortRecordingPolicy(stopReason: .userRequested)
             XCTAssertNil(manifest.shortRecordingDiscarded)
         }
@@ -74,28 +88,38 @@ final class LocalRecordingWriterSystemAudioTests: XCTestCase {
     }
 
     func testShortRecordingBoundaryKeepsThirtySecondsFromTheFirstFrame() async throws {
-        let root = makeSystemWriterRoot("thirty-seconds")
-        defer { try? FileManager.default.removeItem(at: root) }
-        let frameCount = 1_440_000
-        let microphone = BufferedLocalRecordingSampleSource(capacity: frameCount, channelCount: 1)
-        let system = BufferedLocalRecordingSampleSource(capacity: frameCount, channelCount: 1)
-        let writer = makeSystemV5Writer(root: root, microphone: microphone, system: system)
-        let directory = try writer.start(sessionId: "thirty", startedAt: Date(timeIntervalSince1970: 10),
-            scopeApproval: systemScopeApproval(), permissions: systemGrantedPermissions())
-        for second in stride(from: 0, to: 30, by: 5) {
-            microphone.append(systemBatch(samples: Array(repeating: 0, count: 240_000), seconds: Double(100 + second)))
-            system.append(systemBatch(samples: Array(repeating: 0.2, count: 240_000), seconds: Double(100 + second)))
-            try await Task.sleep(for: .milliseconds(200))
+        for reason in [RecordingStopReason.userRequested, .meetingEnded] {
+            for frameCount in [1_439_999, 1_440_000, 1_440_001] {
+                let root = makeSystemWriterRoot("thirty-seconds")
+                defer { try? FileManager.default.removeItem(at: root) }
+                let microphone = BufferedLocalRecordingSampleSource(capacity: frameCount, channelCount: 1)
+                let system = BufferedLocalRecordingSampleSource(capacity: frameCount, channelCount: 1)
+                let writer = makeSystemV5Writer(root: root, microphone: microphone, system: system)
+                let directory = try writer.start(sessionId: "thirty", startedAt: Date(timeIntervalSince1970: 10),
+                    scopeApproval: systemScopeApproval(), permissions: systemGrantedPermissions())
+                for offset in stride(from: 0, to: frameCount, by: 240_000) {
+                    let count = min(240_000, frameCount - offset)
+                    let seconds = 100 + Double(offset) / 48_000
+                    microphone.append(systemBatch(samples: Array(repeating: 0, count: count), seconds: seconds))
+                    system.append(systemBatch(samples: Array(repeating: 0.2, count: count), seconds: seconds))
+                    try await Task.sleep(for: .milliseconds(200))
+                }
+                let manifest = try writer.stop(stopReason: reason)
+                let discarded = frameCount < 1_440_000
+                XCTAssertEqual(manifest.shortRecordingDiscarded == true, discarded, "frames=\(frameCount), reason=\(reason)")
+                XCTAssertEqual(manifest.status, discarded ? .blocked : .saved)
+                let persisted = try LocalRecordingManifestService().read(from: directory.manifestURL)
+                XCTAssertEqual(persisted.shortRecordingDiscarded, manifest.shortRecordingDiscarded)
+                let playback = try XCTUnwrap(manifest.tracks.first { $0.role == .reviewPlayback })
+                XCTAssertEqual(playback.frameCount - (try XCTUnwrap(playback.aacPresentationFrameDelta)), Int64(frameCount))
+                let audio = try XCTUnwrap(manifest.tracks.first { $0.role == .mixedMeetingAudio })
+                XCTAssertEqual(audio.frameCount, 480_000) // All three round to the same 16 kHz count.
+                XCTAssertEqual(audio.timelineStartMs, 0)
+                let wav = try Data(contentsOf: directory.transcriptionAudioURL)
+                XCTAssertEqual(wav.count, 44 + 480_000 * 2)
+                XCTAssertTrue(wav.dropFirst(44).prefix(3_200).contains { $0 != 0 })
+            }
         }
-        let manifest = try writer.stop(stopReason: .userRequested)
-        XCTAssertTrue(manifest.isComplete)
-        XCTAssertNil(manifest.shortRecordingDiscarded)
-        let audio = try XCTUnwrap(manifest.tracks.first { $0.role == .mixedMeetingAudio })
-        XCTAssertEqual(audio.frameCount, 480_000)
-        XCTAssertEqual(audio.timelineStartMs, 0)
-        let wav = try Data(contentsOf: directory.transcriptionAudioURL)
-        XCTAssertEqual(wav.count, 44 + 480_000 * 2)
-        XCTAssertTrue(wav.dropFirst(44).prefix(3_200).contains { $0 != 0 })
     }
 
     func testShortRecordingInterruptionDuringStopPreservesAudio() async throws {

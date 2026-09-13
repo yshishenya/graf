@@ -223,3 +223,59 @@ Reviewer `01a090a9-ac47-7893-a74d-e18f37e33986`, read-only, 2026-09-13:
 release-full и решение release operator. Reviewer чекбоксы/issues не менял.
 Отдельная проблема первопричины зарегистрирована в #6958 с T000 triage
 по project canon; к порогу F6796 не добавлен новый обязательный runtime scope.
+
+
+Reviewer `01a090a9-ac47-7893-a74d-e18f37e33986` отдельно сверил FR-007,
+контракт и quickstart после передачи пользовательского запрета VoiceOver:
+отменяется только ручная процедура, доступность не отменяется. Не включать
+VoiceOver снова и не повторять запрос разрешения; отметить native-unverified
+при проверенном чтением кода post и тестируемой панели. После ВСЕХ остальных обязательных
+результатов T006 допускает завершение с явным исключением в PR/receipt;
+это не blanket native PASS и не решение release operator. Auto/restart
+пока открыты и независимо блокируют T006. Reviewer файлы не менял.
+
+
+### Уточнение силы доказательств доступности
+
+Тот же независимый reviewer при финальной сверке уточнил прежнюю формулировку:
+ShortRecordingNoticeTests не перехватывает NSAccessibility.post и не проверяет
+доставку announcement. Вызов post с Self.message и high priority проверен
+чтением кода и исполняется внутри тестируемого show; тесты проверяют панель,
+замену, dismiss и время жизни. Доставка и озвучивание остаются непроверенными.
+Новый mock/helper не требуется; quickstart и validation исправлены.
+
+
+### Итоговый независимый review приёмки
+
+Reviewer `01a090a9-ac47-7893-a74d-e18f37e33986`, 2026-09-13:
+**Approved** runtime5c7350e848310fbd14bbef01fd264af07b49b88b и обновлённых
+validation/quickstart/F6796.yaml поверх fffb113. Auto/restart сопоставлены
+с локальными метаданными независимо, 126 PASS проверены по журналу.
+Прежняя ручная матрица применима: writer/queue/Stop/notice не менялись.
+Новых runtime дефектов, пробелов требований или лишних конструкций нет.
+VO формулировки и ограничения fragment приняты; автоматический снимок
+с перекрытием не считается визуальным PASS. Требование финальных checks
+на новом exact SHA и сверки tracker сохраняется. Это не решение о публикации.
+Reviewer не менял файлы/checklist/issues/UI; результат внесён автором.
+
+### Замечания GitHub после итоговой сверки
+
+Предыдущее Approved не охватывало два поздно обнаруженных review threads:
+округление16k у порога и чужие artifact paths при cleanup. Reviewer независимо
+подтвердил оба; T009/#6976 и T010/#6977 обязательны до merge. Требования fixes
+приняты до runtime: existing review.frameCount−AACdelta с checked subtraction,
+без rawAAC/округлённого16k; all raw+derived queue paths независимоroles,
+нормализация/границы до мутаций, неоднозначность сохраняет данные. Применимы
+CHK001/003/004/005/006/008. Invalid delta Int64.min должен безопасно отклоняться
+раньше abs/subtraction; никакого нового поля или конвертера не требуется.
+
+
+T009/T010 **Approved** независимым reviewer той же задачи после чтения
+red/green:127tests/0failures,14:15:26. Проверенные blobs:
+AudioModelCore `dede7287fc964dc42a6a6c99bafb9cf750699457`, queue
+`68177e3c1fec5cdbeb5022bec8b679e5b3590e86`, writer tests
+`358af05bc663995a816315d7a0d41a2d78e1add3`, queue tests
+`c044636291f74a6e43947cd6b678b42772584c9e`.
+Первое Approved восстановлено только для исправленного кода. Новая bounded
+installed матрица и exact-SHA CI обязательны отдельно. Конвертер/Stop/presenter
+не изменены; лишних новых конструкций нет, существующие helpers переиспользованы.

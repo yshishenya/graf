@@ -1287,7 +1287,11 @@ public final class DesktopUploadQueueService: @unchecked Sendable {
         }
         let matching = document.items.filter {
             $0.id == id || $0.directoryId == manifest.directoryId || $0.sessionId == manifest.sessionId ||
-                matchesPath($0.directoryPath, directory)
+                [$0.directoryPath, $0.manifestPath, $0.microphonePath, $0.systemAudioPath,
+                 $0.transcriptionAudioPath, $0.reviewAudioPath].contains { path in
+                    !path.isEmpty && path != "metadata-only" &&
+                        (matchesPath(path, directory) || Self.isInsideRecordingsRoot(path, rootURL: directory))
+                }
         }
         guard matching.count <= 1, matching.allSatisfy({ item in
             item.id == id && item.sessionId == manifest.sessionId && item.directoryId == manifest.directoryId &&

@@ -24,7 +24,7 @@
 
 ## Phase 0: Research
 
-См. research.md. Общий stop вызывается также при ошибке — разрешить только userRequested/meetingEnded. Точное число кадров канонического WAV, не ceil duration очереди. Scanner видит манифест до возврата Stop — устойчивое решение должно появиться атомарно с завершением.
+См. research.md. Общий stop вызывается также при ошибке — разрешить только userRequested/meetingEnded. Точное число канонических кадров48k: review.frameCount минус существующий aacPresentationFrameDelta с проверкой переполнения, не округлённый WAV16k или ceil duration очереди. Scanner видит манифест до возврата Stop — устойчивое решение должно появиться атомарно с завершением.
 
 ## Phase 1: Design
 
@@ -36,7 +36,7 @@
 
 ## Validation Plan
 
-Focused XCTest для writer/queue/recovery/notification и сборка Swift package. Границы 479999/480000/480001 кадров при 16kHz; ручная и автоматическая остановка; неверная длительность; авария/exit; повторное сканирование, cleanup failure и symlink escape; исторический пакет. Затем quickstart с официальным GRAF Dev после разрешённого коммита. CI только exact PR SHA. Проверки приватных записей не требуются.
+Focused XCTest для writer/queue/recovery/notification и сборка Swift package. Границы1_439_999/1_440_000/1_440_001 канонических кадров48kHz через реальный writer/converter; ручная и автоматическая остановка; неверная длительность; авария/exit; повторное сканирование, cleanup failure и symlink escape; исторический пакет. Затем quickstart с официальным GRAF Dev после разрешённого коммита. CI только exact PR SHA. Проверки приватных записей не требуются.
 
 ## Project Structure
 
@@ -129,3 +129,11 @@ converted gap не доказывает непрерывность сэмпло�
 Вызов только внутри !reportedTimingAnomaly после audio/isCurrentStream guards;
 invalid/indefinite/infinite вход и отсутствие previous также дают nan, без fallback. API macOS13+
 совместим с текущим target macOS14+. Clock objects/pointers не журналируются.
+
+
+Уточнение FR-003/006 после GitHub review: новых persisted полей нет.
+Неизвестное/невалидное/переполненное восстановление exact48k сохраняет аудио.
+Ownership matching до любых записей/удалений учитывает все явные и вычисляемые
+пути queue items, независимо от trackCompleteness; разрешённый parent symlink
+и ../ нормализуются, проверяется граница каталога, не строковый общий prefix.
+Несколько владельцев либо чужиеID дают прежний отказ и повторяемую очистку.

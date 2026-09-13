@@ -61,6 +61,59 @@ final class DesktopUploadQueueTests: XCTestCase {
         }
     }
 
+    func testShortRecordingCleanupRefusesOtherArtifactReferences() throws {
+        for withSaving in [false, true] {
+            for reference in ["manifest", "microphone", "system", "parent", "symlink", "derived", "sibling"] {
+                let root = temporaryRoot()
+                defer { try? FileManager.default.removeItem(at: root) }
+                let package = try makeV5RecordingPackage(root: root, directoryId: "short", sessionId: "short-session")
+                let queueURL = root.appendingPathComponent("queue.json")
+                let service = DesktopUploadQueueService(queueURL: queueURL, recordingsRootURL: root, client: nil)
+                var manifest = try LocalRecordingManifestService().read(from: package.manifestURL)
+                let own = try service.enqueueSaving(manifest: manifest, directoryURL: package.directoryURL)
+                var other = own
+                other.id = "other-id"
+                other.sessionId = "other-session"
+                other.directoryId = "other-directory"
+                other.directoryPath = root.appendingPathComponent("other").path
+                other.manifestPath = other.directoryPath + "/manifest.json"
+                other.microphonePath = other.directoryPath + "/mic.wav"
+                other.systemAudioPath = other.directoryPath + "/incoming.wav"
+                switch reference {
+                case "manifest": other.manifestPath = package.manifestURL.path
+                case "microphone": other.microphonePath = package.transcriptionURL.path
+                case "system": other.systemAudioPath = package.transcriptionURL.path
+                case "parent": other.microphonePath = root.path + "/short/../short/meeting-transcription.wav"
+                case "symlink":
+                    try FileManager.default.createSymbolicLink(at: root.appendingPathComponent("alias"), withDestinationURL: root)
+                    other.systemAudioPath = root.path + "/alias/short/meeting-transcription.wav"
+                case "derived": other.directoryPath = package.directoryURL.path + "/nested"
+                default: other.microphonePath = root.path + "/short2/meeting-transcription.wav"
+                }
+                let items = (withSaving ? [own] : []) + [other]
+                try JSONEncoder.uploadQueueTestEncoder.encode(DesktopUploadQueueDocument(updatedAt: Date(), items: items)).write(to: queueURL)
+                manifest.applyShortRecordingPolicy(stopReason: .meetingEnded)
+                try LocalRecordingManifestService().write(manifest, to: package.manifestURL)
+                let itemsBefore = try JSONDecoder.uploadQueueTestDecoder.decode(DesktopUploadQueueDocument.self, from: Data(contentsOf: queueURL)).items
+                let audioBefore = try Data(contentsOf: package.transcriptionURL)
+                let markerBefore = try Data(contentsOf: package.manifestURL)
+                for _ in 0..<2 {
+                    let restarted = DesktopUploadQueueService(queueURL: queueURL, recordingsRootURL: root, client: nil)
+                    _ = try restarted.scanAndEnqueueCompletedRecordings()
+                    if reference == "sibling" {
+                        XCTAssertFalse(FileManager.default.fileExists(atPath: package.directoryURL.path))
+                        XCTAssertEqual(try restarted.loadItems().map(\.id), [other.id])
+                    } else {
+                        XCTAssertEqual(try Data(contentsOf: package.transcriptionURL), audioBefore, reference)
+                        XCTAssertEqual(try Data(contentsOf: package.manifestURL), markerBefore, reference)
+                        let persisted = try JSONDecoder.uploadQueueTestDecoder.decode(DesktopUploadQueueDocument.self, from: Data(contentsOf: queueURL))
+                        XCTAssertEqual(persisted.items, itemsBefore, reference)
+                    }
+                }
+            }
+        }
+    }
+
     func testShortRecordingCleanupFailureRetainsMarkerAndRetries() throws {
         let root = temporaryRoot()
         let outside = temporaryRoot()
