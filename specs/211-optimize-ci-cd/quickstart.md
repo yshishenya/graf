@@ -570,3 +570,16 @@ A11 pinned installation independent review PASS: all14 installed files and
 executable modes equal the published v0.3.4 ZIP; manifest/archive hash and
 registry/lock agree, other lock entries unchanged. Real repeated ensure keeps
 project template bytes/three checks. No bootstrap source edit was needed.
+
+T089 requirements gate: independent CHK006 PASS; complete checklist6/6.
+Root analyze maps required media coverage FR-057/SC-025 to T089 and issue6994,
+50 existing synthetic cases plus separate negative contracts. Missing/broken
+tools, installation failure, unchanged non-server preparation and private
+TestRec opt-in are explicit. CRITICAL0/HIGH0, no unresolved clarification or
+constitution conflict. Issue body synchronized before code.
+
+Combined-source checkpoint: A8–A12 rebased onto current A6 plus master
+6ca6c6abd5fbb38bb210c74868850f2a5fc03768. After #6991's cabinet.js changes
+and #6995's report fix, whole-script CSRF execution plus all three real report
+contracts:4 PASS/1.87 s. Only these integration checks repeated; completed
+benchmarks and release-image/notary suites were not repeated.

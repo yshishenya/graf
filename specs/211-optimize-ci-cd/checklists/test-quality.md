@@ -7,6 +7,7 @@ Reviewer-owned requirements gate; implementation must not edit checkboxes.
 - [x] CHK003 Новый порядок Full сохраняет изоляцию, состав/markers/workers/digest, обязательность performance и cleanup; fast/focused не меняются. [FR-058]
 - [x] CHK004 Исполняемые проверки доказывают ранний отказ, сохранение результатов и окончательный Full учитывается отдельно. [SC-025]
 - [x] CHK005 Обязательный runtime-role bootstrap proof получает отдельный function-scoped PostgreSQL cluster с прежними production names, реальными миграциями, уникальным контейнером/loopback портом и ограниченным ожиданием; collection не создаёт ресурсы, ошибки setup/bootstrap дают FAIL, cleanup действует и при ошибке. Только этот тест меняет fixture; shared роли/остальные тесты/порядок фаз не меняются. Приёмка включает media→bootstrap и прежние 69 strict/performance случаев без SKIP. [FR-057/SC-025, T088]
+- [x] CHK006 Требования делают три существующих media-tool предусловия обязательными: отсутствие FFmpeg/FFprobe даёт FAIL, а private TestRec сохраняет первым пропуск без явно заданного каталога. Подготовка инструментов ограничена существующими Full/server-change шагами; работающий комплект не переустанавливается, неисправный инструмент или ошибка установки останавливают проверку. Заданы исполняемые отрицательные проверки настоящих entrypoints/shell-блоков, прежние 49+1 синтетических случаев без SKIP, отдельный учёт новых регрессий и неизменность production/runtime-container проверки. [FR-057/SC-025, E02, T089]
 
 
 ## Независимая проверка требований — 2026-09-13
@@ -148,3 +149,47 @@ fixtures и `test_runtime_role_bootstrap_is_idempotent_and_verifies_privileges`
 проверки ещё совпадал с HEAD. Это приёмка требований до реализации; T088 не
 закрывается. Изменён только этот reviewer-owned checklist. Тесты, Docker,
 GitHub, сборки и production не запускались.
+
+
+## PASS delta — T089 / обязательные синтетические медиапроверки — 2026-09-13
+
+**PASS требований, CHK006: 1/1; общий checklist 6/6.** Прочитаны явные
+дополнения T089 в spec/plan/tasks и три существующих места пропуска в
+`test_playback_normalization_media_matrix.py::_media_tools`,
+`test_playback_normalization_workflow.py::test_real_ffmpeg_pipeline_builds_validated_dual_source_playback`
+и `test_playback_normalization_test_rec_e2e.py::test_authorized_test_rec_converts_automatically_and_leaves_no_residue`.
+Режим: независимая проверка требований существующей high-risk F211 с записью
+только reviewer evidence. Текущий HEAD при проверке:
+`0153db313795cfeb2322d2cfd4a1bdbea2d3a92f`, `codex/211-delivery-cutover`.
+
+- Граница изменения точна: заменяются только три media-tool SKIP; остальные
+  assertions, параметры, синтетические данные и настоящий normalization pipeline
+  сохраняются. Статический подсчёт функций и буквальных параметризаций даёт
+  49 случаев media matrix и один dual-source workflow case. Это проверка
+  состава исходного кода, не результат pytest collection или исполнения.
+- В TestRec сначала проверяется opt-in переменная каталога; её отсутствие
+  сохраняет SKIP до обращения к media tools. Заданный недоступный каталог уже
+  вызывает ошибку. При разрешённом существующем каталоге отсутствие инструментов
+  теперь должно вызвать FAIL до чтения/копирования записи. Новые отрицательные
+  проверки могут использовать временный пустой каталог, без частных аудиоданных.
+- Прочитаны существующие resource steps обоих workflows: Full готовит ресурсы
+  перед Ubuntu component, governance-fast уже ограничивает подготовку веткой
+  `classify_path == server`. Plan сохраняет эти границы и не добавляет установку
+  для других PR-путей. Работающий комплект не требует package manager;
+  отсутствующий инструмент допускает штатную установку FFmpeg из Ubuntu,
+  а broken executable/failed install должны остановить validation.
+- FR-057/SC-025 → T089 plan → T089 задают исполнение трёх реальных предусловий
+  и обоих настоящих resource shell-блоков с подставными внешними командами.
+  Указаны working/missing/broken tools, ошибка установки, non-server scope и
+  сохранённый opt-in. Приёмка 50 PASS/0 SKIP относится только к прежним
+  синтетическим случаям; новые регрессии считаются отдельно. В quickstart
+  сохраняются только метаданные. Проверка возможностей runtime-контейнера
+  остаётся отдельной; новые образы, службы, registry и production-изменения
+  в эту задачу не входят.
+
+Блокирующих пробелов полноты, ясности, безопасности или противоречий требованиям
+F211 не найдено. Существующие три media-tool места ещё содержали SKIP при
+проверке. Эта отметка принимает требования до реализации и не закрывает T089.
+Root отдельно выполняет analyze и issue sync перед кодом. Изменён только этот
+reviewer-owned checklist; тесты, Docker, GitHub, установки и production
+не запускались.
