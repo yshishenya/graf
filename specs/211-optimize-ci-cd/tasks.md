@@ -161,3 +161,8 @@ FR-038–041 / SC-019. Independent checklist + analyze + task ownership before c
 - [ ] T061 После T060 исключить только text-only code reruns в `.github/workflows/governance-fast.yml`, согласовать `scripts/validate-governance-workflow.py` и `tests/governance/test_governance_workflow.py`; доказать отсутствие нового required PASS/отмены code на body edit. (Issue #6986)
 - [ ] T062 Добавить единый `scripts/validate-pr-checks.py` для актуального полного набора, подключить `scripts/validate-issue-closeout.py` и `infra/scripts/release-candidate.sh` / train validation; сохранить исторический policy boundary и post-merge ancestry. (Issue #6986)
 - [ ] T063 Проверить события/fork/identity/failure/consumer матрицу, пройти review/converge; согласовать `docs/agent-guidance/release-and-validation.md`, quickstart и фрагмент F211 с реально включённой политикой; опубликовать cutover PR и получить exact-SHA hosted evidence. (Issue #6986)
+
+
+## Phase 16: Convergence — deterministic native boundary fixture
+
+- [ ] T067 [FR-038] Устранить зависимость `testShortRecordingBoundaryKeepsThirtySecondsFromTheFirstFrame` от произвольного 200 ms sleep в `apps/macos/Shared/Tests/LocalRecordingWriterSystemAudioTests.swift`: синтетический источник должен подтверждать обработку порции до подачи следующей, сохранив шесть граничных случаев, настоящий код записи и все frame/status/WAV assertions. Проверить отрицательный burst-control и focused Swift, затем hosted native. Не менять рабочий лимит памяти/таймер/правило 30 секунд. (Issue #6986)

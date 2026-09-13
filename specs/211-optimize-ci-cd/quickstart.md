@@ -320,3 +320,10 @@ A6 negative consumer matrix includes: fresh metadata + stale code base; missing 
 - Current remote master advanced by #6985 (release report and example environment only); foundation is rebased before publication. The next code check is bound to that updated base.
 
 A6 independent implementation review found and resolved two concrete cases: ignore open-PR background synthetic merge SHA changes while preserving real merged-history checks; restrict documentation scope to known directories/names, so the existing `outcomes/meeting_minutes.md` product resource still requires native checks. Both cases now have executable regression coverage.
+
+
+A6 hosted native convergence: run 34757372590 correctly failed on the unchanged short-recording boundary fixture (five assertions in one of six cases; 971 tests). The fixture feeds five seconds of audio every arbitrary 200 ms, so progress depends on runner scheduling despite the real timeline's bounded 20-second buffer. T067 replaces that timing assumption with test-source drain acknowledgment; runtime limits and all boundary assertions remain unchanged. Controlled burst and final paced execution are recorded separately. This is fixture synchronization inside FR-038 acceptance, not a change to the product's 30-second rule.
+
+T067 local evidence: the controlled no-pacing burst reproduced `source_overflow` and failed the boundary test (0.629 s); this diagnoses the fixture mechanism without claiming that the earlier hosted log reported that code. With per-source acknowledgment, `swift test --package-path apps/macos --filter LocalRecordingWriterSystemAudioTests` passed all 11 tests in 14.768 s on local Swift 6.3.3. Overflow, unbounded-source, interruption and WAV/frame checks remain active. Hosted Swift 6.0.3 on the new exact SHA remains required.
+
+Independent T067 implementation review: PASS; actual writer queue confirms append/observe before the next empty read, source lock protects acknowledgment, no coverage or Swift 6.0.3 API blockers found.
