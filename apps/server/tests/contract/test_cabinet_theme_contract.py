@@ -90,6 +90,8 @@ def assert_theme_palette_contract(css: str) -> None:
         'html[data-theme="light"] .detail-playback',
         'html:not([data-theme]) .detail-playback',
         'html[data-theme="dark"] .app-shell[data-active-nav="settings"]',
+        'html:not([data-theme]) .detail-page-main',
+        'html:not([data-theme]) .app-shell[data-active-nav="settings"]',
     )
     scoped = {}
     for selector in scoped_selectors:
@@ -100,6 +102,13 @@ def assert_theme_palette_contract(css: str) -> None:
     assert scoped[scoped_selectors[2]] == scoped[scoped_selectors[3]], (
         "System light player palette differs from explicit light"
     )
+    for explicit, system in ((scoped_selectors[0], scoped_selectors[5]),
+                             (scoped_selectors[4], scoped_selectors[6])):
+        assert scoped[explicit] == scoped[system], f"System dark palette differs: {system}"
+        assert re.search(
+            r"@media\s*\(prefers-color-scheme:\s*dark\)\s*\{\s*"
+            rf"{re.escape(system)}\s*\{{[^{{}}]*\}}\s*\}}", css,
+        ), f"System dark palette must follow OS: {system}"
 
     # Unreviewed component shadows remain forbidden; approved scopes are tested below.
     for match in re.finditer(r"([^{}]+)\{([^{}]*)\}", css):
@@ -204,6 +213,15 @@ def test_palette_contract_rejects_system_light_drift() -> None:
         assert_theme_palette_contract(css)
 
 
+@pytest.mark.parametrize("scope", [".detail-page-main", '.app-shell[data-active-nav="settings"]'])
+def test_palette_contract_rejects_system_dark_drift(scope: str) -> None:
+    css = CABINET_CSS.read_text(encoding="utf-8")
+    selector = f"html:not([data-theme]) {scope} {{"
+    css = css.replace(selector, selector + " --theme-drift: 1;", 1)
+    with pytest.raises(AssertionError, match="System dark palette differs"):
+        assert_theme_palette_contract(css)
+
+
 def test_palette_contract_rejects_low_contrast_text() -> None:
     css = CABINET_CSS.read_text(encoding="utf-8")
     css = re.sub(r"--text:\s*#[\da-fA-F]+;", "--text: #fff;", css)
@@ -221,6 +239,11 @@ def test_palette_contract_rejects_low_contrast_scoped_text(selector: str) -> Non
     )
     if '"light"' in selector:
         css = css.replace("--text: #242729;", f"--text: {background};")
+    else:
+        css = re.sub(
+            r"(html:not\(\[data-theme\]\) \.detail-page-main\s*\{[^{}]*?--text:)\s*#[\da-fA-F]+;",
+            rf"\g<1> {background};", css,
+        )
     with pytest.raises(AssertionError, match="Declared palette contrast"):
         assert_theme_palette_contract(css)
 

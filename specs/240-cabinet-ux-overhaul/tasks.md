@@ -163,3 +163,23 @@ Evidence T040: коммит исправлений `03a6974e11c003e538150b310cda
 T041/T042: https://github.com/yshishenya/graf/issues/6588. T041: 42 браузерные проверки, один DOM профиля, resize, темы и Escape PASS. T042: совместная приёмка и quickstart396 PASS; evidence в validation.md.
 
 - [X] T043 [US1] Устранить пересечение кнопок плеера и legal footer, проверить реальные bounds в Chrome/WebKit на пяти ширинах в validation/playback-layout.js и validation/auth-theme-checks.cjs; FR-001/SC-008 (contradicts, HIGH), #6588.
+
+## Phase 9: Convergence — системная тема
+
+- [X] T044 [US4] Восстановить совпадение системной и явной палитр встречи и настроек в apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css; расширить apps/server/tests/contract/test_cabinet_theme_contract.py и добавить specs/240-cabinet-ux-overhaul/validation/system-theme.cjs для сравнения вычисленных цветов при light/dark/system, смене темы ОС и отключённом JavaScript; FR-009b/FR-009d/SC-007 (contradicts, HIGH).
+- [X] T045 [US4] Записать результаты локальной проверки в specs/240-cabinet-ux-overhaul/system-theme-validation.md, добавить changes/unreleased/F240.yaml и пройти review/точный governance-fast после разрешённого коммита; FR-011/SC-008 (partial).
+
+T044/T045: https://github.com/yshishenya/graf/issues/6959. T044: 144 pytest и
+240 сравнений палитр Chromium/WebKit PASS; отрицательный контроль воспроизводит
+ошибку на исходном CSS. [Подробности и ограничения](system-theme-validation.md).
+T045: [PR #6960](https://github.com/yshishenya/graf/pull/6960), код
+`921d3a3786c289251a00a34fd1e930bbda4cbd93`,
+[governance-fast PASS](https://github.com/yshishenya/graf/actions/runs/34748303736),
+[pr-metadata PASS](https://github.com/yshishenya/graf/actions/runs/34748303747).
+Итоговый документационный SHA требует отдельного успешного GitHub check.
+Задача #6959 остаётся открытой до слияния и сверки критериев закрытия.
+
+Подготовка выпуска: `prepare-release.sh 2026.09.13.2` перенёс фрагмент F240
+в `changes/releases/v2026.09.13.2/F240.yaml`; заметки —
+`docs/releases/v2026.09.13.2.md`. Разрешение на коммит/push/PR получено
+2026-09-13. Итоговые SHA и GitHub evidence публикуются в PR.
