@@ -29,12 +29,12 @@ T008 → T006; GitHub owner T008: https://github.com/yshishenya/graf/issues/6924
 Исторические T006/T007 фиксируют проверку прежнего кандидата; готовность PR вновь открыта до T009–T011.
 - [X] T009 [US1] [US2] Проверить источники 2026 и примеры продуктов в `specs/6793-unified-settings-combobox/research-ui-2026.md`, определить `contracts/compact-dropdown.md`, выполнить независимый UX checklist/analyze и синхронизировать #6924 (FR-011).
 - [X] T010 [US1] [US2] Исправить оболочку, фокус и расчёт строк в `apps/macos/RecApp/Sources/Settings/NativeSettingsComboBox.swift`, ограничить поле в `apps/macos/RecApp/Sources/MeetingDetection/MeetingDetectionSettingsView.swift`, обновить раскрытие/геометрию в `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js` и уплотнить общий web CSS `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css`; добавить focused проверки геометрии и состояния в `apps/macos/Shared/Tests/NativeSettingsComboBoxTests.swift` и `apps/server/tests/browser/settings-combobox.test.cjs` (FR-011, SC-005).
-- [ ] T011 [US3] Проверить установленный GRAF Dev с раскрытыми меню обеих вкладок, темы, длинные строки, край экрана и сохранение поведения; выполнить independent review/converge, обновить `specs/6793-unified-settings-combobox/validation/receipt.md` и `changes/unreleased/F6793.yaml`, exact-SHA PR checks (FR-008, FR-009, FR-011, SC-004, SC-005).
+- [X] T011 [US3] Проверить установленный GRAF Dev с раскрытыми меню обеих вкладок, темы, длинные строки, край экрана и сохранение поведения; выполнить independent review/converge, обновить `specs/6793-unified-settings-combobox/validation/receipt.md` и `changes/unreleased/F6793.yaml`, exact-SHA PR checks (FR-008, FR-009, FR-011, SC-004, SC-005).
 
 Dependencies: T009 → T010 → T011. GitHub owner T009–T011: https://github.com/yshishenya/graf/issues/6924.
 
 ## Phase 6: Convergence после установленной проверки
-- [ ] T012 [US2] Исправить подтверждение щелчком в новой нативной панели в `apps/macos/RecApp/Sources/Settings/NativeSettingsComboBox.swift`, проверить доступность списка вариантов и добавить регрессионную проверку в `apps/macos/Shared/Tests/NativeSettingsComboBoxTests.swift`; повторить установленную приёмку T011 (FR-004, FR-006, FR-011).
+- [X] T012 [US2] Исправить подтверждение щелчком в новой нативной панели в `apps/macos/RecApp/Sources/Settings/NativeSettingsComboBox.swift`, проверить доступность списка вариантов и добавить регрессионную проверку в `apps/macos/Shared/Tests/NativeSettingsComboBoxTests.swift`; повторить установленную приёмку T011 (FR-004, FR-006, FR-011).
 
 T012 → T011. GitHub owner T012: https://github.com/yshishenya/graf/issues/6924.
 
@@ -55,7 +55,7 @@ GitHub owner T015: https://github.com/yshishenya/graf/issues/6924.
 T016 → T011. GitHub owner T016: https://github.com/yshishenya/graf/issues/6924.
 
 ## Phase 10: Convergence установленной доступности
-- [ ] T017 [US2] Устранить аварийное завершение установленного GRAF Dev при AX hit-test нативного поля в `apps/macos/RecApp/Sources/Settings/NativeSettingsComboBox.swift`; воспроизвести причину рекурсии и добавить регрессию в `apps/macos/Shared/Tests/NativeSettingsComboBoxTests.swift`, повторить реальную проверку поля/списка в T011/T012 (FR-004, FR-006; partial).
+- [X] T017 [US2] Устранить аварийное завершение установленного GRAF Dev при AX hit-test нативного поля в `apps/macos/RecApp/Sources/Settings/NativeSettingsComboBox.swift`; воспроизвести причину рекурсии и добавить регрессию в `apps/macos/Shared/Tests/NativeSettingsComboBoxTests.swift`, повторить реальную проверку поля/списка в T011/T012 (FR-004, FR-006; partial).
 
 T017 → T011/T012. GitHub owner T017: https://github.com/yshishenya/graf/issues/6924.
 
@@ -72,3 +72,5 @@ T018/T019 → T011. GitHub owner: https://github.com/yshishenya/graf/issues/6924
 T020/T021 → T011. GitHub owner: https://github.com/yshishenya/graf/issues/6924.
 
 Пользовательская приёмка 2026-09-13: «я все проверил. все нормально. войсовер больше не проверяй». Внешний вид и проверенное пользователем поведение приняты; дальнейшая проверка VoiceOver исключена прямым указанием. Итоговый исправленный SHA требует build/promote/smoke и точного GitHub gate. T021 также уточняет прежний source assertion в `apps/macos/Shared/Tests/AppControlAccessibilityTests.swift`.
+
+Закрытие T011/T012/T017: пользовательская приёмка, кодовые регрессии/независимое ревью и ограниченная установленная проверка8d816b478 подтверждены в `validation/receipt.md`. Полная новая матрица мыши/AX/тем после пользовательского принятия не повторялась; VoiceOver исключён прямым указанием.
