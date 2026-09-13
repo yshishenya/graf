@@ -891,7 +891,7 @@ def test_active_documentation_matches_bounded_fast_contract() -> None:
     assert "then the fast lane before the PR" not in release_guidance
     assert "finish with `infra/scripts/ci-local.sh --fast`" not in release_guidance
     assert "ready slice or PR: required GitHub `governance-fast`" in release_guidance
-    assert "обязательный authoritative PR" in pull_request_template
+    assert all(f"`{name}`" in pull_request_template for name in ("governance-fast", "macos-pr", "pr-metadata"))
     assert "только ручная диагностика/offline fallback" in pull_request_template
 
 

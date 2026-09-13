@@ -380,3 +380,5 @@ T072 local `swift test --package-path apps/macos --filter SystemAudioPermissionU
 ### A6 live text-event acceptance — 2026-09-13
 
 На `59c7072590feaf5c9b1d163c8f17c3742254e07e` Swift6.0.3 native run34760638453 PASS. Правка только body в13:47:25 UTC создала metadata34760821522 PASS и текстовые scope runs34760821336/34760821301; исходный code34760638452 продолжал работу без отмены, Swift повторно skipped. GitHub оставляет dynamic name пропущенного code job невычисленным выражением. Для надёжного consumer добавлен только маленький code-scope artifact текстового события; его run/attempt/head/base/text identity обязателен перед пропуском такой записи. Code receipt из текста не создаётся. Регрессии новых условий и workflow contract:73PASS/10.14с; будущая hosted проверка обновлённого source остаётся обязательной.
+
+A6 documentation contract продолжения: старая проверка единственного «обязательный authoritative PR» обновлена на явное присутствие всех трёх обязательных имён. Поведение тестов не изменено. Связанный CI/CD contract до изменения этой строки имел единственное несовпадение документации; исправленный сценарий PASS.
