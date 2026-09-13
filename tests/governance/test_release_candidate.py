@@ -50,6 +50,7 @@ def fixture(tmp_path: Path, release_calver: str = "2026.08.31.1") -> Path:
     shutil.copy2(SCHEMA, tmp_path / "infra/release/candidate.schema.json")
     (tmp_path / "scripts").mkdir()
     shutil.copy2(EVIDENCE_VALIDATOR, tmp_path / "scripts/validate-ci-evidence.py")
+    (tmp_path / "scripts/validate-pr-checks.py").write_text("import os,sys; sys.exit(17) if os.environ.get(\"TEST_PR_CHECKS_FAIL\") else print(\"[]\")\n")
     (tmp_path / "CHANGELOG.md").write_text(
         f"## [Unreleased]\n\n- _Пока нет записей._\n\n## [{release_calver}] - 2026-09-01\n\n- Feature 216\n- Feature 217\n\n## [2026.08.30.1] - 2026-08-30\n\n- Previous release\n",
         encoding="utf-8",
@@ -785,3 +786,20 @@ known_limitations:
     assert result.returncode == 0, result.stderr
     text = (root / "CHANGELOG.md").read_text(encoding="utf-8")
     assert "Первое ограничение; Второе ограничение" in text
+
+
+def test_incomplete_pr_checks_block_freeze_and_current_candidate(tmp_path: Path, monkeypatch) -> None:
+    root = fixture(tmp_path)
+    script = root / "infra/scripts/release-candidate.sh"
+    sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+    frozen = root / "candidate.json"
+    args = ("freeze", "--sha", sha, "--features", "216,217", "--operator", "release", "--output", str(frozen))
+    monkeypatch.setenv("TEST_PR_CHECKS_FAIL", "1")
+    result = run(script, *args, cwd=root)
+    assert result.returncode != 0 and "complete release PR checks" in result.stderr
+    assert not frozen.exists()
+    monkeypatch.delenv("TEST_PR_CHECKS_FAIL")
+    assert run(script, *args, cwd=root).returncode == 0
+    monkeypatch.setenv("TEST_PR_CHECKS_FAIL", "1")
+    result = run(script, "validate", str(frozen), "--current", cwd=root)
+    assert result.returncode != 0 and "complete release PR checks" in result.stderr

@@ -701,6 +701,7 @@ def test_feature_closeout_verifies_github_workflow_conclusion_and_head_sha(monke
         "body": "Refs #6337",
     }
     monkeypatch.setattr(validator, "_github_pr", lambda _repo, _number: pr)
+    monkeypatch.setattr(validator, "_github_pr_checks", lambda *_args: {})
     assert validator.verify_feature_runs(
         "yshishenya/graf",
         [issue],
@@ -1100,6 +1101,7 @@ def test_single_issue_live_cli_checks_actual_pr_and_run(tmp_path, monkeypatch):
     run = {'conclusion': 'success', 'workflowName': 'governance-fast', 'event': 'pull_request',
            'workflowPath': '.github/workflows/governance-fast.yml', 'pullRequestNumbers': [6383], 'headSha': 'a'*40}
     monkeypatch.setattr(validator, '_github_pr', lambda *_a: pr)
+    monkeypatch.setattr(validator, '_github_pr_checks', lambda *_a: {})
     monkeypatch.setattr(validator, '_github_run', lambda *_a: run)
     assert validator.main() == 0
     # An unrelated expected SHA hidden elsewhere in the comment cannot stand in
@@ -1159,3 +1161,25 @@ def test_installed_workflow_cannot_finish_at_implementation():
     skill = (ROOT / '.agents/skills/speckit-taskstoissues/SKILL.md').read_text()
     assert skill.index('## Closeout mode') < skill.index('## Outline')
     assert '--verify-live' in skill and 'This mode creates no new issues' in skill
+
+
+def test_closeout_requires_current_full_pr_check_set(monkeypatch):
+    validator = load_script("validate-issue-closeout")
+    issue = _closeout_issue(_closeout_comment())
+    monkeypatch.setattr(validator, "_github_pr", lambda *_args: {
+        "state": "MERGED", "mergedAt": "2026-09-13T00:00:00Z",
+        "headRefOid": "a"*40, "body": "Refs #6337",
+    })
+    monkeypatch.setattr(validator, "_github_run", lambda *_args: {
+        "conclusion": "success", "workflowName": "governance-fast", "headSha": "a"*40,
+        "event": "pull_request", "workflowPath": ".github/workflows/governance-fast.yml",
+        "pullRequestNumbers": [6383],
+    })
+    calls = []
+    def checks(*args):
+        calls.append(args)
+        raise ValueError("stale metadata or missing native proof")
+    monkeypatch.setattr(validator, "_github_pr_checks", checks)
+    errors = validator.verify_feature_runs("yshishenya/graf", [issue], "a"*40)
+    assert calls == [("yshishenya/graf", 6383, "a"*40, "123")]
+    assert any("current complete PR checks" in error for error in errors)

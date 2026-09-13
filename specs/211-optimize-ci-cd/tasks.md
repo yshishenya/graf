@@ -157,9 +157,9 @@ FR-038–041 / SC-019. Independent checklist + analyze + task ownership before c
 
 - [X] T058 Добавить исполняемые scope/native-negative контракты в `tests/governance/test_pr_scope.py`, реализовать `scripts/ci-pr-scope.py` и `.github/workflows/macos-pr.yml` с точным SHA и безопасным итоговым check. (Issue #6986)
 - [X] T059 Защитить `.github/workflows/pr-metadata.yml` и `scripts/validate-pr-metadata.py` trusted policy/double snapshot/isolated Python; расширить `tests/governance/test_pr_metadata_event.py`, сохранив прежний CLI. (Issue #6986)
-- [ ] T060 Проверить и опубликовать foundation PR с прежним combined gate; получить исходный SHA включения, проверить новые checks и добавить required `pr-metadata`/`macos-pr` без удаления `governance-fast`; сохранить read-back evidence. (Issue #6986)
+- [X] T060 Проверить и опубликовать foundation PR с прежним combined gate; получить исходный SHA включения, проверить новые checks и добавить required `pr-metadata`/`macos-pr` без удаления `governance-fast`; сохранить read-back evidence. (Issue #6986)
 - [ ] T061 После T060 исключить только text-only code reruns в `.github/workflows/governance-fast.yml`, согласовать `scripts/validate-governance-workflow.py` и `tests/governance/test_governance_workflow.py`; доказать отсутствие нового required PASS/отмены code на body edit. (Issue #6986)
-- [ ] T062 Добавить единый `scripts/validate-pr-checks.py` для актуального полного набора, подключить `scripts/validate-issue-closeout.py` и `infra/scripts/release-candidate.sh` / train validation; сохранить исторический policy boundary и post-merge ancestry. (Issue #6986)
+- [X] T062 Добавить единый `scripts/validate-pr-checks.py` для актуального полного набора, подключить `scripts/validate-issue-closeout.py` и `infra/scripts/release-candidate.sh` / train validation; сохранить исторический policy boundary и post-merge ancestry. (Issue #6986)
 - [ ] T063 Проверить события/fork/identity/failure/consumer матрицу, пройти review/converge; согласовать `docs/agent-guidance/release-and-validation.md`, quickstart и фрагмент F211 с реально включённой политикой; опубликовать cutover PR и получить exact-SHA hosted evidence. (Issue #6986)
 
 
@@ -184,3 +184,7 @@ FR-044–048 / SC-021; reviewer-owned image-reuse checklist and clean analyze be
 - [ ] T069 Добавить минимальный `infra/scripts/release-images.py` с реальными previous IDs, двумя candidate builds, platform/source validation, сторонними refs, create-once attempts и Compose overrides; покрыть `tests/governance/test_release_images.py`. (Issue #6989)
 - [ ] T070 Подключить проверенные candidate/decision/evidence identity и images в `infra/scripts/cd-remote.sh`, `infra/scripts/cd-remote-runtime.sh`, `infra/scripts/run-production-smoke.sh`; сохранить gates и правильные candidate/previous rollback ветки без пересборки/pull. (Issue #6989)
 - [ ] T071 Проверить lifecycle/rollback/smoke отрицательные ветки и реальные образы; review/converge, quickstart, инструкции выкатки и `changes/unreleased/F211.yaml`, exact-SHA hosted проверки. (Issue #6989)
+
+## Phase 19: Native-check convergence after A7
+
+- [ ] T072 [FR-038] Устранить состязание двух DispatchQueue timers в `apps/macos/Shared/Tests/SystemAudioPermissionUXTests.swift`: поздний ответ подать только после полученного timeout, сохранить настоящий permission probe, проверку late/duplicate completion и следующего запроса. Проверить focused Swift и exact-SHA GitHub macos-pr; рабочий timeout/permissions не менять. (Issue #6986)

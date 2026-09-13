@@ -155,40 +155,40 @@ def test_governance_workflow_binds_merge_group_identity_and_receipt() -> None:
         assert marker in source
 
 
-def test_governance_workflow_validates_pr_metadata_against_event_sha() -> None:
-    source = (ROOT / ".github/workflows/governance-fast.yml").read_text(encoding="utf-8")
-    assert "name: Validate pull request metadata" in source
-    assert "if: ${{ github.event_name == 'pull_request' }}" in source
-    assert 'event_path, body_path, feature_id_path = map(Path, sys.argv[1:4])' in source
-    assert 'git", "diff", "--name-only"' in source
-    assert 'changes/(?:unreleased|releases/v[^/]+)/F(\\d{3,})\\.yaml' in source
-    assert 'feature_id_path.write_text(",".join(feature_ids) if feature_ids else "scoped"' in source
-    assert '--scoped' in source
-    assert 'pull_request = event.get("pull_request")' in source
-    assert 'github.event.pull_request.head.sha' in source
-    assert '--expected-sha "$EXPECTED_SHA"' in source
-    assert '.specify/feature.json' not in source
-    assert "types: [opened, synchronize, reopened, ready_for_review, edited]" in source
+def test_governance_workflow_isolates_text_from_required_code_checks() -> None:
+    import yaml
+    source = (ROOT / ".github/workflows/governance-fast.yml").read_text()
+    workflow = yaml.load(source, Loader=yaml.BaseLoader)
+    assert "concurrency" not in workflow
+    job = workflow["jobs"]["governance-fast"]
+    assert job["needs"] == "scope"
+    assert job["if"] == "${{ always() && needs.scope.outputs.text_only != 'true' }}"
+    assert "governance-fast-text-change" in job["name"]
+    assert job["concurrency"]["cancel-in-progress"] == "true"
+    assert "scripts/validate-pr-metadata.py" not in source
+    assert "retention-days: 90" in source
 
 
 def test_governance_workflow_has_fail_closed_terminal_validators() -> None:
     source = (ROOT / ".github/workflows/governance-fast.yml").read_text(encoding="utf-8")
     assert "continue-on-error: true" not in source
     assert "name: Assert mandatory governance outcomes" in source
-    assert "PR_METADATA_OUTCOME" in source
+    assert "PR_METADATA_OUTCOME" not in source
     assert "TERMINAL_OUTCOME" in source
     assert "RECEIPT_VALIDATION_OUTCOME" in source
     assert "if: ${{ always() }}" in source
     assert "name: Upload metadata-only evidence" in source
 
 
-def test_governance_workflow_does_not_require_pr_body_for_non_pr_events() -> None:
-    source = (ROOT / ".github/workflows/governance-fast.yml").read_text(encoding="utf-8")
-    gate = source.split("- name: Validate pull request metadata", 1)[1]
-    gate = gate.split("- name: Run bounded fast lane", 1)[0]
-    assert "if: ${{ github.event_name == 'pull_request' }}" in gate
-    assert "merge_group" not in gate
-    assert "workflow_dispatch" not in gate
+@pytest.mark.parametrize("scope,text,expected", [("success", "false", 0), ("success", "true", 1), ("failure", "", 1), ("cancelled", "false", 1)])
+def test_actual_scope_failure_stops_before_expensive_code(scope, text, expected) -> None:
+    import os
+    import yaml
+    workflow = yaml.load((ROOT / ".github/workflows/governance-fast.yml").read_text(), Loader=yaml.BaseLoader)
+    first = workflow["jobs"]["governance-fast"]["steps"][0]
+    assert first["name"] == "Require valid code scope"
+    result = subprocess.run(["bash", "-c", first["run"]], env={**os.environ, "SCOPE_RESULT":scope, "TEXT_ONLY":text})
+    assert result.returncode == expected
 
 
 def test_governance_workflow_emits_terminal_receipt_after_failure_or_cancel() -> None:
