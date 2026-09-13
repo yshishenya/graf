@@ -259,3 +259,13 @@ Constitution 7.0.0 PASS, high-risk infrastructure lane. Existing Docker/Compose,
 5. Downgrade and compatibility remain candidate. Only restore_previous_services / restore_previous_safe_processing_runtime switch to previous override after permitted schema decisions and source reset; delete their rebuilds. Ensure explicit no-pull and correct CLI options. Capture/verify actual service IDs after recreate, retain existing readiness/network/poller/dispatch decisions.
 6. Pass override to run-production-smoke.sh (including its cleanup), not only COMPOSE_FILE env, because it currently supplies explicit -f. Preserve standalone smoke without an override and validate supplied metadata-only mapping. Final attempt result is persisted before clearing the trap. Only verified unchanged runtime or successful recovery of all existing gates (including public download) closes a failed attempt. Failed rollback, compatibility/forward-fix or uncertain state preserves the active baseline and requires recovery. EXIT trap execution alone proves nothing. Failure to persist baseline/helper/overrides fails before stop; final-write failure never reports deploy_result=pass or unlocks the incomplete attempt (including disk-full).
 7. Focused executable lifecycle tests with Docker CLI stubs, existing deployment/rollback/smoke contracts, real local two-target cache/resource check, review/converge; final exact-SHA Full and release dry-run separately. No production traffic is changed during local validation.
+
+### A6 review correction T087
+
+Reuse `metadata.checked_base` in `ci-pr-scope.resolve` and code snapshots,
+preserve actual merged SHA, and allow valid merged title/body events through
+the existing component verifier. Name governance uploads by run ID/attempt;
+use exact-first legacy-compatible reading in the shared artifact loader.
+Execute real Git history and fake-provider ZIP regressions before acceptance;
+retain full-consumer metadata/source/gate validation. No workflow dispatcher,
+new evidence schema, product-test change, or permission expansion is needed.

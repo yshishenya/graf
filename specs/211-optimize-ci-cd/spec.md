@@ -313,3 +313,15 @@ Clarify: production host остаётся местом сборки. Реест�
 - **FR-047**: State в Git private path переживает source reset, хранит только metadata/image mappings, source/candidate ID/decision and Full evidence digests. Create-once attempts не затирают baseline после hard interruption; неизвестная незавершённая попытка блокирует новый запуск до явного восстановления состояния оператором. Attempt разрешает следующий запуск только после подтверждённого неизменённого runtime либо успешного восстановления всех существующих gates, включая public download. Неуспешный rollback, compatibility/forward-fix или неизвестное состояние сохраняют незавершённый baseline до recovery; исполнение EXIT trap не является подтверждением. Ошибка записи baseline/helper/override (включая disk-full) блокирует до stop. Ошибка сохранения финального результата не даёт deploy_result=pass и оставляет attempt блокирующим. Подтверждённый retry того же SHA использует готовые images. Проверенные release tags удерживают candidate/previous IDs от обычной dangling-image cleanup.
 - **FR-048**: Schema/backup/restore/roles/dispatch/public-health gates сохраняются. Downgrade graph и compatibility runtime используют candidate images; previous override включается только в разрешённой настоящей rollback ветке. После source reset нужный helper остаётся доступен из private attempt copy. Smoke и все его cleanup используют тот же override; после recreate сверяются реальные .Image IDs. Ошибка сборки/получения/проверки не останавливает старый API.
 - **SC-021**: Реальная сборка двух targets подтверждает pip check, эквивалентный runtime/evaluation набор и ресурсы, FFmpeg только media и source labels. Отдельно проверяются новый SHA при прежних байтах и настоящий source-only diff: оба сохраняют dependency/FFmpeg cache, второй также меняет проверяемый application output при прежнем наборе dependencies/resources. Исполняемые fake-Docker lifecycle tests проверяют source/platform/ID mismatch, missing previous, build/pull failure before stop, same-SHA retry no build, rollback no build/pull, candidate downgrade vs previous runtime, smoke override, incomplete-attempt preservation, неуспешное восстановление, disk-full до stop и отказ записи итогового результата. Реальная выкатка требует финального авторитетного Full и dry-run, не выводится из этих тестов.
+
+### A6 review delta — merged text and rerun artifacts
+
+FR-040/SC-019 also require reuse after a verified linear squash/rebase merge.
+Both scope and code snapshots derive `checked_base`; moving API master is not
+the checked base. Actual merge SHA remains part of identity, including races
+where head/tree/base stay equal. Closed/unmerged and wrong merge trees fail.
+Current trusted metadata and the latest fixed-name gate remain mandatory for
+release consumers. New governance artifact names include run ID and attempt;
+exact names take precedence. Legacy names remain readable only when no exact
+name exists, exactly one unexpired legacy artifact exists, and its internal
+run/attempt matches. An invalid exact artifact never falls back to legacy.

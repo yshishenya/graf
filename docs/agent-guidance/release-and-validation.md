@@ -66,7 +66,9 @@ failure stops before those tests. Proven title/body-only edits run a cheap scope
 step, trusted metadata and source-proof verification in the existing fixed-name
 `governance-fast` and `macos-pr` checks. They do not enter code-job concurrency,
 install test resources, repeat product tests or create new source receipts.
-The fixed-name check passes only after verifying the latest actual source
+For a merged PR, text scope and reuse recover the checked base from the actual
+linear squash/rebase history and retain the real merge SHA; advancing master
+does not invalidate that immutable history. The fixed-name check passes only after verifying the latest actual source
 execution for the exact PR/head/base, workflow and run attempt. A running source
 may be waited on within the job's timeout; failure, cancellation, timeout,
 missing/expired proof or an API error fails the text check without an older-success fallback.
@@ -109,7 +111,9 @@ with its fixed required name. Source selection uses actual execution time/run ID
 and attempt, never the latest success. Before PASS, it rechecks every selected
 source and gate attempt as well as the current PR identity. It rejects missing,
 expired, unsuccessful, stale or mixed-attempt proof, including a later failed
-rerun of an older run ID. A merged PR must match its actual squash
+rerun of an older run ID. New governance artifacts include run ID and attempt.
+The former artifact name is read only if the exact name is absent, the legacy
+artifact is unique/unexpired and its internal run/attempt matches. A merged PR must match its actual squash
 or linear-rebase history and final tree. Only PRs merged before the recorded
 activation use historical combined evidence; old open PRs receive no exemption.
 Release freeze/decision verifies the PR range after the latest published stable

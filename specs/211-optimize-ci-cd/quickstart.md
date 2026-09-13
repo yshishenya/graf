@@ -408,3 +408,38 @@ Hosted готовность не выводится только из локал
 - Итоговый целевой набор: **273 PASS / 47,34 с**, `/tmp/graf-a6-reuse-consumers.log`: `tests/governance/test_pr_checks.py`, `test_pr_metadata_event.py`, `test_release_candidate.py`, `test_release_train.py`, `test_governance_workflow.py`, `test_pr_scope.py`, `test_validator_safety.py`. API подменяется на границе провайдера; выбор source/gate, проверки доказательств и настоящий Git выполняются. Фактические shell двух workflow передают ошибку proof verifier; governance text-цепочка не создаёт `.dev/ci-evidence`.
 - Actionlint обеих workflow, `validate-governance-workflow.py --self-test`, Ruff изменённых Python файлов и `git diff --check`: **PASS**. Два самостоятельных контракта активной документации: **2 PASS** через `pytest --confcutdir=apps/server/tests/contract ... -k active_documentation`, без загрузки продуктового server conftest. Использован существующий Python 3.13 venv с pytest 9.1.1; новый environment не создавался.
 - Сопоставление FR-040/SC-019 → T080/T081: условия постоянных names, неизменного source, отказа при ошибках, отсутствия взаимного ожидания, gate/source revalidation и сохранения historical/post-merge policy покрыты. T080 завершён. Локальная реализация T081 подготовлена к независимому implementation review; T081, T061 и T063 остаются открытыми до review, commit/push и настоящей exact-SHA/body-edit приёмки основным агентом. Issue #6986 остаётся открытым. Full CI, сборки продукта, изменения GitHub и production на этом этапе не выполнялись.
+
+### A6 review corrections — 2026-09-13
+
+GitHub review comments 4000081305/4000081311 reproduced: initial executable
+Git/ZIP regressions had 5 FAIL, 10 PASS. Minimal fix reuses checked_base for
+scope and code snapshots, retains real merge identity and supports merged
+text. New uploads use run/attempt names; invalid exact artifacts cannot use
+legacy fallback. Requirements reviewer PASS6/6; FR-040/SC-019→T087 and its
+Issue #6986 map without critical/high requirements gaps.
+
+Targeted consumers: 293 PASS /52.56 s; additional two-commit linear-rebase and
+same-tree/base merge-identity race cases: 14 PASS /5.16 s. Actual source scope
+and artifact reader run against real disposable Git and synthetic API/ZIP;
+no product suite repeated. actionlint, workflow validator/self-test, Ruff and
+diff checks PASS. These are local results; independent delta review, final
+SHA checks and post-merge edited acceptance remain open in T087.
+
+Rebased on master90e15a026 (PR #6991). Git followed the consumed F211 fragment
+rename automatically; restored the already assembled v2026.09.13.3 fragment
+and wrote only subsequent cutover changes to changes/unreleased/F211.yaml.
+The earlier body-edit acceptance on97f2348 stays historical evidence: source
+runs34766571261/34766571290 attempt1 passed once; edits during source
+34766625384/34766625382 and after34767489191/34767489142 passed without
+cancelling/repeating source. Actual merge box no longer showed expected
+required contexts; its then-current blocker was the newly changed master.
+
+Independent delta review found an additional fresh-checkout ordering P2:
+code_snapshot needed Git objects before the existing fetch loop. The one-line
+move after fetch is covered by a real local bare-remote regression: 1 FAIL/
+1 PASS before, missing head fetch succeeds after and fetch failure stays closed.
+Final narrow corrections suite: 24 PASS /6.19 s, Ruff/diff PASS.
+
+Independent final A6 delta review PASS: both original P1 and fetch-order P2
+resolved, no open P1/P2. Local scope complete; T087 keeps hosted/post-merge
+acceptance open.

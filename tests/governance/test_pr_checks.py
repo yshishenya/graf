@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import copy
 import importlib.util
+import io
 import json
 from pathlib import Path
 import re
 import sys
+import zipfile
 
 import pytest
 
@@ -127,6 +129,46 @@ def test_expired_or_missing_artifact_is_not_reused(bundle, monkeypatch):
         monkeypatch.setattr(checks, 'api', lambda *_a, **_k: artifacts)
         with pytest.raises(ValueError, match='missing/expired'):
             checks.artifact('owner/repo', run, 'macos-pr')
+
+
+@pytest.mark.parametrize('case', ['retry', 'legacy', 'mixed', 'expired', 'duplicate',
+                                 'legacy-mixed', 'legacy-expired', 'legacy-duplicate'])
+def test_governance_artifact_selects_exact_attempt_without_losing_legacy_proof(bundle, monkeypatch, case):
+    pr, _, base, bundles = bundle
+    run, proof = bundles['governance-fast']
+    run['run_attempt'] = 2
+    proof['run_attempt'] = 1 if 'mixed' in case else 2
+    name = 'graf-governance-fast-evidence'
+    if not case.startswith('legacy'):
+        import yaml
+        workflow = yaml.safe_load((ROOT / '.github/workflows/governance-fast.yml').read_text())
+        upload = next(step for step in workflow['jobs']['governance-fast']['steps']
+                      if step.get('name') == 'Upload metadata-only evidence')
+        name = upload['with']['name'].replace('${{ github.run_id }}', '11').replace('${{ github.run_attempt }}', '2')
+        assert name == 'graf-governance-fast-evidence-11-2'
+    row = dict(id=22, name=name, expired='expired' in case,
+               expires_at='2099-01-01T00:00:00Z', workflow_run=dict(id=11))
+    rows = [dict(row, id=21, name='graf-governance-fast-evidence-11-1'), row]
+    if not case.startswith('legacy'):
+        rows.append(dict(row, id=20, name='graf-governance-fast-evidence', expired=False))
+    if 'duplicate' in case:
+        rows.append(dict(row, id=23))
+    monkeypatch.setattr(checks, 'api', lambda *_a, **_k: rows)
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, 'w') as output:
+        output.writestr('receipt-11.json', json.dumps(proof))
+    def download(args, **_kwargs):
+        assert args[-1] == 'repos/owner/repo/actions/artifacts/22/zip'
+        return archive.getvalue()
+    monkeypatch.setattr(checks.subprocess, 'check_output', download)
+    if case in {'retry', 'legacy'}:
+        result = checks.artifact('owner/repo', run, 'governance-fast')
+        checks.validate_source(pr, 'owner/repo', base, 'governance-fast', run, result)
+        assert result['run_attempt'] == 2
+    else:
+        with pytest.raises(ValueError):
+            result = checks.artifact('owner/repo', run, 'governance-fast')
+            checks.validate_source(pr, 'owner/repo', base, 'governance-fast', run, result)
 
 
 @pytest.mark.parametrize("workflow", ["governance-fast", "macos-pr", "pr-metadata"])
@@ -456,3 +498,77 @@ def test_full_consumer_detects_changed_head_ref_after_proof_validation(github):
     github['after_artifact'] = change
     with pytest.raises(ValueError, match='PR changed'):
         checks.verify('owner/repo', 7)
+
+
+@pytest.mark.parametrize('workflow', ['governance-fast', 'macos-pr'])
+@pytest.mark.parametrize('case', ['merged', 'rebase', 'moving-base', 'wrong-tree', 'closed-unmerged', 'merge-changed', 'stale-metadata'])
+def test_merged_text_reuses_checked_history_and_preserves_release_validation(github, monkeypatch, workflow, case):
+    pr, root = github['pr'], Path.cwd()
+    if case == 'rebase':
+        old = pr['head']['sha']
+        head = git(root, 'commit-tree', old + '^{tree}', '-p', old, '-m', 'second source')
+        git(root, 'checkout', '--detach', head)
+        pr['head']['sha'], pr['commits'] = head, 2
+        pr['body'] = pr['body'].replace(old, head)
+        for rows in github['runs'].values():
+            rows[0]['head_sha'] = head
+        for proof in github['artifacts'].values():
+            for key in ('target_sha', 'requested_sha', 'observed_sha_start', 'observed_sha_end'):
+                if key in proof:
+                    proof[key] = head
+    tree = (github['base'] if case == 'wrong-tree' else pr['head']['sha']) + '^{tree}'
+    merge = git(root, 'commit-tree', tree, '-p', github['base'], '-m', 'squash')
+    if case == 'rebase':
+        merge = git(root, 'commit-tree', tree, '-p', merge, '-m', 'rebased second')
+    pr.update(merged=True, state='closed', merged_at='2026-09-13T01:00:00Z', merge_commit_sha=merge)
+    pr['base']['sha'] = git(root, 'commit-tree', tree, '-p', merge, '-m', 'later master')
+    git(root, 'update-ref', 'refs/remotes/origin/master', pr['base']['sha'])
+    if case == 'closed-unmerged':
+        pr.update(merged=False, merge_commit_sha=None)
+    github['text'](workflow, status='completed')
+    if case == 'merge-changed':
+        def change(run, kind):
+            if run['id'] in {11, 12} and kind == workflow:
+                # Different merge identity with the same checked base and final tree.
+                pr['merge_commit_sha'] = git(root, 'commit-tree', tree, '-p', github['base'], '-m', 'another squash')
+                github['after_artifact'] = None
+        github['after_artifact'] = change
+    if case in {'wrong-tree', 'closed-unmerged', 'merge-changed'}:
+        with pytest.raises(ValueError):
+            reuse(github, monkeypatch, workflow)
+        return
+    if case == 'moving-base':
+        event = dict(number=7, action='edited', changes={'body': {'from': 'before'}}, pull_request=copy.deepcopy(pr))
+        pr['base']['sha'] = git(root, 'commit-tree', tree, '-p', pr['base']['sha'], '-m', 'master advanced again')
+        result = checks.reuse('owner/repo', event, workflow, 25, 1)
+    else:
+        result = reuse(github, monkeypatch, workflow)
+    assert result['base_sha'] == github['base'] != pr['base']['sha']
+    assert result['run_id'] == ('11' if workflow == 'governance-fast' else '12')
+    pr['body'] += '\nUpdated release evidence\n'
+    if case == 'stale-metadata':
+        with pytest.raises(ValueError, match='metadata'):
+            checks.verify('owner/repo', 7)
+    else:
+        github['artifacts'][(13, 'pr-metadata')].update(checks.metadata.metadata_snapshot(pr, 'owner/repo'))
+        assert checks.verify('owner/repo', 7)['merge_commit_sha'] == merge
+
+
+@pytest.mark.parametrize('fetch_failure', [False, True])
+def test_merged_consumer_fetches_missing_history_before_checked_snapshot(github, tmp_path, fetch_failure):
+    pr, root = github['pr'], Path.cwd()
+    head = pr['head']['sha']
+    remote = tmp_path / 'remote.git'
+    git(root, 'clone', '--bare', str(root), str(remote))
+    git(root, 'remote', 'add', 'origin', str(remote / 'missing' if fetch_failure else remote))
+    pr.update(merged=True, state='closed', merged_at='2026-09-13T01:00:00Z', merge_commit_sha=head)
+    # Only this disposable fixture loses its loose head object; the remote retains it.
+    obj = root / '.git/objects' / head[:2] / head[2:]
+    obj.unlink()
+    if fetch_failure:
+        with pytest.raises(checks.subprocess.CalledProcessError):
+            checks.verify('owner/repo', 7)
+        assert not obj.exists()
+    else:
+        assert checks.verify('owner/repo', 7)['merge_commit_sha'] == head
+        assert git(root, 'rev-parse', head + '^{tree}')

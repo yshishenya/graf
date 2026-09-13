@@ -163,12 +163,15 @@ def api(repository, endpoint, *, pages_key=None):
 
 
 def artifact(repository, run, workflow, *, optional=False):
-    names = {"governance-fast": "graf-governance-fast-evidence",
+    names = {"governance-fast": f"graf-governance-fast-evidence-{run['id']}-{run['run_attempt']}",
              "code-scope": f"graf-code-scope-{run['id']}-{run['run_attempt']}",
              "macos-pr": f"graf-native-scope-{run['id']}-{run['run_attempt']}",
              "pr-metadata": f"graf-pr-metadata-{run['id']}-{run['run_attempt']}"}
     rows = api(repository, f"actions/runs/{run['id']}/artifacts?per_page=100", pages_key="artifacts")
     matches = [row for row in rows if row.get("name") == names[workflow]]
+    if not matches and workflow == "governance-fast":
+        # Pre-cutover receipts keep their old name and still need exact attempt validation.
+        matches = [row for row in rows if row.get("name") == "graf-governance-fast-evidence"]
     if not matches and optional:
         return None
     require(len(matches) == 1 and matches[0].get("expired") is False, f"{workflow}: missing/expired artifact")
@@ -246,7 +249,8 @@ def code_snapshot(pr, repository):
     snapshot = metadata.metadata_snapshot(pr, repository)
     require(isinstance(pr["head"].get("ref"), str) and bool(pr["head"]["ref"]), "missing PR head ref")
     snapshot["head_ref"] = pr["head"]["ref"]
-    return {key: value for key, value in snapshot.items() if key not in {"metadata_digest", "merge_commit_sha"}}
+    snapshot["base_sha"] = metadata.checked_base(pr)
+    return {key: value for key, value in snapshot.items() if key not in {"metadata_digest", "api_base_sha"}}
 
 
 def reuse(repository, event, workflow, run_id, attempt, *, wait_seconds=0):
@@ -258,9 +262,8 @@ def reuse(repository, event, workflow, run_id, attempt, *, wait_seconds=0):
     number = scope["pull_request_numbers"][0]
     pr = api(repository, f"pulls/{number}")
     snapshot = code_snapshot(pr, repository)
-    require(pr.get("state") == "open" and pr.get("merged") is False
-            and snapshot == code_snapshot(event["pull_request"], repository)
-            and snapshot["target_sha"] == scope["target_sha"] and snapshot["api_base_sha"] == scope["base_sha"],
+    require(snapshot == code_snapshot(event["pull_request"], repository)
+            and snapshot["target_sha"] == scope["target_sha"] and snapshot["base_sha"] == scope["base_sha"],
             "text event differs from current PR")
     own = api(repository, f"actions/runs/{run_id}")
     run_identity(repository, workflow, pr, own)
@@ -295,12 +298,12 @@ def verify(repository, number, *, expected_sha=None, code_run_id=None):
     require(re.fullmatch(r"[\w.-]+/[\w.-]+", repository) and type(number) is int and number > 0, "invalid repository/PR")
     pr = api(repository, f"pulls/{number}")
     snapshot = metadata.metadata_snapshot(pr, repository)
-    branch_identity = code_snapshot(pr, repository)
     if expected_sha:
         require(snapshot["target_sha"] == expected_sha, "PR SHA differs from requested source")
     for sha in {snapshot["target_sha"], snapshot["api_base_sha"], snapshot["merge_commit_sha"]} - {None}:
         if subprocess.run(["git", "cat-file", "-e", f"{sha}^{{commit}}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode:
             subprocess.run(["git", "fetch", "--no-tags", "origin", sha], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    branch_identity = code_snapshot(pr, repository)
     base = metadata.checked_base(pr)
     policy = json.loads((ROOT / ".github/pr-check-policy.json").read_text())
     old = historical(pr, policy)
