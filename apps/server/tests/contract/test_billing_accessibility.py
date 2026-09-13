@@ -10,13 +10,13 @@ def test_billing_templates_keep_explicit_actions_and_live_statuses() -> None:
     overview = (TEMPLATE_ROOT / "billing_overview_content.html").read_text(encoding="utf-8")
     subscription = (TEMPLATE_ROOT / "billing_subscription_content.html").read_text(encoding="utf-8")
     history = (TEMPLATE_ROOT / "billing_history_content.html").read_text(encoding="utf-8")
-    assert "Без лимита по минутам" in overview
+    assert "Без лимита" in overview
     assert "Отключить автопродление" in subscription
     assert 'role="status"' in history
     assert "refund status" not in history.lower()
 
 
-def test_every_billing_screen_keeps_payment_help_after_the_primary_panel() -> None:
+def test_every_billing_screen_keeps_payment_help_or_history_after_the_primary_panel() -> None:
     for name in (
         "billing_overview_content.html",
         "billing_usage_content.html",
@@ -31,19 +31,67 @@ def test_every_billing_screen_keeps_payment_help_after_the_primary_panel() -> No
         "billing_operation_status_content.html",
     ):
         html = (TEMPLATE_ROOT / name).read_text(encoding="utf-8")
+        if name == "billing_overview_content.html":
+            assert 'href="/billing/history">История платежей</a>' in html
+            assert html.index('href="/billing/history"') > html.index('id="billing-history-title"')
+            assert "Нужна помощь с оплатой?" not in html
+            continue
         assert "Нужна помощь с оплатой?" in html
         destination = "#billing-help" if name == "billing_history_content.html" else "/billing/history"
         assert f'href="{destination}"' in html
         assert html.index("Нужна помощь с оплатой?") > html.index("</section>")
 
 
-def test_member_billing_surfaces_do_not_render_workspace_usage_values() -> None:
-    overview = (TEMPLATE_ROOT / "billing_overview_content.html").read_text(encoding="utf-8")
-    usage = (TEMPLATE_ROOT / "billing_usage_content.html").read_text(encoding="utf-8")
+def test_non_payer_billing_surfaces_keep_quota_state_without_usage_values() -> None:
+    from twobrain_rec_server.billing.catalog import plan_descriptor
 
-    assert 'billing_role in ["member", "corporate_owner"]' in overview
-    assert 'billing_role in ["member", "corporate_owner"]' in usage
-    assert "Точные объёмы использования видит плательщик" in usage
+    values = {name: "private-" + name for name in (
+        "processing_used_label", "processing_remaining_label",
+        "storage_used_label", "storage_reserved_label", "storage_available_label",
+    )}
+    context = dict(embedded=False, settings_navigation=[], settings_active="billing",
+                   plan=plan_descriptor("free"), plan_code="free", meetings_href="/meetings",
+                   processing_threshold="approaching", processing_reset_at_label="later",
+                   free_processing_limit_label="300 минут", storage_capacity_label="2 ГБ", **values)
+    for role in ("member", "corporate_owner", "owner"):
+        for plan_code in ("personal", "free"):
+            for threshold in ("normal", "approaching", "exhausted"):
+                context.update(plan_code=plan_code, plan=plan_descriptor(plan_code),
+                               processing_threshold=threshold, processing_unlimited=plan_code != "free",
+                               storage_threshold="full")
+                for page in ("billing_overview_content.html", "billing_usage_content.html"):
+                    html = render_template("cabinet/pages/" + page, billing_role=role,
+                                           billing_owner=False, **context)
+                    assert all(value not in html for value in values.values())
+                    assert "2 ГБ" in html
+                    if plan_code == "free":
+                        assert "300 минут" in html
+                    assert ("Дождитесь сброса later" in html) == (
+                        plan_code == "free" and threshold != "normal"
+                    )
+                    if page == "billing_usage_content.html":
+                        assert ("Без лимита по минутам и встречам" in html) == (plan_code == "personal")
+                        assert "Архив заполнен: новое аудио не сохраняется" in html
+                        assert 'href="/meetings">Управлять архивом</a>' in html
+                        assert ("?archive_audio=false#manual-upload" in html) == (
+                            plan_code == "personal" or threshold != "exhausted"
+                        )
+                    if plan_code == "free" and threshold == "exhausted":
+                        assert "новая обработка, в том числе без сохранения аудио, недоступна" in html
+    for payer in (False, True):
+        unavailable = render_template(
+            "cabinet/pages/billing_usage_content.html", billing_owner=payer,
+            usage_projection_state="unavailable", **context,
+        )
+        assert "Данные использования недоступны" in unavailable
+        assert "Количественные данные хранилища временно недоступны" in unavailable
+        assert "доступны плательщику" not in unavailable and "видит плательщик" not in unavailable
+        assert all(value not in unavailable for value in values.values())
+        assert "2 ГБ" not in unavailable and "300 минут" not in unavailable
+    owner = render_template("cabinet/pages/billing_overview_content.html",
+                            billing_role="owner", billing_owner=True, **context)
+    assert values["processing_used_label"] in owner
+    assert values["storage_used_label"] in owner
 
 
 def test_checkout_uses_amount_specific_yookassa_actions_without_js() -> None:
@@ -63,7 +111,6 @@ def test_billing_overview_declares_landmark_order_and_single_primary_contract() 
     html = (TEMPLATE_ROOT / "billing_overview_content.html").read_text(encoding="utf-8")
     ordered_ids = (
         "billing-summary-title",
-        "billing-offer-title",
         "billing-workspace-title",
         "billing-method-title",
         "billing-history-title",

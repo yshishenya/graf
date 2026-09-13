@@ -70,8 +70,9 @@
         {% elif billing_owner and trial_expired|default(False) %}<p class="notice" role="status" aria-live="polite">Платный режим закончился {{ trial_ends_at_label }}. Сейчас действует Free; повторного списания без отдельного подтверждения нет. {% if not billing_enabled %}Оплата временно недоступна; {% endif %}можно остаться на Free.</p>
         {% elif billing_owner and plan_code == "trial" and trial_phase|default(None) in ["t_minus_3", "t_minus_1"] %}<p class="notice" role="status" aria-live="polite">Пробный период заканчивается {{ trial_ends_at_label }} (через {{ trial_remaining_label }}). После окончания автоматически включится Free; списания без отдельного подтверждения не будет.</p>{% endif %}
 
-        {% if plan_code == "free" and processing_threshold|default("normal") == "approaching" %}<p class="notice" role="status" aria-live="polite">Использовано 80% месячного лимита обработки. Осталось {{ processing_remaining_label }} до сброса {{ processing_reset_at_label }}.</p>
-        {% elif plan_code == "free" and processing_threshold|default("normal") == "exhausted" %}<p class="notice" role="status" aria-live="polite">Лимит обработки исчерпан до {{ processing_reset_at_label }}. Новая обработка станет доступна после сброса лимита; обработка без сохранения аудио также недоступна до этого момента.</p>{% endif %}
+        {% if not billing_owner %}{{ ui.billing_member_quota_notice(plan_code, processing_threshold, processing_reset_at_label) }}{% endif %}
+        {% if billing_owner and plan_code == "free" and processing_threshold|default("normal") == "approaching" %}<p class="notice" role="status" aria-live="polite">Использовано 80% месячного лимита обработки. Осталось {{ processing_remaining_label }} до сброса {{ processing_reset_at_label }}.</p>
+        {% elif billing_owner and plan_code == "free" and processing_threshold|default("normal") == "exhausted" %}<p class="notice" role="status" aria-live="polite">Лимит обработки исчерпан до {{ processing_reset_at_label }}. Новая обработка станет доступна после сброса лимита; обработка без сохранения аудио также недоступна до этого момента.</p>{% endif %}
         {% if plan_code == "trial" and trial_starts_at_label|default(None) %}<p>Пробный период: с {{ trial_starts_at_label }} до {{ trial_ends_at_label }}.</p>{% endif %}
         {% if trial_result|default(None) == "activated" %}<p role="status" aria-live="polite">Пробный период активирован на 7 дней.</p>
         {% elif trial_result|default(None) == "pending" %}<p role="status" aria-live="polite">Платёж уже проверяется. Пробный период пока не запускаем.</p>
@@ -86,8 +87,8 @@
           <h2 id="billing-workspace-title">Использование</h2>
           {% if billing_data_available %}
           <dl class="billing-usage-facts">
-            <div><dt>Обработка</dt><dd>{% if plan_code == "free" %}{{ processing_used_label }} из {{ free_processing_limit_label }}{% else %}Без лимита {{ ui.tooltip("billing-processing-help", "Учтено: " ~ processing_used_label ~ (". Данные могут быть устаревшими." if processing_usage_freshness|default("fresh") != "fresh" else "."), "Использование обработки") }}{% endif %}</dd></div>
-            <div><dt>Хранилище</dt><dd>{% if billing_owner %}{{ storage_used_label|default("0 MB") }} из {{ storage_capacity_label|default("объём уточняется") }}{% else %}По условиям пространства{% endif %}</dd></div>
+            <div><dt>Обработка</dt><dd>{% if plan_code == "free" %}{% if billing_owner %}{{ processing_used_label }} из {% endif %}{{ free_processing_limit_label }}{% if not billing_owner %} в месяц{% endif %}{% else %}Без лимита {% if billing_owner %}{{ ui.tooltip("billing-processing-help", "Учтено: " ~ processing_used_label ~ (". Данные могут быть устаревшими." if processing_usage_freshness|default("fresh") != "fresh" else "."), "Использование обработки") }}{% endif %}{% endif %}</dd></div>
+            <div><dt>Хранилище</dt><dd>{% if billing_owner %}{{ storage_used_label|default("0 MB") }} из {% endif %}{{ storage_capacity_label|default("объём уточняется") }}</dd></div>
           </dl>
           {% endif %}
           {% if not billing_owner and billing_role == "owner" %}<p class="muted">Оплатой управляет другой плательщик.</p>

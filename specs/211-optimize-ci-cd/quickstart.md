@@ -696,3 +696,13 @@ performance. Старое -k 'not other' дублировало действие
 63 уникальных случая окончательной коллекции; это состав двух ограниченных
 запусков, а не один63-case прогон. Bash/Ruff/diff PASS. Повторный131-case benchmark
 не требуется. Независимый implementation review T093 PASS: все7 callers, порядок config/report/options, isolated config mapping, состав/xdist/cleanup и4 настоящих worker variants приняты. Окончательное включение master остаётся последним условием T093 перед проверками SHA.
+T056 final root/config regression: after the report file exists, xdist's early argument scan can treat its external location as configuration discovery input and lose the server's asyncio_mode=auto. Explicit `-c <server>/pyproject.toml` is now passed to collection and every phase. The actual runner regression selects an async test by `-k` with no path, reproduces failure before the fix, and passes afterward. All 3 report tests PASS; F264's 24 previously failing scenarios PASS with PostgreSQL/four workers/reporting, and the previously unreached serial/performance/RLS set is 68 PASS + 1 expected skip. No test is suppressed; source/currentness/release gates remain intact.
+
+
+T093 завершена после включения окончательного master323c90fc10e0d4e617498af9c9bc2d134d14c49b
+из #6997. Проверенная CI-часть этого master побайтно равна импортированному f73c67056;
+после разрешения конфликтов все3 audited source hashes совпадают с independent
+review. Все новые product/API/contract исправления #6997 сохранены, журнал
+проверок объединён без удаления прежних записей. Повтор63-case набора не нужен:
+исполняемый runner и его tests не изменились. Окончательные GitHub проверки
+нового commit и Full после подготовки релиза остаются отдельными gates.
