@@ -634,3 +634,30 @@ T091 local validation:22 Swift tests PASS/9,164 с, включая все21 Inst
 Неуспешный Full предыдущего v2026.09.13.3 на master b48999dbb2c8fe258f636b263b154377c0fd8fa5 оставил артефакт graf-test-timings-b48999dbb2c8fe258f636b263b154377c0fd8fa5-34769888625-1. Его parallel.jsonl подтверждает37 skipped case IDs:28 media_matrix,4 finalize,1 workflow,3 reuse и1 private TestRec. Первые36 сходятся к существующим media-tool helpers, которые T089 уже делает обязательными; private TestRec opt-in сохранён. В этом прогоне4321 call PASS,22 call FAIL,2 setup FAIL; strict/performance не начались из-за старого порядка Full. Его37 пропусков нельзя объявлять полным сопоставлением с41 историческим пропуском другого выпуска. Требуется окончательный Full с T088/T089 и правильной pytest-конфигурацией; новый результат учитывается по фактическим фазам.
 
 Независимый заключительный review: T083/A11 PASS (14 файлов опубликованного v0.3.4 равны installed, digest ZIP=lock, остальные записи lock и проектный template неизменны); T086/A12 PASS по текущим исходникам,5 дублям, порядку Full и сохранённым69/50 случаям. T091 implementation review PASS: цельная upload-команда содержит правильные inputs; ожидание уведомления не блокирует MainActor, XCTAssertNil выполняется до defer cleanup. Все три локальные задачи завершены. Действительные GitHub/release gates остаются открытыми.
+
+T092 clarification18:39 UTC: независимый запуск Ubuntu24/FFmpeg6.1.1 опроверг первое предположение о единственной проблеме offset. Реальное повреждение кадра даёт stderr-ошибки, но -xerror возвращает0; локальный8.1.2 возвращает183. Требуется подтверждённый общий повреждённый образец и строгая проверка его условия до recovery, без изменения прежних ожиданий. Предварительное описание причины в issue уточняется; production-дефект пока не объявлен.
+
+
+### T092: подтверждённый повреждённый MP3 — 2026-09-13
+
+Старое повреждение10700:10704 и повреждения среднего реального кадра дали
+strict return183 на FFmpeg8.1.2, но0 на Ubuntu24/FFmpeg6.1.1 при настоящих
+decoder errors. Общий образец теперь повреждает32 байта после четырёхбайтового
+заголовка первого аудиопакета, найденного настоящим ffprobe. На6.1.1 strict
+return69, на8.1.2 return183; tolerant return0. Оба прежних caller используют
+один helper; проверены длина, границы файла и sync bits. Production-код и все
+прежние recovery/output/subprocess-budget assertions сохранены.
+
+Целевые три pytest-случая на локальном8.1.2:3 PASS/1,35 с. Независимый реальный
+опыт Ubuntu24/6.1.1 выполнил оба неизменных production-метода derive_single_source
+и derive_candidate: recovered_source=True, full_decode_passed=True,
+single_source_transcode. Это проверка конкретного pipeline, не всего hosted CI.
+Те же три pytest-случая с реальными ffmpeg/ffprobe5.1.9 из закреплённого
+production-образа:3 PASS/3,96 с. Временный контейнер без сети удалён. Первоначальные
+три отказы этого опыта были ошибкой временной обвязки: безопасное окружение
+медиапроцесса удаляет переменные и пользовательский PATH. Обвязка получила
+абсолютный Docker CLI, явный endpoint и container ID; runtime protection не менялась.
+
+Независимый implementation review T092 PASS; Ruff/diff checks PASS. Локальная
+задача завершена. Фактические Ubuntu required checks и итоговый Full остаются
+T077; результаты старого failed run34770443870 не переименованы в успех.

@@ -414,3 +414,19 @@ the notice test waits for panel removal with ContinuousClock and a finite10 s
 deadline. Existing nonactivating/replacement/dismissal assertions stay; production
 6 s notice lifetime and30 s capture threshold are unchanged. No new runtime
 helper, injected clock or test framework is needed.
+
+T092 addresses hosted evidence34770443870. Initial suspicion that only the
+absolute corruption offset10700 differed was disproved by the independent
+Ubuntu24 experiment: FFmpeg6.1.1 also reports actual interior-frame errors but
+returns0 with -xerror; local8.1.2 returns183. The fixture must prove its strict
+failure on both versions before testing unchanged recovery/output assertions.
+The concrete corruption is selected from that evidence. Do not silently weaken
+runtime policy or accept/skip a missing recovery. If a runtime defect is found,
+reassess that scope before implementation.
+
+
+T092 выбранный и принятый вариант: настоящий ffprobe находит первый аудиопакет,
+helper сохраняет4-байтовый заголовок и повреждает следующие32 байта. Первый
+пакет даёт подтверждённый strict failure и на6.1.1, и на8.1.2. Проверка5.1.9
+из production-образа также прошла; recovery/выход/число subprocess проверяются
+старыми assertions. Независимый review PASS, новые зависимости не требуются.
