@@ -11,6 +11,10 @@ usage() {
 }
 
 classify_path() {
+  if [[ "$1" =~ ^changes/(unreleased|releases/v[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]+)/F[0-9]+\.yaml$ ]]; then
+    echo docs
+    return
+  fi
   case "$1" in
     apps/server/*)
       echo server
@@ -713,14 +717,7 @@ PY
   if [[ -n "${GRAF_PR_BODY_FILE:-}" ]]; then
     process_preflight+=(--pr-body "$GRAF_PR_BODY_FILE" --pr-title "${GRAF_PR_TITLE:-}")
   fi
-  if [[ -f "$repo_root/.specify/feature.json" ]]; then
-    run_step "Development process preflight" "${process_preflight[@]}" || return $?
-  else
-    # Feature context is per-worktree and intentionally absent from clean
-    # merged/release checkouts. The repository-wide Spec Kit gate still runs;
-    # do not invent an active feature just to execute a release lane.
-    printf '\n==> Development process preflight skipped (release checkout without active feature pointer)\n'
-  fi
+  run_step "Development process preflight" "${process_preflight[@]}" || return $?
   run_step "Spec Kit governance" python3 scripts/check_spec_kit_governance.py || return $?
 
   if [[ "$effective_mode" == "full" || "$has_server" -eq 1 ]]; then

@@ -442,3 +442,44 @@ fixture перенаправляет только стандартный project
 config; реальные report tests отдельно проверяют неизменённый project config.
 Все прежние selection/xdist/cleanup/phase-order assertions остаются. Clean analyze:
 CRITICAL0/HIGH0, требование→T093→#6993, решение не требует новой зависимости.
+
+T094 уточняет существующий FR-003/FR-008: обязательный changelog-фрагмент
+ошибочно выбирает infra для любого продуктового PR и при переносе в архив.
+В завершённом c670 run34777566897 governance tests и CI contracts заняли
+261+253=514 с; это стоимость стадий этого широкого PR, не отдельный замер
+подготовки релиза. В classify_path распознаются только прежние канонические
+пути F<digits>.yaml, согласованные с native scope. Инфраструктурные скрипты,
+workflows, validators/tests и произвольные changes/* сохраняют прежний выбор.
+Существующий check-development-process.py вызывается независимо от наличия
+feature.json; нового checker, зависимости или параллельного механизма нет.
+Его валидатор проверяет unreleased, архивы по-прежнему проверяет prepare-release
+при формировании выпуска. Проверить реальный no-renames перенос, одиночный
+продуктовый путь с фрагментом, mixed infra, неизвестный путь и обязательный
+отказ process preflight без feature pointer до дорогих стадий. Один реальный
+валидный/невалидный fragment case исполняет существующий checker. Дополнение
+входит в общий пакет #6990 перед следующим выпуском, без отмены текущих605 runs.
+Соседний выпуск .3 требует нового master после найденных Full billing failures;
+окончательный пакет согласуется с ним один раз до следующей hosted-проверки.
+
+T094 analyze: FR-003/FR-008 → точная классификация/process preflight → четыре
+исполняемых scenario и отрицательные path cases → T094/issue6986. Независимый
+requirements review CHK007 PASS; CRITICAL0/HIGH0. Версия архива имеет форму
+CalVer, более широкий native regex v[^/]+ не копируется. Код до этого review
+не менялся; существующие release-full/deploy/архивные guards не заменяются.
+
+T095 продолжает принятое A9 FR-050/FR-051/SC-022. Review4000732815 подтвердил
+окно между os.replace(asset) и atomic_json(record): текущий повтор необратимо
+останавливается на отсутствующем record. Независимый разбор обоих callers
+cache_inputs/cache_sparkle подтвердил минимальную границу ремонта. Только
+обычный файл без record повторно загружается по тому же текущему asset ID через
+существующий download/verify путь; ни размер без digest, ни отсутствие record
+не считаются доказательством байтов. Прежний файл заменяется только после
+успешной проверки временного файла. Symlinks обоих путей, malformed/changed
+record, записанный cache с изменёнными bytes и record без asset остаются FAIL.
+Новая recovery-ветка для record без asset не нужна порядку этой транзакции.
+Проверки воспроизводят interruption перед atomic_json, retry без remote digest,
+неверный размер/pinned digest и сохранность прежнего файла при отказе. Общий
+signing lock, доверие Apple/Sparkle и последующий validate_context сохраняются.
+Это исправление существующего договора возобновления; новый helper, зависимость,
+format или release gate не вводятся. Analyze: FR-050/051→T095→issue6992,
+CRITICAL0/HIGH0; requirements подтверждены независимым разбором до кода.

@@ -204,6 +204,104 @@ def test_cached_input_identity_and_corruption_block(tmp_path, monkeypatch):
     assert calls == [1]
 
 
+def test_cached_input_retries_interrupted_record_without_remote_digest(tmp_path, monkeypatch):
+    asset = {'id': 1, 'state': 'uploaded', 'name': 'input.zip', 'size': 6, 'digest': None}
+    release = {'tag': 'v1'}
+    calls = []
+
+    def download(repo, row, output):
+        calls.append(row['id'])
+        Path(output).write_bytes(b'signed')
+
+    original_atomic = artifacts.atomic_json
+
+    def interrupted(record, value):
+        assert record.with_suffix('.asset').read_bytes() == b'signed'
+        raise OSError('interrupted before record write')
+
+    monkeypatch.setattr(artifacts, 'download_asset', download)
+    monkeypatch.setattr(artifacts, 'atomic_json', interrupted)
+    with pytest.raises(OSError, match='interrupted before record'):
+        artifacts.cached_asset('owner/repo', release, asset, tmp_path)
+    path = next(tmp_path.glob('*.asset'))
+    record = path.with_suffix('.json')
+    assert not record.exists()
+    # Equal size cannot establish the identity of an unrecorded local file.
+    path.write_bytes(b'broken')
+    monkeypatch.setattr(artifacts, 'atomic_json', original_atomic)
+    assert artifacts.cached_asset('owner/repo', release, asset, tmp_path) == path
+    assert path.read_bytes() == b'signed'
+    assert artifacts.read_json(record) == {
+        'identity': {'release': release, 'asset': artifacts.asset_identity(asset)},
+        'content': artifacts.regular(path),
+    }
+    assert artifacts.cached_asset('owner/repo', release, asset, tmp_path) == path
+    assert calls == [1, 1]
+
+
+@pytest.mark.parametrize('failure', ['download', 'size', 'remote_digest', 'pinned_digest'])
+def test_cached_input_failed_recovery_preserves_orphan(tmp_path, monkeypatch, failure):
+    asset = {'id': 1, 'state': 'uploaded', 'name': 'input.zip', 'size': 6, 'digest': None}
+    release = {'tag': 'v1'}
+    path = tmp_path / (artifacts.digest(['owner/repo', 'v1', 'input.zip']) + '.asset')
+    path.write_bytes(b'orphan')
+    expected = '0' * 64 if failure == 'pinned_digest' else None
+    if failure == 'remote_digest':
+        asset['digest'] = 'sha256:' + '0' * 64
+    calls = []
+
+    def download(repo, row, output):
+        calls.append(row['id'])
+        Path(output).write_bytes(b'short' if failure == 'size' else b'signed')
+        if failure == 'download':
+            raise ValueError('synthetic download failure')
+
+    monkeypatch.setattr(artifacts, 'download_asset', download)
+    with pytest.raises(ValueError, match='download failure|size differs|digest differs'):
+        artifacts.cached_asset('owner/repo', release, asset, tmp_path, expected)
+    assert calls == [1]
+    assert path.read_bytes() == b'orphan'
+    assert list(tmp_path.iterdir()) == [path]
+
+
+@pytest.mark.parametrize('invalid', [
+    'asset_symlink', 'asset_dangling', 'record_symlink', 'record_dangling',
+    'malformed_record', 'invalid_record', 'record_without_asset', 'orphan_directory',
+])
+def test_cached_input_invalid_state_never_downloads(tmp_path, monkeypatch, invalid):
+    asset = {'id': 1, 'state': 'uploaded', 'name': 'input.zip', 'size': 6, 'digest': None}
+    release = {'tag': 'v1'}
+    monkeypatch.setattr(artifacts, 'download_asset', lambda repo, row, output: Path(output).write_bytes(b'signed'))
+    path = artifacts.cached_asset('owner/repo', release, asset, tmp_path)
+    record = path.with_suffix('.json')
+    if invalid.startswith(('asset_', 'record_')) and invalid.endswith(('symlink', 'dangling')):
+        selected = path if invalid.startswith('asset_') else record
+        selected.unlink()
+        target = tmp_path / 'target'
+        if invalid.endswith('symlink'):
+            target.write_bytes(b'untouched')
+        selected.symlink_to(target)
+    elif invalid == 'malformed_record':
+        record.write_text('{')
+    elif invalid == 'invalid_record':
+        record.write_text('{}')
+    elif invalid == 'record_without_asset':
+        path.unlink()
+    else:
+        record.unlink()
+        path.unlink()
+        path.mkdir()
+    before = artifacts.fingerprint(tmp_path)
+
+    def forbidden_download(*args):
+        pytest.fail('invalid cache must not trigger a download')
+
+    monkeypatch.setattr(artifacts, 'download_asset', forbidden_download)
+    with pytest.raises((ValueError, FileNotFoundError)):
+        artifacts.cached_asset('owner/repo', release, asset, tmp_path)
+    assert artifacts.fingerprint(tmp_path) == before
+
+
 def notary_fixture(tmp_path, monkeypatch):
     for kind in ('zip', 'pkg'):
         (tmp_path / f'submitted.{kind}').write_text(kind)

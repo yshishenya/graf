@@ -224,12 +224,16 @@ def cached_asset(repo, release, asset, cache, expected_digest=None):
     cache.mkdir(parents=True, exist_ok=True)
     path = cache / f'{digest([repo, release["tag"], asset["name"]])}.asset'
     record = path.with_suffix('.json')
-    if path.exists() or path.is_symlink() or record.exists():
+    if path.is_symlink() or record.is_symlink():
+        raise ValueError('cached input must not be a symlink')
+    if record.exists():
         saved = read_json(record)
         content = regular(path)
         if saved != {'identity': identity, 'content': content}:
             raise ValueError('cached input identity or bytes differ')
     else:
+        if path.exists():
+            regular(path)  # An interrupted record write can leave an ordinary asset.
         with tempfile.TemporaryDirectory(dir=cache) as work:
             temporary = Path(work) / 'asset'
             download_asset(repo, asset, temporary)

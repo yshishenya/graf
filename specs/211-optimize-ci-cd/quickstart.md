@@ -706,3 +706,55 @@ review. Все новые product/API/contract исправления #6997 со
 проверок объединён без удаления прежних записей. Повтор63-case набора не нужен:
 исполняемый runner и его tests не изменились. Окончательные GitHub проверки
 нового commit и Full после подготовки релиза остаются отдельными gates.
+
+
+T094: настоящий Git no-renames перенос и обычный продуктовый путь с обязательным
+фрагментом воспроизвели лишний выбор infra. До исправления новый набор:6 FAIL,
+21 PASS/1,51 с. Невалидный unreleased-фрагмент действительно давал PASS в
+fixture чистого checkout, потому что process preflight без pointer пропускался.
+После точной классификации F<digits>.yaml/CalVer и безусловного существующего
+preflight:27 PASS/1,61 с. Реальные checker/fragment validator/emit, Git,
+отсутствие pointer, обычный server выбор, mixed infra и ранний invalid category
+отказ проверены; дорогие стадии в этой fixture подставные. Архивный validator
+не расширялся и не объявляется выполненным этим checker.
+
+Связанный полный consumer: test_ci_cd_contract.py + test_ci_guard.py +
+test_validator_safety.py:161 PASS/15,42 с. Bash/Ruff/diff PASS. Локальный
+process сначала корректно отверг новую временную копию с узким ownership,
+не учитывавшим уже включённые104 файла общего F211 PR. Manifest дополнен
+существующим ownership F211; это исправление рабочей конфигурации, не bypass.
+После согласования ownership настоящий process checker и pinned Spec Kit governance PASS.
+Независимый requirements review CHK007 и implementation review T094: PASS.
+Проверенные SHA-256: ci-local.sh
+5fb44d39332ba5b3e87d6532d4e45e1be0560daf216863cc3ee2f61b3a10e3de;
+test_ci_cd_contract.py
+3e06f34a43e3dc4d87398d6ecf4f1452823011422892c76f9bdbdb823283b5bf.
+Окончательные hosted/Full и время настоящей подготовки версии остаются
+отдельной приёмкой; повтор 161 случаев без изменения этих файлов не требуется.
+
+
+T095: прерывание настоящего cached_asset после os.replace до atomic_json
+воспроизвело FileNotFoundError на повторе:1 FAIL/34 deselected до исправления.
+Минимальный общий ремонт охватывает cache_inputs и cache_sparkle. Все35 случаев
+существующего test_release_artifacts.py PASS/6,17 с; Ruff/scoped diff PASS.
+Новый набор доказывает повторную загрузку без remote digest, отказ считать
+подменённый orphan того же размера готовым, третье использование без download;
+download/size/remote digest/pinned digest failures сохраняют orphan и отсутствие
+record, временные файлы убираются. Symlink/dangling обоих путей,
+malformed/invalid record, record без asset и каталог вместо orphan дают отказ
+без загрузки/изменения состояния. Прежние identity/corruption отказы сохранены.
+Рабочий код меняет6 строк; новых helper/lock/format/dependency нет.
+SHA-256 release-artifacts.py:
+e42ba309385abac28e36ff6662356bdacb4e0af5f8f8b7d485ea9e02b6581926;
+test_release_artifacts.py:
+c7e562fcd7e2085bca7bf55efa8b9d1d7ef0aa13f3184db613b8f2a62d2503b7.
+Независимый implementation review T095: PASS; оба callers и все границы восстановления согласованы. Hashes обоих файлов совпадают с35 PASS; повтор тестов не требуется. Окончательные hosted/Full остаются отдельными gates.
+
+Сверка T094/T095 перед commit: требования FR-003/FR-008/FR-050/FR-051,
+SC-022 и обе принятые границы совпадают с реализацией. Независимые reviews PASS;
+новых обязательных code gaps нет. Оставшаяся hosted/release приёмка уже
+представлена открытыми задачами, новые дубли задач не добавлены.
+Ponytail-review последних изменений: существующие функции/stdlib, новых
+зависимостей или необязательных механизмов нет; упрощать защиту не требуется.
+Changelog/process и pinned Spec Kit governance PASS после согласования
+T094/T095. Общий класс риска остаётся high-risk-product F211.

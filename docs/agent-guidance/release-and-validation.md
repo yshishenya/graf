@@ -46,6 +46,13 @@ paths or an unavailable diff report `coverage=partial` and
 `next_gate=full_before_release` instead of silently starting the full suite.
 Shared governance documents use the same partial marker, and the whitespace
 stage covers both committed/working-tree changes and selected untracked files.
+Canonical `changes/unreleased/F<digits>.yaml` and
+`changes/releases/vYYYY.MM.DD.N/F<digits>.yaml` are metadata paths: adding the
+required fragment or archiving it does not select infrastructure tests by
+itself. Product and infrastructure changes still select their applicable tests.
+The existing process preflight always runs, including clean PR/release
+checkouts without `.specify/feature.json`; it validates unreleased fragments
+and changed specifications. Archive validation remains in `prepare-release.sh`.
 Fast is for iteration and PR feedback, never a release gate. Focused tests
 remain the first check during implementation.
 
