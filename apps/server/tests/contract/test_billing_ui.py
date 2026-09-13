@@ -904,7 +904,7 @@ def test_scheduled_renewal_keeps_subscription_cancellation_reachable() -> None:
     assert 'href="/billing/checkout/status/INV-RNW-SCHEDULED"' not in html
 
 
-def test_non_owner_billing_overview_hides_invoice_and_exact_storage() -> None:
+def test_non_owner_billing_overview_hides_invoice_and_usage_but_shows_capacity() -> None:
     html = render_template(
         "cabinet/pages/billing_overview_content.html",
         embedded=False,
@@ -940,7 +940,7 @@ def test_non_owner_billing_overview_hides_invoice_and_exact_storage() -> None:
     assert "INV-PRIVATE1" not in html
     assert "•••• 4242" not in html
     assert "1.5 GB" not in html
-    assert "2 GB" not in html
+    assert "2 GB" in html
     assert "28.09.2026" not in html
     assert "15.09.2026" not in html
     assert "29.09.2026" not in html
@@ -1257,7 +1257,7 @@ def test_usage_surface_localizes_processing_reservation_and_threshold() -> None:
         storage_capacity_label="250 MB",
         storage_threshold="normal",
         storage_threshold_label="В норме",
-        billing_owner=False,
+        billing_owner=True,
     )
     assert "1 мин 30 сек" in html
     assert "90 сек" not in html
