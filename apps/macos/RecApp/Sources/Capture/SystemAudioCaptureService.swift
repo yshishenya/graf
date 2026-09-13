@@ -566,7 +566,8 @@ public final class ScreenCaptureKitSystemAudioRuntime: NSObject, SystemAudioCapt
     private var outputRouteListener: AudioObjectPropertyListenerBlock?
     private var outputRouteChangePublished = false
     // Only accessed on outputQueue; retained for one bounded diagnostic per recording.
-    private var previousBatchTiming: (pts: Double, declaredFrames: Int, decodedFrames: Int, rate: Double)?
+    private var previousBatchTiming: SystemAudioBatchTiming?
+    private var maxCompletedCallbackDuration = 0.0
     private var reportedTimingAnomaly = false
 
     public init(diagnosticLogger: (@Sendable (String) -> Void)? = nil, sampleHandler: @escaping @Sendable (RecordingAudioBatch) -> Void) {
@@ -598,6 +599,7 @@ public final class ScreenCaptureKitSystemAudioRuntime: NSObject, SystemAudioCapt
         let stream = SCStream(filter: filter, configuration: configuration, delegate: self)
         outputQueue.sync {
             previousBatchTiming = nil
+            maxCompletedCallbackDuration = 0
             reportedTimingAnomaly = false
         }
         try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: outputQueue)
@@ -635,6 +637,13 @@ public final class ScreenCaptureKitSystemAudioRuntime: NSObject, SystemAudioCapt
     ) {
         guard outputType == .audio else { return }
         guard isCurrentStream(stream) else { return }
+        let callbackStart = reportedTimingAnomaly ? nil : ProcessInfo.processInfo.systemUptime
+        defer {
+            if let callbackStart, !reportedTimingAnomaly {
+                maxCompletedCallbackDuration = max(maxCompletedCallbackDuration,
+                    ProcessInfo.processInfo.systemUptime - callbackStart)
+            }
+        }
         let extractedBatch = SystemAudioSampleExtractor.extractRecordingAudioBatch(from: sampleBuffer)
         if !reportedTimingAnomaly {
             let declaredFrames = CMSampleBufferGetNumSamples(sampleBuffer)
@@ -646,13 +655,18 @@ public final class ScreenCaptureKitSystemAudioRuntime: NSObject, SystemAudioCapt
                 let decodedGap = previousBatchTiming.map {
                     batch.presentationTime.seconds - $0.pts - Double($0.decodedFrames) / $0.rate
                 } ?? 0
+                let timing = SystemAudioBatchTiming(sampleBuffer: sampleBuffer,
+                    decodedFrames: decodedFrames, rate: batch.format.sampleRate,
+                    arrival: callbackStart ?? .nan)
                 if declaredFrames != decodedFrames || abs(declaredGap) > 0.001 || abs(decodedGap) > 0.001 {
                     reportedTimingAnomaly = true
                     diagnosticLogger?(String(format: "system_audio_timing_anomaly declared_frames=%ld decoded_frames=%ld rate=%g channels=%ld declared_gap_ms=%g decoded_gap_ms=%g",
                           declaredFrames, decodedFrames, batch.format.sampleRate, batch.format.channelCount,
-                          declaredGap * 1_000, decodedGap * 1_000))
+                          declaredGap * 1_000, decodedGap * 1_000)
+                        + timing.relativeDiagnostic(previous: previousBatchTiming,
+                            maxCompletedCallbackDuration: maxCompletedCallbackDuration))
                 }
-                previousBatchTiming = (batch.presentationTime.seconds, declaredFrames, decodedFrames, batch.format.sampleRate)
+                previousBatchTiming = timing
             } else {
                 reportedTimingAnomaly = true
                 diagnosticLogger?(String(format: "system_audio_batch_rejected declared_frames=%ld data_ready=%d pts_valid=%d has_format=%d",
@@ -790,6 +804,47 @@ public final class ScreenCaptureKitSystemAudioRuntime: NSObject, SystemAudioCapt
 #endif
 
 #if canImport(CoreMedia) && canImport(AudioToolbox)
+// Diagnostic snapshot only. Absolute times never leave memory or replace the batch PTS.
+struct SystemAudioBatchTiming {
+    let pts: Double
+    let outputPTS: Double
+    let duration: Double
+    let outputDuration: Double
+    let declaredFrames: Int
+    let decodedFrames: Int
+    let rate: Double
+    let arrival: Double
+
+    init(sampleBuffer: CMSampleBuffer, decodedFrames: Int, rate: Double, arrival: Double) {
+        func seconds(_ time: CMTime) -> Double {
+            let value = CMTimeGetSeconds(time)
+            return value.isFinite ? value : .nan
+        }
+        pts = seconds(CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
+        outputPTS = seconds(CMSampleBufferGetOutputPresentationTimeStamp(sampleBuffer))
+        duration = seconds(CMSampleBufferGetDuration(sampleBuffer))
+        outputDuration = seconds(CMSampleBufferGetOutputDuration(sampleBuffer))
+        declaredFrames = CMSampleBufferGetNumSamples(sampleBuffer)
+        self.decodedFrames = decodedFrames
+        self.rate = rate
+        self.arrival = arrival
+    }
+
+    func relativeDiagnostic(previous: Self?, maxCompletedCallbackDuration: Double) -> String {
+        String(format: " previous_declared_frames=%ld previous_decoded_frames=%ld previous_rate=%g output_gap_ms=%g raw_duration_gap_ms=%g output_duration_gap_ms=%g previous_output_minus_raw_ms=%g output_minus_raw_ms=%g previous_duration_ms=%g duration_ms=%g previous_output_duration_ms=%g output_duration_ms=%g arrival_gap_ms=%g max_completed_callback_ms=%g",
+            previous?.declaredFrames ?? 0, previous?.decodedFrames ?? 0, previous?.rate ?? .nan,
+            previous.map { (outputPTS - $0.outputPTS - Double($0.declaredFrames) / $0.rate) * 1_000 } ?? .nan,
+            previous.map { (pts - $0.pts - $0.duration) * 1_000 } ?? .nan,
+            previous.map { (outputPTS - $0.outputPTS - $0.outputDuration) * 1_000 } ?? .nan,
+            previous.map { ($0.outputPTS - $0.pts) * 1_000 } ?? .nan,
+            (outputPTS - pts) * 1_000,
+            (previous?.duration ?? .nan) * 1_000, duration * 1_000,
+            (previous?.outputDuration ?? .nan) * 1_000, outputDuration * 1_000,
+            previous.map { (arrival - $0.arrival) * 1_000 } ?? .nan,
+            maxCompletedCallbackDuration * 1_000)
+    }
+}
+
 enum SystemAudioSampleExtractor {
     static func extractRecordingAudioBatch(from sampleBuffer: CMSampleBuffer) -> RecordingAudioBatch? {
         guard CMSampleBufferDataIsReady(sampleBuffer),

@@ -92,3 +92,17 @@ writer/timeline и system runtime/service. Путь, лимиты и очист�
 где вызывается существующий writeRaw. Флаг бюджета выставляется до callback
 на исходной serial queue. Callback nonthrowing, optional default nil.
 Reviewer подтвердил применимость CHK012–014 при этом уточнении.
+
+### T008: уточнение входной диагностики 2026-09-13
+
+Расширить только существующее событие источника: raw/output gap относительно
+числа кадров, gap относительно CoreMedia duration/outputDuration, соседние
+output-minus-raw, duration/outputDuration, предыдущие frames/rate, arrival gap
+и max_completed_callback_duration для предыдущих завершённых callbacks
+(включая extraction и sampleHandler, исключая текущий незавершённый). Снимок CoreMedia timing
+хранится рядом с прежним previousBatchTiming; время callback измеряется
+монотонными часами только до исчерпания диагностического бюджета. Невалидные, indefinite и бесконечные
+CMTime представлены техническим nan, не нулём. Чистое форматирование
+относительных полей проверить синтетическими CMSampleBuffer с отличающимся
+outputPTS; extractor и передача реального batch не меняются. Файл теста:
+apps/macos/Shared/Tests/SystemAudioSampleExtractorTests.swift.

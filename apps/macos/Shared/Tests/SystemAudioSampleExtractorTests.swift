@@ -3,6 +3,7 @@ import Foundation
 
 #if canImport(XCTest) && canImport(AudioToolbox)
 import AudioToolbox
+import CoreMedia
 import XCTest
 
 final class SystemAudioSampleExtractorTests: XCTestCase {
@@ -112,6 +113,71 @@ final class SystemAudioSampleExtractorTests: XCTestCase {
         XCTAssertEqual(samples.count, 2)
         XCTAssertEqual(samples[0], 1, accuracy: 0.0001)
         XCTAssertEqual(samples[1], -0.25, accuracy: 0.0001)
+    }
+
+    func testTimingDiagnosticDistinguishesOutputPTSWithoutChangingExtractedBatch() throws {
+        let previous = try sampleBuffer(pts: CMTime(value: 480_000, timescale: 48_000))
+        let current = try sampleBuffer(pts: CMTime(value: 481_701, timescale: 48_000))
+        XCTAssertEqual(CMSampleBufferSetOutputPresentationTimeStamp(current,
+            newValue: CMTime(value: 480_960, timescale: 48_000)), noErr)
+        let previousTiming = SystemAudioBatchTiming(sampleBuffer: previous,
+            decodedFrames: 960, rate: 48_000, arrival: 100)
+        let timing = SystemAudioBatchTiming(sampleBuffer: current,
+            decodedFrames: 960, rate: 48_000, arrival: 100.021)
+        let fields = Dictionary(uniqueKeysWithValues: timing.relativeDiagnostic(
+            previous: previousTiming, maxCompletedCallbackDuration: 0.002)
+            .split(separator: " ").map { field in
+                let pair = field.split(separator: "=")
+                return (String(pair[0]), Double(pair[1])!)
+            })
+        XCTAssertEqual(fields["output_gap_ms"]!, 0, accuracy: 0.000001)
+        XCTAssertEqual(fields["raw_duration_gap_ms"]!, 15.4375, accuracy: 0.000001)
+        XCTAssertEqual(fields["output_minus_raw_ms"]!, -15.4375, accuracy: 0.000001)
+        XCTAssertEqual(fields["previous_duration_ms"]!, 20, accuracy: 0.000001)
+        XCTAssertEqual(fields["arrival_gap_ms"]!, 21, accuracy: 0.000001)
+        XCTAssertEqual(fields["max_completed_callback_ms"]!, 2, accuracy: 0.000001)
+        let batch = try XCTUnwrap(SystemAudioSampleExtractor.extractRecordingAudioBatch(from: current))
+        XCTAssertEqual(batch.presentationTime.seconds, 481_701.0 / 48_000, accuracy: 0.000000001)
+        XCTAssertEqual(batch.samples.count, 1_920)
+        XCTAssertEqual(batch.samples.first, 0.25)
+
+        for invalidDuration in [CMTime.invalid, .indefinite, .positiveInfinity] {
+            let invalid = try sampleBuffer(pts: .zero, duration: invalidDuration)
+            let snapshot = SystemAudioBatchTiming(sampleBuffer: invalid,
+                decodedFrames: 960, rate: 48_000, arrival: 101)
+            XCTAssertTrue(snapshot.duration.isNaN)
+            XCTAssertTrue(snapshot.outputDuration.isNaN)
+        }
+    }
+
+    private func sampleBuffer(pts: CMTime,
+        duration: CMTime = CMTime(value: 1, timescale: 48_000)) throws -> CMSampleBuffer {
+        var format = audioFormat(bitsPerChannel: 32,
+            flags: kAudioFormatFlagIsFloat | kAudioFormatFlagIsPacked)
+        var description: CMAudioFormatDescription?
+        XCTAssertEqual(CMAudioFormatDescriptionCreate(allocator: kCFAllocatorDefault,
+            asbd: &format, layoutSize: 0, layout: nil, magicCookieSize: 0,
+            magicCookie: nil, extensions: nil, formatDescriptionOut: &description), noErr)
+        let data = floatData(Array(repeating: 0.25, count: 1_920))
+        var block: CMBlockBuffer?
+        XCTAssertEqual(CMBlockBufferCreateWithMemoryBlock(allocator: kCFAllocatorDefault,
+            memoryBlock: nil, blockLength: data.count, blockAllocator: kCFAllocatorDefault,
+            customBlockSource: nil, offsetToData: 0, dataLength: data.count,
+            flags: 0, blockBufferOut: &block), noErr)
+        let buffer = try XCTUnwrap(block)
+        XCTAssertEqual(data.withUnsafeBytes { bytes in
+            CMBlockBufferReplaceDataBytes(with: bytes.baseAddress!, blockBuffer: buffer,
+                offsetIntoDestination: 0, dataLength: data.count)
+        }, noErr)
+        var sampleTiming = CMSampleTimingInfo(duration: duration,
+            presentationTimeStamp: pts, decodeTimeStamp: .invalid)
+        var sampleSize = 8
+        var sample: CMSampleBuffer?
+        XCTAssertEqual(CMSampleBufferCreateReady(allocator: kCFAllocatorDefault,
+            dataBuffer: buffer, formatDescription: description, sampleCount: 960,
+            sampleTimingEntryCount: 1, sampleTimingArray: &sampleTiming,
+            sampleSizeEntryCount: 1, sampleSizeArray: &sampleSize, sampleBufferOut: &sample), noErr)
+        return try XCTUnwrap(sample)
     }
 
     private func audioFormat(
