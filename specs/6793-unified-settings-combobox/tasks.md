@@ -81,4 +81,4 @@ T020/T021 → T011. GitHub owner: https://github.com/yshishenya/graf/issues/6924
 
 ## Phase 14: Совместимость релизной сборки
 
-- [ ] T023 Уточнить главный поток для двух старых методов доступности `NativeSettingsComboBox.FieldCell` в `NativeSettingsComboBox.swift`; сохранить штатные значение/выделение/фокус, проверить существующие `NativeSettingsComboBoxTests` и macos-diagnostic на Swift6.0.3, затем новый общий release-full (FR-006/FR-008; исходный release-full34751488543 failed). (Issue #6924)
+- [X] T023 Уточнить главный поток для двух старых методов доступности `NativeSettingsComboBox.FieldCell` в `NativeSettingsComboBox.swift`; сохранить штатные значение/выделение/фокус, проверить существующие `NativeSettingsComboBoxTests` и macos-diagnostic на Swift6.0.3, затем новый общий release-full (FR-006/FR-008; исходный release-full34751488543 failed). (Issue #6924)
