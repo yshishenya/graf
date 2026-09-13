@@ -200,6 +200,10 @@ def metadata_snapshot(pr: dict, repository: str) -> dict:
         raise ValueError("invalid merge SHA")
     if pr["merged"] and merge is None:
         raise ValueError("merged PR requires merge SHA")
+    # GitHub computes an open PR's synthetic test merge asynchronously. Only
+    # the real, immutable merge of a closed PR is part of source identity.
+    if not pr["merged"]:
+        merge = None
     if type(pr.get("commits")) is not int or not 1 <= pr["commits"] <= 1000:
         raise ValueError("invalid PR commit count")
     if not all(isinstance(pr.get(key), str) and pr[key].strip() for key in ("title", "body")):

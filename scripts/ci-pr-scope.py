@@ -29,7 +29,9 @@ def native_required(paths: list[str]) -> bool:
     def independent(path: str) -> bool:
         if any(ord(char) < 32 for char in path):
             return False
-        if path.endswith(".md") or re.fullmatch(r"changes/(?:unreleased|releases/v[^/]+)/F\d+\.yaml", path):
+        if (path in {"README.md", "CONTRIBUTING.md", "AGENTS.md", "CHANGELOG.md"}
+                or (path.startswith(("docs/", "specs/")) and path.endswith(".md"))
+                or re.fullmatch(r"changes/(?:unreleased|releases/v[^/]+)/F\d+\.yaml", path)):
             return True
         # Explicit independent server modules only; API, cabinet, shared and
         # newly introduced paths continue to exercise the desktop contracts.

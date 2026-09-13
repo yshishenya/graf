@@ -394,6 +394,18 @@ def test_trusted_metadata_uses_policy_checkout_and_redacted_double_snapshot(snap
     assert not (root / "injected").exists()
 
 
+def test_open_pr_background_test_merge_is_not_source_identity(snapshot):
+    root, event, current = snapshot
+    current = trusted_pr(current)
+    event.update(repository={"full_name": "example/project"}, pull_request=copy.deepcopy(current))
+    current["merge_commit_sha"] = "a" * 40
+    after = {**current, "merge_commit_sha": "b" * 40}
+    git(root, "checkout", "-q", "--detach", current["base"]["sha"])
+    result = run_trusted(root, event, current, after)
+    assert result.returncode == 0, result.stderr
+    assert json.loads((root / "trusted-result.json").read_text())["merge_commit_sha"] is None
+
+
 @pytest.mark.parametrize("field", ["body", "title", "head.sha", "base.sha", "base.ref", "base.repo.full_name",
                                   "head.repo.full_name", "state", "merged", "merge_commit_sha", "commits"])
 def test_trusted_metadata_rejects_each_changed_snapshot_field(snapshot, field):

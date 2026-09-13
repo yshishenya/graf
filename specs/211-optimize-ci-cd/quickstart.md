@@ -318,3 +318,5 @@ A6 negative consumer matrix includes: fresh metadata + stale code base; missing 
 - Final runner/CI contracts: 98 PASS / 19.02 s. Frozen Spec Kit governance, Bash syntax, Ruff, actionlint, Full validator/self-test, governance workflow validator and whitespace PASS.
 - A4/A5 and foundation T058/T059 implementation review/convergence finds no new missing implementation tasks. T052 hosted proof and T060–T063 activation/cutover/consumers remain open: source publication, exact-SHA hosted results and live protection are not inferred from local PASS.
 - Current remote master advanced by #6985 (release report and example environment only); foundation is rebased before publication. The next code check is bound to that updated base.
+
+A6 independent implementation review found and resolved two concrete cases: ignore open-PR background synthetic merge SHA changes while preserving real merged-history checks; restrict documentation scope to known directories/names, so the existing `outcomes/meeting_minutes.md` product resource still requires native checks. Both cases now have executable regression coverage.

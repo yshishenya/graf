@@ -75,6 +75,7 @@ def test_native_scope_uses_exact_git_diff_and_both_rename_sides(tmp_path):
 def test_native_scope_fails_conservatively_for_shared_and_unknown_paths():
     scope = load_scope()
     for path in ("apps/macos/foo.swift", "apps/server/src/twobrain_rec_server/api/v1/users.py",
+                 "apps/server/src/twobrain_rec_server/outcomes/meeting_minutes.md", "apps/macos/Resources/prompt.md",
                  "apps/server/src/twobrain_rec_server/cabinet/routes.py", "scripts/tool.py", "new-system/config",
                  ".github/workflows/governance-fast.yml", "docs/fake.md\napps/macos/source.swift"):
         assert scope.native_required([path]), path
