@@ -4636,6 +4636,7 @@
             });
             defaultSelect.value = payload.default_template_key;
             defaultSelect.disabled = !canManageDefault;
+            settingsCombos.get(defaultSelect)?.sync();
           }
           if (defaultHelp) {
             defaultHelp.textContent = payload.can_manage_default
@@ -5746,7 +5747,7 @@
     status.className = 'settings-combobox__status'; status.dataset.comboboxStatus = '';
     status.setAttribute('role', 'status');
     popup.append(list, status); wrapper.append(toggle, popup);
-    let query = '', matches = [], active = -1, restoringFocus = false;
+    let query = '', matches = [], active = -1, restoringFocus = false, composing = false;
     const selectedLabel = () => source.selectedOptions?.[0]?.textContent || '';
     const close = () => {
       if (popup.popover) popup.hidePopover();
@@ -5824,11 +5825,20 @@
       if (input.disabled) return;
       query = filterInput ? normalizeSettingSearch(input.value) : ''; draw(); reveal();
       if (!filterInput) {
+        if (!composing) input.select();
         active = matches.findIndex(option => option.value === source.value && !option.disabled);
         highlight();
       }
     };
-    input.addEventListener('focus', () => { if (!restoringFocus && !filterInput) input.select(); });
+    input.addEventListener('compositionstart', () => { composing = true; });
+    input.addEventListener('compositionend', () => { composing = false; });
+    input.addEventListener('focus', () => { if (!restoringFocus && !filterInput && !composing) input.select(); });
+    // Prevent the browser's caret placement from undoing selection on a reopening click.
+    input.addEventListener('mousedown', event => {
+      if (event.button === 0 && popup.hidden && !filterInput && !composing) {
+        event.preventDefault(); input.focus();
+      }
+    });
     input.addEventListener('click', () => { if (popup.hidden) open(); });
     input.addEventListener('input', () => {
       query = normalizeSettingSearch(input.value); draw();

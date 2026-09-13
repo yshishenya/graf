@@ -60,6 +60,10 @@ const recording = fs.readFileSync(path.join(cabinet, 'templates/cabinet/pages/se
   }
   await apps.fill('zOo'); assert.equal(await options.count(),1);
   assert.equal(await page.locator('[data-recording-settings-targets] label:visible').count(),1);
+  await apps.press('Escape');
+  await apps.click({position:{x:20,y:15}});
+  assert.equal(await apps.evaluate(el=>el.selectionStart===el.selectionEnd),true,'Reopening an app filter keeps the caret');
+  assert.equal(await apps.inputValue(),'zOo','Reopening must preserve the app query');
   const callsBefore=await page.evaluate(()=>calls.length);
   await apps.press('ArrowDown'); await apps.press('Enter');
   assert.equal(await apps.inputValue(),'Zoom');
@@ -101,6 +105,23 @@ const recording = fs.readFileSync(path.join(cabinet, 'templates/cabinet/pages/se
   const language=page.getByRole('combobox',{name:'Язык',exact:true});
   const original=page.locator('select[name=language]');
   assert.equal(await original.isVisible(),false);
+  // A click after Escape or a mouse choice must replace the restored label, even while focused.
+  for (const close of [async () => language.press('Escape'),
+    async () => options.filter({hasText:'Русский'}).click()]) {
+   await language.click(); await close();
+   await language.click({position:{x:20,y:15}});
+   await page.keyboard.type('Eng');
+   assert.equal(await language.inputValue(),'Eng','Reopening must select the saved label before typing');
+   assert.equal(await original.inputValue(),'ru','Typing must not save a setting');
+   await language.click({position:{x:20,y:15}});
+   assert.equal(await language.evaluate(el=>el.selectionStart===el.selectionEnd),true,'Editing clicks keep the caret');
+   await language.press('Escape');
+  }
+  await language.dispatchEvent('compositionstart');
+  await language.evaluate(el=>el.setSelectionRange(2,2));
+  await language.locator('..').getByRole('button',{name:'Показать варианты'}).click();
+  assert.deepEqual(await language.evaluate(el=>[el.selectionStart,el.selectionEnd]),[2,2],'Reopening must not select IME composition');
+  await language.dispatchEvent('compositionend'); await language.press('Escape');
   await language.click(); assert.equal(await options.count(),3);
   assert.equal(await options.locator('[aria-hidden=true]').allTextContents().then(values=>values.join('')),'✓');
   assert.equal(await options.filter({hasText:'Русский'}).getAttribute('aria-selected'),'true');
@@ -180,29 +201,48 @@ const recording = fs.readFileSync(path.join(cabinet, 'templates/cabinet/pages/se
    assert(!/<select(?![^>]*data-settings-combobox)/.test(template),`Unconverted select: ${filename}`);
    assert(!template.includes('data-timezone-search'),`Separate search: ${filename}`);
   }
+  for (const canManageDefault of [false,true]) {
   const extra=await browser.newPage(); extra.setDefaultTimeout(5000);
   extra.on('pageerror',error=>errors.push(error.message));
   const summarySource=fs.readFileSync(path.join(cabinet,'templates/cabinet/pages/settings_summaries_content.html'),'utf8');
   const notificationSource=fs.readFileSync(path.join(cabinet,'templates/cabinet/pages/settings_notifications_content.html'),'utf8').split('{% if embedded %}')[1].split('{% else %}')[0];
-  await extra.setContent(`<section data-summary-template-settings data-template-endpoint="/templates" data-summary-default-endpoint="/default">
-   <label>Формат новых итогов<select data-settings-combobox data-summary-default-template disabled><option value="auto">Авто</option><option value="brief">Кратко</option></select></label>
-   <button data-summary-template-create>Создать формат</button>${summarySource.match(/<dialog[\s\S]*?<\/dialog>/)[0]}</section>${notificationSource}`);
+  const summaryHTML=summarySource.replace(/{% for format in summary_formats %}([\s\S]*?){% endfor %}/g,(_,body)=>
+   [{key:'auto',name:'Авто'},{key:'brief',name:'Кратко'}].map(format=>body
+    .replaceAll('{{ format.key }}',format.key).replaceAll('{{ format.name }}',format.name)
+    .replaceAll('{{ format.version }}','1').replaceAll('{{ format.purpose }}','Тестовый формат')
+    .replaceAll("{{ format.sections|join(',') }}",'summary')).join(''));
+  await extra.setContent(`${summaryHTML}${notificationSource}`);
   await extra.addStyleTag({path:path.join(assets,'cabinet.css')});
-  await extra.evaluate(()=>{
+  await extra.evaluate(canManageDefault=>{
+   window.summaryReady=new Promise(resolve=>window.releaseSummary=resolve);
    window.savedDefault=null; window.notificationWrites=[];
    window.fetch=async (url,options={})=>{
     if(options.method==='PUT') window.savedDefault=JSON.parse(options.body);
-    return {ok:true,status:200,json:async()=>({personal:[],can_manage_default:true,default_template_key:'auto'})};
+    await window.summaryReady;
+    return {ok:true,status:200,json:async()=>({personal:[],can_manage_default:canManageDefault,default_template_key:'brief'})};
    };
    window.prefs={reminders:true,offsetMinutes:1,showTitles:false,sound:false};
    window.webkit={messageHandlers:{grafNotificationSettings:{postMessage:async data=>{
     if(data.action==='set'){notificationWrites.push(data);prefs[data.field]=data.value;}
     return {version:1,preferences:prefs,canEdit:true,canRequestPermission:false,permission:'Разрешено'};
    }}}};
-  });
+  },canManageDefault);
   await extra.addScriptTag({path:path.join(assets,'cabinet.js')});
   await extra.evaluate(()=>window.GRAFNotificationSettings.connect('synthetic-notifications'));
   const defaultField=extra.getByRole('combobox',{name:'Формат новых итогов',exact:true});
+  assert.equal(await defaultField.count(),1,'Accessible name must exclude transient loading help');
+  assert.equal(await defaultField.getAttribute('aria-describedby'),'summary-default-help');
+  assert.equal(await extra.locator('#summary-default-help').textContent(),'Загружаем доступные форматы…');
+  await extra.evaluate(()=>releaseSummary());
+  await extra.waitForFunction(()=>document.querySelector('[data-summary-default-help]').textContent!=='Загружаем доступные форматы…');
+  assert.equal(await defaultField.count(),1,'Accessible name stays stable after loading');
+  assert.equal(await defaultField.inputValue(),'Кратко','Loaded default must be shown even when read-only');
+  assert.equal(await defaultField.isDisabled(),!canManageDefault);
+  assert.equal(await extra.locator('[data-summary-default-template]').inputValue(),'brief');
+  assert.equal(await extra.evaluate(()=>savedDefault),null,'Loading must not save the default');
+  if (!canManageDefault) { await extra.close(); continue; }
+  await defaultField.fill('Авто'); await defaultField.press('Enter');
+  await extra.waitForFunction(()=>savedDefault?.template_key==='auto');
   await defaultField.fill('Кратко'); await defaultField.press('Enter');
   await extra.waitForFunction(()=>savedDefault?.template_key==='brief');
   await extra.getByRole('button',{name:'Создать формат',exact:true}).click();
@@ -226,6 +266,7 @@ const recording = fs.readFileSync(path.join(cabinet, 'templates/cabinet/pages/se
   await extra.waitForFunction(()=>!document.querySelector('input[aria-label="Когда напоминать"]').disabled);
   assert.equal(await offset.inputValue(),'За 5 минут');
   await extra.close();
+  }
 
   // Opening a saved middle/last option must not silently select the first one.
   const selection=await browser.newPage(); selection.setDefaultTimeout(5000);

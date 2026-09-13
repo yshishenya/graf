@@ -58,3 +58,9 @@ T016 → T011. GitHub owner T016: https://github.com/yshishenya/graf/issues/6924
 - [ ] T017 [US2] Устранить аварийное завершение установленного GRAF Dev при AX hit-test нативного поля в `apps/macos/RecApp/Sources/Settings/NativeSettingsComboBox.swift`; воспроизвести причину рекурсии и добавить регрессию в `apps/macos/Shared/Tests/NativeSettingsComboBoxTests.swift`, повторить реальную проверку поля/списка в T011/T012 (FR-004, FR-006; partial).
 
 T017 → T011/T012. GitHub owner T017: https://github.com/yshishenya/graf/issues/6924.
+
+## Phase 11: Convergence повторного веб-ревью
+- [X] T018 [US2] Выделять сохранённую подпись при повторном открытии веб-настройки с уже установленным фокусом в `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`; проверить Escape/выбор мышью/reopen, ввод, фильтр приложений и IME в `apps/server/tests/browser/settings-combobox.test.cjs` (FR-003, FR-004; partial; review3999124384).
+- [X] T019 [US2] Синхронизировать загруженное значение недоступного для изменения формата итогов и отделить динамическую подсказку от доступного имени в `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js` и `apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/settings_summaries_content.html`; проверить настоящий шаблон и пользователя без личных форматов в `apps/server/tests/browser/settings-combobox.test.cjs` (FR-004, FR-005, FR-006; partial; review3999124387, review3999124389).
+
+T018/T019 → T011. GitHub owner: https://github.com/yshishenya/graf/issues/6924.

@@ -16,12 +16,13 @@
         </div>
         <button class="button quiet" type="button" data-summary-template-create aria-haspopup="dialog" aria-controls="summary-template-dialog">Создать формат</button>
       </div>
-      <label class="summary-default-template">Формат новых итогов
-        <select data-settings-combobox data-summary-default-template disabled>
+      <div class="summary-default-template">
+        <label for="summary-default-template">Формат новых итогов</label>
+        <select id="summary-default-template" data-settings-combobox data-summary-default-template aria-describedby="summary-default-help" disabled>
           {% for format in summary_formats %}<option value="{{ format.key }}" data-template-version="{{ format.version }}">{{ format.name }}</option>{% endfor %}
         </select>
-        <span class="muted" data-summary-default-help>Загружаем доступные форматы…</span>
-      </label>
+        <span id="summary-default-help" class="muted" data-summary-default-help>Загружаем доступные форматы…</span>
+      </div>
       <div class="summary-template-library" data-summary-template-library>
         <div class="summary-template-group">
           <h3>Форматы GRAF</h3>
