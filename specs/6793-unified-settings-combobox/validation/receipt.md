@@ -1,0 +1,224 @@
+> Текущий статус: визуальная приёмка НЕ пройдена. После проверки e964 пользователь отклонил вид раскрытых меню; T009–T011 обязательны. Ниже сохранена история проверок, прежние заключения о завершении относятся только к прежнему кандидату.
+
+# F6793 validation — 2026-09-11
+
+Base: `ad71f2ce4db68d846d7c333213961c5f5f7d5e89`, branch `6793-unified-settings-combobox`.
+Lane: high-risk-feature (shared UX/accessibility); no production deploy.
+
+## Requirements
+Spec/clarify/plan/checklist/tasks выполнены. Clarify 0 questions, решение ограничено существующими настройками. Independent UX reviewer 6/6 PASS. Analyze initial C1 (неполные пути задач) исправлен; повторный analyze PASS, FR/SC coverage 12/12. GitHub owner всех T001–T006: #6924; issue canon validation PASS.
+
+## Functional evidence
+- `node apps/server/tests/browser/timezone-settings.test.cjs`: PASS. Реальная форма/отправка, поиск русский/IANA/UTC, выбор, preview, Cancel, network/422 retry, redirect, no-JS.
+- `node apps/server/tests/browser/settings-combobox.test.cjs`: Chromium PASS и WebKit PASS. Actual recording/notification templates + synthetic bridges; actual summary editor dialog/default selection; app filter, массовое правило скрытым строкам, клавиатура/IME, no-match, reset, disabled/catalog, pending refresh, narrow viewport, 600 вариантов ≤1 мс.
+- `uv run --project apps/server --extra dev pytest apps/server/tests/contract/test_settings_ui_contract.py -q`: 25 passed (2 upstream warnings).
+- `swift test --package-path apps/macos --filter 'NativeSettingsComboBoxTests|CaptureControlV5Tests|AppControlAccessibilityTests|DesktopNotificationControlTests'`: 51/51 PASS, в том числе 7 новых native handler checks.
+- `swift test --package-path apps/macos --filter EmbeddedCabinetRecordingSettingsBridgeTests`: 5/5 PASS, настоящий WKWebView и локальное хранилище правил.
+- `node --check .../cabinet.js`, `git diff --check`: PASS.
+- `scripts/check_spec_kit_governance.py`: PASS с изолированным specify-cli 1.0.1 на закреплённом ref из lock; глобальный CLI другой версии не менялся.
+
+- Финальный совместный Swift запуск: `swift test --package-path apps/macos --filter 'NativeSettingsComboBoxTests|CaptureControlV5Tests|AppControlAccessibilityTests|DesktopNotificationControlTests|EmbeddedCabinetRecordingSettingsBridgeTests|EmbeddedCabinetNotificationSettingsBridgeTests'`: 61/61 PASS.
+- Скриншоты из автоматической синтетической проверки проверены визуально: одно поле приложений, варианты под ним, перенос длинных строк, отсутствие горизонтального выхода на ширине 375; светлая/тёмная темы. Скриншоты вне git.
+
+## Scope inventory
+Аккаунт: пояс. Запись: приложение, общее и индивидуальное правило. Итоги: шаблон, язык и подробность. Уведомления: время напоминания. Offline macOS: приложения/правила/напоминание. Календари (флажки), пространство (карточки), тема (radio) и billing (кнопки) не имеют раздельного search/select; сохранены. Сквозной source scan всех settings templates не находит немаркированных select/старого timezone-search.
+
+## Review / limitations
+Независимый web review нашёл P2: refresh(read) стирал активный ввод; исправлено отложенным read до завершения выбора/ухода фокуса, добавлен regression scenario. Меню вынесено в поддерживаемый браузером popover top layer с fixed fallback, ограничено видимой областью, закрывается при прокрутке внешней страницы. Повторный независимый review PASS: P2 воспроизведением снят, новых замечаний нет; Ponytail-review — без лишних зависимостей/абстракций.
+Native tests проверяют AppKit delegate/action, а не реальный popup event loop или VoiceOver. Установленный GRAF Dev/визуальная native приёмка и exact-SHA PR governance-fast остаются T006. Никакого публичного release/deploy.
+
+## Converge checkpoint
+Проверены spec/plan/tasks/constitution и текущий код. Новых обязательных работ по реализации не обнаружено; все найденные требования имеют реализацию/локальные проверки. T005 завершён, T006 остаётся открытой задачей приёмки: коммит после отдельного разрешения, установка GRAF Dev через harness, системное меню/VoiceOver, затем exact-SHA PR governance-fast. Полная приёмка фичи и release не объявляются. Существующая T006 покрывает остаток, дублирующая convergence task не создаётся.
+
+Shared Dev status (read-only): active feature 6792, SHA `d73d9087f609e6c0e33de8238174e49e242218ad`, manifest `dev-d73d9087f609`; эта версия не содержит F6793. До разрешения коммита стенд не обновлялся.
+
+## Установленная проверка кандидата 65dccbaa567e
+Коммит/push и promote выполнены по разрешению пользователя «делай». GRAF Dev manifest dev-65dccbaa567e, SHA `65dccbaa567ee26a7d1c6ffb430bcc5de9d45af5`, promote 2026-09-11T13:52:08Z, harness health 13/13 PASS. GitHub governance-fast run 34606466186 и pr-metadata 34606466213 — PASS на этом SHA (первый metadata run требовал исправления формата SHA в PR body).
+
+В установленном WKWebView: timezone Москва → Escape вернул Екатеринбург; приложения zoom → две строки, mouse/Enter выбор, очистка вернула каталог; Ник → Никогда в правиле Zoom, Escape отменил; шаблон Протокол фильтруется; язык no-match/очистка, подробность Кратко выбрана Enter в отменённом черновике; напоминание начал → В момент начала, Escape отменил. Доступные имена/expanded состояния видны через AX.
+
+Для штатного fallback на 45 секунд приостановлен только graf-dev-api-1 с гарантированным unpause; API восстановлен и healthy, кабинет снова открылся. Установленная native проверка нашла ошибки: Enter не закрывал редактируемое меню, выбор через стрелку мог не сохраняться, фокус не раскрывал список. Эти ошибки исправлены в последующем diff; T006 остаётся открытым до повторной установленной проверки. Независимый native review не нашёл новых замечаний, но подтверждение реальных событий остаётся за установленным тестом. VoiceOver speech пока не проверялся.
+
+## Повторные проверки после native исправления и дополнения размера
+NSComboBox использует AXShowMenu у cell; Return/Escape передаются AppKit; завершённый выбор DidChange отделён от промежуточного IsChanging, programmatic selection защищён. Native focused regression 60/60 PASS, дополнительный итоговый набор NativeSettingsComboBox/AppLifecycleWindowRegression/AppControlAccessibility/оба EmbeddedCabinet bridge — 46/46 PASS. WebKit settings-combobox PASS после изменения плотности строк. Размер/отступы пока требуют установленной проверки T007 вместе с T006.
+
+## Повторная установленная проверка 6d5623421776
+SHA `6d562342177628263c98a1d71fda79a5997d9a7c`, promote 14:21:42Z, health 13/13 PASS; final smoke PASS; governance-fast https://github.com/yshishenya/graf/actions/runs/34609377399 и pr-metadata 34609377359 PASS. Код принят не полностью: установленная проверка agent задачи 01a090a9-ac47-7893-a74d-e18f37e33986 через CUA выявила, что реальный DidChange также приходит при ArrowDown. Down+Escape сохранял Всегда; последующий Return игнорировался как повторное подтверждение. Zoom восстановлен в Спрашивать через embedded и проверен после reload; Zoom Phone также Спрашивать. Offset За5мин по Return сохранялся; исходное За минуту восстановлено и проверено после вкладок. Search zoom фильтрует2строки, Return закрывает меню. Mouse native выбор инструментом подтвердить не удалось.
+
+Фактическое резервное окно820×680 сохранялось между вкладками; уведомления помещались, строки≈41px. NSHostingController уменьшал окно при назначении содержимого: желаемый размер теперь задаётся повторно через setContentSize после contentViewController и до ограничения экраном. DidChange теперь направлен через тот же существующий event guard, что target/action; не-Return клавиши не подтверждают. T006/T007 ждут новой установленной проверки этих исправлений.
+
+## Текущий результат — 2026-09-11 15:32 UTC
+Установлен `dev-cb87d4a4d716`, source SHA `cb87d4a4d716e3e2653f25e8c36cfe4ddc95f38d`, promote15:30:46Z. Build/promote/status/smoke через штатный harness: PASS, 13/13 health checks. Последние NativeSettingsComboBoxTests + AppLifecycleWindowRegressionTests:13/13 PASS. GitHub governance-fast https://github.com/yshishenya/graf/actions/runs/34615620046 и pr-metadata https://github.com/yshishenya/graf/actions/runs/34615620142 — PASS на этом exact SHA.
+
+T006 и T007 не закрыты: CUA исчез из callable tools root, native reviewer и соседней задачи. Последние изменения DidChange event guard и setContentSize после hostingController ещё не перепроверены в живом UI. Нельзя объявлять устранение установленного native failure доказанным только по unit tests. Подтверждено до этих последних двух исправлений: общий web/embedded выбор/фильтр; native строки≈41px, стабильность окна при смене вкладок, полный показ уведомлений, notification Return persistence. Непроверены повторные ArrowDown/Escape/outside-click, mouse native выбор и начальный увеличенный размер; VoiceOver speech не проверялся.
+
+Все исходные настройки после тестов восстановлены: Zoom и Zoom Phone — Спрашивать, напоминание — За минуту. API healthy/unpaused. PR#6937 остаётся draft, issue#6924 открыт, release/merge/production deploy не выполнялись. Последующее изменение этого отчёта является документацией: установленный SHA указан отдельно, код приложений в нём не меняется.
+
+## Повторная приёмка cb87 — 2026-09-12
+CUA снова доступен. В установленном GRAF Dev подтверждены две ошибки прежнего NSComboBox: AXShowMenu открывает контекстное меню текста (Cut/Copy/Paste), а ArrowDown/Return может показывать «Никогда» без сохранения после смены вкладок. ArrowDown/Escape на этом кандидате сохранил прежнее «Спрашивать». Zoom/Zoom Phone не изменены. Увеличение окна после назначения hosting controller и компактность строк видны; окончательные размеры и повторное открытие проверяются на следующем кандидате.
+
+По результатам установленной проверки общий native helper переводится на публичные NSTextField/NSPopover с явными действиями подтверждения. Отсутствие ошибок в предыдущих delegate unit tests не является доказательством исправления этих пользовательских сценариев. T006/T007 остаются открытыми до проверки нового установленного кода; прежние упоминания недоступности CUA описывают исторический checkpoint.
+
+## Исправление нативного поля и сборки — 2026-09-12
+Общий native helper заменён на NSTextField/NSPopover с явными действиями: стрелки выделяют, click/AXPress/Return подтверждают, Escape/Tab/blur/outside отменяют. Контекстное AXShowMenu и предположения о currentEvent удалены. Убрана внешняя AX value, скрывавшая ввод; повторное открытие резервного окна сохраняет его frame. Independent native review PASS; NativeSettingsComboBox/Accessibility/Window/оба Embedded bridge: 48/48 PASS, включая 13 проверок нового helper. Эти тесты не заменяют установленную приёмку popup event loop.
+
+Для необходимой Dev-приёмки FR-010/T008 добавлены в ту же фичу и issue #6924. Минимальное изменение штатного builder использует `pull --policy missing` только для двух датированных MinIO образов; Postgres/Temporal продолжают загружаться. Отсутствие локального образа с отказом registry останавливает сборку; измерение ID, архив, подпись и checks не изменены. Требования infra CHK008/009 и independent code review PASS. Новые проверки сначала упали на прежнем коде; итоговый `test_graf_local_adapter.py + test_dev_harness.py`: 60/60 PASS. Live cache/build и promote с previous-checkout остаются следующей частью T006/T008.
+
+Повторный analyze требований/плана/задач: 10 FR + 4 SC имеют покрытие T001–T008, несвязанных задач нет, блокирующих противоречий/неоднозначностей нет. High-risk-feature и ограничения constitution сохранены. Custom UX/infra checklist: 9/9 PASS, владельцы независимые reviewers. Новая реализация не добавляет сторонних библиотек, private API, альтернативного пути установки или правил записи. Ponytail review: лишних абстракций/зависимостей не найдено.
+
+
+## Кандидат e964: сборка, установка и GitHub — 2026-09-12
+Source SHA `e964bba55ed594f8bdccf94068d75fd07590c1b5`, manifest `dev-e964bba55ed5`; штатный build PASS и promote 10:31:31Z PASS с `--previous-checkout` чистого активного `7dbcce5f56faaeac8efbc604fddc780e045594f2`. Никакие runtime-definition/SHA/signing guards не отключались. Promote health 13/13 PASS. MinIO storage `sha256:460b46057cbcf8d01c2f7ceae9209290334b75dc1912235b10ad9bd35de056db` и storage_init `sha256:b0211e8b39d1818f2bb5dd4ff1a44e781a196e60e692dc19f46b463ef07a1e41` совпадают с предыдущим принятым manifest; повторная сборка действительно использовала кеш. T008 выполнена.
+
+GitHub `governance-fast` [34688568398](https://github.com/yshishenya/graf/actions/runs/34688568398) и `pr-metadata` [34688568378](https://github.com/yshishenya/graf/actions/runs/34688568378) PASS на exact SHA e964. Локальный governance validator PASS с изолированным specify-cli 1.0.1, установленным по закреплённому ref; глобальный CLI/lock не менялся.
+
+Повторная сверка speckit-converge: новых задач по реализации нет, 10 FR и 4 SC покрыты T001–T008; T006/T007 сохраняются для обязательной фактической приёмки. Ponytail-review: новых зависимостей и лишних общих слоёв нет. Установленная проверка нового AppKit popup ещё не подтверждена; зелёные CI/build/handler tests не закрывают этот остаток.
+
+
+## Завершённая установленная приёмка — 2026-09-12
+После ручной разблокировки Mac независимый проверяющий задачи `01a090a9-ac47-7893-a74d-e18f37e33986` проверил через CUA единственный `/Applications/GRAF Dev.app`, exact code SHA `e964bba55ed594f8bdccf94068d75fd07590c1b5`. Без новых сборок и замены кода:
+
+- Focus/type в поле приложений открывает список; `zoom` даёт Zoom/Zoom Phone и две строки правил.
+- Zoom: Down/Down/Escape и Down/Down/щелчок вне поля сохраняют исходное «Спрашивать».
+- Down/Down/Return выбирает «Никогда», после Уведомления → Запись и повторного фильтра значение сохраняется. Щелчок по «Спрашивать» возвращает его; на снимке после проверки Zoom и Zoom Phone — «Спрашивать».
+- Напоминание: «За минуту» → «За 5 минут» по Enter, сохранение подтверждено после переключения вкладок, затем возвращено «За минуту».
+- AX показывает именованные combo boxes, действие Confirm, список вариантов, выбранные строки и кнопки вариантов. Явный expanded атрибут сериализатор CUA не отобразил; программная проверка expanded есть в native tests. Полная речевая проверка VoiceOver не проводилась.
+- Снимки вкладок Запись и Уведомления одинакового размера 960×768 в выдаче CUA: окно не уменьшается, содержимое обеих вкладок видно целиком, строки компактны (около 38 px на масштабированном снимке). Эти пиксели не выданы за нативные points: 1040×800 — размер содержимого, заданный кодом и ограниченный экраном; прямое измерение points не проводилось.
+- Закрытие и повторное открытие штатно возвращает резервное окно. Root отдельно прочитал AX и снимок повторно открытого окна: размер/компоновка сохранены, название Yandex Telemost и правило помещаются. Предыдущий обзор кода подтверждает перенос более длинных имён и прокрутку каталога.
+
+После тестового восстановления CUA сообщил о внешнем изменении приложения; свежий AX показал другие пользовательские значения общего правила и фильтра Yandex. Оба проверяющих и ожидающая задача F6796 подтвердили, что не меняли их. Эти значения сохранены без отката; снимок Zoom/напоминания доказывает восстановление именно в момент завершения соответствующих тестов, а не последующее пользовательское состояние.
+
+API приостанавливался только на ограниченное время для открытия fallback с гарантированным unpause. По завершении State.Paused=false; root final smoke 13/13 PASS на e964. Запись не запускалась, данные не удалялись. Локальные снимки/отчёт вне git: `.dev/validation/f6793-installed-cua/`. T006/T007 выполнены.
+
+Финальная сверка spec/plan/tasks/constitution: 10 FR + 4 SC покрыты, T001–T008 выполнены, обязательных незавершённых задач нет. Новых convergence задач не требуется. High-risk-feature: browser/native/contract/harness, независимый review и установленная приёмка завершены. GitHub CI на последнем коммите документации проверяется отдельно; установленный code SHA остаётся e964, apps/infra/scripts не меняются. PR готовится к включению в релиз, merge/public release/production deploy не выполняются.
+
+## Визуальное отклонение — 2026-09-12
+Два пользовательских снимка показали указатель и тяжёлую округлую оболочку NSPopover, полную ширину списка приложений, вложенный фокус и обрезание последней строки. Исторический PASS мыши/клавиатуры и закрытых вкладок не покрывает эти дефекты. PR #6937 сохраняется draft; добавлены T009–T011. Новый установленный результат и exact-SHA CI пока ожидаются.
+
+## Gate визуальной итерации — 2026-09-12
+T009: первичные источники и официальные примеры записаны в research-ui-2026.md; интерактивный synthetic HTML макет проверен в Chromium и визуально (не доказательство AppKit). Независимый selector_inventory проверил CHK010/011 и повторный analyze: CRITICAL0/HIGH0/MEDIUM0, FR+SC16/16 покрыты11 задачами. Уточнены первоначальный focus, historical NSPopover, selected/active и actual geometry0/1/3/8/>8. Issue6924 синхронизирован T009–T011; canon ensure/validate300 PASS. Реализация T010 и установленная приёмка T011 следуют после этого gate.
+
+## Локальная проверка web визуальной итерации
+Общий CSS/DOM: ширина app-filter380, radius6, плотные строки, галочка сохранённого значения, отдельный active, focus без автоматического раскрытия, фактические высоты до8 целых строк. `settings-combobox.test.cjs`: Chromium PASS (600 вариантов0.8ms), WebKit PASS (1.0ms), включая short-menu viewport=scrollHeight и полную8-ю строку длинного каталога. `timezone-settings.test.cjs` PASS; `test_settings_ui_contract.py`25/25 PASS. Синтетические снимки светлой/тёмной темы просмотрены, длинная подпись переносится на375px. Изолированный Spec Kit governance PASS. Это локальная проверка; native и установленная приёмка T011 ещё не завершены.
+
+## Независимая проверка визуального кода
+Native reviewer build_recovery: PASS после удаления мёртвого suppressFocus и добавления публичного AXSharedFocusElements для активной ячейки с очисткой no-match/close/detach. NativeSettingsComboBoxTests19/19 PASS; accessibility/window/оба embedded bridge35/35 PASS. Публичный nonactivating child NSPanel, фактические row rects и освобождение observers проверены по коду. Установленная доставка мыши/кольцо фокуса остаются T011.
+
+Web reviewer selector_inventory нашёл2 P2: non-overlay scrollbar меняет перенос после измерения; window deactivation не вызывает input.blur. Исправление резервирует ширину scrollbar до измерений и закрывает на window.blur/document.hidden без сохранения настройки; app query сохраняется. Добавлены воспроизводящие сценарии в существующий browser suite.
+
+Повторные Chromium/WebKit и timezone PASS после2 web P2 исправлений. Native каталог не резервирует пустые24pt под отсутствующую галочку: текст/расчёт переноса используют поля10pt, правила сохраняют место галочки; Native19/19 PASS повторно.
+
+Повторная сверка реализации: FR-001–FR-010 сохраняют прежние доказательства; FR-011/SC-005 имеют новое browser/native покрытие и независимый review. Локальная реализация T010 завершена; T011 требует нового установленного результата и exact-SHA PR CI. Общий Dev возвращён от F6796: активный8f68e8697497582dc33d6d7148d84844057686ca; штатная смена выполняется через проверенный previous-checkout.
+
+## Кандидат faa7: точный SHA, установка и остановка приёмки
+Source SHA `faa7e1f5fe428efe9508cb5a3a26f5327c817057`; build PASS, manifest `dev-faa7e1f5fe42`. Штатный promote 2026-09-12T13:26:09Z с проверенным предыдущим checkout активного8f68e869 PASS; здоровье 13/13 PASS. Политики подписи, образов, чистого SHA и runtime digest сохранены.
+
+GitHub governance-fast [34696402559](https://github.com/yshishenya/graf/actions/runs/34696402559) и pr-metadata [34696402474](https://github.com/yshishenya/graf/actions/runs/34696402474): PASS на exact faa7. Первые два запуска после push упали на ожидаемом старом exact source SHA в прежнем описании; после обновления описания новые успешные runs относятся к текущему SHA. PR MERGEABLE/CLEAN, остаётся draft.
+
+Финальный независимый web reviewer повторил оба P2 в Chromium/WebKit: обычная полоса18px учтена до измерений (WebKit viewport410px, восьмая строка полностью видима, отклонение0px); window blur и document hidden закрывают без сохранения. Web/Ponytail PASS. Native reviewer: PASS, AX активного/сохранённого разделён,19 focused tests;35 regression tests также PASS.
+
+Независимый установленный проверяющий задачи `01a090a9-ac47-7893-a74d-e18f37e33986` подтвердил actual manifest faa7, затем CUA отказал: Mac locked, automatic unlock failed, требуется ручная разблокировка. Проверяющий UI/runtime не менял, API не приостанавливал. Ранее root делал два ограниченных45s pause для открытия fallback; оба автоматически восстановились, новый fallback не был открыт. Реальная новая приёмка раскрытых меню НЕ проведена; T011 остаётся открытой. Пользователю отправлен запрос разблокировки. Прежний e964 behavioral PASS не подменяет новую приёмку.
+
+## Продолжение после разблокировки
+Установленный reviewer подтвердил на faa7 полные8 строк каталога и3 строки правил/напоминаний, отсутствие указателя и вложенного фокуса. Обнаружен обязательный дефект: щелчок по «За5минут» в новой NSPanel дважды не подтверждает выбор, тогда как Down/Return сохраняет. Полное CUA AX дерево открытой панели не содержит списка/опций; причина требует проверки. T011 не завершена, по converge добавлена T012. Новый код не признаётся готовым по одним unit tests.
+
+## T012: причина щелчка и локальная регрессия
+До исправления фактический hit target строки — NSTextField с needsPanelToBecomeKey=true; nonactivating NSPanel по контракту не получает key focus. Строка заменена на плоскую NSButton: штатный target/action, единая область нажатия, acceptsFirstMouse=true и needsPanelToBecomeKey=false. Ручной tracking событий не добавлен. Поле предоставляет публичную AX иерархию раскрытого списка и реальных кнопок; обратные parent согласованы, close удаляет связь.
+
+NativeSettingsComboBoxTests21/21 PASS: разные области строки, сохранение ровно один раз, рекурсивная AX достижимость, AXPress и очистка. Accessibility/window/оба embedded bridge35/35 PASS. Изолированный Spec Kit governance PASS. Установленный тест T011 требуется на новом SHA: этот локальный результат не отменяет failure кандидата faa7.
+
+Независимый build_recovery code/Ponytail review T012: PASS, блокирующих замечаний нет. Проверены стабильный ID, guard закрытого/disabled/IME, пустая выдача, AX parent/cleanup и отсутствие цикла владения. Реальный щелчок и установленная AX иерархия остаются gate T011.
+
+## Установка исправления T012
+Code SHA `8731f382fac5a8d80b25445c62921d184382f4dc`, manifest `dev-8731f382fac5`: build/promote PASS, health13/13 PASS на2026-09-12T18:11:10Z. Единственный GRAF Dev обновлён штатным harness с verified previous-checkout faa7; подпись, разрешения и данные сохранены.
+GitHub governance-fast [34710151995](https://github.com/yshishenya/graf/actions/runs/34710151995) и pr-metadata [34710152050](https://github.com/yshishenya/graf/actions/runs/34710152050): PASS на exact8731. Первый metadata run после push использовал прежнее описание, первый governance run был отменён последующим metadata-edit run; актуальные успешные runs указаны выше.
+
+Установленная повторная приёмка T011/T012 пока не выполнена: два независимых проверяющих через прямой CUA getApp получили «Mac is locked and automatic unlock could not unlock it». Root однократно получил AX главного окна, но это не подтверждает доставку щелчка в раскрытую панель. Настройки в этом прогоне не менялись; ограниченная пауза API автоматически снята, State.Paused=false. Финальный harness smoke exact8731:13/13 PASS. PR остаётся draft, T011/T012 открыты до доступной живой проверки; unit/AX тесты не заменяют её.
+
+Следующий шаг: на установленном8731 проверить настоящие щелчки по тексту и свободной области строк, дерево AX/AXPress, сохранение после вкладок, повторный ввод zoom, темы и край экрана. При передаче общего Dev другой задаче повторно установить этот код штатным harness перед приёмкой; чистый checkout8731 подготовлен.
+
+## Исправление GitHub review — 2026-09-13
+Актуальная ветка синхронизирована ff-only на afa1459d2: включён опубликованный master5e599a5b7, пользовательские правки не перезаписывались. GitHub review содержит ровно три открытых P2:3997548962,3997548965,3997548968. Они покрыты T013/T014; прежние T011/T012 остаются отдельной установленной приёмкой.
+
+-3997548962: после штатного AppKit mouseDown сохранённая метка одиночной настройки выделяется целиком. Уже введённый запрос, фильтр приложений и markedText не меняют выделение; нет нового состояния или обработки синтетических событий. Реальный NSTextView.insertText в тесте заменяет выделенную метку без сохранения.
+-3997548965: повторное раскрытие web каталога использует сохранённый input query. Regression до исправления показывала3 варианта вместо1; после исправления click/ArrowDown/toggle сохраняют один результат. Тот же сброс найден и устранён в Native open/restoreLabel.
+-3997548968: app popup и строки используют одинаковые нормализованные название/запрос. До исправления Microsoft  Teams давал1 вариант и0 строк. Покрыты повторные пробелы, NFKC и краевые пробелы. Каталог сравнивает имя один раз: запрос Teams Microsoft не должен совпадать на стыке дублированных label/value. Native app popup также исключает скрытый ID, как фильтр строк.
+
+Локально: settings-combobox Chromium PASS (600вариантов0.7ms), WebKit PASS (1.0ms); timezone suite PASS; settingscontract+viewmodels36PASS; NativeSettingsComboBox24PASS + accessibility/window/оба embeddedbridge35PASS (итого59). Новый Native retained-query тест до исправления имел4 неуспешных assertions, после — PASS. Spec Kit governance и git diff --check PASS. Независимый повторный review и новый installed candidate следуют отдельно.
+
+Независимый reviewer задачи01a090a9-ac47-7893-a74d-e18f37e33986 проверил окончательные4 code/test файла: PASS, новых блокирующих замечаний нет; rootcause, guard IME/appfilter, reopen и соответствие Native row matching подтверждены. Ponytail: сокращений не требуется. Проверяющий не менял исходники/UI и не заявлял собственного запуска тестов. Прямой callback в Native тесте не подменяет установленный mouseDown. T013/T014 выполнены по коду/регрессиям; T011/T012 ждут нового installed результата.
+
+## Кандидат review и связанная проверка CI
+CodeSHA0ec9eed61cf35a7ba4869e17db01a9a3d1a05395 собран и установлен штатным harness; active dev-0ec9eed61cf3. GitHub run34719789224 остановился на test_meeting_review_resize_node_harness_keeps_bounds_and_one_listener: прежнее точное число двух глобальных resize listeners не учитывало добавленный независимый settings listener.
+
+T015 изменяет только assertion теста: ровно один именованный resizeSpeakerTimelines; проверка неизменности общего количества после htmx swap, единственный keydown, границы и позиция воспроизведения сохранены. Production код не меняется. Независимый reviewer подтвердил исправление и отдельно запустил5 Node сценариев one/two/fit/overflow/viewport: PASS. Полный выбранный набор cabinetstatic/settingscontract/viewmodels:112PASS. Требуется повторный exact-SHA GitHub CI после этого test-only исправления.
+
+На три обсуждения review добавлены ответы с codeSHA и границами доказательств; code/Ponytail review PASS. Установленная приёмка остаётся обязательной: в соседней CUA сессии read/Raise выполняются, click снова недоступен. Ни этот сбой инструмента, ни unit callback не доказывают успешное нажатие в установленном приложении.
+
+## Итог проверки замечаний review
+GitHub governance-fast [34720119849](https://github.com/yshishenya/graf/actions/runs/34720119849) и pr-metadata [34720119892](https://github.com/yshishenya/graf/actions/runs/34720119892) PASS на7f5bb2c03e54488ab48bffe4e27214763f29a260. T015 выполнена. Все3 исходных review threads разрешены после исправлений, регрессий и независимого review; новые блокирующие code findings не найдены. С origin/master нет отставания.
+
+Активный installed production-code SHA0ec9eed61cf35a7ba4869e17db01a9a3d1a05395: build/promote/final smoke13/13PASS. Коммит7f5 и последующий отчёт меняют только тесты/метаданные, не исходники приложения. Сборка оставлена в единственном GRAF Dev, настройки не изменялись.
+
+T011/T012 остаются открыты: повторно подтверждено отсутствие вызываемого CUA click действия в root и независимой задаче, при работающем read/Raise. Это ограничение инструмента, не причина повторно просить unlock. Живые mouseDown/AXPress/ввод и окончательные темы/края требуют установленной проверки; PR не объявляется готовым к включению в релиз до неё. Публикация, merge и production deploy не выполнялись.
+
+## T016: новое замечание повторного review
+Повторная живая проверка GitHub обнаружила review3997752781, опубликованное после прошлого closeout: open веб-настройки оставлял active=-1, поэтому Enter заменял сохранённый средний/последний вариант первым. До исправления браузерная регрессия воспроизвела first != middle. Общий open теперь выделяет доступный source.value; sync сохраняет активный вариант по стабильному value и исключает disabled. Ввод и app filter не получают фиктивного выбранного значения.
+
+Chromium PASS (600 вариантов 0.9 ms), WebKit PASS (1.0 ms), timezone PASS, settings contract/viewmodels 36 PASS. Spec Kit governance и diff --check PASS. Независимый code/Ponytail review native_combobox не нашёл блокирующих замечаний. T016 выполнена; новое exact-SHA CI и установленная приёмка T011/T012 следуют отдельно.
+
+## T017: установленная авария AX hit-test
+На установленном native code0ec9 при разрешённой пользователем проверке AppleScript процесс GRAF Dev аварийно завершился. Отчёт macOS подтверждает EXC_BAD_ACCESS/Stack Guard на главном потоке: originalLength26132, recursion depth26074 в SwiftUI AccessibilityCore.hitTest, обращение через Field.accessibilityChildren во вложенном event loop NSTextField.mouseDown. onClick в этом вызове ещё не выполнялся. Привязка причины к приостановке API не установлена; API гарантированно восстановлен, Paused=false.
+
+Кандидат исправления возвращает только явно заданный popup list без legacy super.accessibilityChildren. Точное обратное ребро в системном AX мосте пока не установлено; устранение аварии требует новой установленной проверки. Независимый reviewer01a090a9 подтвердил минимальность/code PASS с этим ограничением. Existing AX обход теперь явно отклоняет циклы children/navigation-order; добавлена проверка hosted field editor/детей. До исправления дополнительный тест проходил, поэтому это не red→green воспроизведение аварии. Невидимый host hitTest возвращал AXGroup, слабая проверка не принята и удалена.
+
+60 targeted native/bridge проверок PASS после production правки; окончательные25 combobox проверок повторены после уточнения теста. T017/T011/T012 остаются открыты до установленной проверки. T016 exact-SHA5f0406f89: governance-fast34745428631 и pr-metadata34745428634 PASS, новое review обсуждение разрешено.
+
+Установленный2b33941: build/promote и13 проверок PASS; fallback открылся1040×832 outer (1040×800 content), прочитан AX tree без повторной аварии. После удаления inherited children обнаружено отсутствие текстовых полей в AX tree. Новый hosted assertion isAccessibilityElement ДО правки упал. Добавлен явный setAccessibilityElement(true) рядом с comboBox role; после правки25 combobox +35 bridge/accessibility/window проверок PASS, unignoredAncestor совпадает с полем. Независимый review минимальной1-строчной правки PASS; новая установленная приёмка обязательна. Временный zoom в bulk отменён Escape, сохранение не выполнялось, API unpaused.
+
+## T018/T019: повторное веб-ревью
+3999124384: Chromium/WebKit воспроизвели добавление текста внутрь восстановленной подписи после Escape/выбора мышью и повторного click. Общий open выделяет сохранённую подпись; primary mousedown закрытой nonfilter настройки предотвращает последующую установку caret браузером. Открытое редактирование, app filter и IME composition исключены из этого поведения.
+3999124389: настоящий summary template воспроизвёл loading help в постоянном доступном имени. Отдельный label for и aria-describedby используют существующую обработку связей, без нового парсера.
+3999124387: на настоящем шаблоне с задержанным GET, nonowner, без личных форматов и default=brief исходная ошибка не воспроизвелась ни в Chromium, ни в WebKit: повторное disabled присваивание уже вызывало MutationObserver. После загрузки всё же добавлена явная синхронизация существующим helper; это не red→green исправление. GET не вызывает сохранение.
+
+Исполнитель01a090a9 подготовил3-файловый patch в отдельной исходной копии. Root независимо проверил общий helper/callers, начальную асинхронную загрузку, прежний save/disabled контракт, label/help и неизменную CSS grid оболочку: code/Ponytail PASS. Chromium/WebKit/settings и Chromium/timezone PASS; root связанные cabinetstatic/settingscontract/viewmodels112PASS. T018/T019 выполнены; T017/T011/T012 требуют дальнейшей установленной проверки native accessibility.
+
+Установленный b31671: поля появились в AX tree, но AXValue/text selection/actions отсутствуют. Это неполный результат; начат отдельный hosted эксперимент с native NSTextFieldCell, чтобы сохранить штатную доступность текстового редактора. Нового установленного PASS нет.
+
+## T017: восстановление штатной доступности текстовой ячейки
+
+Hosted-сравнение обычного NSTextField и поля GRAF воспроизвело отсутствие AXValue, AXSelectedText и доступного изменения AXSelectedTextRange у предыдущего кандидата: 3 assertions FAIL. Причина потери этих свойств — отдельный AX-элемент на view вместо штатной single-cell доступности AppKit. Новый кандидат убирает view override/identity и добавляет к NSTextFieldCell только role, label/help, expanded, children и shared focus. Значение, выделение, фокус и все setters наследуются от AppKit. Публичные legacy getters необходимы для NSCell; собственного текстового редактора нет.
+
+61 focused Swift checks PASS: 26 NativeSettingsComboBox и 35 accessibility/window/embedded bridges. Тест сопоставляет native/candidate значение, выбранный текст, изменение диапазона и доступность focus; невидимое hosted окно не доказывает внешний AXSetFocus или настоящий mouseDown. Обход children/navigation-order отклоняет циклы и проверяет достижимость вариантов.
+
+Исполнитель01a090a9 менял только компонент и его существующий тестовый файл. Root независимо прочёл весь компонент, production callers и итоговый diff: code/Ponytail PASS после уточнения начального expanded=false. Сохранение/отмена/IME не изменены; close снимает children, parent и shared focus. T017/T012/T011 остаются открыты до установленной проверки нового кандидата.
+
+Веб-коммит deaf8d2e58ce59bac1ccf2f3b4deab53e46ea48a отправлен в PR; семь обсуждений review разрешены с ответами и границами доказательств. Описание PR и issue6924 синхронизированы, issue остаётся открытым.
+
+## T020/T021: последние замечания ревью
+
+Web review3999206098 воспроизведено: после disconnect оставалась подпись «За 5 минут». Обработчик очищает source, закрывает неподтверждённое меню и вызывает существующий sync; сохранений нет. Проверены отключение при открытом меню, пустое значение, блокировка, новый snapshot после reconnect и отсутствие записей. Chromium/WebKit/settings, timezone и112 связанных серверных проверок PASS. Два ранних Chromium timeout возникли до disconnect: diagnostic показал отложенную прокрутку документа при фокусе, штатно закрывающую меню. Тест завершает scrollIntoView до ввода двумя animation frames; production поведение не меняется. Независимый reviewer01a090a9 проверил clearing/fencing/close/sync/reconnect и тест: code/Ponytail PASS.
+
+Native review3999206100 воспроизведено5 assertions: пробелы/NFKC не совпадали. Общий Foundation helper нормализует регистр, NFKC, пробелы и минусы для popup и filteredTargets. Отображаемый запрос не перезаписывается. 62 focused Swift tests PASS, включая27 combobox. Устаревший source assertion заменён ссылкой на новый shared helper; остальные проверки сохранены. Root независимо проверил helper/оба callers/регрессию: code/Ponytail PASS.
+
+Пользователь явно принял проверенный интерфейс и поведение: «я все проверил. все нормально. войсовер больше не проверяй». Это пользовательская приёмка, не заявление о проверке ещё не установленного итогового SHA. Дальнейшая проверка VoiceOver исключена; полная повторная UI матрица не выполняется. Остаются установка финального candidate штатным harness, ограниченная проверка устранённого установленного сбоя и точный GitHub gate.
+
+## Финальная приёмка и convergence
+
+Installed source: `8d816b478de5cc13a5331a4865e33923469d71cd`, manifest dev-8d816b478de5. Штатный build/promote завершился PASS,13 проверок стенда PASS. Все компоненты привязаны к этому SHA; bundle ID/подпись/разрешения сохранены.
+
+Ограниченная проверка установленного исправления: резервное окно1040×832 outer, значение «Спрашивать» доступно через AXValue; AXSelectedText/AXSelectedTextRange и Confirm вновь присутствуют. Обычный CUA click сохранённого поля выделил всю подпись без аварии. Точный вставленный запрос « Microsoft  Teams » сохранился в поле, раскрыл два варианта и оставил две соответствующие строки. Фильтр очищен; исходные правила «Спрашивать» не менялись. Во время первого CUA typeText доставилась неполная последовательность символов; этот вызов не засчитан как успешная проверка ввода. Coordinate click вернул AXError.noValue; он не засчитан как подтверждение выбора мышью. Установленное подтверждение всех действий мыши и полного AX navigation заново не заявляется: итоговая приёмка UI опирается также на прямое сообщение пользователя о завершённой проверке.
+
+VoiceOver не запускался после прямого запрета. Тёмная тема сохранена. Приостановка только Dev API для открытия fallback завершена в finally; Paused=false. Кабинет восстановлен и снова открыл список встреч. Новой записи не запускалось.
+
+Convergence: проверены11 FR,5 SC,3 пользовательских сценария и решения плана (один ввод/явное сохранение, общий поиск, компактное меню, размер окна, native/DOM без зависимостей, штатный harness). T001–T021 завершены с учётом пользовательского принятия интерфейса и исключения дальнейшего VoiceOver. Новых требований/задач не добавлено. Независимое code/Ponytail review всех последних исправлений PASS. Risk/validation lane остаётся high-risk-feature; source, UI acceptance и последующий релиз разделены.
+
+GitHub governance-fast34748200852 и pr-metadata34748200877 PASS на8d816b478. Финальный коммит закрытия меняет только задачи/отчёт/changelog; runtime source сохраняется. Точные проверки финального SHA обязательны в Checks PR. Merge, публикация и production deploy не выполнялись; release-full нужен на будущем замороженном кандидате релиза.
+
+## Общий релиз: повторное ревью T022
+
+После переноса на master с F6796 review3999323463 выявило устаревшее доступное имя поля при переименовании приложения с прежним ID. Минимальная правка общего sync обновляет aria-label из исходного select; MutationObserver следит за его изменением. Полученное при создании имя остаётся резервным, фильтр приложений не меняется.
+
+Сценарий реального refresh реестра Zoom → Zoom Workplace → Zoom сначала воспроизвёл ошибку на прежнем коде. После исправления полный settings-combobox.test.cjs прошёл в Chromium/WebKit; дополнительно проверено отсутствие set/setAll при переименовании. Связанные Python проверки:112 PASS, node --check и проверка фрагментов PASS. Это браузерная проверка доступного имени; VoiceOver и установленная матрица не повторялись по указанию пользователя. Независимый обзор совместимости объединённых TwoBrainRecApp.swift/cabinet.css: Approved; проверка T022 перед слиянием записывается отдельно в PR.
+
+Независимый code/Ponytail review T022: Approved, findings0. Проверены разделение source/input, отсутствие mutation loop и сохранение выбора; повторять native/VoiceOver для этой веб-правки не требуется.

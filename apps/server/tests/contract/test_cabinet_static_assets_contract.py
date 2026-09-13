@@ -1915,7 +1915,7 @@ vm.runInThisContext(fs.readFileSync(process.argv[1], "utf8"));
 const resizeHandlerCount = handle.listenerCount("keydown");
 if (resizeHandlerCount !== 1) throw new Error(`expected one key handler, got ${resizeHandlerCount}`);
 const resizeListenerCount = (windowListeners.get("resize") || []).length;
-if (resizeListenerCount !== 2) throw new Error("expected playback and tooltip resize listeners");
+if ((windowListeners.get("resize") || []).filter(handler => handler.name === "resizeSpeakerTimelines").length !== 1) throw new Error("expected one playback resize listener");
 const currentTime = 42;
 playback.currentTime = currentTime;
 if (scenario === "one") {
