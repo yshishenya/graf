@@ -336,7 +336,7 @@ def test_real_ffmpeg_pipeline_builds_validated_dual_source_playback(tmp_path: Pa
     ffmpeg = shutil.which("ffmpeg")
     ffprobe = shutil.which("ffprobe")
     if ffmpeg is None or ffprobe is None:
-        pytest.skip("FFmpeg capability is validated in the media runtime container")
+        pytest.fail("FFmpeg and ffprobe are required for this media test; install ffmpeg and ensure both tools are on PATH", pytrace=False)
     microphone_path = tmp_path / "microphone.wav"
     system_path = tmp_path / "system.wav"
     output_path = tmp_path / "meeting-review.m4a"

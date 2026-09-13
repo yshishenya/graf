@@ -292,3 +292,62 @@ def test_governance_workflow_rejects_production_and_stale_bypasses(tmp_path: Pat
 
 def test_governance_workflow_self_test() -> None:
     assert load_validator().self_test() == 0
+
+
+@pytest.mark.parametrize("workflow_name", ["release-full", "governance-fast"])
+@pytest.mark.parametrize("tools_state", ["working", "missing-ffmpeg", "missing-ffprobe", "update-failed", "install-failed", "broken-ffmpeg", "broken-ffprobe", "non-server"])
+def test_actual_media_resource_preparation(tmp_path, workflow_name, tools_state):
+    import yaml
+
+    workflow = yaml.load((ROOT / f".github/workflows/{workflow_name}.yml").read_text(), Loader=yaml.BaseLoader)
+    job = workflow["jobs"]["server-full" if workflow_name == "release-full" else "governance-fast"]
+    step = next(step for step in job["steps"] if "browser" in step.get("name", "").lower() and "resources" in step["name"])
+    runner = tmp_path / "infra/scripts/ci-local.sh"
+    runner.parent.mkdir(parents=True)
+    runner.write_text('source "$CI_SOURCE"\nchanged_files() { printf "%s\\n" "$CHANGED_PATH"; }\n')
+    browser = tmp_path / "apps/server/tests/browser/node_modules/.bin/playwright"
+    browser.parent.mkdir(parents=True)
+    browser.write_text('#!/bin/sh\nprintf "browser\\n" >> "$PREP_EVENTS"\n')
+    browser.chmod(0o755)
+    events = tmp_path / "events"
+    harness = r'''
+installed=0
+command() {
+  if [[ "${1:-}" == -v && ( "${2:-}" == ffmpeg || "${2:-}" == ffprobe ) ]]; then
+    [[ "$installed" == 1 || ( "$TOOLS_STATE" != "missing-$2" && "$TOOLS_STATE" != install-failed && "$TOOLS_STATE" != update-failed ) ]]
+  else builtin command "$@"; fi
+}
+sudo() {
+  [[ "$1" == apt-get ]] || return 99
+  printf '%s\n' "$*" >> "$PREP_EVENTS"
+  [[ "$TOOLS_STATE" != update-failed || "$2" != update ]] || return 23
+  [[ "$TOOLS_STATE" != install-failed || "$2" != install ]] || return 23
+  if [[ "$2" == install ]]; then installed=1; fi
+}
+npm() { printf 'npm\n' >> "$PREP_EVENTS"; }
+ffmpeg() { printf 'ffmpeg\n' >> "$PREP_EVENTS"; [[ "$TOOLS_STATE" != broken-ffmpeg ]]; }
+ffprobe() { printf 'ffprobe\n' >> "$PREP_EVENTS"; [[ "$TOOLS_STATE" != broken-ffprobe ]]; }
+'''
+    result = subprocess.run(
+        ["bash", "-e", "-o", "pipefail", "-c", harness + step["run"]], cwd=tmp_path,
+        env={**os.environ, "CI_SOURCE": str(ROOT / "infra/scripts/ci-local.sh"),
+             "CHANGED_PATH": "README.md" if tools_state == "non-server" else "apps/server/src/example.py",
+             "TOOLS_STATE": tools_state, "PREP_EVENTS": str(events)},
+        capture_output=True, text=True, check=False, timeout=10,
+    )
+    rows = events.read_text().splitlines() if events.exists() else []
+    if workflow_name == "governance-fast" and tools_state == "non-server":
+        assert result.returncode == 0 and not rows, result.stderr
+        return
+    failed = tools_state in {"update-failed", "install-failed", "broken-ffmpeg", "broken-ffprobe"}
+    assert (result.returncode != 0) == failed, result.stdout + result.stderr
+    installs = [row for row in rows if row.startswith("apt-get")]
+    if tools_state.startswith("missing-") or tools_state == "install-failed":
+        assert len(installs) == 2 and installs[0] == "apt-get update"
+        assert installs[1].endswith("ffmpeg")
+    elif tools_state == "update-failed":
+        assert installs == ["apt-get update"]
+    else:
+        assert installs == []
+    if not failed:
+        assert rows.count("ffmpeg") == rows.count("ffprobe") == 1

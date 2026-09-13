@@ -37,7 +37,7 @@ def _media_tools() -> tuple[str, str]:
     ffmpeg = shutil.which("ffmpeg")
     ffprobe = shutil.which("ffprobe")
     if ffmpeg is None or ffprobe is None:
-        pytest.skip("FFmpeg capability is validated in the media runtime container")
+        pytest.fail("FFmpeg and ffprobe are required for this media test; install ffmpeg and ensure both tools are on PATH", pytrace=False)
     return ffmpeg, ffprobe
 
 

@@ -258,13 +258,10 @@ metadata_directory="$(mktemp -d "${TMPDIR:-/tmp}/graf-postgres-test.XXXXXX")"
 selection=("${pytest_args[@]}")
 if [[ "$mode" == fast ]]; then selection=(-q tests/unit); fi
 collection_args=()
-collection_pythonpath="$PYTHONPATH"
 if [[ "$partitioned" == true ]]; then
-  # The pytest console entrypoint imports -p before conftest adds the project root.
-  collection_pythonpath="$repo_root/apps/server:$PYTHONPATH"
   collection_args=(-p tests.fixtures.test_resources --graf-partition-preflight)
 fi
-if PYTHONPATH="$collection_pythonpath" uv run --extra dev --extra evaluation pytest --collect-only \
+if uv run --extra dev --extra evaluation pytest --collect-only \
   "${collection_args[@]}" --graf-collection-file "$metadata_directory/collection.json" "${selection[@]}" \
   > "$metadata_directory/collection.log" 2>&1; then
   :

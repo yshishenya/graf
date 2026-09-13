@@ -583,3 +583,34 @@ Combined-source checkpoint: A8–A12 rebased onto current A6 plus master
 and #6995's report fix, whole-script CSRF execution plus all three real report
 contracts:4 PASS/1.87 s. Only these integration checks repeated; completed
 benchmarks and release-image/notary suites were not repeated.
+
+### T089 local media acceptance — 2026-09-13
+
+Actual missing-tool/workflow checks reproduced19 FAIL/2 PASS before the fix.
+After the three skip→fail changes and conditional resource preparation,
+21 PASS/1.68 s; explicit update/install failure cases were then separated.
+Only a supplied authorized TestRec directory reaches tool checks; its absent
+opt-in remains a skip before filesystem/media access. Working tools avoid apt,
+non-server PR paths avoid resource preparation. No new runtime dependency.
+
+Existing synthetic matrix49 + dual-source1:50 PASS/0 SKIP,5.77 s pytest,
+10 s phase.150 passed setup/call/teardown rows,0 duplicates; digest
+`471e0b13dadee467b91a18c986402c958b672346a04071e9e938a05d8acd2d1f`.
+Evidence `.dev/a12-media-t089/focused.jsonl`, local FFmpeg/ffprobe8.1.2.
+Owned PostgreSQL container cleaned. Runtime-image capability and hosted
+Ubuntu FFmpeg execution remain distinct checks.
+
+Master correction #6996 (`b48999dbb2c8fe258f636b263b154377c0fd8fa5`)
+is included. All runner paths now use the same absolute server-root/src
+PYTHONPATH; redundant partition-only root injection was removed. Three
+report regressions PASS/11.44 s, including actual uv console execution,
+two workers and a real one-case PostgreSQL run with the phase report.
+The source product tests were not rerun wholesale after this integration.
+
+Final combined workflow/runner/media contracts:106 PASS/69.48 s, including
+separate apt update/install failures. Ruff, actionlint, both workflow validators,
+Bash, fragment validation and diff checks PASS. FFmpeg version probing uses
+-nostdin so the server-path loop cannot lose its input. Final independent
+T089 implementation review, hosted and release acceptance remain separate.
+Apple notary profile read-only preflight succeeded; no submission or
+publication was performed by this preflight.
