@@ -46,6 +46,14 @@ jobs:
               output.write(f"text_only={str(value['text_only']).lower()}\n")
           PY
 
+      - uses: actions/upload-artifact@v4
+        if: steps.scope.outputs.text_only == 'true'
+        with:
+          name: graf-code-scope-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/code-scope.json
+          if-no-files-found: error
+          retention-days: 90
+
   governance-fast:
     name: ${{ needs.scope.outputs.text_only == 'true' && 'governance-fast-text-change' || 'governance-fast' }}
     needs: scope

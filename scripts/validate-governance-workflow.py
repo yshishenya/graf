@@ -76,6 +76,9 @@ def validate(path: Path) -> list[str]:
         "name: ${{ needs.scope.outputs.text_only == 'true' && 'governance-fast-text-change' || 'governance-fast' }}",
         '[[ "$SCOPE_RESULT" == success && "$TEXT_ONLY" == false ]]',
         "retention-days: 90",
+        "if: steps.scope.outputs.text_only == 'true'",
+        "name: graf-code-scope-${{ github.run_id }}-${{ github.run_attempt }}",
+        "path: ${{ runner.temp }}/code-scope.json",
     ):
         if invariant not in text:
             errors.append(f"missing code/text isolation invariant: {invariant}")
@@ -101,8 +104,9 @@ def validate(path: Path) -> list[str]:
         errors.append("workflow must not depend on ignored .specify/feature.json")
     if re.search(r"(?mi)^\s*continue-on-error:\s*true\s*$", text):
         errors.append("governance workflow must not make a gate advisory with continue-on-error")
-    validator_at = text.find("scripts/validate-ci-evidence.py")
-    upload_at = text.find("actions/upload-artifact@v4")
+    code_job = text.partition("\n  governance-fast:\n")[2]
+    validator_at = code_job.find("scripts/validate-ci-evidence.py")
+    upload_at = code_job.find("actions/upload-artifact@v4")
     if validator_at >= 0 and upload_at >= 0 and validator_at > upload_at:
         errors.append("artifact upload must follow evidence validation")
     if re.search(r"(?mi)^\s*-\s*uses:\s*actions/checkout@v[0-3]\b", text):

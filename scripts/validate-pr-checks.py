@@ -117,6 +117,7 @@ def api(repository, endpoint, *, pages_key=None):
 
 def artifact(repository, run, workflow):
     names = {"governance-fast": "graf-governance-fast-evidence",
+             "code-scope": f"graf-code-scope-{run['id']}-{run['run_attempt']}",
              "macos-pr": f"graf-native-scope-{run['id']}-{run['run_attempt']}",
              "pr-metadata": f"graf-pr-metadata-{run['id']}-{run['run_attempt']}"}
     rows = api(repository, f"actions/runs/{run['id']}/artifacts?per_page=100", pages_key="artifacts")
@@ -127,7 +128,7 @@ def artifact(repository, run, workflow):
     require(row.get("workflow_run", {}).get("id") == run["id"], "artifact run mismatch")
     data = subprocess.check_output(["gh", "api", f"repos/{repository}/actions/artifacts/{row['id']}/zip"], stderr=subprocess.DEVNULL)
     require(len(data) <= 20_000_000, "oversized proof archive")
-    filename = {"governance-fast": f"receipt-{run['id']}.json", "macos-pr": "native-scope.json", "pr-metadata": "pr-metadata.json"}[workflow]
+    filename = {"governance-fast": f"receipt-{run['id']}.json", "code-scope": "code-scope.json", "macos-pr": "native-scope.json", "pr-metadata": "pr-metadata.json"}[workflow]
     with zipfile.ZipFile(io.BytesIO(data)) as archive:
         files = [item for item in archive.infolist() if Path(item.filename).name == filename]
         require(len(files) == 1 and files[0].file_size <= 1_000_000, "missing/oversized/ambiguous proof")
@@ -146,6 +147,21 @@ def current_run(repository, workflow, pr, base):
         if workflow != "pr-metadata":
             jobs = api(repository, f"actions/runs/{run['id']}/attempts/{run['run_attempt']}/jobs?per_page=100", pages_key="jobs")
             if any(job.get("name") == workflow + "-text-change" for job in jobs):
+                continue
+            # GitHub leaves a skipped job's dynamic name unevaluated. Require
+            # its actual scope artifact instead of trusting that display text.
+            if workflow == "governance-fast" and len(jobs) == 2 and all(
+                (job.get("name") == "Determine code scope" and job.get("conclusion") == "success")
+                or (job.get("name") != "governance-fast" and job.get("conclusion") == "skipped") for job in jobs
+            ):
+                scope = artifact(repository, run, "code-scope")
+                require(run.get("status") == "completed" and run.get("conclusion") == "success"
+                        and scope.get("text_only") is True and scope.get("repository") == repository
+                        and scope.get("target_sha") == pr["head"]["sha"] and scope.get("base_sha") == base
+                        and scope.get("pull_request_numbers") == [pr["number"]]
+                        and scope.get("event_name") == "pull_request"
+                        and scope.get("run_id") == run["id"] and scope.get("run_attempt") == run["run_attempt"],
+                        "unverified text-only code skip")
                 continue
             require(run.get("conclusion") == "success", f"{workflow}: latest code run is not successful")
         if workflow != "pr-metadata":

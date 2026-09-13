@@ -203,3 +203,23 @@ def test_release_source_checks_actual_range(snapshot, monkeypatch, case):
         results = checks.verify_source("owner/repo", source, included_prs=expected)
         assert sorted(row["pr_number"] for row in results) == expected
         assert visited == list(reversed(expected))
+
+
+@pytest.mark.parametrize('valid_scope', [True, False])
+def test_github_unevaluated_skipped_name_requires_actual_text_scope(bundle, monkeypatch, valid_scope):
+    pr, _, base, bundles = bundle
+    code, proof = bundles['governance-fast']
+    text = dict(code, id=25)
+    scope = dict(bundles['macos-pr'][1], text_only=valid_scope, run_id=25)
+    def api(_repo, endpoint, **_kwargs):
+        if '/25/' in endpoint:
+            return [dict(name='Determine code scope', conclusion='success'),
+                    dict(name="needs.scope.outputs.text_only == 'true' && 'governance-fast-text-change' || 'governance-fast'", conclusion='skipped')]
+        return [dict(name='governance-fast', conclusion='success')] if '/jobs?' in endpoint else [text, code]
+    monkeypatch.setattr(checks, 'api', api)
+    monkeypatch.setattr(checks, 'artifact', lambda _repo, _run, workflow: scope if workflow == 'code-scope' else proof)
+    if valid_scope:
+        assert checks.current_run('owner/repo', 'governance-fast', pr, base)[0]['id'] == code['id']
+    else:
+        with pytest.raises(ValueError, match='unverified text-only'):
+            checks.current_run('owner/repo', 'governance-fast', pr, base)

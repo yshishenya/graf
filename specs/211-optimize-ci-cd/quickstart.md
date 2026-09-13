@@ -376,3 +376,7 @@ T072 local `swift test --package-path apps/macos --filter SystemAudioPermissionU
 - Локальное сопоставление FR-038–041/SC-019: scope, trust boundary, activation, историческая политика, consumers и негативные сценарии покрыты. Hosted green на новом source и наблюдение body-only edit ещё обязательны для T061/T063/T072. A8 и последующее ускорение упаковки остаются открытыми этапами программы.
 
 - Независимый implementation review A6/T072: **PASS**, новых P1/P2 нет; проверены строгая база предыдущего release, annotated tags, покрытие squash/rebase, все consumers и настоящая последовательность timeout/late callbacks. Результат не заменяет hosted проверки. Ponytail-review: существующие metadata/receipt helpers и stdlib переиспользованы; лишних зависимостей/сервисов нет.
+
+### A6 live text-event acceptance — 2026-09-13
+
+На `59c7072590feaf5c9b1d163c8f17c3742254e07e` Swift6.0.3 native run34760638453 PASS. Правка только body в13:47:25 UTC создала metadata34760821522 PASS и текстовые scope runs34760821336/34760821301; исходный code34760638452 продолжал работу без отмены, Swift повторно skipped. GitHub оставляет dynamic name пропущенного code job невычисленным выражением. Для надёжного consumer добавлен только маленький code-scope artifact текстового события; его run/attempt/head/base/text identity обязателен перед пропуском такой записи. Code receipt из текста не создаётся. Регрессии новых условий и workflow contract:73PASS/10.14с; будущая hosted проверка обновлённого source остаётся обязательной.
