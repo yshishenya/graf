@@ -41,20 +41,21 @@ FR-001: T001/T008–T013; FR-002: T007–T010; FR-003: T003/T004/T006/T008/T009;
 
 ## GitHub
 
-- T001: https://github.com/yshishenya/graf/issues/6962
-- T002: https://github.com/yshishenya/graf/issues/6963
-- T003: https://github.com/yshishenya/graf/issues/6964
-- T004: https://github.com/yshishenya/graf/issues/6965
-- T005: https://github.com/yshishenya/graf/issues/6966
-- T006: https://github.com/yshishenya/graf/issues/6967
-- T007: https://github.com/yshishenya/graf/issues/6968
-- T008: https://github.com/yshishenya/graf/issues/6969
-- T009: https://github.com/yshishenya/graf/issues/6970
-- T010: https://github.com/yshishenya/graf/issues/6971
-- T011: https://github.com/yshishenya/graf/issues/6972
-- T012: https://github.com/yshishenya/graf/issues/6973
-- T013: https://github.com/yshishenya/graf/issues/6974
-- T014: https://github.com/yshishenya/graf/issues/6975
+- T001 (Issue #6962): https://github.com/yshishenya/graf/issues/6962
+- T002 (Issue #6963): https://github.com/yshishenya/graf/issues/6963
+- T003 (Issue #6964): https://github.com/yshishenya/graf/issues/6964
+- T004 (Issue #6965): https://github.com/yshishenya/graf/issues/6965
+- T005 (Issue #6966): https://github.com/yshishenya/graf/issues/6966
+- T006 (Issue #6967): https://github.com/yshishenya/graf/issues/6967
+- T007 (Issue #6968): https://github.com/yshishenya/graf/issues/6968
+- T008 (Issue #6969): https://github.com/yshishenya/graf/issues/6969
+- T009 (Issue #6970): https://github.com/yshishenya/graf/issues/6970
+- T010 (Issue #6971): https://github.com/yshishenya/graf/issues/6971
+- T011 (Issue #6972): https://github.com/yshishenya/graf/issues/6972
+- T012 (Issue #6973): https://github.com/yshishenya/graf/issues/6973
+- T013 (Issue #6974): https://github.com/yshishenya/graf/issues/6974
+- T014 (Issue #6975): https://github.com/yshishenya/graf/issues/6975
+- T015 (Issue #6978): https://github.com/yshishenya/graf/issues/6978
 
 ## Phase 6: Convergence
 
