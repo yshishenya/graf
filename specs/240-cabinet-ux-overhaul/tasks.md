@@ -166,8 +166,8 @@ T041/T042: https://github.com/yshishenya/graf/issues/6588. T041: 42 браузе
 
 ## Phase 9: Convergence — системная тема
 
-- [X] T044 [US4] Восстановить совпадение системной и явной палитр встречи и настроек в apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css; расширить apps/server/tests/contract/test_cabinet_theme_contract.py и добавить specs/240-cabinet-ux-overhaul/validation/system-theme.cjs для сравнения вычисленных цветов при light/dark/system, смене темы ОС и отключённом JavaScript; FR-009b/FR-009d/SC-007 (contradicts, HIGH).
-- [X] T045 [US4] Записать результаты локальной проверки в specs/240-cabinet-ux-overhaul/system-theme-validation.md, добавить changes/unreleased/F240.yaml и пройти review/точный governance-fast после разрешённого коммита; FR-011/SC-008 (partial).
+- [X] T044 [US4] Восстановить совпадение системной и явной палитр встречи и настроек в apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css; расширить apps/server/tests/contract/test_cabinet_theme_contract.py и добавить specs/240-cabinet-ux-overhaul/validation/system-theme.cjs для сравнения вычисленных цветов при light/dark/system, смене темы ОС и отключённом JavaScript; FR-009b/FR-009d/SC-007 (contradicts, HIGH). (Issue #6959)
+- [X] T045 [US4] Записать результаты локальной проверки в specs/240-cabinet-ux-overhaul/system-theme-validation.md, добавить changes/unreleased/F240.yaml и пройти review/точный governance-fast после разрешённого коммита; FR-011/SC-008 (partial). (Issue #6959)
 
 T044/T045: https://github.com/yshishenya/graf/issues/6959. T044: 144 pytest и
 240 сравнений палитр Chromium/WebKit PASS; отрицательный контроль воспроизводит
