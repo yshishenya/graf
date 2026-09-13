@@ -3,6 +3,8 @@ import hashlib
 import json
 import os
 import subprocess
+
+import pytest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -82,15 +84,21 @@ def test_payload(value):
     assert "SQL" not in report.read_text()
 
 
-def test_runner_phase_loads_report_options_in_parallel_workers(tmp_path):
+@pytest.mark.parametrize("partitioned", [False, True])
+@pytest.mark.parametrize("selection", [
+    ["-k", "test_request_context_is_isolated_and_reset_on_errors"],
+    ["--", "tests/unit/test_user_time.py::test_request_context_is_isolated_and_reset_on_errors"],
+])
+def test_runner_phase_loads_report_options_in_parallel_workers(tmp_path, selection, partitioned):
     result = subprocess.run(
         ["bash", str(ROOT / "apps/server/scripts/run_local_postgres_tests.sh"),
-         "--focused", "-q", "-n", "2",
-         "tests/unit/test_account_closure.py::test_account_close_rejects_linked_workspace_even_for_sole_owner"],
+         "--focused", "-q", *(["--partitioned"] if partitioned else ["-n", "2"]),
+         *selection],
         cwd=ROOT,
-        env={**os.environ, "GRAF_TEST_REPORT_DIR": str(tmp_path / "reports")},
+        env={**os.environ, "GRAF_TEST_REPORT_DIR": str(tmp_path / "reports"), "GRAF_TEST_WORKERS": "2"},
         capture_output=True, text=True, check=False,
     )
     assert result.returncode == 0, result.stdout + result.stderr
-    rows = [json.loads(line) for line in (tmp_path / "reports/focused.jsonl").read_text().splitlines()]
+    report = "focused-parallel.jsonl" if partitioned else "focused.jsonl"
+    rows = [json.loads(line) for line in (tmp_path / "reports" / report).read_text().splitlines()]
     assert len(rows) == 3 and all(row["outcome"] == "passed" for row in rows)

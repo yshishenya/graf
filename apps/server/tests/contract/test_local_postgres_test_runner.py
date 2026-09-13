@@ -83,7 +83,9 @@ def test_worker_and_clean_database_names_are_bounded_and_run_scoped(monkeypatch)
 def test_full_runner_keeps_strict_rls_tests_and_uses_a_bounded_parallel_lane() -> None:
     script = RUNNER.read_text(encoding="utf-8")
 
-    assert script.count("--extra dev --extra evaluation") >= 4
+    phase = script.split("run_phase() {", 1)[1].split("start_postgres() {", 1)[0]
+    assert 'uv run --extra dev --extra evaluation pytest "${report_args[@]}" "$@"' in phase
+    assert 'uv run --extra dev --extra evaluation pytest -c "$repo_root/apps/server/pyproject.toml" --collect-only' in script
     assert "GRAF_TEST_WORKERS" in script
     assert 'workers="${GRAF_TEST_WORKERS:-4}"' in script
     assert "GRAF_TEST_WORKERS must be an integer from 1 through 8." in script
@@ -178,6 +180,8 @@ os.environ["PYTHONPATH"] = {str(ROOT / "apps/server/tests/fixtures")!r}
 os.chdir({str(tmp_path)!r})
 args = sys.argv[sys.argv.index("pytest") + 1:]
 args = ["test_resources" if arg == "tests.fixtures.test_resources" else arg for arg in args]
+# The real project config is covered by test_test_resources.py; keep this fixture isolated.
+args = [{str(tmp_path / "pytest.ini")!r} if arg == {str(ROOT / "apps/server/pyproject.toml")!r} else arg for arg in args]
 if os.environ.get("TAMPER_PHASE") and "--graf-phase-file" in args:
     path = args[args.index("--graf-phase-file") + 1]
     value = json.load(open(path))
@@ -290,9 +294,9 @@ def test_partition_keeps_path_separator(partition_run):
 
 
 def test_partition_keeps_env_and_config_selection(partition_run):
-    result, rows, _ = partition_run("--partitioned", "-q", addopts="-m selected", config_addopts="-k 'not other'")
+    result, rows, _ = partition_run("--partitioned", "-q", addopts="-m selected", config_addopts="-k 'not test_performance'")
     assert result.returncode == 0, result.stdout + result.stderr
-    assert {row["name"] for row in rows} == {"test_plain", "test_performance", "test_strict", "test_both"}
+    assert {row["name"] for row in rows} == {"test_plain", "test_strict", "test_both"}
     assert all(row["worker"] == "master" for row in rows if row["name"] != "test_plain")
 
 

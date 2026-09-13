@@ -671,3 +671,28 @@ cases выполнены ровно один раз;2 обычных — workers
 cleanup подтверждён. Bash/Ruff/fragments/diff PASS. T093 остаётся открытой до
 включения окончательного #6997, проверки общего config/report entrypoint и
 независимой приёмки объединённого runner. Benchmark131 не повторялся.
+
+
+T093 интеграция проверенной CI-части #6997 выполнена отдельно, пока его владелец
+дорабатывает поведение тарифа. Источник импорта f73c670564899d91582377403d223a26fa0669dc:
+единый run_phase, явный project config до selectors, collection config и два
+реальных report/async regressions. Продуктовые файлы соседнего PR не перенесены.
+A10 передаёт phase/worker options до пользовательского --; Full по-прежнему
+strict → performance → parallel, focused сохраняет свой порядок.
+
+Существующий isolated runner fixture перенаправляет только путь стандартного
+project config в свою pytest.ini; настоящий project config проверяется отдельными
+реальными uv/pytest workers. Существующий combined env/config selector усилен:
+-m selected исключает other, а -k 'not test_performance' отдельно исключает
+performance. Старое -k 'not other' дублировало действие -m и не доказывало
+сохранение config. Уточнение имени необходимо, потому что -k учитывает маркеры.
+
+Полный двухфайловый consumer запуск:60 PASS,1 FAIL/84,51 с; единственный отказ —
+слишком широкое тестовое слово performance, которое дополнительно исключало
+случай с обоими маркерами. После уточнения проверены исправленный selector и
+четыре настоящих варианта async/config/report (обычный/partitioned × -k/--):
+5 PASS/45,16 с. Два новых partitioned варианта дополняют ранее проверенные,
+в каждой фазе ровно3 успешных metadata rows для одного случая. Итого покрыты
+63 уникальных случая окончательной коллекции; это состав двух ограниченных
+запусков, а не один63-case прогон. Bash/Ruff/diff PASS. Повторный131-case benchmark
+не требуется. Независимый implementation review T093 PASS: все7 callers, порядок config/report/options, isolated config mapping, состав/xdist/cleanup и4 настоящих worker variants приняты. Окончательное включение master остаётся последним условием T093 перед проверками SHA.

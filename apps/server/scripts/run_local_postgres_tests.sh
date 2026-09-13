@@ -142,12 +142,12 @@ run_phase() {
   local completed_at
   local duration_seconds
   started_at="$(date +%s)"
-  local report_args=()
+  local report_args=(-c "$repo_root/apps/server/pyproject.toml")
   if [[ -n "${GRAF_TEST_REPORT_DIR:-}" ]]; then
     mkdir -p "$GRAF_TEST_REPORT_DIR"
-    report_args=(-p tests.fixtures.test_resources --graf-report-file "$GRAF_TEST_REPORT_DIR/$phase.jsonl")
+    report_args+=(-p tests.fixtures.test_resources --graf-report-file "$GRAF_TEST_REPORT_DIR/$phase.jsonl")
   fi
-  if "$@" "${report_args[@]}"; then
+  if uv run --extra dev --extra evaluation pytest "${report_args[@]}" "$@"; then
     completed_at="$(date +%s)"
     duration_seconds=$((completed_at - started_at))
     printf 'postgres_test_phase=%s status=pass duration_seconds=%s\n' "$phase" "$duration_seconds"
@@ -261,7 +261,7 @@ collection_args=()
 if [[ "$partitioned" == true ]]; then
   collection_args=(-p tests.fixtures.test_resources --graf-partition-preflight)
 fi
-if uv run --extra dev --extra evaluation pytest --collect-only \
+if uv run --extra dev --extra evaluation pytest -c "$repo_root/apps/server/pyproject.toml" --collect-only \
   "${collection_args[@]}" --graf-collection-file "$metadata_directory/collection.json" "${selection[@]}" \
   > "$metadata_directory/collection.log" 2>&1; then
   :
@@ -303,12 +303,12 @@ fi
 if [[ "$mode" == fast ]]; then
   # Fail cheap pure tests before allocating PostgreSQL. The two sets partition unit.
   if (( $(cat "$metadata_directory/pure-count") > 0 )); then
-    run_phase pure uv run --extra dev --extra evaluation pytest -q -n "$workers" --dist=loadfile \
+    run_phase pure -q -n "$workers" --dist=loadfile \
       -m 'not postgres and not browser' tests/unit "${timing_args[@]}"
   fi
   if (( $(cat "$metadata_directory/resource-count") > 0 )); then
     start_postgres
-    run_phase fast uv run --extra dev --extra evaluation pytest -q -n "$workers" --dist=loadfile \
+    run_phase fast -q -n "$workers" --dist=loadfile \
       -m 'postgres or browser' tests/unit "${timing_args[@]}"
   fi
   printf 'postgres_test_result=pass mode=fast\n'
@@ -330,12 +330,12 @@ PY_PURE
       (( $(cat "$metadata_directory/$phase-count") > 0 )) || continue
       phase_workers=0
       [[ "$phase" != parallel ]] || phase_workers="$workers"
-      run_phase "focused-$phase" uv run --extra dev --extra evaluation pytest \
+      run_phase "focused-$phase" \
         --graf-phase-file "$metadata_directory/$phase.json" -n "$phase_workers" --dist=loadfile \
         "${timing_args[@]}" "${pytest_args[@]}"
     done
   else
-    run_phase focused uv run --extra dev --extra evaluation pytest "${timing_args[@]}" "${pytest_args[@]}"
+    run_phase focused "${timing_args[@]}" "${pytest_args[@]}"
   fi
   printf 'postgres_test_result=pass mode=focused partitioned=%s\n' "$partitioned"
   exit 0
@@ -343,13 +343,13 @@ fi
 
 start_postgres
 if run_phase strict \
-  uv run --extra dev --extra evaluation pytest -m strict_rls "${timing_args[@]}" "${pytest_args[@]}"; then
+  -m strict_rls "${timing_args[@]}" "${pytest_args[@]}"; then
   :
 else
   exit 1
 fi
 if run_phase performance \
-  uv run --extra dev --extra evaluation pytest -m "serial_performance and not strict_rls" \
+  -m "serial_performance and not strict_rls" \
   "${timing_args[@]}" "${pytest_args[@]}"; then
   :
 else
@@ -357,7 +357,7 @@ else
   exit 1
 fi
 if run_phase parallel \
-  uv run --extra dev --extra evaluation pytest -n "$workers" --dist=loadfile \
+  -n "$workers" --dist=loadfile \
   -m "not strict_rls and not serial_performance" \
   "${timing_args[@]}" "${pytest_args[@]}"; then
   :
