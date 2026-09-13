@@ -213,3 +213,10 @@ GitHub governance-fast на e6d40030e124b7565831ec3b2fac3aca8a3307ad прошё�
 Владелец разрешил быстрый выпуск в production после завершённой установленной проверки. VoiceOver остаётся отложенной проверкой владельца, не заявляется PASS. При ready-for-review повторе на a5650f868a08 нативный тест уведомлений ожидал кратковременное сообщение «Сохранено», которое может быть очищено обновлением по фокусу либо таймером. Проверка теперь ожидает подтверждение общей очереди flushAll и по-прежнему проверяет сохранённые значения в настоящем native presenter. Продуктовый код не изменён. Финальный выпуск использует штатные candidate/deploy проверки без отдельного повторного локального Full CI.
 
 Локальный повтор после замены ожидания: шесть EmbeddedCabinetNotificationSettingsBridgeTests PASS, /tmp/f264-release-notification-test.log. Apple notary profile доступен; production checkout чистый, 9cf6e1bd74e4b02d6fa46ca82f44868d0efef3e9. Подготовлен CalVer 2026.09.13.3 с F264 и уже включённой в master F211.
+
+
+### Замечания автоматической проверки перед слиянием
+
+Разрешены четыре P2 из PR #6991: профиль передаёт настоящее сохранённое имя без смешения с заглушкой; отказ от нативного перехода восстанавливает currentRoute; общая очередь предлагает загрузить уже прочитанное серверное значение при конфликте без повторной записи; общий request сохраняет ProblemDetail.code после проверки области и запрета редиректов. Дополнительное действие конфликта общее для обычных форм, редактора итогов и native bridge.
+
+Проверки: settings-autosave.test.cjs PASS (конфликт/загрузка без POST, problem code и прежние сценарии); focused PostgreSQL test_settings_autosave_contract.py PASS (пустое имя и буквальное «Без имени», сохранение/рендер/новое изменение); EmbeddedCabinetReloadRegressionTests PASS (реальный WKWebView и SwiftUI binding после отмены). Логи /tmp/f264-review-autosave.log, /tmp/f264-review-profile-pg.log, /tmp/f264-review-route.log.

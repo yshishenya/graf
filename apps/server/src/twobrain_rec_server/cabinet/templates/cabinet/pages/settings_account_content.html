@@ -31,7 +31,7 @@
       <form class="account-profile-form" data-settings-autosave method="post" action="{{ '/desktop/settings/account/profile' if embedded else '/settings/account/profile' }}"><fieldset data-settings-inputs disabled>
         {{ sections.csrf_field(csrf_token) }}
         <div class="settings-control-row"><label class="settings-control-row__title" for="account-display-name">Имя</label>
-        <input id="account-display-name" name="display_name" type="text" maxlength="240" value="{{ account_surface.profile.display_name if account_surface.profile.display_name != 'Без имени' else '' }}" autocomplete="name"></div>
+        <input id="account-display-name" name="display_name" type="text" maxlength="240" value="{{ account_surface.profile.display_name }}" autocomplete="name"></div>
         {% if account_surface.profile.primary_email %}<div class="settings-control-row"><span class="settings-control-row__title">Email</span><span>{{ account_surface.profile.primary_email }}</span></div>{% else %}<p class="muted">Email можно проверить в способах входа.</p>{% endif %}
 
         <p class="settings-form-status" data-settings-form-status hidden></p>

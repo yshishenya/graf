@@ -80,6 +80,17 @@ const assets = path.join(__dirname, '../../src/twobrain_rec_server/cabinet/stati
     assert.equal(await name.inputValue(),'Мой выбор');
     await page.locator('[action$="/profile"]').getByRole('button',{name:'Применить мой выбор'}).click();
     await page.waitForFunction(()=>!GRAFSettings.pending());assert.equal(saved.display_name,'Мой выбор');
+    mode='error';await name.fill('Не заменять серверное');await name.press('Tab');
+    await page.waitForFunction(()=>document.querySelector('[action$="/profile"]').dataset.state==='error');
+    saved.display_name='Сохранённое имя';mode='';
+    await page.locator('[action$="/profile"]').getByRole('button',{name:'Повторить',exact:true}).click();
+    await page.waitForFunction(()=>document.querySelector('[action$="/profile"]').dataset.state==='conflict');
+    const beforeAccept=requests;
+    await page.getByRole('button',{name:'Загрузить сохранённое',exact:true}).click();
+    await page.waitForFunction(()=>!GRAFSettings.pending());
+    assert.equal(await name.inputValue(),'Сохранённое имя');assert.equal(requests,beforeAccept);
+    await page.route('**/problem',route=>route.fulfill({status:422,contentType:'application/problem+json',body:JSON.stringify({code:'summary_template_limit'})}));
+    assert.equal(await page.evaluate(()=>GRAFSettings.request('/problem').then(()=>null,error=>error.message)),'summary_template_limit');
     // Composition must not submit intermediate input.
     const beforeIME=requests;await name.dispatchEvent('compositionstart');await name.fill('Составной ввод');await page.waitForTimeout(650);assert.equal(requests,beforeIME);
     await name.dispatchEvent('compositionend');await page.waitForFunction(()=>!window.GRAFSettings.pending());assert.equal(saved.display_name,'Составной ввод');

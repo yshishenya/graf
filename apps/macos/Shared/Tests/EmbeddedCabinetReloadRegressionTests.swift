@@ -38,13 +38,17 @@ final class EmbeddedCabinetReloadRegressionTests: XCTestCase {
         let origin = try XCTUnwrap(URL(string: "http://127.0.0.1:\(port.rawValue)"))
         let request = URLRequest(url: origin.appendingPathComponent("desktop/meetings"))
         let controller = EmbeddedCabinetNavigationController()
-        let view = EmbeddedCabinetWebView(request: request,
+        var selectedRoute: URL? = request.url
+        func makeView(_ request: URLRequest) -> EmbeddedCabinetWebView {
+          EmbeddedCabinetWebView(request: request,
             routePolicy: DesktopCabinetRoutePolicy(baseURL: origin), cabinetState: .constant(.ready),
+            currentRoute: Binding(get: { selectedRoute }, set: { selectedRoute = $0 }),
             fallbackRequest: request,
             notificationPresenter: DesktopNotificationPresenter(
                 store: .init(defaults: UserDefaults(suiteName: UUID().uuidString)!),
                 model: DesktopControlModel(), status: { .denied }), navigationController: controller)
-        let host = NSHostingView(rootView: view)
+        }
+        let host = NSHostingView(rootView: makeView(request))
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
             styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -59,5 +63,29 @@ final class EmbeddedCabinetReloadRegressionTests: XCTestCase {
         controller.reload()
         XCTAssertFalse(controller.canReload, "Controls are disabled while the requested reload is pending")
         await fulfillment(of: [requests], timeout: 5)
+        func webView(in view: NSView) -> WKWebView? {
+            if let web = view as? WKWebView { return web }
+            return view.subviews.compactMap { webView(in: $0) }.first
+        }
+        let web = try XCTUnwrap(webView(in: host))
+        for _ in 0..<100 {
+            if controller.canReload { break }
+            try await Task.sleep(for: .milliseconds(40))
+        }
+        _ = try await web.evaluateJavaScript("window.guardCalls=0;window.GRAFSettings={prepareToLeave:async()=>{guardCalls++;return false}};true;")
+        selectedRoute = origin.appendingPathComponent("desktop/settings/account")
+        host.rootView = makeView(URLRequest(url: try XCTUnwrap(selectedRoute)))
+        host.layoutSubtreeIfNeeded()
+        for _ in 0..<100 {
+            if selectedRoute == request.url { break }
+            try await Task.sleep(for: .milliseconds(40))
+        }
+        XCTAssertEqual(selectedRoute, request.url, "Cancel must restore the route binding")
+        XCTAssertEqual(web.url, request.url)
+        host.rootView = makeView(URLRequest(url: try XCTUnwrap(selectedRoute)))
+        host.layoutSubtreeIfNeeded()
+        let calls = try await web.evaluateJavaScript("window.guardCalls")
+        XCTAssertEqual(calls as? Int, 1, "A later SwiftUI update must not repeat canceled navigation")
+
     }
 }

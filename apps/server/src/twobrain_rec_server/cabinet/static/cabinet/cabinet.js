@@ -4506,7 +4506,7 @@
       };
       const showSaveStatus = (element, queue, state, message) => {
         if(!element)return; element.hidden=!message;element.textContent=message;
-        if(["error","conflict"].includes(state)){const retry=document.createElement("button");retry.type="button";retry.className="button quiet";retry.textContent=state==="conflict"?"Применить мой выбор":"Повторить";retry.onclick=()=>queue.retry(state==="conflict");element.append(" ",retry);}
+        if(["error","conflict"].includes(state)){const retry=document.createElement("button");retry.type="button";retry.className="button quiet";retry.textContent=state==="conflict"?"Применить мой выбор":"Повторить";retry.onclick=()=>queue.retry(state==="conflict");element.append(" ",retry);window.GRAFSettings.offerRemote(element,queue,state);}
       };
       let returnFocus = null;
       let canManageDefault = false;
@@ -5997,7 +5997,7 @@
             render(state,message,draft){
               if(nonce()!==queueNonce)return;
               render({...snapshot, ... (handler==='grafRecordingSettings'?{targets:snapshot.targets.map(t=>({...t,rule:draft[t.id]}))}:{preferences:draft})});
-              root.dataset.state=state;status.textContent=message;retry.hidden=!['error','conflict'].includes(state);
+              root.dataset.state=state;status.textContent=message;retry.hidden=!['error','conflict'].includes(state);window.GRAFSettings.offerRemote(status,queue,state);
               retry.textContent=state==='conflict'?'Применить мой выбор':'Повторить';
             },
             async save(fields,all){

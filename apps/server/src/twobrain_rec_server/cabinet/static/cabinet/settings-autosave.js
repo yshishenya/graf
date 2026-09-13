@@ -38,15 +38,21 @@
     const timer = setTimeout(() => abort.abort(), 15000);
     try {
       const response = await fetch(url, {credentials:'same-origin', cache:'no-store', ...options, signal:abort.signal});
-      if (!scopeOK() || !response.ok || response.redirected) throw new Error(response.status === 409 ? 'conflict' : 'unavailable');
+      if (!scopeOK() || response.redirected) throw new Error('unavailable');
       const body = response.status === 204 ? null : await response.blob();
+      if (!scopeOK()) throw new Error('scope');
+      if (!response.ok) {
+        let problem;
+        try { problem = JSON.parse(await body.text()); } catch (_) { /* Non-JSON failures retain generic copy. */ }
+        throw new Error(typeof problem?.code === 'string' ? problem.code : response.status === 409 ? 'conflict' : 'unavailable');
+      }
       return new Response(body, {status:response.status,headers:response.headers});
     } finally { clearTimeout(timer); }
   };
   function create(key, adapter) {
     if (queues.has(key)) return queues.get(key);
     let confirmed = {...adapter.initial}, draft = {...confirmed}, active = null, timer, statusTimer, failure = '', revision = adapter.version;
-    let disposed = false, recovery = null;
+    let disposed = false, recovery = null, remote = null;
     const uncertain = new Set();
     const dirty = () => !same(draft, confirmed);
     const publish = (state, message = '') => {
@@ -75,7 +81,7 @@
           }
           revision = result.version ?? revision;
           publish(dirty() ? 'dirty' : 'saved', dirty() ? '' : 'Сохранено');
-        } catch (error) {Object.keys(fields).forEach(k=>uncertain.add(k));failure=error.message;publish('error', failure === 'conflict' ? 'Настройка изменена на другом устройстве.' : 'Не удалось сохранить. Ваш выбор остался здесь.');}
+        } catch (error) {Object.keys(fields).forEach(k=>uncertain.add(k));failure=error.message.endsWith('_conflict')?'conflict':error.message;publish('error', failure === 'conflict' ? 'Настройка изменена на другом устройстве.' : 'Не удалось сохранить. Ваш выбор остался здесь.');}
         finally {active=null;}
       })();
       await active;
@@ -102,6 +108,7 @@
             }
             const conflict = Object.keys(wanted).some(key => !same(current.values[key], confirmed[key]) && !same(current.values[key], wanted[key]));
             if (conflict && !force) {
+              remote = current;
               failure = 'conflict';
               publish('conflict', 'Настройка изменена на другом устройстве.');
               return;
@@ -110,6 +117,7 @@
             draft = {...confirmed, ...wanted};
             revision = current.version ?? revision;
             failure = '';
+            remote = null;
             uncertain.clear();
             if (!dirty()) publish('saved', 'Сохранено');
             await run();
@@ -120,11 +128,22 @@
         })();
         try { await recovery; } finally { recovery = null; }
       },
+      async acceptRemote() {
+        if(recovery)await recovery;
+        if(disposed||!remote||!scopeOK())return false;
+        confirmed={...remote.values};draft={...confirmed};revision=remote.version??revision;
+        remote=null;failure='';uncertain.clear();clearTimeout(timer);publish('pristine');return true;
+      },
       dispose() { disposed=true;clearTimeout(timer);clearTimeout(statusTimer);queues.delete(key); },
-      async discard() { if(recovery)await recovery;if(active)await active;draft={...confirmed};failure='';uncertain.clear();clearTimeout(timer);publish('pristine'); },
+      async discard() { if(recovery)await recovery;if(active)await active;draft={...confirmed};failure='';remote=null;uncertain.clear();clearTimeout(timer);publish('pristine'); },
     };
     queues.set(key,queue);return queue;
   }
+  const offerRemote = (element, queue, state) => {
+    if(state!=='conflict')return;
+    const button=document.createElement('button');button.type='button';button.className='button quiet';
+    button.textContent='Загрузить сохранённое';button.onclick=()=>queue.acceptRemote();element.append(' ',button);
+  };
   function init() {
     document.querySelectorAll('form[data-settings-autosave]').forEach((form, index) => {
       if(form.dataset.autosaveReady)return;
@@ -149,6 +168,7 @@
             status.hidden=!message;status.setAttribute('role',state==='error'||state==='conflict'?'alert':'status');status.replaceChildren(document.createTextNode(message));
             if(['error','conflict'].includes(state)) {
               const button=document.createElement('button');button.type='button';button.className='button quiet';button.textContent=state==='conflict'?'Применить мой выбор':'Повторить';button.onclick=()=>queue.retry(state==='conflict');status.append(' ',button);
+              offerRemote(status,queue,state);
             }
           }
           if(values.theme){if(values.theme==='system')document.documentElement.removeAttribute('data-theme');else document.documentElement.dataset.theme=values.theme;}
@@ -198,7 +218,7 @@
     if(!window.confirm('Изменения не сохранены. Выйти без сохранения?'))return false;
     await Promise.all(Array.from(queues.values(),q=>q.discard()));return true;
   };
-  window.GRAFSettings={init,create,request,headers,write,pending,flushAll,prepareToLeave};
+  window.GRAFSettings={init,create,request,headers,write,offerRemote,pending,flushAll,prepareToLeave};
   window.addEventListener('beforeunload',event=>{if(pending()){event.preventDefault();event.returnValue='';}});
   document.addEventListener('click',async event=>{
     const link=event.target.closest('a[href]');

@@ -15,6 +15,15 @@ def test_settings_autosave_acknowledges_values_and_rejects_stale_scope(client):
         assert profile.json()["workspace"] == str(WORKSPACE_ID)
         empty = client.post(prefix + "/settings/account/profile", headers=headers, data={"display_name": ""})
         assert empty.json()["values"] == {"display_name": ""}
+        literal = client.post(prefix + "/settings/account/profile", headers=headers,
+                              data={"display_name": "Без имени", "expected_values": '{"display_name":""}'})
+        assert literal.status_code == 200
+        page = client.get(prefix + "/settings/account", headers=auth_headers()).text
+        assert 'value="Без имени"' in page
+        renamed = client.post(prefix + "/settings/account/profile", headers=headers,
+                              data={"display_name": "", "expected_values": '{"display_name":"Без имени"}'})
+        assert renamed.status_code == 200
+        assert renamed.json()["values"] == {"display_name": ""}
         prefs = prefix + "/settings/account/preferences"
         assert client.post(prefs, headers=headers, data={"timezone": "Asia/Kathmandu", "theme": "dark"}).status_code == 200
         assert client.post(prefs, headers=headers, data={"theme": "light"}).json()["values"] == {"theme": "light"}

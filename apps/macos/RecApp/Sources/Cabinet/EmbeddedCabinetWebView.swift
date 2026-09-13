@@ -1715,7 +1715,10 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             let allowed = await Self.prepareSettingsToLeave(in: container.webView)
             guard container.pendingSettingsRequestIdentity == identity else { return }
             container.pendingSettingsRequestIdentity = nil
-            guard allowed else { return }
+            guard allowed else {
+                currentRoute = container.webView.url
+                return
+            }
             coordinator.cancelJavaScriptConfirmation()
             container.lastLoadedRequestIdentity = identity
             navigationController.observeNavigationRequest(request, webView: container.webView)
