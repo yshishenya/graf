@@ -100,3 +100,32 @@ List assertions in recording_share_public_link retain the target meeting and exp
 Decision 6 continues to forbid a hidden registry migration. A8 now explicitly reuses two images on the existing host; it changes build/retry/rollback image selection, preserving the original backup/schema/dispatch/security gates. Attempts close only after verified unchanged state or successful complete recovery, not merely because a trap ran. Persistence failures block before mutation or preserve the unresolved attempt afterward. Cache acceptance includes a real changed application output, not only a new source label.
 
 Hosted-fast follow-up correction: current `ci-local.sh` already executes the two CI contract files directly with pytest. The changed-server list is limited to contract/integration paths; unit paths select the full bounded unit stage and do not enter the changed list. Therefore the earlier suspected duplicate-unit and unnecessary CI-contract DB-wrapper optimizations are not real remaining code changes. The 42 changed cases are separate contract/integration tests.
+
+
+## A9 research — current packaging flow, 2026-09-13
+
+Independent pipeline_architecture review read all installer/update/signing and
+notarization callers. Current installer deletes Swift scratch inside BUILD_DIR;
+prepare rejects same-version archives and locks after reading staging; signer
+redownloads pinned Sparkle and uses --clobber. Keychain proof changes UUID/time
+per invocation. There is no executable notary runner; only manual submit --wait
+commands in docs. Public validator activates Gatekeeper/stapler only with
+GRAF_REQUIRE_PUBLIC_UPDATE_TRUST=1, which the signer must explicitly set.
+
+Decision: reuse existing SwiftPM incremental work and shell trust validators;
+small stdlib state around their boundaries. Preserve submitted vs stapled bytes
+and remote asset identity. Alternative rejected: full-SHA scratch key (cold every
+commit), reuse by version/name alone (false identity), hidden overwrite, guessing
+Apple request from timestamps, caching Keychain success, new registry/service.
+GitHub's draft check and uploads are not one transaction with another operator;
+recheck current state around each bounded upload and retain immutable bytes.
+
+## A11 evidence
+
+Source `/Users/yshishenya/Documents/spec-kit-ext-github-issue-canon` at
+`adf2b1b6d7f04ec97099b6716d2f971350262920`, version0.3.3: ensure line92
+безусловно вызывает copy_template; общий helper заменяет любой отличающийся файл.
+Installed GRAF bytes совпадают с закреплённым source. Bootstrap ensure_issue_canon_files
+уже использует install-if-missing для PR template. Поэтому меняется один caller
+расширения, не общий copy helper и не вводится новая настройка. Источник bootstrap
+с чужими изменениями остаётся во владении его задачи.

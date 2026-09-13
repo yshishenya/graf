@@ -269,3 +269,131 @@ use exact-first legacy-compatible reading in the shared artifact loader.
 Execute real Git history and fake-provider ZIP regressions before acceptance;
 retain full-consumer metadata/source/gate validation. No workflow dispatcher,
 new evidence schema, product-test change, or permission expansion is needed.
+
+
+## A9 implementation design
+
+High-risk macOS release infrastructure, constitution 7.0.0 PASS before research
+and after design. Existing F211/US9 and public Developer ID/Sparkle gates; stdlib
+only. Architecture research completed independently on current scripts.
+
+1. Keep installer scratch under a separate `.build/installer-cache/<key>`;
+   hash resolved checkout identity, Swift version, SDK version/build/path,
+   Package.swift/resolved and fixed release build arguments. Derive per-triple
+   scratch paths under that key. Never omit swift build on cache hit. One
+   checkout lock covers shared packaging output and GRAF.app; retain both arch
+   and all resource/license/signature checks. Emit a safe source/input/output
+   build receipt for notarization from the public clean-source build.
+2. Add one bounded Python stdlib helper `apps/macos/Installer/Scripts/release-artifacts.py`
+   for content fingerprints and local prepared-state persistence. Reuse existing
+   shell validators and platform commands for trust; do not implement cryptography
+   or a release service. State remains under ignored `.build`, no secret paths or
+   credentials in JSON. Atomic replace + file/directory fsync; no terminal success
+   after a failed persistence acknowledgement. Lock/stale-state refusal explicit.
+3. Move prepare-app-update.sh's current staging lock before existing-state checks.
+   Same-version archive → verify saved full input identity/output hashes, rerun
+   current signature/public-trust validation and return unchanged. Otherwise keep
+   strict version increase and existing working/backup directory replacement.
+   Produce checksum/public attestation with the signed files before recording the
+   state, so the complete final output set is immutable and atomically staged.
+4. sign-graf-app-update-local.sh keeps its lock and temporary safe extraction,
+   Developer ID/team/designated requirement checks; packaged startup checks execute
+   once inside the final upload boundary after public validation. Cache
+   only checked Sparkle ZIP by the existing pinned hash; always rehash and extract
+   into the same temporary replacement/restore path. Persist checked input asset
+   IDs/release IDs/source/hash/size in local cache; on mismatch fail, not silently
+   change the requested release. Fresh Keychain verifier remains every invocation;
+   prepare also validates retained public attestation, including its original TTL.
+5. Replace --clobber with a bounded helper upload of the existing four assets.
+   Reuse `prepare-app-update.sh --verify-only` at the upload boundary for the
+   complete public/Keychain/Sparkle validation, then lock/recheck prepared hashes
+   and run both startup checks. It cannot sign or replace an absent version.
+   Preflight all names before any mutation; same digest/size skips, absent uploads.
+   If GitHub lacks digest, download and compare. Refetch exact draft/source identity
+   before each upload and final readback. Interrupted upload reconciles matching
+   remote bytes without overwrite. No automatic GitHub Release publication/feed
+   switch, no claimed atomic transaction against a concurrent owner publication.
+6. Add helper notarize subcommand around xcrun notarytool using the build receipt.
+   Keep immutable submitted ZIP/PKG and safe state in one per-version/source local
+   directory, copy app only as a packaging artifact, never launch/register it.
+   Durable submitting intent precedes submit; durable ID precedes next submit.
+   Submit both before waiting; known IDs use bounded info/wait. Unknown ID is a
+   blocked ambiguous attempt, never guessed from history. Resume only with proven
+   Apple log/response digest binding. Accepted stages staple separate working copies,
+   run codesign/stapler/Gatekeeper, recreate final ZIP, atomically retain final hashes.
+   Repeating a completed attempt validates the same public output without resubmission.
+7. Existing shell signing tests + focused executable Python lifecycle regressions,
+   shell syntax/Ruff and native packaging contracts; independent review/converge.
+   Final hosted checks/Full and real notarized release validation are distinct.
+   Keep operator commands and general MD plan aligned with the actual final path.
+
+
+## A10 implementation design
+
+Active high-risk F211 continuation, FR-055 / SC-023; constitution unchanged.
+Reuse the existing runner collection and strict/performance marker partition.
+An explicit --partitioned option is valid only with --focused; only the
+run_changed_server_tests caller enables it. Preserve each selector unchanged; use an exact phase selector in the existing
+test_resources.py plugin and the shared phase function for inventory. Avoid
+prefix-based --deselect, which can drop similarly named cases. Reject conflicting xdist flags
+before Docker. Use the existing worker databases and cleanup. Tests precede code.
+No dependency, new general scheduler or product database change is required.
+
+## A11 source-template correction
+
+High-risk active F211 governance continuation, constitution unchanged. FR-056 /
+SC-024 полностью определены существующим bootstrap install-if-missing contract.
+В source extension изменить только условие копирования PR template, нейтрализовать
+названия GRAF checks в общем шаблоне и добавить regression в существующий unittest.
+Выпустить patch SemVer расширения и обновить GRAF штатным pinned bootstrap путём;
+сохранить проектный template с тремя required checks и протестировать два ensure.
+Исполняемый bootstrap уже сохраняет файл; его чужие dirty edits не менять.
+Requirements reviewer → analyze → owner #6986 → implementation → review/checks.
+
+## A12 — закрытие конкретных пробелов качества тестов
+
+Existing high-risk F211; FR-057/058, SC-025, constitution unchanged. До кода:
+requirements review → clean analyze → task ownership. В существующем
+`test_cabinet_static_assets_contract.py` заменить только word-search CSRF test
+на Node vm execution реального обработчика и объявления токена, с событием и
+проверкой headers; переиспользовать текущий subprocess pattern. Не требуется
+браузер для этой границы. Серверный `test_cabinet_csrf.py` остаётся настоящим
+отрицательным HTTP/DB подтверждением. Из `test_config_validation.py` убрать один
+AST-идентичный дубль, сохранив web/non-web/file cases. Дополнительно закрыть два
+изначально найденных дубля E05.04: скалярный cookie-name из
+`integration/test_web_owner_session_context.py` уже проверяется тем же импортом в
+`unit/test_auth_web_session_context.py`; три forbidden-readiness вызова из
+`contract/test_deployment_readiness_contract.py` уже проверяются в
+`unit/test_deployment_helpers.py`. Доказать равенство AST/импортов/параметров,
+оставить независимый буквальный список unit, прочие проверки/fixtures не менять.
+В full ветке существующего
+PostgreSQL runner только переставить strict → performance → parallel; selectors
+и состав не менять. Расширить существующий synthetic pytest/Docker contract для
+полного режима, порядка, отказов каждого раннего этапа и cleanup. Отдельно
+выполнить реальную strict/performance группу и конечный Full на frozen source.
+
+### A12 T088: remove hidden bootstrap skip
+
+Add one narrowly used function fixture in tests/fixtures/postgres_test_database.py,
+imported by test_playback_normalization_postgres.py. Reuse prepare_schema, URL
+validation and stdlib subprocess; use existing Docker/postgres image with the
+same bounded final-postmaster readiness criterion. Switch only the bootstrap
+proof to this URL and turn impossible owned-cluster preconditions into FAIL.
+Do not change phase scheduling or production scripts. Verify failed setup
+cleanup and run the real media-before-bootstrap file and strict/performance
+group with unchanged collection, expecting69 PASS/0SKIP instead of68/1.
+
+### A12 T089: require the existing synthetic media tests
+
+Replace only FFmpeg-related skips in media_matrix, workflow and authorized
+TestRec integration files with a clear failure. Keep TestRec directory opt-in
+first. Add conditional FFmpeg preparation to the existing resource steps in
+`.github/workflows/release-full.yml` and `governance-fast.yml`; never install
+for non-server PR paths. Reuse system packages and existing tests. One focused
+contract file exercises the three real missing-tool entrypoints and retained
+private opt-in; existing `test_governance_workflow.py` executes both actual
+resource shell blocks with synthetic commands. Check working/missing/broken
+tools, failed install, and non-server fast scope. Actual acceptance runs the
+unchanged 49-case media matrix plus one dual-source workflow test exactly once,
+with metadata-only collection/outcomes and no private audio. Requirements
+review, issue6994 ownership and clean analyze precede implementation.

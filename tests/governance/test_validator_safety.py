@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -186,6 +187,41 @@ def test_issue_canon_pr_template_keeps_feature_and_legacy_gates() -> None:
     )
     for marker in ("## Feature identity", "Exact source SHA", "## Legacy Impact"):
         assert marker in template
+
+
+def test_issue_canon_ensure_preserves_project_checks(tmp_path: Path) -> None:
+    result = subprocess.run(
+        [sys.executable, "-B", "-I", "-c", '''
+import hashlib
+import sys
+from pathlib import Path
+from unittest.mock import patch
+source, root = map(Path, sys.argv[1:])
+ext = source / ".specify/extensions/github-issue-canon"
+sys.path.insert(0, str(ext / "scripts"))
+import ensure_issue_canon as ensure
+import issue_canon_common as common
+template = root / ".github/pull_request_template.md"
+template.parent.mkdir(parents=True)
+expected = (source / ".github/pull_request_template.md").read_bytes()
+template.write_bytes(expected)
+digest = hashlib.sha256(expected).hexdigest()
+for name in (b"governance-fast", b"macos-pr", b"pr-metadata", b"## Feature identity", b"## Legacy Impact"):
+    assert name in expected
+with (patch.object(ensure, "repo_root", return_value=root),
+      patch.object(ensure, "extension_root", return_value=ext),
+      patch.object(ensure, "repo_slug", return_value="owner/repo"),
+      patch.object(ensure, "current_feature", return_value="211"),
+      patch.object(ensure, "ensure_labels"),
+      patch.object(common, "run", side_effect=AssertionError("unexpected GitHub call"))):
+    for _ in range(2):
+        assert ensure.main() == 0
+        assert template.read_bytes() == expected
+        assert hashlib.sha256(template.read_bytes()).hexdigest() == digest
+''', str(ROOT), str(tmp_path)],
+        capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_changelog_required_fields_must_be_top_level(tmp_path: Path) -> None:

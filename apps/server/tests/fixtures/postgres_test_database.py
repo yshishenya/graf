@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+import subprocess
+import time
 from collections.abc import Iterator
 from pathlib import Path
 from urllib.parse import urlparse
@@ -361,3 +363,69 @@ def postgres_clean_database_url(postgres_test_worker_id: str) -> Iterator[str]:
         yield database_url
     finally:
         asyncio.run(_drop_database(database_name))
+
+
+@pytest.fixture
+def postgres_isolated_cluster_database_url() -> Iterator[str]:
+    """Own a cluster for proofs that create the fixed production role names."""
+    suffix = uuid4().hex
+    container = f"graf-postgres-test-bootstrap-{suffix}"
+    database = f"{TEST_DATABASE_PREFIX}{suffix}"
+    password = uuid4().hex
+    started = False
+
+    def docker(*args: str, timeout: int = 5) -> subprocess.CompletedProcess[str]:
+        try:
+            return subprocess.run(
+                ["docker", *args], capture_output=True, text=True, check=False,
+                timeout=timeout, env={**os.environ, "POSTGRES_PASSWORD": password},
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            pytest.fail("isolated bootstrap PostgreSQL command failed or timed out", pytrace=False)
+
+    try:
+        result = docker(
+            "run", "--detach", "--rm", "--name", container,
+            "--env", "POSTGRES_DB=postgres", "--env", "POSTGRES_USER=twobrain_rec",
+            "--env", "POSTGRES_PASSWORD", "--tmpfs", "/var/lib/postgresql/data:rw",
+            "--publish", "127.0.0.1::5432", "postgres:17-alpine", timeout=30,
+        )
+        if result.returncode:
+            pytest.fail("cannot start isolated bootstrap PostgreSQL", pytrace=False)
+        started = True
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            logs = docker("logs", container)
+            if "PostgreSQL init process complete; ready for start up." in logs.stdout + logs.stderr:
+                ready = docker("exec", container, "pg_isready", "--username=twobrain_rec", "--dbname=postgres")
+                if not ready.returncode:
+                    created = docker(
+                        "exec", container, "psql", "--set=ON_ERROR_STOP=1",
+                        "--username=twobrain_rec", "--dbname=postgres",
+                        "--command", f'create database "{database}"',
+                    )
+                    if not created.returncode:
+                        break
+            time.sleep(0.25)
+        else:
+            pytest.fail("isolated bootstrap PostgreSQL did not become ready", pytrace=False)
+        port_result = docker("port", container, "5432/tcp")
+        match = re.fullmatch(r"127\.0\.0\.1:([0-9]+)\s*", port_result.stdout)
+        if port_result.returncode or not match or not 0 < int(match[1]) < 65536:
+            pytest.fail("isolated bootstrap PostgreSQL must expose a loopback port", pytrace=False)
+        url = f"postgresql+asyncpg://twobrain_rec:{password}@127.0.0.1:{match[1]}/{database}"
+        prepare_schema(url)
+        yield url
+    finally:
+        # Attempt removal even if docker run timed out after creating the container.
+        try:
+            removed = subprocess.run(
+                ["docker", "rm", "--force", "--volumes", container],
+                capture_output=True, text=True, timeout=30, check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            if started:
+                pytest.fail("cannot remove isolated bootstrap PostgreSQL", pytrace=False)
+        else:
+            if started and removed.returncode:
+                pytest.fail("cannot remove isolated bootstrap PostgreSQL", pytrace=False)

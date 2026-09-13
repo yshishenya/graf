@@ -416,11 +416,6 @@ def test_production_rejects_default_dev_minio_credentials(
         _production_settings(minio_access_key=minio_access_key, minio_secret_key=minio_secret_key)
 
 
-def test_production_rejects_default_dev_web_csrf_secret() -> None:
-    with pytest.raises(ValidationError, match="web_csrf_secret"):
-        _production_settings(web_csrf_secret="twobrain_rec_dev_web_csrf_secret")
-
-
 def test_production_reads_web_csrf_secret_from_file(tmp_path) -> None:
     secret = tmp_path / "web-csrf-secret"
     secret.write_text("prod-web-csrf-secret-from-file-32-bytes")

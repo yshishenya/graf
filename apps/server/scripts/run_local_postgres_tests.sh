@@ -40,12 +40,14 @@ trap 'exit 143' TERM
 
 pytest_args=()
 requested_mode=""
+partitioned=false
 for argument in "$@"; do
   case "$argument" in
     --help|-h)
-      printf 'usage: %s --fast|--full|--focused [pytest arguments]\n' "$0"
+      printf 'usage: %s --fast|--full|--focused [--partitioned] [pytest arguments]\n' "$0"
       exit 0
       ;;
+    --partitioned) partitioned=true ;;
     --fast|--full|--focused)
       if [[ -n "$requested_mode" && "$requested_mode" != "${argument#--}" ]]; then
         printf 'conflicting test runner modes\n' >&2
@@ -58,6 +60,18 @@ for argument in "$@"; do
       ;;
   esac
 done
+
+if [[ "$partitioned" == true ]]; then
+  [[ "$requested_mode" == focused ]] || { printf 'partitioned requires explicit --focused\n' >&2; exit 2; }
+  for argument in "${pytest_args[@]}"; do
+    case "$argument" in
+      -n*|--numprocesses*|--dist*|--tx*|--px*|--graf-phase-file*|-f|--looponfail|-d)
+        printf 'partitioned owns xdist settings; use GRAF_TEST_WORKERS\n' >&2
+        exit 2
+        ;;
+    esac
+  done
+fi
 
 mode="full"
 for argument in "${pytest_args[@]}"; do
@@ -100,7 +114,7 @@ if [[ ! "$workers" =~ ^[1-9][0-9]*$ ]] || (( workers > 8 )); then
   exit 2
 fi
 
-if [[ "$mode" == fast ]] && (( workers > 4 )); then workers=4; fi
+if [[ "$mode" == fast || "$partitioned" == true ]] && (( workers > 4 )); then workers=4; fi
 
 performance_gate="${GRAF_PERFORMANCE_GATE:-report}"
 if [[ "$performance_gate" != "report" && "$performance_gate" != "required" ]]; then
@@ -243,8 +257,15 @@ unset TWOBRAIN_DATABASE_URL RLS_TEST_DATABASE_URL RLS_TEST_PROBE_DATABASE_URL \
 metadata_directory="$(mktemp -d "${TMPDIR:-/tmp}/graf-postgres-test.XXXXXX")"
 selection=("${pytest_args[@]}")
 if [[ "$mode" == fast ]]; then selection=(-q tests/unit); fi
-if uv run --extra dev --extra evaluation pytest --collect-only \
-  --graf-collection-file "$metadata_directory/collection.json" "${selection[@]}" \
+collection_args=()
+collection_pythonpath="$PYTHONPATH"
+if [[ "$partitioned" == true ]]; then
+  # The pytest console entrypoint imports -p before conftest adds the project root.
+  collection_pythonpath="$repo_root/apps/server:$PYTHONPATH"
+  collection_args=(-p tests.fixtures.test_resources --graf-partition-preflight)
+fi
+if PYTHONPATH="$collection_pythonpath" uv run --extra dev --extra evaluation pytest --collect-only \
+  "${collection_args[@]}" --graf-collection-file "$metadata_directory/collection.json" "${selection[@]}" \
   > "$metadata_directory/collection.log" 2>&1; then
   :
 else
@@ -252,7 +273,7 @@ else
   cat "$metadata_directory/collection.log" >&2
   exit "$collection_status"
 fi
-python3 - "$metadata_directory" <<'PY_INVENTORY'
+python3 - "$metadata_directory" "$partitioned" <<'PY_INVENTORY'
 import json
 import pathlib
 import sys
@@ -267,6 +288,9 @@ for names in (("parallel", "performance", "strict"), ("pure", "resource")):
         raise SystemExit("test phase union is missing or repeats cases")
 for name, nodes in groups.items():
     (root / f"{name}-count").write_text(str(len(nodes)))
+if sys.argv[2] == "true":
+    for name in ("parallel", "performance", "strict"):
+        (root / f"{name}.json").write_text(json.dumps({"phase": name, "nodeids": groups[name]}))
 (root / "baseline-nodeids.txt").write_text("\n".join(sorted(baseline)) + "\n")
 PY_INVENTORY
 collection_count="$(cat "$metadata_directory/baseline-count")"
@@ -304,16 +328,25 @@ PY_PURE
   then
     start_postgres
   fi
-  run_phase focused uv run --extra dev --extra evaluation pytest "${timing_args[@]}" "${pytest_args[@]}"
-  printf 'postgres_test_result=pass mode=focused\n'
+  if [[ "$partitioned" == true ]]; then
+    for phase in parallel performance strict; do
+      (( $(cat "$metadata_directory/$phase-count") > 0 )) || continue
+      phase_workers=0
+      [[ "$phase" != parallel ]] || phase_workers="$workers"
+      run_phase "focused-$phase" uv run --extra dev --extra evaluation pytest \
+        "${timing_args[@]}" "${pytest_args[@]}" --graf-phase-file "$metadata_directory/$phase.json" \
+        -n "$phase_workers" --dist=loadfile
+    done
+  else
+    run_phase focused uv run --extra dev --extra evaluation pytest "${timing_args[@]}" "${pytest_args[@]}"
+  fi
+  printf 'postgres_test_result=pass mode=focused partitioned=%s\n' "$partitioned"
   exit 0
 fi
 
 start_postgres
-if run_phase parallel \
-  uv run --extra dev --extra evaluation pytest -n "$workers" --dist=loadfile \
-  -m "not strict_rls and not serial_performance" \
-  "${timing_args[@]}" "${pytest_args[@]}"; then
+if run_phase strict \
+  uv run --extra dev --extra evaluation pytest -m strict_rls "${timing_args[@]}" "${pytest_args[@]}"; then
   :
 else
   exit 1
@@ -326,8 +359,10 @@ else
   printf 'postgres_test_performance_gate=%s result=fail\n' "$performance_gate" >&2
   exit 1
 fi
-if run_phase strict \
-  uv run --extra dev --extra evaluation pytest -m strict_rls "${timing_args[@]}" "${pytest_args[@]}"; then
+if run_phase parallel \
+  uv run --extra dev --extra evaluation pytest -n "$workers" --dist=loadfile \
+  -m "not strict_rls and not serial_performance" \
+  "${timing_args[@]}" "${pytest_args[@]}"; then
   :
 else
   exit 1

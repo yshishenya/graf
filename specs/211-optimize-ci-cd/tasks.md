@@ -199,3 +199,45 @@ FR-044–048 / SC-021; reviewer-owned image-reuse checklist and clean analyze be
 ## A6 convergence correction after GitHub review
 
 - [ ] T087 Исправить два review P1 в `scripts/ci-pr-scope.py`, `scripts/validate-pr-checks.py` и `.github/workflows/governance-fast.yml`: merged text использует проверенную историю/базу и сохраняет merge identity; артефакт различает run attempts с безопасным чтением старого имени. Проверить реальные Git истории и API/ZIP отрицательные регрессии в `tests/governance/test_pr_checks.py`, consumer suite, независимый review и live post-merge edit. (FR-040/SC-019) (Issue #6986)
+
+
+
+## Phase 21: A9 / US9 — продолжение выпуска macOS
+
+FR-049–054 / SC-022. Existing F211, high-risk lane. Requirements review → clean
+analyze → issue ownership → implementation. One implementation owner; shared
+state and wrapper files are sequential, no implementation delegation needed.
+
+- [X] T073 [US9] Добавить сначала падающие исполняемые сценарии кэша/неизменяемого staging/upload/notary interruptions и ошибок записи в `tests/governance/test_release_artifacts.py`; использовать существующий shell signing test без production credentials. (FR-049–054, SC-022) (Issue #6992)
+- [X] T074 [US9] Сохранить совместимый Swift scratch и общий lock в `apps/macos/Installer/Scripts/build-local-installer.sh`; добавить минимальные fingerprint/build receipt операции в `apps/macos/Installer/Scripts/release-artifacts.py`, сохранить архитектуры и упаковочные gates. (FR-049/054) (Issue #6992)
+- [X] T075 [US9] Подключить content-bound same-version resume и complete output manifest к `apps/macos/Installer/Scripts/prepare-app-update.sh`; проверенный input/Sparkle cache, свежий Keychain и missing-only upload к `apps/macos/Installer/Scripts/sign-graf-app-update-local.sh` и существующему `test-release-signing-custody.sh`. (FR-050–052/054) (Issue #6992)
+- [X] T076 [US9] Реализовать durable notary submit/info/wait/staple в `apps/macos/Installer/Scripts/release-artifacts.py`, сохранив исходные/final bytes, известные IDs, отказ при ambiguity и проверенное восстановление; синхронизировать `docs/agent-guidance/macos-notarization.md` и `apps/macos/Installer/README.md`. (FR-053/054) (Issue #6992)
+- [ ] T077 [US9] Проверить focused Python/shell/native contracts и отрицательные сценарии, пройти независимый review/converge; записать результаты в `specs/211-optimize-ci-cd/quickstart.md`, фрагмент F211 и общий MD план, затем получить окончательные GitHub checks и один frozen-source Full. (SC-022) (Issue #6992)
+
+Independent acceptance: same-command retry preserves verified bytes and known
+Apple requests, while a changed input/trust/output or ambiguous submission fails
+before publication. Real source-bound release validation follows implementation;
+no stage marks public distribution complete from mocked command results.
+
+
+## Phase 22: A10 — selected-server parallel execution
+
+- [X] T078 Добавить исполняемые partition/selection/failure contracts в `apps/server/tests/contract/test_local_postgres_test_runner.py`, затем opt-in focused partition в `apps/server/scripts/run_local_postgres_tests.sh` и точный phase selector в `apps/server/tests/fixtures/test_resources.py`; только changed-server caller в `infra/scripts/ci-local.sh`. (FR-055) (Issue #6993)
+- [X] T079 Доказать одинаковый состав и PASS реальным парным focused замером, записать экономию и review в `specs/211-optimize-ci-cd/quickstart.md`; hosted проверка на окончательном SHA отдельно. (SC-023) (Issue #6993)
+
+## Phase 23: A11 — project template survives issue sync
+
+- [X] T082 Исправить source extension `spec-kit-ext-github-issue-canon`: install-if-missing PR template, нейтральный общий template, отрицательный unittest и patch-release docs/version; пройти независимый review и source CI. (FR-056 / SC-024) (Issue #6986)
+- [ ] T083 Штатно закрепить исправленную extension версию в GRAF и добавить исполняемый ensure regression в `tests/governance/test_validator_safety.py`; frozen doctor, повторный ensure, документация/общий MD и review/converge. Bootstrap executable уже корректен и не меняется. (FR-056 / SC-024) (Issue #6986)
+
+## Phase 24: A12 — качество проверок и ранний Full
+
+- [X] T084 Заменить word-search CSRF проверку в `apps/server/tests/contract/test_cabinet_static_assets_contract.py` исполняемым Node-сценарием; доказать FAIL на комментариях и PASS на handler, выполнить существующий `apps/server/tests/integration/test_cabinet_csrf.py`. Удалить только доказанные дубли из `apps/server/tests/unit/test_config_validation.py`, `apps/server/tests/integration/test_web_owner_session_context.py`, `apps/server/tests/contract/test_deployment_readiness_contract.py`; сохранить 1+1+3 соответствующих unit cases и независимые ожидания. (FR-057) (Issue #6994)
+- [X] T085 Расширить контракт `apps/server/tests/contract/test_local_postgres_test_runner.py` для Full порядка/ранних отказов/cleanup; переставить strict/performance до parallel только в full ветке `apps/server/scripts/run_local_postgres_tests.sh`. Проверить ту же реальную strict/performance группу. (FR-058) (Issue #6994)
+- [ ] T086 Выполнить независимый review/converge A12, сохранить число случаев, отрицательные результаты и локальные времена в `specs/211-optimize-ci-cd/quickstart.md`; согласовать инструкции, фрагмент F211 и общий MD. Окончательные hosted/Full результаты учитывать отдельно в T077. (SC-025) (Issue #6994)
+
+- [X] T088 Устранить обязательный bootstrap-proof SKIP из-за глобальной media-role: изолированный одноразовый PostgreSQL fixture только для этого теста в `apps/server/tests/fixtures/postgres_test_database.py`, подключение в `apps/server/tests/integration/test_playback_normalization_postgres.py`, ограниченное ожидание и cleanup при ошибке, реальные миграции и все прежние assertions. Проверить последовательность media→bootstrap и исходную strict/performance коллекцию без skip; независимый review. (FR-057/SC-025) (Issue #6994)
+
+## Phase 25: Convergence — mandatory synthetic media coverage
+
+- [ ] T089 Сделать существующие 50 синтетических FFmpeg-проверок обязательными: заменить только media-tool skip в трёх `apps/server/tests/integration/test_playback_normalization_{media_matrix,workflow,test_rec_e2e}.py`, подготовить инструменты в существующих шагах `.github/workflows/{release-full,governance-fast}.yml`, сохранить private TestRec opt-in. Добавить исполняемые отрицательные проверки в `apps/server/tests/contract/test_playback_normalization_media_tools.py` и `tests/governance/test_governance_workflow.py`, проверить 50 PASS/0 SKIP, независимый review и metadata-only evidence в quickstart. (FR-057/SC-025, E02) (Issue #6994)

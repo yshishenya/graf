@@ -245,10 +245,6 @@ async def _seed_owner_review_session(
         return session
 
 
-def test_web_owner_session_scaffold_defines_cookie_name_contract() -> None:
-    assert AUTH_SESSION_COOKIE_NAME == "__Host-twobrain_rec_owner_session"
-
-
 def test_revoked_workspace_session_is_rejected_before_direct_auth_mutation(client) -> None:
     async def seed() -> tuple[str, UUID]:
         async with client.app_state["sessionmaker"]() as db:

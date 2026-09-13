@@ -582,16 +582,16 @@ def test_postgres_new_tables_force_rls_and_downgrade_restores_maintenance_allowl
 
 @pytest.mark.asyncio
 async def test_runtime_role_bootstrap_is_idempotent_and_verifies_privileges(
-    migrated_postgres_url: str,
+    postgres_isolated_cluster_database_url: str,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    owner_url = make_url(migrated_postgres_url)
+    owner_url = make_url(postgres_isolated_cluster_database_url)
     owner_password = owner_url.password
     if not owner_password:
-        pytest.skip("disposable PostgreSQL owner password is required")
+        pytest.fail("disposable PostgreSQL owner password is required")
 
-    owner_engine = create_async_engine(migrated_postgres_url, isolation_level="AUTOCOMMIT")
+    owner_engine = create_async_engine(postgres_isolated_cluster_database_url, isolation_level="AUTOCOMMIT")
     role_names = [
         "twobrain_rec_app",
         "twobrain_rec_maintenance",
@@ -610,7 +610,7 @@ async def test_runtime_role_bootstrap_is_idempotent_and_verifies_privileges(
                 or 0
             )
         if existing:
-            pytest.skip("runtime-role bootstrap proof requires a disposable role namespace")
+            pytest.fail("runtime-role bootstrap proof requires a disposable role namespace")
 
         owner_secret = tmp_path / "owner"
         app_secret = tmp_path / "app"

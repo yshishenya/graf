@@ -325,3 +325,176 @@ release consumers. New governance artifact names include run ID and attempt;
 exact names take precedence. Legacy names remain readable only when no exact
 name exists, exactly one unexpired legacy artifact exists, and its internal
 run/attempt matches. An invalid exact artifact never falls back to legacy.
+
+
+## A9 — повторная упаковка и продолжение выпуска macOS
+
+Продолжение полного поручения пользователя, 2026-09-13. Существующая high-risk
+Spec Kit задача F211; конституция 7.0.0, публичный Developer ID путь сохраняется.
+
+### US9 (P1): продолжить выпуск с последнего подтверждённого этапа
+
+Оператор повторяет штатную команду после прерывания и получает тот же проверенный
+набор файлов, не ожидая заново неизменённую компиляцию, подпись и запрос Apple.
+
+1. Совместимый кэш компиляции используется при следующем изменении исходников;
+   компилятор обязательно обрабатывает текущее состояние проекта.
+2. Повтор для той же версии и тех же входов возвращает побайтно прежние готовые
+   файлы. Изменение любого входа, результата или доверия даёт понятный отказ.
+3. Уже переданные в черновик одинаковые файлы не передаются снова. Несовпадение
+   любого существующего целевого файла блокирует весь набор до первой загрузки.
+4. После прерывания ожидания Apple продолжается тот же запрос. Неопределённая
+   отправка без подтверждённого номера не создаёт автоматический повтор.
+5. Отказ сети, подписи, диска, нотарификации или параллельный запуск не публикует
+   неполный результат и не уничтожает последнее пригодное состояние.
+
+- **FR-049**: Кэш компиляции отделён от одноразовой упаковки и учитывает checkout,
+  Swift, SDK, архитектуру, конфигурацию/аргументы и файлы зависимостей. SHA всего
+  проекта не обнуляет кэш. Сборка вызывается каждый раз; обе архитектуры, ресурсы,
+  лицензии, bundle ID, подпись и проверки готового приложения сохраняются.
+- **FR-050**: Возобновление готовой версии требует полного совпадения исходного
+  SHA/tag, предыдущей версии/SHA, содержимого обоих приложений/архивов, заметок,
+  URL, поколения доверия и проверенного инструмента подписи. Учитываются пути,
+  типы, режимы, содержимое и цели ссылок в деревьях приложений. Размеры и хеши
+  всего итогового набора проверяются заново. Несовпадение не заменяет прежние
+  байты той же версии. Новая версия сохраняет текущую атомарную замену staging.
+- **FR-051**: Проверенный архив Sparkle и входные release assets допускают
+  повторное использование при совпадении закреплённого digest и внешней
+  release/asset identity. Повреждённые, неполные либо подменённые файлы не
+  исполняются. Проверка Keychain каждый раз свежая; сохранённые публичные байты
+  подтверждения подписи не переписываются. TTL 24 часа, exact SHA, keyId и
+  trustGeneration остаются обязательными. Истёкший публичный результат нельзя
+  сделать свежим заменой его даты или перезаписью remote asset.
+- **FR-052**: Перед загрузкой проверяется весь ограниченный набор целевых assets:
+  отсутствующий либо один совпадающий по содержимому/размеру файл. Загружаются
+  только отсутствующие, без overwrite/delete. После сбоя выполняется чтение
+  состояния и проверка байтов. Полный набор подтверждается после передачи.
+  Draft/repository/release ID/tag/source перепроверяются до каждой передачи и
+  после неё. Отдельная публикация владельцем не является атомарной транзакцией
+  GitHub и должна обнаруживаться; публичный feed этим скриптом не меняется.
+- **FR-053**: Для каждой отправки Apple до сетевого действия надёжно сохраняются
+  версия, source, digest/размер неизменяемого входного файла и намерение отправки;
+  полученный request ID сохраняется сразу. Известный ID возобновляет info/wait.
+  Сбой до сохранённого ID оставляет неоднозначное состояние и запрещает новый
+  submit. Recovery допускает только ID с доказанной связью с тем же digest через
+  сохранённый ответ/данные Apple; имя, ближайшее время и последний history не
+  являются доказательством. Отклонение/невалидный ответ/сетевая ошибка не дают
+  Accepted. Принятые исходные ZIP/PKG хранятся отдельно от финальных файлов после
+  stapling; итоговый ZIP создаётся после stapling приложения.
+- **FR-054**: Один локальный процесс владеет изменяемыми scratch, staging и
+  состоянием подготовки. Блокировка берётся до чтения изменяемого состояния;
+  после аварии она не удаляется вслепую. Ошибка атомарной записи/fsync не даёт
+  подтверждения выполненного этапа. Уже завершённый результат проверяется по
+  хешам и не перезаписывается. Перед публичной загрузкой обязательны Developer
+  ID/team/designated requirement, notarization/staple/Gatekeeper, Sparkle и
+  прежний запуск готового приложения для обеих архитектур.
+- **SC-022**: Исполняемые отрицательные и положительные сценарии доказывают:
+  совместимый кэш не отменяет вызов сборки; смена toolchain/SDK/lock меняет ключ;
+  один изменённый вход или итог блокирует resume; точное повторение сохраняет
+  все байты без архивации/подписи; совпадающие remote файлы пропускаются, любой
+  конфликт блокирует первую передачу; прерывание с ID не повторяет отправку,
+  без ID блокирует её; ошибки записи, доверия и второй процесс не дают PASS.
+  Реальная упаковка/Apple/public proof записываются отдельно на окончательном
+  release source; локальные подставные команды не объявляются публичным выпуском.
+
+### Clarify A9 — 2026-09-13
+
+Новых вопросов нет: пользователь поручил полный объём оптимизации, а границы
+публичного доверия уже заданы конституцией и release guidance. Функции, данные,
+порядок действий, качество, зависимости, ошибки, ограничения, термины и критерии
+завершения определены выше. Используются существующие команды, локальное
+состояние и Python stdlib; новые сервисы, реестр образов, аккаунты/ключи и
+автоматический обход неоднозначной отправки исключены. Случай истёкшей публичной
+attestation требует новой допустимой подготовки/версии; прежние bytes не
+переписываются. Новая граница заменяет только повторение работы, не release gates.
+
+
+## A10 — безопасная параллельность выбранных серверных тестов
+
+Уточнение 2026-09-13: hosted changed-server занял 687 с; focused не использовал
+уже заданные 4 workers. Добавляется только opt-in для этого существующего caller.
+Новых продуктовых решений нет, PostgreSQL/RLS/assertions остаются прежними.
+
+- **FR-055**: Только changed-server использует `--focused --partitioned`. Исходная
+  выбранная коллекция выполняется ровно один раз: обычные случаи до 4 workers,
+  затем непустые performance и strict_rls последовательно, с приоритетом strict
+  при двух маркерах. Смысл явных pytest selectors сохраняется; второй `-m` нельзя
+  использовать как неявную замену пользовательского выражения. Конфликтующие
+  настройки xdist в opt-in отклоняются до Docker. Обычный focused не меняется.
+  Пустая исходная коллекция/ошибка не даёт PASS; ошибка фазы останавливает дальше.
+- **SC-023**: Command-stub checks доказывают равенство непересекающегося состава,
+  формы selectors, отсутствие Docker при collection failure/collect-only,
+  последовательный strict/performance и прежний cleanup. Один реальный парный
+  замер одинакового выбранного набора и Python/DB подтверждает PASS без пропусков
+  и экономию времени; hosted итог измеряется отдельно.
+
+## A11 — сохранение проектных правил при issue sync
+
+Clarify: это исправление подтверждённого отката инструкции общим расширением.
+Bootstrap уже сохраняет проектный PR template; ensure расширения должен соблюдать
+тот же договор. Новая конфигурация или изменение project checks не нужны.
+
+- **FR-056**: issue-canon ensure устанавливает отсутствующий PR template, но
+  сохраняет существующий файл побайтно. Общий шаблон не закрепляет checks GRAF.
+  Обновление managed issue canon и остальных прежних файлов/labels сохраняется.
+  Исправление вносится в исходное расширение; GRAF получает штатно закреплённое
+  обновление, без generated-only подмены. Чужие изменения bootstrap не затрагиваются.
+- **SC-024**: Исполняемые тесты новой установки и двух повторных ensure сохраняют
+  SHA-256 изменённого проектного шаблона и обязательные feature/legacy разделы;
+  managed canon по-прежнему обновляется. Тесты не вызывают GitHub. Source extension
+  tests, locked GRAF doctor и focused governance подтверждают соответствие источника.
+
+## A12 — содержательные проверки и ранний отказ Full
+
+Clarify: E05.02/04/13 остаются конкретными подтверждёнными пунктами исходного
+аудита. Продуктовый CSRF/RLS-код и правила доступа не меняются; общий переписанный
+набор тестов и новые исполнители GitHub не требуются.
+
+- **FR-057**: Проверка CSRF кабинета исполняет настоящий обработчик
+  `htmx:configRequest` и чтение токена: unsafe HTTP методы получают правильный
+  заголовок, safe методы и отсутствие токена не создают его, прочие заголовки
+  сохраняются. Комментарии с нужными словами без поведения обязаны дать FAIL.
+  Существующие серверные отказы при missing/invalid token сохраняются. Удаляются
+  только доказанные дубли: один default-CSRF config case, один скалярный cookie-name
+  case в integration и три одинаковых forbidden-readiness cases в contract.
+  Сохраняются их unit проверки с независимыми буквальными ожидаемыми значениями,
+  все альтернативные состояния/параметры и остальные assertions этих файлов.
+- **FR-058**: В Full короткие strict RLS и serial performance выполняются перед
+  обычной параллельной фазой на прежней изолированной PostgreSQL. Любой отказ
+  прерывает зависимые фазы и очищает контейнер. Состав, маркеры, workers, обязательный
+  performance threshold и конечный collection digest не меняются. Fast и opt-in
+  focused сохраняют принятый порядок.
+- **SC-025**: Исполняемый отрицательный CSRF-контроль, прежние серверные CSRF
+  сценарии, сравнение точного config дубля и настоящие shell/pytest контракты
+  порядка/отказа/очистки проходят. Указанные коллекции теряют ровно пять
+  обоснованных дублей (1+1+3); новые регрессии учитываются отдельно. Один итоговый authoritative Full проверяет
+  итоговый источник после этих локальных проверок.
+
+### A12 convergence: isolated bootstrap proof (T088)
+
+FR-057/SC-025 require the existing runtime-role bootstrap proof to execute in
+normal Full even after a media-role fixture. PostgreSQL role names are cluster
+global and remain production names. Only this proof gets its own disposable
+postgres:17-alpine container, unique loopback port/name, real prepare_schema,
+bounded readiness and unconditional cleanup. Missing Docker, timeout, migration
+or bootstrap failure is FAIL, never SKIP. Collection creates no resources.
+Other tests retain the shared fast database; no product roles are altered.
+
+### A12 convergence: required synthetic media proofs (T089)
+
+FR-057/SC-025 also cover the existing 49-case synthetic media matrix and the
+real dual-source workflow case. Selected media tests require working `ffmpeg`
+and `ffprobe`; absence is FAIL, never SKIP. Full prepares these tools before
+tests, and PR CI prepares them inside the existing server-change resource
+branch. Already available working tools need no installation. Failed installation
+or a broken executable stops validation. No additional media suite, runtime
+image, registry or service is introduced. Runtime-container capability remains
+a separate deployment check. The private TestRec check remains opt-in: without
+its explicitly authorized directory it skips before examining media tools.
+With that directory supplied, missing media tools fail. The 50 existing
+synthetic cases must pass without skips; executable missing-tool and workflow
+preparation regressions are counted separately. No production code changes.
+
+Clarify T089: use the existing Ubuntu package manager only when one tool is
+missing; host synthetic behavior and pinned runtime capability are distinct
+proofs. An absent private recording is the sole accepted TestRec opt-in skip.

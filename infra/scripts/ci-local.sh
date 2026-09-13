@@ -188,7 +188,7 @@ run_changed_server_tests() {
   while IFS= read -r path; do
     [[ -n "$path" ]] && test_files+=("${path#apps/server/}")
   done <<<"$changed_test_list"
-  run_server_tests focused "$performance_gate" "${test_files[@]}"
+  run_server_tests focused "$performance_gate" --partitioned "${test_files[@]}"
 }
 
 check_shell_syntax() {

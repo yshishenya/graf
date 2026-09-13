@@ -66,13 +66,50 @@ def test_cabinet_brand_assets_are_local_and_nonempty() -> None:
 
 
 def test_cabinet_js_wires_csrf_header_for_unsafe_htmx_requests() -> None:
-    script = (STATIC_DIR / "cabinet.js").read_text()
-
-    assert 'meta[name="csrf-token"]' in script
-    assert "htmx:configRequest" in script
-    assert "X-CSRF-Token" in script
-    assert "POST" in script
-    assert "DELETE" in script
+    harness = r'''
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const vm = require("node:vm");
+const script = fs.readFileSync(process.argv[1], "utf8");
+for (const token of ["synthetic-csrf", null]) {
+  for (const surfaceMode of ["web", "desktop_embedded"]) {
+    let handler;
+    const document = {
+      documentElement: { dataset: {} },
+      readyState: "loading",
+      querySelectorAll: () => [],
+      addEventListener() {},
+      querySelector(selector) {
+        return selector === 'meta[name="csrf-token"]' && token !== null ? { content: token } : null;
+      },
+      body: { dataset: { surfaceMode }, addEventListener(name, callback) {
+        if (name === "htmx:configRequest") {
+          assert.equal(handler, undefined);
+          handler = callback;
+        }
+      } }
+    };
+    const window = { addEventListener() {}, location: { pathname: "/meetings", hash: "" } };
+    vm.runInNewContext(script, { document, window, URLSearchParams, setInterval() {}, clearInterval() {} });
+    assert.equal(typeof handler, "function");
+    for (const verb of ["POST", "put", "PATCH", "delete", "GET", "head", "OPTIONS", undefined]) {
+      for (const headers of [undefined, { Accept: "application/json" }]) {
+        const event = { detail: { verb, headers } };
+        handler(event);
+        const unsafe = ["POST", "PUT", "PATCH", "DELETE"].includes(String(verb).toUpperCase());
+        assert.equal(event.detail.headers["X-CSRF-Token"], token && unsafe ? token : undefined);
+        assert.equal(event.detail.headers.Accept, headers ? "application/json" : undefined);
+        assert.equal(event.detail.headers["X-GRAF-Client"], surfaceMode === "desktop_embedded" ? "desktop" : undefined);
+      }
+    }
+  }
+}
+'''
+    result = subprocess.run(
+        ["node", "-e", harness, str(STATIC_DIR / "cabinet.js")],
+        capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_owner_reprocess_action_uses_confirmed_predecessor_and_revision_contract() -> None:

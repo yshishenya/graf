@@ -461,3 +461,112 @@ PATH="$PWD/apps/server/.venv/bin:$PATH" PYTHONPATH=apps/server/src apps/server/.
 A8 final related validation after review fixes and documentation: 229 PASS / 39.65 s (image lifecycle, Compose hardening, smoke/readiness, backup/restore, RLS boundary and CI/CD contracts). Ruff, shell syntax, development-process, changelog fragments and diff check PASS.
 
 A6 final hosted proof on `c82b1f5db28f60b664b6cc7efbf50f92e31614eb`: governance-fast 34761402527 PASS (996 s bounded lane), Swift/macOS 34761402545 PASS, metadata 34761675889 PASS. The body-only edit at 14:05:51 UTC produced only text scope/metadata and did not cancel/repeat code/native. Live common validator accepted all three exact head/base/run/attempt proofs and the text-scope artifact. Required protection read-back stayed strict with all three contexts bound to app 15368. The reviewed REST metadata-head concern was disproved by the actual filtered API response. GitHub merge eligibility remains a separate live check.
+
+
+## A9 acceptance plan
+
+Run focused executable `tests/governance/test_release_artifacts.py` with prepared
+Python and `apps/macos/Installer/Scripts/test-release-signing-custody.sh` on macOS.
+Use synthetic command responses, no real Keychain signing/submission/publication.
+Run native InstallerPackagingTests for the actual wrapper contracts.
+
+Required cases: cache-key independence from full SHA/source-only edits and change
+on toolchain/SDK/lock; build still invoked on hit; whole-input and whole-output
+fingerprints including file mode/symlink changes; exact-stage repeat with stable
+ZIP/appcast/checksum/attestation bytes; damaged cache/missing result; expired proof
+and explicit public trust flag; all-assets preflight, mismatch-before-first-upload,
+missing-only upload, ambiguous upload readback; known notary ID resume, no-ID
+ambiguity, Rejected/invalid/network failure, disk-full/failed fsync, concurrent lock.
+Real public acceptance later records exact source, both notary request IDs,
+Accepted, stapler/Gatekeeper/Sparkle and downloaded final file hashes. No local
+fixture result substitutes for that evidence.
+
+A9 requirements gate: independent review PASS 6/6, coverage FR-049–054/SC-022 = 7/7; analyze CRITICAL 0, HIGH 0. Task ownership T073–T077: #6992; mandatory issue canon ensure/validate PASS. No constitution amendment.
+
+### A9 local implementation checks — 2026-09-13
+
+- `tests/governance/test_release_artifacts.py`: final 22 PASS /20.46 s. Real prepare shell with isolated synthetic commands verifies byte-identical same-version resume, one archive/sign, fresh Keychain, verify-only refusal and public/signature failures. Final notary lifecycle verifies original/stapled copies, failed directory fsync and unchanged recovery; source/API/digest gates have negative cases.
+- Existing `test-release-signing-custody.sh`: PASS, including asserted intended failure reasons after the GitHub API cache change. Negative simulations now own a disposable checkout and cannot delete a real `.build/updates` staging directory. Optional app-fixture staging cases remain explicitly skipped without a provided fixture; the new Python test covers the actual prepare wrapper independently.
+- Independent correctness/Ponytail review found one P2: after a parent-directory fsync failure, retry could acknowledge a visible rename without retrying its durability. Actual prepare regression reproduced FAIL before the fix. Retry now syncs the parent under the existing lock; repeated failure and recovery preserve all bytes, with exactly one archive/sign. Independent follow-up review: PASS, no open P1/P2.
+- Ruff and shell syntax PASS. No Apple submission, real signing, app installation or public upload performed. Final hosted SHA checks and frozen-source Full remain pending T077.
+
+### A10 local implementation acceptance — 2026-09-13
+
+- Contract runner/resource modules: 55 PASS /60.15 s; Ruff/Bash/diff PASS. A real `uv run pytest` console-entrypoint collection regression found the early plugin import failure missed by the earlier shim. Scoped collection-only PYTHONPATH fixes it; independent final review PASS.
+- Exact selected 131-case pair (10 historical integration files; the CI contract file is correctly owned by the other stage): serial 342.418 s → partitioned 194.739 s, saving 147.679 s /43.128%. Both 131 PASS, 0 skip/duplicates, 393 passed setup/call/teardown records, identical node/phase sets and source fingerprints. Both cleaned the isolated PostgreSQL container.
+- Both used GRAF_TEST_WORKERS=4 and GRAF_PERFORMANCE_GATE=required. Digest `ba7e7c86cb853750e405dcbe1be0c32fac3902c54f274fc6ef58d7fad5e7ccf6`; artifacts `.dev/a10-pair-131-fixed-pfnvqw3l/{comparison,serial,partitioned}.json`. Independent review recalculated all JSONL counts and matched current source hashes.
+- The 18-case sample was 72.505 →73.405 s and did not improve. No general speed guarantee is inferred for tiny selections. The 131-case pair is one local sample, not hosted p50/p95 or proof about total release time; hosted validation remains separate.
+
+### A11 acceptance
+
+Source unittest исполняет настоящий ensure main с подставными repo/label вызовами:
+нет template → установлен; проект меняет checks → два ensure оставляют байты
+неизменными; managed issue canon остаётся обновляемым. В GRAF повторить тот же
+сценарий в tmp checkout и проверить three-check template, source version/commit,
+`check_spec_kit_governance.py` с frozen Specify. Ни live labels, ни API нужны для
+регрессионного теста. Source release/checks и pinned update записать после факта.
+
+A11 clean analyze: FR-056/SC-024 → T082/T083; source/publication/pin and no-API negative checks covered. Reviewer project-template PASS3/3. Unmapped requirements, critical/high findings and constitution contradictions:0. Ownership #6986; implementation starts after this gate.
+
+### A11 source release and pinned installation — 2026-09-13
+
+- Source PR https://github.com/yshishenya/spec-kit-ext-github-issue-canon/pull/12 merged into `894d2f2ccf1cf56cd9753e0a1c7d3d9c53aac281`. Source 22 unittest PASS /0.569 s, independent correctness/Ponytail PASS; CI run34766689288 and CodeQL run34766688090 PASS. Annotated v0.3.4 published by Release run34766795441.
+- GRAF installed the published deterministic ZIP through the existing bootstrap0.9.9 catalog installer and lock writer. The bootstrap was read from its released tag, without touching the dirty source checkout. Only the issue-canon dependency changed: the other extension/workflow/Specify/skill lock entries compare equal. The published package omits source-repository tests/workflows/catalog by design; runtime scripts and command skills remain installed.
+- Published/locked archive SHA-256 `513294ff7ec810b1d868753e689f767d1e516b5f7084c4a6bf67885aaf8567b5`. Project PR template remained byte-identical: `ab6f31af921c025d599133133032706a6c74e201d4a42ca2db0439957372a5ab`.
+- Consumer ensure regression reproduced FAIL against the old version, then 52 validator-safety tests PASS /0.78 s with two real isolated ensure calls. Child Python uses -B to avoid bytecode changing the installed tree. Frozen doctor and `check_spec_kit_governance.py` PASS; no GitHub API/labels in the regression.
+
+### A12 requirements and analyze — 2026-09-13
+
+Independent requirements review PASS4/4 in `checklists/test-quality.md`. Root
+cross-artifact analyze: FR-057→T084, FR-058→T085, SC-025→T084–T086/T077;
+unmapped requirements, CRITICAL/HIGH findings, unresolved clarification and
+constitution contradictions:0. Full-only order is distinct from FR-055's
+unchanged focused order. Duplicate removal is scoped to exactly 1 config,
+1 cookie-name integration and 3 forbidden-readiness contract cases; the matching
+unit tests retain independent literal expectations. Delta requirements review
+PASS confirms the same inputs and assertions, with all other cases preserved;
+new regression cases are counted separately. Existing issue ownership is assigned
+before implementation; actual tests/review/final Full are separate evidence.
+
+### A12 local checks and review delta
+
+- Exact duplicate collection: config70→69; cookie/readiness four-file
+  collection102→98, each0.34 s. AST-equal1+1+3 duplicates removed, independent
+  unit literals retained.
+- Real HTTP/DB CSRF plus retained config/cookie/readiness unit cases:94 PASS
+  /38.40 s; isolated container cleanup PASS.
+- Full order contract reproduced3 FAIL before change then3 PASS/7.50 s.
+  Final CI/runner/resource consumers144 PASS/106.90 s. Ruff/Bash/diff PASS.
+- Independent review exposed that slicing token/handler could execute code
+  inside a block comment. The test now executes whole cabinet.js under Node vm
+  with a minimal empty-page DOM. Actual source1 PASS/0.14 s; both word-only
+  and real-handler block-comment negative controls FAIL. No JS parser/browser
+  dependency was added, product JS was not changed.
+- Real strict/performance69-case collection:68 PASS/1SKIP/26.67 s. The skip
+  is a global-role isolation defect in the existing bootstrap proof, recorded
+  as T088; this is not claimed as complete acceptance. A separate disposable
+  cluster only for that proof is required before final acceptance.
+
+T088 requirements PASS5/5 (CHK005). Cross-artifact analyze maps FR-057/SC-025
+to T088, issue6994; no critical/high requirements gaps or constitution
+contradictions. Extra cluster is limited to actual execution of the existing
+bootstrap proof. Collection, production roles and other fixtures stay intact.
+
+### T088 local acceptance — 2026-09-13
+
+Ten executable fixture contracts PASS /3.61 s, including actual collect-only
+without Docker. Entire media→bootstrap file:14 PASS/0 SKIP,11.40 s pytest,
+20.191 s wall. Original strict/performance collection:69 PASS/0 SKIP,31.20 s
+pytest,41.609 s wall, required performance gate. All69 case IDs match the
+baseline; only bootstrap call changed skipped→passed, the other68 cases and
+all setup/teardown outcomes match.207 passed report rows,0 duplicates;
+collection digest `07274a0c1cbb91b84ad75f6f912bf47519b9365898abc9cf6692bf62f9ab03bc`.
+Evidence `.dev/a12-bootstrap-glw9o_78/{file,strict-performance,parity}.json`.
+No stopped/running owned containers remain. Independent review PASS confirms
+current file hashes, preserved assertions and bounded finally cleanup without
+repeating expensive tests. T088 local implementation complete; Full is separate.
+
+A11 pinned installation independent review PASS: all14 installed files and
+executable modes equal the published v0.3.4 ZIP; manifest/archive hash and
+registry/lock agree, other lock entries unchanged. Real repeated ensure keeps
+project template bytes/three checks. No bootstrap source edit was needed.
