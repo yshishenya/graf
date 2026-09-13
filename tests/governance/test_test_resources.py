@@ -83,20 +83,14 @@ def test_payload(value):
 
 
 def test_runner_phase_loads_report_options_in_parallel_workers(tmp_path):
-    (tmp_path / "pytest.ini").write_text("[pytest]\ntestpaths = tests\n")
-    cases = tmp_path / "tests"
-    cases.mkdir()
-    (cases / "conftest.py").write_text('pytest_plugins = ["tests.fixtures.test_resources"]\n')
-    (cases / "test_case.py").write_text("def test_ok(): pass\n")
-    runner = (ROOT / "apps/server/scripts/run_local_postgres_tests.sh").read_text()
-    phase = runner.split("run_phase() {", 1)[1].split("\nstart_postgres()", 1)[0]
     result = subprocess.run(
-        ["bash", "-c", 'run_phase() {' + phase + '\nrun_phase parallel "$@"', "phase",
-         *PYTEST, "-q", "-n", "2"], cwd=tmp_path,
-        env={**os.environ, "PYTHONPATH": str(ROOT / "apps/server"),
-             "GRAF_TEST_REPORT_DIR": str(tmp_path / "reports")},
+        ["bash", str(ROOT / "apps/server/scripts/run_local_postgres_tests.sh"),
+         "--focused", "-q", "-n", "2",
+         "tests/unit/test_account_closure.py::test_account_close_rejects_linked_workspace_even_for_sole_owner"],
+        cwd=ROOT,
+        env={**os.environ, "GRAF_TEST_REPORT_DIR": str(tmp_path / "reports")},
         capture_output=True, text=True, check=False,
     )
     assert result.returncode == 0, result.stdout + result.stderr
-    rows = [json.loads(line) for line in (tmp_path / "reports/parallel.jsonl").read_text().splitlines()]
+    rows = [json.loads(line) for line in (tmp_path / "reports/focused.jsonl").read_text().splitlines()]
     assert len(rows) == 3 and all(row["outcome"] == "passed" for row in rows)
