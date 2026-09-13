@@ -22,7 +22,7 @@ Independent test: crash после маркера, повторный scanner, c
 ## Phase 4: Validation and closeout
 
 - [X] T005 Проверить локальную матрицу `specs/6796-short-recording-threshold/quickstart.md`, провести code review/converge, записать результаты в `validation.md` и фрагмент `changes/unreleased/F6796.yaml`.
-- [ ] T006 После разрешённого коммита проверить штатный GRAF Dev по `specs/6796-short-recording-threshold/quickstart.md`, GitHub governance-fast на exact PR SHA; сверить tracker и evidence в `validation.md`. Без подтверждения результата не закрывать feature issues.
+- [X] T006 После разрешённого коммита проверить штатный GRAF Dev по `specs/6796-short-recording-threshold/quickstart.md`, GitHub governance-fast на exact PR SHA; сверить tracker и evidence в `validation.md`. Без подтверждения результата не закрывать feature issues.
 
 ## Dependencies and implementation strategy
 
@@ -74,9 +74,10 @@ T008: классификация подтверждена на installed5c7350e8
 - [X] T009 Исправить точную границу FR-003 в `AudioModelCore.swift` по каноническим48k кадрам без округления16k/AAC padding; проверить реальный writer/converter1_439_999/1_440_000/1_440_001 для обоих штатныхStop, durable marker, начало и неизвестную длительность в `LocalRecordingWriterSystemAudioTests.swift` (partial, HIGH).
 - [X] T010 Запретить очистку FR-006 при ссылке другой строки очереди на любой удаляемый artifact path в `DesktopUploadQueueService.swift`; проверить все поля путей/нормализацию/соседнийprefix, сохранность байтов/обеихстрок/маркера и повторныйscan в `DesktopUploadQueueV5Tests.swift` (partial, HIGH).
 
-T006 повторно открыта до T009/T010, независимого review и новых exact-SHA
-checks. Предыдущая установленная матрица сохранена как доказательство5c;
-финальное состояние новой реализации оценивается отдельно.
+T009/T010 завершены и приняты независимым review. Новый runtime47b6d
+прошёл короткий/длинный Stop и настоящий restart; T006 завершена.
+Предыдущая матрица5c применяется только к неизменённым маршрутам/presenter.
+Перед merge обязательны checks финального документационного SHA.
 
 T009: https://github.com/yshishenya/graf/issues/6976
 

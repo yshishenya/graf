@@ -279,3 +279,12 @@ AudioModelCore `dede7287fc964dc42a6a6c99bafb9cf750699457`, queue
 Первое Approved восстановлено только для исправленного кода. Новая bounded
 installed матрица и exact-SHA CI обязательны отдельно. Конвертер/Stop/presenter
 не изменены; лишних новых конструкций нет, существующие helpers переиспользованы.
+
+
+Code+installed **Approved** после нового47b6d прогона. Независимо прочитаны
+final-short-result, final-long-metadata, final-restart-metadata и настоящий
+rollback receipt: notice1,497с/Start, saved1_800_164кадра48кГц/начало,
+restart+scan/неткаталогаочередисервернойвстречи,13smokePASS. Предыдущий failed
+attempt сохраняется в отчёте; #6958 и VO ограничения не сняты. После этого
+автор подтвердил возврат8d816/13PASS и передачу общего стенда. GitHub checks
+финального docs SHA и разрешение review conversations остаются отдельными gates.

@@ -4,15 +4,14 @@ Lane: high-risk-feature (capture/storage/deletion/UX), полный Spec Kit. В
 
 ## Текущее состояние после завершения приёмки
 
-T006 повторно открыта: GitHub review выявил пробелы точной48k границы и
-проверки чужих artifact paths, T009/T010 обязательны до merge.
-Предыдущая установленная матрица и независимый review
-завершены; доставка/озвучивание VoiceOver явно native-unverified после
-отмены ручной процедуры пользователем. Первоначальные блокировки ниже
-сохранены как история, актуальные результаты находятся в последних разделах.
-Финальный документационный коммит требует новых GitHub checks на точном
-PR SHA перед merge/закрытием issues. Release-full, публикация и deployment
-этим результатом не подтверждаются; #6958 остаётся открытой.
+T001–T010 выполнены. Новая установленная сборка
+`47b6d87d191216f8cbd111470fe98232d1c3c8e5` прошла необходимую повторную
+матрицу после исправлений review,127 профильных тестов и независимую проверку.
+Результаты описаны в последнем разделе. Озвучивание VoiceOver остаётся
+native-unverified после пользовательской отмены ручной процедуры; #6958 открыт.
+Финальный коммит меняет только отчёт и требует собственных GitHub checks.
+Merge/закрытие issues требуют также разрешённых review threads; release-full,
+публикация и deployment этим отчётом не подтверждаются.
 
 ## Локальные проверки
 
@@ -392,3 +391,53 @@ assert исправлены: loadItems — проекция UI, а не persiste
 Предыдущая приёмка5c остаётся evidence автоматического пути, меню и presenter.
 Новому runtime обязательны build/promote/smoke, короткий/длинныйmanualStop
 и настоящийrestart со сканированием. T006 до этого открыта.
+
+
+## Итоговая приёмка исправленного runtime47b6d
+
+Exact runtime SHA: `47b6d87d191216f8cbd111470fe98232d1c3c8e5`.
+Штатные build/promote и 13 smoke checks PASS. GitHub
+[governance-fast](https://github.com/yshishenya/graf/actions/runs/34749290338)
+и [pr-metadata](https://github.com/yshishenya/graf/actions/runs/34749290251)
+PASS на этом SHA. Runtime содержит ровно независимо проверенные model/queue
+blobs, указанные в capture-diagnostics-review.md.
+
+Первый короткий запуск снова прервался с прежним render_reference_missing:
+status failed, shortRecordingDiscarded отсутствует, доступный WAV сохранён.
+Это остаётся #6958, не скрывается и не считается штатным PASS.
+
+Повторный короткий Start/Stop выполнен успешно. Текст сообщения прочитан
+через AX непосредственно из панели GRAF Dev: «Запись короче 30 секунд не
+сохранена». От нажатия Stop до чтения сообщения1,497с; Start снова доступен.
+Каталог этой проверки удалён, строки по её directory/session ID в очереди0,
+точечный read-only запрос Dev PostgreSQL по local_recording_id вернул0 встреч.
+
+Длинная запись сохранена без capture failure:1 800 164 канонических кадров48кГц
+(37,5034167с),600055 кадров16кГц, AACdelta0. Контрольный тон440Гц присутствует
+в первых100мс WAV: amplitude0,03637/RMS0,02580. Проверены только синтетический
+сигнал и технические метаданные. ptsGap/underrun/overrun/processError/nonFinite0,
+p95 обработки1мс. Start после Stop доступен.
+
+Настоящий restart через штатный rollback на тот же47b6d manifest:13 smoke
+PASS, новый PID. В09:25:33 UTC завершились app_appeared и coalesced_app_appeared
+queue scans. После них короткий каталог отсутствует, queue0 и Dev server0;
+запись не восстановилась и не была отправлена. Локальные доказательства:
+`graf-6796-final-short-result.log`, `graf-6796-final-long-metadata.json`,
+`graf-6796-final-restart.log`, `graf-6796-final-restart-metadata.json`.
+
+Независимый reviewer той же задачи прочитал эти доказательства и подтвердил
+Code+installed Approved. Полная прежняя auto/menu/theme матрица5c сохраняется
+для неизменённых маршрутов и presenter; обе причины Stop дополнительно
+проверены шестью настоящими writer boundary cases нового runtime. Повторное
+включение VoiceOver, изменение настроек или внедрение повреждённых строк
+в установленный Dev не требовались и не выполнялись.
+
+После приёмки штатный rollback вернул `8d816b478de5cc13a5331a4865e33923469d71cd`
+F6793,13 smoke PASS. Dev без записи, выполнено «Открыть GRAF»; настройки и тема
+не менялись. UI/runtime явно передан владельцу F6793. Это готовность принятой
+реализации к слиянию после финальных GitHub gates, не доказательство выпуска.
+
+Повторная speckit-converge после T009/T010:9FR,4SC,6сценариев обеих историй,
+5 решений плана и применимые capture/privacy/deletion/UX ограничения проверены.
+Новых пробелов реализации нет; задачи не добавлены. Числовая граница48кГц и
+ownership policy соответствуют исправленным plan/data-model/quickstart.
