@@ -63,6 +63,7 @@ struct NativeSettingsComboBox: NSViewRepresentable {
             field.drawsBackground = false
             field.focusRingType = .none
             field.lineBreakMode = .byTruncatingTail
+            field.setAccessibilityElement(true)
             field.setAccessibilityRole(.comboBox)
             field.setContentHuggingPriority(.defaultLow, for: .horizontal)
             arrow.isBordered = false

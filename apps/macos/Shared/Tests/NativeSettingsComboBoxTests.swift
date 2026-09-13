@@ -392,6 +392,8 @@ final class NativeSettingsComboBoxTests: XCTestCase {
             (view as? NativeSettingsComboBox.Field) ?? view.subviews.lazy.compactMap { field(in: $0) }.first
         }
         let input = try XCTUnwrap(field(in: host))
+        XCTAssertTrue(input.isAccessibilityElement(), "The editable field must remain an AX element inside SwiftUI")
+        XCTAssertTrue((NSAccessibility.unignoredAncestor(of: input) as? NSView) === input)
         XCTAssertTrue(window.makeFirstResponder(input))
         XCTAssertNotNil(input.currentEditor())
         var ancestors: [NSView] = [input]
