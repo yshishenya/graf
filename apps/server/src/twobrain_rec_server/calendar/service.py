@@ -55,6 +55,7 @@ from twobrain_rec_server.db.models import (
     ExternalCalendar,
     Meeting,
     RecordingCalendarContextLink,
+    UserIdentity,
 )
 from twobrain_rec_server.domain.metadata_text import safe_metadata_text
 from twobrain_rec_server.processing.fences import meeting_is_deleted_or_deleting
@@ -279,6 +280,7 @@ async def save_calendar_settings_preferences(
     tenant_scope: TenantScope,
     **updates: bool,
 ) -> CalendarSettingsPreference:
+    await db.get(UserIdentity, tenant_scope.user_id, with_for_update=True)
     preference = await load_calendar_settings_preferences(db, tenant_scope)
     allowed = {
         "join_prompt_enabled",
@@ -470,6 +472,7 @@ async def replace_selected_calendars(
     selected_provider_calendar_ids: list[str],
     *,
     allow_missing: bool = True,
+    expected_selected_ids: list[str] | None = None,
 ) -> None:
     selected_ids = selected_calendar_ids_or_error(selected_provider_calendar_ids)
     await db.flush()
@@ -478,6 +481,11 @@ async def replace_selected_calendars(
         calendar.provider_calendar_id: calendar
         for calendar in await calendars_for_source(db, source.id)
     }
+    if expected_selected_ids is not None and set(expected_selected_ids) != {
+        calendar.provider_calendar_id for calendar in existing.values() if calendar.selected
+    }:
+        raise ProblemDetail(status=409, code="calendar_selection_conflict",
+                            title="Выбор календарей изменился на другом устройстве")
     for calendar in existing.values():
         calendar.selected = False
         if calendar.visibility == "selected":

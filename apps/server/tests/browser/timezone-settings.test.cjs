@@ -9,104 +9,46 @@ const zones = [
  ['Asia/Kathmandu','UTC+05:45 — Катманду, Непал'],
  ['America/New_York','UTC−04:00 — Нью-Йорк, США'],
 ];
-const formHTML = `<meta charset="utf-8"><meta name="graf-timezone" content="Asia/Yekaterinburg"><meta name="graf-time-preferred" content=""><meta name="graf-time-reload" content="false"><meta name="csrf-token" content="synthetic-csrf">
- <form data-account-preferences data-settings-form method="post" action="/settings/account/preferences">
- <input type="hidden" name="_csrf" value="synthetic-csrf">
- <label>Часовой пояс<select name="timezone" data-timezone-select data-settings-combobox>${zones.map(([value,label],i)=>`<option value="${value}" ${i?'':'selected'}>${label}</option>`).join('')}</select></label>
- <output data-timezone-preview hidden></output><span data-timezone-search-result hidden></span>
+const formHTML = `<meta charset="utf-8"><meta name="graf-time-user" content="actor"><meta name="graf-workspace" content="space"><meta name="graf-timezone" content="Asia/Yekaterinburg"><meta name="graf-time-preferred" content=""><meta name="graf-time-reload" content="false"><meta name="csrf-token" content="synthetic-csrf">
+ <form data-account-preferences data-settings-autosave method="post" action="/settings/account/preferences">
+ <fieldset data-settings-inputs disabled><input type="hidden" name="_csrf" value="synthetic-csrf">
+ <label>Часовой пояс<select name="timezone" data-settings-combobox data-timezone-select>${zones.map(([value,label],i)=>`<option value="${value}" ${i?'':'selected'}>${label}</option>`).join('')}</select></label>
+ <output data-timezone-preview hidden></output>
  <select name="theme"><option value="system">Системная</option><option value="dark">Тёмная</option></select>
- <button type="submit">Сохранить</button><button type="reset">Отменить</button><p data-settings-form-status hidden></p></form>`;
+ </fieldset><p data-settings-form-status hidden></p></form>`;
 (async () => {
- const browser = await chromium.launch({headless:true});
- let failure = 'network', postCount = 0, successCount = 0, validationCount = 0, posted = '', nativePosted = '';
- const server = http.createServer(async (request, response) => {
-  if (request.method === 'POST') {
-   let body = '';
-   for await (const chunk of request) body += chunk;
-   if (request.headers['x-csrf-token']) {
-    postCount++;
-    posted = body;
-    assert.equal(request.headers['x-csrf-token'],'synthetic-csrf');
-    if (failure === 'network') { request.socket.destroy(); return; }
-    if (failure === 'validation') {
-     validationCount++;
-     response.writeHead(422, {'Content-Type':'application/json'});
-     response.end('{"code":"invalid_account_preference"}'); return;
-    }
-    successCount++;
-   } else { nativePosted = body; }
-   response.writeHead(303, {Location:'/settings/account?preferences=saved'});
-   response.end(); return;
+ const browser=await chromium.launch({headless:true});let saved='Asia/Yekaterinburg',failure=true,posts=[];
+ const server=http.createServer(async(req,res)=>{
+  if(req.method==='POST'){
+   let raw='';for await(const chunk of req)raw+=chunk;const body=new URLSearchParams(raw);posts.push(body);
+   assert.equal(req.headers['x-csrf-token'],'synthetic-csrf');
+   if(failure){res.writeHead(422);res.end('{}');return;}
+   saved=body.get('timezone');res.setHeader('Content-Type','application/json');res.end(JSON.stringify({saved:true,actor:'actor',workspace:'space',values:{timezone:saved}}));return;
   }
-  response.writeHead(200, {'Content-Type':'text/html; charset=utf-8'});
-  response.end(request.url.includes('preferences=saved') ? '<h1>Настройки сохранены</h1>' : formHTML);
+  res.setHeader('Content-Type','text/html; charset=utf-8');res.end(formHTML);
  });
- await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
- const origin = `http://127.0.0.1:${server.address().port}`;
+ await new Promise(r=>server.listen(0,'127.0.0.1',r));const origin=`http://127.0.0.1:${server.address().port}`;
  try {
-  const context = await browser.newContext({timezoneId:'Asia/Yekaterinburg'});
-  const page = await context.newPage();
-  const errors=[]; page.on('pageerror', error=>errors.push(error.message));
-  await page.goto(`${origin}/settings/account`);
-  await page.addStyleTag({path:path.join(assets,'cabinet.css')});
-  await page.addScriptTag({path:path.join(assets,'user-time.js')});
-  await page.addScriptTag({path:path.join(assets,'cabinet.js')});
-  const select=page.locator('[data-timezone-select]');
-  const search=page.getByRole('combobox', {name:'Часовой пояс'});
-  assert.equal(await select.inputValue(),'Asia/Yekaterinburg');
-  assert.equal(await search.isVisible(),true);
-  for(const query of ['Москва','Europe/Moscow','UTC+03:00']) {
-   await search.fill(query);
-   assert.equal(await page.getByRole('listbox').getByRole('option').count(),1);
-   assert.equal(await select.inputValue(),'Asia/Yekaterinburg');
+  const context=await browser.newContext({timezoneId:'Asia/Yekaterinburg'});const page=await context.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
+  await page.goto(origin+'/settings/account');
+  for(const file of ['user-time.js','settings-autosave.js','cabinet.js'])await page.addScriptTag({path:path.join(assets,file)});
+  const select=page.locator('[data-timezone-select]'),search=page.getByRole('combobox',{name:'Часовой пояс'});
+  assert(await select.isEnabled());assert(await search.isVisible());
+  for(const query of ['Москва','Europe/Moscow','UTC+03:00']){
+   await search.fill(query);assert.equal(await page.getByRole('listbox').getByRole('option').count(),1);assert.equal(await select.inputValue(),'Asia/Yekaterinburg');
   }
-  await search.fill('UTC+05:45');
-  assert.equal(await select.locator('option[value="Asia/Kathmandu"]').count(),1);
-  await page.getByRole('listbox').getByRole('option').click();
-  assert.match(await page.locator('[data-timezone-preview]').textContent(),/UTC\+05:45/);
-  assert.equal(await page.evaluate(()=>window.GRAFTime.timezone),'Asia/Yekaterinburg');
-  await search.fill('ничего-похожего');
-  assert.match(await page.locator('[data-combobox-status]').textContent(),/Совпадений нет/);
-  assert.equal(await select.inputValue(),'Asia/Kathmandu');
-  await page.getByRole('button',{name:'Отменить'}).click();
-  await page.waitForFunction(()=>document.querySelector('[data-timezone-select]').value==='Asia/Yekaterinburg', null, {timeout:3000});
-  await page.waitForFunction(()=>document.querySelector('input[role=combobox]').value.includes('Екатеринбург'), null, {timeout:3000});
+  await page.waitForTimeout(600);assert.equal(posts.length,0);
   assert.equal(await select.locator('option').count(),4);
-  assert.equal(await page.locator('form').getAttribute('data-state'),'pristine');
-  await search.fill('Нью-Йорк');
-  await search.press('ArrowDown');
-  await search.press('Enter');
-  await page.selectOption('[name="theme"]','dark');
-  await page.getByRole('button',{name:'Сохранить'}).click();
+  await search.fill('UTC+05:45');await page.getByRole('listbox').getByRole('option').click();
+  assert.match(await page.locator('[data-timezone-preview]').textContent(),/UTC\+05:45/);
   await page.waitForFunction(()=>document.querySelector('form').dataset.state==='error');
-  assert.equal(await select.inputValue(),'America/New_York');
-  assert.equal(await page.locator('[name="theme"]').inputValue(),'dark');
-  assert.equal(await page.getByRole('button',{name:'Сохранить'}).isEnabled(),true);
-  assert.match(posted,/name="timezone"\r\n\r\nAmerica\/New_York/);
-  assert(!posted.includes('Найти город'));
-  failure='validation';
-  await page.getByRole('button',{name:'Сохранить'}).click();
-  await page.waitForFunction(()=>document.querySelector('[data-settings-form-status]').textContent.includes('Проверьте часовой пояс'));
-  assert.equal(await select.inputValue(),'America/New_York');
-  assert.equal(await page.getByRole('button',{name:'Сохранить'}).isEnabled(),true);
-  failure='';
-  await page.getByRole('button',{name:'Сохранить'}).click();
-  await page.waitForURL('**/settings/account?preferences=saved');
-  assert(postCount >= 3); // Chromium may retry a dropped TCP connection.
-  assert.equal(validationCount,1);
-  assert.equal(successCount,1);
-  assert.deepEqual(errors,[]);
-  // Native form submission remains usable when JavaScript is disabled.
-  const noJS = await browser.newContext({javaScriptEnabled:false});
-  const plain=await noJS.newPage(); await plain.goto(`${origin}/settings/account`);
-  assert.equal(await plain.locator('[data-timezone-search]').count(),0);
-  assert.equal(await plain.locator('[data-timezone-select]').isEnabled(),true);
-  assert.equal(await plain.locator('[data-timezone-select] option').count(),4);
-  await plain.locator('[data-timezone-select]').selectOption('Asia/Kathmandu');
-  await plain.getByRole('button',{name:'Сохранить'}).click();
-  await plain.waitForURL('**/settings/account?preferences=saved');
-  assert.equal(new URLSearchParams(nativePosted).get('timezone'),'Asia/Kathmandu');
-  assert.equal(new URLSearchParams(nativePosted).get('_csrf'),'synthetic-csrf');
-  console.log('timezone settings: Russian/IANA/offset search, preview, Cancel, network/422 retry, redirect and no-JS passed');
- } finally { await browser.close(); await new Promise(resolve=>server.close(resolve)); }
-})().catch(error=>{console.error(error);process.exitCode=1;});
+  assert.equal(await select.inputValue(),'Asia/Kathmandu');assert.equal(await page.evaluate(()=>GRAFTime.timezone),'Asia/Yekaterinburg');
+  await search.fill('ничего-похожего');assert.match(await page.locator('[data-combobox-status]').textContent(),/Совпадений нет/);
+  failure=false;await page.getByRole('button',{name:'Повторить'}).click();await page.waitForFunction(()=>!GRAFSettings.pending());
+  assert.equal(saved,'Asia/Kathmandu');assert.equal(await page.evaluate(()=>GRAFTime.timezone),'Asia/Kathmandu');assert.equal(new URL(page.url()).pathname,'/settings/account');
+  assert(posts.every(p=>!p.has('theme')));assert.deepEqual(errors,[]);
+  const noJS=await browser.newContext({javaScriptEnabled:false});const plain=await noJS.newPage();await plain.goto(origin);
+  assert.equal(await plain.locator('[data-timezone-select]').isEnabled(),false);assert.equal(await plain.getByRole('button',{name:'Сохранить'}).count(),0);
+  console.log('timezone: Russian/IANA/offset search, retained selection, preview, 422 recovery, autosave and no-JS passed');
+ }finally{await browser.close();await new Promise(r=>server.close(r));}
+})().catch(e=>{console.error(e);process.exitCode=1;});

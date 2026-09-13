@@ -184,7 +184,30 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
 
     public init() {}
 
+    private var checkingSettings = false
+    private var settingsNavigationApproved = false
+
+    private func deferForSettings(_ action: @escaping @MainActor () -> Void) -> Bool {
+        if settingsNavigationApproved { return false }
+        guard let webView, !isLoading else { return false }
+        guard !checkingSettings else { return true }
+        checkingSettings = true
+        syncNavigationState()
+        Task { [weak self, weak webView] in
+            guard let self else { return }
+            let allowed = await EmbeddedCabinetWebView.prepareSettingsToLeave(in: webView)
+            self.checkingSettings = false
+            self.syncNavigationState()
+            guard allowed, self.webView === webView else { return }
+            self.settingsNavigationApproved = true
+            action()
+            self.settingsNavigationApproved = false
+        }
+        return true
+    }
+
     public func goBack() {
+        if deferForSettings({ [weak self] in self?.goBack() }) { return }
         guard !isLoading, let webView, let routePolicy else { return }
         syntheticForwardRequest = nil
         let backItem = preferredBackItem(for: webView, routePolicy: routePolicy)
@@ -245,6 +268,7 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
     }
 
     public func goForward() {
+        if deferForSettings({ [weak self] in self?.goForward() }) { return }
         guard !isLoading, canGoForward, let webView, let routePolicy else { return }
         if let forwardItem = preferredForwardItem(for: webView, routePolicy: routePolicy) {
             isLoading = true
@@ -278,6 +302,7 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
     }
 
     public func reload() {
+        if deferForSettings({ [weak self] in self?.reload() }) { return }
         guard !isLoading, canReload, let webView, let routePolicy,
               isSafeHistoryDocument(webView.url, routePolicy: routePolicy),
               (!sessionExpired || !isProtectedMeetingRoute(webView.url, routePolicy: routePolicy))
@@ -294,6 +319,7 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
     }
 
     public func goHome() {
+        if deferForSettings({ [weak self] in self?.goHome() }) { return }
         guard !isLoading,
               canGoHome,
               let webView,
@@ -665,7 +691,7 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
     }
 
     private func syncNavigationState() {
-        guard let webView, let routePolicy else {
+        guard !checkingSettings, let webView, let routePolicy else {
             canGoBack = false
             canGoForward = false
             canReload = false
@@ -1494,6 +1520,25 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         return targetDecision.route.meetingId == sourceDecision.route.meetingId
     }
 
+    /// Flush the same queue used by browser navigation before closing the native host.
+    @MainActor public static func prepareSettingsToLeave(in view: NSView?) async -> Bool {
+        guard let view else { return true }
+        if let webView = view as? WKWebView {
+            guard webView.url != nil else { return true }
+            do {
+                let result = try await webView.callAsyncJavaScript(
+                    "return window.GRAFSettings ? await window.GRAFSettings.prepareToLeave() : true;",
+                    arguments: [:], in: nil, contentWorld: .page
+                )
+                return result as? Bool == true
+            } catch { return false }
+        }
+        for child in view.subviews {
+            if !(await prepareSettingsToLeave(in: child)) { return false }
+        }
+        return true
+    }
+
     public nonisolated static func safeDownloadFilename(_ suggestedFilename: String) -> String {
         let filename = (suggestedFilename as NSString).lastPathComponent
         return filename.isEmpty || filename == "." || filename == ".." || filename == "/"
@@ -1662,16 +1707,27 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         ) else {
             return
         }
-        context.coordinator.cancelJavaScriptConfirmation()
-        container.lastLoadedRequestIdentity = Self.loadIdentity(for: request)
-        navigationController.observeNavigationRequest(request, webView: container.webView)
-        let navigation = container.webView.load(request)
-        navigationController.navigationDidStart(
-            webView: container.webView,
-            navigation: navigation,
-            targetURL: request.url,
-            controllerInitiated: true
-        )
+        let identity = Self.loadIdentity(for: request)
+        guard container.pendingSettingsRequestIdentity != identity else { return }
+        container.pendingSettingsRequestIdentity = identity
+        let coordinator = context.coordinator
+        Task { @MainActor in
+            let allowed = await Self.prepareSettingsToLeave(in: container.webView)
+            guard container.pendingSettingsRequestIdentity == identity else { return }
+            container.pendingSettingsRequestIdentity = nil
+            guard allowed else {
+                currentRoute = container.webView.url
+                return
+            }
+            coordinator.cancelJavaScriptConfirmation()
+            container.lastLoadedRequestIdentity = identity
+            navigationController.observeNavigationRequest(request, webView: container.webView)
+            let navigation = container.webView.load(request)
+            navigationController.navigationDidStart(
+                webView: container.webView, navigation: navigation,
+                targetURL: request.url, controllerInitiated: true
+            )
+        }
     }
 
     public func makeCoordinator() -> Coordinator {
@@ -2085,6 +2141,26 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         public func webView(
             _ webView: WKWebView,
             decidePolicyFor navigationAction: WKNavigationAction,
+            decisionHandler: @escaping EmbeddedCabinetNavigationDecisionHandler
+        ) {
+            if navigationAction.targetFrame?.isMainFrame != false,
+               navigationAction.navigationType == .backForward || navigationAction.navigationType == .reload {
+                Task { @MainActor in
+                    guard await EmbeddedCabinetWebView.prepareSettingsToLeave(in: webView) else {
+                        decisionHandler(.cancel)
+                        return
+                    }
+                    self.decideNavigationPolicy(webView, action: navigationAction, decisionHandler: decisionHandler)
+                }
+            } else {
+                decideNavigationPolicy(webView, action: navigationAction, decisionHandler: decisionHandler)
+            }
+        }
+
+        @MainActor
+        private func decideNavigationPolicy(
+            _ webView: WKWebView,
+            action navigationAction: WKNavigationAction,
             decisionHandler: @escaping EmbeddedCabinetNavigationDecisionHandler
         ) {
             guard navigationController.isAttached(to: webView) else {
@@ -2731,6 +2807,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
     public final class WebViewContainer: NSView {
         public let webView: WKWebView
         public var lastLoadedRequestIdentity: String?
+        fileprivate var pendingSettingsRequestIdentity: String?
 
         public init(webView: WKWebView) {
             self.webView = webView

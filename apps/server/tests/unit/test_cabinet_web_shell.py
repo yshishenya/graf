@@ -1432,7 +1432,7 @@ def test_calendar_settings_reuses_common_cabinet_shell() -> None:
     assert "GRAF" in page
 
 
-def test_098_calendar_settings_renders_auto_context_filter_boundary_once() -> None:
+def test_calendar_settings_omits_redundant_auto_context_explanation() -> None:
     page = render_calendar_settings_page(
         calendar_settings_surface(provider_payloads=[], sources=[]),
         embedded=True,
@@ -1443,7 +1443,8 @@ def test_098_calendar_settings_renders_auto_context_filter_boundary_once() -> No
         "Приватные события и события на весь день не используются для "
         "автоматического контекста записи."
     )
-    assert page.count(copy) == 1
+    assert copy not in page
+    assert 'data-settings-autosave' in page
 
 
 def test_sidebar_markup_lives_in_reusable_sections_macro() -> None:
@@ -1623,8 +1624,8 @@ def test_feature_159_download_and_profile_surface_contract_is_surface_aware() ->
                 menu,
                 flags=re.DOTALL,
             )
-    assert 'data-account-preferences-auto-save' in web
-    assert 'data-account-preferences-auto-save' in embedded
+    assert 'data-account-preferences data-settings-autosave' in web
+    assert 'data-account-preferences data-settings-autosave' in embedded
     assert 'aria-haspopup="menu"' not in web
     assert 'role="menu"' not in web
     assert 'role="menuitem"' not in web
@@ -1641,11 +1642,13 @@ def test_profile_menu_theme_and_disabled_action_contract_is_shared() -> None:
         SERVER_ROOT / "cabinet" / "templates" / "cabinet" / "components" / "sections.html"
     ).read_text()
 
-    assert 'form.dataset.accountPreferencesAutoSave === "true"' in script
-    assert "form.requestSubmit()" in script
-    assert "fetch(form.action" in script
+    autosave = (SERVER_ROOT / "cabinet" / "static" / "cabinet" / "settings-autosave.js").read_text()
+    assert "accountPreferencesAutoSave" not in script
+    assert "form[data-settings-autosave]" in autosave
+    assert "const url=new URL(form.action,location.href).href" in autosave
+    assert "const queue=create(url," in autosave
     assert 'data-account-preferences-return' in sections
-    assert 'data-account-preferences-status' in sections
+    assert 'data-settings-form-status' in sections
     assert 'data-profile-menu popover="manual" hidden' in sections
     assert "menu.showPopover()" in script
     assert "menu.hidePopover()" in script

@@ -57,12 +57,12 @@
         {% if profile %}<details class="sidebar-profile-menu__disclosure">
           <summary class="sidebar-profile-menu__item">{{ icons.icon("sun") }}<span>Вид</span></summary>
           <div class="sidebar-profile-menu__submenu" data-profile-menu-submenu>
-            <form class="sidebar-profile-menu__theme-form" data-account-preferences data-account-preferences-auto-save="true" method="post" action="{{ '/desktop/settings/account/preferences' if embedded else '/settings/account/preferences' }}">
+            <form class="sidebar-profile-menu__theme-form" data-account-preferences data-settings-autosave method="post" action="{{ '/desktop/settings/account/preferences' if embedded else '/settings/account/preferences' }}"><fieldset data-settings-inputs disabled>
               {{ csrf_field(csrf_token) }}
               <input type="hidden" name="return_to" value="" data-account-preferences-return>
               {{ ui.theme_picker(profile.theme) }}
-              <span class="sr-only" data-account-preferences-status role="status" aria-live="polite"></span>
-            </form>
+              <span class="settings-form-status" data-settings-form-status hidden role="status" aria-live="polite"></span>
+            </fieldset></form>
           </div>
         </details>{% endif %}
         <a class="sidebar-profile-menu__item" href="{{ '/desktop/settings' if embedded else '/settings' }}" data-profile-menu-item="settings">{{ icons.icon("settings") }}<span>Настройки</span></a>
@@ -164,12 +164,12 @@
 
 
 {% macro trial_confirmation(csrf_token=None, starts_at=None, ends_at=None, primary=False) -%}
-<details class="billing-coupon" data-trial-confirmation>
+<details class="billing-trial-confirmation" data-trial-confirmation>
   <summary class="button quiet"{% if primary %} data-billing-primary{% endif %}>Начать 7 дней бесплатно</summary>
   <p><strong>Карта не нужна. Автосписания не будет.</strong></p>
   <p>Пробный период доступен один раз. После семи дней автоматически включится Free.</p>
   {% if starts_at and ends_at %}<p>На момент открытия страницы предварительный период: с {{ starts_at }} до {{ ends_at }}.</p>{% endif %}
-  <p>Семь полных дней начнутся при окончательном подтверждении. Точные даты появятся здесь после запуска. Чтобы отказаться, сверните этот блок.</p>
+  <p>Семь дней начнутся после подтверждения. Точные даты появятся после запуска.</p>
   <form action="/billing/trial/activate" method="post">
     {{ csrf_field(csrf_token) }}
     <input type="hidden" name="confirmation" value="start_trial">

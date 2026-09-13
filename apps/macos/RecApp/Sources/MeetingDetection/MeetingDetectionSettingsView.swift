@@ -15,6 +15,7 @@ public struct MeetingDetectionSettingsView: View {
     @State private var settings: MeetingDetectionSettings
     @State private var promptCapableTargets: [MeetingTargetRegistryTarget] = []
     @State private var saveError: String?
+    @State private var pendingRules: [String: AutomaticRecordingRule] = [:]
     @State private var search = ""
     @State private var settingsAvailable: Bool
 
@@ -40,14 +41,6 @@ public struct MeetingDetectionSettingsView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
         .tint(DesktopMeetingShellChrome.shellAccentColor)
-        .alert("Не удалось обновить настройки", isPresented: Binding(
-            get: { saveError != nil },
-            set: { if !$0 { saveError = nil } }
-        )) {
-            Button("Понятно", role: .cancel) { saveError = nil }
-        } message: {
-            Text(saveError ?? "Попробуйте ещё раз.")
-        }
         .onAppear {
             reloadSettings()
             reloadRegistryTargets()
@@ -72,14 +65,20 @@ public struct MeetingDetectionSettingsView: View {
                     Text(Self.pageTitle)
                         .font(.title2.weight(.semibold))
                         .foregroundStyle(.primary)
-                    Text("Выберите, как начинать запись встреч в каждом приложении на этом Mac.")
-                    Text("Всегда — без запроса. Спрашивать — показать запрос и начать запись через 8 секунд, если вы не откажетесь. Никогда — не начинать автоматически.")
-                    Text("Изменения сохраняются автоматически. Ручная запись остаётся доступна.")
+                    Text("«Спрашивать»: запись начнётся через 8 секунд, если не отказаться.")
                 }
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
+                if let saveError {
+                    HStack {
+                        Text(saveError).foregroundStyle(.red)
+                        Button("Повторить") {
+                            if pendingRules.isEmpty { reloadSettings() } else { updateRules(pendingRules) }
+                        }
+                    }.font(.callout)
+                }
                 VStack(alignment: .leading, spacing: 16) {
                     Text(Self.autoRecordSectionTitle)
                         .font(.headline)
@@ -102,8 +101,6 @@ public struct MeetingDetectionSettingsView: View {
                         }
                     }
 
-                    Text("Поддерживаемые приложения на macOS. Общее правило применяется ко всем, включая скрытые поиском.")
-                        .font(.callout).foregroundStyle(.secondary)
                     NativeSettingsComboBox(
                         title: "Приложения",
                         options: promptCapableTargets.map { .init(id: $0.id, label: $0.displayName) },
@@ -153,40 +150,39 @@ public struct MeetingDetectionSettingsView: View {
     private var bulkRuleBinding: Binding<AutomaticRecordingRule?> {
         Binding(
             get: {
-                let rules = promptCapableTargets.map { settings.recordingRule(for: $0.id) }
+                let rules = promptCapableTargets.map { pendingRules[$0.id] ?? settings.recordingRule(for: $0.id) }
                 guard let first = rules.first, rules.allSatisfy({ $0 == first }) else { return nil }
                 return first
             },
             set: { rule in
                 guard let rule else { return }
-                updateSettings { draft in
-                    for target in promptCapableTargets {
-                        draft.setRecordingRule(rule, for: target.id)
-                    }
-                }
+                updateRules(Dictionary(uniqueKeysWithValues: promptCapableTargets.map { ($0.id, rule) }))
             }
         )
     }
 
     private func ruleBinding(for targetID: String) -> Binding<AutomaticRecordingRule> {
         Binding(
-            get: { settings.recordingRule(for: targetID) },
+            get: { pendingRules[targetID] ?? settings.recordingRule(for: targetID) },
             set: { rule in
-                updateSettings { draft in
-                    draft.setRecordingRule(rule, for: targetID)
-                }
+                updateRules([targetID: rule])
             }
         )
     }
 
-    private func updateSettings(_ transform: (inout MeetingDetectionSettings) -> Void) {
+    private func updateRules(_ changes: [String: AutomaticRecordingRule]) {
+        let changes = pendingRules.merging(changes) { _, latest in latest }
         do {
-            settings = try store.update(transform)
+            settings = try store.update { draft in
+                for (targetID, rule) in changes { draft.setRecordingRule(rule, for: targetID) }
+            }
+            pendingRules = [:]
             settingsAvailable = true
             saveError = nil
             notificationCenter.post(name: .twoBrainRecMeetingDetectionSettingsDidChange, object: nil)
         } catch {
-            saveError = "Изменения не сохранены. Прежние правила остаются в силе. Попробуйте ещё раз."
+            pendingRules = changes
+            saveError = "Не сохранено. Повторите попытку."
         }
     }
 
@@ -198,7 +194,7 @@ public struct MeetingDetectionSettingsView: View {
         }
         settings = loaded
         settingsAvailable = true
-        saveError = nil
+        if pendingRules.isEmpty { saveError = nil }
     }
 
     private func reloadRegistryTargets() {

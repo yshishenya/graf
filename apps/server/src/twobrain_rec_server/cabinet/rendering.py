@@ -591,6 +591,7 @@ def render_settings_page(
         "session_confirmation": session_confirmation,
         "account_surface": account_surface or cabinet_view_models.AccountSettingsSurface(),
         "account_outcome": account_outcome,
+        "account_close_requested": account_close_result == "reauth_required",
         "requires_account_reauth": requires_account_reauth,
         "account_reauth_action": "/desktop/meetings" if embedded else "/logout",
         "account_reauth_next": "/login?next="

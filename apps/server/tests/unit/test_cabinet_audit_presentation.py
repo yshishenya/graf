@@ -21,10 +21,10 @@ def test_account_locale_is_preserved_without_claiming_ui_translation() -> None:
     assert 'name="locale" value="en-US"' in locale.group(0)
     assert '<select id="account-locale"' not in page
     assert '<span>Русский</span>' in page
-    help_text = re.search(r'id="account-locale-help">(.*?)</span>', page, re.S).group(1)
-    assert "Другие языки пока недоступны" in help_text
+    assert "Другие языки пока недоступны" not in page
     summaries = render_settings_page(category="summaries")
-    assert "Личные форматы доступны только вам в этом пространстве" in summaries
+    assert 'id="summary-personal-scope"' in summaries
+    assert "Доступны только вам в этом пространстве." in summaries
     assert "во всех ваших встречах" not in summaries
     assert any(
         "Автозапись по приложениям настраивается отдельно" in text

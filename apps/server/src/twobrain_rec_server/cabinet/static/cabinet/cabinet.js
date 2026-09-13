@@ -4495,7 +4495,19 @@
       const form = dialog?.querySelector("[data-summary-template-form]");
       const error = dialog?.querySelector("[data-summary-template-form-error]");
       const title = dialog?.querySelector("[data-summary-template-dialog-title]");
-      let editingTemplate = null;
+      let editingTemplate = null, editorQueue = null, defaultQueue = null;
+      const templateValues = (t) => Object.fromEntries(["name","purpose","sections","output_language","detail_level"].map(k=>[k,t[k]]));
+      const acknowledged = (payload, values) => ({saved:true, actor:payload.actor, workspace:payload.workspace, values, version:payload.version});
+      const verifiedList = async () => {
+        const payload=await request(endpoint);
+        const scope=window.GRAFSettings.headers();
+        if(payload.actor!==scope["X-Graf-Expected-Actor"]||payload.workspace!==scope["X-Graf-Expected-Workspace"]||!Array.isArray(payload.personal))throw new Error("scope");
+        return payload;
+      };
+      const showSaveStatus = (element, queue, state, message) => {
+        if(!element)return; element.hidden=!message;element.textContent=message;
+        if(["error","conflict"].includes(state)){const retry=document.createElement("button");retry.type="button";retry.className="button quiet";retry.textContent=state==="conflict"?"Применить мой выбор":"Повторить";retry.onclick=()=>queue.retry(state==="conflict");element.append(" ",retry);window.GRAFSettings.offerRemote(element,queue,state);}
+      };
       let returnFocus = null;
       let canManageDefault = false;
       const setStatus = (message) => { if (status) status.textContent = message; };
@@ -4506,23 +4518,18 @@
         if (message) error.focus({ preventScroll: true });
       };
       const request = async (url, method = "GET", body) => {
-        const response = await fetch(url, {
-          method,
-          credentials: "same-origin",
-          cache: "no-store",
-          headers: {
-            ...(body === undefined ? {} : { "Content-Type": "application/json" }),
-            ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {})
-          },
+        const response = await window.GRAFSettings.request(url, {
+          method, headers: {...window.GRAFSettings.headers(), ...(body === undefined ? {} : {"Content-Type":"application/json"})},
           body: body === undefined ? undefined : JSON.stringify(body)
         });
-        const payload = response.status === 204 ? null : await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(payload?.code || "summary_template_request_failed");
+        const payload = response.status === 204 ? null : await response.json();
         return payload;
       };
-      const closeDialog = () => {
+      const closeDialog = async () => {
+        if(editingTemplate && !await window.GRAFSettings.prepareToLeave())return;
         if (!(dialog instanceof HTMLDialogElement)) return;
         dialog.close();
+        if(editingTemplate)await loadTemplates();
         if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
         returnFocus = null;
       };
@@ -4549,6 +4556,34 @@
           if (detail) detail.value = template.detail_level || "standard";
           initSettingsComboboxes();
           setSections(template.sections || ["summary", "action_items"]);
+        }
+        const submit=form.querySelector('[data-summary-template-submit]');
+        submit.hidden=!!editingTemplate;
+        form.querySelector('[data-summary-template-dialog-cancel]').textContent=editingTemplate ? 'Готово' : 'Отмена';
+        editorQueue=null;
+        if(editingTemplate) {
+          const templateKey=editingTemplate.template_key;
+          editorQueue=window.GRAFSettings.create(`${endpoint}:${templateKey}`, {
+            initial:templateValues(editingTemplate), version:editingTemplate.version,
+            valid:()=>form.checkValidity() && form.querySelectorAll('input[name="sections"]:checked').length>0,
+            render(state,message,values){
+              if(editingTemplate?.template_key!==templateKey)return;
+              showSaveStatus(error,editorQueue,state,message);
+              window.GRAFSettings.write(form,values);
+              initSettingsComboboxes();
+            },
+            async save(fields,values,previous,version){
+              const updated=await request(`${endpoint}/${editingTemplate.template_id}`,'PATCH',{...values,expected_version:Number(version)});
+              if(!updated.template_id||updated.template_key!==templateKey||updated.version<=Number(version))throw new Error('unavailable');
+              editingTemplate=updated;
+              return acknowledged(updated,templateValues(updated));
+            },
+            async load(){
+              const payload=await verifiedList();
+              const current=payload.personal.find(t=>t.template_key===templateKey);if(!current)throw new Error('unavailable');
+              editingTemplate=current;return {values:templateValues(current),version:current.version};
+            }
+          });
         }
         dialog.showModal();
         name?.focus({ preventScroll: true });
@@ -4590,14 +4625,14 @@
           const copy = document.createElement("div");
           const name = document.createElement("strong");
           const purpose = document.createElement("span");
-          purpose.className = "muted";
+          purpose.className = "settings-list-item__desc";
           name.textContent = template.name;
           purpose.textContent = template.purpose;
           copy.append(name, purpose);
           const actions = document.createElement("details");
           actions.className = "summary-template-actions";
           const summary = document.createElement("summary");
-          summary.textContent = "Действия";
+          summary.textContent = "⋯";
           summary.setAttribute("aria-label", `Действия с форматом «${template.name}»`);
           actions.append(summary);
           [
@@ -4619,7 +4654,7 @@
       };
       const loadTemplates = async () => {
         try {
-          const payload = await request(endpoint);
+          const payload = await verifiedList();
           const personal = payload.personal || [];
           renderTemplates(personal);
           if (defaultSelect) {
@@ -4634,13 +4669,26 @@
               option.dataset.templateVersion = String(template.version);
               defaultSelect.append(option);
             });
-            defaultSelect.value = payload.default_template_key;
+            if(!defaultQueue) {
+              defaultQueue=window.GRAFSettings.create(defaultEndpoint, {
+                initial:{template_key:payload.default_template_key},
+                render(state,message,values){defaultSelect.value=values.template_key;settingsCombos.get(defaultSelect)?.sync();showSaveStatus(status,defaultQueue,state,message);},
+                async save(fields,values){
+                  const option=Array.from(defaultSelect.options).find(o=>o.value===values.template_key);
+                  const result=await request(defaultEndpoint,'PUT',{template_key:values.template_key,template_id:option?.dataset.templateId||null,template_version:Number(option?.dataset.templateVersion||1)});
+                  if(result.template_key!==values.template_key)throw new Error('unavailable');
+                  return acknowledged(result,{template_key:result.template_key});
+                },
+                async load(){const latest=await verifiedList();return {values:{template_key:latest.default_template_key}};}
+              });
+            }
+            defaultSelect.value = defaultQueue.attach({template_key:payload.default_template_key}).template_key;
             defaultSelect.disabled = !canManageDefault;
             settingsCombos.get(defaultSelect)?.sync();
           }
           if (defaultHelp) {
             defaultHelp.textContent = payload.can_manage_default
-              ? "Используется для новых итогов, если формат встречи не выбран отдельно."
+              ? ""
               : "Изменить может владелец пространства.";
           }
         } catch (_error) {
@@ -4662,25 +4710,16 @@
           }
         }
       };
-      defaultSelect?.addEventListener("change", async () => {
-        const option = defaultSelect.selectedOptions[0];
-        if (!option || !defaultEndpoint) return;
-        defaultSelect.disabled = true;
-        setStatus("Сохраняем формат по умолчанию…");
-        try {
-          await request(defaultEndpoint, "PUT", {
-            template_key: option.value,
-            template_id: option.dataset.templateId || null,
-            template_version: Number(option.dataset.templateVersion || "1")
-          });
-          setStatus("Формат по умолчанию обновлён.");
-        } catch (requestError) {
-          setStatus(templateErrorCopy(requestError instanceof Error ? requestError.message : ""));
-          await loadTemplates();
-        } finally {
-          if (defaultSelect) defaultSelect.disabled = !canManageDefault;
-        }
-      });
+      defaultSelect?.addEventListener("change", () => defaultQueue?.edit({template_key:defaultSelect.value}));
+      let composing=false;
+      const updateEditor=event=>{
+        if(!editorQueue||composing||event.isComposing)return;
+        const data=new FormData(form);
+        editorQueue.edit({name:String(data.get('name')||''),purpose:String(data.get('purpose')||''),sections:data.getAll('sections'),output_language:data.get('output_language'),detail_level:data.get('detail_level')},event.type==='input'?500:0);
+      };
+      form?.addEventListener('input',updateEditor);form?.addEventListener('change',updateEditor);
+      form?.addEventListener('compositionstart',()=>composing=true);
+      form?.addEventListener('compositionend',event=>{composing=false;updateEditor(event);});
       settings.querySelector("[data-summary-template-create]")?.addEventListener("click", (event) => {
         openEditor(event.currentTarget);
       });
@@ -4707,8 +4746,14 @@
         if (event.target === dialog) closeDialog();
       });
       dialog?.addEventListener("keydown", (event) => trapModalFocus(dialog, event));
+      form?.addEventListener("keydown", event => {
+        if(event.key==='Enter' && event.target instanceof HTMLInputElement && !event.isComposing){
+          event.preventDefault();editorQueue?.flush();
+        }
+      });
       form?.addEventListener("submit", async (event) => {
         event.preventDefault();
+        if(editorQueue){await editorQueue.flush();return;}
         const data = new FormData(form);
         const sections = data.getAll("sections");
         if (!sections.length) {
@@ -4731,7 +4776,7 @@
             editingTemplate ? "PATCH" : "POST",
             payload
           );
-          closeDialog();
+          await closeDialog();
           await loadTemplates();
           setStatus(editingTemplate ? "Формат обновлён." : "Формат создан.");
         } catch (requestError) {
@@ -5440,6 +5485,7 @@
         status.hidden = false;
       };
       form.addEventListener("submit", async (event) => {
+        if (form.hasAttribute("data-settings-autosave")) return;
         if (Number.isFinite(selectionLimit) && selectedCalendarCount() > selectionLimit) {
           event.preventDefault();
           showSelectionLimit();
@@ -5491,7 +5537,7 @@
         status.hidden = false;
       }, true);
       form.addEventListener("input", () => {
-        if (!status || form.dataset.state === "submitting") return;
+        if (!status || form.hasAttribute("data-settings-autosave") || form.dataset.state === "submitting") return;
         delete status.dataset.preserveMessage;
         status.textContent = "";
         status.hidden = true;
@@ -5872,7 +5918,7 @@
     const defaultAccessibleLabel = input.getAttribute('aria-label');
     const sync = () => {
       if (!filterInput) {
-        input.disabled = source.disabled;
+        input.disabled = source.matches(':disabled');
         input.setAttribute('aria-label', source.getAttribute('aria-label') || defaultAccessibleLabel);
       }
       toggle.disabled = input.disabled;
@@ -5890,6 +5936,7 @@
     popup.addEventListener('settings:close', close);
     settingsCombos.set(source, api);
     source.addEventListener('change', sync);
+    source.addEventListener('settings:sync', sync);
     source.form?.addEventListener('reset', () => window.setTimeout(() => { close(); sync(); }, 0));
     new MutationObserver(sync).observe(source, {childList: true, subtree: true, attributes: true, attributeFilter: ['disabled', 'selected', 'aria-label']});
     sync();
@@ -5914,312 +5961,133 @@
     });
   };
 
-  let recordingSettingsNonce = null;
-  const initRecordingSettings = () => {
-    const root = document.querySelector('[data-recording-settings]');
-    if (!root || root.dataset.ready === 'true') return;
-    root.dataset.ready = 'true';
-    const controls = root.querySelector('[data-recording-settings-controls]');
-    const list = root.querySelector('[data-recording-settings-targets]');
-    const all = root.querySelector('[data-recording-settings-all]');
-    const status = root.querySelector('[data-recording-settings-status]');
-    const retry = root.querySelector('[data-recording-settings-retry]');
-    const template = root.querySelector('[data-recording-settings-select]');
-    const search = root.querySelector('[data-recording-settings-search]');
-    const empty = root.querySelector('[data-recording-settings-empty]');
-    const rows = new Map();
-    const filter = () => {
-      const query = normalizeSettingSearch(search.value);
-      let visible = 0;
-      for (const row of rows.values()) {
-        row.hidden = !normalizeSettingSearch(row.firstElementChild.textContent).includes(query);
-        if (!row.hidden) visible++;
-      }
-      empty.hidden = visible > 0 || rows.size === 0;
-    };
-    search.addEventListener('input', filter);
-    const appCombo = createSettingsCombobox(search,
-      () => Array.from(rows.values(), row => ({value: row.firstElementChild.textContent, label: row.firstElementChild.textContent})),
-      value => { search.value = value; filter(); }, true);
-
-    let busy = false;
-    let refreshPending = false;
-    let confirmed = null;
-
-    const render = (snapshot) => {
-      const ids = new Set(snapshot.targets.map((target) => target.id));
-      for (const [id, row] of rows) {
-        if (!ids.has(id)) { row.remove(); rows.delete(id); }
-      }
-      for (const [index, target] of snapshot.targets.entries()) {
-        let row = rows.get(target.id);
-        if (!row) {
-          row = document.createElement('label');
-          row.className = 'settings-control-row';
-          const name = document.createElement('span');
-          name.className = 'settings-control-row__title';
-          const select = template.content.firstElementChild.cloneNode(true);
-          select.dataset.recordingTarget = target.id;
-          row.append(name, select);
-          rows.set(target.id, row);
-        }
-        if (list.children[index] !== row) list.insertBefore(row, list.children[index] || null);
-        row.firstElementChild.textContent = target.name;
-        const select = row.querySelector('select');
-        select.setAttribute('aria-label', `Автозапись: ${target.name}`);
-        select.value = target.rule;
-      }
-      filter();
-      appCombo.sync();
-      const rules = new Set(snapshot.targets.map((target) => target.rule));
-      all.value = rules.size === 1 ? snapshot.targets[0].rule : '';
-      all.disabled = busy || snapshot.targets.length === 0;
-      controls.hidden = false;
-      initSettingsComboboxes();
-      status.textContent = snapshot.error || (snapshot.targets.length ? '' : 'Приложения для автозаписи пока недоступны.');
-    };
-
-    const request = async (action = 'read', fields = {}) => {
-      if (busy) { if (action === 'read') refreshPending = true; return; }
-      const editing = controls.querySelector('input[role="combobox"][aria-expanded="true"]:focus');
-      if (action === 'read' && editing && editing !== search) {
-        if (!refreshPending) editing.addEventListener('blur', () => {
-          refreshPending = false; request();
-        }, {once: true});
-        refreshPending = true;
-        return;
-      }
-      const bridge = window.webkit?.messageHandlers?.grafRecordingSettings;
-      if (!bridge || !recordingSettingsNonce) {
-        status.textContent = 'Не удалось подключить настройки этого Mac. Обновите страницу или приложение GRAF.';
-        retry.hidden = false;
-        return;
-      }
-      busy = true;
-      const nonce = recordingSettingsNonce;
-      const focused = root.contains(document.activeElement) ? document.activeElement : null;
-      status.textContent = action === 'read' ? 'Загрузка настроек…' : 'Сохранение…';
-      retry.hidden = true;
-      controls.querySelectorAll('select').forEach((select) => { select.disabled = true; });
+  // Native settings use the same draft/confirmation queue as server preferences.
+  const nativeSettingsQueue = (root, handler, nonce, snapshotValues, render, status, retry) => {
+    let queue = null, snapshot = null, loading = null, queueIdentity = null;
+    status.id ||= `${handler}-status`;
+    root.querySelectorAll('input, select').forEach(input=>input.setAttribute('aria-describedby',status.id));
+    const post = async (action='read', fields={}) => {
+      const identity=nonce(), bridge=window.webkit?.messageHandlers?.[handler];
+      if(!identity||!bridge)throw new Error('unavailable');
       let timer;
       try {
-        const snapshot = await Promise.race([
-          bridge.postMessage({ version: 1, nonce, action, ...fields }),
-          new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('timeout')), 5000); }),
-        ]);
-        if (!root.isConnected || nonce !== recordingSettingsNonce) return;
-        if (snapshot?.version !== 1 || !Array.isArray(snapshot.targets) ||
-            snapshot.targets.some((target) => typeof target.id !== 'string' || typeof target.name !== 'string' || !['always', 'ask', 'never'].includes(target.rule))) {
-          throw new Error('unsupported');
-        }
-        confirmed = snapshot;
-        render(snapshot);
-        if (!snapshot.error && snapshot.targets.length) status.textContent = action === 'read' ? 'Изменения сохраняются сразу на этом Mac.' : 'Сохранено на этом Mac.';
-        retry.hidden = !snapshot.error;
-      } catch {
-        if (!root.isConnected || nonce !== recordingSettingsNonce) return;
-        if (confirmed) render(confirmed);
-        status.textContent = action === 'read'
-          ? 'Не удалось загрузить настройки. Повторите загрузку.'
-          : 'Не удалось подтвердить сохранение. Повторите загрузку, чтобы проверить текущие настройки.';
-        retry.hidden = false;
-      } finally {
-        clearTimeout(timer);
-        busy = false;
-        if (root.isConnected) {
-          controls.querySelectorAll('select').forEach((select) => { select.disabled = false; });
-          all.disabled = !confirmed?.targets.length;
-          initSettingsComboboxes();
-          if (focused?.isConnected && document.activeElement === document.body) {
-            if (settingsCombos.has(focused)) settingsCombos.get(focused).restoreFocus();
-            else focused.focus({preventScroll: true});
-          }
-          if (refreshPending) { refreshPending = false; request(); }
-        }
-      }
+        const value=await Promise.race([bridge.postMessage({version:1,nonce:identity,action,...fields}),
+          new Promise((_,reject)=>timer=setTimeout(()=>reject(new Error('timeout')),15000))]);
+        if(!root.isConnected||nonce()!==identity||value?.version!==1)throw new Error('scope');
+        snapshotValues(value); // Validate the native payload before showing it.
+        snapshot=value;return value;
+      }finally{clearTimeout(timer);}
     };
-    root.addEventListener('change', (event) => {
-      if (event.target === all) request('setAll', { rule: all.value });
-      else if (event.target?.dataset.recordingTarget) request('set', { targetID: event.target.dataset.recordingTarget, rule: event.target.value });
-    });
-    retry.addEventListener('click', () => request());
-    root.addEventListener('graf:recording-settings-refresh', () => request());
-    request();
+    const disconnect=()=>{queue?.dispose();queue=null;snapshot=null;loading=null;};
+    const load = async () => {
+      const owner=nonce();
+      if(queueIdentity!==owner){disconnect();queueIdentity=owner;}
+      if(loading)return;
+      if(queue?.pending()){if(await queue.flush())return load();return;}
+      const editing=root.querySelector('input[role="combobox"][aria-expanded="true"]:focus');
+      if(editing){editing.addEventListener('blur',load,{once:true});return;}
+      loading=(async()=>{
+        try {
+          const current=await post();const values=snapshotValues(current);
+          if(!window.GRAFSettings)throw new Error('unavailable');
+          const queueNonce=nonce();
+          if(!queue)queue=window.GRAFSettings.create(`native:${handler}:${queueNonce}`, {
+            initial:values,
+            valid:()=>nonce()===queueNonce&&(handler==='grafRecordingSettings'||snapshot?.canEdit===true),
+            render(state,message,draft){
+              if(nonce()!==queueNonce)return;
+              render({...snapshot, ... (handler==='grafRecordingSettings'?{targets:snapshot.targets.map(t=>({...t,rule:draft[t.id]}))}:{preferences:draft})});
+              root.dataset.state=state;status.textContent=message;retry.hidden=!['error','conflict'].includes(state);window.GRAFSettings.offerRemote(status,queue,state);
+              retry.textContent=state==='conflict'?'Применить мой выбор':'Повторить';
+            },
+            async save(fields,all){
+              if(nonce()!==queueNonce)throw new Error('scope');
+              let result;
+              if(handler==='grafRecordingSettings'&&Object.keys(fields).length===Object.keys(all).length&&new Set(Object.values(all)).size===1)result=await post('setAll',{rule:Object.values(all)[0]});
+              else for(const [field,value] of Object.entries(fields)) {
+                result=await post('set',handler==='grafRecordingSettings'?{targetID:field,rule:value}:{field,value});
+                if(result.error)throw new Error('unavailable');
+              }
+              if(!result||result.error)throw new Error('unavailable');
+              const scope=window.GRAFSettings.headers();
+              return {saved:true,actor:scope['X-Graf-Expected-Actor'],workspace:scope['X-Graf-Expected-Workspace'],values:snapshotValues(result)};
+            },
+            async load(){if(nonce()!==queueNonce)throw new Error('scope');const current=await post();if(current.error)throw new Error('unavailable');return {values:snapshotValues(current)};}
+          });
+          queue.refresh(values);render(current);status.textContent=current.error||'';retry.hidden=!current.error;
+        }catch(_){if(nonce()===owner){status.textContent='Не удалось загрузить настройки этого Mac.';retry.hidden=false;}}
+        finally{if(nonce()===owner)loading=null;}
+      })();await loading;
+    };
+    retry.addEventListener('click',()=>queue?.pending()?queue.retry(root.dataset.state==='conflict'):load());
+    return {load,disconnect,edit:values=>queue?.edit(values),async action(action){
+      if(queue?.pending()&&!await queue.flush())return;
+      try{const current=await post(action);render(current);status.textContent=current.error||current.message||'';}
+      catch(_){status.textContent='Не удалось выполнить действие. Повторите попытку.';}
+    }};
   };
-  window.GRAFRecordingSettings = {
-    connect(nonce) { recordingSettingsNonce = nonce; initRecordingSettings(); this.refresh(); },
-    refresh() { document.querySelector('[data-recording-settings]')?.dispatchEvent(new Event('graf:recording-settings-refresh')); },
+
+  let recordingSettingsNonce = null;
+  const initRecordingSettings = () => {
+    const root=document.querySelector('[data-recording-settings]');if(!root||root.dataset.ready==='true')return;
+    root.dataset.ready='true';
+    const controls=root.querySelector('[data-recording-settings-controls]'),list=root.querySelector('[data-recording-settings-targets]');
+    const all=root.querySelector('[data-recording-settings-all]'),search=root.querySelector('[data-recording-settings-search]');
+    const status=root.querySelector('[data-recording-settings-status]'),retry=root.querySelector('[data-recording-settings-retry]');
+    const rows=new Map();let targets=[];
+    const filter=()=>{const query=normalizeSettingSearch(search.value);let visible=0;for(const row of rows.values()){row.hidden=!normalizeSettingSearch(row.firstElementChild.textContent).includes(query);if(!row.hidden)visible++;}root.querySelector('[data-recording-settings-empty]').hidden=visible>0||!rows.size;};
+    const appCombo=createSettingsCombobox(search,
+      ()=>Array.from(rows.values(),row=>({value:row.firstElementChild.textContent,label:row.firstElementChild.textContent})),
+      value=>{search.value=value;filter();},true);
+    const values=snapshot=>{
+      if(!Array.isArray(snapshot.targets)||snapshot.targets.some(t=>typeof t.id!=='string'||typeof t.name!=='string'||!['always','ask','never'].includes(t.rule)))throw new Error('unsupported');
+      return Object.fromEntries(snapshot.targets.map(t=>[t.id,t.rule]));
+    };
+    const render=snapshot=>{
+      targets=snapshot.targets;
+      for(const [id,row] of rows)if(!targets.some(t=>t.id===id)){row.remove();rows.delete(id);}
+      for(const [index,target] of targets.entries()){
+        let row=rows.get(target.id);
+        if(!row){row=document.createElement('label');row.className='settings-control-row';const name=document.createElement('span');name.className='settings-control-row__title';const select=root.querySelector('[data-recording-settings-select]').content.firstElementChild.cloneNode(true);select.dataset.recordingTarget=target.id;select.setAttribute('aria-describedby',status.id);row.append(name,select);rows.set(target.id,row);}
+        if(list.children[index]!==row)list.insertBefore(row,list.children[index]||null);
+        row.firstElementChild.textContent=target.name;const select=row.querySelector('select');select.setAttribute('aria-label',`Автозапись: ${target.name}`);select.value=target.rule;
+      }
+      const rules=new Set(targets.map(t=>t.rule));all.value=rules.size===1?targets[0].rule:'';all.disabled=!targets.length;controls.hidden=false;filter();appCombo.sync();initSettingsComboboxes();
+    };
+    const controller=nativeSettingsQueue(root,'grafRecordingSettings',()=>recordingSettingsNonce,values,render,status,retry);
+    search.addEventListener('input',filter);
+    root.addEventListener('change',event=>{if(event.target===all)controller.edit(Object.fromEntries(targets.map(t=>[t.id,all.value])));else if(event.target.dataset.recordingTarget)controller.edit({[event.target.dataset.recordingTarget]:event.target.value});});
+    root.addEventListener('graf:recording-settings-refresh',controller.load);controller.load();
   };
+  window.GRAFRecordingSettings={connect(nonce){recordingSettingsNonce=nonce;initRecordingSettings();this.refresh();},refresh(){document.querySelector('[data-recording-settings]')?.dispatchEvent(new Event('graf:recording-settings-refresh'));}};
 
   let notificationSettingsNonce = null;
   const initLocalNotificationSettings = () => {
-    const root = document.querySelector('[data-local-notification-settings]');
-    if (!root || root.dataset.ready === 'true') return;
-    root.dataset.ready = 'true';
-    const controls = root.querySelector('[data-local-notification-controls]');
-    const status = root.querySelector('[data-local-notification-status]');
-    const permission = root.querySelector('[data-local-notification-permission]');
-    const retry = root.querySelector('[data-local-notification-retry]');
-    const reload = root.querySelector('[data-local-notification-reload]');
-    const fields = [...controls.querySelectorAll('[data-local-notification-field]')];
-    let busy = false, confirmed = null, sequence = 0, refreshPending = false;
-    const render = (snapshot) => {
-      fields.forEach(input => {
-        const value = snapshot.preferences[input.dataset.localNotificationField];
-        if (input.type === 'checkbox') input.checked = value;
-        else input.value = String(value);
-        settingsCombos.get(input)?.sync();
-        input.disabled = input.dataset.localNotificationField === 'offsetMinutes' && !snapshot.preferences.reminders;
-      });
-      permission.textContent = snapshot.permission;
-      controls.querySelector('[data-local-notification-action="requestPermission"]').hidden = !snapshot.canRequestPermission;
-      controls.disabled = busy || !snapshot.canEdit;
+    const root=document.querySelector('[data-local-notification-settings]');if(!root||root.dataset.ready==='true')return;
+    root.dataset.ready='true';
+    const controls=root.querySelector('[data-local-notification-controls]'),status=root.querySelector('[data-local-notification-status]');
+    const permission=root.querySelector('[data-local-notification-permission]'),retry=root.querySelector('[data-local-notification-retry]'),reload=root.querySelector('[data-local-notification-reload]');
+    const fields=[...controls.querySelectorAll('[data-local-notification-field]')];
+    const values=snapshot=>{const prefs=snapshot.preferences;if(!prefs||!['reminders','showTitles','sound'].every(k=>typeof prefs[k]==='boolean')||![0,1,5].includes(prefs.offsetMinutes)||typeof snapshot.canEdit!=='boolean'||typeof snapshot.permission!=='string'||typeof snapshot.canRequestPermission!=='boolean')throw new Error('unsupported');return prefs;};
+    const render=snapshot=>{
+      for(const input of fields){const field=input.dataset.localNotificationField;if(input.type==='checkbox')input.checked=snapshot.preferences[field];else input.value=String(snapshot.preferences[field]);input.disabled=field==='offsetMinutes'&&!snapshot.preferences.reminders;}
+      permission.textContent=snapshot.permission;controls.querySelector('[data-local-notification-action="requestPermission"]').hidden=!snapshot.canRequestPermission;controls.disabled=!snapshot.canEdit;reload.hidden=snapshot.canEdit;initSettingsComboboxes();
     };
-    const request = async (action = 'read', patch = {}) => {
-      if (busy) { if (action === 'read') refreshPending = true; return; }
-      const bridge = window.webkit?.messageHandlers?.grafNotificationSettings;
-      if (!bridge || !notificationSettingsNonce) {
-        controls.disabled = true;
-        status.textContent = 'Не удалось подключить настройки этого Mac. Обновите страницу после входа в GRAF.';
-        reload.hidden = false;
-        return;
-      }
-      const nonce = notificationSettingsNonce, current = ++sequence;
-      const focused = root.contains(document.activeElement) ? document.activeElement : null;
-      busy = true; controls.disabled = true; retry.hidden = true; reload.hidden = true;
-      status.textContent = action === 'read' ? 'Проверяем настройки…' : action === 'set' ? 'Сохранение…' : 'Выполняем…';
-      let timer;
-      try {
-        const snapshot = await Promise.race([
-          bridge.postMessage({version: 1, nonce, action, ...patch}),
-          new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('timeout')), 5000); }),
-        ]);
-        if (!root.isConnected || nonce !== notificationSettingsNonce || current !== sequence) return;
-        const prefs = snapshot?.preferences;
-        if (snapshot?.version !== 1 || !prefs || !['reminders', 'showTitles', 'sound'].every(key => typeof prefs[key] === 'boolean') ||
-            ![0, 1, 5].includes(prefs.offsetMinutes) || typeof snapshot.canEdit !== 'boolean' ||
-            typeof snapshot.canRequestPermission !== 'boolean' || typeof snapshot.permission !== 'string') throw new Error('unsupported');
-        confirmed = snapshot; render(snapshot);
-        status.textContent = snapshot.error || (!snapshot.canEdit ? 'Войдите в GRAF и обновите страницу, чтобы изменить настройки.' : snapshot.message || (action === 'read' ? '' : 'Готово.'));
-        retry.hidden = !snapshot.error;
-        reload.hidden = snapshot.canEdit;
-      } catch (_) {
-        if (!root.isConnected || nonce !== notificationSettingsNonce || current !== sequence) return;
-        if (confirmed) render(confirmed);
-        status.textContent = 'Не удалось подтвердить изменение. Проверьте текущее значение.';
-        retry.hidden = false; reload.hidden = false;
-      } finally {
-        clearTimeout(timer);
-        if (current === sequence) {
-          busy = false;
-          controls.disabled = !notificationSettingsNonce || !confirmed?.canEdit;
-          initSettingsComboboxes();
-          if (focused?.isConnected && document.activeElement === document.body) {
-            if (settingsCombos.has(focused)) settingsCombos.get(focused).restoreFocus();
-            else focused.focus({preventScroll: true});
-          }
-          if (refreshPending) { refreshPending = false; request(); }
-        }
-      }
-    };
-    root.addEventListener('change', event => {
-      const input = event.target, field = input.dataset.localNotificationField;
-      if (field) request('set', {field, value: input.type === 'checkbox' ? input.checked : Number(input.value)});
-    });
-    controls.querySelectorAll('[data-local-notification-action]').forEach(button => {
-      button.addEventListener('click', () => request(button.dataset.localNotificationAction));
-    });
-    retry.addEventListener('click', () => request());
-    root.addEventListener('graf:notification-settings-refresh', () => request());
-    root.addEventListener('graf:notification-settings-disconnect', () => {
-      sequence++; busy = false; refreshPending = false; confirmed = null; controls.disabled = true;
-      fields.forEach(input => {
-        if (input.type === 'checkbox') input.checked = false; else input.value = '';
-        const combo = settingsCombos.get(input);
-        combo?.close(); combo?.sync();
-      });
-      permission.textContent = '';
-      status.textContent = 'Аккаунт изменился. Обновите страницу настроек.'; reload.hidden = false;
-    });
-    window.addEventListener('focus', () => { if (root.isConnected) request(); });
-    request();
+    const controller=nativeSettingsQueue(root,'grafNotificationSettings',()=>notificationSettingsNonce,values,render,status,retry);
+    root.addEventListener('change',event=>{const input=event.target,field=input.dataset.localNotificationField;if(field)controller.edit({[field]:input.type==='checkbox'?input.checked:Number(input.value)});});
+    controls.querySelectorAll('[data-local-notification-action]').forEach(button=>button.addEventListener('click',()=>controller.action(button.dataset.localNotificationAction)));
+    root.addEventListener('graf:notification-settings-refresh',controller.load);
+    root.addEventListener('graf:notification-settings-disconnect',()=>{controller.disconnect();controls.disabled=true;fields.forEach(input=>{if(input.type==='checkbox')input.checked=false;else input.value='';settingsCombos.get(input)?.close();});initSettingsComboboxes();permission.textContent='';status.textContent='Аккаунт изменился. Обновите страницу настроек.';reload.hidden=false;});
+    window.addEventListener('focus',()=>{if(root.isConnected)controller.load();});controller.load();
   };
-  window.GRAFNotificationSettings = {
-    connect(nonce) { notificationSettingsNonce = nonce; initLocalNotificationSettings(); this.refresh(); },
-    refresh() { document.querySelector('[data-local-notification-settings]')?.dispatchEvent(new Event('graf:notification-settings-refresh')); },
-    disconnect() {
-      notificationSettingsNonce = null;
-      document.querySelector('[data-local-notification-settings]')?.dispatchEvent(new Event('graf:notification-settings-disconnect'));
-    },
-  };
+  window.GRAFNotificationSettings={connect(nonce){notificationSettingsNonce=nonce;initLocalNotificationSettings();this.refresh();},refresh(){document.querySelector('[data-local-notification-settings]')?.dispatchEvent(new Event('graf:notification-settings-refresh'));},disconnect(){notificationSettingsNonce=null;document.querySelector('[data-local-notification-settings]')?.dispatchEvent(new Event('graf:notification-settings-disconnect'));}};
 
-  const initSettingsFormState = () => {
-    document.querySelectorAll("[data-settings-form]").forEach((form) => {
-      if (form.dataset.settingsFormReady === "true") return;
-      form.dataset.settingsFormReady = "true";
-      const status = form.querySelector("[data-settings-form-status]");
-      const submit = form.querySelector("button[type='submit']");
-      const reset = form.querySelector("[data-settings-form-reset]");
-      const disablePristine = form.hasAttribute("data-settings-form-disable-pristine");
-      if (status) {
-        status.setAttribute("role", "status");
-        status.setAttribute("aria-live", "polite");
-      }
-      const snapshot = () => new URLSearchParams(new FormData(form)).toString();
-      let initial = snapshot();
-      const update = () => {
-        const dirty = snapshot() !== initial;
-        form.dataset.state = dirty ? "dirty" : "pristine";
-        if (status && status.dataset.preserveMessage !== "true") {
-          status.textContent = dirty ? "Есть несохранённые изменения" : "";
-          status.hidden = !dirty;
-        }
-        if (disablePristine) {
-          if (submit) submit.disabled = !dirty;
-          if (reset) reset.disabled = !dirty;
-        }
-      };
-      form.addEventListener("calendar:baseline", () => { initial = snapshot(); update(); });
-      form.addEventListener("input", update);
-      form.addEventListener("change", update);
-      form.addEventListener("reset", () => window.setTimeout(update, 0));
-      form.addEventListener("submit", () => {
-        if (!form.hasAttribute("data-account-preferences")) initial = snapshot();
-        form.dataset.state = "saving";
-        if (status) {
-          status.textContent = "Сохраняем…";
-          status.hidden = false;
-        }
-        if (submit) submit.disabled = true;
-      });
-      update();
-    });
-  };
+  const initSettingsFormState = () => window.GRAFSettings?.init();
 
   const initAccountPreferences = () => {
     document.querySelectorAll("[data-account-preferences]").forEach((form) => {
       if (form.dataset.accountPreferencesReady === "true") return;
       form.dataset.accountPreferencesReady = "true";
-      const autoSave = form.dataset.accountPreferencesAutoSave === "true";
-      const status = form.querySelector("[data-account-preferences-status]");
-      const returnField = form.elements.namedItem("return_to");
-      let persistedTheme = form.elements.namedItem("theme")?.value || "system";
-      let saveInFlight = false;
-      const applyTheme = (theme) => {
-        if (theme === "system") document.documentElement.removeAttribute("data-theme");
-        else document.documentElement.dataset.theme = theme;
-        document.documentElement.style.colorScheme = theme === "system" ? "" : theme;
-      };
-      const currentTheme = form.elements.namedItem("theme")?.value || "system";
-      persistedTheme = currentTheme;
-      applyTheme(currentTheme);
-      form.addEventListener("change", (event) => {
-        if (event.target?.name === "theme") {
-          applyTheme(event.target.value);
-          if (autoSave && !saveInFlight) form.requestSubmit();
-        }
-      });
-
       const timezoneSelect = form.querySelector("[data-timezone-select]");
       const preview = form.querySelector("[data-timezone-preview]");
       const updateTimezonePreview = () => {
@@ -6230,83 +6098,6 @@
       timezoneSelect?.addEventListener("change", updateTimezonePreview);
       updateTimezonePreview();
 
-      let saving = false;
-      form.addEventListener("submit", async (event) => {
-        if (autoSave) {
-          event.preventDefault();
-          if (saveInFlight) return;
-          saveInFlight = true;
-          if (returnField) returnField.value = `${window.location.pathname}${window.location.search}`;
-          form.dataset.state = "saving";
-          if (status) status.textContent = "Сохраняем тему…";
-          const body = new FormData(form);
-          form.querySelectorAll("input[name='theme']").forEach((input) => { input.disabled = true; });
-          try {
-            const response = await fetch(form.action, {
-              method: "POST",
-              body,
-              credentials: "same-origin",
-              redirect: "follow",
-              headers: csrfToken ? { "X-CSRF-Token": csrfToken } : {},
-            });
-            const responsePath = new URL(response.url || window.location.href, window.location.href).pathname;
-            if (!response.ok || responsePath.startsWith("/login")) throw new Error("account_preferences_save_failed");
-            persistedTheme = form.elements.namedItem("theme")?.value || persistedTheme;
-            form.dataset.state = "saved";
-            if (status) status.textContent = "Тема сохранена";
-            form.closest("[data-profile-menu-root]")?.querySelector("[data-profile-menu-trigger]")?.click();
-          } catch {
-            applyTheme(persistedTheme);
-            const selected = Array.from(form.querySelectorAll("input[name='theme']"))
-              .find((input) => input.value === persistedTheme);
-            if (selected) selected.checked = true;
-            form.dataset.state = "error";
-            if (status) status.textContent = "Не удалось сохранить тему";
-          } finally {
-            form.querySelectorAll("input[name='theme']").forEach((input) => { input.disabled = false; });
-            saveInFlight = false;
-          }
-          return;
-        }
-
-        event.preventDefault();
-        if (saving) return;
-        saving = true;
-        const settingsStatus = form.querySelector("[data-settings-form-status]");
-        const body = new FormData(form);
-        const controls = Array.from(form.elements).filter(control => !control.disabled);
-        controls.forEach(control => { control.disabled = true; });
-        if (settingsStatus) { settingsStatus.textContent = "Сохраняем настройки…"; settingsStatus.hidden = false; }
-        try {
-          const response = await fetch(form.action, {
-            method: "POST", body, credentials: "same-origin", redirect: "follow",
-            headers: csrfToken ? { "X-CSRF-Token": csrfToken } : {},
-          });
-          if (!response.ok || !response.redirected) throw new Error(response.status === 422 ? "invalid_preferences" : "preferences_save_failed");
-          const destination = new URL(response.url, location.href);
-          if (destination.origin !== location.origin) throw new Error("preferences_save_failed");
-          window.location.assign(destination.href);
-        } catch (error) {
-          form.dataset.state = "error";
-          if (settingsStatus) {
-            settingsStatus.textContent = error.message === "invalid_preferences"
-              ? "Проверьте часовой пояс и остальные настройки, затем сохраните ещё раз."
-              : "Не удалось сохранить настройки. Проверьте соединение и повторите отправку.";
-            settingsStatus.hidden = false;
-          }
-        } finally {
-          saving = false;
-          controls.forEach(control => { control.disabled = false; });
-          const submit = form.querySelector("button[type='submit']");
-          if (submit) submit.disabled = false;
-        }
-      });
-      form.addEventListener("reset", () => window.setTimeout(() => {
-        applyTheme(form.elements.namedItem("theme")?.value || "system");
-        settingsCombos.get(timezoneSelect)?.sync();
-        updateTimezonePreview();
-        form.dispatchEvent(new Event("change", { bubbles: true }));
-      }, 0));
     });
   };
 
@@ -9222,42 +9013,4 @@
   window.setInterval(() => { if (root.isConnected && !document.hidden) load(false, true); }, 30000);
   load();
   consumeOpenedNotice();
-})();
-
-(() => {
-  const form=document.querySelector('[data-notification-settings]'); if(!form)return;
-  const save=form.querySelector('[type=submit]'), reset=form.querySelector('[type=reset]'), status=form.querySelector('[data-settings-form-status]');
-  const reload=form.querySelector('[data-notification-settings-reload]');
-  const snapshot=()=>new URLSearchParams(new FormData(form)).toString(); let initial=snapshot(), saving=false;
-  const changed=()=>{const dirty=snapshot()!==initial;save.disabled=saving||!dirty;reset.disabled=saving||!dirty;save.hidden=reset.hidden=!dirty||saving;if(reload)reload.hidden=!dirty||saving;form.dataset.state=dirty?'dirty':'pristine';};
-  form.addEventListener('change',()=>{changed(); if(!saving && snapshot()!==initial)form.requestSubmit();}); form.addEventListener('reset',()=>setTimeout(()=>{status.hidden=true;changed();},0));
-  window.addEventListener('beforeunload',event=>{if(!saving&&snapshot()!==initial){event.preventDefault();event.returnValue='';}});
-  form.addEventListener('submit',async event=>{
-    event.preventDefault(); if(saving)return; const submitted=new FormData(form); saving=true; changed(); form.querySelectorAll('input[type=checkbox]').forEach(input=>input.disabled=true); status.hidden=false;status.textContent='Сохраняем…';
-    try {
-      const response=await fetch(form.action,{method:'POST',credentials:'same-origin',body:new URLSearchParams(submitted),headers:{Accept:'text/html'}});
-      if(!response.ok){
-        if(response.status===409){
-          const latest=await fetch(form.action,{credentials:'same-origin',cache:'no-store'});
-          const documentCopy=new DOMParser().parseFromString(await latest.text(),'text/html');
-          const current=documentCopy.querySelector('[data-notification-settings]');
-          if(!latest.ok||!current)throw new Error('unavailable');
-          const enabled=name=>current.querySelector(`input[type=checkbox][name="${name}"]`)?.checked ? 'включены':'выключены';
-          status.textContent=`Настройки изменены на другом устройстве. Сохранено: письма ${enabled('optional_email_enabled')}, подсказки ${enabled('optional_in_app_enabled')}. Ваш выбор остался в форме. `;
-          const useMine=document.createElement('button');useMine.type='button';useMine.textContent='Сохранить мой выбор';
-          useMine.onclick=()=>{form.elements.namedItem('version').value=current.elements.namedItem('version').value;form.requestSubmit();};status.append(useMine);
-          return;
-        }
-        throw new Error('save_failed');
-      }
-      const page=new DOMParser().parseFromString(await response.text(),'text/html');
-      const saved=page.querySelector('[data-notification-settings]');if(!saved)throw new Error('unavailable');
-      form.elements.namedItem('version').value=saved.elements.namedItem('version').value;
-      form.elements.namedItem('version').defaultValue=form.elements.namedItem('version').value;
-      submitted.set('version',form.elements.namedItem('version').value);
-      form.querySelectorAll('input[type=checkbox]').forEach(input=>{input.defaultChecked=input.checked;});
-      initial=new URLSearchParams(submitted).toString();status.textContent='Настройки сохранены';
-    }catch(_){status.textContent='Не удалось сохранить. Ваш выбор остался в форме. Попробуйте ещё раз.';}
-    finally{saving=false;form.querySelectorAll('input[type=checkbox]').forEach(input=>input.disabled=false);changed();}
-  }); changed();
 })();

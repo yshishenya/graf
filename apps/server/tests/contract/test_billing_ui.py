@@ -427,9 +427,9 @@ def test_billing_hub_uses_exact_free_copy_and_external_refund_boundary() -> None
     assert "300 минут" in html
     assert "250 MB" in html
     assert "250 000 000 байт" not in html
-    assert "только письмом" in html
-    assert "автоматической заявки" in html
-    assert "Вы управляете тарифом выбранного пространства" in html
+    assert 'href="/billing/history"' in html
+    assert "Нужна помощь с оплатой?" not in html
+    assert "Хранилище" in html
     assert 'href="/billing/payment-method"' in html
     assert 'href="/billing/storage"' in html
 
@@ -753,7 +753,6 @@ def test_billing_overview_uses_reference_hierarchy_and_one_primary_action() -> N
     assert 'class="cabinet-main billing-page billing-overview"' in html
     section_ids = (
         "billing-summary-title",
-        "billing-offer-title",
         "billing-workspace-title",
         "billing-method-title",
         "billing-history-title",
@@ -1002,7 +1001,7 @@ def test_workspace_owner_can_start_guarded_billing_takeover() -> None:
         trial_state="unavailable",
     )
 
-    assert "платёжный аккаунт закреплён за другим пользователем" in overview
+    assert "Оплатой управляет другой плательщик." in overview
     assert 'data-billing-primary href="/billing/plans"' in overview
     assert 'href="/billing/checkout?cycle=month"' in plans
     assert "Выбрать «Личный»" in plans

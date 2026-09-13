@@ -154,6 +154,7 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
     @Published public private(set) var permissionText = "Проверяем разрешение macOS"
     @Published public private(set) var owner = ""
     @Published public private(set) var message = ""
+    @Published public private(set) var saveFailed = false
     public var onOpenCalendar: (() -> Void)?
     public var onOpenSettings: (() -> Void)?
     private let center: UNUserNotificationCenter?
@@ -249,7 +250,7 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
         generation += 1
         removeNotifications()
         requests.removeAll(); calendarEvents.removeAll()
-        owner = ""; context = ""; preferences = .init(); draft = preferences; message = ""
+        owner = ""; context = ""; preferences = .init(); draft = preferences; message = ""; saveFailed = false
     }
     public func clearCalendar() {
         generation += 1
@@ -337,14 +338,15 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
     @discardableResult
     public func save(_ value: DesktopNotificationPreferences) -> Bool {
         do {
-            try store.save(value, owner: owner); generation += 1; preferences = value; draft = value
+            try store.save(value, owner: owner); generation += 1; preferences = value; draft = value; saveFailed = false
             if !value.showTitles { center?.removeAllDeliveredNotifications() }
             message = "Сохранено на этом Mac"
             Task { await scheduleReminders() }
             return true
         } catch {
-            draft = preferences
-            message = "Не удалось сохранить. Проверьте вход в GRAF и повторите попытку."
+            draft = value
+            saveFailed = true
+            message = "Не сохранено. Действуют прежние настройки."
             return false
         }
     }
@@ -584,8 +586,8 @@ public struct DesktopNotificationsSettingsView: View {
     @ObservedObject private var presenter = DesktopNotificationPresenter.shared
     public init() {}
     private func preference<Value>(_ keyPath: WritableKeyPath<DesktopNotificationPreferences, Value>) -> Binding<Value> {
-        Binding(get: { presenter.preferences[keyPath: keyPath] }, set: { value in
-            var next = presenter.preferences
+        Binding(get: { presenter.draft[keyPath: keyPath] }, set: { value in
+            var next = presenter.draft
             next[keyPath: keyPath] = value
             presenter.save(next)
         })
@@ -611,7 +613,7 @@ public struct DesktopNotificationsSettingsView: View {
                         .init(id: "5", label: "За 5 минут"),
                         .init(id: "0", label: "В момент начала"),
                     ],
-                    selectedID: String(presenter.preferences.offsetMinutes)
+                    selectedID: String(presenter.draft.offsetMinutes)
                 ) { value in
                     guard let minutes = Int(value), [0, 1, 5].contains(minutes) else { return }
                     preference(\.offsetMinutes).wrappedValue = minutes
@@ -619,9 +621,9 @@ public struct DesktopNotificationsSettingsView: View {
                 .frame(width: 190, height: 32)
                 .disabled(!presenter.draft.reminders)
             }
-            Toggle("Показывать названия в системных уведомлениях", isOn: preference(\.showTitles))
+            Toggle("Показывать названия встреч", isOn: preference(\.showTitles))
             Toggle("Звук уведомлений", isOn: preference(\.sound))
-            Text("Во время записи звук выключен. Результаты встреч доступны в веб-кабинете. Проблемы записи и остановка всегда видны в GRAF.").font(.callout).foregroundStyle(.secondary)
+            Text("Во время записи звук выключен.").font(.callout).foregroundStyle(.secondary)
             }
             Section {
             HStack {
@@ -629,10 +631,12 @@ public struct DesktopNotificationsSettingsView: View {
             }
             if presenter.owner.isEmpty { Text("Войдите в GRAF, чтобы сохранить настройки для своего аккаунта.") }
             Text(presenter.message).font(.callout)
-            Text("Проверка использует сохранённые настройки. Показ разрешает macOS.")
-                .font(.callout).foregroundStyle(.secondary)
+            if presenter.saveFailed { Button("Повторить") { presenter.save(presenter.draft) } }
             }
-        }.formStyle(.grouped)
+        }.formStyle(.columns)
+        .toggleStyle(.switch)
+        .font(.system(size: 13))
+        .padding(24)
         .disabled(presenter.owner.isEmpty)
         .onAppear { Task { await presenter.refreshPermission() } }
         // macOS may persist an authorization change after the activation callback.

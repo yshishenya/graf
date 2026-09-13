@@ -1,8 +1,9 @@
+{% import "cabinet/components/primitives.html" as ui %}
 {% import "cabinet/components/sections.html" as sections %}
 <main id="cabinet-main" class="cabinet-main billing-page" tabindex="-1">
   <div class="cabinet-workspace settings-page">
     <div class="settings-page__content">
-      <header class="cabinet-topbar settings-page__topbar"><div class="page-title"><h1>Статус платежа</h1><p class="muted">GRAF показывает только локальное состояние и ждёт подтверждения ЮKassa.</p></div></header>
+      {{ ui.settings_header("Статус платежа") }}
       <section class="settings-section cabinet-card" aria-labelledby="billing-operation-title">
         <h2 id="billing-operation-title">{{ invoice.safe_number }}</h2>
         <p role="status" aria-live="polite"><strong>{{ operation_state_label }}</strong></p>

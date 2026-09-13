@@ -866,8 +866,8 @@ def test_account_security_renders_exact_bulk_and_per_session_actions() -> None:
     assert "Выйти на всех устройствах" not in page
     assert 'action="/settings/account/sessions/revoke-others"' in page
     assert 'action="/settings/account/devices/revoke-others"' not in page
-    assert "Действующие входы в текущее рабочее пространство." in page
-    assert "фоновую работу" in page
+    assert 'aria-label="Действующие входы"' in page
+    assert 'name="confirm" value="1"' not in page
     empty = render_settings_page(category="account", csrf_token="safe-csrf")
     assert 'action="/settings/account/sessions/revoke-others"' not in empty
 
@@ -923,7 +923,7 @@ def test_workspace_settings_copy_keeps_role_boundary_and_no_js_switch_fallback()
     )
 
     assert "Участник" in page
-    assert "Присоединение добавит рабочее пространство, но не перенесёт личные встречи." in page
+    assert 'aria-label="Выбрать Команда"' in page
     assert "return_to_settings=true" in page
     assert 'method="post"' in page
 
@@ -1003,17 +1003,26 @@ def test_unverified_identity_surface_never_renders_an_unverified_email_as_login(
     assert "Подключённых способов входа пока нет." not in page
     assert (
         "<input"
-        not in page.split("Подключённые способы входа", 1)[-1].split("Для безопасности", 1)[0]
+        not in page.split("Подключённые способы входа", 1)[-1].split("</ul>", 1)[0]
     )
 
 
 def test_account_page_explains_cooling_window_and_no_js_confirmation() -> None:
     page = render_settings_page(category="account")
-    assert "Закрытие аккаунта" in page
-    assert "7-дневный период отмены" in page
+    assert "Закрыть аккаунт" in page
+    assert "Закроем через 7 дней. До этого можно отменить." in page
     assert 'name="confirm_close"' in page
     assert 'method="post"' in page
     assert "/settings/account/close" in page
+
+
+
+def test_account_closure_disclosure_opens_only_for_its_own_reauthentication() -> None:
+    for result, expected in [("reauth_required", True), (None, False)]:
+        page = render_settings_page(category="account", account_close_result=result, session_result="failed")
+        close = page.split('class="settings-section account-close-card"', 1)[1]
+        assert ('class="settings-disclosure" open' in close) is expected
+        assert 'pattern="Закрыть аккаунт"' in close
 
 
 def test_account_page_projects_scheduled_close_and_cancel_action() -> None:
@@ -1028,9 +1037,9 @@ def test_account_page_projects_scheduled_close_and_cancel_action() -> None:
         category="account",
         account_surface=AccountSettingsSurface(account_close=close),
     )
-    assert "Закрытие запланировано на" in page
-    assert "Будущие списания отключены" in page
-    assert "Отменить запланированное закрытие" in page
+    assert "Аккаунт закроется" in page
+    assert "Новые списания отключены" in page
+    assert "Отменить закрытие" in page
     assert 'name="confirm_close"' not in page
 
 
@@ -1038,7 +1047,8 @@ def test_account_and_notifications_keep_no_js_and_recovery_safe_copy() -> None:
     account = render_settings_page(category="account", csrf_token="safe-csrf")
     notifications = render_settings_page(category="notifications", csrf_token="safe-csrf")
 
-    assert "последний подтверждённый способ входа" in account
+    assert 'name="confirm_close"' in account
+    assert 'name="csrf_token"' in account
     assert "<noscript>" in account
     assert 'method="post"' in account
     assert "<noscript>" in notifications

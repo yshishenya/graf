@@ -1,6 +1,7 @@
 const { chromium, webkit } = require('playwright');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const {execFileSync} = require('node:child_process');
 const path = require('node:path');
 const cabinet = path.join(__dirname, '../../src/twobrain_rec_server/cabinet');
 const assets = path.join(cabinet, 'static/cabinet');
@@ -12,7 +13,7 @@ const recording = fs.readFileSync(path.join(cabinet, 'templates/cabinet/pages/se
   const page = await browser.newPage({viewport:{width:900,height:900}});
   page.setDefaultTimeout(5000);
   const errors=[]; page.on('pageerror',error=>errors.push(error.message));
-  await page.setContent(`<meta charset="utf-8"><main class="settings-page"><h1>Запись</h1>${recording}
+  await page.setContent(`<meta charset="utf-8"><meta name="graf-time-user" content="actor"><meta name="graf-workspace" content="space"><main class="settings-page"><h1>Запись</h1>${recording}
    <form data-settings-form><label>Язык<select data-settings-combobox name="language"><option value="ru">Русский</option><option disabled value="none">Недоступно</option><option value="en">English</option></select></label>
    <label for="large">Каталог</label><select id="large" data-settings-combobox name="catalog">${Array.from({length:600},(_,i)=>`<option value="${i}">Вариант ${i}</option>`).join('')}</select>
    <button type="submit">Сохранить</button><button type="reset">Отменить</button></form></main>`);
@@ -28,6 +29,7 @@ const recording = fs.readFileSync(path.join(cabinet, 'templates/cabinet/pages/se
     return {version:1,targets:window.targets};
    }}}};
   });
+  await page.addScriptTag({path:path.join(assets,'settings-autosave.js')});
   await page.addScriptTag({path:path.join(assets,'cabinet.js')});
   await page.evaluate(()=>window.GRAFRecordingSettings.connect('synthetic-nonce'));
   await page.waitForFunction(()=>document.querySelectorAll('[data-recording-target]').length===3);
@@ -219,7 +221,10 @@ const recording = fs.readFileSync(path.join(cabinet, 'templates/cabinet/pages/se
     .replaceAll('{{ format.key }}',format.key).replaceAll('{{ format.name }}',format.name)
     .replaceAll('{{ format.version }}','1').replaceAll('{{ format.purpose }}','Тестовый формат')
     .replaceAll("{{ format.sections|join(',') }}",'summary')).join(''));
-  await extra.setContent(`${summaryHTML}${notificationSource}`);
+  const notificationHTML=execFileSync(path.join(__dirname,'../../.venv/bin/python'),['-c',
+   `import sys; from jinja2 import Environment, FileSystemLoader; print(Environment(loader=FileSystemLoader(sys.argv[1]), autoescape=True).from_string('{% import "cabinet/components/primitives.html" as ui %}'+sys.stdin.read()).render())`,
+   path.join(cabinet,'templates')],{input:notificationSource,encoding:'utf8'});
+  await extra.setContent(`<meta name="graf-time-user" content="actor"><meta name="graf-workspace" content="space">${summaryHTML}${notificationHTML}`);
   await extra.addStyleTag({path:path.join(assets,'cabinet.css')});
   await extra.evaluate(canManageDefault=>{
    window.summaryReady=new Promise(resolve=>window.releaseSummary=resolve);
@@ -227,7 +232,7 @@ const recording = fs.readFileSync(path.join(cabinet, 'templates/cabinet/pages/se
    window.fetch=async (url,options={})=>{
     if(options.method==='PUT') window.savedDefault=JSON.parse(options.body);
     await window.summaryReady;
-    return {ok:true,status:200,json:async()=>({personal:[],can_manage_default:canManageDefault,default_template_key:'brief'})};
+    return new Response(JSON.stringify({actor:'actor',workspace:'space',personal:[],can_manage_default:canManageDefault,default_template_key:'brief',template_key:window.savedDefault?.template_key}),{status:200,headers:{'Content-Type':'application/json'}});
    };
    window.prefs={reminders:true,offsetMinutes:1,showTitles:false,sound:false};
    window.webkit={messageHandlers:{grafNotificationSettings:{postMessage:async data=>{
@@ -235,9 +240,10 @@ const recording = fs.readFileSync(path.join(cabinet, 'templates/cabinet/pages/se
     return {version:1,preferences:prefs,canEdit:true,canRequestPermission:false,permission:'Разрешено'};
    }}}};
   },canManageDefault);
+  await extra.addScriptTag({path:path.join(assets,'settings-autosave.js')});
   await extra.addScriptTag({path:path.join(assets,'cabinet.js')});
   await extra.evaluate(()=>window.GRAFNotificationSettings.connect('synthetic-notifications'));
-  const defaultField=extra.getByRole('combobox',{name:'Формат новых итогов',exact:true});
+  const defaultField=extra.getByRole('combobox',{name:'Формат по умолчанию',exact:true});
   assert.equal(await defaultField.count(),1,'Accessible name must exclude transient loading help');
   assert.equal(await defaultField.getAttribute('aria-describedby'),'summary-default-help');
   assert.equal(await extra.locator('#summary-default-help').textContent(),'Загружаем доступные форматы…');
@@ -276,6 +282,7 @@ const recording = fs.readFileSync(path.join(cabinet, 'templates/cabinet/pages/se
   await extra.getByRole('switch',{name:'Напоминать о встречах',exact:true}).check();
   await extra.waitForFunction(()=>!document.querySelector('input[aria-label="Когда напоминать"]').disabled);
   assert.equal(await offset.inputValue(),'За 5 минут');
+  await extra.waitForFunction(()=>!GRAFSettings.pending());
   const writesBeforeDisconnect=await extra.evaluate(()=>notificationWrites.length);
   await offset.click();
   await extra.evaluate(()=>window.GRAFNotificationSettings.disconnect());
@@ -287,6 +294,17 @@ const recording = fs.readFileSync(path.join(cabinet, 'templates/cabinet/pages/se
   await extra.waitForFunction(()=>document.querySelector('input[aria-label="Когда напоминать"]').value==='За минуту');
   assert.equal(await offset.isDisabled(),false);
   assert.equal(await extra.evaluate(()=>notificationWrites.length),writesBeforeDisconnect,'Reconnect read must not save');
+  await offset.fill('За 5');await offset.press('Enter');
+  await extra.waitForFunction(()=>prefs.offsetMinutes===5&&!GRAFSettings.pending());
+  assert.equal(await extra.evaluate(()=>notificationWrites.at(-1).nonce),'next-synthetic-nonce','Reconnected editor uses the new queue');
+  const writesBeforeQueuedDisconnect=await extra.evaluate(()=>notificationWrites.length);
+  await extra.evaluate(()=>{
+   const input=document.querySelector('[data-local-notification-field=sound]');input.checked=true;input.dispatchEvent(new Event('change',{bubbles:true}));
+   GRAFNotificationSettings.disconnect();
+  });
+  await extra.waitForTimeout(100);
+  assert.equal(await extra.evaluate(()=>notificationWrites.length),writesBeforeQueuedDisconnect,'Disconnect cancels queued old-context writes');
+  assert.equal(await extra.evaluate(()=>GRAFSettings.pending()),false,'Disconnected queue cannot block leaving the page');
   await extra.close();
   }
 

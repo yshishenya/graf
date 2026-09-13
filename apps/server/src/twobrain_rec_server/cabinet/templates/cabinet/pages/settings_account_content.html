@@ -5,12 +5,7 @@
 <main id="cabinet-main" class="cabinet-main" tabindex="-1">
   <div class="cabinet-workspace settings-page settings-page--account">
     <div class="settings-page__content">
-    <header class="cabinet-topbar settings-page__topbar">
-      <div class="page-title">
-        <h1>Аккаунт</h1>
-        <p class="muted">Ваш профиль, оформление и доступ к GRAF.</p>
-      </div>
-    </header>
+    {{ ui.settings_header("Аккаунт") }}
     {% if show_account_navigation %}{{ account_ui.navigation(embedded=embedded, active=account_active, csrf_token=csrf_token) }}{% endif %}
     {% if account_outcome %}
     <section class="settings-status{% if account_outcome.kind == 'error' %} settings-status--error{% elif account_outcome.kind == 'warning' %} settings-status--warning{% endif %}" role="{{ 'alert' if account_outcome.kind == 'error' else 'status' }}" tabindex="-1" data-outcome-focus aria-labelledby="account-outcome-title">
@@ -33,41 +28,40 @@
     <section class="settings-section" aria-labelledby="account-profile-title">
       <div class="settings-section__heading"><div><h2 id="account-profile-title">Профиль</h2></div></div>
       {% if account_surface.profile %}
-      <form class="account-profile-form" data-settings-form data-settings-form-disable-pristine method="post" action="{{ '/desktop/settings/account/profile' if embedded else '/settings/account/profile' }}">
+      <form class="account-profile-form" data-settings-autosave method="post" action="{{ '/desktop/settings/account/profile' if embedded else '/settings/account/profile' }}"><fieldset data-settings-inputs disabled>
         {{ sections.csrf_field(csrf_token) }}
-        <label class="field-label" for="account-display-name">Имя</label>
-        <input id="account-display-name" name="display_name" type="text" maxlength="240" value="{{ account_surface.profile.display_name if account_surface.profile.display_name != 'Без имени' else '' }}" autocomplete="name">
-        {% if account_surface.profile.primary_email %}<p class="muted">Email: {{ account_surface.profile.primary_email }}</p>{% else %}<p class="muted">Email можно проверить в способах входа.</p>{% endif %}
-        <div class="account-profile-form__actions"><button class="button" type="submit">Сохранить</button><button class="button quiet" type="reset" data-settings-form-reset>Отменить</button></div>
+        <div class="settings-control-row"><label class="settings-control-row__title" for="account-display-name">Имя</label>
+        <input id="account-display-name" name="display_name" type="text" maxlength="240" value="{{ account_surface.profile.display_name }}" autocomplete="name"></div>
+        {% if account_surface.profile.primary_email %}<div class="settings-control-row"><span class="settings-control-row__title">Email</span><span>{{ account_surface.profile.primary_email }}</span></div>{% else %}<p class="muted">Email можно проверить в способах входа.</p>{% endif %}
+
         <p class="settings-form-status" data-settings-form-status hidden></p>
-      </form>
+      </fieldset></form>
       {% endif %}
     </section>
     <section class="settings-section" aria-labelledby="account-preferences-title">
       <div class="settings-section__heading"><div><h2 id="account-preferences-title">Оформление и время</h2></div></div>
-      <form class="account-preferences-form" data-account-preferences data-settings-form data-settings-form-disable-pristine method="post" action="{{ '/desktop/settings/account/preferences' if embedded else '/settings/account/preferences' }}">
+      <form class="account-preferences-form" data-account-preferences data-settings-autosave method="post" action="{{ '/desktop/settings/account/preferences' if embedded else '/settings/account/preferences' }}"><fieldset data-settings-inputs disabled>
         {{ sections.csrf_field(csrf_token) }}
         <div class="settings-form-grid">
-          <div class="settings-field"><span class="field-label">Язык интерфейса</span><span>Русский</span><input type="hidden" id="account-locale" name="locale" value="{{ account_surface.profile.locale if account_surface.profile else 'ru-RU' }}"><span class="muted" id="account-locale-help">Другие языки пока недоступны.</span></div>
-          <div class="settings-field" data-timezone-field>
-            <label class="field-label" for="account-timezone">Часовой пояс</label>
+          <div class="settings-control-row"><span class="settings-control-row__title">Язык интерфейса</span><span>Русский</span><input type="hidden" id="account-locale" name="locale" value="{{ account_surface.profile.locale if account_surface.profile else 'ru-RU' }}"></div>
+          <div class="settings-control-row settings-timezone-row" data-timezone-field>
+            <div class="settings-control-row__copy"><label class="settings-control-row__title" for="account-timezone">Часовой пояс</label><output class="muted" id="account-timezone-preview" data-timezone-preview aria-live="polite" hidden></output></div>
+            <div class="settings-timezone-controls">
             {% set selected_timezone = display_timezone_name() %}
-            <select data-settings-combobox id="account-timezone" name="timezone" aria-describedby="account-timezone-help account-timezone-preview" data-timezone-select>
+            <select data-settings-combobox id="account-timezone" name="timezone" aria-describedby="account-timezone-preview" data-timezone-select>
               {% for option in timezone_options(selected_timezone) %}<option value="{{ option.value }}"{% if option.value == selected_timezone %} selected{% endif %}>{{ option.label }}</option>{% endfor %}
             </select>
-            <small class="muted" id="account-timezone-help">Время встреч на всех ваших устройствах.</small>
-            <output class="muted" id="account-timezone-preview" data-timezone-preview aria-live="polite" hidden></output>
+            </div>
           </div>
         </div>
         {{ ui.theme_picker(account_surface.profile.theme if account_surface.profile else "system") }}
-        <div class="account-profile-form__actions"><button class="button" type="submit">Сохранить</button><button class="button quiet" type="reset" data-settings-form-reset>Отменить</button></div>
+
         <p class="settings-form-status" data-settings-form-status hidden></p>
-      </form>
-      <noscript><p class="muted">Тема применится после сохранения.</p></noscript>
+      </fieldset></form>
     </section>
     <section class="settings-section" aria-labelledby="account-providers-title">
       <div class="settings-section__heading">
-        <div><h2 id="account-providers-title">Способы входа</h2><p class="muted">Используйте любой из подключённых способов.</p></div>
+        <div><h2 id="account-providers-title">Способы входа</h2></div>
       </div>
       {% if account_surface.providers %}
       <ul class="settings-list" aria-label="Подключённые способы входа">
@@ -76,7 +70,7 @@
         {% endfor %}
       </ul>
       {% else %}<p class="settings-empty-state" role="status">Подключённых способов входа пока нет.</p>{% endif %}
-      <p class="muted" id="account-recovery-help">Для безопасности нельзя отключить последний подтверждённый способ входа.</p>
+
       <details class="settings-disclosure"><summary>Добавить способ входа</summary>
       <form class="account-email-form" action="{{ '/desktop/settings/account/email-link/start' if embedded else '/settings/account/email-link/start' }}" method="post">
         {{ sections.csrf_field(csrf_token) }}
@@ -92,7 +86,6 @@
       {% endif %}
       </details>
     </section>
-    <noscript><p class="settings-status" role="status">После сохранения откроется страница с результатом.</p></noscript>
 
     {% set account_path = ('/desktop' if embedded else '') ~ '/settings/account' %}
     {% set confirmation = namespace(shown=false) %}
@@ -112,7 +105,7 @@
       </div>
     {% endmacro %}
     <section class="settings-section account-sessions" aria-labelledby="account-sessions-title">
-      <div class="settings-section__heading"><div><h2 id="account-sessions-title" tabindex="-1">Где вы вошли <span class="session-count" aria-label="Действующих входов: {{ account_surface.active_sessions|length }}">{{ account_surface.active_sessions|length }}</span></h2><p class="muted">Действующие входы в текущее рабочее пространство.</p></div></div>
+      <div class="settings-section__heading"><div><h2 id="account-sessions-title" tabindex="-1">Где вы вошли <span class="session-count" aria-label="Действующих входов: {{ account_surface.active_sessions|length }}">{{ account_surface.active_sessions|length }}</span></h2></div></div>
       {% if account_surface.active_sessions %}
       <ul class="settings-session-list" aria-label="Действующие входы">
         {% for session in account_surface.active_sessions %}
@@ -138,30 +131,30 @@
       <div class="session-bulk-action"><form action="{{ account_path }}/sessions/revoke-others" method="post">{{ sections.csrf_field(csrf_token) }}<button id="session-revoke-others" class="button quiet" type="submit">Завершить остальные входы</button></form></div>
       {% endif %}
       {% if session_confirmation and not confirmation.shown %}{{ confirm_session('session-revoke-others' if account_surface.has_other_sessions and session_confirmation.action == account_path ~ '/sessions/revoke-others' else 'account-sessions-title') }}{% endif %}
-      <details class="session-help"><summary>Об этих входах</summary><div class="muted"><p>На одном устройстве может быть несколько входов — например, в приложении и браузере.</p><p>Последняя активность включает фоновую работу приложения и обновляется с точностью до пяти минут. Она не означает, что человек сейчас в сети.</p><p>Не узнаёте вход? Завершите его и проверьте защиту аккаунта, через который входите в GRAF.</p><p>Чтобы выйти здесь, выберите «Выйти» в меню профиля.</p></div></details>
     </section>
 
     <section class="settings-section account-close-card" aria-labelledby="account-close-title">
-      <h2 id="account-close-title">Закрытие аккаунта</h2>
       {% if account_surface.account_close %}
-      <p role="status" aria-live="polite">Закрытие запланировано на {{ user_time_element(account_surface.account_close.finalize_at, show_zone=True) }}. Будущие списания отключены.</p>
+      <h2 id="account-close-title">Закрытие аккаунта</h2>
+      <p role="status" aria-live="polite">Аккаунт закроется {{ user_time_element(account_surface.account_close.finalize_at, show_zone=True) }}. Новые списания отключены.</p>
       {% if account_surface.account_close.can_cancel %}
-      <form action="{{ "/desktop/settings/account/close/cancel" if embedded else "/settings/account/close/cancel" }}" method="post">
+      <form action="{{ account_path }}/close/cancel" method="post">
         {{ sections.csrf_field(csrf_token) }}
-        <button class="button quiet" type="submit">Отменить запланированное закрытие</button>
+        <button class="button quiet" type="submit">Отменить закрытие</button>
       </form>
       {% endif %}
       {% else %}
-      <details class="settings-disclosure"{% if account_outcome and account_outcome.kind == 'error' %} open{% endif %}><summary>Закрыть аккаунт</summary>
-      <p class="muted">После подтверждения начнется 7-дневный период отмены. Доступ сохраняется, будущие списания отключаются.</p>
-      <p id="account-close-confirmation" class="muted">Для подтверждения введите: <strong>Закрыть аккаунт</strong>.</p>
-      <form action="{{ "/desktop/settings/account/close" if embedded else "/settings/account/close" }}" method="post">
-        {{ sections.csrf_field(csrf_token) }}
-        <label class="field-label" for="account-close-confirm">Подтверждение</label>
-        <input id="account-close-confirm" name="confirm_close" type="text" required autocomplete="off" aria-describedby="account-close-confirmation account-close-help">
-        <p id="account-close-help" class="muted">Мы не удаляем данные до окончания периода отмены.</p>
-        <button class="button quiet" type="submit">Запланировать закрытие</button>
-      </form>
+      <details class="settings-disclosure"{% if account_close_requested %} open{% endif %}>
+        <summary><h2 id="account-close-title">Закрыть аккаунт</h2></summary>
+        <form class="settings-confirmation-form" action="{{ account_path }}/close" method="post">
+          {{ sections.csrf_field(csrf_token) }}
+          <p id="account-close-help" class="muted">Закроем через 7 дней. До этого можно отменить. Новые списания отключатся. {{ ui.tooltip("account-close-access", "До закрытия доступ к аккаунту и данным сохраняется.", "Что будет с доступом и данными") }}</p>
+          <label class="field-label" for="account-close-confirm">Введите «Закрыть аккаунт»</label>
+          <div class="settings-form-actions">
+            <input id="account-close-confirm" name="confirm_close" type="text" required pattern="Закрыть аккаунт" autocomplete="off" aria-describedby="account-close-help">
+            <button class="button quiet" type="submit">Закрыть через 7 дней</button>
+          </div>
+        </form>
       </details>
       {% endif %}
     </section>

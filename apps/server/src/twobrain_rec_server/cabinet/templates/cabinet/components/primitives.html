@@ -15,7 +15,7 @@
 </label>
 {%- endmacro %}
 
-{% macro switch(name, label, checked=False, disabled=False, value=None, description=None, hint=None, hint_id=None, data_manual_upload_archive=False) -%}
+{% macro switch(name, label, checked=False, disabled=False, value=None, description=None, hint=None, hint_id=None, data_manual_upload_archive=False, local_notification_field=None) -%}
 {% set control_id = name ~ "-switch" %}
 <div class="settings-control-row" data-state="{{ 'disabled' if disabled else 'selected' if checked else 'normal' }}">
   <span class="settings-control-row__copy">
@@ -23,7 +23,7 @@
     {% if description %}<span class="settings-control-row__description">{{ description }}</span>{% endif %}
   </span>
   <label class="cabinet-switch" for="{{ control_id }}">
-    <input id="{{ control_id }}" name="{{ name }}" type="checkbox" role="switch" aria-label="{{ label }}"{% if hint_id %} aria-describedby="{{ hint_id }}"{% endif %}{% if value is not none %} value="{{ value }}"{% endif %}{% if checked %} checked{% endif %}{% if disabled %} disabled aria-disabled="true"{% endif %}{% if data_manual_upload_archive %} data-manual-upload-archive{% endif %}>
+    <input id="{{ control_id }}" name="{{ name }}" type="checkbox" role="switch" aria-label="{{ label }}"{% if hint_id %} aria-describedby="{{ hint_id }}"{% endif %}{% if value is not none %} value="{{ value }}"{% endif %}{% if checked %} checked{% endif %}{% if disabled %} disabled aria-disabled="true"{% endif %}{% if data_manual_upload_archive %} data-manual-upload-archive{% endif %}{% if local_notification_field %} data-local-notification-field="{{ local_notification_field }}"{% endif %}>
     <span class="cabinet-switch__track" aria-hidden="true"></span>
   </label>
 </div>
@@ -52,4 +52,11 @@
     {% endfor %}
   </div>
 </fieldset>
+{%- endmacro %}
+
+{% macro settings_header(title, extra_class="") -%}
+<header class="cabinet-topbar settings-page__topbar {{ extra_class }}" data-settings-header>
+  <div class="page-title"><h1>{{ title }}</h1></div>
+  {% if caller is defined %}{{ caller() }}{% endif %}
+</header>
 {%- endmacro %}

@@ -188,7 +188,6 @@ def test_settings_overview_matches_product_reference_geometry() -> None:
 
 def test_settings_binary_controls_use_shared_switches_and_segmented_theme() -> None:
     root = Path(__file__).resolve().parents[2]
-    script = (root / "src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js").read_text()
     account = render_settings_page(category="account", profile=AccountProfileView("Synthetic"))
     notifications = render_settings_page(category="notifications")
 
@@ -197,15 +196,16 @@ def test_settings_binary_controls_use_shared_switches_and_segmented_theme() -> N
     assert 'value="system" checked' in account
     for icon in ("sun", "moon", "laptop"):
         assert f'data-icon="{icon}"' in account
-    assert 'document.documentElement.removeAttribute("data-theme")' in script
+    autosave = (root / "src/twobrain_rec_server/cabinet/static/cabinet/settings-autosave.js").read_text()
+    assert "document.documentElement.removeAttribute('data-theme')" in autosave
 
     assert notifications.count('role="switch"') == 2
     assert 'name="optional_email_enabled"' in notifications
     assert 'name="optional_in_app_enabled"' in notifications
     assert notifications.count('class="settings-control-row"') == 2
-    assert "Новости и помощь в использовании GRAF." in notifications
+    assert "Новости и помощь в использовании GRAF." not in notifications
     assert "В приложении на Mac" in notifications
-    assert "Результаты встреч и записи, которыми с вами поделились, сохраняются в истории без звука." in notifications
+    assert "Результаты встреч и записи, которыми с вами поделились, сохраняются в истории без звука." not in notifications
     assert 'href="/notifications"' in notifications
 
 
@@ -220,7 +220,7 @@ def test_profile_menu_uses_semantic_disabled_actions_and_native_quit_marker() ->
 
     assert 'disabled aria-disabled="true"' in template
     assert 'data-graf-app-quit' in template
-    assert 'data-account-preferences-auto-save' in template
+    assert 'data-settings-autosave' in template
     assert '.sidebar-profile-menu__item--disabled' in css
     assert '.sidebar-profile-menu__separator' in css
 
@@ -230,7 +230,7 @@ def test_recording_settings_keep_native_boundary_copy_compact() -> None:
     embedded_page = render_settings_page(category="recording", embedded=True)
 
     assert "Откройте GRAF на нужном Mac" in page
-    assert "если она разрешена в пространстве" in page
+    assert "settings-boundary-list" not in page
     assert "Здесь нельзя включить запись для всех встреч" not in page
     assert "Веб-интерфейс показывает результат записи" not in page
     assert "/desktop/settings/meeting-detection" not in page
@@ -239,7 +239,7 @@ def test_recording_settings_keep_native_boundary_copy_compact() -> None:
     assert "data-sidebar-download" not in embedded_page
     assert 'href="/desktop/settings/meeting-detection"' not in embedded_page
     assert "data-recording-settings-search" in embedded_page
-    assert "включая скрытые поиском" in embedded_page
+    assert "запись начнётся через 8 секунд" in embedded_page
     assert "data-recording-settings" in embedded_page
     assert "data-recording-settings-controls hidden" in embedded_page
     assert "data-recording-settings" not in page
@@ -256,8 +256,10 @@ def test_settings_forms_share_dirty_state_and_one_preferences_submit_handler() -
         account_surface=AccountSettingsSurface(profile=AccountProfileView("Synthetic")),
     )
     notifications = render_settings_page(category="notifications")
-    assert account.count("data-settings-form-disable-pristine") == 2
-    assert account.count("data-settings-form-reset") == 2
+    assert account.count("data-settings-autosave") == 3
+    assert account.count("data-settings-inputs disabled") == 3
+    assert "data-settings-form-reset" not in account
+    assert ">Сохранить</button>" not in account
     # Notifications own version-conflict recovery and must have one form handler.
     assert "data-notification-settings" in notifications
     assert "data-settings-form-disable-pristine" not in notifications
@@ -266,7 +268,8 @@ def test_settings_forms_share_dirty_state_and_one_preferences_submit_handler() -
     preferences = script.split("const initAccountPreferences =", 1)[1].split(
         "const initSettingsConfirmations =", 1
     )[0]
-    assert preferences.count('form.addEventListener("submit"') == 1
+    assert 'form.addEventListener("submit"' not in preferences
+    assert "data-settings-autosave" in notifications
 
 
 def test_settings_retire_unused_style_paths() -> None:
@@ -280,8 +283,9 @@ def test_settings_retire_unused_style_paths() -> None:
 def test_settings_account_close_phrase_is_described_to_confirmation_field() -> None:
     page = render_settings_page(category="account")
 
-    assert 'id="account-close-confirmation"' in page
-    assert 'aria-describedby="account-close-confirmation account-close-help"' in page
+    assert 'for="account-close-confirm">Введите «Закрыть аккаунт»</label>' in page
+    assert 'aria-describedby="account-close-help"' in page
+    assert 'id="account-close-access"' in page
 
 
 def test_calendar_settings_keeps_sidebar_content_gap_after_late_rules() -> None:
@@ -297,15 +301,14 @@ def test_calendar_settings_keeps_sidebar_content_gap_after_late_rules() -> None:
     assert "--settings-gap: 24px" in css
 
 
-def test_calendar_provider_anchor_preserves_keyboard_focus_target() -> None:
+def test_calendar_provider_disclosure_preserves_keyboard_focus_target() -> None:
     root = Path(__file__).resolve().parents[2]
     template = (
         root / "src/twobrain_rec_server/cabinet/templates/cabinet/fragments/calendar_settings.html"
     ).read_text(encoding="utf-8")
-    assert 'id="calendar-providers-title" tabindex="-1"' in template
-    assert "scroll-margin-block-start" in (
-        root / "src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css"
-    ).read_text(encoding="utf-8")
+    assert '<summary id="calendar-providers-title">' in template
+    assert 'data-calendar-add-source' in template
+    assert 'id="calendar-providers-title" tabindex="-1"' not in template
 
 
 def test_settings_route_map_has_no_arbitrary_category_redirect() -> None:
@@ -453,9 +456,9 @@ def test_settings_accessibility_contract_preserves_dialog_focus_and_form_state()
     assert "dialogOpeners" in script
     assert 'dialog.addEventListener("close"' in script
     assert "initSettingsFormState" in script
-    assert 'form.dataset.state = dirty ? "dirty" : "pristine"' in script
+    assert "window.GRAFSettings?.init()" in script
     assert "data-settings-form-status" in calendar
-    assert "data-settings-form" in calendar
+    assert "data-settings-autosave" in calendar
 
 
 def test_product_settings_hide_new_destructive_form_and_preserve_locale() -> None:
@@ -463,7 +466,7 @@ def test_product_settings_hide_new_destructive_form_and_preserve_locale() -> Non
     page = render_settings_page(category="account", account_surface=AccountSettingsSurface(profile=profile))
     assert '<select id="account-locale"' not in page
     assert 'name="locale" value="en-US"' in page
-    assert re.search(r'<details[^>]*><summary>Закрыть аккаунт</summary>.*?name="confirm_close".*?</details>', page, re.DOTALL)
+    assert re.search(r'<details[^>]*>\s*<summary><h2 id="account-close-title">Закрыть аккаунт</h2></summary>.*?name="confirm_close".*?</details>', page, re.DOTALL)
     assert 'IANA' not in page
 
 

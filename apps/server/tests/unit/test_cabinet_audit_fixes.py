@@ -233,11 +233,11 @@ def test_profile_menu_submits_only_theme_and_enables_existing_autosave(embedded)
         profile=AccountProfileView("Synthetic", "local@graf.test", "en-US", "UTC", "dark"),
     )
     form = re.search(r"<form[^>]*data-account-preferences.*?</form>", page, re.S).group()
-    assert 'data-account-preferences-auto-save="true"' in form
+    assert 'data-settings-autosave' in form
     assert 'name="locale"' not in form and 'name="timezone"' not in form
     assert 'value="dark" checked' in form
     assert 'name="return_to"' in form
-    assert 'data-account-preferences-status' in form
+    assert 'data-settings-form-status' in form
 
 
 @pytest.mark.parametrize(

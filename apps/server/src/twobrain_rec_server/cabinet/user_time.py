@@ -49,10 +49,10 @@ def valid_timezone_choice(value: str | None) -> bool:
     return bool(value and len(value) <= 64 and validated_timezone(value) == value)
 
 
-def apply_user_time_preference(*, user_id: object, session_id: object, timezone: str | None) -> None:
+def apply_user_time_preference(*, user_id: object, session_id: object, timezone: str | None, workspace_id: object = "") -> None:
     """Called only after authenticating the viewer, before queries and rendering."""
     preferred = validated_timezone(timezone) if timezone else ""
-    _viewer_time.set({"user": str(user_id), "session": str(session_id or ""), "preferred": preferred})
+    _viewer_time.set({"user": str(user_id), "session": str(session_id or ""), "preferred": preferred, "workspace": str(workspace_id)})
     _display_timezone.set(preferred or _device_timezone.get())
 
 

@@ -3221,7 +3221,7 @@ private struct MeetingDetectionPromptView: View {
 }
 
 @MainActor
-private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
+private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, NSWindowDelegate {
     private var mainWindow: NSWindow?
     private var settingsWindow: NSWindow?
     private var calendarTrayController: CalendarTrayController?
@@ -3230,6 +3230,7 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
     private let appUpdateController: AppUpdateController
     private var appUpdateSubscription: AnyCancellable?
     private var terminationReplyPending = false
+    private var settingsExitPending = false
     private var relaunchAfterTermination = false
 
     func meetingDetectionPromptAnchor(on screen: NSScreen) -> NSRect? {
@@ -3335,22 +3336,44 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
         return true
     }
 
-    func applicationShouldTerminate(_: NSApplication) -> NSApplication.TerminateReply {
-        guard !terminationReplyPending else {
-            return .terminateLater
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        guard !settingsExitPending else { return false }
+        settingsExitPending = true
+        Task { [weak self, weak sender] in
+            let allowed = await EmbeddedCabinetWebView.prepareSettingsToLeave(in: sender?.contentView)
+            self?.settingsExitPending = false
+            if allowed { sender?.close() }
         }
+        return false
+    }
+
+    func applicationShouldTerminate(_: NSApplication) -> NSApplication.TerminateReply {
+        guard !terminationReplyPending else { return .terminateLater }
+        guard !settingsExitPending else { return .terminateCancel }
         terminationReplyPending = true
-        appUpdateController.updateProtectedWork(
-            ProtectedUpdateWork(terminationCleanupPending: true)
-        )
-        AppLog.writeRaw(
-            event: "app_termination_cleanup_requested",
-            detail: "reply=terminateLater"
-        )
-        dismissModalWindowsForTermination()
-        NotificationCenter.default.post(name: .twoBrainRecApplicationShouldTerminate, object: nil)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in
-            self?.replyToTerminateIfPending(reason: "timeout")
+        settingsExitPending = true
+        Task { [weak self] in
+            guard let self else { return }
+            let allowed = await EmbeddedCabinetWebView.prepareSettingsToLeave(in: self.mainWindow?.contentView)
+            self.settingsExitPending = false
+            guard allowed else {
+                self.terminationReplyPending = false
+                self.relaunchAfterTermination = false
+                NSApp.reply(toApplicationShouldTerminate: false)
+                return
+            }
+            self.appUpdateController.updateProtectedWork(
+                ProtectedUpdateWork(terminationCleanupPending: true)
+            )
+            AppLog.writeRaw(
+                event: "app_termination_cleanup_requested",
+                detail: "reply=terminateLater"
+            )
+            self.dismissModalWindowsForTermination()
+            NotificationCenter.default.post(name: .twoBrainRecApplicationShouldTerminate, object: nil)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in
+                self?.replyToTerminateIfPending(reason: "timeout")
+            }
         }
         return .terminateLater
     }
@@ -3443,6 +3466,7 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
         window.isReleasedWhenClosed = false
         window.isRestorable = false
         window.identifier = NSUserInterfaceItemIdentifier("graf-main-window")
+        window.delegate = self
         configureMainWindowCollectionBehavior(window)
         window.contentViewController = NSHostingController(
             rootView: AppContentRoot(

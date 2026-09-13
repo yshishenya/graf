@@ -272,7 +272,7 @@ def _account_profile_view(user: UserIdentity | None, identities: tuple[ExternalI
     from twobrain_rec_server.cabinet.view_models import AccountProfileView
 
     return AccountProfileView(
-        display_name=(user.display_name if user and user.display_name else "Без имени"),
+        display_name=(user.display_name or "") if user else "",
         primary_email=next(
             (identity.email for identity in identities if identity.email and identity.is_verified),
             None,
