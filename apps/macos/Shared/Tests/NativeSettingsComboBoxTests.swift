@@ -11,6 +11,27 @@ final class NativeSettingsComboBoxTests: XCTestCase {
         NativeSettingsComboBox.Option(id: "never", label: "Никогда"),
     ]
 
+    private func accessibilityValue(_ field: NSTextField, _ attribute: NSAccessibility.Attribute) -> Any? {
+        let element = NSAccessibility.unignoredChildren(from: [field]).first as? NSObject
+        return element?.accessibilityAttributeValue(attribute)
+    }
+
+    private func accessibilityLabels(in element: Any, ancestors: Set<ObjectIdentifier> = []) -> [String] {
+        guard let element = element as? NSObject else { return [] }
+        let identity = ObjectIdentifier(element)
+        guard !ancestors.contains(identity), ancestors.count < 16 else {
+            XCTFail("AX children contain a cycle or an unexpectedly deep path")
+            return []
+        }
+        let path = ancestors.union([identity])
+        let accessible = element as? NSAccessibilityProtocol
+        let label = accessible?.accessibilityLabel() ?? element.accessibilityAttributeValue(.description) as? String
+        let children = accessible?.accessibilityChildren() ?? element.accessibilityAttributeValue(.children) as? [Any] ?? []
+        return [label].compactMap { $0 }
+            + children.flatMap { accessibilityLabels(in: $0, ancestors: path) }
+            + (accessible?.accessibilityChildrenInNavigationOrder() ?? []).flatMap { accessibilityLabels(in: $0, ancestors: path) }
+    }
+
     private func type(_ text: String, in control: NativeSettingsComboBox.Control, coordinator: NativeSettingsComboBox.Coordinator) {
         control.field.stringValue = text
         coordinator.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification, object: control.field))
@@ -45,7 +66,7 @@ final class NativeSettingsComboBoxTests: XCTestCase {
         XCTAssertTrue(coordinator.control(control.field, textView: NSTextView(), doCommandBy: #selector(NSResponder.insertNewline(_:))))
         XCTAssertEqual(saved, ["always"])
         XCTAssertEqual(control.field.stringValue, "Всегда")
-        XCTAssertFalse(control.field.isAccessibilityExpanded())
+        XCTAssertEqual(accessibilityValue(control.field, .expanded) as? Bool, false)
         coordinator.choose(index: 1)
         XCTAssertEqual(saved, ["always"])
     }
@@ -145,9 +166,9 @@ final class NativeSettingsComboBoxTests: XCTestCase {
         let coordinator = owner.makeCoordinator()
         let control = NativeSettingsComboBox.Control()
         coordinator.update(owner, control: control, enabled: true)
-        XCTAssertEqual(control.field.accessibilityRole(), .comboBox)
-        XCTAssertEqual(control.field.accessibilityLabel(), "Правило")
-        XCTAssertEqual(control.field.accessibilityLinkedUIElements()?.count, 1)
+        XCTAssertEqual(accessibilityValue(control.field, .role) as? String, NSAccessibility.Role.comboBox.rawValue)
+        XCTAssertEqual(accessibilityValue(control.field, .description) as? String, "Правило")
+        XCTAssertEqual((accessibilityValue(control.field, .linkedUIElements) as? [Any])?.count, 1)
         type("все", in: control, coordinator: coordinator)
         coordinator.detach()
         XCTAssertNil(control.field.onClick)
@@ -292,7 +313,7 @@ final class NativeSettingsComboBoxTests: XCTestCase {
         let control = NativeSettingsComboBox.Control()
         coordinator.update(owner, control: control, enabled: true)
         _ = control.field.becomeFirstResponder()
-        XCTAssertFalse(control.field.isAccessibilityExpanded())
+        XCTAssertEqual(accessibilityValue(control.field, .expanded) as? Bool, false)
         XCTAssertEqual(control.field.focusRingType, .none)
         XCTAssertFalse(coordinator.control(control.field, textView: NSTextView(), doCommandBy: #selector(NSResponder.insertNewline(_:))))
         coordinator.detach()
@@ -303,22 +324,22 @@ final class NativeSettingsComboBoxTests: XCTestCase {
         let coordinator = owner.makeCoordinator()
         let control = NativeSettingsComboBox.Control()
         coordinator.update(owner, control: control, enabled: true)
-        XCTAssertTrue(control.field.accessibilitySharedFocusElements()?.isEmpty ?? true)
+        XCTAssertTrue((accessibilityValue(control.field, .sharedFocusElements) as? [Any])?.isEmpty ?? true)
         coordinator.open()
-        let initial = try XCTUnwrap(control.field.accessibilitySharedFocusElements()?.first as? NSView)
+        let initial = try XCTUnwrap((accessibilityValue(control.field, .sharedFocusElements) as? [Any])?.first as? NSView)
         XCTAssertEqual(initial.accessibilityLabel(), "Спрашивать")
         XCTAssertTrue(initial.isAccessibilitySelected())
         _ = coordinator.control(control.field, textView: NSTextView(), doCommandBy: #selector(NSResponder.moveDown(_:)))
-        let active = try XCTUnwrap(control.field.accessibilitySharedFocusElements()?.first as? NSView)
+        let active = try XCTUnwrap((accessibilityValue(control.field, .sharedFocusElements) as? [Any])?.first as? NSView)
         XCTAssertEqual(active.accessibilityLabel(), "Всегда")
         XCTAssertFalse(active.isAccessibilitySelected())
         type("Нет совпадений", in: control, coordinator: coordinator)
-        XCTAssertTrue(control.field.accessibilitySharedFocusElements()?.isEmpty ?? true)
+        XCTAssertTrue((accessibilityValue(control.field, .sharedFocusElements) as? [Any])?.isEmpty ?? true)
         type("Все", in: control, coordinator: coordinator)
         _ = coordinator.control(control.field, textView: NSTextView(), doCommandBy: #selector(NSResponder.moveDown(_:)))
-        XCTAssertEqual(control.field.accessibilitySharedFocusElements()?.count, 1)
+        XCTAssertEqual((accessibilityValue(control.field, .sharedFocusElements) as? [Any])?.count, 1)
         coordinator.close()
-        XCTAssertTrue(control.field.accessibilitySharedFocusElements()?.isEmpty ?? true)
+        XCTAssertTrue((accessibilityValue(control.field, .sharedFocusElements) as? [Any])?.isEmpty ?? true)
         coordinator.detach()
     }
 
@@ -354,31 +375,22 @@ final class NativeSettingsComboBoxTests: XCTestCase {
         let control = NativeSettingsComboBox.Control(frame: NSRect(x: 0, y: 0, width: 172, height: 32))
         coordinator.update(owner, control: control, enabled: true)
         let table = try XCTUnwrap(coordinator.scroll.documentView as? NSTableView)
-        XCTAssertFalse(control.field.accessibilityChildren()?.contains { ($0 as? NSView) === table } ?? false)
+        XCTAssertFalse((accessibilityValue(control.field, .children) as? [Any])?.contains { ($0 as? NSView) === table } ?? false)
         coordinator.open()
-        XCTAssertTrue(control.field.accessibilityChildren()?.contains { ($0 as? NSView) === table } ?? false)
-        XCTAssertTrue((table.accessibilityParent() as? NSView) === control.field)
+        XCTAssertTrue((accessibilityValue(control.field, .children) as? [Any])?.contains { ($0 as? NSView) === table } ?? false)
+        XCTAssertTrue((table.accessibilityParent() as? NSCell) === control.field.cell)
+        XCTAssertEqual(accessibilityValue(control.field, .expanded) as? Bool, true)
         XCTAssertTrue(table.isAccessibilityElement())
         XCTAssertEqual(table.accessibilityRole(), .list)
-        func labels(in element: Any, ancestors: Set<ObjectIdentifier> = []) -> [String] {
-            guard let element = element as? NSAccessibilityProtocol else { return [] }
-            let identity = ObjectIdentifier(element)
-            guard !ancestors.contains(identity), ancestors.count < 16 else {
-                XCTFail("AX children contain a cycle or an unexpectedly deep path")
-                return []
-            }
-            let path = ancestors.union([identity])
-            return [element.accessibilityLabel()].compactMap { $0 }
-                + (element.accessibilityChildren() ?? []).flatMap { labels(in: $0, ancestors: path) }
-                + (element.accessibilityChildrenInNavigationOrder() ?? []).flatMap { labels(in: $0, ancestors: path) }
-        }
-        XCTAssertTrue(labels(in: control.field).contains("Всегда"))
+
+        XCTAssertTrue(accessibilityLabels(in: control.field).contains("Всегда"))
         let row = try XCTUnwrap(table.view(atColumn: 0, row: 1, makeIfNecessary: true))
         XCTAssertEqual(row.accessibilityLabel(), "Всегда")
         XCTAssertTrue(row.accessibilityPerformPress())
         XCTAssertEqual(control.field.stringValue, "Всегда")
         XCTAssertNil(control.field.optionsList)
-        XCTAssertFalse(control.field.accessibilityChildren()?.contains { ($0 as? NSView) === table } ?? false)
+        XCTAssertEqual(accessibilityValue(control.field, .expanded) as? Bool, false)
+        XCTAssertFalse((accessibilityValue(control.field, .children) as? [Any])?.contains { ($0 as? NSView) === table } ?? false)
         coordinator.detach()
     }
 
@@ -392,25 +404,62 @@ final class NativeSettingsComboBoxTests: XCTestCase {
             (view as? NativeSettingsComboBox.Field) ?? view.subviews.lazy.compactMap { field(in: $0) }.first
         }
         let input = try XCTUnwrap(field(in: host))
-        XCTAssertTrue(input.isAccessibilityElement(), "The editable field must remain an AX element inside SwiftUI")
-        XCTAssertTrue((NSAccessibility.unignoredAncestor(of: input) as? NSView) === input)
+        XCTAssertFalse(input.isAccessibilityElement(), "The standard single-cell field delegates AX to its native cell")
+        XCTAssertTrue((NSAccessibility.unignoredChildren(from: [input]).first as? NSCell) === input.cell)
         XCTAssertTrue(window.makeFirstResponder(input))
         XCTAssertNotNil(input.currentEditor())
         var ancestors: [NSView] = [input]
         while let parent = ancestors.last?.superview { ancestors.append(parent) }
-        for child in input.accessibilityChildren() ?? [] {
+        for child in (accessibilityValue(input, .children) as? [Any]) ?? [] {
             XCTAssertFalse(ancestors.contains { $0 === child as AnyObject }, "AX children must not lead back to the field or its hosting ancestors")
         }
         for child in input.accessibilityChildrenInNavigationOrder() ?? [] {
             XCTAssertFalse(ancestors.contains { $0 === child as AnyObject }, "AX navigation children must not lead back to the field or its hosting ancestors")
         }
+        XCTAssertFalse(accessibilityLabels(in: input).contains("Всегда"))
         let control = try XCTUnwrap(input.superview as? NativeSettingsComboBox.Control)
         control.arrow.performClick(nil)
-        XCTAssertEqual(input.accessibilityChildren()?.count, 1)
-        for child in input.accessibilityChildren() ?? [] {
+        XCTAssertTrue(accessibilityLabels(in: input).contains("Всегда"))
+        XCTAssertEqual((accessibilityValue(input, .children) as? [Any])?.count, 1)
+        for child in (accessibilityValue(input, .children) as? [Any]) ?? [] {
             XCTAssertFalse(ancestors.contains { $0 === child as AnyObject }, "Expanded AX children must not lead back to the field or its hosting ancestors")
         }
         window.makeFirstResponder(nil)
+    }
+
+    func testHostedEditableAccessibilityMatchesNativeTextField() throws {
+        struct PlainField: NSViewRepresentable {
+            let field: NSTextField
+            func makeNSView(context: Context) -> NSTextField { field }
+            func updateNSView(_ view: NSTextField, context: Context) {}
+        }
+        let plain = NSTextField(string: "Спрашивать")
+        let host = NSHostingView(rootView: VStack {
+            PlainField(field: plain)
+            NativeSettingsComboBox(title: "Правило", options: options, selectedID: "ask")
+        })
+        host.frame = NSRect(x: 0, y: 0, width: 200, height: 100)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        func field(in view: NSView) -> NativeSettingsComboBox.Field? {
+            (view as? NativeSettingsComboBox.Field) ?? view.subviews.lazy.compactMap { field(in: $0) }.first
+        }
+        let input = try XCTUnwrap(field(in: host))
+        for textField in [plain, input] {
+            let element = try XCTUnwrap(NSAccessibility.unignoredChildren(from: [textField]).first as? NSObject)
+            XCTAssertEqual(element.accessibilityAttributeValue(.value) as? String, "Спрашивать", "Native and candidate must both expose the saved value")
+            XCTAssertTrue(element.accessibilityIsAttributeSettable(.focused))
+            XCTAssertTrue(element.accessibilityAttributeNames().contains(.value))
+            XCTAssertNotNil(element.accessibilityAttributeValue(.focused) as? Bool)
+            XCTAssertTrue(window.makeFirstResponder(textField))
+            let editor = try XCTUnwrap(textField.currentEditor() as? NSTextView)
+            element.accessibilitySetValue(NSValue(range: NSRange(location: 0, length: 3)), forAttribute: .selectedTextRange)
+            XCTAssertEqual(editor.selectedRange(), NSRange(location: 0, length: 3))
+            XCTAssertEqual(element.accessibilityAttributeValue(.selectedText) as? String, "Спр")
+            XCTAssertTrue(element.accessibilityIsAttributeSettable(.selectedTextRange))
+            window.makeFirstResponder(nil)
+        }
     }
 
     func testClickOnSavedLabelMakesTypingReplaceItWithoutSaving() throws {

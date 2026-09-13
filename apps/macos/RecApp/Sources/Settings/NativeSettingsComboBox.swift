@@ -34,10 +34,16 @@ struct NativeSettingsComboBox: NSViewRepresentable {
 
     final class Field: NSTextField {
         var onClick: ((NSTextView) -> Void)?
-        weak var optionsList: NSView?
-        override func accessibilityChildren() -> [Any]? {
-            // Keep the popup tree explicit instead of mixing in legacy NSTextField children under SwiftUI.
-            optionsList.map { [$0] } ?? []
+        override class var cellClass: AnyClass? {
+            get { FieldCell.self }
+            set { }
+        }
+        var popupCell: FieldCell? { cell as? FieldCell }
+        weak var optionsList: NSView? {
+            didSet {
+                popupCell?.popupAttributes[.children] = optionsList.map { [$0] } ?? []
+                popupCell?.popupAttributes[.expanded] = optionsList != nil
+            }
         }
         override func becomeFirstResponder() -> Bool {
             let accepted = super.becomeFirstResponder()
@@ -47,6 +53,22 @@ struct NativeSettingsComboBox: NSViewRepresentable {
         override func mouseDown(with event: NSEvent) {
             super.mouseDown(with: event)
             if let editor = currentEditor() as? NSTextView { onClick?(editor) }
+        }
+    }
+
+    // Only popup metadata is custom; NSTextFieldCell still owns editing, value, selection and focus.
+    final class FieldCell: NSTextFieldCell {
+        var popupAttributes: [NSAccessibility.Attribute: Any] = [
+            .role: NSAccessibility.Role.comboBox.rawValue,
+            .roleDescription: NSAccessibility.Role.comboBox.description(with: nil) ?? "",
+            .children: [Any](), .expanded: false,
+        ]
+        override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
+            let inherited = super.accessibilityAttributeNames()
+            return inherited + popupAttributes.keys.filter { !inherited.contains($0) }
+        }
+        override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+            popupAttributes[attribute] ?? super.accessibilityAttributeValue(attribute)
         }
     }
 
@@ -63,8 +85,6 @@ struct NativeSettingsComboBox: NSViewRepresentable {
             field.drawsBackground = false
             field.focusRingType = .none
             field.lineBreakMode = .byTruncatingTail
-            field.setAccessibilityElement(true)
-            field.setAccessibilityRole(.comboBox)
             field.setContentHuggingPriority(.defaultLow, for: .horizontal)
             arrow.isBordered = false
             arrow.refusesFirstResponder = true
@@ -265,9 +285,9 @@ struct NativeSettingsComboBox: NSViewRepresentable {
             control.field.isEnabled = enabled
             control.arrow.isEnabled = enabled
             control.field.placeholderString = owner.placeholder
-            control.field.setAccessibilityLabel(owner.title)
-            control.field.setAccessibilityHelp("Введите текст для фильтрации. Стрелки выбирают вариант, Return подтверждает, Escape отменяет.")
-            control.field.setAccessibilityLinkedUIElements([table])
+            control.field.popupCell?.popupAttributes[.description] = owner.title
+            control.field.popupCell?.popupAttributes[.help] = "Введите текст для фильтрации. Стрелки выбирают вариант, Return подтверждает, Escape отменяет."
+            control.field.popupCell?.popupAttributes[.linkedUIElements] = [table]
             table.setAccessibilityLabel("Варианты: " + owner.title)
             if !enabled { close() }
             if !isEditing && !isOpen { restoreLabel() }
@@ -304,8 +324,8 @@ struct NativeSettingsComboBox: NSViewRepresentable {
             }
             isOpen = true
             control.field.optionsList = table
-            table.setAccessibilityParent(control.field)
-            NSAccessibility.post(element: control.field, notification: .layoutChanged)
+            table.setAccessibilityParent(control.field.cell)
+            NSAccessibility.post(element: control.field.cell as NSObject? ?? control.field, notification: .layoutChanged)
             updateHighlight()
             guard !panel.isVisible, let parent = control.window, parent.isVisible else { return }
             isPresenting = true
@@ -313,7 +333,6 @@ struct NativeSettingsComboBox: NSViewRepresentable {
             updateHighlight()
             parent.addChildWindow(panel, ordered: .above)
             panel.orderFront(nil)
-            control.field.setAccessibilityExpanded(true)
             control.window?.makeKey()
             control.window?.makeFirstResponder(control.field)
             isPresenting = false
@@ -361,7 +380,7 @@ struct NativeSettingsComboBox: NSViewRepresentable {
                 activeIndex = min(visibleOptions.count - 1, max(0, (activeIndex ?? (direction > 0 ? -1 : visibleOptions.count)) + direction))
                 updateHighlight()
                 if let activeIndex, let field = control?.field {
-                    NSAccessibility.post(element: field, notification: .announcementRequested, userInfo: [.announcement: visibleOptions[activeIndex].label, .priority: NSAccessibilityPriorityLevel.medium.rawValue])
+                    NSAccessibility.post(element: field.cell as NSObject? ?? field, notification: .announcementRequested, userInfo: [.announcement: visibleOptions[activeIndex].label, .priority: NSAccessibilityPriorityLevel.medium.rawValue])
                 }
                 return true
             case #selector(NSResponder.insertNewline(_:)):
@@ -395,9 +414,9 @@ struct NativeSettingsComboBox: NSViewRepresentable {
             if isOpen, let index = activeIndex, visibleOptions.indices.contains(index) {
                 table.scrollRowToVisible(index)
                 let active = table.view(atColumn: 0, row: index, makeIfNecessary: true)
-                control?.field.setAccessibilitySharedFocusElements(active.map { [$0] } ?? [])
+                control?.field.popupCell?.popupAttributes[.sharedFocusElements] = active.map { [$0] } ?? []
             } else {
-                control?.field.setAccessibilitySharedFocusElements([])
+                control?.field.popupCell?.popupAttributes[.sharedFocusElements] = []
             }
         }
 
@@ -454,9 +473,8 @@ struct NativeSettingsComboBox: NSViewRepresentable {
             stopObserving()
             control?.field.optionsList = nil
             table.setAccessibilityParent(nil)
-            control?.field.setAccessibilitySharedFocusElements([])
-            control?.field.setAccessibilityExpanded(false)
-            if let field = control?.field { NSAccessibility.post(element: field, notification: .layoutChanged) }
+            control?.field.popupCell?.popupAttributes[.sharedFocusElements] = []
+            if let field = control?.field { NSAccessibility.post(element: field.cell as NSObject? ?? field, notification: .layoutChanged) }
             control?.needsDisplay = true
             if !isCommitting { restoreLabel() }
         }

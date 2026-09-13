@@ -184,3 +184,13 @@ Chromium PASS (600 вариантов 0.9 ms), WebKit PASS (1.0 ms), timezone PA
 Исполнитель01a090a9 подготовил3-файловый patch в отдельной исходной копии. Root независимо проверил общий helper/callers, начальную асинхронную загрузку, прежний save/disabled контракт, label/help и неизменную CSS grid оболочку: code/Ponytail PASS. Chromium/WebKit/settings и Chromium/timezone PASS; root связанные cabinetstatic/settingscontract/viewmodels112PASS. T018/T019 выполнены; T017/T011/T012 требуют дальнейшей установленной проверки native accessibility.
 
 Установленный b31671: поля появились в AX tree, но AXValue/text selection/actions отсутствуют. Это неполный результат; начат отдельный hosted эксперимент с native NSTextFieldCell, чтобы сохранить штатную доступность текстового редактора. Нового установленного PASS нет.
+
+## T017: восстановление штатной доступности текстовой ячейки
+
+Hosted-сравнение обычного NSTextField и поля GRAF воспроизвело отсутствие AXValue, AXSelectedText и доступного изменения AXSelectedTextRange у предыдущего кандидата: 3 assertions FAIL. Причина потери этих свойств — отдельный AX-элемент на view вместо штатной single-cell доступности AppKit. Новый кандидат убирает view override/identity и добавляет к NSTextFieldCell только role, label/help, expanded, children и shared focus. Значение, выделение, фокус и все setters наследуются от AppKit. Публичные legacy getters необходимы для NSCell; собственного текстового редактора нет.
+
+61 focused Swift checks PASS: 26 NativeSettingsComboBox и 35 accessibility/window/embedded bridges. Тест сопоставляет native/candidate значение, выбранный текст, изменение диапазона и доступность focus; невидимое hosted окно не доказывает внешний AXSetFocus или настоящий mouseDown. Обход children/navigation-order отклоняет циклы и проверяет достижимость вариантов.
+
+Исполнитель01a090a9 менял только компонент и его существующий тестовый файл. Root независимо прочёл весь компонент, production callers и итоговый diff: code/Ponytail PASS после уточнения начального expanded=false. Сохранение/отмена/IME не изменены; close снимает children, parent и shared focus. T017/T012/T011 остаются открыты до установленной проверки нового кандидата.
+
+Веб-коммит deaf8d2e58ce59bac1ccf2f3b4deab53e46ea48a отправлен в PR; семь обсуждений review разрешены с ответами и границами доказательств. Описание PR и issue6924 синхронизированы, issue остаётся открытым.
