@@ -453,7 +453,7 @@ if [[ "${#current_fragment_paths[@]}" -eq 0 && "${#pending_versions[@]}" -eq 1 &
       "${pending_versions[0]}" == "$next_version" && "$unreleased_real_entries" -eq 0 ]]; then
   echo "Archived release fragments in $archive_dir"
   echo "Prepared release section in $changelog for v$next_version"
-  echo "Next step: git add CHANGELOG.md && git commit -m \"chore: prepare release v$next_version\" && git tag -a v$next_version -m \"Release v$next_version\""
+  echo "Next step: review and commit all release-preparation changes, then follow docs/agent-guidance/release-and-validation.md."
   exit 0
 fi
 
@@ -708,4 +708,4 @@ if [[ "${#fragment_paths[@]}" -gt 0 ]]; then
   echo "Archived release fragments in $archive_dir"
 fi
 echo "Prepared release section in $changelog for v$next_version"
-echo "Next step: git add CHANGELOG.md && git commit -m \"chore: prepare release v$next_version\" && git tag -a v$next_version -m \"Release v$next_version\""
+echo "Next step: review and commit all release-preparation changes, then follow docs/agent-guidance/release-and-validation.md."
