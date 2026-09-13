@@ -42,7 +42,7 @@ def test_every_billing_screen_keeps_payment_help_or_history_after_the_primary_pa
         assert html.index("Нужна помощь с оплатой?") > html.index("</section>")
 
 
-def test_member_billing_surfaces_do_not_render_workspace_usage_values() -> None:
+def test_non_payer_billing_surfaces_keep_quota_state_without_usage_values() -> None:
     from twobrain_rec_server.billing.catalog import plan_descriptor
 
     values = {name: "private-" + name for name in (
@@ -52,12 +52,20 @@ def test_member_billing_surfaces_do_not_render_workspace_usage_values() -> None:
     context = dict(embedded=False, settings_navigation=[], settings_active="billing",
                    plan=plan_descriptor("free"), plan_code="free", meetings_href="/meetings",
                    processing_threshold="approaching", processing_reset_at_label="later", **values)
-    for role, plan_code in (("member", "personal"), ("corporate_owner", "personal"),
-                            ("member", "free"), ("corporate_owner", "free")):
-        context.update(plan_code=plan_code, plan=plan_descriptor(plan_code))
-        for page in ("billing_overview_content.html", "billing_usage_content.html"):
-            html = render_template("cabinet/pages/" + page, billing_role=role, billing_owner=False, **context)
-            assert all(value not in html for value in values.values())
+    for role in ("member", "corporate_owner", "owner"):
+        for plan_code in ("personal", "free"):
+            for threshold in ("normal", "approaching", "exhausted"):
+                context.update(plan_code=plan_code, plan=plan_descriptor(plan_code),
+                               processing_threshold=threshold)
+                for page in ("billing_overview_content.html", "billing_usage_content.html"):
+                    html = render_template("cabinet/pages/" + page, billing_role=role,
+                                           billing_owner=False, **context)
+                    assert all(value not in html for value in values.values())
+                    assert ("Дождитесь сброса later" in html) == (
+                        plan_code == "free" and threshold != "normal"
+                    )
+                    if plan_code == "free" and threshold == "exhausted":
+                        assert "новая обработка, в том числе без сохранения аудио, недоступна" in html
     owner = render_template("cabinet/pages/billing_overview_content.html",
                             billing_role="owner", billing_owner=True, **context)
     assert values["processing_used_label"] in owner

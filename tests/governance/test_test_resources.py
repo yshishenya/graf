@@ -3,6 +3,8 @@ import hashlib
 import json
 import os
 import subprocess
+
+import pytest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -82,11 +84,15 @@ def test_payload(value):
     assert "SQL" not in report.read_text()
 
 
-def test_runner_phase_loads_report_options_in_parallel_workers(tmp_path):
+@pytest.mark.parametrize("selection", [
+    ["-k", "test_request_context_is_isolated_and_reset_on_errors"],
+    ["--", "tests/unit/test_user_time.py::test_request_context_is_isolated_and_reset_on_errors"],
+])
+def test_runner_phase_loads_report_options_in_parallel_workers(tmp_path, selection):
     result = subprocess.run(
         ["bash", str(ROOT / "apps/server/scripts/run_local_postgres_tests.sh"),
          "--focused", "-q", "-n", "2",
-         "-k", "test_request_context_is_isolated_and_reset_on_errors"],
+         *selection],
         cwd=ROOT,
         env={**os.environ, "GRAF_TEST_REPORT_DIR": str(tmp_path / "reports")},
         capture_output=True, text=True, check=False,

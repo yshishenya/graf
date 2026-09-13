@@ -133,7 +133,7 @@ run_phase() {
     mkdir -p "$GRAF_TEST_REPORT_DIR"
     report_args+=(-p tests.fixtures.test_resources --graf-report-file "$GRAF_TEST_REPORT_DIR/$phase.jsonl")
   fi
-  if "$@" "${report_args[@]}"; then
+  if uv run --extra dev --extra evaluation pytest "${report_args[@]}" "$@"; then
     completed_at="$(date +%s)"
     duration_seconds=$((completed_at - started_at))
     printf 'postgres_test_phase=%s status=pass duration_seconds=%s\n' "$phase" "$duration_seconds"
@@ -282,12 +282,12 @@ fi
 if [[ "$mode" == fast ]]; then
   # Fail cheap pure tests before allocating PostgreSQL. The two sets partition unit.
   if (( $(cat "$metadata_directory/pure-count") > 0 )); then
-    run_phase pure uv run --extra dev --extra evaluation pytest -q -n "$workers" --dist=loadfile \
+    run_phase pure -q -n "$workers" --dist=loadfile \
       -m 'not postgres and not browser' tests/unit "${timing_args[@]}"
   fi
   if (( $(cat "$metadata_directory/resource-count") > 0 )); then
     start_postgres
-    run_phase fast uv run --extra dev --extra evaluation pytest -q -n "$workers" --dist=loadfile \
+    run_phase fast -q -n "$workers" --dist=loadfile \
       -m 'postgres or browser' tests/unit "${timing_args[@]}"
   fi
   printf 'postgres_test_result=pass mode=fast\n'
@@ -304,14 +304,14 @@ PY_PURE
   then
     start_postgres
   fi
-  run_phase focused uv run --extra dev --extra evaluation pytest "${timing_args[@]}" "${pytest_args[@]}"
+  run_phase focused "${timing_args[@]}" "${pytest_args[@]}"
   printf 'postgres_test_result=pass mode=focused\n'
   exit 0
 fi
 
 start_postgres
 if run_phase parallel \
-  uv run --extra dev --extra evaluation pytest -n "$workers" --dist=loadfile \
+  -n "$workers" --dist=loadfile \
   -m "not strict_rls and not serial_performance" \
   "${timing_args[@]}" "${pytest_args[@]}"; then
   :
@@ -319,7 +319,7 @@ else
   exit 1
 fi
 if run_phase performance \
-  uv run --extra dev --extra evaluation pytest -m "serial_performance and not strict_rls" \
+  -m "serial_performance and not strict_rls" \
   "${timing_args[@]}" "${pytest_args[@]}"; then
   :
 else
@@ -327,7 +327,7 @@ else
   exit 1
 fi
 if run_phase strict \
-  uv run --extra dev --extra evaluation pytest -m strict_rls "${timing_args[@]}" "${pytest_args[@]}"; then
+  -m strict_rls "${timing_args[@]}" "${pytest_args[@]}"; then
   :
 else
   exit 1

@@ -60,3 +60,9 @@
   {% if caller is defined %}{{ caller() }}{% endif %}
 </header>
 {%- endmacro %}
+
+{% macro billing_member_quota_notice(plan_code, threshold, reset_label) -%}
+  {% if plan_code == "free" and threshold in ["approaching", "exhausted"] %}
+  <p class="notice" role="status" aria-live="polite">{% if threshold == "approaching" %}Лимит обработки скоро закончится.{% else %}Лимит обработки исчерпан: новая обработка, в том числе без сохранения аудио, недоступна.{% endif %} Дождитесь сброса {{ reset_label }} или обратитесь к плательщику для смены тарифа.</p>
+  {% endif %}
+{%- endmacro %}
