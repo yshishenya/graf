@@ -24,7 +24,7 @@
 ## Phase 4 — US3 Поверхности и приёмка
 
 - [X] T011 [US3] Привести резервные локальные настройки записи/уведомлений apps/macos/RecApp/Sources/MeetingDetection/MeetingDetectionSettingsView.swift и apps/macos/RecApp/Sources/Notifications/DesktopNotificationPresenter.swift к общей структуре и правдивым состояниям; проверить отказ записи/моста и tests в apps/macos/Shared/Tests/; в apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetWebView.swift и существующем контроллере окна обеспечить штатную защиту закрытия/перехода с незавершённой записью. [FR-001/005/006/008/010/012/013]
-- [ ] T012 [US3] Проверить семь разделов с синтетическими данными через apps/server/tests/fixtures/settings_visual_ui_harness.py: все ширины/темы/клавиатура/no-JS/ошибки из specs/264-settings-autosave/quickstart.md. [SC-001–004]
+- [X] T012 [US3] Проверить семь разделов с синтетическими данными через apps/server/tests/fixtures/settings_visual_ui_harness.py: все ширины/темы/клавиатура/no-JS/ошибки из specs/264-settings-autosave/quickstart.md. [SC-001–004]
 - [ ] T013 [US3] После чтения docs/agent-guidance/local-development.md проверить только /Applications/GRAF Dev.app через dev-harness: настройки, сохранение, переходы, локальные отказы и доступность; записать реальные пределы в specs/264-settings-autosave/validation.md. [SC-002–005, FR-008/010]
 
 ## Phase 5 — Завершение

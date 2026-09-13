@@ -1519,7 +1519,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
     }
 
     /// Flush the same queue used by browser navigation before closing the native host.
-    public static func prepareSettingsToLeave(in view: NSView?) async -> Bool {
+    @MainActor public static func prepareSettingsToLeave(in view: NSView?) async -> Bool {
         guard let view else { return true }
         if let webView = view as? WKWebView {
             guard webView.url != nil else { return true }
