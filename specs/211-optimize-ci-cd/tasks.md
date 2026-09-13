@@ -137,7 +137,7 @@ Scope: E05.12/E05.16 and accurate CD diagnostics. Requirements FR-031–FR-033, 
 - [X] T049 Перенести прежние lint/compile перед pytest в `.github/workflows/release-full.yml` и закрепить порядок в `scripts/validate-full-ci-workflow.py`; сохранить состав и authoritative evidence. (Issue #6982)
 - [X] T050 Исключить повтор двух целых CI-контрактов в `infra/scripts/ci-local.sh` при смешанных изменениях; сохранить единственное обязательное исполнение и остальные файлы. (Issue #6982)
 - [X] T051 Согласовать dry-run в `infra/scripts/cd-remote.sh`, действующие инструкции `docs/agent-guidance/release-and-validation.md`, исторические пометки F211 и фрагмент `changes/unreleased/F211.yaml`. (Issue #6982)
-- [ ] T052 Проверить оба CI-контракта, validator/self-test, Bash/Ruff/actionlint и governance; выполнить review/converge, записать результаты в `specs/211-optimize-ci-cd/quickstart.md` и подготовить PR с exact-SHA GitHub fast. (Issue #6982)
+- [X] T052 Проверить оба CI-контракта, validator/self-test, Bash/Ruff/actionlint и governance; выполнить review/converge, записать результаты в `specs/211-optimize-ci-cd/quickstart.md` и подготовить PR с exact-SHA GitHub fast. (Issue #6982)
 
 
 ## Phase 14: A5 — серверные ресурсы и фикстуры
@@ -165,4 +165,22 @@ FR-038–041 / SC-019. Independent checklist + analyze + task ownership before c
 
 ## Phase 16: Convergence — deterministic native boundary fixture
 
-- [ ] T067 [FR-038] Устранить зависимость `testShortRecordingBoundaryKeepsThirtySecondsFromTheFirstFrame` от произвольного 200 ms sleep в `apps/macos/Shared/Tests/LocalRecordingWriterSystemAudioTests.swift`: синтетический источник должен подтверждать обработку порции до подачи следующей, сохранив шесть граничных случаев, настоящий код записи и все frame/status/WAV assertions. Проверить отрицательный burst-control и focused Swift, затем hosted native. Не менять рабочий лимит памяти/таймер/правило 30 секунд. (Issue #6986)
+- [X] T067 [FR-038] Устранить зависимость `testShortRecordingBoundaryKeepsThirtySecondsFromTheFirstFrame` от произвольного 200 ms sleep в `apps/macos/Shared/Tests/LocalRecordingWriterSystemAudioTests.swift`: синтетический источник должен подтверждать обработку порции до подачи следующей, сохранив шесть граничных случаев, настоящий код записи и все frame/status/WAV assertions. Проверить отрицательный burst-control и focused Swift, затем hosted native. Не менять рабочий лимит памяти/таймер/правило 30 секунд. (Issue #6986)
+
+## Phase 17: A7 — сокращение избыточных встреч в проверенных семействах
+
+FR-042 / SC-020. Requirements checklist and current owner precede code; baseline may run read-only while review proceeds.
+
+- [X] T064 Зафиксировать одинаковую исходную коллекцию/результаты 14 файлов из A7 allowlist и проверить шесть сохраняемых multi-state исключений в `specs/211-optimize-ci-cd/quickstart.md`. (Issue #6988)
+- [X] T065 Применить `create_ready_meeting` к 113 рассмотренным функциям из `apps/server/tests/{integration,unit}`; минимально изменить общий `setup_comments`, сохранив реальные processing/foreign seed в двух исключениях; не менять assertions. (Issue #6988)
+- [X] T066 Выполнить тот же набор после изменения, сравнить IDs/outcomes и время, проверить Ruff/diff/review/converge; обновить quickstart и `changes/unreleased/F211.yaml`. (Issue #6988)
+
+
+## Phase 18: A8 — локальные образы, повтор выкатки и откат
+
+FR-044–048 / SC-021; reviewer-owned image-reuse checklist and clean analyze before code. T067 is reserved for the native-fixture convergence in foundation.
+
+- [ ] T068 Переставить слои `infra/server/Dockerfile`, сохранив два targets, пакетные ресурсы и pinned dependencies/FFmpeg; доказать реальную сборку и reuse дорогих слоёв. (Issue #6989)
+- [ ] T069 Добавить минимальный `infra/scripts/release-images.py` с реальными previous IDs, двумя candidate builds, platform/source validation, сторонними refs, create-once attempts и Compose overrides; покрыть `tests/governance/test_release_images.py`. (Issue #6989)
+- [ ] T070 Подключить проверенные candidate/decision/evidence identity и images в `infra/scripts/cd-remote.sh`, `infra/scripts/cd-remote-runtime.sh`, `infra/scripts/run-production-smoke.sh`; сохранить gates и правильные candidate/previous rollback ветки без пересборки/pull. (Issue #6989)
+- [ ] T071 Проверить lifecycle/rollback/smoke отрицательные ветки и реальные образы; review/converge, quickstart, инструкции выкатки и `changes/unreleased/F211.yaml`, exact-SHA hosted проверки. (Issue #6989)

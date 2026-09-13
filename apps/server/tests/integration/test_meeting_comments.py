@@ -1,18 +1,20 @@
 """F256: real database/HTTP boundaries, using synthetic meetings only."""
 
+from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 from sqlalchemy import select
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fakes.auth_contexts import USER_ID, WORKSPACE_ID, tenant_scope
-from tests.fixtures.cabinet import seed_cabinet_meetings
+from tests.fixtures.cabinet import create_ready_meeting, seed_cabinet_meetings
 from tests.fixtures.cabinet_access import SHARED_USER_ID, add_workspace_user, auth_headers_for
 from twobrain_rec_server.db.models import MediaRevision, Meeting, MeetingShareGrant
 
 
-def setup_comments(client):
-    seeds = seed_cabinet_meetings(client)
+def setup_comments(client, *, full_seed=False):
+    seeds = (seed_cabinet_meetings(client) if full_seed
+             else SimpleNamespace(ready_id=create_ready_meeting(client)))
     add_workspace_user(client)
 
     async def revision():
@@ -1069,7 +1071,7 @@ def test_workspace_editor_grant_adds_to_individual_viewer(client):
 def test_canonical_diarization_comment_source_fence(client):
     from twobrain_rec_server.db.models import DiarizationSegment
 
-    seeds, url, body = setup_comments(client)
+    seeds, url, body = setup_comments(client, full_seed=True)
 
     async def source():
         async with client.app_state["sessionmaker"]() as db:

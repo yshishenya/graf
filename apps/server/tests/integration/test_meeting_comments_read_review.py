@@ -132,7 +132,7 @@ def test_comment_list_query_count_is_bounded_and_cursors_preserved(client):
 
 
 def test_external_author_labels_for_owner_and_read_only_invitee_rls(client):
-    seeds, url, payload = setup_comments(client)
+    seeds, url, payload = setup_comments(client, full_seed=True)
     media_id = UUID(payload["media_revision_id"])
     organization, author, external_reader, external_workspace = uuid4(), uuid4(), uuid4(), uuid4()
 

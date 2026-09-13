@@ -13,7 +13,7 @@ from sqlalchemy import delete, select
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fakes.fake_temporal import FakeTemporalClient
-from tests.fixtures.cabinet import SAFE_TRANSCRIPT_TEXT, seed_cabinet_meetings
+from tests.fixtures.cabinet import SAFE_TRANSCRIPT_TEXT, create_ready_meeting, seed_cabinet_meetings
 from tests.fixtures.cabinet_access import (
     add_workspace_user,
     audit_events,
@@ -40,47 +40,47 @@ from twobrain_rec_server.db.models import (
 
 
 def test_implicit_content_policy_is_owner_only_and_explicit_deny_stays_disabled(client) -> None:
-    seeds = seed_cabinet_meetings(client)
+    ready_id = create_ready_meeting(client)
 
     owner = client.get(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/downloads/transcript",
+        f"/api/v1/cabinet/meetings/{ready_id}/downloads/transcript",
         headers=auth_headers(),
     )
     assert owner.status_code == 200
     assert SAFE_TRANSCRIPT_TEXT in owner.text
 
     add_workspace_user(client)
-    grant_meeting_to_user(client, seeds.ready_id)
+    grant_meeting_to_user(client, ready_id)
     shared = client.get(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/downloads/transcript",
+        f"/api/v1/cabinet/meetings/{ready_id}/downloads/transcript",
         headers=auth_headers_for(),
     )
     assert shared.status_code == 409
 
     set_artifact_policy(
         client,
-        seeds.ready_id,
+        ready_id,
         transcript_download="disabled",
         policy_source="meeting_override",
     )
     denied = client.get(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/downloads/transcript",
+        f"/api/v1/cabinet/meetings/{ready_id}/downloads/transcript",
         headers=auth_headers(),
     )
     assert denied.status_code == 409
 
 
 def test_capability_is_metadata_only_and_separates_transcript_summary_combined(client) -> None:
-    seeds = seed_cabinet_meetings(client)
+    ready_id = create_ready_meeting(client)
     set_artifact_policy(
         client,
-        seeds.ready_id,
+        ready_id,
         transcript_download="allowed",
         summary_download="allowed",
     )
 
     response = client.get(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+        f"/api/v1/cabinet/meetings/{ready_id}/content-exports",
         headers=auth_headers(),
     )
 
@@ -104,11 +104,11 @@ def test_capability_is_metadata_only_and_separates_transcript_summary_combined(c
 
 
 def test_implicit_summary_policy_allows_owner_server_mediated_export(client) -> None:
-    seeds = seed_cabinet_meetings(client)
-    outcome_set_id = asyncio.run(_seed_stored_summary(client, seeds.ready_id))
+    ready_id = create_ready_meeting(client)
+    outcome_set_id = asyncio.run(_seed_stored_summary(client, ready_id))
 
     capability = client.get(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+        f"/api/v1/cabinet/meetings/{ready_id}/content-exports",
         headers=auth_headers(),
     )
     assert capability.status_code == 200
@@ -117,7 +117,7 @@ def test_implicit_summary_policy_allows_owner_server_mediated_export(client) -> 
     assert payload["outcome_set_id"] == str(outcome_set_id)
 
     exported = client.post(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+        f"/api/v1/cabinet/meetings/{ready_id}/content-exports",
         headers=auth_headers(),
         json={
             "content_scope": "summary",
@@ -130,14 +130,14 @@ def test_implicit_summary_policy_allows_owner_server_mediated_export(client) -> 
 
 
 def test_unaccepted_candidate_never_replaces_the_exported_summary(client) -> None:
-    seeds = seed_cabinet_meetings(client)
-    accepted_id = asyncio.run(_seed_stored_summary(client, seeds.ready_id))
+    ready_id = create_ready_meeting(client)
+    accepted_id = asyncio.run(_seed_stored_summary(client, ready_id))
 
     async def seed_candidate() -> None:
         async with client.app_state["sessionmaker"]() as db:
-            meeting = await db.get(Meeting, seeds.ready_id)
+            meeting = await db.get(Meeting, ready_id)
             result = await db.scalar(
-                select(ProcessingResult).where(ProcessingResult.meeting_id == seeds.ready_id)
+                select(ProcessingResult).where(ProcessingResult.meeting_id == ready_id)
             )
             assert meeting is not None and result is not None
             candidate = MeetingOutcomeSet(
@@ -181,11 +181,11 @@ def test_unaccepted_candidate_never_replaces_the_exported_summary(client) -> Non
 
     asyncio.run(seed_candidate())
     capability = client.get(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+        f"/api/v1/cabinet/meetings/{ready_id}/content-exports",
         headers=auth_headers(),
     ).json()
     exported = client.post(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+        f"/api/v1/cabinet/meetings/{ready_id}/content-exports",
         headers=auth_headers(),
         json={
             "content_scope": "summary",
@@ -202,10 +202,10 @@ def test_unaccepted_candidate_never_replaces_the_exported_summary(client) -> Non
 
 
 def test_authorized_transcript_formats_share_one_revision_and_safe_headers(client) -> None:
-    seeds = seed_cabinet_meetings(client)
-    set_artifact_policy(client, seeds.ready_id, transcript_download="allowed")
+    ready_id = create_ready_meeting(client)
+    set_artifact_policy(client, ready_id, transcript_download="allowed")
     capability = client.get(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+        f"/api/v1/cabinet/meetings/{ready_id}/content-exports",
         headers=auth_headers(),
     ).json()
     result_id = capability["processing_result_id"]
@@ -213,7 +213,7 @@ def test_authorized_transcript_formats_share_one_revision_and_safe_headers(clien
     responses = {}
     for format_name in ("txt", "md", "csv", "xlsx", "json", "srt", "vtt"):
         response = client.post(
-            f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+            f"/api/v1/cabinet/meetings/{ready_id}/content-exports",
             headers=auth_headers(),
             json={
                 "content_scope": "transcript",
@@ -242,7 +242,7 @@ def test_authorized_transcript_formats_share_one_revision_and_safe_headers(clien
     assert payload["provenance"]["provider_neutral"] is True
     workbook = load_workbook(io.BytesIO(responses["xlsx"].content), read_only=True)
     assert workbook.sheetnames == ["Transcript", "Summary", "Action Items", "Metadata"]
-    events = audit_events(client, seeds.ready_id)
+    events = audit_events(client, ready_id)
     assert [event.event_type for event in events] == [
         event
         for _ in range(7)
@@ -252,13 +252,13 @@ def test_authorized_transcript_formats_share_one_revision_and_safe_headers(clien
 
 
 def test_provider_only_legacy_result_stays_hidden_until_transcript_and_diarization_match(client) -> None:
-    seeds = seed_cabinet_meetings(client)
-    result_id = asyncio.run(_keep_only_provider_turns(client, seeds.ready_id))
-    set_artifact_policy(client, seeds.ready_id, transcript_download="allowed")
+    ready_id = create_ready_meeting(client)
+    result_id = asyncio.run(_keep_only_provider_turns(client, ready_id))
+    set_artifact_policy(client, ready_id, transcript_download="allowed")
 
-    page = client.get(f"/meetings/{seeds.ready_id}", headers=auth_headers())
+    page = client.get(f"/meetings/{ready_id}", headers=auth_headers())
     capability = client.get(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+        f"/api/v1/cabinet/meetings/{ready_id}/content-exports",
         headers=auth_headers(),
     )
 
@@ -269,7 +269,7 @@ def test_provider_only_legacy_result_stays_hidden_until_transcript_and_diarizati
 
     for format_name in ("txt", "md", "csv", "xlsx", "json", "srt", "vtt"):
         response = client.post(
-            f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+            f"/api/v1/cabinet/meetings/{ready_id}/content-exports",
             headers=auth_headers(),
             json={
                 "content_scope": "transcript",
@@ -281,16 +281,16 @@ def test_provider_only_legacy_result_stays_hidden_until_transcript_and_diarizati
 
 
 def test_summary_and_combined_use_current_stored_outcome_without_regeneration(client) -> None:
-    seeds = seed_cabinet_meetings(client)
+    ready_id = create_ready_meeting(client)
     set_artifact_policy(
         client,
-        seeds.ready_id,
+        ready_id,
         transcript_download="allowed",
         summary_download="allowed",
     )
-    outcome_set_id = asyncio.run(_seed_stored_summary(client, seeds.ready_id))
+    outcome_set_id = asyncio.run(_seed_stored_summary(client, ready_id))
     capability = client.get(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+        f"/api/v1/cabinet/meetings/{ready_id}/content-exports",
         headers=auth_headers(),
     ).json()
 
@@ -299,7 +299,7 @@ def test_summary_and_combined_use_current_stored_outcome_without_regeneration(cl
     assert capability["combined"]["state"] == "available"
     for scope in ("summary", "combined"):
         response = client.post(
-            f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+            f"/api/v1/cabinet/meetings/{ready_id}/content-exports",
             headers=auth_headers(),
             json={
                 "content_scope": scope,
@@ -337,18 +337,18 @@ def test_combined_policy_is_composed_fail_closed_from_component_policies(
     summary_state: str,
     combined_state: str,
 ) -> None:
-    seeds = seed_cabinet_meetings(client)
-    _ = asyncio.run(_seed_stored_summary(client, seeds.ready_id))
+    ready_id = create_ready_meeting(client)
+    _ = asyncio.run(_seed_stored_summary(client, ready_id))
     set_artifact_policy(
         client,
-        seeds.ready_id,
+        ready_id,
         transcript_download=transcript_policy,
         summary_download=summary_policy,
         package_export="allowed",
     )
 
     capability = client.get(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+        f"/api/v1/cabinet/meetings/{ready_id}/content-exports",
         headers=auth_headers(),
     ).json()
 
@@ -371,19 +371,19 @@ def test_summary_capability_preserves_stored_partial_processing_and_failed_truth
     summary_state: str,
     combined_state: str,
 ) -> None:
-    seeds = seed_cabinet_meetings(client)
+    ready_id = create_ready_meeting(client)
     set_artifact_policy(
         client,
-        seeds.ready_id,
+        ready_id,
         transcript_download="allowed",
         summary_download="allowed",
     )
     outcome_set_id = asyncio.run(
-        _seed_stored_summary(client, seeds.ready_id, status=outcome_status)
+        _seed_stored_summary(client, ready_id, status=outcome_status)
     )
 
     capability = client.get(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+        f"/api/v1/cabinet/meetings/{ready_id}/content-exports",
         headers=auth_headers(),
     )
 
@@ -397,7 +397,7 @@ def test_summary_capability_preserves_stored_partial_processing_and_failed_truth
     assert payload["combined"]["state"] == combined_state
     if outcome_status == "partial":
         exported = client.post(
-            f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+            f"/api/v1/cabinet/meetings/{ready_id}/content-exports",
             headers=auth_headers(),
             json={
                 "content_scope": "summary",
@@ -411,13 +411,13 @@ def test_summary_capability_preserves_stored_partial_processing_and_failed_truth
 
 
 def test_unsupported_scope_format_stale_revision_and_policy_fail_closed(client) -> None:
-    seeds = seed_cabinet_meetings(client)
-    set_artifact_policy(client, seeds.ready_id, transcript_download="allowed")
+    ready_id = create_ready_meeting(client)
+    set_artifact_policy(client, ready_id, transcript_download="allowed")
     capability = client.get(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+        f"/api/v1/cabinet/meetings/{ready_id}/content-exports",
         headers=auth_headers(),
     ).json()
-    path = f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports"
+    path = f"/api/v1/cabinet/meetings/{ready_id}/content-exports"
 
     incompatible = client.post(
         path,
@@ -437,7 +437,7 @@ def test_unsupported_scope_format_stale_revision_and_policy_fail_closed(client) 
             "processing_result_id": str(uuid4()),
         },
     )
-    asyncio.run(_update_transcript_policy(client, seeds.ready_id, "disabled"))
+    asyncio.run(_update_transcript_policy(client, ready_id, "disabled"))
     denied = client.post(
         path,
         headers=auth_headers(),
@@ -456,20 +456,20 @@ def test_unsupported_scope_format_stale_revision_and_policy_fail_closed(client) 
 
 
 def test_deletion_in_progress_blocks_capability_and_file_without_serialized_bytes(client) -> None:
-    seeds = seed_cabinet_meetings(client)
-    set_artifact_policy(client, seeds.ready_id, transcript_download="allowed")
+    ready_id = create_ready_meeting(client)
+    set_artifact_policy(client, ready_id, transcript_download="allowed")
     capability = client.get(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+        f"/api/v1/cabinet/meetings/{ready_id}/content-exports",
         headers=auth_headers(),
     ).json()
-    set_meeting_deletion_state(client, seeds.ready_id, "requested")
+    set_meeting_deletion_state(client, ready_id, "requested")
 
     blocked_capability = client.get(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+        f"/api/v1/cabinet/meetings/{ready_id}/content-exports",
         headers=auth_headers(),
     )
     blocked_file = client.post(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+        f"/api/v1/cabinet/meetings/{ready_id}/content-exports",
         headers=auth_headers(),
         json={
             "content_scope": "transcript",
@@ -485,15 +485,15 @@ def test_deletion_in_progress_blocks_capability_and_file_without_serialized_byte
     assert SAFE_TRANSCRIPT_TEXT not in blocked_file.text
     assert [
         (event.event_type, event.outcome, event.policy_reason)
-        for event in audit_events(client, seeds.ready_id)
+        for event in audit_events(client, ready_id)
     ] == [("content_export_denied", "denied", "meeting_deletion_active")]
 
 
 def test_deletion_started_during_render_is_rechecked_before_bytes_escape(client) -> None:
-    seeds = seed_cabinet_meetings(client)
-    set_artifact_policy(client, seeds.ready_id, transcript_download="allowed")
+    ready_id = create_ready_meeting(client)
+    set_artifact_policy(client, ready_id, transcript_download="allowed")
     capability = client.get(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+        f"/api/v1/cabinet/meetings/{ready_id}/content-exports",
         headers=auth_headers(),
     ).json()
     original_build = egress_module.build_export_snapshot
@@ -501,7 +501,7 @@ def test_deletion_started_during_render_is_rechecked_before_bytes_escape(client)
     async def build_then_start_deletion(*args, **kwargs):
         snapshot = await original_build(*args, **kwargs)
         async with client.app_state["sessionmaker"]() as db:
-            meeting = await db.get(Meeting, seeds.ready_id)
+            meeting = await db.get(Meeting, ready_id)
             assert meeting is not None
             meeting.deletion_state = "requested"
             await db.commit()
@@ -509,7 +509,7 @@ def test_deletion_started_during_render_is_rechecked_before_bytes_escape(client)
 
     with patch.object(egress_module, "build_export_snapshot", build_then_start_deletion):
         response = client.post(
-            f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+            f"/api/v1/cabinet/meetings/{ready_id}/content-exports",
             headers=auth_headers(),
             json={
                 "content_scope": "transcript",
@@ -522,17 +522,17 @@ def test_deletion_started_during_render_is_rechecked_before_bytes_escape(client)
     assert response.json()["code"] == "meeting_deletion_active"
     assert SAFE_TRANSCRIPT_TEXT not in response.text
     assert "content-disposition" not in response.headers
-    assert [event.event_type for event in audit_events(client, seeds.ready_id)] == [
+    assert [event.event_type for event in audit_events(client, ready_id)] == [
         "content_export_requested",
         "content_export_denied",
     ]
 
 
 def test_unexpected_snapshot_failure_returns_safe_generation_error_and_audits(client) -> None:
-    seeds = seed_cabinet_meetings(client)
-    set_artifact_policy(client, seeds.ready_id, transcript_download="allowed")
+    ready_id = create_ready_meeting(client)
+    set_artifact_policy(client, ready_id, transcript_download="allowed")
     capability = client.get(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+        f"/api/v1/cabinet/meetings/{ready_id}/content-exports",
         headers=auth_headers(),
     ).json()
 
@@ -541,7 +541,7 @@ def test_unexpected_snapshot_failure_returns_safe_generation_error_and_audits(cl
 
     with patch.object(egress_module, "build_export_snapshot", fail_snapshot):
         response = client.post(
-            f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+            f"/api/v1/cabinet/meetings/{ready_id}/content-exports",
             headers=auth_headers(),
             json={
                 "content_scope": "transcript",
@@ -556,7 +556,7 @@ def test_unexpected_snapshot_failure_returns_safe_generation_error_and_audits(cl
     assert "content-disposition" not in response.headers
     assert [
         (event.event_type, event.outcome, event.policy_reason)
-        for event in audit_events(client, seeds.ready_id)
+        for event in audit_events(client, ready_id)
     ] == [
         ("content_export_requested", "allowed", "policy_allowed"),
         ("content_export_failed", "failed", "export_generation_failed"),
@@ -564,20 +564,20 @@ def test_unexpected_snapshot_failure_returns_safe_generation_error_and_audits(cl
 
 
 def test_access_revoked_after_capability_read_returns_no_attachment(client) -> None:
-    seeds = seed_cabinet_meetings(client)
+    ready_id = create_ready_meeting(client)
     add_workspace_user(client)
-    set_meeting_visibility(client, seeds.ready_id, "team_visible")
-    set_artifact_policy(client, seeds.ready_id, transcript_download="allowed")
+    set_meeting_visibility(client, ready_id, "team_visible")
+    set_artifact_policy(client, ready_id, transcript_download="allowed")
     headers = auth_headers_for()
     capability = client.get(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+        f"/api/v1/cabinet/meetings/{ready_id}/content-exports",
         headers=headers,
     )
     assert capability.status_code == 200
-    set_meeting_visibility(client, seeds.ready_id, "owner_only")
+    set_meeting_visibility(client, ready_id, "owner_only")
 
     response = client.post(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+        f"/api/v1/cabinet/meetings/{ready_id}/content-exports",
         headers=headers,
         json={
             "content_scope": "transcript",
@@ -592,28 +592,28 @@ def test_access_revoked_after_capability_read_returns_no_attachment(client) -> N
 
 
 def test_owner_team_shared_and_denied_access_states_are_server_enforced(client) -> None:
-    seeds = seed_cabinet_meetings(client)
-    set_artifact_policy(client, seeds.ready_id, transcript_download="allowed")
+    ready_id = create_ready_meeting(client)
+    set_artifact_policy(client, ready_id, transcript_download="allowed")
     owner = client.get(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+        f"/api/v1/cabinet/meetings/{ready_id}/content-exports",
         headers=auth_headers(),
     )
     assert owner.status_code == 200
     assert owner.json()["transcript"]["state"] == "available"
 
     add_workspace_user(client)
-    set_meeting_visibility(client, seeds.ready_id, "team_visible")
+    set_meeting_visibility(client, ready_id, "team_visible")
     team = client.get(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+        f"/api/v1/cabinet/meetings/{ready_id}/content-exports",
         headers=auth_headers_for(),
     )
     assert team.status_code == 200
     assert team.json()["transcript"]["state"] == "available"
 
-    set_meeting_visibility(client, seeds.ready_id, "owner_only")
-    grant_meeting_to_user(client, seeds.ready_id)
+    set_meeting_visibility(client, ready_id, "owner_only")
+    grant_meeting_to_user(client, ready_id)
     shared = client.get(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+        f"/api/v1/cabinet/meetings/{ready_id}/content-exports",
         headers=auth_headers_for(),
     )
     assert shared.status_code == 200
@@ -628,20 +628,20 @@ def test_owner_team_shared_and_denied_access_states_are_server_enforced(client) 
         display_name="Denied User",
     )
     denied = client.get(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+        f"/api/v1/cabinet/meetings/{ready_id}/content-exports",
         headers=auth_headers_for(user_id=denied_user_id, device_id=denied_device_id),
     )
     assert denied.status_code == 404
 
 
 def test_access_revoked_during_render_returns_no_attachment(client) -> None:
-    seeds = seed_cabinet_meetings(client)
+    ready_id = create_ready_meeting(client)
     add_workspace_user(client)
-    set_meeting_visibility(client, seeds.ready_id, "team_visible")
-    set_artifact_policy(client, seeds.ready_id, transcript_download="allowed")
+    set_meeting_visibility(client, ready_id, "team_visible")
+    set_artifact_policy(client, ready_id, transcript_download="allowed")
     headers = auth_headers_for()
     capability = client.get(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+        f"/api/v1/cabinet/meetings/{ready_id}/content-exports",
         headers=headers,
     ).json()
     original_build = egress_module.build_export_snapshot
@@ -649,7 +649,7 @@ def test_access_revoked_during_render_returns_no_attachment(client) -> None:
     async def build_then_revoke_access(*args, **kwargs):
         snapshot = await original_build(*args, **kwargs)
         async with client.app_state["sessionmaker"]() as db:
-            meeting = await db.get(Meeting, seeds.ready_id)
+            meeting = await db.get(Meeting, ready_id)
             assert meeting is not None
             meeting.visibility = "owner_only"
             await db.commit()
@@ -657,7 +657,7 @@ def test_access_revoked_during_render_returns_no_attachment(client) -> None:
 
     with patch.object(egress_module, "build_export_snapshot", build_then_revoke_access):
         response = client.post(
-            f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+            f"/api/v1/cabinet/meetings/{ready_id}/content-exports",
             headers=headers,
             json={
                 "content_scope": "transcript",
@@ -670,29 +670,29 @@ def test_access_revoked_during_render_returns_no_attachment(client) -> None:
     assert response.json()["code"] == "meeting_not_found"
     assert SAFE_TRANSCRIPT_TEXT not in response.text
     assert "content-disposition" not in response.headers
-    assert [event.event_type for event in audit_events(client, seeds.ready_id)] == [
+    assert [event.event_type for event in audit_events(client, ready_id)] == [
         "content_export_requested",
         "content_export_denied",
     ]
 
 
 def test_policy_revoked_during_render_returns_no_attachment(client) -> None:
-    seeds = seed_cabinet_meetings(client)
-    set_artifact_policy(client, seeds.ready_id, transcript_download="allowed")
+    ready_id = create_ready_meeting(client)
+    set_artifact_policy(client, ready_id, transcript_download="allowed")
     capability = client.get(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+        f"/api/v1/cabinet/meetings/{ready_id}/content-exports",
         headers=auth_headers(),
     ).json()
     original_build = egress_module.build_export_snapshot
 
     async def build_then_revoke_policy(*args, **kwargs):
         snapshot = await original_build(*args, **kwargs)
-        await _update_transcript_policy(client, seeds.ready_id, "disabled")
+        await _update_transcript_policy(client, ready_id, "disabled")
         return snapshot
 
     with patch.object(egress_module, "build_export_snapshot", build_then_revoke_policy):
         response = client.post(
-            f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+            f"/api/v1/cabinet/meetings/{ready_id}/content-exports",
             headers=auth_headers(),
             json={
                 "content_scope": "transcript",
@@ -708,27 +708,27 @@ def test_policy_revoked_during_render_returns_no_attachment(client) -> None:
 
 
 def test_new_generation_does_not_hide_current_saved_summary(client) -> None:
-    seeds = seed_cabinet_meetings(client)
+    ready_id = create_ready_meeting(client)
     set_artifact_policy(
         client,
-        seeds.ready_id,
+        ready_id,
         transcript_download="allowed",
         summary_download="allowed",
     )
     saved_id = asyncio.run(
-        _seed_stored_summary(client, seeds.ready_id, generator_version="fixture-saved-v1")
+        _seed_stored_summary(client, ready_id, generator_version="fixture-saved-v1")
     )
     generating_id = asyncio.run(
         _seed_stored_summary(
             client,
-            seeds.ready_id,
+            ready_id,
             generator_version="fixture-generating-v2",
             status="generating",
         )
     )
 
     capability = client.get(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+        f"/api/v1/cabinet/meetings/{ready_id}/content-exports",
         headers=auth_headers(),
     ).json()
 
@@ -891,21 +891,21 @@ def test_export_capability_never_pairs_an_accepted_summary_with_a_newer_result(c
 
 
 def test_export_capability_uses_newest_media_revision_before_summary_acceptance(client) -> None:
-    seeds = seed_cabinet_meetings(client)
+    ready_id = create_ready_meeting(client)
     set_artifact_policy(
         client,
-        seeds.ready_id,
+        ready_id,
         transcript_download="allowed",
         summary_download="allowed",
     )
-    accepted_id = asyncio.run(_seed_stored_summary(client, seeds.ready_id))
+    accepted_id = asyncio.run(_seed_stored_summary(client, ready_id))
 
     async def seed_newer_revision_result() -> UUID:
         async with client.app_state["sessionmaker"]() as db:
             current = await db.scalar(
-                select(ProcessingResult).where(ProcessingResult.meeting_id == seeds.ready_id)
+                select(ProcessingResult).where(ProcessingResult.meeting_id == ready_id)
             )
-            meeting = await db.get(Meeting, seeds.ready_id)
+            meeting = await db.get(Meeting, ready_id)
             assert current is not None and meeting is not None
             current_segments = (
                 await db.scalars(
@@ -992,7 +992,7 @@ def test_export_capability_uses_newest_media_revision_before_summary_acceptance(
 
     newer_result_id = asyncio.run(seed_newer_revision_result())
     capability = client.get(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+        f"/api/v1/cabinet/meetings/{ready_id}/content-exports",
         headers=auth_headers(),
     )
 
@@ -1005,7 +1005,7 @@ def test_export_capability_uses_newest_media_revision_before_summary_acceptance(
         "reason": "stored_summary_revision_stale",
     }
     transcript_export = client.post(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+        f"/api/v1/cabinet/meetings/{ready_id}/content-exports",
         headers=auth_headers(),
         json={
             "content_scope": "transcript",
@@ -1019,14 +1019,14 @@ def test_export_capability_uses_newest_media_revision_before_summary_acceptance(
 
 
 def test_summary_without_content_hash_is_not_exportable_as_a_pinned_revision(client) -> None:
-    seeds = seed_cabinet_meetings(client)
+    ready_id = create_ready_meeting(client)
     set_artifact_policy(
         client,
-        seeds.ready_id,
+        ready_id,
         transcript_download="allowed",
         summary_download="allowed",
     )
-    outcome_id = asyncio.run(_seed_stored_summary(client, seeds.ready_id))
+    outcome_id = asyncio.run(_seed_stored_summary(client, ready_id))
 
     async def clear_content_hash() -> None:
         async with client.app_state["sessionmaker"]() as db:
@@ -1037,7 +1037,7 @@ def test_summary_without_content_hash_is_not_exportable_as_a_pinned_revision(cli
 
     asyncio.run(clear_content_hash())
     capability = client.get(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+        f"/api/v1/cabinet/meetings/{ready_id}/content-exports",
         headers=auth_headers(),
     ).json()
 
@@ -1049,10 +1049,10 @@ def test_summary_without_content_hash_is_not_exportable_as_a_pinned_revision(cli
 
 
 def test_requested_and_completion_audit_failures_return_no_attachment(client) -> None:
-    seeds = seed_cabinet_meetings(client)
-    set_artifact_policy(client, seeds.ready_id, transcript_download="allowed")
+    ready_id = create_ready_meeting(client)
+    set_artifact_policy(client, ready_id, transcript_download="allowed")
     capability = client.get(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+        f"/api/v1/cabinet/meetings/{ready_id}/content-exports",
         headers=auth_headers(),
     ).json()
     payload = {
@@ -1071,7 +1071,7 @@ def test_requested_and_completion_audit_failures_return_no_attachment(client) ->
 
     with patch.object(egress_module, "record_egress_audit_event", fail_requested):
         requested = client.post(
-            f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+            f"/api/v1/cabinet/meetings/{ready_id}/content-exports",
             headers=auth_headers(),
             json=payload,
         )
@@ -1088,7 +1088,7 @@ def test_requested_and_completion_audit_failures_return_no_attachment(client) ->
 
     with patch.object(egress_module, "record_egress_audit_event", fail_completion):
         completion = client.post(
-            f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+            f"/api/v1/cabinet/meetings/{ready_id}/content-exports",
             headers=auth_headers(),
             json=payload,
         )
@@ -1101,28 +1101,28 @@ def test_requested_and_completion_audit_failures_return_no_attachment(client) ->
 
 
 def test_newer_summary_revision_after_capability_fails_closed_without_mixed_bytes(client) -> None:
-    seeds = seed_cabinet_meetings(client)
+    ready_id = create_ready_meeting(client)
     set_artifact_policy(
         client,
-        seeds.ready_id,
+        ready_id,
         transcript_download="allowed",
         summary_download="allowed",
     )
     old_outcome_id = asyncio.run(
-        _seed_stored_summary(client, seeds.ready_id, generator_version="fixture-export-v1")
+        _seed_stored_summary(client, ready_id, generator_version="fixture-export-v1")
     )
     capability = client.get(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+        f"/api/v1/cabinet/meetings/{ready_id}/content-exports",
         headers=auth_headers(),
     ).json()
     assert capability["outcome_set_id"] == str(old_outcome_id)
     newer_outcome_id = asyncio.run(
-        _seed_stored_summary(client, seeds.ready_id, generator_version="fixture-export-v2")
+        _seed_stored_summary(client, ready_id, generator_version="fixture-export-v2")
     )
     assert newer_outcome_id != old_outcome_id
 
     response = client.post(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+        f"/api/v1/cabinet/meetings/{ready_id}/content-exports",
         headers=auth_headers(),
         json={
             "content_scope": "summary",
@@ -1136,23 +1136,23 @@ def test_newer_summary_revision_after_capability_fails_closed_without_mixed_byte
     assert response.json()["code"] == "export_revision_stale"
     assert "Сохранённый итог." not in response.text
     assert "content-disposition" not in response.headers
-    assert [event.event_type for event in audit_events(client, seeds.ready_id)] == [
+    assert [event.event_type for event in audit_events(client, ready_id)] == [
         "content_export_requested",
         "content_export_denied",
     ]
 
 
 def test_same_summary_id_with_changed_content_hash_fails_closed(client) -> None:
-    seeds = seed_cabinet_meetings(client)
+    ready_id = create_ready_meeting(client)
     set_artifact_policy(
         client,
-        seeds.ready_id,
+        ready_id,
         transcript_download="allowed",
         summary_download="allowed",
     )
-    outcome_id = asyncio.run(_seed_stored_summary(client, seeds.ready_id))
+    outcome_id = asyncio.run(_seed_stored_summary(client, ready_id))
     capability = client.get(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+        f"/api/v1/cabinet/meetings/{ready_id}/content-exports",
         headers=auth_headers(),
     ).json()
     original_build = egress_module.build_export_snapshot
@@ -1172,7 +1172,7 @@ def test_same_summary_id_with_changed_content_hash_fails_closed(client) -> None:
         build_then_replace_summary_hash,
     ):
         response = client.post(
-            f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+            f"/api/v1/cabinet/meetings/{ready_id}/content-exports",
             headers=auth_headers(),
             json={
                 "content_scope": "summary",
@@ -1189,10 +1189,10 @@ def test_same_summary_id_with_changed_content_hash_fails_closed(client) -> None:
 
 
 def test_identical_json_retry_returns_identical_revision_pinned_bytes(client) -> None:
-    seeds = seed_cabinet_meetings(client)
-    set_artifact_policy(client, seeds.ready_id, transcript_download="allowed")
+    ready_id = create_ready_meeting(client)
+    set_artifact_policy(client, ready_id, transcript_download="allowed")
     capability = client.get(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+        f"/api/v1/cabinet/meetings/{ready_id}/content-exports",
         headers=auth_headers(),
     ).json()
     payload = {
@@ -1202,12 +1202,12 @@ def test_identical_json_retry_returns_identical_revision_pinned_bytes(client) ->
     }
 
     first = client.post(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+        f"/api/v1/cabinet/meetings/{ready_id}/content-exports",
         headers=auth_headers(),
         json=payload,
     )
     second = client.post(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+        f"/api/v1/cabinet/meetings/{ready_id}/content-exports",
         headers=auth_headers(),
         json=payload,
     )
@@ -1218,18 +1218,18 @@ def test_identical_json_retry_returns_identical_revision_pinned_bytes(client) ->
 
 
 def test_summary_export_pins_persisted_default_and_survives_same_type_refresh(client) -> None:
-    seeds = seed_cabinet_meetings(client)
-    set_artifact_policy(client, seeds.ready_id, summary_download="allowed")
+    ready_id = create_ready_meeting(client)
+    set_artifact_policy(client, ready_id, summary_download="allowed")
     first_id = asyncio.run(
-        _seed_stored_summary(client, seeds.ready_id, generator_version="fixture-default-v1")
+        _seed_stored_summary(client, ready_id, generator_version="fixture-default-v1")
     )
 
     capability = client.get(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+        f"/api/v1/cabinet/meetings/{ready_id}/content-exports",
         headers=auth_headers(),
     ).json()
     first = client.post(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+        f"/api/v1/cabinet/meetings/{ready_id}/content-exports",
         headers=auth_headers(),
         json={
             "content_scope": "summary",
@@ -1242,12 +1242,12 @@ def test_summary_export_pins_persisted_default_and_survives_same_type_refresh(cl
 
     async def refresh_default() -> UUID:
         second_id = await _seed_stored_summary(
-            client, seeds.ready_id, generator_version="fixture-default-v2"
+            client, ready_id, generator_version="fixture-default-v2"
         )
         async with client.app_state["sessionmaker"]() as db:
             slot = await db.scalar(
                 select(MeetingSummarySlot).where(
-                    MeetingSummarySlot.meeting_id == seeds.ready_id,
+                    MeetingSummarySlot.meeting_id == ready_id,
                     MeetingSummarySlot.is_meeting_default.is_(True),
                 )
             )
@@ -1263,7 +1263,7 @@ def test_summary_export_pins_persisted_default_and_survives_same_type_refresh(cl
 
     # The old revision is no longer the default and cannot be exported by UUID.
     stale = client.post(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/content-exports",
+        f"/api/v1/cabinet/meetings/{ready_id}/content-exports",
         headers=auth_headers(),
         json={
             "content_scope": "summary",
@@ -1276,12 +1276,12 @@ def test_summary_export_pins_persisted_default_and_survives_same_type_refresh(cl
 
 
 def test_summary_export_package_manifest_pins_default_revision(client) -> None:
-    seeds = seed_cabinet_meetings(client)
-    asyncio.run(_seed_stored_summary(client, seeds.ready_id, generator_version="fixture-package-v1"))
-    set_artifact_policy(client, seeds.ready_id, package_export="allowed", summary_download="allowed")
+    ready_id = create_ready_meeting(client)
+    asyncio.run(_seed_stored_summary(client, ready_id, generator_version="fixture-package-v1"))
+    set_artifact_policy(client, ready_id, package_export="allowed", summary_download="allowed")
 
     created = client.post(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/exports",
+        f"/api/v1/cabinet/meetings/{ready_id}/exports",
         headers=auth_headers(),
         json={"artifact_classes": ["summary"]},
     )

@@ -75,3 +75,7 @@ The existing `scripts/validate-pr-metadata.py <body> --feature-id ... --expected
 New internal invocation: `python3 scripts/validate-pr-metadata.py --event <event.json> --current-pr <current-pr.json>`. Both files are required together and cannot be mixed with body-file options. Git runs from the checkout root. Exit 0 means the fetched open PR snapshot matches event/check-out identity and the existing metadata contract passes; nonzero means invalid inputs, identity/diff or description. No network access occurs inside the validator; the workflow fetches the current PR and fails on API errors without fallback.
 
 The additive workflow runs only PR events. It is not a required gate in A2, does not emit code/release evidence and must not replace governance-fast or qualify merge groups. Required-check activation is a later separately approved migration.
+
+## A8 local image identity extension
+
+The original remote safety contract remains in force. A8 replaces only build/retry/rollback image selection with two verified local targets and service-to-image-ID Compose overrides. It adds no registry or secret. Candidate images own downgrade and compatibility; previous images are used only in already permitted rollback branches. Failed persistence or uncertain recovery keeps the attempt blocking; successful source tests do not stand in for verified images or production gates.
