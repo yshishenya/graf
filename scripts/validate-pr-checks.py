@@ -8,10 +8,12 @@ import hashlib
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
 import sys
+import time
 import zipfile
 
 sys.dont_write_bytecode = True
@@ -52,6 +54,72 @@ def historical(pr, policy):
     return pr.get("merged") is True and utc(pr["merged_at"]) < activated
 
 
+class PendingProof(ValueError):
+    """An identified source run has not reached a terminal outcome."""
+
+
+def run_identity(repository, workflow, pr, run):
+    event = "pull_request_target" if workflow == "pr-metadata" else "pull_request"
+    require(run.get("name") == workflow and run.get("path") == f".github/workflows/{workflow}.yml"
+            and run.get("event") == event and run.get("head_sha") == pr["head"]["sha"]
+            and run.get("repository", {}).get("full_name") == repository,
+            f"{workflow}: wrong workflow/event/repository/head")
+    require(all(type(run.get(key)) is int and run[key] > 0 for key in ("id", "run_attempt")),
+            "invalid run/attempt")
+
+
+def completed(run):
+    if run.get("status") in {"queued", "in_progress", "pending", "waiting", "requested"} and run.get("conclusion") is None:
+        raise PendingProof("latest code run is still pending")
+    require(run.get("status") == "completed" and run.get("conclusion") == "success",
+            "latest code run or gate is not successful")
+
+
+def job_result(run, name, conclusion="success"):
+    matches = [job for job in run.get("jobs", []) if job.get("name") == name]
+    require(len(matches) == 1 and matches[0].get("conclusion") == conclusion,
+            f"{name}: missing, duplicate or unsuccessful job")
+
+
+def proof_identity(pr, repository, base, workflow, run, proof):
+    run_identity(repository, workflow, pr, run)
+    require(isinstance(proof, dict) and str(proof.get("run_id")) == str(run["id"])
+            and proof.get("run_attempt") == run["run_attempt"], f"{workflow}: mixed run/attempt")
+    require(proof.get("target_sha") == pr["head"]["sha"] and proof.get("base_sha") == base,
+            f"{workflow}: stale or mixed head/base")
+
+
+def scope_identity(pr, repository, base, workflow, run, proof):
+    proof_identity(pr, repository, base, workflow, run, proof)
+    require(proof.get("repository") == repository and proof.get("event_name") == "pull_request"
+            and proof.get("pull_request_numbers") == [pr["number"]]
+            and type(proof.get("text_only")) is bool and type(proof.get("native_required")) is bool
+            and re.fullmatch(r"[0-9a-f]{64}", proof.get("paths_digest", "")), "unverified text-only/native scope")
+    job_result(run, "Determine code scope" if workflow == "governance-fast" else "Determine native scope")
+
+
+def validate_source(pr, repository, base, workflow, run, proof):
+    proof_identity(pr, repository, base, workflow, run, proof)
+    completed(run)
+    job_result(run, workflow)
+    if workflow == "governance-fast":
+        require(not receipts.validate(proof), "invalid code receipt")
+        require(proof["status"] == "passed" and proof["workflow"] == workflow
+                and proof["event_name"] == "pull_request" and proof["pull_request_numbers"] == [pr["number"]]
+                and proof["workflow_url"] == f"https://github.com/{repository}/actions/runs/{run['id']}",
+                "code receipt identity mismatch")
+    else:
+        require(workflow == "macos-pr", "unknown source component")
+        scope_identity(pr, repository, base, workflow, run, proof)
+        require(proof["text_only"] is False, "text result cannot be native source proof")
+        job_result(run, "Swift build and tests", "success" if proof["native_required"] else "skipped")
+
+
+def reference(run, proof):
+    return {"run_id": str(run["id"]), "run_attempt": run["run_attempt"],
+            "proof_digest": "sha256:" + hashlib.sha256(json.dumps(proof, sort_keys=True, separators=(",", ":")).encode()).hexdigest()}
+
+
 def validate_bundle(pr, repository, policy, base, bundles):
     """Validate downloaded facts; callers obtain them from GitHub, not user files."""
     current = metadata.metadata_snapshot(pr, repository)
@@ -61,32 +129,12 @@ def validate_bundle(pr, repository, policy, base, bundles):
             "incomplete PR check set")
     refs = {}
     for workflow, (run, proof) in bundles.items():
-        require(run.get("name") == workflow and run.get("path") == f".github/workflows/{workflow}.yml"
-                and run.get("status") == "completed" and run.get("conclusion") == "success",
-                f"{workflow}: wrong workflow or unsuccessful run")
-        target_event = "pull_request_target" if workflow == "pr-metadata" else "pull_request"
-        require(run.get("event") == target_event, f"{workflow}: wrong event")
-        require(str(proof.get("run_id")) == str(run["id"])
-                and proof.get("run_attempt") == run.get("run_attempt"), f"{workflow}: mixed run/attempt")
-        require(proof.get("target_sha") == current["target_sha"] and proof.get("base_sha") == base,
-                f"{workflow}: stale or mixed head/base")
-        if workflow == "governance-fast":
-            require(not receipts.validate(proof), "invalid code receipt")
-            require(proof["status"] == "passed" and proof["workflow"] == workflow
-                    and proof["event_name"] == "pull_request"
-                    and proof["pull_request_numbers"] == [pr["number"]]
-                    and run.get("head_sha") == current["target_sha"], "code receipt identity mismatch")
-        elif workflow == "macos-pr":
-            require(proof.get("repository") == repository and proof.get("event_name") == "pull_request"
-                    and proof.get("pull_request_numbers") == [pr["number"]]
-                    and proof.get("text_only") is False and type(proof.get("native_required")) is bool
-                    and run.get("head_sha") == current["target_sha"], "invalid native scope")
-            require(re.fullmatch(r"[0-9a-f]{64}", proof.get("paths_digest", "")), "missing native diff digest")
-            jobs = {job["name"]: job.get("conclusion") for job in run.get("jobs", [])}
-            require(jobs.get("macos-pr") == "success" and jobs.get("Determine native scope") == "success"
-                    and jobs.get("Swift build and tests") == ("success" if proof["native_required"] else "skipped"),
-                    "required native execution did not pass")
+        if workflow != "pr-metadata":
+            validate_source(pr, repository, base, workflow, run, proof)
         else:
+            proof_identity(pr, repository, base, workflow, run, proof)
+            completed(run)
+            job_result(run, workflow)
             require(proof.get("result") == "pass" and proof.get("schema_version") == 1
                     and run.get("head_sha") == current["target_sha"]
                     and re.fullmatch(r"[0-9a-f]{40}", proof.get("policy_sha", "")), "untrusted metadata policy")
@@ -99,8 +147,7 @@ def validate_bundle(pr, repository, policy, base, bundles):
             else:
                 require(proof.get("merged") is False and proof.get("state") == "open"
                         and proof.get("api_base_sha") == base, "metadata was checked against another base")
-        refs[workflow] = {"run_id": str(run["id"]), "run_attempt": run["run_attempt"],
-                          "proof_digest": "sha256:" + hashlib.sha256(json.dumps(proof, sort_keys=True, separators=(",", ":")).encode()).hexdigest()}
+        refs[workflow] = reference(run, proof)
     require(not metadata._validate_diff(pr, current["target_sha"], base), "current PR description is invalid")
     return dict(schema_version=1, repository=repository, pr_number=pr["number"],
                 target_sha=current["target_sha"], base_sha=base, merge_commit_sha=current["merge_commit_sha"], policy="combined" if old else "separate",
@@ -115,13 +162,15 @@ def api(repository, endpoint, *, pages_key=None):
     return [row for page in value for row in (page[pages_key] if pages_key else page)] if pages_key is not None else value
 
 
-def artifact(repository, run, workflow):
+def artifact(repository, run, workflow, *, optional=False):
     names = {"governance-fast": "graf-governance-fast-evidence",
              "code-scope": f"graf-code-scope-{run['id']}-{run['run_attempt']}",
              "macos-pr": f"graf-native-scope-{run['id']}-{run['run_attempt']}",
              "pr-metadata": f"graf-pr-metadata-{run['id']}-{run['run_attempt']}"}
     rows = api(repository, f"actions/runs/{run['id']}/artifacts?per_page=100", pages_key="artifacts")
     matches = [row for row in rows if row.get("name") == names[workflow]]
+    if not matches and optional:
+        return None
     require(len(matches) == 1 and matches[0].get("expired") is False, f"{workflow}: missing/expired artifact")
     row = matches[0]
     require(utc(row["expires_at"]) > dt.datetime.now(dt.timezone.utc), "expired artifact timestamp")
@@ -135,7 +184,7 @@ def artifact(repository, run, workflow):
         return json.loads(archive.read(files[0]))
 
 
-def current_run(repository, workflow, pr, base):
+def workflow_runs(repository, workflow, pr):
     event = "pull_request_target" if workflow == "pr-metadata" else "pull_request"
     query = f"actions/workflows/{workflow}.yml/runs?event={event}&per_page=100"
     query += f"&head_sha={pr['head']['sha']}"
@@ -144,45 +193,109 @@ def current_run(repository, workflow, pr, base):
         numbers = [item.get("number") for item in run.get("pull_requests", [])]
         if numbers and pr["number"] not in numbers:
             continue
-        if workflow != "pr-metadata":
-            jobs = api(repository, f"actions/runs/{run['id']}/attempts/{run['run_attempt']}/jobs?per_page=100", pages_key="jobs")
-            if any(job.get("name") == workflow + "-text-change" for job in jobs):
-                continue
-            # GitHub leaves a skipped job's dynamic name unevaluated. Require
-            # its actual scope artifact instead of trusting that display text.
-            if workflow == "governance-fast" and len(jobs) == 2 and all(
-                (job.get("name") == "Determine code scope" and job.get("conclusion") == "success")
-                or (job.get("name") != "governance-fast" and job.get("conclusion") == "skipped") for job in jobs
-            ):
-                scope = artifact(repository, run, "code-scope")
-                require(run.get("status") == "completed" and run.get("conclusion") == "success"
-                        and scope.get("text_only") is True and scope.get("repository") == repository
-                        and scope.get("target_sha") == pr["head"]["sha"] and scope.get("base_sha") == base
-                        and scope.get("pull_request_numbers") == [pr["number"]]
-                        and scope.get("event_name") == "pull_request"
-                        and scope.get("run_id") == run["id"] and scope.get("run_attempt") == run["run_attempt"],
-                        "unverified text-only code skip")
-                continue
-            require(run.get("conclusion") == "success", f"{workflow}: latest code run is not successful")
-        if workflow != "pr-metadata":
-            run["jobs"] = jobs
-        require(run.get("status") == "completed" and run.get("conclusion") == "success",
-                f"{workflow}: latest attempt is not successful")
-        proof = artifact(repository, run, workflow)
-        number = proof.get("pr_number") if workflow == "pr-metadata" else next(iter(proof.get("pull_request_numbers", [])), None)
-        if number != pr["number"]:
+        run_identity(repository, workflow, pr, run)
+        run["jobs"] = api(repository, f"actions/runs/{run['id']}/attempts/{run['run_attempt']}/jobs?per_page=100", pages_key="jobs")
+        yield run
+
+
+def run_scope(repository, workflow, pr, base, run):
+    kind = "code-scope" if workflow == "governance-fast" else "macos-pr"
+    scope = artifact(repository, run, kind, optional=True)
+    if scope is not None:
+        scope_identity(pr, repository, base, workflow, run, scope)
+    return scope
+
+
+def current_run(repository, workflow, pr, base):
+    for run in workflow_runs(repository, workflow, pr):
+        scope = run_scope(repository, workflow, pr, base, run) if workflow != "pr-metadata" else None
+        if scope is not None and scope["text_only"]:
+            # The scope is already immutable; never wait for another text gate.
             continue
-        if workflow == "pr-metadata" and proof.get("target_sha") != pr["head"]["sha"]:
-            continue
-        require(proof.get("base_sha") == base, f"{workflow}: latest proof has stale base")
+        completed(run)
+        proof = scope if workflow == "macos-pr" else artifact(repository, run, workflow)
+        proof_identity(pr, repository, base, workflow, run, proof)
+        if workflow == "pr-metadata":
+            require(proof.get("pr_number") == pr["number"] and proof.get("repository") == repository,
+                    "metadata PR identity mismatch")
+        else:
+            validate_source(pr, repository, base, workflow, run, proof)
         return run, proof
     raise ValueError(f"{workflow}: no current proof")
+
+
+def current_gate(repository, workflow, pr, base):
+    for run in workflow_runs(repository, workflow, pr):
+        completed(run)
+        job_result(run, workflow)
+        scope = run_scope(repository, workflow, pr, base, run) if workflow != "pr-metadata" else None
+        if scope is not None and scope["text_only"]:
+            return run, scope
+        proof = scope if workflow == "macos-pr" else artifact(repository, run, workflow)
+        proof_identity(pr, repository, base, workflow, run, proof)
+        if workflow == "pr-metadata":
+            require(proof.get("pr_number") == pr["number"] and proof.get("repository") == repository
+                    and proof.get("result") == "pass", "metadata gate identity mismatch")
+        else:
+            validate_source(pr, repository, base, workflow, run, proof)
+        return run, proof
+    raise ValueError(f"{workflow}: no current required gate")
+
+
+def code_snapshot(pr, repository):
+    snapshot = metadata.metadata_snapshot(pr, repository)
+    require(isinstance(pr["head"].get("ref"), str) and bool(pr["head"]["ref"]), "missing PR head ref")
+    snapshot["head_ref"] = pr["head"]["ref"]
+    return {key: value for key, value in snapshot.items() if key not in {"metadata_digest", "merge_commit_sha"}}
+
+
+def reuse(repository, event, workflow, run_id, attempt, *, wait_seconds=0):
+    require(re.fullmatch(r"[\w.-]+/[\w.-]+", repository), "invalid repository")
+    require(workflow in {"governance-fast", "macos-pr"} and 0 <= wait_seconds <= 2640,
+            "invalid component/wait budget")
+    scope = module("ci-pr-scope").resolve(event, "pull_request")
+    require(scope["text_only"] is True, "reuse requires a proven title/body event")
+    number = scope["pull_request_numbers"][0]
+    pr = api(repository, f"pulls/{number}")
+    snapshot = code_snapshot(pr, repository)
+    require(pr.get("state") == "open" and pr.get("merged") is False
+            and snapshot == code_snapshot(event["pull_request"], repository)
+            and snapshot["target_sha"] == scope["target_sha"] and snapshot["api_base_sha"] == scope["base_sha"],
+            "text event differs from current PR")
+    own = api(repository, f"actions/runs/{run_id}")
+    run_identity(repository, workflow, pr, own)
+    require(own["id"] == run_id and own["run_attempt"] == attempt, "current text run/attempt mismatch")
+    own["jobs"] = api(repository, f"actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100", pages_key="jobs")
+    own_scope = run_scope(repository, workflow, pr, scope["base_sha"], own)
+    require(own_scope is not None and own_scope["text_only"] is True
+            and all(own_scope[key] == scope[key] for key in ("paths_digest", "native_required")),
+            "current run has no verified text scope")
+    deadline = time.monotonic() + wait_seconds
+    while True:
+        require(code_snapshot(api(repository, f"pulls/{number}"), repository) == snapshot, "PR changed during reuse")
+        try:
+            source = current_run(repository, workflow, pr, scope["base_sha"])
+        except PendingProof:
+            remaining = deadline - time.monotonic()
+            require(remaining > 0, "source check did not finish within reuse wait budget")
+            time.sleep(min(15, remaining))
+            continue
+        if workflow == "macos-pr":
+            require(all(source[1][key] == own_scope[key] for key in ("paths_digest", "native_required")),
+                    "native source scope differs from current diff")
+        # Recheck the source after artifact validation; the PR can stay unchanged
+        # while a new attempt invalidates the just-validated source proof.
+        require(reference(*current_run(repository, workflow, pr, scope["base_sha"])) == reference(*source),
+                "source attempt changed during reuse")
+        require(code_snapshot(api(repository, f"pulls/{number}"), repository) == snapshot, "PR changed during reuse")
+        return dict(reference(*source), workflow=workflow, target_sha=scope["target_sha"], base_sha=scope["base_sha"])
 
 
 def verify(repository, number, *, expected_sha=None, code_run_id=None):
     require(re.fullmatch(r"[\w.-]+/[\w.-]+", repository) and type(number) is int and number > 0, "invalid repository/PR")
     pr = api(repository, f"pulls/{number}")
     snapshot = metadata.metadata_snapshot(pr, repository)
+    branch_identity = code_snapshot(pr, repository)
     if expected_sha:
         require(snapshot["target_sha"] == expected_sha, "PR SHA differs from requested source")
     for sha in {snapshot["target_sha"], snapshot["api_base_sha"], snapshot["merge_commit_sha"]} - {None}:
@@ -196,10 +309,18 @@ def verify(repository, number, *, expected_sha=None, code_run_id=None):
             and utc(foundation["merged_at"]) < utc(policy["activated_at"]), "unverified policy foundation")
     workflows = ["governance-fast"] if old else ["governance-fast", "macos-pr", "pr-metadata"]
     bundles = {name: current_run(repository, name, pr, base) for name in workflows}
+    gates = {name: current_gate(repository, name, pr, base) for name in workflows}
     if code_run_id is not None:
         require(str(bundles["governance-fast"][0]["id"]) == str(code_run_id), "referenced code run is no longer current")
     result = validate_bundle(pr, repository, policy, base, bundles)
-    require(metadata.metadata_snapshot(api(repository, f"pulls/{number}"), repository) == snapshot,
+    for name in workflows:
+        require(reference(*current_run(repository, name, pr, base)) == reference(*bundles[name]),
+                f"{name}: source attempt changed during verification")
+        require(reference(*current_gate(repository, name, pr, base)) == reference(*gates[name]),
+                f"{name}: gate attempt changed during verification")
+    after = api(repository, f"pulls/{number}")
+    require(metadata.metadata_snapshot(after, repository) == snapshot
+            and code_snapshot(after, repository) == branch_identity,
             "PR changed while verifying checks")
     return result
 
@@ -261,12 +382,32 @@ def main():
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--pr", type=int)
     source.add_argument("--source-sha")
+    source.add_argument("--reuse-component", choices=("governance-fast", "macos-pr"))
+    parser.add_argument("--event", type=Path)
+    parser.add_argument("--run-id", type=int)
+    parser.add_argument("--run-attempt", type=int)
+    parser.add_argument("--wait-seconds", type=int, default=0)
     parser.add_argument("--included-prs")
     parser.add_argument("--expected-sha")
     parser.add_argument("--code-run-id")
     args = parser.parse_args()
     try:
-        if args.source_sha:
+        if args.reuse_component:
+            require(args.event is not None and args.run_id and args.run_attempt
+                    and not args.included_prs and not args.expected_sha and not args.code_run_id,
+                    "reuse needs exact event/run identity only")
+            result = reuse(args.repository, json.loads(args.event.read_text()), args.reuse_component,
+                           args.run_id, args.run_attempt, wait_seconds=args.wait_seconds)
+            if os.environ.get("GITHUB_STEP_SUMMARY"):
+                with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as output:
+                    output.write(
+                        f"Reused validated `{result['workflow']}` source proof: "
+                        f"https://github.com/{args.repository}/actions/runs/{result['run_id']} "
+                        f"(attempt {result['run_attempt']}).\n\n"
+                        f"HEAD: `{result['target_sha']}`; base: `{result['base_sha']}`. "
+                        "Product tests were not repeated for this title/body edit.\n"
+                    )
+        elif args.source_sha:
             require(not args.expected_sha and not args.code_run_id, "source and PR evidence options cannot mix")
             numbers = [int(item) for item in args.included_prs.split(",")] if args.included_prs else None
             result = verify_source(args.repository, args.source_sha, included_prs=numbers)

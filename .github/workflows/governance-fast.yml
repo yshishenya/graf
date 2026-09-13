@@ -17,6 +17,7 @@ on:
 permissions:
   contents: read
   pull-requests: read
+  actions: read
 
 jobs:
   scope:
@@ -55,12 +56,13 @@ jobs:
           retention-days: 90
 
   governance-fast:
-    name: ${{ needs.scope.outputs.text_only == 'true' && 'governance-fast-text-change' || 'governance-fast' }}
+    name: governance-fast
     needs: scope
-    if: ${{ always() && needs.scope.outputs.text_only != 'true' }}
+    if: ${{ always() }}
     concurrency:
       group: >-
         graf-governance-${{
+          needs.scope.outputs.text_only != 'false' && format('text-or-unresolved-{0}', github.run_id) ||
           github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) ||
           github.event_name == 'merge_group' && format('merge-group-{0}', github.event.merge_group.head_sha || github.sha) ||
           format('manual-{0}', inputs.requested_sha)
@@ -78,7 +80,7 @@ jobs:
           TEXT_ONLY: ${{ needs.scope.outputs.text_only }}
         run: |
           set -euo pipefail
-          [[ "$SCOPE_RESULT" == success && "$TEXT_ONLY" == false ]]
+          [[ "$SCOPE_RESULT" == success && ( "$TEXT_ONLY" == true || "$TEXT_ONLY" == false ) ]]
       - name: Checkout exact PR SHA
         uses: actions/checkout@v4
         with:
@@ -87,6 +89,7 @@ jobs:
           persist-credentials: false
 
       - name: Configure fixture git identity
+        if: needs.scope.outputs.text_only == 'false'
         shell: bash
         run: |
           set -euo pipefail
@@ -94,16 +97,19 @@ jobs:
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Install production-compatible Python
+        if: needs.scope.outputs.text_only == 'false'
         uses: actions/setup-python@v5
         with:
           python-version: "3.13"
 
       - name: Install Node for browser behavior tests
+        if: needs.scope.outputs.text_only == 'false'
         uses: actions/setup-node@v4
         with:
           node-version: "22.22.3"
 
       - name: Install frozen Spec Kit CLI and bootstrap
+        if: needs.scope.outputs.text_only == 'false'
         shell: bash
         env:
           SPECIFY_CLI_VERSION: "1.0.1"
@@ -165,7 +171,7 @@ jobs:
           [[ "${checkout_sha,,}" == "${{ steps.identity.outputs.target_sha }}" ]]
 
       - name: Verify authoritative merge-group mapping
-        if: github.event_name == 'merge_group'
+        if: github.event_name == 'merge_group' && needs.scope.outputs.text_only == 'false'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -182,6 +188,7 @@ jobs:
             | tee "$RUNNER_TEMP/graf-merge-group-verification.json"
 
       - name: Prepare browser resources only for server changes
+        if: needs.scope.outputs.text_only == 'false'
         shell: bash
         env:
           GRAF_CI_BASE_REF: ${{ steps.identity.outputs.base_sha }}
@@ -198,6 +205,7 @@ jobs:
           done <<< "$paths"
 
       - name: Run bounded fast lane
+        if: needs.scope.outputs.text_only == 'false'
         id: fast_lane
         shell: bash
         env:
@@ -211,8 +219,18 @@ jobs:
           fi
           infra/scripts/ci-local.sh --fast
 
+      - name: Verify existing code proof
+        if: needs.scope.outputs.text_only == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 -I scripts/validate-pr-checks.py --repository "$GITHUB_REPOSITORY" \
+            --reuse-component governance-fast --event "$GITHUB_EVENT_PATH" \
+            --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --wait-seconds 2640
+
       - name: Prepare terminal metadata-only evidence and identity
-        if: ${{ always() }}
+        if: ${{ always() && needs.scope.outputs.text_only == 'false' }}
         id: terminal
         shell: bash
         env:
@@ -309,7 +327,7 @@ jobs:
           PY
 
       - name: Create metadata-only CI receipt
-        if: ${{ always() }}
+        if: ${{ always() && needs.scope.outputs.text_only == 'false' }}
         id: receipt
         shell: bash
         env:
@@ -329,17 +347,17 @@ jobs:
           printf 'path=.dev/ci-evidence/receipt-%s.json\n' "$RUN_ID" >> "$GITHUB_OUTPUT"
 
       - name: Validate metadata-only evidence
-        if: ${{ always() }}
+        if: ${{ always() && needs.scope.outputs.text_only == 'false' }}
         id: validate_evidence
         run: python3 scripts/validate-ci-evidence.py "${{ steps.terminal.outputs.evidence_path }}"
 
       - name: Validate metadata-only CI receipt
-        if: ${{ always() }}
+        if: ${{ always() && needs.scope.outputs.text_only == 'false' }}
         id: validate_receipt
         run: python3 scripts/validate-ci-receipt.py "${{ steps.receipt.outputs.path }}"
 
       - name: Assert mandatory governance outcomes
-        if: ${{ always() }}
+        if: ${{ always() && needs.scope.outputs.text_only == 'false' }}
         shell: bash
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -372,7 +390,7 @@ jobs:
           fi
 
       - name: Upload metadata-only evidence
-        if: ${{ always() }}
+        if: ${{ always() && needs.scope.outputs.text_only == 'false' }}
         uses: actions/upload-artifact@v4
         with:
           name: graf-governance-fast-evidence

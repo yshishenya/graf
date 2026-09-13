@@ -95,11 +95,30 @@ def test_actual_native_terminal_shell_rejects_missing_execution(scope_result, re
 
     workflow = yaml.safe_load((ROOT / ".github/workflows/macos-pr.yml").read_text())
     final = workflow["jobs"]["result"]
-    assert "macos-pr-text-change" in final["name"]
-    assert "macos-pr'" in final["name"]
+    assert final["name"] == 'macos-pr'
     command = final["steps"][0]["run"]
     result = subprocess.run(["bash", "-c", command], text=True, capture_output=True,
                             env={**os.environ, "SCOPE_RESULT": scope_result,
                                  "NATIVE_REQUIRED": required, "NATIVE_RESULT": native_result,
                                  "TEXT_ONLY": "false"})
     assert result.returncode == code, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize('reuse_status', [0, 1])
+def test_actual_native_text_terminal_runs_verifier_instead_of_unconditional_pass(tmp_path, reuse_status):
+    import yaml
+    final = yaml.safe_load((ROOT / '.github/workflows/macos-pr.yml').read_text())['jobs']['result']
+    assert final['name'] == 'macos-pr'
+    reuse = [step for step in final['steps'] if '--reuse-component' in step.get('run', '')]
+    assert len(reuse) == 1
+    marker = tmp_path / 'called'
+    shim = tmp_path / 'python3'
+    shim.write_text('#!/bin/sh\nprintf "%s\\n" "$*" > "$REUSE_CALL"\nexit "$REUSE_STATUS"\n')
+    shim.chmod(0o755)
+    result = subprocess.run(['bash', '-c', reuse[0]['run']], capture_output=True, text=True,
+                            env={**os.environ, 'PATH':str(tmp_path)+os.pathsep+os.environ['PATH'],
+                                 'REUSE_CALL':str(marker), 'REUSE_STATUS':str(reuse_status),
+                                 'GITHUB_REPOSITORY':'owner/repo', 'GITHUB_EVENT_PATH':'event.json',
+                                 'GITHUB_RUN_ID':'25', 'GITHUB_RUN_ATTEMPT':'1'})
+    assert result.returncode == reuse_status
+    assert '--reuse-component macos-pr' in marker.read_text()

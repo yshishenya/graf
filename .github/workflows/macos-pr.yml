@@ -7,6 +7,8 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
+  actions: read
 
 jobs:
   scope:
@@ -74,11 +76,11 @@ jobs:
           swift run --package-path apps/macos ContractValidation
 
   result:
-    name: ${{ needs.scope.outputs.text_only == 'true' && 'macos-pr-text-change' || 'macos-pr' }}
+    name: macos-pr
     needs: [scope, native]
     if: always()
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 35
     steps:
       - name: Assert required native execution
         env:
@@ -90,9 +92,26 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$SCOPE_RESULT" == success ]] || exit 1
-          [[ "$TEXT_ONLY" == true ]] && exit 0
-          [[ "$TEXT_ONLY" == false ]] || exit 1
-          case "$NATIVE_REQUIRED:$NATIVE_RESULT" in
-            true:success|false:skipped) exit 0 ;;
-            *) echo "macos-pr: required execution missing or unsuccessful" >&2; exit 1 ;;
-          esac
+          if [[ "$TEXT_ONLY" == false ]]; then
+            case "$NATIVE_REQUIRED:$NATIVE_RESULT" in
+              true:success|false:skipped) exit 0 ;;
+              *) echo "macos-pr: required execution missing or unsuccessful" >&2; exit 1 ;;
+            esac
+          fi
+          [[ "$TEXT_ONLY" == true ]]
+      - name: Checkout exact PR SHA for proof validation
+        if: needs.scope.outputs.text_only == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify existing native proof
+        if: needs.scope.outputs.text_only == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 -I scripts/validate-pr-checks.py --repository "$GITHUB_REPOSITORY" \
+            --reuse-component macos-pr --event "$GITHUB_EVENT_PATH" \
+            --run-id "$GITHUB_RUN_ID" --run-attempt "$GITHUB_RUN_ATTEMPT" --wait-seconds 1980

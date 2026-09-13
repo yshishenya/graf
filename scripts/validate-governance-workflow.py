@@ -72,9 +72,11 @@ def validate(path: Path) -> list[str]:
     for invariant in (
         "scripts/ci-pr-scope.py",
         "needs: scope",
-        "if: ${{ always() && needs.scope.outputs.text_only != 'true' }}",
-        "name: ${{ needs.scope.outputs.text_only == 'true' && 'governance-fast-text-change' || 'governance-fast' }}",
-        '[[ "$SCOPE_RESULT" == success && "$TEXT_ONLY" == false ]]',
+        "name: governance-fast\n    needs: scope\n    if: ${{ always() }}",
+        "needs.scope.outputs.text_only != 'false' && format('text-or-unresolved-{0}', github.run_id)",
+        '[[ "$SCOPE_RESULT" == success && ( "$TEXT_ONLY" == true || "$TEXT_ONLY" == false ) ]]',
+        "--reuse-component governance-fast",
+        "actions: read",
         "retention-days: 90",
         "if: steps.scope.outputs.text_only == 'true'",
         "name: graf-code-scope-${{ github.run_id }}-${{ github.run_attempt }}",
@@ -105,6 +107,16 @@ def validate(path: Path) -> list[str]:
     if re.search(r"(?mi)^\s*continue-on-error:\s*true\s*$", text):
         errors.append("governance workflow must not make a gate advisory with continue-on-error")
     code_job = text.partition("\n  governance-fast:\n")[2]
+    shared = {"Require valid code scope", "Checkout exact PR SHA", "Resolve event identity", "Verify exact SHA"}
+    for step in re.split(r"(?m)^      - ", code_job)[1:]:
+        name = re.match(r"name: (.+)", step)
+        if name and name.group(1) in shared:
+            continue
+        if name and name.group(1) == "Verify existing code proof":
+            if "if: needs.scope.outputs.text_only == 'true'" not in step or "--reuse-component governance-fast" not in step:
+                errors.append("text proof must execute only for verified text scope")
+        elif "needs.scope.outputs.text_only == 'false'" not in step:
+            errors.append("heavy/evidence step must be restricted to code scope")
     validator_at = code_job.find("scripts/validate-ci-evidence.py")
     upload_at = code_job.find("actions/upload-artifact@v4")
     if validator_at >= 0 and upload_at >= 0 and validator_at > upload_at:

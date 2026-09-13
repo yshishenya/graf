@@ -62,8 +62,14 @@ and a missing merge base fail before tests; moving `origin/master` cannot change
 the selected diff. Manual dispatch retains a null event base and diagnostic
 default selection, not PR/merge-group provenance. Server lint and compile run
 once before selected server tests with the same commands and scope; a static
-failure stops before those tests. Proven title/body-only edits run a cheap scope step and trusted metadata. They
-neither enter code-job concurrency nor create a new required code/native PASS.
+failure stops before those tests. Proven title/body-only edits run a cheap scope
+step, trusted metadata and source-proof verification in the existing fixed-name
+`governance-fast` and `macos-pr` checks. They do not enter code-job concurrency,
+install test resources, repeat product tests or create new source receipts.
+The fixed-name check passes only after verifying the latest actual source
+execution for the exact PR/head/base, workflow and run attempt. A running source
+may be waited on within the job's timeout; failure, cancellation, timeout,
+missing/expired proof or an API error fails the text check without an older-success fallback.
 Retarget, empty/unknown changes and code edits retain the complete applicable checks.
 
 The required metadata check uses `pull_request_target` from the trusted `github.workflow_sha`. The validator
@@ -78,10 +84,13 @@ than today's master; closed/unmerged PRs are rejected.
 
 The required `macos-pr` checks the exact diff conservatively. Swift build,
 tests and ContractValidation run for native/API/cabinet/shared/unknown changes;
-only proven independent paths can omit native execution. A skipped required
-native job cannot pass. Proven title/body-only events use a different check
-name and never enter native execution concurrency, including when a retarget
-check is already running.
+only proven independent paths can omit native execution. If the exact scope
+requires native execution, a skipped execution fails the required check. Proven
+title/body-only events retain the `macos-pr` required name and verify the actual
+native source proof on Ubuntu. They never enter native execution concurrency,
+including when a retarget check is already running. Verified text scopes are
+excluded from source selection even while their result jobs are running, so
+text checks neither become new source proofs nor wait on each other.
 
 The three required contexts were activated on 2026-09-13 at 13:18:40 UTC,
 after foundation PR #6987 merged as `a3f5f72e994e7872ee175ebafd9f7699a2d4ffca`.
@@ -94,8 +103,13 @@ closeout evidence, use the common current-check validator:
 python3 scripts/validate-pr-checks.py --repository yshishenya/graf --pr <number>
 ```
 
-It rejects missing, expired, unsuccessful, stale or mixed-attempt proof, including
-a later failed rerun of an older run ID. A merged PR must match its actual squash
+It validates both the actual source proofs and the latest corresponding required
+gate runs, including title/body runs. Each gate needs exactly one successful job
+with its fixed required name. Source selection uses actual execution time/run ID
+and attempt, never the latest success. Before PASS, it rechecks every selected
+source and gate attempt as well as the current PR identity. It rejects missing,
+expired, unsuccessful, stale or mixed-attempt proof, including a later failed
+rerun of an older run ID. A merged PR must match its actual squash
 or linear-rebase history and final tree. Only PRs merged before the recorded
 activation use historical combined evidence; old open PRs receive no exemption.
 Release freeze/decision verifies the PR range after the latest published stable
