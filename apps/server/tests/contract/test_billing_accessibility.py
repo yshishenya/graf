@@ -56,7 +56,8 @@ def test_non_payer_billing_surfaces_keep_quota_state_without_usage_values() -> N
         for plan_code in ("personal", "free"):
             for threshold in ("normal", "approaching", "exhausted"):
                 context.update(plan_code=plan_code, plan=plan_descriptor(plan_code),
-                               processing_threshold=threshold)
+                               processing_threshold=threshold, processing_unlimited=plan_code != "free",
+                               storage_threshold="full")
                 for page in ("billing_overview_content.html", "billing_usage_content.html"):
                     html = render_template("cabinet/pages/" + page, billing_role=role,
                                            billing_owner=False, **context)
@@ -64,8 +65,24 @@ def test_non_payer_billing_surfaces_keep_quota_state_without_usage_values() -> N
                     assert ("Дождитесь сброса later" in html) == (
                         plan_code == "free" and threshold != "normal"
                     )
+                    if page == "billing_usage_content.html":
+                        assert ("Без лимита по минутам и встречам" in html) == (plan_code == "personal")
+                        assert "Архив заполнен: новое аудио не сохраняется" in html
+                        assert 'href="/meetings">Управлять архивом</a>' in html
+                        assert ("?archive_audio=false#manual-upload" in html) == (
+                            plan_code == "personal" or threshold != "exhausted"
+                        )
                     if plan_code == "free" and threshold == "exhausted":
                         assert "новая обработка, в том числе без сохранения аудио, недоступна" in html
+    for payer in (False, True):
+        unavailable = render_template(
+            "cabinet/pages/billing_usage_content.html", billing_owner=payer,
+            usage_projection_state="unavailable", **context,
+        )
+        assert "Данные использования недоступны" in unavailable
+        assert "Количественные данные хранилища временно недоступны" in unavailable
+        assert "доступны плательщику" not in unavailable and "видит плательщик" not in unavailable
+        assert all(value not in unavailable for value in values.values())
     owner = render_template("cabinet/pages/billing_overview_content.html",
                             billing_role="owner", billing_owner=True, **context)
     assert values["processing_used_label"] in owner
