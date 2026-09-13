@@ -1,5 +1,20 @@
 # Implementation Plan: Быстрый и доказуемый CI/CD
 
+## Active A4 — 2026-09-13
+
+**Lane**: high-risk CI/governance. **Branch**: `codex/211-delivery-optimization`.
+**Authority**: user requests completion of the delivery optimization program; validated implementation and the necessary delivery steps are in scope. Research for later trust/artifact changes is separate from this first code slice.
+**Constitution pre/post-design**: compatible with 7.0.0, no principle amendment. Product data, permission, release identity and deployment safety remain unchanged. No real app launch is needed for A4's runner contracts.
+
+1. Reorder the two existing lint/compile commands in `.github/workflows/release-full.yml` before `pytest -q tests/governance` and before PostgreSQL. Keep the same commands, all other commands, the shell failure boundary and authoritative aggregation. Extend the existing validator only for the new ordering invariant; prove actual workflow shell with stub commands and failures.
+2. In `infra/scripts/ci-local.sh`, remove the two infra-owned CI contract paths from `changed_server_tests` when `has_infra=1`. Reuse the existing deduplication loop; the existing `CI contracts` stage remains the sole owner, with its original failure propagation. No general cache, parser, scheduler or extra test framework.
+3. Make CD dry-run say `authoritative_full_required` without candidate and `authoritative_full_reused` for a validated candidate. Keep incident text and all execute gates. Mark nearby historical documentation as historical without rewriting recorded evidence.
+4. Add only focused regression cases to `test_ci_cd_contract.py`; use its existing runner fixture. Run both CI contract files and the affected workflow validator/self-test, Bash syntax, Ruff, actionlint and Spec Kit checks once after the slice is complete.
+5. Review/converge, record actual results, publish a reviewed PR with exact-SHA GitHub fast. No claim that this small slice reduces the 33-minute successful PostgreSQL phase; E02/E03 own that measured work.
+
+Full program work remains tracked by subsequent tasks, not silently declared complete by this slice. The current research covers resource/fixture minimization, trusted PR metadata/macOS checks, images and packaging.
+
+
 ## Active follow-up A3 / E01 — 2026-09-12
 
 **Anchor**: F211, `codex/211-behavior-test-selection`, base `ad71f2ce4db68d846d7c333213961c5f5f7d5e89` (current master verified by GitHub). A1/A2 merged in #6851; #6845/#6850 closed. Historical text below is preserved as evidence, not current status.
@@ -181,3 +196,30 @@ CHANGELOG.md
 ## Complexity Tracking
 
 No constitution violations or new architectural layers require justification.
+
+
+## A5 implementation design
+
+Constitution 7.0.0 PASS: test infrastructure only; real RLS, transactions, deletion/privacy checks retained. Existing high-risk lane and F211 ownership. No new dependency.
+
+1. Register `postgres` from pytest fixture dependency closure in existing `tests/conftest.py` (root resource fixtures `postgres_worker_database_url`, `postgres_clean_database_url`, `postgres_advisory_lock`). Run pure unit first with `-m 'not postgres and not browser'`, then resource unit with `-m 'postgres or browser' -n 4 --dist=loadfile`; preserve ordinary/performance/strict Full. Explicit marker covers future tests creating their own DB. Mark all three current skipped Playwright scenarios browser and fail before test execution if browser dependencies are missing; prepare pinned Playwright/Chromium in both hosted jobs, reuse one package-lock under tests/browser. Pure never needs Docker or browser installation. Remove account-close module skip; DB fixtures already fail closed. Inventory current collection and ensure the union and disjointness.
+2. Move argument validation before Docker in the existing PostgreSQL runner. Explicit help and collection-only exit through prepared pytest before resource startup. One `--collect-only` is inventory, never release evidence. Keep generated names, loopback ports, cleanup, worker/role safeguards.
+3. Rename existing `_create_ready_meeting` to public `create_ready_meeting`, retaining its original behavior and defaults. Replace only inspected single-ready families with that existing helper; keep list/foreign/multi-state cases unchanged. Measure before/after via same isolated runner and exact selected node IDs.
+4. Pin Python 3.13 via server `.python-version` and hosted env/Node setup. Use frozen resolution. Add optional metadata-only JSONL directory to existing runner, unique file per phase. Existing pytest hooks write only relative file, hashed node ID, when/outcome/duration in controller; workers do not write reports. Never serialize longrepr, properties, output or SQL. Upload only that report directory. Assert actual collection union is nonempty and disjoint before Full.
+5. Tests before implementation, focused DB acceptance, targeted runner/governance checks and review/converge. Final hosted Full on the final frozen candidate provides full regression coverage once; no repeated local Full after every edit.
+
+A5 report identity: upload `graf-test-timings-<requested_sha>-<run_id>-<run_attempt>` from RUNNER_TEMP, with unique `<phase>.jsonl` names. Existing authoritative evidence continues to identify the same requested SHA/run/attempt. The reports never claim independent PASS. Collection can run once before Docker; pytest emits the actual marker-based phase inventory and the runner checks its nonempty disjoint union before execution, replacing repeated collection of the same suite.
+
+
+## A6 implementation design
+
+High-risk CI/governance; constitution 7.0.0 PASS, read-only permissions and existing owner trust retained. Research confirms native merge queue/required workflows unavailable for the personal repository; no migration or external service.
+
+1. Reuse `ci-event-identity.py` in a small `scripts/ci-pr-scope.py`: validate exact head/base and NUL Git diff, classify only exact title/body edits as text-only, conservative native scope otherwise. Pure documentation means Markdown notes/specs/changelog and owned changelog fragments. Independent server modules can skip native, while API/cabinet/shared/unknown/native paths require it. Explicit reasons are outputs. Failure of scope causes a failed required final check.
+2. Add `.github/workflows/macos-pr.yml`: scope on Ubuntu; conditional macos-14 Swift 6.0.3 build/tests/ContractValidation; unconditional result assertion. Text edits get distinct non-required display names and concurrency; a skipped native job alone never authorizes merge. Existing local/Full Swift runner reused. No application installation or manual app launch.
+3. Extend existing metadata validator with explicit trusted-policy SHA and optional second current snapshot/result output. Keep legacy event CLI requiring PR checkout. Trusted mode verifies checkout=policy SHA, repository identity, exact Git object availability and before/after snapshots, then reuses current title/body validation. Target workflow checks out `github.workflow_sha`, fetches only exact SHA Git objects (no PR code checkout), uses `python3 -I`, read-only GitHub token only for API, safe metadata artifact tied to run/attempt/head/base/policy/hash.
+4. First publication retains combined governance-fast metadata execution. After the foundation merge, verify trusted target checks on the cutover PR, add `pr-metadata` and `macos-pr` to required GitHub contexts without removing governance-fast, read back strict/app IDs. Only then cut over governance-fast: scope's exact text-only events use another display name and skip expensive steps/receipts; genuine code events retain current receipt v1 and tests. Separate text concurrency never cancels code/native. This avoids replacing old code PASS with skipped required job.
+5. Extend existing closeout/release consumers through one reusable live PR check validator. Pin the foundation commit as the historical policy boundary after it exists; do not invent its SHA. New PRs require correct workflow/event/head/conclusion for all three checks and fresh current body validation. Historical pre-cutover evidence remains valid; post-merge identity uses final head and merge ancestry. The current personal-repo train remains serial; no unsupported live merge-group claim.
+6. Verify with existing metadata/event/workflow/closeout/train tests and executable shell/event fixtures. Use no new runtime dependency. Record actual activation and final-SHA hosted checks separately from local proofs; update active guidance and owned changelog only after the switch.
+
+A6 consumer implementation details: one `.github/pr-check-policy.json` records the actual foundation SHA/PR and successful protection read-back UTC timestamp. Policy selection uses merged_at < activation only for already merged PRs; open PRs never qualify for the historical exemption. New policy requires code receipt + native scope + metadata snapshot at common head/base and correct run/attempt; current API base for open PRs, exact squash parent or linear rebase-range predecessor plus equal final trees for merged PRs. Trusted metadata refresh also supports verified merged closed PRs and derives the checked base from their immutable merge, retaining double snapshot checks; closed/unmerged is rejected. No missing artifact or ambiguous merge falls back to old policy. Consumers use existing Git/GitHub data and validators; no new external service.

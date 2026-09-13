@@ -1,0 +1,98 @@
+name: macos-pr
+
+on:
+  pull_request:
+    branches: [master]
+    types: [opened, synchronize, reopened, ready_for_review, edited]
+
+permissions:
+  contents: read
+
+jobs:
+  scope:
+    name: Determine native scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      native_required: ${{ steps.scope.outputs.native_required }}
+      text_only: ${{ steps.scope.outputs.text_only }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Resolve exact scope
+        id: scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci-pr-scope.py "$GITHUB_EVENT_PATH" --event-name pull_request \
+            --result "$RUNNER_TEMP/native-scope.json" > /dev/null
+          python3 - "$RUNNER_TEMP/native-scope.json" "$GITHUB_OUTPUT" <<'PY'
+          import json, pathlib, sys
+          value = json.loads(pathlib.Path(sys.argv[1]).read_text())
+          with open(sys.argv[2], "a") as output:
+              for key in ("native_required", "text_only"):
+                  output.write(f"{key}={str(value[key]).lower()}\n")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: graf-native-scope-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/native-scope.json
+          if-no-files-found: error
+          retention-days: 90
+
+  native:
+    name: Swift build and tests
+    needs: scope
+    if: needs.scope.outputs.native_required == 'true' && needs.scope.outputs.text_only == 'false'
+    concurrency:
+      # Only a real code/base check can cancel another native execution.
+      group: graf-macos-code-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: swift-actions/setup-swift@7ca6abe6b3b0e8b5421b88be48feee39cbf52c6a
+        with:
+          swift-version: "6.0.3"
+      - name: Build and validate native contracts
+        shell: bash
+        env:
+          REQUESTED_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$(git rev-parse HEAD)" == "$REQUESTED_SHA" ]]
+          swift build --package-path apps/macos
+          bash apps/macos/Scripts/run-swift-tests.sh
+          swift run --package-path apps/macos ContractValidation
+
+  result:
+    name: ${{ needs.scope.outputs.text_only == 'true' && 'macos-pr-text-change' || 'macos-pr' }}
+    needs: [scope, native]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Assert required native execution
+        env:
+          SCOPE_RESULT: ${{ needs.scope.result }}
+          NATIVE_REQUIRED: ${{ needs.scope.outputs.native_required }}
+          NATIVE_RESULT: ${{ needs.native.result }}
+          TEXT_ONLY: ${{ needs.scope.outputs.text_only }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$SCOPE_RESULT" == success ]] || exit 1
+          [[ "$TEXT_ONLY" == true ]] && exit 0
+          [[ "$TEXT_ONLY" == false ]] || exit 1
+          case "$NATIVE_REQUIRED:$NATIVE_RESULT" in
+            true:success|false:skipped) exit 0 ;;
+            *) echo "macos-pr: required execution missing or unsuccessful" >&2; exit 1 ;;
+          esac

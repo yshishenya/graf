@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, patch
 from uuid import UUID, uuid4
@@ -34,11 +33,6 @@ from twobrain_rec_server.db.models import (
     WorkspaceSubscription,
 )
 from twobrain_rec_server.deletion.service import fanout_account_close_deletions
-
-pytestmark = pytest.mark.skipif(
-    not os.getenv("TWOBRAIN_DATABASE_URL"),
-    reason="account-close DB lifecycle tests require TWOBRAIN_DATABASE_URL",
-)
 
 
 def test_account_close_rejects_linked_workspace_even_for_sole_owner() -> None:

@@ -92,19 +92,22 @@ final class LocalRecordingWriterSystemAudioTests: XCTestCase {
             for frameCount in [1_439_999, 1_440_000, 1_440_001] {
                 let root = makeSystemWriterRoot("thirty-seconds")
                 defer { try? FileManager.default.removeItem(at: root) }
-                let microphone = BufferedLocalRecordingSampleSource(capacity: frameCount, channelCount: 1)
-                let system = BufferedLocalRecordingSampleSource(capacity: frameCount, channelCount: 1)
+                let microphone = DrainAcknowledgedSampleSource()
+                let system = DrainAcknowledgedSampleSource()
                 let writer = makeSystemV5Writer(root: root, microphone: microphone, system: system)
                 let directory = try writer.start(sessionId: "thirty", startedAt: Date(timeIntervalSince1970: 10),
                     scopeApproval: systemScopeApproval(), permissions: systemGrantedPermissions())
                 for offset in stride(from: 0, to: frameCount, by: 240_000) {
                     let count = min(240_000, frameCount - offset)
                     let seconds = 100 + Double(offset) / 48_000
-                    microphone.append(systemBatch(samples: Array(repeating: 0, count: count), seconds: seconds))
-                    system.append(systemBatch(samples: Array(repeating: 0.2, count: count), seconds: seconds))
-                    try await Task.sleep(for: .milliseconds(200))
+                    let drained = expectation(description: "Both synthetic source chunks were processed")
+                    drained.expectedFulfillmentCount = 2
+                    microphone.append(systemBatch(samples: Array(repeating: 0, count: count), seconds: seconds), drained: drained)
+                    system.append(systemBatch(samples: Array(repeating: 0.2, count: count), seconds: seconds), drained: drained)
+                    await fulfillment(of: [drained], timeout: 10)
                 }
                 let manifest = try writer.stop(stopReason: reason)
+                XCTAssertNil(manifest.captureFailureCode)
                 let discarded = frameCount < 1_440_000
                 XCTAssertEqual(manifest.shortRecordingDiscarded == true, discarded, "frames=\(frameCount), reason=\(reason)")
                 XCTAssertEqual(manifest.status, discarded ? .blocked : .saved)
@@ -344,8 +347,8 @@ private func makeSystemWriterRoot(_ name: String) -> URL {
 
 private func makeSystemV5Writer(
     root: URL,
-    microphone: BufferedLocalRecordingSampleSource,
-    system: BufferedLocalRecordingSampleSource
+    microphone: any TimestampedLocalRecordingSampleSource,
+    system: any TimestampedLocalRecordingSampleSource
 ) -> LocalRecordingWriter {
     LocalRecordingWriter(
         store: LocalRecordingStore(rootURL: root),
@@ -353,6 +356,33 @@ private func makeSystemV5Writer(
         incomingSampleSourceFactory: { system },
         recordMicrophone: true
     )
+}
+
+/// Bound synthetic input by processing progress instead of the host's speed.
+/// The empty read follows processing of the previous batch on the writer queue.
+private final class DrainAcknowledgedSampleSource: TimestampedLocalRecordingSampleSource, @unchecked Sendable {
+    private let base = BufferedLocalRecordingSampleSource(channelCount: 1)
+    private let lock = NSLock()
+    private var drained: XCTestExpectation?
+
+    var hasTimestampedOverflow: Bool { base.hasTimestampedOverflow }
+
+    func append(_ batch: RecordingAudioBatch, drained: XCTestExpectation) {
+        lock.lock()
+        defer { lock.unlock() }
+        base.append(batch)
+        self.drained = drained
+    }
+
+    func readTimestampedBatch(maximumFrameCount: Int) -> RecordingAudioBatch? {
+        lock.lock()
+        let batch = base.readTimestampedBatch(maximumFrameCount: maximumFrameCount)
+        let completion = batch == nil ? drained : nil
+        if batch == nil { drained = nil }
+        lock.unlock()
+        completion?.fulfill()
+        return batch
+    }
 }
 
 private func systemBatch(samples: [Float], seconds: Double) -> RecordingAudioBatch {

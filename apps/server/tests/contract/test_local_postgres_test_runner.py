@@ -1,4 +1,8 @@
+import os
+import subprocess
 from pathlib import Path
+
+import pytest
 
 from tests.fixtures.postgres_test_database import (
     TEST_DATABASE_PREFIX,
@@ -79,7 +83,7 @@ def test_full_runner_keeps_strict_rls_tests_and_uses_a_bounded_parallel_lane() -
 
     assert script.count("--extra dev --extra evaluation") >= 4
     assert "GRAF_TEST_WORKERS" in script
-    assert 'workers="${GRAF_TEST_WORKERS:-8}"' in script
+    assert 'workers="${GRAF_TEST_WORKERS:-4}"' in script
     assert "GRAF_TEST_WORKERS must be an integer from 1 through 8." in script
     assert "--dist=loadfile" in script
     assert "-m \"not strict_rls and not serial_performance\"" in script
@@ -98,9 +102,9 @@ def test_full_runner_keeps_strict_rls_tests_and_uses_a_bounded_parallel_lane() -
     assert "-m strict_rls" in script
     assert "--durations=20" in script
     assert "collection_digest" in script
-    assert "awk '/^tests\\// { print }'" in script
-    assert "awk '/^tests\\// { print $1 }'" not in script
-    assert "if run_phase focused" in script
+    assert "--graf-collection-file" in script
+    assert "test phase union is missing or repeats cases" in script
+    assert "run_phase focused" in script
     assert "postgres_test_phase=%s status=fail" in script
     assert 'if [[ "$requested_mode" == "full" && "$mode" == "focused" ]]; then' in script
     assert "refusing --full with a focused pytest selection" in script
@@ -109,10 +113,11 @@ def test_full_runner_keeps_strict_rls_tests_and_uses_a_bounded_parallel_lane() -
 def test_runner_exposes_a_fast_unit_lane_without_replacing_full_coverage() -> None:
     script = RUNNER.read_text(encoding="utf-8")
 
-    assert 'requested_mode="fast"' in script
+    assert 'requested_mode="${argument#--}"' in script
     assert 'refusing --fast with a focused pytest selection' in script
-    assert 'postgres_test_mode=fast worker_count=1 suite=tests/unit' in script
-    assert 'pytest "${timing_args[@]}" -q tests/unit' in script
+    assert "not postgres and not browser" in script
+    assert "postgres or browser" in script
+    assert 'selection=(-q tests/unit)' in script
     assert 'postgres_test_result=pass mode=fast' in script
 
 
@@ -130,7 +135,27 @@ def test_local_ci_requires_an_explicit_lane_and_exposes_component_selection() ->
 def test_remote_deploy_runs_one_authoritative_full_gate() -> None:
     script = REMOTE_CD.read_text(encoding="utf-8")
 
-    assert "echo full_required" in script
+    assert "echo authoritative_full_required" in script
     assert "local_ci=full_passed" in script
     assert "infra/scripts/ci-local.sh --full" in script
     assert "ci-receipt" not in script
+
+
+@pytest.mark.parametrize(("args", "expected"), [
+    (["--help"], 0),
+    (["--fast", "--full"], 2),
+    (["--focused", "--a5-invalid-option"], 4),
+    (["--focused", "--collect-only", "-q", "tests/unit/test_account_closure.py"], 0),
+])
+def test_argument_and_collection_paths_do_not_start_docker(tmp_path, args, expected):
+    calls = tmp_path / "docker-calls"
+    docker = tmp_path / "docker"
+    docker.write_text('#!/bin/sh\nprintf called >> "$DOCKER_CALLS"\nexit 79\n')
+    docker.chmod(0o755)
+    result = subprocess.run(
+        ["bash", str(RUNNER), *args], cwd=ROOT,
+        env={**os.environ, "PATH": str(tmp_path) + os.pathsep + os.environ["PATH"], "DOCKER_CALLS": str(calls)},
+        capture_output=True, text=True, check=False,
+    )
+    assert not calls.exists(), result.stdout + result.stderr
+    assert result.returncode == expected, result.stdout + result.stderr

@@ -1,5 +1,26 @@
 # Quickstart: проверка быстрого и доказуемого CI/CD
 
+## A4 acceptance — 2026-09-13
+
+Lane: high-risk CI/governance. First slice: FR-031–FR-033. Use the prepared server environment for standalone contracts; `--confcutdir` intentionally excludes unrelated application DB fixtures for these CLI-only checks.
+
+```sh
+apps/server/.venv/bin/python -m pytest -q --confcutdir=apps/server/tests/contract apps/server/tests/contract/test_ci_cd_contract.py apps/server/tests/contract/test_local_postgres_test_runner.py
+python3 scripts/validate-full-ci-workflow.py --self-test
+python3 scripts/validate-full-ci-workflow.py
+bash -n infra/scripts/ci-local.sh
+bash -n infra/scripts/cd-remote.sh
+actionlint .github/workflows/release-full.yml
+apps/server/.venv/bin/ruff check apps/server/tests/contract/test_ci_cd_contract.py
+apps/server/.venv/bin/python -m pytest -q tests/governance/test_ci_guard.py
+python3 scripts/check_spec_kit_governance.py
+```
+
+The actual extracted workflow shell must stop before every pytest invocation on either static failure, while the successful fixture preserves the remaining sequence. Mixed changes execute each infra-owned CI contract once and retain unrelated changed tests. CD dry-run announces required/reused authoritative evidence. This fixture is not an actual release Full run; exact-SHA hosted checks and the frozen-candidate release gate remain separate.
+
+A4 local evidence: six regression failures on the previous implementation; after the changes, 108 PASS (both CI contracts plus ci_guard) in 13.04 s. Ruff, Bash syntax, actionlint, Full workflow validator and self-test PASS. Independent requirements review 8/8; analyze FR-031–033/SC-016–017 → T048–052: full coverage, no CRITICAL/HIGH/clarification gaps; canon hooks PASS, issue #6982. Code review/converge and exact-SHA PR evidence remain pending. Historical A1–A3 permissions/results below do not describe current authorization or completion.
+
+
 ## A3 / E01 — 2026-09-12
 
 Продолжение после локальной проверки: пользователь поручил довести готовый E01 до PR для включения в релиз. Коммит, публикация PR и необходимые исправления по CI/review разрешены после полученных ниже результатов. На момент начала публикации `origin/master` повторно проверен: `ad71f2ce4db68d846d7c333213961c5f5f7d5e89`. Итоговый SHA и ссылки hosted CI фиксируются в PR и внешнем журнале, чтобы запись результата не меняла проверяемый коммит. Merge, замороженный релизный Full и выпуск остаются следующими отдельными состояниями. Записи о невыданном разрешении ниже — история предыдущего локального этапа.
@@ -248,3 +269,61 @@ cd ../..
 ```
 
 Expected: documentation tests pass; active guidance agrees on local focused, required GitHub fast and authoritative GitHub full reuse. Historical evidence is unchanged.
+
+
+## A5 acceptance — 2026-09-13
+
+Environment for both fixture measurements: CPython 3.13.3, same frozen uv.lock, evaluation/dev extras, one pytest worker, same isolated PostgreSQL 17. Baseline: 27 PASS in 125.71 seconds pytest / 135 seconds runner phase. Compare only the same two test families after the fixture change.
+
+```sh
+UV_FROZEN=1 PYTHONDONTWRITEBYTECODE=1 bash apps/server/scripts/run_local_postgres_tests.sh --focused -q -p no:cacheprovider --durations=5 tests/integration/test_artifact_egress_policy.py tests/integration/test_speaker_names.py
+# Inventory must not start Docker; pure + resource IDs must be disjoint and cover unit.
+bash apps/server/scripts/run_local_postgres_tests.sh --focused --collect-only -q tests/unit
+(cd apps/server && PYTHONPATH=src .venv/bin/python -m pytest -q -m 'not postgres and not browser' tests/unit)
+# Prepare browser environment once (CI does this explicitly).
+npm ci --prefix apps/server/tests/browser
+apps/server/tests/browser/node_modules/.bin/playwright install chromium
+GRAF_NODE_MODULES="$PWD/apps/server/tests/browser/node_modules" bash apps/server/scripts/run_local_postgres_tests.sh --fast -q
+PYTHONPATH=apps/server apps/server/.venv/bin/python -m pytest -q --confcutdir=apps/server/tests/contract apps/server/tests/contract/test_local_postgres_test_runner.py tests/governance/test_test_resources.py
+```
+
+Expected: help/invalid/collect/pure succeed or reject invalid arguments without Docker calls; resource tests without safe DB fail, missing Playwright fails rather than skips. Metadata reports have no error/output/property/SQL fields and each setup/call/teardown appears once. Before/after fixtures retain all 27 cases and security assertions. Full keeps ordinary/performance/strict phases and checks nonempty disjoint union. Hosted timing and release acceptance remain separate from this local benchmark.
+
+A5 T053 executable no-Docker matrix (temporary PATH stub records calls): `--help` → exit 0; `--focused --a5-invalid-option` → nonzero argument error; `--fast --full` → nonzero conflicting modes; `--focused --collect-only -q tests/unit` → collection exit 0. Every case asserts an empty Docker-call log, not merely a successful command. The resource hook contract additionally executes a pure case through a transitive fake fixture and proves it cannot trigger a PostgreSQL fixture. Hosted report artifact name: `graf-test-timings-<requested_sha>-<run_id>-<run_attempt>`; its `<phase>.jsonl` files bind timing rows to the existing authoritative run without publishing payloads.
+
+
+A5 local results (2026-09-13): requirements review PASS 5/5 after explicit browser, safe report identity and no-Docker matrix clarifications. Analyze FR-034–037/SC-018 → T053–057: full coverage, no unresolved CRITICAL/HIGH/clarification gaps; issue #6983 and canon hooks PASS. Six new executable regressions failed before implementation and passed afterward. Combined CI/resource/workflow contracts: 121 PASS, 22.58 s. Fast unit: 1497 pure PASS (26.24 s pytest / 30 s phase), 100 resource PASS (37.46 s / 41 s), no skips. Safe reports contain exactly 4491 + 300 events (setup/call/teardown once per case). Two previously skipped contract/integration Chromium scenarios: 2 PASS, 18.01 s; unit Chromium scenario passed in the 100 resource cases. Both fixture families retain 27 PASS: 125.71 → 66.95 s pytest, 135 → 73 s phase, same Python 3.13.3/lock/single worker. This one local before/after observation is not a hosted Full benchmark. Ruff, actionlint and process checks PASS; frozen Spec Kit verification uses the checkout-pinned CLI, not global 1.0.6. Final review/converge/PR/Full remain subsequent gates.
+
+
+## A6 acceptance
+
+```sh
+apps/server/.venv/bin/python -m pytest -q tests/governance/test_pr_scope.py tests/governance/test_pr_metadata_event.py tests/governance/test_governance_workflow.py tests/governance/test_ci_event_identity.py tests/governance/test_merge_group_mapping.py tests/governance/test_validator_safety.py tests/governance/test_release_train.py
+python3 scripts/validate-governance-workflow.py --self-test
+actionlint .github/workflows/governance-fast.yml .github/workflows/pr-metadata.yml .github/workflows/macos-pr.yml
+```
+
+Before code: negative scope/snapshot/checkout cases; preserve legacy metadata CLI. After foundation merge: record its real SHA, verify fresh target/macOS checks, add all three required contexts and read back strict/app IDs before removing the old gate. In the cutover PR, demonstrate that editing only text does not start/cancel expensive code jobs or replace failed/running code checks. Retarget must still run code at the new base. Final body, source SHA and all checks must agree before merge. Closeout/freeze validate current metadata and final head/merge provenance; archived combined PRs use the explicit foundation boundary. No real merge-group acceptance is claimed while GitHub does not offer it to this personal repo.
+
+A6 negative consumer matrix includes: fresh metadata + stale code base; missing native base; different head/base between any pair; expired/mixed-attempt artifacts; old checked base that is only an ancestor of the actual merge base; merge tree differing from final PR head; invalid/nonlinear rebase shape. Historical-policy cases: foundation PR and merge before activation use combined policy; PR open at activation, old branch updated after activation, and any merge at/after activation require all three. Missing/ambiguous activation record rejects exemption. A merged PR body refresh runs only the trusted metadata validator against the exact historical merge base; an unmerged closed PR fails. Artifact names bind SHA/run/attempt, retention 90 days.
+
+
+### A6 foundation — local implementation evidence, 2026-09-13
+
+- Analyze A6: FR-038–041 / SC-019 → T058–T063, 100% coverage; no unmapped tasks, duplication, ambiguity or constitution 7.0.0 conflicts. Independent requirements checklist PASS 6/6. Issue-canon validation PASS, existing owner #6986; no activation SHA invented.
+- Scope/native regression: 9 FAIL before implementation → 9 PASS. Exact Git rename/delete/base selection, strict title/body shape and actual terminal shell reject missing/failed/cancelled native execution. Job-level native concurrency is entered only after a real code/base scope, so a title/body edit cannot cancel retarget execution either.
+- Metadata regression: 13 FAIL before implementation → PASS. Actual workflow shells check fork identity, isolated policy execution despite a replaced PR validator/sitecustomize, both API errors, changed body and malicious strings. Old local CLI remains compatible.
+- Full governance collection: 504 PASS / 16 platform skips; two newly added merge cases initially failed because the unmerged-close assertion was misplaced in the test. That test placement was corrected; all 19 trusted/merged cases PASS in 4.51 s. No product behavior changed to satisfy this test correction.
+- Final complete metadata/scope suite: 75 PASS / 12.30 s, including all corrected merge cases.
+- Final runner/CI contracts: 98 PASS / 19.02 s. Frozen Spec Kit governance, Bash syntax, Ruff, actionlint, Full validator/self-test, governance workflow validator and whitespace PASS.
+- A4/A5 and foundation T058/T059 implementation review/convergence finds no new missing implementation tasks. T052 hosted proof and T060–T063 activation/cutover/consumers remain open: source publication, exact-SHA hosted results and live protection are not inferred from local PASS.
+- Current remote master advanced by #6985 (release report and example environment only); foundation is rebased before publication. The next code check is bound to that updated base.
+
+A6 independent implementation review found and resolved two concrete cases: ignore open-PR background synthetic merge SHA changes while preserving real merged-history checks; restrict documentation scope to known directories/names, so the existing `outcomes/meeting_minutes.md` product resource still requires native checks. Both cases now have executable regression coverage.
+
+
+A6 hosted native convergence: run 34757372590 correctly failed on the unchanged short-recording boundary fixture (five assertions in one of six cases; 971 tests). The fixture feeds five seconds of audio every arbitrary 200 ms, so progress depends on runner scheduling despite the real timeline's bounded 20-second buffer. T067 replaces that timing assumption with test-source drain acknowledgment; runtime limits and all boundary assertions remain unchanged. Controlled burst and final paced execution are recorded separately. This is fixture synchronization inside FR-038 acceptance, not a change to the product's 30-second rule.
+
+T067 local evidence: the controlled no-pacing burst reproduced `source_overflow` and failed the boundary test (0.629 s); this diagnoses the fixture mechanism without claiming that the earlier hosted log reported that code. With per-source acknowledgment, `swift test --package-path apps/macos --filter LocalRecordingWriterSystemAudioTests` passed all 11 tests in 14.768 s on local Swift 6.3.3. Overflow, unbounded-source, interruption and WAV/frame checks remain active. Hosted Swift 6.0.3 on the new exact SHA remains required.
+
+Independent T067 implementation review: PASS; actual writer queue confirms append/observe before the next empty read, source lock protects acknowledgment, no coverage or Swift 6.0.3 API blockers found.

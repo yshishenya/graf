@@ -692,6 +692,12 @@ PY
     local remaining_tests=""
     while IFS= read -r path; do
       [[ -n "$path" ]] || continue
+      if [[ "$has_infra" -eq 1 ]]; then
+        case "$path" in
+          apps/server/tests/contract/test_ci_cd_contract.py|apps/server/tests/contract/test_local_postgres_test_runner.py)
+            continue ;; # The mandatory CI contracts stage owns these whole files.
+        esac
+      fi
       if [[ $'\n'"$behavior_targets"$'\n' != *$'\n'"${path#apps/server/}"$'\n'* ]]; then
         remaining_tests="${remaining_tests}${remaining_tests:+$'\n'}${path}"
       fi

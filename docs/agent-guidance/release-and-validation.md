@@ -66,27 +66,31 @@ once before selected server tests with the same commands and scope; a static
 failure stops before those tests. PR text edits still trigger the combined
 workflow; separating them requires the protected migration in Feature 211.
 
-Feature 211 A2 adds `pr-metadata`, an additional, not-yet-required PR-only
-check. It checks the latest fetched title/body against matching PR number,
-head/base/ref and checkout, without product tests or Spec Kit installation.
-Its separate concurrency cancels only older metadata runs; a five-minute job
-limit excludes queue time. API/identity/history errors fail without fallback
-to stale event text. A snapshot PASS is not atomic merge-time approval;
-failed, skipped or cancelled runs are not a metadata PASS.
+Feature 211 A6 foundation replaces the earlier advisory metadata implementation
+with `pull_request_target` from the trusted `github.workflow_sha`. The validator
+runs in isolated Python; it only reads PR Git objects and never checks out or
+executes PR code. Two API snapshots must agree on repository, PR, head/base/ref,
+state/merge identity and title/body digest. Its separate concurrency cancels only
+older metadata runs. A snapshot PASS is not atomic merge-time approval. API,
+identity, history and policy errors fail; no stale event-text fallback exists.
+Evidence contains identity/digests only and is retained for 90 days. A merged
+PR's checked base comes from its exact linear squash/rebase history, rather
+than today's master; closed/unmerged PRs are rejected.
 
-The additional check executes the proposed validator from the PR head. Its
-PASS is feedback on reviewed candidate code, not independent enforcement
-against a PR author who replaces the validator or workflow. Before required
-activation, both the workflow and policy implementation must be bound to an
-approved revision outside the PR's control, with negative tampering tests.
-Fetching only a base-branch validator from a PR-controlled workflow is not
-sufficient. A2 does not establish that trust boundary or authorize activation.
+The additional `macos-pr` checks the exact diff conservatively. Swift build,
+tests and ContractValidation run for native/API/cabinet/shared/unknown changes;
+only proven independent paths can omit native execution. A skipped required
+native job cannot pass. Proven title/body-only events use a different check
+name and never enter native execution concurrency, including when a retarget
+check is already running.
 
-The existing required `governance-fast`, edited-code reruns, merge-group path,
-receipts and release/closeout gates remain unchanged. Do not make `pr-metadata`
-required until merge-group, freshness/base-retarget, fork and closeout
-contracts pass live acceptance and the owner separately approves a verified
-required-check migration. No new user command or development stage is required.
+Foundation retains the required combined `governance-fast` and its text reruns.
+F211 T060 first verifies the new checks, adds their required contexts and reads
+back protection; T061–T063 then remove combined metadata/repeated text runs and
+update consumers with the recorded activation boundary. The personal repository
+uses serial merges: live merge queue is unavailable, and its existing diagnostic
+code path is retained. No new development command or mandatory local broad test
+stage is introduced.
 
 For an iterative macOS-only failure, manually dispatch `macos-diagnostic` on
 the exact SHA instead of rerunning `release-full`. It runs no server-full job,
@@ -141,6 +145,9 @@ Every change must record one risk/validation lane in the final response or PR.
   Full CI for the frozen candidate before `decide`; `--execute` synchronizes the
   approved SHA and verifies/reuses that immutable evidence before remote
   production actions. It must not launch a second Full CI for the same candidate.
+  Dry-run reports `local_ci=authoritative_full_required` until a validated candidate
+  is supplied, then `local_ci=authoritative_full_reused`; this is the existing
+  GitHub evidence gate, not another local test run.
 
 Do not rerun full local CI after every small edit inside a slice. Accumulate
 focused checks while developing, use required GitHub fast for PR feedback, and
