@@ -206,3 +206,10 @@ GitHub governance-fast для предшествующего SHA 3186b513ad4e41f
 GitHub governance-fast на e6d40030e124b7565831ec3b2fac3aca8a3307ad прошёл за 10m33s. Нативный CI выполнил 972 теста с одним необязательным пропуском; единственные две ошибки — измерение высоты кнопки тарифа при 200% в CabinetBillingRuntimeTests. В версии WebKit CI вычисленная величина выражена с обратным масштабом: тест снова учитывает pageZoom и сохраняет общий минимум 36 px. Изменение касается только расчёта в тесте. Локальный повтор CabinetBillingRuntimeTests прошёл без ошибок; /tmp/f264-billing-zoom-normalized.log.
 
 Для e6d40030e124b7565831ec3b2fac3aca8a3307ad штатные build/promote/smoke прошли: manifest dev-e6d40030e124, /tmp/f264-dev-{build,promote,smoke}-closure.log. Итоговый SHA и результаты повторного CI будут отражены в PR #6991.
+
+
+### Разрешение выпуска и повтор проверки
+
+Владелец разрешил быстрый выпуск в production после завершённой установленной проверки. VoiceOver остаётся отложенной проверкой владельца, не заявляется PASS. При ready-for-review повторе на a5650f868a08 нативный тест уведомлений ожидал кратковременное сообщение «Сохранено», которое может быть очищено обновлением по фокусу либо таймером. Проверка теперь ожидает подтверждение общей очереди flushAll и по-прежнему проверяет сохранённые значения в настоящем native presenter. Продуктовый код не изменён. Финальный выпуск использует штатные candidate/deploy проверки без отдельного повторного локального Full CI.
+
+Локальный повтор после замены ожидания: шесть EmbeddedCabinetNotificationSettingsBridgeTests PASS, /tmp/f264-release-notification-test.log. Apple notary profile доступен; production checkout чистый, 9cf6e1bd74e4b02d6fa46ca82f44868d0efef3e9. Подготовлен CalVer 2026.09.13.3 с F264 и уже включённой в master F211.
