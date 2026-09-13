@@ -131,7 +131,7 @@ run_phase() {
   local report_args=()
   if [[ -n "${GRAF_TEST_REPORT_DIR:-}" ]]; then
     mkdir -p "$GRAF_TEST_REPORT_DIR"
-    report_args=(--graf-report-file "$GRAF_TEST_REPORT_DIR/$phase.jsonl")
+    report_args=(-p tests.fixtures.test_resources --graf-report-file "$GRAF_TEST_REPORT_DIR/$phase.jsonl")
   fi
   if "$@" "${report_args[@]}"; then
     completed_at="$(date +%s)"
