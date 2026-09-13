@@ -6265,7 +6265,6 @@ html[data-theme="dark"] .app-shell[data-active-nav="settings"] {
 
 /* Settings share one compact heading, helper and content hierarchy. */
 [data-settings-header] { min-height: 0; }
-.settings-section__heading:has(> .cabinet-tooltip) { justify-content: flex-start; gap: 6px; }
 .settings-control-row__title:has(.cabinet-tooltip) { display: flex; align-items: center; gap: 6px; }
 .summary-template-group > .settings-section__heading { margin-bottom: 0; }
 .settings-heading-label { display: flex; align-items: center; gap: 6px; }

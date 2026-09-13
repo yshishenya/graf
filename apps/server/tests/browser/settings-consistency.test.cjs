@@ -83,6 +83,10 @@ const pages=['account','workspace','recording','summaries','integrations/calenda
   for(const [route,id] of [['recording','recording-rules-help'],['summaries','summary-default-scope'],['notifications','notification-sound-help']]){
    await page.goto(`${origin}/desktop/settings/${route}?theme=light`);
    const hint=page.locator(`#${id}`), trigger=page.locator(`[popovertarget="${id}"]`);
+   if(route==='recording'){
+    const center=el=>{const r=el.getBoundingClientRect();return r.top+r.height/2;};
+    assert(Math.abs(await trigger.evaluate(center)-await page.locator('#recording-rules-title').evaluate(center))<6,'Recording hint stays beside its heading on narrow screens');
+   }
    assert(!await hint.isVisible(),'Hint is initially collapsed');
    await trigger.focus();await hint.waitFor({state:'visible'});
    assert(await hint.evaluate(el=>{const r=el.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight;}),'Hint fits viewport');

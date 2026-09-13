@@ -27,7 +27,7 @@
       const value = values[input.name];
       if (input.type === 'checkbox') input.checked = Array.isArray(value) ? value.includes(input.value) : value;
       else if (input.type === 'radio') input.checked = input.value === value;
-      else if (input.type !== 'hidden') input.value = value;
+      else if (input.type !== 'hidden' && input.value !== String(value)) input.value = value;
       if(input.matches('[data-settings-combobox]'))input.dispatchEvent(new Event('settings:sync'));
     }
   };
