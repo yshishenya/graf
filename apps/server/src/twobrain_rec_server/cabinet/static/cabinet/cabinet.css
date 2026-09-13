@@ -6220,6 +6220,10 @@ html[data-theme="dark"] .app-shell[data-active-nav="settings"] {
 .settings-disclosure > summary { cursor: pointer; padding-block: 10px; font-weight: 500; }
 .settings-disclosure[open] > summary { margin-bottom: 12px; }
 .settings-disclosure > form + .settings-actions { margin-top: 16px; }
+.settings-disclosure > summary > h2 { display: inline; }
+.settings-confirmation-form { display: grid; gap: 8px; max-width: 640px; }
+.settings-confirmation-form > p { margin: 0 0 4px; }
+.settings-confirmation-form .settings-form-actions > input { flex: 1 1 200px; width: 200px; max-width: 100%; }
 .settings-disclosure > p, .settings-disclosure > form { margin-top: 12px; }
 .settings-page [data-recording-settings-targets] { max-height: 320px; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; padding-inline: 3px; }
 .settings-page [data-recording-settings-targets] .settings-control-row { border-top: 1px solid var(--line-soft); }

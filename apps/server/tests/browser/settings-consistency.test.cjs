@@ -106,6 +106,34 @@ const pages=['account','workspace','recording','summaries','integrations/calenda
    assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Free trial confirmation fits');
    if(process.env.SCREENSHOT_DIR)await page.screenshot({path:`${process.env.SCREENSHOT_DIR}/billing-free-dark-${width}.png`,fullPage:true});
   }
+  // Account closure is explicit and compact, including without JavaScript.
+  for(const javaScriptEnabled of [true,false]){
+   const context=await browser.newContext({javaScriptEnabled});const closePage=await context.newPage();
+   for(const width of [360,1024]){
+    await closePage.setViewportSize({width,height:812});
+    await closePage.goto(`${origin}/settings/account?theme=dark`);
+    const section=closePage.locator('.account-close-card'), disclosure=section.locator('details');
+    assert.equal(await section.locator('h2').count(),1,'One closure heading');
+    assert(!await disclosure.locator('form').isVisible(),'Confirmation starts collapsed');
+    await disclosure.locator('summary').focus();await closePage.keyboard.press('Enter');
+    const field=closePage.getByLabel('Введите «Закрыть аккаунт»',{exact:true});
+    assert(await field.isVisible(),'Phrase has a visible label');
+    assert.equal(await field.getAttribute('required'),'');
+    await field.fill('Неверная фраза');assert(!await field.evaluate(el=>el.checkValidity()));
+    await field.fill('Закрыть аккаунт');assert(await field.evaluate(el=>el.checkValidity()));
+    assert.equal(await disclosure.locator('form').getAttribute('method'),'post');
+    assert.equal(await disclosure.locator('form[data-settings-autosave]').count(),0,'Closure never autosaves');
+    assert(await closePage.getByRole('button',{name:'Закрыть через 7 дней',exact:true}).isVisible());
+    assert(await closePage.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'Closure fits narrow width');
+    if(javaScriptEnabled){
+     const hint=closePage.locator('#account-close-access');
+     await closePage.getByRole('button',{name:'Что будет с доступом и данными',exact:true}).click();
+     assert(await hint.isVisible());await closePage.keyboard.press('Escape');assert(!await hint.isVisible());
+    }
+    await disclosure.locator('summary').click();assert(!await field.isVisible());
+   }
+   await context.close();
+  }
   assert.deepEqual(errors,[]);
   console.log(`settings consistency: ${checks} page/theme/width cases, common controls, system dark, reflow, dialogs passed`);
  }finally{await browser.close();}

@@ -134,26 +134,27 @@
     </section>
 
     <section class="settings-section account-close-card" aria-labelledby="account-close-title">
-      <h2 id="account-close-title">Закрытие аккаунта</h2>
       {% if account_surface.account_close %}
-      <p role="status" aria-live="polite">Закрытие запланировано на {{ user_time_element(account_surface.account_close.finalize_at, show_zone=True) }}. Будущие списания отключены.</p>
+      <h2 id="account-close-title">Закрытие аккаунта</h2>
+      <p role="status" aria-live="polite">Аккаунт закроется {{ user_time_element(account_surface.account_close.finalize_at, show_zone=True) }}. Новые списания отключены.</p>
       {% if account_surface.account_close.can_cancel %}
-      <form action="{{ "/desktop/settings/account/close/cancel" if embedded else "/settings/account/close/cancel" }}" method="post">
+      <form action="{{ account_path }}/close/cancel" method="post">
         {{ sections.csrf_field(csrf_token) }}
-        <button class="button quiet" type="submit">Отменить запланированное закрытие</button>
+        <button class="button quiet" type="submit">Отменить закрытие</button>
       </form>
       {% endif %}
       {% else %}
-      <details class="settings-disclosure"{% if account_outcome and account_outcome.kind == 'error' %} open{% endif %}><summary>Закрыть аккаунт</summary>
-      <p class="muted">После подтверждения начнется 7-дневный период отмены. Доступ сохраняется, будущие списания отключаются.</p>
-      <p id="account-close-confirmation" class="muted">Для подтверждения введите: <strong>Закрыть аккаунт</strong>.</p>
-      <form action="{{ "/desktop/settings/account/close" if embedded else "/settings/account/close" }}" method="post">
-        {{ sections.csrf_field(csrf_token) }}
-        <label class="field-label" for="account-close-confirm">Подтверждение</label>
-        <input id="account-close-confirm" name="confirm_close" type="text" required autocomplete="off" aria-describedby="account-close-confirmation account-close-help">
-        <p id="account-close-help" class="muted">Мы не удаляем данные до окончания периода отмены.</p>
-        <button class="button quiet" type="submit">Запланировать закрытие</button>
-      </form>
+      <details class="settings-disclosure"{% if account_close_requested %} open{% endif %}>
+        <summary><h2 id="account-close-title">Закрыть аккаунт</h2></summary>
+        <form class="settings-confirmation-form" action="{{ account_path }}/close" method="post">
+          {{ sections.csrf_field(csrf_token) }}
+          <p id="account-close-help" class="muted">Закроем через 7 дней. До этого можно отменить. Новые списания отключатся. {{ ui.tooltip("account-close-access", "До закрытия доступ к аккаунту и данным сохраняется.", "Что будет с доступом и данными") }}</p>
+          <label class="field-label" for="account-close-confirm">Введите «Закрыть аккаунт»</label>
+          <div class="settings-form-actions">
+            <input id="account-close-confirm" name="confirm_close" type="text" required pattern="Закрыть аккаунт" autocomplete="off" aria-describedby="account-close-help">
+            <button class="button quiet" type="submit">Закрыть через 7 дней</button>
+          </div>
+        </form>
       </details>
       {% endif %}
     </section>

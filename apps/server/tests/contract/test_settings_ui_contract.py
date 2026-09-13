@@ -283,8 +283,9 @@ def test_settings_retire_unused_style_paths() -> None:
 def test_settings_account_close_phrase_is_described_to_confirmation_field() -> None:
     page = render_settings_page(category="account")
 
-    assert 'id="account-close-confirmation"' in page
-    assert 'aria-describedby="account-close-confirmation account-close-help"' in page
+    assert 'for="account-close-confirm">Введите «Закрыть аккаунт»</label>' in page
+    assert 'aria-describedby="account-close-help"' in page
+    assert 'id="account-close-access"' in page
 
 
 def test_calendar_settings_keeps_sidebar_content_gap_after_late_rules() -> None:
@@ -465,7 +466,7 @@ def test_product_settings_hide_new_destructive_form_and_preserve_locale() -> Non
     page = render_settings_page(category="account", account_surface=AccountSettingsSurface(profile=profile))
     assert '<select id="account-locale"' not in page
     assert 'name="locale" value="en-US"' in page
-    assert re.search(r'<details[^>]*><summary>Закрыть аккаунт</summary>.*?name="confirm_close".*?</details>', page, re.DOTALL)
+    assert re.search(r'<details[^>]*>\s*<summary><h2 id="account-close-title">Закрыть аккаунт</h2></summary>.*?name="confirm_close".*?</details>', page, re.DOTALL)
     assert 'IANA' not in page
 
 
