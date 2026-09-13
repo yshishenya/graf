@@ -81,7 +81,9 @@ def test_worker_and_clean_database_names_are_bounded_and_run_scoped(monkeypatch)
 def test_full_runner_keeps_strict_rls_tests_and_uses_a_bounded_parallel_lane() -> None:
     script = RUNNER.read_text(encoding="utf-8")
 
-    assert script.count("--extra dev --extra evaluation") >= 4
+    phase = script.split("run_phase() {", 1)[1].split("start_postgres() {", 1)[0]
+    assert 'uv run --extra dev --extra evaluation pytest "${report_args[@]}" "$@"' in phase
+    assert 'uv run --extra dev --extra evaluation pytest -c "$repo_root/apps/server/pyproject.toml" --collect-only' in script
     assert "GRAF_TEST_WORKERS" in script
     assert 'workers="${GRAF_TEST_WORKERS:-4}"' in script
     assert "GRAF_TEST_WORKERS must be an integer from 1 through 8." in script
