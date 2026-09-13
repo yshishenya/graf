@@ -9,7 +9,7 @@ from sqlalchemy import select
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fakes.auth_contexts import USER_ID
-from tests.fixtures.cabinet import seed_cabinet_meetings
+from tests.fixtures.cabinet import create_ready_meeting
 from tests.fixtures.cabinet_access import (
     add_workspace_user,
     auth_headers_for,
@@ -32,7 +32,7 @@ from twobrain_rec_server.deletion.report import BOUNDED_DELETE_COPY
 
 
 def test_owner_can_set_reload_and_clear_meeting_speaker_name(client) -> None:
-    meeting_id = seed_cabinet_meetings(client).ready_id
+    meeting_id = create_ready_meeting(client)
     stable_key = _renameable_speaker_keys(client, meeting_id, auth_headers())[0]
     path = f"/meetings/{meeting_id}/speakers/{stable_key}"
 
@@ -91,7 +91,7 @@ def test_owner_can_set_reload_and_clear_meeting_speaker_name(client) -> None:
 def test_legacy_ordinal_name_stays_unresolved_after_new_processing_result(
     client,
 ) -> None:
-    meeting_id = seed_cabinet_meetings(client).ready_id
+    meeting_id = create_ready_meeting(client)
     asyncio.run(_seed_legacy_speaker_name(client, meeting_id))
     asyncio.run(_seed_reprocessed_result(client, meeting_id))
 
@@ -120,7 +120,7 @@ def test_legacy_ordinal_name_stays_unresolved_after_new_processing_result(
 
 
 def test_legacy_ordinal_name_resolves_for_matching_current_provider_key(client) -> None:
-    meeting_id = seed_cabinet_meetings(client).ready_id
+    meeting_id = create_ready_meeting(client)
     asyncio.run(_seed_legacy_speaker_name(client, meeting_id))
 
     page = client.get(f"/meetings/{meeting_id}", headers=auth_headers())
@@ -157,7 +157,7 @@ def test_legacy_ordinal_name_resolves_for_matching_current_provider_key(client) 
 
 
 def test_viewer_cannot_rename_and_invalid_names_fail_closed(client) -> None:
-    meeting_id = seed_cabinet_meetings(client).ready_id
+    meeting_id = create_ready_meeting(client)
     set_meeting_visibility(client, meeting_id, "team")
     add_workspace_user(client)
     stable_key = _renameable_speaker_keys(client, meeting_id, auth_headers())[0]
@@ -186,7 +186,7 @@ def test_viewer_cannot_rename_and_invalid_names_fail_closed(client) -> None:
 
 
 def test_workspace_admin_can_rename_team_visible_speaker(client) -> None:
-    meeting_id = seed_cabinet_meetings(client).ready_id
+    meeting_id = create_ready_meeting(client)
     set_meeting_visibility(client, meeting_id, "team")
     add_workspace_user(client, role="admin")
     stable_key = _renameable_speaker_keys(client, meeting_id, auth_headers_for())[0]
@@ -205,7 +205,7 @@ def test_workspace_admin_can_rename_team_visible_speaker(client) -> None:
 
 
 def test_cookie_authenticated_speaker_rename_requires_session_csrf(client) -> None:
-    meeting_id = seed_cabinet_meetings(client).ready_id
+    meeting_id = create_ready_meeting(client)
     stable_key = _renameable_speaker_keys(client, meeting_id, auth_headers())[0]
     session = client.portal.call(_seed_owner_review_session, client)
     client.cookies.set(AUTH_SESSION_COOKIE_NAME, OWNER_REVIEW_TEST_TOKEN)
@@ -230,7 +230,7 @@ def test_cookie_authenticated_speaker_rename_requires_session_csrf(client) -> No
 
 
 def test_meeting_deletion_purges_speaker_name_override(client) -> None:
-    meeting_id = seed_cabinet_meetings(client).ready_id
+    meeting_id = create_ready_meeting(client)
     stable_key = _renameable_speaker_keys(client, meeting_id, auth_headers())[0]
     saved = client.post(
         f"/meetings/{meeting_id}/speakers/{stable_key}",
@@ -251,7 +251,7 @@ def test_meeting_deletion_purges_speaker_name_override(client) -> None:
 
 
 def test_unknown_provider_identity_cannot_be_renamed(client) -> None:
-    meeting_id = seed_cabinet_meetings(client).ready_id
+    meeting_id = create_ready_meeting(client)
     asyncio.run(_set_first_provider_speaker_label(client, meeting_id, "UNKNOWN"))
 
     page = client.get(f"/meetings/{meeting_id}", headers=auth_headers())

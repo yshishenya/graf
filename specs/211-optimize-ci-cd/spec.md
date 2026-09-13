@@ -4,11 +4,19 @@
 
 **Created**: 2026-08-30
 
-**Status**: A1/A2 merged through PR #6851 (`0ad486df265a2555be0284ce69119d9d68b10a4c`); issues #6845/#6850 closed, verified 2026-09-12. Active continuation: A3 / E01, behavioral test selection before PR. Implementation authorized; post-validation commit and release gates remain separate.
+**Status**: A1–A3 released; PR #6953 is included in v2026.09.13.1. Active continuation A4: finish the delivery optimization program authorized on 2026-09-13. First implementation scope: E05.12/E05.16 and accurate deploy diagnostics; later scopes retain separate reviewed tasks and release acceptance.
 
 **Input**: User description: "Упростить CI/CD, убрать повторные полные прогоны для маленьких изменений, ускорить выкладку, сохранить качество и не допускать просачивания дефектов в production; перед внедрением перепроверить процессы, документацию и фактическое поведение."
 
 ## Clarifications
+
+### Session 2026-09-13 — A4, завершение программы
+
+- Пользователь поручил довести до конца все выявленные улучшения разработки и выпуска, исключить бессмысленные повторы и сохранить качество. Продолжение включает реализацию, проверки, связанные PR и доведение принятого процесса до работающего состояния; старые ограничения отдельных A1–A3 описывают историю.
+- Уточнение по контексту: focused остаётся первым локальным шагом; обязательные проверки подтверждают точные head/base и реальный выбранный состав. Новый кандидат не наследует старый Full PASS. Сохранены доступ, PostgreSQL/RLS/гонки, backup/restore, миграции, секреты, здоровье, подписи/notarization и установленная приёмка там, где меняется приложение.
+- Первый объём A4: перенести существующие lint/compile перед серверным pytest именно в release-full, исключить повтор двух CI-контрактов между changed tests и infra tests, уточнить вывод dry-run. Изменение required checks, macOS DAG, ресурсов/фикстур, образов и упаковки проектируется отдельно до кода соответствующего этапа.
+- Дедупликация относится только к текущему запуску и полному покрытию того же файла. Результаты старого SHA, другой базы, окружения, группы или попытки не кэшируются как PASS. Ошибка единственного исполнения останавливает зависимые действия.
+- Блокирующих продуктовых вопросов для первого объёма нет. Риск: high-risk CI/governance; reviewer-owned checklist, analyze и задачи GitHub предшествуют коду. Публикационные действия следуют проверкам и действующему договору выпуска.
 
 ### Session 2026-09-12 — A3 / E01
 
@@ -188,6 +196,12 @@ Release engineer получает один авторитетный резуль
 - **FR-029 (A3)**: Неизвестные/shared/high-risk изменения MUST сохранять честное частичное покрытие и запрет скрытого fast → full. Неразрешимая явная база MUST блокировать тесты; неизвестная область при пустом focused-наборе MUST не давать ложный PASS.
 - **FR-030 (A3)**: Нынешние workflow, события, required checks, receipts, release/deploy и продуктовые исходники MUST оставаться совместимыми. Исправление MUST не обновлять закреплённые инструменты проекта и не создавать новую инфраструктуру тестирования.
 
+### A4: ранние отказы и отсутствие повторов
+
+- **FR-031 (A4)**: Авторитетный release-full MUST выполнять существующие server lint и Python compile с прежней областью до любого server pytest, включая setup тестовых БД; каждый выполняется один раз, ошибка блокирует последующие тесты и не выдаёт PASS компонента. Остальные полные проверки и итоговое свидетельство остаются обязательными.
+- **FR-032 (A4)**: При пересечении changed server tests и infra CI contracts один и тот же целый файл MUST выполняться один раз. Оба CI-контракта по-прежнему обязательны для infra; при изменении только тестового файла он выполняется в focused changed tests. Другие изменённые файлы и обязательные performance/behavior tests сохраняются.
+- **FR-033 (A4)**: Вывод cd dry-run MUST правдиво называть проверку и использование authoritative Full evidence. Отсутствие candidate означает required evidence, а не запуск локального Full. Наличие проверенного candidate означает reuse; incident bypass остаётся явно обозначенным и не расширяется.
+
 ### Key Entities
 
 - **Validation Lane**: Явно выбранный уровень проверки, его обязательный состав, причина выбора или расширения и итог.
@@ -230,3 +244,37 @@ Release engineer получает один авторитетный резуль
 
 - Classification: untouched
 - A1/A2 introduce no compatibility alias, fallback command, dependency or retained legacy runtime path. A2 retains the current required gate as the mandatory first stage of a protected migration, not as a newly introduced legacy alternative. Existing diagnostic/production boundaries remain unchanged.
+
+### A4 outcomes
+
+- **SC-016 (A4)**: Исполняемый shell полного серверного компонента доказывает порядок lint/compile перед pytest и ноль вызовов pytest при отказе каждого статического шага. Успешный путь сохраняет все команды и терминальный результат.
+- **SC-017 (A4)**: Проверки смешанного infra/changed diff доказывают по одному исполнению каждого CI-контракта и сохранение прочих файлов. Отдельный server-only diff сохраняет focused-проверку; отсутствие обязательного файла или отказ единственного infra-stage не даёт PASS. Dry-run без candidate показывает evidence-required и не запускает тесты; действующий reuse-контракт execute остаётся зелёным.
+
+
+## A5 — ресурсы и подготовка тестов (2026-09-13)
+
+Уточнение: пользователь поручил закончить всю оптимизацию. Для A5 нет открытого продуктового решения: PostgreSQL остаётся реальным и изолированным; меняется только подготовка и порядок тестов. Нельзя заменять транзакции/права заглушками ради скорости.
+
+- **FR-034**: Help, неверные аргументы и collection-only не запускают Docker. Чистый unit-набор определяется реальной зависимостью фикстур pytest от PostgreSQL; все случаи с БД сохраняются в отдельной обязательной части. Отсутствие безопасной БД — ошибка подготовки, не skip/PASS. Full сохраняет весь набор.
+- **FR-035**: В fast чистые unit-тесты выполняются перед запуском PostgreSQL, DB-часть — через прежний runner с изоляцией worker databases и максимум четырьмя процессами. Никакая часть unit не теряется и не выполняется в обеих группах; маркер выставляется по dependency closure, прямое создание ресурса требует явного маркера. Два чистых account-close теста больше не скрыты module-wide skip. Браузерные случаи имеют явный маркер browser, исключаются из pure и входят в обязательную resource-часть вместе с DB. Playwright с закреплённым lock и Chromium готовятся заранее; отсутствие среды вызывает ошибку вместо skip. Все три существующих browser skip переводятся в этот договор.
+- **FR-036**: Оптимизация Cabinet fixture создаёт только явно нужные тесту состояния. Начать с полностью проверенных artifact-egress и speaker-names, сохранить HTTP/SQL вызовы самой проверяемой операции, статусы/права/аудит и отрицательные сценарии. Общий набор пяти состояний остаётся прежним по умолчанию; косвенные callers/list/count/foreign-state сценарии не сокращаются автоматически.
+- **FR-037**: CI использует Python 3.13, frozen lock и явно подготовленный Node для JS. Безопасные JSONL-отчёты Full сохраняют только относительный путь файла, SHA-256 node ID, when, outcome и duration отдельно для setup/call/teardown по каждой фазе и доказывают отсутствие потери/повтора node IDs. Тексты ошибок, stdout/stderr, SQL/параметры и сырой JUnit не публикуются; контроллер xdist пишет каждый report один раз. Файл отдельный для каждого запуска/фазы; имя GitHub artifact связывает точный requested SHA, run_id и run_attempt с именем фазы. Это диагностическое приложение к существующему Full, не новое основание допуска релиза.
+- **SC-018**: Исполняемые проверки help/invalid/collect/pure при недоступном Docker, разделение real collection и обязательный отказ отсутствующей DB. Исходные и оптимизированные fixture-семейства проходят один состав сценариев; число HTTP подготовки сокращается с 24 до 6 на single-ready caller. Время измеряется одинаковой командой до/после, без переноса локальных чисел на hosted Full.
+
+
+## A6 — проверки PR и безопасное переключение (2026-09-13)
+
+Уточнение доверия: текущий public personal repository сохраняет доверие владельцу/admin, имеющему право менять protection и workflow. Перенос в организацию, новый GitHub App и новые credentials не нужны. Доверенный metadata-validator защищён от изменения внутри обычного PR; не заявляется защита от владельца, намеренно изменяющего всю политику. Нативная merge queue для personal repo недоступна; последовательный release train сохраняется, существующий code merge_group путь не удаляется, живая приёмка очереди не выдумывается.
+
+- **FR-038**: PR получает `macos-pr` на точном head/base. Успех означает успешный консервативный выбор области и либо реальные Swift build/tests/ContractValidation на macos-14/Swift 6.0.3, либо доказанную незатронутость macOS. Failed/missing scope, required+skipped, cancelled/neutral не разрешают merge. Изменения macOS, общего/неизвестного кода, кабинета/моста/API требуют macOS; чистые документы и явно независимые server-only paths могут его не запускать. Rename/delete рассматривают обе стороны. Кэш компиляции не заменяет вызов компилятора и тестов.
+- **FR-039**: Metadata workflow выполняется через pull_request_target из закреплённого trusted workflow SHA; код PR не checkout/исполняется, PR head/base доступны лишь как Git objects для diff. Python запускается isolated mode. Два API-снимка до/после проверки должны совпасть по repo, PR number, open state, head/base/ref, title/body hash. API/JSON/identity/policy failure закрывает проверку без возврата к старому event body. Сохранённый локальный CLI совместим. Артефакт содержит только identity/digests/status, без body/credentials.
+- **FR-040**: Только подтверждённое изменение title/body (точно известная форма changes) не запускает повтор кода/macOS, не отменяет выполняющийся code run и не создаёт новый успешный check с required code/native именем. Retarget, неизвестный/пустой changes и всякая смена кода запускают проверку. Прежний failed/running code result не заменяется skipped/зелёным текстовым результатом.
+- **FR-041**: Активация двухэтапная: сначала подготовить trusted metadata/macOS и получить checks, затем добавить required contexts к governance-fast с сохранением strict/base/linear history. Только после read-back protection убирать прежний metadata gate и дорогие text-only исполнения. Closeout и freeze новых PR проверяют полный актуальный набор и текущее описание; исторические combined PR сохраняют свою политику по явно закреплённой границе включения. После merge base сверяется с сохранённой проверкой/историей слияния, не с движущимся сегодняшним master.
+- **SC-019**: Негативные исполняемые сценарии: failed/running code + body-only edit; retarget/unknown changes; bad/missing base; native required+skipped; fork repository mismatch; PR меняет validator/sitecustomize; оба API snapshot различаются по body или head/base; ошибки API; closeout не принимает wrong workflow/event/SHA и неполный набор. Live read-back доказывает все требуемые contexts после включения. Snapshot freshness не заявляется атомарной с нажатием merge.
+
+
+A6 consumer identity clarification: all three successful results must bind to the same final PR head **and checked base**. Code uses its existing CI receipt, native uses the scope artifact, metadata uses the trusted snapshot artifact; each is tied to the verified workflow run/attempt. Missing, expired, mismatched or mixed-attempt proof fails closed. A fresh metadata result never refreshes stale code/native base evidence. For an open PR the common base must equal the live PR base. For a merged PR it must be the actual base of the merge: squash requires merge_commit first parent = checked base and merge tree = final head tree; linear rebase requires the parent before the recorded PR commit count = checked base, a linear source range of that count, and identical final trees. Mere ancestry is insufficient; unknown merge shape is blocked.
+
+A6 historical-policy clarification: record the real foundation merge SHA/PR and activation UTC time from the successful protection read-back in `.github/pr-check-policy.json` during T060/T062. A merged PR strictly before that recorded activation (including the foundation and intervening merges) uses the old combined policy. Every open PR at/after activation, and every PR merged at/after activation, uses all three checks regardless of when its branch/head was created. Missing/invalid/ambiguous activation evidence does not grant a historical exemption. The old combined gate stays until the cutover PR, so this recorded boundary cannot create a protection gap.
+
+For a legitimate metadata edit after merge, the trusted metadata workflow may refresh **merged closed** PR metadata using the immutable merge identity and the checked base derived above; a merely closed/unmerged PR is rejected. Both API snapshots must still agree on state/merged flag/merge SHA/head/base/ref and metadata hash. This cheap refresh never executes PR code or reruns product tests, and never compares historical base with today's master. Required proof artifacts use 90-day retention and names binding run/attempt, not reusable pass caches.

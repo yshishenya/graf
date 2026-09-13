@@ -16,7 +16,7 @@ from tests.fixtures.cabinet_access import add_retained_playback_m4a
 from tests.integration.test_meeting_comments import grant, setup_comments
 
 
-@pytest.mark.skipif(not os.environ.get("GRAF_NODE_MODULES"), reason="Explicit installed Playwright path required")
+@pytest.mark.browser
 def test_browser_comments_use_real_http_and_database(client):
     seeds, comments_url, _ = setup_comments(client)
     add_retained_playback_m4a(client, seeds.ready_id)

@@ -7,6 +7,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import textwrap
 import uuid
 from pathlib import Path
 
@@ -80,6 +81,9 @@ run_step() {
   fi
   if [[ "$name" == "server tests" || "$name" == "calendar performance proof" ]]; then
     printf 'server_test_gate=%s\n' "$4"
+  fi
+  if [[ "$name" == "changed server tests" || "$name" == "CI contracts" ]]; then
+    printf 'test_command=%s\n' "$*"
   fi
   if [[ "$name" == "$GRAF_TEST_FAIL_STAGE" ]]; then
     printf 'ci_stage=%s status=fail duration_seconds=0\n' "$name"
@@ -482,6 +486,86 @@ def test_changed_contract_and_integration_tests_run_focused_once() -> None:
     assert "effective=fast components=server" in result.stdout
 
 
+@pytest.mark.parametrize("infra", [False, True])
+@pytest.mark.parametrize("fail_stage", ["", "CI contracts"])
+def test_ci_contracts_have_one_owner(infra: bool, fail_stage: str) -> None:
+    contracts = ["tests/contract/test_ci_cd_contract.py", "tests/contract/test_local_postgres_test_runner.py"]
+    other = "tests/integration/test_calendar_auto_context_match.py"
+    changed = "\n".join("apps/server/" + path for path in [*contracts, other])
+    if infra:
+        changed += "\ninfra/scripts/ci-local.sh"
+    result = run_stubbed_ci(changed, "--fast", fail_stage=fail_stage)
+    # Each selected file occurs in exactly one executable test command.
+    commands = result.stdout.split("test_command=", 1)[1]
+    for path in [*contracts, other]:
+        assert commands.count(path) == 1, result.stdout
+    assert result.returncode == (17 if infra and fail_stage else 0), result.stdout
+    if infra and fail_stage:
+        assert "ci_stage=production compose config" not in result.stdout
+        assert "ci_local_result=fail" in result.stdout
+
+
+def test_infra_contract_command_fails_if_required_file_disappears(tmp_path: Path) -> None:
+    script = LOCAL_CI.read_text()
+    command = re.search(r'run_step "CI contracts" bash -c "(.*?)" \|\|', script, re.S).group(1)
+    server = tmp_path / "apps/server"
+    (server / "tests/contract").mkdir(parents=True)
+    (server / "tests/contract/test_ci_cd_contract.py").write_text("def test_present(): assert True\n")
+    # Execute the real selected pytest command, using the prepared environment.
+    command = command.replace("uv run --extra dev pytest", shlex.quote(sys.executable) + " -m pytest")
+    result = run("bash", "-c", command, cwd=tmp_path)
+    assert result.returncode != 0
+    assert "test_local_postgres_test_runner.py" in result.stdout
+    assert "file or directory not found" in result.stdout
+
+
+@pytest.mark.parametrize("failure", ["", "lint", "compile"])
+def test_release_full_static_commands_run_before_tests(tmp_path: Path, failure: str) -> None:
+    step = FULL_CI_WORKFLOW.read_text().split("      - name: Run Ubuntu full component\n", 1)[1]
+    body = textwrap.dedent(step.split("        run: |\n", 1)[1].split("\n      - name:", 1)[0])
+    wrappers = r'''
+record() { printf '%s\n' "$*" >> "$RUNNER_TEMP/commands"; }
+python3() {
+  if [[ "$1" == - ]]; then command "$TEST_PYTHON" "$@"; return $?; fi
+  record python3 "$@"
+  if [[ "$*" == *compileall* && "$TEST_FAILURE" == compile ]]; then return 17; fi
+}
+uv() {
+  record uv "$@"
+  if [[ "$*" == *"ruff check"* && "$TEST_FAILURE" == lint ]]; then return 17; fi
+}
+pytest() { record pytest "$@"; }
+bash() { record bash "$@"; }
+sh() { record sh "$@"; }
+docker() { record docker "$@"; }
+git() { record git "$@"; }
+'''
+    # The scanner is a script, not a shell builtin: provide only its filesystem stub.
+    (tmp_path / "infra/scripts").mkdir(parents=True)
+    (tmp_path / "apps/server").mkdir(parents=True)
+    scanner = tmp_path / "infra/scripts/scan-deployment-evidence.sh"
+    scanner.write_text("#!/bin/sh\nexit 0\n")
+    scanner.chmod(0o755)
+    result = run("bash", "-c", wrappers + body, cwd=tmp_path, env={
+        "RUNNER_TEMP": str(tmp_path), "REQUESTED_SHA": "a" * 40, "GITHUB_RUN_ID": "123",
+        "TEST_PYTHON": sys.executable, "TEST_FAILURE": failure,
+    })
+    commands = (tmp_path / "commands").read_text().splitlines()
+    tests = [i for i, command in enumerate(commands) if "pytest" in command or "run_local_postgres_tests.sh" in command]
+    lint = [i for i, command in enumerate(commands) if "ruff check" in command]
+    compile_steps = [i for i, command in enumerate(commands) if "compileall" in command]
+    assert len(lint) == 1
+    if failure != "lint":
+        assert len(compile_steps) == 1
+    assert result.returncode == (17 if failure else 0), result.stdout
+    terminal = json.loads((tmp_path / "server-result.json").read_text())
+    assert terminal["status"] == ("failed" if failure else "passed")
+    if failure:
+        assert tests == []
+    else:
+        assert tests and lint[0] < compile_steps[0] < min(tests)
+
+
 def test_removed_server_test_uses_bounded_unit_fallback() -> None:
     result = run_stubbed_ci("apps/server/tests/contract/test_removed.py", "--fast")
 
@@ -744,7 +828,7 @@ def test_cd_dry_run_declares_authoritative_full_gate() -> None:
     result = run(str(REMOTE_CD), "--dry-run", "--branch", "211-optimize-ci-cd")
 
     assert result.returncode == 0, result.stdout
-    assert "local_ci=full_required" in result.stdout
+    assert "local_ci=authoritative_full_required" in result.stdout
     assert "steps=clean_worktree,branch_sync,pinned_sha,local_ci,remote_fetch,backup" in result.stdout
 
 

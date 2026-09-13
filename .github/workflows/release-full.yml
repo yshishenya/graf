@@ -114,6 +114,16 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+      - name: Install production-compatible Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install Node for browser behavior tests
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.22.3"
+
       - name: Install frozen test toolchain
         shell: bash
         env:
@@ -144,7 +154,20 @@ jobs:
           [[ "$(specify --version)" == "specify ${SPECIFY_CLI_VERSION}" ]]
           speckit-bootstrap --version
 
+      - name: Cache pinned browser binaries
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('apps/server/tests/browser/package-lock.json') }}
+
+      - name: Prepare pinned browser test resources
+        run: |
+          npm ci --ignore-scripts --prefix apps/server/tests/browser
+          apps/server/tests/browser/node_modules/.bin/playwright install --with-deps chromium
+
       - name: Run Ubuntu full component
+        env:
+          GRAF_TEST_REPORT_DIR: ${{ runner.temp }}/test-timings
         shell: bash
         run: |
           set +e
@@ -152,6 +175,8 @@ jobs:
           started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           (
             set -euo pipefail
+            (cd apps/server && PYTHONPATH=src uv run --extra dev ruff check .)
+            python3 -m compileall -q apps/server/src apps/server/tests apps/server/scripts
             python3 scripts/check_spec_kit_governance.py
             pytest -q tests/governance
             PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=harness/src \
@@ -162,8 +187,6 @@ jobs:
             sh apps/macos/Scripts/validate-no-legacy-audio-driver.sh
             GRAF_TEST_WORKERS=4 GRAF_PERFORMANCE_GATE=required \
               bash apps/server/scripts/run_local_postgres_tests.sh --full -q
-            (cd apps/server && PYTHONPATH=src uv run --extra dev ruff check .)
-            python3 -m compileall -q apps/server/src apps/server/tests apps/server/scripts
             (cd apps/server && PYTHONPATH=src uv run python scripts/verify_rls_hardening.py)
             docker compose -f infra/docker-compose.yml config >/dev/null
             infra/scripts/scan-deployment-evidence.sh docs/deployments/2brain-rec
@@ -197,6 +220,15 @@ jobs:
           pathlib.Path(path).write_text(json.dumps(value, sort_keys=True) + "\n", encoding="utf-8")
           PY
           exit "$component_status"
+
+      - name: Upload safe test timings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: graf-test-timings-${{ inputs.requested_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/test-timings/*.jsonl
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Upload metadata-only server result
         if: always()

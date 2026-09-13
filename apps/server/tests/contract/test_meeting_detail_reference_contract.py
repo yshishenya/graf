@@ -1,4 +1,3 @@
-import os
 import subprocess
 from html.parser import HTMLParser
 from pathlib import Path
@@ -136,7 +135,7 @@ def test_no_js_downloads_only_expose_permitted_current_artifacts(shared, availab
         assert ("/shared-meetings/" in href) == shared
 
 
-@pytest.mark.skipif(not os.environ.get("GRAF_NODE_MODULES"), reason="Explicit installed Playwright path required")
+@pytest.mark.browser
 def test_summary_picker_keyboard_catalog_and_narrow_layout_in_browser(tmp_path):
     review = reference_review()
     review.notes_action_truth.summary.state = "available"

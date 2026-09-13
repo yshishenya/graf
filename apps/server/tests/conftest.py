@@ -47,6 +47,7 @@ pytest_plugins = (
     "tests.fixtures.cabinet_exports",
     "tests.fixtures.postgres_test_database",
     "tests.fixtures.postgres_rls",
+    "tests.fixtures.test_resources",
 )
 
 REGISTRY_DATA = (

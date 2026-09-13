@@ -265,37 +265,48 @@ def test_event_options_cannot_skip_validation(tmp_path, options) -> None:
 def test_workflow_is_additive_read_only_and_bounded() -> None:
     source = (ROOT / ".github/workflows/pr-metadata.yml").read_text()
     for marker in (
-        "name: pr-metadata", "pull_request:", "branches: [master]",
+        "name: pr-metadata", "pull_request_target:", "branches: [master]",
         "types: [opened, synchronize, reopened, ready_for_review, edited]",
         "contents: read", "pull-requests: read", "timeout-minutes: 5",
         "group: graf-pr-metadata-${{ github.event.pull_request.number }}",
         "cancel-in-progress: true", "fetch-depth: 0", "persist-credentials: false",
         "uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
-        "ref: ${{ github.event.pull_request.head.sha }}",
+        "ref: ${{ github.workflow_sha }}", "python3 -I scripts/validate-pr-metadata.py",
+        "retention-days: 90", "--current-pr-after",
     ):
         assert marker in source
     for forbidden in (
-        "pull_request_target:", "merge_group:", "workflow_dispatch:", "paths:",
+        "  pull_request:", "merge_group:", "workflow_dispatch:", "paths:",
         "paths-ignore:", "if:", "continue-on-error:", "secrets.", ": write",
-        "ci-local.sh", "pytest", "specify", "pip install", "upload-artifact",
+        "ci-local.sh", "pytest", "specify", "pip install",
         "github.event.pull_request.title", "github.event.pull_request.body",
     ):
         assert forbidden not in source
-    assert source.count("uses:") == 1
-    assert source.count("run: |") == 2
+    assert source.count("uses:") == 2
+    assert source.count("run: |") == 5
     fetch = source.split("- name: Fetch current PR\n", 1)[1].split("\n      - ", 1)[0]
     assert "GH_TOKEN: ${{ github.token }}" in fetch
     assert "PR_NUMBER: ${{ github.event.pull_request.number }}" in fetch
-    assert source.count("GH_TOKEN:") == 1
+    assert source.count("GH_TOKEN:") == 2
+    assert "Validate pull request metadata" in (ROOT / ".github/workflows/governance-fast.yml").read_text()
 
 
-@pytest.mark.parametrize("mode", ["valid", "api-error", "malformed", "invalid-number", "injection"])
+@pytest.mark.parametrize("mode", ["valid", "api-error", "malformed", "invalid-number", "injection", "pr-code", "second-api-error", "body-race"])
 def test_actual_workflow_shell_with_current_api_and_fork(snapshot, mode) -> None:
     root, event, current = snapshot
     source = (ROOT / ".github/workflows/pr-metadata.yml").read_text()
-    current["head"]["repo"] = {"full_name": "contributor/fork"}
-    event["pull_request"]["head"]["repo"] = {"full_name": "contributor/fork"}
+    current = trusted_pr(current)
+    if mode == "pr-code":
+        (root / "scripts/validate-pr-metadata.py").write_text("from pathlib import Path; Path('injected').touch()")
+        (root / "sitecustomize.py").write_text("from pathlib import Path; Path('injected').touch()")
+        git(root, "add", ".")
+        git(root, "commit", "-qm", "untrusted PR policy")
+        current["head"]["sha"] = git(root, "rev-parse", "HEAD")
+        current["body"] = body(current["head"]["sha"])
+        current["commits"] = 2
+    event.update(repository={"full_name": "example/project"}, pull_request=copy.deepcopy(current))
     event["pull_request"]["body"] = "stale event text"
+    git(root, "checkout", "-q", "--detach", current["base"]["sha"])
     if mode == "injection":
         payload = "$(touch injected); `touch injected`; ::error::private-text"
         current["title"] += " " + payload
@@ -310,25 +321,141 @@ def test_actual_workflow_shell_with_current_api_and_fork(snapshot, mode) -> None
         '[[ "$*" == "api repos/example/project/pulls/7" ]] || exit 90\n'
         'if [[ "$FAKE_API_MODE" == "api-error" ]]; then\n'
         '  printf "private-response" >&2; exit 1\nfi\n'
+        'if [[ -e "$RUNNER_TEMP/fetched" ]]; then\n'
+        '  [[ "$FAKE_API_MODE" != "second-api-error" ]] || exit 1\n'
+        '  if [[ "$FAKE_API_MODE" == "body-race" ]]; then cat "$FIXTURE_AFTER"; exit 0; fi\n'
+        'fi\ntouch "$RUNNER_TEMP/fetched"\n'
         'cat "$FIXTURE_RESPONSE"\n'
     )
     gh.chmod(0o755)
     env = {**os.environ, "PATH": str(gh.parent) + os.pathsep + os.environ["PATH"],
            "GITHUB_REPOSITORY": "example/project", "PR_NUMBER": "7",
            "GITHUB_EVENT_PATH": str(root / "event.json"), "RUNNER_TEMP": str(root),
-           "FAKE_API_MODE": mode, "FIXTURE_RESPONSE": str(response)}
+           "FAKE_API_MODE": mode, "FIXTURE_RESPONSE": str(response), "FIXTURE_AFTER": str(root / "race.json"),
+           "POLICY_SHA": current["base"]["sha"], "GITHUB_RUN_ID": "45", "GITHUB_RUN_ATTEMPT": "2"}
+    (root / "race.json").write_text(json.dumps({**current, "body": current["body"] + "changed"}))
     if mode == "invalid-number":
         env["PR_NUMBER"] = "7; touch injected"
     outputs = ""
-    for name in ("Fetch current PR", "Validate current PR metadata"):
+    for name in ("Fetch current PR", "Fetch PR Git objects", "Validate current PR metadata",
+                 "Fetch PR after validation", "Verify snapshot freshness and write proof"):
         step = source.split(f"- name: {name}\n", 1)[1].split("\n      - ", 1)[0]
         command = textwrap.dedent(step.split("run: |\n", 1)[1])
         result = subprocess.run(["bash", "-c", command], cwd=root, env=env, text=True, capture_output=True)
         outputs += result.stdout + result.stderr
         if result.returncode:
             break
-    assert (result.returncode == 0) == (mode in {"valid", "injection"}), outputs
+    assert (result.returncode == 0) == (mode in {"valid", "injection", "pr-code"}), outputs
     assert not (root / "injected").exists()
     assert "private-response" not in outputs
     assert "private-text" not in outputs
     assert "Traceback" not in outputs
+
+
+def trusted_pr(current):
+    value = copy.deepcopy(current)
+    value.update(merged=False, merge_commit_sha=None, commits=1)
+    value["base"]["repo"] = {"full_name": "example/project"}
+    value["head"]["repo"] = {"full_name": "contributor/fork"}
+    return value
+
+
+def run_trusted(root, event, current, after=None, *, policy=None):
+    for name, value in (("event.json", event), ("current-pr.json", current),
+                        ("after.json", current if after is None else after)):
+        (root / name).write_text(json.dumps(value))
+    result_path = root / "trusted-result.json"
+    result_path.unlink(missing_ok=True)
+    return subprocess.run([
+        sys.executable, "-I", str(SCRIPT), "--event", str(root / "event.json"),
+        "--current-pr", str(root / "current-pr.json"), "--current-pr-after", str(root / "after.json"),
+        "--trusted-policy-sha", policy or git(root, "rev-parse", "HEAD"),
+        "--repository", "example/project", "--result", str(result_path),
+    ], cwd=root, text=True, capture_output=True,
+        env={**os.environ, "GITHUB_RUN_ID": "45", "GITHUB_RUN_ATTEMPT": "2", "PYTHONPATH": str(root)})
+
+
+def test_trusted_metadata_uses_policy_checkout_and_redacted_double_snapshot(snapshot):
+    root, event, current = snapshot
+    current = trusted_pr(current)
+    event.update(repository={"full_name": "example/project"}, pull_request=copy.deepcopy(current))
+    policy = current["base"]["sha"]
+    git(root, "checkout", "-q", "--detach", policy)
+    (root / "sitecustomize.py").write_text("from pathlib import Path; Path('injected').touch()")
+    event["pull_request"]["body"] = None
+    result = run_trusted(root, event, current)
+    assert result.returncode == 0, result.stderr
+    proof = json.loads((root / "trusted-result.json").read_text())
+    assert proof["target_sha"] == current["head"]["sha"]
+    assert proof["base_sha"] == policy
+    assert proof["policy_sha"] == policy and proof["run_attempt"] == 2
+    assert "body" not in proof and "title" not in proof
+    assert "private" not in json.dumps(proof)
+    assert not (root / "injected").exists()
+
+
+@pytest.mark.parametrize("field", ["body", "title", "head.sha", "base.sha", "base.ref", "base.repo.full_name",
+                                  "head.repo.full_name", "state", "merged", "merge_commit_sha", "commits"])
+def test_trusted_metadata_rejects_each_changed_snapshot_field(snapshot, field):
+    root, event, current = snapshot
+    current = trusted_pr(current)
+    event.update(repository={"full_name": "example/project"}, pull_request=copy.deepcopy(current))
+    after = copy.deepcopy(current)
+    parent = after
+    *keys, key = field.split(".")
+    for name in keys:
+        parent = parent[name]
+    parent[key] = "changed-private-value"
+    git(root, "checkout", "-q", "--detach", current["base"]["sha"])
+    result = run_trusted(root, event, current, after)
+    assert result.returncode == 1
+    assert "changed-private-value" not in result.stderr
+    assert not (root / "trusted-result.json").exists()
+
+
+def test_trusted_metadata_rejects_wrong_repository_policy_and_unmerged_close(snapshot):
+    root, event, current = snapshot
+    current = trusted_pr(current)
+    event.update(repository={"full_name": "example/project"}, pull_request=copy.deepcopy(current))
+    policy = current["base"]["sha"]
+    assert run_trusted(root, event, current, policy=policy).returncode == 1
+    git(root, "checkout", "-q", "--detach", policy)
+    event["repository"]["full_name"] = "attacker/project"
+    assert run_trusted(root, event, current).returncode == 1
+    event["repository"]["full_name"] = "example/project"
+    current["state"] = event["pull_request"]["state"] = "closed"
+    assert run_trusted(root, event, current).returncode == 1
+
+
+@pytest.mark.parametrize("kind", ["squash", "rebase", "wrong-parent", "wrong-tree", "merge-commit", "wrong-count"])
+def test_merged_metadata_binds_actual_history_not_moving_master(snapshot, kind):
+    root, event, current = snapshot
+    current = trusted_pr(current)
+    base, first = current["base"]["sha"], current["head"]["sha"]
+    (root / "specs/211-example/spec.md").write_text("second source change\n")
+    git(root, "add", ".")
+    git(root, "commit", "-qm", "second source commit")
+    head = git(root, "rev-parse", "HEAD")
+    tree = git(root, "rev-parse", f"{head}^{{tree}}")
+    parent = base
+    if kind == "rebase":
+        parent = git(root, "commit-tree", f"{first}^{{tree}}", "-p", base, "-m", "rebased first")
+    elif kind == "wrong-parent":
+        parent = git(root, "commit-tree", f"{base}^{{tree}}", "-m", "unrelated root")
+    elif kind == "wrong-tree":
+        tree = git(root, "rev-parse", f"{base}^{{tree}}")
+    parents = ["-p", parent, "-p", head] if kind == "merge-commit" else ["-p", parent]
+    merge = git(root, "commit-tree", tree, *parents, "-m", "merged")
+    moved = git(root, "commit-tree", tree, "-p", merge, "-m", "later master")
+    current.update(state="closed", merged=True, merge_commit_sha=merge, commits=1 if kind == "wrong-count" else 2)
+    current["head"]["sha"] = head
+    current["base"]["sha"] = moved
+    current["body"] = body(head)
+    event.update(repository={"full_name": "example/project"}, pull_request=copy.deepcopy(current))
+    git(root, "checkout", "-q", "--detach", base)
+    result = run_trusted(root, event, current)
+    assert (result.returncode == 0) == (kind in {"squash", "rebase"}), result.stderr
+    if result.returncode == 0:
+        proof = json.loads((root / "trusted-result.json").read_text())
+        assert proof["base_sha"] == base
+        assert proof["api_base_sha"] == moved

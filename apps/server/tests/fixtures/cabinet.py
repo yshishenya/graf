@@ -60,7 +60,7 @@ class CabinetSeed:
 
 
 def seed_cabinet_meetings(client: TestClient) -> CabinetSeed:
-    ready_id = _create_ready_meeting(client, "cabinet-ready", "Проектный синк")
+    ready_id = create_ready_meeting(client, "cabinet-ready", "Проектный синк")
     processing_id = _create_processing_meeting(client, "cabinet-processing", "Планирование релиза")
     failed_id = _create_failed_meeting(client, "cabinet-failed", "Сбой обработки")
     partial_id = _create_partial_meeting(client, "cabinet-partial", "Частичный импорт")
@@ -74,7 +74,9 @@ def seed_cabinet_meetings(client: TestClient) -> CabinetSeed:
     )
 
 
-def _create_ready_meeting(client: TestClient, local_recording_id: str, title: str) -> UUID:
+def create_ready_meeting(
+    client: TestClient, local_recording_id: str = "cabinet-ready", title: str = "Проектный синк",
+) -> UUID:
     finalized = create_finalized_meeting(client, local_recording_id)
     meeting_id = UUID(str(finalized["meeting"]["meeting_id"]))
     asyncio.run(
@@ -111,7 +113,7 @@ def create_outcome_ready_meeting(
     client: TestClient,
     local_recording_id: str = "cabinet-outcome-ready",
 ) -> UUID:
-    meeting_id = _create_ready_meeting(client, local_recording_id, "Итоги встречи")
+    meeting_id = create_ready_meeting(client, local_recording_id, "Итоги встречи")
     add_retained_playback_m4a(client, meeting_id)
     return meeting_id
 

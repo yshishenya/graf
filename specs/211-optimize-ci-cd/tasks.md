@@ -3,7 +3,7 @@
 **Input**: Design documents from `specs/211-optimize-ci-cd/`
 **Tests**: Required by FR-011 and the user request to re-check all behavior before rollout.
 
-**Current continuation**: A3 / E01, 2026-09-12, T043–T047. A1/A2 merged via #6851; #6845/#6850 closed (verified live). T001–T042 and their historical authority/status notes below are preserved; the old full-inside-execute strategy is superseded by authoritative GitHub Full evidence reuse.
+**Current continuation**: A4, 2026-09-13, T048 onward. A3 / E01 T043–T047 shipped in v2026.09.13.1 (#6953; #6952 closed). A1/A2 merged via #6851; #6845/#6850 closed (verified live). T001–T042 and their historical authority/status notes below are preserved; the old full-inside-execute strategy is superseded by authoritative GitHub Full evidence reuse.
 
 ## Phase 1: Baseline and contract
 
@@ -128,3 +128,36 @@ Dependencies: review → analyze → task sync → T043 FAIL → T044 → T045 �
 A3 local completion — 2026-09-12: T043–T047 реализованы и проверены; review PASS, converge без новых задач. Числа, команды и ограничения — в `quickstart.md`. Issue #6952 остаётся открытым: implementation commit требует согласования после проверки; PR, GitHub fast на точном SHA, merge и последующий релиз ещё не выполнены. Эти отметки не являются release/issue-closeout evidence.
 
 A3 publication continuation — 2026-09-12: после локальной проверки пользователь разрешил коммит и доведение до готового PR. Предыдущая строка сохраняет состояние локального этапа; итоговые SHA, CI и PR-состояние записываются в опубликованном PR. Issue #6952 закрывается только после merge и предусмотренного подтверждения.
+
+## Phase 13: A4 — ранние проверки и отсутствие повторов
+
+Scope: E05.12/E05.16 and accurate CD diagnostics. Requirements FR-031–FR-033, SC-016–SC-017. High-risk requirements review, clean analyze and issue ownership precede code. Subsequent program stages receive their own append-only tasks after research; completion of T052 is not completion of the program.
+
+- [X] T048 Добавить исполняемые регрессии порядка и остановки shell `release-full`, смешанного infra/changed и server-only diff, отсутствующего обязательного файла/отказа единственного CI contracts stage и правдивого dry-run в `apps/server/tests/contract/test_ci_cd_contract.py`. (Issue #6982)
+- [X] T049 Перенести прежние lint/compile перед pytest в `.github/workflows/release-full.yml` и закрепить порядок в `scripts/validate-full-ci-workflow.py`; сохранить состав и authoritative evidence. (Issue #6982)
+- [X] T050 Исключить повтор двух целых CI-контрактов в `infra/scripts/ci-local.sh` при смешанных изменениях; сохранить единственное обязательное исполнение и остальные файлы. (Issue #6982)
+- [X] T051 Согласовать dry-run в `infra/scripts/cd-remote.sh`, действующие инструкции `docs/agent-guidance/release-and-validation.md`, исторические пометки F211 и фрагмент `changes/unreleased/F211.yaml`. (Issue #6982)
+- [ ] T052 Проверить оба CI-контракта, validator/self-test, Bash/Ruff/actionlint и governance; выполнить review/converge, записать результаты в `specs/211-optimize-ci-cd/quickstart.md` и подготовить PR с exact-SHA GitHub fast. (Issue #6982)
+
+
+## Phase 14: A5 — серверные ресурсы и фикстуры
+
+Prerequisites: independent resource-optimization checklist, clean analyze, task ownership. FR-034–037 / SC-018. Tests and runner remain one owner; no changes to product access/tenant context.
+
+- [X] T053 Добавить реальные проверки раннего help/collection/неверных аргументов, fixture closure и union/disjointness в `apps/server/tests/contract/test_local_postgres_test_runner.py` и `tests/governance/test_test_resources.py`. (Issue #6983)
+- [X] T054 Разделить чистые/DB unit через `apps/server/tests/conftest.py`, новый `apps/server/tests/fixtures/test_resources.py`, `apps/server/scripts/run_local_postgres_tests.sh`, убрать module skip в `apps/server/tests/unit/test_account_closure.py`; сохранить обязательный DB runner и ограничения workers. (Issue #6983)
+- [X] T055 Сократить подготовку single-ready сценариев в `apps/server/tests/fixtures/cabinet.py`, `apps/server/tests/integration/test_artifact_egress_policy.py`, `apps/server/tests/integration/test_speaker_names.py`; измерить до/после и сохранить отрицательные сценарии. (Issue #6983)
+- [X] T056 Закрепить Python/Node и frozen environment в `apps/server/.python-version`, `.github/workflows/governance-fast.yml`, `.github/workflows/release-full.yml`; обозначить browser-ресурс в трёх прежних skip и подготовить закреплённый `apps/server/tests/browser/package.json` / lock; сохранить безопасные phase JSONL и union/disjointness в `apps/server/scripts/run_local_postgres_tests.sh`. (Issue #6983)
+- [X] T057 Проверить исполняемые регрессии, два DB-семейства, unit collection и Ruff/Bash/actionlint, обновить quickstart/research и `changes/unreleased/F211.yaml`; пройти review/converge. (Issue #6983)
+
+
+## Phase 15: A6 — обязательные PR-проверки и устранение text-only повторов
+
+FR-038–041 / SC-019. Independent checklist + analyze + task ownership before code. Foundation deployment precedes protection cutover; no gap in required checks.
+
+- [X] T058 Добавить исполняемые scope/native-negative контракты в `tests/governance/test_pr_scope.py`, реализовать `scripts/ci-pr-scope.py` и `.github/workflows/macos-pr.yml` с точным SHA и безопасным итоговым check. (Issue #6986)
+- [X] T059 Защитить `.github/workflows/pr-metadata.yml` и `scripts/validate-pr-metadata.py` trusted policy/double snapshot/isolated Python; расширить `tests/governance/test_pr_metadata_event.py`, сохранив прежний CLI. (Issue #6986)
+- [ ] T060 Проверить и опубликовать foundation PR с прежним combined gate; получить исходный SHA включения, проверить новые checks и добавить required `pr-metadata`/`macos-pr` без удаления `governance-fast`; сохранить read-back evidence. (Issue #6986)
+- [ ] T061 После T060 исключить только text-only code reruns в `.github/workflows/governance-fast.yml`, согласовать `scripts/validate-governance-workflow.py` и `tests/governance/test_governance_workflow.py`; доказать отсутствие нового required PASS/отмены code на body edit. (Issue #6986)
+- [ ] T062 Добавить единый `scripts/validate-pr-checks.py` для актуального полного набора, подключить `scripts/validate-issue-closeout.py` и `infra/scripts/release-candidate.sh` / train validation; сохранить исторический policy boundary и post-merge ancestry. (Issue #6986)
+- [ ] T063 Проверить события/fork/identity/failure/consumer матрицу, пройти review/converge; согласовать `docs/agent-guidance/release-and-validation.md`, quickstart и фрагмент F211 с реально включённой политикой; опубликовать cutover PR и получить exact-SHA hosted evidence. (Issue #6986)
