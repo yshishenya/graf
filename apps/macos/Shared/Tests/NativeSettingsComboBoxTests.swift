@@ -360,10 +360,17 @@ final class NativeSettingsComboBoxTests: XCTestCase {
         XCTAssertTrue((table.accessibilityParent() as? NSView) === control.field)
         XCTAssertTrue(table.isAccessibilityElement())
         XCTAssertEqual(table.accessibilityRole(), .list)
-        func labels(in element: Any, depth: Int = 0) -> [String] {
-            guard depth < 8, let element = element as? NSAccessibilityProtocol else { return [] }
+        func labels(in element: Any, ancestors: Set<ObjectIdentifier> = []) -> [String] {
+            guard let element = element as? NSAccessibilityProtocol else { return [] }
+            let identity = ObjectIdentifier(element)
+            guard !ancestors.contains(identity), ancestors.count < 16 else {
+                XCTFail("AX children contain a cycle or an unexpectedly deep path")
+                return []
+            }
+            let path = ancestors.union([identity])
             return [element.accessibilityLabel()].compactMap { $0 }
-                + (element.accessibilityChildren() ?? []).flatMap { labels(in: $0, depth: depth + 1) }
+                + (element.accessibilityChildren() ?? []).flatMap { labels(in: $0, ancestors: path) }
+                + (element.accessibilityChildrenInNavigationOrder() ?? []).flatMap { labels(in: $0, ancestors: path) }
         }
         XCTAssertTrue(labels(in: control.field).contains("Всегда"))
         let row = try XCTUnwrap(table.view(atColumn: 0, row: 1, makeIfNecessary: true))
@@ -373,6 +380,35 @@ final class NativeSettingsComboBoxTests: XCTestCase {
         XCTAssertNil(control.field.optionsList)
         XCTAssertFalse(control.field.accessibilityChildren()?.contains { ($0 as? NSView) === table } ?? false)
         coordinator.detach()
+    }
+
+    func testHostedFieldAccessibilityChildrenNeverContainTheFieldOrItsAncestors() throws {
+        let host = NSHostingView(rootView: NativeSettingsComboBox(title: "Правило", options: options, selectedID: "ask"))
+        host.frame = NSRect(x: 0, y: 0, width: 172, height: 32)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        func field(in view: NSView) -> NativeSettingsComboBox.Field? {
+            (view as? NativeSettingsComboBox.Field) ?? view.subviews.lazy.compactMap { field(in: $0) }.first
+        }
+        let input = try XCTUnwrap(field(in: host))
+        XCTAssertTrue(window.makeFirstResponder(input))
+        XCTAssertNotNil(input.currentEditor())
+        var ancestors: [NSView] = [input]
+        while let parent = ancestors.last?.superview { ancestors.append(parent) }
+        for child in input.accessibilityChildren() ?? [] {
+            XCTAssertFalse(ancestors.contains { $0 === child as AnyObject }, "AX children must not lead back to the field or its hosting ancestors")
+        }
+        for child in input.accessibilityChildrenInNavigationOrder() ?? [] {
+            XCTAssertFalse(ancestors.contains { $0 === child as AnyObject }, "AX navigation children must not lead back to the field or its hosting ancestors")
+        }
+        let control = try XCTUnwrap(input.superview as? NativeSettingsComboBox.Control)
+        control.arrow.performClick(nil)
+        XCTAssertEqual(input.accessibilityChildren()?.count, 1)
+        for child in input.accessibilityChildren() ?? [] {
+            XCTAssertFalse(ancestors.contains { $0 === child as AnyObject }, "Expanded AX children must not lead back to the field or its hosting ancestors")
+        }
+        window.makeFirstResponder(nil)
     }
 
     func testClickOnSavedLabelMakesTypingReplaceItWithoutSaving() throws {

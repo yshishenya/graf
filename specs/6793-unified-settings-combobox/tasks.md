@@ -53,3 +53,8 @@ GitHub owner T015: https://github.com/yshishenya/graf/issues/6924.
 - [X] T016 [US2] Сохранять текущий вариант активным при открытии веб-настройки в `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js`, чтобы открытие и Enter не меняли значение на первый пункт; проверить стрелки, обновление списка, disabled и независимый фильтр приложений в `apps/server/tests/browser/settings-combobox.test.cjs` (FR-003, FR-004, FR-006; partial; review3997752781).
 
 T016 → T011. GitHub owner T016: https://github.com/yshishenya/graf/issues/6924.
+
+## Phase 10: Convergence установленной доступности
+- [ ] T017 [US2] Устранить аварийное завершение установленного GRAF Dev при AX hit-test нативного поля в `apps/macos/RecApp/Sources/Settings/NativeSettingsComboBox.swift`; воспроизвести причину рекурсии и добавить регрессию в `apps/macos/Shared/Tests/NativeSettingsComboBoxTests.swift`, повторить реальную проверку поля/списка в T011/T012 (FR-004, FR-006; partial).
+
+T017 → T011/T012. GitHub owner T017: https://github.com/yshishenya/graf/issues/6924.

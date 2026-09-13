@@ -36,8 +36,8 @@ struct NativeSettingsComboBox: NSViewRepresentable {
         var onClick: ((NSTextView) -> Void)?
         weak var optionsList: NSView?
         override func accessibilityChildren() -> [Any]? {
-            let children = super.accessibilityChildren() ?? []
-            return children + (optionsList.map { [$0] } ?? [])
+            // Keep the popup tree explicit instead of mixing in legacy NSTextField children under SwiftUI.
+            optionsList.map { [$0] } ?? []
         }
         override func becomeFirstResponder() -> Bool {
             let accepted = super.becomeFirstResponder()
