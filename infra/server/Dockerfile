@@ -1,30 +1,23 @@
-FROM python:3.13-slim-bookworm@sha256:9d7f287598e1a5a978c015ee176d8216435aaf335ed69ac3c38dd1bbb10e8d64 AS base
-
-ARG GRAF_DEV_SOURCE_SHA
-LABEL org.2brain.graf.dev.source-sha="${GRAF_DEV_SOURCE_SHA}"
+FROM python:3.13-slim-bookworm@sha256:9d7f287598e1a5a978c015ee176d8216435aaf335ed69ac3c38dd1bbb10e8d64 AS dependencies
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1 \
-    GRAF_DEV_SOURCE_SHA=${GRAF_DEV_SOURCE_SHA}
+    PIP_NO_CACHE_DIR=1
 
 WORKDIR /app
-
 RUN addgroup --system twobrain && adduser --system --ingroup twobrain twobrain
+COPY apps/server/constraints.txt /app/constraints.txt
+RUN pip install --requirement constraints.txt
 
-COPY apps/server/pyproject.toml apps/server/README.md apps/server/constraints.txt /app/
+FROM dependencies AS application
+COPY apps/server/pyproject.toml apps/server/README.md /app/
 COPY apps/server/alembic.ini /app/alembic.ini
 COPY apps/server/src /app/src
 COPY apps/server/scripts /app/scripts
-
-RUN pip install --constraint constraints.txt ".[evaluation]"
-
+RUN pip install --no-deps --prefix=/install ".[evaluation]"
 COPY infra/scripts/dev-migration-preflight.py /app/scripts/dev-migration-preflight.py
 
-FROM base AS media-runtime
-
-USER root
-
+FROM dependencies AS media-dependencies
 RUN sed -i \
       -e 's|http://deb.debian.org/debian-security|https://snapshot.debian.org/archive/debian-security/20260518T000000Z|g' \
       -e 's|http://deb.debian.org/debian|https://snapshot.debian.org/archive/debian/20260518T000000Z|g' \
@@ -35,16 +28,22 @@ RUN sed -i \
     && rm -rf /var/lib/apt/lists/* \
     && install -d -m 0700 -o twobrain -g twobrain /var/lib/twobrain-rec/playback-normalization
 
-ENV TMPDIR=/var/lib/twobrain-rec/playback-normalization
-
+FROM media-dependencies AS media-runtime
+COPY --from=application /install/ /usr/local/
+COPY --from=application /app/ /app/
+ARG GRAF_DEV_SOURCE_SHA
+LABEL org.2brain.graf.dev.source-sha="${GRAF_DEV_SOURCE_SHA}"
+ENV GRAF_DEV_SOURCE_SHA=${GRAF_DEV_SOURCE_SHA} \
+    TMPDIR=/var/lib/twobrain-rec/playback-normalization
 USER twobrain
-
 CMD ["python", "-m", "twobrain_rec_server.normalization.worker"]
 
-FROM base AS runtime
-
+FROM dependencies AS runtime
+COPY --from=application /install/ /usr/local/
+COPY --from=application /app/ /app/
+ARG GRAF_DEV_SOURCE_SHA
+LABEL org.2brain.graf.dev.source-sha="${GRAF_DEV_SOURCE_SHA}"
+ENV GRAF_DEV_SOURCE_SHA=${GRAF_DEV_SOURCE_SHA}
 USER twobrain
-
 EXPOSE 8080
-
 CMD ["uvicorn", "twobrain_rec_server.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8080", "--no-access-log"]

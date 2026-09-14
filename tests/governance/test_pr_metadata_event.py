@@ -262,7 +262,7 @@ def test_event_options_cannot_skip_validation(tmp_path, options) -> None:
     assert result.returncode == 2
 
 
-def test_workflow_is_additive_read_only_and_bounded() -> None:
+def test_metadata_workflow_is_trusted_read_only_and_bounded() -> None:
     source = (ROOT / ".github/workflows/pr-metadata.yml").read_text()
     for marker in (
         "name: pr-metadata", "pull_request_target:", "branches: [master]",
@@ -288,7 +288,7 @@ def test_workflow_is_additive_read_only_and_bounded() -> None:
     assert "GH_TOKEN: ${{ github.token }}" in fetch
     assert "PR_NUMBER: ${{ github.event.pull_request.number }}" in fetch
     assert source.count("GH_TOKEN:") == 2
-    assert "Validate pull request metadata" in (ROOT / ".github/workflows/governance-fast.yml").read_text()
+    assert "Validate pull request metadata" not in (ROOT / ".github/workflows/governance-fast.yml").read_text()
 
 
 @pytest.mark.parametrize("mode", ["valid", "api-error", "malformed", "invalid-number", "injection", "pr-code", "second-api-error", "body-race"])
@@ -471,3 +471,29 @@ def test_merged_metadata_binds_actual_history_not_moving_master(snapshot, kind):
         proof = json.loads((root / "trusted-result.json").read_text())
         assert proof["base_sha"] == base
         assert proof["api_base_sha"] == moved
+
+
+def test_squash_accepts_pr_that_merged_an_updated_master(snapshot):
+    root, event, current = snapshot
+    current = trusted_pr(current)
+    base, first = current["base"]["sha"], current["head"]["sha"]
+    git(root, "checkout", "-q", "--detach", base)
+    (root / "other.txt").write_text("new master content\n")
+    git(root, "add", "other.txt")
+    git(root, "commit", "-qm", "master update")
+    checked_base = git(root, "rev-parse", "HEAD")
+    git(root, "checkout", "-q", "--detach", first)
+    git(root, "merge", "--no-ff", "-qm", "update PR from master", checked_base)
+    head = git(root, "rev-parse", "HEAD")
+    count = int(git(root, "rev-list", "--count", f"{checked_base}..{head}"))
+    tree = git(root, "rev-parse", f"{head}^{{tree}}")
+    merge = git(root, "commit-tree", tree, "-p", checked_base, "-m", "squashed PR")
+    current.update(state="closed", merged=True, merge_commit_sha=merge, commits=count)
+    current["head"]["sha"] = head
+    current["base"]["sha"] = merge
+    current["body"] = body(head)
+    event.update(repository={"full_name": "example/project"}, pull_request=copy.deepcopy(current))
+    git(root, "checkout", "-q", "--detach", base)
+    result = run_trusted(root, event, current)
+    assert result.returncode == 0, result.stderr
+    assert json.loads((root / "trusted-result.json").read_text())["base_sha"] == checked_base

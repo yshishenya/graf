@@ -29,6 +29,10 @@ if [ -f .env ]; then
   set +a
 fi
 
+if [ -z "${GRAF_RELEASE_MC_IMAGE:-}" ]; then
+  GRAF_RELEASE_MC_IMAGE="$(python3 infra/scripts/release-images.py current-override --service rec-minio-init)"
+fi
+
 mkdir -p "$backup_dir"
 docker compose -f infra/docker-compose.yml exec -T rec-postgres \
   pg_dump -U twobrain_rec -d twobrain_rec --format=custom --file=/tmp/twobrain-rec-postgres.dump
@@ -38,14 +42,14 @@ docker compose -f infra/docker-compose.yml exec -T rec-postgres rm -f /tmp/twobr
 mkdir -p "$backup_dir/minio-objects"
 root_user_file="${TWOBRAIN_MINIO_ROOT_USER_FILE:-./secrets/twobrain_minio_root_user}"
 root_password_file="${TWOBRAIN_MINIO_ROOT_PASSWORD_FILE:-./secrets/twobrain_minio_root_password}"
-docker run --rm \
+docker run --rm --pull never \
   --network twobrain-rec-private \
   --entrypoint /bin/sh \
   -e "TWOBRAIN_MINIO_BUCKET=${TWOBRAIN_MINIO_BUCKET:-twobrain-rec-ingest}" \
   -v "$backup_dir/minio-objects":/backup/minio-objects \
   -v "$root_user_file":/run/secrets/twobrain_minio_root_user:ro \
   -v "$root_password_file":/run/secrets/twobrain_minio_root_password:ro \
-  minio/mc:RELEASE.2025-05-21T01-59-54Z \
+  "${GRAF_RELEASE_MC_IMAGE:-minio/mc:RELEASE.2025-05-21T01-59-54Z}" \
   -c 'mc alias set rec http://rec-minio:9000 "$(cat /run/secrets/twobrain_minio_root_user)" "$(cat /run/secrets/twobrain_minio_root_password)" >/dev/null && mc mirror --overwrite "rec/${TWOBRAIN_MINIO_BUCKET:-twobrain-rec-ingest}" /backup/minio-objects >/dev/null'
 cat <<EOF
 backup_result=pass

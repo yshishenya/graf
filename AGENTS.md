@@ -110,8 +110,9 @@ third-party asset-provenance review.
 ## Validation and release
 
 Use `release-and-validation.md` for the selected lane and closeout evidence.
-Default PR validation is the required GitHub Actions `governance-fast` check,
-bound to the exact PR SHA. `infra/scripts/ci-local.sh --fast` / `--full` remain
+Default PR validation requires GitHub Actions `governance-fast`, `macos-pr` and
+`pr-metadata`, bound to the exact PR SHA and checked base. Use the common
+`scripts/validate-pr-checks.py` for current evidence; text-only edits do not rerun code. `infra/scripts/ci-local.sh --fast` / `--full` remain
 available as local diagnostic/fallback lanes; `infra/scripts/cd-remote.sh
 --dry-run` is required before production execution, and
 `./scripts/prepare-release.sh YYYY.MM.DD.N` prepares product releases.

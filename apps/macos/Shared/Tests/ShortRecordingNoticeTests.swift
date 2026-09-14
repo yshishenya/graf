@@ -19,7 +19,12 @@ final class ShortRecordingNoticeTests: XCTestCase {
         presenter.dismiss()
         XCTAssertNil(presenter.panel)
         presenter.showShortRecordingDiscarded()
-        try await Task.sleep(for: .milliseconds(6_200))
+        XCTAssertNotNil(presenter.panel)
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(10))
+        while presenter.panel != nil && clock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
         XCTAssertNil(presenter.panel)
     }
 }

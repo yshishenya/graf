@@ -45,6 +45,7 @@ def run_stubbed_ci(
 ) -> subprocess.CompletedProcess[str]:
     script = r'''
 source "$1"
+repo_root="${GRAF_TEST_REPO_ROOT:-$repo_root}"
 uname() {
   # The lane-selection contract is platform-independent; model the macOS
   # branch explicitly so the contract is deterministic on GitHub's Linux runner.
@@ -68,6 +69,10 @@ calendar_performance_test_path() {
 }
 run_step() {
   local name="$1"
+  if [[ "$name" == "Development process preflight" && "${GRAF_TEST_REAL_PREFLIGHT:-}" == "1" ]]; then
+    shift
+    "$@" || return $?
+  fi
   if [[ "$name" == "related behavior tests" ]]; then
     # Use the real selector while leaving actual product execution to its
     # separate focused acceptance. Drop only --run from this fixture call.
@@ -339,6 +344,11 @@ def test_server_static_checks_precede_tests_and_fail_fast(mode: str, fail_stage:
         ("apps/macos/Sources/App.swift", "macos"),
         ("apps/macos/Package.resolved", "macos"),
         ("docs/user-guide.md", "docs"),
+        ("changes/unreleased/F211.yaml", "docs"),
+        ("changes/releases/v2026.09.14.1/F211.yaml", "docs"),
+        ("changes/unreleased/F211.yaml.bak", "infra"),
+        ("changes/releases/vfoo/F211.yaml", "unknown"),
+        ("changes/scripts/build.py", "unknown"),
         ("docs/agent-guidance/release-and-validation.md", "governance"),
         ("AGENTS.md", "governance"),
         (".github/pull_request_template.md", "governance"),
@@ -360,6 +370,59 @@ def test_fast_component_classification_is_fail_closed(path: str, expected: str) 
 
     assert result.returncode == 0, result.stdout
     assert result.stdout.strip() == expected
+
+
+@pytest.mark.parametrize("scenario", ["archive", "product", "infra", "invalid"])
+def test_changelog_metadata_uses_only_necessary_fast_checks(tmp_path: Path, scenario: str) -> None:
+    runner = behavior_repo(tmp_path)
+    for name in ("check-development-process.py", "validate-changelog-fragments.py", "emit-ci-evidence.py"):
+        shutil.copy2(ROOT / "scripts" / name, tmp_path / "scripts" / name)
+    fragment = tmp_path / "changes/unreleased/F211.yaml"
+    fragment.parent.mkdir(parents=True)
+    fragment.write_text(
+        'schema_version: 1\nfeature_id: 211\ncategory: Ops\nsummary: "Проверка процесса"\n'
+        'issue: 6986\ntasks: [T094]\ncompatibility: "Без изменений"\n'
+        'known_limitations: ["Нет"]\nrelease_notes: "Проверка фрагмента"\n'
+    )
+    for args in (("add", "."), ("commit", "-qm", "metadata"),
+                 ("update-ref", "refs/remotes/origin/master", "HEAD")):
+        assert run("git", *args, cwd=tmp_path).returncode == 0
+    if scenario == "archive":
+        archived = tmp_path / "changes/releases/v2026.09.14.1/F211.yaml"
+        archived.parent.mkdir(parents=True)
+        fragment.rename(archived)
+        (tmp_path / "CHANGELOG.md").write_text("# Проверенный выпуск\n")
+    else:
+        fragment.write_text(fragment.read_text().replace("category: Ops", "category: Invalid")
+                            if scenario == "invalid" else fragment.read_text() + "# Изменение\n")
+        if scenario in {"product", "infra"}:
+            extra = tmp_path / ("apps/server/src/twobrain_rec_server/domain/statuses.py"
+                                if scenario == "product" else "infra/scripts/example.sh")
+            extra.parent.mkdir(parents=True, exist_ok=True)
+            extra.write_text("# Проверяемое изменение\n")
+    selected = run("bash", "-c", 'source "$1"; changed_files', "contract", str(runner),
+                   env={"GRAF_CI_BASE_REF": "origin/master"})
+    assert selected.returncode == 0, selected.stdout
+    if scenario == "archive":
+        assert set(selected.stdout.splitlines()) == {
+            "CHANGELOG.md", "changes/unreleased/F211.yaml", "changes/releases/v2026.09.14.1/F211.yaml",
+        }
+    assert not (tmp_path / ".specify/feature.json").exists()
+    result = run_stubbed_ci(selected.stdout, "--fast", env={
+        "GRAF_TEST_REPO_ROOT": str(tmp_path), "GRAF_TEST_REAL_PREFLIGHT": "1",
+    })
+    if scenario == "invalid":
+        assert result.returncode != 0, result.stdout
+        assert "invalid category" in result.stdout
+        assert "ci_stage=Spec Kit governance" not in result.stdout
+        assert "ci_local_result=pass" not in result.stdout
+    else:
+        assert result.returncode == 0, result.stdout
+        assert "development-process: OK feature=repository-only" in result.stdout
+        assert ("ci_stage=governance tests" in result.stdout) == (scenario == "infra")
+        assert ("ci_stage=CI contracts" in result.stdout) == (scenario == "infra")
+        assert ("ci_stage=server tests" in result.stdout) == (scenario == "product")
+        assert result.stdout.count("ci_stage=Development process preflight status=pass") == 1
 
 
 def test_fast_lane_runs_the_union_of_known_components_once() -> None:
@@ -891,7 +954,7 @@ def test_active_documentation_matches_bounded_fast_contract() -> None:
     assert "then the fast lane before the PR" not in release_guidance
     assert "finish with `infra/scripts/ci-local.sh --fast`" not in release_guidance
     assert "ready slice or PR: required GitHub `governance-fast`" in release_guidance
-    assert "обязательный authoritative PR" in pull_request_template
+    assert all(f"`{name}`" in pull_request_template for name in ("governance-fast", "macos-pr", "pr-metadata"))
     assert "только ручная диагностика/offline fallback" in pull_request_template
 
 

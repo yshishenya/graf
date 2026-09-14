@@ -46,16 +46,22 @@ paths or an unavailable diff report `coverage=partial` and
 `next_gate=full_before_release` instead of silently starting the full suite.
 Shared governance documents use the same partial marker, and the whitespace
 stage covers both committed/working-tree changes and selected untracked files.
+Canonical `changes/unreleased/F<digits>.yaml` and
+`changes/releases/vYYYY.MM.DD.N/F<digits>.yaml` are metadata paths: adding the
+required fragment or archiving it does not select infrastructure tests by
+itself. Product and infrastructure changes still select their applicable tests.
+The existing process preflight always runs, including clean PR/release
+checkouts without `.specify/feature.json`; it validates unreleased fragments
+and changed specifications. Archive validation remains in `prepare-release.sh`.
 Fast is for iteration and PR feedback, never a release gate. Focused tests
 remain the first check during implementation.
 
-GitHub Actions runs `governance-fast` automatically for each pull request and
-its exact-SHA result is the merge evidence. The workflow executes the bounded
-`ci-local.sh --fast` lane on a clean GitHub runner. Local `ci-local.sh` remains
-available for focused feedback, explicitly requested diagnosis or offline fallback; local
-evidence alone cannot authorize a merge. Use `--full` only for an early broad
-diagnosis or when the release workflow cannot provide the authoritative record;
-do not run it after every small edit.
+GitHub requires `governance-fast`, `macos-pr` and `pr-metadata` for every PR.
+Code and native results bind the exact head and checked base; metadata binds the
+current description to the same identity. Local focused tests remain the normal
+development loop. Local `ci-local.sh --fast` / `--full` are optional diagnostics,
+not additional pre-PR gates. One complete GitHub `release-full` remains required
+for the frozen release candidate.
 
 For PR and `merge_group` runs, the workflow pins `GRAF_CI_BASE_REF` to the
 event `base_sha` recorded in the receipt. Missing, invalid or unavailable bases
@@ -63,11 +69,21 @@ and a missing merge base fail before tests; moving `origin/master` cannot change
 the selected diff. Manual dispatch retains a null event base and diagnostic
 default selection, not PR/merge-group provenance. Server lint and compile run
 once before selected server tests with the same commands and scope; a static
-failure stops before those tests. PR text edits still trigger the combined
-workflow; separating them requires the protected migration in Feature 211.
+failure stops before those tests. Proven title/body-only edits run a cheap scope
+step, trusted metadata and source-proof verification in the existing fixed-name
+`governance-fast` and `macos-pr` checks. They do not enter code-job concurrency,
+install test resources, repeat product tests or create new source receipts.
+Scope and text-reuse tools come from the exact running workflow SHA in a
+separate sparse checkout; Git still reads the exact primary PR head, including
+older heads that do not contain the newer helpers. For a merged PR, text scope and reuse recover the checked base from the actual
+linear squash/rebase history and retain the real merge SHA; advancing master
+does not invalidate that immutable history. The fixed-name check passes only after verifying the latest actual source
+execution for the exact PR/head/base, workflow and run attempt. A running source
+may be waited on within the job's timeout; failure, cancellation, timeout,
+missing/expired proof or an API error fails the text check without an older-success fallback.
+Retarget, empty/unknown changes and code edits retain the complete applicable checks.
 
-Feature 211 A6 foundation replaces the earlier advisory metadata implementation
-with `pull_request_target` from the trusted `github.workflow_sha`. The validator
+The required metadata check uses `pull_request_target` from the trusted `github.workflow_sha`. The validator
 runs in isolated Python; it only reads PR Git objects and never checks out or
 executes PR code. Two API snapshots must agree on repository, PR, head/base/ref,
 state/merge identity and title/body digest. Its separate concurrency cancels only
@@ -77,20 +93,42 @@ Evidence contains identity/digests only and is retained for 90 days. A merged
 PR's checked base comes from its exact linear squash/rebase history, rather
 than today's master; closed/unmerged PRs are rejected.
 
-The additional `macos-pr` checks the exact diff conservatively. Swift build,
+The required `macos-pr` checks the exact diff conservatively. Swift build,
 tests and ContractValidation run for native/API/cabinet/shared/unknown changes;
-only proven independent paths can omit native execution. A skipped required
-native job cannot pass. Proven title/body-only events use a different check
-name and never enter native execution concurrency, including when a retarget
-check is already running.
+only proven independent paths can omit native execution. If the exact scope
+requires native execution, a skipped execution fails the required check. Proven
+title/body-only events retain the `macos-pr` required name and verify the actual
+native source proof on Ubuntu. They never enter native execution concurrency,
+including when a retarget check is already running. Verified text scopes are
+excluded from source selection even while their result jobs are running, so
+text checks neither become new source proofs nor wait on each other.
 
-Foundation retains the required combined `governance-fast` and its text reruns.
-F211 T060 first verifies the new checks, adds their required contexts and reads
-back protection; T061–T063 then remove combined metadata/repeated text runs and
-update consumers with the recorded activation boundary. The personal repository
-uses serial merges: live merge queue is unavailable, and its existing diagnostic
-code path is retained. No new development command or mandatory local broad test
-stage is introduced.
+The three required contexts were activated on 2026-09-13 at 13:18:40 UTC,
+after foundation PR #6987 merged as `a3f5f72e994e7872ee175ebafd9f7699a2d4ffca`.
+Strict base freshness, app IDs and linear history remain enabled. The canonical
+activation record is `.github/pr-check-policy.json`. Code receipts, native scope
+and metadata artifacts are retained for 90 days. Before merging or accepting
+closeout evidence, use the common current-check validator:
+
+```sh
+python3 scripts/validate-pr-checks.py --repository yshishenya/graf --pr <number>
+```
+
+It validates both the actual source proofs and the latest corresponding required
+gate runs, including title/body runs. Each gate needs exactly one successful job
+with its fixed required name. Source selection uses actual execution time/run ID
+and attempt, never the latest success. Before PASS, it rechecks every selected
+source and gate attempt as well as the current PR identity. It rejects missing,
+expired, unsuccessful, stale or mixed-attempt proof, including a later failed
+rerun of an older run ID. New governance artifacts include run ID and attempt.
+The former artifact name is read only if the exact name is absent, the legacy
+artifact is unique/unexpired and its internal run/attempt matches. A merged PR must match its actual squash
+or linear-rebase history and final tree. Only PRs merged before the recorded
+activation use historical combined evidence; old open PRs receive no exemption.
+Release freeze/decision verifies the PR range after the latest published stable
+GitHub Release; train input must cover that actual range. These operations read
+existing results and do not execute product tests. The personal repository keeps
+serial merges because native merge queue is unavailable.
 
 For an iterative macOS-only failure, manually dispatch `macos-diagnostic` on
 the exact SHA instead of rerunning `release-full`. It runs no server-full job,
@@ -134,10 +172,10 @@ Every change must record one risk/validation lane in the final response or PR.
 - **Tiny low-risk code**: run the focused test or lint command for the touched
   path. Add one small runnable check when the change adds non-trivial logic.
 - **Active Spec Kit slice**: use `quickstart.md` and focused tests during
-  development, then require GitHub `governance-fast` on exact PR SHA. Local
+  development, then require GitHub `governance-fast`, `macos-pr` and `pr-metadata` on exact PR SHA. Local
   wide lanes are diagnostic/fallback only; release uses GitHub `release-full`.
 - **Significant or high-risk feature**: run focused quickstart/domain checks
-  and require GitHub `governance-fast` on exact PR SHA before merge. A local
+  and require GitHub `governance-fast`, `macos-pr` and `pr-metadata` on exact PR SHA before merge. A local
   broad diagnostic is optional when needed to investigate risk, not a second
   routine gate and not authoritative release evidence.
 - **Release / deploy**: run the CD dry-run and execute only after the release
@@ -163,7 +201,7 @@ accumulated.
 
 1. Start with the feature `quickstart.md` when one exists.
 2. Run focused tests for the files and behavior being changed.
-3. Push the branch and wait for the required GitHub `governance-fast` check;
+3. Push the branch and wait for all three required GitHub checks;
    local CI is a manual fallback only.
 
 Focused local checks and required GitHub fast form the normal feedback loop.
@@ -184,12 +222,12 @@ python3 scripts/validate-pr-metadata.py /path/to/pr-body.md \
 Строка `Exact source SHA` должна быть отдельной строкой вида
 `- Exact source SHA: \`<40 hex>\`` без точки, запятой или другого текста после
 закрывающего обратного апострофа. После каждого нового коммита SHA в описании
-нужно обновить и дождаться нового GitHub `governance-fast`; старая проверка не
+нужно обновить и дождаться всех обязательных GitHub checks; старая проверка не
 доказывает корректность нового SHA.
 
 The PR must record the selected risk/validation lane, commands, result, and
-commit SHA. The required `governance-fast` GitHub check must be successful on
-that exact SHA; local evidence may supplement it but cannot replace it. Do not
+commit SHA. The required `governance-fast`, `macos-pr` and `pr-metadata` GitHub checks must agree
+on that exact SHA and checked base; local evidence may supplement it but cannot replace it. Do not
 run full CI after every local edit or every small commit.
 
 Before merging a significant or high-risk slice, required GitHub fast and the feature
@@ -363,7 +401,7 @@ GitHub run URLs, close the umbrella last, then rerun without
 Use this rule when deciding whether to spend the longer run:
 
 - local edit: focused check;
-- ready slice or PR: required GitHub `governance-fast` on exact PR SHA;
+- ready slice or PR: required GitHub `governance-fast`, `macos-pr` and `pr-metadata` on exact PR SHA;
 - release candidate: reviewed and merged exact SHA;
 - approved production execution: `cd-remote.sh --execute` verifies the one
   authoritative Full CI evidence record after synchronization and before remote

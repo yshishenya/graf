@@ -216,10 +216,270 @@ A5 report identity: upload `graf-test-timings-<requested_sha>-<run_id>-<run_atte
 High-risk CI/governance; constitution 7.0.0 PASS, read-only permissions and existing owner trust retained. Research confirms native merge queue/required workflows unavailable for the personal repository; no migration or external service.
 
 1. Reuse `ci-event-identity.py` in a small `scripts/ci-pr-scope.py`: validate exact head/base and NUL Git diff, classify only exact title/body edits as text-only, conservative native scope otherwise. Pure documentation means Markdown notes/specs/changelog and owned changelog fragments. Independent server modules can skip native, while API/cabinet/shared/unknown/native paths require it. Explicit reasons are outputs. Failure of scope causes a failed required final check.
-2. Add `.github/workflows/macos-pr.yml`: scope on Ubuntu; conditional macos-14 Swift 6.0.3 build/tests/ContractValidation; unconditional result assertion. Text edits get distinct non-required display names and concurrency; a skipped native job alone never authorizes merge. Existing local/Full Swift runner reused. No application installation or manual app launch.
+2. Add `.github/workflows/macos-pr.yml`: scope on Ubuntu; conditional macos-14 Swift 6.0.3 build/tests/ContractValidation; unconditional result assertion with stable required name `macos-pr`. A proven text edit validates existing exact-head/base native proof instead of executing native again; a skipped native job alone never authorizes merge. Existing local/Full Swift runner and native execution concurrency are retained. No application installation or manual app launch.
 3. Extend existing metadata validator with explicit trusted-policy SHA and optional second current snapshot/result output. Keep legacy event CLI requiring PR checkout. Trusted mode verifies checkout=policy SHA, repository identity, exact Git object availability and before/after snapshots, then reuses current title/body validation. Target workflow checks out `github.workflow_sha`, fetches only exact SHA Git objects (no PR code checkout), uses `python3 -I`, read-only GitHub token only for API, safe metadata artifact tied to run/attempt/head/base/policy/hash.
-4. First publication retains combined governance-fast metadata execution. After the foundation merge, verify trusted target checks on the cutover PR, add `pr-metadata` and `macos-pr` to required GitHub contexts without removing governance-fast, read back strict/app IDs. Only then cut over governance-fast: scope's exact text-only events use another display name and skip expensive steps/receipts; genuine code events retain current receipt v1 and tests. Separate text concurrency never cancels code/native. This avoids replacing old code PASS with skipped required job.
+4. First publication retains combined governance-fast metadata execution. After the foundation merge, verify trusted target checks on the cutover PR, add `pr-metadata` and `macos-pr` to required GitHub contexts without removing governance-fast, read back strict/app IDs. After cutover, the existing governance-fast job keeps a stable required name: exact text-only events skip expensive steps/new receipts and validate existing source proof; genuine code events retain current receipt v1 and tests. Separate text concurrency never cancels code/native. A skipped job or an unconditional text PASS cannot replace source validation. The initial different-name design was disproved by GitHub's live expected-check state; FR-040 now specifies validated reuse.
 5. Extend existing closeout/release consumers through one reusable live PR check validator. Pin the foundation commit as the historical policy boundary after it exists; do not invent its SHA. New PRs require correct workflow/event/head/conclusion for all three checks and fresh current body validation. Historical pre-cutover evidence remains valid; post-merge identity uses final head and merge ancestry. The current personal-repo train remains serial; no unsupported live merge-group claim.
 6. Verify with existing metadata/event/workflow/closeout/train tests and executable shell/event fixtures. Use no new runtime dependency. Record actual activation and final-SHA hosted checks separately from local proofs; update active guidance and owned changelog only after the switch.
 
 A6 consumer implementation details: one `.github/pr-check-policy.json` records the actual foundation SHA/PR and successful protection read-back UTC timestamp. Policy selection uses merged_at < activation only for already merged PRs; open PRs never qualify for the historical exemption. New policy requires code receipt + native scope + metadata snapshot at common head/base and correct run/attempt; current API base for open PRs, exact squash parent or linear rebase-range predecessor plus equal final trees for merged PRs. Trusted metadata refresh also supports verified merged closed PRs and derives the checked base from their immutable merge, retaining double snapshot checks; closed/unmerged is rejected. No missing artifact or ambiguous merge falls back to old policy. Consumers use existing Git/GitHub data and validators; no new external service.
+
+### A6 исправление последнего набора GitHub checks (T080–T081)
+
+Минимальный scope: две существующие workflow, `scripts/validate-pr-checks.py`, `scripts/validate-governance-workflow.py`, три целевых governance test modules и соответствующие A6 документы/фрагмент F211. A8/A9/A10, Full CI, состав продуктовых тестов и branch protection не меняются. До code edits обязательны независимый requirements PASS, чистый analyze и issue evidence.
+
+1. В `.github/workflows/governance-fast.yml` сохранить существующий job ID и постоянное display name. После успешного scope общими остаются exact checkout и guards допустимого `text_only`; text-only step вызывает компонентную проверку. Все installation/fixture/browser/fast/terminal/receipt/upload steps получают условия ветви кода, включая `always()` cleanup/evidence steps. Scope failure/неизвестное значение завершают required check ошибкой. Текстовая concurrency уникальна по run ID и не отменяет существующую code group.
+2. В `.github/workflows/macos-pr.yml` существующий `result` становится постоянным `macos-pr`; заменить `TEXT_ONLY=true → exit 0` на компонентную проверку. Сохранить `true:success|false:skipped` для обычного native scope. Native job/concurrency остаются прежними. Ожидание исходного native выполняется на Ubuntu с конечным timeout, покрывающим нынешние 30 минут native с запасом; нынешние 2 минуты result недостаточны для body edit во время тестов.
+3. В `scripts/validate-pr-checks.py` выделить валидацию одного исходного компонента из `current_run()` / `validate_bundle()` и добавить узкий CLI для точного текущего text event/run. Использовать существующие metadata/scope/receipt helpers и stdlib. Выбор без фильтра success, по `run_started_at`/run ID, с точным run attempt. Исключать лишь проверенные text scope artifacts; не полагаться на `*-text-change` или невычисленное имя пропущенной задачи. Текущий self-run исключается только после собственной проверки scope/event/API identity.
+4. Повторно используемый source всегда является реальным code/native run: текущий native scope `text_only=false` и фактические native jobs либо исходный code receipt. Не создавать new source receipts/новый reuse artifact format или цепочку text proofs. Публиковать в summary только source run/attempt/head/base и ссылку. Срок хранения и существующая artifact identity сохраняются.
+5. Известный running/queued source проверять с ограниченным ожиданием: source terminal success → проверка proof; source failure/cancel/timeout/API failure → ошибка. Каждый проход обновляет актуальность; финальные PR identity и source run/attempt перечитываются перед PASS. Подтверждённые text scopes исключаются независимо от окончания их итогов, чтобы отсутствовало взаимное ожидание. Полный `verify()` выбирает последний соответствующий workflow run/attempt **включая text**, затем требует его terminal success и ровно один успешный job с fixed required name, точной repository/PR/head/base/workflow/event identity. Не использовать status rollup или поиск последнего success. Перед общим PASS повторно выбрать и сверить source attempts **и gate attempts всех компонентов**, а не только PR snapshot: same-SHA rerun во время проверки native/metadata должен блокировать старый набор. Текстовый компонентный режим не вызывает полный `verify()` и не ждёт metadata/другой компонент.
+6. Права только `contents: read`, `pull-requests: read`, `actions: read`; никаких Checks/Actions write, dispatch, новых credentials или исполнения downloaded artifacts. Native result и text governance выполняют только Python/gh/API/scope работу; новые runtimes не устанавливаются. Для governance остаётся timeout 45 минут, внутреннее ожидание меньше бюджета job. Partial rerun не получает исключения для старого scope attempt; whole text rerun остаётся дешёвым.
+7. Сначала T080: исполняемые API/selection/terminal-shell tests, включая later retry, two simultaneous text runs, self-run exclusion, required-gate failure и no heavy commands/new receipts. Затем T081: минимальная реализация, актуальный workflow validator, targeted suite/actionlint и reviewer. Hosted acceptance выполняет основной агент на новом exact SHA, наблюдая реальный merge box, отсутствие `expected` и отсутствие отмены/повтора source tests; локальный API mock этого не доказывает.
+
+Не выбран простой отказ от `edited`: retarget/неизвестные события перестанут запускать код. Не выбраны job skip или `exit 0`: они могут разрешить merge после failed/running source. Отдельный dispatcher, статус через write API и новые result jobs не нужны для этого объёма.
+
+
+## A7 implementation design
+
+Constitution 7.0.0 PASS, existing high-risk test infrastructure lane. Reuse the already measured ready helper; no new dependency or test framework. Research traced every direct/indirect caller and embedded browser assertions.
+
+1. Baseline the same 14 files using the existing isolated PostgreSQL runner, Python 3.13/frozen lock, xdist 4/loadfile and safe timing reports. Inspect collection parity.
+2. Replace direct single-ready setup only within the research allowlist. Keep the six exact exclusions on the complete fixture. In comments use `setup_comments(client, *, full_seed=False)` returning the existing tuple; the minimal single-ready container is `types.SimpleNamespace(ready_id=create_ready_meeting(client))`. Missing non-ready attributes fail loudly; no widened optional CabinetSeed fields. Two negative callers explicitly use full_seed=True.
+3. Run the same files and compare safe node hashes/outcomes with baseline; preserve original assertions and call sites for actual behavior. Review diff for exception identities, Ruff and existing fixture contracts. Existing Full later covers the full final candidate once.
+
+
+## A8 implementation design
+
+Constitution 7.0.0 PASS, high-risk infrastructure lane. Existing Docker/Compose, Python stdlib, deploy lock, candidate validation, backup and rollback functions remain the mechanism. No registry/credential/service is added.
+
+1. Split Dockerfile into frozen dependencies, application install-prefix, media dependencies and the two existing final targets. Copy only the project install prefix into final images; retain /app scripts/src/config/resources. Attach requested SHA after costly layers. Preserve the base image pin and FFmpeg snapshot/version.
+2. Add one small `infra/scripts/release-images.py` for Docker metadata preparation and create-once attempts. Read resolved Compose in memory, persist only safe image references/IDs. Capture previous before any builds from container IDs (checked project/service labels), prior manifest or individual previous refs. Derive previous Compose using git show without changing checkout. Existing top-level project name is twobrain-rec. All six runtime services and the one media service derive their targets from Compose; rec-minio-init is a third-party minio/mc image, not an application build. Reject unknown build targets.
+3. Prepare/cached-validate runtime/media using --iidfile and source SHA labels, plus native Docker platform. Reuse an existing third-party image only when its old/new refs match; changed refs are pulled before downtime. Save candidate and previous overrides and hold IDs under explicit graf-release tags. An unfinished attempt causes a bounded failure, never overwrites its baseline.
+4. `cd-remote.sh` forwards already validated candidate ID, decision digest and Full digest. Runtime copies the helper into its private attempt location before any reset, prepares images before backup/mutation, and appends the candidate override to existing compose array. Build/pull failure triggers source restoration while runtime_mutated=0.
+5. Downgrade and compatibility remain candidate. Only restore_previous_services / restore_previous_safe_processing_runtime switch to previous override after permitted schema decisions and source reset; delete their rebuilds. Ensure explicit no-pull and correct CLI options. Capture/verify actual service IDs after recreate, retain existing readiness/network/poller/dispatch decisions.
+6. Pass override to run-production-smoke.sh (including its cleanup), not only COMPOSE_FILE env, because it currently supplies explicit -f. Preserve standalone smoke without an override and validate supplied metadata-only mapping. Final attempt result is persisted before clearing the trap. Only verified unchanged runtime or successful recovery of all existing gates (including public download) closes a failed attempt. Failed rollback, compatibility/forward-fix or uncertain state preserves the active baseline and requires recovery. EXIT trap execution alone proves nothing. Failure to persist baseline/helper/overrides fails before stop; final-write failure never reports deploy_result=pass or unlocks the incomplete attempt (including disk-full).
+7. Focused executable lifecycle tests with Docker CLI stubs, existing deployment/rollback/smoke contracts, real local two-target cache/resource check, review/converge; final exact-SHA Full and release dry-run separately. No production traffic is changed during local validation.
+
+### A6 review correction T087
+
+Reuse `metadata.checked_base` in `ci-pr-scope.resolve` and code snapshots,
+preserve actual merged SHA, and allow valid merged title/body events through
+the existing component verifier. Name governance uploads by run ID/attempt;
+use exact-first legacy-compatible reading in the shared artifact loader.
+Execute real Git history and fake-provider ZIP regressions before acceptance;
+retain full-consumer metadata/source/gate validation. No workflow dispatcher,
+new evidence schema, product-test change, or permission expansion is needed.
+
+T090 completes the same historical-PR contract: keep the primary checkout at
+the exact event head, but read scope/reuse tools from `github.workflow_sha` in
+a second sparse `.ci-tools` checkout. Scope always uses those tools; result
+jobs obtain them only for proven text events. The verifier resolves sibling
+helpers/policy beside its own file while Git still reads the primary checkout.
+The shared release PR-check subprocess runs with `cwd=root`, matching the
+script's other Git readers. Regressions cover old heads without these tools,
+real merged history, failure propagation and invocation from another directory.
+Post-merge acceptance must edit an older merged PR (#6991), as well as #6990.
+
+
+## A9 implementation design
+
+High-risk macOS release infrastructure, constitution 7.0.0 PASS before research
+and after design. Existing F211/US9 and public Developer ID/Sparkle gates; stdlib
+only. Architecture research completed independently on current scripts.
+
+1. Keep installer scratch under a separate `.build/installer-cache/<key>`;
+   hash resolved checkout identity, Swift version, SDK version/build/path,
+   Package.swift/resolved and fixed release build arguments. Derive per-triple
+   scratch paths under that key. Never omit swift build on cache hit. One
+   checkout lock covers shared packaging output and GRAF.app; retain both arch
+   and all resource/license/signature checks. Emit a safe source/input/output
+   build receipt for notarization from the public clean-source build.
+2. Add one bounded Python stdlib helper `apps/macos/Installer/Scripts/release-artifacts.py`
+   for content fingerprints and local prepared-state persistence. Reuse existing
+   shell validators and platform commands for trust; do not implement cryptography
+   or a release service. State remains under ignored `.build`, no secret paths or
+   credentials in JSON. Atomic replace + file/directory fsync; no terminal success
+   after a failed persistence acknowledgement. Lock/stale-state refusal explicit.
+3. Move prepare-app-update.sh's current staging lock before existing-state checks.
+   Same-version archive → verify saved full input identity/output hashes, rerun
+   current signature/public-trust validation and return unchanged. Otherwise keep
+   strict version increase and existing working/backup directory replacement.
+   Produce checksum/public attestation with the signed files before recording the
+   state, so the complete final output set is immutable and atomically staged.
+4. sign-graf-app-update-local.sh keeps its lock and temporary safe extraction,
+   Developer ID/team/designated requirement checks; packaged startup checks execute
+   once inside the final upload boundary after public validation. Cache
+   only checked Sparkle ZIP by the existing pinned hash; always rehash and extract
+   into the same temporary replacement/restore path. Persist checked input asset
+   IDs/release IDs/source/hash/size in local cache; on mismatch fail, not silently
+   change the requested release. Fresh Keychain verifier remains every invocation;
+   prepare also validates retained public attestation, including its original TTL.
+5. Replace --clobber with a bounded helper upload of the existing four assets.
+   Reuse `prepare-app-update.sh --verify-only` at the upload boundary for the
+   complete public/Keychain/Sparkle validation, then lock/recheck prepared hashes
+   and run both startup checks. It cannot sign or replace an absent version.
+   Preflight all names before any mutation; same digest/size skips, absent uploads.
+   If GitHub lacks digest, download and compare. Refetch exact draft/source identity
+   before each upload and final readback. Interrupted upload reconciles matching
+   remote bytes without overwrite. No automatic GitHub Release publication/feed
+   switch, no claimed atomic transaction against a concurrent owner publication.
+6. Add helper notarize subcommand around xcrun notarytool using the build receipt.
+   Keep immutable submitted ZIP/PKG and safe state in one per-version/source local
+   directory, copy app only as a packaging artifact, never launch/register it.
+   Durable submitting intent precedes submit; durable ID precedes next submit.
+   Submit both before waiting; known IDs use bounded info/wait. Unknown ID is a
+   blocked ambiguous attempt, never guessed from history. Resume only with proven
+   Apple log/response digest binding. Accepted stages staple separate working copies,
+   run codesign/stapler/Gatekeeper, recreate final ZIP, atomically retain final hashes.
+   Repeating a completed attempt validates the same public output without resubmission.
+7. Existing shell signing tests + focused executable Python lifecycle regressions,
+   shell syntax/Ruff and native packaging contracts; independent review/converge.
+   Final hosted checks/Full and real notarized release validation are distinct.
+   Keep operator commands and general MD plan aligned with the actual final path.
+
+
+## A10 implementation design
+
+Active high-risk F211 continuation, FR-055 / SC-023; constitution unchanged.
+Reuse the existing runner collection and strict/performance marker partition.
+An explicit --partitioned option is valid only with --focused; only the
+run_changed_server_tests caller enables it. Preserve each selector unchanged; use an exact phase selector in the existing
+test_resources.py plugin and the shared phase function for inventory. Avoid
+prefix-based --deselect, which can drop similarly named cases. Reject conflicting xdist flags
+before Docker. Use the existing worker databases and cleanup. Tests precede code.
+No dependency, new general scheduler or product database change is required.
+
+## A11 source-template correction
+
+High-risk active F211 governance continuation, constitution unchanged. FR-056 /
+SC-024 полностью определены существующим bootstrap install-if-missing contract.
+В source extension изменить только условие копирования PR template, нейтрализовать
+названия GRAF checks в общем шаблоне и добавить regression в существующий unittest.
+Выпустить patch SemVer расширения и обновить GRAF штатным pinned bootstrap путём;
+сохранить проектный template с тремя required checks и протестировать два ensure.
+Исполняемый bootstrap уже сохраняет файл; его чужие dirty edits не менять.
+Requirements reviewer → analyze → owner #6986 → implementation → review/checks.
+
+## A12 — закрытие конкретных пробелов качества тестов
+
+Existing high-risk F211; FR-057/058, SC-025, constitution unchanged. До кода:
+requirements review → clean analyze → task ownership. В существующем
+`test_cabinet_static_assets_contract.py` заменить только word-search CSRF test
+на Node vm execution реального обработчика и объявления токена, с событием и
+проверкой headers; переиспользовать текущий subprocess pattern. Не требуется
+браузер для этой границы. Серверный `test_cabinet_csrf.py` остаётся настоящим
+отрицательным HTTP/DB подтверждением. Из `test_config_validation.py` убрать один
+AST-идентичный дубль, сохранив web/non-web/file cases. Дополнительно закрыть два
+изначально найденных дубля E05.04: скалярный cookie-name из
+`integration/test_web_owner_session_context.py` уже проверяется тем же импортом в
+`unit/test_auth_web_session_context.py`; три forbidden-readiness вызова из
+`contract/test_deployment_readiness_contract.py` уже проверяются в
+`unit/test_deployment_helpers.py`. Доказать равенство AST/импортов/параметров,
+оставить независимый буквальный список unit, прочие проверки/fixtures не менять.
+В full ветке существующего
+PostgreSQL runner только переставить strict → performance → parallel; selectors
+и состав не менять. Расширить существующий synthetic pytest/Docker contract для
+полного режима, порядка, отказов каждого раннего этапа и cleanup. Отдельно
+выполнить реальную strict/performance группу и конечный Full на frozen source.
+
+### A12 T088: remove hidden bootstrap skip
+
+Add one narrowly used function fixture in tests/fixtures/postgres_test_database.py,
+imported by test_playback_normalization_postgres.py. Reuse prepare_schema, URL
+validation and stdlib subprocess; use existing Docker/postgres image with the
+same bounded final-postmaster readiness criterion. Switch only the bootstrap
+proof to this URL and turn impossible owned-cluster preconditions into FAIL.
+Do not change phase scheduling or production scripts. Verify failed setup
+cleanup and run the real media-before-bootstrap file and strict/performance
+group with unchanged collection, expecting69 PASS/0SKIP instead of68/1.
+
+### A12 T089: require the existing synthetic media tests
+
+Replace only FFmpeg-related skips in media_matrix, workflow and authorized
+TestRec integration files with a clear failure. Keep TestRec directory opt-in
+first. Add conditional FFmpeg preparation to the existing resource steps in
+`.github/workflows/release-full.yml` and `governance-fast.yml`; never install
+for non-server PR paths. Reuse system packages and existing tests. One focused
+contract file exercises the three real missing-tool entrypoints and retained
+private opt-in; existing `test_governance_workflow.py` executes both actual
+resource shell blocks with synthetic commands. Check working/missing/broken
+tools, failed install, and non-server fast scope. Actual acceptance runs the
+unchanged 49-case media matrix plus one dual-source workflow test exactly once,
+with metadata-only collection/outcomes and no private audio. Requirements
+review, issue6994 ownership and clean analyze precede implementation.
+
+T091 convergence after hosted native failures is test-only: the existing signing
+entrypoint contract follows the actual upload helper and its bound input record;
+the notice test waits for panel removal with ContinuousClock and a finite10 s
+deadline. Existing nonactivating/replacement/dismissal assertions stay; production
+6 s notice lifetime and30 s capture threshold are unchanged. No new runtime
+helper, injected clock or test framework is needed.
+
+T092 addresses hosted evidence34770443870. Initial suspicion that only the
+absolute corruption offset10700 differed was disproved by the independent
+Ubuntu24 experiment: FFmpeg6.1.1 also reports actual interior-frame errors but
+returns0 with -xerror; local8.1.2 returns183. The fixture must prove its strict
+failure on both versions before testing unchanged recovery/output assertions.
+The concrete corruption is selected from that evidence. Do not silently weaken
+runtime policy or accept/skip a missing recovery. If a runtime defect is found,
+reassess that scope before implementation.
+
+
+T092 выбранный и принятый вариант: настоящий ffprobe находит первый аудиопакет,
+helper сохраняет4-байтовый заголовок и повреждает следующие32 байта. Первый
+пакет даёт подтверждённый strict failure и на6.1.1, и на8.1.2. Проверка5.1.9
+из production-образа также прошла; recovery/выход/число subprocess проверяются
+старыми assertions. Независимый review PASS, новые зависимости не требуются.
+
+
+T093 integration convergence: A10 добавляет phase/xdist options после selectors.
+Реальный существующий synthetic runner с `--focused --partitioned -q -- <path>`
+завершился4: `file or directory not found: --graf-phase-file`, выполнено0 случаев.
+Служебные options должны идти перед пользовательскими positional arguments;
+это существующий FR-055, новый продуктовый scope отсутствует. После #6997 все
+run_phase callers используют единый pytest/config/report entrypoint. Regression
+fixture перенаправляет только стандартный project config в свой изолированный
+config; реальные report tests отдельно проверяют неизменённый project config.
+Все прежние selection/xdist/cleanup/phase-order assertions остаются. Clean analyze:
+CRITICAL0/HIGH0, требование→T093→#6993, решение не требует новой зависимости.
+
+T094 уточняет существующий FR-003/FR-008: обязательный changelog-фрагмент
+ошибочно выбирает infra для любого продуктового PR и при переносе в архив.
+В завершённом c670 run34777566897 governance tests и CI contracts заняли
+261+253=514 с; это стоимость стадий этого широкого PR, не отдельный замер
+подготовки релиза. В classify_path распознаются только прежние канонические
+пути F<digits>.yaml, согласованные с native scope. Инфраструктурные скрипты,
+workflows, validators/tests и произвольные changes/* сохраняют прежний выбор.
+Существующий check-development-process.py вызывается независимо от наличия
+feature.json; нового checker, зависимости или параллельного механизма нет.
+Его валидатор проверяет unreleased, архивы по-прежнему проверяет prepare-release
+при формировании выпуска. Проверить реальный no-renames перенос, одиночный
+продуктовый путь с фрагментом, mixed infra, неизвестный путь и обязательный
+отказ process preflight без feature pointer до дорогих стадий. Один реальный
+валидный/невалидный fragment case исполняет существующий checker. Дополнение
+входит в общий пакет #6990 перед следующим выпуском, без отмены текущих605 runs.
+Соседний выпуск .3 требует нового master после найденных Full billing failures;
+окончательный пакет согласуется с ним один раз до следующей hosted-проверки.
+
+T094 analyze: FR-003/FR-008 → точная классификация/process preflight → четыре
+исполняемых scenario и отрицательные path cases → T094/issue6986. Независимый
+requirements review CHK007 PASS; CRITICAL0/HIGH0. Версия архива имеет форму
+CalVer, более широкий native regex v[^/]+ не копируется. Код до этого review
+не менялся; существующие release-full/deploy/архивные guards не заменяются.
+
+T095 продолжает принятое A9 FR-050/FR-051/SC-022. Review4000732815 подтвердил
+окно между os.replace(asset) и atomic_json(record): текущий повтор необратимо
+останавливается на отсутствующем record. Независимый разбор обоих callers
+cache_inputs/cache_sparkle подтвердил минимальную границу ремонта. Только
+обычный файл без record повторно загружается по тому же текущему asset ID через
+существующий download/verify путь; ни размер без digest, ни отсутствие record
+не считаются доказательством байтов. Прежний файл заменяется только после
+успешной проверки временного файла. Symlinks обоих путей, malformed/changed
+record, записанный cache с изменёнными bytes и record без asset остаются FAIL.
+Новая recovery-ветка для record без asset не нужна порядку этой транзакции.
+Проверки воспроизводят interruption перед atomic_json, retry без remote digest,
+неверный размер/pinned digest и сохранность прежнего файла при отказе. Общий
+signing lock, доверие Apple/Sparkle и последующий validate_context сохраняются.
+Это исправление существующего договора возобновления; новый helper, зависимость,
+format или release gate не вводятся. Analyze: FR-050/051→T095→issue6992,
+CRITICAL0/HIGH0; requirements подтверждены независимым разбором до кода.

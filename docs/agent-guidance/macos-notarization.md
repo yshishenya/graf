@@ -31,7 +31,9 @@ before building:
 xcrun notarytool history --keychain-profile graf-notary
 ```
 
-Build the signed installer and create the initial ZIP:
+Build the signed installer once from the clean frozen source. The builder keeps
+compatible Swift scratch between invocations, still builds both architectures,
+and writes the content-bound `<package>.build.json` next to the package:
 
 ```sh
 GRAF_VERSION=YYYY.MM.DD.N \
@@ -42,44 +44,53 @@ DEVELOPER_ID_INSTALLER_IDENTITY="Developer ID Installer: Your Name (TEAMID)" \
   sh apps/macos/Installer/Scripts/build-local-installer.sh \
   "/tmp/GRAF-YYYY.MM.DD.N.pkg"
 
-ditto -c -k --sequesterRsrc --keepParent \
-  apps/macos/RecApp/.build/GRAF.app \
-  "/tmp/GRAF-YYYY.MM.DD.N-candidate.zip"
 ```
 
 ## 2. Notarize, staple, and validate
 
-Submit both distribution artifacts, then staple and validate both:
+Run the resumable command with the same app/package produced above:
 
 ```sh
-xcrun notarytool submit "/tmp/GRAF-YYYY.MM.DD.N-candidate.zip" \
-  --keychain-profile graf-notary --wait
-xcrun notarytool submit "/tmp/GRAF-YYYY.MM.DD.N.pkg" \
-  --keychain-profile graf-notary --wait
-
-xcrun stapler staple apps/macos/RecApp/.build/GRAF.app
-xcrun stapler staple "/tmp/GRAF-YYYY.MM.DD.N.pkg"
-xcrun stapler validate apps/macos/RecApp/.build/GRAF.app
-xcrun stapler validate "/tmp/GRAF-YYYY.MM.DD.N.pkg"
-spctl --assess --type execute --verbose=4 apps/macos/RecApp/.build/GRAF.app
-spctl --assess --type install --verbose=4 "/tmp/GRAF-YYYY.MM.DD.N.pkg"
+python3 apps/macos/Installer/Scripts/release-artifacts.py notarize \
+  --app apps/macos/RecApp/.build/GRAF.app \
+  --pkg /tmp/GRAF-YYYY.MM.DD.N.pkg \
+  --profile graf-notary
 ```
 
-Recreate the ZIP after stapling so Sparkle receives the notarized app:
+It submits ZIP and PKG before waiting, saves each Apple request ID immediately,
+and polls both requests together. Each Apple command is bounded to 45 seconds;
+the overall wait is bounded to 45 minutes and prints progress. After an interruption,
+repeat this exact command: a known request is queried, never submitted twice.
+Keep the original app/package and build receipt unchanged; rerunning the builder
+creates a different signed input and cannot silently replace a submitted build.
 
-```sh
-ditto -c -k --sequesterRsrc --keepParent \
-  apps/macos/RecApp/.build/GRAF.app \
-  "/tmp/GRAF-YYYY.MM.DD.N-candidate.zip"
-```
+The command staples separate copies and validates codesign, stapler and Gatekeeper.
+It creates `GRAF-YYYY.MM.DD.N-candidate.zip` after stapling, alongside the final app
+and package under the reported `.build/notary/<version>-<source>/final/` directory.
+Use these final files for the draft release. The original submitted ZIP/PKG,
+`build.json` and `requests.json` remain in the parent directory. A completed retry
+checks the same output hashes and public trust without rebuilding or re-stapling.
+Record the request IDs and Accepted results in the release receipt.
 
-Record the Apple request IDs and `Accepted` results in the release receipt.
+A lost submit response before the request ID was saved is ambiguous. Do not submit
+again or choose the newest item in Apple history. Find the existing ID, inspect
+`xcrun notarytool log <ID> --keychain-profile graf-notary`, and require its `jobId`
+and `sha256` to bind the saved submitted file. Repeat the command with
+`--recover zip=<ID>` and/or `--recover pkg=<ID>`; the helper verifies that binding.
+If Apple has not provided such evidence, keep the attempt pending.
+
+The installer/notary and staging locks protect their existing shared directories.
+After a crash, establish that the owner has stopped before removing that specific
+empty lock directory; never remove a live lock or alter a receipt to force a PASS.
+A failed write or fsync is not completed evidence and must be retried/diagnosed.
 
 ## 3. Publish the Sparkle update
 
 Before uploading, validate the candidate against the previous Developer ID app
 with `apps/macos/Scripts/validate-app-updates.sh`. Create a draft GitHub Release
-containing the notarized candidate ZIP, previous ZIP and Russian release notes.
+containing the notarized candidate ZIP and Russian release notes. The previous
+ZIP is read from the named previous published release. Give the input candidate
+a distinct `*-candidate.zip` name: `GRAF-<version>.zip` is the signed output asset.
 From a clean checkout of the exact candidate tag on current `origin/master`, run:
 
 ```sh
@@ -93,7 +104,16 @@ apps/macos/Installer/Scripts/sign-graf-app-update-local.sh \
 
 The local command verifies the named Keychain signer, creates metadata-only
 attestation, signs and uploads bounded assets to the draft GitHub Release. It
-does not change the production feed. Publish versioned ZIP/PKG files and their
+does not change the production feed. The same command resumes the same version:
+checked input/Sparkle archives are cached, all prepared bytes and the original
+public attestation stay unchanged, and only missing matching draft assets upload.
+Any remote conflict, changed input, expired original 24-hour attestation, or trust
+failure stops the attempt before overwrite; there is no `--clobber`. Fresh
+Keychain, public/Sparkle validation and both packaged architecture startup checks
+still precede upload. `prepare-app-update.sh --verify-only` only validates an
+already prepared version and cannot generate or replace it.
+
+Publish versioned ZIP/PKG files and their
 SHA-256 checksums on the download host, then replace `graf-appcast.xml` last.
 
 ## 4. Closeout

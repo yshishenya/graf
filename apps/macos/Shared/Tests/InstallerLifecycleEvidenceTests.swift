@@ -314,7 +314,12 @@ final class InstallerLifecycleEvidenceTests: XCTestCase {
         XCTAssertTrue(signer.contains("GRAF_RELEASE_SIGNING_KEYCHAIN_ATTESTATION=\"$ATTESTATION\""))
         XCTAssertTrue(signer.contains("GRAF_REQUIRE_RELEASE_PROVENANCE=1"))
         XCTAssertTrue(signer.contains("git -C \"$REPO_ROOT\" remote get-url origin"))
-        XCTAssertTrue(signer.contains("gh --repo \"$TARGET_REPO\" release upload"))
+        let upload = """
+        python3 "$ARTIFACTS" upload --app "$APP_DIR/candidate/GRAF.app" \\
+          --previous "$APP_DIR/previous/GRAF.app" --notes "$INPUT_DIR/$NOTES_ASSET" \\
+          "$INPUT_DIR/release-inputs.json"
+        """
+        XCTAssertTrue(signer.contains(upload))
         XCTAssertTrue(signer.contains("merge-base --is-ancestor \"$PREVIOUS_COMMIT\" \"$TAG_COMMIT\""))
         XCTAssertTrue(signer.contains("[ \"$LOCK_OWNED\" = 0 ] || rmdir \"$LOCK_DIR\""))
         XCTAssertFalse(signer.contains("GRAF_SPARKLE_PRIVATE_KEY_FILE"))

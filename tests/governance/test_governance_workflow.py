@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import textwrap
 
 import pytest
@@ -155,45 +156,131 @@ def test_governance_workflow_binds_merge_group_identity_and_receipt() -> None:
         assert marker in source
 
 
-def test_governance_workflow_validates_pr_metadata_against_event_sha() -> None:
-    source = (ROOT / ".github/workflows/governance-fast.yml").read_text(encoding="utf-8")
-    assert "name: Validate pull request metadata" in source
-    assert "if: ${{ github.event_name == 'pull_request' }}" in source
-    assert 'event_path, body_path, feature_id_path = map(Path, sys.argv[1:4])' in source
-    assert 'git", "diff", "--name-only"' in source
-    assert 'changes/(?:unreleased|releases/v[^/]+)/F(\\d{3,})\\.yaml' in source
-    assert 'feature_id_path.write_text(",".join(feature_ids) if feature_ids else "scoped"' in source
-    assert '--scoped' in source
-    assert 'pull_request = event.get("pull_request")' in source
-    assert 'github.event.pull_request.head.sha' in source
-    assert '--expected-sha "$EXPECTED_SHA"' in source
-    assert '.specify/feature.json' not in source
-    assert "types: [opened, synchronize, reopened, ready_for_review, edited]" in source
+def test_governance_workflow_isolates_text_from_required_code_checks() -> None:
+    import yaml
+    source = (ROOT / ".github/workflows/governance-fast.yml").read_text()
+    workflow = yaml.load(source, Loader=yaml.BaseLoader)
+    assert "concurrency" not in workflow
+    job = workflow["jobs"]["governance-fast"]
+    assert job["needs"] == "scope"
+    assert job["if"] == "${{ always() }}"
+    assert job["name"] == "governance-fast"
+    assert "github.run_id" in job["concurrency"]["group"]
+    assert "needs.scope.outputs.text_only" in job["concurrency"]["group"]
+    assert job["concurrency"]["cancel-in-progress"] == "true"
+    assert "scripts/validate-pr-metadata.py" not in source
+    assert "retention-days: 90" in source
+
+
+def test_governance_text_event_cannot_enter_heavy_or_receipt_steps() -> None:
+    import yaml
+    workflow = yaml.load((ROOT / '.github/workflows/governance-fast.yml').read_text(), Loader=yaml.BaseLoader)
+    steps = workflow['jobs']['governance-fast']['steps']
+    shared = {'Require valid code scope', 'Checkout exact PR SHA', 'Resolve event identity', 'Verify exact SHA'}
+    reuse_steps = []
+    for step in steps:
+        if step.get('name') in shared:
+            continue
+        if step.get('name') == 'Checkout current workflow tools':
+            assert step['if'] == "needs.scope.outputs.text_only == 'true'"
+            assert step['uses'] == 'actions/checkout@v4'
+            assert step['with']['ref'] == '${{ github.workflow_sha }}'
+            assert step['with']['path'] == '.ci-tools'
+        elif '--reuse-component' in step.get('run', ''):
+            reuse_steps.append(step)
+            assert step['if'] == "needs.scope.outputs.text_only == 'true'"
+        else:
+            assert "needs.scope.outputs.text_only == 'false'" in step.get('if', ''), step.get('name')
+    assert len(reuse_steps) == 1
+    assert 'continue-on-error' not in reuse_steps[0]
+
+
+@pytest.mark.parametrize('reuse_status', [0, 1])
+def test_actual_governance_text_path_propagates_proof_result_without_new_receipt(tmp_path, reuse_status):
+    import yaml
+
+    steps = yaml.load((ROOT / '.github/workflows/governance-fast.yml').read_text(), Loader=yaml.BaseLoader)['jobs']['governance-fast']['steps']
+    # These are the actual workflow's simple conditions at text_only=true.
+    conditions = {
+        '': True,
+        "needs.scope.outputs.text_only == 'true'": True,
+        "needs.scope.outputs.text_only == 'false'": False,
+        "always() && needs.scope.outputs.text_only == 'false'": False,
+        "github.event_name == 'merge_group' && needs.scope.outputs.text_only == 'false'": False,
+    }
+    selected = [step for step in steps if conditions[step.get('if', '').replace('${{', '').replace('}}', '').strip()]]
+    assert [step['name'] for step in selected] == [
+        'Require valid code scope', 'Checkout exact PR SHA', 'Checkout current workflow tools', 'Resolve event identity',
+        'Verify exact SHA', 'Verify existing code proof',
+    ]
+    subprocess.run(['git', 'init', '-q'], cwd=tmp_path, check=True)
+    subprocess.run(['git', '-c', 'user.name=Workflow Contract', '-c', 'user.email=workflow@example.test',
+                    'commit', '--allow-empty', '-qm', 'fixture'], cwd=tmp_path, check=True)
+    sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=tmp_path, text=True).strip()
+    scripts = tmp_path / '.ci-tools/scripts'
+    scripts.mkdir(parents=True)
+    shutil.copy2(ROOT / 'scripts/ci-event-identity.py', scripts)
+    event = tmp_path / 'event.json'
+    event.write_text(json.dumps(dict(action='edited', number=7, changes={'body': {'from': 'previous'}},
+                                    pull_request=dict(number=7, head=dict(sha=sha), base=dict(sha=sha)))))
+    bin_dir = tmp_path / 'bin'
+    bin_dir.mkdir()
+    shim = bin_dir / 'python3'
+    shim.write_text('#!/bin/sh\nif [ "$1" = -I ] && [ "$2" = .ci-tools/scripts/validate-pr-checks.py ]; then\n'
+                    '  printf "%s\\n" "$*" > "$REUSE_CALL"\n  exit "$REUSE_STATUS"\nfi\n'
+                    'exec "$REAL_PYTHON" "$@"\n')
+    shim.chmod(0o755)
+    marker = tmp_path / 'reuse-call'
+    environment = {**os.environ, 'PATH': str(bin_dir) + os.pathsep + os.environ['PATH'],
+                   'REAL_PYTHON': sys.executable, 'REUSE_CALL': str(marker), 'REUSE_STATUS': str(reuse_status),
+                   'SCOPE_RESULT': 'success', 'TEXT_ONLY': 'true', 'EVENT_NAME': 'pull_request',
+                   'TOOL_ROOT': '.ci-tools',
+                   'GRAF_CI_REQUESTED_SHA': sha, 'GITHUB_EVENT_PATH': str(event), 'RUNNER_TEMP': str(tmp_path),
+                   'GITHUB_OUTPUT': str(tmp_path / 'outputs'), 'GITHUB_REPOSITORY': 'owner/repo',
+                   'GITHUB_RUN_ID': '25', 'GITHUB_RUN_ATTEMPT': '1'}
+    for step in selected:
+        if 'uses' in step:
+            assert step['uses'] == 'actions/checkout@v4'
+            if step['name'] == 'Checkout current workflow tools':
+                assert step['with']['ref'] == '${{ github.workflow_sha }}'
+                assert step['with']['path'] == '.ci-tools'
+            continue  # The fixture above is already checked out at the exact SHA.
+        command = step['run'].replace('${{ steps.identity.outputs.target_sha }}', sha)
+        result = subprocess.run(['bash', '-c', command], cwd=tmp_path, env=environment, capture_output=True, text=True)
+        if step['name'] != 'Verify existing code proof':
+            assert result.returncode == 0, result.stderr
+        else:
+            assert result.returncode == reuse_status, result.stderr
+    assert '--reuse-component governance-fast' in marker.read_text()
+    assert '--run-id 25 --run-attempt 1' in marker.read_text()
+    assert not (tmp_path / '.dev/ci-evidence').exists()
 
 
 def test_governance_workflow_has_fail_closed_terminal_validators() -> None:
     source = (ROOT / ".github/workflows/governance-fast.yml").read_text(encoding="utf-8")
     assert "continue-on-error: true" not in source
     assert "name: Assert mandatory governance outcomes" in source
-    assert "PR_METADATA_OUTCOME" in source
+    assert "PR_METADATA_OUTCOME" not in source
     assert "TERMINAL_OUTCOME" in source
     assert "RECEIPT_VALIDATION_OUTCOME" in source
     assert "if: ${{ always() }}" in source
     assert "name: Upload metadata-only evidence" in source
 
 
-def test_governance_workflow_does_not_require_pr_body_for_non_pr_events() -> None:
-    source = (ROOT / ".github/workflows/governance-fast.yml").read_text(encoding="utf-8")
-    gate = source.split("- name: Validate pull request metadata", 1)[1]
-    gate = gate.split("- name: Run bounded fast lane", 1)[0]
-    assert "if: ${{ github.event_name == 'pull_request' }}" in gate
-    assert "merge_group" not in gate
-    assert "workflow_dispatch" not in gate
+@pytest.mark.parametrize("scope,text,expected", [("success", "false", 0), ("success", "true", 0), ("failure", "", 1), ("cancelled", "false", 1)])
+def test_actual_scope_failure_stops_before_expensive_code(scope, text, expected) -> None:
+    import os
+    import yaml
+    workflow = yaml.load((ROOT / ".github/workflows/governance-fast.yml").read_text(), Loader=yaml.BaseLoader)
+    first = workflow["jobs"]["governance-fast"]["steps"][0]
+    assert first["name"] == "Require valid code scope"
+    result = subprocess.run(["bash", "-c", first["run"]], env={**os.environ, "SCOPE_RESULT":scope, "TEXT_ONLY":text})
+    assert result.returncode == expected
 
 
 def test_governance_workflow_emits_terminal_receipt_after_failure_or_cancel() -> None:
     source = (ROOT / ".github/workflows/governance-fast.yml").read_text(encoding="utf-8")
-    assert source.count("if: ${{ always() }}") >= 5
+    assert source.count("if: ${{ always() && needs.scope.outputs.text_only == 'false' }}") >= 5
     assert "Prepare terminal metadata-only evidence and identity" in source
     assert '"reason": f"workflow_{status}_before_ci_evidence"' in source
     assert "${{ steps.terminal.outputs.evidence_path }}" in source
@@ -214,3 +301,62 @@ def test_governance_workflow_rejects_production_and_stale_bypasses(tmp_path: Pat
 
 def test_governance_workflow_self_test() -> None:
     assert load_validator().self_test() == 0
+
+
+@pytest.mark.parametrize("workflow_name", ["release-full", "governance-fast"])
+@pytest.mark.parametrize("tools_state", ["working", "missing-ffmpeg", "missing-ffprobe", "update-failed", "install-failed", "broken-ffmpeg", "broken-ffprobe", "non-server"])
+def test_actual_media_resource_preparation(tmp_path, workflow_name, tools_state):
+    import yaml
+
+    workflow = yaml.load((ROOT / f".github/workflows/{workflow_name}.yml").read_text(), Loader=yaml.BaseLoader)
+    job = workflow["jobs"]["server-full" if workflow_name == "release-full" else "governance-fast"]
+    step = next(step for step in job["steps"] if "browser" in step.get("name", "").lower() and "resources" in step["name"])
+    runner = tmp_path / "infra/scripts/ci-local.sh"
+    runner.parent.mkdir(parents=True)
+    runner.write_text('source "$CI_SOURCE"\nchanged_files() { printf "%s\\n" "$CHANGED_PATH"; }\n')
+    browser = tmp_path / "apps/server/tests/browser/node_modules/.bin/playwright"
+    browser.parent.mkdir(parents=True)
+    browser.write_text('#!/bin/sh\nprintf "browser\\n" >> "$PREP_EVENTS"\n')
+    browser.chmod(0o755)
+    events = tmp_path / "events"
+    harness = r'''
+installed=0
+command() {
+  if [[ "${1:-}" == -v && ( "${2:-}" == ffmpeg || "${2:-}" == ffprobe ) ]]; then
+    [[ "$installed" == 1 || ( "$TOOLS_STATE" != "missing-$2" && "$TOOLS_STATE" != install-failed && "$TOOLS_STATE" != update-failed ) ]]
+  else builtin command "$@"; fi
+}
+sudo() {
+  [[ "$1" == apt-get ]] || return 99
+  printf '%s\n' "$*" >> "$PREP_EVENTS"
+  [[ "$TOOLS_STATE" != update-failed || "$2" != update ]] || return 23
+  [[ "$TOOLS_STATE" != install-failed || "$2" != install ]] || return 23
+  if [[ "$2" == install ]]; then installed=1; fi
+}
+npm() { printf 'npm\n' >> "$PREP_EVENTS"; }
+ffmpeg() { printf 'ffmpeg\n' >> "$PREP_EVENTS"; [[ "$TOOLS_STATE" != broken-ffmpeg ]]; }
+ffprobe() { printf 'ffprobe\n' >> "$PREP_EVENTS"; [[ "$TOOLS_STATE" != broken-ffprobe ]]; }
+'''
+    result = subprocess.run(
+        ["bash", "-e", "-o", "pipefail", "-c", harness + step["run"]], cwd=tmp_path,
+        env={**os.environ, "CI_SOURCE": str(ROOT / "infra/scripts/ci-local.sh"),
+             "CHANGED_PATH": "README.md" if tools_state == "non-server" else "apps/server/src/example.py",
+             "TOOLS_STATE": tools_state, "PREP_EVENTS": str(events)},
+        capture_output=True, text=True, check=False, timeout=10,
+    )
+    rows = events.read_text().splitlines() if events.exists() else []
+    if workflow_name == "governance-fast" and tools_state == "non-server":
+        assert result.returncode == 0 and not rows, result.stderr
+        return
+    failed = tools_state in {"update-failed", "install-failed", "broken-ffmpeg", "broken-ffprobe"}
+    assert (result.returncode != 0) == failed, result.stdout + result.stderr
+    installs = [row for row in rows if row.startswith("apt-get")]
+    if tools_state.startswith("missing-") or tools_state == "install-failed":
+        assert len(installs) == 2 and installs[0] == "apt-get update"
+        assert installs[1].endswith("ffmpeg")
+    elif tools_state == "update-failed":
+        assert installs == ["apt-get update"]
+    else:
+        assert installs == []
+    if not failed:
+        assert rows.count("ffmpeg") == rows.count("ffprobe") == 1

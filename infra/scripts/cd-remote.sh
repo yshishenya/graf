@@ -168,7 +168,7 @@ PY
     echo "reason=authoritative_full_evidence_missing"
     exit 1
   }
-  if ! python3 - "$CANDIDATE_PATH" "$EVIDENCE_PATH" "${EXPECTED_SHA:-}" <<'PY'
+  if ! IMAGE_RELEASE_IDENTITY="$(python3 - "$CANDIDATE_PATH" "$EVIDENCE_PATH" "${EXPECTED_SHA:-}" <<'PY'
 import hashlib
 import importlib.util
 import json
@@ -200,12 +200,14 @@ if deploy_sha and candidate.get("source_sha", "").lower() != deploy_sha:
     raise SystemExit("candidate source SHA differs from the deployed SHA")
 if evidence.get("lane") != "full" or evidence.get("authoritative_full") is not True:
     raise SystemExit("decision evidence is not an authoritative Full CI record")
+print(candidate["candidate_id"], "sha256:" + hashlib.sha256(candidate_path.read_bytes()).hexdigest(), actual)
 PY
-  then
+)"; then
     echo "deploy_result=blocked"
     echo "reason=authoritative_full_evidence_invalid"
     exit 1
   fi
+  read -r IMAGE_CANDIDATE_ID IMAGE_DECISION_DIGEST IMAGE_FULL_DIGEST <<<"$IMAGE_RELEASE_IDENTITY"
   echo "authoritative_full_evidence=$EVIDENCE_PATH"
   REUSE_AUTHORITATIVE_FULL=1
   echo "release_candidate=go"
@@ -263,6 +265,9 @@ remote_script=$(cat <<'SH'
 set -eu
 branch="$1"
 expected_sha="$2"
+candidate_id="$3"
+decision_digest="$4"
+full_digest="$5"
 deploy_lock="$(git rev-parse --git-path twobrain-rec-deploy.lock)"
 exec 9>"$deploy_lock"
 if ! /usr/bin/flock -n 9; then
@@ -301,12 +306,12 @@ git cat-file -e "$expected_sha^{commit}"
 git reset --hard "$expected_sha"
 TWOBRAIN_PRODUCTION_RELEASE_GATE=1 \
 TWOBRAIN_PRODUCTION_RELEASE_LOCK_HELD=1 \
-  bash infra/scripts/cd-remote-runtime.sh "$branch" "$expected_sha" "$previous_sha"
+  bash infra/scripts/cd-remote-runtime.sh "$branch" "$expected_sha" "$previous_sha" "$candidate_id" "$decision_digest" "$full_digest"
 SH
 )
 
 remote_payload="$(printf '%s' "$remote_script" | base64 | tr -d '\n')"
-remote_command="cd $(printf '%q' "$REMOTE_PATH") && tmp=\$(mktemp /tmp/twobrain-rec-deploy.XXXXXX) && trap 'rm -f \"\$tmp\"' EXIT && printf '%s' $(printf '%q' "$remote_payload") | base64 -d > \"\$tmp\" && $(printf '%q' bash) \"\$tmp\" $(printf '%q' "$BRANCH") $(printf '%q' "$EXPECTED_SHA")"
+remote_command="cd $(printf '%q' "$REMOTE_PATH") && tmp=\$(mktemp /tmp/twobrain-rec-deploy.XXXXXX) && trap 'rm -f \"\$tmp\"' EXIT && printf '%s' $(printf '%q' "$remote_payload") | base64 -d > \"\$tmp\" && $(printf '%q' bash) \"\$tmp\" $(printf '%q' "$BRANCH") $(printf '%q' "$EXPECTED_SHA") $(printf '%q' "$IMAGE_CANDIDATE_ID") $(printf '%q' "$IMAGE_DECISION_DIGEST") $(printf '%q' "$IMAGE_FULL_DIGEST")"
 
 set +e
 remote_output="$(ssh "$REMOTE_HOST" "$remote_command" 2>&1)"

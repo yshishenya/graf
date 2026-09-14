@@ -337,4 +337,424 @@ Hosted follow-up: governance-fast 34768234779 attempt 2 and macos-pr 34768140020
 T056 production-command follow-up: Full 34769117142 exposed that `uv run pytest` does not initially include the server root in `sys.path`, unlike the `python -m pytest` used by the first regression. The runner now exports one explicit server-root/src PYTHONPATH and no longer replaces it during PostgreSQL startup. The regression calls the actual runner and console entrypoint with two workers: it fails before the fix with `No module named 'tests'`, then all three resource tests pass (12.65 s). Frozen Spec Kit governance, Bash and Ruff pass. Product code, dependencies and release gates are unchanged; Full on a new merged SHA is required.
 Real PostgreSQL + two-worker autosave contract with phase reporting also passed: 1 test / 10.61 s, three metadata rows, isolated container removed. This exercises the same post-database PYTHONPATH as Full, in addition to the pure path.
 
+## A7 acceptance
+
+Use `GRAF_TEST_REPORT_DIR=<new-empty-directory> bash apps/server/scripts/run_local_postgres_tests.sh --focused -q -n 4 --dist=loadfile` with these tests relative to apps/server: integration/test_recording_share_public_link.py, test_cabinet_meeting_rename.py, test_local_purge_coordination.py, test_transcript_export_egress.py, test_cabinet_playback_route.py, test_meeting_comments.py, test_meeting_comments_api_review.py, test_meeting_comments_boundaries.py, test_meeting_comments_browser.py, test_meeting_comments_read_review.py, test_cabinet_hx_delete_feedback.py, test_meeting_share_links.py, test_meeting_access_policy.py; plus unit/test_meeting_access_decisions.py. Each name after the first retains its integration/ prefix.
+
+Before/after must have the same collected IDs and final outcomes, no skips, same frozen Python/worker environment. Compare the controller timing case hashes and separate setup/call/teardown; no raw output artifact. Check full_seed=True in the two comment exceptions and full seed calls in four direct exception functions, then inspect assertions unchanged. Ruff and existing full candidate remain mandatory at their usual boundary.
+
+A7 analyze: FR-042 / SC-020 → T064–T066, full coverage, no conflicts or missing requirements; independent checklist PASS 3/3. Baseline: 144 PASS / 178.82 s pytest, 182 s phase, collection digest `4f0c8275aa6e32cf887cec499fb4dcd0edc4dec2217a4bfa3ee14b0edf0d185b`, xdist4/loadfile. Owner #6988.
+
+
+## A8 acceptance
+
+Build runtime and media-runtime locally through the documented helper/Dockerfile with a full synthetic source SHA. For both: inspect IDs/source labels/platform, run pip check and record installed runtime/evaluation versions and packaged migration/template/prompt resources. Only media may run ffmpeg. Test two distinct rebuilds: a new SHA with identical source bytes, and a real source-only edit with a verified changed application output. Both must retain dependency and FFmpeg cache; the real source edit must rebuild the application while preserving distributions/resources.
+
+Run focused image lifecycle tests plus existing cd/rollback/smoke contracts. Required failures: bad SHA/platform/ID; missing previous image; changed external ref pull failure before stop; dirty/missing evidence; incomplete attempt; wrong .Image after recreate; failed rollback/public-download recovery; disk-full or atomic-write error for baseline/helper/overrides before stop; final-result write failure retaining the blocking attempt with no deploy_result=pass. Required successful paths: same-SHA cached retry; schema downgrade and compatibility use candidate IDs; permitted rollback uses previous IDs with zero build/pull; smoke/cleanup consumes candidate override. Actual release still requires one final GitHub Full and cd-remote.sh --dry-run.
+
+A7 final local acceptance, 2026-09-13: the same 144 cases PASS before and after, no skips, identical collection digest `4f0c8275aa6e32cf887cec499fb4dcd0edc4dec2217a4bfa3ee14b0edf0d185b` and all 432 (case_id,file,when,outcome) rows match. Pytest 178.82 → 113.03 s; phase 182 → 117 s. Independent AST review confirms unchanged behavior assertions in all 89 direct replacements, all 26 comments callers, and the six preserved exceptions. Ruff/diff PASS. T064–T066 local converge has no remaining implementation gaps; PR/hosted/merge and final Full are separate.
+
+A8 clean analyze, 2026-09-13: reviewer-owned image-reuse checklist PASS 5/5 after clarifying persistence failures and verified recovery. FR044→T068, FR045/046/047→T069, FR048→T070, SC021 and all negative scenarios→T071. Each task owns named existing files or the single stdlib helper and focused test file. No unresolved clarification, unmapped requirement, contradiction with constitution 7.0.0 or hidden registry dependency. The historical build decision and CLI contract explicitly defer to A8. Production and public artifact proof remains pending.
+
+A4/A5/A6 foundation publication: PR #6987 merged 2026-09-13T13:05:57Z as `a3f5f72e994e7872ee175ebafd9f7699a2d4ffca`; checked source `ab2da6cd081b3b5f8acf876a1b1431109211fc59`. Exact-source governance-fast run 34758484113 PASS and macos-pr run 34758484107 PASS including pinned Swift 6.0.3. T052/T067 are complete. T060 protection activation still waits for separate metadata on the next PR; no activation time is inferred from foundation merge. A8 owner #6989.
+
+T072 discovered by A7 hosted macos-pr run 34758978378: `testProbeTimesOutAndIgnoresLateOrDuplicateCompletion` expected timeout false, but two assertions saw true. The 10 ms utility-queue timer races with a 40 ms callback on a different global queue; nominal deadlines do not guarantee completion order under load. Replace that fixture ordering with an AsyncStream that retains the real callback until the actual probe has timed out, then invoke late/duplicate callbacks. Production probe and timeout remain unchanged. T072 is FR038 convergence, not a new permission behavior.
+
+T060 activation evidence: `.github/pr-check-policy.json` records the real foundation merge and 2026-09-13T13:18:40Z read-back. Required checks are governance-fast, pr-metadata, macos-pr, each app_id 15368; strict=true, linear=true, required approvals=0 remain unchanged. PR #6990 demonstrated trusted pr-metadata PASS (34758978356) and a real failing native check (34758978378), which now blocks merge until T072 passes. Foundation native had passed on ab2da6cd. No failing native gate was bypassed.
+
+T072 local `swift test --package-path apps/macos --filter SystemAudioPermissionUXTests`: 8 PASS and the existing opt-in preview render skip; timing case PASS in 0.011 s. No app installation or preview rendering was performed. Final hosted SHA remains pending.
+
+
+### A6 local consumer convergence — 2026-09-13
+
+- Реальное read-back GitHub protection: `strict=true`; `governance-fast`, `pr-metadata`, `macos-pr`, все `app_id=15368`. Активация `2026-09-13T13:18:40Z`, foundation #6987 / `a3f5f72e994e7872ee175ebafd9f7699a2d4ffca`; запись `.github/pr-check-policy.json`.
+- Общий validator подключён к closeout и candidate/train freeze/current/decision/attestation. Проверяет актуальный run attempt по `run_started_at`, общее head/base, native execution и свежий текст. Squash с обновляющим master merge в исходной ветке проверяется по настоящему родителю и итоговому дереву.
+- Диапазон релиза выводится из опубликованного stable product release на строгой цепочке предков source. Уже опубликованный текущий source пропускается как база: последующая аттестация сохраняет проверки всех вошедших PR. Каждый commit принадлежит единственному merged PR; linear rebase покрывается целиком, набор train сверяется точно. Некорректная политика, отсутствующий предшествующий release/PR, неоднозначность и stale/failed proof блокируют действие.
+- `apps/server/.venv/bin/python -m pytest -q tests/governance/test_pr_checks.py tests/governance/test_pr_metadata_event.py tests/governance/test_release_candidate.py tests/governance/test_release_train.py tests/governance/test_governance_workflow.py tests/governance/test_pr_scope.py tests/governance/test_validator_safety.py`: **226 PASS / 49.43 s**, `/tmp/graf-a6-all-focused.log`.
+- Actionlint трёх workflows, governance validator/self-test, Bash syntax, frozen Spec Kit doctor: PASS. Ruff fixture re-export исправлен без изменения test logic.
+- T072 focused Swift: **8 PASS, 1 прежний opt-in skip**, `/tmp/graf-native-permission-green.log`. Истинный timeout настоящего probe предшествует намеренно поздним/повторным completion; рабочие permissions/timers не менялись.
+- Локальное сопоставление FR-038–041/SC-019: scope, trust boundary, activation, историческая политика, consumers и негативные сценарии покрыты. Hosted green на новом source и наблюдение body-only edit ещё обязательны для T061/T063/T072. A8 и последующее ускорение упаковки остаются открытыми этапами программы.
+
+- Независимый implementation review A6/T072: **PASS**, новых P1/P2 нет; проверены строгая база предыдущего release, annotated tags, покрытие squash/rebase, все consumers и настоящая последовательность timeout/late callbacks. Результат не заменяет hosted проверки. Ponytail-review: существующие metadata/receipt helpers и stdlib переиспользованы; лишних зависимостей/сервисов нет.
+
+### A6 live text-event acceptance — 2026-09-13
+
+На `59c7072590feaf5c9b1d163c8f17c3742254e07e` Swift6.0.3 native run34760638453 PASS. Правка только body в13:47:25 UTC создала metadata34760821522 PASS и текстовые scope runs34760821336/34760821301; исходный code34760638452 продолжал работу без отмены, Swift повторно skipped. GitHub оставляет dynamic name пропущенного code job невычисленным выражением. Для надёжного consumer добавлен только маленький code-scope artifact текстового события; его run/attempt/head/base/text identity обязателен перед пропуском такой записи. Code receipt из текста не создаётся. Регрессии новых условий и workflow contract:73PASS/10.14с; будущая hosted проверка обновлённого source остаётся обязательной.
+
+A6 documentation contract продолжения: старая проверка единственного «обязательный authoritative PR» обновлена на явное присутствие всех трёх обязательных имён. Поведение тестов не изменено. Связанный CI/CD contract до изменения этой строки имел единственное несовпадение документации; исправленный сценарий PASS.
+
+### A6 expected-check correction: требования T080–T081 — 2026-09-13
+
+Статус: независимый requirements review PASS 4/4; clean analyze PASS, FR-040/SC-019 покрыты T080–T081 без critical/high замечаний. Реализация и live acceptance ещё не завершены. Предыдущая live проверка доказала отсутствие повторов/отмены кода, но не завершила приёмку слияния.
+
+Основной агент проверил авторизованный merge box #6990 на head `c82b1f5db28f60b664b6cc7efbf50f92e31614eb` и base `a3f5f72e994e7872ee175ebafd9f7699a2d4ffca`: после body edit GitHub показывает `governance-fast expected` / `macos-pr expected`, хотя прежние source checks успешны и общий validator их принимает. Новый набор того же workflow скрывает прежний required result. Это основание уточнения FR-040, а не основание менять branch protection или повторять продуктовые тесты.
+
+Приёмка T080–T081:
+
+- Сначала исполняемые tests с подставными API/командами: success + body, failed/cancelled/running + старый success, running→success/failure/timeout, ошибки API, later attempt старого run ID, смена head/base/ref/state/attempt при проверке, wrong PR/repository/workflow/event и missing/expired/mixed artifacts.
+- Только проверенный text scope разрешает исключение из source search; неверный self-run ID/похожее имя/неизвестный scope не скрывают реальный code run. Два текстовых итога не ждут друг друга. Текстовый PASS не становится исходным proof; полный consumer требует и source proof, и последний соответствующий gate run/attempt включая text с ровно одним successful fixed-name job и точной identity. Rollup/последний success не подходят. Отдельный сценарий запускает same-SHA повтор source/gate во время проверки другого компонента: финальная сверка всех selected source/gate attempts блокирует прежний набор при неизменных PR snapshots.
+- Фактические workflow shell guards доказывают ноль установок ресурсов, вызовов `ci-local --fast`, Swift и новых source receipts на text-only. Обычные code/native/terminal guards и required+skipped ошибки сохраняются. Text concurrency не отменяет code/native; partial rerun не смешивает попытки.
+- Targeted governance suite, актуальный governance workflow validator и actionlint; никакого локального Full или изменения правил защиты.
+- После commit/push основным агентом: body-only edit во время source execution сохраняет исходный run и ждёт его настоящего результата; на успешном исходе permanent required checks проходят. Проверить сам блок слияния GitHub, отсутствие `expected` и неизменные required names/app IDs/strict rules. Если PR ещё открыт, body edit после завершения source снова запускает только scope/API. Ссылки на runs, source/head/base/attempt и результаты записываются после фактической проверки.
+
+Hosted готовность не выводится только из локального PASS или API status rollup. T061/T063/T081 остаются открытыми до соответствующей текущей приёмки. A8/A9/A10 и ранее записанные результаты других этапов этим исправлением не пересматриваются.
+
+### A6 expected-check correction: локальная реализация T080–T081 — 2026-09-13
+
+- Отрицательная проверка T080 до реализации: **30 FAIL, 6 PASS, 82 deselected / 3,20 с**, `/tmp/graf-a6-reuse-red.log`. В том числе прежний общий consumer принимал исходный proof при отсутствии последнего required `macos-pr`; новые компонентные сценарии ещё не имели реализации, а фактическая native text-ветка не вызывала verifier. Это отдельные причины FAIL, а не 30 воспроизведений одного GitHub дефекта.
+- Постоянные required names сохранены в существующих jobs. Governance text-путь выполняет только scope guard, exact checkout/identity и проверку исходного proof; установки, `ci-local.sh --fast`, terminal/source receipts и их upload имеют явный code-only guard. Native text-result проверяет исходный native proof на Ubuntu; существующий Swift job не менялся. Неизвестный или failed scope не входит в concurrency кода и завершает required check ошибкой.
+- Компонентная проверка принимает только настоящий text event и scope текущего run/attempt, сверяет текущий PR/head/base/ref/state/repository и exact diff. Последний source выбирается по времени исполнения и run ID без поиска последнего успеха. Bounded wait проверяет настоящий outcome; failure/cancel/timeout/API failure не заменяется старым PASS. Подтверждённые text scopes исключаются до ожидания результата, поэтому два таких запуска не ждут друг друга и не образуют цепочку новых proofs. Summary содержит только исходный run/attempt/head/base и ссылку.
+- Полный consumer дополнительно требует последний gate run/attempt каждого компонента, включая text, с ровно одним successful fixed-name job. Перед PASS он повторно проверяет все source/gate attempts и текущий PR. Исполняемый отрицательный сценарий меняет source, text gate или metadata attempt при второй загрузке metadata — после первоначального выбора остальных компонентов и при неизменном SHA/PR snapshot; финальная сверка отклоняет прежний набор.
+- Итоговый целевой набор: **273 PASS / 47,34 с**, `/tmp/graf-a6-reuse-consumers.log`: `tests/governance/test_pr_checks.py`, `test_pr_metadata_event.py`, `test_release_candidate.py`, `test_release_train.py`, `test_governance_workflow.py`, `test_pr_scope.py`, `test_validator_safety.py`. API подменяется на границе провайдера; выбор source/gate, проверки доказательств и настоящий Git выполняются. Фактические shell двух workflow передают ошибку proof verifier; governance text-цепочка не создаёт `.dev/ci-evidence`.
+- Actionlint обеих workflow, `validate-governance-workflow.py --self-test`, Ruff изменённых Python файлов и `git diff --check`: **PASS**. Два самостоятельных контракта активной документации: **2 PASS** через `pytest --confcutdir=apps/server/tests/contract ... -k active_documentation`, без загрузки продуктового server conftest. Использован существующий Python 3.13 venv с pytest 9.1.1; новый environment не создавался.
+- Сопоставление FR-040/SC-019 → T080/T081: условия постоянных names, неизменного source, отказа при ошибках, отсутствия взаимного ожидания, gate/source revalidation и сохранения historical/post-merge policy покрыты. T080 завершён. Локальная реализация T081 подготовлена к независимому implementation review; T081, T061 и T063 остаются открытыми до review, commit/push и настоящей exact-SHA/body-edit приёмки основным агентом. Issue #6986 остаётся открытым. Full CI, сборки продукта, изменения GitHub и production на этом этапе не выполнялись.
+
+### A6 review corrections — 2026-09-13
+
+GitHub review comments 4000081305/4000081311 reproduced: initial executable
+Git/ZIP regressions had 5 FAIL, 10 PASS. Minimal fix reuses checked_base for
+scope and code snapshots, retains real merge identity and supports merged
+text. New uploads use run/attempt names; invalid exact artifacts cannot use
+legacy fallback. Requirements reviewer PASS6/6; FR-040/SC-019→T087 and its
+Issue #6986 map without critical/high requirements gaps.
+
+Targeted consumers: 293 PASS /52.56 s; additional two-commit linear-rebase and
+same-tree/base merge-identity race cases: 14 PASS /5.16 s. Actual source scope
+and artifact reader run against real disposable Git and synthetic API/ZIP;
+no product suite repeated. actionlint, workflow validator/self-test, Ruff and
+diff checks PASS. These are local results; independent delta review, final
+SHA checks and post-merge edited acceptance remain open in T087.
+
+Rebased on master90e15a026 (PR #6991). Git followed the consumed F211 fragment
+rename automatically; restored the already assembled v2026.09.13.3 fragment
+and wrote only subsequent cutover changes to changes/unreleased/F211.yaml.
+The earlier body-edit acceptance on97f2348 stays historical evidence: source
+runs34766571261/34766571290 attempt1 passed once; edits during source
+34766625384/34766625382 and after34767489191/34767489142 passed without
+cancelling/repeating source. Actual merge box no longer showed expected
+required contexts; its then-current blocker was the newly changed master.
+
+Independent delta review found an additional fresh-checkout ordering P2:
+code_snapshot needed Git objects before the existing fetch loop. The one-line
+move after fetch is covered by a real local bare-remote regression: 1 FAIL/
+1 PASS before, missing head fetch succeeds after and fetch failure stays closed.
+Final narrow corrections suite: 24 PASS /6.19 s, Ruff/diff PASS.
+
+Independent final A6 delta review PASS: both original P1 and fetch-order P2
+resolved, no open P1/P2. Local scope complete; T087 keeps hosted/post-merge
+acceptance open.
+
+### A8 local implementation acceptance — 2026-09-13
+
+- Runtime/media builds preserve all 68 installed distributions (`pip check` PASS) and 1099 application/package resource files. Both old/new content manifests have SHA-256 `1278d910beb56156ad3be65940c92fda1148861438b22a45ed045b1eefde663d`. FFmpeg exists only in media-runtime. Local Docker platform is linux/arm64; these are not production timing measurements.
+- New SHA with identical source bytes: runtime 0.83 s, media 0.31 s. Actual source edit: runtime 7.18 s, media 0.53 s, changed application bytes observed; dependency and FFmpeg layers remain CACHED. Both targets use the same frozen dependency/application prefix, with source metadata after expensive layers.
+- The existing deploy lock owns a create-once attempt in Git-private `graf-release-images`. Previous actual container IDs and one-off IDs are captured before builds/pulls; same-SHA/platform reuse validates image ID, source label and environment. Candidate/previous overrides pin all services; runtime, downgrade/compatibility, actual rollback and standalone smoke/migration/backup/restore rehearsal use the appropriate saved IDs. A running prompt worker is upgraded and restored symmetrically.
+- New helper regression checks and related executable rollback/smoke/backup/RLS contracts: 114 PASS / 3.33 s. Final prompt-worker extension: both previous-safe-processing cases PASS / 0.21 s. Run with the prepared Python 3.13 venv first in PATH so subprocess entrypoints use the same dependencies:
+
+```sh
+PATH="$PWD/apps/server/.venv/bin:$PATH" PYTHONPATH=apps/server/src apps/server/.venv/bin/python -m pytest --noconftest -q   tests/governance/test_release_images.py   apps/server/tests/integration/test_production_smoke_boundary.py   apps/server/tests/integration/test_deployment_readiness_gates.py   apps/server/tests/integration/test_deployment_backup_restore_rehearsal.py   apps/server/tests/contract/test_rls_production_boundary.py
+```
+
+- Independent implementation review: PASS after all five findings were fixed: signal-safe finalization before trap removal/cleanup, prompt-worker rollback, saved IDs for standalone callers, cache publication after final clean-source check, and preservation of pending active.json when directory fsync fails. Regression coverage includes source drift and failed replacement of an existing active pointer.
+- No new service, registry, credentials or dependency. No change to PostgreSQL/RLS/migration/backup/restore/public health/Full requirements. Hosted exact-SHA evidence, final Full and release dry-run remain separate gates; local tests do not prove production deployment.
+
+A8 final related validation after review fixes and documentation: 229 PASS / 39.65 s (image lifecycle, Compose hardening, smoke/readiness, backup/restore, RLS boundary and CI/CD contracts). Ruff, shell syntax, development-process, changelog fragments and diff check PASS.
+
+A6 final hosted proof on `c82b1f5db28f60b664b6cc7efbf50f92e31614eb`: governance-fast 34761402527 PASS (996 s bounded lane), Swift/macOS 34761402545 PASS, metadata 34761675889 PASS. The body-only edit at 14:05:51 UTC produced only text scope/metadata and did not cancel/repeat code/native. Live common validator accepted all three exact head/base/run/attempt proofs and the text-scope artifact. Required protection read-back stayed strict with all three contexts bound to app 15368. The reviewed REST metadata-head concern was disproved by the actual filtered API response. GitHub merge eligibility remains a separate live check.
+
+
+## A9 acceptance plan
+
+Run focused executable `tests/governance/test_release_artifacts.py` with prepared
+Python and `apps/macos/Installer/Scripts/test-release-signing-custody.sh` on macOS.
+Use synthetic command responses, no real Keychain signing/submission/publication.
+Run native InstallerPackagingTests for the actual wrapper contracts.
+
+Required cases: cache-key independence from full SHA/source-only edits and change
+on toolchain/SDK/lock; build still invoked on hit; whole-input and whole-output
+fingerprints including file mode/symlink changes; exact-stage repeat with stable
+ZIP/appcast/checksum/attestation bytes; damaged cache/missing result; expired proof
+and explicit public trust flag; all-assets preflight, mismatch-before-first-upload,
+missing-only upload, ambiguous upload readback; known notary ID resume, no-ID
+ambiguity, Rejected/invalid/network failure, disk-full/failed fsync, concurrent lock.
+Real public acceptance later records exact source, both notary request IDs,
+Accepted, stapler/Gatekeeper/Sparkle and downloaded final file hashes. No local
+fixture result substitutes for that evidence.
+
+A9 requirements gate: independent review PASS 6/6, coverage FR-049–054/SC-022 = 7/7; analyze CRITICAL 0, HIGH 0. Task ownership T073–T077: #6992; mandatory issue canon ensure/validate PASS. No constitution amendment.
+
+### A9 local implementation checks — 2026-09-13
+
+- `tests/governance/test_release_artifacts.py`: final 22 PASS /20.46 s. Real prepare shell with isolated synthetic commands verifies byte-identical same-version resume, one archive/sign, fresh Keychain, verify-only refusal and public/signature failures. Final notary lifecycle verifies original/stapled copies, failed directory fsync and unchanged recovery; source/API/digest gates have negative cases.
+- Existing `test-release-signing-custody.sh`: PASS, including asserted intended failure reasons after the GitHub API cache change. Negative simulations now own a disposable checkout and cannot delete a real `.build/updates` staging directory. Optional app-fixture staging cases remain explicitly skipped without a provided fixture; the new Python test covers the actual prepare wrapper independently.
+- Independent correctness/Ponytail review found one P2: after a parent-directory fsync failure, retry could acknowledge a visible rename without retrying its durability. Actual prepare regression reproduced FAIL before the fix. Retry now syncs the parent under the existing lock; repeated failure and recovery preserve all bytes, with exactly one archive/sign. Independent follow-up review: PASS, no open P1/P2.
+- Ruff and shell syntax PASS. No Apple submission, real signing, app installation or public upload performed. Final hosted SHA checks and frozen-source Full remain pending T077.
+
+### A10 local implementation acceptance — 2026-09-13
+
+- Contract runner/resource modules: 55 PASS /60.15 s; Ruff/Bash/diff PASS. A real `uv run pytest` console-entrypoint collection regression found the early plugin import failure missed by the earlier shim. Scoped collection-only PYTHONPATH fixes it; independent final review PASS.
+- Exact selected 131-case pair (10 historical integration files; the CI contract file is correctly owned by the other stage): serial 342.418 s → partitioned 194.739 s, saving 147.679 s /43.128%. Both 131 PASS, 0 skip/duplicates, 393 passed setup/call/teardown records, identical node/phase sets and source fingerprints. Both cleaned the isolated PostgreSQL container.
+- Both used GRAF_TEST_WORKERS=4 and GRAF_PERFORMANCE_GATE=required. Digest `ba7e7c86cb853750e405dcbe1be0c32fac3902c54f274fc6ef58d7fad5e7ccf6`; artifacts `.dev/a10-pair-131-fixed-pfnvqw3l/{comparison,serial,partitioned}.json`. Independent review recalculated all JSONL counts and matched current source hashes.
+- The 18-case sample was 72.505 →73.405 s and did not improve. No general speed guarantee is inferred for tiny selections. The 131-case pair is one local sample, not hosted p50/p95 or proof about total release time; hosted validation remains separate.
+
+### A11 acceptance
+
+Source unittest исполняет настоящий ensure main с подставными repo/label вызовами:
+нет template → установлен; проект меняет checks → два ensure оставляют байты
+неизменными; managed issue canon остаётся обновляемым. В GRAF повторить тот же
+сценарий в tmp checkout и проверить three-check template, source version/commit,
+`check_spec_kit_governance.py` с frozen Specify. Ни live labels, ни API нужны для
+регрессионного теста. Source release/checks и pinned update записать после факта.
+
+A11 clean analyze: FR-056/SC-024 → T082/T083; source/publication/pin and no-API negative checks covered. Reviewer project-template PASS3/3. Unmapped requirements, critical/high findings and constitution contradictions:0. Ownership #6986; implementation starts after this gate.
+
+### A11 source release and pinned installation — 2026-09-13
+
+- Source PR https://github.com/yshishenya/spec-kit-ext-github-issue-canon/pull/12 merged into `894d2f2ccf1cf56cd9753e0a1c7d3d9c53aac281`. Source 22 unittest PASS /0.569 s, independent correctness/Ponytail PASS; CI run34766689288 and CodeQL run34766688090 PASS. Annotated v0.3.4 published by Release run34766795441.
+- GRAF installed the published deterministic ZIP through the existing bootstrap0.9.9 catalog installer and lock writer. The bootstrap was read from its released tag, without touching the dirty source checkout. Only the issue-canon dependency changed: the other extension/workflow/Specify/skill lock entries compare equal. The published package omits source-repository tests/workflows/catalog by design; runtime scripts and command skills remain installed.
+- Published/locked archive SHA-256 `513294ff7ec810b1d868753e689f767d1e516b5f7084c4a6bf67885aaf8567b5`. Project PR template remained byte-identical: `ab6f31af921c025d599133133032706a6c74e201d4a42ca2db0439957372a5ab`.
+- Consumer ensure regression reproduced FAIL against the old version, then 52 validator-safety tests PASS /0.78 s with two real isolated ensure calls. Child Python uses -B to avoid bytecode changing the installed tree. Frozen doctor and `check_spec_kit_governance.py` PASS; no GitHub API/labels in the regression.
+
+### A12 requirements and analyze — 2026-09-13
+
+Independent requirements review PASS4/4 in `checklists/test-quality.md`. Root
+cross-artifact analyze: FR-057→T084, FR-058→T085, SC-025→T084–T086/T077;
+unmapped requirements, CRITICAL/HIGH findings, unresolved clarification and
+constitution contradictions:0. Full-only order is distinct from FR-055's
+unchanged focused order. Duplicate removal is scoped to exactly 1 config,
+1 cookie-name integration and 3 forbidden-readiness contract cases; the matching
+unit tests retain independent literal expectations. Delta requirements review
+PASS confirms the same inputs and assertions, with all other cases preserved;
+new regression cases are counted separately. Existing issue ownership is assigned
+before implementation; actual tests/review/final Full are separate evidence.
+
+### A12 local checks and review delta
+
+- Exact duplicate collection: config70→69; cookie/readiness four-file
+  collection102→98, each0.34 s. AST-equal1+1+3 duplicates removed, independent
+  unit literals retained.
+- Real HTTP/DB CSRF plus retained config/cookie/readiness unit cases:94 PASS
+  /38.40 s; isolated container cleanup PASS.
+- Full order contract reproduced3 FAIL before change then3 PASS/7.50 s.
+  Final CI/runner/resource consumers144 PASS/106.90 s. Ruff/Bash/diff PASS.
+- Independent review exposed that slicing token/handler could execute code
+  inside a block comment. The test now executes whole cabinet.js under Node vm
+  with a minimal empty-page DOM. Actual source1 PASS/0.14 s; both word-only
+  and real-handler block-comment negative controls FAIL. No JS parser/browser
+  dependency was added, product JS was not changed.
+- Real strict/performance69-case collection:68 PASS/1SKIP/26.67 s. The skip
+  is a global-role isolation defect in the existing bootstrap proof, recorded
+  as T088; this is not claimed as complete acceptance. A separate disposable
+  cluster only for that proof is required before final acceptance.
+
+T088 requirements PASS5/5 (CHK005). Cross-artifact analyze maps FR-057/SC-025
+to T088, issue6994; no critical/high requirements gaps or constitution
+contradictions. Extra cluster is limited to actual execution of the existing
+bootstrap proof. Collection, production roles and other fixtures stay intact.
+
+### T088 local acceptance — 2026-09-13
+
+Ten executable fixture contracts PASS /3.61 s, including actual collect-only
+without Docker. Entire media→bootstrap file:14 PASS/0 SKIP,11.40 s pytest,
+20.191 s wall. Original strict/performance collection:69 PASS/0 SKIP,31.20 s
+pytest,41.609 s wall, required performance gate. All69 case IDs match the
+baseline; only bootstrap call changed skipped→passed, the other68 cases and
+all setup/teardown outcomes match.207 passed report rows,0 duplicates;
+collection digest `07274a0c1cbb91b84ad75f6f912bf47519b9365898abc9cf6692bf62f9ab03bc`.
+Evidence `.dev/a12-bootstrap-glw9o_78/{file,strict-performance,parity}.json`.
+No stopped/running owned containers remain. Independent review PASS confirms
+current file hashes, preserved assertions and bounded finally cleanup without
+repeating expensive tests. T088 local implementation complete; Full is separate.
+
+A11 pinned installation independent review PASS: all14 installed files and
+executable modes equal the published v0.3.4 ZIP; manifest/archive hash and
+registry/lock agree, other lock entries unchanged. Real repeated ensure keeps
+project template bytes/three checks. No bootstrap source edit was needed.
+
+T089 requirements gate: independent CHK006 PASS; complete checklist6/6.
+Root analyze maps required media coverage FR-057/SC-025 to T089 and issue6994,
+50 existing synthetic cases plus separate negative contracts. Missing/broken
+tools, installation failure, unchanged non-server preparation and private
+TestRec opt-in are explicit. CRITICAL0/HIGH0, no unresolved clarification or
+constitution conflict. Issue body synchronized before code.
+
+Combined-source checkpoint: A8–A12 rebased onto current A6 plus master
+6ca6c6abd5fbb38bb210c74868850f2a5fc03768. After #6991's cabinet.js changes
+and #6995's report fix, whole-script CSRF execution plus all three real report
+contracts:4 PASS/1.87 s. Only these integration checks repeated; completed
+benchmarks and release-image/notary suites were not repeated.
+
+### T089 local media acceptance — 2026-09-13
+
+Actual missing-tool/workflow checks reproduced19 FAIL/2 PASS before the fix.
+After the three skip→fail changes and conditional resource preparation,
+21 PASS/1.68 s; explicit update/install failure cases were then separated.
+Only a supplied authorized TestRec directory reaches tool checks; its absent
+opt-in remains a skip before filesystem/media access. Working tools avoid apt,
+non-server PR paths avoid resource preparation. No new runtime dependency.
+
+Existing synthetic matrix49 + dual-source1:50 PASS/0 SKIP,5.77 s pytest,
+10 s phase.150 passed setup/call/teardown rows,0 duplicates; digest
+`471e0b13dadee467b91a18c986402c958b672346a04071e9e938a05d8acd2d1f`.
+Evidence `.dev/a12-media-t089/focused.jsonl`, local FFmpeg/ffprobe8.1.2.
+Owned PostgreSQL container cleaned. Runtime-image capability and hosted
+Ubuntu FFmpeg execution remain distinct checks.
+
+Master correction #6996 (`b48999dbb2c8fe258f636b263b154377c0fd8fa5`)
+is included. All runner paths now use the same absolute server-root/src
+PYTHONPATH; redundant partition-only root injection was removed. Three
+report regressions PASS/11.44 s, including actual uv console execution,
+two workers and a real one-case PostgreSQL run with the phase report.
+The source product tests were not rerun wholesale after this integration.
+
+Final combined workflow/runner/media contracts:106 PASS/69.48 s, including
+separate apt update/install failures. Ruff, actionlint, both workflow validators,
+Bash, fragment validation and diff checks PASS. FFmpeg version probing uses
+-nostdin so the server-path loop cannot lose its input. Final independent
+T089 implementation review, hosted and release acceptance remain separate.
+Apple notary profile read-only preflight succeeded; no submission or
+publication was performed by this preflight.
+
+### T089 независимый review и T090 исторические инструменты — 2026-09-13
+
+T089 independent implementation review PASS на `91fc8039ef428c32a32c36c5a6904f37f2e7b543`: все три настоящих media entrypoints и оба ресурсных YAML шага соответствуют требованиям. Сохранённые 50 PASS/0 SKIP и 106 contracts PASS проверены независимым рецензентом без повторного выполнения. T089 завершена локально; Ubuntu/Full остаются T077.
+
+T090 FR-040/SC-019: независимый разбор требований PASS, clean analyze без critical/high, задача и #6986 уточнены до реализации. В обеих scope jobs штатный sparse checkout `.ci-tools` закреплён на `github.workflow_sha`; основной checkout сохраняет точный PR head. В terminal jobs этот checkout доступен только text-only. Identity/reuse helpers читают соседние инструменты из `.ci-tools`, а Git — основной checkout. Общий release PR validator получает `cwd=root`.
+
+Проверка: 7 FAIL до исправления; первоначальные 76 PASS/21,23 с; окончательные 265 consumer cases PASS/56,66 с. Последний набор включает реальные Git-истории старого merged head без новых helpers, текущий sparse checkout, YAML shell execution, импорты verifier/policy, отказ при подмене primary HEAD и абсолютный вызов freeze из чужой папки. Actionlint, workflow validator, Bash syntax и diff checks PASS. Независимый implementation review T090 PASS. Повторных source receipts или продуктовых наборов текстовый путь не создаёт.
+
+T087 остаётся открытой: после merge нужна настоящая правка описания #6990 и старого merged #6991, успешные постоянные required contexts и общий validator с исходными code proofs. Локальный PASS не заменяет эту приёмку.
+
+Следующий обнаруженный остаток T091: hosted macos-pr source 34770443873 корректно отказал на двух проверках (972 cases,1 opt-in skip,2 failures). InstallerLifecycleEvidenceTests искал прежний прямой upload в shell, хотя проверенный A9 перенёс его в существующий helper. ShortRecordingNoticeTests сравнил результат после собственного sleep6,2 с, не учитывая планирование отдельной MainActor-задачи с production6 с. Исправление ограничено этими двумя тестами; поведение продукта не меняется.
+
+T091 local validation:22 Swift tests PASS/9,164 с, включая все21 InstallerLifecycleEvidenceTests и ShortRecordingNoticeTests. Устаревшее ожидание заменено точным вызовом upload helper вместе с release-inputs.json; runtime upload и запрет clobber уже покрыты исполняемыми A9-тестами. Проверка уведомления использует существующий ContinuousClock и ограниченное10-секундное ожидание реального panel=nil, сохраняя все прежние assertions и дополнительное подтверждение третьего показа. Product-код,6 секунд и30-секундный порог не менялись. Независимый implementation review перед закрытием T091 обязателен.
+
+### Фактические пропуски Full34769888625 до A12
+
+Неуспешный Full предыдущего v2026.09.13.3 на master b48999dbb2c8fe258f636b263b154377c0fd8fa5 оставил артефакт graf-test-timings-b48999dbb2c8fe258f636b263b154377c0fd8fa5-34769888625-1. Его parallel.jsonl подтверждает37 skipped case IDs:28 media_matrix,4 finalize,1 workflow,3 reuse и1 private TestRec. Первые36 сходятся к существующим media-tool helpers, которые T089 уже делает обязательными; private TestRec opt-in сохранён. В этом прогоне4321 call PASS,22 call FAIL,2 setup FAIL; strict/performance не начались из-за старого порядка Full. Его37 пропусков нельзя объявлять полным сопоставлением с41 историческим пропуском другого выпуска. Требуется окончательный Full с T088/T089 и правильной pytest-конфигурацией; новый результат учитывается по фактическим фазам.
+
+Независимый заключительный review: T083/A11 PASS (14 файлов опубликованного v0.3.4 равны installed, digest ZIP=lock, остальные записи lock и проектный template неизменны); T086/A12 PASS по текущим исходникам,5 дублям, порядку Full и сохранённым69/50 случаям. T091 implementation review PASS: цельная upload-команда содержит правильные inputs; ожидание уведомления не блокирует MainActor, XCTAssertNil выполняется до defer cleanup. Все три локальные задачи завершены. Действительные GitHub/release gates остаются открытыми.
+
+T092 clarification18:39 UTC: независимый запуск Ubuntu24/FFmpeg6.1.1 опроверг первое предположение о единственной проблеме offset. Реальное повреждение кадра даёт stderr-ошибки, но -xerror возвращает0; локальный8.1.2 возвращает183. Требуется подтверждённый общий повреждённый образец и строгая проверка его условия до recovery, без изменения прежних ожиданий. Предварительное описание причины в issue уточняется; production-дефект пока не объявлен.
+
+
+### T092: подтверждённый повреждённый MP3 — 2026-09-13
+
+Старое повреждение10700:10704 и повреждения среднего реального кадра дали
+strict return183 на FFmpeg8.1.2, но0 на Ubuntu24/FFmpeg6.1.1 при настоящих
+decoder errors. Общий образец теперь повреждает32 байта после четырёхбайтового
+заголовка первого аудиопакета, найденного настоящим ffprobe. На6.1.1 strict
+return69, на8.1.2 return183; tolerant return0. Оба прежних caller используют
+один helper; проверены длина, границы файла и sync bits. Production-код и все
+прежние recovery/output/subprocess-budget assertions сохранены.
+
+Целевые три pytest-случая на локальном8.1.2:3 PASS/1,35 с. Независимый реальный
+опыт Ubuntu24/6.1.1 выполнил оба неизменных production-метода derive_single_source
+и derive_candidate: recovered_source=True, full_decode_passed=True,
+single_source_transcode. Это проверка конкретного pipeline, не всего hosted CI.
+Те же три pytest-случая с реальными ffmpeg/ffprobe5.1.9 из закреплённого
+production-образа:3 PASS/3,96 с. Временный контейнер без сети удалён. Первоначальные
+три отказы этого опыта были ошибкой временной обвязки: безопасное окружение
+медиапроцесса удаляет переменные и пользовательский PATH. Обвязка получила
+абсолютный Docker CLI, явный endpoint и container ID; runtime protection не менялась.
+
+Независимый implementation review T092 PASS; Ruff/diff checks PASS. Локальная
+задача завершена. Фактические Ubuntu required checks и итоговый Full остаются
+T077; результаты старого failed run34770443870 не переименованы в успех.
+
+
+T093 исходный случай `--focused --partitioned -q -- <path>` воспроизведён
+существующей real-pytest/xdist fixture: exit4,0 cases, `file or directory not
+found: --graf-phase-file`. Новая регрессия сначала1 FAIL/1,84 с, после переноса
+служебных phase/worker options перед selectors1 PASS/2,96 с. Все5 synthetic
+cases выполнены ровно один раз;2 обычных — workers, остальные3 — последовательно,
+cleanup подтверждён. Bash/Ruff/fragments/diff PASS. T093 остаётся открытой до
+включения окончательного #6997, проверки общего config/report entrypoint и
+независимой приёмки объединённого runner. Benchmark131 не повторялся.
+
+
+T093 интеграция проверенной CI-части #6997 выполнена отдельно, пока его владелец
+дорабатывает поведение тарифа. Источник импорта f73c670564899d91582377403d223a26fa0669dc:
+единый run_phase, явный project config до selectors, collection config и два
+реальных report/async regressions. Продуктовые файлы соседнего PR не перенесены.
+A10 передаёт phase/worker options до пользовательского --; Full по-прежнему
+strict → performance → parallel, focused сохраняет свой порядок.
+
+Существующий isolated runner fixture перенаправляет только путь стандартного
+project config в свою pytest.ini; настоящий project config проверяется отдельными
+реальными uv/pytest workers. Существующий combined env/config selector усилен:
+-m selected исключает other, а -k 'not test_performance' отдельно исключает
+performance. Старое -k 'not other' дублировало действие -m и не доказывало
+сохранение config. Уточнение имени необходимо, потому что -k учитывает маркеры.
+
+Полный двухфайловый consumer запуск:60 PASS,1 FAIL/84,51 с; единственный отказ —
+слишком широкое тестовое слово performance, которое дополнительно исключало
+случай с обоими маркерами. После уточнения проверены исправленный selector и
+четыре настоящих варианта async/config/report (обычный/partitioned × -k/--):
+5 PASS/45,16 с. Два новых partitioned варианта дополняют ранее проверенные,
+в каждой фазе ровно3 успешных metadata rows для одного случая. Итого покрыты
+63 уникальных случая окончательной коллекции; это состав двух ограниченных
+запусков, а не один63-case прогон. Bash/Ruff/diff PASS. Повторный131-case benchmark
+не требуется. Независимый implementation review T093 PASS: все7 callers, порядок config/report/options, isolated config mapping, состав/xdist/cleanup и4 настоящих worker variants приняты. Окончательное включение master остаётся последним условием T093 перед проверками SHA.
 T056 final root/config regression: after the report file exists, xdist's early argument scan can treat its external location as configuration discovery input and lose the server's asyncio_mode=auto. Explicit `-c <server>/pyproject.toml` is now passed to collection and every phase. The actual runner regression selects an async test by `-k` with no path, reproduces failure before the fix, and passes afterward. All 3 report tests PASS; F264's 24 previously failing scenarios PASS with PostgreSQL/four workers/reporting, and the previously unreached serial/performance/RLS set is 68 PASS + 1 expected skip. No test is suppressed; source/currentness/release gates remain intact.
+
+
+T093 завершена после включения окончательного master323c90fc10e0d4e617498af9c9bc2d134d14c49b
+из #6997. Проверенная CI-часть этого master побайтно равна импортированному f73c67056;
+после разрешения конфликтов все3 audited source hashes совпадают с independent
+review. Все новые product/API/contract исправления #6997 сохранены, журнал
+проверок объединён без удаления прежних записей. Повтор63-case набора не нужен:
+исполняемый runner и его tests не изменились. Окончательные GitHub проверки
+нового commit и Full после подготовки релиза остаются отдельными gates.
+
+
+T094: настоящий Git no-renames перенос и обычный продуктовый путь с обязательным
+фрагментом воспроизвели лишний выбор infra. До исправления новый набор:6 FAIL,
+21 PASS/1,51 с. Невалидный unreleased-фрагмент действительно давал PASS в
+fixture чистого checkout, потому что process preflight без pointer пропускался.
+После точной классификации F<digits>.yaml/CalVer и безусловного существующего
+preflight:27 PASS/1,61 с. Реальные checker/fragment validator/emit, Git,
+отсутствие pointer, обычный server выбор, mixed infra и ранний invalid category
+отказ проверены; дорогие стадии в этой fixture подставные. Архивный validator
+не расширялся и не объявляется выполненным этим checker.
+
+Связанный полный consumer: test_ci_cd_contract.py + test_ci_guard.py +
+test_validator_safety.py:161 PASS/15,42 с. Bash/Ruff/diff PASS. Локальный
+process сначала корректно отверг новую временную копию с узким ownership,
+не учитывавшим уже включённые104 файла общего F211 PR. Manifest дополнен
+существующим ownership F211; это исправление рабочей конфигурации, не bypass.
+После согласования ownership настоящий process checker и pinned Spec Kit governance PASS.
+Независимый requirements review CHK007 и implementation review T094: PASS.
+Проверенные SHA-256: ci-local.sh
+5fb44d39332ba5b3e87d6532d4e45e1be0560daf216863cc3ee2f61b3a10e3de;
+test_ci_cd_contract.py
+3e06f34a43e3dc4d87398d6ecf4f1452823011422892c76f9bdbdb823283b5bf.
+Окончательные hosted/Full и время настоящей подготовки версии остаются
+отдельной приёмкой; повтор 161 случаев без изменения этих файлов не требуется.
+
+
+T095: прерывание настоящего cached_asset после os.replace до atomic_json
+воспроизвело FileNotFoundError на повторе:1 FAIL/34 deselected до исправления.
+Минимальный общий ремонт охватывает cache_inputs и cache_sparkle. Все35 случаев
+существующего test_release_artifacts.py PASS/6,17 с; Ruff/scoped diff PASS.
+Новый набор доказывает повторную загрузку без remote digest, отказ считать
+подменённый orphan того же размера готовым, третье использование без download;
+download/size/remote digest/pinned digest failures сохраняют orphan и отсутствие
+record, временные файлы убираются. Symlink/dangling обоих путей,
+malformed/invalid record, record без asset и каталог вместо orphan дают отказ
+без загрузки/изменения состояния. Прежние identity/corruption отказы сохранены.
+Рабочий код меняет6 строк; новых helper/lock/format/dependency нет.
+SHA-256 release-artifacts.py:
+e42ba309385abac28e36ff6662356bdacb4e0af5f8f8b7d485ea9e02b6581926;
+test_release_artifacts.py:
+c7e562fcd7e2085bca7bf55efa8b9d1d7ef0aa13f3184db613b8f2a62d2503b7.
+Независимый implementation review T095: PASS; оба callers и все границы восстановления согласованы. Hashes обоих файлов совпадают с35 PASS; повтор тестов не требуется. Окончательные hosted/Full остаются отдельными gates.
+
+Сверка T094/T095 перед commit: требования FR-003/FR-008/FR-050/FR-051,
+SC-022 и обе принятые границы совпадают с реализацией. Независимые reviews PASS;
+новых обязательных code gaps нет. Оставшаяся hosted/release приёмка уже
+представлена открытыми задачами, новые дубли задач не добавлены.
+Ponytail-review последних изменений: существующие функции/stdlib, новых
+зависимостей или необязательных механизмов нет; упрощать защиту не требуется.
+Changelog/process и pinned Spec Kit governance PASS после согласования
+T094/T095. Общий класс риска остаётся high-risk-product F211.

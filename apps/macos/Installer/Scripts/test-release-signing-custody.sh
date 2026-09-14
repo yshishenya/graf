@@ -14,6 +14,7 @@ PROVISIONER="$SCRIPT_DIR/provision-release-signing-custody.sh"
 VERIFIER="$SCRIPT_DIR/verify-release-signing-custody.sh"
 LOCAL_SIGNER="$SCRIPT_DIR/sign-graf-app-update-local.sh"
 STARTUP_VALIDATOR="$MACOS_DIR/Scripts/validate-packaged-app-launch.sh"
+ARTIFACTS="$SCRIPT_DIR/release-artifacts.py"
 
 fail() {
   echo "release-signing custody test failed: $*" >&2
@@ -287,41 +288,52 @@ case "${1:-}" in
 esac
 EOF
 cat > "$fake_bin/gh" <<'EOF'
-#!/usr/bin/env sh
-repo=
-if [ "${1:-}" = "--repo" ]; then repo=$2; shift 2; fi
-case "${1:-} ${2:-}" in
-  'auth status') exit 0 ;;
-  'release view')
-    [ "$repo" = yshishenya/crisp ] || exit 1
-    printf '%s\n' "${GRAF_TEST_RELEASE_DRAFT:-false}"
-    ;;
-  'release download')
-    case "$repo" in yshishenya/crisp|sparkle-project/Sparkle) ;; *) exit 1 ;; esac
-    shift 2
-    pattern=
-    destination=
-    while [ "$#" -gt 0 ]; do
-      case "$1" in
-        --pattern) shift; pattern=$1 ;;
-        --dir) shift; destination=$1 ;;
-      esac
-      shift
-    done
-    case "$pattern" in
-      candidate.zip) source=$GRAF_TEST_CANDIDATE_SOURCE ;;
-      previous.zip) source=$GRAF_TEST_PREVIOUS_SOURCE ;;
-      notes.md) source=$GRAF_TEST_NOTES_SOURCE ;;
-      *) exit 1 ;;
-    esac
-    cp "$source" "$destination/$pattern"
-    ;;
-  'release upload')
-    [ "$repo" = yshishenya/crisp ] || exit 1
-    printf '%s\n' upload >> "$GRAF_TEST_UPLOAD_LOG"
-    ;;
-  *) exit 1 ;;
-esac
+#!/usr/bin/env python3
+import hashlib
+import json
+import os
+from pathlib import Path
+import sys
+args = sys.argv[1:]
+repo = None
+if args[:1] == ['--repo']:
+    repo = args[1]
+    args = args[2:]
+if args[:2] == ['auth', 'status']:
+    raise SystemExit(0)
+if args[:2] == ['release', 'view']:
+    assert repo == 'yshishenya/crisp'
+    print(os.environ.get('GRAF_TEST_RELEASE_DRAFT', 'false'))
+elif args[:2] == ['release', 'upload']:
+    assert repo == 'yshishenya/crisp'
+    with open(os.environ['GRAF_TEST_UPLOAD_LOG'], 'a') as output:
+        output.write('upload\n')
+elif args[:1] == ['api']:
+    endpoint = args[1]
+    files = {1: ('candidate.zip', 'GRAF_TEST_CANDIDATE_SOURCE'),
+             2: ('notes.md', 'GRAF_TEST_NOTES_SOURCE'),
+             3: ('previous.zip', 'GRAF_TEST_PREVIOUS_SOURCE')}
+    if '/releases/tags/' in endpoint:
+        tag = endpoint.rsplit('/', 1)[1]
+        candidate = tag.endswith('.6')
+        print(json.dumps({'id': 6 if candidate else 5, 'tag_name': tag, 'draft': candidate}))
+    elif '/commits/' in endpoint:
+        print(json.dumps({'sha': ('6' if endpoint.endswith('.6') else '5') * 40}))
+    elif '/assets?' in endpoint:
+        rows = []
+        for identifier in ((1, 2) if '/releases/6/' in endpoint else (3,)):
+            name, variable = files[identifier]
+            content = Path(os.environ[variable]).read_bytes()
+            rows.append({'id': identifier, 'name': name, 'state': 'uploaded',
+                         'size': len(content), 'digest': 'sha256:' + hashlib.sha256(content).hexdigest()})
+        print(json.dumps(rows))
+    elif '/releases/assets/' in endpoint:
+        _, variable = files[int(endpoint.rsplit('/', 1)[1])]
+        sys.stdout.buffer.write(Path(os.environ[variable]).read_bytes())
+    else:
+        raise SystemExit('unexpected fixture GitHub endpoint')
+else:
+    raise SystemExit('unexpected fixture GitHub command')
 EOF
   chmod 755 "$fake_bin/git" "$fake_bin/gh"
 
@@ -347,9 +359,20 @@ EOF
         --previous-tag "$previous_tag" \
         --candidate-app-asset candidate.zip \
         --previous-app-asset previous.zip \
-        --release-notes-asset notes.md >/dev/null 2>&1; then
+        --release-notes-asset notes.md >"$fixture/$label.log" 2>&1; then
       fail "$label was accepted by the local signer"
     fi
+    case "$label" in
+      dirty_worktree) reason='requires a clean worktree' ;;
+      published_release) reason='must remain a draft' ;;
+      wrong_repository) reason='GH_REPO does not match' ;;
+      non_ancestor_predecessor) reason='must be an ancestor' ;;
+      newer_predecessor) reason='must be strictly older' ;;
+      concurrent_signer) reason='another local draft-signing attempt' ;;
+      unsafe_symlink_archive) reason='candidate asset is not a safe GRAF.app ZIP' ;;
+      *) fail 'unknown expected failure' ;;
+    esac
+    grep -Fq "$reason" "$fixture/$label.log" || fail "$label stopped before the intended guard"
     [ ! -s "$upload_log" ] || fail "$label reached draft upload"
     echo "failure_simulation=$label upload_count=0 result=pass"
   }
@@ -542,10 +565,10 @@ grep -Fq 'GRAF_APPLICATION_SUPPORT_DIRECTORY="$APPLICATION_SUPPORT_DIRECTORY"' "
   fail "packaged-app launch validator does not isolate application support storage"
 grep -Fq 'event=app_launch_finished' "$STARTUP_VALIDATOR" ||
   fail "packaged-app launch validator does not require a startup readiness marker"
-grep -Fq '"$STARTUP_VALIDATOR" "$APP_DIR/candidate/GRAF.app" 5 arm64' "$LOCAL_SIGNER" ||
-  fail "local draft-signing entrypoint does not validate the arm64 packaged candidate launch"
-grep -Fq '"$STARTUP_VALIDATOR" "$APP_DIR/candidate/GRAF.app" 5 x86_64' "$LOCAL_SIGNER" ||
-  fail "local draft-signing entrypoint does not validate the x86_64 packaged candidate launch"
+grep -Fq "for architecture in ('arm64', 'x86_64')" "$ARTIFACTS" ||
+  fail "upload does not validate both packaged candidate architectures"
+grep -Fq "Scripts/validate-packaged-app-launch.sh', args.app, '5', architecture" "$ARTIFACTS" ||
+  fail "upload does not invoke the packaged launch validator"
 grep -Fq 'cb6fdbdc8884f15d62a616e79face92b08322410fd2d425edc6596ccbf4ba3b0' "$LOCAL_SIGNER" ||
   fail "local draft-signing entrypoint does not pin the Sparkle tool checksum"
 workflow_files="$(find "$REPO_ROOT/.github/workflows" -type f -print 2>/dev/null || true)"
@@ -567,6 +590,18 @@ else
   [ "$secret_scan_status" = "1" ] ||
     fail "current-source secret-pattern guard could not complete"
 fi
+
+# Negative simulations own a disposable checkout; Swift tests must never remove
+# a real release staging directory or interfere with a running signer.
+fixture_repo="$TEMP_ROOT/repository"
+mkdir -p "$fixture_repo/apps/macos"
+cp -R "$REPO_ROOT/apps/macos/Installer" "$fixture_repo/apps/macos/Installer"
+cp -R "$REPO_ROOT/apps/macos/Scripts" "$fixture_repo/apps/macos/Scripts"
+git -C "$fixture_repo" init -q
+REPO_ROOT=$fixture_repo
+MACOS_DIR="$REPO_ROOT/apps/macos"
+PREPARE="$MACOS_DIR/Installer/Scripts/prepare-app-update.sh"
+LOCAL_SIGNER="$MACOS_DIR/Installer/Scripts/sign-graf-app-update-local.sh"
 
 run_prepare_attestation_failure stale_attestation v2026.07.20.5 0000000000000000000000000000000000000000
 run_prepare_attestation_failure wrong_release_attestation v2026.07.20.6 1111111111111111111111111111111111111111

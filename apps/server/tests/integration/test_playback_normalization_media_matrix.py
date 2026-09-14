@@ -37,7 +37,7 @@ def _media_tools() -> tuple[str, str]:
     ffmpeg = shutil.which("ffmpeg")
     ffprobe = shutil.which("ffprobe")
     if ffmpeg is None or ffprobe is None:
-        pytest.skip("FFmpeg capability is validated in the media runtime container")
+        pytest.fail("FFmpeg and ffprobe are required for this media test; install ffmpeg and ensure both tools are on PATH", pytrace=False)
     return ffmpeg, ffprobe
 
 
@@ -92,6 +92,24 @@ def _run_ffmpeg(arguments: list[str]) -> None:
         timeout=30,
     )
     assert completed.returncode == 0, completed.stderr.decode("utf-8", errors="replace")
+
+
+def _corrupt_first_mp3_packet(source: Path, destination: Path) -> None:
+    _, ffprobe = _media_tools()
+    probe = subprocess.check_output(
+        [ffprobe, "-v", "error", "-select_streams", "a:0", "-show_packets",
+         "-show_entries", "packet=pos,size", "-of", "json", str(source)],
+        stdin=subprocess.DEVNULL, timeout=30,
+    )
+    packet = json.loads(probe)["packets"][0]
+    offset, size = int(packet["pos"]), int(packet["size"])
+    payload = bytearray(source.read_bytes())
+    assert offset >= 0 and size >= 36 and offset + size <= len(payload)
+    assert payload[offset] == 0xFF and payload[offset + 1] & 0xE0 == 0xE0
+    # Preserve the header, but damage the first packet's side information.
+    # FFmpeg 6 can return success for decoder errors after earlier good frames.
+    payload[offset + 4:offset + 36] = b"\xff" * 32
+    destination.write_bytes(payload)
 
 
 def test_empty_source_is_objective_terminal_truth_before_media_tool_execution(
@@ -654,10 +672,7 @@ def test_corrupt_mp3_is_recovered_by_tolerant_first_transcode(tmp_path: Path) ->
             str(source),
         ]
     )
-    payload = bytearray(source.read_bytes())
-    assert len(payload) > 10_700
-    payload[10_700:10_704] = b"\x00\x00\x00\x00"
-    broken.write_bytes(payload)
+    _corrupt_first_mp3_packet(source, broken)
 
     result = asyncio.run(_pipeline().derive_single_source(broken, output))
 
@@ -695,10 +710,7 @@ def test_explicit_tolerant_first_primitive_has_exact_subprocess_budget(
         ]
     )
     if damage_frame:
-        payload = bytearray(source.read_bytes())
-        assert len(payload) > 10_700
-        payload[10_700:10_704] = b"\x00\x00\x00\x00"
-        source.write_bytes(payload)
+        _corrupt_first_mp3_packet(source, source)
 
     pipeline = _RecordingPipeline()
     result = asyncio.run(pipeline.derive_single_source(source, output, tolerant_first=True))

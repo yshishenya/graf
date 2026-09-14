@@ -20,6 +20,13 @@ RELEASE_SIGNING_COMMON="$SCRIPT_DIR/release-signing-common.sh"
 UPDATE_SIGNING_MANIFEST="$MACOS_DIR/Installer/UpdateSigningKey.json"
 RELEASE_SIGNING_KEYCHAIN_ATTESTATION=${GRAF_RELEASE_SIGNING_KEYCHAIN_ATTESTATION:-}
 RELEASE_SIGNING_CUSTODY_STATE=not-checked
+ARTIFACTS="$SCRIPT_DIR/release-artifacts.py"
+VERIFY_ONLY=0
+case "${1:-}" in
+  '') [ "$#" = 0 ] || exit 64 ;;
+  --verify-only) [ "$#" = 1 ] || exit 64; VERIFY_ONLY=1 ;;
+  *) echo "usage: $0 [--verify-only]" >&2; exit 64 ;;
+esac
 
 fail() {
   echo "app-update preparation failed: $*" >&2
@@ -67,11 +74,37 @@ esac
 # shellcheck source=release-signing-common.sh
 . "$RELEASE_SIGNING_COMMON"
 
+OUTPUT_PARENT=$(dirname -- "$OUTPUT_DIR")
+mkdir -p "$OUTPUT_PARENT"
+LOCK_DIR="$OUTPUT_PARENT/.graf-update-staging.lock"
+if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+  fail "another release staging attempt is already in progress"
+fi
+WORK_DIR="$OUTPUT_PARENT/.graf-update-$VERSION-$$"
+BACKUP_DIR="$OUTPUT_PARENT/.graf-update-backup-$$"
+IDENTITY_FILE="$OUTPUT_PARENT/.graf-update-identity-$$.json"
+cleanup_staging() {
+  status=$?
+  trap - EXIT HUP INT TERM
+  if [ ! -e "$OUTPUT_DIR" ] && [ -d "$BACKUP_DIR" ]; then
+    mv "$BACKUP_DIR" "$OUTPUT_DIR" 2>/dev/null || true
+  fi
+  rm -rf "$WORK_DIR"
+  rm -f "$IDENTITY_FILE" "$IDENTITY_FILE.current"
+  rmdir "$LOCK_DIR" 2>/dev/null || true
+  exit "$status"
+}
+trap cleanup_staging EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
 case "$REQUIRE_RELEASE_PROVENANCE" in
   0|1) ;;
   *) fail "GRAF_REQUIRE_RELEASE_PROVENANCE must be 0 or 1" ;;
 esac
 if [ "$REQUIRE_RELEASE_PROVENANCE" = "1" ]; then
+  export GRAF_REQUIRE_PUBLIC_UPDATE_TRUST=1
   [ -z "$(git -C "$REPO_ROOT" status --porcelain --untracked-files=all)" ] ||
     fail "release provenance requires a clean worktree"
 
@@ -154,6 +187,41 @@ release_signing_require_matching_public_key "$SIGNING_PUBLIC_KEY" "$APP_PUBLIC_K
 
 "$VALIDATOR" "$APP_BUNDLE" "$PREVIOUS_APP_BUNDLE"
 
+
+set -- stage-identity --app "$APP_BUNDLE" --previous "$PREVIOUS_APP_BUNDLE" \
+  --notes "$RELEASE_NOTES" --version "$VERSION" --url "$DOWNLOAD_BASE_URL" \
+  --public "$REQUIRE_RELEASE_PROVENANCE"
+if [ -n "${GRAF_RELEASE_INPUT_CONTEXT:-}" ]; then
+  set -- "$@" --context "$GRAF_RELEASE_INPUT_CONTEXT"
+fi
+python3 "$ARTIFACTS" "$@" > "$IDENTITY_FILE"
+
+verify_prepared_update() {
+  prepared_dir=$1
+  archive_path="$prepared_dir/GRAF-$VERSION.zip"
+  appcast_path="$prepared_dir/graf-appcast.xml"
+  "$VALIDATOR" "$APP_BUNDLE" "$PREVIOUS_APP_BUNDLE" "$archive_path" "$appcast_path"
+  appcast_signature=$(xmllint --xpath \
+    "string((//*[local-name()='item' and *[local-name()='version' and normalize-space(text())='$VERSION']]/*[local-name()='enclosure'])/@*[local-name()='edSignature'])" \
+    "$appcast_path")
+  "$SIGN_UPDATE" --verify --account "$RELEASE_SIGNING_SIGNER_ACCOUNT" "$appcast_path" >/dev/null 2>&1 || fail "appcast signature verification failed"
+  "$SIGN_UPDATE" --verify --account "$RELEASE_SIGNING_SIGNER_ACCOUNT" "$archive_path" "$appcast_signature" >/dev/null 2>&1 || fail "archive signature verification failed"
+}
+
+if [ -e "$OUTPUT_DIR/GRAF-$VERSION.zip" ]; then
+  python3 "$ARTIFACTS" stage-check "$OUTPUT_DIR" "$IDENTITY_FILE"
+  if [ "$REQUIRE_RELEASE_PROVENANCE" = 1 ]; then
+    release_signing_require_keychain_attestation \
+      "$OUTPUT_DIR/GRAF-$VERSION-signing-attestation.json" "v$VERSION" "$HEAD_SHA" || exit 1
+  fi
+  verify_prepared_update "$OUTPUT_DIR"
+  python3 "$ARTIFACTS" sync-dir "$OUTPUT_PARENT"
+  echo "app-update artifacts reused: version=$VERSION published=no"
+  exit 0
+fi
+
+[ "$VERIFY_ONLY" = 0 ] || fail "prepared version is missing; verification cannot create or replace it"
+
 if [ -d "$OUTPUT_DIR" ]; then
   EXISTING_APPCAST="$OUTPUT_DIR/graf-appcast.xml"
   [ -f "$EXISTING_APPCAST" ] || fail "existing staging directory is missing graf-appcast.xml"
@@ -168,28 +236,7 @@ if [ -d "$OUTPUT_DIR" ]; then
   done
 fi
 
-OUTPUT_PARENT=$(dirname -- "$OUTPUT_DIR")
-mkdir -p "$OUTPUT_PARENT"
-LOCK_DIR="$OUTPUT_PARENT/.graf-update-staging.lock"
-if ! mkdir "$LOCK_DIR" 2>/dev/null; then
-  fail "another release staging attempt is already in progress"
-fi
-WORK_DIR="$OUTPUT_PARENT/.graf-update-$VERSION-$$"
-BACKUP_DIR="$OUTPUT_PARENT/.graf-update-backup-$$"
-cleanup_staging() {
-  status=$?
-  trap - EXIT HUP INT TERM
-  if [ ! -e "$OUTPUT_DIR" ] && [ -d "$BACKUP_DIR" ]; then
-    mv "$BACKUP_DIR" "$OUTPUT_DIR" 2>/dev/null || true
-  fi
-  rm -rf "$WORK_DIR"
-  rmdir "$LOCK_DIR" 2>/dev/null || true
-  exit "$status"
-}
-trap cleanup_staging EXIT
-trap 'exit 129' HUP
-trap 'exit 130' INT
-trap 'exit 143' TERM
+
 mkdir -p "$WORK_DIR"
 if [ -d "$OUTPUT_DIR" ]; then
   ditto "$OUTPUT_DIR" "$WORK_DIR"
@@ -214,13 +261,21 @@ cp "$RELEASE_NOTES" "$NOTES_PATH"
   -o "$APPCAST_PATH" \
   "$WORK_DIR" >/dev/null 2>&1 || fail "could not generate the signed appcast"
 
-"$VALIDATOR" "$APP_BUNDLE" "$PREVIOUS_APP_BUNDLE" "$ARCHIVE_PATH" "$APPCAST_PATH"
-
-APPCAST_SIGNATURE=$(xmllint --xpath \
-  "string((//*[local-name()='item' and *[local-name()='version' and normalize-space(text())='$VERSION']]/*[local-name()='enclosure'])/@*[local-name()='edSignature'])" \
-  "$APPCAST_PATH")
-"$SIGN_UPDATE" --verify --account "$RELEASE_SIGNING_SIGNER_ACCOUNT" "$APPCAST_PATH" >/dev/null 2>&1 || fail "appcast signature verification failed"
-"$SIGN_UPDATE" --verify --account "$RELEASE_SIGNING_SIGNER_ACCOUNT" "$ARCHIVE_PATH" "$APPCAST_SIGNATURE" >/dev/null 2>&1 || fail "archive signature verification failed"
+verify_prepared_update "$WORK_DIR"
+(
+  cd "$WORK_DIR"
+  shasum -a 256 "$ARCHIVE_NAME" graf-appcast.xml > "GRAF-$VERSION.sha256"
+)
+if [ "$REQUIRE_RELEASE_PROVENANCE" = 1 ]; then
+  cp "$RELEASE_SIGNING_KEYCHAIN_ATTESTATION" "$WORK_DIR/GRAF-$VERSION-signing-attestation.json"
+  /usr/bin/plutil -replace workflow -string sign-graf-app-update-local "$WORK_DIR/GRAF-$VERSION-signing-attestation.json"
+  release_signing_require_keychain_attestation "$WORK_DIR/GRAF-$VERSION-signing-attestation.json" "v$VERSION" "$HEAD_SHA" || exit 1
+fi
+# Re-evaluate inputs after signing; a changing input never becomes a reusable result.
+python3 "$ARTIFACTS" "$@" > "$IDENTITY_FILE.current"
+cmp -s "$IDENTITY_FILE" "$IDENTITY_FILE.current" || fail "release inputs changed during preparation"
+rm -f "$IDENTITY_FILE.current"
+python3 "$ARTIFACTS" stage-save "$WORK_DIR" "$IDENTITY_FILE"
 
 if [ -d "$OUTPUT_DIR" ]; then
   mv "$OUTPUT_DIR" "$BACKUP_DIR"
@@ -231,7 +286,9 @@ if ! mv "$WORK_DIR" "$OUTPUT_DIR"; then
   fi
   fail "could not replace staged output; the prior staging directory was retained when possible"
 fi
+python3 "$ARTIFACTS" sync-dir "$OUTPUT_PARENT"
 rm -rf "$BACKUP_DIR"
+rm -f "$IDENTITY_FILE"
 rmdir "$LOCK_DIR" 2>/dev/null || fail "could not release the staging lock"
 trap - EXIT HUP INT TERM
 
