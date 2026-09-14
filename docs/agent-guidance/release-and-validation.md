@@ -83,6 +83,12 @@ may be waited on within the job's timeout; failure, cancellation, timeout,
 missing/expired proof or an API error fails the text check without an older-success fallback.
 Retarget, empty/unknown changes and code edits retain the complete applicable checks.
 
+This reuse requires the workflow version selected by GitHub to contain the F211
+cutover. Editing a historical merged PR can execute its older workflow, even
+after master has advanced. Record closeout for such PRs in issue comments and
+release evidence without editing their title/body. Do not weaken current-check
+validation or claim that the newer workflow ran for a historical event.
+
 The required metadata check uses `pull_request_target` from the trusted `github.workflow_sha`. The validator
 runs in isolated Python; it only reads PR Git objects and never checks out or
 executes PR code. Two API snapshots must agree on repository, PR, head/base/ref,
