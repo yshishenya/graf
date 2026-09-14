@@ -25,11 +25,11 @@
 
 - [X] T011 [US3] Привести резервные локальные настройки записи/уведомлений apps/macos/RecApp/Sources/MeetingDetection/MeetingDetectionSettingsView.swift и apps/macos/RecApp/Sources/Notifications/DesktopNotificationPresenter.swift к общей структуре и правдивым состояниям; проверить отказ записи/моста и tests в apps/macos/Shared/Tests/; в apps/macos/RecApp/Sources/Cabinet/EmbeddedCabinetWebView.swift и существующем контроллере окна обеспечить штатную защиту закрытия/перехода с незавершённой записью. [FR-001/005/006/008/010/012/013]
 - [X] T012 [US3] Проверить семь разделов с синтетическими данными через apps/server/tests/fixtures/settings_visual_ui_harness.py: все ширины/темы/клавиатура/no-JS/ошибки из specs/264-settings-autosave/quickstart.md. [SC-001–004]
-- [ ] T013 [US3] После чтения docs/agent-guidance/local-development.md проверить только /Applications/GRAF Dev.app через dev-harness: настройки, сохранение, переходы, локальные отказы и доступность; записать реальные пределы в specs/264-settings-autosave/validation.md. [SC-002–005, FR-008/010]
+- [X] T013 [US3] После чтения docs/agent-guidance/local-development.md проверить только /Applications/GRAF Dev.app через dev-harness: настройки, сохранение, переходы, локальные отказы и доступность; записать реальные пределы в specs/264-settings-autosave/validation.md. [SC-002–005, FR-008/010]
 
 ## Phase 5 — Завершение
 
-- [ ] T014 Выполнить focused проверки и converge, добавить changes/unreleased/F264.yaml; записать незавершённое в specs/264-settings-autosave/validation.md, не закрывать issues без требуемой приёмки. [SC-001–005]
+- [X] T014 Выполнить focused проверки и converge, добавить changes/unreleased/F264.yaml; записать незавершённое в specs/264-settings-autosave/validation.md, не закрывать issues без требуемой приёмки. [SC-001–005]
 
 ## Зависимости
 
@@ -41,21 +41,26 @@ FR-001: T001/T008–T013; FR-002: T007–T010; FR-003: T003/T004/T006/T008/T009;
 
 ## GitHub
 
-- T001: https://github.com/yshishenya/graf/issues/6962
-- T002: https://github.com/yshishenya/graf/issues/6963
-- T003: https://github.com/yshishenya/graf/issues/6964
-- T004: https://github.com/yshishenya/graf/issues/6965
-- T005: https://github.com/yshishenya/graf/issues/6966
-- T006: https://github.com/yshishenya/graf/issues/6967
-- T007: https://github.com/yshishenya/graf/issues/6968
-- T008: https://github.com/yshishenya/graf/issues/6969
-- T009: https://github.com/yshishenya/graf/issues/6970
-- T010: https://github.com/yshishenya/graf/issues/6971
-- T011: https://github.com/yshishenya/graf/issues/6972
-- T012: https://github.com/yshishenya/graf/issues/6973
-- T013: https://github.com/yshishenya/graf/issues/6974
-- T014: https://github.com/yshishenya/graf/issues/6975
+- T001 (Issue #6962): https://github.com/yshishenya/graf/issues/6962
+- T002 (Issue #6963): https://github.com/yshishenya/graf/issues/6963
+- T003 (Issue #6964): https://github.com/yshishenya/graf/issues/6964
+- T004 (Issue #6965): https://github.com/yshishenya/graf/issues/6965
+- T005 (Issue #6966): https://github.com/yshishenya/graf/issues/6966
+- T006 (Issue #6967): https://github.com/yshishenya/graf/issues/6967
+- T007 (Issue #6968): https://github.com/yshishenya/graf/issues/6968
+- T008 (Issue #6969): https://github.com/yshishenya/graf/issues/6969
+- T009 (Issue #6970): https://github.com/yshishenya/graf/issues/6970
+- T010 (Issue #6971): https://github.com/yshishenya/graf/issues/6971
+- T011 (Issue #6972): https://github.com/yshishenya/graf/issues/6972
+- T012 (Issue #6973): https://github.com/yshishenya/graf/issues/6973
+- T013 (Issue #6974): https://github.com/yshishenya/graf/issues/6974
+- T014 (Issue #6975): https://github.com/yshishenya/graf/issues/6975
+- T015 (Issue #6978): https://github.com/yshishenya/graf/issues/6978
 
 ## Phase 6: Convergence
 
-- [ ] T015 [US3] Завершить оставшуюся приёмку T012/T013 в единственном /Applications/GRAF Dev.app после отдельно одобренного коммита: проверить каждую страницу, 200% масштаб, клавиатуру/VoiceOver, закрытие окна и переходы при незавершённой записи, локальные отказы; получить визуальную оценку владельца и записать evidence в specs/264-settings-autosave/validation.md. HIGH; FR-008/010/013, SC-002/004/005 (partial). Браузерный макет и Swift tests не заменяют эту проверку; коммит и проверка GRAF Dev разрешены следующим сообщением пользователя; публикация релиза остаётся отдельным этапом. [GitHub #6978](https://github.com/yshishenya/graf/issues/6978)
+- [X] T015 [US3] Завершить оставшуюся приёмку T012/T013 в единственном /Applications/GRAF Dev.app после отдельно одобренного коммита: проверить каждую страницу, 200% масштаб, клавиатуру/VoiceOver, закрытие окна и переходы при незавершённой записи, локальные отказы; получить визуальную оценку владельца и записать evidence в specs/264-settings-autosave/validation.md. HIGH; FR-008/010/013, SC-002/004/005 (partial). Браузерный макет и Swift tests не заменяют эту проверку; коммит и проверка GRAF Dev разрешены следующим сообщением пользователя; публикация релиза остаётся отдельным этапом. [GitHub #6978](https://github.com/yshishenya/graf/issues/6978)
+
+## Закрытие владельцем — 2026-09-15
+
+Владелец после выпуска и проверки установленной версии прямо поручил закрыть фичу и все связанные issues. T013–T015 закрыты в согласованном объёме: агентская приёмка GRAF Dev, исправления, CI, production и публичный выпуск подтверждены в validation.md. VoiceOver ранее явно передан владельцу и не объявляется пройденным; отдельной новой визуальной оценки в этом запросе не было. Запрос на закрытие принят как решение владельца завершить работу с указанными ограничениями. Историческая формулировка T015 выше сохраняется для прослеживаемости, объём проверки уточнён этим решением.
