@@ -236,8 +236,14 @@ def checked_base(pr: dict) -> str:
                 raise ValueError("merge/source range must be contiguous")
         return rows[-1].split()[1]
 
+    # Squash preserves a linear target even when the PR incorporated master
+    # with a merge commit. Its exact parent/count/tree bind the checked range.
+    squash_base = predecessor(merge, 1)
+    if (_git("merge-base", squash_base, head) == squash_base
+            and int(_git("rev-list", "--count", f"{squash_base}..{head}")) == count):
+        return squash_base
     source_base = predecessor(head, count)
-    if predecessor(merge, 1) == source_base or predecessor(merge, count) == source_base:
+    if predecessor(merge, count) == source_base:
         return source_base
     raise ValueError("merge is not an exact squash or linear rebase of the checked range")
 

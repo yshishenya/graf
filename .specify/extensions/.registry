@@ -44,9 +44,9 @@
       "installed_at": "2026-06-15T20:03:33.202169+00:00"
     },
     "github-issue-canon": {
-      "version": "0.3.3",
+      "version": "0.3.4",
       "source": "local",
-      "manifest_hash": "sha256:634ea19421b76e2d5b993f710a4711b0d27db00bb1e3bb9131b544e8051036f4",
+      "manifest_hash": "sha256:4f1b5f79b0797ec9ad9120b4f23966a6e6aae997be4da6067f5e277cf57feaff",
       "enabled": true,
       "priority": 10,
       "registered_commands": {
@@ -57,7 +57,7 @@
         ]
       },
       "registered_skills": [],
-      "installed_at": "2026-09-08T16:03:31.984837+00:00"
+      "installed_at": "2026-09-13T15:52:48.391546+00:00"
     }
   }
 }

@@ -162,6 +162,12 @@ jobs:
 
       - name: Prepare pinned browser test resources
         run: |
+          if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends ffmpeg
+          fi
+          ffmpeg -nostdin -version >/dev/null
+          ffprobe -version >/dev/null
           npm ci --ignore-scripts --prefix apps/server/tests/browser
           apps/server/tests/browser/node_modules/.bin/playwright install --with-deps chromium
 

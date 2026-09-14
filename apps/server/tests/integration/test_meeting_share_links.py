@@ -6,7 +6,7 @@ from sqlalchemy import func, select
 
 from tests.contract.test_ingest_openapi_contract import auth_headers
 from tests.fakes.auth_contexts import DEVICE_ID, ORG_ID, USER_ID, WORKSPACE_ID
-from tests.fixtures.cabinet import seed_cabinet_meetings
+from tests.fixtures.cabinet import create_ready_meeting
 from tests.fixtures.cabinet_access import (
     SHARED_USER_ID,
     add_workspace_user,
@@ -30,11 +30,11 @@ from twobrain_rec_server.db.models import (
 
 
 def test_login_required_share_link_resolves_for_grantee_and_can_be_revoked(client) -> None:
-    seeds = seed_cabinet_meetings(client)
+    ready_id = create_ready_meeting(client)
     add_workspace_user(client)
 
     share = client.post(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/shares",
+        f"/api/v1/cabinet/meetings/{ready_id}/shares",
         headers=auth_headers(),
         json={
             "grantee_user_id": str(SHARED_USER_ID),
@@ -51,11 +51,11 @@ def test_login_required_share_link_resolves_for_grantee_and_can_be_revoked(clien
         follow_redirects=False,
     )
     assert resolved.status_code == 302
-    assert resolved.headers["location"] == f"/meetings/{seeds.ready_id}"
+    assert resolved.headers["location"] == f"/meetings/{ready_id}"
 
     grant_id = payload["grant"]["grant_id"]
     revoked = client.delete(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/shares/{grant_id}",
+        f"/api/v1/cabinet/meetings/{ready_id}/shares/{grant_id}",
         headers=auth_headers(),
     )
     blocked = client.get(
@@ -66,15 +66,15 @@ def test_login_required_share_link_resolves_for_grantee_and_can_be_revoked(clien
 
     assert revoked.status_code == 204
     assert blocked.status_code == 404
-    event_dump = [event.event_type for event in audit_events(client, seeds.ready_id)]
+    event_dump = [event.event_type for event in audit_events(client, ready_id)]
     assert event_dump == ["share_granted", "share_link_opened", "share_revoked"]
-    for event in audit_events(client, seeds.ready_id):
+    for event in audit_events(client, ready_id):
         assert "token" not in event.metadata_json
         assert "share_token_hash" not in event.metadata_json
 
 
 def test_internal_share_search_is_meeting_bound_and_finds_verified_email(client) -> None:
-    seeds = seed_cabinet_meetings(client)
+    ready_id = create_ready_meeting(client)
     add_workspace_user(client, display_name="Synthetic Teammate")
 
     async def seed_identity() -> None:
@@ -93,7 +93,7 @@ def test_internal_share_search_is_meeting_bound_and_finds_verified_email(client)
     asyncio.run(seed_identity())
 
     response = client.get(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/share-recipients",
+        f"/api/v1/cabinet/meetings/{ready_id}/share-recipients",
         headers=auth_headers(),
         params={"query": "teammate@example.test"},
     )
@@ -119,10 +119,10 @@ def test_internal_share_search_is_meeting_bound_and_finds_verified_email(client)
 
 
 def test_disabled_external_share_returns_truthful_problem_without_delivery(client) -> None:
-    seeds = seed_cabinet_meetings(client)
+    ready_id = create_ready_meeting(client)
 
     response = client.post(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/share-invitations",
+        f"/api/v1/cabinet/meetings/{ready_id}/share-invitations",
         headers=auth_headers(),
         json={"address": "outside@example.test"},
     )
@@ -133,17 +133,17 @@ def test_disabled_external_share_returns_truthful_problem_without_delivery(clien
 
 
 def test_user_share_rotation_returns_recipient_bound_url_and_invalidates_old_token(client) -> None:
-    seeds = seed_cabinet_meetings(client)
+    ready_id = create_ready_meeting(client)
     add_workspace_user(client)
     created = client.post(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/shares",
+        f"/api/v1/cabinet/meetings/{ready_id}/shares",
         headers=auth_headers(),
         json={"grantee_user_id": str(SHARED_USER_ID), "content_scope": "summary_only"},
     )
     assert created.status_code == 201
 
     rotated = client.post(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/shares/{created.json()['grant']['grant_id']}/rotate",
+        f"/api/v1/cabinet/meetings/{ready_id}/shares/{created.json()['grant']['grant_id']}/rotate",
         headers=auth_headers(),
     )
 
@@ -163,10 +163,10 @@ def test_user_share_rotation_returns_recipient_bound_url_and_invalidates_old_tok
 
 
 def test_internal_grant_stops_working_after_membership_is_revoked(client) -> None:
-    seeds = seed_cabinet_meetings(client)
+    ready_id = create_ready_meeting(client)
     add_workspace_user(client)
     created = client.post(
-        f"/api/v1/cabinet/meetings/{seeds.ready_id}/shares",
+        f"/api/v1/cabinet/meetings/{ready_id}/shares",
         headers=auth_headers(),
         json={"grantee_user_id": str(SHARED_USER_ID), "content_scope": "summary_only"},
     )

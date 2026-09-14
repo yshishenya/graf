@@ -48,6 +48,12 @@ def resolve(event: dict, event_name: str) -> dict:
     head, base = result["target_sha"], result["base_sha"]
     if subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip() != head:
         raise ValueError("checkout differs from event head")
+    if event_name == "pull_request" and event["pull_request"].get("merged") is True:
+        spec = importlib.util.spec_from_file_location("pr_metadata", Path(__file__).with_name("validate-pr-metadata.py"))
+        metadata = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(metadata)
+        # A merged PR's API base can advance; its checked tree and history cannot.
+        base = result["base_sha"] = metadata.checked_base(event["pull_request"])
     paths = []
     if base is not None:
         paths = subprocess.check_output([

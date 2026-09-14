@@ -59,3 +59,18 @@ Validation rules:
 - Clean worktree.
 - Successful authoritative GitHub `release-full` for the immutable candidate, verified and reused by execute; a local full is not release evidence.
 - Existing independent production gates remain attached and follow that full gate.
+
+
+## A9 local packaging state
+
+- Build identity: schema, source SHA/tag/version, toolchain/SDK/build-key digest,
+  application tree fingerprint and package digest/size. Private local receipt.
+- Prepared update: exact source/previous identity, app-tree and archive/notes
+  fingerprints, URLs, public signing manifest/key/generation/tool hash, output
+  relative names and hashes/sizes/modes. No absolute private paths or key material.
+- Input asset cache: repository, release/tag/source, numeric asset/release ID,
+  current immutable API identity, local content digest/size. Cache is not trust proof.
+- Notary attempt: exact build/input identity; each artifact moves from durable
+  submitting to ID-known to Accepted; rejection/ambiguity remains explicit.
+  Original submitted files never become final stapled files. Output manifest
+  acknowledges only validated complete finals; failure preserves resumable state.

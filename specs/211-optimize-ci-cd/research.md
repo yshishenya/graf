@@ -66,10 +66,66 @@ Decisions below describe historical T001–T032. Decision 2 now uses event base 
 
 **Alternatives considered**: Raise the threshold without evidence (weakens the requirement); delete the test (loses regression proof); keep universal hard blocking (known false negatives).
 
-## Decision 6 — No image-registry migration in this slice
+## Decision 6 — No image-registry migration (original scope; A8 extends local reuse)
 
-**Decision**: Keep current production build/runtime behavior. Measure it separately and design build-once/deploy-by-digest only after registry, secret custody and rollback contracts are approved.
+**Historical decision, before A8**: Keep current production build/runtime behavior. Measure it separately and design build-once/deploy-by-digest only after registry, secret custody and rollback contracts are approved.
 
 **Rationale**: Immutable images are valuable but do not need to exist to remove duplicate full tests. Bundling them would enlarge the trust boundary and delay the requested improvement.
 
 **Alternatives considered**: Add a registry now (unresolved provider/custody); export images over SSH (large artifacts and a new failure surface); leave as an explicit follow-up (chosen).
+
+
+## A7 reviewed fixture allowlist — 2026-09-13
+
+Independent read-only research traced 113 function definitions before parameterization. Cabinet ready construction itself is unchanged: accepted media/results/transcript/diarization/dependency rows are retained. Only four incidental meetings disappear.
+
+| Family (apps/server/tests) | Direct functions permitted | Exclusions retaining the full seed |
+| --- | --- | --- |
+| integration/test_recording_share_public_link.py | 14 | none; recipient workspaces and invitations are created explicitly |
+| integration/test_cabinet_meeting_rename.py | 10 | existing self-constructed ingest retry remains untouched |
+| integration/test_local_purge_coordination.py | 8 | none; task counts concern the one deleted meeting and its own devices |
+| integration/test_transcript_export_egress.py | 26 | test_export_capability_never_pairs_an_accepted_summary_with_a_newer_result needs real processing_id/foreign_id |
+| integration/test_cabinet_playback_route.py | 15 | test_playback_route_blocks_foreign_workspace_without_disclosing_meeting and test_playback_route_blocks_processing_and_failed_reviews_even_when_audio_policy_allows |
+| integration/test_cabinet_hx_delete_feedback.py | 6 | test_deletion_receipts_and_index_do_not_cross_workspace_access preserves actual foreign identity/device/deletion |
+| integration/test_meeting_share_links.py | 5 direct seed callers | calendar scenarios that build their own meetings are unchanged |
+| integration/test_meeting_access_policy.py | 1 | other cases unchanged |
+| unit/test_meeting_access_decisions.py | 4 | none; shared list still explicitly grants only the ready meeting |
+
+The shared setup_comments has 26 callers: 16 in test_meeting_comments.py, 4 api_review, 3 boundaries, 1 browser, 2 read_review. Twenty-four use only ready_id. `test_canonical_diarization_comment_source_fence` and `test_external_author_labels_for_owner_and_read_only_invitee_rls` must retain the full seed: real processing objects exercise 409/422 and inaccessible-existing 404 respectively. The latter cannot be replaced with an invented missing ID that coincidentally returns 404. Query-count listeners are installed after setup; their 100 roots/5100 replies remain unchanged.
+
+List assertions in recording_share_public_link retain the target meeting and explicit invitation/summary data; no removed seed count/order is asserted. The predicate covers fewer incidental rows but still exercises the same accepted/candidate summary behavior. Other repository seed callers are outside this allowlist.
+
+## A8 clarification after independent requirements review
+
+Decision 6 continues to forbid a hidden registry migration. A8 now explicitly reuses two images on the existing host; it changes build/retry/rollback image selection, preserving the original backup/schema/dispatch/security gates. Attempts close only after verified unchanged state or successful complete recovery, not merely because a trap ran. Persistence failures block before mutation or preserve the unresolved attempt afterward. Cache acceptance includes a real changed application output, not only a new source label.
+
+Hosted-fast follow-up correction: current `ci-local.sh` already executes the two CI contract files directly with pytest. The changed-server list is limited to contract/integration paths; unit paths select the full bounded unit stage and do not enter the changed list. Therefore the earlier suspected duplicate-unit and unnecessary CI-contract DB-wrapper optimizations are not real remaining code changes. The 42 changed cases are separate contract/integration tests.
+
+
+## A9 research — current packaging flow, 2026-09-13
+
+Independent pipeline_architecture review read all installer/update/signing and
+notarization callers. Current installer deletes Swift scratch inside BUILD_DIR;
+prepare rejects same-version archives and locks after reading staging; signer
+redownloads pinned Sparkle and uses --clobber. Keychain proof changes UUID/time
+per invocation. There is no executable notary runner; only manual submit --wait
+commands in docs. Public validator activates Gatekeeper/stapler only with
+GRAF_REQUIRE_PUBLIC_UPDATE_TRUST=1, which the signer must explicitly set.
+
+Decision: reuse existing SwiftPM incremental work and shell trust validators;
+small stdlib state around their boundaries. Preserve submitted vs stapled bytes
+and remote asset identity. Alternative rejected: full-SHA scratch key (cold every
+commit), reuse by version/name alone (false identity), hidden overwrite, guessing
+Apple request from timestamps, caching Keychain success, new registry/service.
+GitHub's draft check and uploads are not one transaction with another operator;
+recheck current state around each bounded upload and retain immutable bytes.
+
+## A11 evidence
+
+Source `/Users/yshishenya/Documents/spec-kit-ext-github-issue-canon` at
+`adf2b1b6d7f04ec97099b6716d2f971350262920`, version0.3.3: ensure line92
+безусловно вызывает copy_template; общий helper заменяет любой отличающийся файл.
+Installed GRAF bytes совпадают с закреплённым source. Bootstrap ensure_issue_canon_files
+уже использует install-if-missing для PR template. Поэтому меняется один caller
+расширения, не общий copy helper и не вводится новая настройка. Источник bootstrap
+с чужими изменениями остаётся во владении его задачи.

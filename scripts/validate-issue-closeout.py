@@ -366,6 +366,17 @@ def _github_commit_pull_requests(repo: str, sha: str) -> list[int]:
     ]
 
 
+def _github_pr_checks(repo: str, number: int, sha: str, run_id: str) -> dict:
+    result = subprocess.run([
+        sys.executable, str(Path(__file__).with_name("validate-pr-checks.py")),
+        "--repository", repo, "--pr", str(number), "--expected-sha", sha,
+        "--code-run-id", run_id,
+    ], text=True, capture_output=True, check=False)
+    if result.returncode:
+        raise ValueError("current complete PR check set did not pass")
+    return json.loads(result.stdout)
+
+
 def verify_feature_runs(
     repo: str,
     issues: list[dict[str, object]],
@@ -377,6 +388,7 @@ def verify_feature_runs(
     cache: dict[str, dict[str, object]] = {}
     pr_cache: dict[str, dict[str, object]] = {}
     commit_pr_cache: dict[str, list[int]] = {}
+    checked_prs: set[tuple[int, str, str]] = set()
 
     def verify(
         *, issue_number: int, match: re.Match[str], workflow: str, expected_run_sha: str,
@@ -451,6 +463,14 @@ def verify_feature_runs(
                 expected_path=".github/workflows/governance-fast.yml",
                 expected_pr_number=int(pr_number.group(1)) if pr_number else None,
             )
+            if pr_number:
+                check_key = (int(pr_number.group(1)), pr_sha.group(1), governance.group("run"))
+                try:
+                    if check_key not in checked_prs:
+                        _github_pr_checks(repo, *check_key)
+                        checked_prs.add(check_key)
+                except (OSError, ValueError, subprocess.CalledProcessError):
+                    errors.append(f"issue #{number} current complete PR checks could not be verified")
         elif governance:
             errors.append(f"issue #{number} must name PR SHA for governance-fast verification")
         if require_release_full:

@@ -13,13 +13,13 @@
     }
   },
   "github_issue_canon": {
-    "archive_sha256": "14386f479706199bc83171dd0aea9c4fe1034d43ba2b90ab552ae7aaf9529886",
-    "installed_version": "0.3.3",
-    "manifest_hash": "sha256:634ea19421b76e2d5b993f710a4711b0d27db00bb1e3bb9131b544e8051036f4",
-    "ref": "adf2b1b6d7f04ec97099b6716d2f971350262920",
-    "source_url": "https://github.com/yshishenya/spec-kit-ext-github-issue-canon/archive/adf2b1b6d7f04ec97099b6716d2f971350262920.zip",
-    "tree_sha256": "a56d14db809a671533a4520c929ded5e046428d64acefdaac5b10c9702b86238",
-    "version": "custom"
+    "archive_sha256": "513294ff7ec810b1d868753e689f767d1e516b5f7084c4a6bf67885aaf8567b5",
+    "installed_version": "0.3.4",
+    "manifest_hash": "sha256:4f1b5f79b0797ec9ad9120b4f23966a6e6aae997be4da6067f5e277cf57feaff",
+    "ref": "894d2f2ccf1cf56cd9753e0a1c7d3d9c53aac281",
+    "source_url": "https://github.com/yshishenya/spec-kit-ext-github-issue-canon/releases/download/v0.3.4/github-issue-canon-0.3.4.zip",
+    "tree_sha256": "91ab2329f41fa8c1067fe30127daf60e2e56cbd3e6f2e531e61b231e5fdf85c2",
+    "version": "v0.3.4"
   },
   "ponytail": {
     "enabled": false,

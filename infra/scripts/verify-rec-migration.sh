@@ -6,6 +6,14 @@ cd "$(dirname "$0")/../.."
 host="${TWOBRAIN_DEPLOY_HOST:-2brain.dev}"
 path="${TWOBRAIN_DEPLOY_PATH:-/opt/projects/2brain-rec}"
 
+release_compose() {
+  if [ -n "${GRAF_RELEASE_IMAGE_OVERRIDE:-}" ]; then
+    docker compose -f infra/docker-compose.yml -f "$GRAF_RELEASE_IMAGE_OVERRIDE" "$@"
+  else
+    docker compose -f infra/docker-compose.yml "$@"
+  fi
+}
+
 run_rls_validation() {
   if [ -n "${RLS_TEST_DATABASE_URL:-}" ]; then
     python3 apps/server/scripts/verify_rls_hardening.py
@@ -13,7 +21,7 @@ run_rls_validation() {
   fi
 
   rls_db_name="twobrain_rec_rls_$(date -u +%Y%m%d%H%M%S)_$$"
-  if ! docker compose -f infra/docker-compose.yml exec -T rec-postgres sh -c '
+  if ! release_compose exec -T rec-postgres sh -c '
     set -eu
     db_name="$1"
     export PGPASSWORD="$(cat /run/secrets/twobrain_postgres_password)"
@@ -32,7 +40,7 @@ EOF
   fi
 
   set +e
-  rls_output="$(docker compose -f infra/docker-compose.yml run --rm --no-deps --entrypoint sh rec-db-runtime-bootstrap -c '
+  rls_output="$(release_compose run --pull never --rm --no-deps --entrypoint sh rec-db-runtime-bootstrap -c '
     set -eu
     db_name="$1"
     python /app/scripts/verify_rls_hardening.py \
@@ -42,7 +50,7 @@ EOF
       --destructive-probe-database disposable
   ' sh "$rls_db_name" 2>&1)"
   rls_status=$?
-  docker compose -f infra/docker-compose.yml exec -T rec-postgres sh -c '
+  release_compose exec -T rec-postgres sh -c '
     set -eu
     db_name="$1"
     export PGPASSWORD="$(cat /run/secrets/twobrain_postgres_password)"
@@ -110,7 +118,14 @@ if [ -f .env ]; then
   set +a
 fi
 
-docker compose -f infra/docker-compose.yml run --rm rec-migrate alembic current
+if [ -z "${GRAF_RELEASE_IMAGE_OVERRIDE:-}" ]; then
+  GRAF_RELEASE_IMAGE_OVERRIDE="$(python3 infra/scripts/release-images.py current-override)"
+  export GRAF_RELEASE_IMAGE_OVERRIDE
+fi
+if [ -n "${GRAF_RELEASE_IMAGE_OVERRIDE:-}" ]; then
+  python3 infra/scripts/release-images.py validate-override "$GRAF_RELEASE_IMAGE_OVERRIDE"
+fi
+release_compose run --pull never --rm rec-migrate alembic current
 set +e
 rls_output="$(run_rls_validation)"
 rls_status=$?

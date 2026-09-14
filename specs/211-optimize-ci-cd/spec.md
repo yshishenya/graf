@@ -167,6 +167,7 @@ Release engineer получает один авторитетный резуль
 - **FR-001**: Общий CI entrypoint MUST требовать явный validation lane и MUST не выбирать полный уровень по умолчанию.
 - **FR-002**: Процесс MUST сохранять три различимых уровня доказательства: focused, fast и full; результат одного уровня MUST не представляться как результат другого.
 - **FR-003**: Fast lane MUST выбирать ограниченные проверки по затронутым компонентам и MUST оставаться fast для shared, unknown, high-risk или неразрешимого diff; в таких случаях он MUST сообщать о неполном покрытии и требовать отдельный full перед release/deploy.
+  Распознанные `changes/unreleased/F<digits>.yaml` и `changes/releases/v<YYYY.MM.DD.N>/F<digits>.yaml` являются метаданными: добавление обязательного фрагмента или его перенос при подготовке версии сами по себе не выбирают инфраструктурные тесты. Произвольные файлы `changes/*` не получают этого исключения. Существующий process preflight выполняется и без локального `.specify/feature.json`; проверка текущих unreleased-фрагментов и изменённых спецификаций остаётся обязательной. Проверка содержимого архивов сохраняется в существующей подготовке релиза и не приписывается валидатору unreleased-фрагментов.
 - **FR-004**: Каждый lane MUST сообщать выбранный состав, ограничение покрытия, требование следующего gate, результат и длительность pipeline и завершенных этапов, включая ошибочный выход.
 - **FR-005**: Production execute MUST после clean-worktree, branch и exact remote-SHA проверок проверять авторитетное GitHub Full CI evidence неизменного кандидата, повторно подтверждать worktree/HEAD/remote SHA и только затем начинать remote production steps. Второй Full CI не требуется.
 - **FR-006**: Обычный release path MUST не требовать отдельный локальный preflight full; локальный full MUST оставаться диагностическим, не заменять GitHub `release-full` и не выдавать авторитетное release evidence.
@@ -268,9 +269,22 @@ Release engineer получает один авторитетный резуль
 
 - **FR-038**: PR получает `macos-pr` на точном head/base. Успех означает успешный консервативный выбор области и либо реальные Swift build/tests/ContractValidation на macos-14/Swift 6.0.3, либо доказанную незатронутость macOS. Failed/missing scope, required+skipped, cancelled/neutral не разрешают merge. Изменения macOS, общего/неизвестного кода, кабинета/моста/API требуют macOS; чистые документы и явно независимые server-only paths могут его не запускать. Rename/delete рассматривают обе стороны. Кэш компиляции не заменяет вызов компилятора и тестов.
 - **FR-039**: Metadata workflow выполняется через pull_request_target из закреплённого trusted workflow SHA; код PR не checkout/исполняется, PR head/base доступны лишь как Git objects для diff. Python запускается isolated mode. Два API-снимка до/после проверки должны совпасть по repo, PR number, open state, head/base/ref, title/body hash. API/JSON/identity/policy failure закрывает проверку без возврата к старому event body. Сохранённый локальный CLI совместим. Артефакт содержит только identity/digests/status, без body/credentials.
-- **FR-040**: Только подтверждённое изменение title/body (точно известная форма changes) не запускает повтор кода/macOS, не отменяет выполняющийся code run и не создаёт новый успешный check с required code/native именем. Retarget, неизвестный/пустой changes и всякая смена кода запускают проверку. Прежний failed/running code result не заменяется skipped/зелёным текстовым результатом.
+- **FR-040**: Только подтверждённое изменение title/body (точно известная форма changes) не запускает повтор кода/macOS и не отменяет выполняющийся code run. Каждый workflow сохраняет исполняемую итоговую проверку с постоянным required именем `governance-fast` или `macos-pr`. Для текстового события её PASS допускается только после проверки существующего успешного исходного результата соответствующего компонента на точных repository/PR/head/checked base/workflow/event/run/attempt. Retarget, неизвестный/пустой changes и всякая смена кода запускают применимые проверки. Failed/cancelled/running исходный результат нельзя заменить skipped/зелёным текстовым результатом; новый текстовый PASS сам не является доказательством исполнения кода/native.
 - **FR-041**: Активация двухэтапная: сначала подготовить trusted metadata/macOS и получить checks, затем добавить required contexts к governance-fast с сохранением strict/base/linear history. Только после read-back protection убирать прежний metadata gate и дорогие text-only исполнения. Closeout и freeze новых PR проверяют полный актуальный набор и текущее описание; исторические combined PR сохраняют свою политику по явно закреплённой границе включения. После merge base сверяется с сохранённой проверкой/историей слияния, не с движущимся сегодняшним master.
-- **SC-019**: Негативные исполняемые сценарии: failed/running code + body-only edit; retarget/unknown changes; bad/missing base; native required+skipped; fork repository mismatch; PR меняет validator/sitecustomize; оба API snapshot различаются по body или head/base; ошибки API; closeout не принимает wrong workflow/event/SHA и неполный набор. Live read-back доказывает все требуемые contexts после включения. Snapshot freshness не заявляется атомарной с нажатием merge.
+- **SC-019**: Негативные исполняемые сценарии: failed/running code + body-only edit; retarget/unknown changes; bad/missing base; native required+skipped; fork repository mismatch; PR меняет validator/sitecustomize; оба API snapshot различаются по body или head/base; ошибки API; closeout не принимает wrong workflow/event/SHA и неполный набор. Для повторного использования отдельно доказать отсутствие тяжёлых команд/new source receipts, выбор последней исходной попытки, running→success/failure/timeout, повторный запуск старого run ID, отсутствие взаимного ожидания двух текстовых итогов, проверку self-run/scope identity и отказ полного consumer при missing/running/failed required gate. Live acceptance проверяет сам блок слияния GitHub: после изменения body во время/после исходных тестов постоянные required contexts присутствуют и не остаются `expected`; исходные тесты не отменены и не повторены. Snapshot freshness не заявляется атомарной с нажатием merge.
+
+### Уточнение FR-040 по наблюдаемому поведению GitHub — 2026-09-13
+
+Авторизованный интерфейс PR #6990 показал `governance-fast expected` и `macos-pr expected` после изменения body: последний набор каждого workflow содержал scope и пропущенное исполнение/другое имя, а прежние успешные code/native результаты GitHub не принял вместо обязательного итога последнего набора. Поэтому первоначальный запрет нового required PASS заменён проверяемым повторным использованием исходных доказательств. Состав тестов и правила защиты не ослабляются.
+
+1. Исходным считается последний запуск исполнения компонента с учётом `run_started_at` и run attempt, а не последний успешный. Более новая failed/cancelled/running попытка запрещает возврат к старому PASS. Новый текстовый PASS не может быть источником для следующего текстового PASS; цепочки повторного использования запрещены.
+2. Только проверенный scope artifact с точными repository/PR/head/base/event/run/attempt позволяет исключить текстовый запуск из поиска источника. Одного display name недостаточно. Текущий run можно исключить лишь после подтверждения его собственной текстовой identity; произвольное исключение code run запрещено.
+3. Подтверждённый текстовый scope можно исключить из поиска источника до завершения его итоговой задачи, чтобы два текстовых запуска не ожидали друг друга. Это не разрешает принимать незавершённый итог как обязательный успешный check полного набора.
+4. Известный queued/running исходный запуск разрешено ограниченно ожидать, не повторяя тесты. До его терминального успеха PASS отсутствует. Ошибка, отмена, тайм-аут, неподтверждённая identity или ошибка API дают отказ без старого успешного fallback. Повтор whole text-only workflow снова выполняет только scope/API; привязка артефактов к попытке не ослабляется ради частичного rerun.
+5. Текстовые итоги отделены от concurrency исполнения кода/native. Перед окончательным PASS повторно проверяются текущие repository/PR/head/base/ref/state и актуальная исходная попытка. Их изменение блокирует прежний proof. Только title/body остаются предметом независимой trusted metadata проверки.
+6. Проверка текстового события проверяет только собственный исходный компонент, не вызывает полный consumer, не зависит от второго компонента/metadata и не ждёт собственного итогового check. Полный consumer отдельно требует актуальный успешный required check и действительное исходное доказательство; существующие source proofs не превращают missing/running/failed required gate в PASS. Актуальный gate берётся из последнего соответствующего workflow run/attempt, включая текстовые запуски, с точной repository/PR/head/base/workflow/event identity и ровно одной задачей с постоянным обязательным именем. Status rollup, похожее имя, несколько одноимённых jobs или выбор последнего success не заменяют эту проверку.
+7. Срок хранения, run/attempt identity, historical-policy boundary, post-merge base/tree binding и формат исходных receipts сохраняются. Повторное использование не продлевает срок доказательств. Не нужны новые сервисы, credentials, API-публикация статусов или права записи; GitHub Actions читает PR/runs/artifacts.
+8. Перед общим PASS полного consumer повторно сверяются все выбранные source run/attempts и актуальные gate run/attempts всех требуемых компонентов, их identity и успешный терминальный результат. Одного финального PR snapshot недостаточно: same-head/base rerun во время проверки другого компонента обязан сделать прежний набор недействительным, даже если PR identity не изменилась.
 
 
 A6 consumer identity clarification: all three successful results must bind to the same final PR head **and checked base**. Code uses its existing CI receipt, native uses the scope artifact, metadata uses the trusted snapshot artifact; each is tied to the verified workflow run/attempt. Missing, expired, mismatched or mixed-attempt proof fails closed. A fresh metadata result never refreshes stale code/native base evidence. For an open PR the common base must equal the live PR base. For a merged PR it must be the actual base of the merge: squash requires merge_commit first parent = checked base and merge tree = final head tree; linear rebase requires the parent before the recorded PR commit count = checked base, a linear source range of that count, and identical final trees. Mere ancestry is insufficient; unknown merge shape is blocked.
@@ -280,3 +294,208 @@ A6 historical-policy clarification: record the real foundation merge SHA/PR and 
 For a legitimate metadata edit after merge, the trusted metadata workflow may refresh **merged closed** PR metadata using the immutable merge identity and the checked base derived above; a merely closed/unmerged PR is rejected. Both API snapshots must still agree on state/merged flag/merge SHA/head/base/ref and metadata hash. This cheap refresh never executes PR code or reruns product tests, and never compares historical base with today's master. Required proof artifacts use 90-day retention and names binding run/attempt, not reusable pass caches.
 
 A6 API clarification: an open PR's `merge_commit_sha` is GitHub's asynchronously recalculated synthetic merge, not its source identity. Normalize it to null while `merged=false`; still compare exact head/base/state/commit count and metadata digest. For `merged=true`, the real merge SHA remains mandatory and immutable. Documentation exclusions refer only to known docs/spec paths and root documentation names, never arbitrary Markdown resources under application source.
+
+
+## A7 — следующий проверенный набор подготовки встреч
+
+Уточнение: это сокращение только избыточной подготовки существующих тестов; HTTP/SQL проверяемой операции, права, RLS, аудит, отрицательные состояния и сам состав проверок остаются прежними. Новых продуктовых решений нет.
+
+- **FR-042**: Применить существующий `create_ready_meeting` только к 113 функциям из allowlist A7 в research. Для comments сохранить tuple/ready_id договор общего `setup_comments`; только два явно перечисленных negative-case caller запрашивают полный seed. Нельзя подставлять выдуманные/None processing/foreign IDs, менять assertions или общий `seed_cabinet_meetings`. Полные наборы для шести исключений сохраняются.
+- **SC-020**: Одинаковый перечень выбранных файлов, Python/lock/число workers до и после; равенство collection node IDs, ноль потерянных/пропущенных случаев, PASS исходных и сокращённых сценариев. Отдельно подтвердить настоящие processing/failed/foreign объекты в шести исключениях. Измерять фазы одинаковой командой; не выдавать местный замер за hosted Full.
+
+
+## A8 — готовые локальные образы для выкатки и отката
+
+Clarify: production host остаётся местом сборки. Реестр образов, GitHub App, новые credentials и новая служба не вводятся. Это явное расширение F211 без запрещённого FR-014 скрытого registry rollout. Идентификатор образа не заменяет авторитетный Full на исходном SHA. Сборка уже выполнялась до остановки API; новый результат — повторное использование образов и неизменная идентичность запуска.
+
+- **FR-044**: Слой Python runtime/evaluation dependencies использует существующий constraints export до source COPY и source-SHA metadata; версия/состав установленных distributions и packaged resources сохраняются. FFmpeg остаётся только в media target и кэшируется независимо от исходников приложения. Package собирается один раз общим stage и устанавливается без повторного разрешения dependencies.
+- **FR-045**: На source SHA/platform создаются только два собственных targets: runtime и media-runtime. Сохранённый manifest повторной попытки принимается лишь при совпадении source/platform и существующих IDs/labels. До остановки получить и проверить необходимые сторонние образы; неизменившиеся refs PostgreSQL/Temporal/MinIO используют реальные текущие IDs без незапрошенного pull тега. Изменённый ref готовится до downtime.
+- **FR-046**: До build/tag/pull сохранить previous service→image IDs из реальных контейнеров с правильными Compose labels. One-off без контейнера берёт previous manifest либо существующий проверенный ref из previous source Compose при первом переходе; отсутствие образа блокирует. Нельзя назначать всем сервисам API image или восстанавливать предыдущий код пересборкой. Все up используют --no-build --pull never, run — --pull never без --build. JSON Compose override покрывает собственные и сторонние сервисы.
+- **FR-047**: State в Git private path переживает source reset, хранит только metadata/image mappings, source/candidate ID/decision and Full evidence digests. Create-once attempts не затирают baseline после hard interruption; неизвестная незавершённая попытка блокирует новый запуск до явного восстановления состояния оператором. Attempt разрешает следующий запуск только после подтверждённого неизменённого runtime либо успешного восстановления всех существующих gates, включая public download. Неуспешный rollback, compatibility/forward-fix или неизвестное состояние сохраняют незавершённый baseline до recovery; исполнение EXIT trap не является подтверждением. Ошибка записи baseline/helper/override (включая disk-full) блокирует до stop. Ошибка сохранения финального результата не даёт deploy_result=pass и оставляет attempt блокирующим. Подтверждённый retry того же SHA использует готовые images. Проверенные release tags удерживают candidate/previous IDs от обычной dangling-image cleanup.
+- **FR-048**: Schema/backup/restore/roles/dispatch/public-health gates сохраняются. Downgrade graph и compatibility runtime используют candidate images; previous override включается только в разрешённой настоящей rollback ветке. После source reset нужный helper остаётся доступен из private attempt copy. Smoke и все его cleanup используют тот же override; после recreate сверяются реальные .Image IDs. Ошибка сборки/получения/проверки не останавливает старый API.
+- **SC-021**: Реальная сборка двух targets подтверждает pip check, эквивалентный runtime/evaluation набор и ресурсы, FFmpeg только media и source labels. Отдельно проверяются новый SHA при прежних байтах и настоящий source-only diff: оба сохраняют dependency/FFmpeg cache, второй также меняет проверяемый application output при прежнем наборе dependencies/resources. Исполняемые fake-Docker lifecycle tests проверяют source/platform/ID mismatch, missing previous, build/pull failure before stop, same-SHA retry no build, rollback no build/pull, candidate downgrade vs previous runtime, smoke override, incomplete-attempt preservation, неуспешное восстановление, disk-full до stop и отказ записи итогового результата. Реальная выкатка требует финального авторитетного Full и dry-run, не выводится из этих тестов.
+
+### A6 review delta — merged text and rerun artifacts
+
+FR-040/SC-019 also require reuse after a verified linear squash/rebase merge.
+Both scope and code snapshots derive `checked_base`; moving API master is not
+the checked base. Actual merge SHA remains part of identity, including races
+where head/tree/base stay equal. Closed/unmerged and wrong merge trees fail.
+Current trusted metadata and the latest fixed-name gate remain mandatory for
+release consumers. New governance artifact names include run ID and attempt;
+exact names take precedence. Legacy names remain readable only when no exact
+name exists, exactly one unexpired legacy artifact exists, and its internal
+run/attempt matches. An invalid exact artifact never falls back to legacy.
+
+
+## A9 — повторная упаковка и продолжение выпуска macOS
+
+Продолжение полного поручения пользователя, 2026-09-13. Существующая high-risk
+Spec Kit задача F211; конституция 7.0.0, публичный Developer ID путь сохраняется.
+
+### US9 (P1): продолжить выпуск с последнего подтверждённого этапа
+
+Оператор повторяет штатную команду после прерывания и получает тот же проверенный
+набор файлов, не ожидая заново неизменённую компиляцию, подпись и запрос Apple.
+
+1. Совместимый кэш компиляции используется при следующем изменении исходников;
+   компилятор обязательно обрабатывает текущее состояние проекта.
+2. Повтор для той же версии и тех же входов возвращает побайтно прежние готовые
+   файлы. Изменение любого входа, результата или доверия даёт понятный отказ.
+3. Уже переданные в черновик одинаковые файлы не передаются снова. Несовпадение
+   любого существующего целевого файла блокирует весь набор до первой загрузки.
+4. После прерывания ожидания Apple продолжается тот же запрос. Неопределённая
+   отправка без подтверждённого номера не создаёт автоматический повтор.
+5. Отказ сети, подписи, диска, нотарификации или параллельный запуск не публикует
+   неполный результат и не уничтожает последнее пригодное состояние.
+
+- **FR-049**: Кэш компиляции отделён от одноразовой упаковки и учитывает checkout,
+  Swift, SDK, архитектуру, конфигурацию/аргументы и файлы зависимостей. SHA всего
+  проекта не обнуляет кэш. Сборка вызывается каждый раз; обе архитектуры, ресурсы,
+  лицензии, bundle ID, подпись и проверки готового приложения сохраняются.
+- **FR-050**: Возобновление готовой версии требует полного совпадения исходного
+  SHA/tag, предыдущей версии/SHA, содержимого обоих приложений/архивов, заметок,
+  URL, поколения доверия и проверенного инструмента подписи. Учитываются пути,
+  типы, режимы, содержимое и цели ссылок в деревьях приложений. Размеры и хеши
+  всего итогового набора проверяются заново. Несовпадение не заменяет прежние
+  байты той же версии. Новая версия сохраняет текущую атомарную замену staging.
+- **FR-051**: Проверенный архив Sparkle и входные release assets допускают
+  повторное использование при совпадении закреплённого digest и внешней
+  release/asset identity. Повреждённые, неполные либо подменённые файлы не
+  исполняются. Проверка Keychain каждый раз свежая; сохранённые публичные байты
+  подтверждения подписи не переписываются. TTL 24 часа, exact SHA, keyId и
+  trustGeneration остаются обязательными. Истёкший публичный результат нельзя
+  сделать свежим заменой его даты или перезаписью remote asset.
+- **FR-052**: Перед загрузкой проверяется весь ограниченный набор целевых assets:
+  отсутствующий либо один совпадающий по содержимому/размеру файл. Загружаются
+  только отсутствующие, без overwrite/delete. После сбоя выполняется чтение
+  состояния и проверка байтов. Полный набор подтверждается после передачи.
+  Draft/repository/release ID/tag/source перепроверяются до каждой передачи и
+  после неё. Отдельная публикация владельцем не является атомарной транзакцией
+  GitHub и должна обнаруживаться; публичный feed этим скриптом не меняется.
+- **FR-053**: Для каждой отправки Apple до сетевого действия надёжно сохраняются
+  версия, source, digest/размер неизменяемого входного файла и намерение отправки;
+  полученный request ID сохраняется сразу. Известный ID возобновляет info/wait.
+  Сбой до сохранённого ID оставляет неоднозначное состояние и запрещает новый
+  submit. Recovery допускает только ID с доказанной связью с тем же digest через
+  сохранённый ответ/данные Apple; имя, ближайшее время и последний history не
+  являются доказательством. Отклонение/невалидный ответ/сетевая ошибка не дают
+  Accepted. Принятые исходные ZIP/PKG хранятся отдельно от финальных файлов после
+  stapling; итоговый ZIP создаётся после stapling приложения.
+- **FR-054**: Один локальный процесс владеет изменяемыми scratch, staging и
+  состоянием подготовки. Блокировка берётся до чтения изменяемого состояния;
+  после аварии она не удаляется вслепую. Ошибка атомарной записи/fsync не даёт
+  подтверждения выполненного этапа. Уже завершённый результат проверяется по
+  хешам и не перезаписывается. Перед публичной загрузкой обязательны Developer
+  ID/team/designated requirement, notarization/staple/Gatekeeper, Sparkle и
+  прежний запуск готового приложения для обеих архитектур.
+- **SC-022**: Исполняемые отрицательные и положительные сценарии доказывают:
+  совместимый кэш не отменяет вызов сборки; смена toolchain/SDK/lock меняет ключ;
+  один изменённый вход или итог блокирует resume; точное повторение сохраняет
+  все байты без архивации/подписи; совпадающие remote файлы пропускаются, любой
+  конфликт блокирует первую передачу; прерывание с ID не повторяет отправку,
+  без ID блокирует её; ошибки записи, доверия и второй процесс не дают PASS.
+  Реальная упаковка/Apple/public proof записываются отдельно на окончательном
+  release source; локальные подставные команды не объявляются публичным выпуском.
+
+### Clarify A9 — 2026-09-13
+
+Новых вопросов нет: пользователь поручил полный объём оптимизации, а границы
+публичного доверия уже заданы конституцией и release guidance. Функции, данные,
+порядок действий, качество, зависимости, ошибки, ограничения, термины и критерии
+завершения определены выше. Используются существующие команды, локальное
+состояние и Python stdlib; новые сервисы, реестр образов, аккаунты/ключи и
+автоматический обход неоднозначной отправки исключены. Случай истёкшей публичной
+attestation требует новой допустимой подготовки/версии; прежние bytes не
+переписываются. Новая граница заменяет только повторение работы, не release gates.
+
+
+## A10 — безопасная параллельность выбранных серверных тестов
+
+Уточнение 2026-09-13: hosted changed-server занял 687 с; focused не использовал
+уже заданные 4 workers. Добавляется только opt-in для этого существующего caller.
+Новых продуктовых решений нет, PostgreSQL/RLS/assertions остаются прежними.
+
+- **FR-055**: Только changed-server использует `--focused --partitioned`. Исходная
+  выбранная коллекция выполняется ровно один раз: обычные случаи до 4 workers,
+  затем непустые performance и strict_rls последовательно, с приоритетом strict
+  при двух маркерах. Смысл явных pytest selectors сохраняется; второй `-m` нельзя
+  использовать как неявную замену пользовательского выражения. Конфликтующие
+  настройки xdist в opt-in отклоняются до Docker. Обычный focused не меняется.
+  Пустая исходная коллекция/ошибка не даёт PASS; ошибка фазы останавливает дальше.
+- **SC-023**: Command-stub checks доказывают равенство непересекающегося состава,
+  формы selectors, отсутствие Docker при collection failure/collect-only,
+  последовательный strict/performance и прежний cleanup. Один реальный парный
+  замер одинакового выбранного набора и Python/DB подтверждает PASS без пропусков
+  и экономию времени; hosted итог измеряется отдельно.
+
+## A11 — сохранение проектных правил при issue sync
+
+Clarify: это исправление подтверждённого отката инструкции общим расширением.
+Bootstrap уже сохраняет проектный PR template; ensure расширения должен соблюдать
+тот же договор. Новая конфигурация или изменение project checks не нужны.
+
+- **FR-056**: issue-canon ensure устанавливает отсутствующий PR template, но
+  сохраняет существующий файл побайтно. Общий шаблон не закрепляет checks GRAF.
+  Обновление managed issue canon и остальных прежних файлов/labels сохраняется.
+  Исправление вносится в исходное расширение; GRAF получает штатно закреплённое
+  обновление, без generated-only подмены. Чужие изменения bootstrap не затрагиваются.
+- **SC-024**: Исполняемые тесты новой установки и двух повторных ensure сохраняют
+  SHA-256 изменённого проектного шаблона и обязательные feature/legacy разделы;
+  managed canon по-прежнему обновляется. Тесты не вызывают GitHub. Source extension
+  tests, locked GRAF doctor и focused governance подтверждают соответствие источника.
+
+## A12 — содержательные проверки и ранний отказ Full
+
+Clarify: E05.02/04/13 остаются конкретными подтверждёнными пунктами исходного
+аудита. Продуктовый CSRF/RLS-код и правила доступа не меняются; общий переписанный
+набор тестов и новые исполнители GitHub не требуются.
+
+- **FR-057**: Проверка CSRF кабинета исполняет настоящий обработчик
+  `htmx:configRequest` и чтение токена: unsafe HTTP методы получают правильный
+  заголовок, safe методы и отсутствие токена не создают его, прочие заголовки
+  сохраняются. Комментарии с нужными словами без поведения обязаны дать FAIL.
+  Существующие серверные отказы при missing/invalid token сохраняются. Удаляются
+  только доказанные дубли: один default-CSRF config case, один скалярный cookie-name
+  case в integration и три одинаковых forbidden-readiness cases в contract.
+  Сохраняются их unit проверки с независимыми буквальными ожидаемыми значениями,
+  все альтернативные состояния/параметры и остальные assertions этих файлов.
+- **FR-058**: В Full короткие strict RLS и serial performance выполняются перед
+  обычной параллельной фазой на прежней изолированной PostgreSQL. Любой отказ
+  прерывает зависимые фазы и очищает контейнер. Состав, маркеры, workers, обязательный
+  performance threshold и конечный collection digest не меняются. Fast и opt-in
+  focused сохраняют принятый порядок.
+- **SC-025**: Исполняемый отрицательный CSRF-контроль, прежние серверные CSRF
+  сценарии, сравнение точного config дубля и настоящие shell/pytest контракты
+  порядка/отказа/очистки проходят. Указанные коллекции теряют ровно пять
+  обоснованных дублей (1+1+3); новые регрессии учитываются отдельно. Один итоговый authoritative Full проверяет
+  итоговый источник после этих локальных проверок.
+
+### A12 convergence: isolated bootstrap proof (T088)
+
+FR-057/SC-025 require the existing runtime-role bootstrap proof to execute in
+normal Full even after a media-role fixture. PostgreSQL role names are cluster
+global and remain production names. Only this proof gets its own disposable
+postgres:17-alpine container, unique loopback port/name, real prepare_schema,
+bounded readiness and unconditional cleanup. Missing Docker, timeout, migration
+or bootstrap failure is FAIL, never SKIP. Collection creates no resources.
+Other tests retain the shared fast database; no product roles are altered.
+
+### A12 convergence: required synthetic media proofs (T089)
+
+FR-057/SC-025 also cover the existing 49-case synthetic media matrix and the
+real dual-source workflow case. Selected media tests require working `ffmpeg`
+and `ffprobe`; absence is FAIL, never SKIP. Full prepares these tools before
+tests, and PR CI prepares them inside the existing server-change resource
+branch. Already available working tools need no installation. Failed installation
+or a broken executable stops validation. No additional media suite, runtime
+image, registry or service is introduced. Runtime-container capability remains
+a separate deployment check. The private TestRec check remains opt-in: without
+its explicitly authorized directory it skips before examining media tools.
+With that directory supplied, missing media tools fail. The 50 existing
+synthetic cases must pass without skips; executable missing-tool and workflow
+preparation regressions are counted separately. No production code changes.
+
+Clarify T089: use the existing Ubuntu package manager only when one tool is
+missing; host synthetic behavior and pinned runtime capability are distinct
+proofs. An absent private recording is the sole accepted TestRec opt-in skip.

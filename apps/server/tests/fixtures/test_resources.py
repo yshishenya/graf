@@ -17,6 +17,25 @@ _report_path: Path | None = None
 def pytest_addoption(parser):
     parser.addoption("--graf-report-file", help="Write safe phase timing metadata")
     parser.addoption("--graf-collection-file", help="Write the selected resource/Full phase inventory")
+    parser.addoption("--graf-phase-file", help="Execute one exact phase from the selected inventory")
+    parser.addoption("--graf-partition-preflight", action="store_true", help="Reject conflicting effective xdist options before collection")
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_load_initial_conftests(early_config):
+    # Loaded with -p: pytest has parsed CLI, PYTEST_ADDOPTS and config addopts,
+    # but has not entered xdist's loop/worker hooks or imported test modules.
+    options = early_config.known_args_namespace
+    if not getattr(options, "graf_partition_preflight", False):
+        return
+    defaults = {
+        "numprocesses": None, "dist": "no", "distload": False, "looponfail": False,
+        "tx": [], "px": [], "maxprocesses": None, "maxworkerrestart": None,
+        "maxschedchunk": None, "loadscopereorder": True, "rsyncdir": [], "rsyncignore": [],
+        "testrunuid": None, "usepdb": False, "trace": False, "graf_phase_file": None,
+    }
+    if any(getattr(options, name, default) != default for name, default in defaults.items()):
+        raise pytest.UsageError("partitioned owns xdist settings; use GRAF_TEST_WORKERS")
 
 
 def pytest_configure(config):
@@ -41,6 +60,35 @@ def pytest_collection_modifyitems(items):
             item.add_marker(pytest.mark.postgres)
 
 
+def phase_for(item):
+    if item.get_closest_marker("strict_rls"):
+        return "strict"
+    return "performance" if item.get_closest_marker("serial_performance") else "parallel"
+
+
+@pytest.hookimpl(specname="pytest_collection_modifyitems", trylast=True)
+def pytest_partition_collection(items, config):
+    phase_file = config.getoption("--graf-phase-file")
+    if not phase_file:
+        return
+    try:
+        value = json.loads(Path(phase_file).read_text())
+        phase, expected = value["phase"], value["nodeids"]
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        raise pytest.UsageError("cannot read selected test phase") from error
+    if (not isinstance(phase, str) or phase not in {"parallel", "performance", "strict"}
+            or not isinstance(expected, list) or not expected
+            or any(not isinstance(node, str) or not node for node in expected)
+            or len(set(expected)) != len(expected)):
+        raise pytest.UsageError("invalid or empty selected test phase")
+    selected = [item for item in items if phase_for(item) == phase]
+    observed = [item.nodeid for item in selected]
+    if len(observed) != len(expected) or set(observed) != set(expected):
+        raise pytest.UsageError("selected test phase differs from the original collection")
+    config.hook.pytest_deselected(items=[item for item in items if phase_for(item) != phase])
+    items[:] = selected
+
+
 def pytest_collection_finish(session):
     output = session.config.getoption("--graf-collection-file")
     if not output or hasattr(session.config, "workerinput"):
@@ -50,9 +98,7 @@ def pytest_collection_finish(session):
         groups["baseline"].append(item.nodeid)
         resource = item.get_closest_marker("postgres") or item.get_closest_marker("browser")
         groups["resource" if resource else "pure"].append(item.nodeid)
-        phase = "strict" if item.get_closest_marker("strict_rls") else (
-            "performance" if item.get_closest_marker("serial_performance") else "parallel"
-        )
+        phase = phase_for(item)
         groups[phase].append(item.nodeid)
     Path(output).write_text(json.dumps(groups, sort_keys=True) + "\n", encoding="utf-8")
 

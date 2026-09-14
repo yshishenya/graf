@@ -38,17 +38,24 @@ final class SystemAudioPermissionUXTests: XCTestCase {
         XCTAssertEqual(state.nextPermission, .microphone)
     }
 
-    func testProbeTimesOutAndIgnoresLateOrDuplicateCompletion() async {
+    func testProbeTimesOutAndIgnoresLateOrDuplicateCompletion() async throws {
+        let callbacks = AsyncStream<@Sendable (Bool) -> Void>.makeStream()
         let timedOut = await SystemAudioPermissionProbe.check(timeoutSeconds: 0.01) { completion in
-            DispatchQueue.global().asyncAfter(deadline: .now() + 0.04) { completion(true) }
+            callbacks.continuation.yield(completion)
         }
         XCTAssertFalse(timedOut)
+        var iterator = callbacks.stream.makeAsyncIterator()
+        let pending = await iterator.next()
+        let lateCompletion = try XCTUnwrap(pending)
         let nextResult = await SystemAudioPermissionProbe.check(timeoutSeconds: 0.1) { completion in
+            lateCompletion(false)
             completion(true)
             completion(false)
         }
         XCTAssertTrue(nextResult)
-        try? await Task.sleep(for: .milliseconds(60))
+        lateCompletion(true)
+        lateCompletion(false)
+        callbacks.continuation.finish()
         XCTAssertFalse(timedOut)
     }
 

@@ -18,7 +18,8 @@ Project files:
 - `docs/agent-guidance/github-issue-canon.md`
 - `.github/ISSUE_TEMPLATE/config.yml`
 - `.github/ISSUE_TEMPLATE/spec-kit-work-item.yml`
-- `.github/pull_request_template.md`
+- `.github/pull_request_template.md` (created only when missing; existing project
+  content and symlinks are preserved on every subsequent ensure)
 - an `AGENTS.md` rule block when `AGENTS.md` exists
 
 GitHub labels:
@@ -47,7 +48,7 @@ From a project initialized with Spec Kit:
 
 ```sh
 specify extension add github-issue-canon \
-  --from https://github.com/yshishenya/spec-kit-ext-github-issue-canon/releases/download/v0.3.3/github-issue-canon-0.3.3.zip
+  --from https://github.com/yshishenya/spec-kit-ext-github-issue-canon/releases/download/v0.3.4/github-issue-canon-0.3.4.zip
 ```
 
 For local development:
@@ -67,7 +68,7 @@ For a manual equivalent pinned to this release:
 
 ```sh
 specify extension add github-issue-canon \
-  --from https://github.com/yshishenya/spec-kit-ext-github-issue-canon/releases/download/v0.3.3/github-issue-canon-0.3.3.zip
+  --from https://github.com/yshishenya/spec-kit-ext-github-issue-canon/releases/download/v0.3.4/github-issue-canon-0.3.4.zip
 ```
 
 Published archives are built byte-for-byte reproducibly. The matching
@@ -84,6 +85,12 @@ python3 scripts/validate_issue_canon.py
 
 The scripts are intended to run from a Spec Kit project after the extension has
 been installed under `.specify/extensions/github-issue-canon`.
+
+The PR template belongs to the project after installation. Ensure never replaces
+it, including when the extension's default changes. Apply any desired default
+updates explicitly. Managed issue canon, issue templates, labels, and the managed
+`AGENTS.md` block keep their existing refresh behavior. The default PR template
+defers required GitHub check names to the project's own rules.
 
 The canonical project-facing issue and PR text is Russian-only. PR descriptions
 must record the selected risk/validation lane, why that scope is enough, and the

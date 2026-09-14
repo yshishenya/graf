@@ -380,68 +380,27 @@ printf 'extended_acl_result=blocked\n'
     assert result.stdout == "extended_acl_result=blocked\n"
 
 
-@pytest.mark.parametrize(
-    ("compose_images", "inspect_result", "expected_code"),
-    [
-        (
-            "twobrain-rec-rec-api\ntwobrain-rec-rec-media-worker\npostgres:17-alpine",
-            "pass",
-            0,
-        ),
-        ("twobrain-rec-rec-api\npostgres:17-alpine", "pass", 1),
-        ("twobrain-rec-rec-media-worker", "fail", 1),
-    ],
-)
-def test_remote_deploy_resolves_new_media_image_without_existing_container(
-    compose_images: str,
-    inspect_result: str,
-    expected_code: int,
-) -> None:
-    import os
-    import subprocess
-    from pathlib import Path
-
+@pytest.mark.parametrize("helper_status", [0, 1])
+def test_remote_deploy_resolves_prepared_media_id_without_existing_container(helper_status: int) -> None:
     runtime = (Path(__file__).parents[4] / "infra/scripts/cd-remote-runtime.sh").read_text()
-    gate_start = runtime.index('media_image_ref="$(')
+    gate_start = runtime.index('media_image="$(')
     gate_end = runtime.index("expected_schema_head=", gate_start)
     image_gate = runtime[gate_start:gate_end]
     fixture_script = f"""
 set -euo pipefail
-docker() {{
-  if [[ "$1" == "compose" && "$2" == "config" && "$3" == "--images" ]]; then
-    printf '%s\\n' "$COMPOSE_IMAGES"
-    return 0
-  fi
-  if [[ "$1" == "image" && "$2" == "inspect" ]]; then
-    [[ "$3" == "twobrain-rec-rec-media-worker" ]] || return 8
-    [[ "$INSPECT_RESULT" == "pass" ]] || return 1
-    printf 'sha256:fixture\\n'
-    return 0
-  fi
-  return 9
+image_helper=/private-attempt/release-images.py
+python3() {{
+  [[ "$*" == "/private-attempt/release-images.py image candidate rec-media-worker" ]] || return 9
+  [[ "$HELPER_STATUS" == "0" ]] || return 1
+  printf 'sha256:fixture\\n'
 }}
-compose=(docker compose)
 {image_gate}
-"""
-
-    result = subprocess.run(
-        ["bash", "-c", fixture_script],
-        check=False,
-        capture_output=True,
-        text=True,
-        env={
-            **os.environ,
-            "COMPOSE_IMAGES": compose_images,
-            "INSPECT_RESULT": inspect_result,
-        },
-    )
-
-    assert '"${compose[@]}" config --images' in runtime
-    assert 'docker image inspect "$media_image_ref"' in runtime
+[[ "$media_image" == "sha256:fixture" ]]
+""".replace("{{", "{{").replace("}}", "}}")
+    result = subprocess.run(["bash", "-c", fixture_script], capture_output=True, text=True,
+                            env={**os.environ, "HELPER_STATUS": str(helper_status)})
+    assert result.returncode == helper_status, result.stderr
     assert '"${compose[@]}" images -q rec-media-worker' not in runtime
-    assert result.returncode == expected_code
-    if expected_code == 1:
-        assert "reason=media_worker_image_missing" in result.stdout
 
 
 def test_remote_deploy_rollback_never_deletes_099_truth_to_reach_old_code() -> None:
@@ -554,8 +513,9 @@ def test_remote_rollback_discovers_operations_profile_services() -> None:
     assert "{{.State.Status}}" in runtime
 
 
+@pytest.mark.parametrize("prompt_running", [False, True])
 def test_previous_safe_processing_fallback_executes_verified_single_network_restore(
-    tmp_path: Path,
+    tmp_path: Path, prompt_running: bool,
 ) -> None:
     runtime = (Path(__file__).parents[4] / "infra/scripts/cd-remote-runtime.sh").read_text()
     helper_start = runtime.index("wait_for_previous_temporal_health()")
@@ -566,6 +526,9 @@ def test_previous_safe_processing_fallback_executes_verified_single_network_rest
 set -euo pipefail
 compose=(compose_stub)
 previous_sha=previous-safe-sha
+image_attempt=/private-attempt
+prompt_worker_was_running="{'prompt-container' if prompt_running else ''}"
+images_recovery_verified=0
 backup_reference=fixture-backup
 previous_schema_head=0023_production_smoke_setup
 expected_schema_head=0023_production_smoke_setup
@@ -576,9 +539,6 @@ git() {{
 }}
 compose_stub() {{
   case "$1:$2:${{3:-}}" in
-    build:rec-api:rec-processing-worker)
-      printf 'compose_build_previous\n' >>"$TRACE_PATH"
-      ;;
     ps:-aq:rec-media-worker)
       printf 'media-container\n'
       ;;
@@ -596,6 +556,8 @@ compose_stub() {{
         printf 'compose_up_previous_temporal\n' >>"$TRACE_PATH"
       elif [[ "$*" == *"rec-processing-worker"* ]]; then
         printf 'compose_up_previous_processing\n' >>"$TRACE_PATH"
+      elif [[ "$*" == *"rec-prompt-optimization-worker"* ]]; then
+        printf 'compose_up_previous_prompt\n' >>"$TRACE_PATH"
       elif [[ "$*" == *"rec-api"* ]]; then
         printf 'compose_up_previous_api\n' >>"$TRACE_PATH"
       fi
@@ -604,6 +566,15 @@ compose_stub() {{
   esac
 }}
 docker() {{
+  if [[ "$1" == "compose" ]]; then
+    [[ "$2 $3 $4 $5 $6 $7" == "--profile operations -f infra/docker-compose.yml -f /private-attempt/previous.json" ]] || return 8
+    shift 7
+    if [[ "$1" == "up" ]]; then
+      [[ "$*" == *"--no-build"* && "$*" == *"--pull never"* ]] || return 9
+    fi
+    compose_stub "$@"
+    return $?
+  fi
   case "$1:$2" in
     rm:-f)
       printf 'docker_remove_media\n' >>"$TRACE_PATH"
@@ -655,7 +626,6 @@ restore_previous_safe_processing_runtime 0023_production_smoke_setup
     trace = trace_path.read_text()
     for receipt in (
         "git_reset_--hard",
-        "compose_build_previous",
         "docker_disconnect_media_network",
         "docker_restart_temporal",
         "temporal_cluster_health",
@@ -666,7 +636,9 @@ restore_previous_safe_processing_runtime 0023_production_smoke_setup
         "api_dispatch_closed",
     ):
         assert receipt in trace
-    assert trace.index("git_reset_--hard") < trace.index("compose_build_previous")
+    assert ("compose_up_previous_prompt" in trace) is prompt_running
+    assert "compose_build_previous" not in trace
+    assert trace.index("git_reset_--hard") < trace.index("compose_up_previous_temporal")
     assert trace.index("docker_disconnect_media_network") < trace.index("temporal_cluster_health")
     assert trace.index("activity_poller_receipt") < trace.index("api_dispatch_closed")
 
