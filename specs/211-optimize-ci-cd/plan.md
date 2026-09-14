@@ -492,3 +492,8 @@ T096 — механическое согласование подсказки с
 всю подготовку и перейти к единственной инструкции release-and-validation.md.
 Это не изменение release policy, CLI/файлов/условий или новый риск; требования
 FR-010 и анализ CRITICAL0/HIGH0 сохраняются. Нового helper/test framework нет.
+
+
+T097 — исправление установленного preflight дефекта публикации. В существующем sync_public_download после проверки каталога/target обычный непустой runtime PKG выбирается как public_download_source и сохраняется. Отсутствующий target использует прежний исходник и atomic copy/rollback; некорректный существующий target отклоняется. Изменить только общий helper, существующий исполняемый тестовый блок и инструкции публикации. Изолированный тест сначала показывает перезапись newer PKG старым source, затем проверяет сохранность, bootstrap/restore и отрицательные ветки. Review требований и реализации независимый; tracked production PKG восстанавливается только после сохранения и сверки .3. Выпуск выполняется по новому окончательному SHA. FR-010/048→T097→#6989; новые инфраструктурные механизмы не вводятся.
+
+T097 также устраняет наблюдённый process-long cache public_static_asset_url в apps/server/src/twobrain_rec_server/public/templates.py: один существующий cached calculation получает file identity; публичный wrapper делает stat и передаёт identity, сохраняя URL/sha256/maxsize. Старый тест, закреплявший stale URL после replace, заменяется поведением свежей ссылки и реальным ASGI static-response headers. Не менять cabinet static cache или иные продуктовые маршруты: они не публикуют canonical PKG. Дополнительная проверка требований этой границы предшествует коду.

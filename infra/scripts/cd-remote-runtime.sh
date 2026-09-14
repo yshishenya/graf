@@ -277,12 +277,14 @@ sync_public_download() {
     echo "reason=public_download_directory_owner_invalid"
     exit 1
   fi
-  if [[ -L "$public_download_target" || ( -e "$public_download_target" && ! -f "$public_download_target" ) ]]; then
+  if [[ -L "$public_download_target" || ( -e "$public_download_target" && ( ! -f "$public_download_target" || ! -s "$public_download_target" ) ) ]]; then
     echo "deploy_result=blocked"
     echo "reason=public_download_target_invalid"
     exit 1
   fi
-  if [[ -f "$public_download_target" ]] && cmp -s "$public_download_source" "$public_download_target"; then
+  if [[ -f "$public_download_target" ]]; then
+    # macOS publication owns this file; a server deploy must preserve its version.
+    public_download_source="$public_download_target"
     echo "public_download_sync_result=unchanged"
     return
   fi

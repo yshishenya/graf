@@ -114,7 +114,13 @@ still precede upload. `prepare-app-update.sh --verify-only` only validates an
 already prepared version and cannot generate or replace it.
 
 Publish versioned ZIP/PKG files and their
-SHA-256 checksums on the download host, then replace `graf-appcast.xml` last.
+SHA-256 checksums in `infra/runtime/public-downloads` on the download host.
+Atomically replace the canonical `graf.pkg` in that runtime directory with the
+same validated package, then replace `graf-appcast.xml` last. Do not overwrite
+the tracked package under `apps/server/src`: server CD preserves an existing
+valid runtime package, and uses the tracked copy only to initialize an absent
+runtime file. Confirm the Git tree stays clean and the `/download` link's hash
+prefix matches the newly published package without restarting the API.
 
 ## 4. Closeout
 

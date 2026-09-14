@@ -458,6 +458,14 @@ file. Follow `docs/agent-guidance/macos-notarization.md` and run
 `apps/macos/Installer/Scripts/sign-graf-app-update-local.sh` only from the clean
 exact release tag on current `origin/master`.
 
+Server CD preserves an existing regular, nonempty runtime `graf.pkg`; its
+public-download smoke verifies those preserved bytes. Only an absent runtime
+file uses the tracked package for initial installation and rollback. Publish
+new macOS packages through the runtime directory as specified in
+`macos-notarization.md`, keeping the tracked source tree clean. Public static
+version URLs use file identity to invalidate the bounded hash cache when the
+canonical package is atomically replaced.
+
 ## Dependency Updates
 
 Use the latest stable dependency versions by default. Before adding or updating
