@@ -282,11 +282,62 @@ const serverRow = (id, title = id) => `
     await publish([settingsRoute]);
     assert.equal(await refreshCount(), 11, 'settings route does not submit a list request');
     await page.evaluate(html => document.body.insertAdjacentHTML('beforeend', html), `<form class="cabinet-list-controls" method="get" action="/meetings"><input id="meeting-search" name="q" value=""><select id="meeting-status" name="status"><option value="">Все</option></select><select id="meeting-access" name="access"><option value="">Все</option></select><select id="meeting-sort" name="sort"><option value="started_desc" selected>Новые</option></select></form><div id="meeting-list-region"><div data-list-current-content data-meeting-result-complete="true"><section data-meeting-list><ol class="meeting-list">${serverRow('server-settings-route', 'Из настроек')}</ol></section></div></div>`);
+    await page.evaluate(() => {
+      document.querySelector('.cabinet-list-controls')?.addEventListener('submit', event => {
+        event.preventDefault();
+        window.handoffRefreshes.push(new URLSearchParams(new FormData(event.currentTarget)).toString());
+      });
+    });
     await page.evaluate(() => document.body.dispatchEvent(new CustomEvent('htmx:afterSwap', {
       detail: { target: document.querySelector('#meeting-list-region') },
     })));
     assert.equal(await handoffRow('server-settings-route').count(), 1, 'settings handoff is reconciled by the next list');
     assert.equal(await localRow('local-settings-route').count(), 0, 'settings handoff does not duplicate the server row');
+
+    // A different handoff must not steal focus from the local row the user
+    // was using; if that row survives, focus stays on its same control.
+    const focusPreserve = { ...base, id: 'local-focus-preserve', title: 'Сохранить фокус' };
+    const otherHandoff = { ...base, id: 'local-other-handoff', title: 'Другая отправка' };
+    await publish([focusPreserve, otherHandoff]);
+    await localRow('local-focus-preserve').locator('[data-meeting-select]').focus();
+    await publish([focusPreserve, { ...otherHandoff, meetingId: 'server-other-handoff' }]);
+    assert.equal(await refreshCount(), 12, 'unrelated handoff gets one refresh');
+    await page.evaluate(html => {
+      document.querySelector('#meeting-list-region [data-meeting-list] ol').insertAdjacentHTML('afterbegin', html);
+      document.body.dispatchEvent(new CustomEvent('htmx:afterSwap', {
+        detail: { target: document.querySelector('#meeting-list-region') },
+      }));
+    }, serverRow('server-other-handoff', 'Другая отправка'));
+    assert.equal(await localRow('local-focus-preserve').count(), 1, 'unrelated handoff keeps the focused local row');
+    assert.equal(
+      await localRow('local-focus-preserve').locator('[data-meeting-select]').evaluate(node => node === document.activeElement),
+      true,
+      'unrelated handoff keeps focus on the same local control',
+    );
+    assert.equal(
+      await handoffRow('server-other-handoff').locator('[data-meeting-select]').evaluate(node => node === document.activeElement),
+      false,
+      'unrelated handoff cannot steal focus',
+    );
+
+    // A service failure still renders an unlinked local recording even when
+    // the linked handoff does not match the active list filter.
+    const localOffline = { ...base, id: 'local-offline-preserved', title: 'Останется локально' };
+    const filteredHandoff = { ...base, id: 'local-filtered-handoff', title: 'Другая отправка' };
+    await page.fill('#meeting-search', 'Останется локально');
+    await publish([localOffline, filteredHandoff]);
+    await publish([localOffline, { ...filteredHandoff, meetingId: 'server-filtered-handoff' }]);
+    assert.equal(await refreshCount(), 13, 'filtered handoff gets one refresh');
+    await page.evaluate(() => document.body.dispatchEvent(new CustomEvent('htmx:responseError', {
+      detail: {
+        elt: document.querySelector('.cabinet-list-controls'),
+        target: document.querySelector('#meeting-list-region'),
+        xhr: { status: 503, responseText: '' },
+      },
+    })));
+    assert.equal(await localRow('local-offline-preserved').count(), 1, 'service recovery keeps other local recordings visible');
+    assert.equal(await localRow('local-filtered-handoff').count(), 0, 'non-matching handoff stays hidden during recovery');
+
     assert.deepEqual(errors, []);
     console.log('local recording handoff: one-shot refresh, placeholder, filters, selection, focus, retry and no resurrection PASS');
   } finally {

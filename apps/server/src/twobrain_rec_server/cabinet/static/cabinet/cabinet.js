@@ -214,6 +214,10 @@
   let localRecordingRows = [];
   const pendingLocalRecordingHandoffs = new Set();
   const requestedLocalRecordingHandoffs = new Set();
+  const localRecordingIsRenderable = (item) =>
+    !item.localDeletionPending
+    && localRecordingMatches(item)
+    && (!item.meetingId || pendingLocalRecordingHandoffs.has(item.meetingId));
   const localRecordingMarkup = new WeakMap();
   const renderLocalRecordingRows = ({ authoritativeResponse = false } = {}) => {
     const host = currentList();
@@ -259,10 +263,7 @@
     applyNativeDeletionOperations(nativeDeletionOperations);
     // A server identity belongs to the server result set, including filters and pagination.
     // Its absence must never turn a retained local copy into a new user recording.
-    const localOnly = localRecordingRows.filter((item) => {
-      if (item.localDeletionPending || !localRecordingMatches(item)) return false;
-      return !item.meetingId || pendingLocalRecordingHandoffs.has(item.meetingId);
-    });
+    const localOnly = localRecordingRows.filter(localRecordingIsRenderable);
     const visibleIds = new Set(localOnly.map(item => item.id));
     for (const [id, row] of existingRows) if (!visibleIds.has(id)) row.remove();
     let list = host.querySelector("ol.meeting-list");
@@ -504,7 +505,15 @@
         const active = document.activeElement;
         const restoreFocus = active instanceof HTMLElement
           && Boolean(active.closest("#meeting-list-region, [data-meeting-list]"));
-        if (requestMeetingListRefresh({ focusMeetingIds: [...handoffMeetingIds], restoreFocus })) {
+        const activeRow = active instanceof HTMLElement ? active.closest("[data-meeting-row]") : null;
+        const activeLocalMeetingId = activeRow?.dataset.grafLocalRecordingId
+          ? localRecordingRows.find(item => item.id === activeRow.dataset.grafLocalRecordingId)?.meetingId
+          : "";
+        const focusMeetingIds = [...new Set([
+          activeRow ? recordingRowIdentity(activeRow) : "",
+          activeLocalMeetingId,
+        ].filter(Boolean))];
+        if (requestMeetingListRefresh({ focusMeetingIds, restoreFocus })) {
           handoffMeetingIds.forEach(id => requestedLocalRecordingHandoffs.add(id));
         }
       } else if (rejected) requestMeetingListRefresh();
@@ -911,24 +920,18 @@
     loading.hidden = true;
     current.hidden = false;
     current.replaceChildren(recovery);
-    if (["offline", "service"].includes(kind)) {
-      const pendingItems = localRecordingRows.filter(item =>
-        item.meetingId
-        && pendingLocalRecordingHandoffs.has(item.meetingId)
-        && localRecordingMatches(item)
-      );
-      if (pendingItems.length) {
-        const localHost = document.createElement("section");
-        localHost.className = "list-card cabinet-card";
-        localHost.setAttribute("aria-label", "Записи на этом Mac");
-        const localNotice = document.createElement("p");
-        localNotice.className = "muted";
-        localNotice.textContent = "Запись сохранена на этом Mac и останется здесь до повторной проверки списка.";
-        localHost.append(localNotice);
-        localHost.setAttribute("data-meeting-list", "");
-        current.append(localHost);
-        renderLocalRecordingRows();
-      }
+    if (["offline", "service"].includes(kind)
+      && localRecordingRows.some(localRecordingIsRenderable)) {
+      const localHost = document.createElement("section");
+      localHost.className = "list-card cabinet-card";
+      localHost.setAttribute("aria-label", "Записи на этом Mac");
+      const localNotice = document.createElement("p");
+      localNotice.className = "muted";
+      localNotice.textContent = "Запись сохранена на этом Mac и останется здесь до повторной проверки списка.";
+      localHost.append(localNotice);
+      localHost.setAttribute("data-meeting-list", "");
+      current.append(localHost);
+      renderLocalRecordingRows();
     }
     const toolbar = document.querySelector("[data-selection-toolbar]");
     if (toolbar) toolbar.hidden = true;
