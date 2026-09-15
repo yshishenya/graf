@@ -250,6 +250,9 @@ start_postgres() {
 
 cd "$repo_root/apps/server"
 export PYTHONPATH="$repo_root/apps/server:$repo_root/apps/server/src" UV_FROZEN=1
+# A nested runner is an independent pytest process. Do not inherit the parent
+# xdist worker identity; its own parallel phase will receive fresh worker IDs.
+unset PYTEST_XDIST_WORKER PYTEST_XDIST_TESTRUNUID PYTEST_XDIST_WORKER_COUNT
 # Collection and pure tests must never inherit an operator database target.
 unset TWOBRAIN_DATABASE_URL RLS_TEST_DATABASE_URL RLS_TEST_PROBE_DATABASE_URL \
   RLS_TEST_MEDIA_DATABASE_URL GRAF_TEST_DATABASE_PREFIX GRAF_TEST_POSTGRES_ADMIN_URL \
