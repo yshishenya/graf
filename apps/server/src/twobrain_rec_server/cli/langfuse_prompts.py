@@ -6,6 +6,7 @@ from contextlib import suppress
 from importlib.resources import files
 from pathlib import Path
 
+from twobrain_rec_server.outcomes.models import PROTOCOL_ABOUT_SCHEMA_NAME
 from twobrain_rec_server.outcomes.prompt_bundle import (
     ROOT_BUNDLE_PROMPT_NAME,
     build_root_bundle_document,
@@ -41,6 +42,11 @@ def outcome_prompt(focus: str) -> list[dict[str, str]]:
         "Set schema_version exactly to graf-meeting-protocol-v1. "
         "Empty lists represent absent decisions/tasks/questions; unknown owner/date fields are null. "
         "The display layer supplies headings and empty-state wording. "
+        "For meeting_type, write a short natural phrase describing the nature and concrete subject "
+        "of this conversation in the output language, more informative than the meeting title; "
+        "do not merely name a generic category or repeat the title. "
+        "For executive_summary, give concise, self-contained takeaways, usually 3–5 items, "
+        "without mechanically repeating every detail of decisions, tasks and topics. "
         "Use plain text inside text fields, not HTML or Markdown. "
         "Every substantive statement and task needs source_refs from the supplied transcript: "
         "each ref contains only the exact integer sequence and quote=null. "
@@ -191,12 +197,12 @@ def desired_prompts(*, model: str) -> dict[str, tuple[str, object, dict[str, obj
         prompts[definition.prompt_name] = (
             "chat",
             outcome_prompt(FORMAT_FOCUS[key]),
-            meeting_protocol_config(model=model),
+            meeting_protocol_config(model=model, schema_name=PROTOCOL_ABOUT_SCHEMA_NAME),
         )
     prompts["graf/meeting-outcome/custom"] = (
         "chat",
         outcome_prompt(FORMAT_FOCUS["custom"]),
-        meeting_protocol_config(model=model),
+        meeting_protocol_config(model=model, schema_name=PROTOCOL_ABOUT_SCHEMA_NAME),
     )
     prompts.update(CONTROL_PROMPTS)
     return prompts
@@ -237,10 +243,10 @@ def sync_prompts(
                 selected_model = current_config.get("model") or model
                 if not selected_model:
                     raise ValueError(f"explicit initial model is required for {name}")
-                prompt_type, prompt, _ = desired_prompts(model=selected_model)[name]
+                prompt_type, prompt, config = desired_prompts(model=selected_model)[name]
                 parameters = {key: value for key, value in current_config.items()
                               if key not in {"model", "response_format", "config_contract_version", "contract_version"}}
-                config = meeting_protocol_config(model=selected_model, **parameters)
+                config = {**config, **parameters}
             desired = validate_prompt_snapshot(
                 name=name, version=1, prompt_type=prompt_type, prompt=prompt, config=config,
             )
