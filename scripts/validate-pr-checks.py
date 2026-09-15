@@ -29,6 +29,7 @@ def module(name):
 
 metadata = module("validate-pr-metadata")
 receipts = module("validate-ci-receipt")
+changelog = module("validate-changelog-fragments")
 
 
 def require(condition, message):
@@ -249,6 +250,10 @@ _RELEASE_PREP_FRAGMENT = re.compile(
     r"changes/releases/(v[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[1-9][0-9]*)/F[0-9]+\.yaml"
 )
 _RELEASE_PREP_SUBJECT = re.compile(r"(?:release|релиз|выпуск|заметк)", re.IGNORECASE)
+_RELEASE_HEADING = re.compile(r"^## \[([0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[1-9][0-9]*)\].*$", re.MULTILINE)
+_RELEASE_MARKER = re.compile(r"^<!-- Release features:.*-->$", re.MULTILINE)
+_TOP_LEVEL_FIELD = re.compile(r"^([A-Za-z][A-Za-z0-9_-]*):", re.MULTILINE)
+_RELEASE_PROSE_FIELDS = {"summary", "compatibility", "known_limitations", "release_notes"}
 
 
 def metadata_only_release_prep(commit):
@@ -281,11 +286,93 @@ def metadata_only_release_prep(commit):
         if match:
             fragments.append(match)
     versions = {match.group(1) for match in fragments}
-    return (
+    if not (
         paths.count("CHANGELOG.md") == 1
         and len(fragments) == len(paths) - 1
         and bool(fragments)
         and len(versions) == 1
+    ):
+        return False
+    parent = parents[1]
+
+    def blob(revision, path):
+        return subprocess.check_output(
+            ["git", "show", f"{revision}:{path}"], stderr=subprocess.DEVNULL,
+        ).decode("utf-8")
+
+    try:
+        before_changelog, after_changelog = blob(parent, "CHANGELOG.md"), blob(commit, "CHANGELOG.md")
+        before_headings = _RELEASE_HEADING.findall(before_changelog)
+        after_headings = _RELEASE_HEADING.findall(after_changelog)
+        before_heading_lines = [match.group(0) for match in _RELEASE_HEADING.finditer(before_changelog)]
+        after_heading_lines = [match.group(0) for match in _RELEASE_HEADING.finditer(after_changelog)]
+        if not before_headings or before_headings != after_headings or before_heading_lines != after_heading_lines:
+            return False
+        latest = after_headings[0]
+        section_start = after_changelog.index(f"## [{latest}]")
+        next_heading = _RELEASE_HEADING.search(after_changelog, section_start + 1)
+        section_end = next_heading.start() if next_heading else len(after_changelog)
+        before_start = before_changelog.index(f"## [{latest}]")
+        before_next = _RELEASE_HEADING.search(before_changelog, before_start + 1)
+        before_end = before_next.start() if before_next else len(before_changelog)
+        if (before_changelog[:before_start], before_changelog[before_end:]) != (
+            after_changelog[:section_start], after_changelog[section_end:]
+        ):
+            return False
+        if _RELEASE_MARKER.findall(before_changelog[before_start:before_end]) != _RELEASE_MARKER.findall(
+            after_changelog[section_start:section_end]
+        ):
+            return False
+        changed = subprocess.check_output(
+            ["git", "diff", "--unified=0", parent, commit, "--", "CHANGELOG.md"],
+            stderr=subprocess.DEVNULL,
+        ).decode("utf-8")
+    except (UnicodeDecodeError, ValueError, subprocess.CalledProcessError):
+        return False
+    fragment_ids = set()
+    for match in fragments:
+        path = match.string
+        try:
+            before, after = blob(parent, path), blob(commit, path)
+        except (UnicodeDecodeError, subprocess.CalledProcessError):
+            return False
+        before_fields = set(_TOP_LEVEL_FIELD.findall(before))
+        after_fields = set(_TOP_LEVEL_FIELD.findall(after))
+        if before_fields != after_fields or after_fields != set(changelog.REQUIRED):
+            return False
+        if any(not changelog._has_value_or_block(after, field) for field in changelog.REQUIRED):
+            return False
+        if not re.search(r"[А-Яа-яЁё]", changelog._field_payload(after, "summary")):
+            return False
+        if not re.search(r"[А-Яа-яЁё]", changelog._field_payload(after, "release_notes")):
+            return False
+        for field in after_fields - _RELEASE_PROSE_FIELDS:
+            if changelog._field_payload(before, field) != changelog._field_payload(after, field):
+                return False
+        feature = re.search(r"^feature_id[ \t]*:[ \t]*(\d+)[ \t]*$", after, re.MULTILINE)
+        path_feature = re.search(r"/F([0-9]+)\.yaml$", path)
+        if not feature or not path_feature or feature.group(1) != path_feature.group(1):
+            return False
+        fragment_ids.add(feature.group(1))
+        if match.group(1) != f"v{latest}":
+            return False
+        try:
+            changed += subprocess.check_output(
+                ["git", "diff", "--unified=0", parent, commit, "--", path],
+                stderr=subprocess.DEVNULL,
+            ).decode("utf-8")
+        except (UnicodeDecodeError, subprocess.CalledProcessError):
+            return False
+
+    marker_lines = _RELEASE_MARKER.findall(after_changelog[section_start:section_end])
+    if not all(any(re.search(rf"\bF{feature_id}\b", marker) for marker in marker_lines)
+               for feature_id in fragment_ids):
+        return False
+    added_lines = [line[1:] for line in changed.splitlines() if line.startswith("+") and not line.startswith("+++")]
+    sensitive = (*changelog.FORBIDDEN,)
+    return not any(
+        any(token.lower() in line.lower() for token in sensitive) or changelog.CREDENTIAL_ASSIGNMENT_RE.search(line)
+        for line in added_lines
     )
 
 

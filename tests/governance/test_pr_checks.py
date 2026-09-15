@@ -193,7 +193,8 @@ def test_later_attempt_of_older_run_cannot_hide_behind_newer_id(bundle, monkeypa
 
 @pytest.mark.parametrize("case", [
     "two-prs", "rebase", "published-source", "unowned", "mixed-prs", "bad-policy", "no-base",
-    "metadata-only", "metadata-extra", "metadata-bad-subject",
+    "metadata-only", "metadata-extra", "metadata-bad-subject", "metadata-heading",
+    "metadata-fragment-id", "metadata-secret", "metadata-old-version",
 ])
 def test_release_source_checks_actual_range(snapshot, monkeypatch, case):
     root, _, pr = snapshot
@@ -201,17 +202,35 @@ def test_release_source_checks_actual_range(snapshot, monkeypatch, case):
     monkeypatch.setattr(checks, "ROOT", root)
     base, first = pr["base"]["sha"], pr["head"]["sha"]
     if case.startswith("metadata-"):
-        fragment = root / "changes/releases/v2026.09.15.1/F211.yaml"
+        version = "2026.09.13.3" if case == "metadata-old-version" else "2026.09.15.1"
+        fragment = root / f"changes/releases/v{version}/F211.yaml"
         fragment.parent.mkdir(parents=True)
-        (root / "CHANGELOG.md").write_text("## v2026.09.15.1\n\n- Initial notes\n")
-        fragment.write_text("feature: F211\n")
+        (root / "CHANGELOG.md").write_text(
+            "## [2026.09.15.1] - 2026-09-15\n\n<!-- Release features: F211 -->\n\n- Initial notes\n"
+        )
+        fragment.write_text(
+            "schema_version: 1\nfeature_id: 211\ncategory: Fixed\n"
+            "summary: \"Исправление\"\nissue: 6986\ntasks: [T063]\n"
+            "compatibility: \"Совместимость\"\nknown_limitations:\n  - \"Ограничение\"\n"
+            "release_notes: \"Проверка\"\n"
+        )
         git(root, "add", "CHANGELOG.md", str(fragment.relative_to(root)))
         git(root, "commit", "--amend", "-qm", "feature with release metadata")
         first = git(root, "rev-parse", "HEAD")
         pr["head"]["sha"] = first
         pr["body"] = pr["body"].replace(base, first)
-        (root / "CHANGELOG.md").write_text("## v2026.09.15.1\n\n- Updated release notes\n")
-        fragment.write_text("feature: F211\nrelease_notes: updated\n")
+        changelog = "## [2026.09.15.1] - 2026-09-15\n\n<!-- Release features: F211 -->\n\n- Updated release notes\n"
+        if case == "metadata-heading":
+            changelog = changelog.replace("[2026.09.15.1]", "[2026.09.15.2]")
+        (root / "CHANGELOG.md").write_text(changelog)
+        fragment.write_text(
+            "schema_version: 1\nfeature_id: 999\n" if case == "metadata-fragment-id" else
+            "schema_version: 1\nfeature_id: 211\n"
+            "category: Fixed\nsummary: \"Исправление\"\nissue: 6986\ntasks: [T063]\n"
+            "compatibility: \"Совместимость\"\nknown_limitations:\n  - \"Ограничение\"\n"
+            + ("release_notes: \"Обновлено; api_key: supersecretvalue\"\n"
+               if case == "metadata-secret" else "release_notes: \"Обновлено\"\n")
+        )
         if case == "metadata-extra":
             (root / "extra").write_text("code\n")
         git(root, "add", "CHANGELOG.md", str(fragment.relative_to(root)), *( ["extra"] if case == "metadata-extra" else [] ))
@@ -258,7 +277,8 @@ def test_release_source_checks_actual_range(snapshot, monkeypatch, case):
     expected = [8] if case in {"rebase", "mixed-prs"} else [7, 8]
     if case == "metadata-only":
         expected = [7]
-    if case in {"unowned", "mixed-prs", "bad-policy", "no-base", "metadata-extra", "metadata-bad-subject"}:
+    if case in {"unowned", "mixed-prs", "bad-policy", "no-base", "metadata-extra", "metadata-bad-subject",
+                "metadata-heading", "metadata-fragment-id", "metadata-secret", "metadata-old-version"}:
         with pytest.raises(ValueError):
             checks.verify_source("owner/repo", source, included_prs=expected)
     else:
