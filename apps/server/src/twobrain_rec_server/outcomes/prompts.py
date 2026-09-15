@@ -169,11 +169,13 @@ def validate_meeting_protocol(
     return validated
 
 
-def meeting_protocol_config(*, model: str, **parameters: object) -> dict[str, object]:
+def meeting_protocol_config(
+    *, model: str, schema_name: str = "graf_meeting_protocol_v1", **parameters: object,
+) -> dict[str, object]:
     config = {
         "contract_version": PROTOCOL_VERSION, "model": model,
         "response_format": {"type": "json_schema", "json_schema": {
-            "name": "graf_meeting_protocol_v1", "strict": True,
+            "name": schema_name, "strict": True,
             "schema": meeting_protocol_schema(),
         }},
         **parameters,

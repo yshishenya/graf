@@ -472,7 +472,52 @@ def test_all_formats_use_the_original_editorial_core_and_full_protocol():
         assert config["contract_version"] == "graf-meeting-protocol-v1"
         assert "temperature" not in config
         assert config["response_format"]["json_schema"]["strict"] is True
+        assert config["response_format"]["json_schema"]["name"] == "graf_meeting_protocol_about_v1"
+        assert "nature and concrete subject" in prompt[0]["content"]
+        assert "usually 3–5" in prompt[0]["content"]
         assert sum(item["content"].count("{{transcript_json}}") for item in prompt) == 1
+
+
+def test_sync_preserves_new_semantics_and_existing_operator_parameters(monkeypatch):
+    from types import SimpleNamespace
+
+    from twobrain_rec_server.cli.langfuse_prompts import sync_prompts
+    from twobrain_rec_server.outcomes.prompts import meeting_protocol_config
+
+    created = []
+
+    class Client:
+        def __init__(self, **kwargs):
+            pass
+
+        def get_prompt(self, name, **kwargs):
+            if name.startswith("graf/meeting-outcome/"):
+                return SimpleNamespace(version=1, prompt=[], config=meeting_protocol_config(
+                    model="operator/current-model", temperature=0.5,
+                ))
+            raise ValueError("not seeded")
+
+        def create_prompt(self, **kwargs):
+            created.append(kwargs)
+            return SimpleNamespace(version=2)
+
+        def flush(self):
+            pass
+
+        def shutdown(self):
+            pass
+
+    monkeypatch.setattr("langfuse.Langfuse", Client)
+    sync_prompts(base_url="https://langfuse.example.test", public_key="synthetic",
+                 secret_key="synthetic", apply=True, model="operator/initial-model")
+    outcomes = [row for row in created if row["name"].startswith("graf/meeting-outcome/")]
+    assert len(outcomes) == len(FORMAT_FOCUS)
+    for row in outcomes:
+        assert row["labels"] == []
+        assert row["config"]["model"] == "operator/current-model"
+        assert row["config"]["temperature"] == 0.5
+        assert row["config"]["response_format"]["json_schema"]["name"] == "graf_meeting_protocol_about_v1"
+        assert "nature and concrete subject" in row["prompt"][0]["content"]
 
 
 @pytest.mark.parametrize(("case_id", "transcript"), SYNTHETIC_PROMPT_REGRESSIONS)
