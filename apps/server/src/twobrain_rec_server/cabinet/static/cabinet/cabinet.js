@@ -9,6 +9,7 @@
   let listRefreshFocusMeetingIds = [];
   let listRefreshShouldRestoreFocus = false;
   let listRefreshFocusOrigin = null;
+  let listRefreshFocusSelector = "";
   let playbackRecoveryTimer = null;
   let playbackRecoveryRequest = null;
   let calendarUpcomingRefreshTimer = null;
@@ -211,8 +212,10 @@
     }
   };
   let localRecordingRows = [];
+  const pendingLocalRecordingHandoffs = new Set();
+  const requestedLocalRecordingHandoffs = new Set();
   const localRecordingMarkup = new WeakMap();
-  const renderLocalRecordingRows = () => {
+  const renderLocalRecordingRows = ({ authoritativeResponse = false } = {}) => {
     const host = currentList();
     if (!host) return;
     const focused = document.activeElement;
@@ -232,15 +235,34 @@
         .find(target => isUsableFocusTarget(target) && !target.matches(':disabled, [aria-disabled="true"]'));
       target?.focus({preventScroll: true});
     };
+    const serverRows = new Map(
+      allRows()
+        .filter(row => row.dataset.meetingId)
+        .map(row => [row.dataset.meetingId, row]),
+    );
     for (const item of localRecordingRows) {
-      if (!item.meetingId) continue;
-      if (selectedMeetingIds.delete(`local:${item.id}`)) selectedMeetingIds.add(item.meetingId);
-      if (focusedLocal === item.id) transferredFocus = allRows().find(row => row.dataset.meetingId === item.meetingId);
+      const meetingId = typeof item.meetingId === "string" ? item.meetingId : "";
+      if (!meetingId) continue;
+      const serverRow = serverRows.get(meetingId);
+      if (serverRow) {
+        const selected = selectedMeetingIds.has(`local:${item.id}`) || selectedMeetingIds.has(meetingId);
+        selectedMeetingIds.delete(`local:${item.id}`);
+        if (selected) selectedMeetingIds.add(meetingId);
+        if (focusedLocal === item.id) transferredFocus = serverRow;
+        pendingLocalRecordingHandoffs.delete(meetingId);
+        requestedLocalRecordingHandoffs.delete(meetingId);
+      } else if (authoritativeResponse) {
+        pendingLocalRecordingHandoffs.delete(meetingId);
+        requestedLocalRecordingHandoffs.delete(meetingId);
+      }
     }
     applyNativeDeletionOperations(nativeDeletionOperations);
     // A server identity belongs to the server result set, including filters and pagination.
     // Its absence must never turn a retained local copy into a new user recording.
-    const localOnly = localRecordingRows.filter((item) => !item.localDeletionPending && !item.meetingId && localRecordingMatches(item));
+    const localOnly = localRecordingRows.filter((item) => {
+      if (item.localDeletionPending || !localRecordingMatches(item)) return false;
+      return !item.meetingId || pendingLocalRecordingHandoffs.has(item.meetingId);
+    });
     const visibleIds = new Set(localOnly.map(item => item.id));
     for (const [id, row] of existingRows) if (!visibleIds.has(id)) row.remove();
     let list = host.querySelector("ol.meeting-list");
@@ -422,6 +444,37 @@
       nativeDeletionReplies.delete(requestId);
     },
     update(rows, operations = [], recoveryRequired = false) {
+      const nextRows = Array.isArray(rows) ? rows : [];
+      const previousRowsById = new Map(localRecordingRows.map(item => [item.id, item]));
+      const visibleServerMeetingIds = new Set(allRows().map(row => row.dataset.meetingId).filter(Boolean));
+      const newHandoffMeetingIds = new Set();
+      for (const item of nextRows) {
+        const previous = previousRowsById.get(item.id);
+        const meetingId = typeof item.meetingId === "string" ? item.meetingId : "";
+        const previousMeetingId = typeof previous?.meetingId === "string" ? previous.meetingId : "";
+        if (previousMeetingId && previousMeetingId !== meetingId) {
+          pendingLocalRecordingHandoffs.delete(previousMeetingId);
+          requestedLocalRecordingHandoffs.delete(previousMeetingId);
+        }
+        // A WebView can be initialized after the native transition. Any linked
+        // row first observed without a server row still needs one reconciliation.
+        const firstObservedLinkedHandoff = !previous && meetingId;
+        const transitionToHandoff = previous && !previousMeetingId && meetingId;
+        if ((transitionToHandoff || firstObservedLinkedHandoff)
+            && !visibleServerMeetingIds.has(meetingId)) {
+          pendingLocalRecordingHandoffs.add(meetingId);
+          newHandoffMeetingIds.add(meetingId);
+        }
+      }
+      const nextMeetingIds = new Set(nextRows.map(item => item.meetingId).filter(Boolean));
+      for (const meetingId of pendingLocalRecordingHandoffs) {
+        // The native snapshot is the lifetime boundary for an alias. Once its
+        // local item disappears, no browser state needs to keep waiting.
+        if (!nextMeetingIds.has(meetingId)) {
+          pendingLocalRecordingHandoffs.delete(meetingId);
+          requestedLocalRecordingHandoffs.delete(meetingId);
+        }
+      }
       let recovery = document.querySelector("[data-local-account-recovery]");
       if (!recoveryRequired) recovery?.remove();
       else if (!recovery) {
@@ -433,13 +486,28 @@
       }
       const rejected = operations.some(operation => operation.phase === "rejected" && nativeDeletionOperations.some(previous => previous.id === operation.id && previous.phase !== "rejected"));
       nativeDeletionOperations = Array.isArray(operations) ? operations : [];
-      localRecordingRows = Array.isArray(rows) ? rows : [];
+      localRecordingRows = nextRows;
       renderLocalRecordingRows();
       applyNativeDeletionOperations(nativeDeletionOperations);
       renderNativeDeletionStatus(nativeDeletionOperations);
       updateMixedResultCount();
       reconcileMeetingSelection();
-      if (rejected) requestMeetingListRefresh();
+      const formAvailable = document.querySelector(".cabinet-list-controls") instanceof HTMLFormElement;
+      const handoffMeetingIds = new Set(
+        [...newHandoffMeetingIds, ...pendingLocalRecordingHandoffs]
+          .filter(id => pendingLocalRecordingHandoffs.has(id)
+            && !requestedLocalRecordingHandoffs.has(id)
+            && !visibleServerMeetingIds.has(id)
+            && formAvailable),
+      );
+      if (handoffMeetingIds.size) {
+        const active = document.activeElement;
+        const restoreFocus = active instanceof HTMLElement
+          && Boolean(active.closest("#meeting-list-region, [data-meeting-list]"));
+        if (requestMeetingListRefresh({ focusMeetingIds: [...handoffMeetingIds], restoreFocus })) {
+          handoffMeetingIds.forEach(id => requestedLocalRecordingHandoffs.add(id));
+        }
+      } else if (rejected) requestMeetingListRefresh();
     },
   };
   const requestNativeDeletion = (rows) => new Promise((resolve) => {
@@ -641,12 +709,15 @@
       listRefreshFocusMeetingIds = [];
       listRefreshShouldRestoreFocus = false;
       listRefreshFocusOrigin = null;
+      listRefreshFocusSelector = "";
       return false;
     }
     const focusRow = listRefreshFocusMeetingIds
       .map((meetingId) => allRows().find((row) => recordingRowIdentity(row) === meetingId))
       .find(Boolean);
-    let focusTarget = rowPrimaryFocusTarget(focusRow) || document.querySelector("[data-list-title]");
+    let focusTarget = (listRefreshFocusSelector ? focusRow?.querySelector(listRefreshFocusSelector) : null)
+      || rowPrimaryFocusTarget(focusRow)
+      || document.querySelector("[data-list-title]");
     if (recovery instanceof HTMLElement) {
       focusTarget = recovery.querySelector("[data-list-retry], [data-list-sign-in]") || recovery;
       if (focusTarget === recovery) recovery.tabIndex = -1;
@@ -655,6 +726,7 @@
     listRefreshFocusMeetingIds = [];
     listRefreshShouldRestoreFocus = false;
     listRefreshFocusOrigin = null;
+    listRefreshFocusSelector = "";
     return true;
   };
 
@@ -839,6 +911,25 @@
     loading.hidden = true;
     current.hidden = false;
     current.replaceChildren(recovery);
+    if (["offline", "service"].includes(kind)) {
+      const pendingItems = localRecordingRows.filter(item =>
+        item.meetingId
+        && pendingLocalRecordingHandoffs.has(item.meetingId)
+        && localRecordingMatches(item)
+      );
+      if (pendingItems.length) {
+        const localHost = document.createElement("section");
+        localHost.className = "list-card cabinet-card";
+        localHost.setAttribute("aria-label", "Записи на этом Mac");
+        const localNotice = document.createElement("p");
+        localNotice.className = "muted";
+        localNotice.textContent = "Запись сохранена на этом Mac и останется здесь до повторной проверки списка.";
+        localHost.append(localNotice);
+        localHost.setAttribute("data-meeting-list", "");
+        current.append(localHost);
+        renderLocalRecordingRows();
+      }
+    }
     const toolbar = document.querySelector("[data-selection-toolbar]");
     if (toolbar) toolbar.hidden = true;
     if (
@@ -865,7 +956,12 @@
       loading.tabIndex = -1;
       loading.focus({ preventScroll: true });
     }
-    current.hidden = true;
+    const pendingLocalIds = new Set(localRecordingRows
+      .filter(item => item.meetingId && pendingLocalRecordingHandoffs.has(item.meetingId))
+      .map(item => item.id));
+    const hasVisiblePendingHandoff = [...current.querySelectorAll("[data-graf-local-recording-row]")]
+      .some(row => pendingLocalIds.has(row.dataset.grafLocalRecordingId));
+    current.hidden = !hasVisiblePendingHandoff;
     const toolbar = document.querySelector("[data-selection-toolbar]");
     if (toolbar) toolbar.hidden = true;
   };
@@ -1235,9 +1331,13 @@
     if (!(form instanceof HTMLFormElement)) return false;
     listRefreshFocusMeetingIds = focusMeetingIds.filter(Boolean);
     listRefreshShouldRestoreFocus = restoreFocus;
-    listRefreshFocusOrigin = restoreFocus && document.activeElement instanceof HTMLElement
-      ? document.activeElement
-      : null;
+    const active = document.activeElement;
+    listRefreshFocusOrigin = restoreFocus && active instanceof HTMLElement ? active : null;
+    const focusRow = active instanceof HTMLElement ? active.closest("[data-meeting-row]") : null;
+    listRefreshFocusSelector = restoreFocus && focusRow
+      ? ["[data-meeting-open]", "[data-meeting-select]", "[data-row-delete]", ".calendar-context-list-action"]
+        .find((selector) => active.matches(selector)) || ""
+      : "";
     form.requestSubmit();
     return true;
   };
@@ -8780,12 +8880,28 @@
       source.setAttribute("aria-expanded", "true");
     }
     if (target instanceof Element && (target.id === "meeting-list-region" || target.matches("[data-meeting-list]"))) {
-      renderLocalRecordingRows();
+      renderLocalRecordingRows({ authoritativeResponse: true });
       // A refresh may replace aliases or change filters, but cannot enlarge or
       // discard the set the user is confirming. Detached rows retain that intent.
-      pendingDeleteRows = pendingDeleteRows.map(row =>
-        allRows().find(current => recordingRowIdentity(current) === recordingRowIdentity(row)) || row
-      );
+      const currentRows = allRows();
+      const currentRowsByIdentity = new Map(currentRows.map(row => [recordingRowIdentity(row), row]));
+      const currentRowsByMeetingId = new Map(currentRows
+        .filter(row => row.dataset.meetingId)
+        .map(row => [row.dataset.meetingId, row]));
+      const localMeetingId = (localId) => localRecordingRows.find(item => item.id === localId)?.meetingId || "";
+      const remapIdentity = (identity) => {
+        if (!identity?.startsWith("local:")) return identity;
+        const meetingId = localMeetingId(identity.slice("local:".length));
+        return meetingId && currentRowsByMeetingId.has(meetingId) ? meetingId : identity;
+      };
+      pendingDeleteRows = pendingDeleteRows.map(row => {
+        const linkedMeetingId = localMeetingId(row.dataset.grafLocalRecordingId);
+        return currentRowsByIdentity.get(recordingRowIdentity(row))
+          || (linkedMeetingId ? currentRowsByMeetingId.get(linkedMeetingId) : null)
+          || row;
+      });
+      deleteReturnMeetingId = remapIdentity(deleteReturnMeetingId);
+      deleteFocusFallbackIds = deleteFocusFallbackIds.map(remapIdentity);
       reconcileMeetingSelection();
       announceMeetingResultCount();
       restoreMeetingListRequestFocus(event);

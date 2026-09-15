@@ -936,7 +936,7 @@ def test_deletion_feedback_precedes_list_and_client_focus_recovery_is_determinis
         "listRefreshFocusOrigin",
         "userMovedFocus",
         "pendingDeleteRows = pendingDeleteRows.map(row =>",
-        "recordingRowIdentity(current) === recordingRowIdentity(row)) || row",
+        "currentRowsByIdentity.get(recordingRowIdentity(row))",
         "authorizationRecoveryKind",
         'response.headers.get("X-GRAF-Cabinet-Recovery")',
         "renderMeetingListRecovery(recoveryKind)",
