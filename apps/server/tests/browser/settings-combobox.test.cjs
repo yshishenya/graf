@@ -12,6 +12,10 @@ const recording = fs.readFileSync(path.join(cabinet, 'templates/cabinet/pages/se
  try {
   const page = await browser.newPage({viewport:{width:900,height:900}});
   page.setDefaultTimeout(5000);
+  await page.addInitScript(() => {
+   const localeLowercase = String.prototype.toLocaleLowerCase;
+   String.prototype.toLocaleLowerCase = function () { return localeLowercase.call(this, 'tr-TR'); };
+  });
   const errors=[]; page.on('pageerror',error=>errors.push(error.message));
   await page.setContent(`<meta charset="utf-8"><meta name="graf-time-user" content="actor"><meta name="graf-workspace" content="space"><main class="settings-page"><h1>Запись</h1>${recording}
    <form data-settings-form><label>Язык<select data-settings-combobox name="language"><option value="ru">Русский</option><option disabled value="none">Недоступно</option><option value="en">English</option></select></label>
@@ -206,6 +210,14 @@ const recording = fs.readFileSync(path.join(cabinet, 'templates/cabinet/pages/se
   }));
   assert(Math.abs(gutter.eighth-(gutter.bottom-1))<=1,'Non-overlay scrollbar must not change wrapping after measurement');
   await catalog.press('Escape'); await gutterStyle.evaluate(el=>el.remove());
+  // The page deliberately forces locale-sensitive lowercase to Turkish above.
+  // ASCII I must still match without changing the retained query or setting.
+  await page.evaluate(()=>{targets[0].name='Indian/Maldives';window.GRAFRecordingSettings.refresh();});
+  await page.getByRole('combobox',{name:'Автозапись: Indian/Maldives',exact:true}).waitFor({timeout:2000});
+  await apps.fill('indian/maldives');
+  assert.equal(await options.count(),1,'Locale-independent search must match ASCII I in Chromium/WebKit');
+  assert.equal(await page.locator('[data-recording-settings-targets] label:visible').count(),1);
+  assert.equal(await apps.inputValue(),'indian/maldives');
   for(const filename of fs.readdirSync(path.join(cabinet,'templates/cabinet/pages')).filter(name=>name.startsWith('settings_'))){
    const template=fs.readFileSync(path.join(cabinet,'templates/cabinet/pages',filename),'utf8');
    assert(!/<select(?![^>]*data-settings-combobox)/.test(template),`Unconverted select: ${filename}`);

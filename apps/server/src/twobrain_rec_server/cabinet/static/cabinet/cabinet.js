@@ -5746,7 +5746,7 @@
 
   let settingsComboID = 0;
   const settingsCombos = new WeakMap();
-  const normalizeSettingSearch = value => value.toLocaleLowerCase().normalize('NFKC').replace(/[−–]/g, '-').replace(/\s+/g, ' ').trim();
+  const normalizeSettingSearch = value => value.toLowerCase().normalize('NFKC').replace(/[−–]/g, '-').replace(/\s+/g, ' ').trim();
   const createSettingsCombobox = (source, getOptions, onChoose, filterInput = false) => {
     if (settingsCombos.has(source)) return settingsCombos.get(source);
     const wrapper = document.createElement('span');

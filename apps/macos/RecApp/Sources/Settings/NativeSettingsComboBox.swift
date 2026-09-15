@@ -10,7 +10,7 @@ struct NativeSettingsComboBox: NSViewRepresentable {
 
     static func matchesSearch(_ text: String, query: String) -> Bool {
         func normalized(_ value: String) -> String {
-            value.lowercased(with: .current).precomposedStringWithCompatibilityMapping
+            value.lowercased().precomposedStringWithCompatibilityMapping
                 .replacingOccurrences(of: "−", with: "-").replacingOccurrences(of: "–", with: "-")
                 .split(whereSeparator: \.isWhitespace).joined(separator: " ")
         }
