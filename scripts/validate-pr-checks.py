@@ -250,6 +250,8 @@ _RELEASE_PREP_FRAGMENT = re.compile(
     r"changes/releases/(v[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[1-9][0-9]*)/F[0-9]+\.yaml"
 )
 _RELEASE_PREP_SUBJECT = re.compile(r"(?:release|релиз|выпуск|заметк)", re.IGNORECASE)
+_CLOSEOUT_SUBJECT = re.compile(r"^docs\(closeout\):\s+", re.IGNORECASE)
+_CLOSEOUT_TASK = re.compile(r"^specs/[0-9]{3,}-[^/]+/tasks\.md$")
 _RELEASE_HEADING = re.compile(r"^## \[([0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[1-9][0-9]*)\].*$", re.MULTILINE)
 _RELEASE_MARKER = re.compile(r"^<!-- Release features:.*-->$", re.MULTILINE)
 _TOP_LEVEL_FIELD = re.compile(r"^([A-Za-z][A-Za-z0-9_-]*):", re.MULTILINE)
@@ -426,6 +428,41 @@ def metadata_only_release_prep(commit, published_version=None):
     return not any(_sensitive_release_text(line) for line in added_lines)
 
 
+def metadata_only_closeout(commit):
+    """Accept one task-only docs closeout without treating it as product code."""
+    try:
+        parents = metadata._git("rev-list", "--parents", "--max-count=1", commit).split()
+        if len(parents) != 2:
+            return False
+        subject = subprocess.check_output(
+            ["git", "show", "-s", "--format=%s", commit], stderr=subprocess.DEVNULL,
+        ).decode("utf-8").strip()
+        if not _CLOSEOUT_SUBJECT.match(subject):
+            return False
+        rows = subprocess.check_output(
+            ["git", "diff-tree", "--no-commit-id", "--name-status", "-r", parents[1], commit],
+            stderr=subprocess.DEVNULL,
+        ).decode("utf-8").splitlines()
+    except (UnicodeDecodeError, subprocess.CalledProcessError):
+        return False
+    if not rows or any(
+        len(fields := row.split("\t")) != 2
+        or fields[0] != "M"
+        or not _CLOSEOUT_TASK.fullmatch(fields[1])
+        for row in rows
+    ):
+        return False
+    try:
+        changed = subprocess.check_output(
+            ["git", "diff", "--unified=0", parents[1], commit, "--", *[row.split("\t", 1)[1] for row in rows]],
+            stderr=subprocess.DEVNULL,
+        ).decode("utf-8")
+    except (UnicodeDecodeError, subprocess.CalledProcessError):
+        return False
+    added_lines = [line[1:] for line in changed.splitlines() if line.startswith("+") and not line.startswith("+++")]
+    return bool(added_lines) and not any(_sensitive_release_text(line) for line in added_lines)
+
+
 def code_snapshot(pr, repository):
     snapshot = metadata.metadata_snapshot(pr, repository)
     require(isinstance(pr["head"].get("ref"), str) and bool(pr["head"]["ref"]), "missing PR head ref")
@@ -545,7 +582,7 @@ def verify_source(repository, source_sha, *, included_prs=None):
     require(base is not None, "previous published release ancestor is unavailable")
     commits = metadata._git("rev-list", "--first-parent", f"{base}..{source_sha}").splitlines()
     covered, results = set(), []
-    metadata_commits = []
+    metadata_kinds = set()
     for commit in commits:
         if commit in covered:
             continue
@@ -553,11 +590,18 @@ def verify_source(repository, source_sha, *, included_prs=None):
         matches = [pr for pr in prs if pr.get("merged_at") and pr.get("merge_commit_sha") == commit
                    and pr.get("base", {}).get("ref") == "master"]
         if not matches:
-            require(not metadata_commits,
-                    "release contains more than one metadata-only commit")
-            require(metadata_only_release_prep(commit, published_version=base_release_tag),
+            kind = (
+                "release-prep"
+                if metadata_only_release_prep(commit, published_version=base_release_tag)
+                else "closeout"
+                if metadata_only_closeout(commit)
+                else None
+            )
+            require(kind is not None,
                     "release contains source without a unique merged PR")
-            metadata_commits.append(commit)
+            require(kind not in metadata_kinds,
+                    "release contains duplicate metadata-only commit kind")
+            metadata_kinds.add(kind)
             continue
         require(len(matches) == 1, "release contains source without a unique merged PR")
         proof = verify(repository, matches[0]["number"])

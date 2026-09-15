@@ -305,6 +305,28 @@ def test_release_source_checks_actual_range(snapshot, monkeypatch, case):
         assert visited == list(reversed(expected))
 
 
+def test_task_closeout_is_metadata_only_only_for_task_docs(snapshot, monkeypatch):
+    root, _, _ = snapshot
+    monkeypatch.chdir(root)
+    task = root / "specs" / "211-demo" / "tasks.md"
+    task.parent.mkdir(parents=True, exist_ok=True)
+    task.write_text("- [ ] T001: связать задачу\n")
+    git(root, "add", str(task.relative_to(root)))
+    git(root, "commit", "-qm", "fixture: add task file")
+    task.write_text("- [X] T001: связать задачу с Issue #7008\n")
+    git(root, "add", str(task.relative_to(root)))
+    git(root, "commit", "-qm", "docs(closeout): связать T001 с issue #7008")
+    valid = git(root, "rev-parse", "HEAD")
+    assert checks.metadata_only_closeout(valid)
+
+    extra = root / "docs" / "closeout.md"
+    extra.parent.mkdir(parents=True, exist_ok=True)
+    extra.write_text("closeout\n")
+    git(root, "add", str(extra.relative_to(root)))
+    git(root, "commit", "-qm", "docs(closeout): добавить лишний файл")
+    assert not checks.metadata_only_closeout(git(root, "rev-parse", "HEAD"))
+
+
 @pytest.mark.parametrize('valid_scope', [True, False])
 def test_github_unevaluated_skipped_name_requires_actual_text_scope(github, valid_scope):
     text, scope = github['text']('governance-fast', status='completed')
