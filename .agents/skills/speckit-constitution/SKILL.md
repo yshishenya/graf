@@ -69,7 +69,7 @@ and commands read the constitution at runtime and are not modified here.
 
     Wait for the result of the hook command before proceeding to the Outline.
     ```
-    After emitting the block above you MUST actually invoke the hook and wait for it to finish before continuing. Run it the same way you would run the command yourself in this agent/session (the invocation may differ from the literal `{command}` id shown above, e.g. a skills-mode agent runs it as `/skill:speckit-...` or `$speckit-...`). Emitting the block alone does not run the hook. Before invocation, classify the hook as read-only or state-changing. Commit, publish, deploy, destructive, or other state-changing hooks require explicit user confirmation at this point even when `optional: false`; without confirmation, STOP instead of executing them.
+    After emitting the block above you MUST actually invoke the hook and wait for it to finish before continuing. Run it the same way you would run the command yourself in this agent/session (the invocation may differ from the literal `{command}` id shown above, e.g. a skills-mode agent runs it as `/skill:speckit-...` or `$speckit-...`). Emitting the block alone does not run the hook. Before invocation, classify the hook as read-only or state-changing. Commit, publish, deploy, destructive, or other state-changing hooks require explicit user confirmation at this point even when `optional: false`; only enabled `after_constitution`, `after_specify`, `after_clarify`, `after_plan`, `after_checklist`, `after_tasks`, and `after_analyze` hooks that invoke the Spec Kit auto-commit command are pre-approved, and only after their completed documentation-stage change scope has been checked. `after_implement` is never covered by this exception and always requires an explicit user-approved implementation commit. Without confirmation, STOP instead of executing publish, deploy, destructive, or other non-auto-commit state changes.
 - If no hooks are registered or `.specify/extensions.yml` does not exist, skip silently
 
 ## Outline
@@ -109,7 +109,9 @@ Follow this execution flow:
    - Ensure each Principle section: succinct name line, paragraph (or bullet list) capturing non‑negotiable rules, explicit rationale if not obvious.
    - Ensure Governance section lists amendment procedure, versioning policy, and compliance review expectations.
 
-4. Produce a Sync Impact Report (prepend as an HTML comment at top of the constitution file after update):
+4. Produce a Sync Impact Report as an HTML comment at the top of the constitution file after update.
+   This report is temporary scratch material for human review of the amendment, not governance
+   content; it is expected to be removed before the amended constitution file is committed.
    - Version change: old → new
    - List of modified principles (old title → new title if renamed)
    - Added sections
@@ -175,5 +177,5 @@ Check if `.specify/extensions.yml` exists in the project root.
     Executing: `/{command}`
     EXECUTE_COMMAND: {command}
     ```
-    After emitting the block above you MUST actually invoke the hook and wait for it to finish before continuing. Run it the same way you would run the command yourself in this agent/session (the invocation may differ from the literal `{command}` id shown above, e.g. a skills-mode agent runs it as `/skill:speckit-...` or `$speckit-...`). Emitting the block alone does not run the hook. Before invocation, classify the hook as read-only or state-changing. Commit, publish, deploy, destructive, or other state-changing hooks require explicit user confirmation at this point even when `optional: false`; without confirmation, STOP instead of executing them.
+    After emitting the block above you MUST actually invoke the hook and wait for it to finish before continuing. Run it the same way you would run the command yourself in this agent/session (the invocation may differ from the literal `{command}` id shown above, e.g. a skills-mode agent runs it as `/skill:speckit-...` or `$speckit-...`). Emitting the block alone does not run the hook. Before invocation, classify the hook as read-only or state-changing. Commit, publish, deploy, destructive, or other state-changing hooks require explicit user confirmation at this point even when `optional: false`; only enabled `after_constitution`, `after_specify`, `after_clarify`, `after_plan`, `after_checklist`, `after_tasks`, and `after_analyze` hooks that invoke the Spec Kit auto-commit command are pre-approved, and only after their completed documentation-stage change scope has been checked. `after_implement` is never covered by this exception and always requires an explicit user-approved implementation commit. Without confirmation, STOP instead of executing publish, deploy, destructive, or other non-auto-commit state changes.
 - If no hooks are registered or `.specify/extensions.yml` does not exist, skip silently
