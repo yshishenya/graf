@@ -758,3 +758,58 @@ Ponytail-review последних изменений: существующие 
 зависимостей или необязательных механизмов нет; упрощать защиту не требуется.
 Changelog/process и pinned Spec Kit governance PASS после согласования
 T094/T095. Общий класс риска остаётся high-risk-product F211.
+
+
+T096: в двух успешных ветвях prepare-release.sh заменена только устаревшая
+подсказка. Теперь она предлагает проверить и сохранить всю подготовку, затем
+следовать единственной release guidance; ранний git tag и неполный git add
+удалены из вывода. Правила и операции подготовки не менялись. Lane этой дельты:
+docs-only/mechanical в существующем F211, FR-010. Bash/diff PASS; два прежних
+сценария обычной и повторной подготовки:2 PASS/1,82 с. Новый тест, механизм
+или повтор Full только для текста не требуется. Изменение подготовлено отдельно
+для release-prep, существующие запуски общего PR2557 не затронуты.
+
+
+### Слияние и фактическая приёмка GitHub — 2026-09-15
+
+PR #6990 слит как `829074ea8e931744f960aa21625d7165201c9072`. Перед слиянием обычный общий verifier подтвердил head `2557bcebe428a7c469508ab1247dc312fbfb7b43`, base `1592a7f750b96c36c5a120795fda6018031c4c7f`, governance34780847563, macOS34780847611 и metadata34780859621. Required contexts/strict/app IDs/linear history сохранены, шесть review threads resolved.
+
+Настоящее изменение описания уже слитого #6990 создало только text/metadata runs: governance34888232115, macOS34888232145, metadata34888231789 — PASS. Предыдущие source runs, attempts, времена и результаты не изменились. Общий verifier после события PASS, сохранил source34780847563/34780847611 и историческую базу1592, вернул действительный merge829074ea8. T061/T072/T081 закрыты в этом проверенном объёме; исходные продуктовые тесты не повторялись.
+
+Проверка исторического #6991 выявила ограничение GitHub: `pull_request edited` исполнил YAML из старого PR, не новый YAML master. Governance34888235191 действительно начал прежний fast, macOS34888235184 завершился старым `macos-pr-text-change` без Swift. Текущий trusted metadata34888235153 PASS. Это НЕ успешная приёмка нового workflow на старом PR. Для восстановления строгих historical checks проверочный дубль governance отменён; исходные source34767005038/34767005071 повторены с их прежним event/base, новые attempts ещё ожидают проверки. T063/T087 не закрыты этой записью. Текущий consumer не ослаблен. Для исторических PR дальнейшее завершение фиксируется в issues и release evidence без новых title/body edits.
+
+Один release-prep от merged master переносит T096 и согласованные документы F264. Штатный prepare-release.sh объединил одну неопубликованную секцию .14.1 в v2026.09.15.1 от действительно опубликованной .3. Новый marker содержит только F211. Full, реальные image IDs/CD, Apple/public/installed для .15.1 этой записью не подтверждены.
+
+
+### T097 — сохранность и свежесть публичного установщика
+
+Перед freeze воспроизведены два дефекта: CD заменял newer runtime PKG старым
+подписанным Git-пакетом, а URL публичного файла сохранял прежний SHA до
+перезапуска API. До исправлений реальные filesystem проверки дали 2 FAIL,
+а проверка замены файла — FAIL на неизменившемся URL. После исправления общего
+sync и ключа существующего lru_cache:
+
+```sh
+PYTHONPATH=src python -m pytest -c pyproject.toml \
+  tests/integration/test_deployment_readiness_gates.py \
+  tests/contract/test_public_landing_contract.py -q --tb=short
+```
+
+Из `apps/server`: 60 PASS / 1,59 с. Проверены сохранение прежних bytes при
+CD/rollback, initial-copy и уборка после write failure, пустой файл/каталог/
+symlink/dangling/owner отказы, atomic replace при прежних size/mtime,
+old URL no-cache/current URL immutable и отсутствие повторного чтения
+неизменного файла. Дополнительно доказано, что существующий опубликованный
+target сохраняется даже при недоступном bootstrap-файле в Git; отсутствующий
+target по-прежнему требует валидный bootstrap-источник. Публикация теперь записывает binaries только в runtime,
+не в tracked source. Требования CHK006/CHK007 и независимый implementation review T097 PASS;
+заключение и hashes сохранены в checklists/image-reuse.md. Окончательные
+GitHub/Full/public proofs остаются отдельными gates.
+
+Восстановление historical #6991 завершено: исходные governance34767005038 и
+macOS34767005071, оба attempt2, SUCCESS; trusted metadata34888235153 SUCCESS.
+Общий verifier PASS на head e0796c0961cab2f24de7d008fa0bf348b0eb2843 и
+исторической base a3f5f72e994e7872ee175ebafd9f7699a2d4ffca. Это подтверждает
+checks старого PR, но не исполнение на нём нового YAML. T063/T087 остаются
+ограниченными этой границей. Документы F264 уже включены отдельным #7000;
+release-prep #6999 не имеет F264 diff и не закрывает её задачи повторно.

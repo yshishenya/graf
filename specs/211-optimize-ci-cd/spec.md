@@ -499,3 +499,14 @@ preparation regressions are counted separately. No production code changes.
 Clarify T089: use the existing Ubuntu package manager only when one tool is
 missing; host synthetic behavior and pinned runtime capability are distinct
 proofs. An absent private recording is the sole accepted TestRec opt-in skip.
+
+
+### Release convergence: сохранение опубликованного установщика (T097)
+
+FR-010/FR-048: серверный CD и публикация macOS имеют разные границы. До выкатки 2026-09-15 production source graf.pkg оказался изменённым байтами опубликованной .3; runtime graf.pkg и versioned PKG имеют тот же проверенный GitHub digest. Существующий sync_public_download безусловно заменяет runtime старым подписанным пакетом из репозитория.
+
+Clarify: уже существующий обычный непустой runtime graf.pkg принадлежит публикации macOS и сохраняется при серверном CD. Он становится источником проверки download smoke; CD не меняет его байты и не создаёт для него rollback backup. При отсутствии runtime PKG сохраняется существующая начальная установка из репозитория и её прежний rollback. Symlink/dangling, каталог, пустой файл, неверное владение каталогом и неудачная запись остаются отказами. Apple/Sparkle/публичная приёмка не ослабляются; новый пакет публикуется только штатным release operator в runtime-каталог. Отслеживаемый graf.pkg больше не перезаписывается публикацией. Перед восстановлением уже изменённого tracked файла его bytes сохраняются отдельно и сверяются с опубликованным digest. Новых опций, службы, формата state и загрузчика не требуется.
+
+Приёмка: настоящий Bash helper с временными файлами сохраняет отличный от source опубликованный PKG и его hash до/после restore; начальная установка/rollback проходят; invalid target/директории остаются отказом. Тот же актуальный candidate проходит required CI и один authoritative Full. Настоящие canonical/package/feed hashes сверяются до CD и после публикации.
+
+Уточнение той же T097: live /download всё ещё выдаёт `?v=c4a36a0731d1`, хотя current published/runtime PKG имеет prefix `9c288252fea8`. Общий public_static_asset_url кэширует только filename на весь процесс. После атомарной публикации он обязан дать hash текущих bytes без перезапуска API; прежняя ссылка на заменённый canonical path получает no-cache, только текущая — immutable. Сохранить ограниченный существующий lru_cache, включив в ключ путь и файловую identity (inode/device/size/mtime/ctime); неизменный файл повторно не хешируется. Проверить атомарную замену при том же размере/mtime, прежнюю/новую HTTP ссылку и отсутствие повторного чтения неизменных bytes. Scope ограничен public/templates.py и существующим integration тестом.

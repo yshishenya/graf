@@ -83,6 +83,12 @@ may be waited on within the job's timeout; failure, cancellation, timeout,
 missing/expired proof or an API error fails the text check without an older-success fallback.
 Retarget, empty/unknown changes and code edits retain the complete applicable checks.
 
+This reuse requires the workflow version selected by GitHub to contain the F211
+cutover. Editing a historical merged PR can execute its older workflow, even
+after master has advanced. Record closeout for such PRs in issue comments and
+release evidence without editing their title/body. Do not weaken current-check
+validation or claim that the newer workflow ran for a historical event.
+
 The required metadata check uses `pull_request_target` from the trusted `github.workflow_sha`. The validator
 runs in isolated Python; it only reads PR Git objects and never checks out or
 executes PR code. Two API snapshots must agree on repository, PR, head/base/ref,
@@ -451,6 +457,14 @@ named macOS Keychain account and is never exported to GitHub or a temporary key
 file. Follow `docs/agent-guidance/macos-notarization.md` and run
 `apps/macos/Installer/Scripts/sign-graf-app-update-local.sh` only from the clean
 exact release tag on current `origin/master`.
+
+Server CD preserves an existing regular, nonempty runtime `graf.pkg`; its
+public-download smoke verifies those preserved bytes. Only an absent runtime
+file uses the tracked package for initial installation and rollback. Publish
+new macOS packages through the runtime directory as specified in
+`macos-notarization.md`, keeping the tracked source tree clean. Public static
+version URLs use file identity to invalidate the bounded hash cache when the
+canonical package is atomically replaced.
 
 ## Dependency Updates
 
