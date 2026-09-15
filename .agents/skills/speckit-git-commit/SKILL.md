@@ -3,7 +3,7 @@ name: speckit-git-commit
 description: Auto-commit changes after a Spec Kit command completes
 compatibility: Requires spec-kit project structure with .specify/ directory
 metadata:
-  author: github-spec-kit
+  author: spec-kit-core
   source: extension:git
 ---
 
@@ -23,7 +23,7 @@ This command is invoked as a hook after (or before) core commands. It:
 4. Falls back to `auto_commit.default` if no event-specific key exists
 5. Determines the commit message based on `commit_style` (see below)
 6. Inspects `git status` and STOPS when the worktree contains changes outside the paths owned by the triggering Spec Kit command; auto-commit must never absorb unrelated or secret-bearing files
-7. Requires explicit user confirmation immediately before every state-changing commit; `after_implement` is never auto-committed and remains a manual post-validation commit
+7. Treats enabled documentation-stage auto-commits as pre-approved: after checking that every changed path is owned by the triggering command, runs without an additional confirmation; `after_implement` is never auto-committed and remains a manual post-validation commit
 8. Only then, if enabled and there are command-owned changes, runs the configured auto-commit script
 
 ## Commit Message Styles
@@ -35,7 +35,7 @@ Controlled by the `commit_style` key in `.specify/extensions/git/git-config.yml`
 
 ## Execution
 
-Determine the event name from the hook that triggered this command. Before invoking a script, inspect `git status --short`, verify every changed path belongs to that command, and obtain explicit user confirmation for the commit. If the event is `after_implement`, do not invoke auto-commit; finish validation and use a manual user-approved implementation commit instead. Then run the script:
+Determine the event name from the hook that triggered this command. Before invoking a script, inspect `git status --short` and verify every changed path belongs to that command. Enabled documentation-stage auto-commits are pre-approved and need no additional confirmation. If the event is `after_implement`, do not invoke auto-commit; finish validation and use a manual user-approved implementation commit instead. Then run the script:
 
 - **Bash**: `.specify/extensions/git/scripts/bash/auto-commit.sh <event_name> [--message-file <path>]`
 - **PowerShell**: `.specify/extensions/git/scripts/powershell/auto-commit.ps1 <event_name> [-MessageFile <path>]`

@@ -3,9 +3,11 @@ name: speckit-github-issue-canon-normalize
 description: Normalize existing GitHub issues to the project issue canon.
 compatibility: Requires spec-kit project structure with .specify/ directory
 metadata:
-  author: github-spec-kit
-  source: github-issue-canon:commands/speckit.github-issue-canon.normalize.md
+  author: yshishenya
+  source: extension:github-issue-canon
 ---
+
+# Github Issue Canon Normalize Skill
 
 ## Outline
 

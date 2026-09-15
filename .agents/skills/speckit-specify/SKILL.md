@@ -50,7 +50,7 @@ You **MUST** consider the user input before proceeding (if not empty).
 
     Wait for the result of the hook command before proceeding to the Outline.
     ```
-    After emitting the block above you MUST actually invoke the hook and wait for it to finish before continuing. Run it the same way you would run the command yourself in this agent/session (the invocation may differ from the literal `{command}` id shown above, e.g. a skills-mode agent runs it as `/skill:speckit-...` or `$speckit-...`). Emitting the block alone does not run the hook. Before invocation, classify the hook as read-only or state-changing. Commit, publish, deploy, destructive, or other state-changing hooks require explicit user confirmation at this point even when `optional: false`; without confirmation, STOP instead of executing them.
+    After emitting the block above you MUST actually invoke the hook and wait for it to finish before continuing. Run it the same way you would run the command yourself in this agent/session (the invocation may differ from the literal `{command}` id shown above, e.g. a skills-mode agent runs it as `/skill:speckit-...` or `$speckit-...`). Emitting the block alone does not run the hook. Before invocation, classify the hook as read-only or state-changing. Commit, publish, deploy, destructive, or other state-changing hooks require explicit user confirmation at this point even when `optional: false`; only enabled `after_constitution`, `after_specify`, `after_clarify`, `after_plan`, `after_checklist`, `after_tasks`, and `after_analyze` hooks that invoke the Spec Kit auto-commit command are pre-approved, and only after their completed documentation-stage change scope has been checked. `after_implement` is never covered by this exception and always requires an explicit user-approved implementation commit. Without confirmation, STOP instead of executing publish, deploy, destructive, or other non-auto-commit state changes.
 - If no hooks are registered or `.specify/extensions.yml` does not exist, skip silently
 
 ## Outline
@@ -134,7 +134,7 @@ Given that feature description, do this:
          - The choice significantly impacts feature scope or user experience
          - Multiple reasonable interpretations exist with different implications
          - No reasonable default exists
-       - **LIMIT: Maximum 3 [NEEDS CLARIFICATION] markers total**
+       - Ask at most 3 initial clarification questions in this command. Preserve every additional material ambiguity as a `[NEEDS CLARIFICATION: ...]` marker for `$speckit-clarify`; never replace a required user decision with a guess to satisfy this question limit.
        - Prioritize clarifications by impact: scope > security/privacy > user experience > technical details
     4. Fill User Scenarios & Testing section
        If no clear user flow: ERROR "Cannot determine user scenarios"
@@ -146,7 +146,7 @@ Given that feature description, do this:
        Include both quantitative metrics (time, performance, volume) and qualitative measures (user satisfaction, task completion)
        Each criterion must be verifiable without implementation details
     7. Identify Key Entities (if data involved)
-    8. Return: SUCCESS (spec ready for planning)
+    8. Return: SUCCESS only when validation passes; unresolved markers mean the spec is ready for `$speckit-clarify`, not planning
 
 7. Write the specification to SPEC_FILE using the template structure, replacing placeholders with concrete details derived from the feature description (arguments) while preserving section order and headings.
 
@@ -207,7 +207,7 @@ Given that feature description, do this:
 
       - **If [NEEDS CLARIFICATION] markers remain**:
         1. Extract all [NEEDS CLARIFICATION: ...] markers from the spec
-        2. **LIMIT CHECK**: If more than 3 markers exist, keep only the 3 most critical (by scope/security/UX impact) and make informed guesses for the rest
+        2. **LIMIT CHECK**: If more than 3 markers exist, ask only the 3 most critical in this command and leave every remaining marker unresolved for `$speckit-clarify`; do not guess or discard material decisions
         3. For each clarification needed (max 3), present options to user in this format:
 
            ```markdown
@@ -238,7 +238,7 @@ Given that feature description, do this:
         6. Present all questions together before waiting for responses
         7. Wait for user to respond with their choices for all questions (e.g., "Q1: A, Q2: Custom - [details], Q3: B")
         8. Update the spec by replacing each [NEEDS CLARIFICATION] marker with the user's selected or provided answer
-        9. Re-run validation after all clarifications are resolved
+        9. Re-run validation; if markers remain, STOP and run `$speckit-clarify` instead of reporting the spec ready for planning
 
    d. **Update Checklist**: After each validation iteration, update the checklist file with current pass/fail status
 
@@ -265,7 +265,7 @@ Check if `.specify/extensions.yml` exists in the project root.
     Executing: `/{command}`
     EXECUTE_COMMAND: {command}
     ```
-    After emitting the block above you MUST actually invoke the hook and wait for it to finish before continuing. Run it the same way you would run the command yourself in this agent/session (the invocation may differ from the literal `{command}` id shown above, e.g. a skills-mode agent runs it as `/skill:speckit-...` or `$speckit-...`). Emitting the block alone does not run the hook. Before invocation, classify the hook as read-only or state-changing. Commit, publish, deploy, destructive, or other state-changing hooks require explicit user confirmation at this point even when `optional: false`; without confirmation, STOP instead of executing them.
+    After emitting the block above you MUST actually invoke the hook and wait for it to finish before continuing. Run it the same way you would run the command yourself in this agent/session (the invocation may differ from the literal `{command}` id shown above, e.g. a skills-mode agent runs it as `/skill:speckit-...` or `$speckit-...`). Emitting the block alone does not run the hook. Before invocation, classify the hook as read-only or state-changing. Commit, publish, deploy, destructive, or other state-changing hooks require explicit user confirmation at this point even when `optional: false`; only enabled `after_constitution`, `after_specify`, `after_clarify`, `after_plan`, `after_checklist`, `after_tasks`, and `after_analyze` hooks that invoke the Spec Kit auto-commit command are pre-approved, and only after their completed documentation-stage change scope has been checked. `after_implement` is never covered by this exception and always requires an explicit user-approved implementation commit. Without confirmation, STOP instead of executing publish, deploy, destructive, or other non-auto-commit state changes.
   - **Optional hook** (`optional: true`):
     ```
     ## Extension Hooks

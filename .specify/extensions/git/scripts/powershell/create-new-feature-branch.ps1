@@ -344,7 +344,19 @@ function Expand-BranchTemplate {
 function Assert-BranchTemplateValid {
     param([string]$Template)
 
-    if ($Template -and -not $Template.Contains('{number}')) {
+    if (-not $Template) { return }
+
+    if ($Template.Contains('$')) {
+        throw "branch_template contains a shell-style placeholder. Use {author}, {app}, {number}, and {slug} without a dollar sign."
+    }
+    $unsupportedTokens = $Template
+    foreach ($token in @('{author}', '{app}', '{number}', '{slug}')) {
+        $unsupportedTokens = $unsupportedTokens.Replace($token, '_')
+    }
+    if ($unsupportedTokens.Contains('{') -or $unsupportedTokens.Contains('}')) {
+        throw "branch_template contains an unsupported or malformed placeholder. Allowed tokens: {author}, {app}, {number}, {slug}."
+    }
+    if (-not $Template.Contains('{number}')) {
         throw "branch_template must include the {number} token so generated branches remain valid feature branches."
     }
     if ($Template) {

@@ -15,7 +15,9 @@
           "speckit.agent-context.update"
         ]
       },
-      "registered_skills": [],
+      "registered_skills": [
+        "speckit-agent-context-update"
+      ],
       "installed_at": "2026-06-15T20:03:32.683753+00:00"
     },
     "git": {
@@ -40,7 +42,13 @@
           "speckit.git.commit"
         ]
       },
-      "registered_skills": [],
+      "registered_skills": [
+        "speckit-git-feature",
+        "speckit-git-validate",
+        "speckit-git-remote",
+        "speckit-git-initialize",
+        "speckit-git-commit"
+      ],
       "installed_at": "2026-06-15T20:03:33.202169+00:00"
     },
     "github-issue-canon": {
@@ -56,7 +64,11 @@
           "speckit.github-issue-canon.normalize"
         ]
       },
-      "registered_skills": [],
+      "registered_skills": [
+        "speckit-github-issue-canon-ensure",
+        "speckit-github-issue-canon-validate",
+        "speckit-github-issue-canon-normalize"
+      ],
       "installed_at": "2026-09-13T15:52:48.391546+00:00"
     }
   }
