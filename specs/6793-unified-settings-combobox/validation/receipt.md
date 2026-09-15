@@ -253,3 +253,21 @@ Issue #6984. В `cabinet.js` и `NativeSettingsComboBox.swift` локализо�
 Изменены только runtime-нормализация, профильные проверки, задача T024 и
 unreleased changelog-фрагмент. Установленная приёмка GRAF Dev и обязательные
 проверки PR на exact SHA ещё не выполнены; выпуск и deploy не выполнялись.
+
+## T024: установленный GRAF Dev — 2026-09-15
+
+Штатный `infra/scripts/dev-harness.sh` выполнен из чистого worktree на exact
+SHA `f6effc37ac7f436f7cd5b164ef3d586af87d29c1`:
+
+- build: PASS, manifest `dev-f6effc37ac7f`;
+- promote `--live`: PASS, установлен `/Applications/GRAF Dev.app`;
+- manifest сохранил bundle ID `pro.2brain.graf.dev`, канал `dev`, подпись
+  `GRAF Local Code Signing` и разрешения;
+- promote checks: 13/13 PASS, включая `exact_source_sha`,
+  `app_identity`, `app_presentation`, `backend_health` и
+  `frontend_reachability`;
+- `smoke --json --live`: PASS, manifest `dev-f6effc37ac7f`, observed SHA
+  совпадает с exact SHA.
+
+Обязательные GitHub checks PR на exact SHA ещё не выполнены; выпуск, merge и
+deploy не выполнялись.
