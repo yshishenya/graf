@@ -141,7 +141,8 @@ def test_actual_scope_uses_current_tools_with_historical_merged_head(snapshot, m
     merge = git(root, 'commit-tree', head + '^{tree}', '-p', base, '-m', 'squashed PR')
     git(root, 'checkout', '--detach', merge)
     for name in ('ci-pr-scope.py', 'ci-event-identity.py', 'validate-pr-metadata.py',
-                 'validate-pr-checks.py', 'validate-ci-receipt.py'):
+                 'validate-pr-checks.py', 'validate-ci-receipt.py',
+                 'validate-changelog-fragments.py'):
         shutil.copy2(ROOT / 'scripts' / name, root / 'scripts' / name)
     (root / '.github').mkdir()
     shutil.copy2(ROOT / '.github/pr-check-policy.json', root / '.github/pr-check-policy.json')
