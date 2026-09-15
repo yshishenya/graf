@@ -108,3 +108,10 @@
 - Changing server meeting creation, upload protocol, processing workflow, retention, deletion, or authorization semantics.
 - Adding toast notifications, sounds, new dialogs, or a second upload-progress interface.
 - Changing the behavior of ordinary browser manual upload except for retaining the shared existing refresh behavior.
+
+## Legacy Impact
+
+Classification: `untouched`
+
+Feature 265 изменяет только общий handoff в кабинете и не добавляет, не удаляет
+и не сохраняет legacy runtime, fallback, alias или compatibility path.
