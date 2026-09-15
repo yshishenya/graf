@@ -207,6 +207,7 @@ async def _render_shared_summary_for_grant(
         duration_seconds=int(projection["duration_seconds"]),
         summary_sections=projection["summary_sections"],
         protocol=projection.get("protocol"),
+        generator_version=outcome.generator_version if outcome is not None else None,
         authenticated=True,
         embedded=embedded,
     )
