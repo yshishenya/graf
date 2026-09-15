@@ -82,3 +82,7 @@ T020/T021 → T011. GitHub owner: https://github.com/yshishenya/graf/issues/6924
 ## Phase 14: Совместимость релизной сборки
 
 - [X] T023 Уточнить главный поток для двух старых методов доступности `NativeSettingsComboBox.FieldCell` в `NativeSettingsComboBox.swift`; сохранить штатные значение/выделение/фокус, проверить существующие `NativeSettingsComboBoxTests` и macos-diagnostic на Swift6.0.3, затем новый общий release-full (FR-006/FR-008; исходный release-full34751488543 failed). (Issue #6924)
+
+## Phase 15: Convergence локалезависимого поиска
+
+- [X] T024 [US1] Заменить локалезависимое преобразование регистра на регионально-независимое в `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js` и `apps/macos/RecApp/Sources/Settings/NativeSettingsComboBox.swift`; добавить регрессию для `Indian/Maldives` и названий приложений с ASCII `I` в `apps/server/tests/browser/settings-combobox.test.cjs` и `apps/macos/Shared/Tests/NativeSettingsComboBoxTests.swift`; сохранить NFKC, пробелы, тире и подтверждение выбора (FR-002, FR-003; Issue #6984).
