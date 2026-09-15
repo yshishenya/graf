@@ -29,6 +29,7 @@ def module(name):
 
 metadata = module("validate-pr-metadata")
 receipts = module("validate-ci-receipt")
+changelog = module("validate-changelog-fragments")
 
 
 def require(condition, message):
@@ -245,6 +246,186 @@ def current_gate(repository, workflow, pr, base):
     raise ValueError(f"{workflow}: no current required gate")
 
 
+_RELEASE_PREP_FRAGMENT = re.compile(
+    r"changes/releases/(v[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[1-9][0-9]*)/F[0-9]+\.yaml"
+)
+_RELEASE_PREP_SUBJECT = re.compile(r"(?:release|релиз|выпуск|заметк)", re.IGNORECASE)
+_RELEASE_HEADING = re.compile(r"^## \[([0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[1-9][0-9]*)\].*$", re.MULTILINE)
+_RELEASE_MARKER = re.compile(r"^<!-- Release features:.*-->$", re.MULTILINE)
+_TOP_LEVEL_FIELD = re.compile(r"^([A-Za-z][A-Za-z0-9_-]*):", re.MULTILINE)
+_RELEASE_PROSE_FIELDS = {"summary", "compatibility", "known_limitations", "release_notes"}
+_CALVER = re.compile(r"^v?([0-9]{4})\.([0-9]{2})\.([0-9]{2})\.([1-9][0-9]*)$")
+_CREDENTIAL_TOKEN = re.compile(
+    r"\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|"
+    r"AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|xox[baprs]-[A-Za-z0-9-]{10,})\b",
+    re.IGNORECASE,
+)
+
+
+def _calver_key(value):
+    match = _CALVER.fullmatch(value)
+    return tuple(int(part) for part in match.groups()) if match else None
+
+
+def _sensitive_release_text(text):
+    return (
+        any(token.lower() in text.lower() for token in changelog.FORBIDDEN)
+        or changelog.CREDENTIAL_ASSIGNMENT_RE.search(text)
+        or _CREDENTIAL_TOKEN.search(text)
+    )
+
+
+def _valid_release_fragment(text, path, version, expected_feature=None):
+    fields = _TOP_LEVEL_FIELD.findall(text)
+    if len(fields) != len(changelog.REQUIRED) or set(fields) != set(changelog.REQUIRED):
+        return None
+    if any(not changelog._has_value_or_block(text, field) for field in changelog.REQUIRED):
+        return None
+    if not re.search(r"[А-Яа-яЁё]", changelog._field_payload(text, "summary")):
+        return None
+    if not re.search(r"[А-Яа-яЁё]", changelog._field_payload(text, "release_notes")):
+        return None
+    feature = re.search(r"^feature_id[ \t]*:[ \t]*(\d+)[ \t]*$", text, re.MULTILINE)
+    path_feature = re.search(r"/F([0-9]+)\.yaml$", path)
+    if not feature or not path_feature or feature.group(1) != path_feature.group(1):
+        return None
+    if expected_feature is not None and feature.group(1) != expected_feature:
+        return None
+    path_version = re.fullmatch(r"changes/releases/(v[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[1-9][0-9]*)/F[0-9]+\.yaml", path)
+    if not path_version or version != path_version.group(1):
+        return None
+    if _sensitive_release_text(text):
+        return None
+    return feature.group(1)
+
+
+def metadata_only_release_prep(commit, published_version=None):
+    """Accept the operator's notes-only follow-up without hiding code changes."""
+    try:
+        parents = metadata._git("rev-list", "--parents", "--max-count=1", commit).split()
+        if len(parents) != 2:
+            return False
+        subject = subprocess.check_output(
+            ["git", "show", "-s", "--format=%s", commit],
+            stderr=subprocess.DEVNULL,
+        ).decode("utf-8").strip()
+        if not _RELEASE_PREP_SUBJECT.search(subject):
+            return False
+        rows = subprocess.check_output(
+            ["git", "diff-tree", "--no-commit-id", "--name-status", "-r", parents[1], commit],
+            stderr=subprocess.DEVNULL,
+        ).decode("utf-8").splitlines()
+    except (UnicodeDecodeError, subprocess.CalledProcessError):
+        return False
+    paths = []
+    fragments = []
+    for row in rows:
+        fields = row.split("\t")
+        if len(fields) != 2 or fields[0] != "M":
+            return False
+        path = fields[1]
+        paths.append(path)
+        match = _RELEASE_PREP_FRAGMENT.fullmatch(path)
+        if match:
+            fragments.append(match)
+    versions = {match.group(1) for match in fragments}
+    if not (
+        paths.count("CHANGELOG.md") == 1
+        and len(fragments) == len(paths) - 1
+        and bool(fragments)
+        and len(versions) == 1
+    ):
+        return False
+    parent = parents[1]
+
+    def blob(revision, path):
+        return subprocess.check_output(
+            ["git", "show", f"{revision}:{path}"], stderr=subprocess.DEVNULL,
+        ).decode("utf-8")
+
+    try:
+        before_changelog, after_changelog = blob(parent, "CHANGELOG.md"), blob(commit, "CHANGELOG.md")
+        before_headings = _RELEASE_HEADING.findall(before_changelog)
+        after_headings = _RELEASE_HEADING.findall(after_changelog)
+        before_heading_lines = [match.group(0) for match in _RELEASE_HEADING.finditer(before_changelog)]
+        after_heading_lines = [match.group(0) for match in _RELEASE_HEADING.finditer(after_changelog)]
+        if not before_headings or before_headings != after_headings or before_heading_lines != after_heading_lines:
+            return False
+        latest = after_headings[0]
+        if published_version is not None:
+            published_key = _calver_key(published_version)
+            latest_key = _calver_key(f"v{latest}")
+            if published_key is None or latest_key is None or latest_key <= published_key:
+                return False
+        section_start = after_changelog.index(f"## [{latest}]")
+        next_heading = _RELEASE_HEADING.search(after_changelog, section_start + 1)
+        section_end = next_heading.start() if next_heading else len(after_changelog)
+        before_start = before_changelog.index(f"## [{latest}]")
+        before_next = _RELEASE_HEADING.search(before_changelog, before_start + 1)
+        before_end = before_next.start() if before_next else len(before_changelog)
+        if (before_changelog[:before_start], before_changelog[before_end:]) != (
+            after_changelog[:section_start], after_changelog[section_end:]
+        ):
+            return False
+        if _RELEASE_MARKER.findall(before_changelog[before_start:before_end]) != _RELEASE_MARKER.findall(
+            after_changelog[section_start:section_end]
+        ):
+            return False
+        changed = subprocess.check_output(
+            ["git", "diff", "--unified=0", parent, commit, "--", "CHANGELOG.md"],
+            stderr=subprocess.DEVNULL,
+        ).decode("utf-8")
+    except (UnicodeDecodeError, ValueError, subprocess.CalledProcessError):
+        return False
+    fragment_ids = set()
+    for match in fragments:
+        path = match.string
+        try:
+            before, after = blob(parent, path), blob(commit, path)
+        except (UnicodeDecodeError, subprocess.CalledProcessError):
+            return False
+        before_fields = _TOP_LEVEL_FIELD.findall(before)
+        if (len(before_fields) != len(changelog.REQUIRED)
+                or set(before_fields) != set(changelog.REQUIRED)):
+            return False
+        feature_id = _valid_release_fragment(after, path, f"v{latest}")
+        if feature_id is None:
+            return False
+        after_fields = _TOP_LEVEL_FIELD.findall(after)
+        for field in set(after_fields) - _RELEASE_PROSE_FIELDS:
+            if changelog._field_payload(before, field) != changelog._field_payload(after, field):
+                return False
+        fragment_ids.add(feature_id)
+        if match.group(1) != f"v{latest}":
+            return False
+        try:
+            changed += subprocess.check_output(
+                ["git", "diff", "--unified=0", parent, commit, "--", path],
+                stderr=subprocess.DEVNULL,
+            ).decode("utf-8")
+        except (UnicodeDecodeError, subprocess.CalledProcessError):
+            return False
+
+    marker_lines = _RELEASE_MARKER.findall(after_changelog[section_start:section_end])
+    marker_ids = {
+        feature_id
+        for marker in marker_lines
+        for feature_id in re.findall(r"\bF([0-9]+)\b", marker)
+    }
+    if not marker_ids or not fragment_ids <= marker_ids:
+        return False
+    for feature_id in marker_ids:
+        path = f"changes/releases/v{latest}/F{feature_id}.yaml"
+        try:
+            text = blob(commit, path)
+        except (UnicodeDecodeError, subprocess.CalledProcessError):
+            return False
+        if _valid_release_fragment(text, path, f"v{latest}", feature_id) is None:
+            return False
+    added_lines = [line[1:] for line in changed.splitlines() if line.startswith("+") and not line.startswith("+++")]
+    return not any(_sensitive_release_text(line) for line in added_lines)
+
+
 def code_snapshot(pr, repository):
     snapshot = metadata.metadata_snapshot(pr, repository)
     require(isinstance(pr["head"].get("ref"), str) and bool(pr["head"]["ref"]), "missing PR head ref")
@@ -340,6 +521,7 @@ def verify_source(repository, source_sha, *, included_prs=None):
                  and re.fullmatch(r"v[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[1-9][0-9]*", r.get("tag_name", ""))]
     require(bool(published), "published release base is unavailable")
     base = None
+    base_release_tag = None
     for release in sorted(published, key=lambda item: utc(item["published_at"]), reverse=True):
         ref = api(repository, f"git/ref/tags/{release['tag_name']}")["object"]
         for _ in range(5):
@@ -358,16 +540,25 @@ def verify_source(repository, source_sha, *, included_prs=None):
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         ).returncode:
             base = candidate
+            base_release_tag = release["tag_name"]
             break
     require(base is not None, "previous published release ancestor is unavailable")
     commits = metadata._git("rev-list", "--first-parent", f"{base}..{source_sha}").splitlines()
     covered, results = set(), []
-    for commit in commits:
+    metadata_commits = []
+    for index, commit in enumerate(commits):
         if commit in covered:
             continue
         prs = api(repository, f"commits/{commit}/pulls?per_page=100", pages_key="")
         matches = [pr for pr in prs if pr.get("merged_at") and pr.get("merge_commit_sha") == commit
                    and pr.get("base", {}).get("ref") == "master"]
+        if not matches:
+            require(index == 0 and not metadata_commits,
+                    "release contains more than one or a non-final metadata-only commit")
+            require(metadata_only_release_prep(commit, published_version=base_release_tag),
+                    "release contains source without a unique merged PR")
+            metadata_commits.append(commit)
+            continue
         require(len(matches) == 1, "release contains source without a unique merged PR")
         proof = verify(repository, matches[0]["number"])
         require(proof["merge_commit_sha"] == commit, "release PR merge identity changed")
