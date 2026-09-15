@@ -194,7 +194,8 @@ def test_later_attempt_of_older_run_cannot_hide_behind_newer_id(bundle, monkeypa
 @pytest.mark.parametrize("case", [
     "two-prs", "rebase", "published-source", "unowned", "mixed-prs", "bad-policy", "no-base",
     "metadata-only", "metadata-extra", "metadata-bad-subject", "metadata-heading",
-    "metadata-fragment-id", "metadata-secret", "metadata-old-version",
+    "metadata-fragment-id", "metadata-secret", "metadata-old-version", "metadata-published-latest",
+    "metadata-duplicate-field", "metadata-token", "metadata-double", "metadata-missing-marked",
 ])
 def test_release_source_checks_actual_range(snapshot, monkeypatch, case):
     root, _, pr = snapshot
@@ -220,22 +221,33 @@ def test_release_source_checks_actual_range(snapshot, monkeypatch, case):
         pr["head"]["sha"] = first
         pr["body"] = pr["body"].replace(base, first)
         changelog = "## [2026.09.15.1] - 2026-09-15\n\n<!-- Release features: F211 -->\n\n- Updated release notes\n"
+        if case == "metadata-missing-marked":
+            changelog = changelog.replace("F211", "F211 F212")
         if case == "metadata-heading":
             changelog = changelog.replace("[2026.09.15.1]", "[2026.09.15.2]")
         (root / "CHANGELOG.md").write_text(changelog)
-        fragment.write_text(
+        fragment_text = (
             "schema_version: 1\nfeature_id: 999\n" if case == "metadata-fragment-id" else
             "schema_version: 1\nfeature_id: 211\n"
             "category: Fixed\nsummary: \"Исправление\"\nissue: 6986\ntasks: [T063]\n"
             "compatibility: \"Совместимость\"\nknown_limitations:\n  - \"Ограничение\"\n"
             + ("release_notes: \"Обновлено; api_key: supersecretvalue\"\n"
-               if case == "metadata-secret" else "release_notes: \"Обновлено\"\n")
+               if case == "metadata-secret" else
+               "release_notes: \"Обновлено ghp_12345678901234567890123456789012\"\n"
+               if case == "metadata-token" else "release_notes: \"Обновлено\"\n")
         )
+        if case == "metadata-duplicate-field":
+            fragment_text += "issue: 9999\n"
+        fragment.write_text(fragment_text)
         if case == "metadata-extra":
             (root / "extra").write_text("code\n")
         git(root, "add", "CHANGELOG.md", str(fragment.relative_to(root)), *( ["extra"] if case == "metadata-extra" else [] ))
         subject = "fixture" if case == "metadata-bad-subject" else "[F211] Обновить заметки выпуска"
         git(root, "commit", "-qm", subject)
+        if case == "metadata-double":
+            fragment.write_text(fragment_text.replace("Обновлено", "Обновлено повторно"))
+            git(root, "add", str(fragment.relative_to(root)))
+            git(root, "commit", "-qm", "[F211] Повторно обновить заметки выпуска")
     else:
         (root / "second").write_text("release change\n")
         git(root, "add", "second")
@@ -255,9 +267,13 @@ def test_release_source_checks_actual_range(snapshot, monkeypatch, case):
                 return []
             if case == "published-source":
                 releases.append(dict(tag_name="v2026.09.13.1", published_at="2026-09-13T00:00:00Z"))
+            if case == "metadata-published-latest":
+                releases.append(dict(tag_name="v2026.09.15.1", published_at="2026-09-15T00:00:00Z"))
             return releases
         if endpoint.startswith("git/ref/tags/"):
             # Exercise real annotated tag resolution for the previous release.
+            if case == "metadata-published-latest" and endpoint.endswith("v2026.09.15.1"):
+                return dict(object=dict(type="commit", sha=first))
             return dict(object=dict(type="commit", sha=source)) if endpoint.endswith("v2026.09.13.1") else dict(object=dict(type="tag", sha="a"*40))
         if endpoint == "git/tags/" + "a"*40:
             return dict(object=dict(type="commit", sha=base))
@@ -278,7 +294,9 @@ def test_release_source_checks_actual_range(snapshot, monkeypatch, case):
     if case == "metadata-only":
         expected = [7]
     if case in {"unowned", "mixed-prs", "bad-policy", "no-base", "metadata-extra", "metadata-bad-subject",
-                "metadata-heading", "metadata-fragment-id", "metadata-secret", "metadata-old-version"}:
+                "metadata-heading", "metadata-fragment-id", "metadata-secret", "metadata-old-version",
+                "metadata-published-latest", "metadata-duplicate-field", "metadata-token", "metadata-double",
+                "metadata-missing-marked"}:
         with pytest.raises(ValueError):
             checks.verify_source("owner/repo", source, included_prs=expected)
     else:
