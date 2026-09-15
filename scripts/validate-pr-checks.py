@@ -546,15 +546,15 @@ def verify_source(repository, source_sha, *, included_prs=None):
     commits = metadata._git("rev-list", "--first-parent", f"{base}..{source_sha}").splitlines()
     covered, results = set(), []
     metadata_commits = []
-    for index, commit in enumerate(commits):
+    for commit in commits:
         if commit in covered:
             continue
         prs = api(repository, f"commits/{commit}/pulls?per_page=100", pages_key="")
         matches = [pr for pr in prs if pr.get("merged_at") and pr.get("merge_commit_sha") == commit
                    and pr.get("base", {}).get("ref") == "master"]
         if not matches:
-            require(index == 0 and not metadata_commits,
-                    "release contains more than one or a non-final metadata-only commit")
+            require(not metadata_commits,
+                    "release contains more than one metadata-only commit")
             require(metadata_only_release_prep(commit, published_version=base_release_tag),
                     "release contains source without a unique merged PR")
             metadata_commits.append(commit)

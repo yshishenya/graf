@@ -259,11 +259,11 @@ Review the changelog and release metadata, commit that release-prep change, and
 use the resulting commit as the candidate. The full lane must run after this
 step, because release metadata is part of what will be shipped.
 
-The release operator may make one final metadata-only commit after that
+The release operator may make one metadata-only follow-up commit after that
 preparation when a release note must be corrected before freezing the candidate.
-The source validator accepts this exception only when the commit has one parent,
-is the newest commit after the published-release base, and its subject identifies
-release notes. Its complete diff may contain only `CHANGELOG.md` plus modified
+The source validator accepts this exception only once per release range, when the
+commit has one parent and its subject identifies release notes. Its complete diff
+may contain only `CHANGELOG.md` plus modified
 archived fragments under one `changes/releases/vYYYY.MM.DD.N/` directory. The
 fragment version must be newer than the latest published tag and equal the newest
 release section in `CHANGELOG.md`; every feature in the release marker must have
