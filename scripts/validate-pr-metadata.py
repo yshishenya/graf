@@ -224,8 +224,6 @@ def checked_base(pr: dict) -> str:
     if not pr["merged"]:
         return base
     merge, count = pr["merge_commit_sha"], pr["commits"]
-    if _git("rev-parse", f"{merge}^{{tree}}") != _git("rev-parse", f"{head}^{{tree}}"):
-        raise ValueError("merged tree differs from checked PR head")
 
     def predecessor(sha: str, size: int) -> str:
         rows = _git("rev-list", "--parents", f"--max-count={size}", sha).splitlines()
@@ -235,6 +233,34 @@ def checked_base(pr: dict) -> str:
             if left.split()[1] != right.split()[0]:
                 raise ValueError("merge/source range must be contiguous")
         return rows[-1].split()[1]
+
+    def is_ancestor(ancestor: str, descendant: str) -> bool:
+        return subprocess.run(
+            ["git", "merge-base", "--is-ancestor", ancestor, descendant],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        ).returncode == 0
+
+    merge_parent = predecessor(merge, 1)
+    merge_tree = _git("rev-parse", f"{merge}^{{tree}}")
+    head_tree = _git("rev-parse", f"{head}^{{tree}}")
+    if merge_tree != head_tree:
+        # GitHub can squash a PR whose target advanced after the PR branch was
+        # cut.  The merge tree then contains both the reviewed PR and those
+        # target commits.  Accept only the exact three-way merge result for the
+        # immutable API base and the real merge parent; an edited tree fails.
+        if not (is_ancestor(base, merge_parent) and is_ancestor(base, head)):
+            raise ValueError("merged tree differs from checked PR head")
+        if int(_git("rev-list", "--count", f"{base}..{head}")) != count:
+            raise ValueError("merged PR commit count does not match checked base")
+        try:
+            expected_tree = _git("merge-tree", "--write-tree", merge_parent, head)
+        except subprocess.CalledProcessError as exc:
+            raise ValueError("merged tree cannot be reconstructed from checked base") from exc
+        if not re.fullmatch(r"[0-9a-f]{40}", expected_tree) or expected_tree != merge_tree:
+            raise ValueError("merged tree differs from checked PR merge result")
+        return base
 
     # Squash preserves a linear target even when the PR incorporated master
     # with a merge commit. Its exact parent/count/tree bind the checked range.

@@ -497,3 +497,63 @@ def test_squash_accepts_pr_that_merged_an_updated_master(snapshot):
     result = run_trusted(root, event, current)
     assert result.returncode == 0, result.stderr
     assert json.loads((root / "trusted-result.json").read_text())["base_sha"] == checked_base
+
+
+def test_squash_accepts_target_advanced_after_pr_branch_was_cut(snapshot):
+    root, event, current = snapshot
+    current = trusted_pr(current)
+    base, first = current["base"]["sha"], current["head"]["sha"]
+
+    git(root, "checkout", "-q", "--detach", base)
+    (root / "master-only.txt").write_text("target advanced\n")
+    git(root, "add", "master-only.txt")
+    git(root, "commit", "-qm", "target branch update")
+    target = git(root, "rev-parse", "HEAD")
+
+    git(root, "checkout", "-q", "--detach", first)
+    (root / "specs/211-example/source-only.txt").write_text("reviewed source\n")
+    git(root, "add", ".")
+    git(root, "commit", "-qm", "second source commit")
+    head = git(root, "rev-parse", "HEAD")
+    count = int(git(root, "rev-list", "--count", f"{base}..{head}"))
+    tree = git(root, "merge-tree", "--write-tree", target, head)
+    merge = git(root, "commit-tree", tree, "-p", target, "-m", "squashed PR")
+
+    current.update(state="closed", merged=True, merge_commit_sha=merge, commits=count)
+    current["head"]["sha"] = head
+    current["body"] = body(head)
+    event.update(repository={"full_name": "example/project"}, pull_request=copy.deepcopy(current))
+    git(root, "checkout", "-q", "--detach", base)
+
+    result = run_trusted(root, event, current)
+    assert result.returncode == 0, result.stderr
+    assert json.loads((root / "trusted-result.json").read_text())["base_sha"] == base
+
+
+def test_squash_rejects_edited_tree_when_target_advanced(snapshot):
+    root, event, current = snapshot
+    current = trusted_pr(current)
+    base, first = current["base"]["sha"], current["head"]["sha"]
+
+    git(root, "checkout", "-q", "--detach", base)
+    (root / "master-only.txt").write_text("target advanced\n")
+    git(root, "add", "master-only.txt")
+    git(root, "commit", "-qm", "target branch update")
+    target = git(root, "rev-parse", "HEAD")
+
+    git(root, "checkout", "-q", "--detach", first)
+    (root / "specs/211-example/source-only.txt").write_text("reviewed source\n")
+    git(root, "add", ".")
+    git(root, "commit", "-qm", "second source commit")
+    head = git(root, "rev-parse", "HEAD")
+    count = int(git(root, "rev-list", "--count", f"{base}..{head}"))
+    merge = git(root, "commit-tree", f"{target}^{{tree}}", "-p", target, "-m", "edited squash")
+
+    current.update(state="closed", merged=True, merge_commit_sha=merge, commits=count)
+    current["head"]["sha"] = head
+    current["body"] = body(head)
+    event.update(repository={"full_name": "example/project"}, pull_request=copy.deepcopy(current))
+    git(root, "checkout", "-q", "--detach", base)
+
+    result = run_trusted(root, event, current)
+    assert result.returncode == 1
