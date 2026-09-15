@@ -941,7 +941,7 @@ def test_public_installer_sync_rejects_invalid_paths_without_altering_target(
         target.mkdir()
     elif invalid_path == "dangling":
         target.symlink_to(outside / "missing.pkg")
-    else:
+    elif invalid_path != "source":
         target.write_bytes(b"previous-package")
     fixture_script = f"""
 set -euo pipefail
@@ -973,8 +973,48 @@ sync_public_download
         assert target.is_dir() and not list(target.iterdir())
     elif invalid_path == "dangling":
         assert target.is_symlink() and not target.exists()
+    elif invalid_path == "source":
+        assert not target.exists()
     else:
         assert target.read_bytes() == (b"" if invalid_path == "empty" else b"previous-package")
+
+
+def test_public_installer_sync_preserves_existing_target_when_bootstrap_source_is_invalid(
+    tmp_path: Path,
+) -> None:
+    runtime = (Path(__file__).parents[4] / "infra/scripts/cd-remote-runtime.sh").read_text()
+    helper_start = runtime.index("restore_public_download()")
+    helper_end = runtime.index("verify_public_download()", helper_start)
+    helper_source = runtime[helper_start:helper_end]
+    source = tmp_path / "apps/server/src/twobrain_rec_server/public/static/public/downloads/graf.pkg"
+    target = tmp_path / "infra/runtime/public-downloads/graf.pkg"
+    source.parent.mkdir(parents=True)
+    target.parent.mkdir(parents=True)
+    source.symlink_to(tmp_path / "missing.pkg")
+    target.write_bytes(b"published-package")
+    fixture_script = f"""
+set -euo pipefail
+repo_root="$1"
+public_download_updated=0
+public_download_source=""
+public_download_target=""
+public_download_backup=""
+public_download_temporary=""
+{helper_source}
+stat() {{ id -u; }}
+sync_public_download
+[[ "$public_download_source" == "$public_download_target" ]]
+[[ "$public_download_updated" == "0" && -z "$public_download_backup" ]]
+[[ "$(<"$public_download_target")" == "published-package" ]]
+"""
+    result = subprocess.run(
+        ["bash", "-c", fixture_script, "bash", str(tmp_path)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert target.read_bytes() == b"published-package"
 
 
 @pytest.mark.parametrize("served_package", [b"candidate-package", b"other-package"])

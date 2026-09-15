@@ -795,11 +795,13 @@ PYTHONPATH=src python -m pytest -c pyproject.toml \
   tests/contract/test_public_landing_contract.py -q --tb=short
 ```
 
-Из `apps/server`: 59 PASS / 1,48 с. Проверены сохранение прежних bytes при
+Из `apps/server`: 60 PASS / 1,59 с. Проверены сохранение прежних bytes при
 CD/rollback, initial-copy и уборка после write failure, пустой файл/каталог/
 symlink/dangling/owner отказы, atomic replace при прежних size/mtime,
 old URL no-cache/current URL immutable и отсутствие повторного чтения
-неизменного файла. Публикация теперь записывает binaries только в runtime,
+неизменного файла. Дополнительно доказано, что существующий опубликованный
+target сохраняется даже при недоступном bootstrap-файле в Git; отсутствующий
+target по-прежнему требует валидный bootstrap-источник. Публикация теперь записывает binaries только в runtime,
 не в tracked source. Требования CHK006/CHK007 и независимый implementation review T097 PASS;
 заключение и hashes сохранены в checklists/image-reuse.md. Окончательные
 GitHub/Full/public proofs остаются отдельными gates.

@@ -253,11 +253,6 @@ sync_public_download() {
   local target_dir="$runtime_dir/public-downloads"
   public_download_target="$target_dir/graf.pkg"
 
-  if [[ -L "$public_download_source" || ! -f "$public_download_source" || ! -s "$public_download_source" ]]; then
-    echo "deploy_result=blocked"
-    echo "reason=public_download_source_invalid"
-    exit 1
-  fi
   if [[ -L "$runtime_dir" || ( -e "$runtime_dir" && ! -d "$runtime_dir" ) ]]; then
     echo "deploy_result=blocked"
     echo "reason=public_download_runtime_directory_invalid"
@@ -287,6 +282,12 @@ sync_public_download() {
     public_download_source="$public_download_target"
     echo "public_download_sync_result=unchanged"
     return
+  fi
+
+  if [[ -L "$public_download_source" || ! -f "$public_download_source" || ! -s "$public_download_source" ]]; then
+    echo "deploy_result=blocked"
+    echo "reason=public_download_source_invalid"
+    exit 1
   fi
 
   public_download_temporary="$(mktemp "$target_dir/.graf.pkg.deploy.XXXXXX")"
