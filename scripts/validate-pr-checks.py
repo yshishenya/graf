@@ -245,6 +245,50 @@ def current_gate(repository, workflow, pr, base):
     raise ValueError(f"{workflow}: no current required gate")
 
 
+_RELEASE_PREP_FRAGMENT = re.compile(
+    r"changes/releases/(v[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[1-9][0-9]*)/F[0-9]+\.yaml"
+)
+_RELEASE_PREP_SUBJECT = re.compile(r"(?:release|релиз|выпуск|заметк)", re.IGNORECASE)
+
+
+def metadata_only_release_prep(commit):
+    """Accept the operator's notes-only follow-up without hiding code changes."""
+    try:
+        parents = metadata._git("rev-list", "--parents", "--max-count=1", commit).split()
+        if len(parents) != 2:
+            return False
+        subject = subprocess.check_output(
+            ["git", "show", "-s", "--format=%s", commit],
+            stderr=subprocess.DEVNULL,
+        ).decode("utf-8").strip()
+        if not _RELEASE_PREP_SUBJECT.search(subject):
+            return False
+        rows = subprocess.check_output(
+            ["git", "diff-tree", "--no-commit-id", "--name-status", "-r", parents[1], commit],
+            stderr=subprocess.DEVNULL,
+        ).decode("utf-8").splitlines()
+    except (UnicodeDecodeError, subprocess.CalledProcessError):
+        return False
+    paths = []
+    fragments = []
+    for row in rows:
+        fields = row.split("\t")
+        if len(fields) != 2 or fields[0] != "M":
+            return False
+        path = fields[1]
+        paths.append(path)
+        match = _RELEASE_PREP_FRAGMENT.fullmatch(path)
+        if match:
+            fragments.append(match)
+    versions = {match.group(1) for match in fragments}
+    return (
+        paths.count("CHANGELOG.md") == 1
+        and len(fragments) == len(paths) - 1
+        and bool(fragments)
+        and len(versions) == 1
+    )
+
+
 def code_snapshot(pr, repository):
     snapshot = metadata.metadata_snapshot(pr, repository)
     require(isinstance(pr["head"].get("ref"), str) and bool(pr["head"]["ref"]), "missing PR head ref")
@@ -368,6 +412,9 @@ def verify_source(repository, source_sha, *, included_prs=None):
         prs = api(repository, f"commits/{commit}/pulls?per_page=100", pages_key="")
         matches = [pr for pr in prs if pr.get("merged_at") and pr.get("merge_commit_sha") == commit
                    and pr.get("base", {}).get("ref") == "master"]
+        if not matches:
+            require(metadata_only_release_prep(commit), "release contains source without a unique merged PR")
+            continue
         require(len(matches) == 1, "release contains source without a unique merged PR")
         proof = verify(repository, matches[0]["number"])
         require(proof["merge_commit_sha"] == commit, "release PR merge identity changed")

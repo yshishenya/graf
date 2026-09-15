@@ -191,15 +191,36 @@ def test_later_attempt_of_older_run_cannot_hide_behind_newer_id(bundle, monkeypa
         checks.current_run("owner/repo", workflow, pr, base)
 
 
-@pytest.mark.parametrize("case", ["two-prs", "rebase", "published-source", "unowned", "mixed-prs", "bad-policy", "no-base"])
+@pytest.mark.parametrize("case", [
+    "two-prs", "rebase", "published-source", "unowned", "mixed-prs", "bad-policy", "no-base",
+    "metadata-only", "metadata-extra", "metadata-bad-subject",
+])
 def test_release_source_checks_actual_range(snapshot, monkeypatch, case):
     root, _, pr = snapshot
     monkeypatch.chdir(root)
     monkeypatch.setattr(checks, "ROOT", root)
     base, first = pr["base"]["sha"], pr["head"]["sha"]
-    (root / "second").write_text("release change\n")
-    git(root, "add", "second")
-    git(root, "commit", "-qm", "second")
+    if case.startswith("metadata-"):
+        fragment = root / "changes/releases/v2026.09.15.1/F211.yaml"
+        fragment.parent.mkdir(parents=True)
+        (root / "CHANGELOG.md").write_text("## v2026.09.15.1\n\n- Initial notes\n")
+        fragment.write_text("feature: F211\n")
+        git(root, "add", "CHANGELOG.md", str(fragment.relative_to(root)))
+        git(root, "commit", "--amend", "-qm", "feature with release metadata")
+        first = git(root, "rev-parse", "HEAD")
+        pr["head"]["sha"] = first
+        pr["body"] = pr["body"].replace(base, first)
+        (root / "CHANGELOG.md").write_text("## v2026.09.15.1\n\n- Updated release notes\n")
+        fragment.write_text("feature: F211\nrelease_notes: updated\n")
+        if case == "metadata-extra":
+            (root / "extra").write_text("code\n")
+        git(root, "add", "CHANGELOG.md", str(fragment.relative_to(root)), *( ["extra"] if case == "metadata-extra" else [] ))
+        subject = "fixture" if case == "metadata-bad-subject" else "[F211] Обновить заметки выпуска"
+        git(root, "commit", "-qm", subject)
+    else:
+        (root / "second").write_text("release change\n")
+        git(root, "add", "second")
+        git(root, "commit", "-qm", "second")
     source = git(root, "rev-parse", "HEAD")
     policy = dict(schema_version=1, repository="owner/repo", foundation_pr=1,
                   foundation_sha=base, activated_at="2026-09-01T00:00:00Z")
@@ -224,6 +245,8 @@ def test_release_source_checks_actual_range(snapshot, monkeypatch, case):
         commit = endpoint.split("/")[1]
         if case == "unowned" and commit == first:
             return []
+        if case.startswith("metadata-") and commit == source:
+            return []
         return [dict(number=8 if commit == source else 7, merge_commit_sha=commit,
                      merged_at="2026-09-13T00:00:00Z", base=dict(ref="master"))]
     def verify(_repo, number):
@@ -233,7 +256,9 @@ def test_release_source_checks_actual_range(snapshot, monkeypatch, case):
     monkeypatch.setattr(checks, "api", api)
     monkeypatch.setattr(checks, "verify", verify)
     expected = [8] if case in {"rebase", "mixed-prs"} else [7, 8]
-    if case in {"unowned", "mixed-prs", "bad-policy", "no-base"}:
+    if case == "metadata-only":
+        expected = [7]
+    if case in {"unowned", "mixed-prs", "bad-policy", "no-base", "metadata-extra", "metadata-bad-subject"}:
         with pytest.raises(ValueError):
             checks.verify_source("owner/repo", source, included_prs=expected)
     else:
