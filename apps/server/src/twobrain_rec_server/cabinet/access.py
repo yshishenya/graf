@@ -5,6 +5,7 @@ import json
 import math
 import re
 import secrets
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
@@ -25,6 +26,7 @@ from twobrain_rec_server.api.schemas import (
     ShareRecipientType,
 )
 from twobrain_rec_server.auth.context import TenantScope
+from twobrain_rec_server.cabinet.read_prefetch import active_read_prefetch
 from twobrain_rec_server.db.models import (
     CalendarEventSnapshot,
     CalendarParticipant,
@@ -501,31 +503,33 @@ async def decide_meeting_access(
             can_view_full_meeting=False,
         )
 
-    membership = await db.scalar(
-        select(WorkspaceMembership)
-        .where(
-            and_(
-                WorkspaceMembership.workspace_id == workspace_id,
-                WorkspaceMembership.user_id == viewer_user_id,
-                WorkspaceMembership.status == "active",
-            )
-        )
-        .execution_options(populate_existing=True)
+    membership = await active_workspace_membership(
+        db,
+        workspace_id=workspace_id,
+        user_id=viewer_user_id,
     )
     role = membership.role if membership is not None else None
     privileged = role in PRIVILEGED_ROLES
     async def compose_grant(grant, capabilities, reason):
         result = _grant_access_decision(grant=grant, capabilities=capabilities, privileged=privileged, role=role, reason=reason)
         if membership is not None:
-            broader = await db.scalar(select(MeetingShareGrant).where(
-                MeetingShareGrant.workspace_id == workspace_id,
-                MeetingShareGrant.meeting_id == meeting.id,
-                MeetingShareGrant.audience_type == "workspace",
-                MeetingShareGrant.audience_id == workspace_id,
-                MeetingShareGrant.status == "active",
-                MeetingShareGrant.content_scope == "full_meeting",
-                or_(MeetingShareGrant.expires_at.is_(None), MeetingShareGrant.expires_at > datetime.now(UTC)),
-            ))
+            broader = _prefetched_grant(
+                db,
+                field_name="full_meeting_workspace_grants",
+                workspace_id=workspace_id,
+                meeting_id=meeting.id,
+                grantee_user_id=viewer_user_id,
+            )
+            if broader is _UNPREFETCHED:
+                broader = await db.scalar(select(MeetingShareGrant).where(
+                    MeetingShareGrant.workspace_id == workspace_id,
+                    MeetingShareGrant.meeting_id == meeting.id,
+                    MeetingShareGrant.audience_type == "workspace",
+                    MeetingShareGrant.audience_id == workspace_id,
+                    MeetingShareGrant.status == "active",
+                    MeetingShareGrant.content_scope == "full_meeting",
+                    or_(MeetingShareGrant.expires_at.is_(None), MeetingShareGrant.expires_at > datetime.now(UTC)),
+                ))
             if broader is not None:
                 result = replace(result, can_view_full_meeting=True, content_scope="full_meeting",
                     can_download=result.can_download or broader.can_download,
@@ -551,12 +555,20 @@ async def decide_meeting_access(
             role=role,
         )
 
-    grant = await active_user_grant(
+    grant = _prefetched_grant(
         db,
+        field_name="user_grants",
         workspace_id=workspace_id,
         meeting_id=meeting.id,
         grantee_user_id=viewer_user_id,
     )
+    if grant is _UNPREFETCHED:
+        grant = await active_user_grant(
+            db,
+            workspace_id=workspace_id,
+            meeting_id=meeting.id,
+            grantee_user_id=viewer_user_id,
+        )
     if grant is not None:
         capabilities = effective_grant_capabilities(
             content_scope=grant.content_scope,
@@ -573,15 +585,23 @@ async def decide_meeting_access(
             return await compose_grant(grant, capabilities, "Access was granted with a login-required share.")
 
     if membership is not None:
-        workspace_grant = await db.scalar(
-            select(MeetingShareGrant).where(
-                MeetingShareGrant.workspace_id == workspace_id,
-                MeetingShareGrant.meeting_id == meeting.id,
-                MeetingShareGrant.audience_type == "workspace",
-                MeetingShareGrant.audience_id == workspace_id,
-                MeetingShareGrant.status == "active",
-            )
+        workspace_grant = _prefetched_grant(
+            db,
+            field_name="workspace_grants",
+            workspace_id=workspace_id,
+            meeting_id=meeting.id,
+            grantee_user_id=viewer_user_id,
         )
+        if workspace_grant is _UNPREFETCHED:
+            workspace_grant = await db.scalar(
+                select(MeetingShareGrant).where(
+                    MeetingShareGrant.workspace_id == workspace_id,
+                    MeetingShareGrant.meeting_id == meeting.id,
+                    MeetingShareGrant.audience_type == "workspace",
+                    MeetingShareGrant.audience_id == workspace_id,
+                    MeetingShareGrant.status == "active",
+                )
+            )
         if workspace_grant is not None:
             capabilities = effective_grant_capabilities(
                 content_scope=workspace_grant.content_scope,
@@ -606,6 +626,182 @@ async def decide_meeting_access(
         )
 
     return _denied_decision(role=role)
+
+
+_UNPREFETCHED = object()
+
+
+async def _load_active_workspace_membership(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    user_id: UUID,
+) -> WorkspaceMembership | None:
+    return await db.scalar(
+        select(WorkspaceMembership)
+        .where(
+            and_(
+                WorkspaceMembership.workspace_id == workspace_id,
+                WorkspaceMembership.user_id == user_id,
+                WorkspaceMembership.status == "active",
+            )
+        )
+        .execution_options(populate_existing=True)
+    )
+
+
+async def active_workspace_membership(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    user_id: UUID,
+) -> WorkspaceMembership | None:
+    """Read one active membership once per list read.
+
+    Membership never depends on the meeting, so the meeting list must not re-read
+    it per meeting. The cache lives inside the list read prefetch, which only the
+    cabinet list path installs: outside it every caller keeps the original
+    ``populate_existing=True`` read on each call. Inside the list read the first
+    call refreshes the row from the database and the rest reuse that exact row.
+    """
+    prefetch = active_read_prefetch(db)
+    if prefetch is None:
+        return await _load_active_workspace_membership(
+            db, workspace_id=workspace_id, user_id=user_id
+        )
+    key = (workspace_id, user_id)
+    if key not in prefetch.memberships:
+        prefetch.memberships[key] = await _load_active_workspace_membership(
+            db, workspace_id=workspace_id, user_id=user_id
+        )
+    return prefetch.memberships[key]
+
+
+def _prefetched_grant(
+    db: AsyncSession,
+    *,
+    field_name: str,
+    workspace_id: UUID,
+    meeting_id: UUID,
+    grantee_user_id: UUID,
+):
+    """Return a batched grant row, or `_UNPREFETCHED` to fall back to one query."""
+    prefetch = active_read_prefetch(db)
+    if prefetch is None or prefetch.workspace_id != workspace_id:
+        return _UNPREFETCHED
+    if field_name == "user_grants" and getattr(prefetch, "viewer_user_id", None) != grantee_user_id:
+        return _UNPREFETCHED
+    mapping = getattr(prefetch, field_name, None)
+    if not isinstance(mapping, dict) or meeting_id not in mapping:
+        return _UNPREFETCHED
+    return mapping[meeting_id]
+
+
+async def batch_active_user_grants(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_ids: Collection[UUID],
+    grantee_user_id: UUID,
+    prefetch=None,
+) -> dict[UUID, MeetingShareGrant | None]:
+    """Batch variant of `active_user_grant` for a set of meetings.
+
+    The active user grant is unique per (workspace, meeting, audience), so the
+    batch reproduces the single row exactly.
+    """
+    result: dict[UUID, MeetingShareGrant | None] = {meeting_id: None for meeting_id in meeting_ids}
+    if not result:
+        return result
+    now = datetime.now(UTC)
+    rows = await db.scalars(
+        select(MeetingShareGrant)
+        .where(
+            MeetingShareGrant.workspace_id == workspace_id,
+            MeetingShareGrant.meeting_id.in_(result),
+            MeetingShareGrant.grantee_user_id == grantee_user_id,
+            MeetingShareGrant.audience_type == "user",
+            MeetingShareGrant.status == "active",
+            MeetingShareGrant.expires_at.is_(None) | (MeetingShareGrant.expires_at > now),
+        )
+        .distinct(MeetingShareGrant.meeting_id)
+        .order_by(
+            MeetingShareGrant.meeting_id,
+            MeetingShareGrant.created_at.asc(),
+            MeetingShareGrant.id.asc(),
+        )
+        .execution_options(populate_existing=True)
+    )
+    for row in rows:
+        result[row.meeting_id] = row
+    if prefetch is not None:
+        prefetch.user_grants.update(result)
+    return result
+
+
+async def batch_workspace_audience_grants(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_ids: Collection[UUID],
+    full_meeting_only: bool = False,
+    prefetch=None,
+) -> dict[UUID, MeetingShareGrant | None]:
+    """Batch variant of the workspace-audience grant reads in `decide_meeting_access`."""
+    result: dict[UUID, MeetingShareGrant | None] = {meeting_id: None for meeting_id in meeting_ids}
+    if not result:
+        return result
+    query = select(MeetingShareGrant).where(
+        MeetingShareGrant.workspace_id == workspace_id,
+        MeetingShareGrant.meeting_id.in_(result),
+        MeetingShareGrant.audience_type == "workspace",
+        MeetingShareGrant.audience_id == workspace_id,
+        MeetingShareGrant.status == "active",
+    )
+    if full_meeting_only:
+        now = datetime.now(UTC)
+        query = query.where(
+            MeetingShareGrant.content_scope == "full_meeting",
+            or_(MeetingShareGrant.expires_at.is_(None), MeetingShareGrant.expires_at > now),
+        )
+    rows = await db.scalars(
+        query.distinct(MeetingShareGrant.meeting_id)
+        .order_by(
+            MeetingShareGrant.meeting_id,
+            MeetingShareGrant.created_at.asc(),
+            MeetingShareGrant.id.asc(),
+        )
+        .execution_options(populate_existing=True)
+    )
+    for row in rows:
+        result[row.meeting_id] = row
+    if prefetch is not None:
+        target = (
+            prefetch.full_meeting_workspace_grants if full_meeting_only else prefetch.workspace_grants
+        )
+        target.update(result)
+    return result
+
+
+async def batch_decide_meeting_access(
+    db: AsyncSession,
+    meetings: Sequence[Meeting],
+    *,
+    workspace_id: UUID,
+    viewer_user_id: UUID,
+    recipient_proof: ShareRecipientAccessProof | None = None,
+) -> list[AccessDecision]:
+    """Batch variant of `decide_meeting_access` for a set of meetings."""
+    return [
+        await decide_meeting_access(
+            db,
+            meeting,
+            workspace_id=workspace_id,
+            viewer_user_id=viewer_user_id,
+            recipient_proof=recipient_proof,
+        )
+        for meeting in meetings
+    ]
 
 
 async def active_user_grant(
@@ -715,28 +911,32 @@ async def _share_grant_recipient_is_valid(
             return False
         if recipient_proof is not None:
             return expected_hash in recipient_proof.verified_address_hashes
-        verified_emails = (
-            await db.scalars(
-                select(ExternalIdentity.email).where(
-                    ExternalIdentity.user_id == viewer_user_id,
-                    ExternalIdentity.is_active.is_(True),
-                    ExternalIdentity.is_verified.is_(True),
-                    ExternalIdentity.email.is_not(None),
+        prefetch = active_read_prefetch(db)
+        if prefetch is not None and viewer_user_id in prefetch.viewer_verified_emails:
+            verified_emails = prefetch.viewer_verified_emails[viewer_user_id]
+        else:
+            verified_emails = tuple(
+                await db.scalars(
+                    select(ExternalIdentity.email).where(
+                        ExternalIdentity.user_id == viewer_user_id,
+                        ExternalIdentity.is_active.is_(True),
+                        ExternalIdentity.is_verified.is_(True),
+                        ExternalIdentity.email.is_not(None),
+                    )
                 )
             )
-        ).all()
+            if prefetch is not None:
+                prefetch.viewer_verified_emails[viewer_user_id] = verified_emails
         return any(
             expected_hash in invitation_address_hashes(email) for email in verified_emails if email
         )
     if recipient_proof is not None:
         return recipient_proof.workspace_membership_is_active
     return (
-        await db.scalar(
-            select(WorkspaceMembership).where(
-                WorkspaceMembership.workspace_id == grant.workspace_id,
-                WorkspaceMembership.user_id == viewer_user_id,
-                WorkspaceMembership.status == "active",
-            )
+        await active_workspace_membership(
+            db,
+            workspace_id=grant.workspace_id,
+            user_id=viewer_user_id,
         )
     ) is not None
 
