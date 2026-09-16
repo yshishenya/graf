@@ -572,6 +572,13 @@
       form_analytics: false,
     });
     bindProductYandexUserID(counterId, providerConfig);
+    var pageClass = stableToken(providerConfig.page_class, 80);
+    if (pageClass) {
+      window.ym(counterId, "hit", "/__graf/" + pageClass, {
+        params: { page_class: pageClass },
+        sendTitle: false,
+      });
+    }
     analytics.yandexEnabled = true;
     analytics.events.push({
       event: "yandex_product_pageview_ready",
