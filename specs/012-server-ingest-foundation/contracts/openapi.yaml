@@ -16429,6 +16429,12 @@ components:
           - click
           title: Event Type
           default: pageview
+        consent_state:
+          type: string
+          enum:
+          - accepted_all
+          - customized
+          title: Consent State
         page_class:
           type: string
           maxLength: 80
@@ -16490,11 +16496,12 @@ components:
           title: Sensitivity
         source:
           type: string
-          maxLength: 80
+          const: browser_autocapture
           title: Source
           default: browser_autocapture
       type: object
       required:
+      - consent_state
       - page_class
       title: PostHogAutocaptureEventRequest
     PostHogDesktopCaptureRequest:
