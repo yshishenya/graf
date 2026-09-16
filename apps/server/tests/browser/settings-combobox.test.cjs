@@ -10,17 +10,19 @@ const recording = fs.readFileSync(path.join(cabinet, 'templates/cabinet/pages/se
  const engine = process.env.BROWSER === 'webkit' ? webkit : chromium;
  const browser = await engine.launch({headless:true});
  try {
-  const page = await browser.newPage({viewport:{width:900,height:900}});
-  page.setDefaultTimeout(5000);
-  await page.addInitScript(() => {
+  const context = await browser.newContext({viewport:{width:900,height:900}});
+  await context.addInitScript(() => {
    const localeLowercase = String.prototype.toLocaleLowerCase;
    String.prototype.toLocaleLowerCase = function () { return localeLowercase.call(this, 'tr-TR'); };
   });
+  const page = await context.newPage();
+  page.setDefaultTimeout(5000);
   const errors=[]; page.on('pageerror',error=>errors.push(error.message));
   await page.setContent(`<meta charset="utf-8"><meta name="graf-time-user" content="actor"><meta name="graf-workspace" content="space"><main class="settings-page"><h1>Запись</h1>${recording}
    <form data-settings-form><label>Язык<select data-settings-combobox name="language"><option value="ru">Русский</option><option disabled value="none">Недоступно</option><option value="en">English</option></select></label>
    <label for="large">Каталог</label><select id="large" data-settings-combobox name="catalog">${Array.from({length:600},(_,i)=>`<option value="${i}">Вариант ${i}</option>`).join('')}</select>
    <button type="submit">Сохранить</button><button type="reset">Отменить</button></form></main>`);
+  assert.equal(await page.evaluate(()=>'I'.toLocaleLowerCase()),'\u0131','Turkish locale override must be active before cabinet.js loads');
   await page.addStyleTag({path:path.join(assets,'cabinet.css')});
   await page.evaluate(()=>{
    window.calls=[]; window.delay=0;
