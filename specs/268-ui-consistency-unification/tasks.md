@@ -62,7 +62,7 @@
 - [X] T024 Финальная проверка: focused pytest из `quickstart.md`, `node --check`, `python3 scripts/check_spec_kit_governance.py`, `bash apps/macos/Scripts/run-swift-tests.sh`. (Issue #7085)
 - [X] T025 Браузерные доказательства: скриншоты и замеры (контраст, обрезка, скелетон, радиусы, окна, статусы) в `specs/268-ui-consistency-unification/evidence/`, 320/390/768/1024/1440, dark/light, standalone/embedded. (Issue #7086)
 - [ ] T026 Dev-приложение: `dev-harness build → promote → status → smoke` — выполнено (`dev-df1ea2ffeba0`, smoke pass, запись в `validation.md`); ручная визуальная проверка индикатора обновления, трея и онбординга осталась за оператором (нет разрешения на запись экрана). (Issue #7087)
-- [ ] T027 Закрытие: `$speckit-converge`, фрагмент `changes/unreleased/268-ui-consistency-unification.md`, `validation.md`, сверка `tasks.md` с GitHub issues. (Issue #7088)
+- [X] T027 Закрытие: `$speckit-converge`, фрагмент `changes/unreleased/268-ui-consistency-unification.md`, `validation.md`, сверка `tasks.md` с GitHub issues (все задачи связаны с issues #7062–#7088). (Issue #7088)
 
 ## Dependencies
 
