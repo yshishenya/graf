@@ -10,13 +10,19 @@ const recording = fs.readFileSync(path.join(cabinet, 'templates/cabinet/pages/se
  const engine = process.env.BROWSER === 'webkit' ? webkit : chromium;
  const browser = await engine.launch({headless:true});
  try {
-  const page = await browser.newPage({viewport:{width:900,height:900}});
+  const context = await browser.newContext({viewport:{width:900,height:900}});
+  await context.addInitScript(() => {
+   const localeLowercase = String.prototype.toLocaleLowerCase;
+   String.prototype.toLocaleLowerCase = function () { return localeLowercase.call(this, 'tr-TR'); };
+  });
+  const page = await context.newPage();
   page.setDefaultTimeout(5000);
   const errors=[]; page.on('pageerror',error=>errors.push(error.message));
   await page.setContent(`<meta charset="utf-8"><meta name="graf-time-user" content="actor"><meta name="graf-workspace" content="space"><main class="settings-page"><h1>Запись</h1>${recording}
    <form data-settings-form><label>Язык<select data-settings-combobox name="language"><option value="ru">Русский</option><option disabled value="none">Недоступно</option><option value="en">English</option></select></label>
    <label for="large">Каталог</label><select id="large" data-settings-combobox name="catalog">${Array.from({length:600},(_,i)=>`<option value="${i}">Вариант ${i}</option>`).join('')}</select>
    <button type="submit">Сохранить</button><button type="reset">Отменить</button></form></main>`);
+  assert.equal(await page.evaluate(()=>'I'.toLocaleLowerCase()),'\u0131','Turkish locale override must be active before cabinet.js loads');
   await page.addStyleTag({path:path.join(assets,'cabinet.css')});
   await page.evaluate(()=>{
    window.calls=[]; window.delay=0;
@@ -206,6 +212,14 @@ const recording = fs.readFileSync(path.join(cabinet, 'templates/cabinet/pages/se
   }));
   assert(Math.abs(gutter.eighth-(gutter.bottom-1))<=1,'Non-overlay scrollbar must not change wrapping after measurement');
   await catalog.press('Escape'); await gutterStyle.evaluate(el=>el.remove());
+  // The page deliberately forces locale-sensitive lowercase to Turkish above.
+  // ASCII I must still match without changing the retained query or setting.
+  await page.evaluate(()=>{targets[0].name='Indian/Maldives';window.GRAFRecordingSettings.refresh();});
+  await page.getByRole('combobox',{name:'Автозапись: Indian/Maldives',exact:true}).waitFor({timeout:2000});
+  await apps.fill('indian/maldives');
+  assert.equal(await options.count(),1,'Locale-independent search must match ASCII I in Chromium/WebKit');
+  assert.equal(await page.locator('[data-recording-settings-targets] label:visible').count(),1);
+  assert.equal(await apps.inputValue(),'indian/maldives');
   for(const filename of fs.readdirSync(path.join(cabinet,'templates/cabinet/pages')).filter(name=>name.startsWith('settings_'))){
    const template=fs.readFileSync(path.join(cabinet,'templates/cabinet/pages',filename),'utf8');
    assert(!/<select(?![^>]*data-settings-combobox)/.test(template),`Unconverted select: ${filename}`);

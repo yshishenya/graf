@@ -18,6 +18,99 @@ from twobrain_rec_server.cabinet.meeting_protocol import (
 from twobrain_rec_server.cabinet.rendering import _render_full_protocol
 
 
+@pytest.mark.parametrize("version,label", [
+    ("meeting-protocol-v1-about-v1", "О чём встреча"),
+    ("meeting-protocol-v1", "Тип встречи"),
+    ("unknown", "Тип встречи"),
+    (None, "Тип встречи"),
+])
+def test_detail_and_shared_identity_use_current_metadata(version, label):
+    from datetime import UTC, datetime
+
+    from tests.unit.test_cabinet_web_shell import _review
+    from twobrain_rec_server.api.schemas import OutcomeProvenanceView
+    from twobrain_rec_server.cabinet.rendering import (
+        render_meeting_detail_page,
+        render_shared_meeting_summary_page,
+    )
+
+    review = _review()
+    document = validate(protocol_fixture())["protocol"]
+    document.update(title="Устаревшее название протокола", date_and_time="Придуманное время",
+                    meeting_type="Техническое проектирование уведомлений", participants=["<Участник>"])
+    review.meeting.title = "Актуальное название встречи"
+    review.meeting.started_at = datetime(2026, 9, 8, 22, 5, 39, tzinfo=UTC)
+    review.notes_action_truth.protocol = document
+    if version is not None:
+        review.notes_action_truth.provenance = OutcomeProvenanceView(
+            generator_kind="litellm", generator_version=version,
+        )
+    detail = render_meeting_detail_page(review)
+    shared = render_shared_meeting_summary_page(
+        meeting_title=review.meeting.title, occurred_at=review.meeting.started_at,
+        duration_seconds=120, summary_sections=[], protocol=document, generator_version=version,
+    )
+    for html in (detail, shared):
+        assert html.split("<template")[0].count("<h1") == 1
+        assert label in html
+        assert "Техническое проектирование уведомлений" in html
+        assert "&lt;Участник&gt;" in html
+        assert "Устаревшее название протокола" not in html
+        assert "Придуманное время" not in html
+        assert "2026-09-08T22:05:39" in html
+    assert "data-source-segment" not in shared
+
+
+def test_interactive_order_disclosures_and_complete_export_are_independent():
+    document = validate(protocol_fixture())["protocol"]
+    document["notes"] = [{"text": "Синтетическое примечание", "source_refs": []}]
+    document["topics"][0]["outcome"] = [{"text": "Выбор отложен", "source_refs": []}]
+    document["topics"][0]["context"] = [{"text": "Нужен доступ к макету", "source_refs": []}]
+    document["topics"][0]["proposals"] = []
+    html = _render_full_protocol(document, source_destination_available=False)
+    titles = ["Главное", "Принятые решения", "Задачи", "Открытые вопросы и следующие шаги",
+              "Ключевые обсуждения", "Примечания"]
+    offsets = [html.index(f">{title}<") for title in titles]
+    assert offsets == sorted(offsets)
+    assert '<details class="notes-topic">' in html
+    assert '<details class="notes-section notes-protocol-notes">' in html
+    assert ' open' not in html
+    assert html.index(">Итог<") < html.index(">Контекст<") < html.index(">Обсуждение<")
+    assert ">Предложения<" not in html
+    assert "Цели встречи" not in html and "Тип входных данных" not in html
+    assert "Выбор отложен" in html and "Синтетическое примечание" in html
+    exported = "\n".join(protocol_lines(document, markdown=False, include_evidence=False, meeting_url=""))
+    assert "Цели встречи" in exported and "Тип входных данных" in exported
+    assert exported.index("Контекст") < exported.index("Итог\n")
+    document["action_items"] = []
+    document["notes"] = []
+    html = _render_full_protocol(document, source_destination_available=False)
+    assert "Задачи не зафиксированы" in html and "<table" not in html
+    assert ">Примечания<" not in html
+
+
+@pytest.mark.parametrize("count", [0, 1, 4])
+def test_one_visible_source_and_no_empty_overflow(count):
+    from twobrain_rec_server.api.schemas import OutcomeItemView, OutcomeSourceReferenceView
+    from twobrain_rec_server.cabinet.rendering import _render_outcome_item
+
+    item = OutcomeItemView(category="summary", sequence=0, text="Проверяемый тезис", truth_label="supported",
+        owner_text="Анна",
+        source_refs=[OutcomeSourceReferenceView(
+            transcript_segment_id="00000000-0000-0000-0000-000000000002",
+            start_seconds=seconds, evidence_kind="segment", seekable=True,
+        ) for seconds in range(count)])
+    html = _render_outcome_item(item, source_destination_available=True)
+    assert html.split("<details")[0].count("data-seek-seconds") == min(count, 1)
+    assert html.count("data-seek-seconds") == count
+    assert ("notes-source-more" in html) == (count > 1)
+    if count:
+        assert html.index('notes-item-sources') < html.index('notes-item-meta-row')
+    if count > 1:
+        assert f"Ещё {count - 1}" in html
+        assert '<div class="notes-source-list">' in html
+
+
 def test_full_protocol_rendering_has_sections_task_table_and_canonical_links():
     document = validate(protocol_fixture())["protocol"]
     text = "\n".join(protocol_lines(document, markdown=True, include_evidence=True,
@@ -30,7 +123,7 @@ def test_full_protocol_rendering_has_sections_task_table_and_canonical_links():
     assert "макет\\," not in text
     html = _render_full_protocol(document, source_destination_available=True,
         source_targets=frozenset({("00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002")}))
-    assert '<table' in html and '<th scope="col">Ответственный</th>' in html
+    assert '<table' in html and '<th role="columnheader" scope="col">Ответственный</th>' in html
     assert 'data-seek-seconds="12.25"' in html
     assert 'data-source-segment="00000000-0000-0000-0000-000000000002"' in html
     assert "Риски не найдены" not in html

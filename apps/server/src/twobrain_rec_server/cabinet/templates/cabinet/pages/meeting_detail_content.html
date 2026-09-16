@@ -29,9 +29,15 @@
         {% else %}
         <h1>{{ meeting_title }}</h1>
         {% endif %}
+        {% if protocol %}
+        <p class="meeting-about"><span class="meeting-meta-label">{{ 'О чём встреча' if protocol_about else 'Тип встречи' }}:</span> {{ protocol.meeting_type }}</p>
+        {% endif %}
         <div class="row-meta">
           <span>{{ meeting_date }}</span><span>·</span><span>{{ meeting_duration }}</span><span data-meeting-status-label>{{ status_label }}</span>
         </div>
+        {% if protocol %}
+        <p class="meeting-participants"><span class="meeting-meta-label">Участники:</span> {{ protocol.participants | join(', ') or 'Не определено' }}</p>
+        {% endif %}
       </div>
     </div>
     <div id="meeting-share-host" data-share-dialog-host></div>

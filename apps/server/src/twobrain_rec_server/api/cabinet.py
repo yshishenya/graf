@@ -2706,6 +2706,7 @@ async def resolve_login_required_share_link_route(
                     duration_seconds=int(projection["duration_seconds"]),
                     summary_sections=projection["summary_sections"],
                     protocol=projection["protocol"],
+                    generator_version=outcome_set.generator_version if outcome_set else None,
                     authenticated=True,
                 )
             )
@@ -2819,6 +2820,7 @@ async def resolve_public_meeting_share_route(
                 duration_seconds=int(projection["duration_seconds"]),
                 summary_sections=projection["summary_sections"],
                 protocol=projection["protocol"],
+                generator_version=outcome_set.generator_version if outcome_set else None,
                 authenticated=False,
             )
         )
@@ -2920,6 +2922,7 @@ async def accept_meeting_share_invitation_route(
                 duration_seconds=int(projection["duration_seconds"]),
                 summary_sections=projection["summary_sections"],
                 protocol=projection["protocol"],
+                generator_version=outcome_set.generator_version if outcome_set else None,
                 authenticated=True,
             )
         )

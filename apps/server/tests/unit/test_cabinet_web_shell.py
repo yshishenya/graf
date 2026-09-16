@@ -3042,7 +3042,7 @@ def test_detail_shell_renders_simple_outcomes_with_metadata_and_sources() -> Non
     assert 'data-seek-seconds="12.5"' in page
     assert 'data-seek-seconds="24.0"' in page
     assert 'data-seek-seconds="36.0"' in page
-    assert '<summary aria-label="Показать еще 1 источник">Еще 1</summary>' in page
+    assert '<summary aria-label="Другие источники: 2">Еще 2</summary>' in page
     assert 'data-seek-seconds="45.0"' in page
     assert 'aria-label="Открыть источник 00:12 в расшифровке"' in page
     assert "data-export-dialog-open" in page

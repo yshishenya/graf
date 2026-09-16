@@ -5849,7 +5849,7 @@
 
   let settingsComboID = 0;
   const settingsCombos = new WeakMap();
-  const normalizeSettingSearch = value => value.toLocaleLowerCase().normalize('NFKC').replace(/[−–]/g, '-').replace(/\s+/g, ' ').trim();
+  const normalizeSettingSearch = value => value.toLowerCase().normalize('NFKC').replace(/[−–]/g, '-').replace(/\s+/g, ' ').trim();
   const createSettingsCombobox = (source, getOptions, onChoose, filterInput = false) => {
     if (settingsCombos.has(source)) return settingsCombos.get(source);
     const wrapper = document.createElement('span');
@@ -8502,17 +8502,18 @@
     const form = document.querySelector("[data-meeting-title-form]");
     if (form?.dataset.ready === "true") return;
     meetingTitleHeaderObserver?.disconnect();
-    if (!form) return;
-    form.dataset.ready = "true";
-    const detail = form.closest("[data-meeting-id]");
-    const header = form.closest("[data-meeting-detail-header]");
+    const header = document.querySelector("[data-meeting-detail-header]");
+    if (!header) return;
+    const detail = header.closest("[data-meeting-id]");
     const headerObserver = new ResizeObserver(() => {
-      if (!form.isConnected) { headerObserver.disconnect(); return; }
+      if (!header.isConnected) { headerObserver.disconnect(); return; }
       header.classList.toggle("meeting-title-header-scrolls", header.offsetHeight > detail.clientHeight / 2);
     });
     headerObserver.observe(header);
     headerObserver.observe(detail);
     meetingTitleHeaderObserver = headerObserver;
+    if (!form) return;
+    form.dataset.ready = "true";
     const input = form.querySelector("[data-meeting-title-input]");
     const display = form.querySelector("[data-meeting-title-open]");
     const version = form.elements.expected_version;

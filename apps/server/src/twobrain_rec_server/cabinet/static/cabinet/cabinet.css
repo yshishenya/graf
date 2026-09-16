@@ -250,6 +250,23 @@ input[type="checkbox"], input[type="radio"] {
   grid-template-columns: var(--app-sidebar-width) minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr) auto;
 }
+.cookie-settings-link--cabinet {
+  position: fixed;
+  right: 16px;
+  bottom: max(16px, env(safe-area-inset-bottom));
+  z-index: 120;
+  margin: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--font-size-helper);
+  cursor: pointer;
+}
+.cookie-settings-link--cabinet:hover { color: var(--text); }
+.cookie-settings-link--cabinet:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .app-shell.desktop-embedded {
   grid-template-columns: var(--app-sidebar-width) minmax(0, 1fr);
 }
@@ -579,6 +596,7 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
 .notes-more { min-width: 0; border-top: 1px solid var(--line-soft); }
 .notes-more > summary {
   padding: 12px 0;
+  overflow-wrap: anywhere;
   color: var(--text);
   font-size: var(--font-size-body);
   font-weight: 700;
@@ -595,7 +613,7 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
 .notes-secondary-outcomes > .notes-section:first-child { border-top: 0; }
 .notes-section-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; min-width: 0; }
 .notes-section-title { min-width: 0; display: grid; gap: 3px; }
-.notes-section h4 { margin: 0; font-size: var(--font-size-label); }
+.notes-section h4 { margin: 0; font-size: var(--font-size-label); overflow-wrap: anywhere; }
 .notes-full-protocol :is(h3, h4, h5, h6) { margin: 0 0 10px; line-height: 1.4; }
 .notes-full-protocol h5 { font-size: var(--font-size-body); }
 .notes-full-protocol h6 { font-size: var(--font-size-label); }
@@ -618,8 +636,8 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
 .notes-item-truth { color: var(--green); }
 .outcome-item { min-width: 0; padding-top: 10px; border-top: 1px solid var(--line-soft); }
 .outcome-item:first-child { padding-top: 0; border-top: 0; }
-.outcome-item-text { margin: 0; color: var(--text); line-height: 1.45; overflow-wrap: anywhere; }
-.notes-item-sources { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.outcome-item-text { display: inline; margin: 0; color: var(--text); line-height: 1.45; overflow-wrap: anywhere; }
+.notes-item-sources { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px; max-width: 100%; vertical-align: baseline; }
 .notes-source-label { color: var(--muted); font-size: var(--font-size-caption); }
 .notes-source-link {
   min-height: 24px;
@@ -635,7 +653,9 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
 }
 .notes-source-link:hover { color: var(--text); }
 .notes-source-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-.notes-source-more { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.notes-source-more { position: relative; }
+.notes-source-list { position: absolute; z-index: 20; right: 0; top: 100%; display: flex; flex-direction: column; min-width: 6rem; max-width: 80vw; max-height: min(240px, 50dvh); overflow-y: auto; padding: 6px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--panel); box-shadow: var(--shadow-popover); }
+.notes-source-list .notes-source-link { text-align: left; min-height: 28px; }
 .notes-source-more > summary {
   min-height: 24px;
   color: var(--muted);
@@ -4815,6 +4835,7 @@ form[data-state="invalid"] .settings-form-status { color: var(--muted); }
   font-weight: 700;
 }
 .shared-summary { display: grid; gap: 18px; max-width: 760px; }
+.shared-summary > .muted { margin: 0; }
 .shared-summary h1,
 .shared-summary h2,
 .shared-summary p { overflow-wrap: anywhere; }
@@ -5628,6 +5649,10 @@ html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned
 .meeting-detail-navigation,
 .detail-page-main .detail-main { width: 100%; max-width: 674px; margin-inline: auto; }
 .meeting-detail-identity .page-title { gap: 4px; }
+.meeting-about, .meeting-participants { margin: 0; font-size: var(--font-size-section); line-height: 1.75; overflow-wrap: anywhere; }
+.meeting-detail-identity :is(.meeting-about, .meeting-participants) { padding-inline: 4px; }
+.meeting-meta-label { font-weight: 600; }
+.meeting-participants { color: var(--muted); font-size: var(--font-size-label); }
 .meeting-detail-identity h1 { font-size: var(--font-size-page-title); line-height: 1.3; overflow-wrap: anywhere; }
 .meeting-detail-identity .meeting-title-display,
 .meeting-detail-identity .meeting-title-input { min-height: 32px; padding: 0 4px; }
@@ -5656,10 +5681,31 @@ html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned
 .detail-page-main .notes-section { padding: 20px 0; }
 .detail-page-main :is(.notes-section h4, .notes-full-protocol h3, .notes-full-protocol h4, .notes-full-protocol h5, .notes-full-protocol h6) { font-size: var(--font-size-page-title); line-height: 24px; font-weight: 700; }
 .detail-page-main .outcome-item-text { line-height: 28px; }
-.detail-page-main .notes-full-protocol .outcome-item { border: 0; padding-top: 0; }
-.detail-page-main .notes-full-protocol .notes-section:has(> h3) { display: flex; flex-wrap: wrap; gap: 0 6px; padding: 0; border: 0; }
-.detail-page-main .notes-full-protocol .notes-section > h3 { margin: 0; font-size: var(--font-size-section); line-height: 28px; font-weight: 600; }
-.detail-page-main .notes-full-protocol .notes-section:has(> h3) + .notes-section:has(> h4) { margin-top: 20px; }
+.notes-full-protocol .outcome-item { border: 0; padding-top: 0; }
+.notes-full-protocol { font-size: var(--font-size-section); line-height: 1.75; container-type: inline-size; }
+.notes-task-label { display: none; color: var(--muted); }
+@container (max-width: 41em) {
+  .notes-action-table, .notes-action-table tbody { display: block; }
+  .notes-action-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .notes-action-table tbody > tr { display: grid; gap: var(--space-1); padding: var(--space-2); border: 1px solid var(--line-soft); border-radius: var(--radius-sm); }
+  .notes-action-table tbody > tr + tr { margin-top: var(--space-2); }
+  .notes-action-table td, .notes-action-table td:first-child { display: block; width: auto; padding: 0; border: 0; }
+  .notes-task-label { display: inline; }
+}
+.notes-full-protocol > .notes-section:first-child { border-top: 0; }
+.notes-full-protocol :is(h2, h3, h4, h5) { overflow-wrap: anywhere; }
+.notes-full-protocol > .notes-section > :is(h2, h3),
+.notes-full-protocol .notes-protocol-notes > summary > :is(h2, h3) { margin: 0 0 var(--space-2); font-size: var(--font-size-page-title); line-height: 1.45; }
+.notes-full-protocol .outcome-item + .outcome-item { margin-top: var(--space-2); }
+.notes-full-protocol .outcome-item-text { line-height: 1.75; }
+.notes-topic { border-top: 1px solid var(--line-soft); }
+.notes-topic > summary, .notes-protocol-notes > summary { min-height: 28px; padding: 10px 0; cursor: pointer; }
+.notes-topic > summary > :is(h3, h4), .notes-protocol-notes > summary > :is(h2, h3) { display: inline; }
+.notes-full-protocol .notes-topic > summary > :is(h3, h4) { font-size: var(--font-size-section); line-height: 1.75; font-weight: 600; }
+.notes-topic-content { padding: 4px 0 16px 16px; }
+.notes-topic-part + .notes-topic-part { margin-top: 18px; }
+.notes-full-protocol .notes-topic-part > :is(h4, h5) { margin: 0 0 6px; font-size: var(--font-size-label); line-height: 1.5; font-weight: 600; color: var(--muted); }
+.notes-topic > summary:focus-visible, .notes-protocol-notes > summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: var(--radius-xs); }
 .detail-page-main .notes-header h3 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 .detail-page-main .notes-header { padding: 0; border: 0; }
 .detail-page-main .notes-source-line { font-size: var(--font-size-helper); line-height: 16px; }

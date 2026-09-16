@@ -34,9 +34,10 @@ for (const [mainTop, mainHeight, headerBottom, turnTop, turnHeight, textTop, tex
 }
 let resize, observed = [], scrolls = false;
 const detail = {clientHeight:196};
-const header = {offsetHeight:166, classList:{toggle:(_name, value) => {scrolls = value;}}};
+const header = {isConnected:true, closest:() => detail, offsetHeight:166, classList:{toggle:(_name, value) => {scrolls = value;}}};
 const form = {dataset:{}, isConnected:true, closest:key => key === '[data-meeting-id]' ? detail : header};
-const document = {querySelector:() => form, documentElement:{}};
+let editable = true;
+const document = {querySelector:key => key === '[data-meeting-title-form]' ? (editable ? form : null) : header, documentElement:{}};
 const window = {innerHeight:450};
 class ResizeObserver {constructor(callback) {resize = callback;} observe(element) {observed.push(element);} disconnect() {}}
 let meetingTitleHeaderObserver = null;
@@ -46,6 +47,10 @@ assert.ok(observed.includes(detail), 'player resize must update the header witho
 resize(); assert.equal(scrolls, true, 'the header yields space in a short document');
 detail.clientHeight = 720;
 resize(); assert.equal(scrolls, false, 'the header remains sticky when space is available');
+editable = false;
+detail.clientHeight = 196;
+eval(editorStart + '\n}; initMeetingTitleEditor();');
+resize(); assert.equal(scrolls, true, 'read-only detail also releases an oversized header');
 (() => {
   const frames = [];
   let layoutReady = false, revealed = false;

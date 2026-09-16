@@ -2,9 +2,15 @@
   <section class="panel shared-summary" aria-labelledby="shared-summary-title">
     <p class="eyebrow">Итоги через GRAF</p>
     <h1 id="shared-summary-title">{{ meeting_title }}</h1>
+    {% if protocol %}
+    <p class="meeting-about"><span class="meeting-meta-label">{{ 'О чем встреча' if protocol_about else 'Тип встречи' }}:</span> {{ protocol.meeting_type }}</p>
+    {% endif %}
     <p class="muted">
       {% if time_is_upload %}Загружено {% endif %}{{ user_time_element(occurred_at, show_zone=True) }} · {{ (duration_seconds // 60) }} мин
     </p>
+    {% if protocol %}
+    <p class="meeting-participants"><span class="meeting-meta-label">Участники:</span> {{ protocol.participants | join(', ') or 'Не определено' }}</p>
+    {% endif %}
     <p class="shared-summary__notice">Вам открыли только итоги этой встречи. Аудио, расшифровка и внутренние данные недоступны.</p>
 
     {% if protocol_html %}

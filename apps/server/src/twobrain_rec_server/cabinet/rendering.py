@@ -40,7 +40,7 @@ from twobrain_rec_server.cabinet.deletion_rendering import (
 from twobrain_rec_server.cabinet.deletion_rendering import (
     render_deletion_report_page as render_deletion_report_page,
 )
-from twobrain_rec_server.cabinet.meeting_protocol import EMPTY, TASK_HEADING, protocol_blocks
+from twobrain_rec_server.cabinet.meeting_protocol import EMPTY
 from twobrain_rec_server.cabinet.rendering_shared import (
     _base_path,
     _page_shell,
@@ -65,6 +65,7 @@ from twobrain_rec_server.cabinet.user_time import (
 )
 from twobrain_rec_server.deletion.report import BOUNDED_DELETE_COPY
 from twobrain_rec_server.domain.media_filenames import MANUAL_MEDIA_UPLOAD_ACCEPT
+from twobrain_rec_server.outcomes.models import PROTOCOL_ABOUT_GENERATOR_VERSION
 from twobrain_rec_server.outcomes.templates import (
     BUILT_IN_BY_KEY,
     BUILT_IN_TEMPLATES,
@@ -400,6 +401,7 @@ def render_shared_meeting_summary_page(
     duration_seconds: int,
     summary_sections: list[dict[str, object]],
     protocol: dict | None = None,
+    generator_version: str | None = None,
     time_is_upload: bool = False,
     authenticated: bool = False,
     embedded: bool = False,
@@ -413,6 +415,8 @@ def render_shared_meeting_summary_page(
         time_is_upload=time_is_upload,
         duration_seconds=duration_seconds,
         summary_sections=_localized_shared_summary_sections(summary_sections),
+        protocol=protocol,
+        protocol_about=generator_version == PROTOCOL_ABOUT_GENERATOR_VERSION,
         protocol_html=_render_full_protocol(
             protocol, source_destination_available=False, base_heading_level=2
         ) if protocol else None,
@@ -1128,6 +1132,11 @@ def _render_meeting_detail_content(
         embedded=embedded,
         base_path=_base_path(embedded),
         meeting_title=review.meeting.title,
+        protocol=review.notes_action_truth.protocol,
+        protocol_about=(
+            review.notes_action_truth.provenance is not None
+            and review.notes_action_truth.provenance.generator_version == PROTOCOL_ABOUT_GENERATOR_VERSION
+        ),
         title_version=review.meeting.title_version if shared_workspace_id is None else None,
         title_edit=title_edit or {},
         title_csrf_token=csrf_token or "",
@@ -2536,24 +2545,54 @@ def _render_full_protocol(document, *, source_destination_available: bool, base_
         )
         return _render_outcome_item(item, source_destination_available=source_destination_available)
 
+    heading = base_heading_level
     blocks = []
-    for level, title, rows in protocol_blocks(document):
-        heading = min(6, level + base_heading_level - 1)
+    for key, title, empty in (
+        ("executive_summary", "Главное", "Краткие итоги не зафиксированы."),
+        ("decisions", "Принятые решения", EMPTY["Принятые решения"]),
+        ("action_items", "Задачи", "Задачи не зафиксированы."),
+        ("open_questions", "Открытые вопросы и следующие шаги", EMPTY["Открытые вопросы и следующие шаги"]),
+    ):
+        rows = document[key]
+        if key == "open_questions":
+            rows = rows + document["next_steps"]
         body = "".join(render_row(row) for row in rows)
-        if title == TASK_HEADING and level == 2:
-            body = '<table class="notes-action-table"><caption>Задачи встречи</caption><thead><tr>'
-            body += ''.join(f'<th scope="col">{name}</th>' for name in ("Задача", "Ответственный", "Срок"))
-            body += '</tr></thead><tbody>'
+        if key == "action_items" and rows:
+            # Explicit table roles preserve semantics when narrow layouts stack cells (including WebKit).
+            body = '<table class="notes-action-table" role="table"><caption class="sr-only">Задачи встречи</caption><thead role="rowgroup"><tr role="row">'
+            body += ''.join(f'<th role="columnheader" scope="col">{name}</th>' for name in ("Задача", "Ответственный", "Срок"))
+            body += '</tr></thead><tbody role="rowgroup">'
             for row in rows:
-                body += (f'<tr><td>{render_row(row)}</td>'
-                         f'<td>{escape(row["owner_text"] or "Не назначен")}</td>'
-                         f'<td>{escape(row["due_date_text"] or "Не указан")}</td></tr>')
-            if not rows:
-                body += '<tr><td>Задачи не зафиксированы</td><td>Не назначен</td><td>Не указан</td></tr>'
+                body += (f'<tr role="row"><td role="cell">{render_row(row)}</td>'
+                         '<td role="cell"><span class="notes-task-label" aria-hidden="true">Ответственный: </span>'
+                         f'{escape(row["owner_text"] or "Не назначен")}</td>'
+                         '<td role="cell"><span class="notes-task-label" aria-hidden="true">Срок: </span>'
+                         f'{escape(row["due_date_text"] or "Не указан")}</td></tr>')
             body += '</tbody></table>'
-        elif not rows and title in EMPTY and level == 2:
-            body = f'<p>{escape(EMPTY[title])}</p>'
+        elif not rows:
+            body = f'<p class="muted">{escape(empty)}</p>'
         blocks.append(f'<section class="notes-section"><h{heading}>{escape(title)}</h{heading}>{body}</section>')
+    topics = []
+    for topic in document["topics"]:
+        body = ""
+        for key, title in (("outcome", "Итог"), ("context", "Контекст"),
+                           ("discussion", "Обсуждение"), ("proposals", "Предложения")):
+            if topic[key]:
+                body += (f'<section class="notes-topic-part"><h{heading + 2}>{title}</h{heading + 2}>'
+                         + ''.join(render_row(row) for row in topic[key]) + '</section>')
+        topics.append(
+            f'<details class="notes-topic"><summary><h{heading + 1}>{escape(topic["title"])}</h{heading + 1}>'
+            f'</summary><div class="notes-topic-content">{body}</div></details>'
+        )
+    blocks.append(
+        f'<section class="notes-section"><h{heading}>Ключевые обсуждения</h{heading}>'
+        + (''.join(topics) or '<p class="muted">Темы обсуждений не зафиксированы.</p>') + '</section>'
+    )
+    if document["notes"]:
+        blocks.append(
+            f'<details class="notes-section notes-protocol-notes"><summary><h{heading}>Примечания</h{heading}>'
+            '</summary>' + ''.join(render_row(row) for row in document["notes"]) + '</details>'
+        )
     return '<div class="notes-full-protocol">' + ''.join(blocks) + '</div>'
 
 
@@ -2788,23 +2827,17 @@ def _render_outcome_item(item, *, source_destination_available: bool) -> str:
             f'aria-label="Открыть источник {escape(timestamp)} в расшифровке">{escape(timestamp)}</button>'
         )
     if source_controls:
-        overflow_count = max(0, len(source_controls) - 2)
-        source_noun = (
-            "источник"
-            if overflow_count == 1
-            else "источника"
-            if overflow_count < 5
-            else "источников"
-        )
+        overflow_count = len(source_controls) - 1
         overflow_html = (
-            f'<details class="notes-source-more"><summary aria-label="Показать еще {overflow_count} {source_noun}">'
-            f"Еще {overflow_count}</summary>{''.join(source_controls[2:])}</details>"
+            f'<details class="notes-source-more"><summary aria-label="Другие источники: {overflow_count}">'
+            f'Еще {overflow_count}</summary><div class="notes-source-list">'
+            f"{''.join(source_controls[1:])}</div></details>"
             if overflow_count
             else ""
         )
         source_html = (
-            '<div class="notes-item-sources"><span class="notes-source-label">Источник:</span>'
-            + "".join(source_controls[:2])
+            ' <div class="notes-item-sources"><span class="notes-source-label">Источник:</span>'
+            + source_controls[0]
             + overflow_html
             + "</div>"
         )
@@ -2815,7 +2848,7 @@ def _render_outcome_item(item, *, source_destination_available: bool) -> str:
     )
     return (
         f'<article class="outcome-item" data-outcome-truth-label="{escape(truth_label)}">'
-        f'<p class="outcome-item-text">{text}</p>{metadata_html}{source_html}</article>'
+        f'<p class="outcome-item-text">{text}</p>{source_html}{metadata_html}</article>'
     )
 
 
