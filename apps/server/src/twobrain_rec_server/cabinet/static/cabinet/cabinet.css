@@ -5739,7 +5739,7 @@ html[data-theme="dark"] .detail-page-main {
 .notes-full-protocol .outcome-item { border: 0; padding-top: 0; }
 .notes-full-protocol { font-size: 16px; line-height: 1.75; container-type: inline-size; }
 .notes-task-label { display: none; color: var(--muted); }
-@container (max-width: 34em) {
+@container (max-width: 41em) {
   .notes-action-table, .notes-action-table tbody { display: block; }
   .notes-action-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
   .notes-action-table tbody > tr { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--line-soft); border-radius: 8px; }

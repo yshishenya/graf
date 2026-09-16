@@ -20,6 +20,14 @@ async function checkLayout(page, label) {
     if (issues.length) issues.push(...[...main.querySelectorAll('*')].filter(node => node.checkVisibility() && node.clientWidth && node.scrollWidth > node.clientWidth + 1).slice(0, 12).map(node => `overflow child: ${node.tagName}.${node.className} ${node.scrollWidth}/${node.clientWidth} ${node.textContent.slice(0, 40)}`));
     const header = main.querySelector('[data-meeting-detail-header]');
     if (header && header.offsetHeight > main.clientHeight / 2 && getComputedStyle(header).position === 'sticky') issues.push('oversized sticky header');
+    for (const table of main.querySelectorAll('.notes-action-table')) {
+      if (getComputedStyle(table).display !== 'table') continue;
+      for (const cell of table.querySelectorAll('th')) {
+        const range = document.createRange();
+        range.selectNodeContents(cell);
+        if (new Set([...range.getClientRects()].map(rect => rect.top)).size > 1) issues.push(`wrapped task heading: ${cell.textContent}`);
+      }
+    }
     const luminance = color => {
       const rgb = color.match(/[\d.]+/g).slice(0, 3).map(Number).map(v => v / 255);
       return rgb.map(v => v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)
@@ -95,7 +103,7 @@ async function checkFocus(page) {
           await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
         };
         try {
-          for (const width of [320, 390, 768, 1024, 1440]) {
+          for (const width of [320, 390, 720, 768, 1024, 1440]) {
             await page.setViewportSize({ width, height: 1000 });
             await load('normal');
             assert.equal(await page.locator('#cabinet-main h1').count(), 1);
@@ -121,9 +129,9 @@ async function checkFocus(page) {
               assert.deepEqual(flow, { inline: true, nextParagraph: true }, 'sources finish the current thought; the next thought starts a new paragraph');
             }
             if (width === 1440 || width === 390) await page.screenshot({ path: path.join(output, `${engine}-${theme}-${surface}-${width}.png`), fullPage: true });
-            if (width === 390) {
+            if (width === 390 || width === 720) {
               await page.locator('.notes-action-table').scrollIntoViewIfNeeded();
-              await page.screenshot({ path: path.join(output, `${engine}-${theme}-${surface}-tasks.png`), fullPage: true });
+              await page.screenshot({ path: path.join(output, `${engine}-${theme}-${surface}-${width}-tasks.png`), fullPage: true });
             }
             await doubleText(page);
             await checkLayout(page, `${engine} ${theme} ${surface} ${width} text200`); checks++;

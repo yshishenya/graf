@@ -34,7 +34,7 @@ Mock sync_prompts/create_prompt for every built-in profile and custom: assert th
 
 ## Browser acceptance
 
-The new browser script uses actual server-rendered synthetic detail/shared pages and local assets, without real data or provider calls. Check both themes, browser/embedded, 320/390/768/1024/1440 widths, 200% text. Assert one current title, semantic label, canonical local date, section order, closed topics/notes, single expansion, first source plus vertical overflow, keyboard/return navigation, unknown owner/due, long text and no page overflow.
+The new browser script uses actual server-rendered synthetic detail/shared pages and local assets, without real data or provider calls. Check both themes, browser/embedded, 320/390/720/768/1024/1440 widths, 200% text. Assert one current title, semantic label, canonical local date, section order, closed topics/notes, single expansion, first source plus vertical overflow, keyboard/return navigation, unknown owner/due, long text, unbroken task headings and no page overflow.
 Read generated screenshots in ignored output/playwright/f267. Read the synthetic full page as a user: subject is understandable, decisions differ from proposals, tasks are self-contained, topic outcome comes first. Keep screenshots out of git.
 
 ## Local app and live prompt
@@ -93,3 +93,11 @@ Report focused and browser results, screenshot/readability review and unresolved
 - Итоговые SHA, ссылка PR и результаты обязательных GitHub checks фиксируются в описании PR после коммита. Старые результаты выше остаются историческими и не заменяют проверки итогового SHA.
 - До merge требуется отдельная приёмка установленного `/Applications/GRAF Dev.app`; прямые Chromium/WebKit проверки её не заменяют. Для активации новой инструкции Langfuse дополнительно нужны оценка точной версии на синтетических данных и отдельное разрешение. До активации новая вёрстка безопасно показывает историческое «Тип встречи».
 - Фрагмент `changes/unreleased/F267.yaml` готов для сборки release operator. Подготовленный в master выпуск `v2026.09.16.1` не изменялся; последним опубликованным стабильным релизом на момент проверки был `v2026.09.13.3`. Номер и состав следующего выпуска определяются после согласованного merge, затем выполняется единый frozen-candidate `release-full`.
+
+## Устранение замечания установленной проверки — 2026-09-16
+
+- На `a9c9976fc92d75ef81670a5bf63efca65d02bd85` GRAF Dev прошёл 13 smoke checks, раскрытия, переход к источнику и возврат; при открытой правой панели найден перенос слова «Ответственный». После проверки стенд возвращён на предыдущую F6793 штатным rollback, также 13/13 PASS.
+- Новая регрессия в существующей браузерной матрице воспроизвела дефект на embedded 720 px; проверка соседних размеров обнаружила его и на 768 px. Изменён только порог уже существующего вертикального вида задач: `34em` → `41em`. Семантическая таблица, данные и управление не менялись.
+- После исправления: 172 профильных pytest и 180 конфигураций Chromium/WebKit PASS. Проверка измеряет строки заголовков обычной таблицы; скрытая семантическая шапка вертикального вида исключена. Синтетический снимок WebKit embedded 720 px прочитан: задача, ответственный и срок различимы, источник остаётся рядом с мыслью, горизонтального переполнения нет.
+- Повторный analyze: 16 FR + 6 SC, семь задач, покрытие 100%, замечаний нет. Review/converge изменённого T006/T007 и FR-012/SC-004: `converged`, новых задач нет; `tasks.md` и reviewer-owned checklists не менялись. Новые поля, зависимости и JavaScript не добавлены.
+- Пользователь разрешил исправление, коммит/push и полную подготовку к выпуску. Результаты повторной установленной проверки, точного PR SHA и release candidate фиксируются отдельно в PR; прежнее evidence не выдаётся за доказательство новой версии. Production и live Langfuse не изменялись.
