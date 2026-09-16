@@ -9,7 +9,7 @@
 
 ## Фаза 1. Подготовка
 
-- [ ] T001 [US1] Добавить в `.specify/feature.json` пути, которые фича имеет право менять: `apps/server/src/twobrain_rec_server/cabinet`, `apps/server/tests/integration`, `changes/unreleased`, и обновить `source_sha` после коммита артефактов.
+- [ ] T001 [US1] Добавить в `.specify/feature.json` пути, которые фича имеет право менять: `apps/server/src/twobrain_rec_server/cabinet`, `apps/server/tests/integration`, `changes/unreleased`, и обновить `source_sha` после коммита артефактов. (Issue #7130)
 
 ## Фаза 2. Основа — пакетная предвыборка данных страницы (US1, P1)
 
@@ -18,39 +18,39 @@
 `apps/server/src/twobrain_rec_server/cabinet/queries.py` и не удаляет одиночный, пока
 все потребители не переведены.
 
-- [ ] T002 [US1] Добавить пакетное чтение последней ревизии медиа для набора встреч (`DISTINCT ON (meeting_id) ... ORDER BY meeting_id, revision DESC`) в `apps/server/src/twobrain_rec_server/cabinet/queries.py`.
-- [ ] T003 [P] [US1] Добавить пакетное чтение последнего workflow для набора пар (встреча, ревизия) в `apps/server/src/twobrain_rec_server/cabinet/queries.py`.
-- [ ] T004 [P] [US1] Добавить пакетное чтение последнего результата обработки для набора пар (встреча, ревизия) в `apps/server/src/twobrain_rec_server/cabinet/queries.py`.
-- [ ] T005 [P] [US1] Добавить пакетное чтение текущего набора итогов и прогресса итогов для набора результатов в `apps/server/src/twobrain_rec_server/cabinet/queries.py`.
-- [ ] T006 [P] [US1] Добавить пакетное чтение состояний артефактов и состояния воспроизведения для набора встреч в `apps/server/src/twobrain_rec_server/cabinet/queries.py`.
-- [ ] T007 [P] [US1] Добавить пакетное чтение прогресса загрузки для набора встреч в `apps/server/src/twobrain_rec_server/cabinet/queries.py`.
-- [ ] T008 [P] [US1] Добавить пакетное чтение связи с календарём и предыдущей повторяющейся встречи для набора встреч в `apps/server/src/twobrain_rec_server/cabinet/queries.py`.
-- [ ] T009 [US1] Переписать цикл `for meeting in meetings:` в `list_cabinet_meetings` (`apps/server/src/twobrain_rec_server/cabinet/queries.py:462`) на чтение из пакетного контекста без обращений к базе внутри цикла, сохранив порядок проверок: доступ → ревизия → поиск → рабочий процесс → результат → итоги → артефакты → воспроизведение → загрузка → календарь.
-- [ ] T010 [US1] Убедиться, что одиночные помощники, оставшиеся без потребителей, удалены, а используемые другими путями чтения сохранены; прогнать `ruff check` по `apps/server`.
+- [ ] T002 [US1] Добавить пакетное чтение последней ревизии медиа для набора встреч (`DISTINCT ON (meeting_id) ... ORDER BY meeting_id, revision DESC`) в `apps/server/src/twobrain_rec_server/cabinet/queries.py`. (Issue #7131)
+- [ ] T003 [P] [US1] Добавить пакетное чтение последнего workflow для набора пар (встреча, ревизия) в `apps/server/src/twobrain_rec_server/cabinet/queries.py`. (Issue #7132)
+- [ ] T004 [P] [US1] Добавить пакетное чтение последнего результата обработки для набора пар (встреча, ревизия) в `apps/server/src/twobrain_rec_server/cabinet/queries.py`. (Issue #7133)
+- [ ] T005 [P] [US1] Добавить пакетное чтение текущего набора итогов и прогресса итогов для набора результатов в `apps/server/src/twobrain_rec_server/cabinet/queries.py`. (Issue #7134)
+- [ ] T006 [P] [US1] Добавить пакетное чтение состояний артефактов и состояния воспроизведения для набора встреч в `apps/server/src/twobrain_rec_server/cabinet/queries.py`. (Issue #7135)
+- [ ] T007 [P] [US1] Добавить пакетное чтение прогресса загрузки для набора встреч в `apps/server/src/twobrain_rec_server/cabinet/queries.py`. (Issue #7136)
+- [ ] T008 [P] [US1] Добавить пакетное чтение связи с календарём и предыдущей повторяющейся встречи для набора встреч в `apps/server/src/twobrain_rec_server/cabinet/queries.py`. (Issue #7137)
+- [ ] T009 [US1] Переписать цикл `for meeting in meetings:` в `list_cabinet_meetings` (`apps/server/src/twobrain_rec_server/cabinet/queries.py:462`) на чтение из пакетного контекста без обращений к базе внутри цикла, сохранив порядок проверок: доступ → ревизия → поиск → рабочий процесс → результат → итоги → артефакты → воспроизведение → загрузка → календарь. (Issue #7138)
+- [ ] T010 [US1] Убедиться, что одиночные помощники, оставшиеся без потребителей, удалены, а используемые другими путями чтения сохранены; прогнать `ruff check` по `apps/server`. (Issue #7139)
 
 ## Фаза 3. Доступ и общие потребители (US2, P2)
 
-- [ ] T011 [US2] Читать членство зрителя один раз на запрос в `decide_meeting_access` (`apps/server/src/twobrain_rec_server/cabinet/access.py:474`), сохранив `populate_existing=True` и ту же семантику роли и привилегий.
-- [ ] T012 [US2] Добавить пакетное чтение активных грантов для набора встреч и использовать его при формировании решений для страницы списка в `apps/server/src/twobrain_rec_server/cabinet/access.py`.
-- [ ] T013 [US2] Проверить и при необходимости подключить исправленный путь к производным экранам: встроенный список (`apps/server/src/twobrain_rec_server/cabinet/web_routes/desktop.py`), раздел «поделились со мной» и деталь встречи; зафиксировать замеры до и после.
+- [ ] T011 [US2] Читать членство зрителя один раз на запрос в `decide_meeting_access` (`apps/server/src/twobrain_rec_server/cabinet/access.py:474`), сохранив `populate_existing=True` и ту же семантику роли и привилегий. (Issue #7140)
+- [ ] T012 [US2] Добавить пакетное чтение активных грантов для набора встреч и использовать его при формировании решений для страницы списка в `apps/server/src/twobrain_rec_server/cabinet/access.py`. (Issue #7141)
+- [ ] T013 [US2] Проверить и при необходимости подключить исправленный путь к производным экранам: встроенный список (`apps/server/src/twobrain_rec_server/cabinet/web_routes/desktop.py`), раздел «поделились со мной» и деталь встречи; зафиксировать замеры до и после. (Issue #7142)
 
 ## Фаза 4. Предохранитель (US3, P3)
 
-- [ ] T014 [US3] Создать `apps/server/tests/integration/test_cabinet_meeting_list_query_budget.py`: считать обращения к базе слушателем `before_cursor_execute` на `client.app_state["engine"].sync_engine`, создавать встречи напрямую через `client.app_state["sessionmaker"]`, сравнивать число обращений при 5 и при 50 встречах и падать при росте более 25 процентов с указанием экрана.
-- [ ] T015 [US3] Доказать, что предохранитель работает: временно внести обращение к базе внутри цикла, убедиться в падении с понятным сообщением, убрать нарушение.
+- [ ] T014 [US3] Создать `apps/server/tests/integration/test_cabinet_meeting_list_query_budget.py`: считать обращения к базе слушателем `before_cursor_execute` на `client.app_state["engine"].sync_engine`, создавать встречи напрямую через `client.app_state["sessionmaker"]`, сравнивать число обращений при 5 и при 50 встречах и падать при росте более 25 процентов с указанием экрана. (Issue #7143)
+- [ ] T015 [US3] Доказать, что предохранитель работает: временно внести обращение к базе внутри цикла, убедиться в падении с понятным сообщением, убрать нарушение. (Issue #7144)
 
 ## Фаза 5. Проверка результата
 
-- [ ] T016 [US1] Замерить число обращений и время для `/meetings` при 5, 10, 20 и 50 встречах и для `/meetings/{id}`; сравнить с эталоном из `research.md`; результат внести в отчёт.
-- [ ] T017 [US1] Прогнать полный серверный прогон `GRAF_TEST_WORKERS=4 GRAF_PERFORMANCE_GATE=required GRAF_TEST_REPORT_DIR=/tmp/graf-after bash apps/server/scripts/run_local_postgres_tests.sh --full -q` и сравнить с эталоном `/tmp/graf-baseline/parallel.jsonl`.
-- [ ] T018 [US2] Прогнать фокусированные проверки доступа, приватности, удаления и выгрузки по `quickstart.md`, сценарий 4, без правки ожиданий.
-- [ ] T019 [US1] Создать `changes/unreleased/F270.yaml` по формату `changes/unreleased/README.md`.
+- [ ] T016 [US1] Замерить число обращений и время для `/meetings` при 5, 10, 20 и 50 встречах и для `/meetings/{id}`; сравнить с эталоном из `research.md`; результат внести в отчёт. (Issue #7145)
+- [ ] T017 [US1] Прогнать полный серверный прогон `GRAF_TEST_WORKERS=4 GRAF_PERFORMANCE_GATE=required GRAF_TEST_REPORT_DIR=/tmp/graf-after bash apps/server/scripts/run_local_postgres_tests.sh --full -q` и сравнить с эталоном `/tmp/graf-baseline/parallel.jsonl`. (Issue #7146)
+- [ ] T018 [US2] Прогнать фокусированные проверки доступа, приватности, удаления и выгрузки по `quickstart.md`, сценарий 4, без правки ожиданий. (Issue #7147)
+- [ ] T019 [US1] Создать `changes/unreleased/F270.yaml` по формату `changes/unreleased/README.md`. (Issue #7148)
 
 ## Фаза 6. Закрытие
 
-- [ ] T020 [US1] Прогнать `$speckit-analyze` и убедиться, что CRITICAL и HIGH равны нулю.
-- [ ] T021 [US1] Получить обязательные GitHub-проверки `governance-fast`, `macos-pr`, `pr-metadata` на точном SHA пул-реквеста.
-- [ ] T022 [US1] Обновить `docs/current-product-status.md`, если поведение продукта описано там, и `specs/270-cabinet-query-efficiency/tasks.md` по факту выполнения.
+- [ ] T020 [US1] Прогнать `$speckit-analyze` и убедиться, что CRITICAL и HIGH равны нулю. (Issue #7149)
+- [ ] T021 [US1] Получить обязательные GitHub-проверки `governance-fast`, `macos-pr`, `pr-metadata` на точном SHA пул-реквеста. (Issue #7150)
+- [ ] T022 [US1] Обновить `docs/current-product-status.md`, если поведение продукта описано там, и `specs/270-cabinet-query-efficiency/tasks.md` по факту выполнения. (Issue #7151)
 
 ## Зависимости
 
