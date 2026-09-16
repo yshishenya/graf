@@ -19,8 +19,46 @@ REMOTE_CD = ROOT / "infra/scripts/cd-remote.sh"
 FULL_CI_WORKFLOW = ROOT / ".github/workflows/release-full.yml"
 FULL_CI_VALIDATOR = ROOT / "scripts/validate-full-ci-workflow.py"
 MACOS_DIAGNOSTIC_WORKFLOW = ROOT / ".github/workflows/macos-diagnostic.yml"
+MACOS_PR_WORKFLOW = ROOT / ".github/workflows/macos-pr.yml"
 MACOS_TEST_RUNNER = ROOT / "apps/macos/Scripts/run-swift-tests.sh"
 SIGNING_CUSTODY_TEST = ROOT / "apps/macos/Installer/Scripts/test-release-signing-custody.sh"
+
+
+def test_macos_workflows_cache_swift_build_without_gating_validation() -> None:
+    expected_key = (
+        "swift-${{ runner.os }}-${{ runner.arch }}-spm6.0.3-"
+        "${{ hashFiles('apps/macos/Package.resolved') }}-v1"
+    )
+    for workflow in (MACOS_PR_WORKFLOW, FULL_CI_WORKFLOW):
+        text = workflow.read_text(encoding="utf-8")
+        assert "actions/cache@v4" in text
+        assert "apps/macos/.build" in text
+        assert "~/.cache/org.swift.swiftpm" in text
+        assert "~/Library/Caches/org.swift.swiftpm" in text
+        assert expected_key in text
+        assert "swift-version: \"6.0.3\"" in text
+        # A cache hit must never replace or skip a validation step.
+        assert "steps.cache" not in text
+        assert "cache-hit" not in text
+    assert "swift build --package-path apps/macos" in MACOS_PR_WORKFLOW.read_text(encoding="utf-8")
+    assert "swift build --package-path apps/macos" in FULL_CI_WORKFLOW.read_text(encoding="utf-8")
+    assert "bash apps/macos/Scripts/run-swift-tests.sh" in MACOS_PR_WORKFLOW.read_text(encoding="utf-8")
+    assert "bash apps/macos/Scripts/run-swift-tests.sh" in FULL_CI_WORKFLOW.read_text(encoding="utf-8")
+
+
+def test_local_ci_evidence_uses_compiled_products_not_the_build_cache() -> None:
+    text = LOCAL_CI.read_text(encoding="utf-8")
+    assert "macos-build=$repo_root/apps/macos/.build" not in text
+    for name in (
+        "macos-product-two-brain-rec-app",
+        "macos-product-contract-validation",
+        "macos-product-meeting-mute-truth",
+        "macos-product-webrtc-aec3",
+        "macos-product-leakage",
+        "macos-tests",
+    ):
+        assert name in text
+    assert "$repo_root/apps/macos/.build/debug/" in text
 
 
 def run(*args: str, cwd: Path = ROOT, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
