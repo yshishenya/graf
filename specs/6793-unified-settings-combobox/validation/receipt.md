@@ -232,3 +232,42 @@ GitHub governance-fast34748200852 и pr-metadata34748200877 PASS на8d816b478. 
 Локальная полная компиляция и27NativeSettingsComboBoxTests: PASS, включая hosted editable value/selection/focus. Независимый code/Ponytail review Approved. Apple Thread Safety Summary требует главный поток для NSCell и всех наследников; явное предположение проверяет этот существующий контракт. Результаты Swift6.0.3 записываются в PR после запуска, T023 до них остаётся открытой.
 
 GitHub macos-diagnostic34751902861 на fbb63060ac0e9027bd885bc0a55760e3db601705: PASS, Swift6.0.3 build + полный Swift test suite + ContractValidation. governance-fast34751923848 и pr-metadata34751923859 на этомSHA: PASS. T023 implementation/diagnostic завершены; релизный кандидат после merge ещё требует нового release-full. Следующий документационный коммит не меняет runtime и требует собственного governance-fast.
+
+## T024: регионально-независимый поиск — 2026-09-15
+
+Issue #6984. В `cabinet.js` и `NativeSettingsComboBox.swift` локализованное
+преобразование регистра заменено на Unicode-регионально-независимое без
+изменения NFKC, пробелов, тире, IME и явного подтверждения выбора.
+
+Регрессии:
+
+- `node settings-combobox.test.cjs` — Chromium PASS; тест принудительно
+  подменяет `toLocaleLowerCase()` на `tr-TR`, затем проверяет `Indian/Maldives`
+  по запросу `indian/maldives` без записи настройки.
+- `BROWSER=webkit node settings-combobox.test.cjs` — WebKit PASS с тем же
+  принудительным турецким преобразованием.
+- `swift test --package-path apps/macos --disable-swift-testing
+  --filter NativeSettingsComboBoxTests` — 27/27 PASS, включая
+  `Indian/Maldives` и сохранение существующих проверок NFKC/пробелов/тире/IME.
+
+Изменены только runtime-нормализация, профильные проверки, задача T024 и
+unreleased changelog-фрагмент. Установленная приёмка GRAF Dev и обязательные
+проверки PR на exact SHA ещё не выполнены; выпуск и deploy не выполнялись.
+
+## T024: установленный GRAF Dev — 2026-09-15
+
+Штатный `infra/scripts/dev-harness.sh` выполнен из чистого worktree на exact
+SHA `f6effc37ac7f436f7cd5b164ef3d586af87d29c1`:
+
+- build: PASS, manifest `dev-f6effc37ac7f`;
+- promote `--live`: PASS, установлен `/Applications/GRAF Dev.app`;
+- manifest сохранил bundle ID `pro.2brain.graf.dev`, канал `dev`, подпись
+  `GRAF Local Code Signing` и разрешения;
+- promote checks: 13/13 PASS, включая `exact_source_sha`,
+  `app_identity`, `app_presentation`, `backend_health` и
+  `frontend_reachability`;
+- `smoke --json --live`: PASS, manifest `dev-f6effc37ac7f`, observed SHA
+  совпадает с exact SHA.
+
+Обязательные GitHub checks PR на exact SHA ещё не выполнены; выпуск, merge и
+deploy не выполнялись.

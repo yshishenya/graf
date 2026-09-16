@@ -530,6 +530,7 @@ final class NativeSettingsComboBoxTests: XCTestCase {
             XCTAssertEqual(query, input, "Normalization must not overwrite the displayed query")
         }
         XCTAssertTrue(NativeSettingsComboBox.matchesSearch("UTC−05:00", query: " utc–05 "))
+        XCTAssertTrue(NativeSettingsComboBox.matchesSearch("Indian/Maldives", query: "indian/maldives"))
         type("Teams Microsoft", in: control, coordinator: coordinator)
         XCTAssertTrue(coordinator.visibleOptions.isEmpty)
         type(" \t\n ", in: control, coordinator: coordinator)
