@@ -145,6 +145,7 @@ def test_summary_only_share_never_discloses_an_unaccepted_candidate(client) -> N
             published = await db.get(MeetingOutcomeSet, meeting.current_outcome_set_id)
             published.protocol_json = protocol_fixture()
             published.protocol_json["title"] = "Полный опубликованный протокол"
+            published.generator_version = "meeting-protocol-v1-about-v1"
             candidate = MeetingOutcomeSet(
                 workspace_id=meeting.workspace_id,
                 meeting_id=meeting.id,
@@ -214,7 +215,8 @@ def test_summary_only_share_never_discloses_an_unaccepted_candidate(client) -> N
     assert api_summary.status_code == 200
     assert html_summary.status_code == 200
     assert "Сохранённый итог." in api_summary.text
-    assert "Полный опубликованный протокол" in html_summary.text
+    assert "Полный опубликованный протокол" not in html_summary.text
+    assert "О чём встреча" in html_summary.text
     assert "Полный опубликованный протокол" in api_summary.text
     assert "source_refs" not in api_summary.json()["protocol"].__str__()
     assert "quote" not in api_summary.json()["protocol"].__str__()
@@ -228,10 +230,11 @@ def test_summary_only_share_never_discloses_an_unaccepted_candidate(client) -> N
             f"/shared-meetings/{ready_id}?workspace_id={WORKSPACE_ID}", headers=headers
         )
         assert canonical.status_code == 200
-        assert "Полный опубликованный протокол" in canonical.text
+        assert "Полный опубликованный протокол" not in canonical.text
+        assert "О чём встреча" in canonical.text
         assert "Сделать макет" in canonical.text and "наверное, завтра" in canonical.text
-        assert '<h2>Название встречи/проекта</h2>' in canonical.text
-        assert '<h3>Ключевые обсуждения</h3>' in canonical.text
+        assert '<h2>Главное</h2>' in canonical.text
+        assert '<h2>Ключевые обсуждения</h2>' in canonical.text
         assert "Непринятый приватный" not in canonical.text
         assert "data-source-segment" not in canonical.text
         assert "data-seek-seconds" not in canonical.text
