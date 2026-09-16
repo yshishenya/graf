@@ -24,6 +24,11 @@ from twobrain_rec_server.product_analytics.page_inventory import (
     get_page_class_policy,
     page_class_policies,
     product_analytics_action_allowlist,
+    product_analytics_consent_state_allowlist,
+    product_analytics_device_class_allowlist,
+    product_analytics_identity_state_allowlist,
+    product_analytics_role_allowlist,
+    product_analytics_tag_allowlist,
     product_analytics_target_allowlist,
 )
 from twobrain_rec_server.product_analytics.posthog_client import PostHogClientWrapper
@@ -53,6 +58,7 @@ class ProductAnalyticsEventRequest(BaseModel):
 class PostHogAutocaptureEventRequest(BaseModel):
     distinct_id: str | None = Field(default=None, max_length=120)
     event_type: Literal["ready", "pageview", "click"] = "pageview"
+    consent_state: Literal["accepted_all", "customized"]
     page_class: str = Field(min_length=1, max_length=80)
     path_class: str | None = Field(default=None, max_length=80)
     tag_name: str | None = Field(default=None, max_length=24)
@@ -63,7 +69,7 @@ class PostHogAutocaptureEventRequest(BaseModel):
     workspace_pseudonym: str | None = Field(default=None, max_length=120)
     device_class: str | None = Field(default=None, max_length=80)
     sensitivity: str | None = Field(default=None, max_length=40)
-    source: str = Field(default="browser_autocapture", max_length=80)
+    source: Literal["browser_autocapture"] = "browser_autocapture"
 
 
 class PostHogDesktopCaptureRequest(BaseModel):
@@ -193,6 +199,22 @@ async def product_analytics_posthog_web_capture(
             code="posthog_autocapture_page_blocked",
             title="PostHog autocapture blocked for this page",
             detail="Financial and sensitive pages are not eligible for web autocapture.",
+        )
+    stable_fields = (
+        ("path_class", body.path_class, (page_policy.page_class,)),
+        ("tag_name", body.tag_name, product_analytics_tag_allowlist()),
+        ("role", body.role, product_analytics_role_allowlist()),
+        ("identity_state", body.identity_state, product_analytics_identity_state_allowlist()),
+        ("device_class", body.device_class, product_analytics_device_class_allowlist()),
+        ("consent_state", body.consent_state, product_analytics_consent_state_allowlist()),
+        ("sensitivity", body.sensitivity, (page_policy.sensitivity,)),
+    )
+    if any(value is not None and value not in allowed for _, value, allowed in stable_fields):
+        raise ProblemDetail(
+            status=400,
+            code="posthog_autocapture_field_rejected",
+            title="PostHog autocapture field rejected",
+            detail="Autocapture fields must use the approved stable catalogs.",
         )
     distinct_id = body.distinct_id or "graf_pseudo_browser_anonymous"
     if not is_safe_pseudonymous_id(distinct_id):

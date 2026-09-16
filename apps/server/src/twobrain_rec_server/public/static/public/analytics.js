@@ -42,6 +42,7 @@
   var sentKeys = {};
   var listenersBound = false;
   var sectionsObserved = false;
+  var sectionObserver = null;
   var currentCategories = [];
   var currentConsentState = "unknown";
   var previousOptionalConsent = false;
@@ -389,9 +390,45 @@
     }
   }
 
+  function consentStorageWritable() {
+    var storageKey = config.consent_storage_key || "graf_public_cookie_consent";
+    try {
+      if (!window.localStorage) {
+        return false;
+      }
+      var probeKey = storageKey + ".__graf_probe__";
+      window.localStorage.setItem(probeKey, "1");
+      var writable = window.localStorage.getItem(probeKey) === "1";
+      window.localStorage.removeItem(probeKey);
+      return writable;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function persistedConsentMetadataMatches(state) {
+    var storageKey = config.consent_storage_key || "graf_public_cookie_consent";
+    try {
+      var raw = window.localStorage.getItem(storageKey);
+      var cookie = raw ? JSON.parse(raw) : null;
+      var data = cookie && cookie.data && typeof cookie.data === "object" ? cookie.data : {};
+      return Boolean(
+        data.graf_consent_copy_version === consentCopyVersion() &&
+          Number(data.graf_consent_revision) === consentRevision() &&
+          data.graf_consent_state === state,
+      );
+    } catch (_) {
+      return false;
+    }
+  }
+
   function persistConsentMetadata(state) {
-    if (!window.CookieConsent || typeof window.CookieConsent.setCookieData !== "function") {
-      return;
+    if (
+      !window.CookieConsent ||
+      typeof window.CookieConsent.setCookieData !== "function" ||
+      !consentStorageWritable()
+    ) {
+      return false;
     }
     try {
       window.CookieConsent.setCookieData({
@@ -402,7 +439,10 @@
           graf_consent_state: state,
         },
       });
-    } catch (_) {}
+      return persistedConsentMetadataMatches(state);
+    } catch (_) {
+      return false;
+    }
   }
 
   function consentCookieFromDetails(details) {
@@ -450,7 +490,14 @@
     currentConsentState = nextState;
     api.currentCategories = categories.slice();
     api.currentConsentState = nextState;
-    persistConsentMetadata(nextState);
+    if (!persistConsentMetadata(nextState)) {
+      currentCategories = [];
+      currentConsentState = "unknown";
+      api.currentCategories = [];
+      api.currentConsentState = "unknown";
+      disableOptionalProviders();
+      return false;
+    }
     if (api.providerLoaded && replayConsentChanged) {
       disableOptionalProviders();
       window.location.reload();
@@ -574,6 +621,7 @@
         device_class: stableToken(providerConfig.posthog.device_class, 80),
         identity_state: stableToken(providerConfig.posthog.identity_state, 80),
         page_class: stableToken(providerConfig.page_class, 80) || "unknown",
+        path_class: providerConfig.page_class,
         sensitivity: stableToken(providerConfig.sensitivity, 40) || "unknown",
         source: "browser_autocapture",
         workspace_pseudonym: stableToken(providerConfig.posthog.workspace_pseudonym, 120),
@@ -742,28 +790,32 @@
   }
 
   function observeSections() {
-    if (sectionsObserved || !publicConfig || typeof IntersectionObserver === "undefined") {
+    if (!publicConfig || typeof IntersectionObserver === "undefined") {
       return;
     }
-    sectionsObserved = true;
-    var observer = new IntersectionObserver(
-      function (entries) {
-        entries.forEach(function (entry) {
-          if (!entry.isIntersecting) {
-            return;
-          }
-          var sectionId = entry.target.dataset.analyticsSection;
-          if (allowedLabel("section_id", sectionId)) {
-            dispatchOnce("public_landing_section_seen", { section_id: sectionId });
-            observer.unobserve(entry.target);
-          }
-        });
-      },
-      { threshold: 0.12 },
-    );
+    if (!sectionObserver) {
+      sectionObserver = new IntersectionObserver(
+        function (entries) {
+          entries.forEach(function (entry) {
+            if (!entry.isIntersecting) {
+              return;
+            }
+            var sectionId = entry.target.dataset.analyticsSection;
+            if (allowedLabel("section_id", sectionId)) {
+              var key = dedupeKey("public_landing_section_seen", { section_id: sectionId });
+              if (dispatchOnce("public_landing_section_seen", { section_id: sectionId }) || sentKeys[key]) {
+                sectionObserver.unobserve(entry.target);
+              }
+            }
+          });
+        },
+        { threshold: 0.12 },
+      );
+    }
     document.querySelectorAll("[data-analytics-section]").forEach(function (element) {
-      observer.observe(element);
+      sectionObserver.observe(element);
     });
+    sectionsObserved = true;
   }
 
   function startPublicTracking() {

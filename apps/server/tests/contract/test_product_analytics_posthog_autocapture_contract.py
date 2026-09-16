@@ -69,6 +69,8 @@ def test_posthog_autocapture_controller_uses_first_party_proxy_not_posthog_sdk()
     assert "providerConfig.posthog.capture_endpoint" in controller
     assert "sendBeacon" in controller
     assert "window.fetch(providerConfig.posthog.capture_endpoint" in controller
+    assert "path_class: providerConfig.page_class" in controller
+    assert "consent_state: currentConsentState" in controller
     assert "posthog.init" not in controller
     assert "posthog-js" not in controller
     assert "posthog.com" not in controller
@@ -108,6 +110,7 @@ def test_posthog_web_capture_endpoint_accepts_safe_proxy_event_without_provider_
             "/api/v1/product-analytics/posthog-web-capture",
             json={
                 "event_type": "click",
+                "consent_state": "customized",
                 "page_class": "cabinet_home",
                 "tag_name": "button",
                 "role": "tab",
@@ -131,6 +134,7 @@ def test_posthog_web_capture_endpoint_blocks_financial_page_inventory_entries(tm
             "/api/v1/product-analytics/posthog-web-capture",
             json={
                 "event_type": "click",
+                "consent_state": "customized",
                 "page_class": "billing_invoice",
                 "tag_name": "button",
                 # Client-provided sensitivity cannot override the inventory.
@@ -152,6 +156,7 @@ def test_posthog_web_capture_endpoint_uses_pseudonymous_identity_and_rejects_sec
             json={
                 "distinct_id": "graf_pseudo_user_c0ffee0000000000",
                 "event_type": "click",
+                "consent_state": "customized",
                 "page_class": "settings",
                 "role": "tab",
                 "analytics_action": "calendar_settings_opened",
@@ -166,6 +171,7 @@ def test_posthog_web_capture_endpoint_uses_pseudonymous_identity_and_rejects_sec
             json={
                 "distinct_id": "graf_pseudo_user_c0ffee0000000000",
                 "event_type": "click",
+                "consent_state": "customized",
                 "page_class": "settings",
                 "role": "tab",
                 "analytics_action": "access_token",
@@ -177,6 +183,7 @@ def test_posthog_web_capture_endpoint_uses_pseudonymous_identity_and_rejects_sec
             json={
                 "distinct_id": "graf_pseudo_user_c0ffee0000000000",
                 "event_type": "click",
+                "consent_state": "customized",
                 "page_class": "settings",
                 "role": "owner@example.test",
                 "analytics_action": "calendar_settings_opened",
@@ -188,6 +195,7 @@ def test_posthog_web_capture_endpoint_uses_pseudonymous_identity_and_rejects_sec
             json={
                 "distinct_id": "owner@example.test",
                 "event_type": "click",
+                "consent_state": "customized",
                 "page_class": "settings",
                 "analytics_action": "calendar_settings_opened",
             },
@@ -198,6 +206,43 @@ def test_posthog_web_capture_endpoint_uses_pseudonymous_identity_and_rejects_sec
     assert secret.status_code == 400
     assert secret.json()["code"] == "posthog_autocapture_rejected"
     assert private_identity.status_code == 400
-    assert private_identity.json()["code"] == "posthog_autocapture_rejected"
+    assert private_identity.json()["code"] == "posthog_autocapture_field_rejected"
     assert raw_identity.status_code == 400
     assert raw_identity.json()["code"] == "posthog_autocapture_identity_rejected"
+
+
+def test_posthog_web_capture_rejects_unallowlisted_proxy_fields(tmp_path: Path) -> None:
+    app = create_app(_settings(tmp_path))
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/product-analytics/posthog-web-capture",
+            json={
+                "event_type": "click",
+                "consent_state": "customized",
+                "page_class": "settings",
+                "path_class": "https://private.example/settings?token=secret",
+                "role": "owner",
+                "identity_state": "raw_user",
+                "device_class": "phone",
+                "sensitivity": "public",
+            },
+        )
+
+    assert response.status_code == 400
+    assert response.json()["code"] == "posthog_autocapture_field_rejected"
+
+
+def test_product_navigation_exposes_only_catalogued_internal_actions() -> None:
+    sections = (
+        Path(__file__).parents[2]
+        / "src/twobrain_rec_server/cabinet/templates/cabinet/components/sections.html"
+    ).read_text(encoding="utf-8")
+
+    for action, target in (
+        ("nav_recordings", "recordings"),
+        ("settings_opened", "settings"),
+        ("calendar_settings_opened", "calendar_settings"),
+    ):
+        assert f'data-analytics-action="{action}"' in sections
+        assert f'data-analytics-target="{target}"' in sections

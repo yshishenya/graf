@@ -29,6 +29,20 @@ PRODUCT_ANALYTICS_TARGETS = (
     "navigation",
     "tab",
 )
+PRODUCT_ANALYTICS_TAGS = (
+    "a",
+    "button",
+    "details",
+    "input",
+    "label",
+    "select",
+    "summary",
+    "textarea",
+)
+PRODUCT_ANALYTICS_ROLES = ("button", "checkbox", "link", "menuitem", "tab", "switch")
+PRODUCT_ANALYTICS_IDENTITY_STATES = ("anonymous", "authenticated_pseudonymous")
+PRODUCT_ANALYTICS_DEVICE_CLASSES = ("browser", "desktop_webview")
+PRODUCT_ANALYTICS_CONSENT_STATES = ("accepted_all", "customized")
 
 
 @dataclass(frozen=True, slots=True)
@@ -558,3 +572,23 @@ def product_analytics_action_allowlist() -> tuple[str, ...]:
 
 def product_analytics_target_allowlist() -> tuple[str, ...]:
     return PRODUCT_ANALYTICS_TARGETS
+
+
+def product_analytics_tag_allowlist() -> tuple[str, ...]:
+    return PRODUCT_ANALYTICS_TAGS
+
+
+def product_analytics_role_allowlist() -> tuple[str, ...]:
+    return PRODUCT_ANALYTICS_ROLES
+
+
+def product_analytics_identity_state_allowlist() -> tuple[str, ...]:
+    return PRODUCT_ANALYTICS_IDENTITY_STATES
+
+
+def product_analytics_device_class_allowlist() -> tuple[str, ...]:
+    return PRODUCT_ANALYTICS_DEVICE_CLASSES
+
+
+def product_analytics_consent_state_allowlist() -> tuple[str, ...]:
+    return PRODUCT_ANALYTICS_CONSENT_STATES

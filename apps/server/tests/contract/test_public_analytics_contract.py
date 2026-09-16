@@ -193,6 +193,7 @@ def test_public_yandex_controller_is_opt_in_narrow_query_safe_and_deduplicated()
         "window.CookieConsent.run", 'mode: "opt-in"', "onChange: handleConsent",
         "onConsent: handleConsent", "onFirstConsent: handleConsent",
         "graf_consent_state", "graf_consent_revision", "getCookie",
+        "persistedConsentMetadataMatches", "consentStorageWritable",
     ):
         assert marker in analytics_js
     for forbidden in (
