@@ -122,7 +122,13 @@ description: "Task list for Feature 269 — гигиена дискового п
 - [x] T028 Финализировать `changes/unreleased/F269.yaml`: поля `tasks`, `compatibility`, `known_limitations`, `release_notes` по итогам реализации
 - [x] T029 Запустить фокусную валидацию: `python3 -m pytest -q tests/governance/test_dev_state_retention.py tests/governance/test_graf_local_adapter.py tests/governance/test_ci_cd_contract.py`, portable harness self-test (`PYTHONPATH=harness/src`), `bash -n` для `infra/scripts/ci-local.sh` и `scripts/dev-harness.py`-обёртки, `python3 scripts/check_spec_kit_governance.py`, `infra/scripts/ci-local.sh --fast`
 - [ ] T030 Live-проверка по `specs/269-dev-storage-hygiene/quickstart.md` на единственном стенде: `status` → `prune --dry-run` → `prune` → `status`/`smoke --live` → `rehydrate` целевого → `rollback --dry-run`; измерить длительность `promote` и подтвердить однократный `docker image save` (FR-015/SC-007); по отдельному согласованию — live `rollback` на предыдущий манифест и возврат (SC-003), иначе зафиксировать в evidence ограничение проверки dry-run и rehydrate
-- [ ] T031 Запушить ветку, дождаться GitHub `governance-fast`, `macos-pr`, `pr-metadata` на точном SHA; проверить cache miss на первом запуске и cache hit на повторном; подготовить описание PR с лейном, командами, результатами и evidence; `release-full` — на замороженном кандидате
+
+  > Частично выполнено: `status` с блоком `retention`, `prune --dry-run` (план 718 МБ) и `prune` (718 МБ освобождено, квитанция в `prune-history.jsonl`) проверены на живом стенде; `smoke` подтверждает backend/worker/database/storage, но `app_identity`, `app_presentation` и `exact_source_sha` недоступны, потому что `/Applications/GRAF Dev.app` удалён внешним процессом (параллельная сессия Feature 267 на том же SHA `751d52a93`); по решению владельца восстановление не выполняется. Live `rehydrate`/`rollback` с этой ветки невозможны из-за проверки exact-SHA checkout. Тайминг promote (FR-015/SC-007) не измерен по той же причине.
+
+- [x] T031 Запушить ветку, дождаться GitHub `governance-fast`, `macos-pr`, `pr-metadata` на точном SHA; проверить cache miss на первом запуске и cache hit на повторном; подготовить описание PR с лейном, командами, результатами и evidence; `release-full` — на замороженном кандидате
+
+  > Cache miss (сохранение 299 МБ) и cache hit подтверждены логами на SHA `16ccdb6`; выигрыш от обновления mtime восстановленных артефактов будет измерен на ближайшем PR с изменениями `apps/macos` (этот PR не запускает native-job, потому что не меняет Swift-код). Ветка перебазирована на `origin/master` по решению владельца.
+
 
 ---
 
