@@ -54,3 +54,5 @@ def test_browser_controller_has_inventory_aware_yandex_gate() -> None:
     assert "bindProductYandexUserID" in analytics_js
     assert "\"setUserID\"" in analytics_js
     assert "\"userParams\"" in analytics_js
+    assert 'window.ym(counterId, "hit", "/__graf/" + pageClass' in analytics_js
+    assert "params: { page_class: pageClass }" in analytics_js

@@ -1,0 +1,13 @@
+schema_version: 1
+feature_id: 266
+category: Changed
+summary: "Публичная аналитика ГРАФ переведена на явное согласие с безопасными границами Webvisor и внутреннего пути."
+issue: 7014
+tasks: [T001, T002, T003, T004, T005, T006, T007, T008, T009, T010, T011, T012, T013, T014, T015, T016, T017, T018, T019, T020, T021, T022, T023, T024, T025, T026, T027, T028, T029, T030]
+compatibility: "Без изменений для обязательных маршрутов; необязательная аналитика требует нового явного выбора."
+known_limitations:
+  - "tracker pending: закрытие задач и issues ожидает финальной сверки evidence."
+  - "legal pending: правовое основание и опубликованный текст требуют отдельного согласования."
+  - "provider dashboard pending: ручная проверка кабинета, фактического хранения и тестового визита не выполнена."
+  - "release pending: exact-SHA PR checks, выпуск и production deploy не выполнялись."
+release_notes: "implementation ready; browser smoke passed on exact SHA; tracker pending; legal pending; provider dashboard pending; release pending. Webvisor и карты включаются только после согласия категорий analytics и behavior_replay на / и /download; внутренние страницы, формы и содержимое встреч остаются закрытыми."

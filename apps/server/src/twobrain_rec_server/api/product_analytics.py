@@ -14,11 +14,22 @@ from twobrain_rec_server.product_analytics.event_catalog import (
     yandex_offline_conversion_event_names,
 )
 from twobrain_rec_server.product_analytics.events import build_activation_event
+from twobrain_rec_server.product_analytics.forbidden_fields import (
+    assert_no_forbidden_fields,
+    assert_no_security_credential_fields,
+)
 from twobrain_rec_server.product_analytics.identity import is_safe_pseudonymous_id
 from twobrain_rec_server.product_analytics.ingest import ProductAnalyticsIngestService
 from twobrain_rec_server.product_analytics.page_inventory import (
     get_page_class_policy,
     page_class_policies,
+    product_analytics_action_allowlist,
+    product_analytics_consent_state_allowlist,
+    product_analytics_device_class_allowlist,
+    product_analytics_identity_state_allowlist,
+    product_analytics_role_allowlist,
+    product_analytics_tag_allowlist,
+    product_analytics_target_allowlist,
 )
 from twobrain_rec_server.product_analytics.posthog_client import PostHogClientWrapper
 from twobrain_rec_server.product_analytics.provider_config import ProductAnalyticsProviderConfig
@@ -47,6 +58,7 @@ class ProductAnalyticsEventRequest(BaseModel):
 class PostHogAutocaptureEventRequest(BaseModel):
     distinct_id: str | None = Field(default=None, max_length=120)
     event_type: Literal["ready", "pageview", "click"] = "pageview"
+    consent_state: Literal["accepted_all", "customized"]
     page_class: str = Field(min_length=1, max_length=80)
     path_class: str | None = Field(default=None, max_length=80)
     tag_name: str | None = Field(default=None, max_length=24)
@@ -57,7 +69,7 @@ class PostHogAutocaptureEventRequest(BaseModel):
     workspace_pseudonym: str | None = Field(default=None, max_length=120)
     device_class: str | None = Field(default=None, max_length=80)
     sensitivity: str | None = Field(default=None, max_length=40)
-    source: str = Field(default="browser_autocapture", max_length=80)
+    source: Literal["browser_autocapture"] = "browser_autocapture"
 
 
 class PostHogDesktopCaptureRequest(BaseModel):
@@ -188,6 +200,22 @@ async def product_analytics_posthog_web_capture(
             title="PostHog autocapture blocked for this page",
             detail="Financial and sensitive pages are not eligible for web autocapture.",
         )
+    stable_fields = (
+        ("path_class", body.path_class, (page_policy.page_class,)),
+        ("tag_name", body.tag_name, product_analytics_tag_allowlist()),
+        ("role", body.role, product_analytics_role_allowlist()),
+        ("identity_state", body.identity_state, product_analytics_identity_state_allowlist()),
+        ("device_class", body.device_class, product_analytics_device_class_allowlist()),
+        ("consent_state", body.consent_state, product_analytics_consent_state_allowlist()),
+        ("sensitivity", body.sensitivity, (page_policy.sensitivity,)),
+    )
+    if any(value is not None and value not in allowed for _, value, allowed in stable_fields):
+        raise ProblemDetail(
+            status=400,
+            code="posthog_autocapture_field_rejected",
+            title="PostHog autocapture field rejected",
+            detail="Autocapture fields must use the approved stable catalogs.",
+        )
     distinct_id = body.distinct_id or "graf_pseudo_browser_anonymous"
     if not is_safe_pseudonymous_id(distinct_id):
         raise ProblemDetail(
@@ -204,6 +232,30 @@ async def product_analytics_posthog_web_capture(
             detail="Autocapture workspace pseudonym must be a GRAF pseudonymous analytics identity.",
         )
     properties = body.model_dump(exclude_none=True)
+    try:
+        assert_no_forbidden_fields(properties)
+        assert_no_security_credential_fields(properties)
+    except ValueError as exc:
+        raise ProblemDetail(
+            status=400,
+            code="posthog_autocapture_rejected",
+            title="PostHog autocapture event rejected",
+            detail="Autocapture event contained forbidden analytics material.",
+        ) from exc
+    if body.analytics_action is not None and body.analytics_action not in product_analytics_action_allowlist():
+        raise ProblemDetail(
+            status=400,
+            code="posthog_autocapture_action_rejected",
+            title="PostHog autocapture action rejected",
+            detail="Autocapture action is not in the approved stable action catalog.",
+        )
+    if body.analytics_target is not None and body.analytics_target not in product_analytics_target_allowlist():
+        raise ProblemDetail(
+            status=400,
+            code="posthog_autocapture_target_rejected",
+            title="PostHog autocapture target rejected",
+            detail="Autocapture target is not in the approved stable target catalog.",
+        )
     properties.update(
         {
             "delivery_mode": "first_party_browser_proxy",
