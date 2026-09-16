@@ -252,6 +252,101 @@ def _tree_digest(path: Path) -> str:
     return "sha256:" + digest.hexdigest()
 
 
+PRUNE_RECEIPT_SCHEMA_VERSION = "dev-prune-receipt.v1"
+PRUNE_HISTORY_FILE = "prune-history.jsonl"
+
+
+def _path_bytes(path: Path) -> int:
+    """Bounded size accounting for a file or a directory tree."""
+    try:
+        if path.is_file() and not path.is_symlink():
+            return path.stat().st_size
+        total = 0
+        for child in path.rglob("*"):
+            if child.is_file() and not child.is_symlink():
+                total += child.stat().st_size
+        return total
+    except OSError:
+        return 0
+
+
+def _remove_within_state(
+    path: Path,
+    state_root: Path,
+    kind: str,
+    removed: list,
+    *,
+    dry_run: bool = False,
+) -> None:
+    """Remove one artifact only inside the Dev state root and record its size."""
+    resolved_root = state_root.resolve()
+    resolved = path.resolve() if not path.is_symlink() else Path(os.path.realpath(path))
+    if resolved == resolved_root or resolved_root not in resolved.parents:
+        raise HarnessError(f"refusing to remove a path outside the Dev state: {path}")
+    if not path.exists() and not path.is_symlink():
+        return
+    size = _path_bytes(path)
+    if not dry_run:
+        if path.is_dir() and not path.is_symlink():
+            shutil.rmtree(path)
+        else:
+            path.unlink()
+    removed.append({"path": str(path), "bytes": size, "kind": kind})
+
+
+def _retention_keep(
+    active_id: Optional[str],
+    target_id: Optional[str],
+    keep_extra: tuple = (),
+) -> Dict[str, set]:
+    """Return the artifact kinds retained for every manifest under the policy."""
+    keep: Dict[str, set] = {}
+    if active_id:
+        keep.setdefault(active_id, set()).add("app_bundle")
+    if target_id:
+        keep.setdefault(target_id, set()).update({"archive", "app_bundle"})
+    for extra in keep_extra:
+        if extra:
+            keep.setdefault(str(extra), set()).add("app_bundle")
+    return keep
+
+
+def _retention_kept_paths(state: Path, keep: Dict[str, set]) -> list:
+    kept = []
+    for manifest_id in sorted(keep):
+        paths = []
+        for kind, name in (("archive", "runtime-images.tar"), ("app_bundle", "GRAF Dev.app")):
+            if kind in keep[manifest_id]:
+                candidate = state / "artifacts" / manifest_id / name
+                if candidate.exists():
+                    paths.append(str(candidate))
+        kept.append({"manifest_id": manifest_id, "paths": paths})
+    return kept
+
+
+def _prune_receipt(
+    *,
+    dry_run: bool,
+    removed: list,
+    kept: list,
+    status: str,
+    partial_reasons: list,
+    started_at: str,
+    finished_at: str,
+) -> Dict[str, Any]:
+    return {
+        "schema_version": PRUNE_RECEIPT_SCHEMA_VERSION,
+        "dry_run": dry_run,
+        "removed": removed,
+        "kept": kept,
+        "bytes_freed": sum(int(item.get("bytes", 0)) for item in removed),
+        "status": status,
+        "partial_reasons": partial_reasons,
+        "started_at": started_at,
+        "finished_at": finished_at,
+    }
+
+
 def _run_command(command: list[str], *, cwd: Path, env: Optional[Dict[str, str]] = None) -> str:
     """Run one adapter command and expose only a bounded, safe failure message."""
     try:
@@ -891,29 +986,8 @@ class GrafLocalAdapter:
         manifest["components"]["worker"]["digest"] = manifest["components"]["processing_worker"]["digest"]
         artifact_root = self.state / "artifacts" / str(manifest["manifest_id"])
         artifact_root.mkdir(parents=True, exist_ok=True)
-        image_archive = artifact_root / "runtime-images.tar"
-        temporary_archive = artifact_root / ".runtime-images.tar.tmp"
-        with contextlib.suppress(FileNotFoundError):
-            temporary_archive.unlink()
-        try:
-            _run_command(
-                [
-                    "docker", "image", "save", "--output", str(temporary_archive),
-                    *sorted(
-                        {
-                            str(manifest["components"][component]["digest"])
-                            for component, _variable, _fallback, _source_bound
-                            in COMPOSE_IMAGE_COMPONENTS.values()
-                        }
-                    ),
-                ],
-                cwd=self.root,
-                env=env,
-            )
-            os.replace(temporary_archive, image_archive)
-        finally:
-            with contextlib.suppress(FileNotFoundError):
-                temporary_archive.unlink()
+        # The immutable image archive belongs to the rollback target and is
+        # created by promote, not by every candidate build (Feature 269 R1/R2).
         build_dir = artifact_root / "build"
         app_bundle = artifact_root / "GRAF Dev.app"
         env.update(
@@ -925,6 +999,8 @@ class GrafLocalAdapter:
         _run_command(["sh", str(self.build_app_script)], cwd=self.root, env=env)
         if not app_bundle.is_dir():
             raise HarnessError("GRAF Dev builder did not produce GRAF Dev.app")
+        with contextlib.suppress(FileNotFoundError):
+            shutil.rmtree(build_dir)
         signing_identity, designated_requirement, entitlements_digest = self._measure_signed_app_identity(app_bundle)
         manifest["app_identity"].update(
             {
@@ -934,6 +1010,16 @@ class GrafLocalAdapter:
             }
         )
         manifest["components"]["macos_app"]["digest"] = _tree_digest(app_bundle)
+        # The fresh candidate must survive until it is promoted; everything
+        # outside the active/target pair and the candidate is stale.
+        active = _load_active(self.state)
+        target = None
+        if active and active.get("parent_manifest_id"):
+            target_id = _safe_id(str(active["parent_manifest_id"]), "manifest_id")
+            target_path = _manifest_path(self.state, target_id)
+            if target_path.exists():
+                target = _read_json(target_path)
+        self._apply_retention(active, target, keep_extra=(str(manifest["manifest_id"]),))
         return {"mode": "live", "app_bundle_digest": manifest["components"]["macos_app"]["digest"]}
 
     def rehydrate(self, manifest: Dict[str, Any]) -> Dict[str, str]:
@@ -951,6 +1037,138 @@ class GrafLocalAdapter:
         env = self._env(manifest)
         self._assert_manifest_images(manifest, env)
         return {"mode": "live", "images": "rehydrated"}
+
+    def _ensure_rollback_archive(self, manifest: Optional[Dict[str, Any]]) -> None:
+        """Archive the future rollback target exactly once, before publishing.
+
+        Feature 269 keeps one immutable archive on disk: the target manifest of
+        the active candidate.  Its images are still loaded because they served
+        the runtime until this operation, so the archive can be created here.
+        """
+        if manifest is None:
+            return
+        artifact_root = self.state / "artifacts" / str(manifest["manifest_id"])
+        artifact_root.mkdir(parents=True, exist_ok=True)
+        archive = artifact_root / "runtime-images.tar"
+        if archive.is_file():
+            return
+        env = self._env(manifest, pin_images=False)
+        digests = sorted(
+            {
+                str(manifest["components"][component]["digest"])
+                for component, _variable, _fallback, _source_bound in COMPOSE_IMAGE_COMPONENTS.values()
+            }
+        )
+        for digest in digests:
+            try:
+                observed = _run_command(
+                    ["docker", "image", "inspect", "--format", "{{.Id}}", digest],
+                    cwd=self.root,
+                    env=env,
+                ).strip()
+            except HarnessError as exc:
+                raise HarnessError(
+                    "rollback target images are unavailable; refusing to publish the candidate"
+                ) from exc
+            if observed.lower() != digest.lower():
+                raise HarnessError(
+                    "rollback target image identity changed; refusing to publish the candidate"
+                )
+        temporary_archive = artifact_root / ".runtime-images.tar.tmp"
+        with contextlib.suppress(FileNotFoundError):
+            temporary_archive.unlink()
+        try:
+            _run_command(
+                ["docker", "image", "save", "--output", str(temporary_archive), *digests],
+                cwd=self.root,
+                env=env,
+            )
+            os.replace(temporary_archive, archive)
+        finally:
+            with contextlib.suppress(FileNotFoundError):
+                temporary_archive.unlink()
+
+    def _apply_retention(
+        self,
+        active_manifest: Optional[Dict[str, Any]],
+        target_manifest: Optional[Dict[str, Any]],
+        *,
+        keep_extra: tuple = (),
+        dry_run: bool = False,
+        removed: Optional[list] = None,
+        partial_reasons: Optional[list] = None,
+    ) -> Dict[str, set]:
+        """Delete artifact sets outside the policy; never fail the operation.
+
+        Tag removal is best effort: the Dev runtime is already healthy, so a
+        Docker hiccup must be reported as a partial result instead of undoing a
+        successful build, promotion or rollback.
+        """
+        removed = removed if removed is not None else []
+        partial_reasons = partial_reasons if partial_reasons is not None else []
+        active_id = str(active_manifest["manifest_id"]) if active_manifest else None
+        target_id = str(target_manifest["manifest_id"]) if target_manifest else None
+        keep = _retention_keep(active_id, target_id, keep_extra)
+        artifacts = self.state / "artifacts"
+        removed_manifests: list[str] = []
+        if artifacts.is_dir():
+            for child in sorted(artifacts.iterdir()):
+                if not child.is_dir() or child.is_symlink():
+                    continue
+                if child.name not in keep:
+                    removed_manifests.append(child.name)
+                    _remove_within_state(child, self.state, "artifact_set", removed, dry_run=dry_run)
+                    continue
+                build_dir = child / "build"
+                if build_dir.exists():
+                    _remove_within_state(build_dir, self.state, "build_dir", removed, dry_run=dry_run)
+        transactions = self.state / "transactions"
+        if transactions.is_dir():
+            for child in sorted(transactions.glob("previous-*.app")):
+                _remove_within_state(child, self.state, "app_backup", removed, dry_run=dry_run)
+        env_manifest = active_manifest or target_manifest
+        if removed_manifests and env_manifest is not None:
+            env = self._env(env_manifest, pin_images=False)
+            for manifest_id in sorted(removed_manifests):
+                for _service, (component, _variable, _fallback, _source_bound) in COMPOSE_IMAGE_COMPONENTS.items():
+                    tag = f"graf-dev-immutable:{manifest_id}-{component.replace('_', '-')}"
+                    try:
+                        _run_command(["docker", "image", "rm", tag], cwd=self.root, env=env)
+                    except HarnessError:
+                        partial_reasons.append(f"image tag retained: {tag}")
+        return keep
+
+    def _cleanup_schema_snapshots(self, *, keep_operation: Optional[str] = None, dry_run: bool = False) -> list:
+        """Delete cold volume snapshots of finished schema transitions."""
+        directory = self.state / "schema-transactions"
+        removed: list = []
+        if not directory.is_dir():
+            return removed
+        for child in sorted(directory.iterdir()):
+            if keep_operation and child.name == keep_operation:
+                continue
+            _remove_within_state(child, self.state, "schema_snapshot", removed, dry_run=dry_run)
+        return removed
+
+    def estimate_or_apply_prune(self, *, dry_run: bool) -> tuple:
+        """Compute the retention plan and optionally apply it under the state lock."""
+        active = _load_active(self.state)
+        target = None
+        if active and active.get("parent_manifest_id"):
+            target_id = _safe_id(str(active["parent_manifest_id"]), "manifest_id")
+            target_path = _manifest_path(self.state, target_id)
+            if target_path.exists():
+                target = _read_json(target_path)
+        removed: list = []
+        partial_reasons: list = []
+        keep = self._apply_retention(
+            active, target, dry_run=dry_run, removed=removed, partial_reasons=partial_reasons
+        )
+        journal = _read_schema_transition(self.state)
+        keep_operation = journal["operation_id"] if journal and journal["phase"] not in {"complete", "recovered"} else None
+        removed.extend(self._cleanup_schema_snapshots(keep_operation=keep_operation, dry_run=dry_run))
+        return removed, partial_reasons, _retention_kept_paths(self.state, keep)
+
 
     def _measure_signed_app_identity(self, app_bundle: Path) -> tuple[str, str, str]:
         """Read signing facts from the final bundle, never from configuration."""
@@ -1434,6 +1652,10 @@ print(json.dumps({"heads": s.get_heads(), "parents": {r.revision: list(r._normal
         journal["phase"] = phase
         journal["updated_at"] = now()
         _write_json(self.state / "schema-transition.json", journal)
+        if phase in {"complete", "recovered"}:
+            # Feature 269: cold volume snapshots are only needed while the
+            # transition is unfinished; remove them as soon as it completes.
+            self._cleanup_schema_snapshots(keep_operation=None, dry_run=False)
 
     def _schema_stop(self, manifest):
         self._terminate_dev_app(Path("/Applications/GRAF Dev.app"))
@@ -1640,6 +1862,9 @@ print(json.dumps({"heads": s.get_heads(), "parents": {r.revision: list(r._normal
                 self._assert_transition_smoke(checks)
             if any(value != "pass" for key, value in checks.items() if key != "mode"):
                 raise HarnessError("live promotion smoke failed")
+            # Feature 269: the previous candidate becomes the one rollback
+            # target, so its exact images must be archived before publication.
+            self._ensure_rollback_archive(previous_manifest)
         except BaseException as failure:
             compensation_errors = []
             try:
@@ -1671,6 +1896,7 @@ print(json.dumps({"heads": s.get_heads(), "parents": {r.revision: list(r._normal
         else:
             if app_backup is not None:
                 shutil.rmtree(app_backup)
+            self._apply_retention(manifest, previous_manifest)
         return {"mode": "live", "backend": "started", "app": "installed", "checks": checks}
 
     def rollback(self, active: Dict[str, Any], target: Dict[str, Any], *, previous_checkout=None, target_checkout=None) -> Dict[str, Any]:
@@ -1741,6 +1967,16 @@ print(json.dumps({"heads": s.get_heads(), "parents": {r.revision: list(r._normal
         else:
             if app_backup is not None:
                 shutil.rmtree(app_backup)
+            # The restored target becomes active; its own parent becomes the
+            # next rollback target (artifacts may already be gone, which is a
+            # reported state rather than an error).
+            next_target = None
+            next_target_id = target.get("parent_manifest_id")
+            if isinstance(next_target_id, str) and next_target_id:
+                candidate_path = _manifest_path(self.state, _safe_id(next_target_id, "manifest_id"))
+                if candidate_path.exists():
+                    next_target = _read_json(candidate_path)
+            target_adapter._apply_retention(target, next_target)
         return {"mode": "live", "backend": "started", "app": "installed", "checks": checks}
 
     def _wait_http(self, origin: str, path: str, *, headers: Optional[Dict[str, str]] = None, timeout: int = 10) -> int:
@@ -2196,7 +2432,55 @@ def operation_status(args: argparse.Namespace) -> Dict[str, Any]:
     active = _load_active(root)
     if active is None:
         return {"operation": "status", "status": "blocked", "reason": "no active Dev manifest", "state_dir": str(root)}
-    return {"operation": "status", "status": active.get("status", "active"), "state_dir": str(root), "manifest": active}
+    retention = {
+        "active_manifest_id": str(active["manifest_id"]),
+        "rollback_target_id": None,
+        "artifacts_bytes": 0,
+        "archive_present": False,
+    }
+    parent_id = active.get("parent_manifest_id")
+    if isinstance(parent_id, str) and parent_id:
+        retention["rollback_target_id"] = parent_id
+        retention["archive_present"] = (root / "artifacts" / parent_id / "runtime-images.tar").is_file()
+    artifacts = root / "artifacts"
+    if artifacts.is_dir():
+        retention["artifacts_bytes"] = sum(_path_bytes(child) for child in artifacts.iterdir())
+    return {
+        "operation": "status",
+        "status": active.get("status", "active"),
+        "state_dir": str(root),
+        "manifest": active,
+        "retention": retention,
+    }
+
+
+def operation_prune(args: argparse.Namespace) -> Dict[str, Any]:
+    """Apply the local artifact retention policy without building anything."""
+    _assert_dev_environment()
+    root = state_dir(live=bool(getattr(args, "live", False)))
+    started_at = now()
+    with state_lock(root):
+        # An unfinished schema transition owns cold volume snapshots; a
+        # rollback-required receipt means the runtime is not in a steady state.
+        _assert_no_schema_transition(root)
+        if (root / "rollback-required.json").exists():
+            raise HarnessError("prune is blocked while rollback is required; recover the Dev runtime first")
+        adapter = GrafLocalAdapter(_repo_root(), root)
+        removed, partial_reasons, kept = adapter.estimate_or_apply_prune(dry_run=bool(args.dry_run))
+        receipt = _prune_receipt(
+            dry_run=bool(args.dry_run),
+            removed=removed,
+            kept=kept,
+            status="partial" if partial_reasons else "ok",
+            partial_reasons=partial_reasons,
+            started_at=started_at,
+            finished_at=now(),
+        )
+        if not args.dry_run:
+            history = root / PRUNE_HISTORY_FILE
+            with history.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(receipt, ensure_ascii=False, sort_keys=True) + "\n")
+        return {"operation": "prune", **receipt}
 
 
 def operation_smoke(args: argparse.Namespace) -> Dict[str, Any]:
@@ -2335,6 +2619,9 @@ def parser() -> argparse.ArgumentParser:
     rollback.add_argument("--live", action="store_true", help="explicitly restore the local live Dev target")
     rollback.add_argument("--previous-checkout", help="clean exact-SHA checkout of the active runtime for verified compensation")
     rollback.add_argument("--target-checkout", help="clean exact-SHA checkout of the rollback target; run controller from the active SHA")
+    prune = sub.add_parser("prune")
+    prune.add_argument("--dry-run", action="store_true")
+    prune.add_argument("--json", action="store_true")
     sub.add_parser("recover-schema")
     guard = sub.add_parser("schema-start-guard")
     guard.add_argument("--state-root", type=Path, required=True)
@@ -2351,7 +2638,7 @@ def dispatch(args: argparse.Namespace) -> Dict[str, Any]:
         return {"status": "allowed"}
     if args.operation == "recover-schema":
         return operation_recover_schema(args)
-    return {"build": operation_build, "promote": operation_promote, "rehydrate": operation_rehydrate, "status": operation_status, "smoke": operation_smoke, "rollback": operation_rollback, "reset-data": operation_reset_data}[args.operation](args)
+    return {"build": operation_build, "promote": operation_promote, "rehydrate": operation_rehydrate, "status": operation_status, "smoke": operation_smoke, "rollback": operation_rollback, "reset-data": operation_reset_data, "prune": operation_prune}[args.operation](args)
 
 
 def main(argv: Optional[list[str]] = None) -> int:
