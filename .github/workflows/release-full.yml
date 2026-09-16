@@ -267,6 +267,7 @@ jobs:
           swift-version: "6.0.3"
 
       - name: Cache Swift build
+        id: swift-cache
         uses: actions/cache@v4
         with:
           path: |
@@ -276,6 +277,14 @@ jobs:
           key: swift-${{ runner.os }}-${{ runner.arch }}-spm6.0.3-${{ hashFiles('apps/macos/Package.resolved') }}-v1
           restore-keys: |
             swift-${{ runner.os }}-${{ runner.arch }}-spm6.0.3-
+
+      - name: Refresh restored build timestamps
+        if: steps.swift-cache.outputs.cache-hit == 'true'
+        shell: bash
+        # actions/checkout writes sources after the restore, so freshly restored
+        # outputs look older than the checkout; llbuild would then rebuild all
+        # modules. Touch the restored artifacts so incremental state is honored.
+        run: find apps/macos/.build -exec touch {} +
 
       - name: Run macOS full component
         shell: bash

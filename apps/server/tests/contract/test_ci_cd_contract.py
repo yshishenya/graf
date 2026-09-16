@@ -32,18 +32,18 @@ def test_macos_workflows_cache_swift_build_without_gating_validation() -> None:
     for workflow in (MACOS_PR_WORKFLOW, FULL_CI_WORKFLOW):
         text = workflow.read_text(encoding="utf-8")
         assert "actions/cache@v4" in text
+        assert "id: swift-cache" in text
         assert "apps/macos/.build" in text
         assert "~/.cache/org.swift.swiftpm" in text
         assert "~/Library/Caches/org.swift.swiftpm" in text
         assert expected_key in text
         assert "swift-version: \"6.0.3\"" in text
-        # A cache hit must never replace or skip a validation step.
-        assert "steps.cache" not in text
-        assert "cache-hit" not in text
-    assert "swift build --package-path apps/macos" in MACOS_PR_WORKFLOW.read_text(encoding="utf-8")
-    assert "swift build --package-path apps/macos" in FULL_CI_WORKFLOW.read_text(encoding="utf-8")
-    assert "bash apps/macos/Scripts/run-swift-tests.sh" in MACOS_PR_WORKFLOW.read_text(encoding="utf-8")
-    assert "bash apps/macos/Scripts/run-swift-tests.sh" in FULL_CI_WORKFLOW.read_text(encoding="utf-8")
+        # A cache hit must never replace or skip a validation step; it only
+        # refreshes timestamps so llbuild can honor incremental state.
+        assert "if: steps.swift-cache.outputs.cache-hit == 'true'" in text
+        assert "find apps/macos/.build -exec touch {} +" in text
+        for command in ("swift build --package-path apps/macos", "bash apps/macos/Scripts/run-swift-tests.sh"):
+            assert command in text
 
 
 def test_local_ci_evidence_uses_compiled_products_not_the_build_cache() -> None:
