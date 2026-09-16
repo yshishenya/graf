@@ -61,7 +61,7 @@
 
 - [X] T024 Финальная проверка: focused pytest из `quickstart.md`, `node --check`, `python3 scripts/check_spec_kit_governance.py`, `bash apps/macos/Scripts/run-swift-tests.sh`.
 - [X] T025 Браузерные доказательства: скриншоты и замеры (контраст, обрезка, скелетон, радиусы, окна, статусы) в `specs/268-ui-consistency-unification/evidence/`, 320/390/768/1024/1440, dark/light, standalone/embedded.
-- [ ] T026 Dev-приложение: `dev-harness build → promote → status → smoke`, ручная проверка индикатора обновления, статусов автозаписи, трея, онбординга; запись в `validation.md`.
+- [ ] T026 Dev-приложение: `dev-harness build → promote → status → smoke` — выполнено (`dev-df1ea2ffeba0`, smoke pass, запись в `validation.md`); ручная визуальная проверка индикатора обновления, трея и онбординга осталась за оператором (нет разрешения на запись экрана).
 - [ ] T027 Закрытие: `$speckit-converge`, фрагмент `changes/unreleased/268-ui-consistency-unification.md`, `validation.md`, сверка `tasks.md` с GitHub issues.
 
 ## Dependencies

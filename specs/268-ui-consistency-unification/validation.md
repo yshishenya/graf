@@ -55,14 +55,28 @@
   верхняя полоса появляется только для фаз действия (скачивание, установка,
   готовность, ошибка). Логика скачивания и подписи пакета не менялись.
 
+## Dev-приложение и стенд (T026)
+
+| Шаг | Команда | Результат |
+|---|---|---|
+| Сборка манифеста | `dev-harness build --sha df1ea2ff… --feature-id 268 --live` | манифест `dev-df1ea2ffeba0`, status `ready` |
+| Переход | `dev-harness promote --manifest … --live --previous-checkout /private/tmp/graf-f268-previous-active` | status `active`, source SHA совпадает с коммитом |
+| Smoke | `dev-harness smoke --json --live` | `status: pass`, все 13 проверок pass, включая `app_identity`, `app_presentation`, `exact_source_sha`, `backend_health`, `frontend_reachability`, `database_readiness`, `temporal_readiness`, `processing_worker_readiness`, `media_worker_readiness` |
+| Процесс | `/Applications/GRAF Dev.app/Contents/MacOS/GRAF` | запущен, bundle `pro.2brain.graf.dev` |
+
+Вырезка переопределения runtime definition выполнена штатным
+`--previous-checkout` (чистая временная копия активного SHA
+`751d52a9381f…` в `/private/tmp/graf-f268-previous-active`); компенсация
+сохранена, каталог не удалён.
+
 ## Что не подтверждено
 
-- **Единственное Dev-приложение (`/Applications/GRAF Dev.app`)** — сборка и
-  smoke через `dev-harness` не выполнялись в этом прогоне: локальный
-  `specify` doctor сообщает о расхождении версии инструментов
-  (`specify v1.0.4` против ожидаемой `v1.0.7`), стенд требует отдельного
-  прогона. Это ограничение окружения, не дефект фичи. Ручная проверка в приложении
-  остаётся обязательной до закрытия issue #7087.
+- **Визуальный осмотр нативных панелей** (`screencapture` и `System Events`
+  недоступны процессу: нет разрешения на запись экрана, дерево
+  доступности WebKit/SwiftUI неполное). Автоматические проверки Dev-сборки
+  прошли полностью; ручная визуальная проверка индикатора обновления,
+  трея и онбординга остаётся за оператором и обязательна до закрытия
+  issue #7087.
 - Биллинг, рефералы и связанные окна проверены контрактными тестами, но не
   живым браузером: маршрутов биллинга в синтетическом стенде нет.
 - Публичный сайт (лендинг) не поднимался в браузере; конвенция текста
