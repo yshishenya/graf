@@ -5,7 +5,7 @@
 <nav class="cabinet-sidebar-nav" aria-label="Навигация кабинета">
   {%- for item in items -%}
   {%- set selected = item.id == active -%}
-  <a class="cabinet-sidebar-nav__item{% if selected %} is-selected{% endif %}" href="{{ item.href }}" aria-label="{{ item.label }}" title="{{ item.label }}" data-state="{{ 'selected' if selected else 'normal' }}"{% if selected %} aria-current="page"{% endif %}>
+  <a class="cabinet-sidebar-nav__item{% if selected %} is-selected{% endif %}" href="{{ item.href }}" aria-label="{{ item.label }}" title="{{ item.label }}" data-state="{{ 'selected' if selected else 'normal' }}"{% if item.id == "meetings" %} data-analytics-action="nav_recordings" data-analytics-target="recordings"{% elif item.id == "settings" %} data-analytics-action="settings_opened" data-analytics-target="settings"{% endif %}{% if selected %} aria-current="page"{% endif %}>
     {{ icons.icon(item.icon) }}
     <span class="cabinet-sidebar-nav__label">{{ item.label }}</span>
   </a>
@@ -19,13 +19,13 @@
   {{ workspace_header("ГРАФ", none, mark_src=static_url ~ "/graf-icon.png", wordmark_src=static_url ~ "/graf-wordmark-dark.png", wordmark_srcset=static_url ~ "/graf-wordmark-dark@2x.png 2x") }}
   {% if navigation.active == "settings" %}
   <nav class="cabinet-sidebar-nav cabinet-sidebar-nav--settings" aria-label="Навигация кабинета" data-settings-primary-nav>
-    <a class="cabinet-sidebar-nav__item cabinet-sidebar-nav__item--back" href="{{ '/desktop/meetings' if embedded else '/meetings' }}" aria-label="К встречам" title="К встречам" data-settings-primary-nav-item="meetings">
+    <a class="cabinet-sidebar-nav__item cabinet-sidebar-nav__item--back" href="{{ '/desktop/meetings' if embedded else '/meetings' }}" aria-label="К встречам" title="К встречам" data-settings-primary-nav-item="meetings" data-analytics-action="nav_recordings" data-analytics-target="recordings">
       {{ icons.icon("calendar-days") }}
       <span class="cabinet-sidebar-nav__label">К встречам</span>
     </a>
     {% for item in settings_navigation %}
     {% if loop.changed(item.group_label) %}<span class="cabinet-sidebar-nav__section-label">{{ item.group_label }}</span>{% endif %}
-    <a class="cabinet-sidebar-nav__item{% if item.id == settings_active %} is-selected{% endif %}" href="{{ item.href }}" aria-label="{{ item.label }}" title="{{ item.label }}" data-settings-primary-nav-item="{{ item.id }}"{% if item.id == settings_active %} aria-current="page"{% endif %}>
+    <a class="cabinet-sidebar-nav__item{% if item.id == settings_active %} is-selected{% endif %}" href="{{ item.href }}" aria-label="{{ item.label }}" title="{{ item.label }}" data-settings-primary-nav-item="{{ item.id }}"{% if item.id == "calendar" %} data-analytics-action="calendar_settings_opened" data-analytics-target="calendar_settings"{% endif %}{% if item.id == settings_active %} aria-current="page"{% endif %}>
       {{ icons.icon(item.icon) }}
       <span class="cabinet-sidebar-nav__label">{{ item.label }}</span>
     </a>
@@ -65,7 +65,7 @@
             </fieldset></form>
           </div>
         </details>{% endif %}
-        <a class="sidebar-profile-menu__item" href="{{ '/desktop/settings' if embedded else '/settings' }}" data-profile-menu-item="settings">{{ icons.icon("settings") }}<span>Настройки</span></a>
+        <a class="sidebar-profile-menu__item" href="{{ '/desktop/settings' if embedded else '/settings' }}" data-profile-menu-item="settings" data-analytics-action="settings_opened" data-analytics-target="settings">{{ icons.icon("settings") }}<span>Настройки</span></a>
         <div class="sidebar-profile-menu__separator" role="separator"></div>
         <details class="sidebar-profile-menu__disclosure">
           <summary class="sidebar-profile-menu__item">{{ icons.icon("info") }}<span>Решение проблем</span></summary>
@@ -106,7 +106,7 @@
   {% if not embedded %}<nav class="cabinet-mobile-nav" aria-label="Основная навигация кабинета">
     <a class="cabinet-mobile-nav__brand" href="/meetings" aria-label="GRAF — мои встречи"><span aria-hidden="true">Г</span></a>
     <span class="cabinet-mobile-nav__divider" aria-hidden="true"></span>
-    {% for item in navigation.items %}<a class="cabinet-mobile-nav__item{% if item.id == navigation.active %} is-selected{% endif %}" href="{{ item.href }}" aria-label="{% if item.id == navigation.active %}Текущий раздел: {% endif %}{{ item.label }}" title="{{ item.label }}" data-state="{{ 'selected' if item.id == navigation.active else 'normal' }}">{{ icons.icon(item.icon) }}<span>{{ item.label }}</span></a>{% endfor %}
+    {% for item in navigation.items %}<a class="cabinet-mobile-nav__item{% if item.id == navigation.active %} is-selected{% endif %}" href="{{ item.href }}" aria-label="{% if item.id == navigation.active %}Текущий раздел: {% endif %}{{ item.label }}" title="{{ item.label }}" data-state="{{ 'selected' if item.id == navigation.active else 'normal' }}"{% if item.id == "meetings" %} data-analytics-action="nav_recordings" data-analytics-target="recordings"{% elif item.id == "settings" %} data-analytics-action="settings_opened" data-analytics-target="settings"{% endif %}>{{ icons.icon(item.icon) }}<span>{{ item.label }}</span></a>{% endfor %}
   </nav>{% endif %}
   {{ cabinet_sidebar(navigation, embedded=embedded, static_url=static_url, csrf_token=csrf_token, settings_navigation=settings_navigation, settings_active=settings_active, profile=profile) }}
   {% if content is not none %}

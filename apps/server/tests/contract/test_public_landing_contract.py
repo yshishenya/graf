@@ -99,7 +99,7 @@ def test_public_landing_css_and_scripts_are_local_accessible_and_progressive() -
     assert '"url": "{{ canonical_url }}"' in landing_template
     assert "overflow-x: hidden" in css
     assert "transition: all" not in css
-    assert "cookieconsent" not in scripts
+    assert "cookieconsent.orestbida.com" not in scripts
 
 
 def test_public_html_security_headers_discovery_and_canonical_are_shared() -> None:

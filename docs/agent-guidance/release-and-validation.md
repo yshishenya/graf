@@ -259,6 +259,24 @@ Review the changelog and release metadata, commit that release-prep change, and
 use the resulting commit as the candidate. The full lane must run after this
 step, because release metadata is part of what will be shipped.
 
+The release operator may make one metadata-only follow-up commit after that
+preparation when a release note must be corrected before freezing the candidate.
+The source validator accepts this exception only once per release range, when the
+commit has one parent and its subject identifies release notes. Its complete diff
+may contain only `CHANGELOG.md` plus modified
+archived fragments under one `changes/releases/vYYYY.MM.DD.N/` directory. The
+fragment version must be newer than the latest published tag and equal the newest
+release section in `CHANGELOG.md`; every feature in the release marker must have
+a valid matching `F<id>.yaml` fragment with non-empty Russian summary and release
+notes. Duplicate structural fields, changed headings or markers, old release
+fragments, code paths, added/deleted/renamed files, credentials (including known
+token prefixes) or other forbidden content are rejected. Structural fields
+(`schema`, feature, issue, tasks and category) must be unchanged; only prose
+fields may change. A failed content check is a no-go and requires a normal PR.
+The exception does not add a PR to the train: the train still lists every merged
+PR, and the metadata commit remains part of the exact source SHA and changelog
+digest.
+
 Freeze the exact release boundary before starting Full CI:
 
     infra/scripts/release-candidate.sh freeze \

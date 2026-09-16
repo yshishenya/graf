@@ -191,15 +191,67 @@ def test_later_attempt_of_older_run_cannot_hide_behind_newer_id(bundle, monkeypa
         checks.current_run("owner/repo", workflow, pr, base)
 
 
-@pytest.mark.parametrize("case", ["two-prs", "rebase", "published-source", "unowned", "mixed-prs", "bad-policy", "no-base"])
+@pytest.mark.parametrize("case", [
+    "two-prs", "rebase", "published-source", "unowned", "mixed-prs", "bad-policy", "no-base",
+    "metadata-only", "metadata-extra", "metadata-bad-subject", "metadata-heading",
+    "metadata-fragment-id", "metadata-secret", "metadata-old-version", "metadata-published-latest",
+    "metadata-duplicate-field", "metadata-token", "metadata-double", "metadata-missing-marked",
+])
 def test_release_source_checks_actual_range(snapshot, monkeypatch, case):
     root, _, pr = snapshot
     monkeypatch.chdir(root)
     monkeypatch.setattr(checks, "ROOT", root)
     base, first = pr["base"]["sha"], pr["head"]["sha"]
-    (root / "second").write_text("release change\n")
-    git(root, "add", "second")
-    git(root, "commit", "-qm", "second")
+    if case.startswith("metadata-"):
+        version = "2026.09.13.3" if case == "metadata-old-version" else "2026.09.15.1"
+        fragment = root / f"changes/releases/v{version}/F211.yaml"
+        fragment.parent.mkdir(parents=True)
+        (root / "CHANGELOG.md").write_text(
+            "## [2026.09.15.1] - 2026-09-15\n\n<!-- Release features: F211 -->\n\n- Initial notes\n"
+        )
+        fragment.write_text(
+            "schema_version: 1\nfeature_id: 211\ncategory: Fixed\n"
+            "summary: \"Исправление\"\nissue: 6986\ntasks: [T063]\n"
+            "compatibility: \"Совместимость\"\nknown_limitations:\n  - \"Ограничение\"\n"
+            "release_notes: \"Проверка\"\n"
+        )
+        git(root, "add", "CHANGELOG.md", str(fragment.relative_to(root)))
+        git(root, "commit", "--amend", "-qm", "feature with release metadata")
+        first = git(root, "rev-parse", "HEAD")
+        pr["head"]["sha"] = first
+        pr["body"] = pr["body"].replace(base, first)
+        changelog = "## [2026.09.15.1] - 2026-09-15\n\n<!-- Release features: F211 -->\n\n- Updated release notes\n"
+        if case == "metadata-missing-marked":
+            changelog = changelog.replace("F211", "F211 F212")
+        if case == "metadata-heading":
+            changelog = changelog.replace("[2026.09.15.1]", "[2026.09.15.2]")
+        (root / "CHANGELOG.md").write_text(changelog)
+        fragment_text = (
+            "schema_version: 1\nfeature_id: 999\n" if case == "metadata-fragment-id" else
+            "schema_version: 1\nfeature_id: 211\n"
+            "category: Fixed\nsummary: \"Исправление\"\nissue: 6986\ntasks: [T063]\n"
+            "compatibility: \"Совместимость\"\nknown_limitations:\n  - \"Ограничение\"\n"
+            + ("release_notes: \"Обновлено; api_key: supersecretvalue\"\n"
+               if case == "metadata-secret" else
+               "release_notes: \"Обновлено ghp_12345678901234567890123456789012\"\n"
+               if case == "metadata-token" else "release_notes: \"Обновлено\"\n")
+        )
+        if case == "metadata-duplicate-field":
+            fragment_text += "issue: 9999\n"
+        fragment.write_text(fragment_text)
+        if case == "metadata-extra":
+            (root / "extra").write_text("code\n")
+        git(root, "add", "CHANGELOG.md", str(fragment.relative_to(root)), *( ["extra"] if case == "metadata-extra" else [] ))
+        subject = "fixture" if case == "metadata-bad-subject" else "[F211] Обновить заметки выпуска"
+        git(root, "commit", "-qm", subject)
+        if case == "metadata-double":
+            fragment.write_text(fragment_text.replace("Обновлено", "Обновлено повторно"))
+            git(root, "add", str(fragment.relative_to(root)))
+            git(root, "commit", "-qm", "[F211] Повторно обновить заметки выпуска")
+    else:
+        (root / "second").write_text("release change\n")
+        git(root, "add", "second")
+        git(root, "commit", "-qm", "second")
     source = git(root, "rev-parse", "HEAD")
     policy = dict(schema_version=1, repository="owner/repo", foundation_pr=1,
                   foundation_sha=base, activated_at="2026-09-01T00:00:00Z")
@@ -215,14 +267,20 @@ def test_release_source_checks_actual_range(snapshot, monkeypatch, case):
                 return []
             if case == "published-source":
                 releases.append(dict(tag_name="v2026.09.13.1", published_at="2026-09-13T00:00:00Z"))
+            if case == "metadata-published-latest":
+                releases.append(dict(tag_name="v2026.09.15.1", published_at="2026-09-15T00:00:00Z"))
             return releases
         if endpoint.startswith("git/ref/tags/"):
             # Exercise real annotated tag resolution for the previous release.
+            if case == "metadata-published-latest" and endpoint.endswith("v2026.09.15.1"):
+                return dict(object=dict(type="commit", sha=first))
             return dict(object=dict(type="commit", sha=source)) if endpoint.endswith("v2026.09.13.1") else dict(object=dict(type="tag", sha="a"*40))
         if endpoint == "git/tags/" + "a"*40:
             return dict(object=dict(type="commit", sha=base))
         commit = endpoint.split("/")[1]
         if case == "unowned" and commit == first:
+            return []
+        if case.startswith("metadata-") and commit == source:
             return []
         return [dict(number=8 if commit == source else 7, merge_commit_sha=commit,
                      merged_at="2026-09-13T00:00:00Z", base=dict(ref="master"))]
@@ -233,13 +291,40 @@ def test_release_source_checks_actual_range(snapshot, monkeypatch, case):
     monkeypatch.setattr(checks, "api", api)
     monkeypatch.setattr(checks, "verify", verify)
     expected = [8] if case in {"rebase", "mixed-prs"} else [7, 8]
-    if case in {"unowned", "mixed-prs", "bad-policy", "no-base"}:
+    if case == "metadata-only":
+        expected = [7]
+    if case in {"unowned", "mixed-prs", "bad-policy", "no-base", "metadata-extra", "metadata-bad-subject",
+                "metadata-heading", "metadata-fragment-id", "metadata-secret", "metadata-old-version",
+                "metadata-published-latest", "metadata-duplicate-field", "metadata-token", "metadata-double",
+                "metadata-missing-marked"}:
         with pytest.raises(ValueError):
             checks.verify_source("owner/repo", source, included_prs=expected)
     else:
         results = checks.verify_source("owner/repo", source, included_prs=expected)
         assert sorted(row["pr_number"] for row in results) == expected
         assert visited == list(reversed(expected))
+
+
+def test_task_closeout_is_metadata_only_only_for_task_docs(snapshot, monkeypatch):
+    root, _, _ = snapshot
+    monkeypatch.chdir(root)
+    task = root / "specs" / "211-demo" / "tasks.md"
+    task.parent.mkdir(parents=True, exist_ok=True)
+    task.write_text("- [ ] T001: связать задачу\n")
+    git(root, "add", str(task.relative_to(root)))
+    git(root, "commit", "-qm", "fixture: add task file")
+    task.write_text("- [X] T001: связать задачу с Issue #7008\n")
+    git(root, "add", str(task.relative_to(root)))
+    git(root, "commit", "-qm", "docs(closeout): связать T001 с issue #7008")
+    valid = git(root, "rev-parse", "HEAD")
+    assert checks.metadata_only_closeout(valid)
+
+    extra = root / "docs" / "closeout.md"
+    extra.parent.mkdir(parents=True, exist_ok=True)
+    extra.write_text("closeout\n")
+    git(root, "add", str(extra.relative_to(root)))
+    git(root, "commit", "-qm", "docs(closeout): добавить лишний файл")
+    assert not checks.metadata_only_closeout(git(root, "rev-parse", "HEAD"))
 
 
 @pytest.mark.parametrize('valid_scope', [True, False])

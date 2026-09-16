@@ -373,6 +373,21 @@ def resolve_branch_template(config_file: Path) -> str:
 def validate_branch_template(template: str) -> None:
     if not template:
         return
+    if "$" in template:
+        _err(
+            "Error: branch_template contains a shell-style placeholder. Use "
+            "{author}, {app}, {number}, and {slug} without a dollar sign."
+        )
+        raise SystemExit(1)
+    unsupported_tokens = template
+    for token in ("{author}", "{app}", "{number}", "{slug}"):
+        unsupported_tokens = unsupported_tokens.replace(token, "_")
+    if "{" in unsupported_tokens or "}" in unsupported_tokens:
+        _err(
+            "Error: branch_template contains an unsupported or malformed placeholder. "
+            "Allowed tokens: {author}, {app}, {number}, {slug}."
+        )
+        raise SystemExit(1)
     if "{number}" not in template:
         _err(
             "Error: branch_template must include the {number} token so generated "

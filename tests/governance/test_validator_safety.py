@@ -122,6 +122,29 @@ release_notes: "Пароль: password = RealCredential123456"
     assert any("forbidden secret/private/path token" in error for error in errors)
 
 
+def test_changelog_fragment_allows_high_risk_validation_lane(tmp_path: Path) -> None:
+    validator = load_script("validate-changelog-fragments")
+    fragment = tmp_path / "changes" / "unreleased" / "F216.yaml"
+    fragment.parent.mkdir(parents=True)
+    fragment.write_text(
+        '''schema_version: 1
+feature_id: 216
+category: Changed
+summary: "Добавлена проверка"
+issue: 6090
+tasks: [T001]
+compatibility: "нет"
+validation_lane: "high-risk-product"
+release_notes: "Русские заметки"
+known_limitations:
+  - "Ограничения отсутствуют"
+''',
+        encoding="utf-8",
+    )
+
+    assert validator.validate(tmp_path) == []
+
+
 def test_agent_context_requires_object_branch_and_full_source_sha(tmp_path: Path) -> None:
     validator = load_script("validate-agent-context")
     pointer = tmp_path / ".specify" / "feature.json"

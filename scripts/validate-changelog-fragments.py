@@ -18,6 +18,19 @@ CREDENTIAL_ASSIGNMENT_RE = re.compile(
 )
 
 
+def _contains_forbidden_content(text: str) -> bool:
+    lowered = text.lower()
+    for token in FORBIDDEN:
+        if token == "sk-":
+            # `high-risk-product` contains the characters `sk-`, but is not
+            # an API key. Require a token boundary and a key-like suffix.
+            if re.search(r"(?<![a-z0-9])sk-(?=[a-z0-9_-]{8,})", lowered):
+                return True
+        elif token.lower() in lowered:
+            return True
+    return False
+
+
 def _field(text: str, name: str) -> re.Match[str] | None:
     """Return only an unindented, top-level YAML field occurrence."""
     return re.search(rf"^{re.escape(name)}[ \t]*:[ \t]*(.*)$", text, re.MULTILINE)
@@ -99,7 +112,7 @@ def validate(root: Path) -> list[str]:
             errors.append(f"{path}: issue must contain a GitHub number")
         if not re.search(r"^tasks[ \t]*:[ \t]*.+T\d{3,}", text, re.MULTILINE):
             errors.append(f"{path}: tasks must contain a Spec Kit task ID")
-        if any(token.lower() in text.lower() for token in FORBIDDEN) or CREDENTIAL_ASSIGNMENT_RE.search(text):
+        if _contains_forbidden_content(text) or CREDENTIAL_ASSIGNMENT_RE.search(text):
             errors.append(f"{path}: forbidden secret/private/path token")
     return errors
 

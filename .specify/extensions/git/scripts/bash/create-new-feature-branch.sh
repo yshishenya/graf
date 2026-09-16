@@ -378,6 +378,23 @@ validate_branch_template() {
     local template="$1"
     [ -n "$template" ] || return 0
     local feature_segment
+    local unsupported_tokens="$template"
+    case "$template" in
+        *'$'*)
+            >&2 echo "Error: branch_template contains a shell-style placeholder. Use {author}, {app}, {number}, and {slug} without a dollar sign."
+            exit 1
+            ;;
+    esac
+    unsupported_tokens=${unsupported_tokens//\{author\}/_}
+    unsupported_tokens=${unsupported_tokens//\{app\}/_}
+    unsupported_tokens=${unsupported_tokens//\{number\}/_}
+    unsupported_tokens=${unsupported_tokens//\{slug\}/_}
+    case "$unsupported_tokens" in
+        *"{"*|*"}"*)
+            >&2 echo "Error: branch_template contains an unsupported or malformed placeholder. Allowed tokens: {author}, {app}, {number}, {slug}."
+            exit 1
+            ;;
+    esac
     feature_segment="${template##*/}"
     case "$template" in
         *"{number}"*) ;;

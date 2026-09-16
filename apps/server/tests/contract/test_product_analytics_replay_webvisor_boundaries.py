@@ -2,7 +2,10 @@ from pathlib import Path
 
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.product_analytics.browser_context import build_browser_provider_context
-from twobrain_rec_server.product_analytics.page_inventory import get_page_class_policy
+from twobrain_rec_server.product_analytics.page_inventory import (
+    get_page_class_policy,
+    page_class_policies,
+)
 from twobrain_rec_server.product_analytics.replay_masking import replay_decision_for_policy
 
 
@@ -30,6 +33,22 @@ def test_posthog_autocapture_does_not_enable_posthog_replay_or_yandex_webvisor(t
     assert context["yandex"]["click_map_enabled"] is False
     assert context["yandex"]["scroll_map_enabled"] is False
     assert context["yandex"]["form_analytics_enabled"] is False
+
+
+def test_internal_inventory_never_enables_webvisor_or_behavior_maps() -> None:
+    settings = Settings()
+    internal_classes = {
+        policy.page_class
+        for policy in page_class_policies()
+        if policy.page_class not in {"public_landing", "public_download"}
+    }
+
+    for page_class in internal_classes:
+        context = build_browser_provider_context(settings, page_class)
+        assert context["yandex"]["webvisor_enabled"] is False
+        assert context["yandex"]["click_map_enabled"] is False
+        assert context["yandex"]["scroll_map_enabled"] is False
+        assert context["yandex"]["form_analytics_enabled"] is False
 
 
 def test_replay_masking_keeps_private_attributes_for_unavailable_pages() -> None:
