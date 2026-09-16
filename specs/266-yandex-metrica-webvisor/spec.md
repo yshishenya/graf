@@ -399,6 +399,18 @@ URL, идентификатор встречи или параметры фор�
   безопасные метаданные наследуют политику страницы и закрыты по умолчанию, если
   нет отдельного утверждения.
 
+## Legacy Impact
+
+- Classification: `untouched`
+- Existing public consent, product-analytics and capture boundaries are preserved;
+  this feature does not restore removed audio-routing paths or add a parallel
+  analytics provider path.
+- No new legacy alias, fallback, feature flag, dependency, fixture, test or
+  documentation path is introduced; `legacy_new=0`, `unowned_legacy=0`,
+  `expired_exceptions=0`.
+- Legacy retirement is not part of this feature and remains a separate follow-up
+  only if a future approved migration requires it.
+
 ## Out of Scope
 
 - Сбор или воспроизведение аудио, расшифровок, текста встреч, календарных данных,
