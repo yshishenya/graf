@@ -383,7 +383,7 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
 .crumbs strong { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: min(62vw, 760px); }
 .action-row { position: relative; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
 .section-title { margin: 22px 0 10px; color: var(--text); font-size: var(--font-size-helper); font-weight: 700; }
-.list-card { max-width: 980px; border: 1px solid var(--line); border-radius: var(--radius-card); overflow: hidden; background: var(--surface); }
+.list-card { border: 1px solid var(--line); border-radius: var(--radius-card); overflow: hidden; background: var(--surface); }
 .meeting-row {
   display: grid;
   grid-template-columns: 24px minmax(0, 1fr) minmax(128px, auto) minmax(112px, auto);
@@ -5521,6 +5521,7 @@ html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned
 }
 
 .list-card.cabinet-card {
+  max-width: none;
   border-color: var(--line-soft);
   border-radius: var(--radius-card);
   background: var(--surface);

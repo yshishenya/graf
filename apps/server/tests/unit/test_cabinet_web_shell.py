@@ -374,6 +374,12 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert 'value="updated_desc" selected>Недавно обновленные</option>' in page
     css = _cabinet_css()
     assert ".desktop-embedded .cabinet-workspace {\n  width: min(100%, 1240px);\n  max-width: none;\n  margin-inline: auto;\n}" in css
+    # Список встреч занимает ту же колонку, что календарь и топбар.
+    assert (
+        ".list-card.cabinet-card {\n  max-width: none;\n  border-color: var(--line-soft);"
+        in css
+    )
+    assert ".list-card { max-width: 980px;" not in css
     assert "min-height: 64px;" in css
     assert (
         ".meeting-title {\n  display: block;\n  min-width: 0;\n  overflow: hidden;\n"
