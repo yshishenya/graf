@@ -16,6 +16,34 @@ DEFAULT_CREDENTIAL_SUPPRESSION = (
     "raw_payload_dumps",
 )
 
+PRODUCT_ANALYTICS_ACTIONS = (
+    "nav_recordings",
+    "settings_opened",
+    "calendar_settings_opened",
+)
+PRODUCT_ANALYTICS_TARGETS = (
+    "recordings",
+    "settings",
+    "calendar",
+    "calendar_settings",
+    "navigation",
+    "tab",
+)
+PRODUCT_ANALYTICS_TAGS = (
+    "a",
+    "button",
+    "details",
+    "input",
+    "label",
+    "select",
+    "summary",
+    "textarea",
+)
+PRODUCT_ANALYTICS_ROLES = ("button", "checkbox", "link", "menuitem", "tab", "switch")
+PRODUCT_ANALYTICS_IDENTITY_STATES = ("anonymous", "authenticated_pseudonymous")
+PRODUCT_ANALYTICS_DEVICE_CLASSES = ("browser", "desktop_webview")
+PRODUCT_ANALYTICS_CONSENT_STATES = ("accepted_all", "customized")
+
 
 @dataclass(frozen=True, slots=True)
 class PageClassAnalyticsPolicy:
@@ -90,6 +118,9 @@ def _policy(
     posthog_autocapture_state: str = "enabled",
     page_view_allowed: bool = True,
     safe_event_allowed: bool = True,
+    yandex_webvisor_allowed: bool = False,
+    click_map_allowed: bool | None = None,
+    scroll_map_allowed: bool | None = None,
 ) -> PageClassAnalyticsPolicy:
     yandex_approved = yandex_state == "approved_page_view_event"
     resolved_launch_state = launch_state or ("replay_allowed" if yandex_approved else yandex_state)
@@ -100,9 +131,9 @@ def _policy(
         page_view_allowed=page_view_allowed,
         safe_event_allowed=safe_event_allowed,
         posthog_replay_allowed=False,
-        yandex_webvisor_allowed=False,
-        click_map_allowed=False,
-        scroll_map_allowed=False,
+        yandex_webvisor_allowed=yandex_webvisor_allowed,
+        click_map_allowed=(yandex_webvisor_allowed if click_map_allowed is None else click_map_allowed),
+        scroll_map_allowed=(yandex_webvisor_allowed if scroll_map_allowed is None else scroll_map_allowed),
         form_analytics_allowed=False,
         launch_state=resolved_launch_state,
         url_title_referrer_status=url_title_referrer_status,
@@ -134,6 +165,7 @@ DEFAULT_PAGE_CLASS_POLICIES: tuple[PageClassAnalyticsPolicy, ...] = (
         expected_product_visible_data="public acquisition page behavior",
         rollback_behavior="preserve_093_or_disable_public_runtime_flag",
         dashboard_caveat="Existing 093 public landing scope remains approved.",
+        yandex_webvisor_allowed=True,
     ),
     _policy(
         "public_download",
@@ -147,6 +179,7 @@ DEFAULT_PAGE_CLASS_POLICIES: tuple[PageClassAnalyticsPolicy, ...] = (
         expected_product_visible_data="public installer/download intent",
         rollback_behavior="preserve_093_or_disable_public_runtime_flag",
         dashboard_caveat="Existing 093 download goal remains approved.",
+        yandex_webvisor_allowed=True,
     ),
     _policy(
         "legal",
@@ -531,3 +564,31 @@ def blocked_yandex_page_classes() -> tuple[str, ...]:
 
 def posthog_autocapture_page_classes() -> tuple[str, ...]:
     return tuple(policy.page_class for policy in DEFAULT_PAGE_CLASS_POLICIES if policy.posthog_autocapture_state == "enabled")
+
+
+def product_analytics_action_allowlist() -> tuple[str, ...]:
+    return PRODUCT_ANALYTICS_ACTIONS
+
+
+def product_analytics_target_allowlist() -> tuple[str, ...]:
+    return PRODUCT_ANALYTICS_TARGETS
+
+
+def product_analytics_tag_allowlist() -> tuple[str, ...]:
+    return PRODUCT_ANALYTICS_TAGS
+
+
+def product_analytics_role_allowlist() -> tuple[str, ...]:
+    return PRODUCT_ANALYTICS_ROLES
+
+
+def product_analytics_identity_state_allowlist() -> tuple[str, ...]:
+    return PRODUCT_ANALYTICS_IDENTITY_STATES
+
+
+def product_analytics_device_class_allowlist() -> tuple[str, ...]:
+    return PRODUCT_ANALYTICS_DEVICE_CLASSES
+
+
+def product_analytics_consent_state_allowlist() -> tuple[str, ...]:
+    return PRODUCT_ANALYTICS_CONSENT_STATES

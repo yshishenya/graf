@@ -59,13 +59,20 @@ def test_posthog_autocapture_excludes_financial_page_classes() -> None:
 def test_yandex_preserves_093_public_scope_and_blocks_high_risk_pages() -> None:
     assert yandex_approved_page_classes() == ("public_landing", "public_download")
 
+    policy_by_name = {policy.page_class: policy for policy in page_class_policies()}
+    for public_page_class in ("public_landing", "public_download"):
+        policy = policy_by_name[public_page_class]
+        assert policy.yandex_webvisor_allowed is True
+        assert policy.click_map_allowed is True
+        assert policy.scroll_map_allowed is True
+        assert policy.form_analytics_allowed is False
+
     blocked = set(blocked_yandex_page_classes())
     assert "auth_callback" in blocked
     assert "admin" in blocked
     assert "deletion" in blocked
     assert "future_browser_page" in blocked
 
-    policy_by_name = {policy.page_class: policy for policy in page_class_policies()}
     assert policy_by_name["meeting_result_detail"].yandex_state == "replay_unavailable"
     assert policy_by_name["embedded_desktop_webview"].yandex_state == "replay_unavailable"
     assert policy_by_name["future_browser_page"].dashboard_purpose == "blocked_until_inventory_approval"
