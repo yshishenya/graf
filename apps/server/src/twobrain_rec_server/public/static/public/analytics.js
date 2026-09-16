@@ -34,7 +34,7 @@
   if (!config || (!publicConfig && !productConfig)) {
     return;
   }
-  if (publicConfig && !publicConfig.enabled && (!productConfig || !productConfig.enabled)) {
+  if (publicConfig && !publicConfig.enabled && !publicConfig.consent_ui_enabled && (!productConfig || !productConfig.enabled)) {
     return;
   }
 
@@ -75,11 +75,15 @@
   }
 
   function revisionFromCopyVersion(copyVersion) {
-    var digits = String(copyVersion || "").replace(/\D/g, "").slice(0, 9);
+    var digits = String(copyVersion || "").replace(/\D/g, "");
     return digits ? Number(digits) : 0;
   }
 
   function consentRevision() {
+    var derivedRevision = revisionFromCopyVersion(consentCopyVersion());
+    if (derivedRevision) {
+      return derivedRevision;
+    }
     var browserConsent = config.browser_consent || {};
     var revision = config.consent_revision || browserConsent.revision;
     return typeof revision === "number" ? revision : revisionFromCopyVersion(consentCopyVersion());
@@ -119,6 +123,12 @@
     if (storedCopyVersion && storedCopyVersion !== consentCopyVersion()) {
       return false;
     }
+    if (
+      data.graf_consent_revision !== undefined &&
+      Number(data.graf_consent_revision) !== consentRevision()
+    ) {
+      return false;
+    }
     return storedCopyVersion === consentCopyVersion() || Number(cookie.revision) === consentRevision();
   }
 
@@ -126,7 +136,7 @@
     var data = cookie && cookie.data && typeof cookie.data === "object" ? cookie.data : {};
     return Boolean(
       (cookie && cookie.state && ["accepted_all", "customized"].indexOf(cookie.state) !== -1) ||
-        ["accepted_all", "customized"].indexOf(data.graf_consent_state) !== -1,
+        ["accepted_all", "customized", "revoked"].indexOf(data.graf_consent_state) !== -1,
     );
   }
 
@@ -134,6 +144,8 @@
     if (!consentVersionMatches(cookie) || !categories) {
       return "unknown";
     }
+    var data = cookie && cookie.data && typeof cookie.data === "object" ? cookie.data : {};
+    var storedState = cookie && cookie.state ? cookie.state : data.graf_consent_state;
     var optional = consentCategories().filter(function (category) {
       return category !== "necessary";
     });
@@ -145,7 +157,7 @@
       state = "accepted_all";
     } else if (grantedOptional.length > 0) {
       state = "customized";
-    } else if (hadOptionalConsent || (cookie && cookie.state === "revoked")) {
+    } else if (hadOptionalConsent || storedState === "revoked") {
       state = "revoked";
     }
     if (cookie && cookie.state && cookie.state !== state) {
@@ -311,7 +323,7 @@
     );
     window.ym(publicConfig.yandex_metrica_id, "init", {
       clickmap: replayAllowed,
-      trackLinks: true,
+      trackLinks: false,
       accurateTrackBounce: true,
       defer: true,
       trackHash: false,
@@ -386,6 +398,7 @@
         mode: "update",
         value: {
           graf_consent_copy_version: consentCopyVersion(),
+          graf_consent_revision: consentRevision(),
           graf_consent_state: state,
         },
       });
@@ -395,6 +408,14 @@
   function consentCookieFromDetails(details) {
     if (details && details.cookie) {
       return details.cookie;
+    }
+    if (window.CookieConsent && typeof window.CookieConsent.getCookie === "function") {
+      try {
+        var storedCookie = window.CookieConsent.getCookie();
+        if (storedCookie && typeof storedCookie === "object") {
+          return storedCookie;
+        }
+      } catch (_) {}
     }
     if (window.CookieConsent && typeof window.CookieConsent.getUserPreferences === "function") {
       try {
@@ -496,7 +517,7 @@
     });
     window.ym(counterId, "init", {
       clickmap: false,
-      trackLinks: true,
+      trackLinks: false,
       accurateTrackBounce: true,
       defer: true,
       trackHash: false,

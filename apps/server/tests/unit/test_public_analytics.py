@@ -7,6 +7,7 @@ from twobrain_rec_server.public.analytics import (
     build_public_analytics_context,
     normalize_public_analytics_consent,
     normalize_public_campaign_attribution,
+    public_analytics_consent_revision,
     public_analytics_event_names,
     public_analytics_stable_labels,
     public_analytics_utm_fields,
@@ -74,6 +75,21 @@ def test_public_consent_states_include_acceptance_and_revoke_transitions() -> No
         {**base, "categories": ["necessary"], "state": "revoked"},
         previous={**base, "categories": ["necessary", "analytics"]},
     )["state"] == "revoked"
+
+
+def test_public_analytics_consent_revision_follows_copy_version() -> None:
+    assert public_analytics_consent_revision("2026-09-20.7") == 202609207
+
+    settings = Settings(
+        public_analytics_enabled=True,
+        public_analytics_validation_mode="render_only",
+        public_analytics_yandex_metrica_id="12345678",
+        public_analytics_consent_copy_version="2026-09-20.7",
+    )
+    context = build_public_analytics_context(settings, "/")
+
+    assert context["consent_copy_version"] == "2026-09-20.7"
+    assert context["consent_revision"] == 202609207
 
 
 def test_public_analytics_event_catalog_and_labels_match_new_funnel() -> None:

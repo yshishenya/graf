@@ -41,9 +41,9 @@ git -C /Users/yshishenya/.codex/worktrees/06f1/crisp diff --check
 5. Отозвать выбор через «Настройки cookies», обновить страницу и убедиться, что
    новые необязательные запросы отсутствуют.
 6. В новом чистом профиле выбрать «Аналитика» и «Поведенческая запись». Проверить
-   `/` и `/download`: контроллер передаёт `clickmap: true`, `trackLinks: true`,
+   `/` и `/download`: контроллер передаёт `clickmap: true`, `trackLinks: false`,
    `accurateTrackBounce: true`, `defer: true` и `webvisor: true` только на этих
-   поверхностях.
+   поверхностях; переходы идут только через явные allowlist-цели.
 7. Открыть вкладку продукта, FAQ, CTA и прокрутить страницу. Убедиться, что
    события используют только каталог стабильных значений.
 8. В тестовой авторизованной сессии проверить безопасные внутренние классы:
@@ -74,20 +74,22 @@ git -C /Users/yshishenya/.codex/worktrees/06f1/crisp diff --check
 - «Только необходимые» сохранило только `necessary`; необязательная Метрика,
   цели и запись не запустились.
 - Только `analytics` создало обычный `hit` и безопасные публичные цели с
-  `clickmap=false`, `webvisor=false`, `trackLinks=true`,
+  `clickmap=false`, `webvisor=false`, `trackLinks=false`,
   `accurateTrackBounce=true`, `defer=true`, `trackHash=false` и
   `form_analytics=false`.
 - Добавление `behavior_replay` после уже выданного `analytics` вызвало штатную
   перезагрузку. После неё на `/` queue Метрики содержала
-  `clickmap=true` и `webvisor=true`; `trackLinks`, `accurateTrackBounce` и
-  `defer` оставались включены, `form_analytics=false`.
+  `clickmap=true` и `webvisor=true`; `trackLinks=false`,
+  `accurateTrackBounce` и `defer` оставались включены, `form_analytics=false`.
 - На `/download` при тех же категориях зафиксированы `surface=public_download`,
   событие `public_download_viewed` и такой же режим Webvisor/карт.
 - Отзыв `behavior_replay` вызвал перезагрузку с `clickmap=false` и
   `webvisor=false`. Отзыв `analytics` перевёл контроллер в `revoked`, включил
   блокировку счётчика и не добавил новое событие после открытия FAQ.
-- `/privacy`, `/login` и перенаправленный без авторизации `/meetings` не
-  содержали контроллер публичной аналитики, `window.ym` или тег Метрики.
+- `/privacy` содержала только контроллер согласия и кнопку его настроек без
+  `window.ym`, счётчика и тега Метрики; `/login` и перенаправленный без
+  авторизации `/meetings` не содержали контроллер публичной аналитики,
+  `window.ym` или тег Метрики.
 - В evidence не сохранялись идентификаторы посетителей, cookies, сырые записи,
   тексты форм, аудио, расшифровки или содержимое встреч. В консоли браузера —
   `0 errors`.

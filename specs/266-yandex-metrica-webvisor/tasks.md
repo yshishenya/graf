@@ -82,12 +82,12 @@ FAQ, вкладки, тариф, CTA и `/download`; проверить безо
 
 ### Tests for User Story 2
 
-- [X] T009 [P] [US2] Обновить contract-проверки флагов `clickmap`, `trackLinks`, `accurateTrackBounce`, `defer`, Webvisor и закрытого списка `/`/`/download` в `apps/server/tests/contract/test_public_analytics_contract.py`
+- [X] T009 [P] [US2] Обновить contract-проверки флагов `clickmap`, `trackLinks=false`, `accurateTrackBounce`, `defer`, Webvisor и закрытого списка `/`/`/download` в `apps/server/tests/contract/test_public_analytics_contract.py`
 - [X] T010 [P] [US2] Проверить полный публичный каталог, FAQ `google_calendar`, безопасные UTM и отсутствие события успешной установки в `apps/server/tests/unit/test_public_analytics.py` и `apps/server/tests/contract/test_public_analytics_contract.py`
 
 ### Implementation for User Story 2
 
-- [X] T011 [US2] Включить `clickmap`, `trackLinks`, `accurateTrackBounce` и условный Webvisor только после `analytics + behavior_replay` в `apps/server/src/twobrain_rec_server/public/static/public/analytics.js` и `apps/server/src/twobrain_rec_server/public/analytics.py`
+- [X] T011 [US2] Включить `clickmap`, оставить `trackLinks=false`, включить `accurateTrackBounce` и условный Webvisor только после `analytics + behavior_replay` в `apps/server/src/twobrain_rec_server/public/static/public/analytics.js` и `apps/server/src/twobrain_rec_server/public/analytics.py`
 - [X] T012 [US2] Добавить отсутствующий безопасный FAQ `google_calendar` и сохранить allowlist событий, меток, UTM и категории реферера в `apps/server/src/twobrain_rec_server/public/analytics.py`
 - [X] T013 [US2] Привязать просмотр секций, CTA, вкладок, периода тарифа и FAQ к существующему каталогу с дедупликацией в `apps/server/src/twobrain_rec_server/public/static/public/analytics.js`, `apps/server/src/twobrain_rec_server/public/templates/public/landing.html` и `apps/server/src/twobrain_rec_server/public/templates/public/download.html`
 

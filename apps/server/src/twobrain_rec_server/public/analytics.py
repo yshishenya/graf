@@ -11,7 +11,6 @@ from twobrain_rec_server.product_analytics.page_inventory import get_page_class_
 
 COOKIECONSENT_VERSION = "3.1.0"
 PUBLIC_ANALYTICS_CONSENT_VERSION = "2026-09-15.1"
-PUBLIC_ANALYTICS_CONSENT_REVISION = 202609151
 PUBLIC_ANALYTICS_CONSENT_STORAGE_KEY = "graf_public_cookie_consent"
 PUBLIC_ANALYTICS_PROVIDER = "yandex_metrica"
 PUBLIC_ANALYTICS_PRODUCTION_ENVS = {"production", "staging"}
@@ -21,6 +20,15 @@ PUBLIC_ANALYTICS_SURFACES = {
     "/": "public_landing",
     "/download": "public_download",
 }
+PUBLIC_ANALYTICS_CONSENT_PATHS = (
+    "/",
+    "/download",
+    "/privacy",
+    "/cookies",
+    "/terms",
+    "/offer",
+    "/analytics-consent",
+)
 
 PUBLIC_ANALYTICS_CONSENT_CATEGORIES = (
     "necessary",
@@ -143,6 +151,17 @@ _TOKEN_WORDS_RE = re.compile(
 )
 _SEARCH_REFERRERS = ("yandex.", "google.", "bing.", "duckduckgo.", "mail.ru")
 _PAID_MEDIA = {"cpc", "paid_search", "paid_social", "display", "retargeting"}
+
+
+def public_analytics_consent_revision(copy_version: str) -> int:
+    """Derive CookieConsent's numeric revision from the displayed copy version."""
+    digits = re.sub(r"\D", "", str(copy_version))
+    return int(digits) if digits else 0
+
+
+PUBLIC_ANALYTICS_CONSENT_REVISION = public_analytics_consent_revision(
+    PUBLIC_ANALYTICS_CONSENT_VERSION
+)
 
 
 def public_analytics_event_names() -> tuple[str, ...]:
@@ -297,11 +316,14 @@ def build_public_analytics_context(
     surface = PUBLIC_ANALYTICS_SURFACES.get(path)
     validation_mode = settings.public_analytics_validation_mode
     counter_id = _normalized_counter_id(settings.public_analytics_yandex_metrica_id)
+    consent_copy_version = settings.public_analytics_consent_copy_version
     environment_allowed = settings.env.lower() in PUBLIC_ANALYTICS_PRODUCTION_ENVS or validation_mode in {
         "render_only",
         "provider_smoke",
     }
-    enabled = bool(settings.public_analytics_enabled and environment_allowed and counter_id and surface)
+    configured = bool(settings.public_analytics_enabled and environment_allowed and counter_id)
+    enabled = bool(configured and surface)
+    consent_ui_enabled = bool(configured and path in PUBLIC_ANALYTICS_CONSENT_PATHS)
 
     campaign_attribution = normalize_public_campaign_attribution(
         query_params,
@@ -311,6 +333,7 @@ def build_public_analytics_context(
 
     return {
         "enabled": enabled,
+        "consent_ui_enabled": consent_ui_enabled,
         "provider": PUBLIC_ANALYTICS_PROVIDER,
         "validation_mode": validation_mode,
         "environment_allowed": environment_allowed,
@@ -322,8 +345,8 @@ def build_public_analytics_context(
         "scroll_map_allowed": bool(settings.public_analytics_replay_enabled and enabled),
         "form_analytics_allowed": False,
         "replay_scope": ["public_landing", "public_download"],
-        "consent_copy_version": settings.public_analytics_consent_copy_version,
-        "consent_revision": PUBLIC_ANALYTICS_CONSENT_REVISION,
+        "consent_copy_version": consent_copy_version,
+        "consent_revision": public_analytics_consent_revision(consent_copy_version),
         "consent_storage_key": PUBLIC_ANALYTICS_CONSENT_STORAGE_KEY,
         "cookieconsent_version": COOKIECONSENT_VERSION,
         "page_path": path if surface else None,

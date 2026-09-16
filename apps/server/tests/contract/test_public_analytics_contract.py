@@ -124,24 +124,35 @@ def test_public_pages_render_safe_campaign_context_without_private_values(
     assert "token=abc" not in response.text
 
 
-def test_public_analytics_is_absent_from_private_and_legal_surfaces(
+def test_public_analytics_provider_is_absent_from_private_and_legal_surfaces(
     postgres_worker_database_url: str,
 ) -> None:
     app = _analytics_app(postgres_worker_database_url)
 
     with TestClient(app) as client:
-        responses = [
+        private_responses = [
             client.get(path, follow_redirects=True)
-            for path in (
-                "/login", "/admin", "/cabinet/not-a-real-page", "/api/v1/health/live",
-                "/privacy", "/cookies", "/terms", "/offer", "/analytics-consent",
-            )
+            for path in ("/login", "/admin", "/cabinet/not-a-real-page", "/api/v1/health/live")
+        ]
+        legal_responses = [
+            client.get(path, follow_redirects=True)
+            for path in ("/privacy", "/cookies", "/terms", "/offer", "/analytics-consent")
         ]
 
-    for response in responses:
+    for response in private_responses:
         assert response.status_code < 500
         assert "graf-public-analytics-config" not in response.text
         assert "analytics.js" not in response.text
+        assert "metrika/tag.js" not in response.text
+
+    for response in legal_responses:
+        assert response.status_code < 500
+        assert 'id="graf-public-analytics-config"' in response.text
+        assert '"consent_ui_enabled": true' in response.text
+        assert '"enabled": false' in response.text
+        assert '"yandex_metrica_id": null' in response.text
+        assert "analytics.js" in response.text
+        assert "cookieconsent.umd.js" in response.text
         assert "metrika/tag.js" not in response.text
 
 
@@ -176,15 +187,17 @@ def test_public_yandex_controller_is_opt_in_narrow_query_safe_and_deduplicated()
 
     for marker in (
         "metrika/tag.js", "clickmap: false", "clickmap: replayAllowed",
-        "trackLinks: true", "accurateTrackBounce: true", "webvisor: false",
+        "trackLinks: false", "accurateTrackBounce: true", "webvisor: false",
         "webvisor: replayAllowed", "defer: true", "trackHash: false",
         "reachGoal", "IntersectionObserver", "sentKeys[key]", "publicConfig.page_path",
         "window.CookieConsent.run", 'mode: "opt-in"', "onChange: handleConsent",
         "onConsent: handleConsent", "onFirstConsent: handleConsent",
+        "graf_consent_state", "graf_consent_revision", "getCookie",
     ):
         assert marker in analytics_js
     for forbidden in (
         "window.location.href", "document.title", "webvisor: true", "clickmap: true",
+        "trackLinks: true",
         "googletagmanager.com",
     ):
         assert forbidden.lower() not in analytics_js.lower()

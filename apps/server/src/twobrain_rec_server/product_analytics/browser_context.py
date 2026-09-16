@@ -11,9 +11,9 @@ from twobrain_rec_server.product_analytics.page_inventory import (
 )
 from twobrain_rec_server.product_analytics.provider_config import ProductAnalyticsProviderConfig
 from twobrain_rec_server.public.analytics import (
-    PUBLIC_ANALYTICS_CONSENT_REVISION,
     PUBLIC_ANALYTICS_CONSENT_STORAGE_KEY,
     build_product_yandex_provider_context,
+    public_analytics_consent_revision,
     public_analytics_consent_states,
     public_analytics_consent_transitions,
 )
@@ -33,7 +33,7 @@ def build_browser_provider_context(settings: Settings, page_class: str) -> dict[
     yandex_active = bool(yandex_context["enabled"])
     browser_consent = {
         "copy_version": settings.public_analytics_consent_copy_version,
-        "revision": PUBLIC_ANALYTICS_CONSENT_REVISION,
+        "revision": public_analytics_consent_revision(settings.public_analytics_consent_copy_version),
         "storage_key": PUBLIC_ANALYTICS_CONSENT_STORAGE_KEY,
         "categories": ["necessary", "analytics", "advertising_attribution", "behavior_replay"],
         "states": list(public_analytics_consent_states()),
