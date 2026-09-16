@@ -5,7 +5,7 @@
     <a href="/terms">Условия</a>
     <a href="/offer">Оплата и возврат</a>
     <a href="/analytics-consent">Об аналитике</a>
-    {% if public_analytics.consent_ui_enabled %}
+    {% if public_analytics.get('consent_ui_enabled', false) %}
       <button class="cookie-settings-link" type="button" data-cc="show-preferencesModal">
         Настройки cookies
       </button>
@@ -13,7 +13,7 @@
   </footer>
 {% endif %}
 
-{% if public_analytics.consent_ui_enabled %}
+{% if public_analytics.get('consent_ui_enabled', false) %}
   <link rel="stylesheet" href="{{ public_static_asset_url('cookieconsent.css') }}">
   <script
     defer
