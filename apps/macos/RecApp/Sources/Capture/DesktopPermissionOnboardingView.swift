@@ -193,7 +193,7 @@ public struct DesktopPermissionOnboardingView: View {
             }
             if let settingsError {
                 Label(settingsError, systemImage: "exclamationmark.triangle")
-                    .font(.system(size: DesktopDesignTokens.FontSize.helper)).foregroundStyle(DesktopDesignTokens.red)
+                    .font(.system(size: DesktopDesignTokens.FontSize.helper)).foregroundStyle(DesktopDesignTokens.dangerText)
             }
             if let step = status.nextPermission {
                 DisclosureGroup("Не получается?", isExpanded: $helpExpanded) {

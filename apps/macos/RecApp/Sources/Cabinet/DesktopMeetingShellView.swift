@@ -44,7 +44,7 @@ public enum DesktopMeetingShellChrome {
     public static let fontStackDescription = "SF Pro Text / system"
     public static let compactRailLabels = ["Статус записи", "Локальная сохранность"]
     public static let compactRailStartLabel = "Начать запись"
-    public static let compactRailStopLabel = "Остановить запись"
+    public static let compactRailStopLabel = SystemAudioStatusLabels.stopButtonTitle
     public static let compactRailActionHitSize: CGFloat = 40
     public static let settingsRailLabel = "Настройки"
     public static let appUpdateLabel = "Доступно обновление"
@@ -1340,7 +1340,7 @@ private struct RecordingTitlebarHUD: View {
 
         if CaptureStatusItem.showsStopButton(for: session) {
             Button(role: .destructive, action: onStop) {
-                Label("Стоп", systemImage: "stop.fill")
+                Label(SystemAudioStatusLabels.stopButtonTitle, systemImage: "stop.fill")
             }
             .buttonStyle(DesktopWebButtonStyle(.destructive))
             .disabled(!session.stopActionAvailable || transitionInProgress)

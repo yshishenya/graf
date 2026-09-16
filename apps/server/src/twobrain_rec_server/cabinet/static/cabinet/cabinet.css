@@ -80,6 +80,13 @@
   --settings-gap: 24px;
   --settings-content-width: 780px;
   --app-sidebar-width: 240px;
+  --speaker-color-0: #aaa49a;
+  --speaker-color-1: #8f7fff;
+  --speaker-color-2: #ffd24a;
+  --speaker-color-3: #ff6b6b;
+  --speaker-color-4: #5fa8ff;
+  --speaker-color-5: #2fc9c0;
+  --speaker-color-6: var(--pink);
   --app-rail-width: 64px;
 
   font-family: var(--font-family-ui);
@@ -1198,7 +1205,7 @@ h1 { margin: 0; font-size: var(--font-size-page-title); line-height: 1.15; lette
   align-items: center;
 }
 .speaker-color-0 { --speaker-color: var(--speaker-color-0, #aaa49a); }
-.speaker-color-1 { --speaker-color: var(--speaker-color-1, #7a65ff); }
+.speaker-color-1 { --speaker-color: var(--speaker-color-1, #8f7fff); }
 .speaker-color-2 { --speaker-color: var(--speaker-color-2, #ffd24a); }
 .speaker-color-3 { --speaker-color: var(--speaker-color-3, #ff6b6b); }
 .speaker-color-4 { --speaker-color: var(--speaker-color-4, #5fa8ff); }

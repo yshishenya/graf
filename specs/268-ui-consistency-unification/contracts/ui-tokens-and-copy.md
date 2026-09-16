@@ -11,6 +11,14 @@
 Правило: ни одно правило вне этих блоков не задаёт цвет литералом. Допустимы
 только `var(--token)` и `color-mix(in srgb, var(--token) …, transparent|var(--…))`.
 
+Единственная объявленная scoped-палитра — тёмная поверхность настроек
+(`html[data-theme="dark"] .app-shell[data-active-nav="settings"]` и парный
+media-блок): это намеренная поверхность, она задана явным блоком токенов и
+покрыта контрактным тестом темы; она не расширяется. Любая другая локальная
+палитра страницы или режима запрещена. Фолбэки `--speaker-color-N` в
+компонентных правилах инертны (токен задан в обеих темах) и сохранены ради
+контракта.
+
 Дополняемые токены: `--pink`, `--overlay-backdrop`, `--shadow-dialog`,
 `--speaker-contrast-text`, светлые варианты `--speaker-color-*`.
 
@@ -82,11 +90,20 @@
 
 ## 7. Кнопки-иконки и диалоги
 
-- Один компонент `.icon-button` (32×32, `--radius-sm`, hover из `--surface-3`),
-  вариант `--ghost` без рамки и фона. Класс `.icon-control` удаляется.
+- Один компонент `.icon-button` (32×32, `--radius-sm`, hover из `--surface-3`):
+  базовый тихий вид без рамки и фона; вариант `--bordered` (рамка `var(--line)`,
+  фон `var(--surface-2)`) для панелей управления. Класс `.icon-control` удалён.
 - `.icon-button.danger-button` сохраняет опасный тон (исправление каскада).
 - Все диалоги: `--radius-dialog`, тень `--shadow-dialog`, backdrop
   `--overlay-backdrop`, заголовок `--font-size-dialog-title`, паддинг `24px`.
+
+### 7.1. Обводка фокуса
+
+Базовое правило — `outline: 2px solid var(--focus-ring); outline-offset: 2px`.
+Исключения с отрицательным `outline-offset` допустимы только для элементов,
+которые обрезаются контейнером (`.meeting-action-item`,
+`.sidebar-profile-menu__item`, `.playback-bar.is-unavailable`,
+`.summary-format-popover`), и обязаны иметь комментарий в CSS с причиной.
 
 ## 8. Страницы вне системы
 

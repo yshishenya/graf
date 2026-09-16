@@ -2405,7 +2405,7 @@ def test_detail_shell_renders_speaker_timeline_segments() -> None:
     assert ".segment.is-current" in css
     assert ".speaker {" in css and "color: var(--muted)" in css
     assert ".text { color: var(--text)" in css
-    assert ".speaker-color-1 { --speaker-color: var(--speaker-color-1, #7a65ff); }" in css
+    assert ".speaker-color-1 { --speaker-color: var(--speaker-color-1, #8f7fff); }" in css
     assert "background: var(--speaker-color)" in css
     assert ".speaker-color-6 { --speaker-color: var(--speaker-color-6, var(--pink)); }" in css
     assert "--speaker-color-1: #4f3ad0;" in css

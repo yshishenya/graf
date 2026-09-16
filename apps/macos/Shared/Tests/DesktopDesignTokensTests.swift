@@ -39,7 +39,7 @@ final class DesktopDesignTokensTests: XCTestCase {
         )
         try assertToken(
             DesktopDesignTokens.successBorder,
-            dark: 0x2FC9A6, light: 0x066E58, darkAlpha: 0.44, lightAlpha: 0.44
+            dark: 0x5BA59E, light: 0x477A7A, darkAlpha: 1, lightAlpha: 1
         )
         try assertToken(
             DesktopDesignTokens.warningSurface,
@@ -47,7 +47,7 @@ final class DesktopDesignTokensTests: XCTestCase {
         )
         try assertToken(
             DesktopDesignTokens.warningBorder,
-            dark: 0xF0A742, light: 0x9A5B00, darkAlpha: 0.46, lightAlpha: 0.46
+            dark: 0xB29671, light: 0x897150, darkAlpha: 1, lightAlpha: 1
         )
         try assertToken(
             DesktopDesignTokens.dangerSurface,
@@ -55,7 +55,7 @@ final class DesktopDesignTokensTests: XCTestCase {
         )
         try assertToken(
             DesktopDesignTokens.dangerBorder,
-            dark: 0xFF6B6B, light: 0xB4232C, darkAlpha: 0.46, lightAlpha: 0.46
+            dark: 0xB97B83, light: 0x955764, darkAlpha: 1, lightAlpha: 1
         )
         try assertToken(
             DesktopDesignTokens.accentSurface,
@@ -63,7 +63,7 @@ final class DesktopDesignTokensTests: XCTestCase {
         )
         try assertToken(
             DesktopDesignTokens.accentBorder,
-            dark: 0xAB99FF, light: 0x6248D5, darkAlpha: 0.42, lightAlpha: 0.42
+            dark: 0x918FC3, light: 0x706BAF, darkAlpha: 1, lightAlpha: 1
         )
         try assertToken(
             DesktopDesignTokens.overlayBackdrop,

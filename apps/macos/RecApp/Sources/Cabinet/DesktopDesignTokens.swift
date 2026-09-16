@@ -48,14 +48,16 @@ public enum DesktopDesignTokens {
     public static let dangerText = color(dark: 0xFFD6D6, light: 0x8F1D27)
     public static let focusRing = color(dark: 0xC0B6FF, light: 0x4D32CC)
 
+    // Поверхности совпадают с `color-mix(..., transparent)` кабинета.
     public static let successSurface = tinted(dark: 0x2FC9A6, light: 0x066E58, alpha: 0.09)
-    public static let successBorder = tinted(dark: 0x2FC9A6, light: 0x066E58, alpha: 0.44)
     public static let warningSurface = tinted(dark: 0xF0A742, light: 0x9A5B00, alpha: 0.09)
-    public static let warningBorder = tinted(dark: 0xF0A742, light: 0x9A5B00, alpha: 0.46)
     public static let dangerSurface = tinted(dark: 0xFF6B6B, light: 0xB4232C, alpha: 0.08)
-    public static let dangerBorder = tinted(dark: 0xFF6B6B, light: 0xB4232C, alpha: 0.46)
     public static let accentSurface = tinted(dark: 0xAB99FF, light: 0x6248D5, alpha: 0.10)
-    public static let accentBorder = tinted(dark: 0xAB99FF, light: 0x6248D5, alpha: 0.42)
+    // Границы совпадают с `color-mix(in srgb, <тон> N%, var(--line))` кабинета.
+    public static let successBorder = color(dark: 0x5BA59E, light: 0x477A7A)
+    public static let warningBorder = color(dark: 0xB29671, light: 0x897150)
+    public static let dangerBorder = color(dark: 0xB97B83, light: 0x955764)
+    public static let accentBorder = color(dark: 0x918FC3, light: 0x706BAF)
     public static let overlayBackdrop = color(dark: 0x05070C, light: 0x05070C, darkAlpha: 0.70, lightAlpha: 0.40)
     public static let speakerContrastText = color(dark: 0x151719, light: 0xFFFFFF)
 

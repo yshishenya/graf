@@ -50,7 +50,7 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
         XCTAssertTrue(shellSource.contains("desktop-meeting-shell-start-recording-button"))
         XCTAssertTrue(shellSource.contains("desktop-meeting-shell-stop-recording-button"))
         XCTAssertTrue(shellSource.contains("RecordingTitlebarHUD("))
-        XCTAssertTrue(shellSource.contains("Label(\"Стоп\", systemImage: \"stop.fill\")"))
+        XCTAssertTrue(shellSource.contains("Label(SystemAudioStatusLabels.stopButtonTitle, systemImage: \"stop.fill\")"))
         XCTAssertFalse(shellSource.contains("hasActiveRecording: recordingStripSession != nil"))
         XCTAssertTrue(appSource.contains("startRecordingAvailable: CaptureControlView.shouldShowDirectRecordButton"))
         XCTAssertTrue(appSource.contains("calendarPrompt: desktopCalendarPrompt"))

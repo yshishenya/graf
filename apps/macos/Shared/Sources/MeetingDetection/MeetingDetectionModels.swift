@@ -70,7 +70,9 @@ public enum MeetingDetectionStatus: Equatable, Sendable {
             return "Автозапись: \(displayName)"
         case .blocked:
             return "Автозапись заблокирована"
-        case .detecting, .meetingFound, .candidate:
+        case .detecting:
+            return "Проверяем автозапись"
+        case .meetingFound, .candidate:
             return "Встреча обнаружена"
         case .unavailable:
             return "Автозапись недоступна"
