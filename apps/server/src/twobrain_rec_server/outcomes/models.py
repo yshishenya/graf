@@ -16,6 +16,8 @@ def _nonblank(value: str) -> str:
 
 ProtocolText = Annotated[str, AfterValidator(_nonblank)]
 PROTOCOL_VERSION = "graf-meeting-protocol-v1"
+PROTOCOL_ABOUT_SCHEMA_NAME = "graf_meeting_protocol_about_v1"
+PROTOCOL_ABOUT_GENERATOR_VERSION = "meeting-protocol-v1-about-v1"
 
 
 class ProtocolObject(BaseModel):
