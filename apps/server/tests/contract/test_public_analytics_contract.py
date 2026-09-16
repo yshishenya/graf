@@ -218,6 +218,8 @@ def test_public_analytics_controller_is_provider_failure_and_duplicate_init_safe
     assert "document.querySelector('script[data-graf-provider=\"yandex-metrica\"]')" in analytics_js
     assert "publicProviderFailure" in analytics_js
     assert "api.providerBlocked" in analytics_js
+    assert "replayConsentChanged" in analytics_js
+    assert "window.location.reload()" in analytics_js
     assert "listenersBound" in analytics_js
     assert "sectionsObserved" in analytics_js
 

@@ -422,12 +422,19 @@
       return false;
     }
 
+    var replayConsentChanged =
+      hasCategory(currentCategories, "behavior_replay") !== hasCategory(categories, "behavior_replay");
     previousOptionalConsent = previousOptionalConsent || hasCategory(currentCategories, "analytics") || hasCategory(currentCategories, "advertising_attribution") || hasCategory(currentCategories, "behavior_replay");
     currentCategories = categories;
     currentConsentState = nextState;
     api.currentCategories = categories.slice();
     api.currentConsentState = nextState;
     persistConsentMetadata(nextState);
+    if (api.providerLoaded && replayConsentChanged) {
+      disableOptionalProviders();
+      window.location.reload();
+      return true;
+    }
     if (!hasCategory(categories, "analytics")) {
       if (previousOptionalConsent || api.providerLoaded || productAutocaptureStarted) {
         disableOptionalProviders();
