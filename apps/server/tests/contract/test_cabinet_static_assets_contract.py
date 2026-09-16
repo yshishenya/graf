@@ -184,10 +184,10 @@ def test_replacement_status_uses_one_neutral_state_until_terminal_outcome() -> N
     ]
     for forbidden in (
         "Временная ошибка",
-        "Ждём актуальный статус",
+        "Ждем актуальный статус",
         "Повторить сейчас",
         "Проверить статус",
-        "Текущая версия остаётся доступной",
+        "Текущая версия остается доступной",
     ):
         assert forbidden not in replacement_copy
     assert 'reprocessLabel: "Попробовать снова"' in status_copy
@@ -1296,7 +1296,7 @@ for (const testCase of cases) {
   ) {
     throw new Error(`terminal projection used wrong copy: ${JSON.stringify({ copy, testCase })}`);
   }
-  if (copy.copy.includes("Спикеры ещё определяются")) {
+  if (copy.copy.includes("Спикеры еще определяются")) {
     throw new Error("terminal projection fell back to active processing copy");
   }
 }
@@ -1320,7 +1320,7 @@ if (unpublishedReplacement?.state !== "active" || unpublishedReplacement?.title 
 
     script = script_path.read_text(encoding="utf-8")
     assert 'payload?.code === "processing_quota_exceeded"' in script
-    assert "Лимит расшифровки ещё не обновился" in script
+    assert "Лимит расшифровки еще не обновился" in script
 
 
 def test_summary_refresh_does_not_pause_or_replace_the_current_player() -> None:
@@ -1602,7 +1602,22 @@ def test_cabinet_collapsed_rail_uses_one_centered_control_geometry() -> None:
         "  margin-inline: 2px auto;\n"
         "  inset-block-start: -4px;"
     ) in css
-    assert (".sidebar {\n  padding: 12px 10px;\n  gap: 12px;") in css
+    assert (
+        ".sidebar {\n"
+        "  grid-row: 1 / -1;\n"
+        "  position: sticky;\n"
+        "  top: 0;\n"
+        "  align-self: start;\n"
+        "  height: 100vh;"
+    ) in css
+    assert (
+        "  padding: 12px 10px;\n"
+        "  gap: 12px;\n"
+        "  background: var(--panel);\n"
+        "  color: var(--text);\n"
+        "  border-right: 1px solid var(--line-soft);\n"
+        "}"
+    ) in css
     assert (
         ".app-shell.desktop-embedded.is-rail-pinned .cabinet-rail-toggle {\n"
         "    margin-inline-start: 6px;\n"
@@ -2204,11 +2219,11 @@ def test_meeting_list_js_owns_loading_and_metadata_safe_recovery_states() -> Non
         "Нет подключения",
         "Запись на Mac продолжает работать.",
         "Не удалось загрузить встречи",
-        "Попробуйте ещё раз.",
+        "Попробуйте еще раз.",
         "Нужно войти снова",
         "Сессия завершилась.",
         "Нужно выбрать пространство",
-        "Доступ к выбранному пространству больше не подтверждён.",
+        "Доступ к выбранному пространству больше не подтвержден.",
         "Войти и выбрать пространство",
         "Нет доступа к встречам",
         "Обратитесь к владельцу рабочего пространства.",
@@ -3060,7 +3075,7 @@ const access = new FakeElement("access");
 access.value = "shared";
 const sort = new FakeElement("sort");
 sort.value = "updated_desc";
-sort.selectedOptions = [{ textContent: "Недавно обновлённые" }];
+sort.selectedOptions = [{ textContent: "Недавно обновленные" }];
 const reset = new FakeElement("reset");
 const filterLabel = new FakeElement("filter-label");
 const filterSummary = new FakeElement("filter-summary");
@@ -4338,7 +4353,7 @@ def test_cabinet_js_uses_product_facing_ellipsis_in_async_states() -> None:
         '"Загрузка"',
         '"Загрузка продолжена"',
         '"На сервере · Обрабатываем"',
-        '"На сервере · Ждёт обработки"',
+        '"На сервере · Ждет обработки"',
         '"Не удалось загрузить"',
         '"Загрузка остановлена"',
     ]:
@@ -4427,8 +4442,11 @@ def test_feature_159_shared_shell_static_contract_keeps_search_and_download_boun
         ROOT / "src/twobrain_rec_server/cabinet/templates/cabinet/components/sections.html"
     ).read_text()
 
-    assert "padding-inline-start: 42px;" in css
-    assert "padding-inline-end: 34px;" in css
+    assert (
+        '.cabinet-search-control input[type="search"] {\n'
+        "  padding-inline-start: 40px;\n"
+        "  padding-inline-end: 34px;"
+    ) in css
     assert ".sidebar-download" in css
     assert "position: fixed;" in css
     assert "max-height: calc(var(--profile-menu-viewport-height, 100vh) - var(--profile-menu-bottom, 60px) - 8px);" in css
@@ -4447,7 +4465,7 @@ def test_meeting_list_css_keeps_reset_copy_and_touch_actions_visible() -> None:
     css = (STATIC_DIR / "cabinet.css").read_text()
 
     assert (
-        ".cabinet-filter-reset.icon-control {\n"
+        ".cabinet-filter-reset.icon-button {\n"
         "  width: auto;\n"
         "  min-width: 88px;\n"
         "  height: var(--control-height);"
@@ -4537,7 +4555,7 @@ def test_cabinet_js_owns_manual_upload_without_frontend_toolchain() -> None:
         "abort",
         "refreshMeetingList",
         "workflow_started",
-        "На сервере · Ждёт обработки",
+        "На сервере · Ждет обработки",
         "На сервере · Обрабатываем",
         "authUploadFailure",
         "conflictUploadFailure",
@@ -4840,7 +4858,7 @@ def test_feature_104_css_uses_shared_density_focus_and_responsive_contracts() ->
         "--space-3: 16px;",
         "--space-4: 24px;",
         "--control-height: 36px;",
-        "--meeting-row-height: 48px;",
+        "--meeting-row-height: 56px;",
         "--focus-ring:",
         "--app-sidebar-width: 240px;",
         "--app-rail-width: 64px;",
@@ -4900,11 +4918,11 @@ def test_feature_191_centralizes_interaction_tokens_and_compact_upload_contract(
         "--danger-border:",
         "--font-size-caption: 11px;",
         "--font-size-helper: 12px;",
-        "--font-size-body: 13px;",
+        "--font-size-body-compact: 13px;",
+        "--font-size-body: 14px;",
         "--font-size-label: 14px;",
         "--control-height-sm: 32px;",
         "--control-height: 36px;",
-        "--control-height-lg: 40px;",
         "--radius-control: 9px;",
         "--radius-card: 12px;",
         "--radius-panel: 14px;",
@@ -5072,9 +5090,8 @@ def test_meeting_list_css_binds_target_geometry_contrast_and_motion_contracts() 
     css = (STATIC_DIR / "cabinet.css").read_text()
 
     for marker in [
-        "--meeting-row-height: 48px;",
-        "--meeting-row-exception-height: 56px;",
-        ".meeting-row.has-status {\n  min-height: var(--meeting-row-exception-height);",
+        "--meeting-row-height: 56px;",
+        ".meeting-row.cabinet-row {\n  grid-template-columns: 32px 20px minmax(0, 1fr) 32px minmax(84px, auto);\n  min-height: var(--meeting-row-height);",
         ".meeting-row.has-status .meeting-content {\n  padding-block: 2px;",
         ".row-select-hit,\n.row-delete-form {\n  width: 32px;\n  height: 32px;",
         ".calendar-context-list-action {\n  min-height: 32px;",
@@ -5094,11 +5111,16 @@ def test_meeting_list_css_binds_target_geometry_contrast_and_motion_contracts() 
     ]:
         assert marker in css
 
+    assert "--meeting-row-exception-height" not in css
+    assert ".meeting-row.has-status { min-height" not in css
+    assert ".list-loading-skeleton > span {\n  height: var(--meeting-row-height);" in css
+
     assert "html, body { min-height: 100%; margin: 0;" in css
     assert "overflow-x: hidden;" in css
     assert "minmax(0, 1fr)" in css
     assert (
-        ".selection-toolbar {\n  min-height: var(--control-height);\n  padding-left: 0;\n  gap: var(--space-1);\n  flex-wrap: wrap;"
+        ".selection-toolbar {\n  display: flex;\n  justify-content: flex-start;\n  align-items: center;\n"
+        "  min-height: var(--control-height);\n  padding-left: 0;\n  gap: var(--space-1);\n  flex-wrap: wrap;"
         in css
     )
     assert ".selection-clear {\n    display: none;\n  }" not in css

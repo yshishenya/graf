@@ -199,7 +199,7 @@ private struct ContentView: View {
     @State private var meetingDetectionLogStream: MacOSAudioOwnershipLogStream?
     @State private var meetingDetectionTask: Task<Void, Never>?
     @State private var meetingDetectionAdvanceTask: Task<Void, Never>?
-    @State private var meetingDetectionStatus = "Ожидает запуск"
+    @State private var meetingDetectionStatus = MeetingDetectionStatus.notStarted
     @State private var meetingDetectionPrompt: MeetingDetectionPrompt?
     @State private var meetingDetectionPromptWindow: NSWindow?
     @State private var liveRecordingLevels = LiveRecordingLevels.inactive
@@ -849,7 +849,7 @@ private struct ContentView: View {
         do {
             meetingDetectionSettings = try meetingDetectionSettingsStore.load()
         } catch {
-            meetingDetectionStatus = "Недоступно"
+            meetingDetectionStatus = .unavailable
             AppLog.writeRaw(event: "meeting_detection.start_failed", detail: "error=settings_unavailable")
             return
         }
@@ -1232,7 +1232,7 @@ private struct ContentView: View {
                 meetingDetectionPrompt = prompt
                 presentMeetingDetectionPrompt(prompt)
                 recordMeetingDetectionConsumerOutcome(bundleID: bundleID, outcome: .accepted)
-                meetingDetectionStatus = "Найдена встреча: \(displayName)"
+                meetingDetectionStatus = .meetingFound(displayName)
             case .autoRecordEligible(let targetID, let bundleID):
                 AppLog.writeRaw(
                     event: "meeting_detection.detector_offer",
@@ -1268,7 +1268,7 @@ private struct ContentView: View {
                         displayName: displayName,
                         reason: .savedTargetPolicy
                     ) else {
-                        meetingDetectionStatus = "Автозапись заблокирована: проверьте разрешение и встречу"
+                        meetingDetectionStatus = .blocked
                         recordMeetingDetectionConsumerOutcome(
                             bundleID: bundleID,
                             outcome: .retryable(reason: "current_start_decision_blocked")
@@ -1280,10 +1280,10 @@ private struct ContentView: View {
                     )
                     recordMeetingDetectionConsumerOutcome(bundleID: bundleID, outcome: outcome)
                     if outcome == .accepted {
-                        meetingDetectionStatus = "Автозапись: \(displayName)"
+                        meetingDetectionStatus = .configuredForApp(displayName)
                     }
                 }
-                meetingDetectionStatus = "Проверяется автозапись: \(displayName)"
+                meetingDetectionStatus = .detecting(displayName)
             case .candidateObserved(
                 bundleID: let bundleID,
                 score: let score,
@@ -1303,7 +1303,7 @@ private struct ContentView: View {
                     )
                     recordMeetingDetectionConsumerOutcome(bundleID: observation.bundleID, outcome: .accepted)
                     Task { await uploadMeetingDetectionTelemetry(reason: "candidate_observed") }
-                    meetingDetectionStatus = "Найден кандидат для проверки"
+                    meetingDetectionStatus = .candidate
                 } catch {
                     recordMeetingDetectionConsumerOutcome(
                         bundleID: observation.bundleID,
@@ -1507,8 +1507,11 @@ private struct ContentView: View {
     }
 
     @MainActor
-    private func meetingDetectionStatusText() -> String {
-        "Автозапись настроена"
+    private func meetingDetectionStatusText() -> MeetingDetectionStatus {
+        guard meetingDetectionRegistry != nil else {
+            return .unavailable
+        }
+        return .configured
     }
 
     @MainActor
@@ -1586,7 +1589,7 @@ private struct ContentView: View {
         let decision = MeetingDetectionPromptDecision(action: .skip, rememberChoice: rememberChoice)
         if let rule = decision.persistedRule {
             if !saveMeetingDetectionRule(rule, targetID: prompt.targetID) {
-                meetingDetectionStatus = "Выбор не сохранён"
+                meetingDetectionStatus = .notSaved
             }
         }
         recordMeetingDetectionConsumerOutcome(
@@ -1666,7 +1669,7 @@ private struct ContentView: View {
         )
         if let rule = decision.persistedRule {
             if !saveMeetingDetectionRule(rule, targetID: prompt.targetID) {
-                meetingDetectionStatus = "Выбор не сохранён"
+                meetingDetectionStatus = .notSaved
             }
         }
         dismissMeetingDetectionPrompt()
@@ -1677,7 +1680,7 @@ private struct ContentView: View {
                 displayName: prompt.displayName,
                 reason: reason
             ) else {
-                meetingDetectionStatus = "Запись не началась: разрешение или встреча уже изменились"
+                meetingDetectionStatus = .failed
                 recordMeetingDetectionConsumerOutcome(
                     bundleID: prompt.bundleID,
                     outcome: .retryable(reason: "current_prompt_decision_blocked")
@@ -2264,7 +2267,7 @@ private struct ContentView: View {
                 detail: "sessionId=\(paused.id) localMicTreatment=silenced stopAvailable=\(paused.stopActionAvailable)"
             )
         } catch {
-            recordingBlocker = "Не удалось выключить микрофон в записи. Попробуйте ещё раз."
+            recordingBlocker = "Не удалось выключить микрофон в записи. Попробуйте еще раз."
             AppLog.writeRaw(
                 event: AuditEventName.recordingFailed.rawValue,
                 detail: "pause_failed error=\(error)"
@@ -2288,7 +2291,7 @@ private struct ContentView: View {
                 detail: "sessionId=\(active.id) localMicTreatment=capturing stopAvailable=\(active.stopActionAvailable)"
             )
         } catch {
-            recordingBlocker = "Не удалось включить микрофон в записи. Системный звук продолжает записываться; попробуйте ещё раз или остановите запись."
+            recordingBlocker = "Не удалось включить микрофон в записи. Системный звук продолжает записываться; попробуйте еще раз или остановите запись."
             AppLog.writeRaw(
                 event: AuditEventName.recordingFailed.rawValue,
                 detail: "resume_failed error=\(error)"
@@ -2843,7 +2846,7 @@ private struct ContentView: View {
               let item = items.first(where: { $0.sessionId == sessionID }),
               (try? desktopUploadQueueService.localPlaybackURL(itemId: item.id)) != nil
         else {
-            return "Запись остановлена: \(failureCode). Сохранённого очищенного фрагмента нет."
+            return "Запись остановлена: \(failureCode). Сохраненного очищенного фрагмента нет."
         }
         return "Запись остановлена: \(failureCode). Уже очищенная часть сохранена локально."
     }
@@ -2864,9 +2867,9 @@ private struct ContentView: View {
         case .indicatorUnavailable:
             return "Запись не началась: локальный индикатор недоступен. \(action)."
         case .sourceAppIneligible:
-            return "Запись не началась: источник не подтверждён. \(action)."
+            return "Запись не началась: источник не подтвержден. \(action)."
         case .alreadyRecording:
-            return "Запись уже идёт."
+            return "Запись уже идет."
         case .captureFailed:
             return "Запись не началась: системный звук не запустился. \(action)."
         case .unknown:
@@ -2925,7 +2928,7 @@ private struct ContentView: View {
         case .failed:
             return "Локальная запись не сохранена"
         case .active:
-            return "Локальная запись идёт"
+            return "Локальная запись идет"
         }
     }
 
@@ -3074,7 +3077,7 @@ private struct MeetingDetectionPromptView: View {
                         .font(.system(size: 11, weight: .bold))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 5)
-                        .background(.primary.opacity(0.06))
+                        .background(DesktopDesignTokens.surface)
                     VStack(alignment: .leading, spacing: 10) {
                         HStack(alignment: .top, spacing: 10) {
                             Image(systemName: "record.circle")
@@ -3108,7 +3111,7 @@ private struct MeetingDetectionPromptView: View {
                                 resolveDismiss(reason: .userSkipped)
                             })
                             .frame(maxWidth: .infinity, minHeight: 34)
-                            .background(.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 7))
+                            .background(DesktopDesignTokens.surface, in: RoundedRectangle(cornerRadius: 7))
 
                             TimelineView(.periodic(from: appearedAt, by: 0.05)) { context in
                                 countdownButton(
@@ -3123,11 +3126,11 @@ private struct MeetingDetectionPromptView: View {
                 .frame(maxWidth: .infinity, minHeight: geometry.size.height, alignment: .top)
             }
         }
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
-        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .background(DesktopDesignTokens.panel, in: RoundedRectangle(cornerRadius: DesktopDesignTokens.Radius.dialog))
+        .clipShape(RoundedRectangle(cornerRadius: DesktopDesignTokens.Radius.dialog))
         .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(.quaternary, lineWidth: 1)
+            RoundedRectangle(cornerRadius: DesktopDesignTokens.Radius.dialog)
+                .stroke(DesktopDesignTokens.line, lineWidth: 1)
         )
         .onAppear {
             appearedAt = Date()
@@ -3161,11 +3164,11 @@ private struct MeetingDetectionPromptView: View {
                     RoundedRectangle(cornerRadius: 7)
                         .fill(
                             isStartDisabled
-                                ? Color.secondary.opacity(0.28)
-                                : DesktopMeetingShellChrome.shellAccentColor
+                                ? DesktopDesignTokens.surface3
+                                : DesktopDesignTokens.accentSolid
                         )
                     RoundedRectangle(cornerRadius: 7)
-                        .fill(Color.white.opacity(0.22))
+                        .fill(DesktopDesignTokens.accentForeground.opacity(0.22))
                         .frame(width: proxy.size.width * progress)
                     Text(
                         isStartDisabled
@@ -3174,7 +3177,7 @@ private struct MeetingDetectionPromptView: View {
                     )
                         .font(.callout)
                         .fontWeight(.semibold)
-                        .foregroundStyle(isStartDisabled ? Color.primary : Color.white)
+                        .foregroundStyle(isStartDisabled ? DesktopDesignTokens.muted : DesktopDesignTokens.accentForeground)
                         .lineLimit(2)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 4)
@@ -3193,7 +3196,7 @@ private struct MeetingDetectionPromptView: View {
         .accessibilityValue(
             isStartDisabled
                 ? "Запись пока недоступна"
-                : "Запись начнётся автоматически через \(remainingSeconds) секунд"
+                : "Запись начнется автоматически через \(remainingSeconds) секунд"
         )
     }
 
@@ -3545,7 +3548,7 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
             // Never queue a Start that might unexpectedly run after initialization.
             presentMainWindow(reason: "capture_control_unavailable")
             let alert = NSAlert()
-            alert.messageText = "Управление записью ещё не готово"
+            alert.messageText = "Управление записью еще не готово"
             alert.informativeText = "Команда не выполнена. Повторите попытку, когда GRAF откроется."
             alert.addButton(withTitle: "Понятно")
             if let mainWindow { alert.beginSheetModal(for: mainWindow) }
@@ -3567,7 +3570,7 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
             alert.messageText = "Проверка обновлений недоступна"
             alert.informativeText = appUpdateController.presentation.message
                 ?? "Эта сборка GRAF не содержит полной доверенной конфигурации обновлений."
-            alert.addButton(withTitle: "ОК")
+            alert.addButton(withTitle: "Понятно")
             if let mainWindow {
                 alert.beginSheetModal(for: mainWindow)
             } else {
@@ -3580,8 +3583,7 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         guard menuItem.action == #selector(checkForUpdates(_:)) else { return true }
-        menuItem.title = appUpdateController.presentation.availableVersion.map { "Обновить GRAF до \($0)…" }
-            ?? "Проверить обновления…"
+        menuItem.title = appUpdateController.presentation.menuItemTitle
         return appUpdateController.isManualCheckActionEnabled
     }
 

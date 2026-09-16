@@ -97,7 +97,7 @@ final class SystemAudioPermissionUXTests: XCTestCase {
 
     func testPermissionRecoveryActionsStaySeparateAndRussian() {
         XCTAssertEqual(DesktopPermissionOnboardingView.openSettingsTitle, "Открыть настройки")
-        XCTAssertEqual(DesktopPermissionOnboardingView.retryTitle, "Проверить ещё раз")
+        XCTAssertEqual(DesktopPermissionOnboardingView.retryTitle, "Проверить еще раз")
         XCTAssertEqual(DesktopPermissionOnboardingView.restartTitle, "Перезапустить GRAF")
         XCTAssertTrue(DesktopPermissionOnboardingView.microphoneDeniedDetail.contains("включите доступ"))
         XCTAssertTrue(DesktopPermissionOnboardingView.microphoneRestrictedDetail.contains("администратора"))

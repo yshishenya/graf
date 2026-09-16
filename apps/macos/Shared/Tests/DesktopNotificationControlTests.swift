@@ -268,7 +268,7 @@ final class DesktopNotificationControlTests: XCTestCase {
         var event = DesktopCalendarPromptEvent(eventId: "event", startsAt: now, endsAt: now.addingTimeInterval(3600))
         let hidden = DesktopNotificationPresenter.reminderContent(event: event, preferences: .init(), recording: false, timeZone: TimeZone(secondsFromGMT: 0)!)
         XCTAssertEqual(hidden.title, "Встреча в календаре")
-        XCTAssertEqual(hidden.body, "Начало в 00:00. Запись ещё не начата.")
+        XCTAssertEqual(hidden.body, "Начало в 00:00. Запись еще не начата.")
         XCTAssertNil(hidden.sound)
         let categories = DesktopNotificationPresenter.notificationCategories
         XCTAssertFalse(categories.first { $0.identifier == hidden.categoryIdentifier }!.actions.contains { $0.identifier == "graf.join" })

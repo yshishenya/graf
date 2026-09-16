@@ -85,13 +85,13 @@ class AccountMergePresentation:
 
 _PROVIDER_LINK_OUTCOMES = {
     "callback_verified": {
-        "title": "Вход подтверждён",
+        "title": "Вход подтвержден",
         "detail": "Провайдер подтвердил вход. Завершите подключение в GRAF.",
         "kind": "success",
     },
     "confirmed": {
-        "title": "Способ входа подключён",
-        "detail": "Способ входа подключён к текущему профилю.",
+        "title": "Способ входа подключен",
+        "detail": "Способ входа подключен к текущему профилю.",
         "kind": "success",
     },
     "provider_link_denied": {
@@ -105,7 +105,7 @@ _PROVIDER_LINK_OUTCOMES = {
         "kind": "error",
     },
     "provider_link_expired": {
-        "title": "Срок подключения истёк",
+        "title": "Срок подключения истек",
         "detail": "Данные профиля не изменены. Начните подключение заново.",
         "kind": "error",
     },
@@ -131,7 +131,7 @@ _PROVIDER_LINK_OUTCOMES = {
     },
     "merge_cancelled": {
         "title": "Профили оставлены раздельно",
-        "detail": "Профили остались раздельными. Способ входа не подключён к текущему профилю.",
+        "detail": "Профили остались раздельными. Способ входа не подключен к текущему профилю.",
         "kind": "success",
     },
     "reauth_required": {
@@ -143,8 +143,8 @@ _PROVIDER_LINK_OUTCOMES = {
 
 _PROVIDER_UNLINK_OUTCOMES = {
     "success": {
-        "title": "Способ входа отключён",
-        "detail": "Остальные подтверждённые способы входа сохранены.",
+        "title": "Способ входа отключен",
+        "detail": "Остальные подтвержденные способы входа сохранены.",
         "kind": "success",
     },
     "reauth_required": {
@@ -154,17 +154,17 @@ _PROVIDER_UNLINK_OUTCOMES = {
     },
     "recovery_path_required": {
         "title": "Сначала подключите другой способ входа",
-        "detail": "Этот способ нельзя отключить, пока нет другого подтверждённого способа восстановления.",
+        "detail": "Этот способ нельзя отключить, пока нет другого подтвержденного способа восстановления.",
         "kind": "error",
     },
     "not_found": {
         "title": "Способ входа уже недоступен",
-        "detail": "Обновите страницу: возможно, способ входа уже был отключён.",
+        "detail": "Обновите страницу: возможно, способ входа уже был отключен.",
         "kind": "error",
     },
     "unavailable": {
         "title": "Не удалось отключить способ входа",
-        "detail": "Данные не изменены. Попробуйте ещё раз позже.",
+        "detail": "Данные не изменены. Попробуйте еще раз позже.",
         "kind": "error",
     },
 }
@@ -505,9 +505,9 @@ def render_settings_page(
         provider_unlink_outcome = {**provider_unlink_outcome, "kind": "warning"}
     device_revoke_result_copy = {
         "revoked": "Устройство отозвано. Его активные сессии больше не действуют.",
-        "others_revoked": "Доступ на остальных устройствах завершён. Текущее устройство остаётся активным.",
-        "reauth_required": "Для этого действия войдите через подтверждённую веб-сессию и повторите попытку.",
-        "failed": "Не удалось отозвать устройство. Попробуйте ещё раз.",
+        "others_revoked": "Доступ на остальных устройствах завершен. Текущее устройство остается активным.",
+        "reauth_required": "Для этого действия войдите через подтвержденную веб-сессию и повторите попытку.",
+        "failed": "Не удалось отозвать устройство. Попробуйте еще раз.",
     }.get(device_revoke_result)
     other_account_result = " ".join(
         message
@@ -515,14 +515,14 @@ def render_settings_page(
             device_revoke_result_copy,
             {
                 "revoked": "В том приложении или браузере потребуется войти снова. Здесь вы остались в аккаунте.",
-                "failed": "Не удалось завершить вход. Попробуйте ещё раз.",
+                "failed": "Не удалось завершить вход. Попробуйте еще раз.",
                 "others_revoked": "Другие входы в этом рабочем пространстве завершены. Здесь вы остались в аккаунте.",
                 "reauth_required": "Чтобы управлять входами, войдите в GRAF снова и повторите попытку.",
             }.get(session_result),
             {
                 "scheduled": "Закрытие аккаунта запланировано. До даты отмены доступ и данные сохраняются, будущие списания отключены.",
                 "canceled": "Закрытие аккаунта отменено.",
-                "reauth_required": "Для закрытия аккаунта войдите через подтверждённую веб-сессию и повторите попытку.",
+                "reauth_required": "Для закрытия аккаунта войдите через подтвержденную веб-сессию и повторите попытку.",
             }.get(account_close_result),
         )
         if message
@@ -598,11 +598,11 @@ def render_settings_page(
         + ("/desktop/settings/account" if embedded else "/settings/account"),
         "notification_result": {
             "saved": "Настройки уведомлений сохранены.",
-            "conflict": "Настройки изменились или не прошли проверку. Ваш выбор сохранён в форме. Загрузите актуальные настройки перед повторным сохранением.",
+            "conflict": "Настройки изменились или не прошли проверку. Ваш выбор сохранен в форме. Загрузите актуальные настройки перед повторным сохранением.",
         }.get(
             notification_result
         ),
-        "profile_result": {"saved": "Профиль сохранён."}.get(profile_result),
+        "profile_result": {"saved": "Профиль сохранен."}.get(profile_result),
         "preferences_result": {"saved": "Настройки языка, часового пояса и темы сохранены."}.get(
             preferences_result
         ),
@@ -1046,7 +1046,7 @@ def _render_meeting_detail_content(
     )
     if "source_result_id" in parse_qs(urlsplit(poll_url or "").query):
         transcript = trusted_component_html(
-            '<div class="muted" role="status">Показана сохранённая редакция расшифровки из ссылки на источник.</div>'
+            '<div class="muted" role="status">Показана сохраненная редакция расшифровки из ссылки на источник.</div>'
             + str(transcript), source="meeting_detail.transcript",
         )
     if not review.transcript.available:
@@ -1412,7 +1412,7 @@ def _render_meeting_workspace_actions(
         more_action = """
       <button type="button" id="meeting-actions-trigger" data-meeting-panel-open="more"
               aria-haspopup="menu" aria-controls="meeting-context-more"
-              aria-expanded="false">Ещё</button>
+              aria-expanded="false">Еще</button>
         """
     return f"""
       <button type="button" data-share-dialog-open aria-controls="meeting-share-dialog" hx-get="{share_url}" hx-target="#meeting-share-host" hx-swap="innerHTML"{share_attributes}>Поделиться</button>
@@ -1591,16 +1591,16 @@ def _speaker_attribution_notice(review: MeetingReviewResponse) -> tuple[str, str
     if confirmed and unconfirmed:
         return (
             "Часть речи без имени",
-            "Этот фрагмент сохранён как «Спикер не определён». Остальные реплики и имена не изменены.",
+            "Этот фрагмент сохранен как «Спикер не определен». Остальные реплики и имена не изменены.",
         )
     if confirmed:
         return (
             "Спикеры показаны",
-            "Реплики и имена показаны по доступным данным. Текст записи сохранён.",
+            "Реплики и имена показаны по доступным данным. Текст записи сохранен.",
         )
     return (
-        "Текст записи сохранён",
-        "Надёжно разделить голоса не удалось, поэтому реплики показаны без имён.",
+        "Текст записи сохранен",
+        "Надежно разделить голоса не удалось, поэтому реплики показаны без имен.",
     )
 
 
@@ -1933,7 +1933,7 @@ def _render_previous_recurring_pointer(
     )
     readiness = {
         "notes_ready": "Итоги готовы",
-        "transcript_ready": "Транскрипт готов",
+        "transcript_ready": "Расшифровка готова",
         "processing": "Обрабатывается",
         "unavailable": "",
     }[previous.readiness_state]
@@ -2077,7 +2077,7 @@ def _render_calendar_context(
             f'<span class="muted">{escape(_calendar_participant_label(participant.participant_kind))}</span></div>'
             for participant in roster.participants
         )
-        roster_copy = "Приглашённые участники, не подтверждённые спикеры"
+        roster_copy = "Приглашенные участники, не подтвержденные спикеры"
     elif context.state in {"matched_auto", "matched_user"}:
         roster_copy = "Список участников недоступен. Спикеры определяются отдельно по записи."
     elif context.reason_label is not None:
@@ -2138,7 +2138,7 @@ def _render_calendar_context(
             data-hx-post="{clear_action}" data-hx-target="#cabinet-main"
             data-hx-select="#cabinet-main" data-hx-swap="outerHTML">
             {_calendar_context_csrf_field(csrf_token)}
-            <p class="truth-copy">Контекст и список приглашённых исчезнут. Название записи останется прежним.</p>
+            <p class="truth-copy">Контекст и список приглашенных исчезнут. Название записи останется прежним.</p>
             <button type="submit" class="secondary">Убрать контекст</button>
           </form>
         """
@@ -2193,7 +2193,7 @@ def _render_list_delete_dialog() -> str:
           <button type="button" class="quiet" data-delete-cancel>Отмена</button>
           <button type="button" class="danger-button" data-delete-confirm>Удалить</button>
         </div>
-        <div class="dialog-error" data-delete-error hidden>Не удалось удалить запись. Попробуйте ещё раз.</div>
+        <div class="dialog-error" data-delete-error hidden>Не удалось удалить запись. Попробуйте еще раз.</div>
       </dialog>
     """
 
@@ -2298,7 +2298,7 @@ def _render_playback(
               <div class="playback-controls" aria-label="Управление воспроизведением">
                 <button type="button" class="playback-round" data-playback-skip="-15" aria-label="Назад на 15 секунд" title="Назад на 15 секунд (←)">{_ui_icon("back-15")}</button>
                 <button type="button" class="playback-round primary-play" data-playback-toggle aria-label="Воспроизвести" title="Воспроизвести / пауза (Пробел)"><span data-playback-play-icon>{_ui_icon("play")}</span><span data-playback-pause-icon hidden>{_ui_icon("pause")}</span></button>
-                <button type="button" class="playback-round" data-playback-skip="15" aria-label="Вперед на 15 секунд" title="Вперёд на 15 секунд (→)">{_ui_icon("forward-15")}</button>
+                <button type="button" class="playback-round" data-playback-skip="15" aria-label="Вперед на 15 секунд" title="Вперед на 15 секунд (→)">{_ui_icon("forward-15")}</button>
                 <button type="button" class="playback-round" data-playback-next aria-label="Следующая реплика" title="Следующая реплика (Shift+→)"{' disabled' if not has_speakers else ''}>{_ui_icon("skip-next")}</button>
                 <div class="playback-menu-anchor">
                   <button type="button" class="playback-speed" data-playback-speed-toggle aria-label="Скорость воспроизведения" aria-haspopup="menu" aria-expanded="false" aria-controls="playback-speed-menu">1x</button>
@@ -2504,7 +2504,7 @@ def _render_speaker_name_form(
         <input id="speaker-name-{escape(speaker.speaker_key)}" name="display_name" value="{escape(speaker.display_name or "")}" placeholder="Имя спикера" maxlength="80" autocomplete="off">
         <button type="submit" class="quiet">Сохранить</button>
         {cancel}
-        <span class="speaker-name-error" data-speaker-name-error role="status" aria-live="polite" hidden>Не удалось сохранить имя. Проверьте имя и попробуйте ещё раз.</span>
+        <span class="speaker-name-error" data-speaker-name-error role="status" aria-live="polite" hidden>Не удалось сохранить имя. Проверьте имя и попробуйте еще раз.</span>
       </form>
     """
 
@@ -2661,7 +2661,7 @@ def _render_notes_outcomes(review: MeetingReviewResponse) -> str:
         aggregate_html = (
             '<div class="notes-aggregate-state" data-outcome-state="empty" role="status">'
             "<strong>Полезных итогов не найдено</strong>"
-            "<p>В разговоре нет достаточно подтверждённых решений, действий "
+            "<p>В разговоре нет достаточно подтвержденных решений, действий "
             "или других результатов для выбранного формата.</p>"
             "</div>"
         )
@@ -2797,8 +2797,8 @@ def _render_outcome_item(item, *, source_destination_available: bool) -> str:
             else "источников"
         )
         overflow_html = (
-            f'<details class="notes-source-more"><summary aria-label="Показать ещё {overflow_count} {source_noun}">'
-            f"Ещё {overflow_count}</summary>{''.join(source_controls[2:])}</details>"
+            f'<details class="notes-source-more"><summary aria-label="Показать еще {overflow_count} {source_noun}">'
+            f"Еще {overflow_count}</summary>{''.join(source_controls[2:])}</details>"
             if overflow_count
             else ""
         )
@@ -2821,14 +2821,14 @@ def _render_outcome_item(item, *, source_destination_available: bool) -> str:
 
 def _empty_title(review: MeetingReviewResponse) -> str:
     if review.transcript.degraded_reason == "diarization_pending":
-        return "Спикеры ещё определяются"
+        return "Спикеры еще определяются"
     if review.processing.state in {"processing", "submitted"}:
-        return "Транскрипт готовится"
+        return "Расшифровка готовится"
     if review.processing.state == "failed":
         return "Обработка остановилась"
     if review.processing.state == "blocked":
         return "Обработка требует проверки"
-    return "Транскрипт недоступен"
+    return "Расшифровка недоступна"
 
 
 def _empty_body(review: MeetingReviewResponse) -> str:

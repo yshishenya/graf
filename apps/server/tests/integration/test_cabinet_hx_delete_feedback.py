@@ -95,13 +95,22 @@ def test_deletion_index_and_report_remain_reachable_after_row_disappears(client)
         link = f"{prefix}/meetings/{ready_id}/deletion-report"
         assert link in listing.text
         assert "data-user-datetime" in listing.text
+        assert "data-cabinet-shell" in listing.text
+        assert 'class="page-title"' in listing.text
+        assert "cabinet-card" in listing.text
+        assert 'class="cabinet-link"' in listing.text
         report = client.get(link, headers=auth_headers())
         assert report.status_code == 200
         assert f'{prefix}/meetings' in report.text
+        assert "Отчет удаления" in report.text
+        assert 'class="main deletion-report"' in report.text
+        assert "report-band" in report.text
+        assert 'class="cabinet-link cabinet-link--quiet"' in report.text
         empty = client.get(f"{prefix}/deletions?page=2", headers=auth_headers())
         assert empty.status_code == 200
         assert link not in empty.text
         assert "?page=1" in empty.text
+        assert 'class="empty-state"' in empty.text
     assert client.get("/deletions?page=0", headers=auth_headers()).status_code == 422
 
 

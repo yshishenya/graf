@@ -75,6 +75,8 @@ def test_meeting_review_continuity_exposes_named_segments_resize_separator_and_s
     assert "margin-top: calc(-1 * var(--meeting-detail-main-padding-top))" in styles
     assert "padding-top: var(--meeting-detail-main-padding-top)" in styles
     assert ".meeting-detail-tabs .tab.active { color: var(--text); background: var(--surface-3); }" in styles
+    assert ".meeting-detail-tabs { display: inline-flex; flex-wrap: wrap; gap: 4px; }" in styles
+    assert ".meeting-detail-tabs { display: contents; }" not in styles
     assert ".meeting-detail-tabs {\n  position: sticky" not in styles
     assert "scroll-margin-top" in styles
 
@@ -180,7 +182,7 @@ def test_replacement_uses_one_polite_live_region_without_intermediate_copy() -> 
     ]
     assert "Готовим новую версию" in replacement
     assert "Временная ошибка" not in replacement
-    assert "Ждём актуальный статус" not in replacement
+    assert "Ждем актуальный статус" not in replacement
 
 
 def test_format_selector_exposes_one_labelled_listbox_with_bounded_quick_choices() -> None:
@@ -252,7 +254,7 @@ def test_processing_recovery_projection_keeps_artifacts_independent_and_refresh_
         "processingNewAttemptAllowed",
         "runProcessingNewAttempt",
         "unknown_outcome",
-        "Не удалось подтвердить отправку, поэтому GRAF проверяет исходную попытку и не создаёт дубликат.",
+        "Не удалось подтвердить отправку, поэтому GRAF проверяет исходную попытку и не создает дубликат.",
         "Обработка временно приостановлена",
         "Проверяем статус обработки.",
         "processingRecoveryCountdownTimer = window.setInterval(update, 1000)",

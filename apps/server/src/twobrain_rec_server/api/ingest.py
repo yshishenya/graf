@@ -184,7 +184,7 @@ def _meeting_calendar_context_summary(
         "matched_user": "Выбрано из календаря",
         "ambiguous": "Нужно выбрать встречу",
         "declined_by_user": "Без календаря",
-        "cleared_by_user": "Контекст календаря удалён",
+        "cleared_by_user": "Контекст календаря удален",
     }
     return MeetingCalendarContextSummary(
         state=context.context_state,

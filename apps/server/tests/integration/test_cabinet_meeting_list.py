@@ -95,10 +95,10 @@ def test_browser_and_embedded_lists_default_to_started_desc_and_normalize_unknow
         assert unknown_htmx_page.headers["HX-Replace-Url"] == f"{route}?sort=started_desc"
         assert f'hx-get="{route}?sort=started_desc"' in unknown_htmx_page.text
         assert updated_page.status_code == 200
-        assert 'aria-label="Сортировка: Недавно обновлённые"' in updated_page.text
+        assert 'aria-label="Сортировка: Недавно обновленные"' in updated_page.text
         assert 'value="updated_desc" selected' in updated_page.text
         assert oldest_updated_page.status_code == 200
-        assert 'aria-label="Сортировка: Давно обновлённые"' in oldest_updated_page.text
+        assert 'aria-label="Сортировка: Давно обновленные"' in oldest_updated_page.text
         assert 'value="updated_asc" selected' in oldest_updated_page.text
 
 

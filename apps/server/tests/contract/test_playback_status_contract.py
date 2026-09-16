@@ -157,11 +157,11 @@ def test_terminal_reason_copy_is_bounded_and_safe_for_every_public_category(clie
         ),
         "encrypted_media": (
             "encrypted_media",
-            "Защищённый файл нельзя подготовить для воспроизведения",
+            "Защищенный файл нельзя подготовить для воспроизведения",
         ),
         "corrupt_source": (
             "corrupt_source",
-            "Файл повреждён и не может быть воспроизведён",
+            "Файл поврежден и не может быть воспроизведен",
         ),
         "stream_limit_exceeded": (
             "limit_exceeded",

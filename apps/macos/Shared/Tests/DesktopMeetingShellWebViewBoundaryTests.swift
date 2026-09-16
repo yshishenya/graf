@@ -396,7 +396,7 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
 
         XCTAssertTrue(shellSource.contains("DesktopSupportIncidentActionStrip("))
         XCTAssertTrue(shellSource.contains("ScrollView(.vertical, showsIndicators: true)"))
-        XCTAssertTrue(shellSource.contains(".clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))"))
+        XCTAssertTrue(shellSource.contains(".clipShape(RoundedRectangle(cornerRadius: DesktopDesignTokens.Radius.card, style: .continuous))"))
         XCTAssertTrue(shellSource.contains("NSTitlebarAccessoryViewController()"))
         XCTAssertTrue(shellSource.contains("controller.layoutAttribute = .bottom"))
         XCTAssertTrue(shellSource.contains("controller.fullScreenMinHeight = DesktopMeetingShellChrome.recordingStripHeight"))

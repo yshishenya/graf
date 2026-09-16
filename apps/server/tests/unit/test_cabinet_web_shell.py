@@ -370,12 +370,15 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert "data-filter-disclosure" in page
     assert "data-sort-disclosure" in page
     assert 'aria-label="Фильтры"' in page
-    assert 'aria-label="Сортировка: Недавно обновлённые"' in page
-    assert 'value="updated_desc" selected>Недавно обновлённые</option>' in page
+    assert 'aria-label="Сортировка: Недавно обновленные"' in page
+    assert 'value="updated_desc" selected>Недавно обновленные</option>' in page
     css = _cabinet_css()
-    assert "max-width: min(1120px, calc(100vw - 48px))" in css
+    assert ".desktop-embedded .cabinet-workspace {\n  width: min(100%, 1240px);\n  max-width: none;\n  margin-inline: auto;\n}" in css
     assert "min-height: 64px;" in css
-    assert ".meeting-title { display: block; min-width: 0;" in css
+    assert (
+        ".meeting-title {\n  display: block;\n  min-width: 0;\n  overflow: hidden;\n"
+        "  text-overflow: ellipsis;\n  white-space: nowrap;" in css
+    )
     assert (
         ".meeting-row.cabinet-row { grid-template-columns: 20px 20px minmax(0, 1fr) 32px auto;"
         in css
@@ -439,17 +442,20 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert 'aria-label="Применить фильтры"' not in page
     assert 'class="toolbar-icons"' not in page
     assert '<input class="row-check selection-toggle" type="checkbox" data-selection-toggle' in page
-    assert "padding-left: 13px;" in css
+    assert (
+        ".selection-toolbar {\n  display: flex;\n  justify-content: flex-start;\n  align-items: center;\n"
+        "  min-height: var(--control-height);\n  padding-left: 0;" in css
+    )
     assert ".selection-toggle {\n  flex: 0 0 16px;" in css
     assert (
-        ".row-check {\n  accent-color: var(--accent);\n  width: 16px;\n  height: 16px;\n  min-height: 16px;\n  margin: 0;"
+        ".row-check {\n  width: 16px;\n  height: 16px;\n  min-height: 16px;\n  cursor: pointer;"
         in css
     )
     assert "selectionToggle.indeterminate = rows.length > 0 && !allSelected" in _cabinet_js()
     assert ".row-check {\n  appearance: none;" not in css
     assert ".row-check:checked::after" not in css
-    assert "line-height: 32px;" in css
-    assert ".icon-control {\n  width: 32px;\n  height: 32px;\n  min-height: 32px;" in css
+    assert "line-height: var(--control-height);" in css
+    assert ".icon-button {\n  width: 32px;\n  height: 32px;\n  min-height: 32px;" in css
     assert "padding: 0;" in css
     assert ".ui-icon {\n  width: 16px;\n  height: 16px;" in css
     assert ".row-icon .ui-icon { width: 14px; height: 14px; }" in css
@@ -1194,7 +1200,7 @@ def test_partial_transcript_detail_renders_diarization_placeholder() -> None:
     assert 'data-transcript-pending' in page
     assert "Здесь появится расшифровка." in page
     pending = re.search(r'<div[^>]*data-transcript-pending>.*?</div>', page, re.S).group()
-    assert "Спикеры ещё определяются" not in pending
+    assert "Спикеры еще определяются" not in pending
     assert "Расшифровка появится после завершения диаризации." not in pending
     assert 'data-playback-transcript hidden aria-hidden="true"' in page
 
@@ -1333,7 +1339,7 @@ def test_web_shell_keeps_sidebar_pinned_without_scrollbar() -> None:
         ".desktop-embedded .main {\n  --meeting-detail-main-padding-top: 22px;\n\n  padding: var(--meeting-detail-main-padding-top)"
         in css
     )
-    assert ".desktop-embedded .cabinet-main {\n  padding: 24px" in css
+    assert ".desktop-embedded .cabinet-main {\n  padding: 20px clamp(16px, 3vw, 36px) 48px;" in css
     assert (
         'html:not([data-cabinet-js="ready"]) .app-shell:not(.desktop-embedded) {\n'
         "    grid-template-rows: auto minmax(0, 1fr) auto;"
@@ -1349,8 +1355,8 @@ def test_web_shell_keeps_sidebar_pinned_without_scrollbar() -> None:
 def test_embedded_window_breakpoints_keep_sidebar_stable_until_tight_width() -> None:
     css = _cabinet_css()
 
-    assert "  flex-wrap: wrap;\n  justify-content: space-between;" in css
-    assert "  width: min(760px, 100%);\n  min-width: 0;" in css
+    assert "  flex-wrap: nowrap;\n  justify-content: space-between;" in css
+    assert "  width: auto;\n  min-width: 0;" in css
     assert (
         "@media (max-width: 980px) {\n"
         "  .app-shell { grid-template-columns: 1fr; }\n"
@@ -1551,8 +1557,10 @@ def test_feature_159_search_contract_reserves_icon_text_and_clear_space() -> Non
     assert page.count('id="meeting-search"') == 1
     assert 'aria-label="Поиск встреч"' in page
     css = _cabinet_css()
-    assert "padding-inline-start: 42px;" in css
-    assert "padding-inline-end: 34px;" in css
+    assert (
+        '.cabinet-search-control input[type="search"] {\n  padding-inline-start: 40px;\n  padding-inline-end: 34px;'
+        in css
+    )
     assert "pointer-events: none;" in css
     assert "min-width: 16px;" in css
 
@@ -1964,10 +1972,10 @@ def test_detail_shell_renders_tabs_and_gated_actions() -> None:
     assert 'data-detail-panel="recording"' in page
     assert '<h2 class="sr-only">Итоги</h2>' in page
     assert "const activateDetailTab = (name, { updateUrl = true } = {})" in _cabinet_js()
-    assert "Транскрипт готовится" in page
+    assert "Расшифровка готовится" in page
     assert "Поделиться" in page
     assert "data-share-dialog-open" in page
-    assert "Ещё" in page
+    assert "Еще" in page
     assert 'data-meeting-panel-open="more"' in page
     assert "Видимость для команды" not in page
     assert "Публичные ссылки" not in page
@@ -1997,7 +2005,7 @@ def test_detail_delete_dialog_is_brief_and_preserves_confirmation_form(
     assert 'name="csrf_token" value="synthetic-csrf"' in dialog
     assert 'name="confirmation_boundary" value="Delete this meeting everywhere GRAF controls."' in dialog
     assert 'aria-labelledby="meeting-delete-title"' in dialog
-    assert "Встреча будет удалена из GRAF. Восстановить её не получится." in dialog
+    assert "Встреча будет удалена из GRAF. Восстановить ее не получится." in dialog
     assert "Удаление не затронет скачанные и отправленные копии." not in dialog
     assert dialog.count("<p") == 1
     assert dialog.count("<button") == 2
@@ -2391,9 +2399,11 @@ def test_detail_shell_renders_speaker_timeline_segments() -> None:
     assert ".segment.is-current" in css
     assert ".speaker {" in css and "color: var(--muted)" in css
     assert ".text { color: var(--text)" in css
-    assert ".speaker-color-1 { --speaker-color: #7a65ff; }" in css
+    assert ".speaker-color-1 { --speaker-color: var(--speaker-color-1, #7a65ff); }" in css
     assert "background: var(--speaker-color)" in css
-    assert ".speaker-color-6 { --speaker-color: #d96aa6; }" in css
+    assert ".speaker-color-6 { --speaker-color: var(--speaker-color-6, var(--pink)); }" in css
+    assert "--speaker-color-1: #4f3ad0;" in css
+    assert "--speaker-color-5: #0a6b62;" in css
     assert 'class="timeline-lane speaker-color-1"' in page
     assert 'class="timeline-lane speaker-color-2"' in page
     assert page.count("speaker-color-1") >= 4
@@ -2574,7 +2584,7 @@ def test_speaker_ui_counts_only_confirmed_people_and_labels_talk_time() -> None:
             ),
             SpeakerLane(
                 speaker_key="unknown",
-                label="Спикер не определён",
+                label="Спикер не определен",
                 talk_time_percent=10,
                 segments=[SpeakerLaneSegment(start_seconds=36, end_seconds=40)],
                 confirmed=False,
@@ -2605,8 +2615,8 @@ def test_degraded_transcript_explains_that_text_is_preserved() -> None:
     page = render_meeting_detail_page(review)
 
     assert 'data-speaker-attribution-notice' in page
-    assert "Текст записи сохранён" in page
-    assert "Надёжно разделить голоса не удалось" in page
+    assert "Текст записи сохранен" in page
+    assert "Надежно разделить голоса не удалось" in page
 
 
 def test_degraded_transcript_keeps_confirmed_speakers_and_explains_only_unknown_part() -> None:
@@ -2628,7 +2638,7 @@ def test_degraded_transcript_keeps_confirmed_speakers_and_explains_only_unknown_
             ),
             SpeakerLane(
                 speaker_key="unknown",
-                label="Спикер не определён",
+                label="Спикер не определен",
                 talk_time_percent=5,
                 segments=[SpeakerLaneSegment(start_seconds=38, end_seconds=40)],
                 confirmed=False,
@@ -2764,7 +2774,7 @@ def test_terminal_playback_copy_renders_as_plain_status_without_user_work() -> N
 
     page = render_meeting_detail_page(review)
 
-    assert "Файл повреждён и не может быть воспроизведён" in page
+    assert "Файл поврежден и не может быть воспроизведен" in page
     assert 'role="status" tabindex="0"' in page
     assert "<audio" not in page
     forbidden = (
@@ -3020,13 +3030,13 @@ def test_detail_shell_renders_simple_outcomes_with_metadata_and_sources() -> Non
     assert 'data-outcome-category="followups"' not in page
     assert "Алексей" in page
     assert "до пятницы" in page
-    assert "Ответственный не определён" not in page
-    assert "Срок не определён" not in page
+    assert "Ответственный не определен" not in page
+    assert "Срок не определен" not in page
     assert 'data-outcome-truth-label="supported"' in page
     assert 'data-seek-seconds="12.5"' in page
     assert 'data-seek-seconds="24.0"' in page
     assert 'data-seek-seconds="36.0"' in page
-    assert '<summary aria-label="Показать ещё 1 источник">Ещё 1</summary>' in page
+    assert '<summary aria-label="Показать еще 1 источник">Еще 1</summary>' in page
     assert 'data-seek-seconds="45.0"' in page
     assert 'aria-label="Открыть источник 00:12 в расшифровке"' in page
     assert "data-export-dialog-open" in page

@@ -730,14 +730,16 @@ final class DesktopCalendarReminderTests: XCTestCase {
             XCTAssertEqual(tray.statusItemLabel, expected.label.map { "GRAF — \($0)" } ?? "GRAF")
         }
         tray.showRecordingState(.recording)
-        tray.showUpdate(AppUpdatePresentation(phase: .available, availableVersion: "2026.09.08.1",
-                                             isUserInitiated: false, message: nil), actionEnabled: true)
+        let update = AppUpdatePresentation(phase: .available, availableVersion: "2026.09.08.1",
+                                           isUserInitiated: false, message: nil)
+        tray.showUpdate(update, actionEnabled: true)
         XCTAssertEqual(model.recordingState, .recording)
-        XCTAssertTrue(tray.statusItemLabel.contains("Идёт запись"))
+        XCTAssertTrue(tray.statusItemLabel.contains("Идет запись"))
+        XCTAssertTrue(tray.statusItemLabel.contains(update.bannerTitle))
         XCTAssertTrue(tray.statusItemLabel.contains("2026.09.08.1"))
         tray.showRecordingState(.idle)
-        XCTAssertFalse(tray.statusItemLabel.contains("Идёт запись"))
-        XCTAssertTrue(tray.statusItemLabel.contains("2026.09.08.1"))
+        XCTAssertFalse(tray.statusItemLabel.contains("Идет запись"))
+        XCTAssertTrue(tray.statusItemLabel.contains(update.bannerTitle))
     }
 
     func testNativeTrayMenuCommandsFollowCaptureStateAndRejectStaleActions() throws {
@@ -761,18 +763,19 @@ final class DesktopCalendarReminderTests: XCTestCase {
         XCTAssertEqual(starts, 1)
         XCTAssertEqual(GrafTrayRecordingState.resolve(sessionState: .starting, writerActive: false,
                                                      stopping: false, starting: true), .starting)
-        for (state, title, enabled) in [(GrafTrayRecordingState.starting, "Начинаем запись…", false),
-                                       (.recording, "Остановить запись", true),
-                                       (.paused, "Остановить запись", true),
-                                       (.stopping, "Завершаем запись…", false)] {
+        for (state, title, hasAction) in [(GrafTrayRecordingState.starting, "Начинаем запись…", false),
+                                          (.recording, "Остановить запись", true),
+                                          (.paused, "Остановить запись", true),
+                                          (.stopping, "Завершаем запись…", false)] {
             tray.showRecordingState(state)
             tray.rebuildMenu()
             let first = try XCTUnwrap(tray.menu.items.first)
             XCTAssertEqual(first.title, title)
-            XCTAssertEqual(first.isEnabled, enabled)
+            XCTAssertEqual(first.action != nil, hasAction)
+            XCTAssertTrue(first.isEnabled, "State rows must stay readable instead of looking disabled")
             tray.startRecording()
             XCTAssertEqual(starts, 1, "A queued stale Start must not invoke capture")
-            if enabled { tray.menu.performActionForItem(at: 0) }
+            if hasAction { tray.menu.performActionForItem(at: 0) }
         }
         XCTAssertEqual(stops, 2)
         for state in [GrafTrayRecordingState.idle, .starting, .recording, .paused, .stopping] {
@@ -808,10 +811,13 @@ final class DesktopCalendarReminderTests: XCTestCase {
         tray.showRecordingState(.idle)
         tray.stopRecording()
         XCTAssertEqual(stops, 2, "A queued stale Stop must not finalize an idle writer")
-        tray.showUpdate(AppUpdatePresentation(phase: .available, availableVersion: "2026.09.08.1",
-                                             isUserInitiated: false, message: nil), actionEnabled: false)
+        let update = AppUpdatePresentation(phase: .available, availableVersion: "2026.09.08.1",
+                                           isUserInitiated: false, message: nil)
+        tray.showUpdate(update, actionEnabled: false)
         tray.rebuildMenu()
-        XCTAssertEqual(tray.menu.items.first { $0.identifier?.rawValue == "graf.menu.update" }?.isEnabled, false)
+        let updateItem = try XCTUnwrap(tray.menu.items.first { $0.identifier?.rawValue == "graf.menu.update" })
+        XCTAssertEqual(updateItem.title, update.menuItemTitle, "Tray and application menu share one command wording")
+        XCTAssertEqual(updateItem.isEnabled, false)
         let settingsIndex = try XCTUnwrap(tray.menu.items.firstIndex { $0.identifier?.rawValue == "graf.menu.settings" })
         tray.menu.performActionForItem(at: settingsIndex)
         tray.menu.performActionForItem(at: tray.menu.numberOfItems - 1)
@@ -861,18 +867,59 @@ final class DesktopCalendarReminderTests: XCTestCase {
                                           onStartRecording: {}, onStopRecording: {},
                                           onMuteMicrophone: {}, onUnmuteMicrophone: {}, onQuit: {})
             tray.rebuildMenu()
+            let header = try XCTUnwrap(tray.menu.items.first { $0.identifier?.rawValue == "graf.menu.upcoming" })
+            XCTAssertEqual(header.title, "Ближайшие встречи")
+            XCTAssertNil(header.action)
+            XCTAssertTrue(header.isEnabled, "A section header must not look disabled")
+            XCTAssertEqual(
+                try XCTUnwrap(header.attributedTitle).attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor,
+                NSColor.secondaryLabelColor
+            )
             let events = tray.menu.items.filter { $0.identifier?.rawValue == "graf.menu.event" }
             XCTAssertEqual(events.count, 3)
             XCTAssertEqual(events.map(\.isEnabled), [true, false, false])
             XCTAssertFalse(events.contains { ($0.toolTip ?? "").contains("Must stay private") })
             if showDetails {
                 XCTAssertTrue(events[0].title.hasSuffix("…"))
-                XCTAssertLessThan(events[0].title.count, 50)
+                let truncated = try XCTUnwrap(events[0].title.components(separatedBy: " · ").last)
+                let measured = (truncated as NSString).size(withAttributes: [.font: NSFont.menuFont(ofSize: 0)]).width
+                XCTAssertLessThanOrEqual(measured, CalendarTrayController.menuTitleMaxWidth)
             } else {
                 XCTAssertEqual(events.map(\.title), ["Встреча", "Встреча", "Встреча"])
                 XCTAssertEqual(events.map(\.toolTip), ["Встреча", "Встреча", "Встреча"])
             }
         }
+    }
+
+    func testNativeTrayTruncatesTitlesByMeasuredWidthAndKeepsFullTextAvailable() async throws {
+        let narrow = String(repeating: "i", count: 40)
+        let wide = String(repeating: "Ш", count: 30)
+        XCTAssertGreaterThan(narrow.count, 36, "A raw character count would have cut this title")
+        XCTAssertLessThan(wide.count, 36, "A raw character count would have kept this title")
+
+        let events = [
+            makeEvent(eventId: "narrow", startsAt: date(120), endsAt: date(180), title: narrow),
+            makeEvent(eventId: "wide", startsAt: date(240), endsAt: date(300), title: wide)
+        ]
+        let model = CalendarTrayModel {
+            DesktopCalendarPromptResponse(
+                events: events,
+                showUpcomingTime: false,
+                showUpcomingTitle: true
+            )
+        }
+        await model.refresh()
+        let tray = CalendarTrayController(model: model, onOpenSettings: {}, onOpenMeetings: {},
+                                          onStartRecording: {}, onStopRecording: {},
+                                          onMuteMicrophone: {}, onUnmuteMicrophone: {}, onQuit: {})
+        tray.rebuildMenu()
+        let items = tray.menu.items.filter { $0.identifier?.rawValue == "graf.menu.event" }
+        XCTAssertEqual(items.count, 2)
+        XCTAssertEqual(items[0].title, narrow, "Titles that fit the menu width are not cut")
+        XCTAssertEqual(items[0].toolTip, narrow)
+        XCTAssertTrue(items[1].title.hasSuffix("…"), "Wide titles are cut by measured width")
+        XCTAssertEqual(items[1].toolTip, wide, "The full safe title stays in the tooltip")
+        XCTAssertTrue(tray.statusItemLabel.contains(narrow), "The status item exposes the full next meeting title")
     }
 
     func testPromptAccessibilityCopyNamesManualAction() throws {

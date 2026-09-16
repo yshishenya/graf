@@ -64,7 +64,7 @@ AttributionState = Literal["confirmed", "unconfirmed", "unknown", "mixed", "unce
 SCHEMA_VERSION = "graf.transcript-export.v3"
 RENDERER_VERSION = "export-v1"
 TURN_POLICY_VERSION = "canonical-provider-turns-v4"
-UNKNOWN_SPEAKER_LABEL = "Спикер не определён"
+UNKNOWN_SPEAKER_LABEL = "Спикер не определен"
 FORMAT_COMPATIBILITY = CONTENT_EXPORT_FORMATS_BY_SCOPE
 MEDIA_TYPES: dict[ExportFormat, str] = {
     "txt": "text/plain; charset=utf-8",
@@ -801,7 +801,7 @@ def human_display_groups(
 def _summary_lines(snapshot: ExportSnapshot, *, markdown: bool) -> list[str]:
     summary = snapshot.summary
     if summary is None:
-        return ["Сохранённые итоги недоступны."]
+        return ["Сохраненные итоги недоступны."]
     if summary.protocol is not None:
         return list(protocol_lines(
             summary.protocol, markdown=markdown, include_evidence=snapshot.selection.include_evidence,
@@ -1278,10 +1278,10 @@ def _attribution_status_label(snapshot: ExportSnapshot) -> str:
     confirmed = any(turn.attribution_state == "confirmed" for turn in snapshot.canonical_turns)
     unconfirmed = any(turn.attribution_state != "confirmed" for turn in snapshot.canonical_turns)
     if confirmed and unconfirmed:
-        return "частично готово; фрагменты без имени отмечены как «Спикер не определён»"
+        return "частично готово; фрагменты без имени отмечены как «Спикер не определен»"
     if confirmed:
-        return "показано по доступным данным; текст сохранён"
-    return "без имён; текст сохранён"
+        return "показано по доступным данным; текст сохранен"
+    return "без имен; текст сохранен"
 
 
 def _effective_export_selection(selection: ExportSelection) -> ExportSelection:

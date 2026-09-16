@@ -678,19 +678,19 @@ def _annual_saving_label(
 
 def _operation_state_label(state: str | None) -> str:
     return {
-        "scheduled": "Платёж подготовлен",
+        "scheduled": "Платеж подготовлен",
         "provider_pending": "Ожидаем подтверждение ЮKassa",
-        "sent": "Платёж отправлен в ЮKassa",
-        "processing": "ЮKassa обрабатывает платёж",
+        "sent": "Платеж отправлен в ЮKassa",
+        "processing": "ЮKassa обрабатывает платеж",
         "unknown": "Проверяем результат платежа",
         "pending_reconciliation": "Ожидаем сверку с ЮKassa",
         "reconciliation_gap": "Нужна ручная сверка платежа",
         "manual_resolution": "Нужна ручная сверка платежа",
-        "provider_key_expired": "Срок безопасного продолжения оплаты истёк",
+        "provider_key_expired": "Срок безопасного продолжения оплаты истек",
         "method_required": "Нужен способ оплаты",
-        "succeeded": "Платёж подтверждён",
-        "canceled": "Платёж отменён",
-        "failed": "Платёж не выполнен",
+        "succeeded": "Платеж подтвержден",
+        "canceled": "Платеж отменен",
+        "failed": "Платеж не выполнен",
     }.get(state or "", "Статус уточняется")
 
 
@@ -698,7 +698,7 @@ def _invoice_status_label(status: str) -> str:
     return {
         "pending": "Ожидает подтверждения",
         "succeeded": "Оплачен",
-        "canceled": "Отменён",
+        "canceled": "Отменен",
         "failed": "Не выполнен",
         "unknown": "Проверяем результат",
     }.get(status, "Статус уточняется")
@@ -740,7 +740,7 @@ def _storage_threshold_label(value: str) -> str:
         "80%": "Заполнено на 80%",
         "95%": "Заполнено на 95%",
         "full": "Заполнено",
-        "over_capacity": "Превышена ёмкость",
+        "over_capacity": "Превышена емкость",
     }.get(value, "Состояние уточняется")
 
 
@@ -762,9 +762,9 @@ def _payment_method_kind_label(value: str | None) -> str | None:
 def _promotion_state_label(state: str) -> str:
     return {
         "reserved": "Зарезервирован для оплаты",
-        "redeemed": "Применён",
-        "released": "Освобождён после отмены оплаты",
-        "expired": "Истёк",
+        "redeemed": "Применен",
+        "released": "Освобожден после отмены оплаты",
+        "expired": "Истек",
     }.get(state, "Статус уточняется")
 
 
@@ -3501,7 +3501,7 @@ async def billing_invoice_detail_page(
         except ValueError:
             refund_mailto = None
     content = _page_shell(
-        "Платёж",
+        "Платеж",
         embedded=_is_embedded_request(request),
         profile=await get_account_profile_view(db, tenant_scope) if db is not None else None,
         active_nav="settings",

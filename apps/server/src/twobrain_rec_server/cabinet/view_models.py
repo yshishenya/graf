@@ -143,9 +143,9 @@ class ProviderLinkSettingsSurface:
 def provider_link_settings_surface(link: WorkspaceProviderLinkState) -> ProviderLinkSettingsSurface:
     status_labels = {
         "initiated": "Ожидаем подтверждения входа",
-        "callback_verified": "Вход подтверждён — добавьте этот способ в GRAF",
-        "confirmed": "Способ входа подключён",
-        "expired": "Срок подключения истёк. Начните заново.",
+        "callback_verified": "Вход подтвержден — добавьте этот способ в GRAF",
+        "confirmed": "Способ входа подключен",
+        "expired": "Срок подключения истек. Начните заново.",
         "rejected": "Подключение не завершено. Начните заново.",
         "unavailable": "Подключение временно недоступно. Попробуйте заново.",
     }
@@ -241,7 +241,7 @@ def account_provider_view(
     return AccountProviderView(
         provider=identity.provider,
         label=PROVIDER_LINK_LABELS.get(identity.provider, "Способ входа"),
-        status_label="Подключён" if identity.is_verified else "Проверка не завершена",
+        status_label="Подключен" if identity.is_verified else "Проверка не завершена",
         primary=primary,
         connected_at=identity.last_seen_at or identity.created_at,
         can_unlink=can_unlink,
@@ -297,7 +297,7 @@ def _session_time(value: datetime | None, timezone_name: str, *, relative_to: da
 
 def _session_client(device: RegisteredDevice | None) -> tuple[str, str]:
     if device is None:
-        return "Устройство не подключено", "Вы вошли в аккаунт, но устройство ещё не подключено. Доступ к данным ограничен."
+        return "Устройство не подключено", "Вы вошли в аккаунт, но устройство еще не подключено. Доступ к данным ограничен."
     if device.platform == "macos":
         version = device.client_version or ""
         detail = f"Версия {version}" if re.fullmatch(r"[0-9]+(?:\.[0-9]+){1,3}", version) else "Версия приложения неизвестна"
@@ -326,9 +326,9 @@ def account_session_view(
 
     now = now or datetime.now(UTC)
     active = is_session_token_valid(session, now) and access_allowed
-    status_label = {"revoked": "Завершён", "expired": "Срок истёк", "replaced": "Заменён новым входом"}.get(session.status, "Состояние неизвестно")
+    status_label = {"revoked": "Завершен", "expired": "Срок истек", "replaced": "Заменен новым входом"}.get(session.status, "Состояние неизвестно")
     if session.status == "active":
-        status_label = "Действует" if active else ("Доступ заблокирован" if not access_allowed else "Срок истёк")
+        status_label = "Действует" if active else ("Доступ заблокирован" if not access_allowed else "Срок истек")
     client_label, client_detail = _session_client(device)
     if not access_allowed and device is None:
         client_label, client_detail = "Неизвестный вход", "Связь с устройством недоступна"
@@ -425,8 +425,8 @@ STATUS_LABELS: dict[str, str] = {
 }
 
 SORT_LABELS: dict[str, str] = {
-    "updated_desc": "Недавно обновлённые",
-    "updated_asc": "Давно обновлённые",
+    "updated_desc": "Недавно обновленные",
+    "updated_asc": "Давно обновленные",
     "started_desc": "Сначала новые",
     "started_asc": "Сначала старые",
     "duration_desc": "Сначала длинные",
@@ -517,8 +517,8 @@ PLAYBACK_REASON_COPY: dict[str, dict[str, str]] = {
         "no_audio": "В файле нет пригодной аудиодорожки",
         "ambiguous_audio_tracks": "В файле несколько равноправных аудиодорожек",
         "unsupported_media": "Формат или кодек файла не поддерживается",
-        "encrypted_media": "Защищённый файл нельзя подготовить для воспроизведения",
-        "corrupt_source": "Файл повреждён и не может быть воспроизведён",
+        "encrypted_media": "Защищенный файл нельзя подготовить для воспроизведения",
+        "corrupt_source": "Файл поврежден и не может быть воспроизведен",
         "limit_exceeded": "Файл превышает допустимые параметры",
         "source_missing": "Исходный файл больше не хранится в GRAF",
         "source_mismatch": "Целостность исходного файла не подтверждена",
@@ -732,12 +732,12 @@ CALENDAR_NOTICE_COPY: dict[str, tuple[str, str, str]] = {
     ),
     "connect_cancelled": (
         "Подключение отменено",
-        "Календарь не подключён. Можно повторить подключение или продолжить ручную запись без календаря.",
+        "Календарь не подключен. Можно повторить подключение или продолжить ручную запись без календаря.",
         "warning",
     ),
     "connect_invalid_credentials": (
         "Неверные данные Яндекса",
-        "Проверьте логин и пароль приложения. Календарь не подключён.",
+        "Проверьте логин и пароль приложения. Календарь не подключен.",
         "warning",
     ),
     "connect_denied": (
@@ -752,7 +752,7 @@ CALENDAR_NOTICE_COPY: dict[str, tuple[str, str, str]] = {
     ),
     "dependency_missing": (
         "Google Calendar пока недоступен",
-        "Подключение Google Calendar ещё не настроено. Обратитесь к администратору GRAF или выберите другой сервис. Календарь не подключён.",
+        "Подключение Google Calendar еще не настроено. Обратитесь к администратору GRAF или выберите другой сервис. Календарь не подключен.",
         "warning",
     ),
     "no_readable_calendars": (
@@ -782,7 +782,7 @@ CALENDAR_NOTICE_COPY: dict[str, tuple[str, str, str]] = {
     ),
     "selection_limit": (
         "Можно выбрать до 20 календарей",
-        "Снимите лишние отметки и сохраните выбор ещё раз.",
+        "Снимите лишние отметки и сохраните выбор еще раз.",
         "warning",
     ),
     "preferences_saved": (
@@ -817,7 +817,7 @@ CALENDAR_NOTICE_COPY: dict[str, tuple[str, str, str]] = {
     ),
     "sync_unavailable": (
         "Синхронизация недоступна",
-        "Календарь отключён или доступ ограничен организацией. Ручная запись остается доступной.",
+        "Календарь отключен или доступ ограничен организацией. Ручная запись остается доступной.",
         "warning",
     ),
     "sync_failed": (
@@ -826,13 +826,13 @@ CALENDAR_NOTICE_COPY: dict[str, tuple[str, str, str]] = {
         "error",
     ),
     "disconnect_success": (
-        "Календарь отключён от GRAF.",
+        "Календарь отключен от GRAF.",
         "",
         "success",
     ),
     "disconnect_partial": (
         "Отключение выполнено частично",
-        "Не удалось подтвердить полную локальную очистку. Попробуйте ещё раз.",
+        "Не удалось подтвердить полную локальную очистку. Попробуйте еще раз.",
         "warning",
     ),
     "disconnect_failed": (
@@ -1056,7 +1056,7 @@ def calendar_provider_presets(
                 availability_label=("Доступно" if runtime_available else "Скоро"),
                 connected_source_count=connected_source_count,
                 trigger_label=(
-                    f"Добавить ещё · {label}" if connected_source_count else f"Подключить {label}"
+                    f"Добавить еще · {label}" if connected_source_count else f"Подключить {label}"
                 ),
             )
         )
@@ -1270,8 +1270,8 @@ def calendar_visibility_label(visibility: str) -> str:
         "private": "приватный календарь",
         "shared": "общий календарь",
         "delegated": "делегированный календарь",
-        "removed": "удалён в календаре",
-        "disconnected": "календарь отключён",
+        "removed": "удален в календаре",
+        "disconnected": "календарь отключен",
     }
     return labels.get(visibility, "состояние неизвестно")
 
@@ -1362,7 +1362,7 @@ def calendar_sync_health_label(state: str) -> str:
         "rate_limited": "сервис просит подождать перед обновлением",
         "credential_failed": "нужно переподключить",
         "failed_closed": "синхронизация остановлена безопасно",
-        "disconnected": "календарь отключён",
+        "disconnected": "календарь отключен",
     }
     return labels.get(state, "состояние синхронизации неизвестно")
 
@@ -1820,7 +1820,7 @@ def meeting_list_row_presentation(
 def _meeting_list_content_readiness(item: MeetingListItem) -> str | None:
     presentation_status = meeting_list_presentation_status(item)
     if presentation_status == "processing" and item.status_label == "Нужна проверка":
-        return "Результат ещё не подтверждён · откройте встречу для проверки"
+        return "Результат еще не подтвержден · откройте встречу для проверки"
     if presentation_status in {"submitted", "processing"}:
         return "Спикеры определяются · расшифровка готовится"
     if item.primary_action != "open" and presentation_status not in {"ready", "partial"}:
@@ -2672,9 +2672,9 @@ def reason_label(reason_code: str | None) -> str | None:
         "mediascribe_rate_limited": "Сервис транскрипции временно ограничил запросы. Повторите позже.",
         "mediascribe_server_error": "Сервис транскрипции временно недоступен. Повторите позже.",
         "mediascribe_retries_exhausted": "Сервис транскрипции не восстановился после нескольких попыток. Повторите позже или обратитесь к оператору.",
-        "mediascribe_poll_limit_exceeded": "Сервис транскрипции не завершил обработку в отведённое время. Повторите позже или обратитесь к оператору.",
-        "mediascribe_submission_in_progress": "Предыдущая отправка ещё выполняется. Подождите завершения и обновите страницу.",
-        "mediascribe_result_not_ready": "Сервис транскрипции ещё готовит результат. Повторная проверка будет выполнена автоматически.",
+        "mediascribe_poll_limit_exceeded": "Сервис транскрипции не завершил обработку в отведенное время. Повторите позже или обратитесь к оператору.",
+        "mediascribe_submission_in_progress": "Предыдущая отправка еще выполняется. Подождите завершения и обновите страницу.",
+        "mediascribe_result_not_ready": "Сервис транскрипции еще готовит результат. Повторная проверка будет выполнена автоматически.",
         "provider_result_not_ready": "Запись сохранена. GRAF проверит обработку автоматически; расшифровка появится после диаризации.",
         "processing_retry_deadline_exceeded": "Автоматические попытки закончились. Проверьте обработку или обратитесь к оператору.",
         "manual_processing_check": "GRAF проверяет текущую попытку обработки.",
@@ -2795,7 +2795,7 @@ def transcript_state(
                 start_seconds=float(row.start_seconds),
                 end_seconds=float(row.end_seconds),
                 timestamp_label=format_timestamp(row.start_seconds),
-                speaker_label="Спикер не определён",
+                speaker_label="Спикер не определен",
                 speaker_key=f"evidence:{processing_result_id.hex}",
                 provider_speaker_key=None,
                 attribution_state="uncertain",
@@ -3142,7 +3142,7 @@ def notes_action_truth_state(
             summary = _notes_action_category(
                 state="unavailable",
                 label="Outcomes unavailable",
-                reason="Итоги не удалось подготовить. Расшифровка остаётся доступной независимо от этого сбоя.",
+                reason="Итоги не удалось подготовить. Расшифровка остается доступной независимо от этого сбоя.",
                 readiness_impact="non_blocking",
                 copy_key="notes.summary.unavailable",
             )
@@ -3255,7 +3255,7 @@ def stored_outcome_truth_state(
         return _notes_action_category(
             state=state,
             label=_outcome_state_label(state, label),
-            reason=("Риски отражены в обсуждениях полного протокола; отдельный список не создаётся"
+            reason=("Риски отражены в обсуждениях полного протокола; отдельный список не создается"
                     if projection_only else _outcome_state_reason(state)),
             readiness_impact="non_blocking" if projection_only else "closes_gap"
             if state in {"available", "not_found", "not_inferable"}

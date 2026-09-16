@@ -153,7 +153,7 @@ AUTH_LINK_ERROR_COPY = {
     "merge_preview_stale": "Состояние профилей изменилось. Данные не изменены; подключите способ входа заново.",
     "merge_intent_expired": "Время подтверждения истекло. Данные не изменены; подключите способ входа заново.",
     "proof_required": "Подтверждение больше не действует. Данные не изменены; подключите способ входа заново.",
-    "merge_blocked": "Способ входа не подключён. Данные не изменены.",
+    "merge_blocked": "Способ входа не подключен. Данные не изменены.",
 }
 
 
@@ -173,8 +173,8 @@ def test_successful_account_link_login_copy_is_positive_and_requests_relogin() -
         error="email_connected_relogin_required",
     )
 
-    assert "Email подключён к текущему профилю." in page
-    assert "Войдите снова любым сохранённым способом." in page
+    assert "Email подключен к текущему профилю." in page
+    assert "Войдите снова любым сохраненным способом." in page
     assert 'class="auth-alert auth-alert--success" role="status"' in page
     assert "Подключение завершено" in page
     assert "Вход выполнен" not in page

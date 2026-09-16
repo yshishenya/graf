@@ -99,7 +99,7 @@ def test_cabinet_css_locks_token_radius_focus_and_icon_baseline() -> None:
     assert "--bg:" in css
     assert "--surface:" in css
     assert "--accent:" in css
-    assert "border-radius: 8px;" in css
+    assert "border-radius: var(--radius-sm);" in css
     assert ":focus-visible" in css
     assert "outline: 2px solid" in css
     assert ".ui-icon" in css

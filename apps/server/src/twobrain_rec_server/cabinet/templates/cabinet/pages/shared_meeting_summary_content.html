@@ -5,7 +5,7 @@
     <p class="muted">
       {% if time_is_upload %}Загружено {% endif %}{{ user_time_element(occurred_at, show_zone=True) }} · {{ (duration_seconds // 60) }} мин
     </p>
-    <p class="shared-summary__notice">Вам открыли только итоги этой встречи. Аудио, расшифровка и внутренние данные не доступны.</p>
+    <p class="shared-summary__notice">Вам открыли только итоги этой встречи. Аудио, расшифровка и внутренние данные недоступны.</p>
 
     {% if protocol_html %}
       {{ protocol_html | safe }}
@@ -41,7 +41,7 @@
     {% else %}
     <aside class="shared-summary__cta" aria-label="Попробовать GRAF">
       <strong>Хотите так же разбирать свои встречи?</strong>
-      <p class="muted">GRAF записывает встречу и превращает её в понятные итоги и следующие шаги.</p>
+      <p class="muted">GRAF записывает встречу и превращает ее в понятные итоги и следующие шаги.</p>
         <a class="button" href="/sign-up?next=%2Fmeetings">Попробовать GRAF</a>
     </aside>
     {% endif %}

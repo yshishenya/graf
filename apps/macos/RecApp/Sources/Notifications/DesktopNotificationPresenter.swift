@@ -301,7 +301,7 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
         guard request == permissionGeneration else { return }
         canRequestPermission = status == .notDetermined
         switch status {
-        case .notDetermined: permissionText = "Разрешение ещё не запрашивалось"
+        case .notDetermined: permissionText = "Разрешение еще не запрашивалось"
         case .denied: permissionText = "Уведомления macOS выключены"
         case .authorized, .provisional, .ephemeral: permissionText = "Уведомления macOS разрешены"
         @unknown default: permissionText = "Статус разрешения неизвестен"
@@ -471,7 +471,7 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
         formatter.timeZone = timeZone
         formatter.dateFormat = "HH:mm"
         content.title = preferences.showTitles ? event.safeDisplayTitle() : "Встреча в календаре"
-        content.body = "Начало в \(formatter.string(from: event.startsAt)). Запись ещё не начата."
+        content.body = "Начало в \(formatter.string(from: event.startsAt)). Запись еще не начата."
         content.categoryIdentifier = safeMeetingURL(event.openMeetingURL) == nil ? "graf.calendar" : "graf.calendar.join"
         if preferences.sound && !recording { content.sound = .default }
         return content
@@ -512,7 +512,7 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
             guard store.claimLocalIncident(incident, owner: owner, now: Date()) else { continue }
             let content = UNMutableNotificationContent()
             content.title = "Запись требует вашего внимания"
-            content.body = "Откройте запись в GRAF, чтобы проверить её сохранность и отправку."
+            content.body = "Откройте запись в GRAF, чтобы проверить ее сохранность и отправку."
             content.categoryIdentifier = "graf.recording"
             if preferences.sound && !snapshot.active { content.sound = .default }
             requests[incident.id] = (owner, nil, incident.sessionID)
@@ -603,41 +603,43 @@ public struct DesktopNotificationsSettingsView: View {
                 if let url = URL(string: "x-apple.systempreferences:com.apple.preference.notifications") { NSWorkspace.shared.open(url) }
             }
             }
-            Section("Напоминания и приватность") {
-            Toggle("Напоминать о встречах", isOn: preference(\.reminders))
-            LabeledContent("Когда напоминать") {
-                NativeSettingsComboBox(
-                    title: "Когда напоминать",
-                    options: [
-                        .init(id: "1", label: "За минуту"),
-                        .init(id: "5", label: "За 5 минут"),
-                        .init(id: "0", label: "В момент начала"),
-                    ],
-                    selectedID: String(presenter.draft.offsetMinutes)
-                ) { value in
-                    guard let minutes = Int(value), [0, 1, 5].contains(minutes) else { return }
-                    preference(\.offsetMinutes).wrappedValue = minutes
+            Group {
+                Section("Напоминания и приватность") {
+                Toggle("Напоминать о встречах", isOn: preference(\.reminders))
+                LabeledContent("Когда напоминать") {
+                    NativeSettingsComboBox(
+                        title: "Когда напоминать",
+                        options: [
+                            .init(id: "1", label: "За минуту"),
+                            .init(id: "5", label: "За 5 минут"),
+                            .init(id: "0", label: "В момент начала"),
+                        ],
+                        selectedID: String(presenter.draft.offsetMinutes)
+                    ) { value in
+                        guard let minutes = Int(value), [0, 1, 5].contains(minutes) else { return }
+                        preference(\.offsetMinutes).wrappedValue = minutes
+                    }
+                    .frame(width: 190, height: 32)
+                    .disabled(!presenter.draft.reminders)
                 }
-                .frame(width: 190, height: 32)
-                .disabled(!presenter.draft.reminders)
+                Toggle("Показывать названия встреч", isOn: preference(\.showTitles))
+                Toggle("Звук уведомлений", isOn: preference(\.sound))
+                Text("Во время записи звук выключен.").font(.callout).foregroundStyle(.secondary)
+                }
+                Section {
+                HStack {
+                    Button("Проверить уведомление") { Task { await presenter.test() } }
+                }
+                if presenter.owner.isEmpty { Text("Войдите в GRAF, чтобы сохранить настройки для своего аккаунта.") }
+                Text(presenter.message).font(.callout)
+                if presenter.saveFailed { Button("Повторить") { presenter.save(presenter.draft) } }
+                }
             }
-            Toggle("Показывать названия встреч", isOn: preference(\.showTitles))
-            Toggle("Звук уведомлений", isOn: preference(\.sound))
-            Text("Во время записи звук выключен.").font(.callout).foregroundStyle(.secondary)
-            }
-            Section {
-            HStack {
-                Button("Проверить уведомление") { Task { await presenter.test() } }
-            }
-            if presenter.owner.isEmpty { Text("Войдите в GRAF, чтобы сохранить настройки для своего аккаунта.") }
-            Text(presenter.message).font(.callout)
-            if presenter.saveFailed { Button("Повторить") { presenter.save(presenter.draft) } }
-            }
+            .disabled(presenter.owner.isEmpty)
         }.formStyle(.columns)
         .toggleStyle(.switch)
         .font(.system(size: 13))
         .padding(24)
-        .disabled(presenter.owner.isEmpty)
         .onAppear { Task { await presenter.refreshPermission() } }
         // macOS may persist an authorization change after the activation callback.
         .onReceive(Timer.publish(every: 2, on: .main, in: .common).autoconnect()) { _ in

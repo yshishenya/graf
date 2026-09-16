@@ -63,11 +63,11 @@ def test_all_builtin_purposes_sections_and_versions_remain_compatible() -> None:
             ("summary", "key_points", "action_items", "risks", "questions"),
         ),
         "graf-one-to-one-v1": (
-            "Темы сотрудника, нагрузка, обратная связь и взаимные договорённости",
+            "Темы сотрудника, нагрузка, обратная связь и взаимные договоренности",
             ("summary", "key_points", "action_items", "followups", "questions"),
         ),
         "graf-client-status-update-v1": (
-            "Достигнутая ценность, подтверждённый прогресс, риски и следующие шаги",
+            "Достигнутая ценность, подтвержденный прогресс, риски и следующие шаги",
             ("summary", "key_points", "decisions", "action_items", "risks"),
         ),
         "graf-interview-v1": (

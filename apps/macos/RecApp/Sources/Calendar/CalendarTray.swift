@@ -16,8 +16,8 @@ public enum GrafTrayRecordingState: Equatable, Sendable {
         switch self {
         case .idle: nil
         case .starting: "Начинаем запись…"
-        case .recording: "Идёт запись"
-        case .paused: "Идёт запись · микрофон выключен"
+        case .recording: "Идет запись"
+        case .paused: "Идет запись · микрофон выключен"
         case .stopping: "Завершаем запись"
         }
     }
@@ -243,7 +243,7 @@ public final class CalendarTrayController: NSObject, NSMenuDelegate {
         case .idle:
             addItem("Начать запись", action: #selector(startRecording), id: "graf.menu.start")
         case .starting:
-            addItem("Начинаем запись…", id: "graf.menu.starting")
+            addItem("Начинаем запись…", id: "graf.menu.starting", informational: true)
         case .recording, .paused:
             addItem("Остановить запись", action: #selector(stopRecording), id: "graf.menu.stop")
             let muted = model.recordingState == .paused
@@ -253,20 +253,19 @@ public final class CalendarTrayController: NSObject, NSMenuDelegate {
             item.toolTip = muted ? SystemAudioStatusLabels.resumeButtonAccessibilityLabel
                                 : SystemAudioStatusLabels.pauseButtonAccessibilityLabel
         case .stopping:
-            addItem("Завершаем запись…", id: "graf.menu.stopping")
+            addItem("Завершаем запись…", id: "graf.menu.stopping", informational: true)
         }
         if model.recordingState == .recording || model.recordingState == .paused {
-            addItem("Идёт запись · " + DesktopControlModel.shared.elapsed(), id: "graf.menu.elapsed")
+            addItem("Идет запись · " + DesktopControlModel.shared.elapsed(),
+                    id: "graf.menu.elapsed", informational: true)
         }
         menu.addItem(.separator())
         if !model.events.isEmpty {
-            addItem("Ближайшие 24 часа", id: "graf.menu.upcoming")
+            addItem("Ближайшие встречи", id: "graf.menu.upcoming", informational: true)
             for event in model.events {
                 let title = model.showUpcomingTitle ? event.safeDisplayTitle() : "Встреча"
                 let time = model.showUpcomingTime ? timeText(for: event) + " · " : ""
-                // Bound dynamic text, not system menu metrics. Full safe text stays in the tooltip.
-                let shortTitle = title.count > 36 ? String(title.prefix(35)) + "…" : title
-                let item = addItem(time + shortTitle,
+                let item = addItem(time + Self.truncatedMenuTitle(title),
                                    action: safeMeetingLink(for: event) == nil ? nil : #selector(openMeetingLink(_:)),
                                    id: "graf.menu.event")
                 item.toolTip = time + title
@@ -277,21 +276,49 @@ public final class CalendarTrayController: NSObject, NSMenuDelegate {
         addItem("Открыть GRAF", action: #selector(openMeetings), id: "graf.menu.open")
         addItem("Настройки…", action: #selector(openSettings), id: "graf.menu.settings")
         if model.appUpdatePresentation.showsSidebarBadge,
-           let version = model.appUpdatePresentation.availableVersion {
+           model.appUpdatePresentation.availableVersion != nil {
             menu.addItem(.separator())
-            let item = addItem("Обновление GRAF \(version)…", action: #selector(updateApp), id: "graf.menu.update")
+            let item = addItem(model.appUpdatePresentation.menuItemTitle,
+                               action: #selector(updateApp), id: "graf.menu.update")
             item.isEnabled = model.canCheckForUpdates
         }
         menu.addItem(.separator())
         addItem("Выйти из GRAF", action: #selector(quitApp), id: "graf.menu.quit")
     }
 
+    static let menuTitleMaxWidth: CGFloat = 240
+
+    static func truncatedMenuTitle(_ title: String, maxWidth: CGFloat = menuTitleMaxWidth) -> String {
+        let attributes: [NSAttributedString.Key: Any] = [.font: NSFont.menuFont(ofSize: 0)]
+        guard (title as NSString).size(withAttributes: attributes).width > maxWidth else { return title }
+        var visible = ""
+        for character in title {
+            let candidate = visible + String(character) + "…"
+            guard (candidate as NSString).size(withAttributes: attributes).width <= maxWidth else { break }
+            visible.append(character)
+        }
+        return visible.trimmingCharacters(in: .whitespaces) + "…"
+    }
+
     @discardableResult
-    private func addItem(_ title: String, action: Selector? = nil, id: String) -> NSMenuItem {
+    private func addItem(
+        _ title: String,
+        action: Selector? = nil,
+        id: String,
+        informational: Bool = false
+    ) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
         item.target = self
         item.identifier = NSUserInterfaceItemIdentifier(id)
-        item.isEnabled = action != nil
+        if informational {
+            item.isEnabled = true
+            item.attributedTitle = NSAttributedString(
+                string: title,
+                attributes: [.foregroundColor: NSColor.secondaryLabelColor]
+            )
+        } else {
+            item.isEnabled = action != nil
+        }
         menu.addItem(item)
         return item
     }
@@ -348,11 +375,18 @@ public final class CalendarTrayController: NSObject, NSMenuDelegate {
     var statusItemLabel: String {
         var parts = ["GRAF"]
         if let label = model.recordingState.label { parts.append(label) }
-        if model.appUpdatePresentation.showsSidebarBadge,
-           let version = model.appUpdatePresentation.availableVersion {
-            parts.append("Доступна версия \(version)")
+        if model.appUpdatePresentation.showsSidebarBadge {
+            parts.append(model.appUpdatePresentation.bannerTitle)
         }
+        if let upcoming = upcomingEventStatusLabel { parts.append(upcoming) }
         return parts.joined(separator: " — ")
+    }
+
+    private var upcomingEventStatusLabel: String? {
+        guard let event = model.events.first else { return nil }
+        let title = model.showUpcomingTitle ? event.safeDisplayTitle() : "Встреча"
+        let time = model.showUpcomingTime ? timeText(for: event) + " · " : ""
+        return time + title
     }
 
     private func updateStatusItem() {

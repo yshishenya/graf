@@ -25,7 +25,7 @@ def test_cabinet_web_detail_renders_access_artifacts_and_activity_without_privat
     assert 'data-cabinet-navigation' in response.text
     assert 'data-active-nav="meetings"' in response.text
     assert "Поделиться" in response.text
-    assert "Ещё" in response.text
+    assert "Еще" in response.text
     assert "Расшифровка" in response.text
     assert "Экспортировать…" in response.text
     assert "Файлы" in response.text

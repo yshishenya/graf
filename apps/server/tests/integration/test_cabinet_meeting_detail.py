@@ -131,7 +131,7 @@ def test_098_calendar_roster_uses_exact_invitee_not_speaker_copy_on_both_surface
         )
         assert context_match is not None
         context_block = context_match.group(0)
-        assert context_block.count("Приглашённые участники, не подтверждённые спикеры") == 1
+        assert context_block.count("Приглашенные участники, не подтвержденные спикеры") == 1
         assert context_block.count(f"Участники из календаря · {len(CALENDAR_ROSTER_NAMES)}") == 1
         for name in CALENDAR_ROSTER_NAMES:
             assert context_block.count(name) == 1
@@ -249,7 +249,7 @@ def test_manual_upload_detail_handoff_keeps_processing_truth_separate_from_revie
     assert payload["notes"]["available"] is False
     assert payload["notes_action_truth"]["summary"]["state"] == "processing"
     assert page.status_code == 200
-    assert "Транскрипт готовится" in page.text
+    assert "Расшифровка готовится" in page.text
     assert "Итоги готовятся" in page.text
 
 
@@ -638,7 +638,7 @@ def test_cabinet_ready_and_processing_web_detail_shells(client) -> None:
     assert f'src="/api/v1/cabinet/meetings/{seeds.ready_id}/playback"' in ready.text
     assert f'href="/api/v1/cabinet/meetings/{seeds.ready_id}/downloads/audio"' in ready.text
     assert processing.status_code == 200
-    assert "Транскрипт готовится" in processing.text
+    assert "Расшифровка готовится" in processing.text
     assert "Итоги готовятся" in processing.text
     assert 'data-summary-result-state="absent"' in processing.text
     assert 'data-summary-generation-state="preparing"' in processing.text
@@ -680,7 +680,7 @@ def test_cabinet_embedded_ready_detail_keeps_review_governance_and_removes_nativ
     assert SAFE_TRANSCRIPT_TEXT in response.text
     assert "Файлы" in response.text
     assert "Поделиться" in response.text
-    assert "Ещё" in response.text
+    assert "Еще" in response.text
     assert 'class="meeting-actions-menu"' in response.text
     assert 'id="meeting-details-dialog"' in response.text
     assert "Record live" not in response.text
@@ -939,7 +939,7 @@ def test_098_owner_can_reopen_safe_correction_chooser_in_web_and_embedded_review
     assert "Synthetic Planning Review" in corrected.text
     assert "13.07.2026, 09:05 (UTC)" in corrected.text
     assert "13.07.2026, 10:05 (UTC)" in corrected.text
-    assert "Контекст и список приглашённых исчезнут" in corrected.text
+    assert "Контекст и список приглашенных исчезнут" in corrected.text
 
     api_context = client.get(
         f"/api/v1/meetings/{meeting_id}/calendar-context",

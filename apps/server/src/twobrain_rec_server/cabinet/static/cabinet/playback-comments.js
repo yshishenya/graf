@@ -26,7 +26,7 @@
     401: "Сессия завершилась. Войдите снова.",
     403: "Недостаточно прав для этого действия.",
     404: "Обсуждение или эта версия записи больше недоступны.",
-    409: "Обсуждение изменилось. Обновите его перед повторным сохранением. Ваш текст сохранён в форме.",
+    409: "Обсуждение изменилось. Обновите его перед повторным сохранением. Ваш текст сохранен в форме.",
     422: "Проверьте текст, упоминания и временную отметку."
   };
 
@@ -54,7 +54,7 @@
     const filters = el("div", "playback-comments-filters");
     const stateSelect = el("select");
     stateSelect.setAttribute("aria-label", "Состояние обсуждения");
-    for (const [value, label] of [["open", "Открытые"], ["resolved", "Завершённые"], ["all", "Все обсуждения"]]) {
+    for (const [value, label] of [["open", "Открытые"], ["resolved", "Завершенные"], ["all", "Все обсуждения"]]) {
       const option = el("option", "", label); option.value = value; stateSelect.append(option);
     }
     const authorSelect = el("select");
@@ -65,7 +65,7 @@
     source.title = "Источник комментариев";
     filters.append(stateSelect, authorSelect, source);
     const list = el("div", "playback-comments-list");
-    const more = button("Загрузить ещё", () => load(true)); more.hidden = true;
+    const more = button("Загрузить еще", () => load(true)); more.hidden = true;
     const add = button("Добавить комментарий", () => edit()); add.hidden = true;
     aside.append(head, filters, status, list, more, add);
     shell.append(aside);
@@ -83,7 +83,7 @@
         ...(body ? { body: JSON.stringify(body) } : {})
       });
       if (!response.ok) {
-        const error = new Error(errors[response.status] || "Не удалось загрузить или сохранить обсуждение. Попробуйте ещё раз.");
+        const error = new Error(errors[response.status] || "Не удалось загрузить или сохранить обсуждение. Попробуйте еще раз.");
         error.status = response.status; throw error;
       }
       return response.status === 204 ? {} : response.json();
@@ -236,7 +236,7 @@
       for (const reply of root.replies || []) replies.append(commentCard(reply, root));
       container.append(replies);
       if (root.next_reply_cursor) {
-        const next = button("Ещё ответы", async () => {
+        const next = button("Еще ответы", async () => {
           next.disabled = true;
           try {
             const data = await request(`/${encodeURIComponent(root.id)}/replies`, "GET", null, { limit: 50, cursor: root.next_reply_cursor });
@@ -258,7 +258,7 @@
       const stamp = el("time"); stamp.dateTime = comment.created_at;
       stamp.textContent = new Date(comment.created_at).toLocaleString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
       meta.append(stamp);
-      if (comment.edited_at) meta.append(el("span", "", "изменён"));
+      if (comment.edited_at) meta.append(el("span", "", "изменен"));
       card.append(meta);
       if (!comment.parent_id) card.append(button(time(root.start_ms), () => seek(root), "playback-comment-anchor"));
       card.append(el("p", "playback-comment-body", comment.body));
@@ -397,7 +397,7 @@
             const page = await request(`/${data.id}/replies`, "GET", null, { cursor, limit: 100 });
             current = page.items.find(item => item.id === comment.id); cursor = page.next_cursor;
           }
-          if (!current) throw new Error("Комментарий больше недоступен. Ваш текст остаётся в форме.");
+          if (!current) throw new Error("Комментарий больше недоступен. Ваш текст остается в форме.");
           expectedVersion = current.version;
           error.textContent = "Версия обновлена. Проверьте свой текст перед сохранением.";
         } catch (failure) { error.textContent = failure.message; }
@@ -468,7 +468,7 @@
           if (composer !== form) return;
           const updated = data.parent_id ? await request(`/${data.parent_id}`) : data;
           dismissEditor(); show();
-          if (await load()) { roots = [updated]; nextCursor = null; render(); announce("Комментарий сохранён."); }
+          if (await load()) { roots = [updated]; nextCursor = null; render(); announce("Комментарий сохранен."); }
           close.focus();
         } catch (failure) { error.textContent = failure.message; }
         finally { mutationPending = false; busy(); pending = false; input.readOnly = false; validate(); }

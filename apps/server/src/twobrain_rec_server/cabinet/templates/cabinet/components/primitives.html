@@ -44,7 +44,7 @@
 <fieldset class="theme-picker">
   <legend class="field-label">Тема</legend>
   <div class="theme-picker__options">
-    {% for value, label, icon_name in [("light", "Светлая", "sun"), ("dark", "Тёмная", "moon"), ("system", "Системная", "laptop")] %}
+    {% for value, label, icon_name in [("light", "Светлая", "sun"), ("dark", "Темная", "moon"), ("system", "Системная", "laptop")] %}
     <label class="theme-picker__option">
       <input type="radio" name="theme" value="{{ value }}"{% if selected == value %} checked{% endif %}>
       <span>{{ icons.icon(icon_name) }}<span>{{ label }}</span></span>
@@ -63,6 +63,6 @@
 
 {% macro billing_member_quota_notice(plan_code, threshold, reset_label) -%}
   {% if plan_code|default(None) == "free" and threshold|default("normal") in ["approaching", "exhausted"] %}
-  <p class="notice" role="status" aria-live="polite">{% if threshold == "approaching" %}Лимит обработки скоро закончится.{% else %}Лимит обработки исчерпан: новая обработка, в том числе без сохранения аудио, недоступна.{% endif %} Дождитесь сброса {{ reset_label|default("лимита", true) }} или обратитесь к плательщику для смены тарифа.</p>
+  <p class="notice notice--warning" role="status" aria-live="polite">{% if threshold == "approaching" %}Лимит обработки скоро закончится.{% else %}Лимит обработки исчерпан: новая обработка, в том числе без сохранения аудио, недоступна.{% endif %} Дождитесь сброса {{ reset_label|default("лимита", true) }} или обратитесь к плательщику для смены тарифа.</p>
   {% endif %}
 {%- endmacro %}

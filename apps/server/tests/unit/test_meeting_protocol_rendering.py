@@ -55,7 +55,7 @@ def test_empty_states_and_unknown_task_fields():
     document["action_items"] = []
     text = "\n".join(protocol_lines(validate(document)["protocol"], markdown=True,
                                     include_evidence=False, meeting_url=""))
-    assert "Принятые решения в транскрипте не зафиксированы." in text
+    assert "Принятые решения в расшифровке не зафиксированы." in text
     assert "| Задачи не зафиксированы | Не назначен | Не указан |" in text
     assert "Открытые вопросы не зафиксированы." in text
 
@@ -80,7 +80,7 @@ def test_saved_protocol_exports_preserve_words_and_hide_evidence(export_fixture,
             sheet = workbook["Протокол"]
             assert all(cell.data_type != "f" for row in sheet for cell in row)
             values = list(sheet.values)
-            assert any(row[1] == "Принятые решения в транскрипте не зафиксированы." for row in values)
+            assert any(row[1] == "Принятые решения в расшифровке не зафиксированы." for row in values)
             assert any(row[1] == "Сделать макет" and row[2] == "Участник 1" for row in values)
             assert all(not row[4] for row in values[1:])
             assert all(cell.hyperlink is None for row in sheet for cell in row)

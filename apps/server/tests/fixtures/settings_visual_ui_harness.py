@@ -103,7 +103,7 @@ def settings_preview(request: Request, category: str = "overview"):
         )
     surface = AccountSettingsSurface(
         profile=profile,
-        providers=(AccountProviderView("email", "Email", "Подключён", True, now),),
+        providers=(AccountProviderView("email", "Email", "Подключен", True, now),),
         devices=(
             AccountDeviceView(UUID(int=1), "macOS", "2026.09.06.1", "Активно", now, True, False),
             AccountDeviceView(

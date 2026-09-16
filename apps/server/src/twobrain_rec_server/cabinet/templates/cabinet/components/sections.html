@@ -46,12 +46,12 @@
     <div class="sidebar-profile" data-profile-menu-root>
       <button class="sidebar-profile__trigger" type="button" data-profile-menu-trigger aria-label="Открыть меню профиля" aria-controls="cabinet-profile-menu" aria-expanded="false" title="Открыть меню профиля">
         <span class="sidebar-profile__icon" aria-hidden="true">{{ icons.icon("users-round") }}</span>
-        <span class="sidebar-profile__copy"><strong class="sidebar-profile__name">{{ profile_name }}</strong>{% if profile_email %}<span class="sidebar-profile__email">{{ profile_email }}</span>{% endif %}</span>
+        <span class="sidebar-profile__copy"><strong class="sidebar-profile__name" title="{{ profile_name }}">{{ profile_name }}</strong>{% if profile_email %}<span class="sidebar-profile__email" title="{{ profile_email }}">{{ profile_email }}</span>{% endif %}</span>
       </button>
       <div class="sidebar-profile-menu" id="cabinet-profile-menu" data-profile-menu popover="manual" hidden>
         <a class="sidebar-profile-menu__account" href="{{ '/desktop/settings/account' if embedded else '/settings/account' }}" data-profile-menu-item="account">
           <span class="sidebar-profile-menu__account-icon" aria-hidden="true">{{ icons.icon("users-round") }}</span>
-          <span class="sidebar-profile-menu__account-copy"><strong>{{ profile_name }}</strong>{% if profile_email %}<span>{{ profile_email }}</span>{% endif %}</span>
+          <span class="sidebar-profile-menu__account-copy"><strong title="{{ profile_name }}">{{ profile_name }}</strong>{% if profile_email %}<span title="{{ profile_email }}">{{ profile_email }}</span>{% endif %}</span>
         </a>
         <div class="sidebar-profile-menu__separator" role="separator"></div>
         {% if profile %}<details class="sidebar-profile-menu__disclosure">

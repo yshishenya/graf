@@ -3,16 +3,21 @@
     <header class="share-dialog__header">
       <div>
         <h2 id="share-dialog-title">Поделиться встречей</h2>
-        <p>{% if share.can_manage_roles %}Выберите доступ к записи и обсуждениям для получателя.{% else %}Участник рабочей области получит итоги, а приглашённый по email — доступ к записи.{% endif %}</p>
+        <p>{% if share.can_manage_roles %}Выберите доступ к записи и обсуждениям для получателя.{% else %}Участник рабочей области получит итоги, а приглашенный по email — доступ к записи.{% endif %}</p>
       </div>
-      <button type="button" class="icon-control" aria-label="Закрыть" data-share-dialog-close>×</button>
+      <button type="button" class="icon-button" aria-label="Закрыть" data-share-dialog-close>×</button>
     </header>
 
     <div class="share-dialog__capability" data-share-capability-state="{{ share.capability_state }}" aria-live="polite">
+      {% if share.capability_state == "available" %}
       <strong>Внешний доступ: запись · просмотр</strong>
       <p>Итоги, расшифровка, прослушивание и скачивание аудио. Доступ можно отозвать в любой момент.</p>
+      {% else %}
+      <strong>Внешний доступ недоступен</strong>
+      {% if share.capability_reason %}<p>{{ share.capability_reason }}</p>{% endif %}
+      {% endif %}
       {% if share.external_invitation_state == "disabled" %}
-        <p class="muted" data-share-external-disabled>Внешняя отправка email пока отключена. Найдите участника рабочей области или подключённого календаря.</p>
+        <p class="muted" data-share-external-disabled>Внешняя отправка email пока отключена. Найдите участника рабочей области или подключенного календаря.</p>
       {% endif %}
     </div>
 

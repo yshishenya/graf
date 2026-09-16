@@ -9,7 +9,9 @@ from sqlalchemy import exists, or_, select, tuple_
 
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
-from twobrain_rec_server.cabinet.templates import cabinet_html_response, render_template
+from twobrain_rec_server.cabinet.queries import get_account_profile_view
+from twobrain_rec_server.cabinet.rendering_shared import _page_shell
+from twobrain_rec_server.cabinet.templates import cabinet_html_response
 from twobrain_rec_server.cabinet.web_routes.support import (
     PrincipalDependency,
     WebCSRFDependency,
@@ -108,8 +110,15 @@ async def notifications_html(request: Request, filter: Filter = 'important',
     principal: AuthenticatedPrincipal = PrincipalDependency, db=SnapshotDb):
     data = await inbox_page(request, db, tenant_scope, principal, filter, cursor, 30)
     embedded = request.url.path.startswith('/desktop/')
-    html = render_template('cabinet/pages/notification_history.html',
-        **data, filter=filter, embedded=embedded, csrf_token=_csrf_token_for_principal(request, principal))
+    html = _page_shell(
+        'Уведомления',
+        embedded=embedded,
+        content_template='cabinet/pages/notification_history.html',
+        csrf_token=_csrf_token_for_principal(request, principal),
+        profile=await get_account_profile_view(db, tenant_scope),
+        filter=filter,
+        **data,
+    )
     return cabinet_html_response(html)
 
 

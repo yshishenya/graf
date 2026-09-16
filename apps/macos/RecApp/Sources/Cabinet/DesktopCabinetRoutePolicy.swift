@@ -443,7 +443,7 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
                 route: DesktopCabinetRoute(path: normalizedPath(url.path), kind: .external),
                 decision: .allow,
                 reason: .openExternalSafeLink,
-                userMessage: "Платёжная страница"
+                userMessage: "Платежная страница"
             )
         }
         if host == "docs.2brain.dev" || host == "help.2brain.dev" {

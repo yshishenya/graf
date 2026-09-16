@@ -418,7 +418,7 @@
     list.replaceChildren();
     for (const item of localPending) {
       const row = document.createElement("li");
-      row.textContent = `${localRecordingDisplayTitle(item)}: очистка файлов на этом Mac ещё не завершена. Повторим попытку автоматически.`;
+      row.textContent = `${localRecordingDisplayTitle(item)}: очистка файлов на этом Mac еще не завершена. Повторим попытку автоматически.`;
       list.append(row);
     }
     for (const operation of operations.slice(-100).reverse()) {
@@ -482,7 +482,7 @@
         recovery = document.createElement("p");
         recovery.dataset.localAccountRecovery = "";
         recovery.setAttribute("role", "status");
-        recovery.textContent = "Некоторые локальные записи скрыты: их аккаунт не подтверждён. Войдите в исходный аккаунт и дождитесь подключения. Если записи не появились, используйте диагностику GRAF. Файлы сохранены.";
+        recovery.textContent = "Некоторые локальные записи скрыты: их аккаунт не подтвержден. Войдите в исходный аккаунт и дождитесь подключения. Если записи не появились, используйте диагностику GRAF. Файлы сохранены.";
         document.querySelector("#meeting-list-region")?.after(recovery);
       }
       const rejected = operations.some(operation => operation.phase === "rejected" && nativeDeletionOperations.some(previous => previous.id === operation.id && previous.phase !== "rejected"));
@@ -849,7 +849,7 @@
       },
       service: {
         title: "Не удалось загрузить встречи",
-        description: "Попробуйте ещё раз.",
+        description: "Попробуйте еще раз.",
         action: "Повторить",
       },
       session: {
@@ -859,7 +859,7 @@
       },
       workspace: {
         title: "Нужно выбрать пространство",
-        description: "Доступ к выбранному пространству больше не подтверждён.",
+        description: "Доступ к выбранному пространству больше не подтвержден.",
         action: "Войти и выбрать пространство",
       },
       access: {
@@ -1267,7 +1267,7 @@
         && localRecordingRows.some(item => item.id === row.dataset.grafLocalRecordingId && item.deletionIsLocalOnly === true)).length;
       count.textContent = deletingLabel(pendingDeleteRows.length)
         + (localCount ? ` Только на этом Mac: ${localCount}.`
-          + (localCount === pendingDeleteRows.length ? " Эти записи ещё не отправлялись на сервер." : "") : "")
+          + (localCount === pendingDeleteRows.length ? " Эти записи еще не отправлялись на сервер." : "") : "")
         + (localCount < pendingDeleteRows.length ? ` На сервере или ожидают его подтверждения: ${pendingDeleteRows.length - localCount}.` : "");
     }
     if (typeof dialog.showModal === "function") dialog.showModal();
@@ -1590,7 +1590,7 @@
         updateSelection();
         if (failedRows.length && error) {
           const failures = failedRows.length;
-          const failureMessage = `Не удалось удалить ${failures} ${plural(failures, "запись", "записи", "записей")}. Попробуйте ещё раз.`;
+          const failureMessage = `Не удалось удалить ${failures} ${plural(failures, "запись", "записи", "записей")}. Попробуйте еще раз.`;
           error.textContent = failureMessage;
           error.hidden = false;
           pendingDeleteRows = failedRows;
@@ -1605,7 +1605,7 @@
             : `Удалено ${deletedCount} ${plural(deletedCount, "запись", "записи", "записей")} из списка.`;
           announceDeletionResult(message);
         } else if (missingCount > 0) {
-          announceDeletionResult("Встреча больше недоступна. Список обновлён.");
+          announceDeletionResult("Встреча больше недоступна. Список обновлен.");
         }
         const refreshFocusMeetingIds = [...deleteFocusFallbackIds];
         closeDeleteDialog({ restoreFocus: false });
@@ -2071,7 +2071,7 @@
   const processingSummaryCopy = (state, hasStoredOutput = false, transcriptReady = false) => ({
     available: ["Итоги готовы.", "success"],
     partial: [
-      transcriptReady ? "Итоги доступны частично. Расшифровка остаётся доступной." : "Итоги доступны частично.",
+      transcriptReady ? "Итоги доступны частично. Расшифровка остается доступной." : "Итоги доступны частично.",
       "warning",
     ],
     queued: ["Итоги готовятся отдельно. Расшифровка может быть доступна раньше.", "pending"],
@@ -2085,10 +2085,10 @@
     unavailable: [transcriptReady ? "Итоги пока недоступны. Расшифровка сохранена." : "Итоги пока недоступны.", "warning"],
     not_requested: [
       hasStoredOutput
-        ? "Сохраненные итоги доступны. Новые итоги ещё не запрошены."
+        ? "Сохраненные итоги доступны. Новые итоги еще не запрошены."
         : transcriptReady
-        ? "Итоги ещё не запрошены. Расшифровка остаётся доступной."
-        : "Итоги ещё не запрошены.",
+        ? "Итоги еще не запрошены. Расшифровка остается доступной."
+        : "Итоги еще не запрошены.",
       "warning",
     ],
   }[String(state || "").toLowerCase()] || null);
@@ -2217,7 +2217,7 @@
       return {
         state: "unknown",
         title: "Проверяем исходную попытку",
-        copy: "Не удалось подтвердить отправку, поэтому GRAF проверяет исходную попытку и не создаёт дубликат.",
+        copy: "Не удалось подтвердить отправку, поэтому GRAF проверяет исходную попытку и не создает дубликат.",
         canCheck: projection?.manual_action === "check_now" && !inFlight,
         showRefresh: projection?.manual_action !== "check_now",
         showCountdown: projection?.next_attempt_at != null,
@@ -2263,7 +2263,7 @@
       if (["processing_retry_deadline_exceeded", "mediascribe_poll_limit_exceeded"].includes(reason)) {
         return {
           state: "retryable",
-          title: "Результат ещё не подтверждён",
+          title: "Результат еще не подтвержден",
           copy: reasonCopy || "MediaScribe не сообщил об ошибке. Автоматическое ожидание остановлено; проверьте обработку вручную.",
           canCheck: projection?.manual_action === "check_now" && !inFlight,
           canStartNewAttempt: false,
@@ -2286,7 +2286,7 @@
       return {
         state: "retryable",
         title: "Обработка временно приостановлена",
-        copy: "Запись сохранена. GRAF попробует проверить её автоматически.",
+        copy: "Запись сохранена. GRAF попробует проверить ее автоматически.",
         canCheck,
         canStartNewAttempt: false,
         showRefresh: projection?.manual_action !== "check_now",
@@ -2316,7 +2316,7 @@
     return {
       state: "active",
       title: "Обработка записи",
-      copy: "Спикеры ещё определяются. Расшифровка появится после завершения диаризации.",
+      copy: "Спикеры еще определяются. Расшифровка появится после завершения диаризации.",
       canCheck: false,
       canStartNewAttempt: false,
       showRefresh: false,
@@ -2883,15 +2883,15 @@
       return [
         preparation ? "Подготовка временно недоступна" : "Сервис обработки временно недоступен",
         preparation
-          ? "Новая попытка подготовки не запущена. Попробуйте ещё раз позже."
-          : "Проверка не запущена. Попробуйте ещё раз позже или обновите страницу.",
+          ? "Новая попытка подготовки не запущена. Попробуйте еще раз позже."
+          : "Проверка не запущена. Попробуйте еще раз позже или обновите страницу.",
       ];
     }
     return [
       preparation ? "Не удалось повторить подготовку" : "Не удалось проверить обработку",
       preparation
-        ? "Новая попытка не запущена. Нажмите «Повторить подготовку» ещё раз позже."
-        : "Проверка не завершилась. Нажмите «Проверить обработку» ещё раз или обновите страницу.",
+        ? "Новая попытка не запущена. Нажмите «Повторить подготовку» еще раз позже."
+        : "Проверка не завершилась. Нажмите «Проверить обработку» еще раз или обновите страницу.",
     ];
   };
 
@@ -2927,8 +2927,8 @@
     if (titleNode) titleNode.textContent = title;
     const resolvedMessage = message || (
       transcriptWasVisible
-        ? "Проверка временно недоступна. Расшифровка и спикеры остаются доступны; попробуйте проверить статус ещё раз позже."
-        : "Обновите страницу или нажмите «Проверить обработку» ещё раз. Расшифровка появится после подтверждения готовности спикеров."
+        ? "Проверка временно недоступна. Расшифровка и спикеры остаются доступны; попробуйте проверить статус еще раз позже."
+        : "Обновите страницу или нажмите «Проверить обработку» еще раз. Расшифровка появится после подтверждения готовности спикеров."
     );
     if (messageNode) messageNode.textContent = resolvedMessage;
     const check = recovery.querySelector("[data-processing-check]");
@@ -3187,8 +3187,8 @@
           if (payload?.code === "processing_quota_exceeded") {
             processingRecoveryActionRequest = null;
             renderProcessingRecoveryFailure(detail, {
-              title: "Лимит расшифровки ещё не обновился",
-              message: "Новая попытка не запущена. Дождитесь обновления лимита и нажмите «Начать обработку заново» ещё раз.",
+              title: "Лимит расшифровки еще не обновился",
+              message: "Новая попытка не запущена. Дождитесь обновления лимита и нажмите «Начать обработку заново» еще раз.",
               signature: `new-attempt-quota-${generation}`,
               failedAction: "new_attempt",
             });
@@ -3213,7 +3213,7 @@
         title: "Не удалось начать обработку заново",
         message: Number(error?.status || 0) === 409
           ? "Новая попытка сейчас недоступна. Обновите страницу, чтобы увидеть актуальный статус."
-          : "Новая попытка не запущена. Обновите страницу и попробуйте ещё раз позже.",
+          : "Новая попытка не запущена. Обновите страницу и попробуйте еще раз позже.",
         signature: `new-attempt-failed-${generation}`,
         failedAction: "new_attempt",
       });
@@ -3334,7 +3334,7 @@
           ? "Страница встречи устарела. Закройте окно, обновите статус и подтвердите запуск снова."
           : Number(error?.status || 0) === 401 || Number(error?.status || 0) === 403
           ? "Сессия больше не подтверждена. Обновите страницу и войдите снова."
-          : "Повторная обработка не запущена. Попробуйте ещё раз позже.",
+          : "Повторная обработка не запущена. Попробуйте еще раз позже.",
       );
       submit?.focus({ preventScroll: true });
       scheduleProcessingStatusRetry(generation);
@@ -3684,18 +3684,18 @@
         summary_prompt_resolution_conflict: "Настройки формата изменились. Обновите страницу и попробуйте снова.",
         summary_prompt_invalid: "Настройки выбранного формата недоступны. Выберите другой формат.",
         summary_prompt_snapshot_corrupt: "Настройки выбранного формата недоступны. Выберите другой формат.",
-        summary_prompt_not_selected: "Не удалось определить настройки формата. Выберите формат ещё раз.",
+        summary_prompt_not_selected: "Не удалось определить настройки формата. Выберите формат еще раз.",
         prompt_invalid: "Настройки выбранного формата недоступны. Выберите другой формат.",
         summary_generation_in_progress: "Другой вариант уже готовится. Обновите статус через несколько секунд.",
         generation_in_progress: "Другой вариант уже готовится. Обновите статус через несколько секунд.",
-        generation_call_not_completed: "Ответ модели не был сохранён полностью. Обновите статус.",
-        generation_call_content_incomplete: "Ответ модели не был сохранён полностью. Обновите статус.",
-        generation_call_content_hash_mismatch: "Не удалось проверить сохранённый ответ. Обновите статус.",
-        content_unavailable: "Ответ модели не был сохранён полностью. Обновите статус.",
+        generation_call_not_completed: "Ответ модели не был сохранен полностью. Обновите статус.",
+        generation_call_content_incomplete: "Ответ модели не был сохранен полностью. Обновите статус.",
+        generation_call_content_hash_mismatch: "Не удалось проверить сохраненный ответ. Обновите статус.",
+        content_unavailable: "Ответ модели не был сохранен полностью. Обновите статус.",
         input_too_large: "Расшифровка слишком большая для генерации итогов. Расшифровка и текущие итоги сохранены.",
         summary_revision_conflict: "Итоги уже изменились. Обновите страницу.",
         revision_changed: "Итоги уже изменились. Обновите страницу.",
-        result_invalid: "Модель вернула неподтверждённый результат. Можно попробовать другой вариант.",
+        result_invalid: "Модель вернула неподтвержденный результат. Можно попробовать другой вариант.",
         source_changed: "Расшифровка изменилась. Обновите страницу и запросите новый вариант.",
         template_unavailable: "Этот формат больше недоступен. Выберите другой формат.",
         provider_outcome_unknown: "Не удалось подтвердить ответ модели. Проверьте статус и повторите позже.",
@@ -3715,7 +3715,7 @@
         summary_candidate_expired: "Вариант устарел. Текущие итоги сохранены.",
         summary_same_format_noop: "Этот формат уже выбран. Нажмите «Обновить итоги», чтобы создать новый вариант.",
         summary_template_unavailable: "Выбранный формат больше недоступен. Выберите другой активный формат.",
-        summary_refresh_intent_missing: "Не удалось подтвердить обновление. Выберите «Обновить итоги» ещё раз.",
+        summary_refresh_intent_missing: "Не удалось подтвердить обновление. Выберите «Обновить итоги» еще раз.",
         summary_source_revision_stale: "Расшифровка изменилась. Текущие итоги сохранены."
       }[code] || "Не удалось подготовить новый вариант. Текущие итоги сохранены.");
       const retryCandidateAction = (candidate = {}) => {
@@ -3749,7 +3749,7 @@
         if (candidate.retryable) {
           const template = templateFromCandidate(candidate) || activeTemplate;
           return {
-            text: "Попробовать ещё раз",
+            text: "Попробовать еще раз",
             action: () => template && requestCandidate(template, {
               requestIntent: "manual_refresh",
               requestIntentId: newRequestIntentId()
@@ -3769,7 +3769,7 @@
           || [408, 425, 429].includes(error?.status);
         if (transientTransportFailure) {
           return {
-            text: "Попробовать ещё раз",
+            text: "Попробовать еще раз",
             action: () => template && requestCandidate(template, {
               requestIntent: "manual_refresh",
               requestIntentId: newRequestIntentId()
@@ -3810,7 +3810,7 @@
           "litellm_retryable_response"
         ].includes(code)) {
           return {
-            text: "Попробовать ещё раз",
+            text: "Попробовать еще раз",
             action: () => template && requestCandidate(template, {
               requestIntent: "manual_refresh",
               requestIntentId: newRequestIntentId()
@@ -3937,7 +3937,7 @@
           const retry = retryCandidateAction(candidate) || {
             text: "Обновить страницу", action: () => window.location.reload(), primary: true
           };
-          showStatus("Новая версия устарела. Текущие итоги сохранены — запустите обновление ещё раз.", "failed", [
+          showStatus("Новая версия устарела. Текущие итоги сохранены — запустите обновление еще раз.", "failed", [
             retry
           ]);
           return;
@@ -4415,7 +4415,7 @@
           if (loadStatus) { loadStatus.textContent = ""; loadStatus.hidden = true; }
         } catch (_error) {
           if (!controls.isConnected || !loadStatus) return;
-          loadStatus.textContent = "Личные форматы не загрузились. Откройте «Все форматы» ещё раз или перейдите в настройки.";
+          loadStatus.textContent = "Личные форматы не загрузились. Откройте «Все форматы» еще раз или перейдите в настройки.";
           loadStatus.hidden = !back || back.hidden;
         } finally {
           personalLoading = false;
@@ -4535,7 +4535,7 @@
       };
       const initialCandidateLoadGeneration = candidateRequestGeneration;
       const showCandidateHistoryFailure = () => showStatus(
-        "Не удалось проверить сохранённые варианты. Текущие итоги доступны.",
+        "Не удалось проверить сохраненные варианты. Текущие итоги доступны.",
         "attention",
         [{ text: "Повторить", action: () => window.location.reload(), primary: true }]
       );
@@ -4708,7 +4708,7 @@
             await request(`${endpoint}/${template.template_id}`, "DELETE");
           }
           await loadTemplates();
-          setStatus(action === "duplicate" ? "Копия создана." : action === "archive" ? "Формат скрыт." : "Формат удалён.");
+          setStatus(action === "duplicate" ? "Копия создана." : action === "archive" ? "Формат скрыт." : "Формат удален.");
         } catch (requestError) {
           setStatus(templateErrorCopy(requestError instanceof Error ? requestError.message : ""));
         }
@@ -4881,7 +4881,7 @@
           );
           await closeDialog();
           await loadTemplates();
-          setStatus(editingTemplate ? "Формат обновлён." : "Формат создан.");
+          setStatus(editingTemplate ? "Формат обновлен." : "Формат создан.");
         } catch (requestError) {
           setError(templateErrorCopy(requestError instanceof Error ? requestError.message : ""));
         } finally {
@@ -5793,7 +5793,7 @@
           if (sync.form?.dataset.syncPending === "true" && !["queued", "syncing"].includes(replacement.dataset.syncState)) {
             const status = sync.form.querySelector("[data-calendar-mutation-status]");
             if (status) status.textContent = replacement.dataset.syncState === "synced"
-              ? "Календарь обновлён."
+              ? "Календарь обновлен."
               : replacement.querySelector(".calendar-source-card__states")?.textContent?.trim() || "Проверьте состояние подключения.";
             delete sync.form.dataset.syncPending;
           }
@@ -6662,7 +6662,7 @@
             "accepted",
             workflowStarted
               ? "На сервере · Обрабатываем"
-              : "На сервере · Ждёт обработки",
+              : "На сервере · Ждет обработки",
             workflowStarted ? "success" : "warning"
           );
           clearUploadActivityPayload(activity);
@@ -7129,8 +7129,8 @@
       : "/meetings";
     const copy = {
       session: ["Нужно войти снова", "Сессия завершилась.", "Войти"],
-      workspace: ["Нужно выбрать пространство", "Доступ к выбранному пространству больше не подтверждён.", "Войти и выбрать пространство"],
-      deleting: ["Удаление ожидает подтверждения", "Запрос сохранён в приложении. Состояние доступно в разделе «Удаления».", "К списку встреч"],
+      workspace: ["Нужно выбрать пространство", "Доступ к выбранному пространству больше не подтвержден.", "Войти и выбрать пространство"],
+      deleting: ["Удаление ожидает подтверждения", "Запрос сохранен в приложении. Состояние доступно в разделе «Удаления».", "К списку встреч"],
       deleted: ["Запись удалена из списка", "Состояние очистки доступно в разделе «Удаления».", "К списку встреч"],
       unavailable: ["Встреча больше недоступна", "Запись удалена или доступ закрыт.", "К списку встреч"],
     }[kind] || ["Встреча больше недоступна", "Запись удалена или доступ закрыт.", "К списку встреч"];
@@ -7180,7 +7180,7 @@
     status.className = "truth-copy meeting-share-action-error";
     status.setAttribute("role", "status");
     status.setAttribute("aria-live", "polite");
-    status.textContent = "Не удалось открыть настройки доступа. Проверьте разрешения и попробуйте ещё раз.";
+    status.textContent = "Не удалось открыть настройки доступа. Проверьте разрешения и попробуйте еще раз.";
     host.replaceChildren(status);
   };
 
@@ -7790,7 +7790,7 @@
       audit_unavailable: "Экспорт остановлен: не удалось сохранить обязательную запись аудита. Повторите позже.",
       unsupported_export_combination: "Выберите совместимый формат.",
       clipboard_unavailable: "Не удалось скопировать текст. Используйте скачивание TXT."
-    }[code] || "Не удалось подготовить файл. Попробуйте ещё раз.");
+    }[code] || "Не удалось подготовить файл. Попробуйте еще раз.");
 
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -7962,13 +7962,13 @@
         share_invitations_disabled: "Внешние приглашения пока отключены. Выберите участника рабочей области.",
         meeting_not_found: "Доступ к встрече изменился. Обновите страницу.",
         invalid_invitation: "Проверьте адрес электронной почты.",
-        invalid_invitation_ttl: "Срок действия приглашения недоступен. Попробуйте ещё раз.",
+        invalid_invitation_ttl: "Срок действия приглашения недоступен. Попробуйте еще раз.",
         external_share_scope_invalid: "Внешний доступ возможен только к итогам без скачивания.",
         grantee_not_found: "Не удалось подтвердить участника. Попробуйте найти его заново.",
         grantee_already_has_access: "У этого участника уже есть доступ к встрече.",
         share_policy_blocked: "Этот способ доступа пока недоступен по политике.",
         share_not_found: "Ссылка больше недоступна. Обновите список доступов.",
-        share_grant_not_found: "Доступ уже отозван или истёк.",
+        share_grant_not_found: "Доступ уже отозван или истек.",
         auth_session_expired: "Сессия истекла. Обновите страницу и войдите снова.",
         csrf_token_missing: "Сессия страницы устарела. Обновите страницу.",
         csrf_token_invalid: "Сессия страницы устарела. Обновите страницу.",
@@ -7981,8 +7981,8 @@
         postal_delivery_outcome_unknown: "Доставка не подтверждена. Не отправляйте повторно сразу — проверьте позже.",
         share_team_audience_unavailable: "Командный доступ пока не настроен.",
         rate_limited: "Слишком много запросов. Попробуйте позже.",
-        clipboard_unavailable: "Не удалось скопировать ссылку. Скопируйте её из адресной строки."
-      }[code] || "Не удалось изменить доступ. Попробуйте ещё раз.");
+        clipboard_unavailable: "Не удалось скопировать ссылку. Скопируйте ее из адресной строки."
+      }[code] || "Не удалось изменить доступ. Попробуйте еще раз.");
       const recipientSourceLabel = (item) => {
         let source = item.source === "workspace_calendar"
           ? "Календарь и рабочая область"
@@ -8223,13 +8223,13 @@
           const notificationMessage = {
             sent: " Участнику также отправлено письмо.",
             failed: " Письмо не отправлено — скопируйте ссылку вручную.",
-            outcome_unknown: " Статус письма не подтверждён — скопируйте ссылку вручную.",
-            not_available: " Письмо не отправлено: у участника нет подтверждённого email."
+            outcome_unknown: " Статус письма не подтвержден — скопируйте ссылку вручную.",
+            not_available: " Письмо не отправлено: у участника нет подтвержденного email."
           }[payload?.notification_status] || "";
           setStatus(`Доступ открыт: ${label}. ${roleLabel(payload?.grant)}. Ссылка готова для копирования.${notificationMessage}`, "success");
         } catch (error) {
           if (isMeetingDetailRecoveredError(error)) return;
-          setStatus("Не удалось открыть доступ. Попробуйте ещё раз.", "error");
+          setStatus("Не удалось открыть доступ. Попробуйте еще раз.", "error");
         }
       };
       const close = () => {
@@ -8282,7 +8282,7 @@
         title.textContent = `Отправить приглашение на ${maskInvitationAddress(address)}?`;
         const note = document.createElement("small");
         note.className = "muted";
-        note.textContent = "Получатель откроет одноразовую ссылку из письма. Если аккаунта GRAF ещё нет, он создастся автоматически — будут доступны саммари, расшифровка и скачивание аудио.";
+        note.textContent = "Получатель откроет одноразовую ссылку из письма. Если аккаунта GRAF еще нет, он создастся автоматически — будут доступны саммари, расшифровка и скачивание аудио.";
         const actions = document.createElement("span");
         actions.className = "share-viewer-row__actions";
         const confirm = document.createElement("button");
@@ -8375,7 +8375,7 @@
           setStatus(query ? "Никого не нашли. Проверьте имя." : "Выберите участника или начните вводить имя.", query ? "error" : "neutral");
         } catch (error) {
           if (isMeetingDetailRecoveredError(error)) return;
-          setStatus("Не удалось пригласить. Попробуйте ещё раз.", "error");
+          setStatus("Не удалось пригласить. Попробуйте еще раз.", "error");
         }
       });
       recipientInput?.addEventListener("input", () => {
@@ -8664,7 +8664,7 @@
           accept(fresh.dataset.confirmedTitle, fresh.elements.expected_version.value);
           showEditor(false, true);
         } catch {
-          if (current()) showError("Не удалось проверить название. Проверьте соединение и нажмите Esc ещё раз.");
+          if (current()) showError("Не удалось проверить название. Проверьте соединение и нажмите Esc еще раз.");
         } finally {
           window.clearTimeout(timer);
           finish();
@@ -8831,7 +8831,7 @@
     if (status === 401 || status === 403) return "Сессия страницы устарела. Обновите страницу и войдите снова.";
     if (status === 404) return "Встреча или доступ к ней больше недоступны.";
     if (status === 429) return "Слишком много запросов. Попробуйте открыть окно позже.";
-    return "Не удалось открыть окно «Поделиться». Проверьте соединение и попробуйте ещё раз.";
+    return "Не удалось открыть окно «Поделиться». Проверьте соединение и попробуйте еще раз.";
   };
   const resetShareRequestSource = (source) => {
     source.removeAttribute("aria-busy");

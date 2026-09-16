@@ -133,7 +133,7 @@ def _render_delete_confirmation(
           <input type="hidden" name="{CSRF_FORM_FIELD_NAME}" value="{escape(csrf_token or "")}">
           <input type="hidden" name="confirmation_boundary" value="{escape(BOUNDED_DELETE_COPY)}">
           <h2 id="meeting-delete-title" tabindex="-1" data-meeting-delete-dialog-title>Удалить встречу?</h2>
-          <p>Встреча будет удалена из GRAF. Восстановить её не получится.</p>
+          <p>Встреча будет удалена из GRAF. Восстановить ее не получится.</p>
           <div class="dialog-actions">
             <button type="button" data-meeting-delete-dialog-cancel>Отмена</button>
             <button type="submit" class="danger-button" data-meeting-delete-dialog-confirm>Удалить</button>

@@ -5,8 +5,8 @@ import TwoBrainRecShared
 public struct MeetingDetectionSettingsView: View {
     public static let windowTitle = "Настройки"
     public static let windowSize = NSSize(width: 1040, height: 800)
-    public static let pageTitle = "Автозапись"
-    public static let autoRecordSectionTitle = "Приложения"
+    public static let pageTitle = "Запись встреч"
+    public static let autoRecordSectionTitle = "Автозапись для приложений"
     public static let applyToAllTitle = "Для всех приложений"
     private let store: MeetingDetectionSettingsStore
     private let registryStore: MeetingTargetRegistryStore
@@ -65,7 +65,7 @@ public struct MeetingDetectionSettingsView: View {
                     Text(Self.pageTitle)
                         .font(.title2.weight(.semibold))
                         .foregroundStyle(.primary)
-                    Text("«Спрашивать»: запись начнётся через 8 секунд, если не отказаться.")
+                    Text("«Спрашивать»: запись начнется через 8 секунд, если не отказаться.")
                 }
                 .font(.callout)
                 .foregroundStyle(.secondary)
@@ -73,10 +73,11 @@ public struct MeetingDetectionSettingsView: View {
 
                 if let saveError {
                     HStack {
-                        Text(saveError).foregroundStyle(.red)
+                        Text(saveError).foregroundStyle(DesktopDesignTokens.red)
                         Button("Повторить") {
                             if pendingRules.isEmpty { reloadSettings() } else { updateRules(pendingRules) }
                         }
+                        .frame(minHeight: 40)
                     }.font(.callout)
                 }
                 VStack(alignment: .leading, spacing: 16) {
@@ -110,15 +111,13 @@ public struct MeetingDetectionSettingsView: View {
                     .frame(maxWidth: 380)
                     .frame(height: 32)
                     Divider()
-                    if !settingsAvailable {
-                        Text("Не удалось прочитать сохранённые правила.").foregroundStyle(.secondary)
-                        Button("Повторить загрузку") { reloadSettings() }
-                    } else if promptCapableTargets.isEmpty {
+                    if promptCapableTargets.isEmpty {
                         Text("Список приложений пока недоступен. Попробуйте открыть настройки позже.")
                             .font(.callout)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                         Button("Повторить загрузку") { reloadRegistryTargets() }
+                            .frame(minHeight: 40)
                     } else if filteredTargets.isEmpty {
                         Text("Приложения не найдены. Измените поиск.").foregroundStyle(.secondary)
                     } else {
@@ -135,7 +134,9 @@ public struct MeetingDetectionSettingsView: View {
                                     )
                                 }
                                 .frame(minHeight: 40)
-                                Divider()
+                                if target.id != filteredTargets.last?.id {
+                                    Divider()
+                                }
                             }
                         }
                     }
@@ -281,20 +282,22 @@ public struct LocalSettingsFallbackView: View {
             VStack(alignment: .leading, spacing: 12) {
                 Button(action: onOpenAll) { Label("Все настройки GRAF", systemImage: "chevron.left") }
                     .buttonStyle(.plain)
+                    .frame(minHeight: 40)
                 Text("На этом Mac").font(.caption).foregroundStyle(.secondary).padding(.top, 16)
                 ForEach([false, true], id: \.self) { item in
                     Button { notifications = item } label: {
                         Label(item ? "Уведомления" : "Запись", systemImage: item ? "bell" : "record.circle")
                             .frame(maxWidth: .infinity, alignment: .leading).padding(10)
-                            .background(notifications == item ? Color.accentColor.opacity(0.15) : .clear, in: RoundedRectangle(cornerRadius: 6))
+                            .background(notifications == item ? DesktopDesignTokens.accentSurface : .clear, in: RoundedRectangle(cornerRadius: DesktopDesignTokens.Radius.xs))
                     }
                     .buttonStyle(.plain)
+                    .frame(minHeight: 40)
                     .accessibilityAddTraits(notifications == item ? .isSelected : [])
                 }
                 Spacer()
                 Text("Кабинет недоступен. Локальные настройки продолжают работать.")
                     .font(.caption).foregroundStyle(.secondary)
-            }.padding(16).frame(width: 208).frame(maxHeight: .infinity).background(.bar)
+            }.padding(16).frame(width: 208).frame(maxHeight: .infinity).background(DesktopDesignTokens.surface2)
             Divider()
             if notifications { DesktopNotificationsSettingsView() }
             else { MeetingDetectionSettingsView() }

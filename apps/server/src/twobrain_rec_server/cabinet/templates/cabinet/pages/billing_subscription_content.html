@@ -5,30 +5,30 @@
       <header class="cabinet-topbar settings-page__topbar">
         <div class="page-title"><h1>Управление подпиской</h1><p class="muted">Отмена отключает только будущие списания и не возвращает деньги.</p></div>
       </header>
-      {% if result == "cancelled" %}<p class="notice" role="status" aria-live="polite">Автопродление отключено. Доступ сохранится до окончания оплаченного периода.</p>
-      {% elif result == "resumed" %}<p class="notice" role="status" aria-live="polite">Автопродление снова включено.</p>
-      {% elif result == "conflict" %}<p class="notice" role="alert">Подписка изменилась в другой вкладке. Обновите страницу и повторите действие.</p>
+      {% if result == "cancelled" %}<p class="notice notice--success" role="status" aria-live="polite">Автопродление отключено. Доступ сохранится до окончания оплаченного периода.</p>
+      {% elif result == "resumed" %}<p class="notice notice--success" role="status" aria-live="polite">Автопродление снова включено.</p>
+      {% elif result == "conflict" %}<p class="notice notice--error" role="alert">Подписка изменилась в другой вкладке. Обновите страницу и повторите действие.</p>
       {% elif result == "already_cancelled" %}<p class="notice" role="status">Автопродление уже отключено.</p>
       {% elif result == "already_active" %}<p class="notice" role="status">Автопродление уже включено.</p>
-      {% elif result == "consent_required" %}<p class="notice" role="alert">Подтвердите отдельное согласие на следующее списание.</p>
-      {% elif result == "method_required" %}<p class="notice" role="alert">Нужен подтверждённый способ оплаты. Возобновление не включено.</p>
-      {% elif result == "unavailable" %}<p class="notice" role="alert">Управление подпиской сейчас недоступно.</p>{% endif %}
+      {% elif result == "consent_required" %}<p class="notice notice--warning" role="alert">Подтвердите отдельное согласие на следующее списание.</p>
+      {% elif result == "method_required" %}<p class="notice notice--warning" role="alert">Нужен подтвержденный способ оплаты. Возобновление не включено.</p>
+      {% elif result == "unavailable" %}<p class="notice notice--warning" role="alert">Управление подпиской сейчас недоступно.</p>{% endif %}
       <section class="settings-section cabinet-card" aria-labelledby="billing-subscription-state-title">
         {% set displayed_plan_label = subscription_plan_label|default({"personal": "Личный", "trial": "Пробный период", "free": "Бесплатный"}.get(subscription.plan_code if subscription else "free", "Бесплатный")) %}
         <h2 id="billing-subscription-state-title">{{ displayed_plan_label }}</h2>
         {% if subscription and (subscription.renewal_resolution|default(None)) in ["pending", "unknown", "provider_key_expired", "late_success"] %}
-        <p class="notice" role="status" aria-live="polite">Проверяем результат последнего списания. Нового платежа не создаём. Если подтверждения не будет, доступ сразу перейдёт на бесплатный тариф.</p>
+        <p class="notice notice--warning" role="status" aria-live="polite">Проверяем результат последнего списания. Нового платежа не создаем. Если подтверждения не будет, доступ сразу перейдет на бесплатный тариф.</p>
         {% endif %}
         {% if active %}
         <p>Оплачено до: <strong>{{ paid_through_label|default("дата уточняется") }}</strong>.</p>
         {% if subscription.recurring_allowed %}
-        <p>Следующее списание: <strong>{{ paid_through_label|default("дата уточняется") }}</strong> по сохранённому способу оплаты.</p>
+        <p>Следующее списание: <strong>{{ paid_through_label|default("дата уточняется") }}</strong> по сохраненному способу оплаты.</p>
         <p class="muted">Если передумаете, автопродление можно включить снова до даты окончания доступа.</p>
         <form action="/billing/subscription/cancel" method="post">{{ sections.csrf_field(csrf_token|default(None)) }}<input type="hidden" name="expected_authority_version" value="{{ subscription.recurring_authority_version }}"><button class="button quiet" type="submit">Отключить автопродление</button></form>
         {% else %}
         <p>Автопродление отключено. Нового списания не будет.</p>
-        <p class="muted">Возобновление не создаёт новый платёж. Следующее списание: <strong>{{ next_charge_amount_label|default("сумма уточняется") }}</strong> после {{ paid_through_label|default("даты уточняется") }}. Для действия нужна сохранённая подтверждённая карта.</p>
-        {% if method_available|default(False) %}<form action="/billing/subscription/resume" method="post">{{ sections.csrf_field(csrf_token|default(None)) }}<input type="hidden" name="expected_authority_version" value="{{ subscription.recurring_authority_version }}"><label><input type="checkbox" name="resume_consent" value="true"> Я разрешаю следующее рекуррентное списание по указанной сумме и дате.</label><button class="button" type="submit">Возобновить автопродление</button></form>{% else %}<p role="status">Возобновление недоступно до добавления подтверждённого способа оплаты.</p>{% endif %}
+        <p class="muted">Возобновление не создает новый платеж. Следующее списание: <strong>{{ next_charge_amount_label|default("сумма уточняется") }}</strong> после {{ paid_through_label|default("даты уточняется") }}. Для действия нужна сохраненная подтвержденная карта.</p>
+        {% if method_available|default(False) %}<form action="/billing/subscription/resume" method="post">{{ sections.csrf_field(csrf_token|default(None)) }}<input type="hidden" name="expected_authority_version" value="{{ subscription.recurring_authority_version }}"><label><input type="checkbox" name="resume_consent" value="true"> Я разрешаю следующее рекуррентное списание по указанной сумме и дате.</label><button class="button" type="submit">Возобновить автопродление</button></form>{% else %}<p role="status">Возобновление недоступно до добавления подтвержденного способа оплаты.</p>{% endif %}
         {% endif %}
         {% else %}<p>Активной платной подписки нет. После окончания оплаченного периода доступ сразу переходит на бесплатный тариф.</p><p>Следующее списание: <strong>не запланировано</strong>.</p>{% if billing_enabled|default(False) %}<a class="button" href="/billing/checkout">Выбрать тариф</a>{% else %}<p role="status">Оплата временно недоступна.</p>{% endif %}{% endif %}
       </section>

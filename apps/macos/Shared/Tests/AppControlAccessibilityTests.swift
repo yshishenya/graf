@@ -26,17 +26,17 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(DesktopCabinetWorkspaceView.shellEmbeddedSurfaceMinHeight, 520)
         XCTAssertEqual(DesktopMeetingShellChrome.collapsedInspectorWidth, 52)
         XCTAssertEqual(DesktopMeetingShellChrome.expandedInspectorWidth, 308)
-        XCTAssertEqual(DesktopMeetingShellChrome.shellBackgroundHex, "#0a0a0b")
-        XCTAssertEqual(DesktopMeetingShellChrome.shellRailHex, "#121214")
-        XCTAssertEqual(DesktopMeetingShellChrome.shellSurfaceHex, "#1c1c1f")
+        XCTAssertEqual(DesktopMeetingShellChrome.shellBackgroundHex, "#17181b")
+        XCTAssertEqual(DesktopMeetingShellChrome.shellRailHex, "#1d1f23")
+        XCTAssertEqual(DesktopMeetingShellChrome.shellSurfaceHex, "#22252a")
         XCTAssertEqual(DesktopMeetingShellChrome.recordingStripHex, "#342087")
-        XCTAssertEqual(DesktopMeetingShellChrome.shellAccentHex, "#8c73ff")
+        XCTAssertEqual(DesktopMeetingShellChrome.shellAccentHex, "#7056e9")
         XCTAssertEqual(DesktopMeetingShellChrome.webButtonHeight, 32)
-        XCTAssertEqual(DesktopMeetingShellChrome.webButtonCornerRadius, 7)
+        XCTAssertEqual(DesktopMeetingShellChrome.webButtonCornerRadius, 8)
         XCTAssertEqual(DesktopMeetingShellChrome.webButtonHorizontalPadding, 12)
-        XCTAssertEqual(DesktopMeetingShellChrome.webButtonPrimaryHex, "#8c73ff")
-        XCTAssertEqual(DesktopMeetingShellChrome.webButtonSecondaryDarkHex, "#26282c")
-        XCTAssertEqual(DesktopMeetingShellChrome.webButtonBorderDarkHex, "#30343a")
+        XCTAssertEqual(DesktopMeetingShellChrome.webButtonPrimaryHex, "#7056e9")
+        XCTAssertEqual(DesktopMeetingShellChrome.webButtonSecondaryDarkHex, "#272a30")
+        XCTAssertEqual(DesktopMeetingShellChrome.webButtonBorderDarkHex, "#7e8898")
         XCTAssertEqual(DesktopMeetingShellChrome.webEmbeddedBackgroundHex, DesktopMeetingShellChrome.shellBackgroundHex)
         XCTAssertEqual(DesktopMeetingShellChrome.fontStackDescription, "SF Pro Text / system")
         XCTAssertEqual(DesktopMeetingShellChrome.compactRailLabels, ["Статус записи", "Локальная сохранность"])
@@ -166,7 +166,7 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertEqual(SystemAudioAccessibilityIdentifier.recordingSource, "systemAudio.status.source")
         XCTAssertEqual(SystemAudioStatusLabels.recordingSourceTitle, "Источник")
         XCTAssertEqual(SystemAudioStatusLabels.recordingSourceSystemAudio, "Системный звук")
-        XCTAssertEqual(SystemAudioStatusLabels.recordingSourceUnknown, "Источник не определён")
+        XCTAssertEqual(SystemAudioStatusLabels.recordingSourceUnknown, "Источник не определен")
         XCTAssertEqual(
             SystemAudioStatusLabels.recordingSourceAccessibilityLabel("Zoom"),
             "Источник: Zoom"
@@ -355,17 +355,21 @@ final class AppControlAccessibilityTests: XCTestCase {
             DesktopPermissionOnboardingView.startStepDetail
         ]
 
-        XCTAssertTrue(DesktopPermissionOnboardingView.recordingBoundaryDetail.contains("запись не идёт"))
+        XCTAssertTrue(DesktopPermissionOnboardingView.recordingBoundaryDetail.contains("запись не идет"))
         XCTAssertTrue(DesktopPermissionOnboardingView.systemAudioStepDetail.contains("не сохраняет видео экрана"))
         XCTAssertTrue(DesktopPermissionOnboardingView.restartDetail.contains("можно перезапустить"))
         XCTAssertTrue(DesktopPermissionOnboardingView.startStepDetail.contains("кнопку записи"))
         XCTAssertEqual(DesktopPermissionOnboardingView.openSettingsTitle, "Открыть настройки")
-        XCTAssertEqual(DesktopPermissionOnboardingView.retryTitle, "Проверить ещё раз")
+        XCTAssertEqual(DesktopPermissionOnboardingView.retryTitle, "Проверить еще раз")
         XCTAssertEqual(DesktopPermissionOnboardingView.restartTitle, "Перезапустить GRAF")
         XCTAssertTrue(DesktopPermissionOnboardingView.microphoneDeniedDetail.contains("Откройте настройки"))
         XCTAssertEqual(
             DesktopPermissionOnboardingAccessibilityIdentifier.restartButton,
             "desktop.permissionOnboarding.restart"
+        )
+        XCTAssertEqual(
+            DesktopPermissionOnboardingAccessibilityIdentifier.laterButton,
+            "desktop.permissionOnboarding.later"
         )
         for text in copy {
             XCTAssertFalse(text.localizedCaseInsensitiveContains("krisp"))
@@ -498,6 +502,10 @@ final class AppControlAccessibilityTests: XCTestCase {
 
         XCTAssertTrue(source.contains("ScrollView"))
         XCTAssertTrue(source.contains("Автозапись"))
+        XCTAssertTrue(source.contains("pageTitle = \"Запись встреч\""))
+        XCTAssertTrue(source.contains("autoRecordSectionTitle = \"Автозапись для приложений\""))
+        XCTAssertTrue(source.contains("Для всех приложений"))
+        XCTAssertFalse(source.contains("Не удалось прочитать сохраненные правила."))
         XCTAssertTrue(source.contains("через 8 секунд, если не отказаться"))
         XCTAssertFalse(source.contains("Изменения сохраняются автоматически"))
         XCTAssertTrue(source.contains("Для приложений выбраны разные правила"))
@@ -581,6 +589,23 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertFalse(actions.contains("permissionOnboardingPresented = true"))
         let settings = try String(contentsOf: root.appendingPathComponent("apps/macos/RecApp/Sources/MeetingDetection/MeetingDetectionSettingsView.swift"), encoding: .utf8)
         XCTAssertFalse(settings.contains(".frame(width: Self.windowSize.width, height: Self.windowSize.height)"))
+    }
+
+    func testNotificationSettingsKeepSystemPermissionActionsAvailableWithoutSignIn() throws {
+        let source = try String(
+            contentsOf: Self.repositoryRoot()
+                .appendingPathComponent("apps/macos/RecApp/Sources/Notifications/DesktopNotificationPresenter.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("Button(\"Включить уведомления на этом Mac\")"))
+        XCTAssertTrue(source.contains("Button(\"Открыть настройки macOS\")"))
+        XCTAssertTrue(source.contains("Войдите в GRAF, чтобы сохранить настройки для своего аккаунта."))
+        XCTAssertTrue(source.contains(".disabled(presenter.owner.isEmpty)"))
+        XCTAssertFalse(
+            source.contains(".padding(24)\n        .disabled(presenter.owner.isEmpty)"),
+            "Системные действия macOS должны работать до входа, disabled остается только у серверных настроек"
+        )
     }
 
     private static func repositoryRoot() throws -> URL {
