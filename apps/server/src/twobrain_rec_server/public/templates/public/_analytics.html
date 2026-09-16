@@ -5,10 +5,21 @@
     <a href="/terms">Условия</a>
     <a href="/offer">Оплата и возврат</a>
     <a href="/analytics-consent">Об аналитике</a>
+    {% if public_analytics.enabled %}
+      <button class="cookie-settings-link" type="button" data-cc="show-preferencesModal">
+        Настройки cookies
+      </button>
+    {% endif %}
   </footer>
 {% endif %}
 
 {% if public_analytics.enabled %}
+  <link rel="stylesheet" href="{{ public_static_asset_url('cookieconsent.css') }}">
+  <script
+    defer
+    src="{{ public_static_asset_url('cookieconsent.umd.js') }}"
+    data-graf-cookieconsent-version="{{ public_analytics.cookieconsent_version }}"
+  ></script>
   <script id="graf-public-analytics-config" type="application/json">
     {{ public_analytics | tojson }}
   </script>

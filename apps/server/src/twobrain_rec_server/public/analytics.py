@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from typing import Any
 from urllib.parse import urlparse
 
@@ -9,6 +10,9 @@ from twobrain_rec_server.product_analytics.attribution import build_public_bridg
 from twobrain_rec_server.product_analytics.page_inventory import get_page_class_policy
 
 COOKIECONSENT_VERSION = "3.1.0"
+PUBLIC_ANALYTICS_CONSENT_VERSION = "2026-09-15.1"
+PUBLIC_ANALYTICS_CONSENT_REVISION = 202609151
+PUBLIC_ANALYTICS_CONSENT_STORAGE_KEY = "graf_public_cookie_consent"
 PUBLIC_ANALYTICS_PROVIDER = "yandex_metrica"
 PUBLIC_ANALYTICS_PRODUCTION_ENVS = {"production", "staging"}
 PUBLIC_ANALYTICS_VALIDATION_MODES = {"disabled", "render_only", "provider_smoke"}
@@ -40,6 +44,7 @@ PUBLIC_ANALYTICS_TARGET_KINDS = ("download_page", "installer_package", "login", 
 PUBLIC_ANALYTICS_PRODUCT_TABS = ("recording", "transcript", "outcomes")
 PUBLIC_ANALYTICS_PRICING_CYCLES = ("month", "year")
 PUBLIC_ANALYTICS_FAQ_IDS = (
+    "google_calendar",
     "recognition",
     "calling_apps",
     "upload",
@@ -167,6 +172,75 @@ def public_analytics_consent_transitions() -> dict[str, tuple[str, ...]]:
     return PUBLIC_ANALYTICS_CONSENT_TRANSITIONS
 
 
+def normalize_public_analytics_consent(
+    consent: Any | None,
+    *,
+    previous: Mapping[str, Any] | None = None,
+    copy_version: str = PUBLIC_ANALYTICS_CONSENT_VERSION,
+) -> dict[str, Any]:
+    """Normalize a saved browser decision without granting unknown input."""
+    unknown = {
+        "state": "unknown",
+        "categories": [],
+        "copy_version": None,
+        "analytics_allowed": False,
+        "advertising_attribution_allowed": False,
+        "behavior_replay_allowed": False,
+    }
+    if not isinstance(consent, Mapping) or consent.get("copy_version") != copy_version:
+        return unknown
+
+    raw_categories = consent.get("categories")
+    if not isinstance(raw_categories, list | tuple):
+        return unknown
+    if any(
+        not isinstance(category, str)
+        or category not in PUBLIC_ANALYTICS_CONSENT_CATEGORIES
+        for category in raw_categories
+    ):
+        return unknown
+    if len(set(raw_categories)) != len(raw_categories) or "necessary" not in raw_categories:
+        return unknown
+
+    categories = [
+        category
+        for category in PUBLIC_ANALYTICS_CONSENT_CATEGORIES
+        if category in raw_categories
+    ]
+    optional_categories = set(PUBLIC_ANALYTICS_CONSENT_CATEGORIES) - {"necessary"}
+    granted_optional = optional_categories.intersection(categories)
+    if granted_optional == optional_categories:
+        state = "accepted_all"
+    elif granted_optional:
+        state = "customized"
+    elif consent.get("state") == "revoked" or _previous_consent_had_optional(previous):
+        state = "revoked"
+    else:
+        state = "necessary_only"
+    supplied_state = consent.get("state")
+    if supplied_state is not None and supplied_state != state:
+        return unknown
+
+    return {
+        "state": state,
+        "categories": categories,
+        "copy_version": copy_version,
+        "analytics_allowed": "analytics" in categories,
+        "advertising_attribution_allowed": "advertising_attribution" in categories,
+        "behavior_replay_allowed": "behavior_replay" in categories,
+    }
+
+
+def _previous_consent_had_optional(previous: Mapping[str, Any] | None) -> bool:
+    if not isinstance(previous, Mapping) or previous.get("copy_version") != PUBLIC_ANALYTICS_CONSENT_VERSION:
+        return False
+    categories = previous.get("categories")
+    return isinstance(categories, list | tuple) and any(
+        category in categories
+        for category in ("analytics", "advertising_attribution", "behavior_replay")
+    )
+
+
 def normalize_public_campaign_attribution(
     query_params: Any | None = None,
     *,
@@ -242,8 +316,15 @@ def build_public_analytics_context(
         "environment_allowed": environment_allowed,
         "yandex_metrica_id_present": bool(counter_id),
         "yandex_metrica_id": counter_id if enabled else None,
-        "replay_allowed": False,
+        "replay_allowed": bool(settings.public_analytics_replay_enabled and enabled),
+        "webvisor_allowed": bool(settings.public_analytics_replay_enabled and enabled),
+        "click_map_allowed": bool(settings.public_analytics_replay_enabled and enabled),
+        "scroll_map_allowed": bool(settings.public_analytics_replay_enabled and enabled),
+        "form_analytics_allowed": False,
+        "replay_scope": ["public_landing", "public_download"],
         "consent_copy_version": settings.public_analytics_consent_copy_version,
+        "consent_revision": PUBLIC_ANALYTICS_CONSENT_REVISION,
+        "consent_storage_key": PUBLIC_ANALYTICS_CONSENT_STORAGE_KEY,
         "cookieconsent_version": COOKIECONSENT_VERSION,
         "page_path": path if surface else None,
         "surface": surface,
@@ -283,10 +364,10 @@ def build_product_yandex_provider_context(settings: Settings, page_class: str) -
         "counter_id": counter_id if enabled else None,
         "inventory_version": settings.product_analytics_yandex_inventory_version,
         "blocked_reason": blocked_reason,
-        "webvisor_allowed": False,
-        "click_map_allowed": False,
-        "scroll_map_allowed": False,
-        "form_analytics_allowed": False,
+        "webvisor_allowed": policy.yandex_webvisor_allowed,
+        "click_map_allowed": policy.click_map_allowed,
+        "scroll_map_allowed": policy.scroll_map_allowed,
+        "form_analytics_allowed": policy.form_analytics_allowed,
     }
 
 

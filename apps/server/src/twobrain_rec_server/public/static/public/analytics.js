@@ -1,5 +1,9 @@
 /*!
  * GRAF public and product analytics controller.
+ *
+ * Providers are intentionally initialized only from a CookieConsent callback.
+ * The browser gate is a safety boundary, not a replacement for the server
+ * inventory or the provider-side privacy settings.
  */
 (function () {
   "use strict";
@@ -11,38 +15,26 @@
 
   var YANDEX_TAG_URL = "https://mc.yandex.ru/metrika/tag.js";
   var productConfigElement = document.getElementById("graf-product-analytics-provider-config");
-  var configElement = document.getElementById("graf-public-analytics-config");
-  if (!configElement && !productConfigElement) {
-    return;
-  }
+  var publicConfigElement = document.getElementById("graf-public-analytics-config");
 
-  var productConfig = null;
-  if (productConfigElement) {
+  function parseConfig(element) {
+    if (!element) {
+      return null;
+    }
     try {
-      productConfig = JSON.parse(productConfigElement.textContent || "{}");
+      return JSON.parse(element.textContent || "{}");
     } catch (_) {
-      productConfig = null;
+      return null;
     }
   }
-  if (!configElement) {
-    initializePostHogAutocapture(productConfig);
-  }
-  if (!configElement) {
-    initializeProductYandexProvider(productConfig);
-  }
 
-  if (!configElement) {
+  var productConfig = parseConfig(productConfigElement);
+  var publicConfig = parseConfig(publicConfigElement);
+  var config = publicConfig || productConfig;
+  if (!config || (!publicConfig && !productConfig)) {
     return;
   }
-
-  var config;
-  try {
-    config = JSON.parse(configElement.textContent || "{}");
-  } catch (_) {
-    return;
-  }
-
-  if (!config.enabled) {
+  if (publicConfig && !publicConfig.enabled && (!productConfig || !productConfig.enabled)) {
     return;
   }
 
@@ -50,14 +42,127 @@
   var sentKeys = {};
   var listenersBound = false;
   var sectionsObserved = false;
-  var currentCategories = ["analytics", "advertising_attribution"];
-  var currentConsentState = "immediate_public_analytics";
-  var providerInitStarted = false;
-  (config.event_catalog || []).forEach(function (event) {
+  var currentCategories = [];
+  var currentConsentState = "unknown";
+  var previousOptionalConsent = false;
+  var consentBlocked = false;
+  var publicProviderInitStarted = false;
+  var publicProviderFailure = false;
+  var productYandexInitStarted = false;
+  var productYandexFailure = false;
+  var productAutocaptureStarted = false;
+  var productCaptureBlocked = false;
+
+  (publicConfig && publicConfig.event_catalog ? publicConfig.event_catalog : []).forEach(function (event) {
     if (event && event.event_name) {
       eventNames[event.event_name] = true;
     }
   });
+
+  function consentCategories() {
+    var browserConsent = config.browser_consent || {};
+    return config.consent_categories || browserConsent.categories || [
+      "necessary",
+      "analytics",
+      "advertising_attribution",
+      "behavior_replay",
+    ];
+  }
+
+  function consentCopyVersion() {
+    var browserConsent = config.browser_consent || {};
+    return config.consent_copy_version || browserConsent.copy_version || null;
+  }
+
+  function revisionFromCopyVersion(copyVersion) {
+    var digits = String(copyVersion || "").replace(/\D/g, "").slice(0, 9);
+    return digits ? Number(digits) : 0;
+  }
+
+  function consentRevision() {
+    var browserConsent = config.browser_consent || {};
+    var revision = config.consent_revision || browserConsent.revision;
+    return typeof revision === "number" ? revision : revisionFromCopyVersion(consentCopyVersion());
+  }
+
+  function hasCategory(categories, category) {
+    return Array.isArray(categories) && categories.indexOf(category) !== -1;
+  }
+
+  function normalizedCategories(categories) {
+    if (!Array.isArray(categories)) {
+      return null;
+    }
+    var known = consentCategories();
+    var seen = {};
+    for (var index = 0; index < categories.length; index += 1) {
+      var category = categories[index];
+      if (typeof category !== "string" || known.indexOf(category) === -1 || seen[category]) {
+        return null;
+      }
+      seen[category] = true;
+    }
+    if (known.indexOf("necessary") === -1 || !seen.necessary) {
+      return null;
+    }
+    return known.filter(function (category) {
+      return seen[category];
+    });
+  }
+
+  function consentVersionMatches(cookie) {
+    if (!cookie || typeof cookie !== "object") {
+      return false;
+    }
+    var data = cookie.data && typeof cookie.data === "object" ? cookie.data : {};
+    var storedCopyVersion = cookie.copy_version || data.graf_consent_copy_version;
+    if (storedCopyVersion && storedCopyVersion !== consentCopyVersion()) {
+      return false;
+    }
+    return storedCopyVersion === consentCopyVersion() || Number(cookie.revision) === consentRevision();
+  }
+
+  function cookieHadOptionalConsent(cookie) {
+    var data = cookie && cookie.data && typeof cookie.data === "object" ? cookie.data : {};
+    return Boolean(
+      (cookie && cookie.state && ["accepted_all", "customized"].indexOf(cookie.state) !== -1) ||
+        ["accepted_all", "customized"].indexOf(data.graf_consent_state) !== -1,
+    );
+  }
+
+  function consentStateFor(cookie, categories, hadOptionalConsent) {
+    if (!consentVersionMatches(cookie) || !categories) {
+      return "unknown";
+    }
+    var optional = consentCategories().filter(function (category) {
+      return category !== "necessary";
+    });
+    var grantedOptional = optional.filter(function (category) {
+      return hasCategory(categories, category);
+    });
+    var state = "necessary_only";
+    if (grantedOptional.length === optional.length) {
+      state = "accepted_all";
+    } else if (grantedOptional.length > 0) {
+      state = "customized";
+    } else if (hadOptionalConsent || (cookie && cookie.state === "revoked")) {
+      state = "revoked";
+    }
+    if (cookie && cookie.state && cookie.state !== state) {
+      return "unknown";
+    }
+    return (config.consent_states || (config.browser_consent && config.browser_consent.states) || []).indexOf(state) === -1
+      ? "unknown"
+      : state;
+  }
+
+  function transitionAllowed(nextState) {
+    if (currentConsentState === "unknown" || currentConsentState === nextState) {
+      return true;
+    }
+    var transitions = config.consent_transitions || (config.browser_consent && config.browser_consent.transitions) || {};
+    return Array.isArray(transitions[currentConsentState]) && transitions[currentConsentState].indexOf(nextState) !== -1;
+  }
 
   function stableToken(value, maxLength) {
     if (typeof value !== "string") {
@@ -71,179 +176,278 @@
   }
 
   function configuredValues(labelClass) {
-    return (config.stable_labels && config.stable_labels[labelClass]) || [];
+    return (publicConfig && publicConfig.stable_labels && publicConfig.stable_labels[labelClass]) || [];
   }
 
   function allowedLabel(labelClass, value) {
     return typeof value === "string" && configuredValues(labelClass).indexOf(value) !== -1;
   }
 
-  function safeEventFields(fields) {
-    var source = fields || {};
-    var safe = {};
-    if (allowedLabel("section_id", source.section_id)) {
-      safe.section_id = source.section_id;
-    }
-    if (allowedLabel("cta_location", source.cta_location)) {
-      safe.cta_location = source.cta_location;
-    }
-    if (allowedLabel("target_kind", source.target_kind)) {
-      safe.target_kind = source.target_kind;
-    }
-    if (allowedLabel("product_tab", source.product_tab)) {
-      safe.product_tab = source.product_tab;
-    }
-    if (allowedLabel("pricing_cycle", source.pricing_cycle)) {
-      safe.pricing_cycle = source.pricing_cycle;
-    }
-    if (allowedLabel("faq_item", source.faq_item)) {
-      safe.faq_item = source.faq_item;
-    }
-    return safe;
+  function productAllowlistedValue(list, value) {
+    return typeof value === "string" && Array.isArray(list) && list.indexOf(value) !== -1 ? value : null;
+  }
+
+  function safeCampaignAttribution() {
+    return hasCategory(currentCategories, "advertising_attribution") && publicConfig
+      ? publicConfig.campaign_attribution || {}
+      : {};
   }
 
   function buildEventPayload(eventName, fields) {
-    if (!eventNames[eventName]) {
+    if (!publicConfig || !eventNames[eventName]) {
       return null;
     }
 
-    return Object.assign(
-      {
-        event_name: eventName,
-        page_path: config.page_path,
-        surface: config.surface,
-        campaign_attribution: config.campaign_attribution || {},
-        product_activation_bridge_supported: Boolean(
-          config.product_activation_bridge && config.product_activation_bridge.bridge_supported,
-        ),
-      },
-      safeEventFields(fields),
+    var source = fields || {};
+    var safe = {
+      consent_state: currentConsentState,
+      event_name: eventName,
+      page_path: publicConfig.page_path,
+      surface: publicConfig.surface,
+      campaign_attribution: safeCampaignAttribution(),
+      product_activation_bridge_supported: Boolean(
+        hasCategory(currentCategories, "advertising_attribution") &&
+          publicConfig.product_activation_bridge &&
+          publicConfig.product_activation_bridge.bridge_supported,
+      ),
+    };
+    ["section_id", "cta_location", "target_kind", "product_tab", "pricing_cycle", "faq_item"].forEach(function (labelClass) {
+      if (allowedLabel(labelClass, source[labelClass])) {
+        safe[labelClass] = source[labelClass];
+      }
+    });
+    return safe;
+  }
+
+  function canUseAnalytics() {
+    return Boolean(
+      api.consentReady &&
+        !consentBlocked &&
+        currentConsentState !== "unknown" &&
+        hasCategory(currentCategories, "analytics"),
     );
   }
 
-  function ensureYandexProvider() {
-    if (!isYandexPageAllowed(config)) {
-      api.providerBlocked = true;
-      return false;
-    }
-    if (api.providerBlocked || !config.yandex_metrica_id) {
-      return false;
-    }
-    api.currentCategories = currentCategories.slice();
-    api.currentConsentState = currentConsentState;
-    if (api.providerLoaded || providerInitStarted || document.querySelector('script[data-graf-provider="yandex-metrica"]')) {
-      api.providerLoaded = true;
-      api.providerInitStarted = true;
+  function isPublicPageAllowed(pageConfig) {
+    return Boolean(
+      pageConfig &&
+        ["public_landing", "public_download"].indexOf(pageConfig.surface) !== -1 &&
+        (!pageConfig.yandex_state || pageConfig.yandex_state === "approved_page_view_event"),
+    );
+  }
+
+  function isYandexPageAllowed(pageConfig) {
+    return Boolean(
+      pageConfig &&
+        (!pageConfig.surface || ["public_landing", "public_download"].indexOf(pageConfig.surface) !== -1) &&
+        (!pageConfig.yandex_state || pageConfig.yandex_state === "approved_page_view_event"),
+    );
+  }
+
+  function ensureYandexTag(onFailure) {
+    if (document.querySelector('script[data-graf-provider="yandex-metrica"]')) {
       return true;
     }
+    if (config.validation_mode === "render_only") {
+      return true;
+    }
+    var script = document.createElement("script");
+    script.async = true;
+    script.src = YANDEX_TAG_URL;
+    script.dataset.grafProvider = "yandex-metrica";
+    script.onload = function () {};
+    script.onerror = function () {
+      onFailure();
+    };
+    document.head.appendChild(script);
+    return true;
+  }
 
-    providerInitStarted = true;
-    api.providerInitStarted = true;
+  function prepareYandexQueue() {
     window.ym =
       window.ym ||
       function () {
         (window.ym.a = window.ym.a || []).push(arguments);
       };
     window.ym.l = Number(new Date());
+  }
 
-    if (config.validation_mode !== "render_only") {
-      var script = document.createElement("script");
-      script.async = true;
-      script.src = YANDEX_TAG_URL;
-      script.dataset.grafProvider = "yandex-metrica";
-      script.onload = function () {
-        api.providerLoaded = true;
-      };
-      script.onerror = function () {
-        api.providerBlocked = true;
-        api.providerLoaded = false;
-        api.providerInitStarted = false;
-        providerInitStarted = false;
-      };
-      document.head.appendChild(script);
+  function ensurePublicYandexProvider() {
+    if (!publicConfig || !publicConfig.enabled || !isPublicPageAllowed(publicConfig)) {
+      api.providerBlocked = true;
+      return false;
     }
-    window.ym(config.yandex_metrica_id, "init", {
-      clickmap: false,
-      trackLinks: false,
-      accurateTrackBounce: false,
-      defer: true,
-      webvisor: false,
+    if (
+      !canUseAnalytics() ||
+      publicProviderFailure ||
+      api.providerBlocked ||
+      !publicConfig.yandex_metrica_id
+    ) {
+      return false;
+    }
+    api.currentCategories = currentCategories.slice();
+    api.currentConsentState = currentConsentState;
+    if (api.providerLoaded || publicProviderInitStarted) {
+      return true;
+    }
+
+    publicProviderInitStarted = true;
+    api.providerInitStarted = true;
+    prepareYandexQueue();
+    ensureYandexTag(function () {
+      publicProviderFailure = true;
+      api.providerBlocked = true;
+      api.providerLoaded = false;
+      api.providerInitStarted = false;
+      publicProviderInitStarted = false;
     });
-    window.ym(config.yandex_metrica_id, "hit", config.page_path, {
+    var replayAllowed = Boolean(
+      hasCategory(currentCategories, "behavior_replay") &&
+        publicConfig.replay_allowed &&
+        publicConfig.webvisor_allowed &&
+        publicConfig.click_map_allowed &&
+        publicConfig.scroll_map_allowed &&
+        ["public_landing", "public_download"].indexOf(publicConfig.surface) !== -1,
+    );
+    window.ym(publicConfig.yandex_metrica_id, "init", {
+      clickmap: replayAllowed,
+      trackLinks: true,
+      accurateTrackBounce: true,
+      defer: true,
+      trackHash: false,
+      webvisor: replayAllowed,
+      form_analytics: false,
+    });
+    window.ym(publicConfig.yandex_metrica_id, "hit", publicConfig.page_path, {
       params: {
-        campaign_attribution: config.campaign_attribution || {},
-        surface: config.surface,
+        campaign_attribution: safeCampaignAttribution(),
+        surface: publicConfig.surface,
       },
       sendTitle: false,
     });
-    bindProductYandexUserID(config.yandex_metrica_id, productConfig);
     api.providerLoaded = true;
     return true;
   }
 
-  function disableYandexProvider() {
-    if (!config.yandex_metrica_id) {
-      return false;
-    }
-    window["disableYaCounter" + config.yandex_metrica_id] = true;
-    api.providerBlocked = true;
-    return true;
-  }
-
-  function isYandexPageAllowed(pageConfig) {
-    return !pageConfig.yandex_state || pageConfig.yandex_state === "approved_page_view_event";
-  }
-
-  function initializeProductYandexProvider(providerConfig) {
-    if (
-      !providerConfig ||
-      !providerConfig.yandex ||
-      !providerConfig.yandex.enabled ||
-      !providerConfig.yandex.counter_id
-    ) {
-      return false;
-    }
-    var counterId = stableToken(providerConfig.yandex.counter_id, 32);
+  function disableYandexCounter(counterId) {
     if (!counterId) {
       return false;
     }
-    if (!isYandexPageAllowed(providerConfig.yandex)) {
+    window["disableYaCounter" + counterId] = true;
+    return true;
+  }
+
+  function enableYandexCounter(counterId) {
+    if (!counterId) {
       return false;
     }
+    try {
+      delete window["disableYaCounter" + counterId];
+    } catch (_) {}
+    return true;
+  }
+
+  function disableOptionalProviders() {
+    consentBlocked = true;
+    if (publicConfig) {
+      disableYandexCounter(publicConfig.yandex_metrica_id);
+      api.providerBlocked = true;
+    }
+    if (productConfig && productConfig.yandex) {
+      disableYandexCounter(productConfig.yandex.counter_id);
+    }
+    productCaptureBlocked = true;
+    if (window.GRAFProductAnalytics) {
+      window.GRAFProductAnalytics.captureBlocked = true;
+    }
+  }
+
+  function enableOptionalProviders() {
+    consentBlocked = false;
+    productCaptureBlocked = false;
+    if (publicConfig && !publicProviderFailure) {
+      api.providerBlocked = false;
+      enableYandexCounter(publicConfig.yandex_metrica_id);
+    }
+    if (productConfig && !productYandexFailure && productConfig.yandex) {
+      enableYandexCounter(productConfig.yandex.counter_id);
+    }
+    if (window.GRAFProductAnalytics) {
+      window.GRAFProductAnalytics.captureBlocked = false;
+    }
+  }
+
+  function persistConsentMetadata(state) {
+    if (!window.CookieConsent || typeof window.CookieConsent.setCookieData !== "function") {
+      return;
+    }
+    try {
+      window.CookieConsent.setCookieData({
+        mode: "update",
+        value: {
+          graf_consent_copy_version: consentCopyVersion(),
+          graf_consent_state: state,
+        },
+      });
+    } catch (_) {}
+  }
+
+  function consentCookieFromDetails(details) {
+    if (details && details.cookie) {
+      return details.cookie;
+    }
+    if (window.CookieConsent && typeof window.CookieConsent.getUserPreferences === "function") {
+      try {
+        var preferences = window.CookieConsent.getUserPreferences();
+        return {
+          categories: preferences.acceptedCategories || [],
+          revision: consentRevision(),
+        };
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  function handleConsent(details) {
+    var cookie = consentCookieFromDetails(details);
+    var categories = normalizedCategories(cookie && cookie.categories);
+    var hadOptionalConsent = previousOptionalConsent || cookieHadOptionalConsent(cookie);
+    var nextState = consentStateFor(cookie, categories, hadOptionalConsent);
+    if (nextState === "unknown" || !transitionAllowed(nextState)) {
+      currentCategories = [];
+      currentConsentState = "unknown";
+      api.currentCategories = [];
+      api.currentConsentState = "unknown";
+      disableOptionalProviders();
+      return false;
+    }
+
+    previousOptionalConsent = previousOptionalConsent || hasCategory(currentCategories, "analytics") || hasCategory(currentCategories, "advertising_attribution") || hasCategory(currentCategories, "behavior_replay");
+    currentCategories = categories;
+    currentConsentState = nextState;
+    api.currentCategories = categories.slice();
+    api.currentConsentState = nextState;
+    persistConsentMetadata(nextState);
+    if (!hasCategory(categories, "analytics")) {
+      if (previousOptionalConsent || api.providerLoaded || productAutocaptureStarted) {
+        disableOptionalProviders();
+      }
+      return false;
+    }
+    enableOptionalProviders();
+    startGrantedProviders();
+    return true;
+  }
+
+  function ensureProductAnalyticsApi() {
     window.GRAFProductAnalytics = window.GRAFProductAnalytics || {
       events: [],
       provider: "posthog",
       replayEnabled: false,
       sentEvents: [],
+      captureBlocked: false,
     };
-    window.GRAFProductAnalytics.yandexEnabled = true;
-    window.ym =
-      window.ym ||
-      function () {
-        (window.ym.a = window.ym.a || []).push(arguments);
-      };
-    window.ym.l = Number(new Date());
-    if (!document.querySelector('script[data-graf-provider="yandex-metrica"]')) {
-      var script = document.createElement("script");
-      script.async = true;
-      script.src = YANDEX_TAG_URL;
-      script.dataset.grafProvider = "yandex-metrica";
-      document.head.appendChild(script);
-    }
-    window.ym(counterId, "init", {
-      clickmap: false,
-      trackLinks: true,
-      accurateTrackBounce: true,
-      webvisor: false,
-    });
-    bindProductYandexUserID(counterId, providerConfig);
-    window.GRAFProductAnalytics.events.push({
-      event: "yandex_product_pageview_ready",
-      page_class: providerConfig.page_class,
-      replay_enabled: false,
-      yandex_state: providerConfig.yandex && providerConfig.yandex.state,
-    });
-    return true;
+    return window.GRAFProductAnalytics;
   }
 
   function bindProductYandexUserID(counterId, providerConfig) {
@@ -255,8 +459,50 @@
       return false;
     }
     window.ym(counterId, "setUserID", yandexUserId);
-    window.ym(counterId, "userParams", {
-      UserID: yandexUserId,
+    window.ym(counterId, "userParams", { UserID: yandexUserId });
+    return true;
+  }
+
+  function initializeProductYandexProvider(providerConfig) {
+    if (
+      !providerConfig ||
+      !providerConfig.yandex ||
+      !providerConfig.yandex.enabled ||
+      !providerConfig.yandex.counter_id ||
+      !canUseAnalytics() ||
+      productYandexFailure ||
+      productYandexInitStarted ||
+      !isYandexPageAllowed(providerConfig.yandex)
+    ) {
+      return false;
+    }
+    var counterId = stableToken(providerConfig.yandex.counter_id, 32);
+    if (!counterId) {
+      return false;
+    }
+    var analytics = ensureProductAnalyticsApi();
+    productYandexInitStarted = true;
+    prepareYandexQueue();
+    ensureYandexTag(function () {
+      productYandexFailure = true;
+      productYandexInitStarted = false;
+    });
+    window.ym(counterId, "init", {
+      clickmap: false,
+      trackLinks: true,
+      accurateTrackBounce: true,
+      defer: true,
+      trackHash: false,
+      webvisor: false,
+      form_analytics: false,
+    });
+    bindProductYandexUserID(counterId, providerConfig);
+    analytics.yandexEnabled = true;
+    analytics.events.push({
+      event: "yandex_product_pageview_ready",
+      page_class: providerConfig.page_class,
+      replay_enabled: false,
+      yandex_state: providerConfig.yandex.state,
     });
     return true;
   }
@@ -266,25 +512,34 @@
       !providerConfig ||
       !providerConfig.posthog ||
       !providerConfig.posthog.enabled ||
-      !providerConfig.posthog.autocapture_enabled
+      !providerConfig.posthog.autocapture_enabled ||
+      !providerConfig.posthog.capture_endpoint ||
+      !canUseAnalytics() ||
+      productAutocaptureStarted
     ) {
       return false;
     }
-    var captureEndpoint = providerConfig.posthog.capture_endpoint;
-    if (!captureEndpoint) {
+    if (typeof providerConfig.posthog.capture_endpoint !== "string" || providerConfig.posthog.capture_endpoint.indexOf("/") !== 0 || providerConfig.posthog.capture_endpoint.indexOf("//") !== -1) {
       return false;
     }
-    window.GRAFProductAnalytics = window.GRAFProductAnalytics || {
-      events: [],
-      provider: "posthog",
-      replayEnabled: false,
-      sentEvents: [],
-    };
-    window.GRAFProductAnalytics.autocaptureEnabled = true;
-    window.GRAFProductAnalytics.pageClass = providerConfig.page_class;
-    window.GRAFProductAnalytics.credentialSuppression = providerConfig.posthog.credential_suppression || [];
+    var analytics = ensureProductAnalyticsApi();
+    productAutocaptureStarted = true;
+    analytics.autocaptureEnabled = true;
+    analytics.pageClass = providerConfig.page_class;
+    analytics.credentialSuppression = providerConfig.posthog.credential_suppression || [];
+    analytics.consentState = currentConsentState;
+
+    var actionAllowlist = providerConfig.analytics_action_allowlist || [];
+    var targetAllowlist = providerConfig.analytics_target_allowlist || [];
+    var allowedTags = ["a", "button", "details", "input", "label", "select", "summary", "textarea"];
+    var allowedRoles = ["button", "checkbox", "link", "menuitem", "tab", "switch"];
 
     function sendAutocapture(eventType, fields) {
+      if (!canUseAnalytics() || productCaptureBlocked) {
+        return false;
+      }
+      var tagName = stableToken(fields && fields.tag_name, 24);
+      var role = stableToken(fields && fields.role, 80);
       var payload = {
         distinct_id: stableToken(providerConfig.posthog.distinct_id, 120),
         event_type: eventType,
@@ -294,29 +549,38 @@
         sensitivity: stableToken(providerConfig.sensitivity, 40) || "unknown",
         source: "browser_autocapture",
         workspace_pseudonym: stableToken(providerConfig.posthog.workspace_pseudonym, 120),
+        consent_state: currentConsentState,
       };
-      Object.keys(fields || {}).forEach(function (key) {
-        var value = stableToken(fields[key], 80);
-        if (value) {
-          payload[key] = value;
-        }
-      });
+      if (tagName && allowedTags.indexOf(tagName) !== -1) {
+        payload.tag_name = tagName;
+      }
+      if (role && allowedRoles.indexOf(role) !== -1) {
+        payload.role = role;
+      }
+      var action = productAllowlistedValue(actionAllowlist, fields && fields.analytics_action);
+      var target = productAllowlistedValue(targetAllowlist, fields && fields.analytics_target);
+      if (action) {
+        payload.analytics_action = action;
+      }
+      if (target) {
+        payload.analytics_target = target;
+      }
       var serialized = JSON.stringify(payload);
       var sent = false;
       if (navigator.sendBeacon) {
-        sent = navigator.sendBeacon(captureEndpoint, new Blob([serialized], { type: "application/json" }));
+        sent = navigator.sendBeacon(providerConfig.posthog.capture_endpoint, new Blob([serialized], { type: "application/json" }));
       }
       if (!sent && window.fetch) {
-        window.fetch(captureEndpoint, {
+        window.fetch(providerConfig.posthog.capture_endpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: serialized,
-          credentials: "same-origin",
+          credentials: "omit",
           keepalive: true,
         }).catch(function () {});
         sent = true;
       }
-      window.GRAFProductAnalytics.sentEvents.push({
+      analytics.sentEvents.push({
         event_type: eventType,
         page_class: payload.page_class,
         sent: sent,
@@ -324,29 +588,25 @@
       return sent;
     }
 
-    sendAutocapture("ready", {
-      path_class: providerConfig.page_class,
-    });
-    sendAutocapture("pageview", {
-      path_class: providerConfig.page_class,
-    });
+    sendAutocapture("ready", { path_class: providerConfig.page_class });
+    sendAutocapture("pageview", { path_class: providerConfig.page_class });
     document.addEventListener(
       "click",
       function (event) {
-        var element = event.target && event.target.closest ? event.target.closest("[data-analytics-cta], button, a") : null;
+        var element = event.target && event.target.closest ? event.target.closest("[data-analytics-cta], [data-analytics-action], button, a") : null;
         if (!element) {
           return;
         }
         sendAutocapture("click", {
           tag_name: element.tagName ? element.tagName.toLowerCase() : null,
           role: element.getAttribute("role"),
-          analytics_action: element.dataset && element.dataset.analyticsCta,
+          analytics_action: element.dataset && (element.dataset.analyticsAction || element.dataset.analyticsCta),
           analytics_target: element.dataset && element.dataset.analyticsTarget,
         });
       },
       true,
     );
-    window.GRAFProductAnalytics.events.push({
+    analytics.events.push({
       event: "posthog_autocapture_ready",
       page_class: providerConfig.page_class,
       replay_enabled: false,
@@ -357,20 +617,20 @@
 
   function dispatchEvent(eventName, fields) {
     var payload = buildEventPayload(eventName, fields);
-    if (!payload) {
+    if (
+      !payload ||
+      !canUseAnalytics() ||
+      !api.providerLoaded ||
+      api.providerBlocked ||
+      !window.ym ||
+      !publicConfig ||
+      !publicConfig.yandex_metrica_id
+    ) {
       return false;
     }
-    if (
-      api.providerLoaded &&
-      !api.providerBlocked &&
-      window.ym &&
-      config.yandex_metrica_id
-    ) {
-      window.ym(config.yandex_metrica_id, "reachGoal", eventName, payload);
-      api.sentEvents.push(payload);
-      return true;
-    }
-    return false;
+    window.ym(publicConfig.yandex_metrica_id, "reachGoal", eventName, payload);
+    api.sentEvents.push(payload);
+    return true;
   }
 
   function dedupeKey(eventName, fields) {
@@ -383,7 +643,7 @@
       stable.product_tab || "",
       stable.pricing_cycle || "",
       stable.faq_item || "",
-      config.page_path || "",
+      publicConfig && publicConfig.page_path ? publicConfig.page_path : "",
     ].join("|");
   }
 
@@ -400,7 +660,9 @@
   }
 
   function pageViewEventName() {
-    return config.surface === "public_download" ? "public_download_viewed" : "public_landing_viewed";
+    return publicConfig && publicConfig.surface === "public_download"
+      ? "public_download_viewed"
+      : "public_landing_viewed";
   }
 
   function eventNameForCta(targetKind) {
@@ -414,17 +676,14 @@
   }
 
   function bindClickTracking() {
-    if (listenersBound) {
+    if (listenersBound || !publicConfig) {
       return;
     }
     listenersBound = true;
     document.querySelectorAll("[data-analytics-cta]").forEach(function (element) {
       element.addEventListener("click", function () {
         var targetKind = element.dataset.analyticsTarget || "download_page";
-        if (
-          !allowedLabel("cta_location", element.dataset.analyticsCta) ||
-          !allowedLabel("target_kind", targetKind)
-        ) {
+        if (!allowedLabel("cta_location", element.dataset.analyticsCta) || !allowedLabel("target_kind", targetKind)) {
           return;
         }
         dispatchOnce(eventNameForCta(targetKind), {
@@ -455,7 +714,7 @@
   }
 
   function observeSections() {
-    if (sectionsObserved || typeof IntersectionObserver === "undefined") {
+    if (sectionsObserved || !publicConfig || typeof IntersectionObserver === "undefined") {
       return;
     }
     sectionsObserved = true;
@@ -467,25 +726,20 @@
           }
           var sectionId = entry.target.dataset.analyticsSection;
           if (allowedLabel("section_id", sectionId)) {
-            dispatchOnce("public_landing_section_seen", {
-              section_id: sectionId,
-            });
+            dispatchOnce("public_landing_section_seen", { section_id: sectionId });
             observer.unobserve(entry.target);
           }
         });
       },
-      // A 12% threshold remains reachable when a section stacks several
-      // blocks on a narrow mobile viewport.
       { threshold: 0.12 },
     );
-
     document.querySelectorAll("[data-analytics-section]").forEach(function (element) {
       observer.observe(element);
     });
   }
 
-  function startGrantedTracking() {
-    if (!ensureYandexProvider()) {
+  function startPublicTracking() {
+    if (!publicConfig || !ensurePublicYandexProvider()) {
       return false;
     }
     dispatchOnce(pageViewEventName(), {});
@@ -494,25 +748,141 @@
     return true;
   }
 
+  function startGrantedProviders() {
+    var started = false;
+    if (startPublicTracking()) {
+      started = true;
+    }
+    if (initializePostHogAutocapture(productConfig)) {
+      started = true;
+    }
+    if (initializeProductYandexProvider(productConfig)) {
+      started = true;
+    }
+    return started;
+  }
+
+  function runCookieConsent() {
+    if (!window.CookieConsent || typeof window.CookieConsent.run !== "function") {
+      api.consentReady = false;
+      return false;
+    }
+    api.consentReady = true;
+    try {
+      window.CookieConsent.run({
+        autoShow: true,
+        cookie: {
+          expiresAfterDays: 180,
+          name: config.consent_storage_key || "graf_public_cookie_consent",
+          path: "/",
+          sameSite: "Lax",
+          secure: window.location.protocol === "https:",
+          useLocalStorage: true,
+        },
+        categories: {
+          necessary: { enabled: true, readOnly: true },
+          analytics: {},
+          advertising_attribution: {},
+          behavior_replay: {},
+        },
+        language: {
+          default: "ru",
+          translations: {
+            ru: {
+              consentModal: {
+                acceptAllBtn: "Разрешить все",
+                acceptNecessaryBtn: "Только необходимые",
+                description:
+                  "ГРАФ использует необходимые технологии для работы сайта. " +
+                  "Аналитика, рекламная атрибуция и поведенческая запись включаются " +
+                  "только после вашего выбора.",
+                footer:
+                  '<a href="/privacy">Конфиденциальность</a>' +
+                  '<a href="/cookies">Cookies</a>' +
+                  '<a href="/analytics-consent">Об аналитике</a>',
+                showPreferencesBtn: "Настроить",
+                title: "Аналитика и cookies",
+              },
+              preferencesModal: {
+                acceptAllBtn: "Разрешить все",
+                acceptNecessaryBtn: "Только необходимые",
+                closeIconLabel: "Закрыть настройки",
+                savePreferencesBtn: "Сохранить выбор",
+                sections: [
+                  {
+                    description:
+                      "Нужны для работы сайта и сохранения вашего выбора. " +
+                      "Не включают необязательный сбор.",
+                    linkedCategory: "necessary",
+                    title: "Необходимые",
+                  },
+                  {
+                    description:
+                      "Разрешает безопасные просмотры и цели публичных страниц, " +
+                      "а также обезличенные продуктовые события во внутренних разделах " +
+                      "после существующего gate. Не отправляем email, телефоны, " +
+                      "тексты, записи, файлы, токены или платёжные сведения.",
+                    linkedCategory: "analytics",
+                    title: "Аналитика",
+                  },
+                  {
+                    description:
+                      "Разрешает безопасные UTM-метки и категорию источника перехода. " +
+                      "Полный URL, query, hash и произвольный текст не передаются.",
+                    linkedCategory: "advertising_attribution",
+                    title: "Рекламная атрибуция",
+                  },
+                  {
+                    description:
+                      "Разрешает техническое воспроизведение поведения — движения " +
+                      "указателя, кликов, прокрутки и состояния интерфейса — только на " +
+                      "публичных страницах / и /download. Внутренние страницы, встречи, " +
+                      "формы, аудио и экран не записываются.",
+                    linkedCategory: "behavior_replay",
+                    title: "Поведенческая запись",
+                  },
+                ],
+                title: "Настройки аналитики",
+              },
+            },
+          },
+        },
+        mode: "opt-in",
+        onChange: handleConsent,
+        onConsent: handleConsent,
+        onFirstConsent: handleConsent,
+        revision: consentRevision(),
+      });
+    } catch (_) {
+      api.consentReady = false;
+      return false;
+    }
+    return true;
+  }
 
   var api = {
     buildEventPayload: buildEventPayload,
-    config: Object.freeze(config),
+    config: Object.freeze(publicConfig || {}),
     consentReady: false,
     currentCategories: [],
     currentConsentState: currentConsentState,
     dispatchEvent: dispatchEvent,
     dispatchOnce: dispatchOnce,
-    disableYandexProvider: disableYandexProvider,
-    ensureYandexProvider: ensureYandexProvider,
+    disableYandexProvider: function () {
+      disableOptionalProviders();
+      return true;
+    },
+    ensureYandexProvider: ensurePublicYandexProvider,
     providerBlocked: false,
     providerInitStarted: false,
     providerLoaded: false,
     sentEvents: [],
-    startGrantedTracking: startGrantedTracking,
-    version: "093-us5",
+    startGrantedTracking: startPublicTracking,
+    version: "266-us5",
   };
 
-  window.GRAFPublicAnalytics = api;
-  startGrantedTracking();
+  if (publicConfig) {
+    window.GRAFPublicAnalytics = api;
+  }
+  runCookieConsent();
 })();

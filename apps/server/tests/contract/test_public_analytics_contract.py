@@ -96,9 +96,11 @@ def test_public_pages_render_immediate_narrow_analytics_context(
         assert '"yandex_metrica_id": "12345678"' in response.text
         assert f'"surface": "{surface}"' in response.text
         assert "/static/public/analytics.js?v=" in response.text
-        assert "cookieconsent.umd.js" not in response.text
-        assert "cookieconsent.css" not in response.text
-        assert '"replay_allowed": false' in response.text
+        assert "cookieconsent.umd.js" in response.text
+        assert "cookieconsent.css" in response.text
+        assert '"replay_allowed": true' in response.text
+        assert '"webvisor_allowed": true' in response.text
+        assert '"form_analytics_allowed": false' in response.text
 
 
 def test_public_pages_render_safe_campaign_context_without_private_values(
@@ -169,18 +171,21 @@ def test_public_pages_and_controller_contain_exact_new_funnel_contract(
         assert goal in analytics_js
 
 
-def test_public_yandex_controller_is_immediate_narrow_query_safe_and_deduplicated() -> None:
+def test_public_yandex_controller_is_opt_in_narrow_query_safe_and_deduplicated() -> None:
     analytics_js = (PUBLIC_STATIC_DIR / "analytics.js").read_text(encoding="utf-8")
 
     for marker in (
-        "metrika/tag.js", "clickmap: false", "trackLinks: false",
-        "accurateTrackBounce: false", "webvisor: false", "defer: true",
-        "reachGoal", "IntersectionObserver", "sentKeys[key]", "config.page_path",
+        "metrika/tag.js", "clickmap: false", "clickmap: replayAllowed",
+        "trackLinks: true", "accurateTrackBounce: true", "webvisor: false",
+        "webvisor: replayAllowed", "defer: true", "trackHash: false",
+        "reachGoal", "IntersectionObserver", "sentKeys[key]", "publicConfig.page_path",
+        "window.CookieConsent.run", 'mode: "opt-in"', "onChange: handleConsent",
+        "onConsent: handleConsent", "onFirstConsent: handleConsent",
     ):
         assert marker in analytics_js
     for forbidden in (
-        "window.location.href", "document.title", "CookieConsent.run", "webvisor: true",
-        "clickmap: true", "googletagmanager.com",
+        "window.location.href", "document.title", "webvisor: true", "clickmap: true",
+        "googletagmanager.com",
     ):
         assert forbidden.lower() not in analytics_js.lower()
 
@@ -211,9 +216,34 @@ def test_public_analytics_controller_is_provider_failure_and_duplicate_init_safe
     assert "providerInitStarted" in analytics_js
     assert "api.providerInitStarted = true" in analytics_js
     assert "document.querySelector('script[data-graf-provider=\"yandex-metrica\"]')" in analytics_js
-    assert "!api.providerBlocked" in analytics_js
+    assert "publicProviderFailure" in analytics_js
+    assert "api.providerBlocked" in analytics_js
     assert "listenersBound" in analytics_js
     assert "sectionsObserved" in analytics_js
+
+
+def test_public_disclosure_documents_and_controller_share_consent_contract() -> None:
+    documents = (
+        PUBLIC_TEMPLATE_DIR / "analytics_consent.html",
+        PUBLIC_TEMPLATE_DIR / "cookies.html",
+        PUBLIC_TEMPLATE_DIR / "privacy.html",
+        PUBLIC_TEMPLATE_DIR / "terms.html",
+    )
+    for document in documents:
+        content = document.read_text(encoding="utf-8")
+        assert "2026-09-15.1" in content
+        assert "Вебвизор" in content or "Webvisor" in content
+        assert "отзыв" in content.lower()
+
+    assert "graf_public_cookie_consent" in "".join(
+        document.read_text(encoding="utf-8") for document in documents
+    )
+
+    analytics_js = (PUBLIC_STATIC_DIR / "analytics.js").read_text(encoding="utf-8")
+    assert '"behavior_replay"' in analytics_js
+    assert '"advertising_attribution"' in analytics_js
+    assert "consentRevision" in analytics_js
+    assert "consent_storage_key" in analytics_js
 
 
 def test_public_phase1_assets_do_not_include_deferred_provider_or_activation_code() -> None:

@@ -348,6 +348,11 @@
           <a href="/terms">Условия</a>
           <a href="/offer">Оплата и возврат</a>
           <a href="/analytics-consent">Об аналитике</a>
+          {% if public_analytics.enabled %}
+            <button class="cookie-settings-link" type="button" data-cc="show-preferencesModal">
+              Настройки cookies
+            </button>
+          {% endif %}
         </div>
       </div>
       <div class="shell footer-bottom"><span>© 2026 ГРАФ</span><span>Сделано для разговоров, которые двигают работу</span></div>

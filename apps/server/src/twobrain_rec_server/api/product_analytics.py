@@ -14,11 +14,17 @@ from twobrain_rec_server.product_analytics.event_catalog import (
     yandex_offline_conversion_event_names,
 )
 from twobrain_rec_server.product_analytics.events import build_activation_event
+from twobrain_rec_server.product_analytics.forbidden_fields import (
+    assert_no_forbidden_fields,
+    assert_no_security_credential_fields,
+)
 from twobrain_rec_server.product_analytics.identity import is_safe_pseudonymous_id
 from twobrain_rec_server.product_analytics.ingest import ProductAnalyticsIngestService
 from twobrain_rec_server.product_analytics.page_inventory import (
     get_page_class_policy,
     page_class_policies,
+    product_analytics_action_allowlist,
+    product_analytics_target_allowlist,
 )
 from twobrain_rec_server.product_analytics.posthog_client import PostHogClientWrapper
 from twobrain_rec_server.product_analytics.provider_config import ProductAnalyticsProviderConfig
@@ -204,6 +210,30 @@ async def product_analytics_posthog_web_capture(
             detail="Autocapture workspace pseudonym must be a GRAF pseudonymous analytics identity.",
         )
     properties = body.model_dump(exclude_none=True)
+    try:
+        assert_no_forbidden_fields(properties)
+        assert_no_security_credential_fields(properties)
+    except ValueError as exc:
+        raise ProblemDetail(
+            status=400,
+            code="posthog_autocapture_rejected",
+            title="PostHog autocapture event rejected",
+            detail="Autocapture event contained forbidden analytics material.",
+        ) from exc
+    if body.analytics_action is not None and body.analytics_action not in product_analytics_action_allowlist():
+        raise ProblemDetail(
+            status=400,
+            code="posthog_autocapture_action_rejected",
+            title="PostHog autocapture action rejected",
+            detail="Autocapture action is not in the approved stable action catalog.",
+        )
+    if body.analytics_target is not None and body.analytics_target not in product_analytics_target_allowlist():
+        raise ProblemDetail(
+            status=400,
+            code="posthog_autocapture_target_rejected",
+            title="PostHog autocapture target rejected",
+            detail="Autocapture target is not in the approved stable target catalog.",
+        )
     properties.update(
         {
             "delivery_mode": "first_party_browser_proxy",

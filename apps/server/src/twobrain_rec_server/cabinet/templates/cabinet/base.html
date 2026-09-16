@@ -20,6 +20,7 @@
   <link rel="apple-touch-icon" href="{{ cabinet_static_url }}/apple-touch-icon.png">
   <link rel="stylesheet" href="{{ cabinet_static_asset_url('cabinet.css') }}">
   <link rel="stylesheet" href="{{ cabinet_static_asset_url('playback-comments.css') }}">
+  <link rel="stylesheet" href="{{ public_static_asset_url('cookieconsent.css') }}">
   <meta name="htmx-config" content='{"allowEval":false,"allowScriptTags":false,"refreshOnHistoryMiss":true}'>
   <script src="{{ cabinet_static_url }}/htmx-2.0.10.min.js" defer></script>
   <script src="{{ cabinet_static_asset_url('playback-comments.js') }}" defer></script>
@@ -28,10 +29,18 @@
 </head>
 <body data-surface-mode="{{ surface_mode|default('standalone_browser') }}" data-graf-analytics-private="true" data-ph-mask="true" data-ym-hide-content="true" data-ym-disable-keys="true">
   {% if product_analytics_provider is defined and product_analytics_provider and product_analytics_provider.enabled %}
+  <script
+    defer
+    src="{{ public_static_asset_url('cookieconsent.umd.js') }}"
+    data-graf-cookieconsent-version="{{ product_analytics_provider.browser_consent.copy_version }}"
+  ></script>
   <script id="graf-product-analytics-provider-config" type="application/json" data-page-class="{{ product_analytics_provider.page_class }}">
     {{ product_analytics_provider | tojson }}
   </script>
   <script defer src="{{ public_static_asset_url('analytics.js') }}"></script>
+  <button class="cookie-settings-link" type="button" data-cc="show-preferencesModal">
+    Настройки cookies
+  </button>
   {% endif %}
   <noscript><p class="settings-status" role="status" aria-live="polite">Чтобы менять настройки, включите JavaScript.</p></noscript>
   {{ content }}

@@ -66,12 +66,37 @@ def test_posthog_autocapture_controller_uses_first_party_proxy_not_posthog_sdk()
     controller = ANALYTICS_JS.read_text(encoding="utf-8")
 
     assert "/api/v1/product-analytics/posthog-web-capture" not in controller
-    assert "capture_endpoint" in controller
+    assert "providerConfig.posthog.capture_endpoint" in controller
     assert "sendBeacon" in controller
-    assert "fetch(captureEndpoint" in controller
+    assert "window.fetch(providerConfig.posthog.capture_endpoint" in controller
     assert "posthog.init" not in controller
     assert "posthog-js" not in controller
     assert "posthog.com" not in controller
+
+
+def test_product_browser_context_exposes_one_opt_in_and_safe_allowlists(tmp_path: Path) -> None:
+    context = build_browser_provider_context(_settings(tmp_path), "settings")
+
+    assert context["browser_consent"]["copy_version"] == "2026-09-15.1"
+    assert context["browser_consent"]["storage_key"] == "graf_public_cookie_consent"
+    assert context["browser_consent"]["required_category"] == "analytics"
+    assert context["browser_consent"]["replay_category"] == "behavior_replay"
+    assert context["analytics_action_allowlist"] == [
+        "nav_recordings",
+        "settings_opened",
+        "calendar_settings_opened",
+    ]
+    assert context["analytics_target_allowlist"] == [
+        "recordings",
+        "settings",
+        "calendar",
+        "calendar_settings",
+        "navigation",
+        "tab",
+    ]
+    assert context["yandex"]["webvisor_enabled"] is False
+    assert context["yandex"]["click_map_enabled"] is False
+    assert context["yandex"]["scroll_map_enabled"] is False
 
 
 def test_posthog_web_capture_endpoint_accepts_safe_proxy_event_without_provider_secret(tmp_path: Path) -> None:

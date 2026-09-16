@@ -5,6 +5,7 @@ from twobrain_rec_server.public.analytics import (
     PUBLIC_ANALYTICS_EVENT_CATALOG,
     PUBLIC_ANALYTICS_TARGET_KINDS,
     build_public_analytics_context,
+    normalize_public_analytics_consent,
     normalize_public_campaign_attribution,
     public_analytics_event_names,
     public_analytics_stable_labels,
@@ -36,8 +37,43 @@ def test_public_analytics_immediate_context_is_narrow_and_public_scoped() -> Non
     assert context["page_path"] == "/download"
     assert context["surface"] == "public_download"
     assert context["yandex_metrica_id"] == "12345678"
-    assert context["replay_allowed"] is False
+    assert context["replay_allowed"] is True
     assert context["event_catalog"]
+
+
+def test_public_consent_categories_are_strict_and_unknown_is_fail_closed() -> None:
+    valid = {
+        "copy_version": "2026-09-15.1",
+        "categories": ["necessary", "analytics"],
+        "state": "customized",
+    }
+
+    assert normalize_public_analytics_consent(valid)["state"] == "customized"
+    assert normalize_public_analytics_consent(
+        {**valid, "categories": ["necessary", "analytics", "unknown"]}
+    )["state"] == "unknown"
+    assert normalize_public_analytics_consent(
+        {**valid, "copy_version": "2026-08-21.1"}
+    )["state"] == "unknown"
+    assert normalize_public_analytics_consent(
+        {**valid, "categories": ["analytics"]}
+    )["state"] == "unknown"
+    assert normalize_public_analytics_consent(None)["state"] == "unknown"
+
+
+def test_public_consent_states_include_acceptance_and_revoke_transitions() -> None:
+    base = {"copy_version": "2026-09-15.1"}
+
+    assert normalize_public_analytics_consent(
+        {**base, "categories": ["necessary", "analytics", "advertising_attribution", "behavior_replay"]}
+    )["state"] == "accepted_all"
+    assert normalize_public_analytics_consent(
+        {**base, "categories": ["necessary"]}
+    )["state"] == "necessary_only"
+    assert normalize_public_analytics_consent(
+        {**base, "categories": ["necessary"], "state": "revoked"},
+        previous={**base, "categories": ["necessary", "analytics"]},
+    )["state"] == "revoked"
 
 
 def test_public_analytics_event_catalog_and_labels_match_new_funnel() -> None:
@@ -68,6 +104,7 @@ def test_public_analytics_event_catalog_and_labels_match_new_funnel() -> None:
         "product_tab": ("recording", "transcript", "outcomes"),
         "pricing_cycle": ("month", "year"),
         "faq_item": (
+            "google_calendar",
             "recognition",
             "calling_apps",
             "upload",
