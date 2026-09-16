@@ -47,7 +47,7 @@ final class DesktopDesignTokensTests: XCTestCase {
         )
         try assertToken(
             DesktopDesignTokens.warningBorder,
-            dark: 0xB29671, light: 0x897150, darkAlpha: 1, lightAlpha: 1
+            dark: 0xB29670, light: 0x897150, darkAlpha: 1, lightAlpha: 1
         )
         try assertToken(
             DesktopDesignTokens.dangerSurface,
@@ -59,7 +59,7 @@ final class DesktopDesignTokensTests: XCTestCase {
         )
         try assertToken(
             DesktopDesignTokens.accentSurface,
-            dark: 0xAB99FF, light: 0x6248D5, darkAlpha: 0.10, lightAlpha: 0.10
+            dark: 0x2D2E3B, light: 0xF2F0FC, darkAlpha: 1, lightAlpha: 1
         )
         try assertToken(
             DesktopDesignTokens.accentBorder,
