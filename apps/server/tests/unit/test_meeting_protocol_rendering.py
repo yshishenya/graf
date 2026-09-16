@@ -19,7 +19,7 @@ from twobrain_rec_server.cabinet.rendering import _render_full_protocol
 
 
 @pytest.mark.parametrize("version,label", [
-    ("meeting-protocol-v1-about-v1", "О чём встреча"),
+    ("meeting-protocol-v1-about-v1", "О чем встреча"),
     ("meeting-protocol-v1", "Тип встречи"),
     ("unknown", "Тип встречи"),
     (None, "Тип встречи"),
@@ -107,7 +107,7 @@ def test_one_visible_source_and_no_empty_overflow(count):
     if count:
         assert html.index('notes-item-sources') < html.index('notes-item-meta-row')
     if count > 1:
-        assert f"Ещё {count - 1}" in html
+        assert f"Еще {count - 1}" in html
         assert '<div class="notes-source-list">' in html
 
 

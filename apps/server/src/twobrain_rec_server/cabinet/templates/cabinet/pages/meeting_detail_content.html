@@ -30,7 +30,7 @@
         <h1>{{ meeting_title }}</h1>
         {% endif %}
         {% if protocol %}
-        <p class="meeting-about"><span class="meeting-meta-label">{{ 'О чём встреча' if protocol_about else 'Тип встречи' }}:</span> {{ protocol.meeting_type }}</p>
+        <p class="meeting-about"><span class="meeting-meta-label">{{ 'О чем встреча' if protocol_about else 'Тип встречи' }}:</span> {{ protocol.meeting_type }}</p>
         {% endif %}
         <div class="row-meta">
           <span>{{ meeting_date }}</span><span>·</span><span>{{ meeting_duration }}</span><span data-meeting-status-label>{{ status_label }}</span>
