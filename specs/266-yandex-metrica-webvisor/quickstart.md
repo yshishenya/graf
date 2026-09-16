@@ -60,6 +60,38 @@ git -C /Users/yshishenya/.codex/worktrees/06f1/crisp diff --check
 `legal pending`, `provider dashboard pending` или подтверждённые статусы. Не
 включать production и не публиковать счётчик только на основании этого файла.
 
+## Фактически выполненный браузерный smoke
+
+16 сентября 2026 года проверен установленный GRAF Dev на exact SHA
+`2dea56f4240f10b6ecdb1df20e3f1a9e1d48e66a`, manifest
+`dev-2dea56f4240f`, через `http://127.0.0.1:8081/` в чистой браузерной
+сессии. В Dev используется синтетический счётчик `12345678` и режим
+`render_only`: внешний тег и внешняя передача намеренно не выполняются.
+
+- До выбора пользователя были только first-party статические запросы; запросов
+  к `mc.yandex.ru`, Webvisor и capture endpoint не было. В localStorage и
+  cookies не было состояния согласия.
+- «Только необходимые» сохранило только `necessary`; необязательная Метрика,
+  цели и запись не запустились.
+- Только `analytics` создало обычный `hit` и безопасные публичные цели с
+  `clickmap=false`, `webvisor=false`, `trackLinks=true`,
+  `accurateTrackBounce=true`, `defer=true`, `trackHash=false` и
+  `form_analytics=false`.
+- Добавление `behavior_replay` после уже выданного `analytics` вызвало штатную
+  перезагрузку. После неё на `/` queue Метрики содержала
+  `clickmap=true` и `webvisor=true`; `trackLinks`, `accurateTrackBounce` и
+  `defer` оставались включены, `form_analytics=false`.
+- На `/download` при тех же категориях зафиксированы `surface=public_download`,
+  событие `public_download_viewed` и такой же режим Webvisor/карт.
+- Отзыв `behavior_replay` вызвал перезагрузку с `clickmap=false` и
+  `webvisor=false`. Отзыв `analytics` перевёл контроллер в `revoked`, включил
+  блокировку счётчика и не добавил новое событие после открытия FAQ.
+- `/privacy`, `/login` и перенаправленный без авторизации `/meetings` не
+  содержали контроллер публичной аналитики, `window.ym` или тег Метрики.
+- В evidence не сохранялись идентификаторы посетителей, cookies, сырые записи,
+  тексты форм, аудио, расшифровки или содержимое встреч. В консоли браузера —
+  `0 errors`.
+
 ## Результат сверки и текущие статусы
 
 Проверено 16 сентября 2026 года. Результат `$speckit-converge`: **converged** —
@@ -72,15 +104,19 @@ Convergence не добавлено.
 - Reviewer-owned чеклисты подтверждены ревьюером: requirements `16/16`,
   security `14/14`; отдельная security-проверка завершена с результатом
   `APPROVE`.
-- Автоматические доказательства: focused-набор из этого файла — `47 passed`,
-  соседний набор публичных юридических, конфигурационных и compose-проверок —
-  `52 passed`; `node --check` и `git diff --check` — успешно.
+- Автоматические доказательства на exact SHA: focused-набор из этого файла —
+  `47 passed`; соседний набор публичных юридических, конфигурационных,
+  provider и compose-проверок — `117 passed`; `node --check` и
+  `git diff --check` — успешно.
+- Dev-harness: `build --live`, `promote --live`, `status --json` и
+  `smoke --json --live` на manifest `dev-2dea56f4240f` — успешно; backend,
+  frontend, workers, база, миграция, хранилище, Temporal и подписанный
+  `/Applications/GRAF Dev.app` привязаны к тому же exact SHA.
 - Фрагмент `changes/unreleased/F266.yaml` прошёл
   `scripts/validate-changelog-fragments.py`.
-- Браузерный smoke и кабинетный smoke имеют статус `pending`: общий GRAF Dev
-  на момент проверки работал на другом exact SHA, а штатный live-переход
-  незакоммиченного кандидата запрещён harness. Проверка старого runtime не
-  засчитывается доказательством этой ветки.
-- Итог фичи: `implementation ready`; `tracker pending`, `legal pending`,
-  `provider dashboard pending`, `release pending`. Production не менялся,
-  настоящий счётчик не публиковался.
+- Браузерный smoke на этом exact SHA — `passed`. Ручной smoke в кабинете
+  Яндекс Метрики, фактический срок хранения и юридическое согласование —
+  `pending`; локальный `render_only` не подменяет эти gates.
+- Итог фичи: `implementation ready`, `browser smoke passed`; `tracker pending`,
+  `legal pending`, `provider dashboard pending`, `release pending`.
+  Production не менялся, настоящий счётчик не публиковался.

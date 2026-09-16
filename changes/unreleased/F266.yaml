@@ -10,4 +10,4 @@ known_limitations:
   - "legal pending: правовое основание и опубликованный текст требуют отдельного согласования."
   - "provider dashboard pending: ручная проверка кабинета, фактического хранения и тестового визита не выполнена."
   - "release pending: exact-SHA PR checks, выпуск и production deploy не выполнялись."
-release_notes: "implementation ready; tracker pending; legal pending; provider dashboard pending; release pending. Webvisor и карты включаются только после согласия категорий analytics и behavior_replay на / и /download; внутренние страницы, формы и содержимое встреч остаются закрытыми."
+release_notes: "implementation ready; browser smoke passed on exact SHA; tracker pending; legal pending; provider dashboard pending; release pending. Webvisor и карты включаются только после согласия категорий analytics и behavior_replay на / и /download; внутренние страницы, формы и содержимое встреч остаются закрытыми."
