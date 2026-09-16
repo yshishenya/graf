@@ -59,6 +59,8 @@ from twobrain_rec_server.outcomes.generator import (
     compile_prompt_messages,
 )
 from twobrain_rec_server.outcomes.models import (
+    PROTOCOL_ABOUT_GENERATOR_VERSION,
+    PROTOCOL_ABOUT_SCHEMA_NAME,
     PROTOCOL_VERSION,
     OutcomeTranscriptSegment,
 )
@@ -1850,6 +1852,11 @@ async def _store_candidate_protocol(
         raise OutcomeGenerationTerminalError("generation_call_content_incomplete")
     if call.transcript_hash != attempt.temporal_transcript_hash:
         raise OutcomeGenerationTerminalError("summary_transcript_changed")
+    snapshot = _stored_prompt_snapshot(attempt, require_current_contract=False)
+    schema_name = (
+        snapshot.config.get("response_format", {}).get("json_schema", {}).get("name")
+        if snapshot is not None else None
+    )
     outcome_set = MeetingOutcomeSet(
         workspace_id=attempt.workspace_id,
         meeting_id=attempt.meeting_id,
@@ -1859,7 +1866,10 @@ async def _store_candidate_protocol(
         status="available",
         source_kind="litellm",
         generator_kind="litellm",
-        generator_version=AI_GENERATOR_VERSION,
+        generator_version=(
+            PROTOCOL_ABOUT_GENERATOR_VERSION
+            if schema_name == PROTOCOL_ABOUT_SCHEMA_NAME else AI_GENERATOR_VERSION
+        ),
         source_result_hash=attempt.source_result_hash or call.transcript_hash,
         source_fingerprint=attempt.source_fingerprint or attempt.source_result_hash,
         deletion_epoch_at_start=attempt.deletion_epoch_at_start,

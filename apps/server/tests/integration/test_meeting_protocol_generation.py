@@ -96,12 +96,19 @@ def test_candidate_owner_fence_with_restricted_worker_role(client, active):
     "projection_failure_expired", "projection_failure_cancelled", "projection_failure_deleted",
     "projection_failure_source", "projection_failure_access", "projection_failure_corrupt",
     "error_finalization_failure", "validation_finalization_failure", "invalid_response",
+    "about", "about_projection_failure",
 ])
 def test_generation_retains_response_and_fences_publication(client, monkeypatch, race):
     meeting_id = create_outcome_ready_meeting(client, f"protocol-{race}")
+    about = race.startswith("about")
+    if about:
+        race = "projection_failure" if race.endswith("projection_failure") else "none"
     actual = client.app_state["sessionmaker"]
     settings = Settings(litellm_base_url="https://gateway.example.test", outcome_prompt_label="dev")
     config = meeting_protocol_config(model="operator/test-model")
+    if about:
+        config["response_format"]["json_schema"]["name"] = "graf_meeting_protocol_about_v1"
+    expected_generator = "meeting-protocol-v1-about-v1" if about else ai_service.AI_GENERATOR_VERSION
     fetches = []
 
     def fetch(_client, **kwargs):
@@ -218,6 +225,10 @@ def test_generation_retains_response_and_fences_publication(client, monkeypatch,
         await ai_service.resolve_candidate_prompt(actual, settings=settings,
                                                   workspace_id=workspace_id, candidate_id=candidate_id)
         assert fetches == ["dev"]
+        # Later label movement must not change the semantics of this pinned attempt, including replay.
+        config["response_format"]["json_schema"]["name"] = (
+            "graf_meeting_protocol_v1" if about else "graf_meeting_protocol_about_v1"
+        )
         snapshot, _chunks = await ai_service.snapshot_candidate_transcript(
             actual, settings=settings, workspace_id=workspace_id, candidate_id=candidate_id,
         )
@@ -261,6 +272,7 @@ def test_generation_retains_response_and_fences_publication(client, monkeypatch,
             if race in {"none", "long_fields"}:
                 outcome = await db.get(MeetingOutcomeSet, slot.current_outcome_set_id)
                 assert outcome.protocol_json == call.validated_result_json["protocol"]
+                assert outcome.generator_version == expected_generator
                 if race == "long_fields":
                     item = await db.scalar(select(MeetingOutcomeItem).where(
                         MeetingOutcomeItem.outcome_set_id == outcome.id,
@@ -334,6 +346,7 @@ def test_generation_retains_response_and_fences_publication(client, monkeypatch,
                 ))
                 assert len(outcomes) == 1
                 assert outcomes[0].protocol_json == call.validated_result_json["protocol"]
+                assert outcomes[0].generator_version == expected_generator
         assert len(calls) == 1
         assert "temperature" not in calls[0]
 
