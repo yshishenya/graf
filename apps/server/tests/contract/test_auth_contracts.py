@@ -3336,7 +3336,7 @@ def test_active_space_list_and_switch_replace_the_scoped_session(client: TestCli
     assert spaces[str(WORKSPACE_ID)]["active"] is True
     assert spaces[str(personal_workspace_id)] == {
         "id": str(personal_workspace_id),
-        "name": "Моё пространство",
+        "name": "Мое пространство",
         "kind": "personal",
         "role": "owner",
         "active": False,
@@ -3357,7 +3357,7 @@ def test_active_space_list_and_switch_replace_the_scoped_session(client: TestCli
     assert activated.status_code == 200
     assert activated.json()["active_space"] == {
         "id": str(personal_workspace_id),
-        "name": "Моё пространство",
+        "name": "Мое пространство",
         "kind": "personal",
         "role": "owner",
         "active": True,
