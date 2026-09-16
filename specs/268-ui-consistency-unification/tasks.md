@@ -6,63 +6,63 @@
 
 ## Phase 1: Setup
 
-- [X] T001 Зафиксировать базовую линию: focused pytest из `quickstart.md`, `swift build --package-path apps/macos`, скриншоты и замеры стенда `tests.fixtures.calendar_visual_ui_harness` (dark/light, 1440/390) в `specs/268-ui-consistency-unification/evidence/baseline/`; запись в `validation.md`.
+- [X] T001 Зафиксировать базовую линию: focused pytest из `quickstart.md`, `swift build --package-path apps/macos`, скриншоты и замеры стенда `tests.fixtures.calendar_visual_ui_harness` (dark/light, 1440/390) в `specs/268-ui-consistency-unification/evidence/baseline/`; запись в `validation.md`. (Issue #7062)
 
 ## Phase 2: Foundational
 
-- [X] T002 [P] Веб-токены: в `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css` добавить `--font-size-body: 14px`, `--font-size-body-compact: 13px`, `--radius-xs: 6px`, `--radius-sm: 8px`, `--overlay-backdrop`, `--shadow-dialog`, `--speaker-contrast-text`, задействовать `--pink`; удалить `--control-height-lg`, `--line-height-caption`, `--font-family-mono`, `--tooltip-offset`; обновить `apps/server/tests/contract/test_cabinet_static_assets_contract.py`.
-- [X] T003 [P] macOS-токены: создать `apps/macos/RecApp/Sources/Cabinet/DesktopDesignTokens.swift` (динамические цвета кабинета для светлой и тёмной темы, радиусы, размеры шрифта, тона статусов) и тест `apps/macos/Shared/Tests/DesktopDesignTokensTests.swift`.
+- [X] T002 [P] Веб-токены: в `apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css` добавить `--font-size-body: 14px`, `--font-size-body-compact: 13px`, `--radius-xs: 6px`, `--radius-sm: 8px`, `--overlay-backdrop`, `--shadow-dialog`, `--speaker-contrast-text`, задействовать `--pink`; удалить `--control-height-lg`, `--line-height-caption`, `--font-family-mono`, `--tooltip-offset`; обновить `apps/server/tests/contract/test_cabinet_static_assets_contract.py`. (Issue #7063)
+- [X] T003 [P] macOS-токены: создать `apps/macos/RecApp/Sources/Cabinet/DesktopDesignTokens.swift` (динамические цвета кабинета для светлой и тёмной темы, радиусы, размеры шрифта, тона статусов) и тест `apps/macos/Shared/Tests/DesktopDesignTokensTests.swift`. (Issue #7064)
 
 ## Phase 3: US1 — единый визуальный язык (P1)
 
-- [X] T004 [US1] Веб: убрать локальные палитры `cabinet.css:5667-5692`, `6034-6041` и белые подложки (список из инвентаря); перевести жёсткие цвета на токены/`color-mix`; свести радиусы к шкале; выровнять типографику (удалить позднее `body { font-size }`, единый заголовок страницы и диалога); удалить дубли правил и мёртвые правила; то же для `playback-comments.css`.
-- [X] T005 [US1] macOS: применить `DesktopDesignTokens` в `DesktopMeetingShellView.swift`, `TwoBrainRecApp.swift`, `CaptureControlViewCore.swift`, `CaptureStatusItem.swift`, `DesktopPermissionOnboardingView.swift`, `MeetingDetectionSettingsView.swift`, `DesktopNotificationPresenter.swift`, `AppUpdateNotice.swift`, `DesktopSupportIncidentActionStrip.swift`, `DesktopCabinetWorkspaceView.swift`; заменить мёртвые hex-константы, убрать `Color.accentColor` в фирменных элементах.
-- [X] T006 [US1] Проверка: `test_cabinet_theme_contract.py`, `test_cabinet_static_assets_contract.py`; замеры стенда (фон/акцент/границы карточки встречи = токены, контраст ≥ 4,5:1 в обеих темах); запись в `validation.md`.
+- [X] T004 [US1] Веб: убрать локальные палитры `cabinet.css:5667-5692`, `6034-6041` и белые подложки (список из инвентаря); перевести жёсткие цвета на токены/`color-mix`; свести радиусы к шкале; выровнять типографику (удалить позднее `body { font-size }`, единый заголовок страницы и диалога); удалить дубли правил и мёртвые правила; то же для `playback-comments.css`. (Issue #7065)
+- [X] T005 [US1] macOS: применить `DesktopDesignTokens` в `DesktopMeetingShellView.swift`, `TwoBrainRecApp.swift`, `CaptureControlViewCore.swift`, `CaptureStatusItem.swift`, `DesktopPermissionOnboardingView.swift`, `MeetingDetectionSettingsView.swift`, `DesktopNotificationPresenter.swift`, `AppUpdateNotice.swift`, `DesktopSupportIncidentActionStrip.swift`, `DesktopCabinetWorkspaceView.swift`; заменить мёртвые hex-константы, убрать `Color.accentColor` в фирменных элементах. (Issue #7066)
+- [X] T006 [US1] Проверка: `test_cabinet_theme_contract.py`, `test_cabinet_static_assets_contract.py`; замеры стенда (фон/акцент/границы карточки встречи = токены, контраст ≥ 4,5:1 в обеих темах); запись в `validation.md`. (Issue #7067)
 
 ## Phase 4: US2 — состояния кабинета (P1)
 
-- [X] T007 [US2] Веб: компонент `.notice` с тонами и разметка в биллинге/рефералах/примитивах; оформление статусов списка (`.meeting-status`, `.meeting-content-readiness`, `[data-processing-retry-class]`, `.meeting-result-count`); исправление скелетона (токены, высота строки = реальной); сворачивание пустого `.meeting-toolbar`.
-- [X] T008 [US2] Веб: один `.icon-button` с вариантом `--ghost` и исправление каскада `.danger-button`; единые диалоги (тень, backdrop, радиус, заголовок, отступы); тон автосохранения по `form[data-state]`; текст окна «Поделиться» по состоянию доступа; палитра спикеров (уникальные цвета, светлые варианты, контрастный текст).
-- [X] T009 [US2] Проверка: focused pytest биллинга/настроек/списка/доступности/шеринга; замеры стенда (скелетон, кнопки закрытия, тона статусов); запись в `validation.md`.
+- [X] T007 [US2] Веб: компонент `.notice` с тонами и разметка в биллинге/рефералах/примитивах; оформление статусов списка (`.meeting-status`, `.meeting-content-readiness`, `[data-processing-retry-class]`, `.meeting-result-count`); исправление скелетона (токены, высота строки = реальной); сворачивание пустого `.meeting-toolbar`. (Issue #7068)
+- [X] T008 [US2] Веб: один `.icon-button` с вариантом `--ghost` и исправление каскада `.danger-button`; единые диалоги (тень, backdrop, радиус, заголовок, отступы); тон автосохранения по `form[data-state]`; текст окна «Поделиться» по состоянию доступа; палитра спикеров (уникальные цвета, светлые варианты, контрастный текст). (Issue #7069)
+- [X] T009 [US2] Проверка: focused pytest биллинга/настроек/списка/доступности/шеринга; замеры стенда (скелетон, кнопки закрытия, тона статусов); запись в `validation.md`. (Issue #7070)
 
 ## Phase 5: US3 — нативные состояния (P1)
 
-- [X] T010 [US3] macOS: `MeetingDetectionStatus` в `apps/macos/Shared/Sources/MeetingDetection/MeetingDetectionModels.swift`; замена строковых статусов в `TwoBrainRecApp.swift`; честный `meetingDetectionSummary` в `CaptureControlViewCore.swift:402-419`; обновление `CaptureControlV5Tests`, `AppControlAccessibilityTests`.
-- [X] T011 [US3] macOS: настройки уведомлений доступны без входа (`DesktopNotificationPresenter.swift:640`); онбординг — единая типографика, тон ошибки, стили кнопок, цели ≥ 40pt; настройки автозаписи — одна ошибка, без разделителя под последней строкой, фирменный акцент fallback; единый тон ошибки в полосе поддержки; цели нажатия ≥ 40pt (шестерёнки, кнопки промпта).
-- [X] T012 [US3] macOS: трей — читаемая обрезка с полным текстом, честный заголовок ближайших событий, информационные строки не выглядят отключёнными; подсказка навигации без служебного текста; тесты.
-- [X] T013 [US3] Проверка: `bash apps/macos/Scripts/run-swift-tests.sh`, ручная проверка в `/Applications/GRAF Dev.app`; запись в `validation.md`.
+- [X] T010 [US3] macOS: `MeetingDetectionStatus` в `apps/macos/Shared/Sources/MeetingDetection/MeetingDetectionModels.swift`; замена строковых статусов в `TwoBrainRecApp.swift`; честный `meetingDetectionSummary` в `CaptureControlViewCore.swift:402-419`; обновление `CaptureControlV5Tests`, `AppControlAccessibilityTests`. (Issue #7071)
+- [X] T011 [US3] macOS: настройки уведомлений доступны без входа (`DesktopNotificationPresenter.swift:640`); онбординг — единая типографика, тон ошибки, стили кнопок, цели ≥ 40pt; настройки автозаписи — одна ошибка, без разделителя под последней строкой, фирменный акцент fallback; единый тон ошибки в полосе поддержки; цели нажатия ≥ 40pt (шестерёнки, кнопки промпта). (Issue #7072)
+- [X] T012 [US3] macOS: трей — читаемая обрезка с полным текстом, честный заголовок ближайших событий, информационные строки не выглядят отключёнными; подсказка навигации без служебного текста; тесты. (Issue #7073)
+- [X] T013 [US3] Проверка: `bash apps/macos/Scripts/run-swift-tests.sh`, ручная проверка в `/Applications/GRAF Dev.app`; запись в `validation.md`. (Issue #7074)
 
 ## Phase 6: US4 — словарь и текст (P2)
 
-- [X] T014 [US4] Единый словарь: остановка записи — «Остановить запись» везде из одного источника; «Автозапись»/«Запись встреч»; «Расшифровка» вместо «Транскрипт» (`cabinet/rendering.py:1936,2826,2831`, `meeting_protocol.py`); подписи обновлений из одного источника; обновить тесты локализации.
-- [X] T015 [US4] Конвенция без «ё» и опечатки «ЮKassa»/«недоступны» в `cabinet/templates`, `cabinet/*.py`, `public/**`, `admin/**`; синхронно обновить `apps/server/tests/**`.
-- [X] T016 [US4] Конвенция без «ё» в `apps/macos/RecApp/**` и `apps/macos/Shared/Sources/**`; обновить `apps/macos/Shared/Tests/**`; тест-страж на отсутствие «ё» в пользовательских строках.
-- [X] T017 [US4] Проверка: поиск запрещённых вариантов пуст, тесты текстов и локализации проходят.
+- [X] T014 [US4] Единый словарь: остановка записи — «Остановить запись» везде из одного источника; «Автозапись»/«Запись встреч»; «Расшифровка» вместо «Транскрипт» (`cabinet/rendering.py:1936,2826,2831`, `meeting_protocol.py`); подписи обновлений из одного источника; обновить тесты локализации. (Issue #7075)
+- [X] T015 [US4] Конвенция без «ё» и опечатки «ЮKassa»/«недоступны» в `cabinet/templates`, `cabinet/*.py`, `public/**`, `admin/**`; синхронно обновить `apps/server/tests/**`. (Issue #7076)
+- [X] T016 [US4] Конвенция без «ё» в `apps/macos/RecApp/**` и `apps/macos/Shared/Sources/**`; обновить `apps/macos/Shared/Tests/**`; тест-страж на отсутствие «ё» в пользовательских строках. (Issue #7077)
+- [X] T017 [US4] Проверка: поиск запрещённых вариантов пуст, тесты текстов и локализации проходят. (Issue #7078)
 
 ## Phase 7: US5 — обновления (P2)
 
-- [X] T018 [US5] Один постоянный индикатор: полоса `AppUpdateNotice` только для фаз `downloading/installing/readyToInstall/failed`; единый источник подписей для меню, трея, индикатора и полосы (`AppUpdateController.swift`, `AppUpdateNotice.swift`, `TwoBrainRecApp.swift:3581-3586`, `CalendarTray.swift:279-284`, `DesktopMeetingShellView.swift:405-436`); обновить `AppUpdateControllerTests`, `DesktopCalendarReminderTests`.
-- [X] T019 [US5] Проверка: тесты фаз и подписей; один индикатор и полоса в Dev-приложении.
+- [X] T018 [US5] Один постоянный индикатор: полоса `AppUpdateNotice` только для фаз `downloading/installing/readyToInstall/failed`; единый источник подписей для меню, трея, индикатора и полосы (`AppUpdateController.swift`, `AppUpdateNotice.swift`, `TwoBrainRecApp.swift:3581-3586`, `CalendarTray.swift:279-284`, `DesktopMeetingShellView.swift:405-436`); обновить `AppUpdateControllerTests`, `DesktopCalendarReminderTests`. (Issue #7079)
+- [X] T019 [US5] Проверка: тесты фаз и подписей; один индикатор и полоса в Dev-приложении. (Issue #7080)
 
 ## Phase 8: US6 — навигация (P2)
 
-- [X] T020 [US6] Убрать обрезку подписей: паддинг пункта и ширина панели настроек в `cabinet.css`, блок профиля с ограничением строк и `title` (`components/sections.html:44-51`); тест-замер переполнения.
+- [X] T020 [US6] Убрать обрезку подписей: паддинг пункта и ширина панели настроек в `cabinet.css`, блок профиля с ограничением строк и `title` (`components/sections.html:44-51`); тест-замер переполнения. (Issue #7081)
 
 ## Phase 9: US7 — страницы вне системы (P3)
 
-- [X] T021 [US7] История уведомлений через `base.html` + `cabinet_shell`: `web_routes/notifications.py:103-113`, `pages/notification_history.html`, навигация и профиль как у списка встреч; тест темы и компонентов.
-- [X] T022 [US7] Страницы удаления: карточки, ссылки `.cabinet-link`, общая шкала заголовков, стили `report-band` в `pages/deletion_index_content.html`, `pages/deletion_report_content.html`; единый текст «Отчет удаления»; тесты.
+- [X] T021 [US7] История уведомлений через `base.html` + `cabinet_shell`: `web_routes/notifications.py:103-113`, `pages/notification_history.html`, навигация и профиль как у списка встреч; тест темы и компонентов. (Issue #7082)
+- [X] T022 [US7] Страницы удаления: карточки, ссылки `.cabinet-link`, общая шкала заголовков, стили `report-band` в `pages/deletion_index_content.html`, `pages/deletion_report_content.html`; единый текст «Отчет удаления»; тесты. (Issue #7083)
 
 ## Phase 10: US8 — доступность (P3)
 
-- [X] T023 [US8] Вкладки карточки встречи без `display: contents` (`cabinet.css:5707`, `pages/meeting_detail_content.html:38-80`) с сохранением визуального порядка; единая обводка фокуса (`--focus-ring`, offset 2px) с документированными исключениями.
+- [X] T023 [US8] Вкладки карточки встречи без `display: contents` (`cabinet.css:5707`, `pages/meeting_detail_content.html:38-80`) с сохранением визуального порядка; единая обводка фокуса (`--focus-ring`, offset 2px) с документированными исключениями. (Issue #7084)
 
 ## Phase 11: Validation и закрытие
 
-- [X] T024 Финальная проверка: focused pytest из `quickstart.md`, `node --check`, `python3 scripts/check_spec_kit_governance.py`, `bash apps/macos/Scripts/run-swift-tests.sh`.
-- [X] T025 Браузерные доказательства: скриншоты и замеры (контраст, обрезка, скелетон, радиусы, окна, статусы) в `specs/268-ui-consistency-unification/evidence/`, 320/390/768/1024/1440, dark/light, standalone/embedded.
-- [ ] T026 Dev-приложение: `dev-harness build → promote → status → smoke` — выполнено (`dev-df1ea2ffeba0`, smoke pass, запись в `validation.md`); ручная визуальная проверка индикатора обновления, трея и онбординга осталась за оператором (нет разрешения на запись экрана).
-- [ ] T027 Закрытие: `$speckit-converge`, фрагмент `changes/unreleased/268-ui-consistency-unification.md`, `validation.md`, сверка `tasks.md` с GitHub issues.
+- [X] T024 Финальная проверка: focused pytest из `quickstart.md`, `node --check`, `python3 scripts/check_spec_kit_governance.py`, `bash apps/macos/Scripts/run-swift-tests.sh`. (Issue #7085)
+- [X] T025 Браузерные доказательства: скриншоты и замеры (контраст, обрезка, скелетон, радиусы, окна, статусы) в `specs/268-ui-consistency-unification/evidence/`, 320/390/768/1024/1440, dark/light, standalone/embedded. (Issue #7086)
+- [ ] T026 Dev-приложение: `dev-harness build → promote → status → smoke` — выполнено (`dev-df1ea2ffeba0`, smoke pass, запись в `validation.md`); ручная визуальная проверка индикатора обновления, трея и онбординга осталась за оператором (нет разрешения на запись экрана). (Issue #7087)
+- [ ] T027 Закрытие: `$speckit-converge`, фрагмент `changes/unreleased/268-ui-consistency-unification.md`, `validation.md`, сверка `tasks.md` с GitHub issues. (Issue #7088)
 
 ## Dependencies
 
