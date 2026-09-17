@@ -91,11 +91,140 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
-  server-full:
-    name: Ubuntu server and infrastructure full
+  server-static:
+    name: Ubuntu static and governance full
     needs: reserve
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 20
+    env:
+      CANDIDATE_ID: ${{ inputs.candidate_id }}
+      REQUESTED_SHA: ${{ inputs.requested_sha }}
+    steps:
+      - name: Checkout exact candidate SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.requested_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Configure fixture git identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Install production-compatible Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install Node for browser behavior tests
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.22.3"
+
+      - name: Install frozen test toolchain
+        shell: bash
+        env:
+          SPECIFY_CLI_VERSION: "1.0.7"
+          SPEC_KIT_REF: fe1d00e3ccaf495880aaf90fb0e17679e82f065b
+          SPECKIT_BOOTSTRAP_SHA256: d6b0bee447aa62aa97b04c5aba081360e166bed240049fdbfd269ff8ca494aaf
+        run: |
+          set -euo pipefail
+          venv_dir="$RUNNER_TEMP/graf-specify-venv"
+          python3 -m venv "$venv_dir"
+          "$venv_dir/bin/python" -m pip install --disable-pip-version-check \
+            "specify-cli @ git+https://github.com/github/spec-kit.git@${SPEC_KIT_REF}" \
+            "pytest==9.1.1" \
+            "uv==0.11.28"
+          bin_dir="$RUNNER_TEMP/graf-bin"
+          mkdir -p "$bin_dir"
+          curl --fail --location --silent --show-error \
+            "https://github.com/yshishenya/speckit-bootstrap/releases/download/v0.9.10/speckit-bootstrap" \
+            --output "$bin_dir/speckit-bootstrap"
+          printf '%s  %s\n' "$SPECKIT_BOOTSTRAP_SHA256" "$bin_dir/speckit-bootstrap" | sha256sum --check --status -
+          chmod 0755 "$bin_dir/speckit-bootstrap"
+          {
+            printf '%s\n' "$venv_dir/bin"
+            printf '%s\n' "$bin_dir"
+            printf '%s\n' "$HOME/.local/bin"
+          } >> "$GITHUB_PATH"
+          export PATH="$venv_dir/bin:$bin_dir:$HOME/.local/bin:$PATH"
+          [[ "$(specify --version)" == "specify ${SPECIFY_CLI_VERSION}" ]]
+          speckit-bootstrap --version
+
+      - name: Cache pinned browser binaries
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('apps/server/tests/browser/package-lock.json') }}
+
+      - name: Run Ubuntu static and governance component
+        shell: bash
+        run: |
+          set +e
+          result_path="$RUNNER_TEMP/server-static-result.json"
+          started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          (
+            set -euo pipefail
+            (cd apps/server && PYTHONPATH=src uv run --extra dev ruff check .)
+            python3 -m compileall -q apps/server/src apps/server/tests apps/server/scripts
+            python3 scripts/check_spec_kit_governance.py
+            pytest -q tests/governance
+            PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=harness/src \
+              python3 -c 'from dev_harness.validators import self_test; raise SystemExit(self_test())'
+            while IFS= read -r shell_path; do
+              [[ -z "$shell_path" ]] || bash -n "$shell_path"
+            done < <(git ls-files '*.sh')
+            sh apps/macos/Scripts/validate-no-legacy-audio-driver.sh
+            docker compose -f infra/docker-compose.yml config >/dev/null
+            infra/scripts/scan-deployment-evidence.sh docs/deployments/2brain-rec
+            python3 scripts/check-development-process.py
+            python3 scripts/validate-full-ci-workflow.py .github/workflows/release-full.yml
+            git diff --check
+          )
+          component_status=$?
+          status=passed
+          if (( component_status != 0 )); then status=failed; fi
+          finished_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          python3 - "$result_path" "$status" "$started_at" "$finished_at" <<'PY'
+          import json
+          import os
+          import pathlib
+          import sys
+
+          path, status, started, finished = sys.argv[1:]
+          value = {
+              "schema_version": 1,
+              "component": "server",
+              "status": status,
+              "requested_sha": os.environ["REQUESTED_SHA"].lower(),
+              "observed_sha_start": os.environ["REQUESTED_SHA"].lower(),
+              "observed_sha_end": os.environ["REQUESTED_SHA"].lower(),
+              "run_id": os.environ["GITHUB_RUN_ID"],
+              "started_at": started,
+              "finished_at": finished,
+              "skipped_gates": [],
+          }
+          pathlib.Path(path).write_text(json.dumps(value, sort_keys=True) + "\n", encoding="utf-8")
+          PY
+          exit "$component_status"
+
+      - name: Upload metadata-only server static result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: graf-full-component-server-${{ needs.reserve.outputs.artifact_key }}-${{ github.run_id }}-static
+          path: ${{ runner.temp }}/server-static-result.json
+          if-no-files-found: error
+          retention-days: 90
+
+  server-phases:
+    name: Ubuntu postgres strict and performance
+    needs: reserve
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       CANDIDATE_ID: ${{ inputs.candidate_id }}
       REQUESTED_SHA: ${{ inputs.requested_sha }}
@@ -171,34 +300,20 @@ jobs:
           npm ci --ignore-scripts --prefix apps/server/tests/browser
           apps/server/tests/browser/node_modules/.bin/playwright install --with-deps chromium
 
-      - name: Run Ubuntu full component
+      - name: Run Ubuntu postgres strict and performance component
         env:
           GRAF_TEST_REPORT_DIR: ${{ runner.temp }}/test-timings
         shell: bash
         run: |
           set +e
-          result_path="$RUNNER_TEMP/server-result.json"
+          result_path="$RUNNER_TEMP/server-phases-result.json"
           started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           (
             set -euo pipefail
-            (cd apps/server && PYTHONPATH=src uv run --extra dev ruff check .)
-            python3 -m compileall -q apps/server/src apps/server/tests apps/server/scripts
-            python3 scripts/check_spec_kit_governance.py
-            pytest -q tests/governance
-            PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=harness/src \
-              python3 -c 'from dev_harness.validators import self_test; raise SystemExit(self_test())'
-            while IFS= read -r shell_path; do
-              [[ -z "$shell_path" ]] || bash -n "$shell_path"
-            done < <(git ls-files '*.sh')
-            sh apps/macos/Scripts/validate-no-legacy-audio-driver.sh
-            GRAF_TEST_WORKERS=8 GRAF_PERFORMANCE_GATE=required \
-              bash apps/server/scripts/run_local_postgres_tests.sh --full -q
+            GRAF_TEST_WORKERS=4 GRAF_PERFORMANCE_GATE=required \
+              bash apps/server/scripts/run_local_postgres_tests.sh \
+              --focused --partitioned --phases strict,performance -q
             (cd apps/server && PYTHONPATH=src uv run python scripts/verify_rls_hardening.py)
-            docker compose -f infra/docker-compose.yml config >/dev/null
-            infra/scripts/scan-deployment-evidence.sh docs/deployments/2brain-rec
-            python3 scripts/check-development-process.py
-            python3 scripts/validate-full-ci-workflow.py .github/workflows/release-full.yml
-            git diff --check
           )
           component_status=$?
           status=passed
@@ -231,17 +346,171 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: graf-test-timings-${{ inputs.requested_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: graf-test-timings-${{ inputs.requested_sha }}-${{ github.run_id }}-${{ github.run_attempt }}-phases
           path: ${{ runner.temp }}/test-timings/*.jsonl
           if-no-files-found: warn
           retention-days: 14
 
-      - name: Upload metadata-only server result
+      - name: Upload metadata-only server phases result
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: graf-full-component-server-${{ needs.reserve.outputs.artifact_key }}-${{ github.run_id }}
-          path: ${{ runner.temp }}/server-result.json
+          name: graf-full-component-server-${{ needs.reserve.outputs.artifact_key }}-${{ github.run_id }}-phases
+          path: ${{ runner.temp }}/server-phases-result.json
+          if-no-files-found: error
+          retention-days: 90
+
+  server-parallel:
+    name: Ubuntu postgres parallel shard
+    needs: reserve
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    # Every part keeps running after a sibling fails so the aggregating job can
+    # always check the coverage proof of all parts at once.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    env:
+      CANDIDATE_ID: ${{ inputs.candidate_id }}
+      REQUESTED_SHA: ${{ inputs.requested_sha }}
+      GRAF_TEST_REPORT_DIR: ${{ runner.temp }}/test-timings
+    steps:
+      - name: Checkout exact candidate SHA
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.requested_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Configure fixture git identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Install production-compatible Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install Node for browser behavior tests
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.22.3"
+
+      - name: Install frozen test toolchain
+        shell: bash
+        env:
+          SPECIFY_CLI_VERSION: "1.0.7"
+          SPEC_KIT_REF: fe1d00e3ccaf495880aaf90fb0e17679e82f065b
+          SPECKIT_BOOTSTRAP_SHA256: d6b0bee447aa62aa97b04c5aba081360e166bed240049fdbfd269ff8ca494aaf
+        run: |
+          set -euo pipefail
+          venv_dir="$RUNNER_TEMP/graf-specify-venv"
+          python3 -m venv "$venv_dir"
+          "$venv_dir/bin/python" -m pip install --disable-pip-version-check \
+            "specify-cli @ git+https://github.com/github/spec-kit.git@${SPEC_KIT_REF}" \
+            "pytest==9.1.1" \
+            "uv==0.11.28"
+          bin_dir="$RUNNER_TEMP/graf-bin"
+          mkdir -p "$bin_dir"
+          curl --fail --location --silent --show-error \
+            "https://github.com/yshishenya/speckit-bootstrap/releases/download/v0.9.10/speckit-bootstrap" \
+            --output "$bin_dir/speckit-bootstrap"
+          printf '%s  %s\n' "$SPECKIT_BOOTSTRAP_SHA256" "$bin_dir/speckit-bootstrap" | sha256sum --check --status -
+          chmod 0755 "$bin_dir/speckit-bootstrap"
+          {
+            printf '%s\n' "$venv_dir/bin"
+            printf '%s\n' "$bin_dir"
+            printf '%s\n' "$HOME/.local/bin"
+          } >> "$GITHUB_PATH"
+          export PATH="$venv_dir/bin:$bin_dir:$HOME/.local/bin:$PATH"
+          [[ "$(specify --version)" == "specify ${SPECIFY_CLI_VERSION}" ]]
+          speckit-bootstrap --version
+
+      - name: Cache pinned browser binaries
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('apps/server/tests/browser/package-lock.json') }}
+
+      - name: Prepare pinned browser test resources
+        run: |
+          if ! command -v ffmpeg >/dev/null 2>&1 || ! command -v ffprobe >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends ffmpeg
+          fi
+          ffmpeg -nostdin -version >/dev/null
+          ffprobe -version >/dev/null
+          npm ci --ignore-scripts --prefix apps/server/tests/browser
+          apps/server/tests/browser/node_modules/.bin/playwright install --with-deps chromium
+
+      - name: Run Ubuntu postgres parallel shard component
+        shell: bash
+        run: |
+          set +e
+          result_path="$RUNNER_TEMP/server-shard-${{ matrix.shard }}-result.json"
+          started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          (
+            set -euo pipefail
+            GRAF_TEST_WORKERS=4 bash apps/server/scripts/run_local_postgres_tests.sh \
+              --focused --partitioned --phases parallel --shard ${{ matrix.shard }}/4 -q
+          )
+          component_status=$?
+          if (( component_status == 0 )); then
+            for evidence in parallel-full-nodeids shard-nodeids; do
+              if [[ ! -s "$GRAF_TEST_REPORT_DIR/${evidence}-${{ matrix.shard }}.txt" ]]; then
+                printf 'missing shard coverage evidence: %s-%s.txt\n' "$evidence" "${{ matrix.shard }}" >&2
+                component_status=1
+              fi
+            done
+          fi
+          status=passed
+          if (( component_status != 0 )); then status=failed; fi
+          finished_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          python3 - "$result_path" "$status" "$started_at" "$finished_at" <<'PY'
+          import json
+          import os
+          import pathlib
+          import sys
+
+          path, status, started, finished = sys.argv[1:]
+          value = {
+              "schema_version": 1,
+              "component": "server",
+              "status": status,
+              "requested_sha": os.environ["REQUESTED_SHA"].lower(),
+              "observed_sha_start": os.environ["REQUESTED_SHA"].lower(),
+              "observed_sha_end": os.environ["REQUESTED_SHA"].lower(),
+              "run_id": os.environ["GITHUB_RUN_ID"],
+              "started_at": started,
+              "finished_at": finished,
+              "skipped_gates": [],
+          }
+          pathlib.Path(path).write_text(json.dumps(value, sort_keys=True) + "\n", encoding="utf-8")
+          PY
+          exit "$component_status"
+
+      - name: Upload safe test timings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: graf-test-timings-${{ inputs.requested_sha }}-${{ github.run_id }}-${{ github.run_attempt }}-shard-${{ matrix.shard }}
+          path: ${{ runner.temp }}/test-timings/*.jsonl
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload metadata-only server shard result and coverage evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: graf-full-component-server-${{ needs.reserve.outputs.artifact_key }}-${{ github.run_id }}-shard-${{ matrix.shard }}
+          path: |
+            ${{ runner.temp }}/server-shard-${{ matrix.shard }}-result.json
+            ${{ runner.temp }}/test-timings/parallel-full-nodeids-${{ matrix.shard }}.txt
+            ${{ runner.temp }}/test-timings/shard-nodeids-${{ matrix.shard }}.txt
           if-no-files-found: error
           retention-days: 90
 
@@ -345,7 +614,7 @@ jobs:
   aggregate:
     name: aggregate authoritative Full CI
     if: always()
-    needs: [reserve, server-full, macos-full]
+    needs: [reserve, server-static, server-phases, server-parallel, macos-full]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -358,7 +627,9 @@ jobs:
         run: |
           set -euo pipefail
           [[ "${{ needs.reserve.result }}" == success ]]
-          [[ "${{ needs.server-full.result }}" == success ]]
+          [[ "${{ needs.server-static.result }}" == success ]]
+          [[ "${{ needs.server-phases.result }}" == success ]]
+          [[ "${{ needs.server-parallel.result }}" == success ]]
           [[ "${{ needs.macos-full.result }}" == success ]]
 
       - name: Checkout exact candidate SHA
@@ -387,7 +658,15 @@ jobs:
           import sys
 
           root = pathlib.Path(sys.argv[1])
-          expected = {"server-result.json": "server", "macos-result.json": "macos_app"}
+          expected = {
+              "server-static-result.json": "server",
+              "server-phases-result.json": "server",
+              "server-shard-0-result.json": "server",
+              "server-shard-1-result.json": "server",
+              "server-shard-2-result.json": "server",
+              "server-shard-3-result.json": "server",
+              "macos-result.json": "macos_app",
+          }
           files = {path.name: path for path in root.glob("*-result.json")}
           if set(files) != set(expected):
               raise SystemExit(f"unexpected component result set: {sorted(files)}")
@@ -402,6 +681,29 @@ jobs:
                   raise SystemExit(f"component SHA mismatch: {filename}")
               if value.get("skipped_gates") != []:
                   raise SystemExit(f"component skipped gates: {filename}")
+          # Доказательство полноты: части должны ровно покрывать полный список
+          # фазы parallel. Пропуск или повтор теста обязан провалить проверку.
+          full_lists = {}
+          union = []
+          for index in range(4):
+              full_path = root / f"parallel-full-nodeids-{index}.txt"
+              shard_path = root / f"shard-nodeids-{index}.txt"
+              if not full_path.is_file() or not shard_path.is_file():
+                  raise SystemExit(f"shard coverage evidence missing for shard {index}")
+              full = [line for line in full_path.read_text(encoding="utf-8").splitlines() if line]
+              shard = [line for line in shard_path.read_text(encoding="utf-8").splitlines() if line]
+              if not full or not shard:
+                  raise SystemExit(f"shard coverage evidence empty for shard {index}")
+              full_lists[index] = full
+              union.extend(shard)
+          digests = {tuple(sorted(nodes)) for nodes in full_lists.values()}
+          if len(digests) != 1:
+              raise SystemExit("shards collected different test sets")
+          expected_nodes = sorted(full_lists[0])
+          if sorted(union) != expected_nodes:
+              raise SystemExit("shard union does not cover the full parallel test set")
+          if len(union) != len(set(union)):
+              raise SystemExit("shard union repeats test cases")
           PY
           started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           finished_at="$(date -u -v+1S +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '1 second' +%Y-%m-%dT%H:%M:%SZ)"
@@ -424,8 +726,21 @@ jobs:
             --component-sha "repository=$REQUESTED_SHA" \
             --component-sha "server=$REQUESTED_SHA" \
             --component-sha "macos_app=$REQUESTED_SHA" \
-            --artifact "server-result=$component_dir/server-result.json" \
-            --artifact "macos-result=$component_dir/macos-result.json"
+            --artifact "server-static-result=$component_dir/server-static-result.json" \
+            --artifact "server-phases-result=$component_dir/server-phases-result.json" \
+            --artifact "server-shard-0-result=$component_dir/server-shard-0-result.json" \
+            --artifact "server-shard-1-result=$component_dir/server-shard-1-result.json" \
+            --artifact "server-shard-2-result=$component_dir/server-shard-2-result.json" \
+            --artifact "server-shard-3-result=$component_dir/server-shard-3-result.json" \
+            --artifact "macos-result=$component_dir/macos-result.json" \
+            --artifact "parallel-full-nodeids-0=$component_dir/parallel-full-nodeids-0.txt" \
+            --artifact "parallel-full-nodeids-1=$component_dir/parallel-full-nodeids-1.txt" \
+            --artifact "parallel-full-nodeids-2=$component_dir/parallel-full-nodeids-2.txt" \
+            --artifact "parallel-full-nodeids-3=$component_dir/parallel-full-nodeids-3.txt" \
+            --artifact "shard-nodeids-0=$component_dir/shard-nodeids-0.txt" \
+            --artifact "shard-nodeids-1=$component_dir/shard-nodeids-1.txt" \
+            --artifact "shard-nodeids-2=$component_dir/shard-nodeids-2.txt" \
+            --artifact "shard-nodeids-3=$component_dir/shard-nodeids-3.txt"
           python3 scripts/validate-ci-evidence.py "$evidence_path"
           python3 - "$RUNNER_TEMP/graf-full-identity.json" <<'PY'
           import json

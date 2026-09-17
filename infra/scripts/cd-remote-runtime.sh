@@ -70,6 +70,7 @@ public_download_target=""
 public_download_backup=""
 public_download_temporary=""
 public_download_smoke_directory=""
+__deploy_started_at="$(date +%s)"
 
 set -a
 . ./.env
@@ -888,6 +889,47 @@ trap rollback_on_exit EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
+# --- Step metering -----------------------------------------------------------
+# Every instrumented step of the deployment sequence reports its wall-clock
+# duration as `step_duration_seconds=<name>=<seconds>` on the deployment
+# stdout, so a slow release can be diagnosed from its own log instead of
+# guesswork. The wrappers change nothing about what the steps do.
+__step_name=""
+__step_started_at=0
+
+step_timer_start() {
+  __step_name="$1"
+  __step_started_at="$(date +%s)"
+}
+
+step_timer_stop() {
+  echo "step_duration_seconds=${__step_name}=$(( $(date +%s) - __step_started_at ))"
+}
+
+# Runs one command as a timed step. The duration is printed even when the
+# command fails, and the command status is returned unchanged, so the wrapper
+# works both directly and inside `if ! run_step ...` conditions.
+run_step() {
+  local step_status=0
+  step_timer_start "$1"
+  shift
+  "$@" || step_status=$?
+  step_timer_stop
+  return "$step_status"
+}
+
+# Runs one command as a timed step with its stdout captured into the variable
+# named by the second argument; the duration still goes to the deployment log.
+run_step_capture() {
+  local step_name="$1" step_variable="$2" step_status=0 step_output
+  shift 2
+  step_timer_start "$step_name"
+  step_output="$("$@")" || step_status=$?
+  step_timer_stop
+  printf -v "$step_variable" '%s' "$step_output"
+  return "$step_status"
+}
+
 if ! validate_runtime_secret_group; then
   echo "deploy_result=blocked"
   echo "reason=runtime_secret_group_unsafe"
@@ -976,10 +1018,13 @@ ensure_generated_secret \
   "${TWOBRAIN_MINIO_MEDIA_SECRET_KEY_FILE:-./secrets/twobrain_minio_media_secret_key}" 32
 echo "media_storage_secret_provision_result=pass"
 
-python3 infra/scripts/release-images.py prepare \
-  --source-sha "$expected_sha" --previous-sha "$previous_sha" \
-  --candidate-id "$image_candidate_id" --decision-digest "$image_decision_digest" \
-  --full-digest "$image_full_digest" --attempt-id "$image_attempt_id" >/dev/null
+prepare_release_images() {
+  python3 infra/scripts/release-images.py prepare \
+    --source-sha "$expected_sha" --previous-sha "$previous_sha" \
+    --candidate-id "$image_candidate_id" --decision-digest "$image_decision_digest" \
+    --full-digest "$image_full_digest" --attempt-id "$image_attempt_id" >/dev/null
+}
+run_step release_images_prepare prepare_release_images
 image_attempt="$(cd "$image_attempt" && pwd -P)"
 image_helper="$image_attempt/release-images.py"
 export GRAF_RELEASE_IMAGE_OVERRIDE="$image_attempt/override.json"
@@ -988,7 +1033,10 @@ export GRAF_RELEASE_MC_IMAGE
 compose+=(-f "$GRAF_RELEASE_IMAGE_OVERRIDE")
 echo "release_images_result=prepared"
 
-backup_output="$(infra/scripts/backup-rec-stack.sh --execute)"
+backup_rec_stack() {
+  backup_output="$(infra/scripts/backup-rec-stack.sh --execute)"
+}
+run_step backup backup_rec_stack
 printf '%s\n' "$backup_output"
 backup_reference="$(printf '%s\n' "$backup_output" | sed -n 's/^backup_reference=//p' | tail -n 1)"
 if [[ -z "$backup_reference" ]]; then
@@ -996,7 +1044,12 @@ if [[ -z "$backup_reference" ]]; then
   echo "reason=backup_reference_missing"
   exit 1
 fi
-RESTORE_BACKUP_REFERENCE="$backup_reference" infra/scripts/rehearse-rec-restore.sh --execute
+# The restore rehearsal is no longer part of the release: it restores the whole
+# database and object store into disposable targets and dominated release time.
+# It now runs on a schedule instead (`.github/workflows/backup-restore-
+# rehearsal.yml`, see also `infra/scripts/rehearse-restore-scheduled.sh`), while
+# the release keeps its own fresh backup above and reports it as
+# `backup_reference=`. A deployment without a fresh backup still blocks.
 
 "${compose[@]}" config >/tmp/twobrain-rec-compose-deploy.yml
 compose_secret_file() {
@@ -1087,7 +1140,8 @@ runtime_mutated=1
 "${compose[@]}" stop rec-api >/dev/null
 sync_public_download
 "${compose[@]}" stop rec-media-worker >/dev/null 2>&1 || true
-TWOBRAIN_PLAYBACK_NORMALIZATION_ENABLED=false \
+run_step runtime_up env \
+  TWOBRAIN_PLAYBACK_NORMALIZATION_ENABLED=false \
   TWOBRAIN_PLAYBACK_NORMALIZATION_AUTOMATIC_DISPATCH_ENABLED=false \
   "${compose[@]}" up --pull never -d --no-build --wait --wait-timeout 240 \
   rec-api \
@@ -1103,7 +1157,7 @@ if [[ -n "$prompt_worker_was_running" ]]; then
 fi
 python3 "$image_helper" verify candidate rec-api rec-processing-worker rec-maintenance
 
-if ! verify_processing_runtime_health; then
+if ! run_step temporal_readiness verify_processing_runtime_health; then
   echo "deploy_result=blocked"
   echo "reason=processing_runtime_readiness_failed"
   exit 1
@@ -1111,16 +1165,17 @@ fi
 echo "temporal_readiness_result=pass"
 echo "processing_worker_readiness_result=pass"
 
-verify_external_invitation_runtime
+run_step external_invitation_runtime verify_external_invitation_runtime
 
-if ! verify_api_dispatch_gate false false; then
+if ! run_step initial_dispatch_gate verify_api_dispatch_gate false false; then
   echo "deploy_result=blocked"
   echo "reason=initial_dispatch_gate_not_closed"
   exit 1
 fi
 echo "initial_dispatch_gate_result=closed"
 
-role_bootstrap_output="$("${compose[@]}" run --pull never --rm --no-deps rec-db-runtime-bootstrap)"
+run_step_capture runtime_db_role_bootstrap role_bootstrap_output \
+  "${compose[@]}" run --pull never --rm --no-deps rec-db-runtime-bootstrap
 if ! grep -Fxq 'runtime_database_roles_result=pass' <<<"$role_bootstrap_output"; then
   echo "deploy_result=blocked"
   echo "reason=runtime_db_role_bootstrap_failed"
@@ -1128,7 +1183,8 @@ if ! grep -Fxq 'runtime_database_roles_result=pass' <<<"$role_bootstrap_output";
 fi
 echo "runtime_db_role_bootstrap_result=pass"
 
-migration_output="$("${compose[@]}" run --pull never --rm --no-deps rec-migrate alembic current)"
+run_step_capture migration_head migration_output \
+  "${compose[@]}" run --pull never --rm --no-deps rec-migrate alembic current
 if ! grep -Fq "$expected_schema_head" <<<"$migration_output" \
   || ! grep -Fq 'head' <<<"$migration_output"; then
   echo "deploy_result=blocked"
@@ -1138,9 +1194,10 @@ fi
 echo "migration_head_result=pass"
 echo "migration_head=$expected_schema_head"
 
-api_database_identity="$("${compose[@]}" exec -T \
+run_step_capture api_runtime_database_identity api_database_identity \
+  "${compose[@]}" exec -T \
   -e TWOBRAIN_EXPECTED_DATABASE_ROLE=twobrain_rec_app \
-  rec-api python /app/scripts/verify_runtime_database_identity.py)"
+  rec-api python /app/scripts/verify_runtime_database_identity.py
 if ! grep -Fxq 'runtime_database_identity_result=pass' <<<"$api_database_identity" \
   || ! grep -Fxq 'runtime_database_role=twobrain_rec_app' <<<"$api_database_identity" \
   || ! grep -Fxq 'scheduler_function_access=denied' <<<"$api_database_identity" \
@@ -1151,9 +1208,10 @@ if ! grep -Fxq 'runtime_database_identity_result=pass' <<<"$api_database_identit
 fi
 echo "api_runtime_database_identity_result=pass"
 
-maintenance_database_identity="$("${compose[@]}" run --pull never --rm --no-deps -T \
+run_step_capture maintenance_runtime_database_identity maintenance_database_identity \
+  "${compose[@]}" run --pull never --rm --no-deps -T \
   -e TWOBRAIN_EXPECTED_DATABASE_ROLE=twobrain_rec_maintenance \
-  rec-maintenance python /app/scripts/verify_runtime_database_identity.py)"
+  rec-maintenance python /app/scripts/verify_runtime_database_identity.py
 if ! grep -Fxq 'runtime_database_identity_result=pass' <<<"$maintenance_database_identity" \
   || ! grep -Fxq 'runtime_database_role=twobrain_rec_maintenance' \
     <<<"$maintenance_database_identity" \
@@ -1238,30 +1296,38 @@ verify_media_worker_control() {
   fi
 }
 
-TWOBRAIN_PLAYBACK_NORMALIZATION_AUTOMATIC_DISPATCH_ENABLED=false \
-  "${compose[@]}" up --pull never -d --no-build --force-recreate --wait --wait-timeout 240 \
-  rec-media-worker
-verify_media_worker_boundary false
-verify_media_worker_control
+media_worker_pre_dispatch() {
+  TWOBRAIN_PLAYBACK_NORMALIZATION_AUTOMATIC_DISPATCH_ENABLED=false \
+    "${compose[@]}" up --pull never -d --no-build --force-recreate --wait --wait-timeout 240 \
+    rec-media-worker
+  verify_media_worker_boundary false
+  verify_media_worker_control
+}
+run_step media_worker_pre_dispatch media_worker_pre_dispatch
 echo "media_worker_pre_dispatch_result=pass"
 
-TWOBRAIN_PRODUCTION_RELEASE_GATE=1 \
-TWOBRAIN_PRODUCTION_RELEASE_LOCK_HELD=1 \
+run_step production_smoke env \
+  TWOBRAIN_PRODUCTION_RELEASE_GATE=1 \
+  TWOBRAIN_PRODUCTION_RELEASE_LOCK_HELD=1 \
   infra/scripts/run-production-smoke.sh --execute
 
 dispatch_opened=1
-TWOBRAIN_PLAYBACK_NORMALIZATION_AUTOMATIC_DISPATCH_ENABLED=true \
-  "${compose[@]}" up --pull never -d --no-build --force-recreate --wait --wait-timeout 900 \
-  rec-media-worker
-verify_media_worker_boundary true
-verify_media_worker_control
+media_worker_dispatch_open() {
+  TWOBRAIN_PLAYBACK_NORMALIZATION_AUTOMATIC_DISPATCH_ENABLED=true \
+    "${compose[@]}" up --pull never -d --no-build --force-recreate --wait --wait-timeout 900 \
+    rec-media-worker
+  verify_media_worker_boundary true
+  verify_media_worker_control
+}
+run_step media_worker_dispatch_open media_worker_dispatch_open
 echo "media_runtime_database_identity_result=pass"
 echo "media_worker_result=pass"
 
-TWOBRAIN_PLAYBACK_NORMALIZATION_ENABLED=true \
+run_step api_dispatch_open env \
+  TWOBRAIN_PLAYBACK_NORMALIZATION_ENABLED=true \
   TWOBRAIN_PLAYBACK_NORMALIZATION_AUTOMATIC_DISPATCH_ENABLED=true \
-  "${compose[@]}" up --pull never -d --no-deps --no-build --force-recreate --wait --wait-timeout 240 \
-  rec-api
+  "${compose[@]}" up --pull never -d --no-deps --no-build --force-recreate \
+  --wait --wait-timeout 240 rec-api
 if ! verify_api_dispatch_gate true true; then
   echo "deploy_result=blocked"
   echo "reason=automatic_dispatch_gate_not_open"
@@ -1278,15 +1344,30 @@ if grep -Eq '^(TWOBRAIN_(POSTGRES_PASSWORD|MINIO_ROOT_USER|MINIO_ROOT_PASSWORD|M
   exit 1
 fi
 
+# Timed with the timer pair rather than `run_step` so the standalone
+# `verify_public_download` line stays intact for the public-installer contract.
+step_timer_start public_health
 curl -fsS https://rec.2brain.pro/api/v1/health/live >/dev/null
 curl -fsS https://rec.2brain.pro/api/v1/health/ready >/dev/null
 verify_public_download
+step_timer_stop
 
+# This is not a repeat of the earlier `temporal_readiness` probe. Between the
+# two probes the smoke test pushed a real upload through rec-api and a real
+# processing workflow through rec-processing-worker, and the media worker was
+# recreated twice. The containers are the same, but this second observation is
+# taken after that work, so it catches a crash, restart or unhealthy state that
+# the pre-smoke probe could not see. `apps/server/tests/integration/
+# test_deployment_readiness_gates.py::test_remote_deploy_rechecks_temporal_and_
+# processing_worker_before_success` requires it before `deployment_complete=1`.
+# Keep it.
+step_timer_start final_temporal_readiness
 if ! verify_processing_runtime_health; then
   echo "deploy_result=blocked"
   echo "reason=final_processing_runtime_readiness_failed"
   exit 1
 fi
+step_timer_stop
 echo "final_temporal_readiness_result=pass"
 echo "final_processing_worker_readiness_result=pass"
 
@@ -1316,6 +1397,7 @@ fi
 if ! cleanup_runtime_files; then
   echo "runtime_cleanup_result=warning"
 fi
+echo "step_duration_seconds=deploy_total=$(( $(date +%s) - __deploy_started_at ))"
 cat <<EOF
 deploy_result=pass
 branch=$branch

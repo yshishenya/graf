@@ -630,7 +630,7 @@ def test_infra_contract_command_fails_if_required_file_disappears(tmp_path: Path
 
 @pytest.mark.parametrize("failure", ["", "lint", "compile"])
 def test_release_full_static_commands_run_before_tests(tmp_path: Path, failure: str) -> None:
-    step = FULL_CI_WORKFLOW.read_text().split("      - name: Run Ubuntu full component\n", 1)[1]
+    step = FULL_CI_WORKFLOW.read_text().split("      - name: Run Ubuntu static and governance component\n", 1)[1]
     body = textwrap.dedent(step.split("        run: |\n", 1)[1].split("\n      - name:", 1)[0])
     wrappers = r'''
 record() { printf '%s\n' "$*" >> "$RUNNER_TEMP/commands"; }
@@ -666,13 +666,176 @@ git() { record git "$@"; }
     assert len(lint) == 1
     if failure != "lint":
         assert len(compile_steps) == 1
+    # The static component owns no PostgreSQL work: that belongs to the phase jobs.
+    assert not [command for command in commands if "run_local_postgres_tests.sh" in command]
     assert result.returncode == (17 if failure else 0), result.stdout
-    terminal = json.loads((tmp_path / "server-result.json").read_text())
+    terminal = json.loads((tmp_path / "server-static-result.json").read_text())
+    assert terminal["component"] == "server"
     assert terminal["status"] == ("failed" if failure else "passed")
     if failure:
         assert tests == []
     else:
         assert tests and lint[0] < compile_steps[0] < min(tests)
+
+
+def release_full_jobs() -> dict:
+    import yaml
+
+    return yaml.load(FULL_CI_WORKFLOW.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)["jobs"]
+
+
+def release_full_step_run(jobs: dict, job: str, name: str) -> str:
+    step = next(item for item in jobs[job]["steps"] if item.get("name") == name)
+    # Fold shell line continuations so one command stays comparable as one string.
+    return " ".join(str(step["run"]).replace("\\\n", " ").split())
+
+
+def test_release_full_splits_postgres_work_across_parallel_jobs() -> None:
+    """Релизная серверная проверка делится на статику, короткие фазы и части parallel.
+
+    Разбиение ускоряет критический путь, но не имеет права ни потерять, ни
+    повторить случай, поэтому контракт закрепляет состав задач, команды фаз и
+    доказательство покрытия в агрегирующей задаче.
+    """
+    jobs = release_full_jobs()
+    assert set(jobs) == {
+        "reserve", "server-static", "server-phases", "server-parallel", "macos-full", "aggregate",
+    }
+
+    static = release_full_step_run(jobs, "server-static", "Run Ubuntu static and governance component")
+    for command in (
+        "PYTHONPATH=src uv run --extra dev ruff check .",
+        "python3 -m compileall -q apps/server/src apps/server/tests apps/server/scripts",
+        "python3 scripts/check_spec_kit_governance.py",
+        "pytest -q tests/governance",
+        "from dev_harness.validators import self_test",
+        "sh apps/macos/Scripts/validate-no-legacy-audio-driver.sh",
+        "docker compose -f infra/docker-compose.yml config",
+        "infra/scripts/scan-deployment-evidence.sh docs/deployments/2brain-rec",
+        "python3 scripts/check-development-process.py",
+        "python3 scripts/validate-full-ci-workflow.py .github/workflows/release-full.yml",
+        "git diff --check",
+    ):
+        assert static.count(command) == 1, command
+    assert "run_local_postgres_tests.sh" not in static
+    assert "verify_rls_hardening.py" not in static
+
+    phases = release_full_step_run(jobs, "server-phases", "Run Ubuntu postgres strict and performance component")
+    assert (
+        "GRAF_TEST_WORKERS=4 GRAF_PERFORMANCE_GATE=required "
+        "bash apps/server/scripts/run_local_postgres_tests.sh "
+        "--focused --partitioned --phases strict,performance -q"
+    ) in phases
+    assert "verify_rls_hardening.py" in phases
+
+    assert jobs["server-parallel"]["strategy"]["matrix"]["shard"] == ["0", "1", "2", "3"]
+    parallel = release_full_step_run(jobs, "server-parallel", "Run Ubuntu postgres parallel shard component")
+    assert (
+        "GRAF_TEST_WORKERS=4 bash apps/server/scripts/run_local_postgres_tests.sh "
+        "--focused --partitioned --phases parallel --shard ${{ matrix.shard }}/4 -q"
+    ) in parallel
+    assert "parallel-full-nodeids" in parallel and "shard-nodeids" in parallel
+
+
+def test_release_full_artifacts_and_aggregate_prove_shard_coverage() -> None:
+    """Агрегатор обязан скачать все части и доказать, что они покрывают набор целиком."""
+    jobs = release_full_jobs()
+    assert jobs["aggregate"]["needs"] == [
+        "reserve", "server-static", "server-phases", "server-parallel", "macos-full",
+    ]
+    for job in ("reserve", "server-static", "server-phases", "server-parallel", "macos-full"):
+        assert f"needs.{job}.result" in jobs["aggregate"]["steps"][0]["run"]
+
+    uploads = [
+        step["with"]["name"]
+        for job in jobs.values()
+        for step in job.get("steps", [])
+        if step.get("uses") == "actions/upload-artifact@v4" and step.get("with", {}).get("name")
+    ]
+    # Duplicate artifact names fail the matrix job, so the split must keep them unique.
+    assert len(uploads) == len(set(uploads))
+    shard_upload = next(
+        step for step in jobs["server-parallel"]["steps"]
+        if step.get("with", {}).get("name", "").startswith("graf-full-component-server-")
+    )
+    assert "server-shard-${{ matrix.shard }}-result.json" in shard_upload["with"]["path"]
+    assert "parallel-full-nodeids-${{ matrix.shard }}.txt" in shard_upload["with"]["path"]
+    assert "shard-nodeids-${{ matrix.shard }}.txt" in shard_upload["with"]["path"]
+    download = next(step for step in jobs["aggregate"]["steps"] if step.get("uses") == "actions/download-artifact@v4")
+    assert download["with"]["merge-multiple"] == "true"
+    assert download["with"]["pattern"] == "graf-full-component-*-${{ needs.reserve.outputs.artifact_key }}-*"
+
+    proof = release_full_step_run(jobs, "aggregate", "Validate component results and emit authoritative evidence")
+    for marker in (
+        "server-static-result.json",
+        "server-phases-result.json",
+        "server-shard-0-result.json",
+        "server-shard-3-result.json",
+        "macos-result.json",
+        "shard coverage evidence missing for shard",
+        "shards collected different test sets",
+        "shard union does not cover the full parallel test set",
+        "shard union repeats test cases",
+    ):
+        assert marker in proof, marker
+    assert 'for index in range(4):' in proof
+
+
+def test_release_full_python_heredocs_compile_after_yaml_stripping() -> None:
+    """Блоки python внутри workflow обязаны компилироваться после снятия отступа YAML."""
+    jobs = release_full_jobs()
+    compiled = 0
+    for job_name, job in jobs.items():
+        for step in job.get("steps", []):
+            script = str(step.get("run", ""))
+            for body in re.findall(r"<<'PY'\n(.*?)\n\s*PY\b", script, re.S):
+                compile(body, f"{job_name}/{step.get('name')}", "exec")
+                compiled += 1
+    assert compiled >= 7
+
+
+@pytest.mark.parametrize("evidence", [True, False])
+def test_release_full_shard_result_is_fail_closed_without_coverage_evidence(
+    tmp_path: Path, evidence: bool
+) -> None:
+    """Часть без доказательства покрытия не имеет права отчитаться успехом."""
+    body = textwrap.dedent(
+        FULL_CI_WORKFLOW.read_text()
+        .split("      - name: Run Ubuntu postgres parallel shard component\n", 1)[1]
+        .split("        run: |\n", 1)[1]
+        .split("\n      - name:", 1)[0]
+    ).replace("${{ matrix.shard }}", "2")
+    wrappers = r'''
+bash() {
+  printf '%s\n' "$*" >> "$RUNNER_TEMP/commands"
+  if [[ "$EVIDENCE" == 1 ]]; then
+    mkdir -p "$GRAF_TEST_REPORT_DIR"
+    printf 'tests/unit/test_a.py::test_a\n' > "$GRAF_TEST_REPORT_DIR/parallel-full-nodeids-2.txt"
+    printf 'tests/unit/test_a.py::test_a\n' > "$GRAF_TEST_REPORT_DIR/shard-nodeids-2.txt"
+  fi
+}
+python3() { command "$TEST_PYTHON" "$@"; }
+'''
+    result = run("bash", "-c", wrappers + body, cwd=tmp_path, env={
+        "RUNNER_TEMP": str(tmp_path), "REQUESTED_SHA": "a" * 40, "GITHUB_RUN_ID": "123",
+        "GRAF_TEST_REPORT_DIR": str(tmp_path / "test-timings"),
+        "EVIDENCE": "1" if evidence else "0", "TEST_PYTHON": sys.executable,
+    })
+    commands = (tmp_path / "commands").read_text()
+    assert "run_local_postgres_tests.sh" in commands
+    assert "--phases parallel --shard 2/4 -q" in commands
+    value = json.loads((tmp_path / "server-shard-2-result.json").read_text())
+    assert value["component"] == "server"
+    assert value["skipped_gates"] == []
+    assert value["requested_sha"] == "a" * 40
+    assert value["observed_sha_start"] == value["observed_sha_end"] == "a" * 40
+    if evidence:
+        assert result.returncode == 0, result.stdout
+        assert value["status"] == "passed"
+    else:
+        assert result.returncode != 0, result.stdout
+        assert value["status"] == "failed"
+        assert "missing shard coverage evidence" in result.stdout
 
 
 def test_removed_server_test_uses_bounded_unit_fallback() -> None:
@@ -1030,15 +1193,21 @@ def test_github_full_workflow_is_manual_exact_sha_and_metadata_only() -> None:
     assert "candidate_already_reserved" in workflow
     assert "graf-full-lock-${{ steps.identity.outputs.artifact_key }}" in workflow
     assert "graf-full-ci-${{ needs.reserve.outputs.artifact_key }}" in workflow
-    assert 'result_path="$RUNNER_TEMP/server-result.json"' in workflow
-    assert 'path: ${{ runner.temp }}/server-result.json' in workflow
+    assert 'result_path="$RUNNER_TEMP/server-static-result.json"' in workflow
+    assert 'path: ${{ runner.temp }}/server-static-result.json' in workflow
+    assert 'result_path="$RUNNER_TEMP/server-phases-result.json"' in workflow
+    assert 'result_path="$RUNNER_TEMP/server-shard-${{ matrix.shard }}-result.json"' in workflow
     assert 'result_path="$RUNNER_TEMP/macos-result.json"' in workflow
     assert 'path: ${{ runner.temp }}/macos-result.json' in workflow
-    assert 'expected = {"server-result.json": "server", "macos-result.json": "macos_app"}' in workflow
-    assert '--artifact "server-result=$component_dir/server-result.json"' in workflow
-    assert '--artifact "macos-result=$component_dir/macos-result.json"' in workflow
+    for result in (
+        "server-static-result.json", "server-phases-result.json",
+        "server-shard-0-result.json", "server-shard-1-result.json",
+        "server-shard-2-result.json", "server-shard-3-result.json",
+        "macos-result.json",
+    ):
+        assert f'"{result}":' in workflow, result
+        assert f'--artifact "{result.removesuffix(".json")}=$component_dir/{result}"' in workflow, result
     assert "timeout-minutes: 10" in workflow
-    assert "timeout-minutes: 60" in workflow
     assert "timeout-minutes: 45" in workflow
     assert '[[ "$(uname -m)" == "arm64" ]]' in workflow
     assert '"skipped_gates": [],' in workflow
@@ -1077,21 +1246,32 @@ def test_macos_diagnostic_workflow_is_exact_sha_and_non_authoritative() -> None:
 def test_release_full_worker_count_stays_within_runner_support() -> None:
     """Релиз не может запросить потоков больше, чем допускает набор.
 
-    Число потоков релизной задачи поднимается, чтобы полнее использовать
-    раннер, но выход за диапазон остаётся ошибкой конфигурации, а отказ от
-    параллелизма вернул бы длинный критический путь.
+    Число потоков каждой релизной задачи с базой поднимается, чтобы полнее
+    использовать раннер, но выход за диапазон остаётся ошибкой конфигурации, а
+    отказ от параллелизма вернул бы длинный критический путь.
     """
     runner = (ROOT / "apps/server/scripts/run_local_postgres_tests.sh").read_text()
     cap = re.search(r"workers > (\d+)", runner)
     assert cap is not None, "скрипт набора должен ограничивать число потоков сверху"
     limit = int(cap.group(1))
 
-    workflow = FULL_CI_WORKFLOW.read_text()
-    requested = re.search(
-        r"GRAF_TEST_WORKERS=(\d+)\s+GRAF_PERFORMANCE_GATE=required", workflow
+    jobs = release_full_jobs()
+    requested = {}
+    for job, name in (
+        ("server-phases", "Run Ubuntu postgres strict and performance component"),
+        ("server-parallel", "Run Ubuntu postgres parallel shard component"),
+    ):
+        match = re.search(
+            r"GRAF_TEST_WORKERS=(\d+) (?:GRAF_PERFORMANCE_GATE=required )?bash apps/server/scripts/run_local_postgres_tests\.sh",
+            release_full_step_run(jobs, job, name),
+        )
+        assert match is not None, f"{job} должна задавать число потоков явно"
+        requested[job] = int(match.group(1))
+
+    assert requested["server-phases"] == requested["server-parallel"], (
+        "обе релизные задачи с базой должны использовать одинаковое число потоков"
     )
-    assert requested is not None, "релизная задача должна задавать число потоков явно"
-    workers = int(requested.group(1))
+    workers = requested["server-phases"]
 
     assert 1 <= workers <= limit, (
         f"релизная задача просит {workers} потоков при допустимых 1–{limit}"

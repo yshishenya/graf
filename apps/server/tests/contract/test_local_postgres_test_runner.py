@@ -383,3 +383,125 @@ def test_partition_failure_stops_following_phases_and_cleans_up(partition_run, c
     assert result.returncode == 1, result.stdout + result.stderr
     assert {row["name"] for row in rows} == expected_names
     assert calls[-1][0] == "rm"
+
+
+@pytest.mark.parametrize(("args", "message"), [
+    (("--shard", "1/4", "-q"), "--shard requires --focused --partitioned"),
+    (("--focused", "--shard", "1/4"), "--shard requires --focused --partitioned"),
+    (("--focused", "--partitioned", "--shard", "4/4"), "index must be 0-based"),
+    (("--focused", "--partitioned", "--shard", "1/1"), "total >= 2"),
+    (("--focused", "--partitioned", "--shard", "2/0"), "total >= 2"),
+    (("--focused", "--partitioned", "--shard", "1"), "expected index/total"),
+    (("--focused", "--partitioned", "--shard", "a/b"), "expected index/total"),
+    (("--focused", "--partitioned", "--shard", "-1/4"), "expected index/total"),
+    (("--focused", "--partitioned", "--shard", "2/"), "expected index/total"),
+    (("--focused", "--partitioned", "--shard", "2/4/1"), "expected index/total"),
+    (("--shard",), "requires an index/total"),
+    (("--focused", "--partitioned", "--phases", "strict,unknown"), "unknown test phase"),
+    (("--focused", "--partitioned", "--phases", "strict,strict"), "repeated test phase"),
+    (("--focused", "--partitioned", "--phases", "strict,"), "comma-separated phase list"),
+    (("--focused", "--partitioned", "--phases", ""), "comma-separated phase list"),
+    (("--focused", "--partitioned", "--phases", "STRICT"), "comma-separated phase list"),
+    (("--focused", "--phases", "strict"), "--phases requires --focused --partitioned"),
+    (("--phases",), "requires a comma-separated"),
+])
+def test_partition_flag_validation_rejects_bad_requests(tmp_path, args, message):
+    calls = tmp_path / "docker-calls"
+    docker = tmp_path / "docker"
+    docker.write_text('#!/bin/sh\nprintf called >> "$DOCKER_CALLS"\nexit 79\n')
+    docker.chmod(0o755)
+    result = subprocess.run(
+        ["bash", str(RUNNER), *args], cwd=ROOT,
+        env={**os.environ, "PATH": str(tmp_path) + os.pathsep + os.environ["PATH"], "DOCKER_CALLS": str(calls)},
+        capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert message in result.stdout + result.stderr, result.stdout + result.stderr
+    assert not calls.exists(), result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("shard,expected", [
+    ("0/2", {"test_other"}),
+    ("1/2", {"test_plain"}),
+])
+def test_partition_shard_executes_exactly_one_slice(partition_run, shard, expected):
+    result, rows, calls = partition_run("--partitioned", "--phases", "parallel", "--shard", shard, "-q")
+    assert result.returncode == 0, result.stdout + result.stderr
+    # The declared part covers only its own slice, and never the serial phases.
+    assert {row["name"] for row in rows} == expected
+    assert all(row["worker"].startswith("gw") for row in rows)
+    assert f"postgres_test_shard={shard} shard_count=1 parallel_count=2" in result.stdout
+    assert "postgres_test_result=pass mode=focused partitioned=true shard=" in result.stdout
+    assert calls[-1][0] == "rm"
+
+
+def test_partition_shard_without_cases_fails_before_postgres(partition_run):
+    result, rows, calls = partition_run("--partitioned", "--phases", "parallel", "--shard", "2/4", "-q")
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert "selected no cases" in result.stdout + result.stderr
+    assert not rows and not calls
+
+
+def test_partition_shard_forces_the_parallel_phase_set(partition_run):
+    result, rows, _ = partition_run("--partitioned", "--shard", "0/2", "-q")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert {row["name"] for row in rows} == {"test_other"}
+    assert "postgres_test_shard_forced_phases=parallel" in result.stdout
+
+
+def test_partition_shard_rejects_changed_inventory_before_running_cases(partition_run):
+    # Under xdist a collection mismatch aborts the phase without running a case;
+    # the precise slice check itself is covered by the plugin contract below.
+    result, rows, calls = partition_run(
+        "--partitioned", "--phases", "parallel", "--shard", "0/2", "-k", "plain", "-q", tamper_phase="1"
+    )
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert not rows
+    assert "postgres_test_phase=focused-parallel status=fail" in result.stderr
+    assert "no tests ran" in result.stdout
+    assert calls[-1][0] == "rm"
+
+
+def test_phase_shard_declaration_must_equal_the_collection_slice(tmp_path):
+    """Часть обязана быть ровно срезом nodeids[index::total] собранного набора."""
+    for name in ("plain", "other"):
+        (tmp_path / f"test_{name}.py").write_text(f"def test_{name}(): pass\n")
+    (tmp_path / "test_strictly.py").write_text(
+        "import pytest\n@pytest.mark.strict_rls\ndef test_strictly(): pass\n"
+    )
+    (tmp_path / "pytest.ini").write_text("[pytest]\nmarkers =\n    strict_rls\n    serial_performance\n")
+    phase = tmp_path / "parallel.json"
+    # The sorted parallel phase is [test_other.py::test_other, test_plain.py::test_plain].
+    phase.write_text(json.dumps({"phase": "parallel", "nodeids": ["test_other.py::test_other"]}))
+    env = {**os.environ, "PYTHONPATH": str(ROOT / "apps/server/tests/fixtures")}
+
+    def collect(shard: str):
+        return subprocess.run(
+            [sys.executable, "-m", "pytest", "-p", "test_resources", "-c", str(tmp_path / "pytest.ini"),
+             "--collect-only", "-q", f"--graf-phase-file={phase}", f"--graf-phase-shard={shard}", str(tmp_path)],
+            cwd=tmp_path, env=env, capture_output=True, text=True, check=False,
+        )
+
+    accepted = collect("0/2")
+    assert accepted.returncode == 0, accepted.stdout + accepted.stderr
+    assert "test_other" in accepted.stdout and "test_plain" not in accepted.stdout
+    rejected = collect("1/2")
+    assert rejected.returncode != 0
+    assert "differs from the original collection" in rejected.stdout + rejected.stderr
+    undeclared = collect("")
+    assert undeclared.returncode != 0
+    assert "differs from the original collection" in undeclared.stdout + undeclared.stderr
+
+
+@pytest.mark.parametrize("phases,expected", [
+    ("parallel", {"test_plain", "test_other"}),
+    ("strict", {"test_both", "test_strict"}),
+    ("performance", {"test_performance"}),
+    ("strict,performance", {"test_both", "test_strict", "test_performance"}),
+])
+def test_partition_phases_select_exact_groups(partition_run, phases, expected):
+    result, rows, calls = partition_run("--partitioned", "--phases", phases, "-q")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert {row["name"] for row in rows} == expected
+    assert len(rows) == len(expected)
+    assert calls[-1][0] == "rm"

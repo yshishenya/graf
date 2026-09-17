@@ -137,7 +137,8 @@ existing results and do not execute product tests. The personal repository keeps
 serial merges because native merge queue is unavailable.
 
 For an iterative macOS-only failure, manually dispatch `macos-diagnostic` on
-the exact SHA instead of rerunning `release-full`. It runs no server-full job,
+the exact SHA instead of rerunning `release-full`. It runs no server component
+job (`server-static`, `server-phases`, `server-parallel`),
 publishes no authoritative evidence and cannot approve a release. After the
 macOS problem is resolved, the frozen candidate still needs exactly one complete
 `release-full` with both server and macOS components.
@@ -398,9 +399,9 @@ infra/scripts/cd-remote.sh --execute --branch master \
 
 `--execute` requires a clean tracked-and-untracked worktree, synchronizes and
 pins the SHA, verifies the candidate's immutable Full CI evidence digest, and
-only then proceeds to the unchanged backup, restore rehearsal, migration/RLS,
-secret, deployment, health, smoke and guarded rollback gates. It does not run a
-second Full CI for a candidate that already has authoritative evidence.
+only then proceeds to the unchanged backup, migration/RLS, secret, deployment,
+health, smoke and guarded rollback gates. It does not run a second Full CI for a
+candidate that already has authoritative evidence.
 `--skip-local-ci` is an incident exception only: it requires
 `--skip-local-ci-evidence <json>` containing non-empty `reason`, `approved_by`
 and `approved_at` fields. The evidence is machine-readable and must identify
@@ -476,6 +477,53 @@ file. Follow `docs/agent-guidance/macos-notarization.md` and run
 `apps/macos/Installer/Scripts/sign-graf-app-update-local.sh` only from the clean
 exact release tag on current `origin/master`.
 
+### The app release runs beside the server train, not after it
+
+The macOS app release is local and manual: no workflow in `.github/workflows/`
+builds, notarizes, or publishes the app or its appcast, and
+`scripts/prepare-release.sh` touches release metadata only. The whole chain is
+therefore the operator's to schedule, and its cost is dominated by one external
+wait that cannot be shortened.
+
+Measured on this workstation for `2026.09.17.1` from the retained release state
+under `apps/macos/.build/`. Rows marked "measured" come from artifact
+modification times, which the helpers write in a fixed order; the build rows are
+bounded that way rather than timed by the builder itself.
+
+| Phase | Measured | Note |
+| --- | --- | --- |
+| `swift build` arm64 release | 8 min 46 s | longest local step; bounded by the fixed build-start marker |
+| `swift build` x86_64 release | 55 s | warm, after the arm64 build |
+| packaging, signing, `pkgbuild`/`productbuild` | 9 s | |
+| notary input preparation | 21 s | stored submitted copies |
+| Apple notarization wait | 55 s | external; 49 s on the previous attempt |
+| stapling and trust validation | 9 s | `stapler` + `spctl` |
+| Sparkle signing, appcast, draft upload | ~4 min 30 s | upper bound; includes GitHub input download on a cold cache |
+
+Apple waiting is about a minute per release, so the critical path is local work
+and GitHub transfer, not Apple. `release-full` measured 17 min 54 s for the
+server release (`docs/current-product-status.md`), so server alone is the longer
+of the two lanes.
+
+The overlap that matters: `--phase prepare` needs only the clean frozen commit,
+and `--phase publish` needs only the published tag. Neither needs the server
+release to finish, so both app phases can run beside the server train instead of
+after it. Run in series the two gates add up; run this way the app is already
+notarized and Gatekeeper-checked when the server side finishes.
+
+```sh
+# terminal 1 — start with the frozen commit, before the server train finishes
+sh apps/macos/Installer/Scripts/release-app-update.sh \
+  --version YYYY.MM.DD.N --phase prepare
+# publish the commit and tag, and let the server release train run
+sh apps/macos/Installer/Scripts/release-app-update.sh \
+  --version YYYY.MM.DD.N --phase publish --verify-feed YYYY.MM.DD.N
+```
+
+The entrypoint prints a measured duration per phase, so the next release is
+planned from real numbers instead of estimates. It never replaces the live
+appcast; that stays a separate, deliberate owner action.
+
 Server CD preserves an existing regular, nonempty runtime `graf.pkg`; its
 public-download smoke verifies those preserved bytes. Only an absent runtime
 file uses the tracked package for initial installation and rollback. Publish
@@ -524,9 +572,14 @@ must preserve:
 - clean tracked-and-untracked working tree;
 - branch/ref sync with the intended remote;
 - pinned commit SHA;
-- backup and restore rehearsal evidence where required;
+- backup evidence for the deployed SHA in every release, plus the recurring
+  restore rehearsal that proves a backup can actually be restored;
 - secret scans;
 - health checks and smoke evidence;
+- a repeated Temporal and processing-worker readiness check after the smoke
+  test: the containers are the same, but the smoke test runs a real upload and
+  a real processing workflow on them, so this second observation is what
+  catches a crash, restart or unhealthy state introduced by that work;
 - metadata-only evidence.
 
 Use the exact production sequence:
@@ -550,6 +603,26 @@ Batch small validated changes into an intentional release candidate when that
 reduces repeated release overhead. Two planned release windows per day are a
 useful operating rhythm, not a hard gate; an explicitly marked hotfix remains
 available when production risk requires it.
+
+### Restore rehearsal cadence
+
+The restore rehearsal restores the whole Postgres dump and the whole object
+store into disposable targets. It no longer runs inside every release, because
+it dominated release time; the release still creates and reports its own fresh
+backup and blocks without one. The rehearsal now runs weekly and on demand:
+
+- `.github/workflows/backup-restore-rehearsal.yml` — schedule (Mondays 03:17
+  UTC) and `workflow_dispatch`;
+- `infra/scripts/rehearse-restore-scheduled.sh --dry-run|--execute` — the same
+  check from a workstation, rehearsing the newest backup under
+  `/opt/projects/2brain-rec/backups/` unless `--backup-reference` names one.
+
+CI has no production host access: every job runs on GitHub-hosted runners, no
+workflow uses SSH and Actions holds no deploy key. The scheduled job therefore
+fails closed with `reason=production_host_ssh_secret_missing` and prints the
+manual command until `PROD_SSH_HOST`, `PROD_SSH_USER`, `PROD_SSH_KEY` and
+`PROD_SSH_KNOWN_HOSTS` exist. A failing weekly run means the restore proof is
+missing; treat it as a blocked rollout trigger, not as noise.
 
 ### Release-train checklist
 

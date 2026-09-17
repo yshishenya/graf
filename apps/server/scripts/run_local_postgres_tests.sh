@@ -41,13 +41,34 @@ trap 'exit 143' TERM
 pytest_args=()
 requested_mode=""
 partitioned=false
-for argument in "$@"; do
+phases_given=false
+phases_spec=""
+shard_spec=""
+while (( $# > 0 )); do
+  argument="$1"
+  shift
   case "$argument" in
     --help|-h)
-      printf 'usage: %s --fast|--full|--focused [--partitioned] [pytest arguments]\n' "$0"
+      printf 'usage: %s --fast|--full|--focused [--partitioned] [--phases parallel,performance,strict] [--shard index/total] [pytest arguments]\n' "$0"
       exit 0
       ;;
     --partitioned) partitioned=true ;;
+    --phases)
+      (( $# > 0 )) || { printf '%s\n' '--phases requires a comma-separated phase list' >&2; exit 2; }
+      phases_given=true
+      phases_spec="$1"
+      shift
+      ;;
+    --phases=*)
+      phases_given=true
+      phases_spec="${argument#--phases=}"
+      ;;
+    --shard)
+      (( $# > 0 )) || { printf '%s\n' '--shard requires an index/total value such as 2/4' >&2; exit 2; }
+      shard_spec="$1"
+      shift
+      ;;
+    --shard=*) shard_spec="${argument#--shard=}" ;;
     --fast|--full|--focused)
       if [[ -n "$requested_mode" && "$requested_mode" != "${argument#--}" ]]; then
         printf 'conflicting test runner modes\n' >&2
@@ -65,12 +86,60 @@ if [[ "$partitioned" == true ]]; then
   [[ "$requested_mode" == focused ]] || { printf 'partitioned requires explicit --focused\n' >&2; exit 2; }
   for argument in "${pytest_args[@]}"; do
     case "$argument" in
-      -n*|--numprocesses*|--dist*|--tx*|--px*|--graf-phase-file*|-f|--looponfail|-d)
+      -n*|--numprocesses*|--dist*|--tx*|--px*|--graf-phase-file*|--graf-phase-shard*|-f|--looponfail|-d)
         printf 'partitioned owns xdist settings; use GRAF_TEST_WORKERS\n' >&2
         exit 2
         ;;
     esac
   done
+fi
+
+# Selected phases default to the complete Full partition; the release pipeline
+# splits them across jobs so the short serial phases do not queue behind parallel.
+selected_phases=(parallel performance strict)
+if [[ "$phases_given" == true ]]; then
+  [[ "$partitioned" == true && "$requested_mode" == focused ]] \
+    || { printf '%s\n' '--phases requires --focused --partitioned' >&2; exit 2; }
+  [[ -n "$phases_spec" ]] \
+    || { printf '%s\n' '--phases requires a non-empty comma-separated phase list' >&2; exit 2; }
+  [[ "$phases_spec" =~ ^[a-z]+(,[a-z]+)*$ ]] \
+    || { printf 'invalid --phases %q; expected a comma-separated phase list\n' "$phases_spec" >&2; exit 2; }
+  selected_phases=()
+  IFS=',' read -r -a requested_phases <<< "$phases_spec"
+  for phase in "${requested_phases[@]}"; do
+    case "$phase" in
+      parallel|performance|strict) ;;
+      *)
+        printf 'unknown test phase %q; expected parallel, performance or strict\n' "$phase" >&2
+        exit 2
+        ;;
+    esac
+    for known_phase in ${selected_phases[@]+"${selected_phases[@]}"}; do
+      [[ "$known_phase" != "$phase" ]] || { printf 'repeated test phase %s\n' "$phase" >&2; exit 2; }
+    done
+    selected_phases+=("$phase")
+  done
+fi
+
+shard_index=""
+shard_total=""
+if [[ -n "$shard_spec" ]]; then
+  [[ "$partitioned" == true && "$requested_mode" == focused ]] \
+    || { printf '%s\n' '--shard requires --focused --partitioned' >&2; exit 2; }
+  [[ "$shard_spec" =~ ^([0-9]+)/([0-9]+)$ ]] \
+    || { printf 'invalid --shard %q; expected index/total such as 2/4\n' "$shard_spec" >&2; exit 2; }
+  shard_index="$((10#${BASH_REMATCH[1]}))"
+  shard_total="$((10#${BASH_REMATCH[2]}))"
+  if (( shard_total < 2 )) || (( shard_index < 0 )) || (( shard_index >= shard_total )); then
+    printf 'invalid --shard %s; index must be 0-based and below total with total >= 2\n' "$shard_spec" >&2
+    exit 2
+  fi
+  # A part covers exactly one slice of the parallel phase, so this run must not
+  # claim the serial phases as well: those stay in the dedicated phases job.
+  if [[ "$phases_spec" != parallel ]]; then
+    printf 'postgres_test_shard_forced_phases=parallel\n'
+  fi
+  selected_phases=(parallel)
 fi
 
 mode="full"
@@ -142,10 +211,13 @@ run_phase() {
   local completed_at
   local duration_seconds
   started_at="$(date +%s)"
-  local report_args=(-c "$repo_root/apps/server/pyproject.toml")
+  # The resource plugin owns --graf-phase-file/--graf-phase-shard and the
+  # resource markers, so every phase must load it before argument parsing; it
+  # is also what lets a phase run work without a timing report directory.
+  local report_args=(-c "$repo_root/apps/server/pyproject.toml" -p tests.fixtures.test_resources)
   if [[ -n "${GRAF_TEST_REPORT_DIR:-}" ]]; then
     mkdir -p "$GRAF_TEST_REPORT_DIR"
-    report_args+=(-p tests.fixtures.test_resources --graf-report-file "$GRAF_TEST_REPORT_DIR/$phase.jsonl")
+    report_args+=(--graf-report-file "$GRAF_TEST_REPORT_DIR/$phase.jsonl")
   fi
   if uv run --extra dev --extra evaluation pytest "${report_args[@]}" "$@"; then
     completed_at="$(date +%s)"
@@ -293,6 +365,38 @@ if sys.argv[2] == "true":
         (root / f"{name}.json").write_text(json.dumps({"phase": name, "nodeids": groups[name]}))
 (root / "baseline-nodeids.txt").write_text("\n".join(sorted(baseline)) + "\n")
 PY_INVENTORY
+
+if [[ -n "$shard_spec" ]]; then
+  # Полный список фазы parallel сохраняем до нарезки: по нему агрегирующая
+  # задача доказывает, что части покрывают весь набор без пропусков и повторов.
+  python3 - "$metadata_directory" "$shard_spec" <<'PY_SHARD'
+import json
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+index, total = (int(part) for part in sys.argv[2].split("/"))
+path = root / "parallel.json"
+nodeids = sorted(json.loads(path.read_text(encoding="utf-8"))["nodeids"])
+(root / "parallel-full-nodeids.txt").write_text("\n".join(nodeids) + "\n", encoding="utf-8")
+slice_nodes = nodeids[index::total]
+if not slice_nodes:
+    raise SystemExit(f"shard {index}/{total} selected no cases")
+path.write_text(json.dumps({"phase": "parallel", "nodeids": slice_nodes}), encoding="utf-8")
+(root / "parallel-count").write_text(str(len(slice_nodes)), encoding="utf-8")
+(root / "shard-nodeids.txt").write_text("\n".join(slice_nodes) + "\n", encoding="utf-8")
+print(f"postgres_test_shard={index}/{total} shard_count={len(slice_nodes)} parallel_count={len(nodeids)}")
+PY_SHARD
+  if [[ -n "${GRAF_TEST_REPORT_DIR:-}" ]]; then
+    # Publish the coverage evidence outside the disposable metadata directory so
+    # the release job can upload it next to its component result.
+    mkdir -p "$GRAF_TEST_REPORT_DIR"
+    cp "$metadata_directory/parallel-full-nodeids.txt" \
+      "$GRAF_TEST_REPORT_DIR/parallel-full-nodeids-$shard_index.txt"
+    cp "$metadata_directory/shard-nodeids.txt" \
+      "$GRAF_TEST_REPORT_DIR/shard-nodeids-$shard_index.txt"
+  fi
+fi
 collection_count="$(cat "$metadata_directory/baseline-count")"
 collection_digest="$(shasum -a 256 "$metadata_directory/baseline-nodeids.txt" | awk '{ print $1 }')"
 printf 'postgres_test_mode=%s worker_count=%s collection_count=%s collection_digest=%s\n' \
@@ -329,18 +433,27 @@ PY_PURE
     start_postgres
   fi
   if [[ "$partitioned" == true ]]; then
-    for phase in parallel performance strict; do
+    for phase in "${selected_phases[@]}"; do
       (( $(cat "$metadata_directory/$phase-count") > 0 )) || continue
       phase_workers=0
       [[ "$phase" != parallel ]] || phase_workers="$workers"
+      phase_shard_args=()
+      if [[ "$phase" == parallel && -n "$shard_spec" ]]; then
+        # The part declares itself so the phase selector can prove that the
+        # executed slice is exactly nodeids[index::total] of this collection.
+        phase_shard_args=(--graf-phase-shard "$shard_index/$shard_total")
+      fi
       run_phase "focused-$phase" \
-        --graf-phase-file "$metadata_directory/$phase.json" -n "$phase_workers" --dist=loadfile \
+        --graf-phase-file "$metadata_directory/$phase.json" \
+        ${phase_shard_args[@]+"${phase_shard_args[@]}"} \
+        -n "$phase_workers" --dist=loadfile \
         "${timing_args[@]}" "${pytest_args[@]}"
     done
   else
     run_phase focused "${timing_args[@]}" "${pytest_args[@]}"
   fi
-  printf 'postgres_test_result=pass mode=focused partitioned=%s\n' "$partitioned"
+  printf 'postgres_test_result=pass mode=focused partitioned=%s shard=%s\n' \
+    "$partitioned" "${shard_spec:-none}"
   exit 0
 fi
 

@@ -22,6 +22,36 @@ Gatekeeper checks must pass before any public mutation. The historical
 as an ordinary Sparkle update. Local, ad-hoc, and self-signed identities are
 for isolated fixtures or historical receipts only.
 
+## 0. The one-command path
+
+`apps/macos/Installer/Scripts/release-app-update.sh` runs the whole chain below
+and prints a measured duration for every phase. It adds no gate of its own: each
+step delegates to the reviewed helper it already had, and the step order is the
+order those helpers already require. It never publishes to the public feed.
+
+```sh
+sh apps/macos/Installer/Scripts/release-app-update.sh \
+  --version YYYY.MM.DD.N --phase prepare
+# ... publish the commit and tag; the server release train runs meanwhile ...
+sh apps/macos/Installer/Scripts/release-app-update.sh \
+  --version YYYY.MM.DD.N --phase publish --verify-feed YYYY.MM.DD.N
+```
+
+`--phase all` runs both halves in one foreground chain. `--dry-run` prints the
+plan and resolves the Developer ID identities without building, calling Apple,
+uploading, or creating a release.
+
+**Why two phases.** The Apple notarization wait is external and cannot be
+compressed. `--phase prepare` needs only the clean frozen commit, so it can run
+at the same time as the server release train instead of after it; `--phase
+publish` needs the published tag and runs afterwards. A release that waits for
+the server and then builds the app pays for both in series; split this way the
+app is already notarized, stapled, and Gatekeeper-checked when the server side
+finishes.
+
+Sections 1-3 below remain the authoritative description of what each phase does,
+and stay the manual fallback when a phase has to be run step by step.
+
 ## 1. Preflight and build
 
 Missing Apple credentials are a publication stop. Check the stored profile
@@ -130,6 +160,18 @@ After publication, download the public artifacts again and verify:
 - Sparkle signature and `validate-app-updates.sh` against the prior app;
 - installed `/Applications/GRAF.app` version matches the live feed;
 - app and package pass stapler validation and Gatekeeper.
+
+The first two checks are scripted, because forgetting them is exactly how a
+client is left looking at a feed item whose archive does not exist yet:
+
+```sh
+sh apps/macos/Installer/Scripts/release-app-update.sh \
+  --version YYYY.MM.DD.N --phase publish --verify-feed YYYY.MM.DD.N
+```
+
+`--verify-feed` reads the live feed read-only, requires well-formed XML, requires
+the highest feed version to equal the released version, and requires the named
+archive URL to be HTTPS and to answer HTTP 200. It never writes the feed.
 
 Keep the evidence metadata-only. Do not commit credentials, signed URLs, raw
 audio, transcript text, private meeting content, or private screenshots.
