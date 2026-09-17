@@ -1,0 +1,2 @@
+# Data model
+Вариант = существующее value + label + disabled. `selectedValue` — прежний select/Binding, `query` — временный ввод, `expanded` и `activeIndex` — представление. Открытие показывает все варианты; ввод сужает; выбор переносит value и вызывает существующий change. Escape/blur возвращает label без change. Reset синхронизирует после штатного сброса. Для приложений query остаётся фильтром строк при blur; выбор имени также меняет только query. Никаких миграций.

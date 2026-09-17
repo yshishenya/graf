@@ -29,7 +29,12 @@ from twobrain_rec_server.outcomes.ai_service import (
     publish_model_generated_outcome,
 )
 from twobrain_rec_server.outcomes.generator import canonical_transcript
-from twobrain_rec_server.outcomes.prompts import outcome_config, prompt_snapshot_hash
+from twobrain_rec_server.outcomes.prompts import (
+    canonical_json,
+    meeting_protocol_config,
+    prompt_snapshot_hash,
+    validate_meeting_protocol,
+)
 from twobrain_rec_server.outcomes.templates import OUTCOME_CATEGORIES
 from twobrain_rec_server.workflows.temporal_client import (
     outcome_generation_workflow_id,
@@ -365,31 +370,54 @@ def test_generation_activity_replay_returns_matching_published_result(client, mo
                     "role": "system",
                     "content": (
                         "{{transcript_json}} {{output_language}} "
-                        "{{detail_level}} {{template_sections_json}}"
+                        "{{detail_level}} {{template_sections_json}} {{meeting_metadata_json}}"
                     ),
                 }
             ]
-            config = outcome_config(schema_name="graf_outcome")
+            config = meeting_protocol_config(model="test-protocol-model")
             attempt.prompt_name = "graf/meeting-outcome/auto"
             attempt.prompt_version = 1
             attempt.prompt_definition = prompt
             attempt.prompt_config = config
             attempt.prompt_source = "verified_promoted_snapshot"
             attempt.prompt_hash = prompt_snapshot_hash(prompt=prompt, config=config)
-            transcript = canonical_transcript(await _candidate_segments(db, attempt))
+            segments = await _candidate_segments(db, attempt)
+            transcript = canonical_transcript(segments)
             transcript_hash = sha256(transcript.encode("utf-8")).hexdigest()
             attempt.temporal_transcript_hash = transcript_hash
-            validated = {
-                "category_states": {
-                    category: "not_found" for category in OUTCOME_CATEGORIES
-                },
-                "items": [],
+            document = {
+                "schema_version": "graf-meeting-protocol-v1",
+                "title": "Синтетический протокол для проверки повторной доставки",
+                "date_and_time": None,
+                "input_type": "Транскрипт",
+                "meeting_type": "Рабочая",
+                "participants": [],
+                "executive_summary": [],
+                "objectives": [],
+                "topics": [],
+                "decisions": [],
+                "action_items": [],
+                "open_questions": [],
+                "next_steps": [],
+                "notes": [],
             }
+            validated = validate_meeting_protocol(
+                document, segments=segments, processing_result_id=_result.id
+            )
             validated_hash = _content_hash(validated)
             outcome_set.content_hash = validated_hash
+            outcome_set.protocol_json = validated["protocol"]
+            for category, state in validated["category_states"].items():
+                setattr(outcome_set, f"{category}_state", state)
             now = datetime.now(UTC)
-            raw_response = {"choices": []}
-            request = {"messages": []}
+            raw_response = {
+                "choices": [{"message": {"content": canonical_json(document)}}]
+            }
+            request = {
+                "model": config["model"],
+                "response_format": config["response_format"],
+                "messages": [{"role": "system", "content": f"{transcript} ru standard [] {{}}"}],
+            }
             call = GenerationCall(
                 workspace_id=meeting.workspace_id,
                 meeting_id=meeting.id,
@@ -445,6 +473,10 @@ def test_generation_activity_replay_returns_matching_published_result(client, mo
             )
             meeting = await db.get(Meeting, meeting_id)
             assert attempt is not None and meeting is not None
+            stored_outcome = await db.get(MeetingOutcomeSet, published_id)
+            assert stored_outcome is not None
+            assert stored_outcome.protocol_json == validated["protocol"]
+            assert stored_outcome.content_hash == validated_hash
             current_slot_id = await db.scalar(
                 select(MeetingSummarySlot.current_outcome_set_id).where(
                     MeetingSummarySlot.meeting_id == meeting_id,
@@ -480,11 +512,11 @@ def test_missing_provider_config_does_not_reserve_generation_call(client) -> Non
                     "role": "system",
                     "content": (
                         "{{transcript_json}} {{output_language}} "
-                        "{{detail_level}} {{template_sections_json}}"
+                        "{{detail_level}} {{template_sections_json}} {{meeting_metadata_json}}"
                     ),
                 }
             ]
-            config = outcome_config(schema_name="graf_outcome")
+            config = meeting_protocol_config(model="test-protocol-model")
             attempt.prompt_name = "graf/meeting-outcome/auto"
             attempt.prompt_version = 1
             attempt.prompt_definition = prompt

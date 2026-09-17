@@ -26,21 +26,20 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(DesktopCabinetWorkspaceView.shellEmbeddedSurfaceMinHeight, 520)
         XCTAssertEqual(DesktopMeetingShellChrome.collapsedInspectorWidth, 52)
         XCTAssertEqual(DesktopMeetingShellChrome.expandedInspectorWidth, 308)
-        XCTAssertEqual(DesktopMeetingShellChrome.shellBackgroundHex, "#0a0a0b")
-        XCTAssertEqual(DesktopMeetingShellChrome.shellRailHex, "#121214")
-        XCTAssertEqual(DesktopMeetingShellChrome.shellSurfaceHex, "#1c1c1f")
+        XCTAssertEqual(DesktopMeetingShellChrome.shellBackgroundHex, "#17181b")
+        XCTAssertEqual(DesktopMeetingShellChrome.shellRailHex, "#1d1f23")
+        XCTAssertEqual(DesktopMeetingShellChrome.shellSurfaceHex, "#22252a")
         XCTAssertEqual(DesktopMeetingShellChrome.recordingStripHex, "#342087")
-        XCTAssertEqual(DesktopMeetingShellChrome.shellAccentHex, "#8c73ff")
+        XCTAssertEqual(DesktopMeetingShellChrome.shellAccentHex, "#7056e9")
         XCTAssertEqual(DesktopMeetingShellChrome.webButtonHeight, 32)
-        XCTAssertEqual(DesktopMeetingShellChrome.webButtonCornerRadius, 7)
+        XCTAssertEqual(DesktopMeetingShellChrome.webButtonCornerRadius, 8)
         XCTAssertEqual(DesktopMeetingShellChrome.webButtonHorizontalPadding, 12)
-        XCTAssertEqual(DesktopMeetingShellChrome.webButtonPrimaryHex, "#8c73ff")
-        XCTAssertEqual(DesktopMeetingShellChrome.webButtonSecondaryDarkHex, "#26282c")
-        XCTAssertEqual(DesktopMeetingShellChrome.webButtonBorderDarkHex, "#30343a")
+        XCTAssertEqual(DesktopMeetingShellChrome.webButtonPrimaryHex, "#7056e9")
+        XCTAssertEqual(DesktopMeetingShellChrome.webButtonSecondaryDarkHex, "#272a30")
+        XCTAssertEqual(DesktopMeetingShellChrome.webButtonBorderDarkHex, "#7e8898")
         XCTAssertEqual(DesktopMeetingShellChrome.webEmbeddedBackgroundHex, DesktopMeetingShellChrome.shellBackgroundHex)
         XCTAssertEqual(DesktopMeetingShellChrome.fontStackDescription, "SF Pro Text / system")
         XCTAssertEqual(DesktopMeetingShellChrome.compactRailLabels, ["Статус записи", "Локальная сохранность"])
-        XCTAssertEqual(DesktopCabinetWorkspaceView.embeddedWorkspaceMaxWidth, 1120)
         XCTAssertFalse(DesktopMeetingShellChrome.idleShowsNativeTopBar)
         XCTAssertEqual(DesktopMeetingShellChrome.recordingStripHeight, 44)
         XCTAssertGreaterThanOrEqual(
@@ -141,7 +140,8 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertTrue(source.contains(".accessibilityElement(children: .contain)"))
         XCTAssertTrue(source.contains(".accessibilityElement(children: .combine)"))
         XCTAssertTrue(source.contains(".accessibilityIdentifier(SystemAudioAccessibilityIdentifier.statusSurface)"))
-        XCTAssertTrue(source.contains(".lineLimit(1)"))
+        XCTAssertFalse(source.contains(".lineLimit(1)"), "Capture actions must not truncate in the narrow widget")
+        XCTAssertTrue(source.contains(".fixedSize(horizontal: false, vertical: true)"))
         XCTAssertTrue(source.contains(".accessibilityRemoveTraits(.isSelected)"))
         XCTAssertTrue(source.contains("VStack(alignment: .leading, spacing: 8)"))
         XCTAssertGreaterThanOrEqual(
@@ -166,7 +166,7 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertEqual(SystemAudioAccessibilityIdentifier.recordingSource, "systemAudio.status.source")
         XCTAssertEqual(SystemAudioStatusLabels.recordingSourceTitle, "Источник")
         XCTAssertEqual(SystemAudioStatusLabels.recordingSourceSystemAudio, "Системный звук")
-        XCTAssertEqual(SystemAudioStatusLabels.recordingSourceUnknown, "Источник не определён")
+        XCTAssertEqual(SystemAudioStatusLabels.recordingSourceUnknown, "Источник не определен")
         XCTAssertEqual(
             SystemAudioStatusLabels.recordingSourceAccessibilityLabel("Zoom"),
             "Источник: Zoom"
@@ -314,7 +314,6 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertTrue(source.contains("DesktopMeetingShellChrome.minimumInteractiveTarget"))
         XCTAssertTrue(source.contains("activeCabinetState.recoverySystemImage"))
         XCTAssertTrue(source.contains("accessibilityElement(children: recoveryTarget == nil ? .combine : .contain)"))
-        XCTAssertTrue(source.contains(".accessibilityLabel(title)"))
         XCTAssertEqual(DesktopCabinetState.offline.recoveryActionTitle, "Повторить")
         XCTAssertFalse(DesktopCabinetState.offline.userMessage.localizedCaseInsensitiveContains("сервером rec"))
         XCTAssertFalse(DesktopCabinetState.offline.userMessage.localizedCaseInsensitiveContains("пароли календаря"))
@@ -342,8 +341,8 @@ final class AppControlAccessibilityTests: XCTestCase {
             "x-apple.systempreferences"
         )
         XCTAssertEqual(
-            DesktopPermissionOnboardingAccessibilityIdentifier.sheet,
-            "desktop.permissionOnboarding.sheet"
+            DesktopPermissionOnboardingAccessibilityIdentifier.page,
+            "desktop.permissionOnboarding.page"
         )
     }
 
@@ -356,17 +355,21 @@ final class AppControlAccessibilityTests: XCTestCase {
             DesktopPermissionOnboardingView.startStepDetail
         ]
 
-        XCTAssertTrue(DesktopPermissionOnboardingView.subtitle.contains("Запись не начнется"))
-        XCTAssertTrue(DesktopPermissionOnboardingView.systemAudioStepDetail.contains("проверьте снова"))
-        XCTAssertTrue(DesktopPermissionOnboardingView.restartDetail.contains("Не сбрасывайте все разрешения"))
+        XCTAssertTrue(DesktopPermissionOnboardingView.recordingBoundaryDetail.contains("запись не идет"))
+        XCTAssertTrue(DesktopPermissionOnboardingView.systemAudioStepDetail.contains("не сохраняет видео экрана"))
+        XCTAssertTrue(DesktopPermissionOnboardingView.restartDetail.contains("можно перезапустить"))
         XCTAssertTrue(DesktopPermissionOnboardingView.startStepDetail.contains("кнопку записи"))
-        XCTAssertEqual(DesktopPermissionOnboardingView.openSettingsTitle, "Открыть настройки macOS")
-        XCTAssertEqual(DesktopPermissionOnboardingView.retryTitle, "Проверить снова")
+        XCTAssertEqual(DesktopPermissionOnboardingView.openSettingsTitle, "Открыть настройки")
+        XCTAssertEqual(DesktopPermissionOnboardingView.retryTitle, "Проверить еще раз")
         XCTAssertEqual(DesktopPermissionOnboardingView.restartTitle, "Перезапустить GRAF")
         XCTAssertTrue(DesktopPermissionOnboardingView.microphoneDeniedDetail.contains("Откройте настройки"))
         XCTAssertEqual(
             DesktopPermissionOnboardingAccessibilityIdentifier.restartButton,
             "desktop.permissionOnboarding.restart"
+        )
+        XCTAssertEqual(
+            DesktopPermissionOnboardingAccessibilityIdentifier.laterButton,
+            "desktop.permissionOnboarding.later"
         )
         for text in copy {
             XCTAssertFalse(text.localizedCaseInsensitiveContains("krisp"))
@@ -376,79 +379,60 @@ final class AppControlAccessibilityTests: XCTestCase {
         }
     }
 
-    func testDesktopAppPresentsStartupPermissionOnboardingWithoutStartingRecording() throws {
-        let source = try String(
-            contentsOf: Self.repositoryRoot()
-                .appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"),
-            encoding: .utf8
-        )
-
-        XCTAssertTrue(source.contains(".sheet(isPresented: $permissionOnboardingPresented)"))
-        XCTAssertTrue(source.contains("refreshPermissionOnboarding(reason: \"app_appeared\", presentIfNeeded: false)"))
-        XCTAssertTrue(source.contains("refreshPermissionOnboarding(reason: \"app_became_active\", presentIfNeeded: false)"))
-        let appAppearedStart = try XCTUnwrap(source.range(of: "        .onAppear {\n"))
-        let appAppearedEnd = try XCTUnwrap(
-            source[appAppearedStart.upperBound...].range(of: "\n        .onChange(of: protectedUpdateWork)")
-        )
-        let appAppearedBlock = source[appAppearedStart.lowerBound..<appAppearedEnd.lowerBound]
-        XCTAssertTrue(appAppearedBlock.contains("refreshPermissionOnboarding(reason: \"app_appeared\", presentIfNeeded: false)"))
-        XCTAssertTrue(appAppearedBlock.contains("Task { await refreshPermissionOnboardingWithFunctionalProbe(reason: \"app_appeared\") }"))
-        XCTAssertFalse(appAppearedBlock.contains("presentIfNeeded: true"))
-
-        let probeStart = try XCTUnwrap(source.range(of: "    private func refreshPermissionOnboardingWithFunctionalProbe("))
-        let probeEnd = try XCTUnwrap(
-            source[probeStart.upperBound...].range(of: "\n    @MainActor\n    private func requestStartupMicrophonePermission")
-        )
-        let probeBlock = source[probeStart.lowerBound..<probeEnd.lowerBound]
-        XCTAssertTrue(probeBlock.contains("guard verifiedState == .granted else {"))
-        XCTAssertTrue(probeBlock.contains("if presentIfNeeded {\n                permissionOnboardingPresented = true"))
-        XCTAssertTrue(probeBlock.contains("if permissionOnboardingStatus.isReady && !permissionRestartRequired {\n            permissionOnboardingPresented = false"))
-        XCTAssertTrue(probeBlock.contains("} else if presentIfNeeded {\n            permissionOnboardingPresented = true"))
-        XCTAssertTrue(source.contains("microphoneCaptureService.preflight("))
-        XCTAssertTrue(source.contains("sessionId: \"startup-permission-onboarding\""))
-        XCTAssertTrue(source.contains("microphoneCaptureService.requestPermissionAndPreflight("))
-        XCTAssertTrue(source.contains("openMicrophonePermissionSettings()"))
-        XCTAssertTrue(source.contains("microphoneCaptureService.requestPermissionForSettings()"))
-        XCTAssertTrue(source.contains("systemAudioPermissionAuthorizer.requestPermission()"))
-        XCTAssertTrue(source.contains("systemAudioPermissionAuthorizer.verifyCurrentPermission()"))
-        XCTAssertTrue(source.contains("refreshPermissionOnboardingWithFunctionalProbe"))
-        XCTAssertTrue(source.contains("presentIfNeeded: Bool = true"))
-        XCTAssertTrue(source.contains("if presentIfNeeded {"))
-        XCTAssertTrue(source.contains("permissionFunctionalProbeInProgress"))
-        XCTAssertTrue(source.contains("lastObservedSystemAudioPermission"))
-        XCTAssertTrue(source.contains("systemAudioPermissionTransitionRequiresRestart"))
-        XCTAssertTrue(source.contains("observeSystemAudioPermission"))
-        XCTAssertTrue(source.contains("effectiveSystemAudioPermissionState"))
-        XCTAssertTrue(source.contains("permissionOnboardingPresented = true"))
-        XCTAssertTrue(source.contains("if status.isReady && !permissionRestartRequired {\n            permissionOnboardingPresented = false"))
-        XCTAssertTrue(source.contains("restartRequired: permissionRestartRequired"))
-        XCTAssertTrue(source.contains("status: effectivePermissionOnboardingStatus"))
-        XCTAssertTrue(source.contains("applicationName: currentApplicationDisplayName"))
-        XCTAssertTrue(source.contains("Bundle.main.bundleIdentifier"))
-        XCTAssertTrue(source.contains("currentApplicationIdentityDetail"))
-        XCTAssertTrue(source.contains("let previousPermissionState = permissionOnboardingStatus.systemAudio"))
-        XCTAssertTrue(source.contains("onRestart: {"))
-        XCTAssertTrue(source.contains("effectivePermissionOnboardingStatus"))
-        XCTAssertTrue(source.contains("presentPermissionRecoveryAfterSystemAudioRuntimeFailure"))
-        XCTAssertTrue(source.contains("captureError == .runtimeStartFailed"))
-        XCTAssertTrue(source.contains("systemAudioPermissionAuthorizer.currentPermissionState() == .granted"))
-        XCTAssertTrue(source.contains("permissionRestartRequired = true"))
-        XCTAssertTrue(source.contains("appDelegate.requestRelaunch()"))
-        XCTAssertTrue(source.contains("relaunchAfterTermination"))
-        XCTAssertTrue(source.contains("configuration.createsNewApplicationInstance = true"))
-        XCTAssertTrue(source.contains("NSWorkspace.shared.openApplication("))
-        XCTAssertFalse(source.contains("requestStartupMicrophonePermission() async {\n        await startManualRecording"))
-        XCTAssertFalse(source.contains("requestStartupSystemAudioPermission() async {\n        await startManualRecording"))
+    func testPermissionSetupIsExplicitAndCannotResumeARecordingCommand() throws {
+        let source = try String(contentsOf: Self.repositoryRoot()
+            .appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"), encoding: .utf8)
+        func block(_ start: String, _ end: String) throws -> String {
+            let a = try XCTUnwrap(source.range(of: start))
+            let b = try XCTUnwrap(source[a.upperBound...].range(of: end))
+            return String(source[a.lowerBound..<b.lowerBound])
+        }
+        let refresh = try block("    private func refreshPermissionOnboarding(", "    private func requestStartupMicrophonePermission")
+        XCTAssertFalse(refresh.contains("permissionOnboardingPresented ="), "Refresh must never open or dismiss setup")
+        XCTAssertFalse(refresh.contains("startManualRecording("))
+        let setup = try block("    private func presentPermissionSetup()", "    private func refreshPermissionOnboarding(")
+        XCTAssertTrue(setup.contains("dismissMeetingDetectionPrompt()"))
+        XCTAssertTrue(setup.contains(".retryable(reason: \"permission_setup_in_progress\")"))
+        let start = try block("    private func startManualRecording(", "    private func stopManualRecording(")
+        XCTAssertFalse(start.contains("requestPermission"), "Recording must never request a permission and then continue capture")
+        let preflight = try XCTUnwrap(start.range(of: "guard effectivePermissionOnboardingStatus.isReady"))
+        let preparing = try XCTUnwrap(start.range(of: "captureController.beginPreparing("))
+        XCTAssertLessThan(preflight.lowerBound, preparing.lowerBound)
+        XCTAssertTrue(start.contains("guard !permissionSetupBlocksRecording"))
+        XCTAssertTrue(source.contains("permissionOperationInProgress && effectivePermissionOnboardingStatus.isReady"), "Pending permission work must block Record, but leave the separate setup entry available")
+        let restart = try block("    private func restartGRAFAfterPermissionChange()", "    private func refreshCalendarReminder(")
+        XCTAssertTrue(restart.contains("guard !protectedUpdateWork.isProtected, !permissionOperationInProgress"))
+        XCTAssertFalse(source.contains("systemAudioPermissionTransitionRequiresRestart"))
+        XCTAssertFalse(source.contains("requestPermissionForSettings()"))
+        let settings = try block("    private func openPermissionSettings(", "    private func restartGRAFAfterPermissionChange()")
+        XCTAssertFalse(settings.contains("permissionRecoverySuggested = true"))
+        XCTAssertTrue(settings.contains("NSWorkspace.shared.open(url) ? nil"))
+        let authorizer = try String(contentsOf: Self.repositoryRoot()
+            .appendingPathComponent("apps/macos/RecApp/Sources/Capture/SystemAudioCaptureService.swift"), encoding: .utf8)
+        let consent = try XCTUnwrap(authorizer.range(of: "guard observedState == .granted else"))
+        let query = try XCTUnwrap(authorizer.range(of: "SCShareableContent.getExcludingDesktopWindows"))
+        XCTAssertLessThan(consent.lowerBound, query.lowerBound)
     }
 
-    func testDesktopAppDismissesPermissionSheetsBeforeTerminationCleanup() throws {
+    func testDesktopAppKeepsSetupIntentAndDismissesOtherSheetsBeforeTerminationCleanup() throws {
         let source = try String(
             contentsOf: Self.repositoryRoot()
                 .appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"),
             encoding: .utf8
         )
 
-        XCTAssertTrue(source.contains("permissionOnboardingPresented = false"))
+        XCTAssertTrue(source.contains("@AppStorage(\"permissionOnboarding.active\") private var permissionOnboardingPresented = false"))
+        XCTAssertFalse(source.contains(".sheet(isPresented: $permissionOnboardingPresented)"))
+        XCTAssertTrue(source.contains(".disabled(permissionOnboardingPresented)"))
+        XCTAssertTrue(source.contains(".accessibilityHidden(permissionOnboardingPresented)"))
+        // Only explicit Later/Done clear intent, never OS Quit or our own relaunch.
+        XCTAssertEqual(source.components(separatedBy: "permissionOnboardingPresented = false").count - 1, 3)
+        let cleanupStart = try XCTUnwrap(source.range(of: ".onReceive(NotificationCenter.default.publisher(for: .twoBrainRecApplicationShouldTerminate))"))
+        let cleanupEnd = try XCTUnwrap(source[cleanupStart.upperBound...].range(of: ".onReceive("))
+        XCTAssertFalse(source[cleanupStart.lowerBound..<cleanupEnd.lowerBound].contains("permissionOnboardingPresented = false"))
+        let restartStart = try XCTUnwrap(source.range(of: "private func restartGRAFAfterPermissionChange()"))
+        let restartEnd = try XCTUnwrap(source[restartStart.upperBound...].range(of: "private func refreshCalendarReminder"))
+        XCTAssertFalse(source[restartStart.lowerBound..<restartEnd.lowerBound].contains("permissionOnboardingPresented = false"))
         XCTAssertTrue(source.contains("permissionOnboardingRequestInProgress = false"))
         XCTAssertTrue(source.contains("dismissMeetingDetectionPrompt()"))
         XCTAssertTrue(source.contains("dismissModalWindowsForTermination()"))
@@ -518,16 +502,31 @@ final class AppControlAccessibilityTests: XCTestCase {
 
         XCTAssertTrue(source.contains("ScrollView"))
         XCTAssertTrue(source.contains("Автозапись"))
-        XCTAssertTrue(source.contains("ForEach(promptCapableTargets"))
+        XCTAssertTrue(source.contains("pageTitle = \"Запись встреч\""))
+        XCTAssertTrue(source.contains("autoRecordSectionTitle = \"Автозапись для приложений\""))
+        XCTAssertTrue(source.contains("Для всех приложений"))
+        XCTAssertFalse(source.contains("Не удалось прочитать сохраненные правила."))
+        XCTAssertTrue(source.contains("через 8 секунд, если не отказаться"))
+        XCTAssertFalse(source.contains("Изменения сохраняются автоматически"))
+        XCTAssertTrue(source.contains("Для приложений выбраны разные правила"))
+        XCTAssertFalse(source.contains("после загрузки реестра"))
+        XCTAssertTrue(source.contains("Button(\"Повторить\")"))
+        XCTAssertTrue(source.contains("Не сохранено."))
+        XCTAssertTrue(source.contains("ForEach(filteredTargets"))
         XCTAssertTrue(source.contains("AutomaticRecordingRulePicker"))
         XCTAssertTrue(source.contains("bulkRuleBinding"))
         XCTAssertTrue(source.contains("rule.displayName"))
-        XCTAssertTrue(source.contains("selection?.displayName ?? \"Разные\""))
-        XCTAssertTrue(source.contains(".accessibilityLabel(title)"))
-        XCTAssertTrue(source.contains(".accessibilityValue"))
-        XCTAssertTrue(source.contains(".accessibilityHint"))
-        XCTAssertTrue(source.contains(".accessibilityAddTraits(selection == rule ? .isSelected : [])"))
-        XCTAssertTrue(source.contains(".frame(width: 20)"))
+        XCTAssertTrue(
+            source.contains("selection: ruleBinding(for: target.id),\n                                        isDisabled: promptCapableTargets.isEmpty || !settingsAvailable")
+                || source.components(separatedBy: "isDisabled: promptCapableTargets.isEmpty || !settingsAvailable").count == 3,
+            "Per-app rules must be disabled while stored settings are unavailable"
+        )
+        XCTAssertTrue(source.contains("selection?.displayName ?? \"Разные правила\""))
+        XCTAssertTrue(source.contains("NativeSettingsComboBox("))
+        XCTAssertTrue(source.contains("selectedID: selection?.rawValue"))
+        XCTAssertTrue(source.contains("NativeSettingsComboBox.matchesSearch($0.displayName, query: search)"))
+        XCTAssertFalse(source.contains(".frame(width: 112"))
+        XCTAssertFalse(source.contains("app.dashed"))
         XCTAssertTrue(source.contains(".disabled(isDisabled)"))
         XCTAssertFalse(source.contains(".disabled(currentPolicy?.isActive() != true)"))
         XCTAssertFalse(source.contains("settings.detectionMode"))
@@ -548,7 +547,8 @@ final class AppControlAccessibilityTests: XCTestCase {
             encoding: .utf8
         )
 
-        XCTAssertTrue(source.contains("decision.route.kind == .meetingDetectionSettings"))
+        XCTAssertTrue(source.contains("[.meetingDetectionSettings, .notificationSettings].contains(decision.route.kind)"))
+        XCTAssertTrue(source.contains("if decision.route.kind == .notificationSettings { onOpenNotificationSettings() }"))
         XCTAssertTrue(source.contains("navigationController.cancelPendingNavigation(webView: webView)"))
         XCTAssertTrue(source.contains("onOpenMeetingDetectionSettings()"))
         XCTAssertTrue(source.contains("decisionHandler(.cancel)"))
@@ -570,13 +570,47 @@ final class AppControlAccessibilityTests: XCTestCase {
             XCTAssertTrue(source.contains(command), "Missing edit command \(command)")
         }
         XCTAssertTrue(source.contains("installMainMenu(on: app, zoomTarget: appDelegate)"))
-        XCTAssertTrue(source.contains("withTitle: \"Settings...\""))
+        XCTAssertTrue(source.contains("withTitle: \"Настройки…\""))
         XCTAssertTrue(source.contains("#selector(AppLifecycleDelegate.openSettings(_:))"))
-        XCTAssertTrue(source.contains("MeetingDetectionSettingsView()"))
+        XCTAssertTrue(source.contains("LocalSettingsFallbackView("))
+        XCTAssertFalse(source.contains("NSTabViewController"))
         XCTAssertTrue(source.contains("WorkspaceZoomMenu.items"))
         XCTAssertTrue(source.contains("increaseWorkspaceZoom"))
         XCTAssertTrue(source.contains("decreaseWorkspaceZoom"))
         XCTAssertTrue(source.contains("resetWorkspaceZoom"))
+    }
+
+    func testNotificationControlsKeepLifecycleAndSettingsRoutesAfterIntegration() throws {
+        let root = try Self.repositoryRoot()
+        let app = try String(contentsOf: root.appendingPathComponent("apps/macos/RecApp/App/TwoBrainRecApp.swift"), encoding: .utf8)
+        let warning = try XCTUnwrap(app.components(separatedBy: "private var meetingMuteTruthWarningText").last)
+            .components(separatedBy: "\n    }").first ?? ""
+        XCTAssertTrue(warning.contains("localRecordingActive || recordingStopInProgress"))
+        XCTAssertFalse(warning.contains("localRecordingManifest"), "Historical truth must not keep an active-capture warning visible")
+        let actions = try XCTUnwrap(app.components(separatedBy: "private func syncControlPanel()").last)
+            .components(separatedBy: "private var protectedUpdateWork").first ?? ""
+        XCTAssertTrue(actions.contains("openLocalRecordingSettings()"))
+        XCTAssertTrue(actions.contains("presentPermissionSetup()"))
+        XCTAssertFalse(actions.contains("permissionOnboardingPresented = true"))
+        let settings = try String(contentsOf: root.appendingPathComponent("apps/macos/RecApp/Sources/MeetingDetection/MeetingDetectionSettingsView.swift"), encoding: .utf8)
+        XCTAssertFalse(settings.contains(".frame(width: Self.windowSize.width, height: Self.windowSize.height)"))
+    }
+
+    func testNotificationSettingsKeepSystemPermissionActionsAvailableWithoutSignIn() throws {
+        let source = try String(
+            contentsOf: Self.repositoryRoot()
+                .appendingPathComponent("apps/macos/RecApp/Sources/Notifications/DesktopNotificationPresenter.swift"),
+            encoding: .utf8
+        )
+
+        XCTAssertTrue(source.contains("Button(\"Включить уведомления на этом Mac\")"))
+        XCTAssertTrue(source.contains("Button(\"Открыть настройки macOS\")"))
+        XCTAssertTrue(source.contains("Войдите в GRAF, чтобы сохранить настройки для своего аккаунта."))
+        XCTAssertTrue(source.contains(".disabled(presenter.owner.isEmpty)"))
+        XCTAssertFalse(
+            source.contains(".padding(24)\n        .disabled(presenter.owner.isEmpty)"),
+            "Системные действия macOS должны работать до входа, disabled остается только у серверных настроек"
+        )
     }
 
     private static func repositoryRoot() throws -> URL {

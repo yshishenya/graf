@@ -17,6 +17,8 @@ argon2-cffi-bindings==25.1.0
     # via argon2-cffi
 asyncpg==0.31.0
     # via twobrain-rec-server
+babel==2.18.0
+    # via twobrain-rec-server
 backoff==2.2.1
     # via langfuse
 certifi==2026.6.17
@@ -32,7 +34,9 @@ cffi==2.0.0
 charset-normalizer==3.4.9
     # via requests
 click==8.4.2
-    # via uvicorn
+    # via
+    #   uvicorn
+    #   x-wr-timezone
 colorama==0.4.6 ; sys_platform == 'win32'
     # via
     #   click
@@ -61,6 +65,11 @@ httpx==0.28.1
     # via
     #   langfuse
     #   twobrain-rec-server
+icalendar==7.3.0
+    # via
+    #   recurring-ical-events
+    #   twobrain-rec-server
+    #   x-wr-timezone
 idna==3.18
     # via
     #   anyio
@@ -126,6 +135,10 @@ pydantic-core==2.46.4
     # via pydantic
 pydantic-settings==2.14.2
     # via twobrain-rec-server
+python-dateutil==2.9.0.post0
+    # via
+    #   icalendar
+    #   recurring-ical-events
 python-dotenv==1.2.2
     # via
     #   pydantic-settings
@@ -134,8 +147,12 @@ python-multipart==0.0.32
     # via twobrain-rec-server
 pyyaml==6.0.3
     # via uvicorn
+recurring-ical-events==3.8.2
+    # via twobrain-rec-server
 requests==2.34.2
     # via opentelemetry-exporter-otlp-proto-http
+six==1.17.0
+    # via python-dateutil
 sqlalchemy==2.0.51
     # via
     #   alembic
@@ -167,6 +184,11 @@ typing-inspection==0.4.2
     #   fastapi
     #   pydantic
     #   pydantic-settings
+tzdata==2026.3
+    # via
+    #   icalendar
+    #   recurring-ical-events
+    #   x-wr-timezone
 urllib3==2.7.0
     # via
     #   minio
@@ -181,3 +203,5 @@ websockets==16.0
     # via uvicorn
 wrapt==2.2.2
     # via langfuse
+x-wr-timezone==2.0.1
+    # via recurring-ical-events

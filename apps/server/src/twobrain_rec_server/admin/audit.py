@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Any
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.admin.queries import AdminWorkspaceContext
+from twobrain_rec_server.cabinet.user_time import display_timezone_name
 from twobrain_rec_server.db.models import (
     AdminAuditEvent,
     AuthAuditEvent,
@@ -381,9 +383,9 @@ async def _lifecycle_events(
 
 def _with_date_filters(stmt, created_at, *, date_from: date | None, date_to: date | None):
     if date_from:
-        stmt = stmt.where(created_at >= datetime.combine(date_from, time.min, tzinfo=UTC))
+        stmt = stmt.where(created_at >= datetime.combine(date_from, time.min, tzinfo=ZoneInfo(display_timezone_name())))
     if date_to:
-        exclusive_end = datetime.combine(date_to + timedelta(days=1), time.min, tzinfo=UTC)
+        exclusive_end = datetime.combine(date_to + timedelta(days=1), time.min, tzinfo=ZoneInfo(display_timezone_name()))
         stmt = stmt.where(created_at < exclusive_end)
     return stmt
 

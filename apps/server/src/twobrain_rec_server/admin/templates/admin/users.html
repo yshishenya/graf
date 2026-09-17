@@ -78,7 +78,7 @@
       <ul class="admin-list">
         {% for invitation in view.users.invitations %}
           <li>
-            <span>{{ invitation.target_contact }} · {{ role_labels.get(invitation.invited_role, invitation.invited_role) }} · {{ status_labels.get(invitation.status, invitation.status) }} · до {{ invitation.expires_at }}</span>
+            <span>{{ invitation.target_contact }} · {{ role_labels.get(invitation.invited_role, invitation.invited_role) }} · {{ status_labels.get(invitation.status, invitation.status) }} · до {{ user_time_element(invitation.expires_at, show_zone=True) }}</span>
             {% if invitation.status == "pending" %}
               <form class="admin-inline-form" method="post" action="/admin/invitations/{{ invitation.id }}/revoke">
                 <input type="hidden" name="{{ csrf_field_name }}" value="{{ csrf_token }}">

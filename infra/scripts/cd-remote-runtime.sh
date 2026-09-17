@@ -31,6 +31,9 @@ if [[ "$(git rev-parse HEAD)" != "$expected_sha" ]]; then
   echo "expected_sha=$expected_sha"
   exit 1
 fi
+image_candidate_id="${4:?candidate ID is required}"
+image_decision_digest="${5:?decision digest is required}"
+image_full_digest="${6:?Full digest is required}"
 export TWOBRAIN_PRODUCTION_RELEASE_GATE=1
 runtime_release_lock=""
 if [[ "${TWOBRAIN_PRODUCTION_RELEASE_LOCK_HELD:-0}" != "1" ]]; then
@@ -43,6 +46,13 @@ if [[ "${TWOBRAIN_PRODUCTION_RELEASE_LOCK_HELD:-0}" != "1" ]]; then
   fi
 fi
 compose=(docker compose --profile operations -f infra/docker-compose.yml)
+image_attempt_id="$(python3 -c 'import uuid; print(uuid.uuid4().hex)')"
+image_state="$(git rev-parse --git-path graf-release-images)"
+image_attempt="$image_state/attempts/$image_attempt_id"
+image_helper="$image_attempt/release-images.py"
+images_recovery_verified=0
+prompt_worker_was_running=""
+images_result_write_failed=0
 runtime_mutated=0
 deployment_complete=0
 dispatch_opened=0
@@ -243,11 +253,6 @@ sync_public_download() {
   local target_dir="$runtime_dir/public-downloads"
   public_download_target="$target_dir/graf.pkg"
 
-  if [[ -L "$public_download_source" || ! -f "$public_download_source" || ! -s "$public_download_source" ]]; then
-    echo "deploy_result=blocked"
-    echo "reason=public_download_source_invalid"
-    exit 1
-  fi
   if [[ -L "$runtime_dir" || ( -e "$runtime_dir" && ! -d "$runtime_dir" ) ]]; then
     echo "deploy_result=blocked"
     echo "reason=public_download_runtime_directory_invalid"
@@ -267,14 +272,22 @@ sync_public_download() {
     echo "reason=public_download_directory_owner_invalid"
     exit 1
   fi
-  if [[ -L "$public_download_target" || ( -e "$public_download_target" && ! -f "$public_download_target" ) ]]; then
+  if [[ -L "$public_download_target" || ( -e "$public_download_target" && ( ! -f "$public_download_target" || ! -s "$public_download_target" ) ) ]]; then
     echo "deploy_result=blocked"
     echo "reason=public_download_target_invalid"
     exit 1
   fi
-  if [[ -f "$public_download_target" ]] && cmp -s "$public_download_source" "$public_download_target"; then
+  if [[ -f "$public_download_target" ]]; then
+    # macOS publication owns this file; a server deploy must preserve its version.
+    public_download_source="$public_download_target"
     echo "public_download_sync_result=unchanged"
     return
+  fi
+
+  if [[ -L "$public_download_source" || ! -f "$public_download_source" || ! -s "$public_download_source" ]]; then
+    echo "deploy_result=blocked"
+    echo "reason=public_download_source_invalid"
+    exit 1
   fi
 
   public_download_temporary="$(mktemp "$target_dir/.graf.pkg.deploy.XXXXXX")"
@@ -519,13 +532,13 @@ rollback_feature_storage() {
   root_user_file="${TWOBRAIN_MINIO_ROOT_USER_FILE:-./secrets/twobrain_minio_root_user}"
   root_password_file="${TWOBRAIN_MINIO_ROOT_PASSWORD_FILE:-./secrets/twobrain_minio_root_password}"
   media_access_file="${TWOBRAIN_MINIO_MEDIA_ACCESS_KEY_FILE:-./secrets/twobrain_minio_media_access_key}"
-  docker run --rm \
+  docker run --rm --pull never \
     --network twobrain-rec-private \
     --entrypoint /bin/sh \
     -v "$root_user_file":/run/secrets/twobrain_minio_root_user:ro \
     -v "$root_password_file":/run/secrets/twobrain_minio_root_password:ro \
     -v "$media_access_file":/run/secrets/twobrain_minio_media_access_key:ro \
-    minio/mc:RELEASE.2025-05-21T01-59-54Z \
+    "$GRAF_RELEASE_MC_IMAGE" \
     -eu -c '
       mc alias set rec http://rec-minio:9000 \
         "$(cat /run/secrets/twobrain_minio_root_user)" \
@@ -536,7 +549,7 @@ rollback_feature_storage() {
 }
 
 rollback_feature_database() {
-  "${compose[@]}" run --rm --no-deps rec-migrate \
+  "${compose[@]}" run --pull never --rm --no-deps rec-migrate \
     alembic downgrade "$previous_schema_head"
   local role_name role_exists
   for role_name in twobrain_rec_app twobrain_rec_media twobrain_rec_maintenance; do
@@ -597,35 +610,34 @@ restore_previous_services() {
   local rollback_failed=0
   git reset --hard "$previous_sha" >/dev/null 2>&1 || rollback_failed=1
   export TWOBRAIN_LANGFUSE_RELEASE="$previous_sha"
-  local available_services rollback_build_services rollback_up_services service
+  compose=(docker compose --profile operations -f infra/docker-compose.yml -f "$image_attempt/previous.json")
+  local available_services rollback_up_services service
   available_services="$("${compose[@]}" config --services 2>/dev/null || true)"
-  rollback_build_services=()
   rollback_up_services=()
-  for service in rec-api rec-db-runtime-bootstrap rec-maintenance rec-prompt-optimization-worker rec-migrate rec-minio-init rec-processing-worker; do
-    if grep -Fxq "$service" <<<"$available_services"; then
-      rollback_build_services+=("$service")
-    fi
-  done
   for service in rec-api rec-migrate rec-minio rec-minio-init rec-temporal rec-processing-worker rec-maintenance; do
     if grep -Fxq "$service" <<<"$available_services"; then
       rollback_up_services+=("$service")
     fi
   done
-  if (( ${#rollback_build_services[@]} == 0 || ${#rollback_up_services[@]} == 0 )); then
+  if [[ -n "$prompt_worker_was_running" ]] && grep -Fxq rec-prompt-optimization-worker <<<"$available_services"; then
+    rollback_up_services+=(rec-prompt-optimization-worker)
+  fi
+  if (( ${#rollback_up_services[@]} == 0 )); then
     rollback_failed=1
-  else
-    "${compose[@]}" build "${rollback_build_services[@]}" || rollback_failed=1
-    "${compose[@]}" up -d --no-build --wait --wait-timeout 240 \
+  elif [[ "$rollback_failed" == "0" ]]; then
+    "${compose[@]}" up -d --no-build --pull never --wait --wait-timeout 240 \
       "${rollback_up_services[@]}" || rollback_failed=1
+    python3 "$image_helper" verify previous || rollback_failed=1
   fi
   return "$rollback_failed"
 }
 
 restore_compatibility_runtime() {
   local rollback_failed=0
+  compose=(docker compose --profile operations -f infra/docker-compose.yml -f "$image_attempt/override.json")
   TWOBRAIN_PLAYBACK_NORMALIZATION_ENABLED=false \
     TWOBRAIN_PLAYBACK_NORMALIZATION_AUTOMATIC_DISPATCH_ENABLED=false \
-  "${compose[@]}" up -d --no-deps --no-build --force-recreate \
+  "${compose[@]}" up --pull never -d --no-deps --no-build --force-recreate \
   --wait --wait-timeout 240 \
     rec-temporal rec-processing-worker rec-api rec-maintenance >/dev/null 2>&1 || rollback_failed=1
   verify_processing_runtime_health || rollback_failed=1
@@ -691,19 +703,16 @@ restore_previous_safe_processing_runtime() {
   echo "rollback_fallback=previous_safe_processing_runtime"
   git reset --hard "$previous_sha" >/dev/null 2>&1 || rollback_failed=1
   export TWOBRAIN_LANGFUSE_RELEASE="$previous_sha"
-  if [[ "$rollback_failed" == "0" ]]; then
-    "${compose[@]}" build rec-api rec-processing-worker >/dev/null 2>&1 \
-      || rollback_failed=1
-  fi
+  compose=(docker compose --profile operations -f infra/docker-compose.yml -f "$image_attempt/previous.json")
 
   if [[ "$rollback_failed" == "0" ]]; then
     media_container="$("${compose[@]}" ps -aq rec-media-worker 2>/dev/null || true)"
-    "${compose[@]}" stop rec-media-worker rec-api rec-processing-worker rec-maintenance rec-temporal \
+    "${compose[@]}" stop rec-media-worker rec-api rec-processing-worker rec-maintenance rec-temporal rec-prompt-optimization-worker \
       >/dev/null 2>&1 || true
     [[ -z "$media_container" ]] \
       || docker rm -f "$media_container" >/dev/null 2>&1 \
       || true
-    "${compose[@]}" up -d --no-deps --no-build --force-recreate rec-temporal \
+    "${compose[@]}" up --pull never -d --no-deps --no-build --force-recreate rec-temporal \
       >/dev/null 2>&1 || rollback_failed=1
   fi
   if [[ "$rollback_failed" == "0" ]]; then
@@ -719,7 +728,11 @@ restore_previous_safe_processing_runtime() {
   fi
 
   if [[ "$rollback_failed" == "0" ]]; then
-    "${compose[@]}" up -d --no-deps --no-build --force-recreate rec-processing-worker rec-maintenance \
+    "${compose[@]}" up --pull never -d --no-deps --no-build --force-recreate rec-processing-worker rec-maintenance \
+      >/dev/null 2>&1 || rollback_failed=1
+  fi
+  if [[ "$rollback_failed" == "0" && -n "$prompt_worker_was_running" ]]; then
+    "${compose[@]}" up -d --no-deps --no-build --pull never --force-recreate rec-prompt-optimization-worker \
       >/dev/null 2>&1 || rollback_failed=1
   fi
   if [[ "$rollback_failed" == "0" ]]; then
@@ -737,7 +750,7 @@ restore_previous_safe_processing_runtime() {
   if [[ "$rollback_failed" == "0" ]]; then
     TWOBRAIN_PLAYBACK_NORMALIZATION_ENABLED=false \
       TWOBRAIN_PLAYBACK_NORMALIZATION_AUTOMATIC_DISPATCH_ENABLED=false \
-      "${compose[@]}" up -d --no-deps --no-build --force-recreate \
+      "${compose[@]}" up --pull never -d --no-deps --no-build --force-recreate \
       --wait --wait-timeout 240 rec-api >/dev/null 2>&1 || rollback_failed=1
   fi
   if [[ "$rollback_failed" == "0" ]]; then
@@ -750,6 +763,7 @@ restore_previous_safe_processing_runtime() {
 
   if [[ "$rollback_failed" == "0" ]]; then
     echo "rollback_result=pass"
+    images_recovery_verified=1
     echo "rollback_target=previous_safe_processing_runtime"
     echo "rollback_runtime_sha=$previous_sha"
     echo "dispatch_stopped=true"
@@ -766,7 +780,7 @@ restore_previous_runtime() {
   local rollback_failed=0 media_container current_schema truth_count
   echo "rollback_result=started"
   media_container="$("${compose[@]}" ps -q rec-media-worker 2>/dev/null || true)"
-  "${compose[@]}" stop rec-media-worker rec-maintenance rec-api >/dev/null 2>&1 || true
+  "${compose[@]}" stop rec-media-worker rec-maintenance rec-api rec-prompt-optimization-worker >/dev/null 2>&1 || true
   [[ -z "$media_container" ]] || docker rm -f "$media_container" >/dev/null 2>&1 || true
   current_schema="$("${compose[@]}" exec -T rec-postgres psql \
     -U twobrain_rec -d twobrain_rec -Atc 'select version_num from alembic_version' \
@@ -795,6 +809,7 @@ restore_previous_runtime() {
     restore_previous_services || rollback_failed=1
     if [[ "$rollback_failed" == "0" ]]; then
       echo "rollback_result=pass"
+      images_recovery_verified=1
       echo "rollback_target=raw_pre_099_without_feature_truth"
       echo "rollback_runtime_sha=$previous_sha"
       echo "dispatch_stopped=true"
@@ -837,6 +852,7 @@ rollback_on_exit() {
     restore_previous_runtime
   else
     if git reset --hard "$previous_sha" >/dev/null 2>&1; then
+      images_recovery_verified=1
       echo "rollback_result=source_restored"
       echo "rollback_runtime_sha=$previous_sha"
     else
@@ -848,6 +864,22 @@ rollback_on_exit() {
     echo "rollback_result=blocked"
     echo "rollback_target=forward_fix_required"
     echo "rollback_backup_reference=${backup_reference:-unavailable}"
+  fi
+  if [[ "$images_recovery_verified" == "1" && "$public_download_restore_failed" == "0" \
+    && "$images_result_write_failed" == "0" && -f "$image_helper" ]]; then
+    local image_outcome=unchanged
+    if [[ "$runtime_mutated" == "1" ]]; then
+      image_outcome=restored
+      if ! (verify_public_download) \
+        || ! curl -fsS https://rec.2brain.pro/api/v1/health/live >/dev/null 2>&1 \
+        || ! curl -fsS https://rec.2brain.pro/api/v1/health/ready >/dev/null 2>&1; then
+        images_recovery_verified=0
+      fi
+    fi
+    if [[ "$images_recovery_verified" == "1" ]]; then
+      python3 "$image_helper" finish "$image_outcome" --attempt-id "$image_attempt_id" \
+        || echo "release_image_recovery=blocked"
+    fi
   fi
   cleanup_runtime_files || echo "runtime_cleanup_result=warning"
   exit "$status"
@@ -944,6 +976,18 @@ ensure_generated_secret \
   "${TWOBRAIN_MINIO_MEDIA_SECRET_KEY_FILE:-./secrets/twobrain_minio_media_secret_key}" 32
 echo "media_storage_secret_provision_result=pass"
 
+python3 infra/scripts/release-images.py prepare \
+  --source-sha "$expected_sha" --previous-sha "$previous_sha" \
+  --candidate-id "$image_candidate_id" --decision-digest "$image_decision_digest" \
+  --full-digest "$image_full_digest" --attempt-id "$image_attempt_id" >/dev/null
+image_attempt="$(cd "$image_attempt" && pwd -P)"
+image_helper="$image_attempt/release-images.py"
+export GRAF_RELEASE_IMAGE_OVERRIDE="$image_attempt/override.json"
+GRAF_RELEASE_MC_IMAGE="$(python3 "$image_helper" image candidate rec-minio-init)"
+export GRAF_RELEASE_MC_IMAGE
+compose+=(-f "$GRAF_RELEASE_IMAGE_OVERRIDE")
+echo "release_images_result=prepared"
+
 backup_output="$(infra/scripts/backup-rec-stack.sh --execute)"
 printf '%s\n' "$backup_output"
 backup_reference="$(printf '%s\n' "$backup_output" | sed -n 's/^backup_reference=//p' | tail -n 1)"
@@ -1002,37 +1046,15 @@ if [[ ! "$previous_schema_head" =~ ^[0-9A-Za-z_]+$ ]]; then
   exit 1
 fi
 
-"${compose[@]}" build \
-  rec-api \
-  rec-db-runtime-bootstrap \
-  rec-maintenance \
-  rec-prompt-optimization-worker \
-  rec-migrate \
-  rec-minio-init \
-  rec-processing-worker \
-  rec-media-worker
-
-media_image_ref="$(
-  "${compose[@]}" config --images |
-    awk '$0 ~ /(^|[-_])rec-media-worker(:[^[:space:]]+)?$/ {image=$0} END {if (image != "") print image}'
-)"
-media_image=""
-if [[ -n "$media_image_ref" ]]; then
-  media_image="$(docker image inspect "$media_image_ref" --format '{{.Id}}' 2>/dev/null || true)"
-fi
-if [[ -z "$media_image" ]]; then
-  echo "deploy_result=blocked"
-  echo "reason=media_worker_image_missing"
-  exit 1
-fi
-expected_schema_head="$(docker run --rm --network none --read-only "$media_image" \
+media_image="$(python3 "$image_helper" image candidate rec-media-worker)"
+expected_schema_head="$(docker run --rm --pull never --network none --read-only "$media_image" \
   python -c 'from twobrain_rec_server.normalization.worker import packaged_schema_head; print(packaged_schema_head())')"
 if [[ ! "$expected_schema_head" =~ ^[0-9A-Za-z_]+$ ]]; then
   echo "deploy_result=blocked"
   echo "reason=packaged_schema_head_unavailable"
   exit 1
 fi
-capability_receipt="$(docker run --rm \
+capability_receipt="$(docker run --rm --pull never \
   --network none \
   --read-only \
   --cap-drop ALL \
@@ -1060,13 +1082,14 @@ echo "image_capability_result=pass"
 echo "profile_contract_result=pass"
 
 capture_processing_runtime_baseline
+prompt_worker_was_running="$("${compose[@]}" ps -q rec-prompt-optimization-worker)"
 runtime_mutated=1
 "${compose[@]}" stop rec-api >/dev/null
 sync_public_download
 "${compose[@]}" stop rec-media-worker >/dev/null 2>&1 || true
 TWOBRAIN_PLAYBACK_NORMALIZATION_ENABLED=false \
   TWOBRAIN_PLAYBACK_NORMALIZATION_AUTOMATIC_DISPATCH_ENABLED=false \
-  "${compose[@]}" up -d --no-build --wait --wait-timeout 240 \
+  "${compose[@]}" up --pull never -d --no-build --wait --wait-timeout 240 \
   rec-api \
   rec-migrate \
   rec-minio \
@@ -1074,6 +1097,11 @@ TWOBRAIN_PLAYBACK_NORMALIZATION_ENABLED=false \
   rec-temporal \
   rec-processing-worker \
   rec-maintenance
+
+if [[ -n "$prompt_worker_was_running" ]]; then
+  "${compose[@]}" up -d --no-deps --no-build --pull never --wait --wait-timeout 240 rec-prompt-optimization-worker
+fi
+python3 "$image_helper" verify candidate rec-api rec-processing-worker rec-maintenance
 
 if ! verify_processing_runtime_health; then
   echo "deploy_result=blocked"
@@ -1092,7 +1120,7 @@ if ! verify_api_dispatch_gate false false; then
 fi
 echo "initial_dispatch_gate_result=closed"
 
-role_bootstrap_output="$("${compose[@]}" run --rm --no-deps rec-db-runtime-bootstrap)"
+role_bootstrap_output="$("${compose[@]}" run --pull never --rm --no-deps rec-db-runtime-bootstrap)"
 if ! grep -Fxq 'runtime_database_roles_result=pass' <<<"$role_bootstrap_output"; then
   echo "deploy_result=blocked"
   echo "reason=runtime_db_role_bootstrap_failed"
@@ -1100,7 +1128,7 @@ if ! grep -Fxq 'runtime_database_roles_result=pass' <<<"$role_bootstrap_output";
 fi
 echo "runtime_db_role_bootstrap_result=pass"
 
-migration_output="$("${compose[@]}" run --rm --no-deps rec-migrate alembic current)"
+migration_output="$("${compose[@]}" run --pull never --rm --no-deps rec-migrate alembic current)"
 if ! grep -Fq "$expected_schema_head" <<<"$migration_output" \
   || ! grep -Fq 'head' <<<"$migration_output"; then
   echo "deploy_result=blocked"
@@ -1123,7 +1151,7 @@ if ! grep -Fxq 'runtime_database_identity_result=pass' <<<"$api_database_identit
 fi
 echo "api_runtime_database_identity_result=pass"
 
-maintenance_database_identity="$("${compose[@]}" run --rm --no-deps -T \
+maintenance_database_identity="$("${compose[@]}" run --pull never --rm --no-deps -T \
   -e TWOBRAIN_EXPECTED_DATABASE_ROLE=twobrain_rec_maintenance \
   rec-maintenance python /app/scripts/verify_runtime_database_identity.py)"
 if ! grep -Fxq 'runtime_database_identity_result=pass' <<<"$maintenance_database_identity" \
@@ -1211,7 +1239,7 @@ verify_media_worker_control() {
 }
 
 TWOBRAIN_PLAYBACK_NORMALIZATION_AUTOMATIC_DISPATCH_ENABLED=false \
-  "${compose[@]}" up -d --no-build --force-recreate --wait --wait-timeout 240 \
+  "${compose[@]}" up --pull never -d --no-build --force-recreate --wait --wait-timeout 240 \
   rec-media-worker
 verify_media_worker_boundary false
 verify_media_worker_control
@@ -1223,7 +1251,7 @@ TWOBRAIN_PRODUCTION_RELEASE_LOCK_HELD=1 \
 
 dispatch_opened=1
 TWOBRAIN_PLAYBACK_NORMALIZATION_AUTOMATIC_DISPATCH_ENABLED=true \
-  "${compose[@]}" up -d --no-build --force-recreate --wait --wait-timeout 900 \
+  "${compose[@]}" up --pull never -d --no-build --force-recreate --wait --wait-timeout 900 \
   rec-media-worker
 verify_media_worker_boundary true
 verify_media_worker_control
@@ -1232,7 +1260,7 @@ echo "media_worker_result=pass"
 
 TWOBRAIN_PLAYBACK_NORMALIZATION_ENABLED=true \
   TWOBRAIN_PLAYBACK_NORMALIZATION_AUTOMATIC_DISPATCH_ENABLED=true \
-  "${compose[@]}" up -d --no-deps --no-build --force-recreate --wait --wait-timeout 240 \
+  "${compose[@]}" up --pull never -d --no-deps --no-build --force-recreate --wait --wait-timeout 240 \
   rec-api
 if ! verify_api_dispatch_gate true true; then
   echo "deploy_result=blocked"
@@ -1267,6 +1295,18 @@ echo "backfill_inventory_result=required_post_deploy"
 echo "range_playback_result=required_post_deploy"
 echo "normalization_cleanup_result=required_post_deploy"
 
+# Finalization is short and contains no runtime mutation. Preserve its atomic boundary.
+trap '' INT TERM
+if ! python3 "$image_helper" finish deployed --attempt-id "$image_attempt_id"; then
+  images_result_write_failed=1
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  echo "reason=release_image_result_not_persisted"
+  exit 1
+fi
+deployment_complete=1
+trap - EXIT INT TERM
+
 if [[ -n "$public_download_backup" ]] && ! rm -f -- "$public_download_backup"; then
   echo "public_download_cleanup_result=warning"
 fi
@@ -1276,8 +1316,6 @@ fi
 if ! cleanup_runtime_files; then
   echo "runtime_cleanup_result=warning"
 fi
-deployment_complete=1
-trap - EXIT INT TERM
 cat <<EOF
 deploy_result=pass
 branch=$branch

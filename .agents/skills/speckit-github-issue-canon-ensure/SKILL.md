@@ -4,7 +4,7 @@ description: Install or refresh GitHub issue canon files and labels before task-
   sync.
 compatibility: Requires spec-kit project structure with .specify/ directory
 metadata:
-  author: github-spec-kit
+  author: yshishenya
   source: extension:github-issue-canon
 ---
 

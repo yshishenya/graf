@@ -10,6 +10,7 @@ from sqlalchemy import (
     Integer,
     LargeBinary,
     String,
+    Text,
     UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -25,7 +26,7 @@ class CalendarSource(Base):
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
     owner_user_id: Mapped[UUID] = mapped_column(ForeignKey("user_identities.id"), nullable=False)
     provider_family: Mapped[str] = mapped_column(String(80), nullable=False)
-    provider_label: Mapped[str | None] = mapped_column(String(160))
+    provider_label: Mapped[str | None] = mapped_column(Text)
     auth_mode: Mapped[str] = mapped_column(String(64), nullable=False)
     credential_state: Mapped[str] = mapped_column(String(64), nullable=False, default="pending")
     connection_state: Mapped[str] = mapped_column(String(64), nullable=False, default="active")
@@ -68,9 +69,9 @@ class ExternalCalendar(Base):
     calendar_source_id: Mapped[UUID] = mapped_column(ForeignKey("calendar_sources.id"), nullable=False)
     workspace_id: Mapped[UUID] = mapped_column(ForeignKey("workspaces.id"), nullable=False)
     provider_calendar_id: Mapped[str] = mapped_column(String(500), nullable=False)
-    display_label: Mapped[str] = mapped_column(String(240), nullable=False)
+    display_label: Mapped[str] = mapped_column(Text, nullable=False)
     owner_email_hash: Mapped[str | None] = mapped_column(String(80))
-    owner_display_name: Mapped[str | None] = mapped_column(String(240))
+    owner_display_name: Mapped[str | None] = mapped_column(Text)
     color: Mapped[str | None] = mapped_column(String(40))
     visibility: Mapped[str] = mapped_column(String(64), nullable=False, default="available")
     selected: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
@@ -105,9 +106,9 @@ class CalendarEventSnapshot(Base):
     transparency: Mapped[str | None] = mapped_column(String(64))
     recurrence_rule_json: Mapped[dict | None] = mapped_column(JSON)
     recurrence_exceptions_json: Mapped[list | None] = mapped_column(JSON)
-    title: Mapped[str | None] = mapped_column(String(500))
-    description: Mapped[str | None] = mapped_column(String(4000))
-    location: Mapped[str | None] = mapped_column(String(1000))
+    title: Mapped[str | None] = mapped_column(Text)
+    description: Mapped[str | None] = mapped_column(Text)
+    location: Mapped[str | None] = mapped_column(Text)
     privacy_class: Mapped[str] = mapped_column(String(64), nullable=False, default="unknown")
     conference_summary_json: Mapped[dict] = mapped_column(JSON, default=dict)
     attachments_metadata_json: Mapped[list] = mapped_column(JSON, default=list)
@@ -132,7 +133,7 @@ class CalendarParticipant(Base):
     response_status: Mapped[str] = mapped_column(String(64), nullable=False, default="unknown")
     email: Mapped[str | None] = mapped_column(String(320))
     email_hash: Mapped[str | None] = mapped_column(String(80))
-    display_name: Mapped[str | None] = mapped_column(String(240))
+    display_name: Mapped[str | None] = mapped_column(Text)
     provider_user_id: Mapped[str | None] = mapped_column(String(240))
     workspace_relation: Mapped[str] = mapped_column(String(64), nullable=False, default="unknown")
     recipient_candidate_class: Mapped[str] = mapped_column(String(64), nullable=False, default="unknown")

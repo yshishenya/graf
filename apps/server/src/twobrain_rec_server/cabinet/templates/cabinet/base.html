@@ -2,6 +2,13 @@
 <html lang="ru"{% if profile is defined and profile and profile.theme in ["dark", "light"] %} data-theme="{{ profile.theme }}"{% endif %}>
 <head>
   <meta charset="utf-8">
+    <meta name="graf-time-preferred" content="{{ viewer_time_context().preferred }}">
+    <meta name="graf-workspace" content="{{ viewer_time_context().get('workspace', '') }}">
+    <meta name="graf-time-user" content="{{ viewer_time_context().user }}">
+    <meta name="graf-time-session" content="{{ viewer_time_context().session }}">
+    <meta name="graf-timezone" content="{{ display_timezone_name() }}">
+    <meta name="graf-time-reload" content="{{ 'true' if time_reload_allowed() else 'false' }}">
+    <script src="{{ cabinet_static_asset_url('user-time.js') }}"></script>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
   {% if csrf_token is defined and csrf_token %}
@@ -12,17 +19,30 @@
   <link rel="icon" href="{{ cabinet_static_url }}/favicon-32.png" type="image/png" sizes="32x32">
   <link rel="apple-touch-icon" href="{{ cabinet_static_url }}/apple-touch-icon.png">
   <link rel="stylesheet" href="{{ cabinet_static_asset_url('cabinet.css') }}">
+  <link rel="stylesheet" href="{{ cabinet_static_asset_url('playback-comments.css') }}">
+  <link rel="stylesheet" href="{{ public_static_asset_url('cookieconsent.css') }}">
   <meta name="htmx-config" content='{"allowEval":false,"allowScriptTags":false,"refreshOnHistoryMiss":true}'>
   <script src="{{ cabinet_static_url }}/htmx-2.0.10.min.js" defer></script>
+  <script src="{{ cabinet_static_asset_url('playback-comments.js') }}" defer></script>
+  <script src="{{ cabinet_static_asset_url('settings-autosave.js') }}" defer></script>
   <script src="{{ cabinet_static_asset_url('cabinet.js') }}" defer></script>
 </head>
 <body data-surface-mode="{{ surface_mode|default('standalone_browser') }}" data-graf-analytics-private="true" data-ph-mask="true" data-ym-hide-content="true" data-ym-disable-keys="true">
   {% if product_analytics_provider is defined and product_analytics_provider and product_analytics_provider.enabled %}
+  <script
+    defer
+    src="{{ public_static_asset_url('cookieconsent.umd.js') }}"
+    data-graf-cookieconsent-version="{{ product_analytics_provider.browser_consent.copy_version }}"
+  ></script>
   <script id="graf-product-analytics-provider-config" type="application/json" data-page-class="{{ product_analytics_provider.page_class }}">
     {{ product_analytics_provider | tojson }}
   </script>
   <script defer src="{{ public_static_asset_url('analytics.js') }}"></script>
+  <button class="cookie-settings-link cookie-settings-link--cabinet" type="button" data-cc="show-preferencesModal">
+    Настройки cookies
+  </button>
   {% endif %}
+  <noscript><p class="settings-status" role="status" aria-live="polite">Чтобы менять настройки, включите JavaScript.</p></noscript>
   {{ content }}
 </body>
 </html>

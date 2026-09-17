@@ -243,6 +243,7 @@ def test_rls_validation_inventory_matches_031_migration_policy_maps() -> None:
             "referral_links",
             "referral_attributions",
             "account_closure_requests",
+            "server_notifications",
         }
     )
 

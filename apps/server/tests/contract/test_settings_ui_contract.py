@@ -10,6 +10,7 @@ from twobrain_rec_server.cabinet.view_models import (
     AccountDeviceView,
     AccountProfileView,
     AccountProviderView,
+    AccountSettingsSurface,
     account_settings_surface,
 )
 from twobrain_rec_server.cabinet.web_routes.settings import router as settings_router
@@ -21,7 +22,7 @@ def test_settings_overview_exposes_supported_categories_in_primary_sidebar() -> 
     embedded = render_settings_page(embedded=True)
 
     for page, prefix in ((browser, "/settings"), (embedded, "/desktop/settings")):
-        assert "<h1>Настройки</h1>" in page
+        assert "<h1>Аккаунт</h1>" in page
         assert f'href="{prefix}/recording"' in page
         assert f'href="{prefix}/summaries"' in page
         assert f'href="{prefix}/integrations/calendar"' in page
@@ -29,8 +30,8 @@ def test_settings_overview_exposes_supported_categories_in_primary_sidebar() -> 
         assert f'href="{prefix}/account"' in page
         assert f'<a href="{prefix}/account">Настройки</a>' not in page
         assert page.count("data-settings-primary-nav>") == 1
-        assert page.count("data-settings-primary-nav-item") == 9
-        assert '<span class="cabinet-sidebar-nav__section-label">Настройки</span>' in page
+        assert page.count("data-settings-primary-nav-item") == 8
+        assert '<span class="cabinet-sidebar-nav__section-label">Личное</span>' in page
         assert f'<a href="{prefix}/account">Настройки</a>' not in page
         assert 'class="settings-navigation"' not in page
         assert "provider_subject" not in page
@@ -38,17 +39,7 @@ def test_settings_overview_exposes_supported_categories_in_primary_sidebar() -> 
 
 
 def test_settings_sidebar_exposes_canonical_links_and_active_state() -> None:
-    expected_ids = (
-        "meetings",
-        "overview",
-        "recording",
-        "summaries",
-        "calendar",
-        "workspace",
-        "account",
-        "notifications",
-        "billing",
-    )
+    expected_ids = ("meetings", "account", "workspace", "billing", "recording", "summaries", "calendar", "notifications")
     expected_icons = {
         "recording": "video",
         "summaries": "transcript",
@@ -83,7 +74,7 @@ def test_settings_sidebar_exposes_canonical_links_and_active_state() -> None:
             )
             if category == "overview":
                 assert markup.count('aria-current="page"') == 1
-                assert 'data-settings-primary-nav-item="overview"' in markup
+                assert 'data-settings-primary-nav-item="account"' in markup
             else:
                 assert markup.count('aria-current="page"') == 1
                 assert f'data-settings-primary-nav-item="{category}"' in markup
@@ -135,6 +126,13 @@ def test_settings_templates_use_primary_sidebar_and_single_content_column() -> N
     assert "grid-template-columns: minmax(0, 1fr)" in single_column_css
     assert "grid-column: 1" in single_column_css
     assert "gap: 0" in single_column_css
+    assert "width: min(var(--settings-content-width), 100%);" in single_column_css
+    assert "margin-inline: auto;" in single_column_css
+    assert re.search(
+        r"\.settings-page > \.settings-page__content,\s*"
+        r"\.calendar-settings > \.calendar-settings__content\s*\{[^}]*margin-inline: auto;",
+        single_column_css,
+    )
     assert ".settings-navigation" not in css
     assert ".settings-page {\n  grid-template-columns" not in css
 
@@ -178,35 +176,19 @@ def test_settings_templates_use_primary_sidebar_and_single_content_column() -> N
 def test_settings_overview_keeps_navigation_primary_and_copy_compact() -> None:
     page = render_settings_page()
 
-    assert "Все разделы в одном месте." in page
-    assert page.count('data-settings-category="') == 7
-    assert "Разрешения и автозапись на Mac." in page
-    assert "Тариф, хранилище и платежи." in page
-    assert page.count('data-settings-primary-nav-item="') == 9
+    assert 'data-settings-category="' not in page
+    assert page.count('data-settings-primary-nav-item="') == 8
+    assert 'account-notifications-title' not in page
 
 
 def test_settings_overview_matches_product_reference_geometry() -> None:
-    root = Path(__file__).resolve().parents[2]
-    css = (root / "src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css").read_text(
-        encoding="utf-8"
-    )
-    settings = css[css.index(".settings-page,") : css.index(".meeting-title {")]
-
-    assert "grid-template-columns: repeat(2, minmax(0, 1fr));" in settings
-    assert "max-width: 780px;" in settings
-    assert "min-height: 112px;" in settings
-    assert "border-radius: var(--radius-compact);" in settings
-    assert "background: var(--surface-2);" in settings
-    assert ".settings-scope-badge," in settings
-    assert ".settings-scope-badge {" in settings
-    assert "min-height: 24px;" in settings
-    assert "padding: 2px 7px;" in settings
-    assert "var(--font-size-caption)" in settings
+    css = (Path(__file__).resolve().parents[2] / "src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css").read_text()
+    assert "max-width: 760px" in css
+    assert "grid-template-columns: minmax(0, 1fr) 172px" in css
 
 
 def test_settings_binary_controls_use_shared_switches_and_segmented_theme() -> None:
     root = Path(__file__).resolve().parents[2]
-    script = (root / "src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js").read_text()
     account = render_settings_page(category="account", profile=AccountProfileView("Synthetic"))
     notifications = render_settings_page(category="notifications")
 
@@ -215,13 +197,17 @@ def test_settings_binary_controls_use_shared_switches_and_segmented_theme() -> N
     assert 'value="system" checked' in account
     for icon in ("sun", "moon", "laptop"):
         assert f'data-icon="{icon}"' in account
-    assert 'document.documentElement.removeAttribute("data-theme")' in script
+    autosave = (root / "src/twobrain_rec_server/cabinet/static/cabinet/settings-autosave.js").read_text()
+    assert "document.documentElement.removeAttribute('data-theme')" in autosave
 
     assert notifications.count('role="switch"') == 2
     assert 'name="optional_email_enabled"' in notifications
     assert 'name="optional_in_app_enabled"' in notifications
     assert notifications.count('class="settings-control-row"') == 2
-    assert "Важные системные сообщения всегда включены." in notifications
+    assert "Новости и помощь в использовании GRAF." not in notifications
+    assert "В приложении на Mac" in notifications
+    assert "Результаты встреч и записи, которыми с вами поделились, сохраняются в истории без звука." not in notifications
+    assert 'href="/notifications"' in notifications
 
 
 def test_profile_menu_uses_semantic_disabled_actions_and_native_quit_marker() -> None:
@@ -235,7 +221,7 @@ def test_profile_menu_uses_semantic_disabled_actions_and_native_quit_marker() ->
 
     assert 'disabled aria-disabled="true"' in template
     assert 'data-graf-app-quit' in template
-    assert 'data-account-preferences-auto-save' in template
+    assert 'data-settings-autosave' in template
     assert '.sidebar-profile-menu__item--disabled' in css
     assert '.sidebar-profile-menu__separator' in css
 
@@ -244,25 +230,63 @@ def test_recording_settings_keep_native_boundary_copy_compact() -> None:
     page = render_settings_page(category="recording")
     embedded_page = render_settings_page(category="recording", embedded=True)
 
-    assert "Настройка записи находится в приложении GRAF" in page
-    assert "Старт и стоп доступны всегда" in page
+    assert "Откройте GRAF на нужном Mac" in page
+    assert "settings-boundary-list" not in page
     assert "Здесь нельзя включить запись для всех встреч" not in page
     assert "Веб-интерфейс показывает результат записи" not in page
     assert "/desktop/settings/meeting-detection" not in page
     assert 'data-sidebar-download href="/download"' in page
     assert page.count("data-sidebar-download") == 1
     assert "data-sidebar-download" not in embedded_page
-    assert (
-        '/desktop/settings/meeting-detection">Открыть настройки записи в приложении'
-        in embedded_page
+    assert 'href="/desktop/settings/meeting-detection"' not in embedded_page
+    assert "data-recording-settings-search" in embedded_page
+    assert "запись начнется через 8 секунд" in embedded_page
+    assert "data-recording-settings" in embedded_page
+    assert "data-recording-settings-controls hidden" in embedded_page
+    assert "data-recording-settings" not in page
+    assert "Всегда" in embedded_page and "Спрашивать" in embedded_page and "Никогда" in embedded_page
+    assert 'aria-live="polite"' in embedded_page
+
+    assert "Нет приложения GRAF?" not in embedded_page
+    assert 'href="/download">Скачать GRAF для macOS</a>' in page
+
+
+def test_settings_forms_share_dirty_state_and_one_preferences_submit_handler() -> None:
+    account = render_settings_page(
+        category="account",
+        account_surface=AccountSettingsSurface(profile=AccountProfileView("Synthetic")),
     )
+    notifications = render_settings_page(category="notifications")
+    assert account.count("data-settings-autosave") == 3
+    assert account.count("data-settings-inputs disabled") == 3
+    assert "data-settings-form-reset" not in account
+    assert ">Сохранить</button>" not in account
+    # Notifications own version-conflict recovery and must have one form handler.
+    assert "data-notification-settings" in notifications
+    assert "data-settings-form-disable-pristine" not in notifications
+    root = Path(__file__).resolve().parents[2]
+    script = (root / "src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js").read_text()
+    preferences = script.split("const initAccountPreferences =", 1)[1].split(
+        "const initSettingsConfirmations =", 1
+    )[0]
+    assert 'form.addEventListener("submit"' not in preferences
+    assert "data-settings-autosave" in notifications
+
+
+def test_settings_retire_unused_style_paths() -> None:
+    root = Path(__file__).resolve().parents[2]
+    css = (root / "src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css").read_text()
+    assert ".settings-handoff-card" not in css
+    assert ".settings-choice-row--toggle" not in css
+    assert ".settings-section { grid-template-columns:" not in css
 
 
 def test_settings_account_close_phrase_is_described_to_confirmation_field() -> None:
     page = render_settings_page(category="account")
 
-    assert 'id="account-close-confirmation"' in page
-    assert 'aria-describedby="account-close-confirmation account-close-help"' in page
+    assert 'for="account-close-confirm">Введите «Закрыть аккаунт»</label>' in page
+    assert 'aria-describedby="account-close-help"' in page
+    assert 'id="account-close-access"' in page
 
 
 def test_calendar_settings_keeps_sidebar_content_gap_after_late_rules() -> None:
@@ -278,15 +302,14 @@ def test_calendar_settings_keeps_sidebar_content_gap_after_late_rules() -> None:
     assert "--settings-gap: 24px" in css
 
 
-def test_calendar_provider_anchor_preserves_keyboard_focus_target() -> None:
+def test_calendar_provider_disclosure_preserves_keyboard_focus_target() -> None:
     root = Path(__file__).resolve().parents[2]
     template = (
         root / "src/twobrain_rec_server/cabinet/templates/cabinet/fragments/calendar_settings.html"
     ).read_text(encoding="utf-8")
-    assert 'id="calendar-providers-title" tabindex="-1"' in template
-    assert "scroll-margin-block-start" in (
-        root / "src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css"
-    ).read_text(encoding="utf-8")
+    assert '<summary id="calendar-providers-title">' in template
+    assert 'data-calendar-add-source' in template
+    assert 'id="calendar-providers-title" tabindex="-1"' not in template
 
 
 def test_settings_route_map_has_no_arbitrary_category_redirect() -> None:
@@ -364,7 +387,7 @@ def test_account_preferences_and_provider_unlink_are_csrf_protected() -> None:
 
 def test_account_surface_template_contains_profile_preference_and_session_controls() -> None:
     page = render_settings_page(category="account")
-    for label in ("Профиль", ">Язык<", "Часовой пояс", "Системная", "Активные сессии"):
+    for label in ("Профиль", ">Язык интерфейса<", "Часовой пояс", "Системная", "Где вы вошли"):
         assert label in page
     assert "data-account-preferences" in page
     assert "session_token_hash" not in page
@@ -434,6 +457,22 @@ def test_settings_accessibility_contract_preserves_dialog_focus_and_form_state()
     assert "dialogOpeners" in script
     assert 'dialog.addEventListener("close"' in script
     assert "initSettingsFormState" in script
-    assert 'form.dataset.state = dirty ? "dirty" : "pristine"' in script
+    assert "window.GRAFSettings?.init()" in script
     assert "data-settings-form-status" in calendar
-    assert "data-settings-form" in calendar
+    assert "data-settings-autosave" in calendar
+
+
+def test_product_settings_hide_new_destructive_form_and_preserve_locale() -> None:
+    profile = AccountProfileView("Тест", "owner@example.test", locale="en-US")
+    page = render_settings_page(category="account", account_surface=AccountSettingsSurface(profile=profile))
+    assert '<select id="account-locale"' not in page
+    assert 'name="locale" value="en-US"' in page
+    assert re.search(r'<details[^>]*>\s*<summary><h2 id="account-close-title">Закрыть аккаунт</h2></summary>.*?name="confirm_close".*?</details>', page, re.DOTALL)
+    assert 'IANA' not in page
+
+
+def test_recording_list_is_bounded_keyboard_region_with_full_rules() -> None:
+    page = render_settings_page(category="recording", embedded=True)
+    assert 'data-recording-settings-targets tabindex="0" role="region"' in page
+    assert 'value="always"' in page and 'value="ask"' in page and 'value="never"' in page
+    assert '8 секунд' in page

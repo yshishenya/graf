@@ -58,7 +58,7 @@ def test_calendar_settings_provider_limitation_copy_is_plain_and_safe() -> None:
     )
     assert (
         view_models.calendar_provider_limitation_copy("manual_url", {})
-        == "Если URL или пароль неверны, мы покажем безопасную ошибку без деталей провайдера."
+        == "Для подключения нужны адрес календаря и пароль приложения."
     )
     assert (
         view_models.calendar_provider_limitation_copy(
@@ -239,15 +239,15 @@ def test_calendar_settings_safe_state_copy_covers_empty_loading_policy_and_priva
     assert "ручная запись остается доступной" in surface.loading_state_copy
     assert "секреты не показываются" in surface.unavailable_state_copy
     assert "политикой организации" in surface.policy_constrained_copy
-    assert "доступных для чтения календарей" in surface.no_readable_calendars_copy
-    assert "не влияет на будущие встречи" in surface.no_selected_calendars_copy
+    assert "доступных календарей пока нет" in surface.no_readable_calendars_copy
+    assert "Выберите хотя бы один календарь" in surface.no_selected_calendars_copy
     assert (
         surface.no_matching_events_copy
         == "Нет будущих событий, которые подходят под выбранные настройки."
     )
-    assert "без названия" in surface.private_free_busy_copy
-    assert "ссылок" in surface.private_free_busy_copy
-    assert "участников" in surface.private_free_busy_copy
+    assert "к которым у вас есть доступ" in surface.private_free_busy_copy
+    assert "только занятость" in surface.private_free_busy_copy
+    assert "отсутствующие сведения не добавляются" in surface.private_free_busy_copy
     assert "raw_token" not in combined
     assert "refresh_token" not in combined
     assert "app password" not in combined.lower()
@@ -273,10 +273,10 @@ def test_calendar_settings_count_words_use_russian_forms() -> None:
     two_surface = view_models.calendar_settings_surface(provider_payloads=[], sources=two_sources)
     five_surface = view_models.calendar_settings_surface(provider_payloads=[], sources=five_sources)
 
-    assert one_surface.source_count_word == "источник"
+    assert one_surface.source_count_word == "подключение"
     assert one_surface.selected_calendar_count_total_word == "календарь"
-    assert two_surface.source_count_word == "источника"
-    assert five_surface.source_count_word == "источников"
+    assert two_surface.source_count_word == "подключения"
+    assert five_surface.source_count_word == "подключений"
 
 
 def test_calendar_settings_source_state_needs_selection_after_connect() -> None:
@@ -367,7 +367,7 @@ def test_calendar_settings_selectable_calendar_labels_distinguish_duplicates_and
     assert {calendar.visibility_label for calendar in rendered.calendars} >= {
         "общий календарь",
         "делегированный календарь",
-        "приватное / только занятость",
+        "приватный календарь",
         "недоступен",
     }
     assert [calendar.selectable for calendar in rendered.calendars] == [
@@ -378,11 +378,11 @@ def test_calendar_settings_selectable_calendar_labels_distinguish_duplicates_and
     ]
 
 
-def test_calendar_settings_sync_health_marks_sources_stale_after_24_hours() -> None:
+def test_calendar_settings_sync_health_marks_sources_stale_after_three_minutes() -> None:
     now = datetime(2026, 7, 2, 12, 0, tzinfo=UTC)
     source = calendar_settings_source(
         sync_state="synced",
-        last_successful_sync_at=now - timedelta(hours=25),
+        last_successful_sync_at=now - timedelta(minutes=3, seconds=1),
     )
 
     assert view_models.calendar_sync_health_state(source, now=now) == "stale"
@@ -452,13 +452,14 @@ def test_calendar_settings_safe_sync_error_copy_does_not_expose_provider_payload
     assert "access_token" not in fallback
 
 
-def test_calendar_settings_safe_labels_redact_urls_emails_and_secret_like_text() -> None:
+def test_calendar_settings_labels_preserve_owner_content() -> None:
     assert (
-        view_models.safe_calendar_label("alice@example.test", fallback="Календарь") == "Календарь"
+        view_models.safe_calendar_label("alice@example.test", fallback="Календарь")
+        == "alice@example.test"
     )
     assert (
         view_models.safe_calendar_label("https://meet.example.test/private", fallback="Событие")
-        == "Событие"
+        == "https://meet.example.test/private"
     )
     assert (
         view_models.safe_calendar_label("Общий календарь", fallback="Календарь")
@@ -466,7 +467,7 @@ def test_calendar_settings_safe_labels_redact_urls_emails_and_secret_like_text()
     )
 
 
-def test_calendar_settings_preview_hides_private_free_busy_title() -> None:
+def test_calendar_settings_preview_preserves_private_provider_title() -> None:
     source = calendar_settings_source()
     calendar = calendar_settings_calendar(source, selected=True)
     event = calendar_settings_snapshot(
@@ -479,8 +480,8 @@ def test_calendar_settings_preview_hides_private_free_busy_title() -> None:
 
     rendered = view_models.upcoming_preview_item(event)
 
-    assert rendered.title == "Скрытое событие"
-    assert rendered.title_state == "private"
+    assert rendered.title == "Private strategy call"
+    assert rendered.title_state == "available"
     assert rendered.meeting_link_present is False
 
 
@@ -579,9 +580,8 @@ def test_calendar_settings_event_category_eligibility_defaults_and_opt_ins() -> 
     assert calendar_event_matches_preferences(all_day, permissive_preferences) is True
     assert calendar_event_matches_preferences(private, permissive_preferences) is True
     private_preview = view_models.upcoming_preview_item(private)
-    assert private_preview.title == "Скрытое событие"
-    assert private_preview.meeting_link_present is False
-    assert "Private board review" not in private_preview.title
+    assert private_preview.title == "Private board review"
+    assert private_preview.meeting_link_present is True
 
 
 def test_calendar_settings_duplicate_groups_use_provider_event_identity() -> None:
@@ -684,7 +684,7 @@ def test_calendar_settings_preview_empty_reason_explains_next_step() -> None:
             has_selected_calendar=False,
             has_matching_events=False,
         )
-        == "Подключите источник календаря, чтобы увидеть будущие встречи."
+        == "Подключите календарь, чтобы увидеть ближайшие встречи."
     )
     assert (
         view_models.calendar_preview_empty_reason(
@@ -776,3 +776,18 @@ def test_calendar_settings_overlap_group_ignores_duplicate_meeting_link() -> Non
     )
 
     assert groups == ()
+
+
+def test_calendar_owner_title_preserves_full_text_and_missing_is_not_hidden() -> None:
+    source = calendar_settings_source()
+    calendar = calendar_settings_calendar(source, selected=True)
+    title = "  alice@example.test https://meet.example.test/?password=synthetic <script> " * 25
+    event = calendar_settings_snapshot(
+        source, calendar, title=title, safe_to_show=False, open_meeting_available=True
+    )
+    preview = view_models.upcoming_preview_item(event)
+    assert preview.title == title
+    assert preview.open_meeting_available is True
+    event.title = None
+    assert view_models.upcoming_preview_item(event).title == "Без названия"
+    assert view_models.upcoming_preview_item(event).title_state == "missing"

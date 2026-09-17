@@ -11,6 +11,7 @@ STARTUP_VALIDATOR="$MACOS_DIR/Scripts/validate-packaged-app-launch.sh"
 SPARKLE_DIR="$MACOS_DIR/.build/artifacts/sparkle/Sparkle"
 SPARKLE_ARCHIVE_SHA256=cb6fdbdc8884f15d62a616e79face92b08322410fd2d425edc6596ccbf4ba3b0
 EXPECTED_GRAF_TEAM_IDENTIFIER=94N8HYG672
+ARTIFACTS="$SCRIPT_DIR/release-artifacts.py"
 
 fail() {
   echo "local app-update signing failed: $*" >&2
@@ -131,9 +132,12 @@ APP_DIR="$WORK_ROOT/apps"
 ATTESTATION="$WORK_ROOT/signing-attestation.json"
 mkdir -p "$INPUT_DIR" "$APP_DIR/candidate" "$APP_DIR/previous"
 
-gh --repo "$TARGET_REPO" release download "$RELEASE_TAG" --pattern "$CANDIDATE_ASSET" --dir "$INPUT_DIR"
-gh --repo "$TARGET_REPO" release download "$PREVIOUS_TAG" --pattern "$PREVIOUS_ASSET" --dir "$INPUT_DIR"
-gh --repo "$TARGET_REPO" release download "$RELEASE_TAG" --pattern "$NOTES_ASSET" --dir "$INPUT_DIR"
+python3 "$ARTIFACTS" cache-inputs --repo "$TARGET_REPO" \
+  --tag "$RELEASE_TAG" --source "$HEAD_COMMIT" \
+  --previous-tag "$PREVIOUS_TAG" --previous-source "$PREVIOUS_COMMIT" \
+  --candidate "$CANDIDATE_ASSET" --previous "$PREVIOUS_ASSET" --notes "$NOTES_ASSET" \
+  --output "$INPUT_DIR"
+
 [ -f "$INPUT_DIR/$CANDIDATE_ASSET" ] && [ -f "$INPUT_DIR/$PREVIOUS_ASSET" ] && [ -f "$INPUT_DIR/$NOTES_ASSET" ] ||
   fail "required draft asset is missing"
 
@@ -237,14 +241,12 @@ extract_graf_app "$INPUT_DIR/$CANDIDATE_ASSET" "$APP_DIR/candidate" || fail "can
 extract_graf_app "$INPUT_DIR/$PREVIOUS_ASSET" "$APP_DIR/previous" || fail "predecessor asset is not a safe GRAF.app ZIP"
 [ -x "$STARTUP_VALIDATOR" ] || fail "packaged app launch validator is missing or not executable"
 validate_downloaded_app_signature "$APP_DIR/candidate/GRAF.app" "$APP_DIR/previous/GRAF.app"
-"$STARTUP_VALIDATOR" "$APP_DIR/candidate/GRAF.app" 5 arm64 || fail "candidate arm64 packaged app launch failed"
-"$STARTUP_VALIDATOR" "$APP_DIR/candidate/GRAF.app" 5 x86_64 || fail "candidate x86_64 packaged app launch failed"
+# Both architecture startup checks run once at the upload boundary after public validation.
 
 DOWNLOAD_DIR="$WORK_ROOT/sparkle"
 ARCHIVE="$DOWNLOAD_DIR/Sparkle-for-Swift-Package-Manager.zip"
 mkdir -p "$DOWNLOAD_DIR"
-gh --repo sparkle-project/Sparkle release download 2.9.4 \
-  --pattern Sparkle-for-Swift-Package-Manager.zip --dir "$DOWNLOAD_DIR"
+python3 "$ARTIFACTS" cache-sparkle "$ARCHIVE"
 printf '%s  %s\n' "$SPARKLE_ARCHIVE_SHA256" "$ARCHIVE" | shasum -a 256 -c -
 SPARKLE_BACKUP="$WORK_ROOT/sparkle-existing"
 if [ -e "$SPARKLE_DIR" ]; then mv "$SPARKLE_DIR" "$SPARKLE_BACKUP"; fi
@@ -273,6 +275,8 @@ GRAF_UPDATE_DOWNLOAD_BASE_URL="${FEED_URL%/graf-appcast.xml}" \
 GRAF_RELEASE_SIGNING_MODE=keychain \
 GRAF_RELEASE_SIGNING_KEYCHAIN_ATTESTATION="$ATTESTATION" \
 GRAF_REQUIRE_RELEASE_PROVENANCE=1 \
+GRAF_REQUIRE_PUBLIC_UPDATE_TRUST=1 \
+GRAF_RELEASE_INPUT_CONTEXT="$INPUT_DIR/release-inputs.json" \
   "$PREPARE"
 
 OUTPUT_DIR="$MACOS_DIR/.build/updates"
@@ -281,20 +285,13 @@ CHECKSUM="$OUTPUT_DIR/GRAF-$VERSION.sha256"
 RELEASE_ATTESTATION="$OUTPUT_DIR/GRAF-$VERSION-signing-attestation.json"
 [ -f "$OUTPUT_DIR/$ARCHIVE_NAME" ] && [ -f "$OUTPUT_DIR/graf-appcast.xml" ] ||
   fail "signing did not produce the required staged artifacts"
-(
-  cd "$OUTPUT_DIR"
-  shasum -a 256 "$ARCHIVE_NAME" graf-appcast.xml > "$(basename -- "$CHECKSUM")"
-)
-/usr/bin/plutil -replace workflow -string sign-graf-app-update-local "$ATTESTATION"
-cp "$ATTESTATION" "$RELEASE_ATTESTATION"
-[ "$(gh --repo "$TARGET_REPO" release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = "true" ] ||
-  fail "target GitHub release must remain a draft before upload"
-gh --repo "$TARGET_REPO" release upload "$RELEASE_TAG" \
-  "$OUTPUT_DIR/$ARCHIVE_NAME" \
-  "$OUTPUT_DIR/graf-appcast.xml" \
-  "$CHECKSUM" \
-  "$RELEASE_ATTESTATION" \
-  --clobber
+# The complete prepared set already owns its checksum and original attestation.
+# The helper preflights all assets, then uses gh release upload only for missing bytes.
+python3 "$ARTIFACTS" upload --app "$APP_DIR/candidate/GRAF.app" \
+  --previous "$APP_DIR/previous/GRAF.app" --notes "$INPUT_DIR/$NOTES_ASSET" \
+  "$INPUT_DIR/release-inputs.json" \
+  "$OUTPUT_DIR/$ARCHIVE_NAME" "$OUTPUT_DIR/graf-appcast.xml" \
+  "$CHECKSUM" "$RELEASE_ATTESTATION"
 
 trap - EXIT HUP INT TERM
 cleanup

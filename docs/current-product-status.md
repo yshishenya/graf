@@ -2110,3 +2110,62 @@ the current accepted implementation or `012` ingest slice.
 - The preceding validation record intentionally described pre-deploy local
   testing; the production evidence for this release is recorded in
   `docs/deployments/2brain-rec/release-v2026.07.26.2.md`.
+
+## Validation update (2026-09-17) — F270 cabinet query efficiency and test speed
+
+Features 270 changed no product behaviour and no user-visible copy. It removed
+repeated per-meeting reads in the cabinet list path and made the required test
+suites reuse one application instance instead of rebuilding it per test.
+
+- Measured on the cabinet list page: 5 meetings went from 135–144 queries to
+  42, and 20 meetings from 609 to a constant page cost. The guard test
+  `apps/server/tests/integration/test_cabinet_meeting_list_query_budget.py`
+  fails when the count grows with the number of meetings.
+- The required full server suite now reuses one FastAPI application, two
+  database engines and one fake storage instance across tests. On 481 files
+  present in both runs, serial test time fell from 7583 s to about 2148 s, a
+  3.53× speed-up, with no file of the baseline suite lost and one guard file
+  added.
+- Stability work: the exact source SHA line in a pull request body is now
+  written by `scripts/sync-pr-source-sha.py` instead of by hand, whitespace
+  defects are rejected before the slow lane instead of after it, and the shell
+  syntax contract no longer depends on the runner's language.
+- Access, privacy, deletion, retention and export expectations were not
+  changed: the same checks pass with unchanged assertions.
+- Two items remain open: splitting the release run into parallel jobs and
+  binding evidence to the code tree both touch files owned by the open F269
+  change, so they wait for it to merge rather than conflicting with it.
+- Release lane: `significant-feature`. Evidence for this update is local
+  validation plus the required pull-request checks on the exact commit.
+
+## Validation update (2026-09-17) — F271 release run uses the full parallelism of the runner
+
+Feature 271 changed no product behaviour. The required release run now starts
+the full server suite with eight test processes instead of four, which is the
+upper bound the suite runner allows in `--full` mode.
+
+Measured on the authoritative `release-full` workflow, not estimated:
+
+| Run | Commit | Ubuntu component | Whole release |
+| --- | --- | --- | --- |
+| 35153978174 | `630c515ff` (before F270) | 42 min 27 s | 43 min 06 s |
+| 35183409199 | `9aa86e4f0` (after F270) | 26 min 21 s | 26 min 55 s |
+| 35189322951 | `7cba8b257` (this change) | 17 min 26 s | 17 min 54 s |
+
+- The Ubuntu component, which is the critical path of the release, fell from
+  42 min 27 s to 17 min 26 s across both changes, a 2.4× speed-up; this change
+  alone accounts for 8 min 55 s of it.
+- Coverage was checked by comparing test identities rather than counts. The
+  parallel phase moved from 13431 to 13434 reported cases with zero cases
+  removed and exactly one case added — the new contract test in
+  `apps/server/tests/contract/test_ci_cd_contract.py`. The strict phase stayed
+  at 204 cases and the performance phase at 3. No case failed in either run.
+- `test_release_full_worker_count_stays_within_runner_support` keeps the
+  release value inside the 1–8 range the runner accepts and rejects a fall back
+  to a single worker.
+- The measured phase total is 4852 s of case time at four processes and the
+  file-level balance is already close to ideal, so the remaining cost is
+  capacity rather than distribution; no test was removed or weakened.
+- Release lane: `significant-feature`. Evidence for this update is the
+  `release-full` run on the merged commit plus the required pull-request checks
+  on the exact commit.

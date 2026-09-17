@@ -50,12 +50,38 @@ def test_feature_159_login_copy_is_truthful_without_removing_explicit_signup_rou
     signup = render_signup_page(workspace_id=UUID(int=1), providers=[], mode="email")
     routes = {route.path for route in auth_router.routes if isinstance(route, APIRoute)}
 
-    assert "Обычный вход не создаёт аккаунт автоматически." in login
+    assert "Обычный вход не создает аккаунт автоматически." in login
     assert "Зарегистрироваться" not in login
     assert 'action="/sign-up/email/start"' in signup
     assert "/sign-up" in routes
     assert "/sign-up/email/start" in routes
     assert "/sign-up/email/verify" in routes
+
+
+def test_auth_email_input_value_is_escaped_and_remains_editable() -> None:
+    unsafe_value = '<img src=x onerror="alert(1)">@example.test'
+
+    login = render_login_page(
+        workspace_id=UUID(int=1),
+        providers=[],
+        error="email_start_unavailable",
+        email_value=unsafe_value,
+    )
+    signup = render_signup_page(
+        workspace_id=UUID(int=1),
+        providers=[],
+        mode="email",
+        error="email_delivery_unavailable",
+        email_value=unsafe_value,
+    )
+
+    escaped_value = "&lt;img src=x onerror=&#34;alert(1)&#34;&gt;@example.test"
+    assert unsafe_value not in login
+    assert unsafe_value not in signup
+    assert f'value="{escaped_value}"' in login
+    assert f'value="{escaped_value}"' in signup
+    assert 'name="email" type="email"' in login
+    assert 'name="email" type="email"' in signup
 
 
 def test_account_close_routes_have_browser_and_desktop_variants_with_csrf_dependency() -> None:
@@ -349,8 +375,8 @@ def test_wrong_email_code_keeps_retry_form_but_rate_limit_hides_it() -> None:
     )
 
     assert 'action="/login/email/verify"' in wrong_page
-    assert "Код введён неверно" in wrong_page
-    assert "После трёх неверных попыток код блокируется" in wrong_page
+    assert "Код введен неверно" in wrong_page
+    assert "После трех неверных попыток код блокируется" in wrong_page
     assert 'action="/login/email/verify"' not in blocked_page
     assert "Слишком много попыток" in blocked_page
     assert 'action="/login/email/start"' in blocked_page
@@ -610,7 +636,7 @@ def test_blocked_merge_prioritizes_recovery_without_burying_it_under_preview() -
 
     for copy in (
         "Что нужно сделать",
-        "Email пока не подключён. Данные не изменены.",
+        "Email пока не подключен. Данные не изменены.",
         "Выберите доступное действие ниже.",
         "Роли профилей нельзя безопасно совместить автоматически",
         "Оставить профили раздельными",
@@ -680,7 +706,7 @@ def test_provider_unlink_outcomes_are_first_party_and_actionable() -> None:
     )
 
     assert "Сначала подключите другой способ входа" in recovery
-    assert "другого подтверждённого способа восстановления" in recovery
+    assert "другого подтвержденного способа восстановления" in recovery
     assert '<form action="/desktop/meetings" method="post">' in reauth
     assert 'name="next" value="/login?next=/desktop/settings/account"' in reauth
 
@@ -689,7 +715,7 @@ def test_merge_cancel_and_success_return_copy_are_outcomes_not_session_errors() 
     settings = render_settings_page(category="account", provider_link_result="merge_cancelled")
     confirm_source = inspect.getsource(account_merge_routes._confirm)
 
-    assert "Профили остались раздельными. Способ входа не подключён к текущему профилю." in settings
+    assert "Профили остались раздельными. Способ входа не подключен к текущему профилю." in settings
     assert "_relogin_result(provider_id)" in confirm_source
     assert "auth_session_invalid" not in confirm_source
     assert "next=/settings/account" in confirm_source
@@ -829,12 +855,38 @@ def test_stale_email_proof_returns_to_visible_email_form_without_old_confirm() -
 
 
 def test_account_security_renders_exact_bulk_and_per_session_actions() -> None:
-    page = render_settings_page(category="account", csrf_token="safe-csrf")
+    from twobrain_rec_server.cabinet.view_models import account_settings_surface
+    from twobrain_rec_server.db.models import AuthSession
 
-    assert "Завершить остальные сеансы" in page
-    assert "Выйти на всех устройствах" in page
+    session = AuthSession(id=uuid4(), provider="email", status="active", expires_at=datetime.now(UTC)+timedelta(hours=1))
+    surface = account_settings_surface(sessions=(session,))
+    page = render_settings_page(category="account", csrf_token="safe-csrf", account_surface=surface)
+    assert "Где вы вошли" in page
+    assert "Завершить остальные входы" in page
+    assert "Выйти на всех устройствах" not in page
     assert 'action="/settings/account/sessions/revoke-others"' in page
-    assert 'action="/settings/account/devices/revoke-others"' in page
+    assert 'action="/settings/account/devices/revoke-others"' not in page
+    assert 'aria-label="Действующие входы"' in page
+    assert 'name="confirm" value="1"' not in page
+    empty = render_settings_page(category="account", csrf_token="safe-csrf")
+    assert 'action="/settings/account/sessions/revoke-others"' not in empty
+
+
+@pytest.mark.parametrize("embedded", [False, True])
+def test_session_confirmation_is_explicit_accessible_and_works_without_javascript(embedded) -> None:
+    action = ("/desktop" if embedded else "") + "/settings/account/sessions/revoke-others"
+    page = render_settings_page(category="account", csrf_token="safe-csrf", embedded=embedded,
+                                session_confirmation={"title": "Завершить остальные входы?", "detail": "Здесь вы останетесь в аккаунте.", "action": action})
+    assert f'action="{action}"' in page
+    assert 'name="confirm" value="1"' in page
+    assert 'name="csrf_token"' in page
+    assert "Отмена" in page
+    assert "Подтвердить завершение" in page
+    assert "Файлы на устройстве останутся" in page
+    assert 'data-outcome-focus autofocus href=' in page
+    assert 'aria-labelledby="session-confirmation-title" tabindex' not in page
+    assert 'data-confirm=' not in page
+    assert 'id="session-confirmation-title"' in page
 
 
 def test_workspace_switch_and_join_routes_are_csrf_protected_in_browser_and_desktop() -> None:
@@ -871,7 +923,7 @@ def test_workspace_settings_copy_keeps_role_boundary_and_no_js_switch_fallback()
     )
 
     assert "Участник" in page
-    assert "Присоединение добавит рабочее пространство, но не перенесёт личные встречи." in page
+    assert 'aria-label="Выбрать Команда"' in page
     assert "return_to_settings=true" in page
     assert 'method="post"' in page
 
@@ -883,8 +935,8 @@ def test_account_security_renders_bulk_result_as_persistent_status() -> None:
         session_result="others_revoked",
     )
 
-    assert "Доступ на остальных устройствах завершён. Текущее устройство остаётся активным." in page
-    assert "Остальные сеансы завершены. Текущая сессия остаётся активной." in page
+    assert "Доступ на остальных устройствах завершен. Текущее устройство остается активным." in page
+    assert "Другие входы в этом рабочем пространстве завершены. Здесь вы остались в аккаунте." in page
 
 
 def test_account_ia_aliases_cover_profile_security_and_notifications() -> None:
@@ -900,32 +952,26 @@ def test_account_ia_aliases_cover_profile_security_and_notifications() -> None:
     } <= paths
 
 
-def test_account_menu_has_the_six_canonical_actions_and_csrf_logout_fallback() -> None:
+def test_account_menu_uses_unified_settings_and_csrf_logout_fallback() -> None:
     page = render_settings_page(category="account", csrf_token="safe-csrf")
 
-    for label in (
-        "Профиль",
-        "Безопасность",
-        "Уведомления",
-        "Тариф и оплата",
-        "Пригласить друзей",
-        "Выйти",
-    ):
+    for label in ("Аккаунт", "Уведомления", "Тариф и оплата", "Настройки", "Выйти"):
         assert label in page
-    assert 'href="/billing"' in page
-    assert 'href="/referrals"' in page
-    assert '<form class="account-navigation__logout" method="post" action="/logout">' in page
+    assert 'href="/settings/account"' in page
+    assert 'href="/settings/notifications"' in page
+    assert 'class="account-navigation"' not in page
+    assert '<form class="sidebar-logout" method="post" action="/logout">' in page
     assert '<input type="hidden" name="csrf_token" value="safe-csrf">' in page
     assert '<input type="hidden" name="next" value="/login?next=/meetings">' in page
 
 
-def test_embedded_account_menu_keeps_money_and_referrals_as_browser_handoffs() -> None:
+def test_embedded_account_menu_keeps_billing_handoff_and_native_logout() -> None:
     page = render_settings_page(embedded=True, category="account", csrf_token="embedded-csrf")
 
     assert 'href="/billing"' in page
-    assert 'href="/referrals"' in page
+    assert 'href="/desktop/settings/account"' in page
     assert (
-        '<form class="account-navigation__logout" method="post" action="/desktop/meetings">' in page
+        '<form class="sidebar-logout" method="post" action="/desktop/meetings">' in page
     )
     assert '<input type="hidden" name="next" value="/login?next=/desktop/meetings">' in page
 
@@ -952,22 +998,31 @@ def test_unverified_identity_surface_never_renders_an_unverified_email_as_login(
         ),
     )
 
-    assert "Подтверждённый email не раскрывается в этой сессии." in page
+    assert "Email можно проверить в способах входа." in page
     assert "Проверка не завершена" in page
-    assert "Подключённых способов входа пока нет." not in page
+    assert "Подключенных способов входа пока нет." not in page
     assert (
         "<input"
-        not in page.split("Подключённые способы входа", 1)[-1].split("Для безопасности", 1)[0]
+        not in page.split("Подключенные способы входа", 1)[-1].split("</ul>", 1)[0]
     )
 
 
 def test_account_page_explains_cooling_window_and_no_js_confirmation() -> None:
     page = render_settings_page(category="account")
-    assert "Закрытие аккаунта" in page
-    assert "7-дневный период отмены" in page
+    assert "Закрыть аккаунт" in page
+    assert "Закроем через 7 дней. До этого можно отменить." in page
     assert 'name="confirm_close"' in page
     assert 'method="post"' in page
     assert "/settings/account/close" in page
+
+
+
+def test_account_closure_disclosure_opens_only_for_its_own_reauthentication() -> None:
+    for result, expected in [("reauth_required", True), (None, False)]:
+        page = render_settings_page(category="account", account_close_result=result, session_result="failed")
+        close = page.split('class="settings-section account-close-card"', 1)[1]
+        assert ('class="settings-disclosure" open' in close) is expected
+        assert 'pattern="Закрыть аккаунт"' in close
 
 
 def test_account_page_projects_scheduled_close_and_cancel_action() -> None:
@@ -982,9 +1037,9 @@ def test_account_page_projects_scheduled_close_and_cancel_action() -> None:
         category="account",
         account_surface=AccountSettingsSurface(account_close=close),
     )
-    assert "Закрытие запланировано на" in page
-    assert "Будущие списания отключены" in page
-    assert "Отменить запланированное закрытие" in page
+    assert "Аккаунт закроется" in page
+    assert "Новые списания отключены" in page
+    assert "Отменить закрытие" in page
     assert 'name="confirm_close"' not in page
 
 
@@ -992,8 +1047,115 @@ def test_account_and_notifications_keep_no_js_and_recovery_safe_copy() -> None:
     account = render_settings_page(category="account", csrf_token="safe-csrf")
     notifications = render_settings_page(category="notifications", csrf_token="safe-csrf")
 
-    assert "последний подтверждённый способ входа" in account
+    assert 'name="confirm_close"' in account
+    assert 'name="csrf_token"' in account
     assert "<noscript>" in account
     assert 'method="post"' in account
     assert "<noscript>" in notifications
     assert 'method="post"' in notifications
+
+
+@pytest.mark.parametrize("embedded", [False, True])
+def test_session_current_hierarchy_details_and_exit_order(embedded) -> None:
+    from twobrain_rec_server.cabinet.view_models import account_settings_surface
+    from twobrain_rec_server.db.models import AuthSession
+
+    now = datetime.now(UTC)
+    current, other, expired = [AuthSession(id=uuid4(), provider="email", status="active",
+        issued_at=now-timedelta(days=1), last_seen_at=now,
+        expires_at=now+timedelta(hours=1 if i < 2 else -1)) for i in range(3)]
+    surface = account_settings_surface(sessions=(other, expired, current), current_session_id=current.id, now=now)
+    page = render_settings_page(category="account", csrf_token="safe-csrf", embedded=embedded, account_surface=surface)
+    prefix = "/desktop" if embedded else ""
+    assert page.index("Вы здесь") < page.index(f'id="session-revoke-{other.id}"') < page.index("Завершить остальные входы")
+    assert f'/sessions/{current.id}/revoke' not in page
+    assert f'/sessions/{expired.id}/revoke' not in page
+    assert f'action="{prefix}/settings/account/sessions/{other.id}/revoke"' in page
+    assert 'aria-label="Завершить вход: Устройство не подключено, вход ' in page
+    assert "Активность сегодня," in page
+    assert "Предыдущие входы" not in page
+    assert 'aria-label="Действующих входов: 2"' in page
+    # Exact date and zone remain in native, initially collapsed details.
+    assert '<details class="session-details">' in page
+    assert surface.active_sessions[0].last_seen_label in page
+    alone = render_settings_page(category="account", account_surface=account_settings_surface(sessions=(current,), current_session_id=current.id))
+    assert "Других входов нет." in alone
+    assert "Завершить остальные входы" not in alone
+
+
+@pytest.mark.parametrize("embedded", [False, True])
+def test_sessions_show_only_effective_access_and_distinguish_empty_from_unavailable(embedded) -> None:
+    from dataclasses import replace
+
+    from twobrain_rec_server.cabinet.view_models import account_session_view
+    from twobrain_rec_server.db.models import AuthSession
+
+    now = datetime(2026, 9, 11, 12, tzinfo=UTC)
+    def row(label, *, status="active", expired=False, allowed=True):
+        session = AuthSession(id=uuid4(), provider="email", status=status,
+                              issued_at=now-timedelta(days=1), last_seen_at=now,
+                              expires_at=now+timedelta(hours=-1 if expired else 1))
+        return replace(account_session_view(session, current_session_id=None, now=now,
+                                            access_allowed=allowed), client_label=label)
+
+    active = (row("Неизвестный вход"), row("Chrome на macOS"), row("Chrome на macOS"))
+    inactive = (row("Expired hidden", expired=True), row("Revoked hidden", status="revoked"),
+                row("Replaced hidden", status="replaced"), row("Blocked hidden", allowed=False))
+    for rows in (active + inactive, inactive):
+        page = render_settings_page(category="account", embedded=embedded, csrf_token="safe-csrf",
+                                    account_surface=AccountSettingsSurface(sessions=rows))
+        section = page.split('aria-labelledby="account-sessions-title"', 1)[1].split('</section>', 1)[0]
+        assert "Предыдущие входы" not in section
+        assert all(item.client_label not in section for item in inactive)
+        assert section.count('class="session-row"') == (len(active) if rows == active + inactive else 0)
+        if rows == active + inactive:
+            assert 'aria-label="Действующих входов: 3"' in section
+            assert "Неизвестный вход" in section
+            for item in active:
+                assert f'/sessions/{item.session_id}/revoke' in section
+        else:
+            assert "Действующих входов не найдено." in section
+            assert '/sessions/' not in section
+    unavailable = render_settings_page(category="account", embedded=embedded,
+                                       account_surface=AccountSettingsSurface(unavailable=True))
+    assert "Данные аккаунта временно недоступны" in unavailable
+    assert "Действующих входов не найдено." not in unavailable
+    assert 'id="account-sessions-title"' not in unavailable
+
+
+@pytest.mark.parametrize("embedded", [False, True])
+@pytest.mark.parametrize("target", ["single", "bulk", "missing", "empty_bulk"])
+def test_compact_sessions_keep_confirmation_beside_target_and_safe_cancel(embedded, target) -> None:
+    from twobrain_rec_server.cabinet.view_models import account_settings_surface
+    from twobrain_rec_server.db.models import AuthSession
+
+    now = datetime.now(UTC)
+    current, other = [AuthSession(id=uuid4(), provider="email", status="active",
+                                 issued_at=now, last_seen_at=now,
+                                 expires_at=now+timedelta(hours=1)) for _ in range(2)]
+    base = ("/desktop" if embedded else "") + "/settings/account"
+    surface = account_settings_surface(sessions=(current,) if target == "empty_bulk" else (other, current),
+                                      current_session_id=current.id, now=now)
+    action = base + (f"/sessions/{other.id}/revoke" if target == "single" else
+                     f"/sessions/{uuid4()}/revoke" if target == "missing" else "/sessions/revoke-others")
+    return_id = f"session-revoke-{other.id}" if target == "single" else (
+        "session-revoke-others" if target == "bulk" else "account-sessions-title")
+    page = render_settings_page(category="account", embedded=embedded, csrf_token="safe-csrf",
+                                account_surface=surface, session_confirmation={
+                                    "title": "Завершить выбранный вход?", "detail": "Вход выполнен: 11.09.2026.", "action": action})
+    section = page.split('<section class="settings-section account-sessions"', 1)[1].split('</section>', 1)[0]
+    assert section.count('class="settings-session-list"') == 1
+    assert "session-card" not in section and ">Подробнее" not in section
+    assert 'id="account-profile-title"' in page and 'id="account-close-title"' in page
+    assert section.count('name="confirm" value="1"') == 1
+    assert section.count('id="session-confirmation-title"') == 1
+    assert f'data-return-focus="{return_id}"' in section
+    assert f'href="{base}#{return_id}"' in section
+    panel = section.index('data-session-confirmation')
+    if target == "single":
+        assert section.index(f'id="session-revoke-{other.id}"') < panel < section.index('</li>', panel)
+        assert panel < section.index('</ul>')
+    else:
+        assert section.index('</ul>') < panel
+    assert 'id="account-sessions-title" tabindex="-1"' in section
+    assert 'data-session-cancel data-outcome-focus autofocus' in section

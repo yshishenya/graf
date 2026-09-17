@@ -11,12 +11,14 @@ from twobrain_rec_server.cabinet.web_routes import (
     deletion,
     desktop,
     fair_use,
+    notifications,
     provider_links,
     referrals,
     settings,
     spaces,
     speakers,
     static,
+    titles,
 )
 from twobrain_rec_server.product_analytics.events import build_activation_event
 from twobrain_rec_server.product_analytics.milestones import first_value_decision
@@ -24,6 +26,7 @@ from twobrain_rec_server.product_analytics.telemetry_gate import build_required_
 
 router = APIRouter(tags=["cabinet-web"])
 router.include_router(static.router)
+router.include_router(notifications.router)
 router.include_router(auth.router)
 router.include_router(billing.router)
 router.include_router(settings.router)
@@ -34,6 +37,7 @@ router.include_router(account_merge.router)
 router.include_router(referrals.router)
 router.include_router(spaces.router)
 router.include_router(speakers.router)
+router.include_router(titles.router)
 router.include_router(deletion.router)
 router.include_router(desktop.router)
 router.include_router(fair_use.router)

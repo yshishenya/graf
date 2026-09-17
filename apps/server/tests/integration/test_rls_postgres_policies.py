@@ -640,8 +640,27 @@ async def test_account_linking_migration_has_exact_binding_and_operation_policie
     assert index_definition is not None
     assert "(verified_external_identity_id)" in index_definition
 
+    comment_read_policies = {
+        "comment_editor_member_read": (
+            "user_identities",
+            "rec_comment_editor_member_visible(id)",
+        ),
+        "comment_editor_verified_identity_read": (
+            "external_identities",
+            "(is_active AND is_verified AND (email IS NOT NULL) "
+            "AND rec_comment_editor_member_visible(user_id))",
+        ),
+    }
+    seen_comment_read_policies = set()
     policies_by_table: dict[str, dict[str, object]] = {}
     for row in policy_rows:
+        if row.policyname in comment_read_policies:
+            assert (row.tablename, row.qual) == comment_read_policies[row.policyname]
+            assert row.cmd == "SELECT"
+            assert row.with_check is None
+            seen_comment_read_policies.add(row.policyname)
+            continue
+        assert row.policyname == f"{row.tablename}_{row.cmd.lower()}_isolation"
         assert row.policyname != f"{row.tablename}_tenant_isolation"
         assert row.cmd != "ALL"
         rendered = f"{row.qual or ''} {row.with_check or ''}"
@@ -651,6 +670,7 @@ async def test_account_linking_migration_has_exact_binding_and_operation_policie
             assert "rec_account_merge_context_valid()" in rendered
         policies_by_table.setdefault(row.tablename, {})[row.cmd] = row
 
+    assert seen_comment_read_policies == set(comment_read_policies)
     assert set(policies_by_table) == set(table_names)
     assert all(
         set(command_rows) == {"SELECT", "INSERT", "UPDATE", "DELETE"}
@@ -1267,6 +1287,11 @@ async def test_active_space_switch_replaces_session_inside_rls_context(
                 auth_session_id=ids["session_a"],
             ),
         )
+        await db.execute(text("""
+            insert into auth_session_device_bindings
+                (id, auth_session_id, registered_device_id, device_state)
+            values (:id, :session_id, :device_id, 'trusted')
+        """), {"id": uuid4(), "session_id": ids["session_a"], "device_id": ids["device_a"]})
         activated = await activate_workspace_session(
             db,
             organization_id=ids["org_a"],
@@ -1805,6 +1830,40 @@ async def test_merged_billing_lineage_remains_visible_and_appealable_under_force
             )
             == "appealed"
         )
+
+
+@pytest.mark.asyncio
+async def test_session_renewal_commits_under_exact_app_role_without_cross_tenant_access(
+    rls_engine: AsyncEngine, migrated_postgres_urls: MigratedPostgresUrls,
+) -> None:
+    from starlette.responses import Response
+
+    from twobrain_rec_server.auth.session_renewal import session_renewal_middleware
+    from twobrain_rec_server.db.models import AuthSession, RegisteredDevice
+
+    ids = await _seed_probe_rows(rls_engine)
+    async with _exact_app_role_engine(migrated_postgres_urls.migration_url) as app_engine:
+        sessionmaker = async_sessionmaker(app_engine, expire_on_commit=False)
+        context = _request_context(ids, "a")
+        async with sessionmaker() as db:
+            await apply_tenant_context(db, context)
+            session = await db.get(AuthSession, ids["session_a"])
+            device = await db.get(RegisteredDevice, ids["device_a"])
+        request = Request({"type": "http", "method": "GET", "path": "/api/v1/auth/me",
+            "headers": [(b"x-auth-session", b"synthetic-rls-renewal")],
+            "app": SimpleNamespace(state=SimpleNamespace(settings=Settings(), db_sessionmaker=sessionmaker))})
+        request.state.auth_session_renewal = ("synthetic-rls-renewal", session, device, context)
+
+        async def next_response(_):
+            return Response(status_code=200)
+
+        response = await session_renewal_middleware(request, next_response)
+        expires = int(response.headers["X-GRAF-Auth-Expires-At"])
+        assert expires > (datetime.now(UTC) + timedelta(days=29)).timestamp()
+        async with sessionmaker() as db:
+            await apply_tenant_context(db, context)
+            assert int((await db.get(AuthSession, ids["session_a"])).expires_at.timestamp()) == expires
+            assert await db.get(RegisteredDevice, ids["device_b"]) is None
 
 
 @pytest.mark.asyncio
@@ -4692,10 +4751,16 @@ async def test_production_smoke_cleanup_discovers_partial_upload_and_normalizati
 
 def test_production_smoke_setup_migration_downgrade_removes_operation(
     migrated_postgres_urls: MigratedPostgresUrls,
+    postgres_clean_database_url: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # Keep the historical round trip off the shared head schema and deletion markers.
+    probe_url = make_url(migrated_postgres_urls.probe_url).set(
+        database=make_url(postgres_clean_database_url).database,
+    ).render_as_string(hide_password=False)
+
     async def setup_allowed() -> bool:
-        engine = create_async_engine(migrated_postgres_urls.probe_url, pool_pre_ping=True)
+        engine = create_async_engine(probe_url, pool_pre_ping=True)
         try:
             async with engine.connect() as conn:
                 await apply_tenant_context_to_connection(
@@ -4711,25 +4776,7 @@ def test_production_smoke_setup_migration_downgrade_removes_operation(
         finally:
             await engine.dispose()
 
-    async def remove_linked_workspace_downgrade_guard() -> None:
-        engine = create_async_engine(migrated_postgres_urls.migration_url)
-        try:
-            async with engine.begin() as conn:
-                await conn.execute(
-                    text("update workspaces set kind = 'corporate' where kind = 'linked'")
-                )
-        finally:
-            await engine.dispose()
-
-    async def clear_summary_slot_fixture_rows() -> None:
-        engine = create_async_engine(migrated_postgres_urls.migration_url)
-        try:
-            async with engine.begin() as conn:
-                await conn.execute(text("delete from meeting_summary_slots"))
-        finally:
-            await engine.dispose()
-
-    monkeypatch.setenv("TWOBRAIN_DATABASE_URL", migrated_postgres_urls.migration_url)
+    monkeypatch.setenv("TWOBRAIN_DATABASE_URL", postgres_clean_database_url)
     get_settings.cache_clear()
     config = Config(str(REPO_ROOT / "apps/server/alembic.ini"))
     config.set_main_option(
@@ -4737,14 +4784,13 @@ def test_production_smoke_setup_migration_downgrade_removes_operation(
         str(REPO_ROOT / "apps/server/src/twobrain_rec_server/db/migrations"),
     )
 
+    command.upgrade(config, "0023_production_smoke_setup")
     assert asyncio.run(setup_allowed()) is True
-    asyncio.run(remove_linked_workspace_downgrade_guard())
-    asyncio.run(clear_summary_slot_fixture_rows())
     try:
         command.downgrade(config, "0022_playback_normalization")
         assert asyncio.run(setup_allowed()) is False
     finally:
-        command.upgrade(config, "head")
+        command.upgrade(config, "0023_production_smoke_setup")
         get_settings.cache_clear()
     assert asyncio.run(setup_allowed()) is True
 
@@ -4925,3 +4971,105 @@ async def test_normalization_maintenance_operations_are_exact_select_only_bounda
     assert media_cleanup_function_execute is True
     assert wrong_feature_count == 0
     assert wrong_feature_page_count == 0
+
+
+@pytest.mark.asyncio
+async def test_session_client_activity_and_revoke_use_request_rls_context(
+    rls_engine: AsyncEngine, app_rls_engine: AsyncEngine,
+    migrated_postgres_urls: MigratedPostgresUrls,
+) -> None:
+    from twobrain_rec_server.auth.dependencies import _principal_from_session_token
+    from twobrain_rec_server.auth.sessions import (
+        create_login_device,
+        issue_auth_session,
+        revoke_registered_devices,
+    )
+    from twobrain_rec_server.db.models import AuthSessionDeviceBinding, RegisteredDevice
+
+    ids = await _seed_probe_rows(rls_engine)
+    sessionmaker = async_sessionmaker(app_rls_engine, expire_on_commit=False)
+    async with sessionmaker() as db:
+        await apply_tenant_context(db, TenantDatabaseContext(
+            organization_id=ids['org_a'], workspace_id=ids['workspace_a'], user_id=ids['user_a']))
+        device = await create_login_device(db, workspace_id=ids['workspace_a'], user_id=ids['user_a'],
+                                          user_agent='GRAFDesktop/2026.09.06.1')
+        issued = await issue_auth_session(db, workspace_id=ids['workspace_a'], user_id=ids['user_a'],
+            provider='rls-client-test', device_id=device.id,
+            now=datetime.now(UTC) - timedelta(minutes=10))
+        db.add(AuthSessionDeviceBinding(auth_session_id=issued.id,
+                                       registered_device_id=device.id, device_state='trusted'))
+        await db.commit()
+    request = _email_auth_request(Settings(database_url=migrated_postgres_urls.app_url,
+                                           web_login_workspace_id=ids['workspace_b']))
+    request.app.state.db_sessionmaker = sessionmaker
+    principal = await _principal_from_session_token(request, issued.token)
+    assert principal.session_device_id == device.id
+    async with sessionmaker() as db:
+        await apply_tenant_context(db, TenantDatabaseContext(
+            organization_id=ids['org_a'], workspace_id=ids['workspace_a'], user_id=ids['user_a']))
+        current_device = await db.get(RegisteredDevice, device.id)
+        assert current_device.last_seen_at > datetime.now(UTC) - timedelta(minutes=1)
+        assert await revoke_registered_devices(db, [current_device], actor_user_id=ids['user_a']) == (1, 1)
+        await db.commit()
+    with pytest.raises(ProblemDetail) as rejected:
+        await _principal_from_session_token(request, issued.token)
+    assert rejected.value.code == 'auth_session_invalid'
+
+
+@pytest.mark.asyncio
+async def test_independent_billing_handoff_crosses_rls_contexts_atomically(
+    rls_engine: AsyncEngine,
+    migrated_postgres_urls: MigratedPostgresUrls, tmp_path,
+) -> None:
+    from cryptography.fernet import Fernet
+
+    from twobrain_rec_server.auth.browser_handoff import (
+        DESKTOP_BILLING_HANDOFF_PROVIDER,
+        seal_desktop_billing_session,
+    )
+    from twobrain_rec_server.auth.sessions import create_login_device, issue_auth_session
+    from twobrain_rec_server.cabinet.web_routes.billing import billing_browser_handoff
+    from twobrain_rec_server.db.models import (
+        AuthCallbackState,
+        AuthSession,
+        AuthSessionDeviceBinding,
+    )
+
+    ids = await _seed_probe_rows(rls_engine)
+    key = Fernet.generate_key()
+    key_file = tmp_path / 'handoff-key'
+    key_file.write_bytes(key)
+    settings = Settings(database_url=migrated_postgres_urls.app_url,
+                        web_login_workspace_id=ids['workspace_b'], credential_encryption_key_file=key_file)
+    request = _email_auth_request(settings, path='/billing/handoff')
+    # Build the existing non-bypass test role against the current migrated schema.
+    async with (
+        _exact_app_role_engine(migrated_postgres_urls.migration_url) as app_engine,
+        async_sessionmaker(app_engine, expire_on_commit=False)() as db,
+    ):
+        context = TenantDatabaseContext(organization_id=ids['org_a'],
+            workspace_id=ids['workspace_a'], user_id=ids['user_a'])
+        await apply_tenant_context(db, context)
+        device = await create_login_device(db, workspace_id=ids['workspace_a'], user_id=ids['user_a'],
+                                          user_agent='GRAFDesktop/1.2')
+        source = await issue_auth_session(db, workspace_id=ids['workspace_a'], user_id=ids['user_a'],
+            provider='rls-handoff-test', device_id=device.id, ttl_seconds=600)
+        db.add(AuthSessionDeviceBinding(auth_session_id=source.id,
+                                       registered_device_id=device.id, device_state='trusted'))
+        await db.flush()
+        await apply_tenant_context(db, WorkspaceAuthContext(organization_id=ids['org_a'],
+            workspace_id=ids['workspace_a'], user_id=ids['user_a']))
+        nonce = f'rls-handoff-{uuid4()}'
+        db.add(AuthCallbackState(provider=DESKTOP_BILLING_HANDOFF_PROVIDER, state_nonce=nonce,
+            workspace_id=ids['workspace_a'], requested_redirect='/billing',
+            expected_state=seal_desktop_billing_session(source.token, key=key),
+            expires_at=datetime.now(UTC) + timedelta(minutes=2), result='pending'))
+        await db.commit()
+        result = await billing_browser_handoff(request, state=nonce, db=db)
+        assert result.headers['location'] == '/billing'
+        assert source.token not in result.headers['set-cookie']
+        await apply_tenant_context(db, context)
+        rows = list(await db.scalars(select(AuthSession).where(AuthSession.provider == 'rls-handoff-test')))
+        assert len(rows) == 2 and all(row.status == 'active' for row in rows)
+        assert len({row.device_id for row in rows}) == 2
+        assert all(row.expires_at == source.expires_at for row in rows)

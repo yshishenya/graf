@@ -277,7 +277,7 @@ def _meeting_invitation_bodies(
         + safe_url
         + '" style="display:inline-block;background:#7657f5;color:#fff;border-radius:10px;'
         'padding:12px 20px;text-decoration:none;font-weight:700">Открыть GRAF</a></p>'
-        "<p style=\"color:#646a78;font-size:14px\">Одноразовая ссылка ведёт на вход или регистрацию GRAF."
+        "<p style=\"color:#646a78;font-size:14px\">Одноразовая ссылка ведет на вход или регистрацию GRAF."
         f" {escape(access_details)} Рабочая область не меняется.</p>"
         "</div>"
     )

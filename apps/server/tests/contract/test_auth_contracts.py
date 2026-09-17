@@ -153,7 +153,7 @@ AUTH_LINK_ERROR_COPY = {
     "merge_preview_stale": "Состояние профилей изменилось. Данные не изменены; подключите способ входа заново.",
     "merge_intent_expired": "Время подтверждения истекло. Данные не изменены; подключите способ входа заново.",
     "proof_required": "Подтверждение больше не действует. Данные не изменены; подключите способ входа заново.",
-    "merge_blocked": "Способ входа не подключён. Данные не изменены.",
+    "merge_blocked": "Способ входа не подключен. Данные не изменены.",
 }
 
 
@@ -173,8 +173,8 @@ def test_successful_account_link_login_copy_is_positive_and_requests_relogin() -
         error="email_connected_relogin_required",
     )
 
-    assert "Email подключён к текущему профилю." in page
-    assert "Войдите снова любым сохранённым способом." in page
+    assert "Email подключен к текущему профилю." in page
+    assert "Войдите снова любым сохраненным способом." in page
     assert 'class="auth-alert auth-alert--success" role="status"' in page
     assert "Подключение завершено" in page
     assert "Вход выполнен" not in page
@@ -1081,6 +1081,8 @@ def test_throttled_browser_provider_start_precedes_state_growth_and_adapter(
     assert response.status_code == 429
     assert response.headers["retry-after"] == "60"
     assert "Слишком много попыток" in response.text
+    assert '<a class="auth-provider" href="/login/yandex/start?next=%2Fmeetings">' in response.text
+    assert '<a class="auth-provider" href="/login/vk/start?next=%2Fmeetings">' in response.text
     assert asyncio.run(count_states()) == before
     assert captured_scopes == [
         (
@@ -2071,7 +2073,6 @@ def test_provider_link_confirmation_requires_the_initiating_session(
                 db,
                 user_id=UUID(login.json()["user_id"]),
                 workspace_id=login_workspace_id,
-                device_id=DEVICE_ID,
                 provider="yandex",
             )
             await db.commit()
@@ -3186,8 +3187,9 @@ def test_auth_device_register_revoke_blocks_session_bound_ingest(
         headers=session_headers | {"X-Device-Id": device_payload["device_id"]},
         json={"local_recording_id": "revoked-session-device", "duration_seconds": 60},
     )
-    assert denied.status_code == 403
-    assert denied.json()["code"] == "device_revoked"
+    assert denied.status_code == 401
+    assert denied.json()["code"] == "auth_session_invalid"
+    assert client.get("/api/v1/auth/me", headers=session_headers).status_code == 401
 
     events = _load_auth_audit_events(client)
     event_types = [event.event_type for event in events]
@@ -3334,7 +3336,7 @@ def test_active_space_list_and_switch_replace_the_scoped_session(client: TestCli
     assert spaces[str(WORKSPACE_ID)]["active"] is True
     assert spaces[str(personal_workspace_id)] == {
         "id": str(personal_workspace_id),
-        "name": "Моё пространство",
+        "name": "Мое пространство",
         "kind": "personal",
         "role": "owner",
         "active": False,
@@ -3355,7 +3357,7 @@ def test_active_space_list_and_switch_replace_the_scoped_session(client: TestCli
     assert activated.status_code == 200
     assert activated.json()["active_space"] == {
         "id": str(personal_workspace_id),
-        "name": "Моё пространство",
+        "name": "Мое пространство",
         "kind": "personal",
         "role": "owner",
         "active": True,
@@ -3371,7 +3373,7 @@ def test_active_space_list_and_switch_replace_the_scoped_session(client: TestCli
 
     current_settings = client.get("/settings/workspace")
     assert current_settings.status_code == 200
-    assert "Куда сохраняются новые встречи" in current_settings.text
+    assert 'aria-label="Доступные пространства"' in current_settings.text
     assert "Текущее" in current_settings.text
     assert 'name="workspace_id"' not in current_settings.text
 
@@ -3518,7 +3520,7 @@ def test_workspace_join_offers_require_explicit_csrf_protected_decisions(
 
     settings = client.get("/settings/workspace")
     assert settings.status_code == 200
-    assert "Приглашения в рабочие пространства" in settings.text
+    assert '<h2 id="workspace-join-offers-title">Приглашения</h2>' in settings.text
     assert "Команда для принятия" in settings.text
     assert "offer-owner@example.test" not in settings.text
 

@@ -4,32 +4,16 @@
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
 import re
 import sys
 
 
-SHA = re.compile(r"^[0-9a-f]{40}$")
 FORBIDDEN_EVIDENCE = re.compile(r"(?i)(password|api[_-]?key|secret|signed[_ -]?url|raw[_ -]?audio|transcript)")
 
 
 def validate(root: Path) -> list[str]:
     errors: list[str] = []
-    pointer = root / ".specify" / "feature.json"
-    try:
-        feature = json.loads(pointer.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return ["active Feature pointer is unreadable"]
-    if str(feature.get("feature_id")) != "229":
-        errors.append("active feature is not Feature 229")
-    owned = feature.get("owned_paths")
-    if not isinstance(owned, list) or not all(isinstance(path, str) for path in owned):
-        errors.append("active Feature owned_paths must be a list of strings")
-    else:
-        for required in ("infra/docker-compose.dev.yml", "scripts/dev-harness.py", "infra/scripts/start-dev-runtime.sh"):
-            if required not in owned:
-                errors.append(f"Feature 229 ownership misses {required}")
     compose = root / "infra" / "docker-compose.dev.yml"
     text = compose.read_text(encoding="utf-8") if compose.exists() else ""
     if "name: graf-dev" not in text:

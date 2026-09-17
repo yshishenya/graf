@@ -15,7 +15,9 @@
           "speckit.agent-context.update"
         ]
       },
-      "registered_skills": [],
+      "registered_skills": [
+        "speckit-agent-context-update"
+      ],
       "installed_at": "2026-06-15T20:03:32.683753+00:00"
     },
     "git": {
@@ -40,13 +42,19 @@
           "speckit.git.commit"
         ]
       },
-      "registered_skills": [],
+      "registered_skills": [
+        "speckit-git-feature",
+        "speckit-git-validate",
+        "speckit-git-remote",
+        "speckit-git-initialize",
+        "speckit-git-commit"
+      ],
       "installed_at": "2026-06-15T20:03:33.202169+00:00"
     },
     "github-issue-canon": {
-      "version": "0.3.2",
+      "version": "0.3.4",
       "source": "local",
-      "manifest_hash": "sha256:45879bcf021fa1866444037fb8253bb19b48321a2a497ad2d44dd7db5e2ea0fe",
+      "manifest_hash": "sha256:4f1b5f79b0797ec9ad9120b4f23966a6e6aae997be4da6067f5e277cf57feaff",
       "enabled": true,
       "priority": 10,
       "registered_commands": {
@@ -56,8 +64,12 @@
           "speckit.github-issue-canon.normalize"
         ]
       },
-      "registered_skills": [],
-      "installed_at": "2026-07-15T11:08:43.165816+00:00"
+      "registered_skills": [
+        "speckit-github-issue-canon-ensure",
+        "speckit-github-issue-canon-validate",
+        "speckit-github-issue-canon-normalize"
+      ],
+      "installed_at": "2026-09-13T15:52:48.391546+00:00"
     }
   }
 }

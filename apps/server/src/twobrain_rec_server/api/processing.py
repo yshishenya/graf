@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -198,6 +198,7 @@ async def trigger_processing_pickup(
 async def get_processing_status(
     meeting_id: UUID,
     http_response: Response,
+    summary_format: str | None = Query(default=None, max_length=120, pattern=r"^[A-Za-z0-9_-]+$"),
     tenant_scope: TenantScope = TenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     db: AsyncSession | None = DbDependency,
@@ -227,6 +228,7 @@ async def get_processing_status(
         db,
         workspace_id=tenant_scope.workspace_id,
         meeting_id=meeting_id,
+        summary_template_key=summary_format if meeting.created_by_user_id == principal.user_id else None,
     )
     if status is None:
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
@@ -330,7 +332,7 @@ async def start_new_processing_attempt(
             "source_expired": (
                 409,
                 "processing_source_expired",
-                "Срок временного хранения записи истёк. Загрузите файл заново.",
+                "Срок временного хранения записи истек. Загрузите файл заново.",
             ),
             "quota_exceeded": (
                 409,
@@ -340,7 +342,7 @@ async def start_new_processing_attempt(
             "not_terminal": (
                 409,
                 "processing_attempt_not_allowed",
-                "Новую попытку можно начать только после подтверждённого окончательного сбоя.",
+                "Новую попытку можно начать только после подтвержденного окончательного сбоя.",
             ),
             "meeting_not_found": (404, "meeting_not_found", "Meeting not found"),
         }
@@ -472,7 +474,7 @@ async def reprocess_meeting(
             "source_expired": (
                 409,
                 "processing_source_expired",
-                "Срок хранения исходной записи истёк. Загрузите файл заново.",
+                "Срок хранения исходной записи истек. Загрузите файл заново.",
             ),
             "quota_exceeded": (
                 409,
@@ -628,7 +630,7 @@ async def check_processing(
                 status=503,
                 code="processing_manual_check_unavailable",
                 title="Не удалось запустить повторную подготовку",
-                detail="Попробуйте ещё раз позже.",
+                detail="Попробуйте еще раз позже.",
             ) from exc
         if retry.result not in {"accepted", "already_in_flight"}:
             await db.rollback()
@@ -670,7 +672,7 @@ async def check_processing(
                 status=503,
                 code="processing_manual_check_unavailable",
                 title="Не удалось запустить повторную подготовку",
-                detail="Попробуйте ещё раз позже.",
+                detail="Попробуйте еще раз позже.",
             ) from exc
         latest = (
             await get_content_safe_processing_status(
@@ -716,7 +718,7 @@ async def check_processing(
             status=503,
             code="processing_temporal_unavailable",
             title="Проверка обработки временно недоступна",
-            detail="Попробуйте ещё раз позже.",
+            detail="Попробуйте еще раз позже.",
         )
     try:
         dispatched = await request_processing_manual_check(
@@ -733,7 +735,7 @@ async def check_processing(
             status=503,
             code="processing_manual_check_unavailable",
             title="Не удалось запустить проверку обработки",
-            detail="Попробуйте ещё раз позже.",
+            detail="Попробуйте еще раз позже.",
         ) from exc
     latest = (
         await get_content_safe_processing_status(

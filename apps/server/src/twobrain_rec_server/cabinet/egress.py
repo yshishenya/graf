@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -10,7 +10,7 @@ from hashlib import sha256
 from uuid import UUID
 
 from anyio import to_thread
-from sqlalchemy import select
+from sqlalchemy import nullslast, select, tuple_
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -43,6 +43,10 @@ from twobrain_rec_server.cabinet.exports import (
     build_export_snapshot,
     render_content_export,
 )
+from twobrain_rec_server.cabinet.read_prefetch import (
+    CabinetReadPrefetch,
+    active_read_prefetch,
+)
 from twobrain_rec_server.cabinet.view_models import (
     format_timestamp,
     playback_reason_copy,
@@ -59,8 +63,10 @@ from twobrain_rec_server.db.models import (
     MeetingSummarySlot,
     PlaybackNormalizationJob,
     ProcessingResult,
+    ProcessingWorkflow,
     TrackArtifact,
     TranscriptSegment,
+    UploadSession,
 )
 from twobrain_rec_server.domain.statuses import (
     DeletionState,
@@ -69,6 +75,7 @@ from twobrain_rec_server.domain.statuses import (
     ProcessingAvailabilityStatus,
     ProcessingResultStatus,
     TrackRole,
+    UploadSessionStatus,
 )
 from twobrain_rec_server.ingest.store import archive_audio_for_revision
 from twobrain_rec_server.normalization.media import MAX_OUTPUT_BYTES
@@ -85,6 +92,7 @@ from twobrain_rec_server.outcomes.service import (
 )
 from twobrain_rec_server.processing.fences import lock_meeting_fence, meeting_is_deleted_or_deleting
 from twobrain_rec_server.processing.results import (
+    complete_processing_result_clause,
     effective_processing_result_query,
     result_lineage_is_current,
 )
@@ -152,21 +160,27 @@ async def _transcript_visibility_confirmed(
         or result.diarization_segment_count <= 0
     ):
         return False
-    current_revision = await db.scalar(
-        select(MediaRevision)
-        .where(
-            MediaRevision.workspace_id == meeting.workspace_id,
-            MediaRevision.meeting_id == meeting.id,
-            MediaRevision.status == MediaRevisionStatus.ACCEPTED.value,
-            MediaRevision.immutable.is_(True),
+    prefetch = active_read_prefetch(db)
+    if prefetch is not None and meeting.id in prefetch.media_revisions:
+        current_revision = prefetch.media_revisions[meeting.id]
+    else:
+        current_revision = await db.scalar(
+            select(MediaRevision)
+            .where(
+                MediaRevision.workspace_id == meeting.workspace_id,
+                MediaRevision.meeting_id == meeting.id,
+                MediaRevision.status == MediaRevisionStatus.ACCEPTED.value,
+                MediaRevision.immutable.is_(True),
+            )
+            .order_by(MediaRevision.revision_number.desc(), MediaRevision.updated_at.desc())
         )
-        .order_by(MediaRevision.revision_number.desc(), MediaRevision.updated_at.desc())
-    )
     if current_revision is None or not result_lineage_is_current(
         result,
         media_revision_id=current_revision.id,
     ):
         return False
+    if prefetch is not None and result.id in prefetch.result_media_presence:
+        return prefetch.result_media_presence[result.id]
     transcript_id = await db.scalar(
         select(TranscriptSegment.id)
         .where(
@@ -394,6 +408,7 @@ async def create_content_export(
     device_id: UUID,
     recipient_proof: ShareRecipientAccessProof | None = None,
     pinned_summary_revision: tuple[str, UUID] | None = None,
+    meeting_url: str = "",
 ) -> GeneratedContentExport:
     artifact_class: ArtifactClass = (
         "transcript"
@@ -515,6 +530,7 @@ async def create_content_export(
             result=result,
             selection=selection,
             pinned_summary_revision=pinned_summary_revision,
+            meeting_url=meeting_url,
         )
         generated = await to_thread.run_sync(render_content_export, snapshot)
     except ProblemDetail as exc:
@@ -675,6 +691,49 @@ async def create_content_export(
     return generated
 
 
+def _validate_outcome_resolution(
+    *,
+    outcome: MeetingOutcomeSet | None,
+    result: ProcessingResult | None,
+    processing_result_id: UUID | None,
+    include_non_publishable: bool,
+    allow_legacy_read_only: bool,
+    slot: MeetingSummarySlot | None,
+) -> tuple[MeetingOutcomeSet, ProcessingResult] | None:
+    """Pure resolution rules shared by the single and batched outcome-set reads."""
+    if outcome is None:
+        return None
+    if (
+        slot is not None
+        and slot.current_binding_class == "migrated_legacy_read_only"
+        and not allow_legacy_read_only
+    ):
+        return None
+    if outcome.revision_state not in (None, "accepted"):
+        return None
+    if result is None:
+        return None
+    if processing_result_id is not None and result.id != processing_result_id:
+        return None
+    if outcome.media_revision_id != result.media_revision_id:
+        return None
+    # Legacy rows may predate the source-result hash. Keep the fallback local:
+    # GET paths must not mutate immutable accepted history or flush synthetic
+    # values as a side effect of rendering/exporting a meeting.
+    result_source_hash = result.source_result_hash or sha256(
+        f"legacy-processing-result:{result.id}".encode()
+    ).hexdigest()
+    outcome_source_hash = outcome.source_result_hash or result_source_hash
+    if outcome_source_hash != result_source_hash:
+        return None
+    if not include_non_publishable and outcome.status not in {
+        OutcomeSetStatus.AVAILABLE.value,
+        OutcomeSetStatus.PARTIAL.value,
+    }:
+        return None
+    return (outcome, result)
+
+
 async def current_outcome_set(
     db: AsyncSession,
     *,
@@ -685,6 +744,21 @@ async def current_outcome_set(
     template_key: str | None = None,
     allow_legacy_read_only: bool = True,
 ) -> MeetingOutcomeSet | None:
+    prefetch = active_read_prefetch(db)
+    if (
+        prefetch is not None
+        and prefetch.workspace_id == workspace_id
+        and not include_non_publishable
+        and allow_legacy_read_only
+        and (meeting_id, template_key) in prefetch.outcome_resolutions
+    ):
+        resolution = prefetch.outcome_resolutions[(meeting_id, template_key)]
+        if resolution is None:
+            return None
+        outcome, result = resolution
+        if processing_result_id is not None and result.id != processing_result_id:
+            return None
+        return outcome
     meeting = await db.scalar(
         select(Meeting).where(
             Meeting.workspace_id == workspace_id,
@@ -745,27 +819,468 @@ async def current_outcome_set(
             ProcessingResult.status == ProcessingResultStatus.IMPORTED.value,
         )
     )
-    if result is None:
-        return None
-    if processing_result_id is not None and result.id != processing_result_id:
-        return None
-    if outcome.media_revision_id != result.media_revision_id:
-        return None
-    # Legacy rows may predate the source-result hash. Keep the fallback local:
-    # GET paths must not mutate immutable accepted history or flush synthetic
-    # values as a side effect of rendering/exporting a meeting.
-    result_source_hash = result.source_result_hash or sha256(
-        f"legacy-processing-result:{result.id}".encode()
-    ).hexdigest()
-    outcome_source_hash = outcome.source_result_hash or result_source_hash
-    if outcome_source_hash != result_source_hash:
-        return None
-    if not include_non_publishable and outcome.status not in {
-        OutcomeSetStatus.AVAILABLE.value,
-        OutcomeSetStatus.PARTIAL.value,
-    }:
-        return None
-    return outcome
+    resolution = _validate_outcome_resolution(
+        outcome=outcome,
+        result=result,
+        processing_result_id=processing_result_id,
+        include_non_publishable=include_non_publishable,
+        allow_legacy_read_only=allow_legacy_read_only,
+        slot=slot,
+    )
+    return resolution[0] if resolution is not None else None
+
+
+def _default_artifact_policy(workspace_id: UUID, meeting_id: UUID) -> MeetingArtifactPolicy:
+    return MeetingArtifactPolicy(
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        audio_download="disabled",
+        transcript_download="disabled",
+        summary_download="disabled",
+        package_export="disabled",
+        policy_source="meeting_default",
+    )
+
+
+async def batch_current_outcome_sets(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_ids: Iterable[UUID],
+    prefetch: CabinetReadPrefetch | None = None,
+) -> dict[tuple[UUID, str | None], tuple[MeetingOutcomeSet, ProcessingResult] | None]:
+    """Batch variant of `current_outcome_set` for a set of meetings.
+
+    Returns the validated (outcome, result) pair per (meeting, template_key) and
+    fills the matching summary slots so the list loop never re-reads them.
+    """
+    if prefetch is None:
+        prefetch = active_read_prefetch(db)
+    meeting_ids = list(dict.fromkeys(meeting_ids))
+    resolutions: dict[tuple[UUID, str | None], tuple[MeetingOutcomeSet, ProcessingResult] | None] = {}
+    if not meeting_ids:
+        return resolutions
+    slots = list(
+        await db.scalars(
+            select(MeetingSummarySlot)
+            .where(
+                MeetingSummarySlot.workspace_id == workspace_id,
+                MeetingSummarySlot.meeting_id.in_(meeting_ids),
+            )
+            .execution_options(populate_existing=True)
+        )
+    )
+    slots_by_meeting: dict[UUID, list[MeetingSummarySlot]] = {}
+    for slot in slots:
+        slots_by_meeting.setdefault(slot.meeting_id, []).append(slot)
+    default_slot_by_meeting: dict[UUID, MeetingSummarySlot | None] = {
+        meeting_id: None for meeting_id in meeting_ids
+    }
+    for slot in slots:
+        if slot.is_meeting_default:
+            default_slot_by_meeting[slot.meeting_id] = slot
+    if prefetch is not None:
+        for meeting_id in meeting_ids:
+            prefetch.summary_slots[(meeting_id, None)] = default_slot_by_meeting[meeting_id]
+        for slot in slots:
+            prefetch.summary_slots[(slot.meeting_id, slot.template_key)] = slot
+
+    outcome_ids = {
+        slot.current_outcome_set_id
+        for slot in slots
+        if slot.current_outcome_set_id is not None
+    }
+    outcomes: dict[UUID, MeetingOutcomeSet] = {}
+    if outcome_ids:
+        rows = await db.scalars(
+            select(MeetingOutcomeSet)
+            .where(
+                MeetingOutcomeSet.id.in_(outcome_ids),
+                MeetingOutcomeSet.workspace_id == workspace_id,
+                MeetingOutcomeSet.meeting_id.in_(meeting_ids),
+                MeetingOutcomeSet.lifecycle_state == "active",
+            )
+            .execution_options(populate_existing=True)
+        )
+        outcomes = {row.id: row for row in rows}
+    result_ids = {
+        outcome.processing_result_id
+        for outcome in outcomes.values()
+        if outcome.processing_result_id is not None
+    }
+    results: dict[UUID, ProcessingResult] = {}
+    if result_ids:
+        rows = await db.scalars(
+            select(ProcessingResult).where(
+                ProcessingResult.id.in_(result_ids),
+                ProcessingResult.workspace_id == workspace_id,
+                ProcessingResult.meeting_id.in_(meeting_ids),
+                ProcessingResult.status == ProcessingResultStatus.IMPORTED.value,
+            )
+        )
+        results = {row.id: row for row in rows}
+
+    def _resolve(
+        meeting_id: UUID,
+        slot: MeetingSummarySlot | None,
+        template_key: str | None,
+    ) -> tuple[MeetingOutcomeSet, ProcessingResult] | None:
+        if slot is None:
+            # An absent requested/default slot is an honest no-result state.
+            return None
+        resolved_template_key = template_key or slot.template_key
+        outcome = (
+            outcomes.get(slot.current_outcome_set_id)
+            if slot.current_outcome_set_id is not None
+            else None
+        )
+        if resolved_template_key is not None and (
+            outcome is None or outcome.template_key != resolved_template_key
+        ):
+            return None
+        if outcome is None:
+            return None
+        result = (
+            results.get(outcome.processing_result_id)
+            if outcome.processing_result_id is not None
+            else None
+        )
+        # The single-meeting read fenced the result with
+        # `ProcessingResult.meeting_id == meeting_id`. The batch read asks for
+        # every result of the page at once, so the fence has to be repeated
+        # here: an outcome of this meeting must never resolve against a result
+        # that belongs to a different meeting on the same page.
+        if result is not None and result.meeting_id != meeting_id:
+            result = None
+        return _validate_outcome_resolution(
+            outcome=outcome,
+            result=result,
+            processing_result_id=None,
+            include_non_publishable=False,
+            allow_legacy_read_only=True,
+            slot=slot,
+        )
+
+    for meeting_id in meeting_ids:
+        resolutions[(meeting_id, None)] = _resolve(
+            meeting_id, default_slot_by_meeting[meeting_id], None
+        )
+        for slot in slots_by_meeting.get(meeting_id, ()):
+            resolutions[(meeting_id, slot.template_key)] = _resolve(
+                meeting_id, slot, slot.template_key
+            )
+    if prefetch is not None:
+        prefetch.outcome_resolutions.update(resolutions)
+    return resolutions
+
+
+async def batch_latest_accepted_media_revisions(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_ids: Iterable[UUID],
+    prefetch: CabinetReadPrefetch | None = None,
+) -> dict[UUID, MediaRevision | None]:
+    """Batch variant of `_latest_accepted_media_revision` for a set of meetings."""
+    if prefetch is None:
+        prefetch = active_read_prefetch(db)
+    meeting_ids = list(dict.fromkeys(meeting_ids))
+    result: dict[UUID, MediaRevision | None] = {meeting_id: None for meeting_id in meeting_ids}
+    if not meeting_ids:
+        return result
+    pinned_pairs: list[tuple[UUID, UUID]] = []
+    fallback_ids: list[UUID] = []
+    for meeting_id in meeting_ids:
+        slot = prefetch.summary_slots.get((meeting_id, None)) if prefetch is not None else None
+        resolution = (
+            prefetch.outcome_resolutions.get((meeting_id, None)) if prefetch is not None else None
+        )
+        if (
+            prefetch is not None
+            and (meeting_id, None) in prefetch.outcome_resolutions
+            and slot is not None
+            and slot.current_outcome_set_id is not None
+        ):
+            if resolution is not None and resolution[0].media_revision_id is not None:
+                pinned_pairs.append((meeting_id, resolution[0].media_revision_id))
+        else:
+            fallback_ids.append(meeting_id)
+    if pinned_pairs:
+        rows = await db.scalars(
+            select(MediaRevision).where(
+                MediaRevision.workspace_id == workspace_id,
+                tuple_(MediaRevision.meeting_id, MediaRevision.id).in_(pinned_pairs),
+                MediaRevision.status == MediaRevisionStatus.ACCEPTED.value,
+                MediaRevision.immutable.is_(True),
+            )
+        )
+        found = {row.meeting_id: row for row in rows}
+        for meeting_id, _ in pinned_pairs:
+            result[meeting_id] = found.get(meeting_id)
+    if fallback_ids:
+        rows = await db.scalars(
+            select(MediaRevision)
+            .where(
+                MediaRevision.workspace_id == workspace_id,
+                MediaRevision.meeting_id.in_(fallback_ids),
+                MediaRevision.status == MediaRevisionStatus.ACCEPTED.value,
+            )
+            .distinct(MediaRevision.meeting_id)
+            .order_by(
+                MediaRevision.meeting_id,
+                MediaRevision.revision_number.desc(),
+                MediaRevision.updated_at.desc(),
+            )
+        )
+        found = {row.meeting_id: row for row in rows}
+        for meeting_id in fallback_ids:
+            result[meeting_id] = found.get(meeting_id)
+    if prefetch is not None:
+        prefetch.accepted_media_revisions.update(result)
+    return result
+
+
+async def batch_effective_complete_results(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    pairs: Iterable[tuple[UUID, UUID | None]],
+    prefetch: CabinetReadPrefetch | None = None,
+) -> dict[UUID, ProcessingResult | None]:
+    """Batch variant of `_effective_complete_result` for a set of meetings."""
+    if prefetch is None:
+        prefetch = active_read_prefetch(db)
+    result: dict[UUID, ProcessingResult | None] = {meeting_id: None for meeting_id, _ in pairs}
+    revision_pairs = [
+        (meeting_id, media_revision_id)
+        for meeting_id, media_revision_id in pairs
+        if media_revision_id is not None
+    ]
+    if revision_pairs:
+        rows = await db.scalars(
+            select(ProcessingResult)
+            .join(
+                ProcessingWorkflow,
+                ProcessingWorkflow.id == ProcessingResult.processing_workflow_id,
+            )
+            .where(
+                ProcessingResult.workspace_id == workspace_id,
+                tuple_(ProcessingResult.meeting_id, ProcessingResult.media_revision_id).in_(
+                    revision_pairs
+                ),
+                complete_processing_result_clause(),
+            )
+            .distinct(ProcessingResult.meeting_id)
+            .order_by(
+                ProcessingResult.meeting_id,
+                ProcessingWorkflow.attempt_ordinal.desc(),
+                ProcessingResult.result_version.desc(),
+                nullslast(ProcessingResult.imported_at.desc()),
+                ProcessingResult.created_at.desc(),
+                ProcessingResult.id.desc(),
+            )
+            .execution_options(populate_existing=True)
+        )
+        for row in rows:
+            if row.meeting_id in result:
+                result[row.meeting_id] = row
+    if prefetch is not None:
+        prefetch.effective_results.update(result)
+    return result
+
+
+async def batch_artifact_policies(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_ids: Iterable[UUID],
+    prefetch: CabinetReadPrefetch | None = None,
+) -> dict[UUID, MeetingArtifactPolicy]:
+    """Batch variant of `resolve_artifact_policy` for a set of meetings."""
+    if prefetch is None:
+        prefetch = active_read_prefetch(db)
+    meeting_ids = list(dict.fromkeys(meeting_ids))
+    result: dict[UUID, MeetingArtifactPolicy] = {
+        meeting_id: _default_artifact_policy(workspace_id, meeting_id)
+        for meeting_id in meeting_ids
+    }
+    if meeting_ids:
+        rows = await db.scalars(
+            select(MeetingArtifactPolicy)
+            .where(
+                MeetingArtifactPolicy.workspace_id == workspace_id,
+                MeetingArtifactPolicy.meeting_id.in_(meeting_ids),
+            )
+            .execution_options(populate_existing=True)
+        )
+        for row in rows:
+            result[row.meeting_id] = row
+    if prefetch is not None:
+        prefetch.artifact_policies.update(result)
+    return result
+
+
+async def batch_archive_audio_for_revisions(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    pairs: Iterable[tuple[UUID, UUID]],
+    prefetch: CabinetReadPrefetch | None = None,
+) -> dict[tuple[UUID, UUID], bool]:
+    """Batch variant of `archive_audio_for_revision` for (meeting, revision) pairs."""
+    if prefetch is None:
+        prefetch = active_read_prefetch(db)
+    pairs = list(dict.fromkeys(pairs))
+    # Legacy rows default to archive, exactly like the single helper.
+    result: dict[tuple[UUID, UUID], bool] = {pair: True for pair in pairs}
+    if pairs:
+        rows = await db.scalars(
+            select(UploadSession)
+            .where(
+                UploadSession.workspace_id == workspace_id,
+                tuple_(UploadSession.meeting_id, UploadSession.media_revision_id).in_(pairs),
+                UploadSession.status == UploadSessionStatus.FINALIZED.value,
+            )
+            .distinct(UploadSession.meeting_id, UploadSession.media_revision_id)
+            .order_by(
+                UploadSession.meeting_id,
+                UploadSession.media_revision_id,
+                UploadSession.created_at.desc(),
+                UploadSession.id.desc(),
+            )
+        )
+        for row in rows:
+            result[(row.meeting_id, row.media_revision_id)] = bool(row.archive_audio)
+    if prefetch is not None:
+        prefetch.archive_audio.update(result)
+    return result
+
+
+async def batch_normalization_jobs(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    pairs: Iterable[tuple[UUID, UUID]],
+    prefetch: CabinetReadPrefetch | None = None,
+) -> dict[tuple[UUID, UUID], PlaybackNormalizationJob | None]:
+    """Batch variant of `_normalization_job_for_revision` for revision pairs."""
+    if prefetch is None:
+        prefetch = active_read_prefetch(db)
+    pairs = list(dict.fromkeys(pairs))
+    result: dict[tuple[UUID, UUID], PlaybackNormalizationJob | None] = {pair: None for pair in pairs}
+    if pairs:
+        rows = await db.scalars(
+            select(PlaybackNormalizationJob).where(
+                PlaybackNormalizationJob.workspace_id == workspace_id,
+                tuple_(
+                    PlaybackNormalizationJob.meeting_id,
+                    PlaybackNormalizationJob.media_revision_id,
+                ).in_(pairs),
+                PlaybackNormalizationJob.profile_version == CANONICAL_PROFILE_VERSION,
+            )
+        )
+        for row in rows:
+            key = (row.meeting_id, row.media_revision_id)
+            if key in result:
+                result[key] = row
+    if prefetch is not None:
+        prefetch.normalization_jobs.update(result)
+    return result
+
+
+async def batch_canonical_artifacts(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    jobs: Iterable[PlaybackNormalizationJob],
+    prefetch: CabinetReadPrefetch | None = None,
+) -> dict[UUID, TrackArtifact | None]:
+    """Batch variant of `_validated_canonical_artifact` for a set of jobs."""
+    if prefetch is None:
+        prefetch = active_read_prefetch(db)
+    jobs = list(jobs)
+    result: dict[UUID, TrackArtifact | None] = {job.id: None for job in jobs}
+    artifact_ids = {
+        job.canonical_track_artifact_id
+        for job in jobs
+        if job.canonical_track_artifact_id is not None
+    }
+    artifacts: dict[UUID, TrackArtifact] = {}
+    if artifact_ids:
+        rows = await db.scalars(
+            select(TrackArtifact).where(
+                TrackArtifact.workspace_id == workspace_id,
+                TrackArtifact.id.in_(artifact_ids),
+            )
+        )
+        artifacts = {row.id: row for row in rows}
+    for job in jobs:
+        artifact = (
+            artifacts.get(job.canonical_track_artifact_id)
+            if job.canonical_track_artifact_id is not None
+            else None
+        )
+        result[job.id] = _validate_canonical_artifact(job, artifact)
+    if prefetch is not None:
+        prefetch.canonical_artifacts.update(result)
+    return result
+
+
+async def batch_result_media_presence(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    result_pairs: Iterable[tuple[UUID, UUID]],
+    prefetch: CabinetReadPrefetch | None = None,
+) -> dict[UUID, bool]:
+    """Batch variant of the transcript/diarization presence probe.
+
+    ``result_pairs`` carries ``(result_id, meeting_id)``. The single-meeting
+    probe fenced segments with ``Segment.meeting_id == meeting.id``, and the
+    schema has independent foreign keys, so a segment could otherwise reference
+    a result of meeting A while carrying meeting B. Presence is therefore keyed
+    by both columns instead of the result alone.
+    """
+    if prefetch is None:
+        prefetch = active_read_prefetch(db)
+    pairs = list(dict.fromkeys(result_pairs))
+    result_ids = list(dict.fromkeys(result_id for result_id, _ in pairs))
+    presence: dict[UUID, bool] = {result_id: False for result_id in result_ids}
+    if pairs:
+        transcript_pairs = set(
+            await db.execute(
+                select(TranscriptSegment.processing_result_id, TranscriptSegment.meeting_id)
+                .where(
+                    TranscriptSegment.workspace_id == workspace_id,
+                    TranscriptSegment.processing_result_id.in_(result_ids),
+                    TranscriptSegment.meeting_id.in_(
+                        [meeting_id for _, meeting_id in pairs]
+                    ),
+                )
+                .distinct()
+            )
+        )
+        diarization_pairs = set(
+            await db.execute(
+                select(DiarizationSegment.processing_result_id, DiarizationSegment.meeting_id)
+                .where(
+                    DiarizationSegment.workspace_id == workspace_id,
+                    DiarizationSegment.processing_result_id.in_(result_ids),
+                    DiarizationSegment.meeting_id.in_(
+                        [meeting_id for _, meeting_id in pairs]
+                    ),
+                )
+                .distinct()
+            )
+        )
+        for result_id, meeting_id in pairs:
+            presence[result_id] = (
+                (result_id, meeting_id) in transcript_pairs
+                and (result_id, meeting_id) in diarization_pairs
+            )
+    if prefetch is not None:
+        prefetch.result_media_presence.update(presence)
+    return presence
 
 
 async def _processing_result_is_current(
@@ -791,6 +1306,9 @@ async def _effective_complete_result(
     *,
     meeting: Meeting,
 ) -> ProcessingResult | None:
+    prefetch = active_read_prefetch(db)
+    if prefetch is not None and meeting.id in prefetch.effective_results:
+        return prefetch.effective_results[meeting.id]
     latest_revision = await db.scalar(
         select(MediaRevision)
         .where(
@@ -950,6 +1468,9 @@ async def resolve_artifact_policy(
     workspace_id: UUID,
     meeting_id: UUID,
 ) -> MeetingArtifactPolicy:
+    prefetch = active_read_prefetch(db)
+    if prefetch is not None and meeting_id in prefetch.artifact_policies:
+        return prefetch.artifact_policies[meeting_id]
     policy = await db.scalar(
         select(MeetingArtifactPolicy)
         .where(
@@ -960,15 +1481,7 @@ async def resolve_artifact_policy(
     )
     if policy is not None:
         return policy
-    return MeetingArtifactPolicy(
-        workspace_id=workspace_id,
-        meeting_id=meeting_id,
-        audio_download="disabled",
-        transcript_download="disabled",
-        summary_download="disabled",
-        package_export="disabled",
-        policy_source="meeting_default",
-    )
+    return _default_artifact_policy(workspace_id, meeting_id)
 
 
 def _effective_audio_download_policy(policy: MeetingArtifactPolicy) -> str:
@@ -997,7 +1510,7 @@ async def stored_audio_artifacts(
     )
     if revision is None:
         return []
-    if not await archive_audio_for_revision(
+    if not await _cached_archive_audio_for_revision(
         db,
         workspace_id=workspace_id,
         meeting_id=meeting_id,
@@ -1086,7 +1599,7 @@ async def review_playback_state(
             reason_code="no_audio",
             label=playback_reason_copy("no_audio"),
         )
-    if not await archive_audio_for_revision(
+    if not await _cached_archive_audio_for_revision(
         db,
         workspace_id=meeting.workspace_id,
         meeting_id=meeting.id,
@@ -1188,6 +1701,9 @@ async def _latest_accepted_media_revision(
     workspace_id: UUID,
     meeting_id: UUID,
 ) -> MediaRevision | None:
+    prefetch = active_read_prefetch(db)
+    if prefetch is not None and meeting_id in prefetch.accepted_media_revisions:
+        return prefetch.accepted_media_revisions[meeting_id]
     meeting = await db.scalar(
         select(Meeting).where(
             Meeting.workspace_id == workspace_id,
@@ -1199,6 +1715,7 @@ async def _latest_accepted_media_revision(
             MeetingSummarySlot.workspace_id == workspace_id,
             MeetingSummarySlot.meeting_id == meeting_id,
             MeetingSummarySlot.is_meeting_default.is_(True),
+            MeetingSummarySlot.current_outcome_set_id.is_not(None),
         )
     ) is not None:
         current = await current_outcome_set(
@@ -1229,6 +1746,25 @@ async def _latest_accepted_media_revision(
     )
 
 
+async def _cached_archive_audio_for_revision(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    meeting_id: UUID,
+    media_revision_id: UUID,
+) -> bool:
+    prefetch = active_read_prefetch(db)
+    key = (meeting_id, media_revision_id)
+    if prefetch is not None and key in prefetch.archive_audio:
+        return prefetch.archive_audio[key]
+    return await archive_audio_for_revision(
+        db,
+        workspace_id=workspace_id,
+        meeting_id=meeting_id,
+        media_revision_id=media_revision_id,
+    )
+
+
 async def _normalization_job_for_revision(
     db: AsyncSession,
     *,
@@ -1236,6 +1772,10 @@ async def _normalization_job_for_revision(
     meeting_id: UUID,
     media_revision_id: UUID,
 ) -> PlaybackNormalizationJob | None:
+    prefetch = active_read_prefetch(db)
+    key = (meeting_id, media_revision_id)
+    if prefetch is not None and key in prefetch.normalization_jobs:
+        return prefetch.normalization_jobs[key]
     return await db.scalar(
         select(PlaybackNormalizationJob).where(
             PlaybackNormalizationJob.workspace_id == workspace_id,
@@ -1246,11 +1786,31 @@ async def _normalization_job_for_revision(
     )
 
 
+def _validate_canonical_artifact(
+    job: PlaybackNormalizationJob,
+    artifact: TrackArtifact | None,
+) -> TrackArtifact | None:
+    if artifact is None:
+        return None
+    if (
+        artifact.workspace_id != job.workspace_id
+        or artifact.meeting_id != job.meeting_id
+        or artifact.media_revision_id != job.media_revision_id
+    ):
+        return None
+    if not _is_stored_review_m4a(artifact, job=job):
+        return None
+    return artifact
+
+
 async def _validated_canonical_artifact(
     db: AsyncSession,
     *,
     job: PlaybackNormalizationJob,
 ) -> TrackArtifact | None:
+    prefetch = active_read_prefetch(db)
+    if prefetch is not None and job.id in prefetch.canonical_artifacts:
+        return prefetch.canonical_artifacts[job.id]
     if job.canonical_track_artifact_id is None:
         return None
     artifact = await db.scalar(
@@ -1261,9 +1821,7 @@ async def _validated_canonical_artifact(
             TrackArtifact.media_revision_id == job.media_revision_id,
         )
     )
-    if artifact is None or not _is_stored_review_m4a(artifact, job=job):
-        return None
-    return artifact
+    return _validate_canonical_artifact(job, artifact)
 
 
 async def _canonical_object_exists(

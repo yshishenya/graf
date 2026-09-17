@@ -8,6 +8,8 @@ from uuid import UUID
 from pydantic import AliasChoices, AnyUrl, Field, PositiveInt, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+AUTH_SESSION_TTL_SECONDS = 30 * 86_400
+
 ALLOWED_READINESS_VERDICTS = ("not_ready", "blocked", "infra_smoke_ready")
 FORBIDDEN_READINESS_VERDICTS = (
     "production_ready",
@@ -105,7 +107,7 @@ class Settings(BaseSettings):
     public_analytics_yandex_metrica_id: str | None = None
     public_analytics_validation_mode: str = "disabled"
     public_analytics_replay_enabled: bool = False
-    public_analytics_consent_copy_version: str = "2026-08-13.1"
+    public_analytics_consent_copy_version: str = "2026-09-15.1"
     product_analytics_enabled: bool = False
     product_analytics_validation_mode: str = "disabled"
     product_analytics_provider_mode: str = "disabled"
@@ -224,7 +226,7 @@ class Settings(BaseSettings):
     # Billing/media lifecycle contract: an upload may never remain active
     # beyond the 24-hour hard lifetime, even if deployment env is misconfigured.
     upload_session_ttl_seconds: PositiveInt = Field(default=86_400, le=86_400)
-    auth_session_ttl_seconds: PositiveInt = Field(default=86_400)
+    auth_session_ttl_seconds: PositiveInt = Field(default=AUTH_SESSION_TTL_SECONDS)
     web_csrf_secret: str = "twobrain_rec_dev_web_csrf_secret"
     share_identity_hash_secret: str = "twobrain_rec_dev_share_identity_hash_secret"
     share_identity_hash_secret_file: Path | None = None

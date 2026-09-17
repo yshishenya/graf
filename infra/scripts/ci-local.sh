@@ -7,10 +7,14 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 export PYTHONDONTWRITEBYTECODE=1
 
 usage() {
-  echo "usage: $0 --fast|--full|--help" >&2
+  echo "usage: $0 --fast|--full|--plan|--focused|--help" >&2
 }
 
 classify_path() {
+  if [[ "$1" =~ ^changes/(unreleased|releases/v[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]+)/F[0-9]+\.yaml$ ]]; then
+    echo docs
+    return
+  fi
   case "$1" in
     apps/server/*)
       echo server
@@ -76,14 +80,50 @@ merge_base_commit() {
   git -C "$repo_root" merge-base HEAD "$base_ref"
 }
 
-changed_files() {
+changed_files() (
+  set -o pipefail
   local merge_base
-  local tracked_changes
-  local untracked_changes
   merge_base="$(merge_base_commit)" || return 1
-  tracked_changes="$(git -C "$repo_root" diff --no-renames --name-only "$merge_base" --)" || return 1
-  untracked_changes="$(git -C "$repo_root" ls-files --others --exclude-standard)" || return 1
-  printf '%s\n%s\n' "$tracked_changes" "$untracked_changes" | LC_ALL=C sort -u
+  {
+    # Status 1 is reserved for an unavailable implicit base, never a partial diff.
+    git -C "$repo_root" diff --no-renames --name-only -z "$merge_base" -- || exit 2
+    git -C "$repo_root" ls-files --others --exclude-standard -z || exit 2
+  } | python3 -c '
+import sys
+try:
+    paths = sorted(set(filter(None, sys.stdin.buffer.read().decode("utf-8").split("\0"))))
+except UnicodeError:
+    sys.exit(2)
+if any(ord(c) < 32 or ord(c) == 127 for path in paths for c in path):
+    print("unsupported_changed_path: control characters are not supported", file=sys.stderr)
+    sys.exit(2)
+if paths:
+    print("\n".join(paths))
+'
+)
+
+behavior_tests() {
+  local paths="$1"
+  shift
+  printf '%s\n' "$paths" | python3 "$repo_root/scripts/ci-behavior-tests.py" "$@"
+}
+
+focused_main() {
+  local paths=""
+  local status
+  local args=(--plan)
+  [[ "$1" == "--focused" ]] && args=(--run)
+  if paths="$(changed_files)"; then
+    :
+  else
+    status=$?
+    if [[ "$status" -ne 1 || -n "${GRAF_CI_BASE_REF:-}" ]]; then
+      printf 'ci_selection_error=invalid_diff_or_explicit_base\n' >&2
+      return 2
+    fi
+    args+=(--diff-unavailable)
+  fi
+  behavior_tests "$paths" "${args[@]}"
 }
 
 run_step() {
@@ -127,7 +167,7 @@ active.extend(sorted((root / "docs/agent-guidance").rglob("*.md")))
 ambiguous = []
 for path in dict.fromkeys(active):
     for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-        if "infra/scripts/ci-local.sh" in line and "--fast" not in line and "--full" not in line:
+        if "infra/scripts/ci-local.sh" in line and not any(mode in line for mode in ("--fast", "--full", "--plan", "--focused")):
             ambiguous.append(f"{path.relative_to(root)}:{number}")
 if ambiguous:
     print("ambiguous_ci_commands=" + ",".join(ambiguous), file=sys.stderr)
@@ -152,7 +192,7 @@ run_changed_server_tests() {
   while IFS= read -r path; do
     [[ -n "$path" ]] && test_files+=("${path#apps/server/}")
   done <<<"$changed_test_list"
-  run_server_tests focused "$performance_gate" "${test_files[@]}"
+  run_server_tests focused "$performance_gate" --partitioned "${test_files[@]}"
 }
 
 check_shell_syntax() {
@@ -205,6 +245,10 @@ check_final_cleanliness() {
 
 main() (
   set -uo pipefail
+  if [[ "$#" -eq 1 && ( "$1" == "--plan" || "$1" == "--focused" ) ]]; then
+    focused_main "$1"
+    return $?
+  fi
   local requested_sha="${GRAF_CI_REQUESTED_SHA:-}"
   local observed_sha_start=""
   local observed_sha_end=""
@@ -218,6 +262,8 @@ main() (
   local pipeline_duration
   local changed_list=""
   local changed_server_tests=""
+  local behavior_args=(--allow-empty)
+  local behavior_targets=""
   local has_server=0
   local needs_server_unit=0
   local has_macos=0
@@ -498,7 +544,13 @@ PY
   unset GRAF_CI_ALLOW_DIRTY GRAF_CI_EVIDENCE_PATH
   performance_proof="$(calendar_performance_test_path)" || return 1
 
-  if ! changed_list="$(changed_files)"; then
+  local diff_status=0
+  changed_list="$(changed_files)" || diff_status=$?
+  if [[ "$diff_status" -ne 0 ]]; then
+    if [[ "$diff_status" -ne 1 || -n "${GRAF_CI_BASE_REF:-}" ]]; then
+      printf 'ci_selection_error=invalid_diff_or_explicit_base\n' >&2
+      return 2
+    fi
     if [[ "$requested_mode" == "full" ]]; then
       performance_required=1
     else
@@ -637,6 +689,26 @@ PY
 
   [[ "$performance_required" -eq 1 ]] && performance_gate="required"
 
+  if [[ "$effective_mode" == "fast" && "$has_server" -eq 1 ]]; then
+    [[ "$needs_server_unit" -eq 1 ]] && behavior_args+=(--covered tests/unit)
+    behavior_targets="$(behavior_tests "$changed_list" --targets "${behavior_args[@]}")" || return $?
+    # Whole behavior files execute in the added stage, not again in changed tests.
+    local remaining_tests=""
+    while IFS= read -r path; do
+      [[ -n "$path" ]] || continue
+      if [[ "$has_infra" -eq 1 ]]; then
+        case "$path" in
+          apps/server/tests/contract/test_ci_cd_contract.py|apps/server/tests/contract/test_local_postgres_test_runner.py)
+            continue ;; # The mandatory CI contracts stage owns these whole files.
+        esac
+      fi
+      if [[ $'\n'"$behavior_targets"$'\n' != *$'\n'"${path#apps/server/}"$'\n'* ]]; then
+        remaining_tests="${remaining_tests}${remaining_tests:+$'\n'}${path}"
+      fi
+    done <<<"$changed_server_tests"
+    changed_server_tests="$remaining_tests"
+  fi
+
   printf 'ci_lane requested=%s effective=%s components=%s reason=%s performance_gate=%s coverage=%s next_gate=%s\n' \
     "$requested_mode" "$effective_mode" "$components" "$selection_reason" "$performance_gate" \
     "$coverage" "$next_gate"
@@ -645,15 +717,13 @@ PY
   if [[ -n "${GRAF_PR_BODY_FILE:-}" ]]; then
     process_preflight+=(--pr-body "$GRAF_PR_BODY_FILE" --pr-title "${GRAF_PR_TITLE:-}")
   fi
-  if [[ -f "$repo_root/.specify/feature.json" ]]; then
-    run_step "Development process preflight" "${process_preflight[@]}" || return $?
-  else
-    # Feature context is per-worktree and intentionally absent from clean
-    # merged/release checkouts. The repository-wide Spec Kit gate still runs;
-    # do not invent an active feature just to execute a release lane.
-    printf '\n==> Development process preflight skipped (release checkout without active feature pointer)\n'
-  fi
+  run_step "Development process preflight" "${process_preflight[@]}" || return $?
   run_step "Spec Kit governance" python3 scripts/check_spec_kit_governance.py || return $?
+
+  if [[ "$effective_mode" == "full" || "$has_server" -eq 1 ]]; then
+    run_step "server lint" bash -c "cd apps/server && PYTHONPATH=src uv run --extra dev ruff check ." || return $?
+    run_step "python compile" python3 -m compileall -q apps/server/src apps/server/tests apps/server/scripts || return $?
+  fi
 
   if [[ "$effective_mode" == "full" || "$has_governance_tests" -eq 1 || "$has_infra" -eq 1 ]]; then
     run_step "governance tests" pytest -q tests/governance || return $?
@@ -676,8 +746,6 @@ PY
       skipped_gates="${skipped_gates}${skipped_gates:+$'\n'}macOS Swift validation (requires Darwin)"
     fi
     run_step "server tests" run_server_tests full "$performance_gate" || return $?
-    run_step "server lint" bash -c "cd apps/server && PYTHONPATH=src uv run --extra dev ruff check ." || return $?
-    run_step "python compile" python3 -m compileall -q apps/server/src apps/server/tests apps/server/scripts || return $?
     run_step "rls hardening validation boundary" bash -c "cd apps/server && PYTHONPATH=src uv run python scripts/verify_rls_hardening.py" || return $?
     run_step "production compose config" bash -c 'docker compose -f infra/docker-compose.yml config >/dev/null' || return $?
     run_step "deployment evidence scan" infra/scripts/scan-deployment-evidence.sh docs/deployments/2brain-rec || return $?
@@ -695,6 +763,9 @@ PY
       fi
     fi
     if [[ "$has_server" -eq 1 ]]; then
+      if [[ -n "$behavior_targets" ]]; then
+        run_step "related behavior tests" behavior_tests "$changed_list" --run "${behavior_args[@]}" || return $?
+      fi
       if [[ "$needs_server_unit" -eq 1 ]]; then
         run_step "server tests" run_server_tests fast report || return $?
       fi
@@ -707,8 +778,6 @@ PY
         run_step "calendar performance proof" run_server_tests focused required \
           "$performance_proof" -m serial_performance || return $?
       fi
-      run_step "server lint" bash -c "cd apps/server && PYTHONPATH=src uv run --extra dev ruff check ." || return $?
-      run_step "python compile" python3 -m compileall -q apps/server/src apps/server/tests apps/server/scripts || return $?
     fi
     if [[ "$has_infra" -eq 1 || "$has_macos" -eq 1 ]]; then
       run_step "shell syntax" check_shell_syntax "$changed_list" || return $?

@@ -3,7 +3,7 @@
 {% if not invitation_available %}
 {{ sections.full_page_state(
   "Приглашение недоступно",
-  "Ссылка уже использована, отозвана или срок её действия истёк.",
+  "Ссылка уже использована, отозвана или срок ее действия истек.",
   "Открыть GRAF",
   meeting_list_href,
   heading_id="share-invitation-title"
@@ -13,7 +13,7 @@
   <section class="panel compact-panel" aria-labelledby="share-invitation-title">
     {% if auto_accept %}
       <h1 id="share-invitation-title">{% if content_scope == "full_meeting" %}Открываем запись{% else %}Открываем итоги{% endif %}</h1>
-      <p role="status" aria-live="polite">Проверяем ссылку и открываем разрешённый результат.</p>
+      <p role="status" aria-live="polite">Проверяем ссылку и открываем разрешенный результат.</p>
       <form method="post" action="{{ magic_action }}" data-share-invitation-auto-accept-form>
         <input type="hidden" name="state" value="{{ magic_state or '' }}">
         <input type="hidden" name="magic_csrf" value="{{ magic_csrf_token or '' }}">
@@ -21,13 +21,13 @@
       </form>
     {% else %}
       <h1 id="share-invitation-title">{% if content_scope == "full_meeting" %}Запись встречи доступна{% else %}Итоги встречи доступны{% endif %}</h1>
-      <p>Нажмите кнопку — GRAF откроет доступ и создаст личный аккаунт, если его ещё нет.</p>
+      <p>Нажмите кнопку — GRAF откроет доступ и создаст личный аккаунт, если его еще нет.</p>
       <div class="panel compact-panel" aria-label="Сведения о встрече">
         <strong>{{ meeting_title }}</strong>
         <p class="muted">
-          {% if meeting_occurred_at %}{{ meeting_occurred_at.strftime("%d.%m.%Y, %H:%M UTC") }}{% endif %}
+          {% if meeting_time_is_upload %}Загружено {% endif %}{{ user_time_element(meeting_occurred_at, show_zone=True) }}
           {% if meeting_duration_seconds is not none %} · {{ (meeting_duration_seconds // 60) }} мин{% endif %}
-          · Доступ до {{ invitation_expires_at.strftime("%d.%m.%Y") }}
+          · Доступ до {{ user_time_element(invitation_expires_at, show_zone=True) }}
         </p>
       </div>
       {% if content_scope == "full_meeting" %}

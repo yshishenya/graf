@@ -209,7 +209,7 @@ final class DesktopCabinetConfigurationTests: XCTestCase {
             XCTAssertFalse(message.localizedCaseInsensitiveContains("provider"), "\(state)")
         }
 
-        XCTAssertTrue(DesktopCabinetState.offline.userMessage.contains("Запись на этом Mac остаётся доступна"))
+        XCTAssertTrue(DesktopCabinetState.offline.userMessage.contains("Запись на этом Mac остается доступна"))
         XCTAssertEqual(DesktopCabinetState.offline.recoveryActionTitle, "Повторить")
     }
 

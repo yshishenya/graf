@@ -9,6 +9,7 @@
   let listRefreshFocusMeetingIds = [];
   let listRefreshShouldRestoreFocus = false;
   let listRefreshFocusOrigin = null;
+  let listRefreshFocusSelector = "";
   let playbackRecoveryTimer = null;
   let playbackRecoveryRequest = null;
   let calendarUpcomingRefreshTimer = null;
@@ -53,6 +54,7 @@
   const handledMeetingListAuthorizationRequests = new WeakSet();
   const observedDetachedMeetingListRequests = new WeakSet();
   let scrubManualUploadPrivateState = () => false;
+  let revokeManualUploadMeeting = () => {};
   const speakerTimelineResizeHandlers = new WeakMap();
   const accessLossProblemCodes = new Set([
     "auth_session_rejected",
@@ -86,6 +88,8 @@
     "summary_source_revision_stale",
   ]);
   const sharingActionProblemCodes = new Set([
+    "comment_permission_forbidden",
+    "invalid_comment_permission",
     "grantee_not_found",
     "invalid_share_audience",
     "invitation_delivery_unavailable",
@@ -135,38 +139,140 @@
 
   const currentList = () => document.querySelector("[data-meeting-list]");
   const allRows = () => Array.from(currentList()?.querySelectorAll("[data-meeting-row]") || []);
-  const SHORT_MEETING_MONTH_LABELS = ["", "янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
   const GENERATED_CAPTURE_TITLE_RE = /^(?:current(?: display)? system audio|system audio|yandex telemost|zoom(?:\.us)?|meeting)\s*[-—]\s*\d{4}-\d{2}-\d{2}(?:[ T]\d{1,2}:\d{2})?$/i;
-  const GENERATED_CAPTURE_TITLE_SUFFIX_RE = /\s*[-—]\s*\d{4}-\d{2}-\d{2}(?:[ T]\d{1,2}:\d{2})?$/;
-  const formatMeetingListDate = (value) => {
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return "На этом Mac";
-    const pad = (part) => String(part).padStart(2, "0");
-    return `${date.getDate()} ${SHORT_MEETING_MONTH_LABELS[date.getMonth() + 1]}, ${pad(date.getHours())}:${pad(date.getMinutes())}`;
-  };
+  const formatMeetingListDate = (value) => window.GRAFTime.format(value);
   const localRecordingDisplayTitle = (item) => {
     const rawTitle = (item.title || "").trim();
+    if (typeof item.generatedTitlePrefix === "string") {
+      return `${item.generatedTitlePrefix}${formatMeetingListDate(item.startedAt)}`;
+    }
     if (!GENERATED_CAPTURE_TITLE_RE.test(rawTitle)) return rawTitle || "Запись";
-    const sourceTitle = rawTitle.replace(GENERATED_CAPTURE_TITLE_SUFFIX_RE, "").trim();
     const date = formatMeetingListDate(item.startedAt);
-    return date === "На этом Mac" ? rawTitle : `${sourceTitle} — ${date}`;
+    return date === "Без даты" ? "Запись" : `Запись ${date}`;
+  };
+  const meetingListSort = () => document.querySelector("#meeting-sort")?.value || "started_desc";
+  const sortMeetingRows = (list) => {
+    const sort = meetingListSort();
+    const key = sort.startsWith("updated") ? "sortUpdated" : sort.startsWith("duration") ? "sortDuration" : "sortStarted";
+    const value = (row) => {
+      if (sort === "title_asc") return (row.dataset.sortTitle || "").toLowerCase();
+      const raw = row.dataset[key];
+      if (!raw) return null;
+      const number = key === "sortDuration" ? Number(raw) : Date.parse(raw);
+      return Number.isFinite(number) ? number : null;
+    };
+    const focused = document.activeElement;
+    const sorted = Array.from(list.querySelectorAll("[data-meeting-row]")).sort((left, right) => {
+      const a = value(left), b = value(right);
+      if (a === null && b !== null) return 1;
+      if (a !== null && b === null) return -1;
+      const order = a === b ? 0 : a < b ? -1 : 1;
+      if (order) return order * (sort.endsWith("_desc") ? -1 : 1);
+      const leftId = left.dataset.meetingId || left.dataset.grafLocalRecordingId || "";
+      const rightId = right.dataset.meetingId || right.dataset.grafLocalRecordingId || "";
+      return leftId < rightId ? -1 : leftId > rightId ? 1 : 0;
+    });
+    let previous = null;
+    for (const row of sorted) {
+      const next = previous ? previous.nextElementSibling : list.firstElementChild;
+      if (row !== next) list.insertBefore(row, next);
+      previous = row;
+    }
+    if (focused instanceof HTMLElement && focused.isConnected && document.activeElement !== focused) {
+      focused.focus({preventScroll: true});
+    }
+  };
+  const localRecordingMatches = (item) => {
+    const access = document.querySelector("#meeting-access")?.value;
+    const status = document.querySelector("#meeting-status")?.value;
+    // Local custody does not prove server processing/readiness or team access.
+    if ((access && access !== "owner") || status) return false;
+    const query = (document.querySelector("#meeting-search")?.value || "").trim().toLowerCase().replace(/\s+/g, " ");
+    if (!query) return true;
+    const title = localRecordingDisplayTitle(item);
+    const duration = window.GRAFTime.formatDuration(item.durationSeconds);
+    const time = formatMeetingListDate(meetingListSort().startsWith("updated") ? item.updatedAt : item.startedAt);
+    return [title, duration, time, `${title} ${duration}`, `${title} ${time}`, `${duration} ${time}`, `${title} ${duration} ${time}`]
+      .some((text) => text.toLowerCase().replace(/\s+/g, " ").includes(query));
+  };
+  const updateMixedResultCount = () => {
+    const host = currentList();
+    let empty = host?.querySelector("[data-deletion-empty]");
+    if (host && allRows().length === 0 && !host.querySelector(".empty-state")) {
+      empty = document.createElement("p");
+      empty.className = "empty-state";
+      empty.dataset.deletionEmpty = "";
+      empty.textContent = "Записей пока нет.";
+      host.append(empty);
+    } else if (allRows().length) { empty?.remove(); }
+    const count = document.querySelector("[data-meeting-result-count]");
+    if (count) {
+      const incomplete = document.querySelector('[data-meeting-result-complete="false"]');
+      count.textContent = `Найдено: ${incomplete ? "больше " : ""}${allRows().length}`;
+    }
   };
   let localRecordingRows = [];
-  const renderLocalRecordingRows = () => {
+  const pendingLocalRecordingHandoffs = new Set();
+  const requestedLocalRecordingHandoffs = new Set();
+  const localRecordingIsRenderable = (item) =>
+    !item.localDeletionPending
+    && localRecordingMatches(item)
+    && (!item.meetingId || pendingLocalRecordingHandoffs.has(item.meetingId));
+  const localRecordingMarkup = new WeakMap();
+  const renderLocalRecordingRows = ({ authoritativeResponse = false } = {}) => {
     const host = currentList();
     if (!host) return;
-    host.querySelectorAll("[data-graf-local-recording-row]").forEach((row) => row.remove());
-    const localOnly = localRecordingRows.filter((item) => {
-      if (!item.meetingId) return true;
-      const serverRow = allRows().find((row) => row.dataset.meetingId === item.meetingId);
-      if (!serverRow || item.uploadComplete !== true) return true;
-      return false;
-    });
+    const focused = document.activeElement;
+    const focusedLocal = focused?.closest("[data-graf-local-recording-row]")?.dataset.grafLocalRecordingId;
+    const focusedControl = focused?.matches("[data-meeting-select]") ? "[data-meeting-select]:not(:disabled)"
+      : focused?.matches("[data-row-delete]") ? "[data-row-delete]:not(:disabled)"
+      : focused?.dataset.grafLocalRecordingAction === "send" ? '[data-graf-local-recording-action="send"]:not(:disabled)'
+      : "[data-meeting-open]:not(:disabled)";
+    const existingRows = new Map([...host.querySelectorAll("[data-graf-local-recording-row]")].map(row => [row.dataset.grafLocalRecordingId, row]));
+    let transferredFocus = null;
+    const restoreLocalFocus = () => {
+      if (!focusedLocal || document.activeElement === focused && focused.isConnected) return;
+      const row = transferredFocus?.isConnected ? transferredFocus
+        : allRows().find(row => row.dataset.grafLocalRecordingId === focusedLocal);
+      const target = [row?.querySelector(focusedControl), rowPrimaryFocusTarget(row),
+        ...allRows().map(rowPrimaryFocusTarget), document.querySelector("[data-list-title]")]
+        .find(target => isUsableFocusTarget(target) && !target.matches(':disabled, [aria-disabled="true"]'));
+      target?.focus({preventScroll: true});
+    };
+    const serverRows = new Map(
+      allRows()
+        .filter(row => row.dataset.meetingId)
+        .map(row => [row.dataset.meetingId, row]),
+    );
+    for (const item of localRecordingRows) {
+      const meetingId = typeof item.meetingId === "string" ? item.meetingId : "";
+      if (!meetingId) continue;
+      const serverRow = serverRows.get(meetingId);
+      if (serverRow) {
+        const selected = selectedMeetingIds.has(`local:${item.id}`) || selectedMeetingIds.has(meetingId);
+        selectedMeetingIds.delete(`local:${item.id}`);
+        if (selected) selectedMeetingIds.add(meetingId);
+        if (focusedLocal === item.id) transferredFocus = serverRow;
+        pendingLocalRecordingHandoffs.delete(meetingId);
+        requestedLocalRecordingHandoffs.delete(meetingId);
+      } else if (authoritativeResponse) {
+        pendingLocalRecordingHandoffs.delete(meetingId);
+        requestedLocalRecordingHandoffs.delete(meetingId);
+      }
+    }
+    applyNativeDeletionOperations(nativeDeletionOperations);
+    // A server identity belongs to the server result set, including filters and pagination.
+    // Its absence must never turn a retained local copy into a new user recording.
+    const localOnly = localRecordingRows.filter(localRecordingIsRenderable);
+    const visibleIds = new Set(localOnly.map(item => item.id));
+    for (const [id, row] of existingRows) if (!visibleIds.has(id)) row.remove();
     let list = host.querySelector("ol.meeting-list");
     const emptyState = host.querySelector(":scope > .empty-state");
     if (!localOnly.length) {
-      host.querySelector("ol[data-graf-local-recording-list]")?.remove();
+      if (list?.hasAttribute("data-graf-local-recording-list") && !list.querySelector("[data-meeting-row]")) list.remove();
       if (emptyState) emptyState.hidden = false;
+      updateMixedResultCount();
+      restoreLocalFocus();
       return;
     }
     if (!list) {
@@ -178,16 +284,25 @@
       host.append(list);
     }
     if (emptyState) emptyState.hidden = true;
-    localOnly.slice().reverse().forEach((item) => {
+    localOnly.forEach((item) => {
       const row = document.createElement("li");
       row.className = "meeting-row cabinet-row is-local-recording";
       row.dataset.meetingRow = "";
       row.dataset.grafLocalRecordingRow = "";
       row.dataset.grafLocalRecordingId = item.id;
+      row.dataset.sortStarted = item.startedAt || "";
+      row.dataset.sortUpdated = item.updatedAt || "";
+      row.dataset.sortDuration = String(item.durationSeconds);
 
-      const selection = document.createElement("span");
-      selection.className = "row-select-hit row-contextual-placeholder";
-      selection.setAttribute("aria-hidden", "true");
+      const selection = document.createElement("label");
+      selection.className = "row-select-hit";
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.dataset.meetingSelect = "";
+      checkbox.disabled = !item.canDelete;
+      checkbox.checked = selectedMeetingIds.has(`local:${item.id}`);
+      checkbox.setAttribute("aria-label", `Выбрать запись ${localRecordingDisplayTitle(item)}`);
+      selection.append(checkbox);
       const icon = document.createElement("span");
       icon.className = "row-icon";
       icon.dataset.mediaKind = "recording";
@@ -200,6 +315,7 @@
       const title = document.createElement(item.canOpen ? "button" : "strong");
       title.className = `meeting-title row-title${item.canOpen ? " local-recording-open" : ""}`;
       const displayTitle = localRecordingDisplayTitle(item);
+      row.dataset.sortTitle = displayTitle;
       title.textContent = displayTitle;
       if (item.canOpen) {
         title.type = "button";
@@ -210,11 +326,7 @@
       }
       const duration = document.createElement("span");
       duration.className = "meeting-duration muted";
-      const durationLabel = (value) => {
-        const minutes = Math.floor(value / 60);
-        const seconds = value % 60;
-        return minutes ? `${minutes} мин ${seconds ? `${seconds} с` : ""}`.trim() : `${seconds} с`;
-      };
+      const durationLabel = window.GRAFTime.formatDuration;
       duration.textContent = item.showsPartialDuration
         ? `Сохранено ${durationLabel(item.durationSeconds)} из ${durationLabel(item.sessionDurationSeconds)}`
         : durationLabel(item.durationSeconds);
@@ -240,25 +352,189 @@
         remove.type = "button";
         remove.innerHTML = '<svg class="ui-icon" data-icon="trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 11v6"></path><path d="M14 11v6"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path><path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>';
         remove.setAttribute("aria-label", `Удалить локальную запись ${displayTitle}`);
-        remove.dataset.grafLocalRecordingAction = "delete";
+        remove.dataset.rowDelete = "";
         remove.dataset.grafLocalRecordingId = item.id;
         actions.append(remove);
       }
-      const time = document.createElement("span");
+      const time = document.createElement("time");
       time.className = "meeting-date";
-      time.textContent = formatMeetingListDate(item.startedAt);
+      time.id = `graf-local-time-${item.id}`;
+      if (item.canOpen) title.setAttribute("aria-describedby", time.id);
+      const timeValue = meetingListSort().startsWith("updated") ? item.updatedAt : item.startedAt;
+      if (timeValue && Number.isFinite(Date.parse(timeValue))) time.dateTime = timeValue;
+      time.textContent = `${timeValue && meetingListSort().startsWith("updated") ? "Обновлено " : ""}${formatMeetingListDate(timeValue)}`;
       row.append(selection, icon, content, actions, time);
-      list.prepend(row);
+      // Compare the complete rendered output, including localized dates and sort
+      // context, while ignoring transient selection/focus mutations on the live row.
+      const markup = row.outerHTML;
+      const existing = existingRows.get(item.id);
+      if (existing && localRecordingMarkup.get(existing) === markup) return;
+      localRecordingMarkup.set(row, markup);
+      if (existing?.isConnected) existing.replaceWith(row);
+      else list.append(row);
     });
+    sortMeetingRows(list);
+    updateMixedResultCount();
+    restoreLocalFocus();
+  };
+  let nativeDeletionOperations = [];
+  const nativeDeletionReplies = new Map();
+  const recordingRowIdentity = (row) => row.dataset.meetingId || `local:${row.dataset.grafLocalRecordingId}`;
+  const applyNativeDeletionOperations = (operations) => {
+    for (const operation of operations) {
+      if (operation.phase === "rejected") continue;
+      const id = operation.target?.meeting?._0 || operation.receipt?.meeting_id;
+      if (!id) continue;
+      revokeManualUploadMeeting(id);
+      const detail = document.querySelector("main[data-meeting-id]");
+      if (detail?.dataset.meetingId === id) renderMeetingDetailRecovery(detail, operation.phase === "accepted" || operation.phase === "verified" ? "deleted" : "deleting");
+      for (const row of allRows().filter(row => row.dataset.meetingId === id)) {
+        selectedMeetingIds.delete(recordingRowIdentity(row));
+        if (["accepted", "verified"].includes(operation.phase)) {
+          row.remove();
+        } else {
+          row.querySelectorAll("button, input").forEach(control => { control.disabled = true; });
+          row.querySelectorAll("a").forEach(link => { link.removeAttribute("href"); link.setAttribute("aria-disabled", "true"); });
+          const status = row.querySelector(".row-meta");
+          if (status) status.textContent = "Удаление ожидает подтверждения";
+        }
+      }
+    }
+  };
+  const renderNativeDeletionStatus = (operations) => {
+    let details = document.querySelector("[data-native-deletion-status]");
+    const localPending = localRecordingRows.filter(item => item.localDeletionPending);
+    if (!operations.length && !localPending.length) { details?.remove(); return; }
+    if (!details) {
+      details = document.createElement("details");
+      details.dataset.nativeDeletionStatus = "";
+      details.className = "cabinet-fragment";
+      const summary = document.createElement("summary");
+      summary.textContent = "Удаления";
+      details.append(summary, document.createElement("ul"));
+      document.querySelector("#meeting-list-region")?.after(details);
+    }
+    const list = details.querySelector("ul");
+    list.replaceChildren();
+    for (const item of localPending) {
+      const row = document.createElement("li");
+      row.textContent = `${localRecordingDisplayTitle(item)}: очистка файлов на этом Mac еще не завершена. Повторим попытку автоматически.`;
+      list.append(row);
+    }
+    for (const operation of operations.slice(-100).reverse()) {
+      const row = document.createElement("li");
+      const labels = {queued:"Удаление ожидает подключения", sending:"Удаляем…", resolving:"Проверяем, принято ли удаление",
+        accepted:"Запись удалена из списка. Очистка проверяется отдельно.", verified:"Данные этой записи очищены на этом Mac", rejected:"Нет права удалить запись"};
+      const waiting = {connection:"Ожидаем подключения для подтверждения удаления", authentication:"Войдите в исходный аккаунт для продолжения удаления",
+        rateLimit:"Сервер попросил подождать. Повторим запрос автоматически", serverUpdate:"Для завершения удаления требуется обновление сервера",
+        localCleanup:"Запись удалена из списка. Не удалось очистить файлы на этом Mac; повторим попытку"};
+      row.textContent = waiting[operation.waitReason] || labels[operation.phase] || "Состояние удаления неизвестно";
+      const meetingId = operation.receipt?.meeting_id;
+      if (typeof meetingId === "string" && /^[0-9a-f-]{36}$/i.test(meetingId)) {
+        const report = document.createElement("a");
+        report.href = `/desktop/meetings/${meetingId}/deletion-report`;
+        report.textContent = " Состояние удаления";
+        row.append(report);
+      }
+      list.append(row);
+    }
   };
   window.GRAFLocalRecordings = {
-    update(rows) {
-      localRecordingRows = Array.isArray(rows) ? rows : [];
+    deletionCompleted(requestId, result) {
+      nativeDeletionReplies.get(requestId)?.(result);
+      nativeDeletionReplies.delete(requestId);
+    },
+    update(rows, operations = [], recoveryRequired = false) {
+      const nextRows = Array.isArray(rows) ? rows : [];
+      const previousRowsById = new Map(localRecordingRows.map(item => [item.id, item]));
+      const visibleServerMeetingIds = new Set(allRows().map(row => row.dataset.meetingId).filter(Boolean));
+      const newHandoffMeetingIds = new Set();
+      for (const item of nextRows) {
+        const previous = previousRowsById.get(item.id);
+        const meetingId = typeof item.meetingId === "string" ? item.meetingId : "";
+        const previousMeetingId = typeof previous?.meetingId === "string" ? previous.meetingId : "";
+        if (previousMeetingId && previousMeetingId !== meetingId) {
+          pendingLocalRecordingHandoffs.delete(previousMeetingId);
+          requestedLocalRecordingHandoffs.delete(previousMeetingId);
+        }
+        // A WebView can be initialized after the native transition. Any linked
+        // row first observed without a server row still needs one reconciliation.
+        const firstObservedLinkedHandoff = !previous && meetingId;
+        const transitionToHandoff = previous && !previousMeetingId && meetingId;
+        if ((transitionToHandoff || firstObservedLinkedHandoff)
+            && !visibleServerMeetingIds.has(meetingId)) {
+          pendingLocalRecordingHandoffs.add(meetingId);
+          newHandoffMeetingIds.add(meetingId);
+        }
+      }
+      const nextMeetingIds = new Set(nextRows.map(item => item.meetingId).filter(Boolean));
+      for (const meetingId of pendingLocalRecordingHandoffs) {
+        // The native snapshot is the lifetime boundary for an alias. Once its
+        // local item disappears, no browser state needs to keep waiting.
+        if (!nextMeetingIds.has(meetingId)) {
+          pendingLocalRecordingHandoffs.delete(meetingId);
+          requestedLocalRecordingHandoffs.delete(meetingId);
+        }
+      }
+      let recovery = document.querySelector("[data-local-account-recovery]");
+      if (!recoveryRequired) recovery?.remove();
+      else if (!recovery) {
+        recovery = document.createElement("p");
+        recovery.dataset.localAccountRecovery = "";
+        recovery.setAttribute("role", "status");
+        recovery.textContent = "Некоторые локальные записи скрыты: их аккаунт не подтвержден. Войдите в исходный аккаунт и дождитесь подключения. Если записи не появились, используйте диагностику GRAF. Файлы сохранены.";
+        document.querySelector("#meeting-list-region")?.after(recovery);
+      }
+      const rejected = operations.some(operation => operation.phase === "rejected" && nativeDeletionOperations.some(previous => previous.id === operation.id && previous.phase !== "rejected"));
+      nativeDeletionOperations = Array.isArray(operations) ? operations : [];
+      localRecordingRows = nextRows;
       renderLocalRecordingRows();
+      applyNativeDeletionOperations(nativeDeletionOperations);
+      renderNativeDeletionStatus(nativeDeletionOperations);
+      updateMixedResultCount();
+      reconcileMeetingSelection();
+      const formAvailable = document.querySelector(".cabinet-list-controls") instanceof HTMLFormElement;
+      const handoffMeetingIds = new Set(
+        [...newHandoffMeetingIds, ...pendingLocalRecordingHandoffs]
+          .filter(id => pendingLocalRecordingHandoffs.has(id)
+            && !requestedLocalRecordingHandoffs.has(id)
+            && !visibleServerMeetingIds.has(id)
+            && formAvailable),
+      );
+      if (handoffMeetingIds.size) {
+        const active = document.activeElement;
+        const restoreFocus = active instanceof HTMLElement
+          && Boolean(active.closest("#meeting-list-region, [data-meeting-list]"));
+        const activeRow = active instanceof HTMLElement ? active.closest("[data-meeting-row]") : null;
+        const activeLocalMeetingId = activeRow?.dataset.grafLocalRecordingId
+          ? localRecordingRows.find(item => item.id === activeRow.dataset.grafLocalRecordingId)?.meetingId
+          : "";
+        const focusMeetingIds = [...new Set([
+          activeRow ? recordingRowIdentity(activeRow) : "",
+          activeLocalMeetingId,
+        ].filter(Boolean))];
+        if (requestMeetingListRefresh({ focusMeetingIds, restoreFocus })) {
+          handoffMeetingIds.forEach(id => requestedLocalRecordingHandoffs.add(id));
+        }
+      } else if (rejected) requestMeetingListRefresh();
     },
   };
-  const rowPrimaryFocusTarget = (row) => row?.querySelector("[data-meeting-open]") || null;
-  const selectableRows = () => allRows().filter((row) => row.querySelector("[data-meeting-select]"));
+  const requestNativeDeletion = (rows) => new Promise((resolve) => {
+    const requestId = crypto.randomUUID();
+    const timer = setTimeout(() => {
+      nativeDeletionReplies.delete(requestId);
+      resolve({unknown: true});
+    }, 35000);
+    nativeDeletionReplies.set(requestId, (result) => { clearTimeout(timer); resolve(result); });
+    window.webkit.messageHandlers.grafLocalRecording.postMessage({
+      action: "deleteSelection", version: 1, requestId,
+      localIds: rows.filter(row => row.hasAttribute("data-graf-local-recording-row")).map(row => row.dataset.grafLocalRecordingId),
+      meetingIds: rows.filter(row => !row.hasAttribute("data-graf-local-recording-row")).map(row => row.dataset.meetingId),
+    });
+  });
+  const rowPrimaryFocusTarget = (row) => row?.querySelector("[data-meeting-open], [data-graf-local-recording-action=\"open\"]")
+    || row?.querySelector("[data-meeting-select]:not(:disabled)") || null;
+  const selectableRows = () => allRows().filter((row) => row.querySelector("[data-meeting-select]:not(:disabled)"));
   const selectedRows = () => selectableRows().filter((row) => row.querySelector("[data-meeting-select]")?.checked);
   const deletingLabel = (value) => `Вы удаляете ${value} ${plural(value, "запись", "записи", "записей")}.`;
 
@@ -442,12 +718,15 @@
       listRefreshFocusMeetingIds = [];
       listRefreshShouldRestoreFocus = false;
       listRefreshFocusOrigin = null;
+      listRefreshFocusSelector = "";
       return false;
     }
     const focusRow = listRefreshFocusMeetingIds
-      .map((meetingId) => allRows().find((row) => row.dataset.meetingId === meetingId))
+      .map((meetingId) => allRows().find((row) => recordingRowIdentity(row) === meetingId))
       .find(Boolean);
-    let focusTarget = rowPrimaryFocusTarget(focusRow) || document.querySelector("[data-list-title]");
+    let focusTarget = (listRefreshFocusSelector ? focusRow?.querySelector(listRefreshFocusSelector) : null)
+      || rowPrimaryFocusTarget(focusRow)
+      || document.querySelector("[data-list-title]");
     if (recovery instanceof HTMLElement) {
       focusTarget = recovery.querySelector("[data-list-retry], [data-list-sign-in]") || recovery;
       if (focusTarget === recovery) recovery.tabIndex = -1;
@@ -456,6 +735,7 @@
     listRefreshFocusMeetingIds = [];
     listRefreshShouldRestoreFocus = false;
     listRefreshFocusOrigin = null;
+    listRefreshFocusSelector = "";
     return true;
   };
 
@@ -499,7 +779,7 @@
         ?.focus({ preventScroll: true });
     }
     selectedMeetingIds.clear();
-    rows.forEach((row) => selectedMeetingIds.add(row.dataset.meetingId));
+    rows.forEach((row) => selectedMeetingIds.add(recordingRowIdentity(row)));
     countLabel.textContent = `Выбрано: ${rows.length}`;
     toolbar.hidden = rows.length === 0;
     if (selectionToggle) {
@@ -522,7 +802,7 @@
   const reconcileMeetingSelection = () => {
     allRows().forEach((row) => {
       const checkbox = row.querySelector("[data-meeting-select]");
-      if (checkbox) checkbox.checked = selectedMeetingIds.has(row.dataset.meetingId);
+      if (checkbox) checkbox.checked = selectedMeetingIds.has(recordingRowIdentity(row));
     });
     updateSelection();
   };
@@ -569,7 +849,7 @@
       },
       service: {
         title: "Не удалось загрузить встречи",
-        description: "Попробуйте ещё раз.",
+        description: "Попробуйте еще раз.",
         action: "Повторить",
       },
       session: {
@@ -579,7 +859,7 @@
       },
       workspace: {
         title: "Нужно выбрать пространство",
-        description: "Доступ к выбранному пространству больше не подтверждён.",
+        description: "Доступ к выбранному пространству больше не подтвержден.",
         action: "Войти и выбрать пространство",
       },
       access: {
@@ -640,6 +920,19 @@
     loading.hidden = true;
     current.hidden = false;
     current.replaceChildren(recovery);
+    if (["offline", "service"].includes(kind)
+      && localRecordingRows.some(localRecordingIsRenderable)) {
+      const localHost = document.createElement("section");
+      localHost.className = "list-card cabinet-card";
+      localHost.setAttribute("aria-label", "Записи на этом Mac");
+      const localNotice = document.createElement("p");
+      localNotice.className = "muted";
+      localNotice.textContent = "Запись сохранена на этом Mac и останется здесь до повторной проверки списка.";
+      localHost.append(localNotice);
+      localHost.setAttribute("data-meeting-list", "");
+      current.append(localHost);
+      renderLocalRecordingRows();
+    }
     const toolbar = document.querySelector("[data-selection-toolbar]");
     if (toolbar) toolbar.hidden = true;
     if (
@@ -666,7 +959,12 @@
       loading.tabIndex = -1;
       loading.focus({ preventScroll: true });
     }
-    current.hidden = true;
+    const pendingLocalIds = new Set(localRecordingRows
+      .filter(item => item.meetingId && pendingLocalRecordingHandoffs.has(item.meetingId))
+      .map(item => item.id));
+    const hasVisiblePendingHandoff = [...current.querySelectorAll("[data-graf-local-recording-row]")]
+      .some(row => pendingLocalIds.has(row.dataset.grafLocalRecordingId));
+    current.hidden = !hasVisiblePendingHandoff;
     const toolbar = document.querySelector("[data-selection-toolbar]");
     if (toolbar) toolbar.hidden = true;
   };
@@ -936,17 +1234,17 @@
 
   const captureDeletionFocusFallback = (rows) => {
     const orderedRows = allRows();
-    const deletingIds = new Set(rows.map((row) => row.dataset.meetingId));
-    const anchorRow = orderedRows.find((row) => row.dataset.meetingId === deleteReturnMeetingId)
+    const deletingIds = new Set(rows.map(recordingRowIdentity));
+    const anchorRow = orderedRows.find((row) => recordingRowIdentity(row) === deleteReturnMeetingId)
       || rows[0];
     const anchorIndex = orderedRows.indexOf(anchorRow);
     const nextRow = orderedRows.slice(anchorIndex + 1).find(
-      (row) => !deletingIds.has(row.dataset.meetingId),
+      (row) => !deletingIds.has(recordingRowIdentity(row)),
     );
     const previousRow = orderedRows.slice(0, Math.max(anchorIndex, 0)).reverse().find(
-      (row) => !deletingIds.has(row.dataset.meetingId),
+      (row) => !deletingIds.has(recordingRowIdentity(row)),
     );
-    deleteFocusFallbackIds = [nextRow?.dataset.meetingId, previousRow?.dataset.meetingId].filter(Boolean);
+    deleteFocusFallbackIds = [nextRow, previousRow].filter(Boolean).map(recordingRowIdentity);
   };
 
   const openDeleteDialog = (rows) => {
@@ -956,14 +1254,22 @@
     const count = dialog.querySelector("[data-delete-count]");
     const error = dialog.querySelector("[data-delete-error]");
     deleteReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    deleteReturnMeetingId = deleteReturnFocus?.closest("[data-meeting-row]")?.dataset.meetingId || "";
+    deleteReturnMeetingId = deleteReturnFocus?.closest("[data-meeting-row]")
+      ? recordingRowIdentity(deleteReturnFocus.closest("[data-meeting-row]")) : "";
     pendingDeleteRows = rows.filter(Boolean);
     if (!pendingDeleteRows.length) return;
     captureDeletionFocusFallback(pendingDeleteRows);
     document.querySelector("#delete-feedback-region")?.replaceChildren();
     if (error) error.hidden = true;
     if (title) title.textContent = pendingDeleteRows.length === 1 ? dialog.dataset.titleOne : dialog.dataset.titleMany;
-    if (count) count.textContent = deletingLabel(pendingDeleteRows.length);
+    if (count) {
+      const localCount = pendingDeleteRows.filter(row => row.hasAttribute("data-graf-local-recording-row")
+        && localRecordingRows.some(item => item.id === row.dataset.grafLocalRecordingId && item.deletionIsLocalOnly === true)).length;
+      count.textContent = deletingLabel(pendingDeleteRows.length)
+        + (localCount ? ` Только на этом Mac: ${localCount}.`
+          + (localCount === pendingDeleteRows.length ? " Эти записи еще не отправлялись на сервер." : "") : "")
+        + (localCount < pendingDeleteRows.length ? ` На сервере или ожидают его подтверждения: ${pendingDeleteRows.length - localCount}.` : "");
+    }
     if (typeof dialog.showModal === "function") dialog.showModal();
     else dialog.setAttribute("open", "");
     dialog.querySelector("[data-delete-cancel]")?.focus({ preventScroll: true });
@@ -975,10 +1281,12 @@
     if (!dialog) return;
     if (typeof dialog.close === "function") dialog.close();
     else dialog.removeAttribute("open");
-    const currentReturnRow = allRows().find((row) => row.dataset.meetingId === deleteReturnMeetingId);
-    const rowDeleteControl = currentReturnRow?.querySelector("[data-row-delete]");
+    const currentReturnRow = allRows().find((row) => recordingRowIdentity(row) === deleteReturnMeetingId);
+    const rowDeleteControl = deleteReturnFocus?.matches("[data-meeting-select]")
+      ? currentReturnRow?.querySelector("[data-meeting-select]")
+      : currentReturnRow?.querySelector("[data-row-delete]") || rowPrimaryFocusTarget(currentReturnRow);
     const fallbackRow = deleteFocusFallbackIds
-      .map((meetingId) => allRows().find((row) => row.dataset.meetingId === meetingId))
+      .map((meetingId) => allRows().find((row) => recordingRowIdentity(row) === meetingId))
       .find(Boolean);
     const fallbackControl = rowPrimaryFocusTarget(fallbackRow);
     const returnControl = isUsableFocusTarget(deleteReturnFocus)
@@ -1026,9 +1334,13 @@
     if (!(form instanceof HTMLFormElement)) return false;
     listRefreshFocusMeetingIds = focusMeetingIds.filter(Boolean);
     listRefreshShouldRestoreFocus = restoreFocus;
-    listRefreshFocusOrigin = restoreFocus && document.activeElement instanceof HTMLElement
-      ? document.activeElement
-      : null;
+    const active = document.activeElement;
+    listRefreshFocusOrigin = restoreFocus && active instanceof HTMLElement ? active : null;
+    const focusRow = active instanceof HTMLElement ? active.closest("[data-meeting-row]") : null;
+    listRefreshFocusSelector = restoreFocus && focusRow
+      ? ["[data-meeting-open]", "[data-meeting-select]", "[data-row-delete]", ".calendar-context-list-action"]
+        .find((selector) => active.matches(selector)) || ""
+      : "";
     form.requestSubmit();
     return true;
   };
@@ -1200,6 +1512,45 @@
         document.querySelector("#delete-feedback-region")?.replaceChildren();
         confirm.disabled = true;
         confirm.textContent = "Удаляем…";
+        if (pendingDeleteRows.some(row => row.hasAttribute("data-graf-local-recording-row")) &&
+            !(window.GRAFRecordingDeletionBridgeVersion === 1 && window.webkit?.messageHandlers?.grafLocalRecording)) {
+          confirm.disabled = false;
+          confirm.textContent = "Удалить";
+          if (error) { error.textContent = "Для удаления локальных записей обновите приложение GRAF."; error.hidden = false; }
+          return;
+        }
+        if (window.GRAFRecordingDeletionBridgeVersion === 1 && window.webkit?.messageHandlers?.grafLocalRecording) {
+          const selection = [...pendingDeleteRows];
+          if (selection.length > 100) {
+            confirm.disabled = false;
+            confirm.textContent = "Удалить";
+            if (error) { error.textContent = "Выберите не более 100 записей."; error.hidden = false; }
+            return;
+          }
+          const result = await requestNativeDeletion(selection);
+          confirm.disabled = false;
+          confirm.textContent = "Удалить";
+          closeDeleteDialog();
+          if (result.saved) {
+            const message = `Удалено из списка: ${result.accepted}. Ожидают подтверждения: ${result.pending}. Отклонено: ${result.rejected}.`;
+            announceDeletionResult(message);
+            if (result.pending || result.rejected) publishDeletionFeedback(message + " Состояние очистки доступно в разделе «Удаления».", "warning");
+            if (result.accepted === selection.length) {
+              selection.forEach(row => { selectedMeetingIds.delete(recordingRowIdentity(row)); row.remove(); });
+            }
+            updateMixedResultCount();
+            if (!document.activeElement || document.activeElement === document.body) {
+              (rowPrimaryFocusTarget(allRows()[0]) || document.querySelector("[data-list-title]"))?.focus({preventScroll: true});
+            }
+            requestMeetingListRefresh({ restoreFocus: true });
+          } else {
+            publishDeletionFeedback(result.unknown
+              ? "Ответ приложения пока не получен. Проверьте раздел «Удаления» перед повторной попыткой."
+              : "Не удалось сохранить запрос удаления. Повторите попытку.", "error");
+          }
+          updateSelection();
+          return;
+        }
         const failedRows = [];
         let deletedCount = 0;
         let missingCount = 0;
@@ -1213,6 +1564,7 @@
             const deletionResult = await submitDeletionForm(form);
             if (deletionResult === "missing") {
               selectedMeetingIds.delete(row.dataset.meetingId);
+              revokeManualUploadMeeting(row.dataset.meetingId);
               row.replaceChildren();
               row.removeAttribute("data-meeting-id");
               row.remove();
@@ -1226,6 +1578,7 @@
             }
             const checkbox = row.querySelector("[data-meeting-select]");
             if (checkbox) checkbox.checked = false;
+            revokeManualUploadMeeting(row.dataset.meetingId);
             row.remove();
             deletedCount += 1;
           } catch (_err) {
@@ -1237,7 +1590,7 @@
         updateSelection();
         if (failedRows.length && error) {
           const failures = failedRows.length;
-          const failureMessage = `Не удалось удалить ${failures} ${plural(failures, "запись", "записи", "записей")}. Попробуйте ещё раз.`;
+          const failureMessage = `Не удалось удалить ${failures} ${plural(failures, "запись", "записи", "записей")}. Попробуйте еще раз.`;
           error.textContent = failureMessage;
           error.hidden = false;
           pendingDeleteRows = failedRows;
@@ -1252,7 +1605,7 @@
             : `Удалено ${deletedCount} ${plural(deletedCount, "запись", "записи", "записей")} из списка.`;
           announceDeletionResult(message);
         } else if (missingCount > 0) {
-          announceDeletionResult("Встреча больше недоступна. Список обновлён.");
+          announceDeletionResult("Встреча больше недоступна. Список обновлен.");
         }
         const refreshFocusMeetingIds = [...deleteFocusFallbackIds];
         closeDeleteDialog({ restoreFocus: false });
@@ -1458,6 +1811,21 @@
       panel.classList.toggle("active", selected);
       panel.hidden = !selected;
     });
+    const controls = document.querySelector("[data-summary-format-controls]");
+    if (controls) {
+      controls.hidden = name !== "outcomes";
+      if (controls.hidden) {
+        const popover = controls.querySelector("[data-summary-format-popover]");
+        if (popover) {
+          if (popover.matches(":popover-open")) popover.hidePopover();
+          popover.hidden = true;
+        }
+        controls.querySelector("[data-summary-format-button]")?.setAttribute("aria-expanded", "false");
+        const info = controls.querySelector(".summary-format-info");
+        if (info) info.open = false;
+      }
+    }
+    document.querySelector(".detail-page-main")?.dispatchEvent(new Event("detail-tab-change"));
     if (updateUrl && ["outcomes", "recording"].includes(name)) {
       const hash = `#${name}`;
       if (window.location.hash !== hash) {
@@ -1547,10 +1915,7 @@
 
   const processingCountdownCopy = (seconds, source, nextAttemptAt = null, replacement = false) => {
     if (replacement && Number.isFinite(seconds) && processingTimestamp(nextAttemptAt) !== null) {
-      const time = new Intl.DateTimeFormat("ru-RU", {
-        hour: "2-digit",
-        minute: "2-digit",
-      }).format(new Date(nextAttemptAt));
+      const time = window.GRAFTime.format(nextAttemptAt, { showZone: true });
       return `GRAF повторит попытку автоматически в ${time} (через ${processingCountdownDuration(seconds)}).`;
     }
     const prefix = source === "server_fallback" ? "Примерно через" : "Следующая проверка через";
@@ -1579,6 +1944,7 @@
     "running",
     "generating",
     "submitted",
+    "blocked_dependency",
   ].includes(String(state || "").toLowerCase());
 
   const processingTranscriptReady = (projection) => (
@@ -1629,16 +1995,8 @@
           scope.dispatchEvent(new Event("change"));
         }
       }
-      const submit = form.querySelector("[data-export-submit]");
-      const hasAvailableScope = Array.from(scope.options).some((option) => !option.disabled);
-      if (!hasAvailableScope) {
-        if (submit) submit.disabled = true;
-        form.dataset.processingNoAvailableScope = "true";
-      } else if (form.dataset.processingNoAvailableScope === "true") {
-        if (submit) submit.disabled = false;
-        delete form.dataset.processingNoAvailableScope;
-      }
       form.dataset.processingTranscriptVisible = transcriptVisible ? "true" : "false";
+      form.dispatchEvent(new Event("export-availability-change"));
     });
   };
 
@@ -1713,7 +2071,7 @@
   const processingSummaryCopy = (state, hasStoredOutput = false, transcriptReady = false) => ({
     available: ["Итоги готовы.", "success"],
     partial: [
-      transcriptReady ? "Итоги доступны частично. Расшифровка остаётся доступной." : "Итоги доступны частично.",
+      transcriptReady ? "Итоги доступны частично. Расшифровка остается доступной." : "Итоги доступны частично.",
       "warning",
     ],
     queued: ["Итоги готовятся отдельно. Расшифровка может быть доступна раньше.", "pending"],
@@ -1721,15 +2079,16 @@
     processing: ["Итоги готовятся отдельно. Расшифровка может быть доступна раньше.", "pending"],
     running: ["Итоги готовятся отдельно. Расшифровка может быть доступна раньше.", "pending"],
     generating: ["Итоги готовятся отдельно. Расшифровка может быть доступна раньше.", "pending"],
+    blocked_dependency: ["Подготовка итогов задерживается. Продолжим автоматически.", "pending"],
     submitted: ["Итоги готовятся отдельно. Расшифровка может быть доступна раньше.", "pending"],
     failed: [transcriptReady ? "Не удалось подготовить итоги. Расшифровка сохранена." : "Не удалось подготовить итоги.", "failed"],
     unavailable: [transcriptReady ? "Итоги пока недоступны. Расшифровка сохранена." : "Итоги пока недоступны.", "warning"],
     not_requested: [
       hasStoredOutput
-        ? "Сохраненные итоги доступны. Новые итоги ещё не запрошены."
+        ? "Сохраненные итоги доступны. Новые итоги еще не запрошены."
         : transcriptReady
-        ? "Итоги ещё не запрошены. Расшифровка остаётся доступной."
-        : "Итоги ещё не запрошены.",
+        ? "Итоги еще не запрошены. Расшифровка остается доступной."
+        : "Итоги еще не запрошены.",
       "warning",
     ],
   }[String(state || "").toLowerCase()] || null);
@@ -1858,7 +2217,7 @@
       return {
         state: "unknown",
         title: "Проверяем исходную попытку",
-        copy: "Не удалось подтвердить отправку, поэтому GRAF проверяет исходную попытку и не создаёт дубликат.",
+        copy: "Не удалось подтвердить отправку, поэтому GRAF проверяет исходную попытку и не создает дубликат.",
         canCheck: projection?.manual_action === "check_now" && !inFlight,
         showRefresh: projection?.manual_action !== "check_now",
         showCountdown: projection?.next_attempt_at != null,
@@ -1904,7 +2263,7 @@
       if (["processing_retry_deadline_exceeded", "mediascribe_poll_limit_exceeded"].includes(reason)) {
         return {
           state: "retryable",
-          title: "Результат ещё не подтверждён",
+          title: "Результат еще не подтвержден",
           copy: reasonCopy || "MediaScribe не сообщил об ошибке. Автоматическое ожидание остановлено; проверьте обработку вручную.",
           canCheck: projection?.manual_action === "check_now" && !inFlight,
           canStartNewAttempt: false,
@@ -1927,7 +2286,7 @@
       return {
         state: "retryable",
         title: "Обработка временно приостановлена",
-        copy: "Запись сохранена. GRAF попробует проверить её автоматически.",
+        copy: "Запись сохранена. GRAF попробует проверить ее автоматически.",
         canCheck,
         canStartNewAttempt: false,
         showRefresh: projection?.manual_action !== "check_now",
@@ -1957,7 +2316,7 @@
     return {
       state: "active",
       title: "Обработка записи",
-      copy: "Спикеры ещё определяются. Расшифровка появится после завершения диаризации.",
+      copy: "Спикеры еще определяются. Расшифровка появится после завершения диаризации.",
       canCheck: false,
       canStartNewAttempt: false,
       showRefresh: false,
@@ -2025,6 +2384,7 @@
     const shouldPoll = !terminalProjection && (
       (typeof processingTranscriptReady === "function" && !transcriptReady)
       || processingSummaryPending(summaryState)
+      || summaryState === "not_requested"
       || projection?.retry_class === "retryable" && projection?.next_attempt_at != null
       || projection?.retry_class === "unknown_outcome"
       || projection?.attempt_in_flight === true
@@ -2048,14 +2408,61 @@
     }, delay);
   };
 
+  const refreshPlaybackContent = (current, next) => {
+    if (!current.querySelector("[data-playback-player]") || !next.querySelector("[data-playback-player]")
+      || !current.dataset.meetingId || !current.dataset.mediaRevisionId
+      || ["meetingId", "workspaceId", "mediaRevisionId", "sourceMode"].some(key => current.dataset[key] !== next.dataset[key])) return false;
+    // Keep the live audio, comments and draft attached; only transcript-owned controls change.
+    for (const selector of [".playback-speaker-overview", "[data-playback-avatars]", "[data-playback-listen-menu]"]) {
+      const target = current.querySelector(selector), replacement = next.querySelector(selector);
+      if (target && replacement) target.replaceChildren(...replacement.childNodes);
+    }
+    const timeline = current.querySelector("[data-speaker-timeline]"), nextTimeline = next.querySelector("[data-speaker-timeline]");
+    if (timeline && nextTimeline) {
+      const wrapper = nextTimeline.closest("[data-speaker-timeline-shell]");
+      if (wrapper && !timeline.closest("[data-speaker-timeline-shell]")) timeline.replaceWith(wrapper);
+      else {
+        timeline.replaceChildren(...nextTimeline.childNodes);
+        Object.assign(timeline.dataset, nextTimeline.dataset);
+      }
+    }
+    const manager = current.querySelector("[data-speaker-manager]"), nextManager = next.querySelector("[data-speaker-manager]");
+    if (nextManager) {
+      if (!manager) current.querySelector(".playback-tools")?.append(nextManager);
+      else if (current.dataset.processingResultId !== next.dataset.processingResultId) manager.replaceWith(nextManager);
+    } else manager?.remove();
+    for (const selector of ["[data-playback-timeline-toggle]", "[data-playback-next]"]) {
+      const target = current.querySelector(selector), replacement = next.querySelector(selector);
+      if (target && replacement) target.disabled = replacement.disabled;
+    }
+    for (const selector of [".speaker-timeline-resize-row", "[data-playback-carousel]", "[data-playback-comment]"]) {
+      const target = current.querySelector(selector), replacement = next.querySelector(selector);
+      if (target && replacement) target.hidden = replacement.hidden;
+    }
+    const listen = current.querySelector("[data-playback-listen-toggle]")?.parentElement;
+    const nextListen = next.querySelector("[data-playback-listen-toggle]")?.parentElement;
+    if (listen && nextListen) listen.hidden = nextListen.hidden;
+    for (const key of ["processingResultId", "commentsAvailable", "commentsCanComment", "playbackReason"]) current.dataset[key] = next.dataset[key] || "";
+    speakerTimelineResizeHandlers.get(current.querySelector("[data-speaker-timeline-shell]"))?.();
+    current.dataset.playbackContextChanged = "true";
+    return true;
+  };
+
   const refreshProcessingDetailContentOnce = async (
     detail,
     projection,
-    { resetRetryBudget = false } = {},
+    { resetRetryBudget = false, forceSummary = false, summaryTemplate = null } = {},
   ) => {
+    if (detail.dataset.requestedSummaryTemplate && !forceSummary) return false;
+    if (forceSummary && summaryTemplate) detail.dataset.requestedSummaryTemplate = summaryTemplate;
     if (resetRetryBudget) delete detail.dataset.processingContentRefreshRetryCount;
     const transcriptReady = processingTranscriptReady(projection);
-    const summaryReady = processingSummaryState(projection).toLowerCase() === "available";
+    const summaryReady = ["available", "partial"].includes(processingSummaryState(projection).toLowerCase());
+    const summaryDisplayState = summaryReady ? "available"
+      : processingSummaryPending(processingSummaryState(projection)) ? "processing"
+      : ["failed", "unavailable"].includes(processingSummaryState(projection)) ? "unavailable" : "deferred";
+    const refreshSummaryState = transcriptReady && detail.dataset.summaryRenderedState
+      && detail.dataset.summaryRenderedState !== summaryDisplayState;
     const attemptOrdinal = Number(projection?.attempt_ordinal ?? 0);
     const refreshReplacement = Number.isSafeInteger(attemptOrdinal)
       && attemptOrdinal > 1
@@ -2063,11 +2470,17 @@
       && detail.dataset.processingPublishedAttempt !== String(attemptOrdinal);
     const refreshTranscript = transcriptReady
       && detail.dataset.processingTranscriptContentReady !== "true";
-    const refreshSummary = summaryReady
-      && detail.dataset.processingSummaryContentReady !== "true";
-    if (!refreshTranscript && !refreshSummary && !refreshReplacement) return false;
-    const pollUrl = detail.dataset.playbackPollUrl;
+    const refreshSummary = forceSummary || (summaryReady
+      && detail.dataset.processingSummaryContentReady !== "true");
+    if (!refreshTranscript && !refreshSummary && !refreshReplacement && !refreshSummaryState) return false;
+    let pollUrl = detail.dataset.playbackPollUrl;
     if (!pollUrl) return false;
+    if (summaryTemplate) {
+      const url = new URL(pollUrl, window.location.href);
+      url.searchParams.set("summary_format", summaryTemplate);
+      pollUrl = url.href;
+    }
+    const titleVersion = detail.querySelector("[name='expected_version']")?.value;
     const refreshGeneration = processingRecoveryGeneration;
     const refreshScheduleGeneration = detail.dataset.processingScheduleGeneration || "0";
     const refreshClaim = [
@@ -2077,6 +2490,8 @@
       transcriptReady,
       summaryReady,
       refreshReplacement,
+      summaryDisplayState,
+      summaryTemplate,
     ].join("|");
     if (detail.dataset.processingContentRefreshClaim === refreshClaim) return false;
     detail.dataset.processingContentRefreshClaim = refreshClaim;
@@ -2086,6 +2501,7 @@
       && (detail.dataset.processingScheduleGeneration || "0") === refreshScheduleGeneration
       && detail.dataset.processingContentRefreshClaim === refreshClaim
       && processingProjectionMatchesDetail(detail, projection)
+      && (!summaryTemplate || detail.dataset.requestedSummaryTemplate === summaryTemplate)
     );
     const releaseRefreshClaim = () => {
       if (detail.dataset.processingContentRefreshClaim === refreshClaim) {
@@ -2105,8 +2521,10 @@
         stopProcessingRecoveryPolling();
         processingRecoveryPollTimer = window.setTimeout(() => {
           processingRecoveryPollTimer = null;
-          if (detail.isConnected && refreshGeneration === processingRecoveryGeneration) {
-            void refreshProcessingStatus({ force: true, generation: refreshGeneration });
+          if (detail.isConnected && refreshGeneration === processingRecoveryGeneration
+            && (!summaryTemplate || detail.dataset.requestedSummaryTemplate === summaryTemplate)) {
+            if (forceSummary) void refreshProcessingDetailContentOnce(detail, projection, { forceSummary, summaryTemplate });
+            else void refreshProcessingStatus({ force: true, generation: refreshGeneration });
           }
         }, 15000);
         return;
@@ -2114,7 +2532,9 @@
       detail.dataset.processingContentRefreshRetryCount = String(retryCount);
       if (processingRecoveryPollTimer !== null) stopProcessingRecoveryPolling();
       window.setTimeout(() => {
-        if (detail.isConnected) void refreshProcessingDetailContentOnce(detail, projection);
+        if (detail.isConnected && (!summaryTemplate || detail.dataset.requestedSummaryTemplate === summaryTemplate)) {
+          void refreshProcessingDetailContentOnce(detail, projection, { forceSummary, summaryTemplate });
+        }
       }, Math.min(2000 * retryCount, 8000));
     };
     try {
@@ -2144,6 +2564,11 @@
         retryFragmentRefresh();
         return false;
       }
+      if (forceSummary && (nextDetail.dataset.summaryRenderedState !== "available"
+        || (summaryTemplate && nextDetail.querySelector("[data-summary-format-controls]")?.dataset.currentTemplateKey !== summaryTemplate))) {
+        retryFragmentRefresh();
+        return false;
+      }
       nextDetail.dataset.processingTranscriptContentReady =
         refreshTranscript ? "true" : detail.dataset.processingTranscriptContentReady || "false";
       nextDetail.dataset.processingSummaryContentReady =
@@ -2152,15 +2577,30 @@
         nextDetail.dataset.processingPublishedAttempt = String(attemptOrdinal);
       }
       if (discardStaleRefresh()) return false;
+      if (titleVersion !== detail.querySelector("[name='expected_version']")?.value) {
+        retryFragmentRefresh();
+        return false;
+      }
       releaseRefreshClaim();
       stopProcessingRecoveryCountdown();
       stopProcessingRecoveryPolling();
+      const selectedTab = detail.querySelector('[data-detail-tab][aria-selected="true"]')?.dataset.detailTab;
+      const focusedID = detail.contains?.(document.activeElement) ? document.activeElement?.id : null;
       if (refreshReplacement) {
         currentPlayback?.querySelector("audio")?.pause();
         if (currentPlayback && nextPlayback) currentPlayback.replaceWith(nextPlayback);
+      } else if (refreshTranscript && currentPlayback && nextPlayback && !refreshPlaybackContent(currentPlayback, nextPlayback)) {
+        currentPlayback.querySelector("audio")?.pause();
+        currentPlayback.replaceWith(nextPlayback);
       }
-      detail.replaceWith(nextDetail);
-      window.setTimeout(initCabinet, 0);
+      if (titleEditorActive()) {
+        if (!meetingTitleEditor.refreshDetail(nextDetail)) { retryFragmentRefresh(); return false; }
+      } else detail.replaceWith(nextDetail);
+      window.setTimeout(() => {
+        initCabinet();
+        if (selectedTab && typeof activateDetailTab === "function") activateDetailTab(selectedTab, { updateUrl: false });
+        if (focusedID) document.getElementById(focusedID)?.focus({ preventScroll: true });
+      }, 0);
       return true;
     } catch {
       retryFragmentRefresh();
@@ -2217,8 +2657,28 @@
     }
     const terminalProcessing = processingTerminalFailure(projection);
     if (pending) pending.hidden = transcriptVisible || terminalTranscript || terminalProcessing;
-    updateProcessingExportVisibility(transcriptReady);
     detail.dataset.processingTranscriptVisible = transcriptVisible ? "true" : "false";
+    const replacementAttempt = Number(
+      projection?.attempt_ordinal ?? detail.dataset.processingAttemptOrdinal ?? 0,
+    ) > 1 && (
+      projection?.content_available === true
+      || detail.dataset.processingTranscriptContentReady === "true"
+      || detail.dataset.processingTranscriptVisible === "true"
+    );
+    const replacementPublished = detail.dataset.processingPublishedAttempt === String(attemptOrdinal);
+    const replacementActive = replacementAttempt
+      && !terminalProcessing
+      && (projectionState !== "processed" || !replacementPublished);
+    detail.dataset.processingReplacementActive = replacementActive ? "true" : "false";
+    if (replacementActive) {
+      const popover = detail.querySelector("[data-summary-format-popover]");
+      if (popover) {
+        if (popover.matches(":popover-open")) popover.hidePopover();
+        popover.hidden = true;
+      }
+      detail.querySelector("[data-summary-format-button]")?.setAttribute("aria-expanded", "false");
+    }
+    updateProcessingExportVisibility(transcriptReady);
     detail.dataset.processingRetryClass = String(projection?.retry_class || "none");
     detail.dataset.processingSummaryStatus = processingSummaryState(projection);
 
@@ -2258,29 +2718,18 @@
     updateProcessingStage(
       detail,
       "summary",
-      summaryState === "available" ? "ready"
+      ["available", "partial"].includes(summaryState) ? "ready"
         : ["failed", "unavailable"].includes(summaryState) ? "unavailable"
-        : processingSummaryPending(summaryState) ? "active" : "active",
+        : "active",
       summaryState === "available" ? "Готово"
+        : summaryState === "partial" ? "Доступно частично"
         : ["failed", "unavailable"].includes(summaryState) ? "Недоступно"
         : summaryState === "not_requested" ? "Не запрошены" : "Готовятся",
     );
 
     const recovery = detail.querySelector("[data-processing-recovery]");
     if (!recovery) return true;
-    const replacementAttempt = Number(
-      projection?.attempt_ordinal ?? detail.dataset.processingAttemptOrdinal ?? 0,
-    ) > 1 && (
-      projection?.content_available === true
-      || detail.dataset.processingTranscriptContentReady === "true"
-      || detail.dataset.processingTranscriptVisible === "true"
-    );
-    const replacementPublished = detail.dataset.processingPublishedAttempt === String(attemptOrdinal);
     const copy = processingRecoveryCopy(projection, transcriptReady, replacementPublished);
-    const replacementActive = replacementAttempt
-      && !terminalProcessing
-      && (projectionState !== "processed" || !replacementPublished);
-    detail.dataset.processingReplacementActive = replacementActive ? "true" : "false";
     recovery.dataset.processingReplacement = replacementAttempt ? "true" : "false";
     if (replacementActive) {
       detail.nextElementSibling?.querySelector?.("audio")?.pause();
@@ -2434,15 +2883,15 @@
       return [
         preparation ? "Подготовка временно недоступна" : "Сервис обработки временно недоступен",
         preparation
-          ? "Новая попытка подготовки не запущена. Попробуйте ещё раз позже."
-          : "Проверка не запущена. Попробуйте ещё раз позже или обновите страницу.",
+          ? "Новая попытка подготовки не запущена. Попробуйте еще раз позже."
+          : "Проверка не запущена. Попробуйте еще раз позже или обновите страницу.",
       ];
     }
     return [
       preparation ? "Не удалось повторить подготовку" : "Не удалось проверить обработку",
       preparation
-        ? "Новая попытка не запущена. Нажмите «Повторить подготовку» ещё раз позже."
-        : "Проверка не завершилась. Нажмите «Проверить обработку» ещё раз или обновите страницу.",
+        ? "Новая попытка не запущена. Нажмите «Повторить подготовку» еще раз позже."
+        : "Проверка не завершилась. Нажмите «Проверить обработку» еще раз или обновите страницу.",
     ];
   };
 
@@ -2478,8 +2927,8 @@
     if (titleNode) titleNode.textContent = title;
     const resolvedMessage = message || (
       transcriptWasVisible
-        ? "Проверка временно недоступна. Расшифровка и спикеры остаются доступны; попробуйте проверить статус ещё раз позже."
-        : "Обновите страницу или нажмите «Проверить обработку» ещё раз. Расшифровка появится после подтверждения готовности спикеров."
+        ? "Проверка временно недоступна. Расшифровка и спикеры остаются доступны; попробуйте проверить статус еще раз позже."
+        : "Обновите страницу или нажмите «Проверить обработку» еще раз. Расшифровка появится после подтверждения готовности спикеров."
     );
     if (messageNode) messageNode.textContent = resolvedMessage;
     const check = recovery.querySelector("[data-processing-check]");
@@ -2738,8 +3187,8 @@
           if (payload?.code === "processing_quota_exceeded") {
             processingRecoveryActionRequest = null;
             renderProcessingRecoveryFailure(detail, {
-              title: "Лимит расшифровки ещё не обновился",
-              message: "Новая попытка не запущена. Дождитесь обновления лимита и нажмите «Начать обработку заново» ещё раз.",
+              title: "Лимит расшифровки еще не обновился",
+              message: "Новая попытка не запущена. Дождитесь обновления лимита и нажмите «Начать обработку заново» еще раз.",
               signature: `new-attempt-quota-${generation}`,
               failedAction: "new_attempt",
             });
@@ -2764,7 +3213,7 @@
         title: "Не удалось начать обработку заново",
         message: Number(error?.status || 0) === 409
           ? "Новая попытка сейчас недоступна. Обновите страницу, чтобы увидеть актуальный статус."
-          : "Новая попытка не запущена. Обновите страницу и попробуйте ещё раз позже.",
+          : "Новая попытка не запущена. Обновите страницу и попробуйте еще раз позже.",
         signature: `new-attempt-failed-${generation}`,
         failedAction: "new_attempt",
       });
@@ -2885,7 +3334,7 @@
           ? "Страница встречи устарела. Закройте окно, обновите статус и подтвердите запуск снова."
           : Number(error?.status || 0) === 401 || Number(error?.status || 0) === 403
           ? "Сессия больше не подтверждена. Обновите страницу и войдите снова."
-          : "Повторная обработка не запущена. Попробуйте ещё раз позже.",
+          : "Повторная обработка не запущена. Попробуйте еще раз позже.",
       );
       submit?.focus({ preventScroll: true });
       scheduleProcessingStatusRetry(generation);
@@ -2996,15 +3445,19 @@
     ) return;
     const retryClass = String(projection?.retry_class || "none");
     const state = String(projection?.state || "").toLowerCase();
+    const transcriptReady = processingTranscriptReady(projection);
+    const summaryState = processingSummaryState(projection);
     if (
       retryClass === "terminal"
-      || ["processed", "blocked", "failed_terminal", "canceled"].includes(state)
+      || ["blocked", "failed_terminal", "canceled"].includes(state)
+      || (state === "processed" && (
+        !processingSummaryPending(summaryState)
+        || (transcriptReady && row.dataset.processingTranscriptVisible !== "true")
+      ))
     ) {
       const restoreFocus = row.contains(document.activeElement);
       if (requestMeetingListRefresh({ focusMeetingIds: [rowMeetingId], restoreFocus })) return;
     }
-    const transcriptReady = processingTranscriptReady(projection);
-    const summaryState = processingSummaryState(projection);
     const replacement = Number(projection?.attempt_ordinal ?? 0) > 1
       && projection?.content_available === true;
     const text = replacement && !processingTerminalFailure(projection)
@@ -3016,7 +3469,7 @@
       : retryClass === "terminal"
       ? "Требует внимания"
       : transcriptReady
-      ? `Расшифровка готова · ${summaryState === "available" ? "итоги готовы" : processingSummaryPending(summaryState) ? "итоги готовятся" : "итоги недоступны"}`
+      ? `Расшифровка готова · ${summaryState === "available" ? "итоги готовы" : summaryState === "partial" ? "итоги доступны частично" : processingSummaryPending(summaryState) ? "итоги готовятся" : "итоги недоступны"}`
       : "Спикеры определяются · расшифровка готовится";
     const node = row.querySelector(".meeting-content-readiness");
     if (node) node.dataset.processingListStatus = "true";
@@ -3073,7 +3526,7 @@
     if (!list) return;
     const rows = allRows().filter((row) => {
       const kind = row.querySelector(".meeting-status[data-status-kind]")?.dataset.statusKind || "";
-      return kind === "processing";
+      return kind === "processing" || row.dataset.summaryPending === "true";
     });
     if (!rows.length) {
       resetProcessingListProjectionState();
@@ -3103,16 +3556,26 @@
     document.querySelectorAll("[data-summary-format-controls]").forEach((controls) => {
       if (controls.dataset.summaryFormatReady === "true") return;
       const button = controls.querySelector("[data-summary-format-button]");
+      const info = controls.querySelector(".summary-format-info");
       const refreshButton = controls.querySelector("[data-summary-refresh-button]");
       const listbox = controls.querySelector("[data-summary-format-listbox]");
       const pendingLabel = controls.querySelector("[data-summary-pending-format-label]");
       const status = document.querySelector("[data-summary-candidate-status]");
       const statusLive = status?.querySelector("[data-summary-candidate-live]");
       const statusActions = status?.querySelector("[data-summary-candidate-actions]");
-      const dialog = document.querySelector("[data-summary-format-dialog]");
+      const popover = controls.querySelector("[data-summary-format-popover]");
+      const allFormats = controls.querySelector("[data-summary-format-all]");
+      const back = controls.querySelector("[data-summary-format-back]");
+      const settings = controls.querySelector("[data-summary-format-settings]");
+      const description = controls.querySelector("[data-summary-format-description]");
+      const personalHost = controls.querySelector("[data-summary-personal-options]");
+      const loadStatus = controls.querySelector("[data-summary-format-load-status]");
+      let personalLoading = false;
+      let personalLoaded = false;
       const meetingId = controls.dataset.meetingId || "";
       const candidateStorageKey = `graf-summary-candidate-${meetingId}`;
       let currentOutcomeSetId = controls.dataset.currentOutcomeSetId || null;
+      let refreshBaselineOutcomeSetId = currentOutcomeSetId;
       let activeTemplate = null;
       let pollingTimer = null;
       let pollAttempts = 0;
@@ -3123,34 +3586,68 @@
       let candidateRequestGeneration = 0;
       let candidateRequestInFlightGeneration = null;
       const acceptedFocusKey = `graf-summary-focus-${meetingId}`;
-      if (!button || !listbox) return;
+      if (!button || !listbox || !popover) return;
       controls.dataset.summaryFormatReady = "true";
       const options = () => Array.from(listbox.querySelectorAll('[role="option"]'));
+      const visibleOptions = () => options().filter((option) => !option.disabled && !option.closest("[hidden]"));
       const close = ({ restoreFocus = true } = {}) => {
-        listbox.hidden = true;
+        if (popover.matches(":popover-open")) popover.hidePopover();
+        popover.hidden = true;
         button.setAttribute("aria-expanded", "false");
-        if (restoreFocus) button.focus({ preventScroll: true });
+        if (restoreFocus && button.isConnected) button.focus({ preventScroll: true });
       };
-      const open = () => {
-        listbox.hidden = false;
+      const focusOption = (option) => {
+        options().forEach((item) => { item.tabIndex = item === option ? 0 : -1; });
+        option?.focus({ preventScroll: true });
+        if (!option) return;
+        const row = option.getBoundingClientRect();
+        const list = listbox.getBoundingClientRect();
+        const scale = list.height / listbox.offsetHeight || 1;
+        if (row.top < list.top) listbox.scrollTop -= (list.top - row.top) / scale;
+        else if (row.bottom > list.bottom) listbox.scrollTop += (row.bottom - list.bottom) / scale;
+      };
+      const focusCurrentFormat = () => {
+        const items = visibleOptions();
+        focusOption(items.find((item) => item.getAttribute("aria-selected") === "true") || items[0]);
+      };
+      const sizePopover = () => {
+        if (popover.hidden) return;
+        const anchor = button.getBoundingClientRect();
+        const scale = anchor.width / button.offsetWidth || 1;
+        popover.style.maxHeight = `${Math.max(0, Math.min(440, (window.innerHeight - 24) / scale))}px`;
+        const bounds = popover.getBoundingClientRect();
+        popover.style.left = `${Math.max(12, Math.min(anchor.left, window.innerWidth - bounds.width - 12)) / scale}px`;
+        popover.style.top = `${Math.max(12, Math.min(anchor.bottom + 7, window.innerHeight - bounds.height - 12)) / scale}px`;
+      };
+      const open = (full = false) => {
+        if (info) info.open = false;
+        popover.hidden = false;
+        if (!popover.matches(":popover-open")) popover.showPopover();
         button.setAttribute("aria-expanded", "true");
-        const selected = listbox.querySelector('[role="option"][aria-selected="true"]');
-        (selected || options()[0])?.focus({ preventScroll: true });
+        listbox.querySelectorAll("[data-summary-format-extra]").forEach((option) => { option.hidden = !full; });
+        if (personalHost) personalHost.hidden = !full || !personalHost.children.length;
+        if (allFormats) allFormats.hidden = full;
+        if (back) back.hidden = !full;
+        if (settings) settings.hidden = !full;
+        if (loadStatus) loadStatus.hidden = !full || !loadStatus.textContent;
+        sizePopover();
+        focusCurrentFormat();
       };
       const setBusy = (busy) => {
+        if (busy) close({ restoreFocus: false });
         button.disabled = busy;
         if (refreshButton) refreshButton.disabled = busy;
         controls.setAttribute("aria-busy", busy ? "true" : "false");
       };
       const reloadAfterSummaryChange = (template = activeTemplate) => {
-        window.sessionStorage.setItem(acceptedFocusKey, "current");
         const templateKey = typeof template === "string" ? template : template?.key;
-        if (templateKey) {
-          const url = new URL(window.location.href);
-          url.searchParams.set("summary_format", templateKey);
-          window.history.replaceState(null, "", url);
-        }
-        window.location.reload();
+        const detail = controls.closest("[data-processing-status-url]");
+        if (!detail?.isConnected) return;
+        void refreshProcessingDetailContentOnce(detail, {
+          meeting_id: detail.dataset.meetingId,
+          media_revision_id: detail.dataset.mediaRevisionId,
+          summary_status: "available",
+        }, { forceSummary: true, summaryTemplate: templateKey });
       };
       const showStatus = (message, state = "generating", actions = []) => {
         if (!status || !statusLive || !statusActions) return;
@@ -3187,18 +3684,18 @@
         summary_prompt_resolution_conflict: "Настройки формата изменились. Обновите страницу и попробуйте снова.",
         summary_prompt_invalid: "Настройки выбранного формата недоступны. Выберите другой формат.",
         summary_prompt_snapshot_corrupt: "Настройки выбранного формата недоступны. Выберите другой формат.",
-        summary_prompt_not_selected: "Не удалось определить настройки формата. Выберите формат ещё раз.",
+        summary_prompt_not_selected: "Не удалось определить настройки формата. Выберите формат еще раз.",
         prompt_invalid: "Настройки выбранного формата недоступны. Выберите другой формат.",
         summary_generation_in_progress: "Другой вариант уже готовится. Обновите статус через несколько секунд.",
         generation_in_progress: "Другой вариант уже готовится. Обновите статус через несколько секунд.",
-        generation_call_not_completed: "Ответ модели не был сохранён полностью. Обновите статус.",
-        generation_call_content_incomplete: "Ответ модели не был сохранён полностью. Обновите статус.",
-        generation_call_content_hash_mismatch: "Не удалось проверить сохранённый ответ. Обновите статус.",
-        content_unavailable: "Ответ модели не был сохранён полностью. Обновите статус.",
+        generation_call_not_completed: "Ответ модели не был сохранен полностью. Обновите статус.",
+        generation_call_content_incomplete: "Ответ модели не был сохранен полностью. Обновите статус.",
+        generation_call_content_hash_mismatch: "Не удалось проверить сохраненный ответ. Обновите статус.",
+        content_unavailable: "Ответ модели не был сохранен полностью. Обновите статус.",
         input_too_large: "Расшифровка слишком большая для генерации итогов. Расшифровка и текущие итоги сохранены.",
         summary_revision_conflict: "Итоги уже изменились. Обновите страницу.",
         revision_changed: "Итоги уже изменились. Обновите страницу.",
-        result_invalid: "Модель вернула неподтверждённый результат. Можно попробовать другой вариант.",
+        result_invalid: "Модель вернула неподтвержденный результат. Можно попробовать другой вариант.",
         source_changed: "Расшифровка изменилась. Обновите страницу и запросите новый вариант.",
         template_unavailable: "Этот формат больше недоступен. Выберите другой формат.",
         provider_outcome_unknown: "Не удалось подтвердить ответ модели. Проверьте статус и повторите позже.",
@@ -3218,7 +3715,7 @@
         summary_candidate_expired: "Вариант устарел. Текущие итоги сохранены.",
         summary_same_format_noop: "Этот формат уже выбран. Нажмите «Обновить итоги», чтобы создать новый вариант.",
         summary_template_unavailable: "Выбранный формат больше недоступен. Выберите другой активный формат.",
-        summary_refresh_intent_missing: "Не удалось подтвердить обновление. Выберите «Обновить итоги» ещё раз.",
+        summary_refresh_intent_missing: "Не удалось подтвердить обновление. Выберите «Обновить итоги» еще раз.",
         summary_source_revision_stale: "Расшифровка изменилась. Текущие итоги сохранены."
       }[code] || "Не удалось подготовить новый вариант. Текущие итоги сохранены.");
       const retryCandidateAction = (candidate = {}) => {
@@ -3252,7 +3749,7 @@
         if (candidate.retryable) {
           const template = templateFromCandidate(candidate) || activeTemplate;
           return {
-            text: "Попробовать ещё раз",
+            text: "Попробовать еще раз",
             action: () => template && requestCandidate(template, {
               requestIntent: "manual_refresh",
               requestIntentId: newRequestIntentId()
@@ -3272,7 +3769,7 @@
           || [408, 425, 429].includes(error?.status);
         if (transientTransportFailure) {
           return {
-            text: "Попробовать ещё раз",
+            text: "Попробовать еще раз",
             action: () => template && requestCandidate(template, {
               requestIntent: "manual_refresh",
               requestIntentId: newRequestIntentId()
@@ -3313,7 +3810,7 @@
           "litellm_retryable_response"
         ].includes(code)) {
           return {
-            text: "Попробовать ещё раз",
+            text: "Попробовать еще раз",
             action: () => template && requestCandidate(template, {
               requestIntent: "manual_refresh",
               requestIntentId: newRequestIntentId()
@@ -3323,19 +3820,9 @@
         }
         return null;
       };
-      const focusCurrentDialogFormat = () => {
-        const current = dialog?.querySelector(
-          '[data-summary-format-current], [data-summary-format-option][aria-current="true"]'
-        );
-        (current || dialog?.querySelector("[data-summary-format-option]"))?.focus({ preventScroll: true });
-      };
       const openFormatPicker = () => {
-        if (dialog instanceof HTMLDialogElement) {
-          dialog.showModal();
-          focusCurrentDialogFormat();
-        } else {
-          open();
-        }
+        open(true);
+        void loadPersonalFormats();
       };
       const retryTerminalCandidateAction = (code = "") => retryCandidateAction(code);
       const templateFromCandidate = (candidate) => {
@@ -3450,7 +3937,7 @@
           const retry = retryCandidateAction(candidate) || {
             text: "Обновить страницу", action: () => window.location.reload(), primary: true
           };
-          showStatus("Новая версия устарела. Текущие итоги сохранены — запустите обновление ещё раз.", "failed", [
+          showStatus("Новая версия устарела. Текущие итоги сохранены — запустите обновление еще раз.", "failed", [
             retry
           ]);
           return;
@@ -3489,7 +3976,7 @@
         return true;
       };
       const schedulePoll = (candidate, generation = candidateRequestGeneration) => {
-        if (generation !== candidateRequestGeneration) return;
+        if (generation !== candidateRequestGeneration || !controls.isConnected) return;
         window.clearTimeout(pollingTimer);
         pollingTimer = null;
         if (document.hidden) {
@@ -3499,15 +3986,9 @@
           ]);
           return;
         }
-        if (document.hidden || pollAttempts >= 40 || (pollDeadline && Date.now() >= pollDeadline)) {
-          if (pollAttempts >= 40 || (pollDeadline && Date.now() >= pollDeadline)) {
-            setBusy(false);
-          showStatus("Генерация занимает больше обычного. Текущие итоги сохранены.", "slow", [
-            { text: "Проверить снова", action: () => resumeCandidatePolling(candidate, generation), primary: true },
-            { text: "Закрыть", action: dismissStatus }
-          ]);
-          }
-          return;
+        if (pollAttempts >= 40 || (pollDeadline && Date.now() >= pollDeadline)) {
+          pollDelay = 15000;
+          showStatus("Подготовка занимает больше обычного. Продолжим проверять автоматически.", "slow");
         }
         pollingTimer = window.setTimeout(() => {
           pollingTimer = null;
@@ -3515,7 +3996,7 @@
         }, pollDelay);
       };
       const pollCandidate = async (candidate, generation = candidateRequestGeneration) => {
-        if (generation !== candidateRequestGeneration) return;
+        if (generation !== candidateRequestGeneration || !controls.isConnected) return;
         if (document.hidden) {
           pollingTimer = null;
           setBusy(false);
@@ -3527,6 +4008,7 @@
         pollAttempts += 1;
         try {
           const response = await fetch(candidate.poll_url, { credentials: "same-origin", cache: "no-store" });
+          if (generation !== candidateRequestGeneration || !controls.isConnected) return;
           if (await recoverMeetingDetailFromResponse(response, { actionProblemCodes: summaryActionProblemCodes })) {
             throw meetingDetailRecoveredError();
           }
@@ -3539,7 +4021,7 @@
             throw error;
           }
           const next = await response.json();
-          if (generation !== candidateRequestGeneration) return;
+          if (generation !== candidateRequestGeneration || !controls.isConnected) return;
           renderCandidate(next, generation);
           if (next.state === "generating") {
             pollDelay = Math.min(10000, Math.round(pollDelay * 1.5));
@@ -3547,11 +4029,12 @@
           }
         } catch (error) {
           if (isMeetingDetailRecoveredError(error)) return;
-          if (generation !== candidateRequestGeneration) return;
+          if (generation !== candidateRequestGeneration || !controls.isConnected) return;
           pollingTimer = null;
           setBusy(false);
           const code = error instanceof Error ? error.message : "";
           const transientPollFailure = !code
+            || error instanceof TypeError
             || code === "summary_poll_failed"
             || code === "summary_poll_unavailable"
             || code === "summary_request_unavailable"
@@ -3571,6 +4054,10 @@
             "failed",
             retry ? [retry] : []
           );
+          if (transientPollFailure) {
+            pollDelay = 15000;
+            schedulePoll(candidate, generation);
+          }
         }
       };
       const requestCandidate = async (template, {
@@ -3696,14 +4183,9 @@
         return payload.current_outcome_set_id || null;
       };
        const pollSummaryRefresh = async (template, generation) => {
-        if (generation !== candidateRequestGeneration) return;
-        if (Date.now() > pollDeadline) {
-          pollingTimer = null;
-          candidateRequestInFlightGeneration = null;
-          setBusy(false);
-          showStatus("Не удалось дождаться обновления. Текущие итоги сохранены.", "failed", [
-            { text: "Обновить страницу", action: () => window.location.reload(), primary: true }
-          ]);
+        if (generation !== candidateRequestGeneration || !controls.isConnected) return;
+        if (document.hidden) {
+          pollingTimer = window.setTimeout(() => pollSummaryRefresh(template, generation), 15000);
           return;
         }
         try {
@@ -3711,6 +4193,7 @@
             `/api/v1/cabinet/meetings/${meetingId}/summaries/${encodeURIComponent(template.key)}`,
             { credentials: "same-origin", cache: "no-store" }
           );
+          if (generation !== candidateRequestGeneration || !controls.isConnected) return;
           if (await recoverMeetingDetailFromResponse(response, { actionProblemCodes: summaryActionProblemCodes })) {
             throw meetingDetailRecoveredError();
           }
@@ -3720,28 +4203,32 @@
             error.status = response.status;
             throw error;
           }
-          if (generation !== candidateRequestGeneration) return;
-          const previousOutcomeSetId = currentOutcomeSetId;
+          if (generation !== candidateRequestGeneration || !controls.isConnected) return;
           currentOutcomeSetId = payload.current_outcome_set_id || currentOutcomeSetId;
           const state = payload.catalog_entry?.generation_state;
-          if (["preparing", "updating", "blocked", "deferred", "ambiguous"].includes(state)) {
+          if (["preparing", "updating", "blocked", "deferred"].includes(state)) {
             showStatus("Обновляем итоги. Текущие итоги остаются доступны.");
-            pollingTimer = window.setTimeout(() => pollSummaryRefresh(template, generation), 1200);
+            pollingTimer = window.setTimeout(() => pollSummaryRefresh(template, generation), Date.now() > pollDeadline ? 15000 : 3000);
             return;
           }
           pollingTimer = null;
           candidateRequestInFlightGeneration = null;
           setBusy(false);
-          if (payload.current_outcome_set_id && payload.current_outcome_set_id !== previousOutcomeSetId && state === "idle") {
+          if (payload.current_outcome_set_id && payload.current_outcome_set_id !== refreshBaselineOutcomeSetId && state === "idle") {
             showStatus("Итоги обновлены. Обновляем экран.", "ready");
-            window.setTimeout(reloadAfterSummaryChange, 0);
+            window.setTimeout(() => reloadAfterSummaryChange(template), 0);
           } else {
             showStatus("Обновление не завершено. Текущие итоги сохранены.", "failed", [
               { text: "Обновить страницу", action: () => window.location.reload(), primary: true }
             ]);
           }
         } catch (error) {
-          if (isMeetingDetailRecoveredError(error) || generation !== candidateRequestGeneration) return;
+          if (isMeetingDetailRecoveredError(error) || generation !== candidateRequestGeneration || !controls.isConnected) return;
+          if (error instanceof TypeError || !error.status || error.status >= 500 || [408, 425, 429].includes(error.status)) {
+            showStatus("Связь временно недоступна. Продолжим проверять автоматически.", "slow");
+            pollingTimer = window.setTimeout(() => pollSummaryRefresh(template, generation), 15000);
+            return;
+          }
           pollingTimer = null;
           candidateRequestInFlightGeneration = null;
           setBusy(false);
@@ -3759,13 +4246,15 @@
         setBusy(true);
         showStatus("Обновляем итоги. Текущие итоги остаются доступны.");
         try {
+          refreshBaselineOutcomeSetId = await currentOutcomeSetIdForTemplate(template);
+          if (generation !== candidateRequestGeneration || !controls.isConnected) return;
           const payload = await mutate(
             `/api/v1/cabinet/meetings/${meetingId}/summaries/${encodeURIComponent(template.key)}/refresh`,
             "POST",
             {
               schema_version: 1,
               idempotency_key: requestIntentId,
-              expected_current_outcome_set_id: await currentOutcomeSetIdForTemplate(template),
+              expected_current_outcome_set_id: refreshBaselineOutcomeSetId,
               template_id: template.id || null,
               template_version: template.version,
               generation_options: {}
@@ -3876,54 +4365,62 @@
         version: Number(option.dataset.templateVersion || "1"),
         name: option.dataset.templateName || option.textContent.trim()
       });
-      const candidateSectionLabels = new Map([
-        ["summary", "Кратко"],
-        ["action_items", "Действия"],
-        ["decisions", "Решения"],
-        ["key_points", "Ключевые пункты"],
-        ["followups", "Следующие шаги"],
-        ["risks", "Риски"],
-        ["questions", "Вопросы"],
-        ["evidence", "Подтверждения"]
-      ]);
       const personalFormatOption = (template) => {
         const option = document.createElement("button");
         const safeName = typeof template.name === "string" && template.name.trim()
           ? template.name.trim()
           : "Личный формат";
-        const sections = Array.isArray(template.sections)
-          ? template.sections
-              .filter((section) => typeof section === "string" && section.trim())
-              .map((section) => candidateSectionLabels.get(section) || section)
-          : [];
         option.type = "button";
+        option.tabIndex = -1;
+        option.setAttribute("role", "option");
+        option.setAttribute("aria-describedby", "summary-format-description");
         option.dataset.summaryFormatOption = "";
         option.dataset.templateId = template.template_id || "";
         option.dataset.templateKey = template.template_key || "";
         option.dataset.templateVersion = String(Number(template.version) || 1);
         option.dataset.templateName = safeName;
-        const name = document.createElement("strong");
+        option.dataset.templatePurpose = typeof template.purpose === "string" && template.purpose.trim()
+          ? template.purpose.trim() : "Личный формат итогов";
+        const icon = document.createElement("span");
+        icon.className = "summary-format-icon";
+        icon.setAttribute("aria-hidden", "true");
+        icon.textContent = "▤";
+        const name = document.createElement("span");
+        name.className = "summary-format-name";
         name.textContent = safeName;
-        const purpose = document.createElement("span");
-        purpose.textContent = typeof template.purpose === "string" && template.purpose.trim()
-          ? template.purpose.trim()
-          : "Назначение личного формата не указано.";
-        const expectedSections = document.createElement("small");
-        expectedSections.textContent = `Ожидаемые разделы: ${sections.length ? sections.join(", ") : "не указаны"}`;
-        option.append(name, purpose, expectedSections);
-        const isCurrent = option.dataset.templateKey === (controls.dataset.currentSummaryFormatKey || "")
-          && option.dataset.templateId === (controls.dataset.currentSummaryFormatTemplateId || "")
-          && Number(option.dataset.templateVersion)
-            === Number(controls.dataset.currentSummaryFormatVersion || "0");
-        option.setAttribute("aria-current", isCurrent ? "true" : "false");
-        if (isCurrent) {
-          option.dataset.summaryFormatCurrent = "";
-          const marker = document.createElement("small");
-          marker.className = "summary-format-current";
-          marker.textContent = "Текущий формат";
-          option.append(marker);
-        }
+        const marker = document.createElement("span");
+        marker.className = "summary-format-check";
+        marker.setAttribute("aria-hidden", "true");
+        marker.textContent = "✓";
+        option.append(icon, name, marker);
+        option.setAttribute("aria-selected", isCurrentFormat(templateFrom(option)) ? "true" : "false");
         return option;
+      };
+      const loadPersonalFormats = async () => {
+        if (!personalHost || personalLoading || personalLoaded) return;
+        personalLoading = true;
+        if (loadStatus) {
+          loadStatus.textContent = "Загружаем личные форматы…";
+          loadStatus.hidden = false;
+        }
+        try {
+          const response = await fetch("/api/v1/cabinet/summary-templates", { credentials: "same-origin", cache: "no-store" });
+          if (!response.ok) throw new Error("personal_formats_unavailable");
+          const templates = await response.json();
+          if (!controls.isConnected) return;
+          const personal = Array.isArray(templates.personal) ? templates.personal : [];
+          personalHost.replaceChildren(...personal.filter((template) => template && typeof template === "object").map(personalFormatOption));
+          personalHost.hidden = !back || back.hidden || !personalHost.children.length;
+          personalLoaded = true;
+          if (loadStatus) { loadStatus.textContent = ""; loadStatus.hidden = true; }
+        } catch (_error) {
+          if (!controls.isConnected || !loadStatus) return;
+          loadStatus.textContent = "Личные форматы не загрузились. Откройте «Все форматы» еще раз или перейдите в настройки.";
+          loadStatus.hidden = !back || back.hidden;
+        } finally {
+          personalLoading = false;
+          if (controls.isConnected) sizePopover();
+        }
       };
       const applyServerCandidate = (candidate) => {
         currentOutcomeSetId = candidate.current_outcome_set_id || currentOutcomeSetId;
@@ -3933,37 +4430,48 @@
           pollingTimer = window.setTimeout(() => pollCandidate(candidate), 1200);
         }
       };
-      button.addEventListener("click", () => listbox.hidden ? open() : close());
+      button.addEventListener("click", () => popover.hidden ? open() : close());
+      info?.addEventListener("toggle", () => {
+        if (info.open) close({ restoreFocus: false });
+      });
+      controls.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape") return;
+        if (info?.open) {
+          event.preventDefault();
+          event.stopPropagation();
+          info.open = false;
+          info.querySelector("summary")?.focus({ preventScroll: true });
+        } else if (!popover.hidden) {
+          event.preventDefault();
+          event.stopPropagation();
+          close();
+        }
+      });
       button.addEventListener("keydown", (event) => {
         if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
         event.preventDefault();
         open();
-        const items = options();
+        const items = visibleOptions();
         const target = event.key === "ArrowUp" || event.key === "End"
           ? items[items.length - 1]
           : items[0];
-        target?.focus({ preventScroll: true });
+        focusOption(target);
       });
       listbox.addEventListener("keydown", (event) => {
         const option = event.target.closest?.('[role="option"]');
         if (!option) return;
-        if (event.key === "Escape") {
-          event.preventDefault();
-          close();
-          return;
-        }
         if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
         event.preventDefault();
-        const items = options();
+        const items = visibleOptions();
         const current = items.indexOf(option);
         const next = event.key === "Home" ? 0
           : event.key === "End" ? items.length - 1
           : (current + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
-        items[next]?.focus({ preventScroll: true });
+        focusOption(items[next]);
       });
       listbox.addEventListener("click", (event) => {
         const option = event.target.closest?.("[data-summary-format-option]");
-        if (!option) return;
+        if (!option || option.disabled || button.disabled || option.closest("[hidden]")) return;
         close();
         const template = templateFrom(option);
         if (isCurrentFormat(template)) {
@@ -3972,52 +4480,37 @@
         }
         requestTemplateVariant(template);
       });
-      const allFormats = listbox.querySelector("[data-summary-format-all]");
-      const closeDialog = () => {
-        if (!(dialog instanceof HTMLDialogElement)) return;
-        dialog.close();
-        button.focus({ preventScroll: true });
-      };
-      allFormats?.addEventListener("click", async () => {
-        close({ restoreFocus: false });
-        if (!(dialog instanceof HTMLDialogElement)) return;
-        dialog.showModal();
-        focusCurrentDialogFormat();
-        const personalHost = dialog.querySelector("[data-summary-personal-options]");
-        try {
-          const response = await fetch("/api/v1/cabinet/summary-templates", { credentials: "same-origin", cache: "no-store" });
-          if (!response.ok) return;
-          const templates = await response.json();
-          if (!personalHost || !templates.personal?.length) return;
-          personalHost.hidden = false;
-          personalHost.replaceChildren(...templates.personal.map(personalFormatOption));
-          if (dialog.open) focusCurrentDialogFormat();
-        } catch (_error) {
-          // Built-in formats remain usable when the optional personal list cannot refresh.
-        }
-      });
-      dialog?.querySelector("[data-summary-format-dialog-close]")?.addEventListener("click", closeDialog);
-      dialog?.addEventListener("cancel", (event) => {
+      popover.addEventListener("pointerdown", (event) => {
+        const target = event.target.closest?.("button, a");
+        if (!target || target.disabled || event.button !== 0) return;
+        // WebKit does not focus buttons on click; keep the menu focus inside until selection.
         event.preventDefault();
-        closeDialog();
+        target.focus({ preventScroll: true });
       });
-      dialog?.addEventListener("keydown", (event) => trapModalFocus(dialog, event));
-      dialog?.addEventListener("click", (event) => {
-        if (event.target === dialog) closeDialog();
+      allFormats?.addEventListener("click", openFormatPicker);
+      back?.addEventListener("click", () => open());
+      const describeOption = (event) => {
         const option = event.target.closest?.("[data-summary-format-option]");
-        if (!option) return;
-        closeDialog();
-        const template = templateFrom(option);
-        if (isCurrentFormat(template)) {
-          showCurrentFormatAction(template);
-          return;
+        if (!option || !description) return;
+        description.textContent = option.dataset.templatePurpose || "Личный формат итогов";
+        if (event.type === "focusin") {
+          options().forEach((item) => { item.tabIndex = item === option ? 0 : -1; });
         }
-        requestTemplateVariant(template);
+      };
+      listbox.addEventListener("focusin", describeOption);
+      listbox.addEventListener("mouseover", describeOption);
+      controls.addEventListener("focusout", () => {
+        window.setTimeout(() => {
+          if (!popover.hidden && !popover.contains(document.activeElement) && document.activeElement !== button) close({ restoreFocus: false });
+        }, 0);
       });
+      window.addEventListener("resize", sizePopover);
+      document.addEventListener("scroll", sizePopover, true);
       document.addEventListener("click", (event) => {
-        if (!listbox.hidden && event.target instanceof Node && !controls.contains(event.target)) {
+        if (!popover.hidden && event.target instanceof Node && !controls.contains(event.target)) {
           close({ restoreFocus: false });
         }
+        if (info?.open && event.target instanceof Node && !info.contains(event.target)) info.open = false;
       });
       const resumeCandidate = window.sessionStorage.getItem(candidateStorageKey);
       const resumeCachedCandidate = () => {
@@ -4042,7 +4535,7 @@
       };
       const initialCandidateLoadGeneration = candidateRequestGeneration;
       const showCandidateHistoryFailure = () => showStatus(
-        "Не удалось проверить сохранённые варианты. Текущие итоги доступны.",
+        "Не удалось проверить сохраненные варианты. Текущие итоги доступны.",
         "attention",
         [{ text: "Повторить", action: () => window.location.reload(), primary: true }]
       );
@@ -4050,7 +4543,7 @@
         credentials: "same-origin",
         cache: "no-store"
       }).then((response) => response.ok ? response.json() : null).then((payload) => {
-        if (initialCandidateLoadGeneration !== candidateRequestGeneration) return;
+        if (initialCandidateLoadGeneration !== candidateRequestGeneration || !controls.isConnected) return;
         const candidates = Array.isArray(payload) ? payload : (Array.isArray(payload?.candidates) ? payload.candidates : []);
         const acceptedIndex = candidates.findIndex((candidate) => (
           candidate.state === "accepted"
@@ -4105,7 +4598,19 @@
       const form = dialog?.querySelector("[data-summary-template-form]");
       const error = dialog?.querySelector("[data-summary-template-form-error]");
       const title = dialog?.querySelector("[data-summary-template-dialog-title]");
-      let editingTemplate = null;
+      let editingTemplate = null, editorQueue = null, defaultQueue = null;
+      const templateValues = (t) => Object.fromEntries(["name","purpose","sections","output_language","detail_level"].map(k=>[k,t[k]]));
+      const acknowledged = (payload, values) => ({saved:true, actor:payload.actor, workspace:payload.workspace, values, version:payload.version});
+      const verifiedList = async () => {
+        const payload=await request(endpoint);
+        const scope=window.GRAFSettings.headers();
+        if(payload.actor!==scope["X-Graf-Expected-Actor"]||payload.workspace!==scope["X-Graf-Expected-Workspace"]||!Array.isArray(payload.personal))throw new Error("scope");
+        return payload;
+      };
+      const showSaveStatus = (element, queue, state, message) => {
+        if(!element)return; element.hidden=!message;element.textContent=message;
+        if(["error","conflict"].includes(state)){const retry=document.createElement("button");retry.type="button";retry.className="button quiet";retry.textContent=state==="conflict"?"Применить мой выбор":"Повторить";retry.onclick=()=>queue.retry(state==="conflict");element.append(" ",retry);window.GRAFSettings.offerRemote(element,queue,state);}
+      };
       let returnFocus = null;
       let canManageDefault = false;
       const setStatus = (message) => { if (status) status.textContent = message; };
@@ -4116,23 +4621,18 @@
         if (message) error.focus({ preventScroll: true });
       };
       const request = async (url, method = "GET", body) => {
-        const response = await fetch(url, {
-          method,
-          credentials: "same-origin",
-          cache: "no-store",
-          headers: {
-            ...(body === undefined ? {} : { "Content-Type": "application/json" }),
-            ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {})
-          },
+        const response = await window.GRAFSettings.request(url, {
+          method, headers: {...window.GRAFSettings.headers(), ...(body === undefined ? {} : {"Content-Type":"application/json"})},
           body: body === undefined ? undefined : JSON.stringify(body)
         });
-        const payload = response.status === 204 ? null : await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(payload?.code || "summary_template_request_failed");
+        const payload = response.status === 204 ? null : await response.json();
         return payload;
       };
-      const closeDialog = () => {
+      const closeDialog = async () => {
+        if(editingTemplate && !await window.GRAFSettings.prepareToLeave())return;
         if (!(dialog instanceof HTMLDialogElement)) return;
         dialog.close();
+        if(editingTemplate)await loadTemplates();
         if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
         returnFocus = null;
       };
@@ -4157,7 +4657,36 @@
           if (purpose) purpose.value = template.purpose;
           if (language) language.value = template.output_language || "ru";
           if (detail) detail.value = template.detail_level || "standard";
+          initSettingsComboboxes();
           setSections(template.sections || ["summary", "action_items"]);
+        }
+        const submit=form.querySelector('[data-summary-template-submit]');
+        submit.hidden=!!editingTemplate;
+        form.querySelector('[data-summary-template-dialog-cancel]').textContent=editingTemplate ? 'Готово' : 'Отмена';
+        editorQueue=null;
+        if(editingTemplate) {
+          const templateKey=editingTemplate.template_key;
+          editorQueue=window.GRAFSettings.create(`${endpoint}:${templateKey}`, {
+            initial:templateValues(editingTemplate), version:editingTemplate.version,
+            valid:()=>form.checkValidity() && form.querySelectorAll('input[name="sections"]:checked').length>0,
+            render(state,message,values){
+              if(editingTemplate?.template_key!==templateKey)return;
+              showSaveStatus(error,editorQueue,state,message);
+              window.GRAFSettings.write(form,values);
+              initSettingsComboboxes();
+            },
+            async save(fields,values,previous,version){
+              const updated=await request(`${endpoint}/${editingTemplate.template_id}`,'PATCH',{...values,expected_version:Number(version)});
+              if(!updated.template_id||updated.template_key!==templateKey||updated.version<=Number(version))throw new Error('unavailable');
+              editingTemplate=updated;
+              return acknowledged(updated,templateValues(updated));
+            },
+            async load(){
+              const payload=await verifiedList();
+              const current=payload.personal.find(t=>t.template_key===templateKey);if(!current)throw new Error('unavailable');
+              editingTemplate=current;return {values:templateValues(current),version:current.version};
+            }
+          });
         }
         dialog.showModal();
         name?.focus({ preventScroll: true });
@@ -4179,7 +4708,7 @@
             await request(`${endpoint}/${template.template_id}`, "DELETE");
           }
           await loadTemplates();
-          setStatus(action === "duplicate" ? "Копия создана." : action === "archive" ? "Формат скрыт." : "Формат удалён.");
+          setStatus(action === "duplicate" ? "Копия создана." : action === "archive" ? "Формат скрыт." : "Формат удален.");
         } catch (requestError) {
           setStatus(templateErrorCopy(requestError instanceof Error ? requestError.message : ""));
         }
@@ -4199,12 +4728,16 @@
           const copy = document.createElement("div");
           const name = document.createElement("strong");
           const purpose = document.createElement("span");
-          purpose.className = "muted";
+          purpose.className = "settings-list-item__desc";
           name.textContent = template.name;
           purpose.textContent = template.purpose;
           copy.append(name, purpose);
-          const actions = document.createElement("div");
+          const actions = document.createElement("details");
           actions.className = "summary-template-actions";
+          const summary = document.createElement("summary");
+          summary.textContent = "⋯";
+          summary.setAttribute("aria-label", `Действия с форматом «${template.name}»`);
+          actions.append(summary);
           [
             ["Изменить", () => openEditor(actions.querySelector("button"), template)],
             ["Копировать", () => mutateTemplate(template, "duplicate")],
@@ -4224,7 +4757,7 @@
       };
       const loadTemplates = async () => {
         try {
-          const payload = await request(endpoint);
+          const payload = await verifiedList();
           const personal = payload.personal || [];
           renderTemplates(personal);
           if (defaultSelect) {
@@ -4239,12 +4772,26 @@
               option.dataset.templateVersion = String(template.version);
               defaultSelect.append(option);
             });
-            defaultSelect.value = payload.default_template_key;
+            if(!defaultQueue) {
+              defaultQueue=window.GRAFSettings.create(defaultEndpoint, {
+                initial:{template_key:payload.default_template_key},
+                render(state,message,values){defaultSelect.value=values.template_key;settingsCombos.get(defaultSelect)?.sync();showSaveStatus(status,defaultQueue,state,message);},
+                async save(fields,values){
+                  const option=Array.from(defaultSelect.options).find(o=>o.value===values.template_key);
+                  const result=await request(defaultEndpoint,'PUT',{template_key:values.template_key,template_id:option?.dataset.templateId||null,template_version:Number(option?.dataset.templateVersion||1)});
+                  if(result.template_key!==values.template_key)throw new Error('unavailable');
+                  return acknowledged(result,{template_key:result.template_key});
+                },
+                async load(){const latest=await verifiedList();return {values:{template_key:latest.default_template_key}};}
+              });
+            }
+            defaultSelect.value = defaultQueue.attach({template_key:payload.default_template_key}).template_key;
             defaultSelect.disabled = !canManageDefault;
+            settingsCombos.get(defaultSelect)?.sync();
           }
           if (defaultHelp) {
             defaultHelp.textContent = payload.can_manage_default
-              ? "Используется для новых итогов, если формат встречи не выбран отдельно."
+              ? ""
               : "Изменить может владелец пространства.";
           }
         } catch (_error) {
@@ -4266,25 +4813,16 @@
           }
         }
       };
-      defaultSelect?.addEventListener("change", async () => {
-        const option = defaultSelect.selectedOptions[0];
-        if (!option || !defaultEndpoint) return;
-        defaultSelect.disabled = true;
-        setStatus("Сохраняем формат по умолчанию…");
-        try {
-          await request(defaultEndpoint, "PUT", {
-            template_key: option.value,
-            template_id: option.dataset.templateId || null,
-            template_version: Number(option.dataset.templateVersion || "1")
-          });
-          setStatus("Формат по умолчанию обновлён.");
-        } catch (requestError) {
-          setStatus(templateErrorCopy(requestError instanceof Error ? requestError.message : ""));
-          await loadTemplates();
-        } finally {
-          if (defaultSelect) defaultSelect.disabled = !canManageDefault;
-        }
-      });
+      defaultSelect?.addEventListener("change", () => defaultQueue?.edit({template_key:defaultSelect.value}));
+      let composing=false;
+      const updateEditor=event=>{
+        if(!editorQueue||composing||event.isComposing)return;
+        const data=new FormData(form);
+        editorQueue.edit({name:String(data.get('name')||''),purpose:String(data.get('purpose')||''),sections:data.getAll('sections'),output_language:data.get('output_language'),detail_level:data.get('detail_level')},event.type==='input'?500:0);
+      };
+      form?.addEventListener('input',updateEditor);form?.addEventListener('change',updateEditor);
+      form?.addEventListener('compositionstart',()=>composing=true);
+      form?.addEventListener('compositionend',event=>{composing=false;updateEditor(event);});
       settings.querySelector("[data-summary-template-create]")?.addEventListener("click", (event) => {
         openEditor(event.currentTarget);
       });
@@ -4311,8 +4849,14 @@
         if (event.target === dialog) closeDialog();
       });
       dialog?.addEventListener("keydown", (event) => trapModalFocus(dialog, event));
+      form?.addEventListener("keydown", event => {
+        if(event.key==='Enter' && event.target instanceof HTMLInputElement && !event.isComposing){
+          event.preventDefault();editorQueue?.flush();
+        }
+      });
       form?.addEventListener("submit", async (event) => {
         event.preventDefault();
+        if(editorQueue){await editorQueue.flush();return;}
         const data = new FormData(form);
         const sections = data.getAll("sections");
         if (!sections.length) {
@@ -4335,9 +4879,9 @@
             editingTemplate ? "PATCH" : "POST",
             payload
           );
-          closeDialog();
+          await closeDialog();
           await loadTemplates();
-          setStatus(editingTemplate ? "Формат обновлён." : "Формат создан.");
+          setStatus(editingTemplate ? "Формат обновлен." : "Формат создан.");
         } catch (requestError) {
           setError(templateErrorCopy(requestError instanceof Error ? requestError.message : ""));
         } finally {
@@ -4477,34 +5021,57 @@
     if (playbackError) playbackError.hidden = false;
     const toggle = shell?.querySelector("[data-playback-toggle]");
     if (!toggle) return;
-    toggle.textContent = "▶";
+    const playIcon = toggle.querySelector("[data-playback-play-icon]");
+    const pauseIcon = toggle.querySelector("[data-playback-pause-icon]");
+    if (playIcon) playIcon.hidden = false;
+    if (pauseIcon) pauseIcon.hidden = true;
     toggle.setAttribute("aria-label", "Воспроизвести");
+  };
+
+  const scrollTranscriptTurnIntoView = (turn, behavior = "auto") => {
+    const main = turn.closest(".detail-page-main");
+    if (!main) { turn.scrollIntoView({ block: "center", behavior }); return; }
+    const bounds = main.getBoundingClientRect();
+    const header = main.querySelector("[data-meeting-detail-header]");
+    const top = header && getComputedStyle(header).position === "sticky"
+      ? Math.max(bounds.top, header.getBoundingClientRect().bottom) : bounds.top;
+    const height = Math.max(0, bounds.bottom - top);
+    const target = turn.getBoundingClientRect().height > height
+      ? turn.querySelector(".text") || turn : turn;
+    const rect = target.getBoundingClientRect();
+    main.scrollTo({
+      top: main.scrollTop + rect.top - top - Math.max(0, (height - rect.height) / 2),
+      behavior,
+    });
   };
 
   const initSourceNavigation = () => {
     if (document.body.dataset.sourceNavigationReady === "true") return;
     document.body.dataset.sourceNavigationReady = "true";
-    const returnButton = document.querySelector("[data-source-return]");
     let sourceReturnTarget = null;
+    let sourceReturnScrollTop = 0;
     const clearSourceReturn = () => {
       sourceReturnTarget = null;
+      const returnButton = document.querySelector("[data-source-return]");
       if (returnButton) returnButton.hidden = true;
     };
-    document.querySelectorAll("[data-detail-tab]").forEach((tab) => {
-      tab.addEventListener("click", clearSourceReturn);
-      tab.addEventListener("keydown", (event) => {
-        if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
-          clearSourceReturn();
-        }
-      });
-    });
-    returnButton?.addEventListener("click", () => {
-      const target = sourceReturnTarget;
-      activateDetailTab("outcomes");
-      clearSourceReturn();
-      window.requestAnimationFrame(() => target?.focus({ preventScroll: true }));
+    document.addEventListener("keydown", (event) => {
+      if (event.target.closest?.("[data-detail-tab]") && ["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) clearSourceReturn();
     });
     document.addEventListener("click", (event) => {
+      if (event.target.closest?.("[data-detail-tab]")) clearSourceReturn();
+      if (event.target.closest?.("[data-source-return]")) {
+        const target = sourceReturnTarget;
+        activateDetailTab("outcomes");
+        clearSourceReturn();
+        window.requestAnimationFrame(() => {
+          if (!target?.isConnected) return;
+          const main = target.closest(".detail-page-main");
+          if (main) main.scrollTop = sourceReturnScrollTop;
+          target.focus({ preventScroll: true });
+        });
+        return;
+      }
       const control = event.target.closest?.("[data-seek-seconds]");
       if (!control) return;
       const seconds = Number.parseFloat(control.dataset.seekSeconds || "0");
@@ -4512,6 +5079,8 @@
       const sourceJump = control.hasAttribute("data-source-segment");
       if (sourceJump) {
         sourceReturnTarget = control;
+        sourceReturnScrollTop = control.closest(".detail-page-main")?.scrollTop || 0;
+        const returnButton = document.querySelector("[data-source-return]");
         if (returnButton) returnButton.hidden = false;
         activateDetailTab("recording");
       }
@@ -4538,12 +5107,40 @@
       }, turns[0] || null);
       if (!target) return;
       window.requestAnimationFrame(() => {
-        target.scrollIntoView({ block: "center" });
+        scrollTranscriptTurnIntoView(target);
         target.focus({ preventScroll: true });
         const live = document.querySelector("[data-playback-live-status]");
         if (live) live.textContent = `Открыт источник ${formatTime(seconds)} в расшифровке.`;
       });
     });
+    const sourceId = new URLSearchParams(window.location.hash.slice(1)).get("graf-source");
+    if (sourceId) {
+      const target = Array.from(document.querySelectorAll("[data-transcript-turn]")).find(
+        (turn) => (turn.dataset.sourceSegments || "").split(/\s+/).includes(sourceId),
+      );
+      const live = document.querySelector("[data-playback-live-status]");
+      if (!target) {
+        if (live) live.textContent = "Источник этой ревизии недоступен в текущей расшифровке.";
+        return;
+      }
+      // Exact segment identity only: a newer transcript must not resolve by guessed time.
+      activateDetailTab("recording", { updateUrl: false });
+      const seconds = Number(target.dataset.startSeconds);
+      const player = document.querySelector("[data-playback-player]");
+      if (player && Number.isFinite(seconds)) {
+        try {
+          player.currentTime = Math.max(0, seconds);
+        } catch (_error) {
+          reportPlaybackFailure(player);
+        }
+      }
+      // Initial navigation must wait for the first header/player ResizeObserver layout.
+      window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+        scrollTranscriptTurnIntoView(target);
+        target.focus({ preventScroll: true });
+        if (live) live.textContent = `Открыт источник ${formatTime(Number(target.dataset.startSeconds))} в расшифровке.`;
+      }));
+    }
   };
 
   const DEFAULT_TIMELINE_HEIGHT = 120;
@@ -4562,16 +5159,15 @@
     document.querySelectorAll("[data-speaker-timeline-shell]").forEach((shell) => {
       if (shell.dataset.speakerTimelineResizeReady === "true") return;
       const timeline = shell.querySelector("[data-speaker-timeline]");
-      const handle = shell.querySelector("[data-speaker-timeline-resize]");
       const playback = shell.closest("[data-playback-shell]");
+      const handle = playback?.querySelector("[data-speaker-timeline-resize]");
       if (!timeline || !handle || !playback) return;
       shell.dataset.speakerTimelineResizeReady = "true";
 
       const defaultHeight = Number.parseFloat(
         timeline.dataset.speakerTimelineDefaultHeight || String(DEFAULT_TIMELINE_HEIGHT),
       ) || DEFAULT_TIMELINE_HEIGHT;
-      const speakerCount = Number.parseInt(timeline.dataset.speakerTimelineCount || "0", 10) || 0;
-      let minimumHeight = defaultHeight;
+      let minimumHeight = 33;
       let currentHeight = minimumHeight;
       let baselineBarTop = playback.getBoundingClientRect().top;
       let drag = null;
@@ -4592,9 +5188,7 @@
       };
       const refreshNaturalHeight = () => {
         const measuredHeight = measureNaturalHeight();
-        if (speakerCount > 0 && speakerCount <= 3) {
-          minimumHeight = measuredHeight || defaultHeight;
-        }
+        minimumHeight = Math.min(33, measuredHeight || 33);
         return measuredHeight;
       };
       const contentHeight = () => Math.max(
@@ -4626,7 +5220,7 @@
         }
         const maxHeight = maximumHeight();
         currentHeight = Math.max(minimumHeight, Math.min(maxHeight, requestedHeight));
-        handle.hidden = false;
+        handle.hidden = shell.classList.contains("is-collapsed");
         handle.setAttribute("aria-valuemin", String(minimumHeight));
         handle.setAttribute("aria-valuemax", String(maxHeight));
         handle.setAttribute("aria-valuenow", String(currentHeight));
@@ -4638,13 +5232,8 @@
         );
         shell.dataset.speakerTimelineExpandable = "true";
         shell.dataset.speakerTimelineHeight = String(currentHeight);
-        if (currentHeight <= minimumHeight + 1) {
-          timeline.style.height = "";
-          timeline.style.maxHeight = "";
-        } else {
-          timeline.style.height = `${currentHeight}px`;
-          timeline.style.maxHeight = `${currentHeight}px`;
-        }
+        timeline.style.height = `${currentHeight}px`;
+        timeline.style.maxHeight = `${currentHeight}px`;
       };
       const resetViewportBaseline = () => {
         const previousHeight = currentHeight;
@@ -4701,13 +5290,40 @@
       handle.hidden = false;
       baselineBarTop = playback.getBoundingClientRect().top;
       refreshNaturalHeight();
-      applyHeight(minimumHeight);
+      applyHeight(Math.min(defaultHeight, measureNaturalHeight()));
+      const collapse = playback.querySelector("[data-playback-timeline-toggle]");
+      collapse?.addEventListener("click", () => {
+        const collapsed = shell.classList.toggle("is-collapsed");
+        shell.inert = collapsed;
+        handle.hidden = collapsed || contentHeight() <= minimumHeight + 1;
+        collapse.setAttribute("aria-expanded", String(!collapsed));
+        collapse.setAttribute("aria-label", collapsed ? "Показать дорожки" : "Скрыть дорожки");
+      });
     });
+  };
+
+  const mergePlaybackIntervals = (intervals) => {
+    const ordered = intervals.filter(([start, end]) => Number.isFinite(start) && Number.isFinite(end) && end > Math.max(0, start))
+      .map(([start, end]) => [Math.max(0, start), end]).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    const merged = [];
+    for (const interval of ordered) {
+      const previous = merged[merged.length - 1];
+      if (previous && interval[0] <= previous[1]) previous[1] = Math.max(previous[1], interval[1]);
+      else merged.push(interval);
+    }
+    return merged;
   };
 
   const initPlayback = () => {
     document.querySelectorAll("[data-playback-shell]").forEach((shell) => {
-      if (shell.dataset.playbackReady === "true") return;
+      window.GRAFPlaybackComments?.init(shell);
+      if (shell.dataset.playbackReady === "true") {
+        if (shell.dataset.playbackContextChanged === "true") {
+          delete shell.dataset.playbackContextChanged;
+          shell.dispatchEvent(new Event("graf:playback-context-updated"));
+        }
+        return;
+      }
       shell.dataset.playbackReady = "true";
       const player = shell.querySelector("[data-playback-player]");
       if (!player) return;
@@ -4717,147 +5333,237 @@
       const progress = shell.querySelector("[data-playback-progress]");
       const speedToggle = shell.querySelector("[data-playback-speed-toggle]");
       const playbackError = shell.querySelector("[data-playback-error]");
-      const lanes = Array.from(shell.querySelectorAll("[data-speaker-lane]"));
-      const transcriptTurns = Array.from(document.querySelectorAll("[data-transcript-turn]"));
+      const lanes = () => Array.from(shell.querySelectorAll("[data-speaker-lane]"));
+      const avatars = () => Array.from(shell.querySelectorAll("[data-playback-avatar]"));
+      const transcriptTurns = () => Array.from(document.querySelectorAll("[data-transcript-turn]"));
+      const selectedSpeakers = new Set();
+      let allowedIntervals = [];
+      let highlightTimer;
+      let selectionTimer;
+      const live = shell.querySelector("[data-playback-listen-status]");
       const setToggleState = (playing) => {
-        if (!toggle) return;
-        toggle.textContent = playing ? "Ⅱ" : "▶";
-        toggle.setAttribute("aria-label", playing ? "Приостановить" : "Воспроизвести");
+        const playIcon = toggle?.querySelector("[data-playback-play-icon]");
+        const pauseIcon = toggle?.querySelector("[data-playback-pause-icon]");
+        if (playIcon) playIcon.hidden = playing;
+        if (pauseIcon) pauseIcon.hidden = !playing;
+        toggle?.setAttribute("aria-label", playing ? "Приостановить" : "Воспроизвести");
       };
-      const reportFailure = () => reportPlaybackFailure(player);
-      const play = () => {
-        if (playbackError) playbackError.hidden = true;
-        return player.play().catch(reportFailure);
-      };
-      const playbackDuration = () => {
-        if (Number.isFinite(player.duration) && player.duration > 0) return player.duration;
-        const fallback = Number.parseFloat(progress?.max || "0");
-        return Number.isFinite(fallback) && fallback > 0 ? fallback : 0;
-      };
+      const playbackDuration = () => Number.isFinite(player.duration) && player.duration > 0
+        ? player.duration : Number.parseFloat(progress?.max || "0") || 0;
       const currentTranscriptTurn = (seconds) => {
-        if (!transcriptTurns.length) return null;
-        return transcriptTurns.reduce((match, turn) => {
-          const start = Number.parseFloat(turn.dataset.startSeconds || "0");
-          return Number.isFinite(start) && start <= seconds ? turn : match;
-        }, transcriptTurns[0]);
+        const turns = transcriptTurns();
+        const active = turns.filter((turn) => Number(turn.dataset.startSeconds) <= seconds && seconds < Number(turn.dataset.endSeconds));
+        const selectedIds = (shell.dataset.playbackSourceSegments || "").split(/\s+/).filter(Boolean);
+        return active.find((turn) => selectedIds.some((id) => (turn.dataset.sourceSegments || "").split(/\s+/).includes(id))) || active.at(-1)
+          || turns.filter((turn) => Number(turn.dataset.startSeconds) <= seconds).at(-1) || null;
       };
-      const followTranscript = (seconds) => {
-        const turn = currentTranscriptTurn(seconds);
+      const followTranscript = (seconds, sourceIds = "") => {
+        const ids = sourceIds.split(/\s+/).filter(Boolean);
+        const turn = transcriptTurns().find((turn) => ids.some((id) => (turn.dataset.sourceSegments || "").split(/\s+/).includes(id)))
+          || currentTranscriptTurn(seconds);
         if (!turn) return;
-        const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-        turn.scrollIntoView({ block: "center", behavior: reducedMotion ? "auto" : "smooth" });
+        activateDetailTab("recording");
+        scrollTranscriptTurnIntoView(turn, window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth");
+        transcriptTurns().forEach((item) => item.classList.remove("is-source-highlight"));
+        turn.classList.add("is-source-highlight");
+        window.clearTimeout(highlightTimer);
+        highlightTimer = window.setTimeout(() => turn.classList.remove("is-source-highlight"), 2000);
       };
       const syncTime = () => {
         if (current) current.textContent = formatTime(player.currentTime);
-        if (progress) progress.value = String(player.currentTime || 0);
-        if (duration && Number.isFinite(player.duration)) duration.textContent = formatTime(player.duration);
+        if (progress) { progress.value = String(player.currentTime || 0); progress.setAttribute("aria-valuetext", formatTime(player.currentTime)); }
+        if (duration) duration.textContent = formatTime(playbackDuration());
         const max = playbackDuration();
-        const position = max > 0 ? Math.max(0, Math.min(100, player.currentTime / max * 100)) : 0;
-        shell.style.setProperty("--playback-position", `${position}%`);
-        lanes.forEach((lane) => {
-          const active = Array.from(lane.querySelectorAll("[data-lane-segment]")).some((segment) => {
-            const start = Number.parseFloat(segment.dataset.startSeconds || "0");
-            const end = Number.parseFloat(segment.dataset.endSeconds || "0");
-            return start <= player.currentTime && player.currentTime < end;
-          });
+        shell.style.setProperty("--playback-position", `${max > 0 ? Math.max(0, Math.min(100, player.currentTime / max * 100)) : 0}%`);
+        const activeKeys = new Set();
+        lanes().forEach((lane) => {
+          const active = Array.from(lane.querySelectorAll("[data-lane-segment]")).some((segment) => Number(segment.dataset.startSeconds) <= player.currentTime && player.currentTime < Number(segment.dataset.endSeconds));
           lane.classList.toggle("is-active", active);
-          if (active) lane.setAttribute("aria-current", "true");
+          if (active) { lane.setAttribute("aria-current", "true"); activeKeys.add(lane.dataset.speakerKey); }
           else lane.removeAttribute("aria-current");
         });
+        avatars().forEach((avatar) => avatar.classList.toggle("is-active", activeKeys.has(avatar.dataset.playbackAvatar)));
         const activeTurn = currentTranscriptTurn(player.currentTime);
-        transcriptTurns.forEach((turn) => turn.classList.toggle("is-current", turn === activeTurn));
+        transcriptTurns().forEach((turn) => turn.classList.toggle("is-current", turn === activeTurn));
       };
-      const seekTo = (seconds, { follow = true, autoplay = false } = {}) => {
+      const enforceSelection = () => {
+        if (!selectedSpeakers.size) return true;
+        const interval = allowedIntervals.find(([, end]) => player.currentTime < end);
+        if (!interval) {
+          player.pause();
+          if (live) live.textContent = "Речь выбранных спикеров закончилась.";
+          return false;
+        }
+        if (player.currentTime < interval[0]) player.currentTime = interval[0];
+        return true;
+      };
+      const scheduleSelectionBoundary = () => {
+        window.clearTimeout(selectionTimer);
+        if (player.paused || !selectedSpeakers.size) return;
+        if (!enforceSelection()) return;
+        const interval = allowedIntervals.find(([, end]) => player.currentTime < end);
+        if (!interval) return;
+        selectionTimer = window.setTimeout(() => {
+          if (!shell.isConnected) return;
+          enforceSelection(); syncTime(); scheduleSelectionBoundary();
+        }, Math.max(10, (interval[1] - player.currentTime) / player.playbackRate * 1000));
+      };
+      const play = () => {
+        if (playbackError) playbackError.hidden = true;
+        if (!enforceSelection()) return;
+        try { void player.play().catch(() => reportPlaybackFailure(player)); }
+        catch (_error) { reportPlaybackFailure(player); }
+      };
+      const seekTo = (seconds, { follow = true, autoplay = false, sourceIds = "" } = {}) => {
         if (!Number.isFinite(seconds)) return;
-        const max = playbackDuration();
-        player.currentTime = Math.max(0, Math.min(max || Number.POSITIVE_INFINITY, seconds));
+        try { player.currentTime = Math.max(0, Math.min(playbackDuration() || Infinity, seconds)); }
+        catch (_error) { reportPlaybackFailure(player); return; }
+        shell.dataset.playbackSourceSegments = sourceIds;
         syncTime();
-        if (follow) followTranscript(player.currentTime);
+        if (follow) followTranscript(player.currentTime, sourceIds);
         if (autoplay) play();
       };
-      player.addEventListener("loadedmetadata", () => {
-        if (progress && Number.isFinite(player.duration)) progress.max = String(player.duration);
-        syncTime();
+      const navigateSpeech = (direction, speakerKey = null, autoplay = false) => {
+        const turns = transcriptTurns().filter((turn) => !speakerKey || turn.dataset.speakerKey === speakerKey)
+          .sort((a, b) => Number(a.dataset.startSeconds) - Number(b.dataset.startSeconds));
+        const target = direction > 0
+          ? turns.find((turn) => Number(turn.dataset.startSeconds) > player.currentTime)
+          : turns.filter((turn) => Number(turn.dataset.startSeconds) < player.currentTime).at(-1);
+        if (target) seekTo(Number(target.dataset.startSeconds), { autoplay, sourceIds: target.dataset.sourceSegments });
+        else if (live) live.textContent = direction > 0 ? "Следующей реплики нет." : "Предыдущей реплики нет.";
+      };
+      const syncSelection = () => {
+        allowedIntervals = mergePlaybackIntervals(lanes().filter((lane) => selectedSpeakers.has(lane.dataset.speakerKey))
+          .flatMap((lane) => Array.from(lane.querySelectorAll("[data-lane-segment]"), (segment) => [Number(segment.dataset.startSeconds), Number(segment.dataset.endSeconds)])));
+        shell.querySelectorAll("[data-speaker-lane], .playback-speaker-interval").forEach((lane) => lane.classList.toggle("is-unselected", selectedSpeakers.size > 0 && !selectedSpeakers.has(lane.dataset.speakerKey)));
+        const all = shell.querySelector("[data-listen-all]");
+        if (all) all.checked = !selectedSpeakers.size;
+        shell.querySelectorAll("[data-listen-speaker]").forEach((input) => { input.checked = selectedSpeakers.has(input.dataset.listenSpeaker); });
+        const count = shell.querySelector("[data-listen-count]");
+        if (count) { count.hidden = !selectedSpeakers.size; count.textContent = String(selectedSpeakers.size); }
+        if (live) live.textContent = selectedSpeakers.size ? `Выбрано спикеров: ${selectedSpeakers.size}. Остальные пропускаются.` : "Прослушиваются все спикеры.";
+      };
+      const menus = [
+        [speedToggle, shell.querySelector("[data-playback-speed-menu]")],
+        [shell.querySelector("[data-playback-listen-toggle]"), shell.querySelector("[data-playback-listen-menu]")],
+      ].filter(([button, menu]) => button && menu);
+      const closeMenus = (restore = false) => menus.forEach(([button, menu]) => {
+        if (menu.hidden) return;
+        menu.hidden = true; button.setAttribute("aria-expanded", "false");
+        if (restore) button.focus({ preventScroll: true });
       });
-      player.addEventListener("timeupdate", syncTime);
-      player.addEventListener("play", () => {
-        setToggleState(true);
-      });
-      player.addEventListener("pause", () => {
-        setToggleState(false);
-      });
-      player.addEventListener("ended", () => setToggleState(false));
-      player.addEventListener("error", reportFailure);
-      toggle?.addEventListener("click", () => {
-        if (player.paused) play();
-        else player.pause();
-      });
-      shell.querySelectorAll("[data-playback-skip]").forEach((button) => {
+      menus.forEach(([button, menu]) => {
         button.addEventListener("click", () => {
-          const delta = Number.parseFloat(button.dataset.playbackSkip || "0");
-          if (!Number.isFinite(delta)) return;
-          seekTo(player.currentTime + delta);
+          const opening = menu.hidden;
+          closeMenus(); menu.hidden = !opening; button.setAttribute("aria-expanded", String(opening));
+          if (opening) menu.querySelector('[aria-checked="true"], input:checked, button, input')?.focus();
+        });
+        menu.addEventListener("keydown", (event) => {
+          if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
+          const items = Array.from(menu.querySelectorAll("button,input"));
+          const index = items.indexOf(document.activeElement);
+          const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : (index + (["ArrowLeft", "ArrowUp"].includes(event.key) ? -1 : 1) + items.length) % items.length;
+          event.preventDefault(); items[next]?.focus();
         });
       });
-      progress?.addEventListener("input", () => {
-        const next = Number.parseFloat(progress.value || "0");
-        if (Number.isFinite(next)) {
-          seekTo(next);
-        }
+      shell.querySelectorAll("[data-playback-speed-option]").forEach((button) => button.addEventListener("click", () => {
+        player.playbackRate = Number(button.dataset.playbackSpeedOption);
+        closeMenus(true);
+      }));
+      player.addEventListener("ratechange", () => {
+        scheduleSelectionBoundary();
+        if (speedToggle) speedToggle.textContent = `${player.playbackRate}x`;
+        shell.querySelectorAll("[data-playback-speed-option]").forEach((button) => button.setAttribute("aria-checked", String(Number(button.dataset.playbackSpeedOption) === player.playbackRate)));
       });
-      lanes.forEach((lane) => {
-        const track = lane.querySelector("[data-timeline-track]");
+      shell.addEventListener("change", (event) => {
+        const input = event.target;
+        if (input.matches("[data-listen-all]")) selectedSpeakers.clear();
+        else if (input.matches("[data-listen-speaker]")) {
+          if (input.checked) selectedSpeakers.add(input.dataset.listenSpeaker); else selectedSpeakers.delete(input.dataset.listenSpeaker);
+        } else return;
+        syncSelection(); play();
+      });
+      const togglePlayback = () => { if (player.paused) play(); else player.pause(); };
+      toggle?.addEventListener("click", togglePlayback);
+      shell.querySelectorAll("[data-playback-skip]").forEach((button) => button.addEventListener("click", () => seekTo(player.currentTime + Number(button.dataset.playbackSkip))));
+      shell.querySelector("[data-playback-next]")?.addEventListener("click", () => navigateSpeech(1));
+      progress?.addEventListener("input", () => seekTo(Number(progress.value)));
+      shell.addEventListener("click", (event) => {
+        const avatar = event.target.closest("[data-playback-avatar]");
+        if (avatar) { selectedSpeakers.clear(); syncSelection(); navigateSpeech(1, avatar.dataset.playbackAvatar, true); return; }
+        const track = event.target.closest("[data-timeline-track]");
         if (!track) return;
-        const setTrackPressed = (pressed) => track.classList.toggle("is-pressed", pressed);
-        track.addEventListener("click", (event) => {
-          const rect = track.getBoundingClientRect();
-          const clientX = event.detail === 0 ? rect.left + rect.width / 2 : event.clientX;
-          const ratio = rect.width > 0 ? Math.max(0, Math.min(1, (clientX - rect.left) / rect.width)) : 0;
-          seekTo(playbackDuration() * ratio);
-        });
-        track.addEventListener("pointerdown", () => setTrackPressed(true));
-        track.addEventListener("pointerup", () => setTrackPressed(false));
-        track.addEventListener("pointercancel", () => setTrackPressed(false));
-        track.addEventListener("pointerleave", () => setTrackPressed(false));
-        track.addEventListener("keydown", (event) => {
-          if (event.key !== "Enter" && event.key !== " ") return;
-          event.preventDefault();
-          setTrackPressed(true);
-          track.click();
-        });
-        track.addEventListener("keyup", (event) => {
-          if (event.key === "Enter" || event.key === " ") setTrackPressed(false);
-        });
-        track.addEventListener("blur", () => setTrackPressed(false));
+        const segment = event.target.closest("[data-lane-segment]");
+        if (segment) { seekTo(Number(segment.dataset.startSeconds), { sourceIds: segment.dataset.sourceSegments }); return; }
+        if (!event.detail) return;
+        const rect = track.getBoundingClientRect();
+        if (rect.width) seekTo(playbackDuration() * Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)));
       });
-      if (speedToggle) {
-        const speeds = (speedToggle.dataset.speedOptions || "1").split(",")
-          .map((value) => Number.parseFloat(value))
-          .filter((value) => Number.isFinite(value) && value > 0);
-        speedToggle.addEventListener("click", () => {
-          const currentSpeed = player.playbackRate || 1;
-          const index = speeds.findIndex((speed) => Math.abs(speed - currentSpeed) < 0.001);
-          const nextSpeed = speeds[(index + 1) % speeds.length] || 1;
-          player.playbackRate = nextSpeed;
-          speedToggle.textContent = `${nextSpeed}x`;
-        });
+      shell.addEventListener("keydown", (event) => {
+        if (!event.target.matches("[data-timeline-track]") || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+        event.preventDefault(); event.stopPropagation();
+        seekTo(event.key === "Home" ? 0 : event.key === "End" ? playbackDuration() : player.currentTime + (event.key === "ArrowLeft" ? -15 : 15));
+      });
+      shell.addEventListener("pointermove", (event) => {
+        const track = event.target.closest("[data-timeline-track]");
+        if (!track) return;
+        const rect = track.getBoundingClientRect();
+        shell.style.setProperty("--playback-hover-position", `${Math.max(0, Math.min(100, (event.clientX - rect.left) / rect.width * 100))}%`);
+        shell.classList.add("is-timeline-hover");
+      });
+      shell.addEventListener("pointerout", (event) => {
+        if (event.target.closest("[data-timeline-track]") && !event.relatedTarget?.closest?.("[data-timeline-track]")) shell.classList.remove("is-timeline-hover");
+      });
+      const carousel = shell.querySelector("[data-playback-avatars]");
+      const syncCarousel = () => shell.querySelectorAll("[data-avatar-scroll]").forEach((button) => {
+        button.disabled = !carousel || (Number(button.dataset.avatarScroll) < 0 ? carousel.scrollLeft <= 1 : carousel.scrollLeft + carousel.clientWidth >= carousel.scrollWidth - 1);
+      });
+      shell.querySelectorAll("[data-avatar-scroll]").forEach((button) => button.addEventListener("click", () => {
+        carousel?.scrollBy({ left: Number(button.dataset.avatarScroll) * Math.max(32, carousel.clientWidth), behavior: "auto" });
+      }));
+      carousel?.addEventListener("scroll", syncCarousel, { passive: true });
+      if (carousel && typeof ResizeObserver !== "undefined") {
+        const observer = new ResizeObserver(() => { if (!shell.isConnected) observer.disconnect(); else syncCarousel(); });
+        observer.observe(carousel);
       }
+      syncCarousel();
+      shell.addEventListener("graf:playback-context-updated", () => {
+        const keys = new Set(lanes().map(lane => lane.dataset.speakerKey));
+        selectedSpeakers.forEach(key => { if (!keys.has(key)) selectedSpeakers.delete(key); });
+        syncSelection(); syncTime(); syncCarousel(); scheduleSelectionBoundary();
+      });
+      player.addEventListener("loadedmetadata", () => { if (progress && Number.isFinite(player.duration)) progress.max = String(player.duration); syncTime(); });
+      player.addEventListener("timeupdate", () => { if (!player.paused) enforceSelection(); syncTime(); scheduleSelectionBoundary(); });
+      player.addEventListener("seeked", scheduleSelectionBoundary);
+      player.addEventListener("play", () => { if (enforceSelection()) setToggleState(true); scheduleSelectionBoundary(); });
+      player.addEventListener("pause", () => { window.clearTimeout(selectionTimer); setToggleState(false); });
+      player.addEventListener("ended", () => { player.pause(); seekTo(0, { follow: false }); setToggleState(false); });
+      player.addEventListener("error", () => reportPlaybackFailure(player));
+      const keyboard = (event) => {
+        if (!shell.isConnected) { document.removeEventListener("keydown", keyboard); document.removeEventListener("click", outside); return; }
+        if (event.defaultPrevented) return;
+        if (event.key === "Escape" && menus.some(([, menu]) => !menu.hidden)) { event.preventDefault(); closeMenus(true); return; }
+        if (event.altKey || event.ctrlKey || event.metaKey || event.target.closest?.('input,textarea,select,[contenteditable="true"],[role="menu"],[role="dialog"],dialog,[data-playback-listen-menu]') || document.querySelector('dialog[open], [role="dialog"][aria-modal="true"]') || menus.some(([, menu]) => !menu.hidden)) return;
+        if (event.key === " " && event.target.closest?.("button,a[href],[role=button]")) return;
+        if (![" ", "ArrowLeft", "ArrowRight"].includes(event.key)) return;
+        event.preventDefault();
+        if (event.key === " ") { if (!event.repeat) togglePlayback(); }
+        else if (event.shiftKey) navigateSpeech(event.key === "ArrowLeft" ? -1 : 1);
+        else seekTo(player.currentTime + (event.key === "ArrowLeft" ? -15 : 15));
+      };
+      const outside = (event) => {
+        if (!shell.isConnected) { document.removeEventListener("keydown", keyboard); document.removeEventListener("click", outside); return; }
+        if (!event.target.closest?.(".playback-menu-anchor")) closeMenus();
+      };
+      document.addEventListener("keydown", keyboard);
+      document.addEventListener("click", outside);
+      syncTime();
     });
   };
 
   const initCalendarSettings = () => {
-    const localDateTime = new Intl.DateTimeFormat("ru-RU", {
-      dateStyle: "medium",
-      timeStyle: "short",
-    });
-    const localTime = new Intl.DateTimeFormat("ru-RU", { timeStyle: "short" });
     document.querySelectorAll("[data-calendar-local-datetime], [data-calendar-local-time]").forEach((element) => {
-      const value = element.getAttribute("datetime");
-      const date = value ? new Date(value) : null;
-      if (!date || Number.isNaN(date.getTime())) return;
-      element.textContent = element.hasAttribute("data-calendar-local-time")
-        ? localTime.format(date)
-        : localDateTime.format(date);
+      element.textContent = window.GRAFTime.format(element.getAttribute("datetime"));
     });
     const mutationCopy = {
       connect: "Проверяем доступ…",
@@ -4881,13 +5587,15 @@
         status.textContent = `Можно выбрать до ${selectionLimit} календарей.`;
         status.hidden = false;
       };
-      form.addEventListener("submit", (event) => {
+      form.addEventListener("submit", async (event) => {
+        if (form.hasAttribute("data-settings-autosave")) return;
         if (Number.isFinite(selectionLimit) && selectedCalendarCount() > selectionLimit) {
           event.preventDefault();
           showSelectionLimit();
           status?.focus?.({ preventScroll: true });
           return;
         }
+        if (kind === "sync") event.preventDefault();
         form.dataset.state = "submitting";
         form.setAttribute("aria-busy", "true");
         if (submit) {
@@ -4899,6 +5607,32 @@
           status.textContent = mutationCopy[kind] || "Выполняем…";
           status.hidden = false;
         }
+        if (kind === "sync") {
+          const controller = new AbortController();
+          const timeout = window.setTimeout(() => controller.abort(), 10000);
+          try {
+            const response = await fetch(form.action, {
+              method: "POST", body: new FormData(form), credentials: "same-origin", signal: controller.signal,
+              headers: { "Accept": "text/html" },
+            });
+            if (!response.ok || (response.redirected && !new URL(response.url).pathname.endsWith("/settings/integrations/calendar"))) throw new Error("calendar_sync_failed");
+            const result = new DOMParser().parseFromString(await response.text(), "text/html");
+            if (status) status.textContent = result.querySelector(".calendar-notice")?.textContent?.trim()
+              || "Синхронизация запрошена. Состояние обновится автоматически.";
+            form.dataset.syncPending = "true";
+          } catch (_) {
+            if (status) status.textContent = "Не удалось запросить синхронизацию. Повторите попытку.";
+          } finally {
+            window.clearTimeout(timeout);
+            form.dataset.state = "idle";
+            form.removeAttribute("aria-busy");
+            if (submit) {
+              submit.disabled = false;
+              submit.textContent = submit.dataset.originalLabel || "Синхронизировать";
+            }
+            void refreshCalendarDisplay();
+          }
+        }
       });
       form.addEventListener("invalid", () => {
         if (!status) return;
@@ -4906,7 +5640,7 @@
         status.hidden = false;
       }, true);
       form.addEventListener("input", () => {
-        if (!status || form.dataset.state === "submitting") return;
+        if (!status || form.hasAttribute("data-settings-autosave") || form.dataset.state === "submitting") return;
         delete status.dataset.preserveMessage;
         status.textContent = "";
         status.hidden = true;
@@ -4934,27 +5668,9 @@
     };
     document.querySelectorAll("[data-calendar-mutation]").forEach(initCalendarMutation);
     const resultRegion = document.querySelector("[data-calendar-has-result='true'] .calendar-notice");
-    if (resultRegion && window.location.search) {
+    if (resultRegion && window.location.search && !resultRegion.dataset.focused) {
+      resultRegion.dataset.focused = "true";
       window.setTimeout(() => resultRegion.focus({ preventScroll: true }), 0);
-    }
-    const pendingSyncForm = [...document.querySelectorAll("[data-calendar-mutation='sync']")]
-      .find((form) => form.querySelector("button[type='submit']:disabled"));
-    const syncRefreshKey = `graf-calendar-sync-refresh:${window.location.pathname}`;
-    if (pendingSyncForm) {
-      const refreshAttempt = Number.parseInt(sessionStorage.getItem(syncRefreshKey) || "0", 10);
-      if (refreshAttempt < 4) {
-        sessionStorage.setItem(syncRefreshKey, String(refreshAttempt + 1));
-        window.setTimeout(() => window.location.reload(), 15000);
-      } else {
-        sessionStorage.removeItem(syncRefreshKey);
-        const status = pendingSyncForm.querySelector("[data-calendar-mutation-status]");
-        if (status) {
-          status.textContent = "Синхронизация занимает больше обычного. Обновите страницу позже.";
-          status.hidden = false;
-        }
-      }
-    } else {
-      sessionStorage.removeItem(syncRefreshKey);
     }
     const dialogOpeners = new WeakMap();
     const restoreDialogFocus = (dialog) => {
@@ -5022,95 +5738,493 @@
     });
   };
 
-  const initCalendarUpcomingRefresh = () => {
-    if (calendarUpcomingRefreshTimer !== null) {
-      window.clearTimeout(calendarUpcomingRefreshTimer);
-      calendarUpcomingRefreshTimer = null;
+  let calendarRefreshInFlight = false;
+  let calendarRefreshListenersReady = false;
+
+  // Only server-rendered display regions are replaced. Forms and dialogs retain
+  // their DOM identity, entered values and focus while a provider is syncing.
+  const refreshCalendarDisplay = async () => {
+    if (calendarRefreshInFlight || document.hidden || !navigator.onLine) return;
+    if (!document.querySelector("[data-calendar-live]")) return;
+    calendarRefreshInFlight = true;
+    const pageURL = window.location.href;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 10000);
+    try {
+      const response = await fetch(pageURL, {
+        credentials: "same-origin", cache: "no-store", signal: controller.signal,
+        headers: { "Accept": "text/html" },
+      });
+      if (window.location.href !== pageURL) return;
+      if (!response.ok || response.redirected) throw new Error("calendar_refresh_failed");
+      const next = new DOMParser().parseFromString(await response.text(), "text/html");
+      document.querySelectorAll("[data-calendar-live]").forEach((region) => {
+        const replacement = [...next.querySelectorAll("[data-calendar-live]")]
+          .find((item) => item.dataset.calendarLive === region.dataset.calendarLive);
+        if (!replacement) return;
+        const active = document.activeElement;
+        const focusedLink = region.contains(active) && active instanceof HTMLAnchorElement
+          ? active.getAttribute("href") : null;
+        // Preserve the details element itself (and its open state).
+        if (active === region.querySelector(":scope > summary")) {
+          active.innerHTML = replacement.querySelector(":scope > summary")?.innerHTML || active.innerHTML;
+          [...region.children].filter((child) => child.tagName !== "SUMMARY").forEach((child) => child.remove());
+          [...replacement.children].filter((child) => child.tagName !== "SUMMARY").forEach((child) => region.append(child.cloneNode(true)));
+        } else {
+          region.innerHTML = replacement.innerHTML;
+        }
+        if (focusedLink) {
+          const link = [...region.querySelectorAll("a[href]")]
+            .find((item) => item.getAttribute("href") === focusedLink);
+          (link || region.querySelector("summary"))?.focus({ preventScroll: true });
+        }
+      });
+      document.querySelectorAll("[data-calendar-source]").forEach((source) => {
+        const replacement = [...next.querySelectorAll("[data-calendar-source]")]
+          .find((item) => item.dataset.calendarSource === source.dataset.calendarSource);
+        if (!replacement) return;
+        source.dataset.state = replacement.dataset.state;
+        const sync = source.querySelector("[data-calendar-mutation='sync'] button[type='submit']");
+        const nextSync = replacement.querySelector("[data-calendar-mutation='sync'] button[type='submit']");
+        if (sync && nextSync && sync.form?.dataset.state !== "submitting") {
+          sync.disabled = nextSync.disabled;
+          sync.setAttribute("aria-disabled", String(nextSync.disabled));
+          sync.textContent = nextSync.textContent;
+          if (sync.form?.dataset.syncPending === "true" && !["queued", "syncing"].includes(replacement.dataset.syncState)) {
+            const status = sync.form.querySelector("[data-calendar-mutation-status]");
+            if (status) status.textContent = replacement.dataset.syncState === "synced"
+              ? "Календарь обновлен."
+              : replacement.querySelector(".calendar-source-card__states")?.textContent?.trim() || "Проверьте состояние подключения.";
+            delete sync.form.dataset.syncPending;
+          }
+        }
+        const form = source.querySelector(".calendar-selection-form");
+        const nextForm = replacement.querySelector(".calendar-selection-form");
+        if ((!form || (form.dataset.state === "pristine" && !form.contains(document.activeElement))) && Boolean(form) !== Boolean(nextForm)) {
+          const pickerRegion = source.querySelector("[data-calendar-picker-region]");
+          const nextPickerRegion = replacement.querySelector("[data-calendar-picker-region]");
+          if (pickerRegion && nextPickerRegion) pickerRegion.innerHTML = nextPickerRegion.innerHTML;
+        }
+        if (form && nextForm && form.dataset.state === "pristine" && !form.contains(document.activeElement)) {
+          const picker = form.querySelector(".calendar-picker");
+          const nextPicker = nextForm.querySelector(".calendar-picker");
+          if (picker && nextPicker && picker.innerHTML !== nextPicker.innerHTML) {
+            picker.innerHTML = nextPicker.innerHTML;
+            // Reset baseline after a provider catalog update, without replacing the form.
+            form.dispatchEvent(new CustomEvent("calendar:baseline"));
+          }
+        }
+      });
+      initCalendarSettings();
+      initSettingsFormState();
+      document.querySelectorAll("[data-calendar-refresh-status]").forEach((status) => { status.hidden = true; });
+    } catch (_) {
+      document.querySelectorAll("[data-calendar-refresh-status]").forEach((status) => {
+        status.textContent = "Не удалось обновить календарь. Проверьте соединение или вход в GRAF. Повторим автоматически.";
+        status.hidden = false;
+      });
+    } finally {
+      window.clearTimeout(timeout);
+      calendarRefreshInFlight = false;
     }
-    const upcoming = document.querySelector("[data-calendar-upcoming-refresh-at]");
-    if (!upcoming) return;
-    const endsAt = Date.parse(upcoming.dataset.calendarUpcomingRefreshAt || "");
-    if (!Number.isFinite(endsAt)) return;
-    const delay = Math.max(0, endsAt - Date.now() + 1000);
-    calendarUpcomingRefreshTimer = window.setTimeout(() => {
-      calendarUpcomingRefreshTimer = null;
-      window.location.reload();
-    }, Math.min(delay, 2147483647));
   };
 
-  const initSettingsFormState = () => {
-    document.querySelectorAll("[data-settings-form]").forEach((form) => {
-      if (form.dataset.settingsFormReady === "true") return;
-      form.dataset.settingsFormReady = "true";
-      const status = form.querySelector("[data-settings-form-status]");
-      const submit = form.querySelector("button[type='submit']");
-      const reset = form.querySelector("[data-settings-form-reset]");
-      const disablePristine = form.hasAttribute("data-settings-form-disable-pristine");
-      if (status) {
-        status.setAttribute("role", "status");
-        status.setAttribute("aria-live", "polite");
-      }
-      const snapshot = () => new URLSearchParams(new FormData(form)).toString();
-      let initial = snapshot();
-      const update = () => {
-        const dirty = snapshot() !== initial;
-        form.dataset.state = dirty ? "dirty" : "pristine";
-        if (status && status.dataset.preserveMessage !== "true") {
-          status.textContent = dirty ? "Есть несохранённые изменения" : "";
-          status.hidden = !dirty;
-        }
-        if (disablePristine) {
-          if (submit) submit.disabled = !dirty;
-          if (reset) reset.disabled = !dirty;
-        }
-      };
-      form.addEventListener("input", update);
-      form.addEventListener("change", update);
-      form.addEventListener("reset", () => window.setTimeout(update, 0));
-      form.addEventListener("submit", () => {
-        initial = snapshot();
-        form.dataset.state = "saving";
-        if (status) {
-          status.textContent = "Сохраняем…";
-          status.hidden = false;
-        }
-        if (submit) submit.disabled = true;
+  const initCalendarUpcomingRefresh = () => {
+    if (calendarUpcomingRefreshTimer !== null) window.clearTimeout(calendarUpcomingRefreshTimer);
+    calendarUpcomingRefreshTimer = null;
+    if (!document.querySelector("[data-calendar-live]")) return;
+    if (!calendarRefreshListenersReady) {
+      calendarRefreshListenersReady = true;
+      document.addEventListener("visibilitychange", () => {
+        if (!document.hidden) void refreshCalendarDisplay();
       });
-      update();
+      window.addEventListener("online", () => { void refreshCalendarDisplay(); });
+    }
+    calendarUpcomingRefreshTimer = window.setTimeout(async () => {
+      calendarUpcomingRefreshTimer = null;
+      await refreshCalendarDisplay();
+      initCalendarUpcomingRefresh();
+    }, 30000);
+  };
+
+  let settingsComboID = 0;
+  const settingsCombos = new WeakMap();
+  const normalizeSettingSearch = value => value.toLowerCase().normalize('NFKC').replace(/[−–]/g, '-').replace(/\s+/g, ' ').trim();
+  const createSettingsCombobox = (source, getOptions, onChoose, filterInput = false) => {
+    if (settingsCombos.has(source)) return settingsCombos.get(source);
+    const wrapper = document.createElement('span');
+    wrapper.className = 'settings-combobox';
+    wrapper.classList.toggle('settings-combobox--filter', filterInput);
+    source.before(wrapper);
+    const input = filterInput ? source : document.createElement('input');
+    if (!filterInput) {
+      source.hidden = true;
+      source.tabIndex = -1;
+      const labels = Array.from(source.labels || []);
+      input.id = `settings-combo-${++settingsComboID}`;
+      input.setAttribute('aria-label', source.getAttribute('aria-label') || labels.map(label => {
+        const copy = label.cloneNode(true);
+        copy.querySelectorAll('select, input, .settings-combobox').forEach(control => control.remove());
+        return copy.textContent.trim();
+      }).join(' ') || 'Выберите вариант');
+      for (const attr of ['aria-labelledby', 'aria-describedby']) {
+        if (source.hasAttribute(attr)) input.setAttribute(attr, source.getAttribute(attr));
+      }
+      labels.filter(label => label.htmlFor === source.id && source.id).forEach(label => { label.htmlFor = input.id; });
+      input.type = 'text';
+      input.autocomplete = 'off';
+      wrapper.append(input, source);
+    } else {
+      input.id ||= `settings-combo-${++settingsComboID}`;
+      wrapper.append(input);
+    }
+    input.setAttribute('role', 'combobox');
+    input.setAttribute('aria-autocomplete', 'list');
+    input.setAttribute('aria-expanded', 'false');
+    const toggle = document.createElement('button');
+    toggle.type = 'button'; toggle.tabIndex = -1;
+    toggle.className = 'settings-combobox__toggle';
+    toggle.setAttribute('aria-label', 'Показать варианты');
+    toggle.textContent = '⌄';
+    const popup = document.createElement('span');
+    popup.className = 'settings-combobox__popup'; popup.hidden = true;
+    if (typeof popup.showPopover === 'function') popup.popover = 'manual';
+    const list = document.createElement('span');
+    list.id = `${input.id}-options`; list.setAttribute('role', 'listbox');
+    input.setAttribute('aria-controls', list.id);
+    const status = document.createElement('span');
+    status.className = 'settings-combobox__status'; status.dataset.comboboxStatus = '';
+    status.setAttribute('role', 'status');
+    popup.append(list, status); wrapper.append(toggle, popup);
+    let query = '', matches = [], active = -1, restoringFocus = false, composing = false;
+    const selectedLabel = () => source.selectedOptions?.[0]?.textContent || '';
+    const close = () => {
+      if (popup.popover) popup.hidePopover();
+      popup.hidden = true; input.setAttribute('aria-expanded', 'false');
+      input.removeAttribute('aria-activedescendant'); active = -1;
+      if (!filterInput) input.value = selectedLabel();
+    };
+    const highlight = () => {
+      Array.from(list.children).forEach((item, index) => item.classList.toggle('is-active', index === active));
+      const item = list.children[active];
+      if (item) { input.setAttribute('aria-activedescendant', item.id); item.scrollIntoView({block: 'nearest'}); }
+      else input.removeAttribute('aria-activedescendant');
+    };
+    const choose = index => {
+      const option = matches[index];
+      if (!option || option.disabled || input.disabled) return;
+      onChoose(option.value);
+      close();
+    };
+    const draw = () => {
+      matches = getOptions().filter(option => normalizeSettingSearch(filterInput ? option.label : `${option.label} ${option.value}`).includes(query));
+      active = -1; list.replaceChildren(); input.removeAttribute('aria-activedescendant');
+      matches.forEach((option, index) => {
+        const item = document.createElement('span');
+        item.id = `${list.id}-${index}`; item.setAttribute('role', 'option');
+        item.setAttribute('aria-selected', String(!filterInput && option.value === source.value));
+        if (option.disabled) item.setAttribute('aria-disabled', 'true');
+        const check = document.createElement('span');
+        check.className = 'settings-combobox__check';
+        check.setAttribute('aria-hidden', 'true');
+        check.textContent = !filterInput && option.value === source.value ? '✓' : '';
+        item.append(check, document.createTextNode(option.label));
+        item.addEventListener('pointerdown', event => event.preventDefault());
+        item.addEventListener('click', event => { event.preventDefault(); choose(index); });
+        list.append(item);
+      });
+      status.textContent = matches.length ? '' : 'Совпадений нет. Измените запрос.';
+      status.hidden = matches.length > 0;
+      popup.scrollTop = 0;
+    };
+    const reveal = () => {
+      popup.hidden = false;
+      if (popup.popover && !popup.matches(':popover-open')) popup.showPopover();
+      const rect = input.getBoundingClientRect();
+      const below = Math.max(0, window.innerHeight - rect.bottom - 12);
+      const above = Math.max(0, rect.top - 12);
+      const width = Math.max(0, Math.min(rect.width, window.innerWidth - 16));
+      popup.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - width - 8))}px`;
+      popup.style.width = `${width}px`;
+      // Reserve a non-overlay scrollbar before measuring wrapped text.
+      popup.style.maxHeight = 'none';
+      popup.style.overflowY = 'scroll';
+      const rows = Array.from(list.children).slice(0, 8);
+      const measure = () => rows.length ? rows.map(row => row.getBoundingClientRect().height) : [status.getBoundingClientRect().height];
+      let heights = measure();
+      const desired = heights.reduce((sum, height) => sum + height, 2);
+      const upwards = below < desired && above > below;
+      const available = upwards ? above : below;
+      if (matches.length <= 8 && desired <= available) {
+        popup.style.overflowY = 'auto';
+        heights = measure();
+      }
+      let height = 2;
+      for (const rowHeight of heights) {
+        if (height + rowHeight > available) break;
+        height += rowHeight;
+      }
+      // Only an exceptionally tall row/small viewport needs partial-row scrolling.
+      popup.style.maxHeight = `${height > 2 ? height : available}px`;
+      popup.style.top = upwards ? 'auto' : `${rect.bottom + 4}px`;
+      popup.style.bottom = upwards ? `${window.innerHeight - rect.top + 4}px` : 'auto';
+      input.setAttribute('aria-expanded', 'true');
+    };
+    const open = () => {
+      if (input.disabled) return;
+      query = filterInput ? normalizeSettingSearch(input.value) : ''; draw(); reveal();
+      if (!filterInput) {
+        if (!composing) input.select();
+        active = matches.findIndex(option => option.value === source.value && !option.disabled);
+        highlight();
+      }
+    };
+    input.addEventListener('compositionstart', () => { composing = true; });
+    input.addEventListener('compositionend', () => { composing = false; });
+    input.addEventListener('focus', () => { if (!restoringFocus && !filterInput && !composing) input.select(); });
+    // Prevent the browser's caret placement from undoing selection on a reopening click.
+    input.addEventListener('mousedown', event => {
+      if (event.button === 0 && popup.hidden && !filterInput && !composing) {
+        event.preventDefault(); input.focus();
+      }
+    });
+    input.addEventListener('click', () => { if (popup.hidden) open(); });
+    input.addEventListener('input', () => {
+      query = normalizeSettingSearch(input.value); draw();
+      reveal();
+    });
+    input.addEventListener('blur', close);
+    input.addEventListener('keydown', event => {
+      if (event.isComposing) return;
+      if (event.key === 'Escape') { if (!popup.hidden) { event.preventDefault(); event.stopPropagation(); close(); } }
+      else if (event.key === 'Tab') close();
+      else if (event.key === 'Enter' && !popup.hidden) {
+        event.preventDefault();
+        choose(active >= 0 ? active : matches.findIndex(option => !option.disabled));
+      } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        if (popup.hidden) open();
+        const step = event.key === 'ArrowDown' ? 1 : -1;
+        let next = active < 0 ? (step > 0 ? 0 : matches.length - 1) : active + step;
+        while (next >= 0 && next < matches.length && matches[next].disabled) next += step;
+        if (next >= 0 && next < matches.length) active = next;
+        highlight();
+      }
+    });
+    toggle.addEventListener('pointerdown', event => event.preventDefault());
+    toggle.addEventListener('click', () => {
+      if (input.disabled) return;
+      const wasOpen = !popup.hidden;
+      input.focus();
+      if (wasOpen) close(); else open();
+    });
+    const defaultAccessibleLabel = input.getAttribute('aria-label');
+    const sync = () => {
+      if (!filterInput) {
+        input.disabled = source.matches(':disabled');
+        input.setAttribute('aria-label', source.getAttribute('aria-label') || defaultAccessibleLabel);
+      }
+      toggle.disabled = input.disabled;
+      if (input.disabled) close();
+      else if (popup.hidden && !filterInput) input.value = selectedLabel();
+      else if (!popup.hidden) {
+        const activeValue = matches[active]?.value;
+        draw(); reveal();
+        active = matches.findIndex(option => option.value === activeValue && !option.disabled);
+        highlight();
+      }
+    };
+    const api = { sync, input, close, restoreFocus() { restoringFocus = true; input.focus({preventScroll: true}); restoringFocus = false; } };
+    settingsCombos.set(input, api);
+    popup.addEventListener('settings:close', close);
+    settingsCombos.set(source, api);
+    source.addEventListener('change', sync);
+    source.addEventListener('settings:sync', sync);
+    source.form?.addEventListener('reset', () => window.setTimeout(() => { close(); sync(); }, 0));
+    new MutationObserver(sync).observe(source, {childList: true, subtree: true, attributes: true, attributeFilter: ['disabled', 'selected', 'aria-label']});
+    sync();
+    return api;
+  };
+  // Close on viewport movement, but keep keyboard scrolling inside the menu.
+  const closeMovedSettingsComboboxes = event => {
+    document.querySelectorAll('.settings-combobox__popup:not([hidden])').forEach(popup => {
+      if (!(event.target instanceof Node) || !popup.contains(event.target)) popup.dispatchEvent(new Event('settings:close'));
     });
   };
+  document.addEventListener('scroll', closeMovedSettingsComboboxes, true);
+  window.addEventListener('resize', closeMovedSettingsComboboxes);
+  window.addEventListener('blur', closeMovedSettingsComboboxes);
+  document.addEventListener('visibilitychange', event => { if (document.hidden) closeMovedSettingsComboboxes(event); });
+  const initSettingsComboboxes = () => {
+    document.querySelectorAll('[data-settings-combobox]').forEach(select => {
+      createSettingsCombobox(select,
+        () => Array.from(select.options, option => ({value: option.value, label: option.textContent, disabled: option.disabled})),
+        value => { if (select.value !== value) { select.value = value; select.dispatchEvent(new Event('change', {bubbles: true})); } }
+      ).sync();
+    });
+  };
+
+  // Native settings use the same draft/confirmation queue as server preferences.
+  const nativeSettingsQueue = (root, handler, nonce, snapshotValues, render, status, retry) => {
+    let queue = null, snapshot = null, loading = null, queueIdentity = null;
+    status.id ||= `${handler}-status`;
+    root.querySelectorAll('input, select').forEach(input=>input.setAttribute('aria-describedby',status.id));
+    const post = async (action='read', fields={}) => {
+      const identity=nonce(), bridge=window.webkit?.messageHandlers?.[handler];
+      if(!identity||!bridge)throw new Error('unavailable');
+      let timer;
+      try {
+        const value=await Promise.race([bridge.postMessage({version:1,nonce:identity,action,...fields}),
+          new Promise((_,reject)=>timer=setTimeout(()=>reject(new Error('timeout')),15000))]);
+        if(!root.isConnected||nonce()!==identity||value?.version!==1)throw new Error('scope');
+        snapshotValues(value); // Validate the native payload before showing it.
+        snapshot=value;return value;
+      }finally{clearTimeout(timer);}
+    };
+    const disconnect=()=>{queue?.dispose();queue=null;snapshot=null;loading=null;};
+    const load = async () => {
+      const owner=nonce();
+      if(queueIdentity!==owner){disconnect();queueIdentity=owner;}
+      if(loading)return;
+      if(queue?.pending()){if(await queue.flush())return load();return;}
+      const editing=root.querySelector('input[role="combobox"][aria-expanded="true"]:focus');
+      if(editing){editing.addEventListener('blur',load,{once:true});return;}
+      loading=(async()=>{
+        try {
+          const current=await post();const values=snapshotValues(current);
+          if(!window.GRAFSettings)throw new Error('unavailable');
+          const queueNonce=nonce();
+          if(!queue)queue=window.GRAFSettings.create(`native:${handler}:${queueNonce}`, {
+            initial:values,
+            valid:()=>nonce()===queueNonce&&(handler==='grafRecordingSettings'||snapshot?.canEdit===true),
+            render(state,message,draft){
+              if(nonce()!==queueNonce)return;
+              render({...snapshot, ... (handler==='grafRecordingSettings'?{targets:snapshot.targets.map(t=>({...t,rule:draft[t.id]}))}:{preferences:draft})});
+              root.dataset.state=state;status.textContent=message;retry.hidden=!['error','conflict'].includes(state);window.GRAFSettings.offerRemote(status,queue,state);
+              retry.textContent=state==='conflict'?'Применить мой выбор':'Повторить';
+            },
+            async save(fields,all){
+              if(nonce()!==queueNonce)throw new Error('scope');
+              let result;
+              if(handler==='grafRecordingSettings'&&Object.keys(fields).length===Object.keys(all).length&&new Set(Object.values(all)).size===1)result=await post('setAll',{rule:Object.values(all)[0]});
+              else for(const [field,value] of Object.entries(fields)) {
+                result=await post('set',handler==='grafRecordingSettings'?{targetID:field,rule:value}:{field,value});
+                if(result.error)throw new Error('unavailable');
+              }
+              if(!result||result.error)throw new Error('unavailable');
+              const scope=window.GRAFSettings.headers();
+              return {saved:true,actor:scope['X-Graf-Expected-Actor'],workspace:scope['X-Graf-Expected-Workspace'],values:snapshotValues(result)};
+            },
+            async load(){if(nonce()!==queueNonce)throw new Error('scope');const current=await post();if(current.error)throw new Error('unavailable');return {values:snapshotValues(current)};}
+          });
+          queue.refresh(values);render(current);status.textContent=current.error||'';retry.hidden=!current.error;
+        }catch(_){if(nonce()===owner){status.textContent='Не удалось загрузить настройки этого Mac.';retry.hidden=false;}}
+        finally{if(nonce()===owner)loading=null;}
+      })();await loading;
+    };
+    retry.addEventListener('click',()=>queue?.pending()?queue.retry(root.dataset.state==='conflict'):load());
+    return {load,disconnect,edit:values=>queue?.edit(values),async action(action){
+      if(queue?.pending()&&!await queue.flush())return;
+      try{const current=await post(action);render(current);status.textContent=current.error||current.message||'';}
+      catch(_){status.textContent='Не удалось выполнить действие. Повторите попытку.';}
+    }};
+  };
+
+  let recordingSettingsNonce = null;
+  const initRecordingSettings = () => {
+    const root=document.querySelector('[data-recording-settings]');if(!root||root.dataset.ready==='true')return;
+    root.dataset.ready='true';
+    const controls=root.querySelector('[data-recording-settings-controls]'),list=root.querySelector('[data-recording-settings-targets]');
+    const all=root.querySelector('[data-recording-settings-all]'),search=root.querySelector('[data-recording-settings-search]');
+    const status=root.querySelector('[data-recording-settings-status]'),retry=root.querySelector('[data-recording-settings-retry]');
+    const rows=new Map();let targets=[];
+    const filter=()=>{const query=normalizeSettingSearch(search.value);let visible=0;for(const row of rows.values()){row.hidden=!normalizeSettingSearch(row.firstElementChild.textContent).includes(query);if(!row.hidden)visible++;}root.querySelector('[data-recording-settings-empty]').hidden=visible>0||!rows.size;};
+    const appCombo=createSettingsCombobox(search,
+      ()=>Array.from(rows.values(),row=>({value:row.firstElementChild.textContent,label:row.firstElementChild.textContent})),
+      value=>{search.value=value;filter();},true);
+    const values=snapshot=>{
+      if(!Array.isArray(snapshot.targets)||snapshot.targets.some(t=>typeof t.id!=='string'||typeof t.name!=='string'||!['always','ask','never'].includes(t.rule)))throw new Error('unsupported');
+      return Object.fromEntries(snapshot.targets.map(t=>[t.id,t.rule]));
+    };
+    const render=snapshot=>{
+      targets=snapshot.targets;
+      for(const [id,row] of rows)if(!targets.some(t=>t.id===id)){row.remove();rows.delete(id);}
+      for(const [index,target] of targets.entries()){
+        let row=rows.get(target.id);
+        if(!row){row=document.createElement('label');row.className='settings-control-row';const name=document.createElement('span');name.className='settings-control-row__title';const select=root.querySelector('[data-recording-settings-select]').content.firstElementChild.cloneNode(true);select.dataset.recordingTarget=target.id;select.setAttribute('aria-describedby',status.id);row.append(name,select);rows.set(target.id,row);}
+        if(list.children[index]!==row)list.insertBefore(row,list.children[index]||null);
+        row.firstElementChild.textContent=target.name;const select=row.querySelector('select');select.setAttribute('aria-label',`Автозапись: ${target.name}`);select.value=target.rule;
+      }
+      const rules=new Set(targets.map(t=>t.rule));all.value=rules.size===1?targets[0].rule:'';all.disabled=!targets.length;controls.hidden=false;filter();appCombo.sync();initSettingsComboboxes();
+    };
+    const controller=nativeSettingsQueue(root,'grafRecordingSettings',()=>recordingSettingsNonce,values,render,status,retry);
+    search.addEventListener('input',filter);
+    root.addEventListener('change',event=>{if(event.target===all)controller.edit(Object.fromEntries(targets.map(t=>[t.id,all.value])));else if(event.target.dataset.recordingTarget)controller.edit({[event.target.dataset.recordingTarget]:event.target.value});});
+    root.addEventListener('graf:recording-settings-refresh',controller.load);controller.load();
+  };
+  window.GRAFRecordingSettings={connect(nonce){recordingSettingsNonce=nonce;initRecordingSettings();this.refresh();},refresh(){document.querySelector('[data-recording-settings]')?.dispatchEvent(new Event('graf:recording-settings-refresh'));}};
+
+  let notificationSettingsNonce = null;
+  const initLocalNotificationSettings = () => {
+    const root=document.querySelector('[data-local-notification-settings]');if(!root||root.dataset.ready==='true')return;
+    root.dataset.ready='true';
+    const controls=root.querySelector('[data-local-notification-controls]'),status=root.querySelector('[data-local-notification-status]');
+    const permission=root.querySelector('[data-local-notification-permission]'),retry=root.querySelector('[data-local-notification-retry]'),reload=root.querySelector('[data-local-notification-reload]');
+    const fields=[...controls.querySelectorAll('[data-local-notification-field]')];
+    const values=snapshot=>{const prefs=snapshot.preferences;if(!prefs||!['reminders','showTitles','sound'].every(k=>typeof prefs[k]==='boolean')||![0,1,5].includes(prefs.offsetMinutes)||typeof snapshot.canEdit!=='boolean'||typeof snapshot.permission!=='string'||typeof snapshot.canRequestPermission!=='boolean')throw new Error('unsupported');return prefs;};
+    const render=snapshot=>{
+      for(const input of fields){const field=input.dataset.localNotificationField;if(input.type==='checkbox')input.checked=snapshot.preferences[field];else input.value=String(snapshot.preferences[field]);input.disabled=field==='offsetMinutes'&&!snapshot.preferences.reminders;}
+      permission.textContent=snapshot.permission;controls.querySelector('[data-local-notification-action="requestPermission"]').hidden=!snapshot.canRequestPermission;controls.disabled=!snapshot.canEdit;reload.hidden=snapshot.canEdit;initSettingsComboboxes();
+    };
+    const controller=nativeSettingsQueue(root,'grafNotificationSettings',()=>notificationSettingsNonce,values,render,status,retry);
+    root.addEventListener('change',event=>{const input=event.target,field=input.dataset.localNotificationField;if(field)controller.edit({[field]:input.type==='checkbox'?input.checked:Number(input.value)});});
+    controls.querySelectorAll('[data-local-notification-action]').forEach(button=>button.addEventListener('click',()=>controller.action(button.dataset.localNotificationAction)));
+    root.addEventListener('graf:notification-settings-refresh',controller.load);
+    root.addEventListener('graf:notification-settings-disconnect',()=>{controller.disconnect();controls.disabled=true;fields.forEach(input=>{if(input.type==='checkbox')input.checked=false;else input.value='';settingsCombos.get(input)?.close();});initSettingsComboboxes();permission.textContent='';status.textContent='Аккаунт изменился. Обновите страницу настроек.';reload.hidden=false;});
+    window.addEventListener('focus',()=>{if(root.isConnected)controller.load();});controller.load();
+  };
+  window.GRAFNotificationSettings={connect(nonce){notificationSettingsNonce=nonce;initLocalNotificationSettings();this.refresh();},refresh(){document.querySelector('[data-local-notification-settings]')?.dispatchEvent(new Event('graf:notification-settings-refresh'));},disconnect(){notificationSettingsNonce=null;document.querySelector('[data-local-notification-settings]')?.dispatchEvent(new Event('graf:notification-settings-disconnect'));}};
+
+  const initSettingsFormState = () => window.GRAFSettings?.init();
 
   const initAccountPreferences = () => {
     document.querySelectorAll("[data-account-preferences]").forEach((form) => {
       if (form.dataset.accountPreferencesReady === "true") return;
       form.dataset.accountPreferencesReady = "true";
-      const applyTheme = (theme) => {
-        if (theme === "system") document.documentElement.removeAttribute("data-theme");
-        else document.documentElement.dataset.theme = theme;
-        document.documentElement.style.colorScheme = theme === "system" ? "" : theme;
+      const timezoneSelect = form.querySelector("[data-timezone-select]");
+      const preview = form.querySelector("[data-timezone-preview]");
+      const updateTimezonePreview = () => {
+        if (!timezoneSelect || !preview) return;
+        preview.hidden = false;
+        preview.textContent = `Сейчас: ${window.GRAFTime.format(new Date(), { timeZone: timezoneSelect.value, showZone: true })}`;
       };
-      const currentTheme = form.elements.namedItem("theme")?.value || "system";
-      applyTheme(currentTheme);
-      form.addEventListener("change", (event) => {
-        if (event.target?.name === "theme") {
-          applyTheme(event.target.value);
-          if (form.dataset.accountPreferencesAutoSave === "true") form.requestSubmit();
-        }
-      });
-      form.addEventListener("submit", () => {
-        // Keep the native POST/no-JS path authoritative; preview is local only until the server confirms.
-        const status = form.querySelector("[data-settings-form-status]");
-        if (status) { status.textContent = "Сохраняем настройки…"; status.hidden = false; }
-        const submit = form.querySelector("button[type='submit']");
-        if (submit) submit.disabled = false;
-      });
-      form.addEventListener("reset", () => window.setTimeout(() => {
-        applyTheme(form.elements.namedItem("theme")?.value || "system");
-      }, 0));
+      timezoneSelect?.addEventListener("change", updateTimezonePreview);
+      updateTimezonePreview();
+
     });
   };
 
   const initSettingsConfirmations = () => {
+    document.querySelectorAll("[data-session-confirmation]").forEach((panel) => {
+      if (panel.dataset.confirmReady === "true") return;
+      panel.dataset.confirmReady = "true";
+      const cancel = () => {
+        const target = document.getElementById(panel.dataset.returnFocus) || document.getElementById("account-sessions-title");
+        panel.remove();
+        target?.focus();
+      };
+      panel.querySelector("[data-session-cancel]")?.addEventListener("click", (event) => {
+        if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+        event.preventDefault();
+        cancel();
+      });
+      panel.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape") return;
+        event.preventDefault();
+        event.stopPropagation();
+        cancel();
+      });
+    });
     document.querySelectorAll("[data-confirm]").forEach((button) => {
       if (button.dataset.confirmReady === "true") return;
       button.dataset.confirmReady = "true";
@@ -5390,6 +6504,21 @@
       activeUploadActivities.clear();
     };
 
+    const revokedUploadMeetingIds = new Set();
+    revokeManualUploadMeeting = (meetingId) => {
+      revokedUploadMeetingIds.add(meetingId);
+      for (const activity of activeUploadActivities) {
+        if (activity.meetingId !== meetingId) continue;
+        clearUploadActivityPayload(activity);
+        activity.detailHref = "";
+        activity.detailLink?.removeAttribute("href");
+        activity.row?.remove();
+        activity.row = null;
+        activeUploadActivities.delete(activity);
+        document.querySelector("[data-upload-activity-announcer]")?.replaceChildren();
+      }
+    };
+
     const createUploadActivity = ({ file, title, duration, localId, archiveAudio }) => {
       const host = ensureUploadHost();
       uploadCounter += 1;
@@ -5516,6 +6645,14 @@
           activity.accepted = true;
           const meetingId = payload.meeting?.meeting_id;
           if (meetingId) {
+            activity.meetingId = meetingId;
+            // The server may commit before its upload response reaches this page.
+            if (revokedUploadMeetingIds.has(meetingId)) {
+              revokeManualUploadMeeting(meetingId);
+              return;
+            }
+            activity.row.dataset.uploadActivityMeetingId = meetingId;
+            activity.row.dataset.meetingId = meetingId;
             activity.detailHref = `${dialog.dataset.uploadDetailBase || "/meetings"}/${meetingId}`;
             if (activity.detailLink) activity.detailLink.href = activity.detailHref;
           }
@@ -5525,10 +6662,11 @@
             "accepted",
             workflowStarted
               ? "На сервере · Обрабатываем"
-              : "На сервере · Ждёт обработки",
+              : "На сервере · Ждет обработки",
             workflowStarted ? "success" : "warning"
           );
           clearUploadActivityPayload(activity);
+          applyNativeDeletionOperations(nativeDeletionOperations);
           await refreshMeetingList();
           return;
         }
@@ -5744,7 +6882,9 @@
   const setRailPinned = (shell, toggle, pinned) => {
     shell.classList.toggle("is-rail-pinned", pinned);
     toggle.setAttribute("aria-expanded", pinned ? "true" : "false");
-    const label = pinned ? "Скрыть боковую панель" : "Показать боковую панель";
+    const label = shell.dataset.activeNav === "settings"
+      ? (pinned ? "Скрыть разделы настроек" : "Показать разделы настроек")
+      : (pinned ? "Скрыть боковую панель" : "Показать боковую панель");
     toggle.setAttribute("aria-label", label);
     toggle.setAttribute("title", label);
     shell.setAttribute("data-rail-tooltip", label);
@@ -5756,26 +6896,32 @@
       const toggle = shell.querySelector("[data-cabinet-rail-toggle]");
       if (!sidebar || !toggle || shell.dataset.railReady === "true") return;
       shell.dataset.railReady = "true";
+      const settingsRail = shell.dataset.activeNav === "settings";
       const expandedMedia = window.matchMedia(
-        shell.classList.contains("desktop-embedded") ? "(min-width: 1121px)" : "(min-width: 981px)"
+        settingsRail ? "(min-width: 768px)" : shell.classList.contains("desktop-embedded") ? "(min-width: 1121px)" : "(min-width: 981px)"
       );
       const narrowMedia = window.matchMedia("(max-width: 640px)");
-      const storedRailState = sessionStorage.getItem("graf-cabinet-rail");
+      const railKey = shell.dataset.activeNav === "settings" ? "graf-settings-rail" : "graf-cabinet-rail";
+      const storedRailState = sessionStorage.getItem(railKey);
       let manuallySet = ["expanded", "collapsed"].includes(storedRailState);
       let preferredPinned = manuallySet
         ? storedRailState === "expanded"
         : shell.classList.contains("is-rail-pinned") || expandedMedia.matches;
       const syncViewport = () => {
+        if (settingsRail && expandedMedia.matches) {
+          setRailPinned(shell, toggle, true);
+          return;
+        }
         if (!manuallySet) preferredPinned = expandedMedia.matches;
         setRailPinned(shell, toggle, preferredPinned && !(narrowMedia.matches && shell.querySelector("main")?.contains(document.activeElement)));
       };
       const setManualRailState = (pinned) => {
         manuallySet = true;
         preferredPinned = pinned;
-        sessionStorage.setItem("graf-cabinet-rail", pinned ? "expanded" : "collapsed");
+        sessionStorage.setItem(railKey, pinned ? "expanded" : "collapsed");
         setRailPinned(shell, toggle, pinned);
       };
-      setRailPinned(shell, toggle, preferredPinned && !(narrowMedia.matches && shell.querySelector("main")?.contains(document.activeElement)));
+      setRailPinned(shell, toggle, (settingsRail && expandedMedia.matches || preferredPinned) && !(narrowMedia.matches && shell.querySelector("main")?.contains(document.activeElement)));
       expandedMedia.addEventListener("change", syncViewport);
       narrowMedia.addEventListener("change", syncViewport);
       shell.addEventListener("focusin", (event) => {
@@ -5789,8 +6935,10 @@
         const openOverlay = document.querySelector(
           "dialog[open], [data-profile-menu]:not([hidden])"
         );
-        if (event.key === "Escape" && !openOverlay) {
+        if (event.key === "Escape" && !openOverlay && !(settingsRail && expandedMedia.matches)) {
+          const focusWasInSidebar = settingsRail && sidebar.contains(document.activeElement);
           setManualRailState(false);
+          if (focusWasInSidebar) toggle.focus({ preventScroll: true });
         }
       });
     });
@@ -5890,8 +7038,44 @@
             || placed.top < 8 || placed.bottom > window.innerHeight - 8);
         });
       };
+      let hoveredDisclosure = null;
+      let disclosureCloseTimer;
+      const closeDisclosures = (except = null) => {
+        disclosures.forEach((details) => { if (details !== except) details.open = false; });
+      };
+      menu.addEventListener("pointerover", (event) => {
+        if (event.pointerType !== "mouse" || !(event.target instanceof Element)) return;
+        window.clearTimeout(disclosureCloseTimer);
+        if (event.target === menu) return; // Padding connects the row to its submenu.
+        hoveredDisclosure = event.target.closest(".sidebar-profile-menu__disclosure");
+        closeDisclosures(hoveredDisclosure);
+        if (hoveredDisclosure) hoveredDisclosure.open = true;
+      });
+      menu.addEventListener("pointerleave", (event) => {
+        if (event.pointerType !== "mouse") return;
+        if (event.relatedTarget instanceof Node && menu.contains(event.relatedTarget)) {
+          window.clearTimeout(disclosureCloseTimer);
+          return;
+        }
+        hoveredDisclosure = null;
+        // Let the pointer cross the gap into the child panel without closing it.
+        disclosureCloseTimer = window.setTimeout(() => {
+          if (menu.matches(":hover") || menu.querySelector(":focus-visible")) return;
+          closeDisclosures();
+        }, 150);
+      });
+      menu.addEventListener("focusin", (event) => {
+        closeDisclosures(event.target.closest(".sidebar-profile-menu__disclosure"));
+      });
       disclosures.forEach((details) => {
-        details.addEventListener("toggle", () => syncDisclosurePosition(details));
+        details.querySelector("summary")?.addEventListener("click", (event) => {
+          // Hover already opened it. Keep native click activation for keyboard/touch.
+          if (event.detail > 0 && hoveredDisclosure === details) event.preventDefault();
+        });
+        details.addEventListener("toggle", () => {
+          if (details.open) closeDisclosures(details);
+          syncDisclosurePosition(details);
+        });
       });
       const setOpen = (open, restoreFocus = false) => {
         if (open) {
@@ -5903,7 +7087,11 @@
           menu.hidden = true;
         }
         trigger.setAttribute("aria-expanded", open ? "true" : "false");
-        if (!open) disclosures.forEach((details) => { details.open = false; syncDisclosurePosition(details); });
+        if (!open) {
+          window.clearTimeout(disclosureCloseTimer);
+          hoveredDisclosure = null;
+          disclosures.forEach((details) => { details.open = false; syncDisclosurePosition(details); });
+        }
         if (!open && restoreFocus) trigger.focus({ preventScroll: true });
       };
       trigger.addEventListener("click", () => setOpen(menu.hidden || (supportsPopover && !popoverOpen())));
@@ -5941,7 +7129,9 @@
       : "/meetings";
     const copy = {
       session: ["Нужно войти снова", "Сессия завершилась.", "Войти"],
-      workspace: ["Нужно выбрать пространство", "Доступ к выбранному пространству больше не подтверждён.", "Войти и выбрать пространство"],
+      workspace: ["Нужно выбрать пространство", "Доступ к выбранному пространству больше не подтвержден.", "Войти и выбрать пространство"],
+      deleting: ["Удаление ожидает подтверждения", "Запрос сохранен в приложении. Состояние доступно в разделе «Удаления».", "К списку встреч"],
+      deleted: ["Запись удалена из списка", "Состояние очистки доступно в разделе «Удаления».", "К списку встреч"],
       unavailable: ["Встреча больше недоступна", "Запись удалена или доступ закрыт.", "К списку встреч"],
     }[kind] || ["Встреча больше недоступна", "Запись удалена или доступ закрыт.", "К списку встреч"];
     const recoveryTemplate = document.querySelector("[data-meeting-detail-recovery-template]");
@@ -5990,7 +7180,7 @@
     status.className = "truth-copy meeting-share-action-error";
     status.setAttribute("role", "status");
     status.setAttribute("aria-live", "polite");
-    status.textContent = "Не удалось открыть настройки доступа. Проверьте разрешения и попробуйте ещё раз.";
+    status.textContent = "Не удалось открыть настройки доступа. Проверьте разрешения и попробуйте еще раз.";
     host.replaceChildren(status);
   };
 
@@ -6148,6 +7338,7 @@
       const recoverySignature = (node) => [
         node.dataset.playbackState || "",
         node.dataset.sourceMode || "",
+        ...["meetingId", "workspaceId", "mediaRevisionId", "processingResultId", "commentsAvailable", "commentsCanComment"].map(key => node.dataset[key] || ""),
         (node.textContent || "").trim()
       ].join("\u001f");
       const playbackUnchanged = recoverySignature(currentPlayback) === recoverySignature(nextPlayback);
@@ -6161,9 +7352,14 @@
         initPlaybackRecoveryPolling();
         return;
       }
-      if (playbackChanged) currentPlayback.replaceWith(nextPlayback);
+      if (playbackChanged && !refreshPlaybackContent(currentPlayback, nextPlayback)) {
+        currentPlayback.querySelector("audio")?.pause();
+        currentPlayback.replaceWith(nextPlayback);
+      }
       if (transcriptChanged) currentTranscript.replaceWith(nextTranscript);
       initPlayback();
+      initSpeakerTimelineResize();
+      initSpeakerNameForms();
       initPlaybackRecoveryPolling();
     } catch {
       showPlaybackRecoveryNotice(detail);
@@ -6171,6 +7367,69 @@
     } finally {
       playbackRecoveryRequest = null;
     }
+  };
+
+  let recordingLifecycleTimer = null;
+  let recordingLifecycleRequest = null;
+  const refreshRecordingLifecycle = async () => {
+    if (document.hidden || recordingLifecycleRequest) return;
+    const detail = document.querySelector("main[data-meeting-id][data-playback-poll-url]");
+    const rows = allRows().filter(row => /^[0-9a-f-]{36}$/i.test(row.dataset.meetingId || ""));
+    const uploadRows = [...document.querySelectorAll("[data-upload-activity-meeting-id]")];
+    const targets = detail ? [detail] : [...uploadRows, ...rows];
+    const ids = [...new Set(targets.map(node => node.dataset.meetingId))];
+    const csrf = document.querySelector('meta[name="csrf-token"]')?.content;
+    if (!ids.length || !csrf) return;
+    const controller = new AbortController();
+    recordingLifecycleRequest = controller;
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    let changed = false;
+    try {
+      // Every visible alias participates; only the HTTP payload is capped.
+      for (let offset = 0; offset < ids.length; offset += 100) {
+        const batch = ids.slice(offset, offset + 100);
+        const response = await fetch("/api/v1/desktop/recordings/lifecycle", {
+          method: "POST", credentials: "same-origin", cache: "no-store", signal: controller.signal,
+          headers: {"Content-Type":"application/json", "X-CSRF-Token":csrf, "Accept":"application/json"},
+          body: JSON.stringify({meeting_ids:batch}),
+        });
+        if (csrf !== document.querySelector('meta[name="csrf-token"]')?.content) return;
+        if (!response.ok) {
+          if (response.status === 401 && detail?.isConnected) renderMeetingDetailRecovery(detail, "session");
+          return;
+        }
+        const entries = await response.json();
+        if (!Array.isArray(entries)) return;
+        for (const entry of entries) {
+          if (entry.target_type !== "meeting" || !batch.includes(entry.target_id) || entry.state === "allowed") continue;
+          if (!["deletion_accepted", "unavailable"].includes(entry.state)) continue;
+          revokeManualUploadMeeting(entry.target_id);
+          for (const node of targets.filter(node => node.isConnected && node.dataset.meetingId === entry.target_id)) {
+            if (node === detail) { renderMeetingDetailRecovery(node, "unavailable"); return; }
+            selectedMeetingIds.delete(recordingRowIdentity(node));
+            node.remove();
+            changed = true;
+          }
+        }
+      }
+    } catch (_error) {
+      // Lack of a response is not deletion authority. Existing media requests still enforce access.
+    } finally {
+      clearTimeout(timeout);
+      recordingLifecycleRequest = null;
+      if (changed) { updateMixedResultCount(); updateSelection(); requestMeetingListRefresh({restoreFocus:true}); }
+    }
+  };
+  const initRecordingLifecyclePolling = () => {
+    if (recordingLifecycleTimer) return;
+    recordingLifecycleTimer = setInterval(refreshRecordingLifecycle, 30000);
+    window.addEventListener("online", refreshRecordingLifecycle);
+    window.addEventListener("focus", refreshRecordingLifecycle);
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) recordingLifecycleRequest?.abort();
+      else refreshRecordingLifecycle();
+    });
+    refreshRecordingLifecycle();
   };
 
   const initPlaybackRecoveryPolling = () => {
@@ -6333,11 +7592,23 @@
       if (simpleLabel) simpleLabel.textContent = displayLabel;
       const timelineSpeaker = node.querySelector?.(".timeline-speaker");
       if (timelineSpeaker) timelineSpeaker.title = displayLabel;
+      node.querySelectorAll?.("[data-speaker-initials]").forEach((initials) => { initials.textContent = displayLabel.slice(0, 1).toUpperCase(); });
+      if (node.hasAttribute?.("data-playback-avatar")) {
+        node.title = displayLabel;
+        node.setAttribute("aria-label", `Следующая реплика: ${displayLabel}`);
+      }
+      const listen = node.querySelector?.("[data-listen-speaker]");
+      listen?.setAttribute("aria-label", `Слушать: ${displayLabel}`);
       const track = node.querySelector?.("[data-timeline-track]");
       if (track) track.setAttribute(
         "aria-label",
-        `Перейти по дорожке ${displayLabel}: переместить воспроизведение к фрагменту записи`,
+        `Дорожка ${displayLabel}: стрелки перемещают позицию`,
       );
+      node.querySelectorAll?.("[data-lane-segment]").forEach((segment) => {
+        const label = `${displayLabel} ${formatTime(Number(segment.dataset.startSeconds))}-${formatTime(Number(segment.dataset.endSeconds))}`;
+        segment.title = label;
+        segment.setAttribute("aria-label", label);
+      });
       const nameInput = node.querySelector?.("input[name='display_name']");
       if (nameInput) nameInput.value = confirmedValue;
       const label = node.querySelector?.("label[for]");
@@ -6350,6 +7621,9 @@
     const form = dialog?.querySelector("[data-content-export-form]");
     if (!dialog || !form || dialog.dataset.contentExportReady === "true") return;
     dialog.dataset.contentExportReady = "true";
+    const main = form.closest(".detail-page-main");
+    const directCopy = main?.querySelector("[data-detail-copy]");
+    const directStatus = main?.querySelector("[data-detail-copy-status]");
     const scope = form.querySelector("[data-export-scope]");
     const format = form.querySelector("[data-export-format]");
     const title = dialog.querySelector("[data-export-dialog-title]");
@@ -6358,7 +7632,6 @@
     const copy = form.querySelector("[data-export-copy]");
     const speakers = form.querySelector("input[name='include_speaker_labels']");
     const timestamps = form.querySelector("input[name='include_timestamps']");
-    const evidence = form.querySelector("input[name='include_evidence']");
     const formatGroups = [
       ["Текст", [["txt", "Текст (.txt)"], ["md", "Markdown (.md)"]]],
       ["Таблицы", [["csv", "Таблица CSV (.csv)"], ["xlsx", "Excel (.xlsx)"]]],
@@ -6368,11 +7641,35 @@
     let returnFocus = null;
     let submitting = false;
 
-    const setStatus = (message, state = "") => {
-      if (!status) return;
-      status.textContent = message;
-      status.dataset.state = state;
+    const setStatus = (message, state = "", target = status) => {
+      if (!target?.isConnected) return;
+      target.textContent = message;
+      target.dataset.state = state;
     };
+    const detailScope = () => main?.querySelector('[data-detail-tab][aria-selected="true"]')?.dataset.detailTab === "outcomes" ? "summary" : "transcript";
+    const available = (selectedScope, requestedFormat) => {
+      const option = Array.from(scope?.options || []).find((item) => item.value === selectedScope);
+      const key = "exportFormats" + selectedScope.charAt(0).toUpperCase() + selectedScope.slice(1);
+      return form.isConnected
+        && main?.dataset.processingReplacementActive !== "true"
+        && !!option && !option.disabled
+        && (form.dataset[key] || "").split(",").includes(requestedFormat);
+    };
+    const syncAvailability = () => {
+      if (submit) submit.disabled = submitting || !available(scope?.value || "", format?.value);
+      if (copy) copy.disabled = submitting || !available(scope?.value || "", "txt");
+      if (directCopy) {
+        const allowed = available(detailScope(), "txt");
+        directCopy.hidden = false;
+        directCopy.disabled = submitting || !allowed;
+        directCopy.setAttribute("aria-busy", submitting ? "true" : "false");
+        directCopy.title = detailScope() === "summary" ? "Копировать итоги" : "Копировать расшифровку";
+        if (!allowed && !submitting) setStatus("Содержимое этой вкладки пока недоступно для копирования.", "unavailable", directStatus);
+        else if (directStatus?.dataset.state === "unavailable") setStatus("", "", directStatus);
+      }
+    };
+    main?.addEventListener("detail-tab-change", syncAvailability);
+    form.addEventListener("export-availability-change", syncAvailability);
     const updateOptions = () => {
       if (!scope || !format) return;
       const machineFormat = ["csv", "xlsx", "json"].includes(format.value);
@@ -6384,7 +7681,7 @@
         if (machineFormat || format.value === "srt" || format.value === "vtt") timestamps.checked = true;
         timestamps.disabled = machineFormat || format.value === "srt" || format.value === "vtt";
       }
-      if (evidence) evidence.disabled = scope.value === "transcript";
+      syncAvailability();
     };
     const updateFormats = () => {
       if (!scope || !format) return;
@@ -6445,8 +7742,7 @@
     updateFormats();
 
     const include = (name) => form.querySelector("input[name='" + name + "']")?.checked === true;
-    const buildPayload = (requestedFormat = format?.value) => {
-      const selectedScope = scope?.value || "transcript";
+    const buildPayload = (requestedFormat = format?.value, selectedScope = scope?.value || "transcript") => {
       return {
         content_scope: selectedScope,
         format: requestedFormat,
@@ -6454,10 +7750,11 @@
         outcome_set_id: selectedScope === "transcript" ? null : (form.dataset.outcomeSetId || null),
         include_speaker_labels: include("include_speaker_labels"),
         include_timestamps: include("include_timestamps"),
-        include_evidence: selectedScope !== "transcript" && include("include_evidence")
+        include_evidence: false
       };
     };
-    const requestExport = async (requestedFormat = format?.value) => {
+    const requestExport = async (requestedFormat = format?.value, selectedScope = scope?.value || "transcript") => {
+      if (!available(selectedScope, requestedFormat)) throw new Error("export_unavailable");
       const token = form.dataset.csrfToken || csrfToken;
       const response = await fetch(form.dataset.endpoint, {
         method: "POST",
@@ -6467,7 +7764,7 @@
           "Content-Type": "application/json",
           ...(token ? { "X-CSRF-Token": token } : {})
         },
-        body: JSON.stringify(buildPayload(requestedFormat))
+        body: JSON.stringify(buildPayload(requestedFormat, selectedScope))
       });
       if (await recoverMeetingDetailFromResponse(response)) return null;
       if (!response.ok) {
@@ -6478,8 +7775,7 @@
     };
     const setBusy = (busy) => {
       submitting = busy;
-      if (submit) submit.disabled = busy;
-      if (copy) copy.disabled = busy;
+      syncAvailability();
       if (busy) dialog.setAttribute("aria-busy", "true");
       else dialog.removeAttribute("aria-busy");
     };
@@ -6494,19 +7790,23 @@
       audit_unavailable: "Экспорт остановлен: не удалось сохранить обязательную запись аудита. Повторите позже.",
       unsupported_export_combination: "Выберите совместимый формат.",
       clipboard_unavailable: "Не удалось скопировать текст. Используйте скачивание TXT."
-    }[code] || "Не удалось подготовить файл. Попробуйте ещё раз.");
+    }[code] || "Не удалось подготовить файл. Попробуйте еще раз.");
 
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
       if (submitting || !scope || !format || !submit) return;
+      const selectedScope = scope.value;
+      const selectedFormat = format.value;
+      if (!available(selectedScope, selectedFormat)) return;
       setBusy(true);
       setStatus("Готовим файл…", "progress");
       try {
-        const response = await requestExport();
+        const response = await requestExport(selectedFormat, selectedScope);
         if (!response) return;
         const blob = await response.blob();
+        if (!submit.isConnected || !available(selectedScope, selectedFormat)) throw new Error("export_unavailable");
         const disposition = response.headers.get("Content-Disposition") || "";
-        const filename = disposition.match(/filename="([^"]+)"/)?.[1] || "graf-export." + format.value;
+        const filename = disposition.match(/filename="([^"]+)"/)?.[1] || "graf-export." + selectedFormat;
         const href = URL.createObjectURL(blob);
         const link = document.createElement("a");
         link.href = href;
@@ -6526,29 +7826,34 @@
         const code = error instanceof Error ? error.message : "export_failed";
         setStatus(errorMessage(code), "error");
         setBusy(false);
-        submit.focus({ preventScroll: true });
+        if (submit.isConnected && !submit.disabled && dialog.open) submit.focus({ preventScroll: true });
+      } finally {
+        setBusy(false);
       }
     });
-    copy?.addEventListener("click", async () => {
-      if (submitting) return;
+    const copyText = async (trigger, selectedScope) => {
+      if (submitting || !trigger.isConnected || !available(selectedScope, "txt")) return;
+      const feedback = trigger === directCopy ? directStatus : status;
       setBusy(true);
-      setStatus("Готовим текст для копирования…", "progress");
+      setStatus("Готовим текст для копирования…", "progress", feedback);
       try {
         if (!navigator.clipboard?.writeText) throw new Error("clipboard_unavailable");
-        const response = await requestExport("txt");
+        const response = await requestExport("txt", selectedScope);
         if (!response) return;
-        await navigator.clipboard.writeText(await response.text());
-        setStatus("Текст скопирован.", "success");
+        const text = await response.text();
+        if (!trigger.isConnected || !available(selectedScope, "txt")) throw new Error("export_unavailable");
+        await navigator.clipboard.writeText(text);
+        setStatus("Текст скопирован.", "success", feedback);
       } catch (error) {
         const code = error instanceof Error ? error.message : "export_failed";
-        setStatus(errorMessage(code), "error");
+        setStatus(errorMessage(code), "error", feedback);
       } finally {
-        if (copy.isConnected) {
-          setBusy(false);
-          copy.focus({ preventScroll: true });
-        }
+        setBusy(false);
       }
-    });
+    };
+    copy?.addEventListener("click", () => copyText(copy, scope?.value || "transcript"));
+    directCopy?.addEventListener("click", () => copyText(directCopy, detailScope()));
+    syncAvailability();
   };
 
   const initMeetingDeleteDialog = () => {
@@ -6556,6 +7861,28 @@
     const opener = document.querySelector("[data-meeting-delete-dialog-open]");
     if (!dialog || !opener || dialog.dataset.ready === "true") return;
     dialog.dataset.ready = "true";
+    dialog.querySelector("form")?.addEventListener("submit", async event => {
+      if (window.GRAFRecordingDeletionBridgeVersion !== 1 || !window.webkit?.messageHandlers?.grafLocalRecording) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const detail = document.querySelector("main[data-meeting-id]");
+      if (!detail) return;
+      const submit = dialog.querySelector('[type="submit"]');
+      if (submit?.disabled) return;
+      if (submit) submit.disabled = true;
+      const result = await requestNativeDeletion([detail]);
+      if (result.saved && (result.accepted || result.pending)) {
+        detail.querySelectorAll("audio, video").forEach(player => { player.pause(); player.removeAttribute("src"); player.load(); });
+        location.assign("/desktop/meetings");
+      } else {
+        if (submit) submit.disabled = false;
+        let error = dialog.querySelector('[data-native-delete-error]');
+        if (!error) { error = document.createElement("p"); error.dataset.nativeDeleteError = ""; error.setAttribute("role","alert"); dialog.append(error); }
+        error.textContent = result.rejected ? "Нет права удалить запись." : result.unknown
+          ? "Ответ приложения пока не получен. Проверьте раздел «Удаления»."
+          : "Не удалось сохранить запрос удаления. Повторите попытку.";
+      }
+    }, true);
     let returnFocus = null;
     const close = () => {
       if (typeof dialog.close === "function") dialog.close();
@@ -6577,7 +7904,7 @@
     dialog.addEventListener("click", (event) => {
       if (event.target === dialog) close();
     });
-    dialog.addEventListener("keydown", (event) => trapModalFocus(dialog, event));
+    dialog.addEventListener("keydown", (event) => trapModalFocus(dialog, event, { cycleAll: true }));
   };
 
   const initShareDialogs = () => {
@@ -6592,6 +7919,14 @@
       const viewers = dialog.querySelector("[data-share-viewers]");
       const recipientInput = form?.querySelector("[data-share-recipient-input]");
       const meetingId = form?.dataset.meetingId || "";
+      const shareRequestUrl = (path) => {
+        const url = new URL(path, window.location.origin);
+        if (dialog.dataset.shareWorkspaceId) url.searchParams.set("workspace_id", dialog.dataset.shareWorkspaceId);
+        return url;
+      };
+      const collaborationRole = dialog.querySelector("[data-share-comment-role]");
+      const rolePermissions = (role) => ({ can_comment: role === "commenter" || role === "editor", can_edit: role === "editor" });
+      const roleLabel = (grant) => grant?.can_edit ? "Редактирование" : grant?.can_comment ? "Комментирование" : "Просмотр";
       const externalInvitationsEnabled = dialog.dataset.shareExternalInvitations === "available";
       const setResultsVisible = (visible) => {
         if (results) results.hidden = !visible;
@@ -6622,16 +7957,18 @@
         status.dataset.tone = tone;
       };
       const shareErrorMessage = (code) => ({
+        comment_permission_forbidden: "Право менять роли больше недоступно. Обновите список доступа.",
+        invalid_comment_permission: "Эта роль недоступна для выбранного состава встречи.",
         share_invitations_disabled: "Внешние приглашения пока отключены. Выберите участника рабочей области.",
         meeting_not_found: "Доступ к встрече изменился. Обновите страницу.",
         invalid_invitation: "Проверьте адрес электронной почты.",
-        invalid_invitation_ttl: "Срок действия приглашения недоступен. Попробуйте ещё раз.",
+        invalid_invitation_ttl: "Срок действия приглашения недоступен. Попробуйте еще раз.",
         external_share_scope_invalid: "Внешний доступ возможен только к итогам без скачивания.",
         grantee_not_found: "Не удалось подтвердить участника. Попробуйте найти его заново.",
         grantee_already_has_access: "У этого участника уже есть доступ к встрече.",
         share_policy_blocked: "Этот способ доступа пока недоступен по политике.",
         share_not_found: "Ссылка больше недоступна. Обновите список доступов.",
-        share_grant_not_found: "Доступ уже отозван или истёк.",
+        share_grant_not_found: "Доступ уже отозван или истек.",
         auth_session_expired: "Сессия истекла. Обновите страницу и войдите снова.",
         csrf_token_missing: "Сессия страницы устарела. Обновите страницу.",
         csrf_token_invalid: "Сессия страницы устарела. Обновите страницу.",
@@ -6644,8 +7981,8 @@
         postal_delivery_outcome_unknown: "Доставка не подтверждена. Не отправляйте повторно сразу — проверьте позже.",
         share_team_audience_unavailable: "Командный доступ пока не настроен.",
         rate_limited: "Слишком много запросов. Попробуйте позже.",
-        clipboard_unavailable: "Не удалось скопировать ссылку. Скопируйте её из адресной строки."
-      }[code] || "Не удалось изменить доступ. Попробуйте ещё раз.");
+        clipboard_unavailable: "Не удалось скопировать ссылку. Скопируйте ее из адресной строки."
+      }[code] || "Не удалось изменить доступ. Попробуйте еще раз.");
       const recipientSourceLabel = (item) => {
         let source = item.source === "workspace_calendar"
           ? "Календарь и рабочая область"
@@ -6664,7 +8001,7 @@
       };
       const isLikelyEmail = (address) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address);
       const mutate = async (url, options) => {
-        const response = await fetch(url, {
+        const response = await fetch(shareRequestUrl(url), {
           credentials: "same-origin",
           cache: "no-store",
           ...options,
@@ -6677,7 +8014,10 @@
         if (await recoverMeetingDetailFromResponse(response, { actionProblemCodes: sharingActionProblemCodes })) {
           throw meetingDetailRecoveredError();
         }
-        if (!response.ok) throw new Error(String(response.status));
+        if (!response.ok) {
+          const problem = await response.json().catch(() => ({}));
+          throw new Error(problem.code || String(response.status));
+        }
         return response.status === 204 ? null : response.json();
       };
       const copyShareUrl = async (shareUrl) => {
@@ -6710,16 +8050,34 @@
         viewers.append(empty);
       };
       const bindViewerRow = (row, shareUrl = "") => {
+        const role = row.querySelector("[data-share-existing-role]");
+        let savedRole = role?.value;
         const copy = row.querySelector("[data-share-copy-button]");
         const rotateUrl = row.querySelector("[data-share-rotate-url]")?.dataset.shareRotateUrl || "";
         const revoke = row.querySelector("[data-share-revoke-url]");
         let rowBusy = false;
         const setRowBusy = (busy) => {
           rowBusy = busy;
-          [copy, revoke].forEach((control) => {
+          [copy, revoke, role].forEach((control) => {
             if (control) control.disabled = busy;
           });
         };
+        role?.addEventListener("change", async () => {
+          if (rowBusy) return;
+          setRowBusy(true);
+          try {
+            const grant = await mutate(role.dataset.sharePermissionsUrl, { method: "PATCH", body: JSON.stringify(rolePermissions(role.value)) });
+            savedRole = role.value;
+            const label = row.querySelector("[data-share-role-label]");
+            if (label) label.textContent = roleLabel(grant);
+            const scope = row.querySelector("[data-share-scope-label]");
+            if (scope) scope.textContent = grant.content_scope === "full_meeting" ? "Запись" : "Итоги";
+            setStatus("Права получателя изменены.", "success");
+          } catch (error) {
+            role.value = savedRole;
+            setStatus(shareErrorMessage(error?.code || error?.message), "error");
+          } finally { setRowBusy(false); }
+        });
         copy?.addEventListener("click", async () => {
           if (rowBusy) return;
           setRowBusy(true);
@@ -6765,10 +8123,25 @@
         name.textContent = label;
         const scope = document.createElement("small");
         scope.className = "muted";
-        scope.textContent = "Итоги · ссылка готова";
-        identity.append(name, scope);
+        scope.dataset.shareScopeLabel = "true";
+        scope.textContent = payload?.grant?.content_scope === "full_meeting" ? "Запись" : "Итоги";
+        const roleText = document.createElement("small");
+        roleText.dataset.shareRoleLabel = "true";
+        roleText.textContent = roleLabel(payload?.grant);
+        identity.append(name, scope, roleText);
         const actions = document.createElement("span");
         actions.className = "share-viewer-row__actions";
+        if (dialog.dataset.shareCanManageRoles === "true" && payload?.grant?.grant_id) {
+          const role = document.createElement("select");
+          role.dataset.shareExistingRole = "true";
+          role.dataset.sharePermissionsUrl = `/api/v1/cabinet/meetings/${meetingId}/shares/${payload.grant.grant_id}/permissions`;
+          role.setAttribute("aria-label", `Права ${label}`);
+          for (const [value, text] of [["viewer", "Просмотр"], ["commenter", "Комментирование"], ["editor", "Редактирование"]]) {
+            const option = document.createElement("option"); option.value = value; option.textContent = text; role.append(option);
+          }
+          role.value = payload.grant.can_edit ? "editor" : payload.grant.can_comment ? "commenter" : "viewer";
+          actions.append(role);
+        }
         const copy = document.createElement("button");
         copy.type = "button";
         copy.dataset.shareCopyButton = "true";
@@ -6818,7 +8191,7 @@
           outcome_unknown: "Письмо не подтверждено — не отправляйте повторно сразу"
         }[invitation.status] || invitation.status || "Готовится к отправке";
         const scopeLabel = invitation.content_scope === "full_meeting" ? "запись" : "итоги";
-        status.textContent = `${statusLabel} · ${scopeLabel}${expiresAt && !Number.isNaN(expiresAt.valueOf()) ? ` · до ${expiresAt.toLocaleDateString("ru-RU")}` : ""}`;
+        status.textContent = `${statusLabel} · ${scopeLabel} · ${roleLabel(invitation)}${expiresAt && !Number.isNaN(expiresAt.valueOf()) ? ` · до ${window.GRAFTime.format(invitation.expires_at, { showZone: true })}` : ""}`;
         identity.append(label, status);
         const revoke = document.createElement("button");
         revoke.type = "button";
@@ -6837,9 +8210,10 @@
             body: JSON.stringify({
               audience_type: "user",
               audience_id: userId,
-              content_scope: "summary_only",
+              content_scope: collaborationRole ? "full_meeting" : "summary_only",
               can_download: false,
-              can_export: false
+              can_export: false,
+              ...(collaborationRole ? rolePermissions(collaborationRole.value) : {})
             })
           });
           setResultsVisible(false);
@@ -6849,13 +8223,13 @@
           const notificationMessage = {
             sent: " Участнику также отправлено письмо.",
             failed: " Письмо не отправлено — скопируйте ссылку вручную.",
-            outcome_unknown: " Статус письма не подтверждён — скопируйте ссылку вручную.",
-            not_available: " Письмо не отправлено: у участника нет подтверждённого email."
+            outcome_unknown: " Статус письма не подтвержден — скопируйте ссылку вручную.",
+            not_available: " Письмо не отправлено: у участника нет подтвержденного email."
           }[payload?.notification_status] || "";
-          setStatus(`Доступ к итогам открыт: ${label}. Ссылка готова для копирования.${notificationMessage}`, "success");
+          setStatus(`Доступ открыт: ${label}. ${roleLabel(payload?.grant)}. Ссылка готова для копирования.${notificationMessage}`, "success");
         } catch (error) {
           if (isMeetingDetailRecoveredError(error)) return;
-          setStatus("Не удалось открыть доступ. Попробуйте ещё раз.", "error");
+          setStatus("Не удалось открыть доступ. Попробуйте еще раз.", "error");
         }
       };
       const close = () => {
@@ -6884,7 +8258,8 @@
               address,
               content_scope: "full_meeting",
               can_download: true,
-              can_export: true
+              can_export: true,
+              ...(collaborationRole ? rolePermissions(collaborationRole.value) : {})
             })
           });
           setResultsVisible(false);
@@ -6907,7 +8282,7 @@
         title.textContent = `Отправить приглашение на ${maskInvitationAddress(address)}?`;
         const note = document.createElement("small");
         note.className = "muted";
-        note.textContent = "Получатель откроет одноразовую ссылку из письма. Если аккаунта GRAF ещё нет, он создастся автоматически — будут доступны саммари, расшифровка и скачивание аудио.";
+        note.textContent = "Получатель откроет одноразовую ссылку из письма. Если аккаунта GRAF еще нет, он создастся автоматически — будут доступны саммари, расшифровка и скачивание аудио.";
         const actions = document.createElement("span");
         actions.className = "share-viewer-row__actions";
         const confirm = document.createElement("button");
@@ -6944,7 +8319,9 @@
         searchController?.abort();
         searchController = new AbortController();
         try {
-          const response = await fetch(`${form.action}?query=${encodeURIComponent(query)}`, {
+          const searchUrl = shareRequestUrl(form.action);
+          searchUrl.searchParams.set("query", query);
+          const response = await fetch(searchUrl, {
             credentials: "same-origin",
             cache: "no-store",
             signal: searchController.signal
@@ -6998,7 +8375,7 @@
           setStatus(query ? "Никого не нашли. Проверьте имя." : "Выберите участника или начните вводить имя.", query ? "error" : "neutral");
         } catch (error) {
           if (isMeetingDetailRecoveredError(error)) return;
-          setStatus("Не удалось пригласить. Попробуйте ещё раз.", "error");
+          setStatus("Не удалось пригласить. Попробуйте еще раз.", "error");
         }
       });
       recipientInput?.addEventListener("input", () => {
@@ -7117,7 +8494,281 @@
     });
   };
 
+  let meetingTitleEditor = null;
+  let meetingTitleHeaderObserver = null;
+  const titleEditorActive = () => meetingTitleEditor?.active() || false;
+
+  const initMeetingTitleEditor = () => {
+    const form = document.querySelector("[data-meeting-title-form]");
+    if (form?.dataset.ready === "true") return;
+    meetingTitleHeaderObserver?.disconnect();
+    const header = document.querySelector("[data-meeting-detail-header]");
+    if (!header) return;
+    const detail = header.closest("[data-meeting-id]");
+    const headerObserver = new ResizeObserver(() => {
+      if (!header.isConnected) { headerObserver.disconnect(); return; }
+      header.classList.toggle("meeting-title-header-scrolls", header.offsetHeight > detail.clientHeight / 2);
+    });
+    headerObserver.observe(header);
+    headerObserver.observe(detail);
+    meetingTitleHeaderObserver = headerObserver;
+    if (!form) return;
+    form.dataset.ready = "true";
+    const input = form.querySelector("[data-meeting-title-input]");
+    const display = form.querySelector("[data-meeting-title-open]");
+    const version = form.elements.expected_version;
+    const error = form.querySelector("#meeting-title-error");
+    const status = form.querySelector("[data-meeting-title-status]");
+    let confirmed = form.dataset.confirmedTitle;
+    let editing = !error.hidden;
+    let pending = null;
+    let uncertain = false;
+    let terminal = false;
+    let needsExplicitRetry = editing;
+    const current = () => form.isConnected && detail === document.querySelector("#cabinet-main");
+    const dirty = () => input.value.trim() !== confirmed;
+    const showError = (message) => {
+      error.textContent = message;
+      error.hidden = !message;
+      input.setAttribute("aria-invalid", String(Boolean(message)));
+    };
+    const showEditor = (open, focus = false) => {
+      editing = open;
+      input.hidden = !open;
+      display.hidden = open;
+      if (focus) (open ? input : display).focus({ preventScroll: true });
+      if (open && focus) input.select();
+    };
+    const accept = (title, token) => {
+      confirmed = title;
+      form.dataset.confirmedTitle = title;
+      version.value = token;
+      input.value = title;
+      display.textContent = title;
+      display.setAttribute("aria-label", `Переименовать встречу: ${title}`);
+      document.title = `${title} - GRAF`;
+      uncertain = false;
+      needsExplicitRetry = false;
+      showError("");
+      clearMeetingHistoryCache();
+    };
+    const recover = async (response, code = "") => {
+      if (!current()) return true;
+      if (code === "meeting_deletion_active") {
+        terminal = true;
+        renderMeetingDetailRecovery(detail, "unavailable");
+        return true;
+      }
+      if (await recoverMeetingDetailFromResponse(response)) {
+        terminal = true;
+        return true;
+      }
+      if ([401, 403, 404, 410].includes(response.status)) {
+        terminal = true;
+        input.readOnly = true;
+        showError("Сессия страницы устарела. Обновите страницу.");
+        return true;
+      }
+      return false;
+    };
+    const finish = () => {
+      if (!current()) return;
+      input.readOnly = terminal;
+      form.removeAttribute("aria-busy");
+      pending = null;
+    };
+    const save = (explicit = false) => {
+      if (terminal || !current()) return Promise.resolve(true);
+      if (pending) return pending;
+      if (needsExplicitRetry && !explicit) return Promise.resolve(false);
+      if (!dirty() && !uncertain) {
+        showError("");
+        showEditor(false, document.activeElement === input);
+        return Promise.resolve(true);
+      }
+      if (!input.value.trim() || Array.from(input.value.trim()).length > 500) {
+        showError(!input.value.trim() ? "Введите название встречи" : "Название должно содержать не больше 500 символов");
+        needsExplicitRetry = true;
+        return Promise.resolve(false);
+      }
+      input.readOnly = true;
+      form.setAttribute("aria-busy", "true");
+      const controller = new AbortController();
+      const timer = window.setTimeout(() => controller.abort(), 15000);
+      pending = (async () => {
+        try {
+          const response = await fetch(form.action, {
+            method: "POST", body: new FormData(form), credentials: "same-origin",
+            headers: { Accept: "application/json", "X-CSRF-Token": csrfToken }, signal: controller.signal,
+          });
+          if (!current()) return false;
+          const data = await response.clone().json().catch(() => ({}));
+          if (await recover(response, data.code)) return terminal;
+          if (!current()) return false;
+          if (!response.ok) {
+            needsExplicitRetry = true;
+            if (data.code === "meeting_title_conflict" && typeof data.title_version === "string") {
+              confirmed = data.title;
+              version.value = data.title_version;
+              uncertain = false;
+              showError(`${data.message}. Текущее название: ${data.title}`);
+            } else {
+              uncertain = response.status >= 500;
+              showError(data.message || "Не удалось подтвердить сохранение. Нажмите Enter, чтобы повторить, или Esc, чтобы проверить название.");
+            }
+            return false;
+          }
+          if (data.meeting_id !== detail.dataset.meetingId || typeof data.title !== "string" || !data.title_version) throw new Error("Unexpected title response");
+          const focus = document.activeElement === input;
+          accept(data.title, data.title_version);
+          showEditor(false, focus);
+          status.textContent = "Название сохранено";
+          return true;
+        } catch {
+          if (current()) {
+            uncertain = true;
+            needsExplicitRetry = true;
+            showError("Не удалось подтвердить сохранение. Нажмите Enter, чтобы повторить, или Esc, чтобы проверить название.");
+          }
+          return false;
+        } finally {
+          window.clearTimeout(timer);
+          finish();
+        }
+      })();
+      return pending;
+    };
+    const cancel = async () => {
+      if (pending || terminal) return;
+      if (!uncertain) {
+        accept(confirmed, version.value);
+        showEditor(false, true);
+        return;
+      }
+      // After an ambiguous response only the server can confirm the current name.
+      input.readOnly = true;
+      form.setAttribute("aria-busy", "true");
+      const controller = new AbortController();
+      const timer = window.setTimeout(() => controller.abort(), 15000);
+      pending = (async () => {
+        try {
+          const response = await fetch(form.action.replace(/\/title$/, ""), {
+            credentials: "same-origin", cache: "no-store", signal: controller.signal,
+            headers: { "HX-Request": "true" },
+          });
+          if (await recover(response)) return;
+          if (!response.ok) throw new Error("Title refresh failed");
+          const page = new DOMParser().parseFromString(await response.text(), "text/html");
+          const fresh = page.querySelector("[data-meeting-title-form]");
+          if (!fresh || fresh.closest("[data-meeting-id]")?.dataset.meetingId !== detail.dataset.meetingId) throw new Error("Missing title");
+          if (!current()) return;
+          accept(fresh.dataset.confirmedTitle, fresh.elements.expected_version.value);
+          showEditor(false, true);
+        } catch {
+          if (current()) showError("Не удалось проверить название. Проверьте соединение и нажмите Esc еще раз.");
+        } finally {
+          window.clearTimeout(timer);
+          finish();
+        }
+      })();
+      await pending;
+    };
+    display.addEventListener("click", () => showEditor(true, true));
+    form.addEventListener("submit", (event) => { event.preventDefault(); void save(true); });
+    input.addEventListener("keydown", (event) => {
+      if (event.isComposing || event.keyCode === 229) return;
+      if (event.key === "Escape") { event.preventDefault(); void cancel(); }
+      if (event.key === "Enter") { event.preventDefault(); void save(true); }
+    });
+    input.addEventListener("blur", () => { if (editing) void save(); });
+    input.addEventListener("paste", (event) => {
+      if (/[\x00-\x1f\x7f-\x9f\u2028\u2029]/.test(event.clipboardData?.getData("text") || "")) {
+        event.preventDefault();
+        showError("Название должно быть одной строкой");
+      }
+    });
+    showEditor(editing);
+    meetingTitleEditor = {
+      refreshDetail: (nextDetail) => {
+        const nextForm = nextDetail.querySelector("[data-meeting-title-form]");
+        if (!current() || !nextForm || nextDetail.dataset.meetingId !== detail.dataset.meetingId
+          || nextForm.getAttribute("action") !== form.getAttribute("action")) return false;
+        const ancestors = [];
+        let node = form, nextNode = nextForm;
+        while (node !== detail && nextNode !== nextDetail) {
+          if (node.parentElement.tagName !== nextNode.parentElement.tagName) return false;
+          ancestors.push([node, nextNode]);
+          node = node.parentElement; nextNode = nextNode.parentElement;
+        }
+        if (node !== detail || nextNode !== nextDetail) return false;
+        // Keep the editor and its captured main/header connected: detaching would blur/save.
+        for (const [kept, incoming] of ancestors) {
+          const parent = kept.parentElement, nextParent = incoming.parentElement;
+          while (kept.previousSibling) kept.previousSibling.remove();
+          while (kept.nextSibling) kept.nextSibling.remove();
+          const siblings = Array.from(nextParent.childNodes), index = siblings.indexOf(incoming);
+          kept.before(...siblings.slice(0, index));
+          kept.after(...siblings.slice(index + 1));
+          for (const attribute of Array.from(parent.attributes)) parent.removeAttribute(attribute.name);
+          for (const attribute of nextParent.attributes) parent.setAttribute(attribute.name, attribute.value);
+        }
+        return true;
+      },
+      active: () => current() && !terminal && (editing || Boolean(pending)),
+      blocksNavigation: () => current() && !terminal && (dirty() || uncertain || Boolean(pending)),
+      save,
+      focus: () => input.focus({ preventScroll: true }),
+    };
+  };
+
+  document.addEventListener("click", (event) => {
+    const editor = meetingTitleEditor;
+    const link = event.target.closest?.("a[href]");
+    if (!editor?.blocksNavigation() || !link || event.defaultPrevented || event.button !== 0
+      || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey
+      || link.hasAttribute("download") || (link.target && link.target !== "_self")) return;
+    const url = new URL(link.href, location.href);
+    if (url.origin !== location.origin || (url.pathname === location.pathname && url.search === location.search && url.hash)) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    void editor.save().then((saved) => {
+      if (saved) location.assign(url.href);
+      else editor.focus();
+    });
+  }, true);
+  document.addEventListener("htmx:confirm", (event) => {
+    const editor = meetingTitleEditor;
+    const target = event.detail?.target;
+    const form = document.querySelector("[data-meeting-title-form]");
+    if (!editor?.blocksNavigation() || !form || !target?.contains?.(form)) return;
+    event.preventDefault();
+    void editor.save().then((saved) => {
+      if (saved) event.detail.issueRequest(true);
+      else editor.focus();
+    });
+  });
+  document.addEventListener("htmx:beforeRequest", (event) => {
+    const form = document.querySelector("[data-meeting-title-form]");
+    if (form && event.detail?.target?.contains?.(form)) {
+      event.detail.xhr.grafTitleVersion = form.elements.expected_version.value;
+    }
+  });
+  document.addEventListener("htmx:beforeSwap", (event) => {
+    const form = document.querySelector("[data-meeting-title-form]");
+    if (!form || !event.detail?.target?.contains?.(form)) return;
+    const requestedVersion = event.detail.xhr?.grafTitleVersion;
+    if (titleEditorActive() || (requestedVersion && requestedVersion !== form.elements.expected_version.value)) {
+      event.detail.shouldSwap = false;
+    }
+  });
+  window.addEventListener("beforeunload", (event) => {
+    if (!meetingTitleEditor?.blocksNavigation()) return;
+    event.preventDefault();
+    event.returnValue = "";
+  });
+
   const initCabinet = () => {
+    initMeetingTitleEditor();
     initAuthTransition();
     initCabinetRail();
     initCabinetProfileMenus();
@@ -7131,6 +8782,7 @@
     initDetailTabs();
     initProcessingRecovery();
     initProcessingListProjection();
+    initRecordingLifecyclePolling();
     initSummaryFormats();
     initSummaryTemplateSettings();
     initMeetingContextPanels();
@@ -7147,7 +8799,10 @@
     initCalendarSettings();
     initCalendarUpcomingRefresh();
     initSettingsFormState();
+    initRecordingSettings();
+    initLocalNotificationSettings();
     initAccountPreferences();
+    initSettingsComboboxes();
     initSettingsConfirmations();
     initShareInvitationAutoAccept();
     initBillingCopyControls();
@@ -7177,7 +8832,7 @@
     if (status === 401 || status === 403) return "Сессия страницы устарела. Обновите страницу и войдите снова.";
     if (status === 404) return "Встреча или доступ к ней больше недоступны.";
     if (status === 429) return "Слишком много запросов. Попробуйте открыть окно позже.";
-    return "Не удалось открыть окно «Поделиться». Проверьте соединение и попробуйте ещё раз.";
+    return "Не удалось открыть окно «Поделиться». Проверьте соединение и попробуйте еще раз.";
   };
   const resetShareRequestSource = (source) => {
     source.removeAttribute("aria-busy");
@@ -7229,37 +8884,28 @@
       source.setAttribute("aria-expanded", "true");
     }
     if (target instanceof Element && (target.id === "meeting-list-region" || target.matches("[data-meeting-list]"))) {
-      renderLocalRecordingRows();
-      if (pendingDeleteRows.length) {
-        const pendingMeetingIds = new Set(pendingDeleteRows.map((row) => row.dataset.meetingId));
-        pendingDeleteRows = allRows().filter((row) => pendingMeetingIds.has(row.dataset.meetingId));
-        if (!pendingDeleteRows.length) {
-          closeDeleteDialog();
-        } else {
-          const deleteDialog = document.querySelector("[data-delete-dialog]");
-          const title = deleteDialog?.querySelector("[data-delete-title]");
-          const count = deleteDialog?.querySelector("[data-delete-count]");
-          const error = deleteDialog?.querySelector("[data-delete-error]");
-          const confirm = deleteDialog?.querySelector("[data-delete-confirm]");
-          const failures = pendingDeleteRows.length;
-          if (title) {
-            title.textContent = failures === 1
-              ? deleteDialog.dataset.titleOne
-              : deleteDialog.dataset.titleMany;
-          }
-          if (count) count.textContent = deletingLabel(failures);
-          if (error) {
-            error.textContent = `Не удалось удалить ${failures} ${plural(
-              failures,
-              "запись",
-              "записи",
-              "записей",
-            )}. Попробуйте ещё раз.`;
-            error.hidden = false;
-          }
-          if (confirm) confirm.textContent = "Повторить";
-        }
-      }
+      renderLocalRecordingRows({ authoritativeResponse: true });
+      // A refresh may replace aliases or change filters, but cannot enlarge or
+      // discard the set the user is confirming. Detached rows retain that intent.
+      const currentRows = allRows();
+      const currentRowsByIdentity = new Map(currentRows.map(row => [recordingRowIdentity(row), row]));
+      const currentRowsByMeetingId = new Map(currentRows
+        .filter(row => row.dataset.meetingId)
+        .map(row => [row.dataset.meetingId, row]));
+      const localMeetingId = (localId) => localRecordingRows.find(item => item.id === localId)?.meetingId || "";
+      const remapIdentity = (identity) => {
+        if (!identity?.startsWith("local:")) return identity;
+        const meetingId = localMeetingId(identity.slice("local:".length));
+        return meetingId && currentRowsByMeetingId.has(meetingId) ? meetingId : identity;
+      };
+      pendingDeleteRows = pendingDeleteRows.map(row => {
+        const linkedMeetingId = localMeetingId(row.dataset.grafLocalRecordingId);
+        return currentRowsByIdentity.get(recordingRowIdentity(row))
+          || (linkedMeetingId ? currentRowsByMeetingId.get(linkedMeetingId) : null)
+          || row;
+      });
+      deleteReturnMeetingId = remapIdentity(deleteReturnMeetingId);
+      deleteFocusFallbackIds = deleteFocusFallbackIds.map(remapIdentity);
       reconcileMeetingSelection();
       announceMeetingResultCount();
       restoreMeetingListRequestFocus(event);
@@ -7268,7 +8914,10 @@
     initCabinet();
   });
 
-  window.addEventListener("pageshow", updateSelection);
+  window.addEventListener("pageshow", (event) => {
+    updateSelection();
+    if (event.persisted) refreshMeetingList();
+  });
 
   document.body.addEventListener("htmx:configRequest", (event) => {
     const detail = event.detail || {};
@@ -7278,4 +8927,210 @@
     if (!csrfToken || !["POST", "PUT", "PATCH", "DELETE"].includes(verb)) return;
     detail.headers["X-CSRF-Token"] = csrfToken;
   });
+})();
+
+// Server events only. No browser push, sound, toasts or native event forwarding.
+(() => {
+  const root = document.querySelector('[data-notification-inbox]');
+  if (!root) return;
+  const bell = root.querySelector('[data-notification-bell]');
+  const panel = root.querySelector('[data-notification-panel]');
+  const heading = panel.querySelector('h2');
+  const dot = root.querySelector('[data-notification-dot]');
+  const list = panel.querySelector('[data-notification-items]');
+  const status = panel.querySelector('[data-notification-status]');
+  const more = panel.querySelector('[data-notification-more]');
+  // Keep the inbox outside the scrolling sidebar and the replaceable meeting content.
+  document.body.append(panel);
+  const sidebarFoot = root.parentElement;
+  const mobileNav = root.closest('[data-cabinet-shell]')?.querySelector('.cabinet-mobile-nav');
+  const mobileMedia = window.matchMedia('(max-width: 980px)');
+  const syncLocation = () => {
+    const target = mobileNav && mobileMedia.matches ? mobileNav : sidebarFoot;
+    const profile = target.querySelector('[data-profile-menu-root]');
+    target.insertBefore(root, profile);
+  };
+  syncLocation();
+  mobileMedia.addEventListener('change', syncLocation);
+  const positionPanel = () => {
+    const rect = bell.getBoundingClientRect();
+    const scale = panel.offsetWidth ? panel.getBoundingClientRect().width / panel.offsetWidth : 1;
+    panel.style.width = Math.min(400, (window.innerWidth - 24) / scale) + 'px';
+    const width = panel.getBoundingClientRect().width;
+    const bottom = Math.max(12, Math.min(window.innerHeight - rect.bottom, window.innerHeight - Math.min(480 * scale, window.innerHeight - 24) - 12));
+    panel.style.left = Math.max(12, Math.min(rect.right + 12, window.innerWidth - width - 12)) / scale + 'px';
+    panel.style.bottom = bottom / scale + 'px';
+    panel.style.maxHeight = (window.innerHeight - bottom - 12) / scale + 'px';
+  };
+  const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
+  const embedded = bell.pathname.startsWith('/desktop/');
+  const openedNoticeKey = 'graf-notification-open';
+  const consumeOpenedNotice = async () => {
+    let pending;
+    try {
+      const stored = sessionStorage.getItem(openedNoticeKey);
+      sessionStorage.removeItem(openedNoticeKey);
+      pending = JSON.parse(stored || 'null');
+    } catch (_) { return; }
+    if (!pending || !/^[0-9a-f-]{36}$/.test(pending.id) || !Number.isSafeInteger(pending.revision)
+        || pending.revision < 1 || typeof pending.csrf !== 'string' || !pending.csrf
+        || !Number.isFinite(pending.createdAt) || Date.now() - pending.createdAt < 0
+        || Date.now() - pending.createdAt > 30000
+        || pending.target !== location.pathname + location.search) return;
+    const route = location.pathname.match(/^\/(?:desktop\/)?(?:meetings|shared-meetings)\/([0-9a-f-]{36})$/);
+    const detail = document.querySelector('main#cabinet-main[data-meeting-id]');
+    const shared = location.pathname.startsWith('/shared-meetings/')
+      && document.querySelector('main#cabinet-main .shared-summary');
+    if (!route || !(detail?.dataset.meetingId === route[1] || shared)) return;
+    try {
+      // The source page's token binds this intent to its authenticated session.
+      // The existing endpoint rechecks recipient, workspace and current object access.
+      const response = await fetch('/api/v1/notifications/' + pending.id + '/read', {
+        method:'POST', credentials:'same-origin', headers:{Accept:'application/json','X-CSRF-Token':pending.csrf},
+        body:new URLSearchParams({revision:String(pending.revision)})
+      });
+      if (response.ok && !response.redirected && root.isConnected) await load(false, true);
+    } catch (_) { /* An unconfirmed read remains available through “Просмотрено”. */ }
+  };
+  let filter = 'important', next = null, epoch = 0, scopeEpoch = 0, controller = null, pageCount = 1;
+  const setDot = value => {
+    dot.hidden = !value;
+    bell.setAttribute('aria-label', value ? 'Уведомления: есть новое важное' : 'Уведомления');
+  };
+  const clear = () => {
+    epoch++; scopeEpoch++; controller?.abort(); list.replaceChildren(); setDot(false);
+    next = null; more.hidden = true; pageCount = 1; status.textContent = '';
+  };
+  const close = (restore = false) => { panel.hidden = true; bell.setAttribute('aria-expanded', 'false'); if (restore) bell.focus(); };
+  const text = (tag, value) => { const node = document.createElement(tag); node.textContent = value; return node; };
+  bell.setAttribute('aria-controls', panel.id); bell.setAttribute('aria-expanded', 'false');
+  const cardFor = item => {
+    const url = new URL(item.href, location.origin);
+    if (url.origin !== location.origin || !/^\/(meetings|shared-meetings)\/[0-9a-f-]+$/.test(url.pathname)) return null;
+    const card = text('article', ''); card.className = 'notification-card';
+    card.dataset.id = item.id; card.dataset.content = JSON.stringify(item);
+    card.append(text('h3', item.title), text('p', item.meeting_title), text('p', item.body));
+    const date = new Date(item.updated_at);
+    if (Number.isFinite(date.getTime())) {
+      const time = text('time', date.toLocaleString('ru-RU', {day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'}));
+      time.dateTime = item.updated_at; card.append(time);
+    }
+    if (item.personal) card.append(text('p', 'Лично вам'));
+    if (item.resolved) card.append(text('p', 'Проблема решена'));
+    const link = text('a', 'Открыть встречу'); link.href = (embedded && url.pathname.startsWith('/meetings/') ? '/desktop' : '') + url.pathname + url.search; card.append(link);
+    link.onclick = event => {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      try {
+        sessionStorage.removeItem(openedNoticeKey);
+        if (item.unseen && csrf && card.isConnected) sessionStorage.setItem(openedNoticeKey, JSON.stringify({
+          id:item.id, revision:item.revision, target:link.pathname + link.search, createdAt:Date.now(), csrf
+        }));
+      } catch (_) { /* Navigation remains available when storage is disabled. */ }
+    };
+    if (item.requires_action && item.unseen) {
+      const read = text('button', 'Просмотрено'); read.type = 'button';
+      read.onclick = async () => {
+        const scope = scopeEpoch; read.disabled = true;
+        try {
+          const response = await fetch('/api/v1/notifications/' + item.id + '/read', {
+            method:'POST', credentials:'same-origin', headers:{Accept:'application/json','X-CSRF-Token':csrf},
+            body:new URLSearchParams({revision:String(item.revision)})
+          });
+          if (scope !== scopeEpoch || !card.isConnected) return;
+          if (response.redirected || [401,403,404,410].includes(response.status)) {
+            clear();
+            status.textContent = 'Доступ изменился. Откройте уведомления заново.';
+            heading.focus({preventScroll:true});
+            return;
+          }
+          if (!response.ok) throw new Error('read_failed');
+          link.focus({preventScroll:true}); await load();
+        } catch (_) {
+          if (scope === scopeEpoch && card.isConnected) { status.textContent = 'Не удалось сохранить просмотр. Повторите попытку.'; read.disabled = false; }
+        }
+      }; card.append(read);
+    } else if (item.requires_action) card.append(text('p', 'Просмотрено · Требует действия'));
+    return card;
+  };
+  // Revalidate every loaded page and reuse unchanged nodes, preserving keyboard focus.
+  const render = items => {
+    const existing = new Map(Array.from(list.children).map(node => [node.dataset.id, node]));
+    const keep = new Set();
+    let index = 0;
+    for (const item of items) {
+      const old = existing.get(item.id);
+      const node = old?.dataset.content === JSON.stringify(item) ? old : cardFor(item);
+      if (!node || keep.has(item.id)) continue;
+      keep.add(item.id);
+      const hadFocus = old?.contains(document.activeElement);
+      const position = list.children[index] || null;
+      if (node !== position) list.insertBefore(node, position);
+      index++;
+      if (old && old !== node) { old.remove(); if (hadFocus) node.querySelector('a').focus({preventScroll:true}); }
+    }
+    Array.from(list.children).forEach(node => {
+      if (!keep.has(node.dataset.id)) { const focused = node.contains(document.activeElement); node.remove(); if (focused) heading.focus({preventScroll:true}); }
+    });
+    if (!keep.size) list.append(text('p', filter === 'important'
+      ? 'Сейчас ничего не требует вашего действия. Готовые результаты — в списке встреч и истории.'
+      : 'Здесь появятся готовые результаты и встречи, которыми с вами поделились.'));
+  };
+  const load = async (append = false, background = false) => {
+    const generation = ++epoch;
+    controller?.abort(); controller = new AbortController();
+    const wanted = pageCount + (append ? 1 : 0);
+    if (!background && !panel.hidden) status.textContent = 'Проверяем…';
+    try {
+      const items = []; let cursor = null, data, fetched = 0;
+      do {
+        const params = new URLSearchParams({filter: panel.hidden ? 'important' : filter, limit: panel.hidden ? '1' : '30'});
+        if (cursor) params.set('cursor', cursor);
+        const response = await fetch('/api/v1/notifications?' + params, {credentials:'same-origin',cache:'no-store',signal:controller.signal,headers:{Accept:'application/json'}});
+        if (!response.ok || response.redirected) throw new Error('unavailable');
+        data = await response.json();
+        if (generation !== epoch) return;
+        items.push(...data.items); cursor = data.next_cursor; fetched++;
+      } while (!panel.hidden && cursor && fetched < wanted);
+      setDot(data.has_unseen_action_required); status.textContent = '';
+      if (!panel.hidden) { render(items); next = cursor; pageCount = fetched; more.hidden = !next; }
+    } catch (error) {
+      if (generation !== epoch || error.name === 'AbortError') return;
+      // Unverified private content never remains visible after an access/network failure.
+      clear();
+      if (!panel.hidden) {
+        status.textContent = 'Не удалось проверить уведомления.';
+        const retry = text('button', 'Повторить'); retry.type = 'button'; retry.onclick = () => load(); list.append(retry);
+        if (!panel.contains(document.activeElement)) heading.focus({preventScroll:true});
+      }
+    }
+  };
+  bell.onclick = event => {
+    event.preventDefault(); if (!panel.hidden) { close(true); return; }
+    clear(); filter = 'important';
+    panel.querySelectorAll('[data-notification-filter]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.notificationFilter === filter)));
+    panel.hidden = false; bell.setAttribute('aria-expanded','true'); positionPanel(); heading.focus({preventScroll:true}); load();
+  };
+  panel.querySelector('[data-notification-close]').onclick = () => close(true);
+  panel.querySelectorAll('[data-notification-filter]').forEach(button => button.onclick = () => {
+    if (filter === button.dataset.notificationFilter) return;
+    clear(); filter = button.dataset.notificationFilter;
+    panel.querySelectorAll('[data-notification-filter]').forEach(b => b.setAttribute('aria-pressed', String(b === button))); load();
+  });
+  more.onclick = () => load(true);
+  document.addEventListener('keydown', event => { if (event.key === 'Escape' && !panel.hidden) { close(true); event.stopPropagation(); } });
+  document.addEventListener('click', event => { if (!root.contains(event.target) && !panel.contains(event.target)) close(); });
+  window.addEventListener('resize', () => { if (!panel.hidden) close(panel.contains(document.activeElement)); });
+  document.addEventListener('scroll', event => { if (!panel.hidden && !panel.contains(event.target)) positionPanel(); }, true);
+  document.addEventListener('visibilitychange', () => { clear(); if (!document.hidden) load(); });
+  window.addEventListener('pageshow', () => { clear(); load(); consumeOpenedNotice(); });
+  window.addEventListener('pagehide', clear);
+  document.addEventListener('htmx:afterRequest', event => {
+    const code = event.detail?.xhr?.status;
+    if ([401,403,404,410].includes(code)) { clear(); if (!document.hidden) load(); }
+  });
+  document.addEventListener('htmx:afterSwap', () => { if (root.isConnected && !document.hidden) load(false, true); });
+  document.addEventListener('htmx:afterSettle', consumeOpenedNotice);
+  window.setInterval(() => { if (root.isConnected && !document.hidden) load(false, true); }, 30000);
+  load();
+  consumeOpenedNotice();
 })();

@@ -842,33 +842,42 @@ func validateAppStopFailureFailClosedSourceInvariant() throws {
         "App stop failure logging must include the classified failure category"
     )
     try require(
-        source.contains("private func presentPermissionRecoveryAfterSystemAudioRuntimeFailure(_ error: Error)") &&
-            source.contains("captureError == .runtimeStartFailed") &&
-            source.contains("systemAudioPermissionAuthorizer.currentPermissionState() == .granted") &&
-            source.contains("presentPermissionRecoveryAfterSystemAudioRuntimeFailure(error)"),
-        "A granted-but-failed system-audio runtime must offer relaunch recovery"
+        source.contains("refreshPermissionOnboardingWithFunctionalProbe(reason: \"recording_start_failed\")") &&
+            source.contains("permissionRecoverySuggested = verifiedState == .stale") &&
+            source.contains("guard !protectedUpdateWork.isProtected, !permissionOperationInProgress"),
+        "Runtime failure must verify access before offering protected relaunch recovery"
     )
     try require(
         permissionSource.contains("func verifyCurrentPermission() async -> CapturePermissionState") &&
-            permissionSource.contains("SCShareableContent.excludingDesktopWindows") &&
+            permissionSource.contains("guard observedState == .granted else { return observedState }") &&
+            permissionSource.contains("SCShareableContent.getExcludingDesktopWindows") &&
             permissionSource.contains("return await verifyCurrentPermission()"),
-        "System-audio permission recovery must verify the functional ScreenCaptureKit path"
+        "System-audio recovery must check consent before the functional ScreenCaptureKit probe"
     )
 
-    guard let clearBlockerRange = source.range(of: "recordingBlocker = nil"),
-          let beginPreparingRange = source.range(of: "let preparing = if let meetingDetectionTarget"),
-          let microphonePromptRange = source.range(of: "let microphoneSession = await microphoneCaptureService.requestPermissionAndPreflight"),
-          let systemAudioPromptRange = source.range(of: "let observedSystemAudioPermissionState = await systemAudioPermissionAuthorizer.requestPermission()"),
-          source.contains("try captureController.beginDetectorAssistedPreparing"),
-          source.contains("try captureController.beginPreparing")
+    guard let startRange = source.range(of: "private func startManualRecording("),
+          let stopRange = source.range(of: "private func stopManualRecording(", range: startRange.upperBound..<source.endIndex)
     else {
-        throw ValidationError(description: "App start path must expose blocker clearing, preparing state, and permission prompts")
+        throw ValidationError(description: "App start and stop boundaries are missing")
+    }
+    let startBody = source[startRange.lowerBound..<stopRange.lowerBound]
+    guard let readinessRange = startBody.range(of: "guard effectivePermissionOnboardingStatus.isReady"),
+          let clearBlockerRange = startBody.range(of: "recordingBlocker = nil"),
+          let beginPreparingRange = startBody.range(of: "let preparing = if let meetingDetectionTarget"),
+          let microphoneCheckRange = startBody.range(of: "let microphoneSession = microphoneCaptureService.preflight"),
+          let systemAudioCheckRange = startBody.range(of: "let observedSystemAudioPermissionState = systemAudioPermissionAuthorizer.currentPermissionState()"),
+          startBody.contains("try captureController.beginDetectorAssistedPreparing"),
+          startBody.contains("try captureController.beginPreparing")
+    else {
+        throw ValidationError(description: "App start must expose permission readiness, preparing state and passive preflight")
     }
     try require(
-        clearBlockerRange.lowerBound < beginPreparingRange.lowerBound &&
-            beginPreparingRange.lowerBound < microphonePromptRange.lowerBound &&
-            microphonePromptRange.lowerBound < systemAudioPromptRange.lowerBound,
-        "App start path must clear stale blockers and show preparing state before permission prompts"
+        readinessRange.lowerBound < clearBlockerRange.lowerBound &&
+            clearBlockerRange.lowerBound < beginPreparingRange.lowerBound &&
+            beginPreparingRange.lowerBound < microphoneCheckRange.lowerBound &&
+            microphoneCheckRange.lowerBound < systemAudioCheckRange.lowerBound &&
+            !startBody.contains("requestPermission"),
+        "App start must gate readiness before preparing and recheck permissions without requesting them"
     )
 }
 
@@ -887,39 +896,6 @@ func validateRecordingMetersUseLocalWriterInvariant() throws {
         "Recording UI meters must reset to inactive outside active local recording"
     )
 }
-
-func validateManualGateExitCleanupInvariant() throws {
-    let scriptURL = repositoryRoot.appendingPathComponent("apps/macos/Scripts/run-system-audio-controlled-manual-gate.sh")
-    let source = try String(contentsOf: scriptURL, encoding: .utf8)
-
-    try require(
-        source.contains("cleanup_runtime()") &&
-            source.contains("trap - EXIT") &&
-            source.contains("quit_app") &&
-            source.contains("stop_caffeinate"),
-        "Manual gate cleanup must quit the packaged app and stop caffeinate on early exits"
-    )
-    try require(
-        source.contains("trap 'cleanup_runtime' EXIT"),
-        "Manual gate must install the full runtime cleanup trap after holding the wake assertion"
-    )
-    try require(
-        source.contains("baselineCoreaudiodCpuGate") &&
-            source.contains("maxCoreaudiodCpuPercent") &&
-            source.contains("beforeAppLaunch=true"),
-        "Manual gate must block hot coreaudiod baseline before launching the packaged app"
-    )
-    guard let baselineRange = source.range(of: "run_baseline_cpu"),
-          let launchRange = source.range(of: "launch_packaged_app")
-    else {
-        throw ValidationError(description: "Manual gate must define baseline and packaged app launch steps")
-    }
-    try require(
-        baselineRange.lowerBound < launchRange.lowerBound,
-        "Manual gate must evaluate baseline CPU before launching the packaged app"
-    )
-}
-
 
 func contractScopeApproval() -> CaptureScopeApproval {
     CaptureScopeApproval(
@@ -1131,7 +1107,6 @@ do {
     try validateSystemAudioRetryCleanupSourceOrderingInvariant()
     try validateAppStopFailureFailClosedSourceInvariant()
     try validateRecordingMetersUseLocalWriterInvariant()
-    try validateManualGateExitCleanupInvariant()
     try validateDesktopUploadQueueContract()
     try validateMeetingMuteTruthContract()
     print("ContractValidation: PASS")

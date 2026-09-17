@@ -1,3 +1,5 @@
+> Путь запуска обновлён: используйте единственный `/Applications/GRAF Dev.app` через `infra/scripts/dev-harness.sh`; см. [действующую инструкцию](/docs/agent-guidance/local-development.md). Старые отдельные приложения больше не собираются.
+
 # Quickstart: Источник системного звука в индикаторе записи
 
 ## Prerequisites
@@ -22,10 +24,10 @@ Expected: focused XCTest suites pass, including known-app, manual-system-audio, 
 On a macOS host with capture permissions:
 
 ```sh
-apps/macos/Scripts/build-local-app.sh
+infra/scripts/dev-harness.sh status --json
 ```
 
-Open the local GRAF app and exercise:
+После build/promote/smoke выбранного SHA откройте `/Applications/GRAF Dev.app` и проверьте:
 
 1. Start a detector-assisted recording for a verified meeting app. The upper card shows «Идёт запись» and «Источник: `<app>`».
 2. Start a manual recording. The upper card shows «Источник: Системный звук».

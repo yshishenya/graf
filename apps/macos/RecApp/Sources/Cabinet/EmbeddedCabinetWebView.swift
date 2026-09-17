@@ -136,7 +136,7 @@ public enum EmbeddedCabinetNavigationPolicy {
     private static func isProtectedDocumentRoute(_ kind: DesktopCabinetRouteKind?) -> Bool {
         switch kind {
         case .meetingList, .meetingDetail, .meetingShare, .meetingDeletionReport,
-             .settings, .calendarSettings, .meetingDetectionSettings, .billing:
+             .settings, .calendarSettings, .meetingDetectionSettings, .notificationSettings, .billing:
             return true
         default:
             return false
@@ -164,7 +164,7 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
     private var syntheticForwardRequest: URLRequest?
     private var syntheticLoadInFlight = false
     private var activeNavigation: WKNavigation?
-    private var activeNavigationURL: URL?
+    fileprivate var activeNavigationURL: URL?
     private var pendingNavigationURL: URL?
     private var pendingControllerNavigationTargetURL: URL?
     private var pendingControllerNavigationKind: ControllerNavigationKind?
@@ -184,7 +184,30 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
 
     public init() {}
 
+    private var checkingSettings = false
+    private var settingsNavigationApproved = false
+
+    private func deferForSettings(_ action: @escaping @MainActor () -> Void) -> Bool {
+        if settingsNavigationApproved { return false }
+        guard let webView, !isLoading else { return false }
+        guard !checkingSettings else { return true }
+        checkingSettings = true
+        syncNavigationState()
+        Task { [weak self, weak webView] in
+            guard let self else { return }
+            let allowed = await EmbeddedCabinetWebView.prepareSettingsToLeave(in: webView)
+            self.checkingSettings = false
+            self.syncNavigationState()
+            guard allowed, self.webView === webView else { return }
+            self.settingsNavigationApproved = true
+            action()
+            self.settingsNavigationApproved = false
+        }
+        return true
+    }
+
     public func goBack() {
+        if deferForSettings({ [weak self] in self?.goBack() }) { return }
         guard !isLoading, let webView, let routePolicy else { return }
         syntheticForwardRequest = nil
         let backItem = preferredBackItem(for: webView, routePolicy: routePolicy)
@@ -245,6 +268,7 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
     }
 
     public func goForward() {
+        if deferForSettings({ [weak self] in self?.goForward() }) { return }
         guard !isLoading, canGoForward, let webView, let routePolicy else { return }
         if let forwardItem = preferredForwardItem(for: webView, routePolicy: routePolicy) {
             isLoading = true
@@ -278,6 +302,7 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
     }
 
     public func reload() {
+        if deferForSettings({ [weak self] in self?.reload() }) { return }
         guard !isLoading, canReload, let webView, let routePolicy,
               isSafeHistoryDocument(webView.url, routePolicy: routePolicy),
               (!sessionExpired || !isProtectedMeetingRoute(webView.url, routePolicy: routePolicy))
@@ -294,6 +319,7 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
     }
 
     public func goHome() {
+        if deferForSettings({ [weak self] in self?.goHome() }) { return }
         guard !isLoading,
               canGoHome,
               let webView,
@@ -387,11 +413,15 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
         sessionExpired = false
         safeHistoryURLs = []
         unsafeHistoryURLs = []
-        canGoBack = false
-        canGoForward = false
-        canReload = false
-        canGoHome = false
-        isLoading = false
+        // Commands are already detached; publish after SwiftUI finishes dismantling its graph.
+        Task { @MainActor [weak self] in
+            guard let self, self.webView == nil else { return }
+            self.canGoBack = false
+            self.canGoForward = false
+            self.canReload = false
+            self.canGoHome = false
+            self.isLoading = false
+        }
     }
 
     fileprivate func isAttached(to webView: WKWebView) -> Bool {
@@ -497,10 +527,11 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
         return true
     }
 
-    fileprivate func navigationDidCancel(webView: WKWebView, expectedURL: URL? = nil) {
+    @discardableResult
+    fileprivate func navigationDidCancel(webView: WKWebView, expectedURL: URL? = nil) -> Bool {
         guard self.webView === webView,
               isCurrentNavigation(nil, expectedURL: expectedURL)
-        else { return }
+        else { return false }
         activeNavigation = nil
         activeNavigationURL = nil
         pendingNavigationURL = nil
@@ -512,6 +543,7 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
         syntheticLoadInFlight = false
         isLoading = false
         syncNavigationState()
+        return true
     }
 
     fileprivate func shouldAllowBackForwardNavigation(to url: URL, in webView: WKWebView) -> Bool {
@@ -545,7 +577,10 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
     fileprivate func shouldAllowReload(in webView: WKWebView) -> Bool {
         guard self.webView === webView, let routePolicy else { return false }
         guard !isLoading || controllerNavigationPending else { return false }
-        return canReload
+        let pendingReload = controllerNavigationPending
+            && pendingControllerNavigationKind == .reload
+            && pendingControllerNavigationTargetURL == webView.url
+        return (canReload || pendingReload)
             && isSafeHistoryDocument(webView.url, routePolicy: routePolicy)
             && (!sessionExpired || !isProtectedMeetingRoute(webView.url, routePolicy: routePolicy))
     }
@@ -567,9 +602,9 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
         guard decision.decision == .allow else { return }
         if registersNavigation {
             // WebKit may report a server redirect as another action for the
-            // same WKNavigation. Retire an older operation only when the
-            // replacement WKNavigation is actually announced in
-            // navigationDidStart, where its identity is available.
+            // same WKNavigation. Preserve it here; the action policy retires
+            // clearly new user actions before dispatch, while navigationDidStart
+            // replaces the identity for other new operations.
             pendingNavigationURL = url
             if (request.httpMethod ?? "GET").uppercased() != "GET",
                isProtectedMeetingRoute(url, routePolicy: routePolicy),
@@ -621,6 +656,19 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
         cancelPendingNavigation(webView: webView)
     }
 
+    fileprivate func retirePreviousNavigation(before action: WKNavigationAction) {
+        // A new user action must reject the previous terminal callback even when
+        // both documents use the same URL. Redirects keep their WKNavigation.
+        switch action.navigationType {
+        case .linkActivated, .formSubmitted, .formResubmitted:
+            invalidateActiveNavigation()
+        case .reload, .backForward:
+            if !controllerNavigationPending { invalidateActiveNavigation() }
+        default:
+            break
+        }
+    }
+
     private func invalidateActiveNavigation() {
         guard let activeNavigation else { return }
         invalidNavigations.add(activeNavigation)
@@ -643,7 +691,7 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
     }
 
     private func syncNavigationState() {
-        guard let webView, let routePolicy else {
+        guard !checkingSettings, let webView, let routePolicy else {
             canGoBack = false
             canGoForward = false
             canReload = false
@@ -798,7 +846,7 @@ public final class EmbeddedCabinetNavigationController: ObservableObject {
         let kind = routePolicy.decision(for: url).route.kind
         switch kind {
         case .meetingList, .meetingDetail, .meetingShare, .meetingDeletionReport,
-             .settings, .calendarSettings, .meetingDetectionSettings, .billing:
+             .settings, .calendarSettings, .meetingDetectionSettings, .notificationSettings, .billing:
             return true
         default:
             return false
@@ -872,6 +920,21 @@ public enum EmbeddedCabinetUpdateBridge {
     }
 }
 
+public enum EmbeddedCabinetAppearanceBridge {
+    public static let messageHandlerName = "grafAppAppearance"
+    public static let documentScript = """
+    (() => {
+      const publish = () => window.webkit.messageHandlers.grafAppAppearance.postMessage(
+        document.documentElement.dataset.theme || 'system'
+      );
+      new MutationObserver(publish).observe(document.documentElement, {
+        attributes: true, attributeFilter: ['data-theme']
+      });
+      publish();
+    })();
+    """
+}
+
 public enum EmbeddedCabinetQuitBridge {
     public static let messageHandlerName = "grafAppQuit"
     public static let quitAction = "quit"
@@ -896,6 +959,7 @@ public struct EmbeddedCabinetLocalRecordingRow: Codable, Equatable, Sendable {
     public let id: String
     public let meetingId: String?
     public let title: String
+    public let generatedTitlePrefix: String?
     public let startedAt: Date
     public let durationSeconds: Int
     public let sessionDurationSeconds: Int
@@ -906,15 +970,19 @@ public struct EmbeddedCabinetLocalRecordingRow: Codable, Equatable, Sendable {
     public let canSend: Bool
     public let canDelete: Bool
     public let uploadComplete: Bool
+    public var localDeletionPending: Bool = false
+    public var deletionIsLocalOnly: Bool = false
 
     public static func rows(
         for items: [DesktopUploadQueueItem],
         recordingsRootURL: URL
     ) -> [Self] {
         items.compactMap { item in
-            guard item.state != .terminalDeleted else { return nil }
+            let localDeletionPending = item.state == .terminalDeleted && item.serverCreationAttempted == false
+                && item.retentionDecision.localArtifactsRetained && item.retentionDecision.reason == "local_copy_deleted_by_user"
+            guard item.lifecycleAccessAvailable, !item.hasConfirmedDeletion || localDeletionPending else { return nil }
             let damaged = item.failureReason == "recording_recovery_not_possible"
-            let startedAt = item.recordingMetadata?.recordingStartedAt ?? item.createdAt
+            let startedAt = item.displayStartedAt
             let stoppedAt = item.recordingMetadata?.recordingStoppedAt
             let sessionDurationSeconds = max(
                 item.artifactProfile.durationSeconds,
@@ -931,7 +999,11 @@ public struct EmbeddedCabinetLocalRecordingRow: Codable, Equatable, Sendable {
             let showsPartialDuration = localCaptureFailure
                 && canOpen
                 && item.artifactProfile.durationSeconds < sessionDurationSeconds
-            let status: String = if damaged {
+            let status: String = if item.deletionOperation?.blocksContent == true {
+                "Удаление ожидает подтверждения"
+            } else if !item.lifecycleAccessAvailable {
+                "Не удалось подтвердить доступ к записи"
+            } else if damaged {
                 "Запись повреждена"
             } else if localCaptureFailure && canOpen {
                 "Сохранена часть записи"
@@ -952,7 +1024,8 @@ public struct EmbeddedCabinetLocalRecordingRow: Codable, Equatable, Sendable {
             return Self(
                 id: item.id,
                 meetingId: item.meetingId ?? item.serverTruth.meetingId,
-                title: item.recordingMetadata?.title ?? "Запись",
+                title: item.recordingMetadata?.displayTitle() ?? "Запись",
+                generatedTitlePrefix: item.recordingMetadata?.generatedDisplayTitlePrefix,
                 startedAt: startedAt,
                 durationSeconds: max(0, item.artifactProfile.durationSeconds),
                 sessionDurationSeconds: sessionDurationSeconds,
@@ -960,16 +1033,48 @@ public struct EmbeddedCabinetLocalRecordingRow: Codable, Equatable, Sendable {
                 progressPercent: DesktopMeetingShellLocalQueuePolicy.progressPercent(for: item),
                 canOpen: canOpen,
                 showsPartialDuration: showsPartialDuration,
-                canSend: !damaged
+                canSend: !damaged && !item.lifecycleBlocksContent
                     && item.artifactProfile.isUploadable
                     && ![.saving, .uploading, .uploaded].contains(item.state),
-                canDelete: DesktopUploadQueueService.canDeleteLocalCopy(
-                    item: item,
-                    recordingsRootURL: recordingsRootURL
-                ),
-                uploadComplete: item.state == .uploaded
+                canDelete: !item.lifecycleBlocksContent && item.state != .saving &&
+                    (item.ownerScope != nil || DesktopUploadQueueService.canDeleteLocalCopy(item: item, recordingsRootURL: recordingsRootURL)),
+                uploadComplete: item.state == .uploaded,
+                localDeletionPending: localDeletionPending,
+                deletionIsLocalOnly: item.serverCreationAttempted == false
+                    && item.meetingId == nil && item.serverTruth.meetingId == nil
             )
         }
+    }
+}
+
+public struct EmbeddedCabinetDeletionResult: Codable, Sendable {
+    public var accepted: Int = 0
+    public var pending: Int = 0
+    public var rejected: Int = 0
+    public var saved: Bool = true
+    public init(accepted: Int = 0, pending: Int = 0, rejected: Int = 0, saved: Bool = true) {
+        self.accepted = accepted; self.pending = pending; self.rejected = rejected; self.saved = saved
+    }
+    public static let failed = Self(saved: false)
+}
+
+public struct EmbeddedCabinetDeletionSelection: Sendable {
+    public let requestID: UUID
+    public let localIDs: [String]
+    public let meetingIDs: [String]
+
+    public static func parse(_ body: Any, rows: [EmbeddedCabinetLocalRecordingRow]) -> Self? {
+        guard let object = body as? [String: Any], object["version"] as? Int == 1,
+              object["action"] as? String == "deleteSelection",
+              let requestID = (object["requestId"] as? String).flatMap(UUID.init(uuidString:)),
+              let localIDs = object["localIds"] as? [String],
+              let meetingIDs = object["meetingIds"] as? [String],
+              (1...100).contains(localIDs.count + meetingIDs.count),
+              Set(localIDs).count == localIDs.count, Set(meetingIDs).count == meetingIDs.count,
+              meetingIDs.allSatisfy({ UUID(uuidString: $0) != nil }),
+              localIDs.allSatisfy({ id in rows.contains(where: { $0.id == id && $0.canDelete }) })
+        else { return nil }
+        return Self(requestID: requestID, localIDs: localIDs, meetingIDs: meetingIDs)
     }
 }
 
@@ -983,6 +1088,7 @@ public enum EmbeddedCabinetLocalRecordingBridge {
     (() => {
       if (window.__grafLocalRecordingBridgeBound) return;
       window.__grafLocalRecordingBridgeBound = true;
+      window.GRAFRecordingDeletionBridgeVersion = 1;
       document.addEventListener('click', (event) => {
         const button = event.target instanceof Element
           ? event.target.closest('[data-graf-local-recording-action]')
@@ -997,14 +1103,15 @@ public enum EmbeddedCabinetLocalRecordingBridge {
     })();
     """
 
-    public static func rowsScript(_ rows: [EmbeddedCabinetLocalRecordingRow]) -> String {
+    public static func rowsScript(_ rows: [EmbeddedCabinetLocalRecordingRow], operations: [RecordingDeletionOperation] = [], recoveryRequired: Bool = false) -> String {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
-        guard let data = try? encoder.encode(rows) else { return "" }
+        guard let data = try? encoder.encode(rows), let operationData = try? encoder.encode(operations) else { return "" }
         return """
         (() => {
           const bytes = Uint8Array.from(atob('\(data.base64EncodedString())'), character => character.charCodeAt(0));
-          window.GRAFLocalRecordings?.update(JSON.parse(new TextDecoder('utf-8').decode(bytes)));
+          const operations = Uint8Array.from(atob('\(operationData.base64EncodedString())'), character => character.charCodeAt(0));
+          window.GRAFLocalRecordings?.update(JSON.parse(new TextDecoder('utf-8').decode(bytes)), JSON.parse(new TextDecoder('utf-8').decode(operations)), \(recoveryRequired ? "true" : "false"));
         })();
         """
     }
@@ -1100,7 +1207,7 @@ public final class EmbeddedCabinetSupportIncidentBridge: DesktopSupportIncidentS
         switch decision.route.kind {
         case .meetingList, .meetingDetail, .meetingShare, .meetingDeletionReport:
             return true
-        case .artifactDownload, .settings, .calendarSettings, .meetingDetectionSettings, .billing, .admin, .authLogin, .authSignup,
+        case .artifactDownload, .settings, .calendarSettings, .meetingDetectionSettings, .notificationSettings, .billing, .admin, .authLogin, .authSignup,
              .authProvider, .authCallback, .unsupported, .external, .forbiddenAction:
             return false
         }
@@ -1219,8 +1326,10 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
     public typealias NavigationEventLogger = @MainActor @Sendable (_ event: String, _ detail: String) -> Void
     public typealias CheckForUpdatesAction = @MainActor @Sendable () -> Void
     public typealias OpenMeetingDetectionSettingsAction = @MainActor @Sendable () -> Void
+    public typealias DeletionAction = @MainActor @Sendable (EmbeddedCabinetDeletionSelection) async -> EmbeddedCabinetDeletionResult
     public typealias LocalRecordingAction = @MainActor @Sendable (_ action: String, _ id: String) -> Void
 
+    private let notificationPresenter: DesktopNotificationPresenter?
     private let request: URLRequest
     private let routePolicy: DesktopCabinetRoutePolicy
     private let workspaceZoom: WorkspaceZoomPreference
@@ -1228,8 +1337,12 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
     private let showsAppUpdateBadge: Bool
     private let onCheckForUpdates: CheckForUpdatesAction
     private let onOpenMeetingDetectionSettings: OpenMeetingDetectionSettingsAction
+    private let onOpenNotificationSettings: OpenMeetingDetectionSettingsAction
     private let supportIncidentBridge: EmbeddedCabinetSupportIncidentBridge?
+    private let recoveryRequired: Bool
+    private let deletionOperations: [RecordingDeletionOperation]
     private let localRecordingRows: [EmbeddedCabinetLocalRecordingRow]
+    private let onDeleteRecordings: DeletionAction
     private let onLocalRecordingAction: LocalRecordingAction
     private let fallbackRequest: URLRequest
     private let navigationController: EmbeddedCabinetNavigationController
@@ -1246,12 +1359,18 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         showsAppUpdateBadge: Bool = false,
         onCheckForUpdates: @escaping CheckForUpdatesAction = {},
         onOpenMeetingDetectionSettings: @escaping OpenMeetingDetectionSettingsAction = {},
+        onOpenNotificationSettings: @escaping OpenMeetingDetectionSettingsAction = {},
         supportIncidentBridge: EmbeddedCabinetSupportIncidentBridge? = nil,
         localRecordingRows: [EmbeddedCabinetLocalRecordingRow] = [],
+        deletionOperations: [RecordingDeletionOperation] = [],
+        recoveryRequired: Bool = false,
         onLocalRecordingAction: @escaping LocalRecordingAction = { _, _ in },
+        onDeleteRecordings: @escaping DeletionAction = { _ in .failed },
         fallbackRequest: URLRequest,
+        notificationPresenter: DesktopNotificationPresenter? = nil,
         navigationController: EmbeddedCabinetNavigationController
     ) {
+        self.notificationPresenter = notificationPresenter
         self.request = request
         self.routePolicy = routePolicy
         self.workspaceZoom = workspaceZoom
@@ -1259,9 +1378,13 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         self.showsAppUpdateBadge = showsAppUpdateBadge
         self.onCheckForUpdates = onCheckForUpdates
         self.onOpenMeetingDetectionSettings = onOpenMeetingDetectionSettings
+        self.onOpenNotificationSettings = onOpenNotificationSettings
         self.supportIncidentBridge = supportIncidentBridge
         self.localRecordingRows = localRecordingRows
+        self.deletionOperations = deletionOperations
+        self.recoveryRequired = recoveryRequired
         self.onLocalRecordingAction = onLocalRecordingAction
+        self.onDeleteRecordings = onDeleteRecordings
         self.fallbackRequest = fallbackRequest
         self.navigationController = navigationController
         _cabinetState = cabinetState
@@ -1397,6 +1520,25 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         return targetDecision.route.meetingId == sourceDecision.route.meetingId
     }
 
+    /// Flush the same queue used by browser navigation before closing the native host.
+    @MainActor public static func prepareSettingsToLeave(in view: NSView?) async -> Bool {
+        guard let view else { return true }
+        if let webView = view as? WKWebView {
+            guard webView.url != nil else { return true }
+            do {
+                let result = try await webView.callAsyncJavaScript(
+                    "return window.GRAFSettings ? await window.GRAFSettings.prepareToLeave() : true;",
+                    arguments: [:], in: nil, contentWorld: .page
+                )
+                return result as? Bool == true
+            } catch { return false }
+        }
+        for child in view.subviews {
+            if !(await prepareSettingsToLeave(in: child)) { return false }
+        }
+        return true
+    }
+
     public nonisolated static func safeDownloadFilename(_ suggestedFilename: String) -> String {
         let filename = (suggestedFilename as NSString).lastPathComponent
         return filename.isEmpty || filename == "." || filename == ".." || filename == "/"
@@ -1431,7 +1573,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         switch routeKind {
         case .authLogin, .authSignup, .authProvider, .authCallback:
             return .expiredSession
-        case .meetingList, .meetingDetail, .meetingShare, .meetingDeletionReport, .settings, .calendarSettings, .meetingDetectionSettings, .billing:
+        case .meetingList, .meetingDetail, .meetingShare, .meetingDeletionReport, .settings, .calendarSettings, .meetingDetectionSettings, .notificationSettings, .billing:
             return .ready
         case .artifactDownload:
             return .ready
@@ -1442,7 +1584,19 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
 
     public func makeNSView(context: Context) -> NSView {
         let configuration = WKWebViewConfiguration()
+        configuration.applicationNameForUserAgent = DesktopCabinetConfiguration.applicationNameForUserAgent()
         configuration.allowsAirPlayForMediaPlayback = false
+        configuration.userContentController.addUserScript(
+            WKUserScript(
+                source: EmbeddedCabinetAppearanceBridge.documentScript,
+                injectionTime: .atDocumentEnd,
+                forMainFrameOnly: true
+            )
+        )
+        configuration.userContentController.add(
+            context.coordinator,
+            name: EmbeddedCabinetAppearanceBridge.messageHandlerName
+        )
         configuration.userContentController.addUserScript(
             WKUserScript(
                 source: EmbeddedCabinetUpdateBridge.documentScript,
@@ -1476,13 +1630,24 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             context.coordinator,
             name: EmbeddedCabinetLocalRecordingBridge.messageHandlerName
         )
+        configuration.userContentController.addScriptMessageHandler(
+            context.coordinator.recordingSettingsBridge,
+            contentWorld: .page,
+            name: EmbeddedCabinetRecordingSettingsBridge.handlerName
+        )
+        configuration.userContentController.addScriptMessageHandler(
+            context.coordinator.notificationSettingsBridge, contentWorld: .page,
+            name: EmbeddedCabinetNotificationSettingsBridge.handlerName
+        )
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.wantsLayer = true
-        webView.layer?.backgroundColor = DesktopMeetingShellChrome.webEmbeddedBackgroundNSColor.cgColor
+        webView.underPageBackgroundColor = DesktopMeetingShellChrome.webEmbeddedBackgroundNSColor
         webView.navigationDelegate = context.coordinator
         webView.uiDelegate = context.coordinator
         webView.allowsBackForwardNavigationGestures = true
         context.coordinator.activate()
+        context.coordinator.observeAuthCookies(in: webView)
+        if let url = request.url { DesktopUserTimeContext.shared.prepareForOrigin(url) }
         EmbeddedCabinetZoomBridge.apply(workspaceZoom, to: webView)
         supportIncidentBridge?.attach(webView: webView, routePolicy: routePolicy)
         navigationController.attach(
@@ -1497,7 +1662,10 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             showsAppUpdateBadge: showsAppUpdateBadge,
             onCheckForUpdates: onCheckForUpdates,
             localRecordingRows: localRecordingRows,
-            onLocalRecordingAction: onLocalRecordingAction
+            deletionOperations: deletionOperations,
+            recoveryRequired: recoveryRequired,
+            onLocalRecordingAction: onLocalRecordingAction,
+            onDeleteRecordings: onDeleteRecordings
         )
         let container = WebViewContainer(webView: webView)
         container.lastLoadedRequestIdentity = Self.loadIdentity(for: request)
@@ -1517,7 +1685,10 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             showsAppUpdateBadge: showsAppUpdateBadge,
             onCheckForUpdates: onCheckForUpdates,
             localRecordingRows: localRecordingRows,
-            onLocalRecordingAction: onLocalRecordingAction
+            deletionOperations: deletionOperations,
+            recoveryRequired: recoveryRequired,
+            onLocalRecordingAction: onLocalRecordingAction,
+            onDeleteRecordings: onDeleteRecordings
         )
         supportIncidentBridge?.attach(webView: container.webView, routePolicy: routePolicy)
         navigationController.updateConfiguration(
@@ -1536,16 +1707,27 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         ) else {
             return
         }
-        context.coordinator.cancelJavaScriptConfirmation()
-        container.lastLoadedRequestIdentity = Self.loadIdentity(for: request)
-        navigationController.observeNavigationRequest(request, webView: container.webView)
-        let navigation = container.webView.load(request)
-        navigationController.navigationDidStart(
-            webView: container.webView,
-            navigation: navigation,
-            targetURL: request.url,
-            controllerInitiated: true
-        )
+        let identity = Self.loadIdentity(for: request)
+        guard container.pendingSettingsRequestIdentity != identity else { return }
+        container.pendingSettingsRequestIdentity = identity
+        let coordinator = context.coordinator
+        Task { @MainActor in
+            let allowed = await Self.prepareSettingsToLeave(in: container.webView)
+            guard container.pendingSettingsRequestIdentity == identity else { return }
+            container.pendingSettingsRequestIdentity = nil
+            guard allowed else {
+                currentRoute = container.webView.url
+                return
+            }
+            coordinator.cancelJavaScriptConfirmation()
+            container.lastLoadedRequestIdentity = identity
+            navigationController.observeNavigationRequest(request, webView: container.webView)
+            let navigation = container.webView.load(request)
+            navigationController.navigationDidStart(
+                webView: container.webView, navigation: navigation,
+                targetURL: request.url, controllerInitiated: true
+            )
+        }
     }
 
     public func makeCoordinator() -> Coordinator {
@@ -1558,7 +1740,9 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             showsAppUpdateBadge: showsAppUpdateBadge,
             onCheckForUpdates: onCheckForUpdates,
             onOpenMeetingDetectionSettings: onOpenMeetingDetectionSettings,
+            onOpenNotificationSettings: onOpenNotificationSettings,
             supportIncidentBridge: supportIncidentBridge,
+            notificationPresenter: notificationPresenter ?? .shared,
             navigationController: navigationController
         )
     }
@@ -1567,6 +1751,15 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         guard let container = nsView as? WebViewContainer else { return }
         coordinator.detachSupportIncidentBridge(from: container.webView)
         coordinator.detachNavigationController(from: container.webView)
+        container.webView.configuration.userContentController.removeScriptMessageHandler(
+            forName: EmbeddedCabinetAppearanceBridge.messageHandlerName
+        )
+        container.webView.configuration.userContentController.removeScriptMessageHandler(
+            forName: EmbeddedCabinetRecordingSettingsBridge.handlerName, contentWorld: .page
+        )
+        container.webView.configuration.userContentController.removeScriptMessageHandler(
+            forName: EmbeddedCabinetNotificationSettingsBridge.handlerName, contentWorld: .page
+        )
         container.webView.configuration.userContentController.removeScriptMessageHandler(
             forName: EmbeddedCabinetUpdateBridge.messageHandlerName
         )
@@ -1583,7 +1776,9 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
     // coordinator's UI state on MainActor while deferring that stale SDK
     // annotation at this compatibility boundary.
     @MainActor
-    public final class Coordinator: NSObject, @preconcurrency WKNavigationDelegate, @preconcurrency WKUIDelegate, @preconcurrency WKScriptMessageHandler, @preconcurrency WKDownloadDelegate {
+    public final class Coordinator: NSObject, @preconcurrency WKNavigationDelegate, @preconcurrency WKUIDelegate, @preconcurrency WKScriptMessageHandler, @preconcurrency WKDownloadDelegate, @preconcurrency WKHTTPCookieStoreObserver {
+        let recordingSettingsBridge: EmbeddedCabinetRecordingSettingsBridge
+        let notificationSettingsBridge: EmbeddedCabinetNotificationSettingsBridge
         private let routePolicy: DesktopCabinetRoutePolicy
         private let desktopHeaders: [String: String]
         private let navigationRequestPolicy: DesktopCabinetNavigationRequestPolicy
@@ -1593,12 +1788,22 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         private var showsAppUpdateBadge: Bool
         private var onCheckForUpdates: CheckForUpdatesAction
         private let onOpenMeetingDetectionSettings: OpenMeetingDetectionSettingsAction
+        private let onOpenNotificationSettings: OpenMeetingDetectionSettingsAction
         private let supportIncidentBridge: EmbeddedCabinetSupportIncidentBridge?
         private let navigationController: EmbeddedCabinetNavigationController
         private var localRecordingRows: [EmbeddedCabinetLocalRecordingRow] = []
+        private var recoveryRequired = false
+        private var deletionOperations: [RecordingDeletionOperation] = []
         private var onLocalRecordingAction: LocalRecordingAction = { _, _ in }
+        private var onDeleteRecordings: DeletionAction = { _ in .failed }
         private weak var downloadHostWindow: NSWindow?
         private var isActive = true
+        private var userTimeDocumentRevision: UInt64 = 0
+        private var authNavigationBarrier: UUID?
+        private var authNavigationDispatchPending = false
+        private var authNavigationPolicyRevision: UInt64 = 0
+        private var authNavigationURL: URL?
+        private weak var userTimeWebView: WKWebView?
         private var webContentProcessTerminated = false
         private(set) var pendingConfirmation: (id: UUID, alert: NSAlert, reply: (Bool) -> Void)?
         private var confirmationWindowObserver: NSObjectProtocol?
@@ -1615,10 +1820,14 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             showsAppUpdateBadge: Bool,
             onCheckForUpdates: @escaping CheckForUpdatesAction,
             onOpenMeetingDetectionSettings: @escaping OpenMeetingDetectionSettingsAction,
+            onOpenNotificationSettings: @escaping OpenMeetingDetectionSettingsAction = {},
             supportIncidentBridge: EmbeddedCabinetSupportIncidentBridge?,
+            notificationPresenter: DesktopNotificationPresenter = .shared,
             navigationController: EmbeddedCabinetNavigationController
         ) {
             self.routePolicy = routePolicy
+            recordingSettingsBridge = EmbeddedCabinetRecordingSettingsBridge(routePolicy: routePolicy)
+            notificationSettingsBridge = EmbeddedCabinetNotificationSettingsBridge(routePolicy: routePolicy, presenter: notificationPresenter)
             self.desktopHeaders = desktopHeaders
             navigationRequestPolicy = DesktopCabinetNavigationRequestPolicy(
                 routePolicy: routePolicy,
@@ -1628,6 +1837,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             self.showsAppUpdateBadge = showsAppUpdateBadge
             self.onCheckForUpdates = onCheckForUpdates
             self.onOpenMeetingDetectionSettings = onOpenMeetingDetectionSettings
+        self.onOpenNotificationSettings = onOpenNotificationSettings
             self.supportIncidentBridge = supportIncidentBridge
             self.navigationController = navigationController
             _cabinetState = cabinetState
@@ -1639,17 +1849,94 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             showsAppUpdateBadge: Bool,
             onCheckForUpdates: @escaping CheckForUpdatesAction,
             localRecordingRows: [EmbeddedCabinetLocalRecordingRow],
-            onLocalRecordingAction: @escaping LocalRecordingAction
+            deletionOperations: [RecordingDeletionOperation],
+            recoveryRequired: Bool,
+            onLocalRecordingAction: @escaping LocalRecordingAction,
+            onDeleteRecordings: @escaping DeletionAction
         ) {
             self.showsAppUpdateBadge = showsAppUpdateBadge
             self.onCheckForUpdates = onCheckForUpdates
             self.localRecordingRows = localRecordingRows
+        self.deletionOperations = deletionOperations
+        self.recoveryRequired = recoveryRequired
             self.onLocalRecordingAction = onLocalRecordingAction
+        self.onDeleteRecordings = onDeleteRecordings
         }
 
         @MainActor
         public func activate() {
             isActive = true
+        }
+
+        public func observeAuthCookies(in webView: WKWebView) {
+            userTimeWebView = webView
+            webView.configuration.websiteDataStore.httpCookieStore.add(self)
+        }
+
+        public func cookiesDidChange(in cookieStore: WKHTTPCookieStore) {
+            guard let webView = userTimeWebView, let url = webView.url,
+                  routePolicy.decision(for: url).decision == .allow else { return }
+            let revision = userTimeDocumentRevision
+            DesktopCabinetSessionBridge.syncAuthSessionCookies(from: webView, isCurrentDocument: { [weak self, weak webView] in
+                guard let self, let webView else { return false }
+                return self.isActive && self.navigationController.isAttached(to: webView)
+                    && self.userTimeDocumentRevision == revision && webView.url == url
+            })
+        }
+
+        // Begin synchronously, before WebKit may dispatch a credential-changing form.
+        // Each coordinator owns its barrier; finishing one window cannot unblock another.
+        func dispatchAuthNavigation(
+            in webView: WKWebView, targetURL: URL?,
+            decisionHandler: @escaping EmbeddedCabinetNavigationDecisionHandler,
+            dispatch: @escaping @MainActor () -> Void
+        ) {
+            let revision = authNavigationPolicyRevision
+            let previous = authNavigationBarrier
+            let barrier = DesktopCabinetSessionBridge.beginNavigation()
+            authNavigationBarrier = barrier
+            authNavigationURL = targetURL
+            authNavigationDispatchPending = true
+            if let previous { DesktopCabinetSessionBridge.endNavigation(previous) }
+            Task { @MainActor [weak self, weak webView] in
+                await DesktopCabinetSessionBridge.drainRenewal()
+                guard let self, let webView, self.isActive,
+                      self.navigationController.isAttached(to: webView),
+                      self.authNavigationBarrier == barrier,
+                      self.authNavigationPolicyRevision == revision else {
+                    decisionHandler(.cancel)
+                    return
+                }
+                self.authNavigationDispatchPending = false
+                dispatch()
+            }
+        }
+
+        private func cancelAuthNavigation(in webView: WKWebView) {
+            // Cancel the network writer too, before a fresh cookie snapshot can
+            // release its barrier. Superseded, undispatched policies skip this.
+            webView.stopLoading()
+            finishAuthNavigation(in: webView, cancelled: true)
+        }
+
+        func finishAuthNavigation(in webView: WKWebView, expectedURL: URL? = nil, cancelled: Bool = false) {
+            guard !authNavigationDispatchPending, let barrier = authNavigationBarrier,
+                  cancelled || (expectedURL ?? webView.url) == authNavigationURL else { return }
+            let revision = userTimeDocumentRevision
+            let isCurrent: @MainActor () -> Bool = { [weak self, weak webView] in
+                guard let self, let webView else { return false }
+                return self.isActive && self.navigationController.isAttached(to: webView)
+                    && self.authNavigationBarrier == barrier && self.userTimeDocumentRevision == revision
+            }
+            Task { @MainActor in
+                await DesktopCabinetSessionBridge.drainRenewal()
+                guard isCurrent() else { return }
+                DesktopCabinetSessionBridge.syncAuthSessionCookies(from: webView, isCurrentDocument: isCurrent) { [weak self] in
+                    guard isCurrent(), let self else { return }
+                    self.authNavigationBarrier = nil
+                    DesktopCabinetSessionBridge.endNavigation(barrier)
+                }
+            }
         }
 
         @MainActor
@@ -1663,7 +1950,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         @MainActor
         public func applyLocalRecordingRows(to webView: WKWebView) {
             webView.evaluateJavaScript(
-                EmbeddedCabinetLocalRecordingBridge.rowsScript(localRecordingRows),
+                EmbeddedCabinetLocalRecordingBridge.rowsScript(localRecordingRows, operations: deletionOperations, recoveryRequired: recoveryRequired),
                 completionHandler: nil
             )
         }
@@ -1674,10 +1961,31 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         }
 
         @MainActor
-        public func detachNavigationController(from webView: WKWebView) {
+        @discardableResult
+        public func detachNavigationController(from webView: WKWebView) -> Task<Void, Never>? {
             isActive = false
+            userTimeDocumentRevision &+= 1
+            var cleanup: Task<Void, Never>?
+            if let barrier = authNavigationBarrier {
+                authNavigationBarrier = nil
+                webView.stopLoading()
+                cleanup = Task { @MainActor in
+                    await DesktopCabinetSessionBridge.drainRenewal()
+                    await withCheckedContinuation { continuation in
+                        DesktopCabinetSessionBridge.syncAuthSessionCookies(from: webView, completion: {
+                            DesktopCabinetSessionBridge.endNavigation(barrier)
+                            continuation.resume()
+                        })
+                    }
+                }
+            }
+            webView.configuration.websiteDataStore.httpCookieStore.remove(self)
+            userTimeWebView = nil
             cancelJavaScriptConfirmation()
+            recordingSettingsBridge.invalidate()
+            notificationSettingsBridge.invalidate()
             navigationController.detach(webView: webView)
+            return cleanup
         }
 
         public func webView(
@@ -1770,19 +2078,37 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             _: WKUserContentController,
             didReceive message: WKScriptMessage
         ) {
-            if message.name == EmbeddedCabinetLocalRecordingBridge.messageHandlerName {
-                guard isActive,
-                      message.frameInfo.isMainFrame,
+            if message.name == EmbeddedCabinetAppearanceBridge.messageHandlerName {
+                guard isActive, message.frameInfo.isMainFrame,
+                      let webView = message.webView, navigationController.isAttached(to: webView),
                       let sourceURL = message.frameInfo.documentRequestURL,
-                      routePolicy.decision(for: sourceURL).route.kind == .meetingList,
-                      let action = EmbeddedCabinetLocalRecordingBridge.allowedAction(
-                        from: message.body,
-                        rows: localRecordingRows
-                      )
-                else {
-                    return
+                      sourceURL == webView.url,
+                      routePolicy.decision(for: sourceURL).decision == .allow,
+                      let theme = message.body as? String, ["light", "dark", "system"].contains(theme)
+                else { return }
+                NSApplication.shared.appearance = theme == "system" ? nil
+                    : NSAppearance(named: theme == "dark" ? .darkAqua : .aqua)
+                return
+            }
+            if message.name == EmbeddedCabinetLocalRecordingBridge.messageHandlerName {
+                guard isActive, message.frameInfo.isMainFrame,
+                      let webView = message.webView, navigationController.isAttached(to: webView),
+                      let sourceURL = message.frameInfo.documentRequestURL, sourceURL == webView.url,
+                      routePolicy.decision(for: sourceURL).decision == .allow else { return }
+                let route = routePolicy.decision(for: sourceURL).route
+                guard [.meetingList, .meetingDetail].contains(route.kind) else { return }
+                if let selection = EmbeddedCabinetDeletionSelection.parse(message.body, rows: localRecordingRows) {
+                    guard route.kind == .meetingList || (selection.localIDs.isEmpty && selection.meetingIDs == [route.meetingId].compactMap { $0 }) else { return }
+                    Task { @MainActor in
+                        let result = await onDeleteRecordings(selection)
+                        guard let data = try? JSONEncoder().encode(result),
+                              let payload = String(data: data, encoding: .utf8) else { return }
+                        guard isActive, webView.url == sourceURL else { return }
+                        webView.evaluateJavaScript("window.GRAFLocalRecordings?.deletionCompleted('\(selection.requestID.uuidString.lowercased())', \(payload))", completionHandler: nil)
+                    }
+                } else if route.kind == .meetingList, let action = EmbeddedCabinetLocalRecordingBridge.allowedAction(from: message.body, rows: localRecordingRows) {
+                    onLocalRecordingAction(action.action, action.id)
                 }
-                onLocalRecordingAction(action.action, action.id)
                 return
             }
             if message.name == EmbeddedCabinetQuitBridge.messageHandlerName {
@@ -1817,20 +2143,48 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             decidePolicyFor navigationAction: WKNavigationAction,
             decisionHandler: @escaping EmbeddedCabinetNavigationDecisionHandler
         ) {
+            if navigationAction.targetFrame?.isMainFrame != false,
+               navigationAction.navigationType == .backForward || navigationAction.navigationType == .reload {
+                Task { @MainActor in
+                    guard await EmbeddedCabinetWebView.prepareSettingsToLeave(in: webView) else {
+                        decisionHandler(.cancel)
+                        return
+                    }
+                    self.decideNavigationPolicy(webView, action: navigationAction, decisionHandler: decisionHandler)
+                }
+            } else {
+                decideNavigationPolicy(webView, action: navigationAction, decisionHandler: decisionHandler)
+            }
+        }
+
+        @MainActor
+        private func decideNavigationPolicy(
+            _ webView: WKWebView,
+            action navigationAction: WKNavigationAction,
+            decisionHandler: @escaping EmbeddedCabinetNavigationDecisionHandler
+        ) {
             guard navigationController.isAttached(to: webView) else {
                 decisionHandler(.cancel)
                 return
             }
             if navigationAction.targetFrame?.isMainFrame != false {
+                authNavigationPolicyRevision &+= 1
+                if authNavigationDispatchPending {
+                    authNavigationDispatchPending = false
+                    finishAuthNavigation(in: webView, cancelled: true)
+                }
                 cancelJavaScriptConfirmation()
             }
             guard let url = navigationAction.request.url else {
                 cabinetState = .malformedResponse
+                cancelAuthNavigation(in: webView)
                 decisionHandler(.cancel)
                 return
             }
             if url.scheme?.lowercased() == "about" {
-                decisionHandler(.allow)
+                if navigationAction.targetFrame?.isMainFrame != false {
+                    dispatchAuthNavigation(in: webView, targetURL: url, decisionHandler: decisionHandler) { decisionHandler(.allow) }
+                } else { decisionHandler(.allow) }
                 return
             }
             if routePolicy.decision(for: url).route.kind == .artifactDownload,
@@ -1844,6 +2198,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                    routePolicy: routePolicy
                ) {
                 navigationController.cancelPendingNavigation(webView: webView)
+                cancelAuthNavigation(in: webView)
                 cabinetState = .blockedRoute
                 decisionHandler(.cancel)
                 return
@@ -1891,70 +2246,89 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                 allowExternalPaymentProvider: allowExternalPaymentProvider
             )
             if decision.decision == .allow,
-               decision.route.kind == .meetingDetectionSettings {
+               [.meetingDetectionSettings, .notificationSettings].contains(decision.route.kind) {
                 navigationController.cancelPendingNavigation(webView: webView)
-                onOpenMeetingDetectionSettings()
+                cancelAuthNavigation(in: webView)
+                guard isActive, routePolicy.allowsNativeSettings(
+                    from: navigationAction.sourceFrame.documentRequestURL,
+                    sourceIsMainFrame: navigationAction.sourceFrame.isMainFrame,
+                    targetIsMainFrame: navigationAction.targetFrame?.isMainFrame == true,
+                    sessionReady: cabinetState == .ready
+                ), routePolicy.allowsNativeSettings(from: webView.url, sourceIsMainFrame: true,
+                    targetIsMainFrame: true, sessionReady: true) else {
+                    decisionHandler(.cancel)
+                    return
+                }
+                if decision.route.kind == .notificationSettings { onOpenNotificationSettings() }
+                else { onOpenMeetingDetectionSettings() }
                 decisionHandler(.cancel)
                 return
             }
             switch decision.decision {
             case .allow:
-                if decision.route.kind == .external, allowExternalPaymentProvider {
-                    paymentProviderNavigationActive = true
-                }
-                updateAuthContinuation(for: decision.route.kind)
-                switch navigationRequestPolicy.decision(
-                    forNavigationRequest: navigationAction.request,
-                    isForMainFrame: navigationAction.targetFrame?.isMainFrame != false
-                ) {
-                case .allow:
-                    break
-                case let .reload(reloadedRequest):
-                    if decision.route.kind != .artifactDownload {
-                        cabinetState = .loading
-                        trackPendingRoute(reloadedRequest, webView: webView)
-                        navigationController.observeNavigationRequest(
-                            reloadedRequest,
-                            webView: webView,
-                            allowExternalAuthProvider: authContinuationActive || isAuthRoute(webView.url)
-                        )
+                dispatchAuthNavigation(in: webView, targetURL: url, decisionHandler: decisionHandler) { [self] in
+                    navigationController.retirePreviousNavigation(before: navigationAction)
+                    if decision.route.kind == .external, allowExternalPaymentProvider {
+                        paymentProviderNavigationActive = true
                     }
-                    guard let replacementNavigation = webView.load(reloadedRequest) else {
-                        navigationController.navigationDidCancel(
+                    updateAuthContinuation(for: decision.route.kind)
+                    switch navigationRequestPolicy.decision(
+                        forNavigationRequest: navigationAction.request,
+                        isForMainFrame: navigationAction.targetFrame?.isMainFrame != false
+                    ) {
+                    case .allow:
+                        break
+                    case let .reload(reloadedRequest):
+                        if decision.route.kind != .artifactDownload {
+                            cabinetState = .loading
+                            trackPendingRoute(reloadedRequest, webView: webView)
+                            navigationController.observeNavigationRequest(
+                                reloadedRequest,
+                                webView: webView,
+                                allowExternalAuthProvider: authContinuationActive || isAuthRoute(webView.url)
+                            )
+                        }
+                        guard let replacementNavigation = webView.load(reloadedRequest) else {
+                            navigationController.navigationDidCancel(
+                                webView: webView,
+                                expectedURL: reloadedRequest.url
+                            )
+                            cancelAuthNavigation(in: webView)
+                            decisionHandler(.cancel)
+                            return
+                        }
+                        navigationController.navigationDidStart(
                             webView: webView,
-                            expectedURL: reloadedRequest.url
+                            navigation: replacementNavigation,
+                            targetURL: reloadedRequest.url,
+                            controllerInitiated: true
                         )
                         decisionHandler(.cancel)
                         return
                     }
-                    navigationController.navigationDidStart(
-                        webView: webView,
-                        navigation: replacementNavigation,
-                        targetURL: reloadedRequest.url,
-                        controllerInitiated: true
-                    )
-                    decisionHandler(.cancel)
-                    return
+                    if decision.route.kind != .artifactDownload {
+                        cabinetState = .loading
+                        trackPendingRoute(navigationAction.request, webView: webView)
+                    }
+                    decisionHandler(.allow)
                 }
-                if decision.route.kind != .artifactDownload {
-                    cabinetState = .loading
-                    trackPendingRoute(navigationAction.request, webView: webView)
-                }
-                decisionHandler(.allow)
             case .openExternally:
                 authContinuationActive = false
                 navigationController.clearPendingNavigation(webView: webView)
                 guard let sanitizedURL = routePolicy.sanitizedExternalURL(for: url) else {
                     cabinetState = .blockedRoute
+                    cancelAuthNavigation(in: webView)
                     decisionHandler(.cancel)
                     return
                 }
+                cancelAuthNavigation(in: webView)
                 decisionHandler(.cancel)
                 NSWorkspace.shared.open(sanitizedURL)
             case .blockWithMessage:
                 authContinuationActive = false
                 navigationController.cancelPendingNavigation(webView: webView)
                 cabinetState = .blockedRoute
+                cancelAuthNavigation(in: webView)
                 decisionHandler(.cancel)
             }
         }
@@ -1968,10 +2342,10 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             guard navigationController.isAttached(to: webView) else { return }
             downloadHostWindow = webView.window
             download.delegate = self
-            navigationController.navigationDidFinish(
+            if navigationController.navigationDidFinish(
                 webView: webView,
                 expectedURL: navigationAction.request.url
-            )
+            ) { finishAuthNavigation(in: webView, expectedURL: navigationAction.request.url) }
         }
 
         @MainActor
@@ -1983,10 +2357,10 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             guard navigationController.isAttached(to: webView) else { return }
             downloadHostWindow = webView.window
             download.delegate = self
-            navigationController.navigationDidFinish(
+            if navigationController.navigationDidFinish(
                 webView: webView,
                 expectedURL: navigationResponse.response.url
-            )
+            ) { finishAuthNavigation(in: webView, expectedURL: navigationResponse.response.url) }
         }
 
         @MainActor
@@ -2113,6 +2487,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             guard navigationController.isAttached(to: webView) else { return }
             guard navigationController.navigationDidFinish(webView: webView, navigation: navigation) else { return }
+            finishAuthNavigation(in: webView)
             guard let url = webView.url else {
                 return
             }
@@ -2136,7 +2511,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             updateAuthContinuation(for: routeDecision.route.kind)
             let finishedState = EmbeddedCabinetWebView.finishedState(for: routeDecision.route.kind)
             webContentProcessTerminated = false
-            DesktopCabinetSessionBridge.syncAuthSessionCookies(from: webView)
+            synchronizeUserTime(from: webView, url: url)
             if EmbeddedCabinetWebView.shouldTrackSwiftUIRequestIdentity(for: routeDecision.route.kind, url: url),
                let container = webView.superview as? WebViewContainer {
                 // Transient auth pages must not replace the stable SwiftUI
@@ -2149,10 +2524,47 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             cabinetState = finishedState
             applyUpdateVisibility(to: webView)
             applyLocalRecordingRows(to: webView)
+            recordingSettingsBridge.activate(webView)
             logNavigationEvent(
                 "cabinet_navigation_finished",
                 detail: "state=\(finishedState.rawValue) \(urlLogDetail(url))"
             )
+        }
+
+        private func synchronizeUserTime(from webView: WKWebView, url: URL) {
+            let documentRevision = userTimeDocumentRevision
+            let isCurrentDocument: @MainActor () -> Bool = { [weak self, weak webView] in
+                guard let self, let webView else { return false }
+                return self.isActive && self.navigationController.isAttached(to: webView)
+                    && self.userTimeDocumentRevision == documentRevision && webView.url == url
+            }
+            DesktopCabinetSessionBridge.syncAuthSessionCookies(
+                from: webView,
+                isCurrentDocument: isCurrentDocument
+            ) { [weak self, weak webView] in
+                guard let self, let webView, isCurrentDocument() else { return }
+                // Preferences belong to the authenticated document, after cookie reconciliation.
+                if EmbeddedCabinetNotificationSettingsBridge.isSettingsURL(url, policy: self.routePolicy) {
+                    let authEpoch = DesktopNotificationPresenter.shared.authEpoch
+                    Task { @MainActor [weak self, weak webView] in
+                        guard let self, let webView else { return }
+                        await self.notificationSettingsBridge.activateAfterRefreshingContext(
+                            webView, expectedAuthEpoch: authEpoch, isCurrentDocument: isCurrentDocument
+                        )
+                    }
+                }
+                guard DesktopUserTimeContext.canRead(from: url, routePolicy: self.routePolicy) else {
+                    DesktopUserTimeContext.shared.reset()
+                    return
+                }
+                let contextRevision = DesktopUserTimeContext.shared.revision
+                webView.evaluateJavaScript(DesktopUserTimeContext.documentScript) { body, error in
+                    guard isCurrentDocument(), error == nil,
+                          let fields = body as? [String: String],
+                          fields["documentURL"].flatMap(URL.init(string:)) == url else { return }
+                    DesktopUserTimeContext.shared.update(from: fields, origin: url, expectedRevision: contextRevision)
+                }
+            }
         }
 
         @MainActor
@@ -2172,20 +2584,20 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             case .allow:
                 decisionHandler(.allow)
             case .download:
-                navigationController.navigationDidFinish(
+                if navigationController.navigationDidFinish(
                     webView: webView,
                     expectedURL: navigationResponse.response.url
-                )
+                ) { finishAuthNavigation(in: webView, expectedURL: navigationResponse.response.url) }
                 logNavigationEvent(
                     "cabinet_download_response",
                     detail: responseLogDetail(navigationResponse.response, state: .ready)
                 )
                 decisionHandler(.download)
             case .cancelResource:
-                navigationController.navigationDidFinish(
+                if navigationController.navigationDidFinish(
                     webView: webView,
                     expectedURL: navigationResponse.response.url
-                )
+                ) { finishAuthNavigation(in: webView, expectedURL: navigationResponse.response.url) }
                 logNavigationEvent(
                     "cabinet_download_response_blocked",
                     detail: responseLogDetail(navigationResponse.response, state: cabinetState)
@@ -2193,11 +2605,12 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                 decisionHandler(.cancel)
             case let .cancel(state):
                 cancelJavaScriptConfirmation()
-                navigationController.navigationDidCancel(
+                if navigationController.navigationDidCancel(
                     webView: webView,
                     expectedURL: navigationResponse.response.url
-                )
+                ) { finishAuthNavigation(in: webView, expectedURL: navigationResponse.response.url) }
                 if state == .expiredSession || state == .workspaceReselectionRequired {
+                    DesktopUserTimeContext.shared.reset()
                     navigationController.markSessionExpired(webView: webView)
                 }
                 cabinetState = state
@@ -2212,7 +2625,10 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         @MainActor
         public func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
             guard navigationController.isAttached(to: webView) else { return }
+            let failedURL = (error as NSError).userInfo[NSURLErrorFailingURLErrorKey] as? URL
+                ?? navigationController.activeNavigationURL
             guard navigationController.navigationDidFail(webView: webView, navigation: navigation, error: error) else { return }
+            finishAuthNavigation(in: webView, expectedURL: failedURL)
             cancelJavaScriptConfirmation()
             transitionAfterNavigationFailure(error, webView: webView, phase: "committed")
         }
@@ -2220,7 +2636,10 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         @MainActor
         public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
             guard navigationController.isAttached(to: webView) else { return }
+            let failedURL = (error as NSError).userInfo[NSURLErrorFailingURLErrorKey] as? URL
+                ?? navigationController.activeNavigationURL
             guard navigationController.navigationDidFail(webView: webView, navigation: navigation, error: error) else { return }
+            finishAuthNavigation(in: webView, expectedURL: failedURL)
             cancelJavaScriptConfirmation()
             transitionAfterNavigationFailure(error, webView: webView, phase: "provisional")
         }
@@ -2228,6 +2647,13 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         @MainActor
         public func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
             guard navigationController.isAttached(to: webView) else { return }
+            recordingSettingsBridge.invalidate()
+            notificationSettingsBridge.invalidate()
+            userTimeDocumentRevision &+= 1
+            if let url = webView.url,
+               [.authLogin, .authSignup, .authCallback, .authProvider].contains(routePolicy.decision(for: url).route.kind) {
+                DesktopUserTimeContext.shared.reset()
+            }
             navigationController.navigationDidStart(webView: webView, navigation: navigation)
             cancelJavaScriptConfirmation()
         }
@@ -2235,8 +2661,11 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
             guard navigationController.isAttached(to: webView) else { return }
             webContentProcessTerminated = true
+            recordingSettingsBridge.invalidate()
+            notificationSettingsBridge.invalidate()
             cancelJavaScriptConfirmation()
             navigationController.cancelPendingNavigation(webView: webView)
+            finishAuthNavigation(in: webView, cancelled: true)
             cabinetState = .malformedResponse
         }
 
@@ -2245,6 +2674,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             let nextState = DesktopCabinetState.state(forNavigationError: error, currentState: cabinetState)
             cabinetState = nextState
             if nextState == .expiredSession || nextState == .workspaceReselectionRequired {
+                DesktopUserTimeContext.shared.reset()
                 navigationController.markSessionExpired(webView: webView)
             }
             logNavigationEvent(
@@ -2377,6 +2807,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
     public final class WebViewContainer: NSView {
         public let webView: WKWebView
         public var lastLoadedRequestIdentity: String?
+        fileprivate var pendingSettingsRequestIdentity: String?
 
         public init(webView: WKWebView) {
             self.webView = webView
@@ -2387,6 +2818,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             layer?.masksToBounds = true
             webView.clipsToBounds = true
             webView.layer?.masksToBounds = true
+            webView.autoresizingMask = [.width, .height]
             addSubview(webView)
         }
 
@@ -2409,7 +2841,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
     }
 }
 
-private extension WKFrameInfo {
+extension WKFrameInfo {
     var documentRequestURL: URL? {
         // macOS 14 can return nil before a frame has a document despite the
         // nonnull SDK declaration. Read the Objective-C property without
@@ -2479,6 +2911,7 @@ public struct EmbeddedCabinetWebView: View {
         showsAppUpdateBadge _: Bool = false,
         onCheckForUpdates _: @escaping CheckForUpdatesAction = {},
         onOpenMeetingDetectionSettings _: @escaping OpenMeetingDetectionSettingsAction = {},
+        onOpenNotificationSettings _: @escaping OpenMeetingDetectionSettingsAction = {},
         supportIncidentBridge _: EmbeddedCabinetSupportIncidentBridge? = nil,
         fallbackRequest _: URLRequest,
         navigationController _: EmbeddedCabinetNavigationController

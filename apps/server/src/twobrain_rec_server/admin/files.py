@@ -14,6 +14,7 @@ from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.cabinet.access import AccessDecision
 from twobrain_rec_server.cabinet.egress import artifact_egress_states, review_playback_state
 from twobrain_rec_server.cabinet.queries import latest_processing_result
+from twobrain_rec_server.cabinet.user_time import local_datetime
 from twobrain_rec_server.db.models import Meeting, TrackArtifact
 from twobrain_rec_server.domain.statuses import DeletionState, RetentionPolicyState
 from twobrain_rec_server.processing.fences import meeting_is_deleted_or_deleting
@@ -383,10 +384,10 @@ def _meeting_matches_filters(
     if owner_user_id is not None and meeting.created_by_user_id != owner_user_id:
         return False
     if date_from is not None and (
-        meeting.started_at is None or meeting.started_at.date() < date_from
+        meeting.started_at is None or local_datetime(meeting.started_at).date() < date_from
     ):
         return False
-    if date_to is not None and (meeting.started_at is None or meeting.started_at.date() > date_to):
+    if date_to is not None and (meeting.started_at is None or local_datetime(meeting.started_at).date() > date_to):
         return False
     if processing_state and meeting.processing_status != processing_state:
         return False

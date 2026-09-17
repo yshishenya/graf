@@ -26,6 +26,7 @@ from twobrain_rec_server.auth.dependencies import (
 from twobrain_rec_server.auth.rate_limit import auth_rate_limit_attempt_count
 from twobrain_rec_server.auth.sessions import (
     callback_expiry,
+    create_login_device,
     fingerprint_identity,
     issue_auth_session,
 )
@@ -530,7 +531,9 @@ async def _consume_email_login_code(
             token=request.cookies.get("graf_referral_token"),
             now=now,
         )
-    device = await _resolve_email_browser_device(db, workspace=workspace, user=user, now=now)
+    device = await _resolve_email_browser_device(
+        db, workspace=workspace, user=user, now=now, user_agent=request.headers.get("user-agent"),
+    )
     issued = await issue_auth_session(
         db,
         user_id=user.id,
@@ -1129,6 +1132,7 @@ async def _resolve_email_browser_device(
     workspace: Workspace,
     user: UserIdentity,
     now: datetime,
+    user_agent: str | None = None,
 ) -> RegisteredDevice:
     await apply_tenant_context(
         db,
@@ -1138,36 +1142,9 @@ async def _resolve_email_browser_device(
             user_id=user.id,
         ),
     )
-    device_public_id = f"browser-email:{user.id}"
-    device = await db.scalar(
-        select(RegisteredDevice).where(
-            RegisteredDevice.workspace_id == workspace.id,
-            RegisteredDevice.user_id == user.id,
-            RegisteredDevice.device_public_id == device_public_id,
-        )
+    return await create_login_device(
+        db, workspace_id=workspace.id, user_id=user.id, user_agent=user_agent, now=now,
     )
-    if device is None:
-        device = RegisteredDevice(
-            workspace_id=workspace.id,
-            user_id=user.id,
-            device_public_id=device_public_id,
-            platform="web",
-            client_version="email-login",
-            status="active",
-            registration_state="approved",
-            trusted_by=user.id,
-            last_seen_at=now,
-        )
-        db.add(device)
-        await db.flush()
-        await db.refresh(device)
-        return device
-    device.platform = "web"
-    device.client_version = "email-login"
-    device.status = "active"
-    device.registration_state = "approved"
-    device.last_seen_at = now
-    return device
 
 
 def _email_code_error_response(

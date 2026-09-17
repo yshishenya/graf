@@ -3,8 +3,10 @@ from __future__ import annotations
 from html import escape
 
 from twobrain_rec_server.api.schemas import ArtifactEgressState, MeetingReviewResponse
+from twobrain_rec_server.auth.csrf import CSRF_FORM_FIELD_NAME
 from twobrain_rec_server.cabinet.rendering_shared import _base_path, _ui_text
 from twobrain_rec_server.cabinet.templates import render_icon, render_template
+from twobrain_rec_server.cabinet.user_time import format_user_datetime
 from twobrain_rec_server.deletion.report import BOUNDED_DELETE_COPY
 
 
@@ -62,11 +64,12 @@ def _render_share_panel(review: MeetingReviewResponse) -> str:
     """
 
 
-def render_meeting_share_fragment(review: MeetingReviewResponse) -> str:
+def render_meeting_share_fragment(review: MeetingReviewResponse, *, share_workspace_id=None) -> str:
     return render_template(
         "cabinet/fragments/meeting_share.html",
         meeting_id=review.meeting.meeting_id,
         share=review.share,
+        share_workspace_id=share_workspace_id,
     )
 
 
@@ -123,22 +126,17 @@ def _render_delete_confirmation(
     if review.governance.delete.state != "available":
         return ""
     request_action = f"{_base_path(embedded)}/{review.meeting.meeting_id}/deletion-requests"
-    report_href = f"{_base_path(embedded)}/{review.meeting.meeting_id}/deletion-report"
     return f"""
       <dialog id="meeting-delete-dialog" class="delete-dialog" data-meeting-delete-dialog
               aria-labelledby="meeting-delete-title">
         <form method="post" action="{escape(request_action)}" data-meeting-delete-form>
-          <input type="hidden" name="_csrf" value="{escape(csrf_token or "")}">
+          <input type="hidden" name="{CSRF_FORM_FIELD_NAME}" value="{escape(csrf_token or "")}">
           <input type="hidden" name="confirmation_boundary" value="{escape(BOUNDED_DELETE_COPY)}">
           <h2 id="meeting-delete-title" tabindex="-1" data-meeting-delete-dialog-title>Удалить встречу?</h2>
-          <p>Встреча и доступ к ней будут удалены везде, чем управляет GRAF.</p>
-          <p class="truth-copy" data-boundary-copy="{escape(BOUNDED_DELETE_COPY)}">{escape(_ui_text(BOUNDED_DELETE_COPY))}</p>
-          <p class="muted">Полные записи Generation Call, наблюдения Langfuse и Temporal History удалены не будут: они остаются по политике хранения оператора.</p>
-          <p class="muted">Резервные копии, локальные буферы, данные внешних сервисов и уже переданные копии отражаются отдельно в отчёте.</p>
-          <a class="mini-link" href="{report_href}">{escape(_ui_text("Report"))}</a>
+          <p>Встреча будет удалена из GRAF. Восстановить ее не получится.</p>
           <div class="dialog-actions">
             <button type="button" data-meeting-delete-dialog-cancel>Отмена</button>
-            <button type="submit" class="danger-button" data-meeting-delete-dialog-confirm>Удалить встречу</button>
+            <button type="submit" class="danger-button" data-meeting-delete-dialog-confirm>Удалить</button>
           </div>
         </form>
       </dialog>
@@ -153,7 +151,7 @@ def _render_activity(review: MeetingReviewResponse) -> str:
         f"""
         <div class="activity-item">
           <div class="state-row"><strong>{escape(_ui_text(item.event_type))}</strong><span class="chip {escape(item.outcome)}">{escape(_ui_text(item.outcome))}</span></div>
-          <div class="muted">{escape(_ui_text(item.actor_label))} · {escape(item.created_at.strftime("%Y-%m-%d %H:%M"))}</div>
+          <div class="muted">{escape(_ui_text(item.actor_label))} · {escape(format_user_datetime(item.created_at, show_zone=True))}</div>
         </div>
         """
         for item in activity.items[:6]

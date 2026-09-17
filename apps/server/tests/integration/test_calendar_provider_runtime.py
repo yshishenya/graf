@@ -21,7 +21,7 @@ from twobrain_rec_server.calendar.sync import run_calendar_provider_sync
 from twobrain_rec_server.calendar.worker import (
     CALENDAR_SYNC_INTERVAL_SECONDS,
     calendar_maintenance_context,
-    enqueue_due_yandex_calendar_syncs,
+    enqueue_due_calendar_syncs,
 )
 from twobrain_rec_server.db.models import (
     CalendarCredentialEnvelope,
@@ -37,7 +37,7 @@ class FixtureProvider:
     def __init__(
         self,
         pages: list[CalendarEventPage | Exception],
-        catalog: tuple[CalendarCatalogEntry, ...] = (),
+        catalog: tuple[CalendarCatalogEntry, ...] = (CalendarCatalogEntry("primary", "Primary"),),
     ) -> None:
         self.pages = list(pages)
         self.catalog = catalog
@@ -110,7 +110,7 @@ def _create_selected_source(client) -> UUID:
     return source_id
 
 
-def test_yandex_due_source_is_queued_after_five_minutes(client) -> None:
+def test_yandex_due_source_is_queued_after_one_minute(client) -> None:
     source_id = _create_selected_source(client)
     now = datetime(2026, 8, 25, 12, 0, tzinfo=UTC)
 
@@ -124,7 +124,7 @@ def test_yandex_due_source_is_queued_after_five_minutes(client) -> None:
 
     asyncio.run(age_source())
     queued = asyncio.run(
-        enqueue_due_yandex_calendar_syncs(
+        enqueue_due_calendar_syncs(
             client.app_state["sessionmaker"],
             calendar_maintenance_context(),
             now=now,
@@ -175,7 +175,7 @@ def test_provider_sync_unseals_server_secret_and_persists_pages(client) -> None:
     result = asyncio.run(run())
     assert result.state == "synced"
     assert result.event_count == 1
-    assert provider.credentials == [
+    assert provider.credentials == 2 * [
         '{"username":"synthetic-owner@example.test","credential_input":"synthetic-calendar-secret"}'
     ]
     assert provider.calls[0]["sync_token"] is None
@@ -186,7 +186,10 @@ def test_provider_sync_unseals_server_secret_and_persists_pages(client) -> None:
         async with client.app_state["sessionmaker"]() as session:
             source = await session.get(CalendarSource, source_id)
             calendar = await session.scalar(
-                select(ExternalCalendar).where(ExternalCalendar.calendar_source_id == source_id)
+                select(ExternalCalendar).where(
+                    ExternalCalendar.calendar_source_id == source_id,
+                    ExternalCalendar.provider_calendar_id == "primary",
+                )
             )
             count = await session.scalar(
                 select(func.count())
@@ -353,7 +356,10 @@ def test_incremental_page_does_not_delete_unmentioned_snapshot(client) -> None:
         async with client.app_state["sessionmaker"]() as session:
             source = await session.get(CalendarSource, source_id)
             calendar = await session.scalar(
-                select(ExternalCalendar).where(ExternalCalendar.calendar_source_id == source_id)
+                select(ExternalCalendar).where(
+                    ExternalCalendar.calendar_source_id == source_id,
+                    ExternalCalendar.provider_calendar_id == "primary",
+                )
             )
             from twobrain_rec_server.calendar.sync import apply_calendar_sync_result
 
@@ -365,6 +371,7 @@ def test_incremental_page_does_not_delete_unmentioned_snapshot(client) -> None:
                 events=[first, second],
                 sync_token="cursor-old",
                 synced_at=datetime(2026, 8, 19, tzinfo=UTC),
+                credential_encryption_key=client.app.state.credential_encryption_key,
             )
             await session.commit()
 
@@ -429,7 +436,10 @@ def test_cursor_invalidation_retries_as_full_sync_and_replaces_stale_snapshot(cl
         async with client.app_state["sessionmaker"]() as session:
             source = await session.get(CalendarSource, source_id)
             calendar = await session.scalar(
-                select(ExternalCalendar).where(ExternalCalendar.calendar_source_id == source_id)
+                select(ExternalCalendar).where(
+                    ExternalCalendar.calendar_source_id == source_id,
+                    ExternalCalendar.provider_calendar_id == "primary",
+                )
             )
             from twobrain_rec_server.calendar.sync import apply_calendar_sync_result
 
@@ -441,6 +451,7 @@ def test_cursor_invalidation_retries_as_full_sync_and_replaces_stale_snapshot(cl
                 events=[stale],
                 sync_token="cursor-old",
                 synced_at=datetime(2026, 8, 19, tzinfo=UTC),
+                credential_encryption_key=client.app.state.credential_encryption_key,
             )
             await session.commit()
 
@@ -477,7 +488,10 @@ def test_cursor_invalidation_retries_as_full_sync_and_replaces_stale_snapshot(cl
     async def read_back() -> tuple[ExternalCalendar, list[CalendarEventSnapshot]]:
         async with client.app_state["sessionmaker"]() as session:
             calendar = await session.scalar(
-                select(ExternalCalendar).where(ExternalCalendar.calendar_source_id == source_id)
+                select(ExternalCalendar).where(
+                    ExternalCalendar.calendar_source_id == source_id,
+                    ExternalCalendar.provider_calendar_id == "primary",
+                )
             )
             snapshots = list(
                 await session.scalars(
@@ -771,7 +785,7 @@ def test_worker_unexpected_persistence_failure_cannot_leave_source_syncing(
 
     asyncio.run(queue_source())
     monkeypatch.setattr(calendar_worker, "provider_for_source", lambda source, settings: object())
-    monkeypatch.setattr(calendar_worker, "_credential_key", lambda settings: b"synthetic-key")
+    monkeypatch.setattr(calendar_worker, "owner_content_key_from_settings", lambda settings: b"synthetic-key")
     monkeypatch.setattr(calendar_worker, "run_calendar_provider_sync", fail_after_provider_read)
 
     context = MaintenanceTenantContext(

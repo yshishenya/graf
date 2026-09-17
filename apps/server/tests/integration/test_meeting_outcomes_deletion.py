@@ -30,6 +30,15 @@ BOUNDED_COPY = "Delete this meeting everywhere GRAF controls."
 def test_deletion_report_accounts_for_stored_outcomes_without_content(client) -> None:
     meeting_id = create_outcome_ready_meeting(client, "outcome-deletion-report")
     asyncio.run(ensure_outcomes_for_meeting(client.app_state["sessionmaker"], meeting_id=meeting_id))
+    async def seed_saved_content():
+        async with client.app_state["sessionmaker"]() as db:
+            outcome = await db.scalar(select(MeetingOutcomeSet).where(MeetingOutcomeSet.meeting_id == meeting_id))
+            outcome.protocol_json = {"title": "Сохранённый приватный протокол"}
+            db.add(MeetingOutcomeItem(workspace_id=outcome.workspace_id, meeting_id=meeting_id,
+                outcome_set_id=outcome.id, category="summary", sequence=0,
+                state="available", text="Сохранённый итог", truth_label="supported", source_refs_json=[]))
+            await db.commit()
+    asyncio.run(seed_saved_content())
     outcome_text = asyncio.run(_first_outcome_text(client, meeting_id))
     assert outcome_text
 
@@ -189,10 +198,13 @@ async def _outcome_lifecycle_state(client, meeting_id) -> str:
 
 async def _stored_outcome_content_count(client, meeting_id) -> int:
     async with client.app_state["sessionmaker"]() as db:
+        documents = (await db.scalars(select(MeetingOutcomeSet.protocol_json).where(
+            MeetingOutcomeSet.meeting_id == meeting_id,
+        ))).all()
         items = (
             await db.scalars(select(MeetingOutcomeItem).where(MeetingOutcomeItem.meeting_id == meeting_id))
         ).all()
-        return sum(1 for item in items if item.text or item.owner_text or item.due_date_text or item.source_refs_json)
+        return sum(bool(document) for document in documents) + sum(1 for item in items if item.text or item.owner_text or item.due_date_text or item.source_refs_json)
 
 
 async def _summary_slot_count(client, meeting_id) -> int:

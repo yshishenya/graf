@@ -2,12 +2,16 @@
 {% import "cabinet/components/primitives.html" as ui %}
 
 {% macro preferences_form(preferences, csrf_token, embedded=False) -%}
-<form class="settings-form" data-settings-form method="post" action="{{ "/desktop/settings/notifications" if embedded else "/settings/notifications" }}">
+<form class="settings-form" data-notification-settings data-settings-autosave method="post" action="{{ "/desktop/settings/notifications" if embedded else "/settings/notifications" }}"><fieldset data-settings-inputs disabled>
   {{ sections.csrf_field(csrf_token) }}
+  <input type="hidden" name="version" value="{{ preferences.version }}">
+  <input type="hidden" name="optional_email_enabled" value="false">
+  <input type="hidden" name="optional_in_app_enabled" value="false">
   <div class="settings-control-list">
-    {{ ui.switch("optional_email_enabled", "Email-подсказки", checked=preferences.optional_email_enabled, description="Новости и советы о GRAF") }}
-    {{ ui.switch("optional_in_app_enabled", "Подсказки в кабинете", checked=preferences.optional_in_app_enabled, description="Советы рядом с функциями") }}
+    {{ ui.switch("optional_email_enabled", "Письма с новостями и советами", checked=preferences.optional_email_enabled) }}
+    {{ ui.switch("optional_in_app_enabled", "Подсказки в GRAF", checked=preferences.optional_in_app_enabled) }}
   </div>
-  <div class="settings-form-actions"><button class="button" type="submit">Сохранить</button><p class="settings-form-status" data-settings-form-status role="status" aria-live="polite" hidden></p></div>
-</form>
+  <p class="settings-form-status" data-settings-form-status role="status" aria-live="polite" hidden></p>
+
+</fieldset></form>
 {%- endmacro %}

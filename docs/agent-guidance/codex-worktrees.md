@@ -38,6 +38,33 @@ cat .specify/feature.json 2>/dev/null || true
 Use `SPECIFY_FEATURE_DIRECTORY=... .specify/scripts/bash/check-prerequisites.sh`
 when you need to force a specific feature anchor.
 
+## Starting New Work and Choosing a Feature ID
+
+For a new feature, verify a fresh `origin/master` and its exact SHA, then use a
+disposable worktree based on that revision. An existing session may intentionally
+remain on an older feature: never switch it, reset it, or discard its changes to
+start unrelated work. Continuing an existing feature uses its own branch and
+tasks, not a newly allocated number.
+
+Treat injected `spec_last`/`spec_next` values and local directory maxima as hints,
+not reservations. From the fresh worktree, run `python3 scripts/claim-feature.py
+--json` for a read-only online proposal. The branch-creation commands delegate to
+the same allocator, which repeats the choice under the shared lock when reserving
+it; a proposal can become stale before reservation. `--offline` only gives a local
+draft suggestion and does not establish availability on GitHub.
+
+`.specify/feature-numbering.json` sets GRAF's new feature range to `001–999`
+through `max_feature_id: 999`. Only in-range specs advance the sequence;
+historical IDs such as F6788/F6791/F6792 remain occupied and unchanged.
+Exhaustion stops allocation instead of issuing four digits or reusing old IDs.
+The branch, spec directory, active pointer and task feature markers reuse the
+same reserved ID. Spec creation must not independently rescan directory maxima
+or replace the allocator's pointer metadata. New explicit IDs must also satisfy
+the policy; exact retries of historical claims remain supported.
+Without a maximum, the generic highest-spec behavior remains available.
+An unreadable or malformed policy stops selection. Do not add exceptions merely
+to obtain a preferred ID.
+
 ## Instruction Loading
 
 Codex reads `AGENTS.md` automatically and applies closer nested `AGENTS.md`

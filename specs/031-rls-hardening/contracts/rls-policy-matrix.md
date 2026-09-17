@@ -153,6 +153,17 @@ raw payloads.
 the matching workspace worker and approved maintenance contexts only, so the
 retained plaintext model-call ledger cannot become an end-user data surface.
 
+## Notification Inbox
+
+`server_notifications` uses forced RLS from `0086_notification_inbox`.
+The recipient can select and update their own notifications. Creation and
+removal require the current workspace and either its worker context or the
+meeting owner; the same producer predicate also allows select/update.
+Approved maintenance uses `rec_maintenance_allowed()`. The application further
+filters recipient, workspace and current meeting access before rendering.
+The table stores metadata only; notification text is rendered from authorized
+current state. Missing context does not grant recipient or producer access.
+
 ## Maintenance-Only Global Tables
 
 Policy shape:

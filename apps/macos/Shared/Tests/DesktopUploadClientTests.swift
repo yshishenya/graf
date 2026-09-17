@@ -108,6 +108,7 @@ final class DesktopUploadClientTests: XCTestCase {
                 "transcript_available": false,
                 "diarization_available": false,
                 "content_available": false,
+                "summary_status": "failed",
                 "web_url": "/meetings/private",
                 "desktop_url": "/desktop/meetings/private",
             ],
@@ -143,9 +144,24 @@ final class DesktopUploadClientTests: XCTestCase {
         XCTAssertEqual(reconciliation?.serverTruth.processingReasonCode, "provider_timeout")
         XCTAssertEqual(reconciliation?.serverTruth.reviewAvailable, false)
         XCTAssertEqual(reconciliation?.serverTruth.reviewStatus, "unavailable")
+        XCTAssertEqual(reconciliation?.serverTruth.transcriptAvailable, false)
+        XCTAssertEqual(reconciliation?.serverTruth.summaryStatus, "failed")
         XCTAssertEqual(reconciliation?.serverTruth.conflictReason, "server_meeting_deleted")
         XCTAssertEqual(reconciliation?.serverTruth.nextAction, "send_support_report")
         XCTAssertEqual(reconciliation?.conflictState, .serverMeetingDeleted)
+    }
+
+    func testServerTruthReadinessMetadataRoundTripsAndCannotLeakThroughOmittedProgress() throws {
+        let old = try JSONDecoder().decode(ServerTruthFingerprint.self,
+            from: Data(#"{"acceptedBytesByTrack":{},"requiredTrackSha256":{}}"#.utf8))
+        XCTAssertNil(old.transcriptAvailable)
+        let ready = ServerTruthFingerprint(uploadSessionId: "session", acceptedBytesByTrack: ["media": 100],
+            summaryStatus: "available", transcriptAvailable: true)
+        XCTAssertEqual(try JSONDecoder().decode(ServerTruthFingerprint.self, from: JSONEncoder().encode(ready)), ready)
+        let merged = ready.mergingConfirmedProgress(.init(uploadSessionId: "session", acceptedBytesByTrack: ["media": 50]))
+        XCTAssertEqual(merged.acceptedBytesByTrack["media"], 100)
+        XCTAssertNil(merged.summaryStatus)
+        XCTAssertNil(merged.transcriptAvailable)
     }
 
     func testNewUploadSessionCanTruthfullyRestartConfirmedProgress() {

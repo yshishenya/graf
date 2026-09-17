@@ -202,6 +202,13 @@ check_existing_branches() {
         max_num=$highest_spec
     fi
 
+    local allocator="$REPO_ROOT/scripts/claim-feature.py"
+    if [ -f "$allocator" ] && { [ "${GRAF_SKIP_FEATURE_CLAIM:-}" != "1" ] || { [ -e "$REPO_ROOT/.specify/feature-numbering.json" ] || [ -L "$REPO_ROOT/.specify/feature-numbering.json" ]; }; }; then
+        local suggestion
+        suggestion=$(python3 "$allocator" --root "$REPO_ROOT" --json) || return 1
+        printf '%s' "$suggestion" | python3 -c 'import json,sys; print(int(json.load(sys.stdin)["next_available"]))'
+        return
+    fi
     echo $((max_num + 1))
 }
 
@@ -371,6 +378,23 @@ validate_branch_template() {
     local template="$1"
     [ -n "$template" ] || return 0
     local feature_segment
+    local unsupported_tokens="$template"
+    case "$template" in
+        *'$'*)
+            >&2 echo "Error: branch_template contains a shell-style placeholder. Use {author}, {app}, {number}, and {slug} without a dollar sign."
+            exit 1
+            ;;
+    esac
+    unsupported_tokens=${unsupported_tokens//\{author\}/_}
+    unsupported_tokens=${unsupported_tokens//\{app\}/_}
+    unsupported_tokens=${unsupported_tokens//\{number\}/_}
+    unsupported_tokens=${unsupported_tokens//\{slug\}/_}
+    case "$unsupported_tokens" in
+        *"{"*|*"}"*)
+            >&2 echo "Error: branch_template contains an unsupported or malformed placeholder. Allowed tokens: {author}, {app}, {number}, {slug}."
+            exit 1
+            ;;
+    esac
     feature_segment="${template##*/}"
     case "$template" in
         *"{number}"*) ;;
@@ -550,10 +574,19 @@ elif [ "$BRANCH_BYTE_LEN" -gt $MAX_BRANCH_LENGTH ]; then
     >&2 echo "[specify] Truncated to: $BRANCH_NAME (${TRUNCATED_BRANCH_BYTE_LEN} bytes)"
 fi
 
+# Validate every explicit/generated identity before dry-run output or writes.
+if { [ -e "$REPO_ROOT/.specify/feature-numbering.json" ] || [ -L "$REPO_ROOT/.specify/feature-numbering.json" ]; }; then
+    if [ ! -f "$REPO_ROOT/scripts/claim-feature.py" ]; then
+        echo 'Error: repository feature-numbering policy requires scripts/claim-feature.py' >&2
+        exit 1
+    fi
+    python3 "$REPO_ROOT/scripts/claim-feature.py" --root "$REPO_ROOT" --check-feature-id "$FEATURE_NUM" --branch "$BRANCH_NAME" || exit 1
+fi
+
 if [ "$DRY_RUN" != true ]; then
     if [ "$HAS_GIT" = true ]; then
         claim_script="$REPO_ROOT/scripts/claim-feature.py"
-        if [ -f "$claim_script" ] && [ "${GRAF_SKIP_FEATURE_CLAIM:-}" != "1" ]; then
+        if [ -f "$claim_script" ] && { [ "${GRAF_SKIP_FEATURE_CLAIM:-}" != "1" ] || { [ -e "$REPO_ROOT/.specify/feature-numbering.json" ] || [ -L "$REPO_ROOT/.specify/feature-numbering.json" ]; }; }; then
             claim_args=(--root "$REPO_ROOT" --allocate --branch "$BRANCH_NAME" --slug "$BRANCH_SUFFIX" --json)
             if [ -n "${GRAF_UMBRELLA_ISSUE:-}" ]; then
                 claim_args+=(--issue-number "$GRAF_UMBRELLA_ISSUE")

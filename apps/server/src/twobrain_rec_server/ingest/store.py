@@ -317,9 +317,7 @@ async def persist_meeting(db: AsyncSession | None, meeting: MeetingRecord, *, co
                 media_revision.duration_seconds = meeting.duration_seconds
         existing.status = meeting.status.value
         existing.processing_status = meeting.processing_status.value
-        existing.title = meeting.title
-        existing.title_source = meeting.title_source
-        existing.title_updated_at = meeting.title_updated_at
+        # Title writers own these fields; a stale ingest snapshot must not restore them.
         if meeting.create_request_fingerprint_sha256 is not None:
             existing.create_request_fingerprint_sha256 = meeting.create_request_fingerprint_sha256
         existing.started_at = meeting.started_at

@@ -32,6 +32,7 @@ from twobrain_rec_server.auth.providers.base import (
 from twobrain_rec_server.auth.redirects import safe_first_party_path
 from twobrain_rec_server.auth.sessions import (
     consume_callback_state,
+    create_login_device,
     fingerprint_identity,
     issue_auth_session,
 )
@@ -335,6 +336,7 @@ async def _resolve_browser_login_device(
     workspace: Workspace,
     user: UserIdentity,
     now: datetime,
+    user_agent: str | None = None,
 ) -> RegisteredDevice:
     await apply_tenant_context(
         db,
@@ -345,36 +347,9 @@ async def _resolve_browser_login_device(
             context_kind="request",
         ),
     )
-    device_public_id = f"browser-login:{user.id}"
-    device = await db.scalar(
-        select(RegisteredDevice).where(
-            RegisteredDevice.workspace_id == workspace.id,
-            RegisteredDevice.user_id == user.id,
-            RegisteredDevice.device_public_id == device_public_id,
-        )
+    return await create_login_device(
+        db, workspace_id=workspace.id, user_id=user.id, user_agent=user_agent, now=now,
     )
-    if device is None:
-        device = RegisteredDevice(
-            workspace_id=workspace.id,
-            user_id=user.id,
-            device_public_id=device_public_id,
-            platform="web",
-            client_version="browser-login",
-            status="active",
-            registration_state="approved",
-            trusted_by=user.id,
-            last_seen_at=now,
-        )
-        db.add(device)
-        await db.flush()
-        await db.refresh(device)
-        return device
-    device.platform = "web"
-    device.client_version = "browser-login"
-    device.status = "active"
-    device.registration_state = "approved"
-    device.last_seen_at = now
-    return device
 
 
 def _is_browser_requested_redirect(value: str | None) -> bool:
@@ -504,6 +479,7 @@ async def resolve_callback_to_user(
     browser_state_nonce: str | None = None,
     referral_token: str | None = None,
     referral_enabled: bool,
+    user_agent: str | None = None,
     now: datetime | None = None,
 ) -> CallbackProfile:
     now = now or datetime.now(UTC)
@@ -729,6 +705,7 @@ async def resolve_callback_to_user(
     if _is_browser_requested_redirect(state.requested_redirect):
         browser_device = await _resolve_browser_login_device(
             db,
+            user_agent=user_agent,
             workspace=workspace,
             user=user,
             now=now,

@@ -4,6 +4,8 @@ from html import escape
 from pathlib import Path
 from uuid import UUID, uuid4
 
+import pytest
+
 from twobrain_rec_server.api.schemas import (
     ArtifactDeletionState,
     ArtifactEgressState,
@@ -368,12 +370,21 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert "data-filter-disclosure" in page
     assert "data-sort-disclosure" in page
     assert 'aria-label="Фильтры"' in page
-    assert 'aria-label="Сортировка: Недавно обновлённые"' in page
-    assert 'value="updated_desc" selected>Недавно обновлённые</option>' in page
+    assert 'aria-label="Сортировка: Недавно обновленные"' in page
+    assert 'value="updated_desc" selected>Недавно обновленные</option>' in page
     css = _cabinet_css()
-    assert "max-width: min(1120px, calc(100vw - 48px))" in css
+    assert ".desktop-embedded .cabinet-workspace {\n  width: min(100%, 1240px);\n  max-width: none;\n  margin-inline: auto;\n}" in css
+    # Список встреч занимает ту же колонку, что календарь и топбар.
+    assert (
+        ".list-card.cabinet-card {\n  max-width: none;\n  border-color: var(--line-soft);"
+        in css
+    )
+    assert ".list-card { max-width: 980px;" not in css
     assert "min-height: 64px;" in css
-    assert ".meeting-title { display: block; min-width: 0;" in css
+    assert (
+        ".meeting-title {\n  display: block;\n  min-width: 0;\n  overflow: hidden;\n"
+        "  text-overflow: ellipsis;\n  white-space: nowrap;" in css
+    )
     assert (
         ".meeting-row.cabinet-row { grid-template-columns: 20px 20px minmax(0, 1fr) 32px auto;"
         in css
@@ -437,17 +448,20 @@ def test_list_shell_renders_dense_controls_without_marketing_copy() -> None:
     assert 'aria-label="Применить фильтры"' not in page
     assert 'class="toolbar-icons"' not in page
     assert '<input class="row-check selection-toggle" type="checkbox" data-selection-toggle' in page
-    assert "padding-left: 13px;" in css
+    assert (
+        ".selection-toolbar {\n  display: flex;\n  justify-content: flex-start;\n  align-items: center;\n"
+        "  min-height: var(--control-height);\n  padding-left: 0;" in css
+    )
     assert ".selection-toggle {\n  flex: 0 0 16px;" in css
     assert (
-        ".row-check {\n  accent-color: var(--accent);\n  width: 16px;\n  height: 16px;\n  min-height: 16px;\n  margin: 0;"
+        ".row-check {\n  width: 16px;\n  height: 16px;\n  min-height: 16px;\n  cursor: pointer;"
         in css
     )
     assert "selectionToggle.indeterminate = rows.length > 0 && !allSelected" in _cabinet_js()
     assert ".row-check {\n  appearance: none;" not in css
     assert ".row-check:checked::after" not in css
-    assert "line-height: 32px;" in css
-    assert ".icon-control {\n  width: 32px;\n  height: 32px;\n  min-height: 32px;" in css
+    assert "line-height: var(--control-height);" in css
+    assert ".icon-button {\n  width: 32px;\n  height: 32px;\n  min-height: 32px;" in css
     assert "padding: 0;" in css
     assert ".ui-icon {\n  width: 16px;\n  height: 16px;" in css
     assert ".row-icon .ui-icon { width: 14px; height: 14px; }" in css
@@ -536,8 +550,8 @@ def test_meeting_list_rows_render_only_projected_exception_status_and_trusted_ti
         assert list_region.count("Не удалось обработать") == 1
         assert list_region.count('data-status-kind="failed"') == 1
         assert "Расшифровка и итоги пока недоступны" in list_region
-        assert 'aria-label="Выбрать встречу Проектный синк, 16 июн, 08:00"' in list_region
-        assert "16 июн, 08:00" in list_region
+        assert 'aria-label="Выбрать встречу Проектный синк, 16.06.2026, 08:00 (UTC)"' in list_region
+        assert "16.06.2026, 08:00 (UTC)" in list_region
         assert "Открыть встречу Проектный синк" in list_region
 
 
@@ -587,19 +601,19 @@ def test_meeting_list_uses_ordered_rows_with_separate_open_select_and_delete_con
     assert 'type="checkbox" tabindex="-1"' not in list_region
     assert 'data-row-delete aria-label="Удалить встречу' in list_region
     assert 'data-row-delete aria-hidden="true"' not in list_region
-    assert 'aria-label="Выбрать встречу Проектный синк, 16 июн, 08:00"' in list_region
-    assert 'aria-label="Удалить встречу Проектный синк, 16 июн, 08:00"' in list_region
-    assert 'aria-label="Выбрать встречу Запись, 16 июн, 08:00"' in list_region
-    assert 'aria-label="Удалить встречу Запись, 16 июн, 08:00"' in list_region
+    assert 'aria-label="Выбрать встречу Проектный синк, 16.06.2026, 08:00 (UTC)"' in list_region
+    assert 'aria-label="Удалить встречу Проектный синк, 16.06.2026, 08:00 (UTC)"' in list_region
+    assert 'aria-label="Выбрать встречу Запись, 16.06.2026, 08:00 (UTC)"' in list_region
+    assert 'aria-label="Удалить встречу Запись, 16.06.2026, 08:00 (UTC)"' in list_region
     assert 'aria-label="Встреча Проектный синк"' not in list_region
     second_id = str(second.meeting_id)
     assert (
-        f'aria-label="Открыть встречу Запись, 16 июн, 08:00" '
+        f'aria-label="Открыть встречу Запись, 16.06.2026, 08:00 (UTC)" '
         f'aria-describedby="meeting-{second_id}-duration meeting-{second_id}-readiness"'
         in list_region
     )
     assert (
-        f'<li class="meeting-row cabinet-row" data-meeting-row data-meeting-id="{second_id}">'
+        f'<li class="meeting-row cabinet-row" data-meeting-row data-meeting-id="{second_id}" '
         in list_region
     )
 
@@ -719,11 +733,11 @@ def test_meeting_list_marks_exceptional_rows_and_keeps_full_safe_accessible_desc
 
     assert (
         f'<li class="meeting-row cabinet-row" data-meeting-row '
-        f'data-meeting-id="{ready_id}">' in page
+        f'data-meeting-id="{ready_id}" ' in page
     )
     assert (
         f'<li class="meeting-row cabinet-row has-status" data-meeting-row '
-        f'data-meeting-id="{exceptional_id}">' in page
+        f'data-meeting-id="{exceptional_id}" ' in page
     )
     assert f'data-meeting-id="{ready_id}" tabindex=' not in page
     assert f'data-meeting-id="{exceptional_id}" tabindex=' not in page
@@ -825,7 +839,7 @@ def test_meeting_list_renders_exact_waiting_progress_action_and_empty_states() -
     assert "Отправлено" not in page
     assert page.count(">Нужен выбор</span>") == 1
     assert page.count(">Выбрать встречу</a>") == 1
-    assert 'aria-label="Выбрать встречу Календарный выбор, 16 июн, 08:00"' in page
+    assert 'aria-label="Выбрать встречу Календарный выбор, 16.06.2026, 08:00 (UTC)"' in page
     assert page.count(">Аудио готовится</span>") == 1
     assert page.count(">Без аудио</span>") == 1
     assert page.count(">Не удалось обработать</span>") == 1
@@ -923,7 +937,9 @@ def test_deletion_feedback_precedes_list_and_client_focus_recovery_is_determinis
         "captureDeletionFocusFallback",
         "nextRow",
         "previousRow",
-        "error.textContent = `Не удалось удалить ${failures}",
+        "const failureMessage = `Не удалось удалить ${failures}",
+        "error.textContent = failureMessage",
+        'publishDeletionFeedback(failureMessage, "error")',
         'confirm.textContent = "Повторить"',
         "pendingDeleteRows = failedRows",
         "requestMeetingListRefresh",
@@ -931,7 +947,8 @@ def test_deletion_feedback_precedes_list_and_client_focus_recovery_is_determinis
         "listRefreshShouldRestoreFocus",
         "listRefreshFocusOrigin",
         "userMovedFocus",
-        "pendingMeetingIds",
+        "pendingDeleteRows = pendingDeleteRows.map(row =>",
+        "currentRowsByIdentity.get(recordingRowIdentity(row))",
         "authorizationRecoveryKind",
         'response.headers.get("X-GRAF-Cabinet-Recovery")',
         "renderMeetingListRecovery(recoveryKind)",
@@ -1189,9 +1206,27 @@ def test_partial_transcript_detail_renders_diarization_placeholder() -> None:
     assert 'data-transcript-pending' in page
     assert "Здесь появится расшифровка." in page
     pending = re.search(r'<div[^>]*data-transcript-pending>.*?</div>', page, re.S).group()
-    assert "Спикеры ещё определяются" not in pending
+    assert "Спикеры еще определяются" not in pending
     assert "Расшифровка появится после завершения диаризации." not in pending
     assert 'data-playback-transcript hidden aria-hidden="true"' in page
+
+
+def test_list_polls_only_requested_summary_work() -> None:
+    from types import SimpleNamespace
+
+    for state in ("not_requested", "queued", "generating", "blocked_dependency", "failed"):
+        item = _item().model_copy(update={
+            "status": "ready", "primary_action": "open", "transcript_available": True,
+            "summary_status": state,
+            "notes_action_truth": cabinet_view_models.notes_action_truth_state(
+                status="ready", result=SimpleNamespace(summary_status=state),
+            ),
+        })
+        page = render_meeting_list_page(MeetingListResponse(
+            items=[item], filters=MeetingFilterState(), generated_at=datetime.now(UTC),
+        ))
+        pending = state in {"queued", "generating", "blocked_dependency"}
+        assert f'data-summary-pending="{str(pending).lower()}"' in page, state
 
 
 def test_processing_summary_copy_can_distinguish_stored_output_from_not_requested() -> None:
@@ -1221,7 +1256,8 @@ def test_meeting_detail_page_uses_manual_upload_receipt_date() -> None:
 
     page = render_meeting_detail_page(review)
 
-    assert "Загружено 26 июн, 21:30" in page
+    assert "26.06.2026, 21:30 (UTC)" in page
+    assert "Загружено <time" in page
     assert "Без даты" not in page
 
 
@@ -1309,7 +1345,7 @@ def test_web_shell_keeps_sidebar_pinned_without_scrollbar() -> None:
         ".desktop-embedded .main {\n  --meeting-detail-main-padding-top: 22px;\n\n  padding: var(--meeting-detail-main-padding-top)"
         in css
     )
-    assert ".desktop-embedded .cabinet-main {\n  padding: 24px" in css
+    assert ".desktop-embedded .cabinet-main {\n  padding: 20px clamp(16px, 3vw, 36px) 48px;" in css
     assert (
         'html:not([data-cabinet-js="ready"]) .app-shell:not(.desktop-embedded) {\n'
         "    grid-template-rows: auto minmax(0, 1fr) auto;"
@@ -1325,8 +1361,8 @@ def test_web_shell_keeps_sidebar_pinned_without_scrollbar() -> None:
 def test_embedded_window_breakpoints_keep_sidebar_stable_until_tight_width() -> None:
     css = _cabinet_css()
 
-    assert "  flex-wrap: wrap;\n  justify-content: space-between;" in css
-    assert "  width: min(760px, 100%);\n  min-width: 0;" in css
+    assert "  flex-wrap: nowrap;\n  justify-content: space-between;" in css
+    assert "  width: auto;\n  min-width: 0;" in css
     assert (
         "@media (max-width: 980px) {\n"
         "  .app-shell { grid-template-columns: 1fr; }\n"
@@ -1352,7 +1388,7 @@ def test_embedded_window_breakpoints_keep_sidebar_stable_until_tight_width() -> 
     assert ".cabinet-main { padding: 18px 14px; }" in css
     assert ".desktop-embedded .main { padding: var(--meeting-detail-main-padding-top) 14px 18px; }" in css
     assert ".desktop-embedded .cabinet-main { padding: 18px 14px; }" in css
-    assert "172px" not in css
+    assert "--app-sidebar-width: 172px" not in css
 
 
 def test_embedded_shell_exposes_compact_rail_toggle_and_lucide_nav_icons() -> None:
@@ -1408,7 +1444,7 @@ def test_calendar_settings_reuses_common_cabinet_shell() -> None:
     assert "GRAF" in page
 
 
-def test_098_calendar_settings_renders_auto_context_filter_boundary_once() -> None:
+def test_calendar_settings_omits_redundant_auto_context_explanation() -> None:
     page = render_calendar_settings_page(
         calendar_settings_surface(provider_payloads=[], sources=[]),
         embedded=True,
@@ -1419,7 +1455,8 @@ def test_098_calendar_settings_renders_auto_context_filter_boundary_once() -> No
         "Приватные события и события на весь день не используются для "
         "автоматического контекста записи."
     )
-    assert page.count(copy) == 1
+    assert copy not in page
+    assert 'data-settings-autosave' in page
 
 
 def test_sidebar_markup_lives_in_reusable_sections_macro() -> None:
@@ -1455,7 +1492,8 @@ def test_cabinet_rail_collapses_at_surface_breakpoint_without_resize_handler() -
         'shell.classList.contains("desktop-embedded")',
         '"(min-width: 1121px)" : "(min-width: 981px)"',
         'expandedMedia.addEventListener("change", syncViewport)',
-        'sessionStorage.getItem("graf-cabinet-rail")',
+        'sessionStorage.getItem(railKey)',
+        '"graf-settings-rail" : "graf-cabinet-rail"',
     ):
         assert marker in js
     assert "if (!event.matches) setRailPinned(shell, toggle, false)" not in js
@@ -1466,17 +1504,15 @@ def test_cabinet_rail_collapses_at_surface_breakpoint_without_resize_handler() -
     assert 'document.addEventListener("click"' not in rail_source
 
 
-def test_calendar_sync_refreshes_boundedly_until_server_state_changes() -> None:
+def test_calendar_display_refresh_avoids_page_reload_and_retry_limit() -> None:
     js = _cabinet_js()
-
-    for marker in (
-        "graf-calendar-sync-refresh:",
-        "refreshAttempt < 4",
-        "window.location.reload()",
-        "Синхронизация занимает больше обычного. Обновите страницу позже.",
-        "sessionStorage.removeItem(syncRefreshKey)",
-    ):
-        assert marker in js
+    refresh = js[js.index("const refreshCalendarDisplay"):js.index("const initSettingsFormState")]
+    assert "window.location.reload" not in refresh
+    assert 'window.addEventListener("online"' in refresh
+    assert 'document.addEventListener("visibilitychange"' in refresh
+    assert "30000" in refresh
+    assert "refreshAttempt" not in js
+    assert "graf-calendar-sync-refresh" not in js
 
 
 def test_feature_159_shared_shell_toggle_has_one_truthful_focusable_contract() -> None:
@@ -1527,8 +1563,10 @@ def test_feature_159_search_contract_reserves_icon_text_and_clear_space() -> Non
     assert page.count('id="meeting-search"') == 1
     assert 'aria-label="Поиск встреч"' in page
     css = _cabinet_css()
-    assert "padding-inline-start: 42px;" in css
-    assert "padding-inline-end: 34px;" in css
+    assert (
+        '.cabinet-search-control input[type="search"] {\n  padding-inline-start: 40px;\n  padding-inline-end: 34px;'
+        in css
+    )
     assert "pointer-events: none;" in css
     assert "min-width: 16px;" in css
 
@@ -1600,8 +1638,8 @@ def test_feature_159_download_and_profile_surface_contract_is_surface_aware() ->
                 menu,
                 flags=re.DOTALL,
             )
-    assert 'data-account-preferences-auto-save' in web
-    assert 'data-account-preferences-auto-save' in embedded
+    assert 'data-account-preferences data-settings-autosave' in web
+    assert 'data-account-preferences data-settings-autosave' in embedded
     assert 'aria-haspopup="menu"' not in web
     assert 'role="menu"' not in web
     assert 'role="menuitem"' not in web
@@ -1618,8 +1656,13 @@ def test_profile_menu_theme_and_disabled_action_contract_is_shared() -> None:
         SERVER_ROOT / "cabinet" / "templates" / "cabinet" / "components" / "sections.html"
     ).read_text()
 
-    assert 'form.dataset.accountPreferencesAutoSave === "true"' in script
-    assert "form.requestSubmit()" in script
+    autosave = (SERVER_ROOT / "cabinet" / "static" / "cabinet" / "settings-autosave.js").read_text()
+    assert "accountPreferencesAutoSave" not in script
+    assert "form[data-settings-autosave]" in autosave
+    assert "const url=new URL(form.action,location.href).href" in autosave
+    assert "const queue=create(url," in autosave
+    assert 'data-account-preferences-return' in sections
+    assert 'data-settings-form-status' in sections
     assert 'data-profile-menu popover="manual" hidden' in sections
     assert "menu.showPopover()" in script
     assert "menu.hidePopover()" in script
@@ -1662,7 +1705,7 @@ def test_feature_159_settings_use_one_primary_sidebar_and_canonical_meetings_ret
     for embedded, meetings_href in ((False, "/meetings"), (True, "/desktop/meetings")):
         page = render_settings_page(embedded=embedded, category="account")
         assert page.count("data-settings-primary-nav>") == 1
-        assert page.count("data-settings-primary-nav-item") == 9
+        assert page.count("data-settings-primary-nav-item") == 8
         assert f'href="{meetings_href}"' in page
         assert page.count('data-settings-primary-nav-item="account"') == 1
         primary_sidebar = re.search(
@@ -1922,7 +1965,8 @@ def test_detail_shell_renders_tabs_and_gated_actions() -> None:
 
     assert page.count("data-meeting-detail-header") == 1
     header = page.split("data-meeting-detail-header", 1)[1].split('class="detail-main"', 1)[0]
-    assert 'class="topline"' in header
+    assert 'class="meeting-detail-actions"' in header
+    assert 'class="meeting-detail-identity"' in header
     assert 'id="meeting-share-host"' in header
     assert header.count('role="tablist"') == 1
     assert "Итоги" in page
@@ -1934,10 +1978,10 @@ def test_detail_shell_renders_tabs_and_gated_actions() -> None:
     assert 'data-detail-panel="recording"' in page
     assert '<h2 class="sr-only">Итоги</h2>' in page
     assert "const activateDetailTab = (name, { updateUrl = true } = {})" in _cabinet_js()
-    assert "Транскрипт готовится" in page
+    assert "Расшифровка готовится" in page
     assert "Поделиться" in page
     assert "data-share-dialog-open" in page
-    assert "Ещё" in page
+    assert "Еще" in page
     assert 'data-meeting-panel-open="more"' in page
     assert "Видимость для команды" not in page
     assert "Публичные ссылки" not in page
@@ -1945,6 +1989,36 @@ def test_detail_shell_renders_tabs_and_gated_actions() -> None:
     assert "Удалить встречу…" not in page
     assert "Request deletion" not in page
     assert "Удалить встречу?" not in page
+
+
+@pytest.mark.parametrize("embedded", [False, True])
+@pytest.mark.parametrize("delete_state", ["available", "disabled"])
+def test_detail_delete_dialog_is_brief_and_preserves_confirmation_form(
+    embedded: bool, delete_state: str
+) -> None:
+    review = _review()
+    review.governance.delete.state = delete_state
+    page = render_meeting_detail_page(review, embedded=embedded, csrf_token="synthetic-csrf")
+    match = re.search(r'<dialog id="meeting-delete-dialog".*?</dialog>', page, re.S)
+    if delete_state != "available":
+        assert match is None
+        return
+
+    assert match is not None
+    dialog = match.group()
+    base = "/desktop/meetings" if embedded else "/meetings"
+    assert f'action="{base}/{review.meeting.meeting_id}/deletion-requests"' in dialog
+    assert 'name="csrf_token" value="synthetic-csrf"' in dialog
+    assert 'name="confirmation_boundary" value="Delete this meeting everywhere GRAF controls."' in dialog
+    assert 'aria-labelledby="meeting-delete-title"' in dialog
+    assert "Встреча будет удалена из GRAF. Восстановить ее не получится." in dialog
+    assert "Удаление не затронет скачанные и отправленные копии." not in dialog
+    assert dialog.count("<p") == 1
+    assert dialog.count("<button") == 2
+    assert 'type="button" data-meeting-delete-dialog-cancel>Отмена</button>' in dialog
+    assert 'type="submit" class="danger-button" data-meeting-delete-dialog-confirm>Удалить</button>' in dialog
+    assert "<a " not in dialog
+    assert all(name not in dialog for name in ("Generation Call", "Langfuse", "Temporal History"))
 
 
 def test_detail_shell_explains_disabled_share_without_hover_only_copy() -> None:
@@ -1975,6 +2049,28 @@ def test_detail_shell_hides_more_when_no_action_or_detail_is_available() -> None
 
     assert 'data-meeting-panel-open="more"' not in page
     assert 'id="meeting-context-more"' not in page
+
+
+def test_playback_panel_reference_controls_and_true_short_segments() -> None:
+    review = _review()
+    review.playback = PlaybackReviewState(available=True, duration_seconds=7200, playback_path="/synthetic.wav")
+    review.speakers = SpeakerReviewState(available=True, assignment_state="available", speakers=[
+        SpeakerLane(speaker_key="alpha", label="А", talk_time_percent=20,
+                    segments=[SpeakerLaneSegment(start_seconds=2, end_seconds=2.05)]),
+        SpeakerLane(speaker_key="beta", label="Б", talk_time_percent=80,
+                    segments=[SpeakerLaneSegment(start_seconds=3, end_seconds=4)]),
+    ])
+    page = render_meeting_detail_page(review)
+    for marker in ("data-playback-timeline-toggle", "data-playback-listen-toggle", "data-playback-next",
+                   "data-playback-speed-menu", "data-listen-speaker", "data-playback-avatar"):
+        assert marker in page
+    assert page.count("data-playback-speed-option=") == 5
+    assert page.index('data-speaker-lane="beta"') < page.index('data-speaker-lane="alpha"')
+    assert 'timeline-lane speaker-color-1" data-speaker-lane="alpha"' in page
+    assert "width:0.000694%" in page
+    assert 'data-playback-progress type="range" min="0" max="7200" step="0.01"' in page
+    assert page.count("<audio ") == 1
+    assert "data-playback-trim" not in page
 
 
 def test_detail_shell_renders_playback_player_and_seekable_timestamps() -> None:
@@ -2033,7 +2129,9 @@ def test_detail_shell_renders_playback_player_and_seekable_timestamps() -> None:
     assert f'src="/api/v1/cabinet/meetings/{review.meeting.meeting_id}/playback"' in page
     assert 'data-source-mode="stored_review_m4a"' in page
     assert "data-playback-toggle" in page
-    assert 'data-playback-toggle aria-label="Воспроизвести">▶</button>' in page
+    assert 'data-playback-toggle aria-label="Воспроизвести"' in page
+    assert 'data-playback-play-icon' in page
+    assert 'data-playback-pause-icon hidden' in page
     assert "data-playback-error" in page
     assert 'role="status" aria-live="polite" hidden' in page
     assert "Воспроизведение временно недоступно." in page
@@ -2051,9 +2149,9 @@ def test_detail_shell_renders_playback_player_and_seekable_timestamps() -> None:
     assert 'toggle.setAttribute("aria-label", "Воспроизвести");' in script
     assert "syncTime();" in script
     assert (
-        'toggle.setAttribute("aria-label", playing ? "Приостановить" : "Воспроизвести")' in script
+        'toggle?.setAttribute("aria-label", playing ? "Приостановить" : "Воспроизвести")' in script
     )
-    assert 'player.addEventListener("error", reportFailure)' in script
+    assert 'player.addEventListener("error", () => reportPlaybackFailure(player))' in script
     assert "recoverySignature(currentPlayback) === recoverySignature(nextPlayback)" in script
     assert "currentPlayback.replaceWith(nextPlayback)" in script
     assert "currentTranscript.replaceWith(nextTranscript)" in script
@@ -2277,20 +2375,20 @@ def test_detail_shell_renders_speaker_timeline_segments() -> None:
 
     assert "data-speaker-timeline" in page
     assert 'data-speaker-timeline-default-height="120"' in page
-    assert 'aria-valuemin="120" aria-valuemax="120" aria-valuenow="120"' in page
-    assert page.count("data-speaker-timeline-hint") == 1
+    assert 'aria-valuemin="33" aria-valuemax="120" aria-valuenow="120"' in page
+    assert page.count("data-speaker-timeline-hint") == 0
     assert page.index("</main>") < page.index("data-playback-shell")
-    assert "Нажмите на цветной фрагмент, чтобы перейти к этому месту записи." in page
+    assert 'data-lane-segment' in page
     assert 'data-speaker-lane="speaker_00"' in page
     assert 'data-speaker-lane="speaker_01"' in page
     assert page.count("data-timeline-track") == 2
     assert (
-        'aria-label="Перейти по дорожке SPEAKER_00: переместить воспроизведение к фрагменту записи"'
+        'aria-label="Дорожка SPEAKER_00: стрелки перемещают позицию"'
         in page
     )
     assert page.count("data-timeline-playhead") == 2
-    assert 'event.key !== "Enter" && event.key !== " "' in _cabinet_js()
-    assert "track.click();" in _cabinet_js()
+    assert 'if (!event.detail) return' in _cabinet_js()
+    assert "track.click();" not in _cabinet_js()
     assert page.count("data-lane-segment") == 2
     assert 'title="SPEAKER_00 00:00-00:12"' in page
     assert 'aria-label="SPEAKER_01 00:30-01:30"' in page
@@ -2307,23 +2405,24 @@ def test_detail_shell_renders_speaker_timeline_segments() -> None:
     assert ".segment.is-current" in css
     assert ".speaker {" in css and "color: var(--muted)" in css
     assert ".text { color: var(--text)" in css
-    assert ".speaker-color-1 { --speaker-color: #7a65ff; }" in css
+    assert ".speaker-color-1 { --speaker-color: var(--speaker-color-1, #8f7fff); }" in css
     assert "background: var(--speaker-color)" in css
-    assert ".speaker-color-6 { --speaker-color: #d96aa6; }" in css
+    assert ".speaker-color-6 { --speaker-color: var(--speaker-color-6, var(--pink)); }" in css
+    assert "--speaker-color-1: #4f3ad0;" in css
+    assert "--speaker-color-5: #0a6b62;" in css
     assert 'class="timeline-lane speaker-color-1"' in page
     assert 'class="timeline-lane speaker-color-2"' in page
     assert page.count("speaker-color-1") >= 4
     assert 'class="segment speaker-color-1"' in page
-    assert "left:0.00%" in page
-    assert "width:10.00%" in page
-    assert "left:25.00%" in page
-    assert "width:50.00%" in page
+    assert "left:0.000000%" in page
+    assert "width:10.000000%" in page
+    assert "left:25.000000%" in page
+    assert "width:50.000000%" in page
     script = _cabinet_js()
-    assert "const seekTo = (seconds, { follow = true, autoplay = false } = {}) =>" in script
+    assert 'const seekTo = (seconds, { follow = true, autoplay = false, sourceIds = "" } = {}) =>' in script
     assert 'detailMain.style.setProperty("--playback-clearance"' not in script
     assert "new ResizeObserver(syncPlaybackClearance).observe(shell)" not in script
-    assert "const followTranscript = (seconds) =>" in script
-    assert 'track.addEventListener("click"' in script
+    assert 'const followTranscript = (seconds, sourceIds = "") =>' in script
     assert 'lane.classList.toggle("is-active"' in script
 
 
@@ -2385,6 +2484,13 @@ def test_detail_shell_renders_speaker_name_editor_only_for_authorized_review() -
     )
 
     editable = render_meeting_detail_page(review, csrf_token="synthetic-csrf")
+    workspace_id = uuid4()
+    shared_review = review.model_copy(update={"playback": PlaybackReviewState(available=True, duration_seconds=20, playback_path="/synthetic.m4a", source_mode="stored_review_m4a", included_sources=["canonical_mixed"])})
+    for embedded in (False, True):
+        shared = render_meeting_detail_page(shared_review, embedded=embedded, shared_workspace_id=workspace_id)
+        prefix = "/desktop/meetings" if embedded else "/meetings"
+        assert f'action="{prefix}/{review.meeting.meeting_id}/speakers/speaker_00?workspace_id={workspace_id}"' in shared
+        assert f'hx-get="{prefix}/{review.meeting.meeting_id}/share?workspace_id={workspace_id}"' in shared
     review.speakers.can_rename = False
     readonly = render_meeting_detail_page(review, csrf_token="synthetic-csrf")
 
@@ -2484,7 +2590,7 @@ def test_speaker_ui_counts_only_confirmed_people_and_labels_talk_time() -> None:
             ),
             SpeakerLane(
                 speaker_key="unknown",
-                label="Спикер не определён",
+                label="Спикер не определен",
                 talk_time_percent=10,
                 segments=[SpeakerLaneSegment(start_seconds=36, end_seconds=40)],
                 confirmed=False,
@@ -2497,7 +2603,7 @@ def test_speaker_ui_counts_only_confirmed_people_and_labels_talk_time() -> None:
 
     assert "Спикеры · 1" in page
     assert "Спикеры · 2" not in page
-    assert "Проценты: доля распознанной речи каждого спикера." in page
+    assert 'title="Доля распознанной речи"' in page
     assert page.count("speaker-manager-marker ") == 1
     assert 'timeline-lane speaker-color-1" data-speaker-lane="speaker_00"' in page
     assert 'timeline-lane speaker-color-0" data-speaker-lane="unknown"' in page
@@ -2515,8 +2621,8 @@ def test_degraded_transcript_explains_that_text_is_preserved() -> None:
     page = render_meeting_detail_page(review)
 
     assert 'data-speaker-attribution-notice' in page
-    assert "Текст записи сохранён" in page
-    assert "Надёжно разделить голоса не удалось" in page
+    assert "Текст записи сохранен" in page
+    assert "Надежно разделить голоса не удалось" in page
 
 
 def test_degraded_transcript_keeps_confirmed_speakers_and_explains_only_unknown_part() -> None:
@@ -2538,7 +2644,7 @@ def test_degraded_transcript_keeps_confirmed_speakers_and_explains_only_unknown_
             ),
             SpeakerLane(
                 speaker_key="unknown",
-                label="Спикер не определён",
+                label="Спикер не определен",
                 talk_time_percent=5,
                 segments=[SpeakerLaneSegment(start_seconds=38, end_seconds=40)],
                 confirmed=False,
@@ -2674,7 +2780,7 @@ def test_terminal_playback_copy_renders_as_plain_status_without_user_work() -> N
 
     page = render_meeting_detail_page(review)
 
-    assert "Файл повреждён и не может быть воспроизведён" in page
+    assert "Файл поврежден и не может быть воспроизведен" in page
     assert 'role="status" tabindex="0"' in page
     assert "<audio" not in page
     forbidden = (
@@ -2930,13 +3036,13 @@ def test_detail_shell_renders_simple_outcomes_with_metadata_and_sources() -> Non
     assert 'data-outcome-category="followups"' not in page
     assert "Алексей" in page
     assert "до пятницы" in page
-    assert "Ответственный не определён" not in page
-    assert "Срок не определён" not in page
+    assert "Ответственный не определен" not in page
+    assert "Срок не определен" not in page
     assert 'data-outcome-truth-label="supported"' in page
     assert 'data-seek-seconds="12.5"' in page
     assert 'data-seek-seconds="24.0"' in page
     assert 'data-seek-seconds="36.0"' in page
-    assert '<summary aria-label="Показать ещё 1 источник">Ещё 1</summary>' in page
+    assert '<summary aria-label="Другие источники: 2">Еще 2</summary>' in page
     assert 'data-seek-seconds="45.0"' in page
     assert 'aria-label="Открыть источник 00:12 в расшифровке"' in page
     assert "data-export-dialog-open" in page
@@ -3525,8 +3631,12 @@ def test_120_meeting_detail_renders_one_accessible_metadata_only_export_dialog()
     assert 'class="primary" data-export-submit>Скачать файл</button>' in page
     assert 'class="primary" data-export-submit>Сохранить…</button>' in embedded_page
     assert "data-export-copy" in page
+    for rendered in (page, embedded_page):
+        assert 'name="include_evidence"' not in rendered
+        assert "Добавлять ссылки на фрагменты" not in rendered
+        assert 'name="include_timestamps"' in rendered
     assert "setBusy(true)" in _cabinet_js()
-    assert 'requestExport("txt")' in _cabinet_js()
+    assert 'requestExport("txt", selectedScope)' in _cabinet_js()
     assert "navigator.clipboard.writeText" in _cabinet_js()
     assert "subtitle_timing_unavailable" in _cabinet_js()
     assert "export_generation_failed" in _cabinet_js()

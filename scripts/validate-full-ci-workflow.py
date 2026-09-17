@@ -71,6 +71,13 @@ def validate(path: Path) -> list[str]:
         errors.append("workflow must not depend on a local ignored candidate file")
     if "authoritative_full=true" not in text and "--authoritative-full" not in text:
         errors.append("aggregate must explicitly produce authoritative_full=true")
+    first_test = re.search(r"pytest\s|run_local_postgres_tests\.sh", text)
+    for command in (
+        "PYTHONPATH=src uv run --extra dev ruff check .",
+        "python3 -m compileall -q apps/server/src apps/server/tests apps/server/scripts",
+    ):
+        if text.count(command) != 1 or first_test is None or text.find(command) > first_test.start():
+            errors.append(f"static command must run once before tests: {command}")
     return errors
 
 
@@ -107,6 +114,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.requested_sha }}
+      - run: cd apps/server && PYTHONPATH=src uv run --extra dev ruff check .
+      - run: python3 -m compileall -q apps/server/src apps/server/tests apps/server/scripts
       - run: bash apps/server/scripts/run_local_postgres_tests.sh --full
   macos-full:
     runs-on: macos-14

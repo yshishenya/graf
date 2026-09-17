@@ -14,11 +14,29 @@
     <div class="email-mode">
       {% if email_mode %}
       <a class="email-mode-trigger" href="{{ signup_href }}">Продолжить другим способом</a>
+      {% if error_message and workspace_configured and providers %}
+      <div class="auth-actions auth-provider-grid">
+        {% for provider in providers %}
+        {% if provider.active %}
+        <a class="auth-provider" href="{{ provider.href }}">
+          <span class="provider-mark">{{ provider.mark }}</span>
+          <span>{{ provider.label }}</span>
+        </a>
+        {% else %}
+        <span class="auth-provider" aria-disabled="true">
+          <span class="provider-mark">{{ provider.mark }}</span>
+          <span>{{ provider.label }}</span>
+          <span class="provider-pill">скоро</span>
+        </span>
+        {% endif %}
+        {% endfor %}
+      </div>
+      {% endif %}
       <div class="auth-divider">или</div>
       <form class="auth-form signup-email-form" action="/sign-up/email/start" method="post">
         <label>
           Рабочая почта
-          <input name="email" type="email" placeholder="name@company.ru" autocomplete="email" required>
+          <input name="email" type="email" value="{{ email_value }}" placeholder="name@company.ru" autocomplete="email" required>
         </label>
         <input type="hidden" name="next" value="{{ next_path }}">
         <button class="primary" type="submit">Зарегистрироваться</button>

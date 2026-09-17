@@ -9,6 +9,7 @@ public enum DesktopCabinetRouteKind: String, Equatable, Sendable {
     case settings
     case calendarSettings
     case meetingDetectionSettings
+    case notificationSettings
     case billing
     case admin
     case authLogin
@@ -47,6 +48,7 @@ public enum DesktopCabinetRouteDecisionReason: String, Equatable, Sendable {
     case allowedSettings = "allowed_settings"
     case allowedCalendarSettings = "allowed_calendar_settings"
     case allowedMeetingDetectionSettings = "allowed_meeting_detection_settings"
+    case allowedNotificationSettings = "allowed_notification_settings"
     case allowedBilling = "allowed_billing"
     case allowedAuthLogin = "allowed_auth_login"
     case allowedAuthSignup = "allowed_auth_signup"
@@ -157,6 +159,19 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
                 userMessage: "Auth callback"
             )
         }
+        if components == ["desktop", "notifications"] || components == ["notifications"] ||
+           (components.count == 5 && Array(components.prefix(3)) == ["api", "v1", "notifications"] && UUID(uuidString: components[3]) != nil && components[4] == "read") {
+            return DesktopCabinetRouteDecision(
+                route: DesktopCabinetRoute(path: path, kind: .meetingList),
+                decision: .allow, reason: .allowedMeetingList, userMessage: "Уведомления"
+            )
+        }
+        if components == ["desktop", "deletions"] {
+            return DesktopCabinetRouteDecision(
+                route: DesktopCabinetRoute(path: path, kind: .meetingDeletionReport), decision: .allow,
+                reason: .allowedMeetingDeletionReport, userMessage: "Удаления"
+            )
+        }
         if components == ["desktop", "meetings"] {
             return DesktopCabinetRouteDecision(
                 route: DesktopCabinetRoute(path: path, kind: .meetingList),
@@ -173,7 +188,7 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
                 userMessage: "Shared meeting list"
             )
         }
-        if components.count == 3,
+        if components.count == 3 || (components.count == 4 && components[3] == "deletion-requests"),
            components[0] == "desktop",
            components[1] == "meetings",
            isSafePathComponent(components[2]) {
@@ -243,6 +258,15 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
                 decision: .allow,
                 reason: .allowedCalendarSettings,
                 userMessage: "Calendar settings"
+            )
+        }
+        if let parts = URLComponents(url: url, resolvingAgainstBaseURL: false),
+           parts.percentEncodedPath == "/desktop/settings/notifications/mac",
+           parts.query == nil, parts.fragment == nil {
+            return DesktopCabinetRouteDecision(
+                route: DesktopCabinetRoute(path: path, kind: .notificationSettings),
+                decision: .allow, reason: .allowedNotificationSettings,
+                userMessage: "Notification settings on this Mac"
             )
         }
         if isMeetingDetectionSettingsRoute(components) {
@@ -392,6 +416,14 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
         return decision
     }
 
+    public func allowsNativeSettings(from source: URL?, sourceIsMainFrame: Bool,
+                                     targetIsMainFrame: Bool, sessionReady: Bool) -> Bool {
+        guard sessionReady, sourceIsMainFrame, targetIsMainFrame, let source else { return false }
+        let result = decision(for: source)
+        return result.decision == .allow && [.meetingList, .meetingDetail, .meetingShare,
+            .meetingDeletionReport, .settings, .calendarSettings, .billing].contains(result.route.kind)
+    }
+
     private func sameOrigin(_ url: URL) -> Bool {
         url.scheme?.lowercased() == baseURL.scheme?.lowercased() &&
             url.host?.lowercased() == baseURL.host?.lowercased() &&
@@ -411,7 +443,7 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
                 route: DesktopCabinetRoute(path: normalizedPath(url.path), kind: .external),
                 decision: .allow,
                 reason: .openExternalSafeLink,
-                userMessage: "Платёжная страница"
+                userMessage: "Платежная страница"
             )
         }
         if host == "docs.2brain.dev" || host == "help.2brain.dev" {

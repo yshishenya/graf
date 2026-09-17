@@ -782,20 +782,20 @@ public enum SystemAudioStatusLabels {
     public static let recordingIdle = "Запись не идет"
     public static let recordButtonTitle = "Начать запись"
     public static let recordButtonAccessibilityLabel = "Начать запись системного звука"
-    public static let stopButtonTitle = "Остановить"
+    public static let stopButtonTitle = "Остановить запись"
     public static let stopButtonAccessibilityLabel = "Остановить запись"
-    public static let pauseButtonTitle = "Пауза"
-    public static let pauseButtonAccessibilityLabel = "Поставить локальный микрофон на паузу"
-    public static let resumeButtonTitle = "Продолжить"
-    public static let resumeButtonAccessibilityLabel = "Продолжить запись локального микрофона"
+    public static let pauseButtonTitle = "Mute"
+    public static let pauseButtonAccessibilityLabel = "Выключить микрофон в записи GRAF. Системный звук продолжает записываться."
+    public static let resumeButtonTitle = "Включить микрофон"
+    public static let resumeButtonAccessibilityLabel = "Включить микрофон в записи GRAF. Системный звук продолжает записываться."
     public static let recordingMicrophoneMenuAccessibilityLabel = "Выбрать микрофон записи"
     public static let recordingSourceTitle = "Источник"
     public static let recordingSourceSystemAudio = "Системный звук"
-    public static let recordingSourceUnknown = "Источник не определён"
+    public static let recordingSourceUnknown = "Источник не определен"
     public static let localRecordingPausedStatus =
-        "Запись на паузе. Остановить можно в любой момент."
+        "Микрофон выключен. Системный звук продолжает записываться. Остановить можно в любой момент."
     public static let meetingMuteTruthLimitationCopy =
-        "GRAF не может проверить, выключен ли микрофон во встрече. Чтобы ваша речь не попала в запись, используйте «Паузу» или «Остановить» в GRAF."
+        "GRAF не может проверить, выключен ли микрофон во встрече. Чтобы ваша речь не попала в запись, используйте «Mute» или «Остановить запись» в GRAF."
     public static let captureAudioTitle = "Уровни записи"
     public static let microphoneTitle = "Микрофон"
     public static let incomingTitle = "Встреча"
@@ -818,7 +818,7 @@ public enum SystemAudioStatusLabels {
     public static let calendarPromptRecordActionTitle = "Начать запись"
     public static let calendarPromptRecordWithoutContextActionTitle = "Начать запись без календаря"
     public static let calendarPromptDismissActionTitle = "Скрыть"
-    public static let meetingDetectionSettingsTitle = "Автоопределение встреч"
+    public static let meetingDetectionSettingsTitle = "Запись встреч"
     public static let recordingMeterFreshnessWindowSeconds: TimeInterval = 1.5
 
     public static func liveSummary(

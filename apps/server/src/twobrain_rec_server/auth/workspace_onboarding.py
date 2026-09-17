@@ -12,14 +12,16 @@ from twobrain_rec_server.auth.account_closure import ensure_account_membership_a
 from twobrain_rec_server.auth.audit import write_onboarding_audit_event
 from twobrain_rec_server.auth.sessions import (
     IssuedAuthSession,
+    create_login_device,
     fingerprint_identity,
+    is_session_token_valid,
     issue_auth_session,
+    resolve_session_device,
 )
 from twobrain_rec_server.db.models import (
     AuthSession,
     AuthSessionDeviceBinding,
     ExternalIdentity,
-    RegisteredDevice,
     Workspace,
     WorkspaceInvitation,
     WorkspaceJoinOffer,
@@ -31,6 +33,9 @@ from twobrain_rec_server.db.tenant_context import (
     apply_tenant_context,
 )
 
+PERSONAL_WORKSPACE_NAME = "Мое пространство"
+# Историческое написание сохранено для совместимости с уже созданными пространствами.
+LEGACY_PERSONAL_WORKSPACE_NAMES = frozenset({"Мое пространство", "Моё пространство"})
 
 @dataclass(frozen=True, slots=True)
 class WorkspaceJoinOfferView:
@@ -95,7 +100,7 @@ async def ensure_personal_workspace(
                     owner_user_id=user_id,
                     kind="personal",
                     slug=f"personal-{user_id.hex}",
-                    name="Моё пространство",
+                    name="Мое пространство",
                 )
                 db.add(candidate)
                 await db.flush()
@@ -110,8 +115,8 @@ async def ensure_personal_workspace(
             )
             if workspace is None:
                 raise
-    elif workspace.name != "Моё пространство":
-        workspace.name = "Моё пространство"
+    elif workspace.name not in LEGACY_PERSONAL_WORKSPACE_NAMES:
+        workspace.name = PERSONAL_WORKSPACE_NAME
 
     membership = await db.get(
         WorkspaceMembership,
@@ -225,7 +230,7 @@ async def list_active_workspaces(
     return tuple(
         WorkspaceAccessView(
             id=workspace.id,
-            name="Моё пространство" if workspace.kind == "personal" else workspace.name,
+            name="Мое пространство" if workspace.kind == "personal" else workspace.name,
             kind=workspace.kind,
             role=membership.role,
             active=workspace.id == current_workspace_id,
@@ -266,7 +271,7 @@ async def activate_workspace_session(
         current_session is None
         or current_session.user_id != user_id
         or current_session.workspace_id != current_workspace_id
-        or current_session.status != "active"
+        or not is_session_token_valid(current_session, datetime.now(UTC))
     ):
         raise ProblemDetail(
             status=401, code="auth_session_invalid", title="Auth session is invalid"
@@ -342,6 +347,12 @@ async def activate_workspace_session(
             identity.provider,
             target.id,
         )
+    allowed, current_device = await resolve_session_device(db, current_session)
+    if not allowed:
+        raise ProblemDetail(status=403, code="device_untrusted", title="Session device is unavailable")
+    metadata = ((current_device.platform, current_device.client_version)
+                if current_device is not None else ("unknown", None))
+    source_expiry = current_session.expires_at
     current_session.status = "replaced"
     await db.flush()
     await apply_tenant_context(
@@ -352,8 +363,9 @@ async def activate_workspace_session(
             user_id=user_id,
         ),
     )
-    device = await _ensure_browser_workspace_device(
+    device = await create_login_device(
         db,
+        metadata=metadata,
         workspace_id=target.id,
         user_id=user_id,
     )
@@ -364,6 +376,7 @@ async def activate_workspace_session(
         device_id=device.id,
         provider=current_session.provider,
         claims_fingerprint=replacement_fingerprint,
+        expires_at=source_expiry,
     )
     db.add(
         AuthSessionDeviceBinding(
@@ -373,6 +386,7 @@ async def activate_workspace_session(
             last_heartbeat_at=datetime.now(UTC),
         )
     )
+    await db.flush()
     await write_onboarding_audit_event(
         db,
         workspace_id=target.id,
@@ -381,47 +395,6 @@ async def activate_workspace_session(
         metadata={"workspace_kind": target.kind},
     )
     return ActivatedWorkspaceSession(workspace=target, issued_session=issued)
-
-
-async def _ensure_browser_workspace_device(
-    db: AsyncSession,
-    *,
-    workspace_id: UUID,
-    user_id: UUID,
-) -> RegisteredDevice:
-    device_public_id = f"browser-login:{user_id}"
-    device = await db.scalar(
-        select(RegisteredDevice).where(
-            RegisteredDevice.workspace_id == workspace_id,
-            RegisteredDevice.user_id == user_id,
-            RegisteredDevice.device_public_id == device_public_id,
-        )
-    )
-    if device is None:
-        device = RegisteredDevice(
-            workspace_id=workspace_id,
-            user_id=user_id,
-            device_public_id=device_public_id,
-            platform="web",
-            client_version="browser-login",
-            status="active",
-            registration_state="approved",
-            trusted_by=user_id,
-            last_seen_at=datetime.now(UTC),
-        )
-        db.add(device)
-        await db.flush()
-        return device
-    if device.status != "active" or device.registration_state != "approved":
-        raise ProblemDetail(
-            status=403,
-            code="workspace_activation_device_unavailable",
-            title="Workspace activation device unavailable",
-        )
-    device.platform = "web"
-    device.client_version = "browser-login"
-    device.last_seen_at = datetime.now(UTC)
-    return device
 
 
 async def list_workspace_join_offers(
@@ -656,7 +629,6 @@ async def _mark_join_offer_unavailable(
     raise ProblemDetail(
         status=409, code="workspace_join_offer_unavailable", title="Join offer unavailable"
     )
-
 
 def join_offer_is_actionable(offer: WorkspaceJoinOffer, *, now: datetime | None = None) -> bool:
     now = now or datetime.now(UTC)

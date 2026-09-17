@@ -1,5 +1,14 @@
 {% macro icon(name, label=None) -%}
 {%- set paths = {
+  "play": '<path d="m8 5 11 7-11 7z" fill="currentColor" stroke="none"></path>',
+  "pause": '<path d="M8 5v14M16 5v14" stroke-width="4"></path>',
+  "timeline": '<path d="M3 5h18M3 12h18M3 19h18"></path><path d="M5 5h5M12 12h6M7 19h8" stroke-width="4"></path>',
+  "skip-next": '<path d="m5 5 10 7-10 7z" fill="currentColor" stroke="none"></path><path d="M19 5v14"></path>',
+  "back-15": '<path d="M19.361 9.25A8.5 8.5 0 1 1 12 5h3.5M12.5 2l3 3-3 3" transform="translate(24 0) scale(-1 1)"></path><path d="m7.8 11.7 1.7-1.5V17M16 10.2h-3.2v3h1.3c1.3 0 2.1.7 2.1 1.9s-.8 1.9-2 1.9c-.8 0-1.5-.3-1.9-.8" stroke-width="1.35"></path>',
+  "forward-15": '<path d="M19.361 9.25A8.5 8.5 0 1 1 12 5h3.5M12.5 2l3 3-3 3"></path><path d="m7.8 11.7 1.7-1.5V17M16 10.2h-3.2v3h1.3c1.3 0 2.1.7 2.1 1.9s-.8 1.9-2 1.9c-.8 0-1.5-.3-1.9-.8" stroke-width="1.35"></path>',
+  "chevron-left": '<path d="m14 6-6 6 6 6"></path>',
+  "chevron-right": '<path d="m10 6 6 6-6 6"></path>',
+  "comment": '<path d="M20 15a3 3 0 0 1-3 3H9l-6 3V6a3 3 0 0 1 3-3h11a3 3 0 0 1 3 3z"></path>',
   "audio": '<path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"></path><path d="M16 9a5 5 0 0 1 0 6"></path><path d="M19.364 18.364a9 9 0 0 0 0-12.728"></path>',
   "activity": '<path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"></path>',
   "bookmark": '<path d="M17 3a2 2 0 0 1 2 2v15a1 1 0 0 1-1.496.868l-4.512-2.578a2 2 0 0 0-1.984 0l-4.512 2.578A1 1 0 0 1 5 20V5a2 2 0 0 1 2-2z"></path>',

@@ -33,6 +33,10 @@ USER_IDENTITY_FK_DISPOSITIONS = {
     ("fair_use_reviews", "subject_user_id"): "lineage_aware",
     ("ingest_audit_events", "actor_user_id"): "historical_only",
     ("meeting_artifact_policies", "updated_by_user_id"): "historical_only",
+    ("meeting_comments", "author_user_id"): "transfer_or_deduplicate",
+    ("meeting_comments", "resolved_by"): "transfer_or_deduplicate",
+    ("meeting_comment_mentions", "user_id"): "transfer_or_deduplicate",
+    ("meeting_comment_reactions", "user_id"): "transfer_or_deduplicate",
     ("meeting_deletion_requests", "requested_by_user_id"): "blocking",
     ("meeting_detection_non_target_rules", "created_by_user_id"): "historical_only",
     ("meeting_detection_review_actions", "actor_user_id"): "historical_only",
@@ -55,12 +59,17 @@ USER_IDENTITY_FK_DISPOSITIONS = {
     ("playback_normalization_jobs", "requested_by_user_id"): "historical_only",
     ("processing_audit_events", "actor_user_id"): "historical_only",
     ("recording_calendar_match_attempts", "owner_user_id"): "historical_only",
+    # Cancellation retains its original (workspace, actor, origin) namespace forever.
+    # It is not content to transfer, and cannot authorize actions under a merged account.
+    ("recording_origin_cancellations", "created_by_user_id"): "historical_only",
     ("referral_attributions", "invitee_user_id"): "lineage_aware",
     ("referral_attributions", "inviter_user_id"): "lineage_aware",
     ("referral_links", "inviter_user_id"): "historical_only",
     ("registered_devices", "revoked_by"): "historical_only",
     ("registered_devices", "trusted_by"): "historical_only",
     ("registered_devices", "user_id"): "revoked",
+    # Historical inbox is not a new access grant after merging identities.
+    ("server_notifications", "recipient_id"): "historical_only",
     ("summary_templates", "owner_user_id"): "transfer_or_deduplicate",
     ("support_incident_rate_limit_buckets", "reporter_user_id"): "historical_only",
     ("support_incidents", "reporter_user_id"): "historical_only",

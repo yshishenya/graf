@@ -24,6 +24,27 @@ from twobrain_rec_server.normalization.worker_readiness import (
 )
 
 
+def test_wake_reads_only_workflow_metadata_and_signals_selected_attempt() -> None:
+    calls = []
+    class Database:
+        async def scalar(self, query):
+            assert [column.name for column in query.selected_columns] == ["workflow_id"]
+            assert "attempt_ordinal DESC" in str(query)
+            return "processing/synthetic-replacement"
+    class Handle:
+        async def signal(self, signal):
+            calls.append(signal)
+    class Temporal:
+        def get_workflow_handle(self, workflow_id):
+            assert workflow_id == "processing/synthetic-replacement"
+            return Handle()
+    asyncio.run(worker_module._wake_processing_after_normalization(
+        db=Database(), temporal_client=Temporal(),
+        workspace_id=UUID(int=1), meeting_id=UUID(int=2), media_revision_id=UUID(int=3),
+    ))
+    assert len(calls) == 1
+
+
 def test_worker_main_sets_private_file_umask(monkeypatch) -> None:
     seen_umasks: list[int] = []
 
@@ -160,7 +181,7 @@ async def test_schema_startup_gate_requires_exact_migration_head() -> None:
 
 
 def test_worker_schema_head_is_derived_from_packaged_migrations() -> None:
-    assert packaged_schema_head() == "0085_merge_summary_mediascribe"
+    assert packaged_schema_head() == "0092_recording_origin_cancel"
 
 
 @pytest.mark.anyio

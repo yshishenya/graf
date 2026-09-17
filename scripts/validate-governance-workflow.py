@@ -57,10 +57,6 @@ def validate(path: Path) -> list[str]:
         "exact checkout ref": r"(?m)^\s*ref:\s*\$\{\{",
         "requested SHA env": r"GRAF_CI_REQUESTED_SHA:\s*\$\{\{",
         "bounded fast lane": r"infra/scripts/ci-local\.sh\s+--fast",
-        "PR metadata gate": r"(?ms)name:\s*Validate pull request metadata.*?if:\s*\$\{\{\s*github\.event_name\s*==\s*'pull_request'\s*\}\}.*?scripts/validate-pr-metadata\.py",
-        "PR metadata exact SHA": r"(?ms)name:\s*Validate pull request metadata.*?--expected-sha\s+\"\$EXPECTED_SHA\"",
-        "PR metadata title": r"(?ms)name:\s*Validate pull request metadata.*?--title\s+\"\$PR_TITLE\"",
-        "PR title event binding": r"PR_TITLE:\s*\$\{\{\s*github\.event\.pull_request\.title\s*\}\}",
         "mandatory outcome assertion": r"(?ms)name:\s*Assert mandatory governance outcomes.*?exit 1",
         "evidence validator": r"scripts/validate-ci-evidence\.py",
         "authoritative merge-group API mapping": r"gh\s+api\s+--paginate\s+--slurp",
@@ -73,6 +69,36 @@ def validate(path: Path) -> list[str]:
             errors.append(f"missing workflow invariant: {label}")
     if not exact_identity:
         errors.append("checkout ref must bind pull-request, merge-group, and manual exact SHA identities")
+    for invariant in (
+        "scripts/ci-pr-scope.py",
+        "needs: scope",
+        "name: governance-fast\n    needs: scope\n    if: ${{ always() }}",
+        "needs.scope.outputs.text_only != 'false' && format('text-or-unresolved-{0}', github.run_id)",
+        '[[ "$SCOPE_RESULT" == success && ( "$TEXT_ONLY" == true || "$TEXT_ONLY" == false ) ]]',
+        "--reuse-component governance-fast",
+        "actions: read",
+        "retention-days: 90",
+        "if: steps.scope.outputs.text_only == 'true'",
+        "name: graf-code-scope-${{ github.run_id }}-${{ github.run_attempt }}",
+        "path: ${{ runner.temp }}/code-scope.json",
+    ):
+        if invariant not in text:
+            errors.append(f"missing code/text isolation invariant: {invariant}")
+    if re.search(r"(?m)^concurrency:", text):
+        errors.append("text events must not enter workflow-level code concurrency")
+    if "scripts/validate-pr-metadata.py" in text or "PR_METADATA_OUTCOME" in text:
+        errors.append("combined metadata must be retired after protected cutover")
+    fast_match = re.search(r"(?ms)^      - name: Run bounded fast lane\n(.*?)(?=^      - |\Z)", text)
+    fast_step = fast_match.group(1) if fast_match else ""
+    for invariant in (
+        "GRAF_CI_BASE_REF: ${{ steps.identity.outputs.base_sha }}",
+        "EVENT_NAME: ${{ github.event_name }}",
+        'if [[ "$EVENT_NAME" != "workflow_dispatch" ]]; then',
+        '[[ "$GRAF_CI_BASE_REF" =~ ^[0-9a-f]{40}$ ]]',
+        'git merge-base HEAD "$GRAF_CI_BASE_REF" >/dev/null',
+    ):
+        if invariant not in fast_step:
+            errors.append(f"missing workflow event-base invariant: {invariant}")
     for forbidden in FORBIDDEN:
         if forbidden in text:
             errors.append(f"forbidden command in workflow: {forbidden}")
@@ -80,8 +106,26 @@ def validate(path: Path) -> list[str]:
         errors.append("workflow must not depend on ignored .specify/feature.json")
     if re.search(r"(?mi)^\s*continue-on-error:\s*true\s*$", text):
         errors.append("governance workflow must not make a gate advisory with continue-on-error")
-    validator_at = text.find("scripts/validate-ci-evidence.py")
-    upload_at = text.find("actions/upload-artifact@v4")
+    code_job = text.partition("\n  governance-fast:\n")[2]
+    shared = {"Require valid code scope", "Checkout exact PR SHA", "Resolve event identity", "Verify exact SHA"}
+    for step in re.split(r"(?m)^      - ", code_job)[1:]:
+        name = re.match(r"name: (.+)", step)
+        if name and name.group(1) in shared:
+            continue
+        if name and name.group(1) == "Checkout current workflow tools":
+            if not all(item in step for item in (
+                "if: needs.scope.outputs.text_only == 'true'", "uses: actions/checkout@v4",
+                "ref: ${{ github.workflow_sha }}", "path: .ci-tools", "persist-credentials: false",
+                "sparse-checkout-cone-mode: false",
+            )):
+                errors.append("text tools checkout must bind current workflow without entering code scope")
+        elif name and name.group(1) == "Verify existing code proof":
+            if "if: needs.scope.outputs.text_only == 'true'" not in step or "--reuse-component governance-fast" not in step:
+                errors.append("text proof must execute only for verified text scope")
+        elif "needs.scope.outputs.text_only == 'false'" not in step:
+            errors.append("heavy/evidence step must be restricted to code scope")
+    validator_at = code_job.find("scripts/validate-ci-evidence.py")
+    upload_at = code_job.find("actions/upload-artifact@v4")
     if validator_at >= 0 and upload_at >= 0 and validator_at > upload_at:
         errors.append("artifact upload must follow evidence validation")
     if re.search(r"(?mi)^\s*-\s*uses:\s*actions/checkout@v[0-3]\b", text):
@@ -94,42 +138,7 @@ def validate(path: Path) -> list[str]:
 
 
 def self_test() -> int:
-    good = """name: governance-fast
-on:
-  pull_request:
-    branches: [master]
-  merge_group:
-    types: [checks_requested]
-  workflow_dispatch:
-permissions:
-  contents: read
-concurrency:
-  group: governance-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: true
-jobs:
-  governance-fast:
-    env:
-      GRAF_CI_REQUESTED_SHA: ${{ github.event.pull_request.head.sha || inputs.requested_sha }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha || inputs.requested_sha }}
-      - run: gh api --paginate --slurp repos/o/r/commits/$GRAF_CI_REQUESTED_SHA/pulls
-      - run: python3 scripts/verify-merge-group-mapping.py --authoritative-response "$RUNNER_TEMP/graf-merge-group-api.json"
-      - name: Validate pull request metadata
-        if: ${{ github.event_name == 'pull_request' }}
-        env:
-          PR_TITLE: ${{ github.event.pull_request.title }}
-        run: |
-          python3 scripts/validate-pr-metadata.py "$RUNNER_TEMP/graf-pr-body.md" --feature-id "$FEATURE_ID" --expected-sha "$EXPECTED_SHA" --title "$PR_TITLE"
-      - run: infra/scripts/ci-local.sh --fast
-      - run: python3 scripts/validate-ci-evidence.py .dev/ci-evidence/run.json
-      - name: Assert mandatory governance outcomes
-        if: ${{ always() }}
-        run: |
-          test "$VALIDATION_OUTCOME" = success || exit 1
-      - uses: actions/upload-artifact@v4
-"""
+    good = (Path(__file__).resolve().parents[1] / ".github/workflows/governance-fast.yml").read_text()
     import tempfile
 
     with tempfile.TemporaryDirectory(prefix="graf-workflow-validator-") as tmp:

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from hashlib import sha256
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from fastapi import APIRouter, Depends, Header, Query, Request, status
@@ -13,7 +13,8 @@ from fastapi.responses import (
     Response,
     StreamingResponse,
 )
-from sqlalchemy import nullslast, select
+from pydantic import BaseModel, ConfigDict
+from sqlalchemy import nullslast, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.admin.queries import load_admin_workspace_context
@@ -96,6 +97,7 @@ from twobrain_rec_server.auth.dependencies import (
     require_web_csrf,
 )
 from twobrain_rec_server.auth.sessions import callback_expiry, issue_callback_nonce
+from twobrain_rec_server.cabinet import comments as discussion
 from twobrain_rec_server.cabinet.access import (
     ShareRecipientAccessProof,
     accept_share_invitation,
@@ -116,6 +118,9 @@ from twobrain_rec_server.cabinet.access import (
     search_share_recipients,
     share_panel_state,
 )
+from twobrain_rec_server.cabinet.access import (
+    authorized_lifecycle_meeting as _authorized_lifecycle_meeting,
+)
 from twobrain_rec_server.cabinet.constants import DELETION_TRUTH_COPY
 from twobrain_rec_server.cabinet.egress import (
     activity_response,
@@ -133,6 +138,7 @@ from twobrain_rec_server.cabinet.queries import (
     get_cabinet_meeting_review,
     latest_processing_result,
     list_cabinet_meetings,
+    shared_meeting_display_metadata,
 )
 from twobrain_rec_server.cabinet.rendering import render_shared_meeting_summary_page
 from twobrain_rec_server.cabinet.speakers import candidate_speaker_attribution_is_current
@@ -160,6 +166,7 @@ from twobrain_rec_server.db.tenant_context import (
 )
 from twobrain_rec_server.deletion.local_purge import (
     acknowledge_local_purge_task,
+    ensure_local_purge_task,
     list_local_purge_tasks,
 )
 from twobrain_rec_server.deletion.report import lifecycle_state
@@ -181,6 +188,7 @@ from twobrain_rec_server.outcomes.dispatch import (
     finalize_dispatch_for_candidate,
     reconcile_dispatch_intent,
 )
+from twobrain_rec_server.outcomes.progress import latest_summary_attempt
 from twobrain_rec_server.outcomes.service import (
     load_egress_default_outcome,
     load_meeting_default_slot,
@@ -348,6 +356,90 @@ async def get_public_share_db_session(
         yield session
 
 
+
+async def get_share_operation_db_session(
+    request: Request,
+    meeting_id: UUID | None = None,
+    workspace_id: UUID | None = None,
+    tenant_scope: TenantScope = TenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+):
+    factory = getattr(request.app.state, "db_sessionmaker", None)
+    if factory is None:
+        yield None
+        return
+    owner_workspace = workspace_id or tenant_scope.workspace_id
+    proof = None
+    if owner_workspace != tenant_scope.workspace_id:
+        proof = await _recipient_share_access_proof(
+            request, recipient_scope=tenant_scope, owner_workspace_id=owner_workspace
+        )
+    async with factory() as session:
+        session.info["share_rate_limit_sessionmaker"] = factory
+        session.info["share_owner_workspace"] = owner_workspace
+        session.info["share_actor_proof"] = (principal.user_id, proof)
+        await apply_tenant_context(
+            session,
+            TenantDatabaseContext(
+                organization_id=tenant_scope.organization_id,
+                workspace_id=owner_workspace,
+                user_id=principal.user_id,
+                context_kind="request",
+            ),
+        )
+        editor_projection = False
+        if meeting_id is not None:
+            # Validate the recipient in its own identity scope before exposing
+            # owner-organization identities to the sharing operation.
+            meeting = await lock_shareable_meeting(
+                session, workspace_id=owner_workspace, meeting_id=meeting_id
+            )
+            decision = await decide_meeting_access(
+                session,
+                meeting,
+                workspace_id=owner_workspace,
+                viewer_user_id=principal.user_id,
+                recipient_proof=proof,
+            )
+            if not decision.can_view:
+                raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
+            if owner_workspace != tenant_scope.workspace_id:
+                owner = await session.get(Workspace, owner_workspace)
+                if owner is None:
+                    raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
+                await apply_tenant_context(
+                    session,
+                    TenantDatabaseContext(
+                        organization_id=owner.organization_id,
+                        workspace_id=owner_workspace,
+                        user_id=principal.user_id,
+                        context_kind="request",
+                    ),
+                )
+            if decision.can_edit and session.bind.dialect.name == "postgresql":
+                await session.execute(
+                    text(
+                        "SELECT set_config('app.comment_editor_meeting_id', :meeting, true), "
+                        "set_config('app.comment_editor_user_id', :actor, true)"
+                    ),
+                    {"meeting": str(meeting_id), "actor": str(principal.user_id)},
+                )
+                editor_projection = True
+        try:
+            yield session
+        finally:
+            # Commit/rollback clears these local settings; never replay them
+            # through session.info into a later transaction.
+            if editor_projection and session.is_active and session.in_transaction():
+                await session.execute(
+                    text(
+                        "SELECT set_config('app.comment_editor_meeting_id', '', true), "
+                        "set_config('app.comment_editor_user_id', '', true)"
+                    )
+                )
+
+
+ShareOperationDbDependency = Depends(get_share_operation_db_session)
 async def _verified_invitation_address_hashes(
     request: Request,
     *,
@@ -655,6 +747,7 @@ async def get_shared_meeting_summary_route(
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
     return PublicShareSummaryResponse.model_validate(
         narrow_summary_projection(
+            protocol=outcome_set.protocol_json if outcome_set else None,
             meeting_label=meeting.title or "Встреча",
             occurred_at=meeting.started_at or meeting.created_at,
             duration_seconds=meeting.duration_seconds,
@@ -731,13 +824,12 @@ async def create_meeting_deletion_request_route(
         raise ProblemDetail(
             status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
         )
-    meeting, decision = await _authorized_meeting(
+    meeting = await _authorized_lifecycle_meeting(
         db,
         workspace_id=tenant_scope.workspace_id,
         meeting_id=meeting_id,
         viewer_user_id=principal.user_id,
     )
-    _ensure_lifecycle_manager(decision)
     response = await request_meeting_deletion(
         db,
         meeting=meeting,
@@ -1401,6 +1493,7 @@ async def list_summary_templates_route(
                 default_template_key = personal_default.template_key
     built_ins = [_built_in_template_view(definition) for definition in BUILT_IN_TEMPLATES]
     return SummaryTemplateListResponse(
+        actor=str(principal.user_id), workspace=str(tenant_scope.workspace_id),
         default_template_key=default_template_key,
         can_manage_default=membership is not None and membership.role == "owner",
         recommended=built_ins[:4],
@@ -1468,7 +1561,7 @@ async def update_default_summary_template_route(
         workspace.default_summary_template_id = personal.id
         workspace.default_summary_template_version = personal.version
         await db.commit()
-        return _personal_template_view(personal)
+        return _personal_template_view(personal).model_copy(update={"actor": str(principal.user_id), "workspace": str(tenant_scope.workspace_id)})
     definition = BUILT_IN_BY_KEY.get(payload.template_key)
     if definition is None or definition.version != payload.template_version:
         raise ProblemDetail(
@@ -1481,7 +1574,7 @@ async def update_default_summary_template_route(
     workspace.default_summary_template_id = selected.template_id
     workspace.default_summary_template_version = selected.version
     await db.commit()
-    return selected
+    return selected.model_copy(update={"actor": str(principal.user_id), "workspace": str(tenant_scope.workspace_id)})
 
 
 async def _ensure_personal_template_capacity(
@@ -1605,7 +1698,7 @@ async def update_summary_template_route(
         default_workspace.default_summary_template_id = revised.id
         default_workspace.default_summary_template_version = revised.version
     await db.commit()
-    return _personal_template_view(revised)
+    return _personal_template_view(revised).model_copy(update={"actor": str(principal.user_id), "workspace": str(tenant_scope.workspace_id)})
 
 
 @router.post(
@@ -2146,7 +2239,7 @@ async def create_meeting_share_grant_route(
     tenant_scope: TenantScope = TenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     device: DeviceContext = DeviceDependency,
-    db: AsyncSession | None = DbDependency,
+    db: AsyncSession | None = ShareOperationDbDependency,
 ) -> ShareGrantResponse:
     if db is None:
         raise ProblemDetail(
@@ -2154,7 +2247,7 @@ async def create_meeting_share_grant_route(
         )
     meeting, _decision = await _authorized_meeting(
         db,
-        workspace_id=tenant_scope.workspace_id,
+        workspace_id=db.info.get("share_owner_workspace", tenant_scope.workspace_id),
         meeting_id=meeting_id,
         viewer_user_id=principal.user_id,
     )
@@ -2168,7 +2261,7 @@ async def create_meeting_share_grant_route(
     }.get(payload.audience_type, True)
     grant, raw_token = await create_scoped_share_grant(
         db,
-        workspace_id=tenant_scope.workspace_id,
+        workspace_id=db.info.get("share_owner_workspace", tenant_scope.workspace_id),
         meeting=meeting,
         actor_user_id=principal.user_id,
         device_id=device.device_id,
@@ -2177,6 +2270,8 @@ async def create_meeting_share_grant_route(
         content_scope=payload.content_scope,
         can_download=payload.can_download,
         can_export=payload.can_export,
+        can_comment=payload.can_comment if "can_comment" in payload.model_fields_set else None,
+        can_edit=payload.can_edit if "can_edit" in payload.model_fields_set else None,
         expires_at=payload.expires_at,
         broader_audience_enabled=broader_audience_enabled,
     )
@@ -2198,12 +2293,12 @@ async def create_meeting_share_grant_route(
     return ShareGrantResponse(
         grant=grant_view(grant, display_name="Authenticated user"),
         share_url=(
-            f"/api/v1/cabinet/public-shares/{raw_token}?workspace_id={tenant_scope.workspace_id}"
+            f"/api/v1/cabinet/public-shares/{raw_token}?workspace_id={db.info.get('share_owner_workspace', tenant_scope.workspace_id)}"
             if payload.audience_type == "link"
             else (
                 f"/meetings/{meeting_id}"
                 if payload.audience_type == "workspace"
-                else (f"/api/v1/cabinet/share/{raw_token}?workspace_id={tenant_scope.workspace_id}")
+                else (f"/api/v1/cabinet/share/{raw_token}?workspace_id={db.info.get('share_owner_workspace', tenant_scope.workspace_id)}")
             )
         ),
         notification_status=notification_status,
@@ -2231,7 +2326,7 @@ async def _search_meeting_share_recipients(
         return ShareRecipientListResponse(items=[])
     _meeting, decision = await _authorized_meeting(
         db,
-        workspace_id=tenant_scope.workspace_id,
+        workspace_id=db.info.get("share_owner_workspace", tenant_scope.workspace_id),
         meeting_id=meeting_id,
         viewer_user_id=principal.user_id,
     )
@@ -2239,7 +2334,7 @@ async def _search_meeting_share_recipients(
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
     rows = await search_share_recipients(
         db,
-        workspace_id=tenant_scope.workspace_id,
+        workspace_id=db.info.get("share_owner_workspace", tenant_scope.workspace_id),
         meeting_id=meeting_id,
         viewer_user_id=principal.user_id,
         device_id=device.device_id,
@@ -2271,7 +2366,7 @@ async def search_legacy_share_recipients_route(
     tenant_scope: TenantScope = TenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     device: DeviceContext = DeviceDependency,
-    db: AsyncSession | None = DbDependency,
+    db: AsyncSession | None = ShareOperationDbDependency,
 ) -> ShareRecipientListResponse:
     return await _search_meeting_share_recipients(
         meeting_id=meeting_id,
@@ -2295,7 +2390,7 @@ async def search_meeting_share_recipients_route(
     tenant_scope: TenantScope = TenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     device: DeviceContext = DeviceDependency,
-    db: AsyncSession | None = DbDependency,
+    db: AsyncSession | None = ShareOperationDbDependency,
 ) -> ShareRecipientListResponse:
     return await _search_meeting_share_recipients(
         meeting_id=meeting_id,
@@ -2320,7 +2415,7 @@ async def rotate_meeting_share_link_route(
     tenant_scope: TenantScope = TenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     device: DeviceContext = DeviceDependency,
-    db: AsyncSession | None = DbDependency,
+    db: AsyncSession | None = ShareOperationDbDependency,
 ) -> ShareGrantResponse:
     if db is None:
         raise ProblemDetail(
@@ -2328,13 +2423,13 @@ async def rotate_meeting_share_link_route(
         )
     meeting, _ = await _authorized_meeting(
         db,
-        workspace_id=tenant_scope.workspace_id,
+        workspace_id=db.info.get("share_owner_workspace", tenant_scope.workspace_id),
         meeting_id=meeting_id,
         viewer_user_id=principal.user_id,
     )
     grant, raw_token = await rotate_share_link(
         db,
-        workspace_id=tenant_scope.workspace_id,
+        workspace_id=db.info.get("share_owner_workspace", tenant_scope.workspace_id),
         meeting=meeting,
         actor_user_id=principal.user_id,
         device_id=device.device_id,
@@ -2345,9 +2440,9 @@ async def rotate_meeting_share_link_route(
     return ShareGrantResponse(
         grant=grant_view(grant, display_name="Ссылка"),
         share_url=(
-            (f"/api/v1/cabinet/public-shares/{raw_token}?workspace_id={tenant_scope.workspace_id}")
+            (f"/api/v1/cabinet/public-shares/{raw_token}?workspace_id={db.info.get('share_owner_workspace', tenant_scope.workspace_id)}")
             if grant.audience_type == "link"
-            else (f"/api/v1/cabinet/share/{raw_token}?workspace_id={tenant_scope.workspace_id}")
+            else (f"/api/v1/cabinet/share/{raw_token}?workspace_id={db.info.get('share_owner_workspace', tenant_scope.workspace_id)}")
         ),
         notification_status="not_attempted",
     )
@@ -2367,7 +2462,7 @@ async def create_meeting_share_invitation_route(
     tenant_scope: TenantScope = TenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     device: DeviceContext = DeviceDependency,
-    db: AsyncSession | None = DbDependency,
+    db: AsyncSession | None = ShareOperationDbDependency,
 ) -> MeetingShareInvitationResponse:
     settings = request.app.state.settings
     if not settings.share_external_invitations_enabled:
@@ -2383,13 +2478,13 @@ async def create_meeting_share_invitation_route(
         )
     meeting, _ = await _authorized_meeting(
         db,
-        workspace_id=tenant_scope.workspace_id,
+        workspace_id=db.info.get("share_owner_workspace", tenant_scope.workspace_id),
         meeting_id=meeting_id,
         viewer_user_id=principal.user_id,
     )
     invitation = await create_share_invitation(
         db,
-        workspace_id=tenant_scope.workspace_id,
+        workspace_id=db.info.get("share_owner_workspace", tenant_scope.workspace_id),
         meeting=meeting,
         actor_user_id=principal.user_id,
         device_id=device.device_id,
@@ -2397,6 +2492,8 @@ async def create_meeting_share_invitation_route(
         content_scope=payload.content_scope,
         can_download=payload.can_download,
         can_export=payload.can_export,
+        can_comment=payload.can_comment if "can_comment" in payload.model_fields_set else None,
+        can_edit=payload.can_edit if "can_edit" in payload.model_fields_set else None,
         encryption_key=settings.credential_encryption_key_file.read_bytes().strip(),
         ttl_seconds=settings.share_invitation_ttl_seconds,
     )
@@ -2409,6 +2506,9 @@ async def create_meeting_share_invitation_route(
             invitation_id=invitation.id,
             status=invitation.status,
             expires_at=invitation.expires_at,
+            content_scope=invitation.content_scope,
+            can_comment=invitation.can_comment,
+            can_edit=invitation.can_edit,
         )
     try:
         temporal_client = getattr(request.app.state, "temporal_client", None)
@@ -2418,7 +2518,7 @@ async def create_meeting_share_invitation_route(
             temporal_client=temporal_client,
             settings=settings,
             invitation_id=invitation.id,
-            workspace_id=tenant_scope.workspace_id,
+            workspace_id=db.info.get("share_owner_workspace", tenant_scope.workspace_id),
         )
     except Exception as exc:
         invitation.status = "outcome_unknown"
@@ -2434,6 +2534,9 @@ async def create_meeting_share_invitation_route(
         invitation_id=invitation.id,
         status=invitation.status,
         expires_at=invitation.expires_at,
+        content_scope=invitation.content_scope,
+        can_comment=invitation.can_comment,
+        can_edit=invitation.can_edit,
     )
 
 
@@ -2450,7 +2553,7 @@ async def revoke_meeting_share_invitation_route(
     tenant_scope: TenantScope = TenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     device: DeviceContext = DeviceDependency,
-    db: AsyncSession | None = DbDependency,
+    db: AsyncSession | None = ShareOperationDbDependency,
 ) -> Response:
     if db is None:
         raise ProblemDetail(
@@ -2458,13 +2561,13 @@ async def revoke_meeting_share_invitation_route(
         )
     meeting, _ = await _authorized_meeting(
         db,
-        workspace_id=tenant_scope.workspace_id,
+        workspace_id=db.info.get("share_owner_workspace", tenant_scope.workspace_id),
         meeting_id=meeting_id,
         viewer_user_id=principal.user_id,
     )
     await revoke_share_invitation(
         db,
-        workspace_id=tenant_scope.workspace_id,
+        workspace_id=db.info.get("share_owner_workspace", tenant_scope.workspace_id),
         meeting=meeting,
         actor_user_id=principal.user_id,
         device_id=device.device_id,
@@ -2492,7 +2595,7 @@ async def revoke_meeting_share_grant_route(
     tenant_scope: TenantScope = TenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     device: DeviceContext = DeviceDependency,
-    db: AsyncSession | None = DbDependency,
+    db: AsyncSession | None = ShareOperationDbDependency,
 ) -> Response:
     if db is None:
         raise ProblemDetail(
@@ -2500,13 +2603,13 @@ async def revoke_meeting_share_grant_route(
         )
     meeting, _decision = await _authorized_meeting(
         db,
-        workspace_id=tenant_scope.workspace_id,
+        workspace_id=db.info.get("share_owner_workspace", tenant_scope.workspace_id),
         meeting_id=meeting_id,
         viewer_user_id=principal.user_id,
     )
     await revoke_share_grant(
         db,
-        workspace_id=tenant_scope.workspace_id,
+        workspace_id=db.info.get("share_owner_workspace", tenant_scope.workspace_id),
         meeting=meeting,
         actor_user_id=principal.user_id,
         device_id=device.device_id,
@@ -2581,6 +2684,7 @@ async def resolve_login_required_share_link_route(
                 )
             ).all()
         projection = narrow_summary_projection(
+            protocol=outcome_set.protocol_json if outcome_set else None,
             meeting_label=meeting.title or "Встреча",
             occurred_at=meeting.started_at or meeting.created_at,
             duration_seconds=meeting.duration_seconds,
@@ -2588,14 +2692,21 @@ async def resolve_login_required_share_link_route(
                 {"category": item.category, "text": item.text or ""} for item in items
             ],
         )
+        if "text/html" in request.headers.get("accept", "").lower():
+            display_title, display_time, uploaded = await shared_meeting_display_metadata(
+                db, meeting=meeting
+            )
         await db.commit()
         if "text/html" in request.headers.get("accept", "").lower():
             response = cabinet_html_response(
                 render_shared_meeting_summary_page(
-                    meeting_title=str(projection["meeting_label"]),
-                    occurred_at=projection["occurred_at"],
+                    meeting_title=display_title,
+                    occurred_at=display_time,
+                    time_is_upload=uploaded,
                     duration_seconds=int(projection["duration_seconds"]),
                     summary_sections=projection["summary_sections"],
+                    protocol=projection["protocol"],
+                    generator_version=outcome_set.generator_version if outcome_set else None,
                     authenticated=True,
                 )
             )
@@ -2688,20 +2799,28 @@ async def resolve_public_meeting_share_route(
             )
         ).all()
     projection = narrow_summary_projection(
+        protocol=outcome_set.protocol_json if outcome_set else None,
         meeting_label=meeting.title or "Встреча",
         occurred_at=meeting.started_at or meeting.created_at,
         duration_seconds=meeting.duration_seconds,
         summary_sections=[{"category": item.category, "text": item.text or ""} for item in items],
     )
     grant.last_used_at = datetime.now(UTC)
+    if "text/html" in request.headers.get("accept", "").lower():
+        display_title, display_time, uploaded = await shared_meeting_display_metadata(
+            db, meeting=meeting
+        )
     await db.commit()
     if "text/html" in request.headers.get("accept", "").lower():
         response = cabinet_html_response(
             render_shared_meeting_summary_page(
-                meeting_title=str(projection["meeting_label"]),
-                occurred_at=projection["occurred_at"],
+                meeting_title=display_title,
+                occurred_at=display_time,
+                time_is_upload=uploaded,
                 duration_seconds=int(projection["duration_seconds"]),
                 summary_sections=projection["summary_sections"],
+                protocol=projection["protocol"],
+                generator_version=outcome_set.generator_version if outcome_set else None,
                 authenticated=False,
             )
         )
@@ -2783,6 +2902,7 @@ async def accept_meeting_share_invitation_route(
                 )
             ).all()
         projection = narrow_summary_projection(
+            protocol=outcome_set.protocol_json if outcome_set else None,
             meeting_label=meeting.title or "Встреча",
             occurred_at=meeting.started_at or meeting.created_at,
             duration_seconds=meeting.duration_seconds,
@@ -2790,13 +2910,19 @@ async def accept_meeting_share_invitation_route(
                 {"category": item.category, "text": item.text or ""} for item in items
             ],
         )
+        display_title, display_time, uploaded = await shared_meeting_display_metadata(
+            db, meeting=meeting
+        )
         await db.commit()
         html_response = cabinet_html_response(
             render_shared_meeting_summary_page(
-                meeting_title=str(projection["meeting_label"]),
-                occurred_at=projection["occurred_at"],
+                meeting_title=display_title,
+                occurred_at=display_time,
+                time_is_upload=uploaded,
                 duration_seconds=int(projection["duration_seconds"]),
                 summary_sections=projection["summary_sections"],
+                protocol=projection["protocol"],
+                generator_version=outcome_set.generator_version if outcome_set else None,
                 authenticated=True,
             )
         )
@@ -3150,6 +3276,7 @@ async def create_shared_meeting_content_export_route(
         actor_user_id=principal.user_id,
         device_id=device.device_id,
         recipient_proof=recipient_proof,
+        meeting_url=f"{str(request.app.state.settings.public_base_url or '').rstrip('/')}/shared-meetings/{meeting_id}?workspace_id={workspace_id}",
         pinned_summary_revision=pinned_summary_revision,
     )
     await db.commit()
@@ -3217,6 +3344,7 @@ async def get_meeting_content_export_capabilities_route(
     dependencies=[PrincipalDependency, DeviceDependency, WebCSRFDependency],
 )
 async def create_meeting_content_export_route(
+    request: Request,
     meeting_id: UUID,
     payload: ContentExportSelectionRequest,
     tenant_scope: TenantScope = TenantDependency,
@@ -3261,6 +3389,7 @@ async def create_meeting_content_export_route(
         ),
         actor_user_id=principal.user_id,
         device_id=device.device_id,
+        meeting_url=f"{str(request.app.state.settings.public_base_url or '').rstrip('/')}/meetings/{meeting_id}",
     )
     await db.commit()
     filename = generated.filename
@@ -3594,14 +3723,8 @@ async def _summary_type_runtime(
         else None
     )
     source_result = latest_result
-    attempt = await db.scalar(
-        select(MeetingOutcomeGenerationAttempt)
-        .where(
-            MeetingOutcomeGenerationAttempt.workspace_id == meeting.workspace_id,
-            MeetingOutcomeGenerationAttempt.meeting_id == meeting.id,
-            MeetingOutcomeGenerationAttempt.template_key == template_key,
-        )
-        .order_by(MeetingOutcomeGenerationAttempt.created_at.desc())
+    attempt = await latest_summary_attempt(
+        db, meeting=meeting, result=source_result, template_key=template_key,
     )
     if outcome is not None:
         result_state = "ready"
@@ -3749,9 +3872,9 @@ async def _summary_type_entry(
         else 1
     )
     if is_personal:
-        name = personal.name if personal is not None else "Сохранённый формат"
+        name = personal.name if personal is not None else "Сохраненный формат"
         description = (
-            personal.purpose if personal is not None else "Сохранённый результат личного формата"
+            personal.purpose if personal is not None else "Сохраненный результат личного формата"
         )
         availability_state = (
             "available" if personal is not None and personal.status == "active" else "retired"
@@ -4013,6 +4136,7 @@ async def _summary_type_read_response(
         **event.model_dump(),
         outcome_set_id=current_outcome_set_id,
         items=items,
+        protocol=outcome.protocol_json if outcome is not None and outcome.status in {"available", "partial"} else None,
         attempt=attempt,
     )
 
@@ -4690,32 +4814,6 @@ async def _authorized_content_export_meeting(
     return meeting, decision
 
 
-async def _authorized_lifecycle_meeting(
-    db: AsyncSession,
-    *,
-    workspace_id: UUID,
-    meeting_id: UUID,
-    viewer_user_id: UUID,
-) -> Meeting:
-    meeting = await db.scalar(
-        select(Meeting).where(
-            Meeting.workspace_id == workspace_id,
-            Meeting.id == meeting_id,
-        )
-    )
-    if meeting is None:
-        raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
-    membership = await db.scalar(
-        select(WorkspaceMembership).where(
-            WorkspaceMembership.workspace_id == workspace_id,
-            WorkspaceMembership.user_id == viewer_user_id,
-            WorkspaceMembership.status == "active",
-        )
-    )
-    role = membership.role if membership is not None else None
-    if meeting.created_by_user_id != viewer_user_id and role not in {"owner", "admin"}:
-        raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
-    return meeting
 
 
 def _ensure_lifecycle_manager(decision) -> None:
@@ -4723,3 +4821,333 @@ def _ensure_lifecycle_manager(decision) -> None:
         raise ProblemDetail(
             status=403, code="deletion_forbidden", title="Deletion is not available"
         )
+
+# Discussion operations share a transaction/fence in owner and shared surfaces.
+
+
+
+async def comment_context(
+    request: Request,
+    meeting_id: UUID,
+    workspace_id: UUID | None = None,
+    tenant_scope: TenantScope = TenantDependency,
+    principal: AuthenticatedPrincipal = PrincipalDependency,
+    device: DeviceContext = DeviceDependency,
+):
+    factory = getattr(request.app.state, "db_sessionmaker", None)
+    if factory is None:
+        raise ProblemDetail(
+            status=503,
+            code="cabinet_store_unavailable",
+            title="Cabinet store unavailable",
+        )
+    owner_workspace = workspace_id or tenant_scope.workspace_id
+    proof = None
+    if owner_workspace != tenant_scope.workspace_id:
+        proof = await _recipient_share_access_proof(
+            request, recipient_scope=tenant_scope, owner_workspace_id=owner_workspace
+        )
+    async with factory() as session:
+        await apply_tenant_context(
+            session,
+            TenantDatabaseContext(
+                organization_id=tenant_scope.organization_id,
+                workspace_id=owner_workspace,
+                user_id=principal.user_id,
+                context_kind="request",
+            ),
+        )
+        meeting = await lock_meeting_fence(
+            session, workspace_id=owner_workspace, meeting_id=meeting_id
+        )
+        if meeting is None:
+            discussion.problem(404, "meeting_not_found")
+        decision = await decide_meeting_access(
+            session,
+            meeting,
+            workspace_id=owner_workspace,
+            viewer_user_id=principal.user_id,
+            recipient_proof=proof,
+        )
+        if not decision.can_view or not decision.can_view_full_meeting:
+            discussion.problem(404, "meeting_not_found")
+        async with discussion.comment_reader_context(session, meeting, decision, principal.user_id):
+            yield session, meeting, decision, principal.user_id
+
+
+CommentContext = Depends(comment_context)
+
+
+@router.get("/cabinet/meetings/{meeting_id}/comments")
+async def list_meeting_comments(
+    source_segment_ids: Annotated[list[UUID] | None, Query(max_length=100)] = None,
+    status: Literal["open", "resolved", "all"] = "open",
+    author_id: UUID | None = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    cursor: Annotated[str | None, Query(max_length=200)] = None,
+    context=CommentContext,
+):
+    db, meeting, decision, user = context
+    media = await discussion.current_media(db, meeting)
+    page = await discussion.list_comments(
+        db,
+        meeting.id,
+        media.id,
+        decision,
+        user,
+        status=status,
+        author_id=author_id,
+        source_segment_ids=source_segment_ids,
+        limit=limit,
+        cursor=cursor,
+    )
+    return JSONResponse(page, headers={"Cache-Control": "no-store"})
+
+
+@router.get("/cabinet/meetings/{meeting_id}/comment-mention-candidates")
+async def meeting_comment_mentions(
+    q: Annotated[str, Query(max_length=100)] = "", context=CommentContext
+):
+    db, meeting, decision, user = context
+    discussion.require_write(decision)
+    return JSONResponse(
+        await discussion.mention_candidates(db, meeting, q),
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@router.get("/cabinet/meetings/{meeting_id}/comments/{comment_id}")
+async def get_meeting_comment(comment_id: UUID, context=CommentContext):
+    db, meeting, decision, user = context
+    row = await discussion.find_comment(db, meeting, comment_id)
+    target = row if row.parent_id else None
+    if row.parent_id:
+        row = await discussion.find_comment(db, meeting, row.parent_id)
+    result = await discussion.comment_view(db, row, decision, user, with_replies=True)
+    if target is not None and not any(reply["id"] == str(target.id) for reply in result["replies"]):
+        # Keep a bounded first page and the explicitly linked reply. Resume
+        # before the displaced reply so following pages never lose siblings.
+        result["replies"] = result["replies"][:49]
+        last = result["replies"][-1]
+        result["next_reply_cursor"] = f"{last['created_at']}|{last['id']}"
+        result["replies"].append(await discussion.comment_view(db, target, decision, user))
+    return JSONResponse(
+        result,
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@router.get("/cabinet/meetings/{meeting_id}/comments/{comment_id}/replies")
+async def list_meeting_comment_replies(
+    comment_id: UUID,
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+    cursor: Annotated[str | None, Query(max_length=200)] = None,
+    context=CommentContext,
+):
+    db, meeting, decision, user = context
+    row = await discussion.find_comment(db, meeting, comment_id)
+    if row.parent_id:
+        discussion.problem(422, "comment_root_required")
+    return JSONResponse(
+        await discussion.list_comments(
+            db,
+            meeting.id,
+            row.media_revision_id,
+            decision,
+            user,
+            parent_id=row.id,
+            limit=limit,
+            cursor=cursor,
+        ),
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@router.post(
+    "/cabinet/meetings/{meeting_id}/comments",
+    dependencies=[WebCSRFDependency],
+    status_code=201,
+)
+async def create_meeting_comment(
+    payload: discussion.CreateComment, context=CommentContext
+):
+    db, meeting, decision, user = context
+    row = await discussion.create_comment(db, meeting, decision, user, payload)
+    result = await discussion.comment_view(db, row, decision, user, with_replies=True)
+    await db.commit()
+    return JSONResponse(result, status_code=201, headers={"Cache-Control": "no-store"})
+
+
+@router.post(
+    "/cabinet/meetings/{meeting_id}/comments/{comment_id}/replies",
+    dependencies=[WebCSRFDependency],
+    status_code=201,
+)
+async def reply_meeting_comment(
+    comment_id: UUID, payload: discussion.ReplyComment, context=CommentContext
+):
+    db, meeting, decision, user = context
+    parent = await discussion.find_comment(db, meeting, comment_id)
+    row = await discussion.create_comment(
+        db, meeting, decision, user, payload, parent=parent
+    )
+    result = await discussion.comment_view(db, row, decision, user)
+    await db.commit()
+    return JSONResponse(result, status_code=201, headers={"Cache-Control": "no-store"})
+
+
+@router.patch(
+    "/cabinet/meetings/{meeting_id}/comments/{comment_id}",
+    dependencies=[WebCSRFDependency],
+)
+async def edit_meeting_comment(
+    comment_id: UUID, payload: discussion.EditComment, context=CommentContext
+):
+    db, meeting, decision, user = context
+    row = await discussion.find_comment(db, meeting, comment_id)
+    await discussion.edit_comment(db, meeting, decision, user, row, payload)
+    result = await discussion.comment_view(
+        db, row, decision, user, with_replies=row.parent_id is None
+    )
+    await db.commit()
+    return JSONResponse(result, headers={"Cache-Control": "no-store"})
+
+
+@router.delete(
+    "/cabinet/meetings/{meeting_id}/comments/{comment_id}",
+    dependencies=[WebCSRFDependency],
+    status_code=204,
+)
+async def delete_meeting_comment(
+    comment_id: UUID, payload: discussion.VersionInput, context=CommentContext
+):
+    db, meeting, decision, user = context
+    row = await discussion.find_comment(db, meeting, comment_id)
+    await discussion.delete_comment(
+        db, meeting, decision, user, row, payload.expected_version
+    )
+    await db.commit()
+    return Response(status_code=204, headers={"Cache-Control": "no-store"})
+
+
+@router.put(
+    "/cabinet/meetings/{meeting_id}/comments/{comment_id}/resolution",
+    dependencies=[WebCSRFDependency],
+)
+async def resolve_meeting_comment(
+    comment_id: UUID, payload: discussion.ResolutionInput, context=CommentContext
+):
+    db, meeting, decision, user = context
+    row = await discussion.find_comment(db, meeting, comment_id)
+    await discussion.resolve_comment(db, decision, user, row, payload)
+    result = await discussion.comment_view(db, row, decision, user, with_replies=True)
+    await db.commit()
+    return JSONResponse(result, headers={"Cache-Control": "no-store"})
+
+
+@router.put(
+    "/cabinet/meetings/{meeting_id}/comments/{comment_id}/reaction",
+    dependencies=[WebCSRFDependency],
+)
+async def react_meeting_comment(
+    comment_id: UUID, payload: discussion.ReactionInput, context=CommentContext
+):
+    db, meeting, decision, user = context
+    row = await discussion.find_comment(db, meeting, comment_id)
+    await discussion.react(db, decision, user, row, payload)
+    result = await discussion.comment_view(
+        db, row, decision, user, with_replies=row.parent_id is None
+    )
+    await db.commit()
+    return JSONResponse(result, headers={"Cache-Control": "no-store"})
+
+
+class CommentGrantPermissions(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    can_comment: bool
+    can_edit: bool
+
+
+@router.patch(
+    "/cabinet/meetings/{meeting_id}/shares/{grant_id}/permissions",
+    dependencies=[WebCSRFDependency],
+)
+async def update_comment_grant_permissions(
+    grant_id: UUID,
+    payload: CommentGrantPermissions,
+    context=CommentContext,
+    device: DeviceContext = DeviceDependency,
+):
+    from twobrain_rec_server.cabinet.access import validate_comment_grant
+    from twobrain_rec_server.cabinet.egress import record_egress_audit_event
+
+    db, meeting, decision, user = context
+    if not (decision.state == "owner" or decision.can_edit):
+        discussion.problem(403, "comment_permission_forbidden")
+    grant = await db.scalar(
+        select(MeetingShareGrant)
+        .where(
+            MeetingShareGrant.id == grant_id,
+            MeetingShareGrant.meeting_id == meeting.id,
+            MeetingShareGrant.workspace_id == meeting.workspace_id,
+            MeetingShareGrant.status == "active",
+        )
+        .with_for_update()
+    )
+    if grant is None:
+        discussion.problem(404, "share_not_found")
+    if grant.audience_type == "link":
+        discussion.problem(422, "invalid_comment_permission")
+    # An explicit role change includes granting the full meeting; a legacy
+    # request cannot reach this endpoint without owner/editor authority.
+    scope = (
+        "full_meeting"
+        if payload.can_comment or payload.can_edit
+        else grant.content_scope
+    )
+    validate_comment_grant(
+        decision,
+        content_scope=scope,
+        can_comment=payload.can_comment,
+        can_edit=payload.can_edit,
+    )
+    grant.content_scope = scope
+    grant.can_comment = payload.can_comment
+    grant.can_edit = payload.can_edit
+    await record_egress_audit_event(
+        db,
+        workspace_id=meeting.workspace_id,
+        meeting_id=meeting.id,
+        actor_user_id=user,
+        device_id=device.device_id,
+        event_type="share_updated",
+        outcome="allowed",
+        policy_reason="comment_permissions_updated",
+        metadata={"share_grant_id": str(grant.id)},
+    )
+    await db.commit()
+    return JSONResponse(
+        grant_view(grant, display_name="Участник").model_dump(mode="json"),
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@router.post(
+    "/desktop/meetings/{meeting_id}/local-purge-task",
+    response_model=LocalPurgeTask,
+    dependencies=[PrincipalDependency, DeviceDependency, WebCSRFDependency],
+)
+async def ensure_desktop_local_purge_task_route(
+    meeting_id: UUID,
+    tenant_scope: TenantScope = TenantDependency,
+    device: DeviceContext = DeviceDependency,
+    db: AsyncSession | None = DbDependency,
+):
+    if db is None:
+        raise ProblemDetail(status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable")
+    task = await ensure_local_purge_task(
+        db, workspace_id=tenant_scope.workspace_id, meeting_id=meeting_id,
+        user_id=tenant_scope.user_id, device_id=device.device_id,
+    )
+    await db.commit()
+    return task

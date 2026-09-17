@@ -141,28 +141,28 @@ def test_calendar_settings_web_route_renders_working_settings_screen(client) -> 
     assert "Настройки" in html
     assert "Календари" in html
     assert (
-        '<a class="button primary" href="#calendar-providers-title">Выбрать провайдера</a>' in html
+        'data-calendar-provider-open="calendar-provider-dialog-caldav_yandex"' in html
     )
     assert '<a class="button quiet" href="#calendar-providers-title">Добавить</a>' not in html
     assert '<button class="primary" type="button">Подключить первый календарь</button>' not in html
-    assert "Что GRAF делает с календарем" in html
-    assert "GRAF не меняет события календаря" in html
+    assert "Что GRAF делает с календарем" not in html
+    assert "GRAF не меняет события календаря" not in html
     assert "2brain Rec" not in html
     assert "Раздел появится в следующих версиях" not in html
     assert_no_forbidden_calendar_settings_content(html)
 
 
-def test_calendar_settings_boundary_rendering_explains_privacy_and_recording_limits(client) -> None:
+def test_calendar_settings_omits_static_explanations(client) -> None:
     response = client.get("/settings/integrations/calendar", headers=auth_headers())
 
     assert response.status_code == 200
     html = response.text
-    assert "Только чтение" in html
-    assert "Пароли не живут на Mac" in html
-    assert "Приложение на Mac их не хранит" in html
-    assert "Участники встречи не становятся получателями итогов и не получают доступ к записи автоматически." in html
-    assert "Подключение календаря само по себе не включает запись." in html
-    assert "Автозапись по приложениям настраивается отдельно." in html
+    assert "Только чтение" not in html
+    assert "Пароли не живут на Mac" not in html
+    assert "Приложение на Mac их не хранит" not in html
+    assert "Участники встречи не становятся получателями итогов и не получают доступ к записи автоматически." not in html
+    assert "Подключение календаря само по себе не включает запись." not in html
+    assert "Автозапись по приложениям настраивается отдельно." not in html
     assert_no_forbidden_calendar_settings_content(html)
 
 
@@ -180,7 +180,7 @@ def test_calendar_settings_connection_flow_uses_progressive_disclosure(client) -
     assert 'data-calendar-provider-open="calendar-provider-dialog-caldav_yandex"' in html
     assert 'id="calendar-provider-dialog-caldav_yandex"' in html
     assert 'aria-haspopup="dialog"' in html
-    assert "Доступные подключения работают только на чтение" in html
+    assert "GRAF только читает события и не меняет ваш календарь" not in html
     assert "Яндекс Календарь" in html
     assert "Mail.ru Календарь" in html
     assert 'data-calendar-mutation="connect"' in html
@@ -197,8 +197,10 @@ def test_calendar_settings_connection_flow_uses_progressive_disclosure(client) -
     assert "calendar-provider-cta" not in css
     assert 'class="calendar-advanced-fields"' in html
     assert "https://calendar.example/caldav…" not in html
-    assert html.index('id="calendar-sources-title"') < html.index('id="calendar-providers-title"')
-    assert html.index('id="calendar-providers-title"') < html.index('id="calendar-boundary-title"')
+    assert 'id="calendar-sources-title"' not in html
+    assert html.index('id="calendar-providers-title"') < html.index('id="calendar-behavior-title"')
+    assert 'id="calendar-boundary-title"' not in html
+    assert 'id="calendar-preview-title"' not in html
     assert_no_forbidden_calendar_settings_content(html)
 
 
@@ -296,11 +298,9 @@ def test_meeting_home_names_credential_recovery_without_false_freshness() -> Non
     )
 
     assert "Нужно переподключить календарь" in page
-    assert "Календарь нужно переподключить" in page
-    assert "Ручная запись по-прежнему доступна" in page
     assert "Календарь обновляется" not in page
-    assert snapshot.title not in page
-    assert f"/api/v1/calendar/events/{snapshot.id}/open" not in page
+    assert snapshot.title in page
+    assert f"/api/v1/calendar/events/{snapshot.id}/open" in page
 
 
 def test_calendar_settings_disconnect_confirmation_copy_is_truthful_and_safe() -> None:
@@ -385,7 +385,7 @@ def test_calendar_selection_limit_message_has_priority_over_dirty_state() -> Non
     assert "selectedCalendarCount() !== selectionLimit" in script
     assert 'status.dataset.preserveMessage = "true"' in script
     assert "delete status.dataset.preserveMessage" in script
-    assert 'status.dataset.preserveMessage !== "true"' in script
+    assert 'form.hasAttribute("data-settings-autosave") || form.dataset.state' in script
 
 
 def test_calendar_settings_accessibility_contract_for_states_and_controls(client) -> None:
@@ -395,9 +395,10 @@ def test_calendar_settings_accessibility_contract_for_states_and_controls(client
     assert response.status_code == 200
     html = response.text
     assert 'id="calendar-settings-region"' in html
-    assert 'id="calendar-providers-title" tabindex="-1"' in html
-    assert 'aria-labelledby="calendar-boundary-title"' in html
-    assert 'aria-labelledby="calendar-sources-title"' in html
+    assert '<summary id="calendar-providers-title">Подключить календарь</summary>' in html
+    assert 'data-calendar-add-source open' in html
+    assert 'aria-labelledby="calendar-boundary-title"' not in html
+    assert 'aria-labelledby="calendar-sources-title"' not in html
     assert 'aria-labelledby="calendar-providers-title"' in html
     assert 'aria-label="Закрыть окно подключения"' in html
     status_nodes = re.findall(r"<[^>]*role=\"status\"[^>]*>", html)
@@ -410,9 +411,10 @@ def test_calendar_settings_accessibility_contract_for_states_and_controls(client
     assert 'role="status"' in html
     assert 'name="join_prompt_enabled"' in html
     assert 'name="record_prompt_enabled"' in html
-    assert html.count('role="switch"') == 4
-    assert 'aria-describedby="calendar-join-prompt-help"' in html
-    assert 'id="calendar-join-prompt-help" role="tooltip"' in html
+    assert html.count('role="switch"') == 8
+    assert "data-settings-autosave" in html
+    assert "data-settings-form-status" in html
+    assert 'role="tooltip"' not in html
     calendar_template = (
         REPO_ROOT
         / "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/fragments/calendar_settings.html"
@@ -424,15 +426,15 @@ def test_calendar_settings_accessibility_contract_for_states_and_controls(client
         "include_all_day_events",
         "include_private_free_busy_prompt_candidates",
     ):
-        assert f'ui.checkbox("{preference}"' in calendar_template
+        assert f'ui.switch("{preference}"' in calendar_template
     assert 'name="credential_input"' in html
-    assert "data-settings-form-disable-pristine" in html
-    assert "data-settings-form-reset" in html
-    assert "Отменить изменения" in html
-    assert "Если настройка ограничена политикой организации" in html
-    assert "Во время загрузки настроек ручная запись остается доступной" in html
-    assert "Если настройки календарей временно недоступны" in html
-    assert "Приватные события и события только со статусом занятости" in html
+    assert "data-settings-form-disable-pristine" not in html
+    assert "data-settings-form-reset" not in html
+    assert "Отменить изменения" not in html
+    assert "Если настройка ограничена политикой организации" not in html
+    assert "Во время загрузки настроек ручная запись остается доступной" not in html
+    assert "Если настройки календарей временно недоступны" not in html
+    assert "Только занятость" in html
     assert "onclick=" not in html
     assert "onkeydown=" not in html
     assert "summary:focus-visible" in css
@@ -449,7 +451,7 @@ def test_calendar_settings_provider_return_states_render_safe_messages(client) -
     assert response.status_code == 200
     html = response.text
     assert "Календарь не подключен" in html
-    assert "Провайдер не дал доступ только для чтения" in html
+    assert "Сервис не предоставил доступ только для чтения" in html
     assert "Ограничено политикой организации" in html
     assert (
         "Некоторые способы подключения или календари может включить только администратор организации"
@@ -460,7 +462,7 @@ def test_calendar_settings_provider_return_states_render_safe_messages(client) -
     assert_no_forbidden_calendar_settings_content(html)
 
 
-def test_calendar_settings_overlap_conflict_renders_explicit_choice() -> None:
+def test_calendar_settings_omits_preview_but_preserves_conflict_projection() -> None:
     first_source = calendar_settings_source(provider_family="caldav_yandex")
     first_calendar = calendar_settings_calendar(first_source, selected=True)
     second_source = calendar_settings_source(
@@ -491,12 +493,14 @@ def test_calendar_settings_overlap_conflict_renders_explicit_choice() -> None:
 
     html = render_calendar_settings_fragment(surface)
 
-    assert "Нужно выбрать событие для пересечения" in html
-    assert "data-calendar-local-time" in html
+    assert len(surface.conflicts) == 1
+    assert len(surface.conflicts[0].events) == 2
+    assert "Нужно выбрать событие для пересечения" not in html
+    assert "data-calendar-local-time" not in html
     assert "12:30 - 13:00 UTC" not in html
-    assert "GRAF не выбирает событие автоматически" in html
-    assert "Можно продолжить без календарного контекста" in html
-    assert "Вариант:" in html
+    assert "GRAF не выбирает событие автоматически" not in html
+    assert "Можно продолжить без календарного контекста" not in html
+    assert "Вариант:" not in html
     assert '<button type="button" class="quiet">Выбрать:' not in html
     assert (
         '<button type="button" class="quiet">Продолжить без календарного контекста</button>'
@@ -518,7 +522,7 @@ def test_calendar_settings_embedded_route_reuses_settings_screen_inside_desktop_
     assert html.count('aria-current="page"') == 1
     assert "/desktop/settings/integrations/calendar" in html
     assert 'role="group" aria-labelledby="calendar-providers-title"' in html
-    assert "Ручной старт и стоп записи остаются доступны всегда" in html
+    assert "Начать и остановить запись можно вручную в любой момент" not in html
     assert_no_forbidden_calendar_settings_content(html)
 
 
@@ -548,7 +552,7 @@ def test_calendar_settings_html_lists_all_required_providers(client) -> None:
     assert "Пароль приложения" in response.text
     assert "Подключить CalDAV" not in response.text
     assert "Показать условия подключения" not in response.text
-    assert "Неподдерживаемые сервисы отмечены честно" in response.text
+    assert "Сервисы, которые пока нельзя подключить" in response.text
     assert "Яндекс Календарь" in response.text
     assert "Mail.ru Календарь" in response.text
     assert 'class="calendar-provider-dialog"' in response.text

@@ -92,7 +92,7 @@ async def test_gateway_projects_only_pinned_config_and_does_not_retry(monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_gateway_requires_echoed_route_binding_and_allowlisted_pair(monkeypatch) -> None:
+async def test_gateway_ignores_historical_route_binding_and_sends_no_binding_header(monkeypatch) -> None:
     import dataclasses
 
     import httpx
@@ -129,11 +129,12 @@ async def test_gateway_requires_echoed_route_binding_and_allowlisted_pair(monkey
         timeout_seconds=19,
     ).generate(snapshot=snapshot, messages=[{"role": "user", "content": "full"}])
     assert result.actual_model == "provider-model"
-    assert _AsyncClient.requests[0]["headers"]["X-GRAF-Route-Binding-Hash"] == binding["binding_hash"]
+    assert "X-GRAF-Route-Binding-Hash" not in _AsyncClient.requests[0]["headers"]
+    assert _AsyncClient.requests[0]["headers"]["Authorization"] == "Bearer secret"
 
 
 @pytest.mark.asyncio
-async def test_gateway_accepts_provider_provenance_from_bound_response_headers(monkeypatch) -> None:
+async def test_gateway_does_not_invent_provenance_missing_from_retained_response(monkeypatch) -> None:
     import dataclasses
 
     import httpx
@@ -180,8 +181,8 @@ async def test_gateway_accepts_provider_provenance_from_bound_response_headers(m
         timeout_seconds=19,
     ).generate(snapshot=snapshot, messages=[{"role": "user", "content": "full"}])
 
-    assert result.actual_provider == "openai"
-    assert result.actual_model == "gpt-5.6-luna"
+    assert result.actual_provider is None
+    assert result.actual_model is None
 
 
 @pytest.mark.asyncio

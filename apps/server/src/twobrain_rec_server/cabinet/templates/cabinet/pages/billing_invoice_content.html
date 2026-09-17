@@ -1,7 +1,8 @@
+{% import "cabinet/components/primitives.html" as ui %}
 <main id="cabinet-main" class="cabinet-main billing-page" tabindex="-1">
   <div class="cabinet-workspace settings-page">
     <div class="settings-page__content">
-      <header class="cabinet-topbar settings-page__topbar"><div class="page-title"><h1>Платёж</h1><p class="muted">Только безопасные данные операции.</p></div></header>
+      {{ ui.settings_header("Платеж") }}
       <section class="settings-section cabinet-card" aria-labelledby="invoice-detail-title">
         <h2 id="invoice-detail-title">{{ invoice.safe_number }}</h2>
         <dl class="settings-definition-list">
@@ -22,8 +23,8 @@
       <p class="billing-help"><a class="button quiet" href="/billing/history">Нужна помощь с оплатой?</a></p>
       <section class="settings-section settings-boundary-card" aria-labelledby="invoice-refund-title">
         <h2 id="invoice-refund-title">Вопрос о возврате</h2>
-        <p>Возврат выполняется вручную в кабинете YooKassa после письма в поддержку. GRAF не создаёт заявку, не показывает статус и не меняет подписку.</p>
-        <p class="muted">Не отправляйте данные карты, идентификаторы провайдера, ссылки или содержимое встреч.</p>
+        <p>Возврат выполняется вручную в кабинете ЮKassa после письма в поддержку. GRAF не создает заявку, не показывает статус и не меняет подписку.</p>
+        <p class="muted">Не отправляйте данные карты, служебные данные платежного сервиса, ссылки или содержимое встреч.</p>
       </section>
     </div>
   </div>

@@ -213,6 +213,9 @@ final class EmbeddedCabinetJavaScriptConfirmTests: XCTestCase {
             currentRoute: .constant(view.url), navigationEventLogger: nil,
             showsAppUpdateBadge: false, onCheckForUpdates: {},
             onOpenMeetingDetectionSettings: {}, supportIncidentBridge: nil,
+            notificationPresenter: DesktopNotificationPresenter(
+                store: .init(defaults: UserDefaults(suiteName: UUID().uuidString)!),
+                model: DesktopControlModel(), status: { .denied }),
             navigationController: navigation
         )
         if !realDocument { coordinator.webView(view, didFinish: nil) }

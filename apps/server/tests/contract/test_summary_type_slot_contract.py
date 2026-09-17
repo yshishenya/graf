@@ -30,6 +30,7 @@ QUERY_OWNER_CLASSES = {
     "apps/server/src/twobrain_rec_server/cabinet/egress.py": "egress_read",
     "apps/server/src/twobrain_rec_server/cabinet/exports.py": "export_read",
     "apps/server/src/twobrain_rec_server/cabinet/queries.py": "cabinet_read",
+    "apps/server/src/twobrain_rec_server/cabinet/read_prefetch.py": "cabinet_read_batch_prefetch",
     "apps/server/src/twobrain_rec_server/cabinet/rendering.py": "render_read",
     "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js": "ui_contract",
     "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/meeting_detail_content.html": "ui_contract",
@@ -41,9 +42,9 @@ QUERY_OWNER_CLASSES = {
     "apps/server/src/twobrain_rec_server/deletion/service.py": "deletion_owner",
     "apps/server/src/twobrain_rec_server/outcomes/dispatch.py": "dispatch_owner",
     "apps/server/src/twobrain_rec_server/outcomes/ai_service.py": "publication_owner",
+    "apps/server/src/twobrain_rec_server/outcomes/progress.py": "pinned_summary_progress_projection",
     "apps/server/src/twobrain_rec_server/outcomes/service.py": "generation_owner",
     "apps/server/src/twobrain_rec_server/outcomes/store.py": "lineage_store",
-    "apps/server/src/twobrain_rec_server/processing/status.py": "processing_status_projection",
     "apps/server/src/twobrain_rec_server/workflows/temporal_client.py": "workflow_submission",
 }
 

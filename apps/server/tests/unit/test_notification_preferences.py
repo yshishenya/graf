@@ -71,3 +71,14 @@ def test_event_enqueue_respects_optional_channel_but_keeps_financial_notice() ->
             )
         ) is True
     assert enqueue.await_count == 1
+
+
+def test_partial_form_preserves_refusals_and_rejects_stale_version():
+    from twobrain_rec_server.billing.notification_preferences import merge_preferences
+    old = NotificationPreferences(False, False, version=3)
+    assert merge_preferences(old, {'version': '3', 'optional_email_enabled': 'true'}) == NotificationPreferences(True, False, version=4)
+    assert merge_preferences(old, {}).optional_in_app_enabled is False
+    with pytest.raises(ValueError):
+        merge_preferences(old, {'version': '2', 'optional_email_enabled': 'true'})
+    with pytest.raises(ValueError):
+        merge_preferences(old, {'version': '3', 'optional_email_enabled': 'surprise'})

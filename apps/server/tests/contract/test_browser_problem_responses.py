@@ -22,7 +22,7 @@ def test_browser_invitation_replay_is_html_for_browser_accepts(client, accept: s
     assert response.headers["content-type"].startswith("text/html")
     assert response.headers["cache-control"] == "private, no-store"
     assert "Приглашение недоступно" in response.text
-    assert "Ссылка уже использована, отозвана или срок её действия истёк." in response.text
+    assert "Ссылка уже использована, отозвана или срок ее действия истек." in response.text
     for secret in (
         "synthetic-continuation-state",
         "synthetic-magic-csrf-token",

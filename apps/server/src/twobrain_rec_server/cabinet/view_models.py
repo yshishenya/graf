@@ -4,10 +4,11 @@ import re
 from collections import defaultdict
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING, Literal, cast
 from uuid import UUID
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from twobrain_rec_server.api.schemas import (
     ArtifactEgressState,
@@ -49,6 +50,8 @@ from twobrain_rec_server.api.schemas import (
 )
 from twobrain_rec_server.cabinet.access import owner_access_state
 from twobrain_rec_server.cabinet.constants import DELETION_TRUTH_COPY
+from twobrain_rec_server.cabinet.meeting_titles import meeting_title_version
+from twobrain_rec_server.cabinet.user_time import display_timezone_name, format_user_datetime
 from twobrain_rec_server.calendar.service import (
     SELECTABLE_CALENDAR_VISIBILITIES,
     calendar_duplicate_group_key,
@@ -56,6 +59,7 @@ from twobrain_rec_server.calendar.service import (
 )
 from twobrain_rec_server.db.models import (
     AuthSession,
+    AuthSessionDeviceBinding,
     CalendarEventSnapshot,
     CalendarParticipant,
     CalendarSettingsPreference,
@@ -83,6 +87,7 @@ from twobrain_rec_server.domain.media_filenames import (
 )
 from twobrain_rec_server.domain.metadata_text import safe_metadata_text
 from twobrain_rec_server.domain.speaker_turns import (
+    UNKNOWN_SPEAKER_LABEL,
     CanonicalSpeakerTurn,
     canonical_speaker_model,
     canonical_speech_available,
@@ -138,17 +143,17 @@ class ProviderLinkSettingsSurface:
 
 def provider_link_settings_surface(link: WorkspaceProviderLinkState) -> ProviderLinkSettingsSurface:
     status_labels = {
-        "initiated": "Ожидаем входа у провайдера",
-        "callback_verified": "Провайдер подтверждён — подтвердите подключение в GRAF",
-        "confirmed": "Способ входа подключён",
-        "expired": "Срок подключения истёк. Начните заново.",
+        "initiated": "Ожидаем подтверждения входа",
+        "callback_verified": "Вход подтвержден — добавьте этот способ в GRAF",
+        "confirmed": "Способ входа подключен",
+        "expired": "Срок подключения истек. Начните заново.",
         "rejected": "Подключение не завершено. Начните заново.",
         "unavailable": "Подключение временно недоступно. Попробуйте заново.",
     }
     return ProviderLinkSettingsSurface(
         link_state_id=link.id,
         provider=link.candidate_provider,
-        provider_label=PROVIDER_LINK_LABELS.get(link.candidate_provider or "", "Провайдер"),
+        provider_label=PROVIDER_LINK_LABELS.get(link.candidate_provider or "", "Сервис входа"),
         status=link.status,
         status_label=status_labels.get(link.status, "Подключение недоступно. Начните заново."),
         can_confirm=link.status == "callback_verified",
@@ -188,13 +193,21 @@ class AccountSessionView:
     current: bool
     can_revoke: bool
 
+    client_label: str = "Неизвестный вход"
+    client_detail: str = ""
+    issued_label: str = "Нет данных"
+    last_seen_label: str = "Нет данных"
+    expires_label: str = "Нет данных"
+    last_seen_short: str = "Нет данных"
+    active: bool = False
+
 
 @dataclass(frozen=True, slots=True)
 class AccountProfileView:
     display_name: str
     primary_email: str | None = None
     locale: str = "ru-RU"
-    timezone: str = "Europe/Moscow"
+    timezone: str | None = None
     theme: str = "system"
 
 
@@ -207,6 +220,18 @@ class AccountSettingsSurface:
     unavailable: bool = False
     account_close: AccountCloseView | None = None
 
+    @property
+    def active_sessions(self) -> tuple[AccountSessionView, ...]:
+        return tuple(row for row in self.sessions if row.active)
+
+    @property
+    def session_history(self) -> tuple[AccountSessionView, ...]:
+        return tuple(row for row in self.sessions if not row.active)
+
+    @property
+    def has_other_sessions(self) -> bool:
+        return any(row.can_revoke for row in self.sessions)
+
 
 def account_provider_view(
     identity: ExternalIdentity,
@@ -217,7 +242,7 @@ def account_provider_view(
     return AccountProviderView(
         provider=identity.provider,
         label=PROVIDER_LINK_LABELS.get(identity.provider, "Способ входа"),
-        status_label="Подключён" if identity.is_verified else "Проверка не завершена",
+        status_label="Подключен" if identity.is_verified else "Проверка не завершена",
         primary=primary,
         connected_at=identity.last_seen_at or identity.created_at,
         can_unlink=can_unlink,
@@ -251,22 +276,79 @@ def account_device_view(
     )
 
 
+def _session_time(value: datetime | None, timezone_name: str, *, relative_to: datetime | None = None) -> str:
+    if value is None:
+        return "Нет данных"
+    try:
+        zone = ZoneInfo(timezone_name)
+    except (ValueError, ZoneInfoNotFoundError):
+        zone = ZoneInfo("UTC")
+    aware = value.replace(tzinfo=UTC) if value.tzinfo is None else value
+    local = aware.astimezone(zone)
+    if relative_to is not None:
+        reference = relative_to.replace(tzinfo=UTC) if relative_to.tzinfo is None else relative_to
+        days = (reference.astimezone(zone).date() - local.date()).days
+        if days in (0, 1) and aware <= reference:
+            return f"{'сегодня' if days == 0 else 'вчера'}, {local:%H:%M}"
+        return f"{local:%d.%m.%Y, %H:%M}"
+    offset = local.strftime("%z")
+    suffix = "UTC" if offset == "+0000" else f"UTC{offset[:3]}:{offset[3:]}"
+    return f"{local:%d.%m.%Y, %H:%M} ({suffix})"
+
+
+def _session_client(device: RegisteredDevice | None) -> tuple[str, str]:
+    if device is None:
+        return "Устройство не подключено", "Вы вошли в аккаунт, но устройство еще не подключено. Доступ к данным ограничен."
+    if device.platform == "macos":
+        version = device.client_version or ""
+        detail = f"Версия {version}" if re.fullmatch(r"[0-9]+(?:\.[0-9]+){1,3}", version) else "Версия приложения неизвестна"
+        return "GRAF для macOS", detail
+    metadata = (device.client_version or "").split(":")
+    browsers = {"chrome": "Chrome", "edge": "Edge", "firefox": "Firefox", "safari": "Safari", "unknown": "Неизвестный вход"}
+    systems = {"macos": "macOS", "windows": "Windows", "linux": "Linux", "ios": "iOS", "android": "Android", "unknown": ""}
+    if (device.platform == "web" and (device.device_public_id or "").startswith("login:")
+            and len(metadata) == 3 and metadata[0] == "browser"
+            and metadata[1] in browsers and metadata[2] in systems):
+        system = systems[metadata[2]]
+        return browsers[metadata[1]] + (f" на {system}" if system else ""), ""
+    return "Неизвестный вход", "Для этого входа сведения о приложении или браузере не сохранились"
+
+
 def account_session_view(
     session: AuthSession,
     *,
     current_session_id: UUID | None,
+    device: RegisteredDevice | None = None,
+    access_allowed: bool = True,
+    timezone_name: str = "UTC",
+    now: datetime | None = None,
 ) -> AccountSessionView:
-    provider_label = PROVIDER_LINK_LABELS.get(session.provider, "Способ входа")
-    status_label = "Активна" if session.status == "active" else "Отозвана"
+    from twobrain_rec_server.auth.sessions import is_session_token_valid
+
+    now = now or datetime.now(UTC)
+    active = is_session_token_valid(session, now) and access_allowed
+    status_label = {"revoked": "Завершен", "expired": "Срок истек", "replaced": "Заменен новым входом"}.get(session.status, "Состояние неизвестно")
+    if session.status == "active":
+        status_label = "Действует" if active else ("Доступ заблокирован" if not access_allowed else "Срок истек")
+    client_label, client_detail = _session_client(device)
+    if not access_allowed and device is None:
+        client_label, client_detail = "Неизвестный вход", "Связь с устройством недоступна"
     current = session.id == current_session_id
     return AccountSessionView(
         session_id=session.id,
-        provider_label=provider_label,
+        provider_label=PROVIDER_LINK_LABELS.get(session.provider, "Способ входа неизвестен"),
         status_label=status_label,
         last_seen_at=session.last_seen_at,
         expires_at=session.expires_at,
         current=current,
-        can_revoke=session.status == "active" and not current,
+        can_revoke=active and not current,
+        client_label=client_label,
+        client_detail=client_detail,
+        issued_label=_session_time(session.issued_at, timezone_name),
+        last_seen_label=_session_time(session.last_seen_at, timezone_name),
+        last_seen_short=_session_time(session.last_seen_at, timezone_name, relative_to=now),
+        expires_label=_session_time(session.expires_at, timezone_name),
+        active=active,
     )
 
 
@@ -276,13 +358,41 @@ def account_settings_surface(
     identities: Iterable[ExternalIdentity] = (),
     devices: Iterable[RegisteredDevice] = (),
     sessions: Iterable[AuthSession] = (),
+    bindings: Iterable[AuthSessionDeviceBinding] = (),
+    now: datetime | None = None,
     current_session_id: UUID | None = None,
     current_device_id: UUID | None = None,
     can_unlink_provider: Callable[[ExternalIdentity], bool] | None = None,
     unavailable: bool = False,
     account_close: AccountCloseView | None = None,
 ) -> AccountSettingsSurface:
+    from twobrain_rec_server.auth.sessions import session_device_access
+
     identity_rows = tuple(identities)
+    device_rows = tuple(devices)
+    devices_by_id = {device.id: device for device in device_rows}
+    bindings_by_session: dict[UUID, list[AuthSessionDeviceBinding]] = defaultdict(list)
+    for binding in bindings:
+        bindings_by_session[binding.auth_session_id].append(binding)
+    session_views = []
+    for session in sessions:
+        allowed, device = session_device_access(session, devices_by_id, bindings_by_session[session.id])
+        # A revoked binding stops access, but does not erase known client metadata.
+        known_device = devices_by_id.get(session.device_id)
+        if device is None and known_device is not None and (
+            known_device.user_id == session.user_id and known_device.workspace_id == session.workspace_id
+        ):
+            device = known_device
+        session_views.append(account_session_view(
+            session, current_session_id=current_session_id, device=device,
+            access_allowed=allowed, timezone_name=(profile.timezone if profile else None) or display_timezone_name(), now=now,
+        ))
+    session_views.sort(key=lambda row: (
+        not row.current,
+        -(row.last_seen_at.replace(tzinfo=UTC) if row.last_seen_at and row.last_seen_at.tzinfo is None
+          else row.last_seen_at).timestamp() if row.last_seen_at else float("inf"),
+        str(row.session_id),
+    ))
     return AccountSettingsSurface(
         profile=profile,
         providers=tuple(
@@ -294,12 +404,9 @@ def account_settings_surface(
             for index, identity in enumerate(identity_rows)
         ),
         devices=tuple(
-            account_device_view(device, current_device_id=current_device_id) for device in devices
+            account_device_view(device, current_device_id=current_device_id) for device in device_rows
         ),
-        sessions=tuple(
-            account_session_view(session, current_session_id=current_session_id)
-            for session in sessions
-        ),
+        sessions=tuple(session_views),
         unavailable=unavailable,
         account_close=account_close,
     )
@@ -319,30 +426,14 @@ STATUS_LABELS: dict[str, str] = {
 }
 
 SORT_LABELS: dict[str, str] = {
-    "updated_desc": "Недавно обновлённые",
-    "updated_asc": "Давно обновлённые",
+    "updated_desc": "Недавно обновленные",
+    "updated_asc": "Давно обновленные",
     "started_desc": "Сначала новые",
     "started_asc": "Сначала старые",
     "duration_desc": "Сначала длинные",
     "duration_asc": "Сначала короткие",
     "title_asc": "По названию",
 }
-SHORT_MONTH_LABELS = (
-    "",
-    "янв",
-    "фев",
-    "мар",
-    "апр",
-    "май",
-    "июн",
-    "июл",
-    "авг",
-    "сен",
-    "окт",
-    "ноя",
-    "дек",
-)
-
 MeetingListTimeBasis = Literal["meeting", "updated", "upload"]
 
 
@@ -427,8 +518,8 @@ PLAYBACK_REASON_COPY: dict[str, dict[str, str]] = {
         "no_audio": "В файле нет пригодной аудиодорожки",
         "ambiguous_audio_tracks": "В файле несколько равноправных аудиодорожек",
         "unsupported_media": "Формат или кодек файла не поддерживается",
-        "encrypted_media": "Защищённый файл нельзя подготовить для воспроизведения",
-        "corrupt_source": "Файл повреждён и не может быть воспроизведён",
+        "encrypted_media": "Защищенный файл нельзя подготовить для воспроизведения",
+        "corrupt_source": "Файл поврежден и не может быть воспроизведен",
         "limit_exceeded": "Файл превышает допустимые параметры",
         "source_missing": "Исходный файл больше не хранится в GRAF",
         "source_mismatch": "Целостность исходного файла не подтверждена",
@@ -538,7 +629,7 @@ CALENDAR_PROVIDER_UI: dict[str, tuple[str, str, str]] = {
     "caldav_mailion_myoffice": (
         "Mailion / MyOffice",
         "manual_url",
-        "CalDAV URL или готовая настройка провайдера из параметров организации.",
+        "Адрес календаря из настроек организации.",
     ),
     "caldav_r7_office": (
         "R7-Office",
@@ -568,7 +659,7 @@ CALENDAR_PROVIDER_UI: dict[str, tuple[str, str, str]] = {
     "google_calendar": (
         "Google Calendar",
         "oauth",
-        "OAuth только для чтения. Доступность зависит от настроек Google Cloud и проверки приложения.",
+        "Подключение через аккаунт Google с доступом только для чтения.",
     ),
 }
 
@@ -576,7 +667,7 @@ CALENDAR_METHOD_LABELS = {
     "app_password": "Пароль приложения",
     "manual_url": "Ручной CalDAV URL",
     "provider_specific_limited": "Может требовать администратора",
-    "oauth": "OAuth только для чтения",
+    "oauth": "Вход через Google",
 }
 
 CALENDAR_PROVIDER_MARKS = {
@@ -637,37 +728,37 @@ CALENDAR_FORBIDDEN_ACTION_LABELS: tuple[str, ...] = (
 CALENDAR_NOTICE_COPY: dict[str, tuple[str, str, str]] = {
     "connect_success": (
         "Календарь подключен",
-        "Теперь выберите конкретные календари. До выбора событий источник не влияет на подсказки.",
+        "Выберите календари, встречи из которых вы хотите видеть в GRAF.",
         "success",
     ),
     "connect_cancelled": (
         "Подключение отменено",
-        "Источник не добавлен. Можно повторить подключение или продолжить ручную запись без календаря.",
+        "Календарь не подключен. Можно повторить подключение или продолжить ручную запись без календаря.",
         "warning",
     ),
     "connect_invalid_credentials": (
         "Неверные данные Яндекса",
-        "Проверьте логин и пароль приложения. Источник не добавлен.",
+        "Проверьте логин и пароль приложения. Календарь не подключен.",
         "warning",
     ),
     "connect_denied": (
         "Календарь не подключен",
-        "Провайдер не дал доступ только для чтения. Проверьте разрешения или выберите другой способ подключения.",
+        "Сервис не предоставил доступ только для чтения. Проверьте разрешения или выберите другой способ подключения.",
         "warning",
     ),
     "connect_failed": (
         "Не удалось подключить календарь",
-        "Мы скрыли технические детали ошибки. Проверьте данные подключения или попробуйте позже.",
+        "Проверьте данные подключения или попробуйте позже.",
         "error",
     ),
     "dependency_missing": (
         "Google Calendar пока недоступен",
-        "Владелец GRAF еще не настроил OAuth client, redirect URI и проверку доступа Google. Источник не добавлен.",
+        "Подключение Google Calendar еще не настроено. Обратитесь к администратору GRAF или выберите другой сервис. Календарь не подключен.",
         "warning",
     ),
     "no_readable_calendars": (
         "Нет доступных для чтения календарей",
-        "Источник подключен, но провайдер не вернул календари, которые можно читать. Проверьте права доступа.",
+        "Подключение готово, но доступных календарей нет. Проверьте права доступа.",
         "warning",
     ),
     "policy_limited": (
@@ -676,8 +767,8 @@ CALENDAR_NOTICE_COPY: dict[str, tuple[str, str, str]] = {
         "warning",
     ),
     "provider_limited": (
-        "Есть ограничение провайдера",
-        "Для этого провайдера могут понадобиться настройки организации. GRAF все равно работает только на чтение.",
+        "Нужна настройка сервиса",
+        "Обратитесь к администратору организации для настройки подключения.",
         "warning",
     ),
     "selection_saved": (
@@ -687,12 +778,12 @@ CALENDAR_NOTICE_COPY: dict[str, tuple[str, str, str]] = {
     ),
     "selection_empty": (
         "Календари не выбраны",
-        "Источник остается подключенным, но не влияет на будущие встречи и подсказки.",
+        "Подключение сохранено. Выберите календари, чтобы видеть их встречи и получать подсказки.",
         "warning",
     ),
     "selection_limit": (
         "Можно выбрать до 20 календарей",
-        "Снимите лишние отметки и сохраните выбор ещё раз.",
+        "Снимите лишние отметки и сохраните выбор еще раз.",
         "warning",
     ),
     "preferences_saved": (
@@ -702,7 +793,7 @@ CALENDAR_NOTICE_COPY: dict[str, tuple[str, str, str]] = {
     ),
     "sync_completed": (
         "Синхронизация завершена",
-        "Календарь обновлен. GRAF использует только выбранные события и не изменяет календарь у провайдера.",
+        "Календарь обновлен. GRAF использует только выбранные события и не меняет ваш календарь.",
         "success",
     ),
     "sync_catalog_updated": (
@@ -712,7 +803,7 @@ CALENDAR_NOTICE_COPY: dict[str, tuple[str, str, str]] = {
     ),
     "sync_accepted": (
         "Синхронизация поставлена в очередь",
-        "Мы приняли запрос и обновим состояние источника после безопасной проверки провайдера. Не нужно ждать на этом экране.",
+        "Обновляем календари. Можно продолжать работу в GRAF.",
         "success",
     ),
     "sync_already_running": (
@@ -722,12 +813,12 @@ CALENDAR_NOTICE_COPY: dict[str, tuple[str, str, str]] = {
     ),
     "sync_reconnect_required": (
         "Нужно действие",
-        "Переподключите календарь или обновите доступ. Детали ошибки скрыты безопасно.",
+        "Переподключите календарь или обновите доступ.",
         "warning",
     ),
     "sync_unavailable": (
         "Синхронизация недоступна",
-        "Источник отключен или ограничен политикой. Ручная запись остается доступной.",
+        "Календарь отключен или доступ ограничен организацией. Ручная запись остается доступной.",
         "warning",
     ),
     "sync_failed": (
@@ -736,13 +827,13 @@ CALENDAR_NOTICE_COPY: dict[str, tuple[str, str, str]] = {
         "error",
     ),
     "disconnect_success": (
-        "Календарь отключён от GRAF.",
+        "Календарь отключен от GRAF.",
         "",
         "success",
     ),
     "disconnect_partial": (
         "Отключение выполнено частично",
-        "Не удалось подтвердить полную локальную очистку. Попробуйте ещё раз.",
+        "Не удалось подтвердить полную локальную очистку. Попробуйте еще раз.",
         "warning",
     ),
     "disconnect_failed": (
@@ -865,6 +956,7 @@ class UpcomingPreviewItemView:
     ends_at: datetime
     source_ids: tuple[str, ...]
     meeting_link_present: bool
+    all_day: bool = False
     open_meeting_available: bool = False
     calendar_labels: tuple[str, ...] = ()
     source_labels: tuple[str, ...] = ()
@@ -901,22 +993,22 @@ class CalendarSettingsSurfaceView:
     unavailable_state_copy: str = "Если настройки календарей временно недоступны, секреты не показываются, ручная запись остается доступной."
     policy_constrained_copy: str = "Если настройка ограничена политикой организации, интерфейс покажет причину и безопасное следующее действие."
     no_readable_calendars_copy: str = (
-        "Источник подключен, но доступных для чтения календарей пока нет."
+        "Подключение готово, но доступных календарей пока нет."
     )
     no_selected_calendars_copy: str = (
-        "Календари не выбраны: источник подключен, но не влияет на будущие встречи и подсказки."
+        "Выберите хотя бы один календарь, чтобы увидеть его встречи."
     )
     no_matching_events_copy: str = "Нет будущих событий, которые подходят под выбранные настройки."
     private_free_busy_copy: str = (
-        "Приватные события и события только со статусом занятости показываются без названия, "
-        "ссылок, участников, описания и вложений."
+        "GRAF показывает сведения, к которым у вас есть доступ, в том числе для приватных событий. "
+        "Если доступна только занятость, название и другие отсутствующие сведения не добавляются."
     )
     empty_state_title: str = "Календари пока не подключены"
-    empty_state_body: str = "Подключите источник календаря, затем выберите календари. Пока календарь не выбран, встречи из него не подтягиваются."
+    empty_state_body: str = "Подключите календарь, чтобы видеть ближайшие встречи и вовремя к ним присоединяться."
 
     @property
     def source_count_word(self) -> str:
-        return _russian_count_word(len(self.sources), "источник", "источника", "источников")
+        return _russian_count_word(len(self.sources), "подключение", "подключения", "подключений")
 
     @property
     def selected_calendar_count_total_word(self) -> str:
@@ -950,7 +1042,7 @@ def calendar_provider_presets(
                 mark=CALENDAR_PROVIDER_MARKS.get(family, label[:2]),
                 method_category=method,
                 method_label=CALENDAR_METHOD_LABELS.get(
-                    method, "Способ подключения зависит от провайдера"
+                    method, "Способ подключения зависит от сервиса"
                 ),
                 action_label=calendar_provider_action_label(method),
                 credential_label=calendar_provider_credential_label(method),
@@ -965,7 +1057,7 @@ def calendar_provider_presets(
                 availability_label=("Доступно" if runtime_available else "Скоро"),
                 connected_source_count=connected_source_count,
                 trigger_label=(
-                    f"Добавить ещё · {label}" if connected_source_count else f"Подключить {label}"
+                    f"Добавить еще · {label}" if connected_source_count else f"Подключить {label}"
                 ),
             )
         )
@@ -1055,7 +1147,7 @@ def calendar_settings_surface(
     return CalendarSettingsSurfaceView(
         breadcrumb=("Настройки", "Интеграции", "Календари"),
         title="Календари",
-        subtitle="Подключите источник, выберите календари и получите подсказку перед встречей.",
+        subtitle="Ближайшие встречи из ваших календарей.",
         read_only_boundary_copy=CALENDAR_BOUNDARY_COPY,
         auto_context_boundary_copy=CALENDAR_AUTO_CONTEXT_BOUNDARY_COPY,
         boundary_items=calendar_boundary_items(),
@@ -1174,13 +1266,13 @@ def calendar_visibility_label(visibility: str) -> str:
     labels = {
         "available": "доступен",
         "selected": "выбран",
-        "hidden": "скрыт провайдером",
+        "hidden": "скрыт сервисом",
         "unavailable": "недоступен",
-        "private": "приватное / только занятость",
+        "private": "приватный календарь",
         "shared": "общий календарь",
         "delegated": "делегированный календарь",
-        "removed": "удален у провайдера",
-        "disconnected": "источник отключен",
+        "removed": "удален в календаре",
+        "disconnected": "календарь отключен",
     }
     return labels.get(visibility, "состояние неизвестно")
 
@@ -1236,7 +1328,7 @@ def calendar_sync_health_state(source: CalendarSource, *, now: datetime | None =
         synced_at = source.last_successful_sync_at
         if synced_at.tzinfo is None:
             synced_at = synced_at.replace(tzinfo=UTC)
-        if current - synced_at > timedelta(hours=24):
+        if current - synced_at > timedelta(minutes=3):
             return "stale"
     return "synced" if source.last_successful_sync_at else "never_synced"
 
@@ -1267,11 +1359,11 @@ def calendar_sync_health_label(state: str) -> str:
         "synced": "синхронизация актуальна",
         "partial_sync": "синхронизация частичная",
         "stale": "синхронизация устарела",
-        "provider_unavailable": "провайдер недоступен",
-        "rate_limited": "провайдер ограничил синхронизацию",
+        "provider_unavailable": "сервис недоступен",
+        "rate_limited": "сервис просит подождать перед обновлением",
         "credential_failed": "нужно переподключить",
         "failed_closed": "синхронизация остановлена безопасно",
-        "disconnected": "источник отключен",
+        "disconnected": "календарь отключен",
     }
     return labels.get(state, "состояние синхронизации неизвестно")
 
@@ -1281,16 +1373,16 @@ def calendar_sync_recovery_label(state: str) -> str:
         "never_synced": "Запустите синхронизацию после выбора календарей.",
         "queued": "Дождитесь текущей синхронизации.",
         "syncing": "Дождитесь текущей синхронизации.",
-        "partial_sync": "Запустите синхронизацию еще раз или проверьте источник.",
+        "partial_sync": "Запустите синхронизацию еще раз или проверьте подключение.",
         "stale": "Запустите синхронизацию вручную.",
         "provider_unavailable": "Попробуйте позже.",
         "rate_limited": "Попробуйте позже.",
         "credential_failed": "Переподключите календарь.",
-        "failed_closed": "Проверьте подключение или переподключите источник.",
-        "disconnected": "Подключите источник заново.",
+        "failed_closed": "Проверьте подключение или переподключите календарь.",
+        "disconnected": "Подключите календарь заново.",
     }
     return labels.get(
-        state, "Если встреч не видно, запустите синхронизацию или переподключите источник."
+        state, "Если встреч не видно, запустите синхронизацию или переподключите календарь."
     )
 
 
@@ -1301,9 +1393,9 @@ def safe_calendar_error_message(code: str | None) -> str | None:
         "credential_failed": "Нужно переподключить календарь.",
         "invalid_credentials": "Нужно переподключить календарь.",
         "tenant_policy_denied": "Подключение ограничено политикой организации.",
-        "provider_timeout": "Провайдер календаря не ответил вовремя. Попробуйте позже.",
-        "rate_limited": "Провайдер временно ограничил синхронизацию. Попробуйте позже.",
-        "provider_unavailable": "Провайдер календаря временно недоступен.",
+        "provider_timeout": "Сервис календаря не ответил вовремя. Попробуйте позже.",
+        "rate_limited": "Сервис временно ограничил синхронизацию. Попробуйте позже.",
+        "provider_unavailable": "Сервис календаря временно недоступен.",
         "calendar_sync_stale": "Синхронизация устарела; встречи могут быть неактуальны.",
     }
     return messages.get(code, "Синхронизация не прошла. Проверьте подключение или повторите позже.")
@@ -1342,7 +1434,7 @@ def calendar_provider_limitation_copy(
     ):
         return "Часть возможностей зависит от политики организации."
     if method_category == "manual_url":
-        return "Если URL или пароль неверны, мы покажем безопасную ошибку без деталей провайдера."
+        return "Для подключения нужны адрес календаря и пароль приложения."
     if method_category == "oauth":
         if runtime_available is True:
             return None
@@ -1374,7 +1466,7 @@ def calendar_settings_notices(
 
 
 def safe_calendar_label(raw: str | None, *, fallback: str) -> str:
-    return safe_title_candidate(raw) or fallback
+    return raw if raw and raw.strip() else fallback
 
 
 def preview_items(
@@ -1440,7 +1532,7 @@ def calendar_preview_empty_reason(
     has_matching_events: bool,
 ) -> str:
     if not has_sources:
-        return "Подключите источник календаря, чтобы увидеть будущие встречи."
+        return "Подключите календарь, чтобы увидеть ближайшие встречи."
     if not has_selected_calendar:
         return "Выберите хотя бы один календарь: без выбора будущие встречи и подсказки не подтягиваются."
     if not has_matching_events:
@@ -1457,18 +1549,14 @@ def upcoming_preview_item(
     duplicate_source_count: int = 1,
     sync_confidence_state: str = "current",
 ) -> UpcomingPreviewItemView:
-    title = safe_calendar_label(
-        event.title if event.safe_to_show_in_list else None, fallback="Скрытое событие"
-    )
-    title_state = (
-        "available"
-        if event.safe_to_show_in_list and title != "Скрытое событие"
-        else event.privacy_class
-    )
+    from twobrain_rec_server.calendar.owner_content import owner_event_title
+
+    raw_title = owner_event_title(event)
+    title = safe_calendar_label(raw_title, fallback="Без названия")
+    title_state = "available" if raw_title and raw_title.strip() else "missing"
     meeting_link_present = bool((event.conference_summary_json or {}).get("meeting_link_present"))
-    if _is_private_or_free_busy(event):
-        meeting_link_present = False
     return UpcomingPreviewItemView(
+        all_day=bool(event.all_day),
         event_id=str(event.id),
         title=title,
         title_state=title_state,
@@ -1529,12 +1617,6 @@ def _event_participant_count(event: CalendarEventSnapshot) -> int:
         return 0
 
 
-def _is_private_or_free_busy(event: CalendarEventSnapshot) -> bool:
-    return (
-        event.privacy_class in {"private", "free_busy", "free_busy_only"}
-        or not event.safe_to_show_in_list
-    )
-
 
 @dataclass(frozen=True)
 class CabinetNavigationItem:
@@ -1564,8 +1646,11 @@ def cabinet_navigation(
         CabinetNavigationItem("settings", "Настройки", settings_href, "settings"),
     )
     item_ids = {item.id for item in items}
+    # «notifications» — раздел без собственного пункта основного меню: он
+    # отмечает колокольчик и не подсвечивает «Мои встречи».
+    passthrough_states = {"notifications"}
     return CabinetNavigationModel(
-        active=active if active in item_ids else "meetings",
+        active=active if active in item_ids or active in passthrough_states else "meetings",
         items=items,
     )
 
@@ -1598,71 +1683,13 @@ def settings_category_navigation(
 ) -> tuple[SettingsCategoryView, ...]:
     base = "/desktop/settings" if embedded else "/settings"
     definitions = (
-        (
-            "recording",
-            "Запись",
-            "Разрешения и автозапись на Mac.",
-            "На этом Mac",
-            "/recording",
-            "Встречи",
-            "video",
-        ),
-        (
-            "summaries",
-            "Итоги",
-            "Форматы и структура итогов.",
-            "В этом пространстве",
-            "/summaries",
-            "Встречи",
-            "transcript",
-        ),
-        (
-            "calendar",
-            "Календари",
-            "Подключения, календари и подсказки.",
-            "Личная настройка",
-            "/integrations/calendar",
-            "Встречи",
-            "calendar-days",
-        ),
-        (
-            "workspace",
-            "Пространства",
-            "Новые встречи и приглашения.",
-            "В этом пространстве",
-            "/workspace",
-            "Рабочее пространство",
-            "users-round",
-        ),
-        (
-            "account",
-            "Аккаунт и безопасность",
-            "Профиль, интерфейс и безопасность.",
-            "Личная настройка",
-            "/account",
-            "Аккаунт",
-            "settings",
-        ),
-    )
-    definitions += (
-        (
-            "notifications",
-            "Уведомления",
-            "Подсказки и системные сообщения.",
-            "Личная настройка",
-            "/notifications",
-            "Аккаунт",
-            "bell",
-        ),
-        (
-            "billing",
-            "Тариф и оплата",
-            "Тариф, хранилище и платежи.",
-            "В этом пространстве",
-            "/billing",
-            "Оплата",
-            "activity",
-        ),
+        ("account", "Аккаунт", "Профиль, интерфейс и безопасность.", "Личная настройка", "/account", "Личное", "settings"),
+        ("workspace", "Пространства", "Новые встречи и приглашения.", "В этом пространстве", "/workspace", "Рабочее пространство", "users-round"),
+        ("billing", "Тариф и оплата", "Тариф, хранилище и платежи.", "В этом пространстве", "/billing", "Рабочее пространство", "activity"),
+        ("recording", "Запись", "Правила автозаписи на Mac.", "На этом Mac", "/recording", "Встречи", "video"),
+        ("summaries", "Итоги", "Форматы и структура итогов.", "В этом пространстве", "/summaries", "Встречи", "transcript"),
+        ("calendar", "Календари", "Подключения, календари и подсказки.", "Личная настройка", "/integrations/calendar", "Встречи", "calendar-days"),
+        ("notifications", "Уведомления", "Подсказки и системные сообщения.", "Личная настройка", "/notifications", "Приложение", "bell"),
     )
     return tuple(
         SettingsCategoryView(
@@ -1709,12 +1736,7 @@ def format_duration(seconds: int) -> str:
 
 
 def date_label(item: MeetingListItem) -> str:
-    if item.started_at is None:
-        return meeting_time_label(item, time_basis="meeting")
-    return short_date_label(
-        item.started_at,
-        timezone_offset_minutes=item.recording_display_timezone_offset_minutes,
-    )
+    return meeting_time_label(item, time_basis="meeting")
 
 
 def meeting_list_time_label(
@@ -1725,27 +1747,26 @@ def meeting_list_time_label(
 ) -> str:
     if value is None:
         return "Без даты"
-    localized = _localized_datetime(
-        value,
-        timezone_offset_minutes=timezone_offset_minutes,
-    )
     prefix = (
         "Обновлено " if time_basis == "updated" else "Загружено " if time_basis == "upload" else ""
     )
-    return f"{prefix}{localized.day} {SHORT_MONTH_LABELS[localized.month]}, {localized:%H:%M}"
+    return f"{prefix}{format_user_datetime(value)}"
+
+
+def meeting_time_value(
+    item: MeetingListItem, *, time_basis: MeetingListTimeBasis
+) -> datetime | None:
+    if time_basis == "updated":
+        return item.updated_at
+    if time_basis == "upload":
+        return item.uploaded_at
+    return item.started_at or (item.uploaded_at if item.source == "manual_upload" else None)
 
 
 def meeting_time_label(item: MeetingListItem, *, time_basis: MeetingListTimeBasis) -> str:
-    if time_basis == "updated":
-        value = item.updated_at
-    elif time_basis == "upload":
-        value = item.uploaded_at
-    else:
-        value = item.started_at
-        if value is None and item.source == "manual_upload":
-            value = item.uploaded_at
-            if value is not None:
-                time_basis = "upload"
+    value = meeting_time_value(item, time_basis=time_basis)
+    if time_basis == "meeting" and item.started_at is None and item.source == "manual_upload":
+        time_basis = "upload"
     return meeting_list_time_label(
         value,
         timezone_offset_minutes=item.recording_display_timezone_offset_minutes,
@@ -1753,27 +1774,12 @@ def meeting_time_label(item: MeetingListItem, *, time_basis: MeetingListTimeBasi
     )
 
 
-def _localized_datetime(
-    value: datetime,
-    *,
-    timezone_offset_minutes: int | None,
-) -> datetime:
-    localized = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
-    if timezone_offset_minutes is not None and -14 * 60 <= timezone_offset_minutes <= 14 * 60:
-        localized = localized.astimezone(timezone(timedelta(minutes=timezone_offset_minutes)))
-    return localized
-
-
 def short_date_label(
     value: datetime,
     *,
     timezone_offset_minutes: int | None = None,
 ) -> str:
-    localized = _localized_datetime(
-        value,
-        timezone_offset_minutes=timezone_offset_minutes,
-    )
-    return f"{localized.day} {SHORT_MONTH_LABELS[localized.month]}"
+    return format_user_datetime(value)
 
 
 def normalize_meeting_list_sort(
@@ -1818,17 +1824,22 @@ def meeting_list_row_presentation(
 def _meeting_list_content_readiness(item: MeetingListItem) -> str | None:
     presentation_status = meeting_list_presentation_status(item)
     if presentation_status == "processing" and item.status_label == "Нужна проверка":
-        return "Результат ещё не подтверждён · откройте встречу для проверки"
+        return "Результат еще не подтвержден · откройте встречу для проверки"
     if presentation_status in {"submitted", "processing"}:
         return "Спикеры определяются · расшифровка готовится"
     if item.primary_action != "open" and presentation_status not in {"ready", "partial"}:
         return None
     transcript_ready = item.transcript_available
     outcomes_ready = item.notes_action_truth.source_basis == "stored_output"
+    if outcomes_ready and item.summary_status == "partial":
+        return "Расшифровка готова · итоги доступны частично" if transcript_ready else "Итоги доступны частично · расшифровка недоступна"
     if transcript_ready and outcomes_ready:
         return "Расшифровка и итоги готовы"
     if transcript_ready:
         outcome_copy = (
+            "итоги не удалось подготовить"
+            if item.notes_action_truth.summary.state == "unavailable"
+            else
             "итоги не запрошены"
             if item.notes_action_truth.source_basis == "transcript_only"
             else "итоги готовятся"
@@ -1878,13 +1889,15 @@ def _meeting_list_compact_status(
         return "uploading", "Отправляем", None
     if presentation_status in {"submitted", "processing"}:
         return "processing", "Обрабатывается", None
+    if item.notes_action_truth.summary.state == "processing":
+        return "processing", "Готовим итоги", None
 
     openable = item.primary_action == "open" or presentation_status in {"ready", "partial"}
     if openable and item.playback.state == "preparing":
         return "audio_preparing", "Аудио готовится", None
     if openable and item.playback.state in {"unavailable", "deleting", "deleted"}:
         return "without_audio", "Без аудио", None
-    if presentation_status == "partial":
+    if presentation_status == "partial" or item.summary_status == "partial":
         return "limited", "Готово с ограничениями", None
     return None, None, None
 
@@ -1929,7 +1942,9 @@ def meeting_media_label(item: MeetingListItem) -> str:
     }[meeting_media_kind(item)]
 
 
-def meeting_list_title(meeting: Meeting, *, source: str | None = None) -> str:
+def meeting_list_title(
+    meeting: Meeting, *, source: str | None = None, include_recording_time: bool = True
+) -> str:
     title = safe_title_candidate(meeting.title)
     if (
         title
@@ -1937,7 +1952,9 @@ def meeting_list_title(meeting: Meeting, *, source: str | None = None) -> str:
         and MEDIA_FILENAME_EXTENSION_RE.search(title)
     ):
         return _clean_file_title(title)
-    projected = recording_display_title(meeting, source=source)
+    projected = recording_display_title(
+        meeting, source=source, include_recording_time=include_recording_time
+    )
     if (
         projected == "Запись без названия"
         and meeting.title_source not in AUTHORITATIVE_TITLE_SOURCES
@@ -2381,6 +2398,7 @@ def build_list_item(
     calendar_context: RecordingCalendarContextLink | None = None,
     previous_recurring_meeting: PreviousRecurringMeetingView | None = None,
     playback: PlaybackPreparationState | None = None,
+    summary_progress_state: str | None = None,
 ) -> MeetingListItem:
     current_media_revision_id = media_revision.id if media_revision is not None else None
     status = review_status(
@@ -2393,11 +2411,14 @@ def build_list_item(
     access_state = access or owner_access_state()
     artifact_states = artifacts or []
     notes_truth = notes_action_truth_state(
-        status=status, result=result, outcome_set=outcome_set, outcome_items=outcome_items or []
+        status=status, result=result, outcome_set=outcome_set, outcome_items=outcome_items or [],
+        summary_progress_state=summary_progress_state,
     )
+    notes_truth.protocol = None
     item = MeetingListItem(
         meeting_id=meeting.id,
         title=safe_title(meeting, source=source),
+        title_version=meeting_title_version(meeting) if access_state.state == "owner" else None,
         started_at=meeting.started_at,
         uploaded_at=meeting.created_at,
         ended_at=meeting.ended_at,
@@ -2431,6 +2452,9 @@ def build_list_item(
             media_revision_id=current_media_revision_id,
         ),
         notes_available=notes_truth.summary.state == "available",
+        summary_status=(outcome_set.status
+                        if outcome_set is not None and notes_truth.source_basis == "stored_output"
+                        else summary_progress_state),
         notes_action_truth=notes_truth,
         updated_at=meeting.updated_at,
         access=access_state,
@@ -2652,9 +2676,9 @@ def reason_label(reason_code: str | None) -> str | None:
         "mediascribe_rate_limited": "Сервис транскрипции временно ограничил запросы. Повторите позже.",
         "mediascribe_server_error": "Сервис транскрипции временно недоступен. Повторите позже.",
         "mediascribe_retries_exhausted": "Сервис транскрипции не восстановился после нескольких попыток. Повторите позже или обратитесь к оператору.",
-        "mediascribe_poll_limit_exceeded": "Сервис транскрипции не завершил обработку в отведённое время. Повторите позже или обратитесь к оператору.",
-        "mediascribe_submission_in_progress": "Предыдущая отправка ещё выполняется. Подождите завершения и обновите страницу.",
-        "mediascribe_result_not_ready": "Сервис транскрипции ещё готовит результат. Повторная проверка будет выполнена автоматически.",
+        "mediascribe_poll_limit_exceeded": "Сервис транскрипции не завершил обработку в отведенное время. Повторите позже или обратитесь к оператору.",
+        "mediascribe_submission_in_progress": "Предыдущая отправка еще выполняется. Подождите завершения и обновите страницу.",
+        "mediascribe_result_not_ready": "Сервис транскрипции еще готовит результат. Повторная проверка будет выполнена автоматически.",
         "provider_result_not_ready": "Запись сохранена. GRAF проверит обработку автоматически; расшифровка появится после диаризации.",
         "processing_retry_deadline_exceeded": "Автоматические попытки закончились. Проверьте обработку или обратитесь к оператору.",
         "manual_processing_check": "GRAF проверяет текущую попытку обработки.",
@@ -2775,7 +2799,7 @@ def transcript_state(
                 start_seconds=float(row.start_seconds),
                 end_seconds=float(row.end_seconds),
                 timestamp_label=format_timestamp(row.start_seconds),
-                speaker_label="Спикер не определён",
+                speaker_label=UNKNOWN_SPEAKER_LABEL,
                 speaker_key=f"evidence:{processing_result_id.hex}",
                 provider_speaker_key=None,
                 attribution_state="uncertain",
@@ -3056,9 +3080,24 @@ def notes_action_truth_state(
     result: ProcessingResult | None,
     outcome_set: MeetingOutcomeSet | None = None,
     outcome_items: list[MeetingOutcomeItem] | None = None,
+    summary_progress_state: str | None = None,
 ) -> NotesActionTruthState:
     if outcome_set is not None and status in {"ready", "partial"}:
         return stored_outcome_truth_state(outcome_set, outcome_items or [])
+    summary_status = summary_progress_state or (result.summary_status if result is not None else None)
+    if summary_status in {"queued", "generating", "blocked_dependency"} and status in {"ready", "partial"}:
+        category = _notes_action_category(
+            state="processing", label="Готовим итоги",
+            reason=("Подготовка итогов задерживается. Продолжим автоматически."
+                    if summary_status == "blocked_dependency"
+                    else "Расшифровка готова. Итоги появятся здесь автоматически."),
+            readiness_impact="non_blocking", copy_key="notes.outcomes.processing",
+        )
+        return NotesActionTruthState(
+            summary=category, key_points=category, decisions=category, action_items=category,
+            followups=category, risks=category, questions=category, evidence=category,
+            source_basis="processing_status",
+        )
     if status in {"processing", "submitted", "uploading"}:
         category = _notes_action_category(
             state="processing",
@@ -3100,14 +3139,14 @@ def notes_action_truth_state(
         )
 
     if status in {"ready", "partial"}:
-        if result is not None and result.summary_status in {
+        if summary_status in {
             SummaryStatus.FAILED.value,
             SummaryStatus.UNAVAILABLE.value,
         }:
             summary = _notes_action_category(
                 state="unavailable",
                 label="Outcomes unavailable",
-                reason="Итоги не удалось подготовить. Расшифровка остаётся доступной независимо от этого сбоя.",
+                reason="Итоги не удалось подготовить. Расшифровка остается доступной независимо от этого сбоя.",
                 readiness_impact="non_blocking",
                 copy_key="notes.summary.unavailable",
             )
@@ -3129,7 +3168,7 @@ def notes_action_truth_state(
                 evidence=deferred,
                 source_basis="processing_status",
             )
-        if result is not None and result.summary_status == SummaryStatus.AVAILABLE.value:
+        if summary_status == SummaryStatus.AVAILABLE.value:
             summary = _notes_action_category(
                 state="blocked",
                 label="Summary unavailable",
@@ -3155,11 +3194,11 @@ def notes_action_truth_state(
                 evidence=deferred,
                 source_basis="processing_status",
             )
-        if result is not None and result.summary_status == SummaryStatus.NOT_REQUESTED.value:
+        if summary_status == SummaryStatus.NOT_REQUESTED.value:
             category = _notes_action_category(
                 state="deferred",
                 label="Outcomes not requested",
-                reason="Расшифровка готова. Итоги будут подготовлены автоматически.",
+                reason="Расшифровка готова. Выберите формат, чтобы подготовить итоги.",
                 readiness_impact="keeps_gap_open",
                 copy_key="notes.outcomes.not_requested",
             )
@@ -3216,11 +3255,13 @@ def stored_outcome_truth_state(
 
     def category_state(category: str, label: str) -> NotesActionCategoryState:
         state = getattr(outcome_set, f"{category}_state")
+        projection_only = category == "risks" and outcome_set.protocol_json is not None and state == "unavailable"
         return _notes_action_category(
             state=state,
             label=_outcome_state_label(state, label),
-            reason=_outcome_state_reason(state),
-            readiness_impact="closes_gap"
+            reason=("Риски отражены в обсуждениях полного протокола; отдельный список не создается"
+                    if projection_only else _outcome_state_reason(state)),
+            readiness_impact="non_blocking" if projection_only else "closes_gap"
             if state in {"available", "not_found", "not_inferable"}
             else "keeps_gap_open",
             copy_key=f"notes.{category}.{state}",
@@ -3228,6 +3269,7 @@ def stored_outcome_truth_state(
         )
 
     return NotesActionTruthState(
+        protocol=outcome_set.protocol_json if outcome_set.status in {"available", "partial"} else None,
         summary=category_state("summary", "Итоги готовы"),
         key_points=category_state("key_points", "Ключевые пункты"),
         decisions=category_state("decisions", "Решения"),
@@ -3400,6 +3442,7 @@ def build_review_response(
     speaker_names: dict[str, str] | None = None,
     can_rename_speakers: bool = False,
     reprocess_available: bool = False,
+    summary_progress_state: str | None = None,
 ) -> MeetingReviewResponse:
     current_media_revision_id = media_revision.id if media_revision is not None else None
     current_lineage = result_lineage_is_current(
@@ -3460,6 +3503,7 @@ def build_review_response(
         artifacts=artifact_states,
         calendar_context=calendar_context,
         playback=review_playback,
+        summary_progress_state=summary_progress_state,
     )
     row_visibility = _same_result_transcript_rows(transcript_segments, diarization_segments)
     if not row_visibility:
@@ -3476,6 +3520,7 @@ def build_review_response(
         result=safe_result,
         outcome_set=safe_outcome_set,
         outcome_items=safe_outcome_items,
+        summary_progress_state=summary_progress_state,
     )
     item.notes_available = notes_truth.summary.state == "available"
     item.notes_action_truth = notes_truth

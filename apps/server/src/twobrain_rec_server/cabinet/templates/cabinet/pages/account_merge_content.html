@@ -27,7 +27,7 @@
       <section class="settings-section" aria-labelledby="account-linking-blockers-title" role="alert" tabindex="-1" data-outcome-focus>
         <div class="settings-section__heading"><div>
           <h2 id="account-linking-blockers-title">Что нужно сделать</h2>
-          <p class="muted">{{ provider_sentence_label }} пока не подключён. Данные не изменены.</p>
+          <p class="muted">{{ provider_sentence_label }} пока не подключен. Данные не изменены.</p>
         </div></div>
         <div class="account-linking-blockers">
           {% for blocker in blockers %}
@@ -60,21 +60,21 @@
             <div class="account-linking-provider-group">
               <strong>Текущий профиль</strong>
               <ul aria-label="Способы входа текущего профиля">
-                {% for label in presentation.current_provider_labels %}<li>{{ label }}</li>{% else %}<li>Подтверждённый способ входа</li>{% endfor %}
+                {% for label in presentation.current_provider_labels %}<li>{{ label }}</li>{% else %}<li>Подтвержденный способ входа</li>{% endfor %}
               </ul>
             </div>
             <div class="account-linking-provider-group">
               <strong>Другой профиль</strong>
               <ul aria-label="Способы входа другого профиля">
-                {% for label in presentation.other_provider_labels %}<li>{{ label }}</li>{% else %}<li>Подтверждённый способ входа</li>{% endfor %}
+                {% for label in presentation.other_provider_labels %}<li>{{ label }}</li>{% else %}<li>Подтвержденный способ входа</li>{% endfor %}
               </ul>
             </div>
           </article>
           <article class="account-linking-comparison__card">
             <h3>После подключения</h3>
             <p>Один основной профиль со всеми способами входа:</p>
-            <ul aria-label="Сохранённые способы входа">
-              {% for label in presentation.connected_provider_labels %}<li>{{ label }}</li>{% else %}<li>Все подтверждённые способы входа</li>{% endfor %}
+            <ul aria-label="Сохраненные способы входа">
+              {% for label in presentation.connected_provider_labels %}<li>{{ label }}</li>{% else %}<li>Все подтвержденные способы входа</li>{% endfor %}
             </ul>
           </article>
         </div>
@@ -88,7 +88,7 @@
             <span class="settings-list-item__desc">Ничего не удаляется.</span>
           </div></li>
         </ul>
-        <p class="account-linking-alert account-linking-alert--warning"><strong>После подключения потребуется войти снова.</strong> Все активные сессии завершатся. Войти можно будет любым сохранённым способом.</p>
+        <p class="account-linking-alert account-linking-alert--warning"><strong>После подключения потребуется войти снова.</strong> Все активные сессии завершатся. Войти можно будет любым сохраненным способом.</p>
         <details class="account-linking-details">
           <summary>Настройки, устройства и сессии</summary>
           <div>

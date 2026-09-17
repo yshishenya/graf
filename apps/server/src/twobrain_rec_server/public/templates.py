@@ -41,9 +41,20 @@ def public_static_dir() -> str:
     return package_path("twobrain_rec_server.public", "static", "public")
 
 
-@lru_cache(maxsize=32)
 def public_static_asset_url(filename: str) -> str:
     path = Path(public_static_dir(), filename)
+    stat = path.stat()
+    return _public_static_asset_url(
+        filename,
+        path,
+        (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns),
+    )
+
+
+@lru_cache(maxsize=32)
+def _public_static_asset_url(
+    filename: str, path: Path, identity: tuple[int, int, int, int, int]
+) -> str:
     version = sha256(path.read_bytes()).hexdigest()[:12]
     return f"{PUBLIC_STATIC_URL}/{filename}?v={version}"
 
@@ -51,7 +62,9 @@ def public_static_asset_url(filename: str) -> str:
 class VersionedPublicStaticFiles(StaticFiles):
     async def get_response(self, path: str, scope: dict[str, Any]):
         response = await super().get_response(path, scope)
-        version = parse_qs(scope.get("query_string", b"").decode("ascii", "ignore")).get("v", [None])[0]
+        version = parse_qs(scope.get("query_string", b"").decode("ascii", "ignore")).get(
+            "v", [None]
+        )[0]
         try:
             expected = public_static_asset_url(path).rsplit("?v=", 1)[1]
         except (FileNotFoundError, IndexError):
@@ -102,7 +115,10 @@ def public_template_response(
     canonical_url = f"{public_base_url}{analytics_path}"
     context.setdefault("canonical_url", canonical_url)
     context.setdefault("social_title", context.get("page_title", "ГРАФ"))
-    context.setdefault("social_description", "ГРАФ записывает встречи и превращает разговор в расшифровку, решения и следующие действия.")
+    context.setdefault(
+        "social_description",
+        "ГРАФ записывает встречи и превращает разговор в расшифровку, решения и следующие действия.",
+    )
     response = html_response(
         render_template(template_name, request=request, **context),
         status_code=status_code,

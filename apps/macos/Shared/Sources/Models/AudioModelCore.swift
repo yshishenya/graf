@@ -405,7 +405,7 @@ public struct LocalRecordingTrack: Codable, Equatable, Sendable {
             format == "m4a-aac-lc" &&
             sampleRate == 48_000 &&
             channelCount == 1 &&
-            aacPresentationFrameDelta.map { abs($0) <= Self.maximumAACPresentationDeltaFrames } == true &&
+            aacPresentationFrameDelta.map { (-Self.maximumAACPresentationDeltaFrames...Self.maximumAACPresentationDeltaFrames).contains($0) } == true &&
             timelineStartMs == 0 &&
             timelineAligned
     }
@@ -648,6 +648,8 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
         "local-recording-manifest.v4"
     ]
 
+    /// Durable local-only decision; absent in historical packages.
+    public var shortRecordingDiscarded: Bool? = nil
     public var schemaVersion: String
     public var sessionId: String
     public var createdAt: Date
@@ -755,6 +757,22 @@ public struct LocalRecordingManifest: Codable, Equatable, Sendable {
         self.recordingMetadata = recordingMetadata
         self.echoProcessor = echoProcessor
         self.echoProcessingHealth = echoProcessingHealth
+    }
+
+    /// Applied only while finalizing a new, normally stopped recording.
+    public mutating func applyShortRecordingPolicy(stopReason: RecordingStopReason?) {
+        guard stopReason == .userRequested || stopReason == .meetingEnded,
+              isV5Package, isComplete, captureFailureCode == nil,
+              let playback = tracks.first(where: { $0.role == .reviewPlayback }),
+              let presentationDelta = playback.aacPresentationFrameDelta,
+              tracks.allSatisfy({ $0.failureReason == .none }) else { return }
+        // Recover the exact 48 kHz timeline; the 16 kHz WAV count is rounded.
+        let canonicalFrames = playback.frameCount.subtractingReportingOverflow(presentationDelta)
+        guard !canonicalFrames.overflow,
+              canonicalFrames.partialValue > 0, canonicalFrames.partialValue < 1_440_000 else { return }
+        shortRecordingDiscarded = true
+        status = .blocked
+        transcriptionReadiness = .degraded
     }
 
     public var isComplete: Bool {
@@ -1189,6 +1207,8 @@ public struct ServerTruthFingerprint: Codable, Equatable, Sendable {
     public var processingReasonCode: String?
     public var reviewAvailable: Bool?
     public var reviewStatus: String?
+    public var summaryStatus: String?
+    public var transcriptAvailable: Bool?
     public var conflictReason: String?
     public var nextAction: String?
 
@@ -1209,6 +1229,8 @@ public struct ServerTruthFingerprint: Codable, Equatable, Sendable {
         processingReasonCode: String? = nil,
         reviewAvailable: Bool? = nil,
         reviewStatus: String? = nil,
+        summaryStatus: String? = nil,
+        transcriptAvailable: Bool? = nil,
         conflictReason: String? = nil,
         nextAction: String? = nil
     ) {
@@ -1228,6 +1250,8 @@ public struct ServerTruthFingerprint: Codable, Equatable, Sendable {
         self.processingReasonCode = processingReasonCode
         self.reviewAvailable = reviewAvailable
         self.reviewStatus = reviewStatus
+        self.summaryStatus = summaryStatus
+        self.transcriptAvailable = transcriptAvailable
         self.conflictReason = conflictReason
         self.nextAction = nextAction
     }
@@ -1297,6 +1321,9 @@ public struct ServerTruthFingerprint: Codable, Equatable, Sendable {
         merged.processingReasonCode = reported.processingReasonCode ?? processingReasonCode
         merged.reviewAvailable = reported.reviewAvailable ?? reviewAvailable
         merged.reviewStatus = reported.reviewStatus ?? reviewStatus
+        // Omitted metadata is unknown (old server/access loss), never a ready signal.
+        merged.summaryStatus = reported.summaryStatus
+        merged.transcriptAvailable = reported.transcriptAvailable
         merged.conflictReason = reported.conflictReason ?? conflictReason
         merged.nextAction = reported.nextAction ?? nextAction
         for (role, acceptedBytes) in acceptedBytesByTrack {
@@ -1556,6 +1583,12 @@ public struct DesktopSupportIncidentSubmissionState: Codable, Equatable, Sendabl
 }
 
 public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable {
+    public var ownerScope: RecordingDeletionScope?
+    public var isLocalUnbound: Bool?
+    public var serverCreationAttempted: Bool?
+    // Read projection only; the queue document remains the sole source of operation state.
+    public var deletionOperation: RecordingDeletionOperation? = nil
+    public var lifecycleAccessAvailable: Bool = true
     public var id: String
     public var sessionId: String
     public var directoryId: String
@@ -1712,6 +1745,9 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
         serverTruth: ServerTruthFingerprint? = nil,
         retentionDecision: RetentionDecision? = nil
     ) -> DesktopUploadQueueItem {
+        if hasConfirmedDeletion && nextState != .terminalDeleted {
+            return self
+        }
         if state.isTerminal && !nextState.isTerminal {
             return self
         }
@@ -1755,6 +1791,7 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
     }
 
     enum CodingKeys: String, CodingKey {
+        case ownerScope, isLocalUnbound, serverCreationAttempted
         case id
         case sessionId
         case directoryId
@@ -1830,23 +1867,52 @@ public struct DesktopUploadQueueItem: Codable, Equatable, Identifiable, Sendable
                 forKey: .supportIncidentSubmission
             )
         )
+        ownerScope = try container.decodeIfPresent(RecordingDeletionScope.self, forKey: .ownerScope)
+        isLocalUnbound = try container.decodeIfPresent(Bool.self, forKey: .isLocalUnbound)
+        serverCreationAttempted = try container.decodeIfPresent(Bool.self, forKey: .serverCreationAttempted)
     }
 }
 
 public struct DesktopUploadQueueDocument: Codable, Equatable, Sendable {
-    public static let schemaVersion = "desktop-upload-queue.v2"
+    public static let schemaVersion = "desktop-upload-queue.v3"
 
     public var schemaVersion: String
     public var updatedAt: Date
     public var items: [DesktopUploadQueueItem]
+    public var lastAuthenticatedContext: RecordingAuthenticatedContext?
+    public var deletionOperations: [RecordingDeletionOperation]
 
     public init(
         schemaVersion: String = Self.schemaVersion,
         updatedAt: Date,
-        items: [DesktopUploadQueueItem]
+        items: [DesktopUploadQueueItem],
+        deletionOperations: [RecordingDeletionOperation] = []
     ) {
         self.schemaVersion = schemaVersion
         self.updatedAt = updatedAt
         self.items = items
+        self.deletionOperations = deletionOperations
+    }
+
+    enum CodingKeys: String, CodingKey { case schemaVersion, updatedAt, items, deletionOperations, lastAuthenticatedContext }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        let schema = try values.decode(String.self, forKey: .schemaVersion)
+        guard ["desktop-upload-queue.v1", "desktop-upload-queue.v2", Self.schemaVersion].contains(schema) else {
+            throw RecordingDeletionError.unsupportedQueueSchema
+        }
+        self.init(
+            schemaVersion: schema,
+            updatedAt: try values.decode(Date.self, forKey: .updatedAt),
+            items: try values.decode([DesktopUploadQueueItem].self, forKey: .items),
+            deletionOperations: schema == Self.schemaVersion
+                ? try values.decode([RecordingDeletionOperation].self, forKey: .deletionOperations)
+                : try values.decodeIfPresent([RecordingDeletionOperation].self, forKey: .deletionOperations) ?? []
+        )
+        lastAuthenticatedContext = try values.decodeIfPresent(RecordingAuthenticatedContext.self, forKey: .lastAuthenticatedContext)
+        guard Set(deletionOperations.map(\.id)).count == deletionOperations.count else {
+            throw RecordingDeletionError.duplicateOperation
+        }
     }
 }

@@ -91,4 +91,4 @@ def test_refused_late_success_copy_requires_static_support_contact() -> None:
 
     assert "после отключения продления" in title
     assert "billing@example.test" in body
-    assert "не включён" in body
+    assert "не включен" in body

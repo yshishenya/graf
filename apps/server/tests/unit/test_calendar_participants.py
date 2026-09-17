@@ -105,8 +105,8 @@ def test_us6_participant_normalization_keeps_calendar_people_as_roster_metadata_
     }.isdisjoint(participant)
 
 
-def test_098_participant_normalization_rejects_email_like_display_name() -> None:
-    # FR-030/SC-011: an email-shaped display label is presence metadata, not safe copy.
+def test_owner_participant_normalization_preserves_email_like_display_name() -> None:
+    # F251: an email-shaped display name is provider-authorized owner content.
     participant = normalize_calendar_participants(
         [
             {
@@ -118,4 +118,30 @@ def test_098_participant_normalization_rejects_email_like_display_name() -> None
     )[0]
 
     assert participant["email_hash"] is not None
-    assert participant["display_name"] is None
+    assert participant["display_name"] == "person@example.test"
+
+
+def test_organizer_attendee_merge_preserves_response_and_long_owner_labels() -> None:
+    name = "owner@example.test " * 100
+    people = normalize_calendar_participants(
+        [
+            {
+                "participant_kind": "organizer",
+                "email": "owner@example.test",
+                "display_name": name,
+                "provider_details": {"self": True},
+            },
+            {
+                "participant_kind": "organizer",
+                "email": "owner@example.test",
+                "response_status": "accepted",
+                "provider_details": {"comment": "Provider response"},
+            },
+            {"participant_kind": "required_attendee"},
+            {"participant_kind": "required_attendee"},
+        ]
+    )
+    assert len(people) == 3
+    assert people[0]["display_name"] == name
+    assert people[0]["response_status"] == "accepted"
+    assert people[0]["provider_details"] == {"self": True, "comment": "Provider response"}

@@ -18,7 +18,7 @@
 ## Как проверено
 
 - Focused-проверки:
-- GitHub `governance-fast` на exact SHA — обязательный authoritative PR
+- GitHub `governance-fast`, `macos-pr`, `pr-metadata` на exact SHA и checked base — обязательные PR
   gate (ссылка на успешный run):
 - `infra/scripts/ci-local.sh --fast`: requested/effective lane, components,
   coverage, next gate, result, duration:

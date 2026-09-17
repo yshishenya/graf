@@ -43,12 +43,18 @@ from twobrain_rec_server.db.models.calendar import (
     RecordingCalendarContextLink,
     RecordingCalendarMatchAttempt,
 )
+from twobrain_rec_server.db.models.comments import (
+    MeetingComment,
+    MeetingCommentMention,
+    MeetingCommentReaction,
+)
 from twobrain_rec_server.db.models.deletion import (
     LocalPurgeTask,
     MeetingDeletionArtifactState,
     MeetingDeletionReport,
     MeetingDeletionRequest,
     MeetingLifecycleAuditEvent,
+    RecordingOriginCancellation,
     RetentionPolicySnapshot,
 )
 from twobrain_rec_server.db.models.federated_auth import (
@@ -105,6 +111,7 @@ from twobrain_rec_server.db.models.normalization import (
     PlaybackNormalizationAttempt,
     PlaybackNormalizationJob,
 )
+from twobrain_rec_server.db.models.notifications import ServerNotification
 from twobrain_rec_server.db.models.onboarding import WorkspaceJoinOffer
 from twobrain_rec_server.db.models.outcomes import (
     GenerationCall,
@@ -129,6 +136,8 @@ from twobrain_rec_server.db.models.processing import (
 from twobrain_rec_server.db.models.support import SupportIncident, SupportIncidentRateLimitBucket
 
 __all__ = [
+    "MeetingComment", "MeetingCommentMention", "MeetingCommentReaction",
+    "ServerNotification",
     "AdminAuditEvent",
     "AccountClosureRequest",
     "BillingAuditEvent",
@@ -191,6 +200,7 @@ __all__ = [
     "ProcessingWorkflow",
     "PurgeJournal",
     "RegisteredDevice",
+    "RecordingOriginCancellation",
     "RetentionPolicySnapshot",
     "TemporaryUploadObject",
     "TrackArtifact",

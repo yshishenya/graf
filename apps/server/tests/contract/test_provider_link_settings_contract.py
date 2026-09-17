@@ -41,7 +41,7 @@ def test_settings_provider_link_actions_share_browser_and_embedded_contract() ->
     assert 'name="csrf_token" value="safe-csrf"' in embedded
     for page in (browser, embedded):
         assert "Способы входа" in page
-        assert "Подключённые провайдеры относятся к вашему аккаунту" in page
+        assert "Используйте любой из подключённых способов." not in page
         assert "provider_subject" not in page
         assert "candidate_email" not in page
         assert "candidate_phone" not in page
@@ -132,7 +132,7 @@ def test_active_workspace_selector_is_accessible_and_uses_server_scoped_activati
     spaces = (
         WorkspaceAccessView(
             id=personal_id,
-            name="Моё пространство",
+            name="Мое пространство",
             kind="personal",
             role="owner",
             active=True,
@@ -161,17 +161,17 @@ def test_active_workspace_selector_is_accessible_and_uses_server_scoped_activati
 
     assert 'id="active-workspace"' in page
     assert 'aria-label="Доступные пространства"' in page
-    assert "Моё пространство" in page
+    assert "Мое пространство" in page
     assert "Команда продукта" in page
     assert "Личное · Владелец" in page
     assert "Рабочее пространство · Участник" in page
     assert "Текущее" in page
     assert 'aria-current="true"' in page
     assert '<span class="settings-status-badge">Текущее</span>' in page
-    assert '<div class="settings-list-item__content"><span class="settings-list-item__title">Моё пространство</span>' in page
+    assert '<div class="settings-list-item__content"><span class="settings-list-item__title">Мое пространство</span>' in page
     assert '<div class="settings-list-item__content"><span class="settings-list-item__title">Команда продукта</span>' in page
     assert '<span class="settings-status-badge" role="status">Текущее</span>' not in page
-    assert "Куда сохраняются новые встречи" in page
+    assert 'aria-label="Доступные пространства"' in page
     assert ">Выбрать</button>" in page
     assert 'aria-label="Выбрать Команда продукта"' in page
     assert "Текущее пространство изменено" in page

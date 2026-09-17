@@ -6,6 +6,7 @@ from fastapi import APIRouter, Form, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from twobrain_rec_server.api.cabinet import ShareOperationDbDependency
 from twobrain_rec_server.api.problems import ProblemDetail
 from twobrain_rec_server.auth.context import AuthenticatedPrincipal, TenantScope
 from twobrain_rec_server.cabinet.queries import get_cabinet_meeting_review
@@ -14,9 +15,7 @@ from twobrain_rec_server.cabinet.web_routes.support import (
     PrincipalDependency,
     StorageDependency,
     WebCSRFDependency,
-    WebDbDependency,
     WebTenantDependency,
-    _authorized_lifecycle_meeting,
 )
 from twobrain_rec_server.domain.speaker_turns import legacy_speaker_name_key
 
@@ -41,21 +40,32 @@ async def update_speaker_name(
     tenant_scope: TenantScope = WebTenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     storage: object = StorageDependency,
-    db: AsyncSession | None = WebDbDependency,
+    db: AsyncSession | None = ShareOperationDbDependency,
 ) -> RedirectResponse:
     if db is None:
         raise ProblemDetail(
             status=503, code="cabinet_store_unavailable", title="Cabinet store unavailable"
         )
-    await _authorized_lifecycle_meeting(
+    from twobrain_rec_server.cabinet.access import decide_meeting_access, lock_shareable_meeting
+
+    meeting = await lock_shareable_meeting(
         db,
-        workspace_id=tenant_scope.workspace_id,
+        workspace_id=db.info.get("share_owner_workspace", tenant_scope.workspace_id),
         meeting_id=meeting_id,
+    )
+    decision = await decide_meeting_access(
+        db,
+        meeting,
+        workspace_id=db.info.get("share_owner_workspace", tenant_scope.workspace_id),
         viewer_user_id=principal.user_id,
     )
+    if not decision.can_view_full_meeting or not (
+        decision.state == "owner" or decision.can_edit or decision.role in {"owner", "admin"}
+    ):
+        raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
     review = await get_cabinet_meeting_review(
         db,
-        workspace_id=tenant_scope.workspace_id,
+        workspace_id=db.info.get("share_owner_workspace", tenant_scope.workspace_id),
         meeting_id=meeting_id,
         viewer_user_id=principal.user_id,
         storage=storage,
@@ -73,7 +83,7 @@ async def update_speaker_name(
     )
     await save_speaker_name(
         db,
-        workspace_id=tenant_scope.workspace_id,
+        workspace_id=db.info.get("share_owner_workspace", tenant_scope.workspace_id),
         meeting_id=meeting_id,
         speaker_key=speaker_key,
         display_name=display_name,
@@ -92,4 +102,10 @@ async def update_speaker_name(
     )
     await db.commit()
     base = "/desktop/meetings" if request.url.path.startswith("/desktop/") else "/meetings"
-    return RedirectResponse(f"{base}/{meeting_id}", status_code=303)
+    owner_workspace = db.info.get("share_owner_workspace", tenant_scope.workspace_id)
+    target = (
+        f"/shared-meetings/{meeting_id}?workspace_id={owner_workspace}"
+        if owner_workspace != tenant_scope.workspace_id
+        else f"{base}/{meeting_id}"
+    )
+    return RedirectResponse(target, status_code=303)

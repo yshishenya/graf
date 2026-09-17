@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import UUID
@@ -22,6 +23,11 @@ from twobrain_rec_server.cabinet.web_routes.billing import (
 )
 from twobrain_rec_server.cabinet.web_routes.billing import (
     router as billing_router,
+)
+
+CABINET_CSS = (
+    Path(__file__).resolve().parents[4]
+    / "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css"
 )
 
 
@@ -57,8 +63,8 @@ def test_new_money_mutations_block_initial_checkout_and_renewal_operations() -> 
 
 
 def test_in_flight_operation_labels_are_explicit() -> None:
-    assert _operation_state_label("sent") == "Платёж отправлен в ЮKassa"
-    assert _operation_state_label("processing") == "ЮKassa обрабатывает платёж"
+    assert _operation_state_label("sent") == "Платеж отправлен в ЮKassa"
+    assert _operation_state_label("processing") == "ЮKassa обрабатывает платеж"
 
 
 def test_billing_receipt_registration_uses_provider_status_mapping() -> None:
@@ -427,9 +433,9 @@ def test_billing_hub_uses_exact_free_copy_and_external_refund_boundary() -> None
     assert "300 минут" in html
     assert "250 MB" in html
     assert "250 000 000 байт" not in html
-    assert "только письмом" in html
-    assert "автоматической заявки" in html
-    assert "Вы управляете тарифом выбранного пространства" in html
+    assert 'href="/billing/history"' in html
+    assert "Нужна помощь с оплатой?" not in html
+    assert "Хранилище" in html
     assert 'href="/billing/payment-method"' in html
     assert 'href="/billing/storage"' in html
 
@@ -483,6 +489,70 @@ def test_subscription_and_usage_surfaces_keep_no_grace_and_unlimited_copy() -> N
     assert "Управлять архивом" in usage_html
     assert "Увеличить хранилище" in usage_html
     assert "Обработать без сохранения аудио" in usage_html
+
+
+def test_billing_notices_and_list_statuses_use_one_toned_component() -> None:
+    common = {
+        "embedded": False,
+        "settings_navigation": settings_category_navigation(active="billing"),
+        "settings_active": "billing",
+        "csrf_token": "synthetic-csrf",
+        "active": False,
+        "subscription": None,
+    }
+    subscription_html = {
+        result: render_template(
+            "cabinet/pages/billing_subscription_content.html", **common, result=result
+        )
+        for result in ("cancelled", "conflict", "unavailable")
+    }
+    assert 'class="notice notice--success"' in subscription_html["cancelled"]
+    assert 'class="notice notice--error"' in subscription_html["conflict"]
+    assert 'class="notice notice--warning"' in subscription_html["unavailable"]
+
+    storage_html = render_template(
+        "cabinet/pages/billing_storage_content.html",
+        **common,
+        result="unavailable",
+        current_capacity=None,
+        current_capacity_label=None,
+        addon_options=(),
+        capacity_labels=(),
+        eligible=False,
+        billing_enabled=False,
+    )
+    assert 'class="notice notice--error"' in storage_html
+
+    payment_method_html = {
+        result: render_template(
+            "cabinet/pages/billing_payment_method_content.html",
+            **common,
+            result=result,
+            method_label="•••• 4242",
+            method_kind="bank_card",
+            billing_enabled=True,
+        )
+        for result in ("renewal_on", "removed", "none", "conflict")
+    }
+    assert 'class="notice notice--error"' in payment_method_html["renewal_on"]
+    assert 'class="notice notice--success"' in payment_method_html["removed"]
+    assert 'class="notice notice--success"' in payment_method_html["none"]
+    assert 'class="notice notice--error"' in payment_method_html["conflict"]
+
+    css = CABINET_CSS.read_text(encoding="utf-8")
+    assert (
+        ".notice { margin: 0; padding: 10px 12px; border: 1px solid var(--line); "
+        "border-radius: var(--radius-card); background: var(--surface-2); color: var(--text); }"
+    ) in css
+    assert '.notice[role="alert"],' in css
+    assert ".notice.notice--warning { color: var(--amber); border-color: var(--warning-border); background: var(--warning-surface); }" in css
+    assert ".notice.notice--success { color: var(--green); border-color: var(--success-border); background: var(--success-surface); }" in css
+    assert ".notice + .notice { margin-top: 8px; }" in css
+    assert ".meeting-status,\n.meeting-content-readiness,\n.meeting-result-count { color: var(--muted); font-size: var(--font-size-helper); }" in css
+    assert '.meeting-status[data-status-kind="failed"],' in css
+    assert '.meeting-content-readiness[data-processing-retry-class="terminal"]' in css
+    assert '.meeting-status[data-status-kind="limited"],' in css
+    assert '.meeting-content-readiness[data-processing-retry-class="unknown_outcome"]' in css
 
 
 def test_checkout_requires_explicit_recurring_consent_copy() -> None:
@@ -547,8 +617,8 @@ def test_pending_checkout_hides_recomputed_order_total() -> None:
         promo_preview_error="Промокод истёк",
     )
 
-    assert "Платёж уже создан" in html
-    assert "Продолжить этот платёж в ЮKassa" in html
+    assert "Платеж уже создан" in html
+    assert "Продолжить этот платеж в ЮKassa" in html
     assert "Промокод истёк" not in html
     assert 'class="billing-order-summary"' not in html
     assert "790 ₽" not in html
@@ -647,7 +717,7 @@ def test_billing_overview_hides_usage_cta_when_data_is_unavailable() -> None:
         billing_enabled=False,
         billing_owner=False,
     )
-    assert "Данные биллинга временно недоступны" in html
+    assert "Данные временно недоступны" in html
     assert 'href="/billing/usage"' not in html
     assert 'href="/billing/checkout"' not in html
 
@@ -753,7 +823,6 @@ def test_billing_overview_uses_reference_hierarchy_and_one_primary_action() -> N
     assert 'class="cabinet-main billing-page billing-overview"' in html
     section_ids = (
         "billing-summary-title",
-        "billing-offer-title",
         "billing-workspace-title",
         "billing-method-title",
         "billing-history-title",
@@ -905,7 +974,7 @@ def test_scheduled_renewal_keeps_subscription_cancellation_reachable() -> None:
     assert 'href="/billing/checkout/status/INV-RNW-SCHEDULED"' not in html
 
 
-def test_non_owner_billing_overview_hides_invoice_and_exact_storage() -> None:
+def test_non_owner_billing_overview_hides_invoice_and_usage_but_shows_capacity() -> None:
     html = render_template(
         "cabinet/pages/billing_overview_content.html",
         embedded=False,
@@ -941,12 +1010,12 @@ def test_non_owner_billing_overview_hides_invoice_and_exact_storage() -> None:
     assert "INV-PRIVATE1" not in html
     assert "•••• 4242" not in html
     assert "1.5 GB" not in html
-    assert "2 GB" not in html
+    assert "2 GB" in html
     assert "28.09.2026" not in html
     assert "15.09.2026" not in html
     assert "29.09.2026" not in html
     assert "790 ₽" not in html
-    assert "Платёжные данные доступны владельцу пространства" in html
+    assert "Платежные данные доступны владельцу пространства" in html
 
 
 def test_workspace_owner_can_start_guarded_billing_takeover() -> None:
@@ -1002,7 +1071,7 @@ def test_workspace_owner_can_start_guarded_billing_takeover() -> None:
         trial_state="unavailable",
     )
 
-    assert "платёжный аккаунт закреплён за другим пользователем" in overview
+    assert "Оплатой управляет другой плательщик." in overview
     assert 'data-billing-primary href="/billing/plans"' in overview
     assert 'href="/billing/checkout?cycle=month"' in plans
     assert "Выбрать «Личный»" in plans
@@ -1028,7 +1097,7 @@ def test_workspace_owner_can_start_guarded_billing_takeover() -> None:
         latest_invoice_summary=None,
         latest_operation_state=None,
     )
-    assert "Активным тарифом управляет текущий владелец биллинга" in active_overview
+    assert "Активным тарифом управляет текущий плательщик" in active_overview
     assert 'href="/billing/plans"' not in active_overview
 
 
@@ -1165,7 +1234,7 @@ def test_plan_comparison_does_not_label_another_cycle_as_connected() -> None:
     )
 
     assert "Другой период оплаты" in html
-    assert "Подключён сейчас" not in html
+    assert "Подключен сейчас" not in html
     assert 'href="/billing/checkout' not in html
 
 
@@ -1209,9 +1278,9 @@ def test_plan_comparison_explains_pending_and_disabled_checkout_states() -> None
         operation_pending=False,
     )
 
-    assert "Платёж проверяется" in pending
+    assert "Платеж проверяется" in pending
     assert 'href="/billing/checkout' not in pending
-    assert "магазин не включён" in disabled
+    assert "Оплата временно недоступна" in disabled
     assert "Цена появится после утверждения" not in disabled
 
 
@@ -1258,7 +1327,7 @@ def test_usage_surface_localizes_processing_reservation_and_threshold() -> None:
         storage_capacity_label="250 MB",
         storage_threshold="normal",
         storage_threshold_label="В норме",
-        billing_owner=False,
+        billing_owner=True,
     )
     assert "1 мин 30 сек" in html
     assert "90 сек" not in html
@@ -1347,7 +1416,7 @@ def test_checkout_hides_publishable_price_when_store_is_disabled() -> None:
         checkout_idempotency_key="synthetic-key",
         checkout_result=None,
     )
-    assert "магазин не включён" in html
+    assert "Оплата пока недоступна" in html
     assert 'name="cycle" value="month"' not in html
     assert "Оплатить 790 ₽" not in html
 
@@ -1395,5 +1464,5 @@ def test_manual_checkout_recovery_offers_continue_instead_of_noop_refresh() -> N
     assert "Проверить статус" not in recovery_html
     assert "Проверить статус" in pending_html
     assert "Продолжить оплату" not in pending_html
-    assert "Новую оплату не создаём" in processing_html
+    assert "Новую оплату не создаем" in processing_html
     assert "Операция не найдена" not in processing_html

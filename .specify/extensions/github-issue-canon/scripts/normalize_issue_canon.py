@@ -61,7 +61,7 @@ def first_task_id(body: str, title: str) -> str:
     match = TASK_RE.search(body)
     if match:
         return match.group(0)
-    match = re.match(r"^\s*(T\d{3})\s*:", title)
+    match = re.match(r"^\s*(T\d{3,})\s*:", title)
     if match:
         return match.group(1)
     match = TASK_RE.search(title)
@@ -70,7 +70,7 @@ def first_task_id(body: str, title: str) -> str:
 
 def clean_outcome(title: str) -> str:
     cleaned = re.sub(r"^012 hackathon (remediation|additional):\s*", "", title, flags=re.I).strip()
-    cleaned = re.sub(r"^T\d{3}\s*:\s*", "", cleaned).strip()
+    cleaned = re.sub(r"^T\d{3,}\s*:\s*", "", cleaned).strip()
     return cleaned[:1].upper() + cleaned[1:] if cleaned else "Закрыть Spec Kit задачу"
 
 
@@ -87,7 +87,7 @@ def canonical_title(issue: dict, default_feature: str | None) -> str:
         outcome = clean_outcome(legacy.group("outcome"))
     else:
         feature = default_feature or "000"
-        feature_match = re.search(r"(?:Feature:\s*`?|Фича:\s*`?|specs/)(\d{3})", body)
+        feature_match = re.search(r"(?:Feature:\s*`?|Фича:\s*`?|specs/)(\d{3,})", body)
         if feature_match:
             feature = feature_match.group(1)
         priority = infer_priority(body, title)

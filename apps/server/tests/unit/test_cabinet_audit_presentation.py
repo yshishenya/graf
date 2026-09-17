@@ -16,15 +16,15 @@ def test_account_locale_is_preserved_without_claiming_ui_translation() -> None:
     page = render_settings_page(
         category="account", profile=profile, account_surface=AccountSettingsSurface(profile=profile)
     )
-    locale = re.search(r'<select id="account-locale"[^>]*>(.*?)</select>', page, re.S)
+    locale = re.search(r'<input type="hidden" id="account-locale"[^>]*>', page)
     assert locale is not None
-    assert '<option value="en-US" selected>' in locale.group(1)
-    assert 'aria-describedby="account-locale-help"' in locale.group(0)
-    help_text = re.search(r'id="account-locale-help">(.*?)</span>', page, re.S).group(1)
-    assert "интерфейс пока доступен только на русском" in help_text
-    assert "не меняет язык расшифровки и итогов" in help_text
+    assert 'name="locale" value="en-US"' in locale.group(0)
+    assert '<select id="account-locale"' not in page
+    assert '<span>Русский</span>' in page
+    assert "Другие языки пока недоступны" not in page
     summaries = render_settings_page(category="summaries")
-    assert "в ваших встречах текущего пространства" in summaries
+    assert 'id="summary-personal-scope"' in summaries
+    assert "Доступны только вам в этом пространстве." in summaries
     assert "во всех ваших встречах" not in summaries
     assert any(
         "Автозапись по приложениям настраивается отдельно" in text
@@ -75,7 +75,7 @@ def test_admin_translates_labels_but_submits_original_codes_and_keeps_role_guard
                 user=user,
             ),
         )
-        assert "Отозван" in detail and "Срок истёк" in detail
+        assert "Отозван" in detail and "Срок истек" in detail
         assert '<option value="member">Участник</option>' in detail
         assert ('<option value="owner">Владелец</option>' in detail) == (actor == "owner")
     user["status"] = "future_state"

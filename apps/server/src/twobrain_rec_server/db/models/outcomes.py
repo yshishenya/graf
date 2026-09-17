@@ -11,6 +11,7 @@ from sqlalchemy import (
     Index,
     Integer,
     String,
+    Text,
     UniqueConstraint,
     text,
 )
@@ -119,6 +120,7 @@ class MeetingOutcomeSet(Base):
     deletion_epoch_at_start: Mapped[int | None] = mapped_column(BigInteger)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     content_hash: Mapped[str | None] = mapped_column(String(128))
+    protocol_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     template_id: Mapped[UUID | None] = mapped_column(ForeignKey("summary_templates.id"))
     template_key: Mapped[str | None] = mapped_column(String(120))
     template_version: Mapped[int | None] = mapped_column(Integer)
@@ -264,8 +266,8 @@ class MeetingOutcomeItem(Base):
     sequence: Mapped[int] = mapped_column(Integer, nullable=False)
     state: Mapped[str] = mapped_column(String(64), default="available")
     text: Mapped[str | None] = mapped_column(String)
-    owner_text: Mapped[str | None] = mapped_column(String(240))
-    due_date_text: Mapped[str | None] = mapped_column(String(120))
+    owner_text: Mapped[str | None] = mapped_column(Text)
+    due_date_text: Mapped[str | None] = mapped_column(Text)
     truth_label: Mapped[str] = mapped_column(String(64), default="supported")
     source_refs_json: Mapped[list] = mapped_column(JSON, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

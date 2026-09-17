@@ -615,7 +615,11 @@ public struct DesktopUploadCustodySummary: Equatable, Sendable {
     }
 
     public var detail: String {
-        DesktopUploadCustodyCopy.detail(copyKey: copyKey, count: pendingCount, deadline: primaryProjection.retentionDeadline)
+        detail(timeZone: .autoupdatingCurrent)
+    }
+
+    public func detail(timeZone: TimeZone) -> String {
+        DesktopUploadCustodyCopy.detail(copyKey: copyKey, count: pendingCount, deadline: primaryProjection.retentionDeadline, timeZone: timeZone)
     }
 
     public var ownerLabel: String {
@@ -662,8 +666,13 @@ public struct DesktopUploadCustodySummary: Equatable, Sendable {
     public static func summaries(
         for items: [DesktopUploadQueueItem],
         now: Date = Date(),
-        limit: Int = 5
+        limit: Int = 5,
+        focusedSessionID: String? = nil
     ) -> [DesktopUploadCustodySummary] {
+        if limit > 0, let id = focusedSessionID,
+           let target = summary(for: items.filter { $0.sessionId == id }, now: now) {
+            return [target] + summaries(for: items.filter { $0.sessionId != id }, now: now, limit: limit - 1)
+        }
         let candidates = visibleCandidates(for: items, now: now)
         let grouped = Dictionary(grouping: candidates) { candidate in
             "\(candidate.projection.copyKey)|\(candidate.projection.owner.rawValue)"
@@ -1934,7 +1943,7 @@ public enum DesktopUploadCustodyCopy {
         }
     }
 
-    public static func detail(copyKey: String, count: Int, deadline: Date?) -> String {
+    public static func detail(copyKey: String, count: Int, deadline: Date?, timeZone: TimeZone = .autoupdatingCurrent) -> String {
         switch copyKey {
         case "custody.uploading":
             return count > 1
@@ -1952,11 +1961,11 @@ public enum DesktopUploadCustodyCopy {
             return "Локальная копия сохранена на этом Mac. Свяжитесь с поддержкой, если проблема повторится."
         case "custody.retention_warning":
             if let deadline {
-                return "Локальная копия сохранена до \(dateText(deadline)) по политике хранения."
+                return "Локальная копия сохранена до \(UserTime.format(deadline, showZone: true, timeZone: timeZone)) по политике хранения."
             }
             return "Локальная копия сохранена до срока политики хранения."
         case "custody.terminal_undelivered":
-            return "Автоматическая отправка не выполнится. Локальная копия сохранена на этом Mac. Свяжитесь с поддержкой, если запись ещё нужна."
+            return "Автоматическая отправка не выполнится. Локальная копия сохранена на этом Mac. Свяжитесь с поддержкой, если запись еще нужна."
         case "custody.known_by_server":
             return "Серверный список показывает актуальное состояние."
         default:
@@ -1964,11 +1973,4 @@ public enum DesktopUploadCustodyCopy {
         }
     }
 
-    private static func dateText(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "ru_RU")
-        formatter.setLocalizedDateFormatFromTemplate("d MMMM")
-        formatter.timeStyle = .none
-        return formatter.string(from: date)
-    }
 }

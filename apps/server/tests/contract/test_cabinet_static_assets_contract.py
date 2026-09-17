@@ -66,13 +66,50 @@ def test_cabinet_brand_assets_are_local_and_nonempty() -> None:
 
 
 def test_cabinet_js_wires_csrf_header_for_unsafe_htmx_requests() -> None:
-    script = (STATIC_DIR / "cabinet.js").read_text()
-
-    assert 'meta[name="csrf-token"]' in script
-    assert "htmx:configRequest" in script
-    assert "X-CSRF-Token" in script
-    assert "POST" in script
-    assert "DELETE" in script
+    harness = r'''
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const vm = require("node:vm");
+const script = fs.readFileSync(process.argv[1], "utf8");
+for (const token of ["synthetic-csrf", null]) {
+  for (const surfaceMode of ["web", "desktop_embedded"]) {
+    let handler;
+    const document = {
+      documentElement: { dataset: {} },
+      readyState: "loading",
+      querySelectorAll: () => [],
+      addEventListener() {},
+      querySelector(selector) {
+        return selector === 'meta[name="csrf-token"]' && token !== null ? { content: token } : null;
+      },
+      body: { dataset: { surfaceMode }, addEventListener(name, callback) {
+        if (name === "htmx:configRequest") {
+          assert.equal(handler, undefined);
+          handler = callback;
+        }
+      } }
+    };
+    const window = { addEventListener() {}, location: { pathname: "/meetings", hash: "" } };
+    vm.runInNewContext(script, { document, window, URLSearchParams, setInterval() {}, clearInterval() {} });
+    assert.equal(typeof handler, "function");
+    for (const verb of ["POST", "put", "PATCH", "delete", "GET", "head", "OPTIONS", undefined]) {
+      for (const headers of [undefined, { Accept: "application/json" }]) {
+        const event = { detail: { verb, headers } };
+        handler(event);
+        const unsafe = ["POST", "PUT", "PATCH", "DELETE"].includes(String(verb).toUpperCase());
+        assert.equal(event.detail.headers["X-CSRF-Token"], token && unsafe ? token : undefined);
+        assert.equal(event.detail.headers.Accept, headers ? "application/json" : undefined);
+        assert.equal(event.detail.headers["X-GRAF-Client"], surfaceMode === "desktop_embedded" ? "desktop" : undefined);
+      }
+    }
+  }
+}
+'''
+    result = subprocess.run(
+        ["node", "-e", harness, str(STATIC_DIR / "cabinet.js")],
+        capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_owner_reprocess_action_uses_confirmed_predecessor_and_revision_contract() -> None:
@@ -147,10 +184,10 @@ def test_replacement_status_uses_one_neutral_state_until_terminal_outcome() -> N
     ]
     for forbidden in (
         "Временная ошибка",
-        "Ждём актуальный статус",
+        "Ждем актуальный статус",
         "Повторить сейчас",
         "Проверить статус",
-        "Текущая версия остаётся доступной",
+        "Текущая версия остается доступной",
     ):
         assert forbidden not in replacement_copy
     assert 'reprocessLabel: "Попробовать снова"' in status_copy
@@ -228,7 +265,10 @@ submenu.getBoundingClientRect = () => classes.has('is-flipped')
 const details = {open: true, isConnected: true, querySelector: () => submenu,
   classList: {remove: (...names) => names.forEach(name => classes.delete(name)),
     toggle: (name, on) => on ? classes.add(name) : classes.delete(name)}};
-vm.runInThisContext(source.slice(source.indexOf('      const syncDisclosurePosition ='), source.indexOf('      disclosures.forEach((details) =>')));
+vm.runInThisContext(source.slice(
+    source.indexOf('      const syncDisclosurePosition ='),
+    source.indexOf('      let hoveredDisclosure = null;'),
+));
 window.innerWidth = 550;
 syncDisclosurePosition(details);
 assert.ok(classes.has('is-inline'), 'neither side fits at 550px');
@@ -266,14 +306,15 @@ def test_cabinet_js_keeps_fragment_state_ephemeral() -> None:
     assert "htmx:afterSwap" in script
     assert "meeting-list-region" in script
     assert "localStorage" not in script
-    assert script.count("sessionStorage") == 16
+    assert script.count("sessionStorage") == 15
     assert script.count('sessionStorage.removeItem("htmx-history-cache")') == 1
     assert script.count('sessionStorage.removeItem("htmx-current-path-for-history")') == 2
     assert "graf-summary-candidate-" in script
     assert "sessionStorage.setItem(candidateStorageKey, JSON.stringify({" in script
-    assert 'sessionStorage.getItem("graf-cabinet-rail")' in script
+    assert 'const railKey = shell.dataset.activeNav === "settings" ? "graf-settings-rail" : "graf-cabinet-rail"' in script
+    assert "sessionStorage.getItem(railKey)" in script
     assert (
-        'sessionStorage.setItem("graf-cabinet-rail", pinned ? "expanded" : "collapsed")' in script
+        'sessionStorage.setItem(railKey, pinned ? "expanded" : "collapsed")' in script
     )
     assert "poll_url: candidate.poll_url" in script
     assert "template: activeTemplate" in script
@@ -613,8 +654,8 @@ vm.runInThisContext(`
   const processingListProjectionLastFetchedAt = new Map();
   const processingListProjectionStates = new Map();
   const processingTranscriptReady = () => false;
-  const processingSummaryState = () => "processing";
-  const processingSummaryPending = () => true;
+  const processingSummaryState = (projection) => projection.state === "processed" ? "available" : "processing";
+  const processingSummaryPending = (state) => state === "processing";
   const requestMeetingListRefresh = () => { refreshes += 1; return true; };
   ${source}
   global.initProcessingListProjection = initProcessingListProjection;
@@ -821,7 +862,9 @@ const currentPlayback = {
     playbackReplaceCount += 1;
   },
 };
+const titleEditorActive = () => false;
 const detail = {
+  querySelector: () => null,
   dataset: {
     playbackPollUrl: "/meetings/meeting-1",
     meetingId: "meeting-1",
@@ -841,6 +884,7 @@ const detail = {
 };
 const processingTranscriptReady = (projection) => projection.transcript_ready === true;
 const processingSummaryState = (projection) => projection.summary_status;
+const processingSummaryPending = (state) => ["queued", "generating", "processing", "blocked_dependency"].includes(state);
 const processingProjectionMatchesDetail = (node, projection) => (
   node.dataset.meetingId === projection.meeting_id
   && node.dataset.mediaRevisionId === projection.media_revision_id
@@ -920,6 +964,7 @@ vm.runInThisContext(`${source}; global.refreshProcessingDetailContentOnce = refr
   await global.refreshProcessingDetailContentOnce(nextDetail, projection);
   if (fetchCount !== 2) throw new Error("ready content refreshed more than once");
   staleDetail = {
+    querySelector: () => null,
     dataset: {
       playbackPollUrl: "/meetings/meeting-1",
       meetingId: "meeting-1",
@@ -969,7 +1014,9 @@ let firstResolve;
 let secondResolve;
 let fetchCount = 0;
 let replaceCount = 0;
+const titleEditorActive = () => false;
 const detail = {
+  querySelector: () => null,
   dataset: {
     playbackPollUrl: "/meetings/meeting-1",
     meetingId: "meeting-1",
@@ -990,6 +1037,7 @@ const fragments = {
 };
 const processingTranscriptReady = (projection) => projection.transcript_ready === true;
 const processingSummaryState = (projection) => projection.summary_status;
+const processingSummaryPending = (state) => state === "processing";
 const processingProjectionMatchesDetail = (node, projection) => (
   node.dataset.meetingId === projection.meeting_id
   && node.dataset.mediaRevisionId === projection.media_revision_id
@@ -1074,7 +1122,9 @@ const source = script.slice(
 let fetchCount = 0;
 let statusRefreshes = [];
 const scheduled = [];
+const titleEditorActive = () => false;
 const detail = {
+  querySelector: () => null,
   dataset: {
     playbackPollUrl: "/meetings/meeting-1",
     meetingId: "meeting-1",
@@ -1246,7 +1296,7 @@ for (const testCase of cases) {
   ) {
     throw new Error(`terminal projection used wrong copy: ${JSON.stringify({ copy, testCase })}`);
   }
-  if (copy.copy.includes("Спикеры ещё определяются")) {
+  if (copy.copy.includes("Спикеры еще определяются")) {
     throw new Error("terminal projection fell back to active processing copy");
   }
 }
@@ -1270,7 +1320,7 @@ if (unpublishedReplacement?.state !== "active" || unpublishedReplacement?.title 
 
     script = script_path.read_text(encoding="utf-8")
     assert 'payload?.code === "processing_quota_exceeded"' in script
-    assert "Лимит расшифровки ещё не обновился" in script
+    assert "Лимит расшифровки еще не обновился" in script
 
 
 def test_summary_refresh_does_not_pause_or_replace_the_current_player() -> None:
@@ -1293,7 +1343,9 @@ const currentPlayback = {
   querySelector: (selector) => selector === "audio" ? { pause() { pauseCount += 1; } } : null,
   replaceWith() { playbackReplaceCount += 1; },
 };
+const titleEditorActive = () => false;
 const detail = {
+  querySelector: () => null,
   dataset: {
     playbackPollUrl: "/meetings/meeting-1",
     meetingId: "meeting-1",
@@ -1387,8 +1439,9 @@ const processingProjectionIsStale = () => false;
 const processingTimestamp = () => null;
 const processingTranscriptReady = () => false;
 const processingArtifactState = () => "unavailable";
-const processingTerminalFailure = () => true;
-const updateProcessingExportVisibility = () => {};
+const processingTerminalFailure = projection => projection.state === "failed_terminal";
+const exportStates = [];
+const updateProcessingExportVisibility = () => exportStates.push(detail.dataset.processingReplacementActive);
 const updateProcessingStage = () => {};
 const processingArtifactVisible = () => false;
 const processingSummaryState = () => "unavailable";
@@ -1444,6 +1497,16 @@ if (
   || uploadAnother.href !== uploadAnother.dataset.defaultHref
   || uploadAnother.textContent !== "Загрузить другой файл"
 ) throw new Error("upload recovery action did not return to its default state");
+global.renderProcessingProjection(detail, {
+  state: "processing", attempt_ordinal: 2, content_available: true,
+});
+global.renderProcessingProjection(detail, {
+  state: "failed_terminal", attempt_ordinal: 2, content_available: true,
+  retry_class: "terminal", manual_action: "upload_another", reason_code: "corrupt_source",
+});
+if (JSON.stringify(exportStates.slice(-2)) !== '["true","false"]')
+  throw new Error("export event observed stale replacement state");
+
 """
     completed = subprocess.run(
         ["node", "-e", harness, str(STATIC_DIR / "cabinet.js")],
@@ -1539,12 +1602,41 @@ def test_cabinet_collapsed_rail_uses_one_centered_control_geometry() -> None:
         "  margin-inline: 2px auto;\n"
         "  inset-block-start: -4px;"
     ) in css
-    assert (".sidebar {\n  padding: 12px 10px;\n  gap: 12px;") in css
+    assert (
+        ".sidebar {\n"
+        "  grid-row: 1 / -1;\n"
+        "  position: sticky;\n"
+        "  top: 0;\n"
+        "  align-self: start;\n"
+        "  height: 100vh;"
+    ) in css
+    assert (
+        "  padding: 12px 10px;\n"
+        "  gap: 12px;\n"
+        "  background: var(--panel);\n"
+        "  color: var(--text);\n"
+        "  border-right: 1px solid var(--line-soft);\n"
+        "}"
+    ) in css
     assert (
         ".app-shell.desktop-embedded.is-rail-pinned .cabinet-rail-toggle {\n"
         "    margin-inline-start: 6px;\n"
         "    inset-block-start: 0;"
     ) in css
+
+
+def test_playback_listen_interval_union_rejects_invalid_and_does_not_repeat_overlap() -> None:
+    script = (STATIC_DIR / "cabinet.js").read_text()
+    start = script.index("  const mergePlaybackIntervals =")
+    end = script.index("  const initPlayback =", start)
+    harness = script[start:end] + r'''
+const assert = require("node:assert/strict");
+assert.deepEqual(mergePlaybackIntervals([[12,16],[2,6],[5,9],[9,10],[8,8],[NaN,4],[-2,1]]), [[0,1],[2,10],[12,16]]);
+assert.deepEqual(mergePlaybackIntervals([]), []);
+assert.deepEqual(mergePlaybackIntervals(Array.from({length:10000}, (_,i)=>[i,i+2])), [[0,10001]]);
+'''
+    result = subprocess.run(["node", "-e", harness], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
 
 
 def test_cabinet_playback_shares_ready_state_geometry() -> None:
@@ -1562,6 +1654,7 @@ def test_cabinet_rail_node_harness_keeps_responsive_defaults_and_manual_state() 
     script_path = STATIC_DIR / "cabinet.js"
     harness = r"""
 const fs = require("fs");
+global.setInterval = () => 1;
 const vm = require("vm");
 const surface = process.argv[2];
 const width = Number(process.argv[3]);
@@ -1716,6 +1809,7 @@ if ((toggle.listeners.get("click") || []).length !== 1) throw new Error("duplica
             capture_output=True,
             text=True,
             check=False,
+            timeout=15,
         )
         assert completed.returncode == 0, completed.stderr + completed.stdout
 
@@ -1727,7 +1821,7 @@ def test_meeting_review_resize_uses_bounded_keyboard_and_pointer_contract() -> N
     for marker in [
         "data-speaker-timeline-shell",
         "data-speaker-timeline-resize",
-        "speakerTimelineCount",
+        "data-playback-timeline-toggle",
         "pointerdown",
         "pointermove",
         "pointerup",
@@ -1758,6 +1852,7 @@ def test_meeting_review_resize_node_harness_keeps_bounds_and_one_listener() -> N
     script_path = STATIC_DIR / "cabinet.js"
     harness = r"""
 const fs = require("fs");
+global.setInterval = () => 1;
 const vm = require("vm");
 const scenario = process.argv[2];
 const listeners = new Map();
@@ -1812,9 +1907,9 @@ timeline.dataset.speakerTimelineDefaultHeight = "120";
 const speakerCount = scenario === "one" ? 1 : scenario === "two" ? 2 : scenario === "fit" ? 3 : 12;
 timeline.dataset.speakerTimelineCount = String(speakerCount);
 timeline.scrollHeight = scenario === "one" ? 28 : scenario === "two" ? 56 : scenario === "fit" ? 80 : scenario === "viewport" ? 900 : 320;
+playback.querySelector = (selector) => selector === "[data-speaker-timeline-resize]" ? handle : shell.querySelector(selector);
 shell.querySelector = (selector) => {
   if (selector === "[data-speaker-timeline]") return timeline;
-  if (selector === "[data-speaker-timeline-resize]") return handle;
   return null;
 };
 global.Element = FakeElement;
@@ -1872,26 +1967,29 @@ vm.runInThisContext(fs.readFileSync(process.argv[1], "utf8"));
 const resizeHandlerCount = handle.listenerCount("keydown");
 if (resizeHandlerCount !== 1) throw new Error(`expected one key handler, got ${resizeHandlerCount}`);
 const resizeListenerCount = (windowListeners.get("resize") || []).length;
-if (resizeListenerCount !== 2) throw new Error("expected playback and tooltip resize listeners");
+if ((windowListeners.get("resize") || []).filter(handler => handler.name === "resizeSpeakerTimelines").length !== 1) throw new Error("expected one playback resize listener");
 const currentTime = 42;
 playback.currentTime = currentTime;
-if (["one", "two", "fit"].includes(scenario)) {
-  if (!handle.hidden) throw new Error("fit rows exposed a resize affordance");
-  if (timeline.style.height !== "") throw new Error("natural rows received a fixed height");
-  const expectedNaturalHeight = scenario === "one" ? 28 : scenario === "two" ? 56 : 80;
-  if (handle.attributes["aria-valuemin"] !== String(expectedNaturalHeight)) throw new Error("wrong natural minimum");
+if (scenario === "one") {
+  if (!handle.hidden) throw new Error("single row exposed a useless resize affordance");
+  if (timeline.style.height !== "") throw new Error("single row received a fixed height");
+  if (handle.attributes["aria-valuemin"] !== "28") throw new Error("wrong natural minimum");
+} else if (["two", "fit"].includes(scenario)) {
+  if (handle.hidden) throw new Error("multiple rows cannot shrink");
+  handle.dispatch("keydown", { key: "Home", preventDefault() {} });
+  if (timeline.style.height !== "33px") throw new Error("minimum must retain one visible row");
 } else {
   if (handle.hidden) throw new Error("overflow rows hid the resize affordance");
   handle.dispatch("pointerdown", { button: 0, pointerId: 1, clientY: 100, preventDefault() {} });
   document.dispatch("pointermove", { pointerId: 1, clientY: 70 });
   document.dispatch("pointerup", { pointerId: 1 });
-  if (timeline.style.height !== "150px") throw new Error("pointer resize did not move the bounded panel");
+  if (timeline.style.height !== (scenario === "viewport" ? "141px" : "150px")) throw new Error("pointer resize did not move the bounded panel");
   handle.dispatch("keydown", { key: "End", preventDefault() {} });
-  const expectedMax = scenario === "viewport" ? 228 : 320;
+  const expectedMax = scenario === "viewport" ? 141 : 320;
   if (handle.attributes["aria-valuemax"] !== String(expectedMax)) throw new Error("wrong resize ceiling");
   if (timeline.style.height !== `${expectedMax}px`) throw new Error("End did not use bounded height");
   handle.dispatch("keydown", { key: "Home", preventDefault() {} });
-  if (timeline.style.height !== "") throw new Error("Home did not restore the default height");
+  if (timeline.style.height !== "33px") throw new Error("Home did not restore one visible row");
 }
 body.dispatch("htmx:afterSwap", { detail: { target: null } });
 if (handle.listenerCount("keydown") !== 1) throw new Error("partial update duplicated resize listeners");
@@ -1910,6 +2008,7 @@ if (playback.currentTime !== currentTime) throw new Error("resize changed playba
             capture_output=True,
             text=True,
             check=False,
+            timeout=15,
         )
         assert completed.returncode == 0, completed.stderr
 
@@ -1918,6 +2017,7 @@ def test_speaker_rename_node_harness_preserves_playback_states() -> None:
     script_path = STATIC_DIR / "cabinet.js"
     harness = r"""
 const fs = require("fs");
+global.setInterval = () => 1;
 const vm = require("vm");
 const playing = process.argv[2] === "playing";
 const success = process.argv[3] === "success";
@@ -2049,6 +2149,7 @@ global.window = {
                 capture_output=True,
                 text=True,
                 check=False,
+                timeout=15,
             )
             assert completed.returncode == 0, completed.stderr
 
@@ -2078,7 +2179,7 @@ def test_meeting_list_js_separates_open_selection_and_fragment_reconciliation() 
         "rowPrimaryFocusTarget",
         "Выбрано: ${rows.length}",
         "reconcileMeetingSelection",
-        "selectedMeetingIds.has(row.dataset.meetingId)",
+        "selectedMeetingIds.has(recordingRowIdentity(row))",
     ]:
         assert marker in script
 
@@ -2118,11 +2219,11 @@ def test_meeting_list_js_owns_loading_and_metadata_safe_recovery_states() -> Non
         "Нет подключения",
         "Запись на Mac продолжает работать.",
         "Не удалось загрузить встречи",
-        "Попробуйте ещё раз.",
+        "Попробуйте еще раз.",
         "Нужно войти снова",
         "Сессия завершилась.",
         "Нужно выбрать пространство",
-        "Доступ к выбранному пространству больше не подтверждён.",
+        "Доступ к выбранному пространству больше не подтвержден.",
         "Войти и выбрать пространство",
         "Нет доступа к встречам",
         "Обратитесь к владельцу рабочего пространства.",
@@ -2215,7 +2316,7 @@ def test_meeting_list_js_closes_authorization_retry_and_deletion_boundaries() ->
         "restoreListRefreshFocus",
         "restoreMeetingListRequestFocus(requestEvent, recovery, { force: authorizationLost })",
         "restoreListRefreshFocus(recovery, { force: authorizationLost })",
-        ".map((meetingId) => allRows().find((row) => row.dataset.meetingId === meetingId))",
+        ".map((meetingId) => allRows().find((row) => recordingRowIdentity(row) === meetingId))",
         ".find(Boolean)",
         "xhrProblemCode",
         'JSON.parse(xhr?.responseText || "{}")',
@@ -2433,6 +2534,7 @@ def test_meeting_list_runtime_rejects_stale_poll_and_preserves_row_focus() -> No
     script_path = STATIC_DIR / "cabinet.js"
     harness = r"""
 const fs = require("fs");
+global.setInterval = () => 1;
 const vm = require("vm");
 const listeners = new Map();
 let modalOpen = false;
@@ -2445,6 +2547,7 @@ class FakeElement {
     this.isConnected = true;
     this.classList = { add() {}, remove() {}, toggle() {}, contains() { return false; } };
   }
+  append() {}
   addEventListener() {}
   closest() { return null; }
   contains() { return false; }
@@ -2488,6 +2591,7 @@ global.HTMLFormElement = FakeElement;
 global.HTMLButtonElement = FakeElement;
 global.Node = FakeElement;
 global.document = {
+  createElement(kind) { return new FakeElement(kind); },
   activeElement: new FakeElement("focused-row-control"),
   body,
   documentElement: { dataset: {} },
@@ -2529,7 +2633,7 @@ const selectedCheckbox = { checked: true };
 selectedCheckbox.closest = (selector) => selector === "[data-meeting-select]" ? selectedCheckbox : null;
 const selectedRow = new FakeElement("row");
 selectedRow.dataset.meetingId = "selected-meeting";
-selectedRow.querySelector = (selector) => selector === "[data-meeting-select]" ? selectedCheckbox : null;
+selectedRow.querySelector = (selector) => ["[data-meeting-select]", "[data-meeting-select]:not(:disabled)"].includes(selector) ? selectedCheckbox : null;
 list.querySelectorAll = (selector) => selector === "[data-meeting-row]" ? [selectedRow] : [];
 listeners.get("change")[0]({ target: selectedCheckbox });
 const eventFor = (xhr, source) => ({
@@ -2590,7 +2694,7 @@ replacementDelete.focus = () => { document.activeElement = replacementDelete; };
 const replacementRow = new FakeElement("row");
 replacementRow.dataset.meetingId = selectedRow.dataset.meetingId;
 replacementRow.querySelector = (selector) => {
-  if (selector === "[data-meeting-select]") return selectedCheckbox;
+  if (["[data-meeting-select]", "[data-meeting-select]:not(:disabled)"].includes(selector)) return selectedCheckbox;
   if (selector === "[data-row-delete]") return replacementDelete;
   return null;
 };
@@ -2628,7 +2732,7 @@ automaticReplacementDelete.focus = () => { document.activeElement = automaticRep
 const automaticReplacementRow = new FakeElement("row");
 automaticReplacementRow.dataset.meetingId = replacementRow.dataset.meetingId;
 automaticReplacementRow.querySelector = (selector) => {
-  if (selector === "[data-meeting-select]") return selectedCheckbox;
+  if (["[data-meeting-select]", "[data-meeting-select]:not(:disabled)"].includes(selector)) return selectedCheckbox;
   if (selector === "[data-row-delete]") return automaticReplacementDelete;
   return null;
 };
@@ -2719,6 +2823,7 @@ if (!modalPollStart.defaultPrevented) {
         capture_output=True,
         text=True,
         check=False,
+        timeout=15,
     )
 
     assert completed.returncode == 0, completed.stderr
@@ -2796,6 +2901,7 @@ def test_meeting_list_runtime_announces_only_user_refinements() -> None:
     script_path = STATIC_DIR / "cabinet.js"
     harness = r"""
 const fs = require("fs");
+global.setInterval = () => 1;
 const vm = require("vm");
 const listeners = new Map();
 class FakeElement {
@@ -2823,6 +2929,8 @@ class FakeElement {
   setAttribute() {}
 }
 const list = new FakeElement("list");
+const rows = Array.from({ length: 3 }, () => new FakeElement("row"));
+list.querySelectorAll = (selector) => selector === "[data-meeting-row]" ? rows : [];
 const region = new FakeElement("region");
 region.id = "meeting-list-region";
 const count = new FakeElement("count");
@@ -2914,6 +3022,7 @@ if (announcer.textContent !== "Найдено: 3") {
         capture_output=True,
         text=True,
         check=False,
+        timeout=15,
     )
 
     assert completed.returncode == 0, completed.stderr
@@ -2923,6 +3032,7 @@ def test_meeting_list_runtime_reset_clears_refinements_preserves_sort_and_restor
     script_path = STATIC_DIR / "cabinet.js"
     harness = r"""
 const fs = require("fs");
+global.setInterval = () => 1;
 const vm = require("vm");
 const listeners = new Map();
 let countVisible = true;
@@ -2965,7 +3075,7 @@ const access = new FakeElement("access");
 access.value = "shared";
 const sort = new FakeElement("sort");
 sort.value = "updated_desc";
-sort.selectedOptions = [{ textContent: "Недавно обновлённые" }];
+sort.selectedOptions = [{ textContent: "Недавно обновленные" }];
 const reset = new FakeElement("reset");
 const filterLabel = new FakeElement("filter-label");
 const filterSummary = new FakeElement("filter-summary");
@@ -3013,6 +3123,7 @@ global.HTMLFormElement = FakeElement;
 global.HTMLButtonElement = FakeElement;
 global.Node = FakeElement;
 global.document = {
+  createElement(kind) { return new FakeElement(kind); },
   activeElement: reset,
   body,
   documentElement: { dataset: {} },
@@ -3101,6 +3212,7 @@ form.requestSubmit = () => {
         capture_output=True,
         text=True,
         check=False,
+        timeout=15,
     )
 
     assert completed.returncode == 0, completed.stderr
@@ -3110,6 +3222,7 @@ def test_meeting_list_runtime_restores_focused_poll_error_to_recovery() -> None:
     script_path = STATIC_DIR / "cabinet.js"
     harness = r"""
 const fs = require("fs");
+global.setInterval = () => 1;
 const vm = require("vm");
 const listeners = new Map();
 class FakeElement {
@@ -3213,6 +3326,7 @@ if (!recovery || document.activeElement !== recovery) {
         capture_output=True,
         text=True,
         check=False,
+        timeout=15,
     )
 
     assert completed.returncode == 0, completed.stderr
@@ -3257,7 +3371,8 @@ let listRefreshShouldRestoreFocus = true;
 let listRefreshFocusOrigin = origin;
 const allRows = () => [row];
 const rowPrimaryFocusTarget = (candidate) => candidate?.querySelector("[data-meeting-open]") || null;
-eval(`${restoreSource}\n;global.restoreListRefreshFocus = restoreListRefreshFocus;`);
+const identitySource = script.split("\n").find(line => line.includes("const recordingRowIdentity ="));
+eval(`${identitySource}\n${restoreSource}\n;global.restoreListRefreshFocus = restoreListRefreshFocus;`);
 if (restoreListRefreshFocus()) {
   throw new Error("refresh reported focus restoration after the user moved elsewhere");
 }
@@ -3280,6 +3395,7 @@ if (!restoreListRefreshFocus() || document.activeElement !== link) {
         capture_output=True,
         text=True,
         check=False,
+        timeout=15,
     )
 
     assert completed.returncode == 0, completed.stderr
@@ -3296,6 +3412,7 @@ def test_meeting_list_runtime_scrubs_stale_poll_after_authorization_loss(
     script_path = STATIC_DIR / "cabinet.js"
     harness = r"""
 const fs = require("fs");
+global.setInterval = () => 1;
 const vm = require("vm");
 const listeners = new Map();
 let replacedPath = "";
@@ -3421,6 +3538,7 @@ if (replacedPath !== "" || navigatedPath !== "/meetings") {
         capture_output=True,
         text=True,
         check=False,
+        timeout=15,
     )
 
     assert completed.returncode == 0, completed.stderr
@@ -3430,6 +3548,7 @@ def test_meeting_list_runtime_invalidates_and_recovers_detached_authorization_re
     script_path = STATIC_DIR / "cabinet.js"
     harness = r"""
 const fs = require("fs");
+global.setInterval = () => 1;
 const vm = require("vm");
 const listeners = new Map();
 class FakeElement {
@@ -3563,6 +3682,7 @@ if (!rendered.includes("Нет доступа к встречам")) throw new E
         capture_output=True,
         text=True,
         check=False,
+        timeout=15,
     )
 
     assert completed.returncode == 0, completed.stderr
@@ -3572,6 +3692,7 @@ def test_meeting_detail_runtime_scrubs_private_dom_after_access_loss() -> None:
     script_path = STATIC_DIR / "cabinet.js"
     harness = r"""
 const fs = require("fs");
+global.setInterval = () => 1;
 const vm = require("vm");
 let intervalCallback = null;
 let currentMain = null;
@@ -3720,6 +3841,7 @@ const allText = (node) => [node.textContent, ...node.children.flatMap(allText)].
         capture_output=True,
         text=True,
         check=False,
+        timeout=15,
     )
 
     assert completed.returncode == 0, completed.stderr
@@ -3743,6 +3865,7 @@ def test_detail_fetch_actions_keep_accessible_detail_for_local_action_outcomes(
     script_path = STATIC_DIR / "cabinet.js"
     harness = r"""
 const fs = require("fs");
+global.setInterval = () => 1;
 const vm = require("vm");
 let submitHandler = null;
 let currentMain = null;
@@ -3879,6 +4002,7 @@ global.window = {
         capture_output=True,
         text=True,
         check=False,
+        timeout=15,
     )
 
     assert completed.returncode == 0, completed.stderr
@@ -3889,6 +4013,7 @@ def test_ready_meeting_detail_scrubs_private_dom_after_htmx_access_loss(status: 
     script_path = STATIC_DIR / "cabinet.js"
     harness = r"""
 const fs = require("fs");
+global.setInterval = () => 1;
 const vm = require("vm");
 const listeners = new Map();
 let currentMain = null;
@@ -4018,6 +4143,7 @@ if (rendered.includes("PRIVATE")) throw new Error("private detail leaked into re
         capture_output=True,
         text=True,
         check=False,
+        timeout=15,
     )
 
     assert completed.returncode == 0, completed.stderr
@@ -4026,7 +4152,7 @@ if (rendered.includes("PRIVATE")) throw new Error("private detail leaked into re
 def test_detail_fetch_actions_share_fail_closed_authorization_recovery() -> None:
     script = (STATIC_DIR / "cabinet.js").read_text()
 
-    assert script.count("recoverMeetingDetailFromResponse(response)") == 4
+    assert script.count("recoverMeetingDetailFromResponse(response)") == 5
     assert "summaryActionProblemCodes" in script
     assert "sharingActionProblemCodes" in script
     assert '"meeting_not_found"' in script
@@ -4056,6 +4182,7 @@ def test_share_fragment_404_keeps_accessible_detail_and_shows_local_error() -> N
     script_path = STATIC_DIR / "cabinet.js"
     harness = r"""
 const fs = require("fs");
+global.setInterval = () => 1;
 const vm = require("vm");
 const listeners = new Map();
 let currentMain = null;
@@ -4167,6 +4294,7 @@ if (!shareHost.children[0]?.textContent.includes("Не удалось откры
         capture_output=True,
         text=True,
         check=False,
+        timeout=15,
     )
 
     assert completed.returncode == 0, completed.stderr
@@ -4225,7 +4353,7 @@ def test_cabinet_js_uses_product_facing_ellipsis_in_async_states() -> None:
         '"Загрузка"',
         '"Загрузка продолжена"',
         '"На сервере · Обрабатываем"',
-        '"На сервере · Ждёт обработки"',
+        '"На сервере · Ждет обработки"',
         '"Не удалось загрузить"',
         '"Загрузка остановлена"',
     ]:
@@ -4314,8 +4442,11 @@ def test_feature_159_shared_shell_static_contract_keeps_search_and_download_boun
         ROOT / "src/twobrain_rec_server/cabinet/templates/cabinet/components/sections.html"
     ).read_text()
 
-    assert "padding-inline-start: 42px;" in css
-    assert "padding-inline-end: 34px;" in css
+    assert (
+        '.cabinet-search-control input[type="search"] {\n'
+        "  padding-inline-start: 40px;\n"
+        "  padding-inline-end: 34px;"
+    ) in css
     assert ".sidebar-download" in css
     assert "position: fixed;" in css
     assert "max-height: calc(var(--profile-menu-viewport-height, 100vh) - var(--profile-menu-bottom, 60px) - 8px);" in css
@@ -4327,14 +4458,14 @@ def test_feature_159_shared_shell_static_contract_keeps_search_and_download_boun
     assert "data-graf-app-update" in sections
     assert 'aria-label="{{ item.label }}" title="{{ item.label }}"' in sections
     assert 'aria-label="К встречам" title="К встречам"' in sections
-    assert 'aria-label="Обзор" title="Обзор"' in sections
+    assert 'aria-label="Обзор" title="Обзор"' not in sections
 
 
 def test_meeting_list_css_keeps_reset_copy_and_touch_actions_visible() -> None:
     css = (STATIC_DIR / "cabinet.css").read_text()
 
     assert (
-        ".cabinet-filter-reset.icon-control {\n"
+        ".cabinet-filter-reset.icon-button {\n"
         "  width: auto;\n"
         "  min-width: 88px;\n"
         "  height: var(--control-height);"
@@ -4424,7 +4555,7 @@ def test_cabinet_js_owns_manual_upload_without_frontend_toolchain() -> None:
         "abort",
         "refreshMeetingList",
         "workflow_started",
-        "На сервере · Ждёт обработки",
+        "На сервере · Ждет обработки",
         "На сервере · Обрабатываем",
         "authUploadFailure",
         "conflictUploadFailure",
@@ -4727,7 +4858,7 @@ def test_feature_104_css_uses_shared_density_focus_and_responsive_contracts() ->
         "--space-3: 16px;",
         "--space-4: 24px;",
         "--control-height: 36px;",
-        "--meeting-row-height: 48px;",
+        "--meeting-row-height: 56px;",
         "--focus-ring:",
         "--app-sidebar-width: 240px;",
         "--app-rail-width: 64px;",
@@ -4787,11 +4918,11 @@ def test_feature_191_centralizes_interaction_tokens_and_compact_upload_contract(
         "--danger-border:",
         "--font-size-caption: 11px;",
         "--font-size-helper: 12px;",
-        "--font-size-body: 13px;",
+        "--font-size-body-compact: 13px;",
+        "--font-size-body: 14px;",
         "--font-size-label: 14px;",
         "--control-height-sm: 32px;",
         "--control-height: 36px;",
-        "--control-height-lg: 40px;",
         "--radius-control: 9px;",
         "--radius-card: 12px;",
         "--radius-panel: 14px;",
@@ -4821,7 +4952,7 @@ def test_feature_191_centralizes_interaction_tokens_and_compact_upload_contract(
     assert "grid-template-columns: 30px minmax(0, 1fr) auto;" in css
     assert ".upload-activity-state" in css
     assert '<span class="upload-activity-state">' in script
-    assert len(re.findall(r"(?m)^\.settings-overview-card \{", css)) == 1
+    assert not re.findall(r"(?m)^\.settings-overview-card \{", css)
     assert ".cabinet-sidebar-nav__label" in css
     assert "text-overflow: ellipsis;" in css
     assert "white-space: nowrap;" in css
@@ -4902,14 +5033,14 @@ def test_feature_191_shared_button_contract_keeps_actions_centered_and_on_one_li
     assert ".calendar-section-head > .button { align-self: flex-start; }" in calendar_reflow
     for compound_action in [
         ".meeting-action-item {",
-        ".summary-format-grid > button,\n.summary-personal-formats > button {",
+        ".summary-format-popover :is(button, .summary-format-settings-link) {",
         ".calendar-provider-button {",
         ".share-recipient-results button { display: grid;",
         ".sidebar-profile__trigger {\n  width: 100%;",
     ]:
         block = css[css.index(compound_action) : css.index("}", css.index(compound_action))]
         assert "white-space: normal;" in block
-    assert ">Завершить<" in account
+    assert ">Завершить</button>" in account
     assert ">Завершить сеанс<" not in account
 
 
@@ -4959,9 +5090,8 @@ def test_meeting_list_css_binds_target_geometry_contrast_and_motion_contracts() 
     css = (STATIC_DIR / "cabinet.css").read_text()
 
     for marker in [
-        "--meeting-row-height: 48px;",
-        "--meeting-row-exception-height: 56px;",
-        ".meeting-row.has-status {\n  min-height: var(--meeting-row-exception-height);",
+        "--meeting-row-height: 56px;",
+        ".meeting-row.cabinet-row {\n  grid-template-columns: 32px 20px minmax(0, 1fr) 32px minmax(84px, auto);\n  min-height: var(--meeting-row-height);",
         ".meeting-row.has-status .meeting-content {\n  padding-block: 2px;",
         ".row-select-hit,\n.row-delete-form {\n  width: 32px;\n  height: 32px;",
         ".calendar-context-list-action {\n  min-height: 32px;",
@@ -4981,11 +5111,16 @@ def test_meeting_list_css_binds_target_geometry_contrast_and_motion_contracts() 
     ]:
         assert marker in css
 
+    assert "--meeting-row-exception-height" not in css
+    assert ".meeting-row.has-status { min-height" not in css
+    assert ".list-loading-skeleton > span {\n  height: var(--meeting-row-height);" in css
+
     assert "html, body { min-height: 100%; margin: 0;" in css
     assert "overflow-x: hidden;" in css
     assert "minmax(0, 1fr)" in css
     assert (
-        ".selection-toolbar {\n  min-height: var(--control-height);\n  padding-left: 0;\n  gap: var(--space-1);\n  flex-wrap: wrap;"
+        ".selection-toolbar {\n  display: flex;\n  justify-content: flex-start;\n  align-items: center;\n"
+        "  min-height: var(--control-height);\n  padding-left: 0;\n  gap: var(--space-1);\n  flex-wrap: wrap;"
         in css
     )
     assert ".selection-clear {\n    display: none;\n  }" not in css

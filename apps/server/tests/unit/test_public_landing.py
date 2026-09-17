@@ -226,7 +226,7 @@ def test_public_landing_explains_google_calendar_data_use() -> None:
         "ближайшие встречи",
         "напоминать о них",
         "контекст для записи",
-        "не создаёт, не изменяет и не удаляет события",
+        "не создает, не изменяет и не удаляет события",
         "можете отключить календарь от ГРАФ",
         "не начинает запись и не подключает ГРАФ к звонку",
         "Доступ для всех пользователей откроется после проверки Google",
@@ -362,7 +362,7 @@ def test_public_landing_sanitizes_unsafe_utm_values(client) -> None:
     assert "customer@example.com" not in response.text
 
 
-def test_public_landing_immediate_analytics_has_no_consent_widget(
+def test_public_landing_analytics_has_opt_in_consent_widget(
     postgres_worker_database_url: str,
 ) -> None:
     settings = Settings(
@@ -383,10 +383,11 @@ def test_public_landing_immediate_analytics_has_no_consent_widget(
     assert response.status_code == 200
     assert "graf-public-analytics-config" in response.text
     assert "analytics.js?v=" in response.text
-    assert "cookieconsent.umd.js" not in response.text
-    assert "cookieconsent.css" not in response.text
-    assert "show-preferencesModal" not in response.text
-    assert '"replay_allowed": false' in response.text
+    assert "cookieconsent.umd.js" in response.text
+    assert "cookieconsent.css" in response.text
+    assert "show-preferencesModal" in response.text
+    assert '"replay_allowed": true' in response.text
+    assert '"webvisor_allowed": true' in response.text
 
 
 def test_public_download_handoff_is_available(client) -> None:
@@ -440,11 +441,11 @@ def test_public_legal_copy_matches_product_and_analytics_truth(client) -> None:
         "ИНН 667803118920",
         "ОГРНИП 320665800036109",
         "yan@shishenya.ru",
-        "Редакция от 23 августа 2026 года",
+        "Редакция от 15 сентября 2026 года",
         "поставщикам вычислительных ресурсов",
         "поставщикам распознавания речи",
         "могут передаваться материалы встречи, запросы и результаты обработки",
-        "ГРАФ не продаёт персональные данные",
+        "ГРАФ не продает персональные данные",
         "трансграничной передачи",
         "Данные Google Calendar",
         "доступ только для чтения",
@@ -452,7 +453,7 @@ def test_public_legal_copy_matches_product_and_analytics_truth(client) -> None:
         "Исходные данные Google могут быть раскрыты только",
         "Агрегированные или обезличенные показатели",
         "поставщикам моделей искусственного интеллекта",
-        "не создаёт, не изменяет и не удаляет события Google Calendar",
+        "не создает, не изменяет и не удаляет события Google Calendar",
         "не отправляет участникам встречи итоги автоматически",
         "не используются для разработки, улучшения или обучения неперсонализированных",
         "Другим категориям третьих лиц исходные данные Google не передаются",
@@ -486,7 +487,7 @@ def test_public_legal_copy_matches_product_and_analytics_truth(client) -> None:
     assert "как правило, до 90 дней" not in privacy_copy
     assert "законное основание" in terms
     assert "проинформировать участников о записи" in terms
-    assert "загружается сразу" in analytics
+    assert "До выбора пользователя" in analytics
     assert "Вебвизор" in analytics
     assert "Вебвизор" in cookies
-    assert "Платёжный интерфейс временно недоступен" in offer
+    assert "Платежный интерфейс временно недоступен" in offer

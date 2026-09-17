@@ -10,7 +10,7 @@ public struct CaptureControlView: View {
     private let recordingMicrophoneInputs: [PhysicalAudioDevice]
     private let selectedRecordingMicrophoneDeviceId: String?
     private let calendarPrompt: DesktopCalendarPrompt?
-    private let meetingDetectionStatus: String?
+    private let meetingDetectionStatus: MeetingDetectionStatus?
     private let readinessStatus: DesktopPermissionOnboardingStatus
     private let recordingLevels: LiveRecordingLevels
     private let recordDisabled: Bool
@@ -36,7 +36,7 @@ public struct CaptureControlView: View {
         recordingMicrophoneInputs: [PhysicalAudioDevice] = [],
         selectedRecordingMicrophoneDeviceId: String? = nil,
         calendarPrompt: DesktopCalendarPrompt? = nil,
-        meetingDetectionStatus: String? = nil,
+        meetingDetectionStatus: MeetingDetectionStatus? = nil,
         readinessStatus: DesktopPermissionOnboardingStatus = .unknown,
         recordingLevels: LiveRecordingLevels = .inactive,
         recordDisabled: Bool = false,
@@ -107,7 +107,7 @@ public struct CaptureControlView: View {
                         .font(.caption)
                         .foregroundStyle(
                             Self.hasActionableProblem(blockedReason: blockedReason)
-                                ? Color.orange
+                                ? DesktopDesignTokens.amber
                                 : secondaryTextColor
                         )
                         .lineLimit(1)
@@ -115,8 +115,8 @@ public struct CaptureControlView: View {
                 }
 
                 if Self.shouldShowDirectRecordButton(for: session, calendarPrompt: calendarPrompt) {
-                    Button(action: onRecord) {
-                        Label(SystemAudioStatusLabels.recordButtonTitle, systemImage: "record.circle")
+                    Button(action: readinessStatus.isReady ? onRecord : onPermissionRecovery) {
+                        Label(readinessStatus.isReady ? SystemAudioStatusLabels.recordButtonTitle : "Подготовить запись", systemImage: readinessStatus.isReady ? "record.circle" : "slider.horizontal.3")
                             .lineLimit(1)
                             .frame(maxWidth: .infinity)
                     }
@@ -124,9 +124,9 @@ public struct CaptureControlView: View {
                     .frame(maxWidth: .infinity, minHeight: DesktopMeetingShellChrome.controlHeight)
                     .disabled(!Self.shouldEnableRecordButton(for: session, recordDisabled: recordDisabled))
                     .keyboardShortcut("r", modifiers: [.command, .shift])
-                    .accessibilityLabel(SystemAudioStatusLabels.recordButtonAccessibilityLabel)
+                    .accessibilityLabel(readinessStatus.isReady ? SystemAudioStatusLabels.recordButtonAccessibilityLabel : "Подготовить запись: настроить микрофон и звук собеседников")
                     .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.recordButton)
-                    .help(SystemAudioStatusLabels.recordButtonAccessibilityLabel)
+                    .help(readinessStatus.isReady ? SystemAudioStatusLabels.recordButtonAccessibilityLabel : "Настроить разрешения macOS для записи")
                 }
 
                 if session.map({ CaptureStatusItem.showsStopButton(for: $0) }) != true,
@@ -137,10 +137,10 @@ public struct CaptureControlView: View {
                             systemImage: readinessStatus.isReady ? "checkmark.circle" : "lock.trianglebadge.exclamationmark"
                         )
                         .font(.caption)
-                        .foregroundStyle(readinessStatus.isReady ? secondaryTextColor : Color.orange)
+                        .foregroundStyle(readinessStatus.isReady ? secondaryTextColor : DesktopDesignTokens.amber)
                         .accessibilityLabel(readinessSummary)
 
-                        if !readinessStatus.isReady {
+                        if !readinessStatus.isReady && !Self.shouldShowDirectRecordButton(for: session, calendarPrompt: calendarPrompt) {
                             Spacer(minLength: 4)
                             Button("Настроить доступы", action: onPermissionRecovery)
                                 .buttonStyle(DesktopWebButtonStyle(.secondary))
@@ -159,7 +159,7 @@ public struct CaptureControlView: View {
                         localRecordingStatus: localRecordingStatus
                     ),
                     detail: blockedReason,
-                    iconColor: .orange
+                    iconColor: DesktopDesignTokens.amber
                 )
                     .accessibilityLabel(blockedReason)
                     .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.blockerBanner)
@@ -171,7 +171,7 @@ public struct CaptureControlView: View {
                     icon: "exclamationmark.triangle.fill",
                     title: "Источник записи недоступен",
                     detail: degradedRecovery,
-                    iconColor: .orange
+                    iconColor: DesktopDesignTokens.amber
                 )
                 .accessibilityLabel(degradedRecovery)
             }
@@ -198,7 +198,8 @@ public struct CaptureControlView: View {
 
                     Button(action: onMeetingDetectionSettings) {
                         Image(systemName: "gearshape")
-                            .frame(width: 18, height: 18)
+                            .font(.system(size: 18))
+                            .frame(width: 40, height: 40)
                     }
                     .buttonStyle(.borderless)
                     .accessibilityLabel(SystemAudioStatusLabels.meetingDetectionSettingsTitle)
@@ -245,7 +246,7 @@ public struct CaptureControlView: View {
             if let recoveryCopy = Self.recordingMicrophoneRecoveryCopy(for: recordingMicrophoneSelection) {
                 Label(recoveryCopy, systemImage: "mic.badge.xmark")
                     .font(.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(DesktopDesignTokens.amber)
                     .lineLimit(3)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier(SystemAudioAccessibilityIdentifier.recordingMicrophoneRecovery)
@@ -399,23 +400,8 @@ public struct CaptureControlView: View {
         return captureStatus(for: session.state)
     }
 
-    public static func meetingDetectionSummary(for status: String?) -> String? {
-        guard let status else { return nil }
-        let normalized = status.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty else { return nil }
-        if normalized.contains("Найдена встреча") || normalized.contains("Найден кандидат") {
-            return "Встреча обнаружена"
-        }
-        if normalized.contains("Запрашивать запись включено") {
-            return "Автоопределение: спрашивать"
-        }
-        if normalized.contains("Запрос записи отключен") {
-            return "Автоопределение выключено"
-        }
-        if normalized == "Недоступно" {
-            return "Автоопределение недоступно"
-        }
-        return "Автоопределение: включено"
+    public static func meetingDetectionSummary(for status: MeetingDetectionStatus?) -> String? {
+        status?.summary
     }
 
     public static func localRecordingSummary(for status: String) -> String {
@@ -426,11 +412,11 @@ public struct CaptureControlView: View {
         if normalized.contains("сохран") {
             return "Сохранено на Mac"
         }
-        if normalized.contains("пауз") {
-            return "Запись на паузе"
+        if normalized.contains("пауз") || normalized.contains("микрофон выключен") {
+            return "Идет запись · микрофон выключен"
         }
-        if normalized.contains("идет") || normalized.contains("идёт") {
-            return "Идёт запись"
+        if normalized.contains("идет") {
+            return "Идет запись"
         }
         return status
     }
@@ -448,9 +434,9 @@ public struct CaptureControlView: View {
         case .starting:
             return "Начинаем запись…"
         case .active:
-            return "Идёт запись"
+            return "Идет запись"
         case .paused:
-            return "Запись на паузе"
+            return "Идет запись · микрофон выключен"
         case .degraded:
             return "Запись с ограничением"
         case .stopping:
@@ -507,7 +493,7 @@ public struct CaptureControlView: View {
     }
 
     private var secondaryTextColor: Color {
-        colorSchemeContrast == .increased ? Color.primary.opacity(0.82) : Color.secondary
+        colorSchemeContrast == .increased ? DesktopDesignTokens.text : DesktopDesignTokens.muted
     }
 
     private var localRecordingStatusIcon: String {
@@ -526,16 +512,16 @@ public struct CaptureControlView: View {
     }
 
     private var localRecordingStatusStyle: Color {
-        guard let localRecordingStatus else { return .secondary }
+        guard let localRecordingStatus else { return DesktopDesignTokens.muted }
         if localRecordingStatus.localizedCaseInsensitiveContains("blocked") ||
             localRecordingStatus.localizedCaseInsensitiveContains("permission") ||
             localRecordingStatus.localizedCaseInsensitiveContains("degraded") ||
             localRecordingStatus.localizedCaseInsensitiveContains("заблок") ||
             localRecordingStatus.localizedCaseInsensitiveContains("не сохран") ||
             localRecordingStatus.localizedCaseInsensitiveContains("огранич") {
-            return .orange
+            return DesktopDesignTokens.amber
         }
-        return .secondary
+        return DesktopDesignTokens.muted
     }
 
     private var localRecordingStatusTitle: String {
@@ -581,7 +567,7 @@ private struct CalendarPromptView: View {
                 detail: prompt.message,
                 iconColor: prompt.kind == .join
                     ? DesktopMeetingShellChrome.shellAccentColor
-                    : .orange
+                    : DesktopDesignTokens.amber
             )
 
             VStack(alignment: .leading, spacing: 8) {
@@ -627,13 +613,13 @@ private struct CalendarPromptView: View {
         }
         .padding(10)
         .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.95))
+            RoundedRectangle(cornerRadius: DesktopDesignTokens.Radius.card, style: .continuous)
+                .fill(DesktopDesignTokens.panel.opacity(0.95))
                 .shadow(color: Color.black.opacity(0.15), radius: 8, x: 0, y: 4)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color.accentColor.opacity(0.3), lineWidth: 1)
+            RoundedRectangle(cornerRadius: DesktopDesignTokens.Radius.card, style: .continuous)
+                .stroke(DesktopDesignTokens.accentBorder, lineWidth: 1)
         )
         .accessibilityElement(children: .contain)
         .accessibilityLabel(prompt.accessibilityLabel)
@@ -663,7 +649,7 @@ private struct StatusNoteView: View {
                 if let detail, !detail.isEmpty {
                     Text(detail)
                         .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(DesktopDesignTokens.muted)
                         .lineLimit(3)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -733,12 +719,12 @@ private struct LiveRecordingMetersView: View {
 
     private var summaryColor: Color {
         if incomingIsLive && microphoneIsLive {
-            return .green
+            return DesktopDesignTokens.green
         }
         if shouldWarnIncoming {
-            return .orange
+            return DesktopDesignTokens.amber
         }
-        return .secondary
+        return DesktopDesignTokens.muted
     }
 
     private var microphoneDetail: String {
@@ -795,7 +781,7 @@ private struct LiveRecordingMetersView: View {
     ) -> some View {
         HStack(spacing: 12) {
             Image(systemName: icon)
-                .foregroundStyle(warning ? .orange : (isLive ? .green : .secondary))
+                .foregroundStyle(warning ? DesktopDesignTokens.amber : (isLive ? DesktopDesignTokens.green : DesktopDesignTokens.muted))
                 .frame(width: 20)
 
             VStack(alignment: .leading, spacing: 5) {
@@ -808,14 +794,14 @@ private struct LiveRecordingMetersView: View {
                     Text(SystemAudioStatusLabels.meterState(isLive: isLive))
                         .font(.caption2)
                         .fontWeight(.semibold)
-                        .foregroundStyle(warning ? .orange : (isLive ? .green : .secondary))
+                        .foregroundStyle(warning ? DesktopDesignTokens.amber : (isLive ? DesktopDesignTokens.green : DesktopDesignTokens.muted))
                         .lineLimit(1)
                     Spacer(minLength: 4)
                     EqualizerBars(level: level, isLive: isLive, warning: warning)
                 }
                 Text(detail)
                     .font(.caption)
-                    .foregroundStyle(warning ? .orange : .secondary)
+                    .foregroundStyle(warning ? DesktopDesignTokens.amber : DesktopDesignTokens.muted)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -864,12 +850,12 @@ private struct EqualizerBars: View {
 
     private func color(for index: Int) -> Color {
         guard isLive else {
-            return warning ? .orange.opacity(0.28) : .secondary.opacity(0.22)
+            return warning ? DesktopDesignTokens.amber.opacity(0.28) : DesktopDesignTokens.muted.opacity(0.22)
         }
         let displayLevel = min(1, pow(max(level, 0) * 7, 0.72))
         if index < max(1, Int((displayLevel * Double(bars)).rounded(.up))) {
-            return warning ? .orange : .green
+            return warning ? DesktopDesignTokens.amber : DesktopDesignTokens.green
         }
-        return .secondary.opacity(0.18)
+        return DesktopDesignTokens.muted.opacity(0.18)
     }
 }

@@ -42,7 +42,11 @@ from twobrain_rec_server.auth.providers import build_provider_registry, get_prov
 from twobrain_rec_server.auth.providers.base import ProviderCredentials
 from twobrain_rec_server.auth.rate_limit import enforce_auth_rate_limits
 from twobrain_rec_server.auth.redirects import safe_first_party_path as _safe_browser_return_path
-from twobrain_rec_server.auth.sessions import create_callback_state
+from twobrain_rec_server.auth.sessions import (
+    create_callback_state,
+    resolve_session_device,
+    revoke_registered_devices,
+)
 from twobrain_rec_server.billing.catalog import FREE_STORAGE_BYTES
 from twobrain_rec_server.billing.entitlements import effective_plan_code
 from twobrain_rec_server.billing.storage import project_active_playback_storage
@@ -1098,6 +1102,7 @@ async def callback(
             browser_state_nonce=request.cookies.get(BROWSER_AUTH_STATE_COOKIE_NAME),
             referral_token=request.cookies.get("graf_referral_token"),
             referral_enabled=bool(settings.billing_checkout_enabled),
+            user_agent=request.headers.get("user-agent"),
         )
     except CallbackFlowError as exc:
         await db.commit()
@@ -1262,63 +1267,49 @@ async def register_device(
             RegisteredDevice.device_public_id == payload.device_public_id,
         )
     )
-    if existing is not None:
-        if existing.user_id != principal.user_id:
-            await _record_auth_audit(
-                db,
-                request=request,
-                workspace_id=workspace_id,
-                event_type="device_registered",
-                outcome="failure",
-                actor_user_id=principal.user_id,
-                metadata={"error_code": "duplicate_device"},
-            )
-            raise ProblemDetail(
-                status=409,
-                code="duplicate_device",
-                title="Device already exists",
-            )
-        existing.platform = payload.platform
-        existing.client_version = payload.client_version
-        await _record_auth_audit(
-            db,
-            request=request,
-            workspace_id=workspace_id,
-            event_type="device_registered",
-            actor_user_id=principal.user_id,
-            user_id=principal.user_id,
-            provider="device",
-            metadata={"status": existing.status, "registration_state": existing.registration_state},
-        )
-        await db.commit()
-        return AuthDeviceStateResponse(
-            device_id=existing.id,
-            status=existing.status,
-            registration_state=existing.registration_state,
-            created_at=existing.created_at,
-        )
-
-    device = RegisteredDevice(
-        workspace_id=workspace_id,
-        user_id=principal.user_id,
-        device_public_id=payload.device_public_id,
-        platform=payload.platform,
-        client_version=payload.client_version,
-        status="active",
-        registration_state="approved",
-    )
-    db.add(device)
-    await db.flush()
+    if existing is not None and existing.user_id != principal.user_id:
+        raise ProblemDetail(status=409, code="duplicate_device", title="Device already exists")
+    auth_session = None
     if principal.auth_via_session and principal.session_id is not None:
-        auth_session = await db.get(AuthSession, principal.session_id)
-        if auth_session is not None and auth_session.workspace_id == workspace_id:
-            db.add(
-                AuthSessionDeviceBinding(
-                    auth_session_id=auth_session.id,
-                    registered_device_id=device.id,
-                    device_state="trusted",
-                )
-            )
+        auth_session = await db.scalar(select(AuthSession).where(
+            AuthSession.id == principal.session_id,
+            AuthSession.user_id == principal.user_id,
+            AuthSession.workspace_id == workspace_id,
+            AuthSession.status == "active",
+        ).with_for_update().execution_options(populate_existing=True))
+        if auth_session is None:
+            raise ProblemDetail(status=401, code="auth_session_invalid", title="Session is unavailable")
+        allowed, attached_device = await resolve_session_device(db, auth_session)
+        if not allowed:
+            raise ProblemDetail(status=403, code="device_untrusted", title="Device binding is unavailable")
+        if attached_device is not None and (
+            existing is None or existing.id != attached_device.id
+        ):
+            raise ProblemDetail(status=409, code="auth_session_mismatched", title="Session already has a device")
+    device = existing
+    if device is None:
+        device = RegisteredDevice(
+            workspace_id=workspace_id, user_id=principal.user_id,
+            device_public_id=payload.device_public_id, platform=payload.platform,
+            client_version=payload.client_version, status="active", registration_state="approved",
+        )
+        db.add(device)
+        await db.flush()
+    if device.status == "active" and device.registration_state == "approved":
+        device.platform = payload.platform
+        device.client_version = payload.client_version
+        if auth_session is not None:
+            binding = await db.scalar(select(AuthSessionDeviceBinding).where(
+                AuthSessionDeviceBinding.auth_session_id == auth_session.id,
+                AuthSessionDeviceBinding.registered_device_id == device.id,
+            ))
+            if binding is not None and binding.device_state != "trusted":
+                raise ProblemDetail(status=403, code="device_untrusted", title="Device binding is unavailable")
+            if binding is None:
+                db.add(AuthSessionDeviceBinding(auth_session_id=auth_session.id,
+                    registered_device_id=device.id, device_state="trusted"))
+            auth_session.device_id = device.id
+    await db.flush()
     await _record_auth_audit(
         db,
         request=request,
@@ -1385,23 +1376,7 @@ async def revoke_device(
             code="link_denied",
             title="Cannot revoke other user device",
         )
-    device.status = "revoked"
-    device.registration_state = "revoked"
-    device.revoked_by = principal.user_id
-    bindings = (
-        (
-            await db.execute(
-                select(AuthSessionDeviceBinding).where(
-                    AuthSessionDeviceBinding.registered_device_id == device.id,
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
-    for binding in bindings:
-        binding.device_state = "blocked"
-        binding.revocation_reason = "device_revoked"
+    await revoke_registered_devices(db, [device], actor_user_id=principal.user_id)
     await _record_auth_audit(
         db,
         request=request,

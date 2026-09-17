@@ -196,7 +196,7 @@ def test_postgres_downgrade_restores_pre_calendar_auto_context_schema(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config = _alembic_config(postgres_clean_database_url, monkeypatch)
-    command.upgrade(config, "head")
+    command.upgrade(config, "0091_comment_reader_projection")
     command.downgrade(config, "0020_user_scoped_recording_ids")
 
     async def summary() -> tuple[set[str], set[str]]:

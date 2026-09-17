@@ -174,7 +174,7 @@ async def test_cancel_during_db_commit_finishes_boundary_without_split_brain(
 
 
 def _source():
-    prompt_type, prompt, config = desired_prompts()["graf/meeting-outcome/auto"]
+    prompt_type, prompt, config = desired_prompts(model="gpt-5.6-luna")["graf/meeting-outcome/auto"]
     return validate_prompt_snapshot(
         name="graf/meeting-outcome/auto",
         version=1,
@@ -873,6 +873,7 @@ def test_prompt_sync_creates_only_unlabelled_candidates(monkeypatch) -> None:
         public_key="pk-test",
         secret_key="sk-test",
         apply=True,
+        model="gpt-5.6-luna",
     )
 
     control_creates = [row for row in client.created if row["name"] in CONTROL_PROMPTS]
@@ -880,7 +881,7 @@ def test_prompt_sync_creates_only_unlabelled_candidates(monkeypatch) -> None:
     assert control_creates and all(row["labels"] == [] for row in control_creates)
     assert outcome_creates and all(row["labels"] == [] for row in outcome_creates)
     assert all(
-        f"config-contract-v{row['config']['config_contract_version']}" in row["tags"]
+        f"config-contract-{row['config'].get('contract_version', row['config'].get('config_contract_version'))}" in row["tags"]
         for row in client.created
     )
     assert sum(value.startswith("created-control-candidate:") for value in outcomes) == 4
@@ -893,7 +894,7 @@ def test_prompt_sync_treats_an_older_production_contract_as_change_required(
     import langfuse
 
     prompt_name = "graf/meeting-outcome/auto"
-    prompt_type, prompt, _config = desired_prompts()[prompt_name]
+    prompt_type, prompt, _config = desired_prompts(model="gpt-5.6-luna")[prompt_name]
 
     class Client:
         def get_prompt(self, name, **_kwargs):
@@ -918,6 +919,7 @@ def test_prompt_sync_treats_an_older_production_contract_as_change_required(
         public_key="pk-test",
         secret_key="sk-test",
         apply=False,
+        model="gpt-5.6-luna",
     )
 
     assert f"change-required:{prompt_name}" in outcomes
@@ -926,7 +928,7 @@ def test_prompt_sync_treats_an_older_production_contract_as_change_required(
 def test_root_bundle_candidate_accepts_exact_version_per_prompt(monkeypatch) -> None:
     import langfuse
 
-    prompt_definitions = desired_prompts()
+    prompt_definitions = desired_prompts(model="gpt-5.6-luna")
     names = [name for name in prompt_definitions if name.startswith("graf/meeting-outcome/")]
     versions = {name: index + 1 for index, name in enumerate(names)}
     calls: list[tuple[str, int]] = []
@@ -1000,7 +1002,7 @@ def test_optimizer_snapshot_and_candidate_retain_route_binding() -> None:
     assert snapshot_bundle_metadata(candidate) == snapshot_bundle_metadata(bound)
 
 
-def test_production_optimizer_uses_secret_file_and_requires_route_binding(
+def test_production_optimizer_uses_secret_file_without_route_binding(
     monkeypatch, tmp_path
 ) -> None:
     from twobrain_rec_server.outcomes import generator as generator_module
@@ -1027,7 +1029,6 @@ def test_production_optimizer_uses_secret_file_and_requires_route_binding(
         "base_url": "https://litellm.pro-4.ru",
         "api_key": "luna-key",
         "timeout_seconds": 120,
-        "require_route_binding": True,
     }
 
 
@@ -1425,3 +1426,18 @@ def test_optimizer_terminal_observation_retries_with_one_deterministic_identity(
     )
     assert [call["output"] for call in client.calls] == [terminal, terminal]
     assert all(call["metadata"]["terminal"] is True for call in client.calls)
+
+
+def test_large_allowed_model_call_can_be_replayed_and_exported():
+    from twobrain_rec_server.outcomes.prompt_optimization import (
+        OPTIMIZATION_HISTORY_MAX_BYTES,
+        ModelCall,
+        _model_call_bytes,
+        _model_call_from_bytes,
+    )
+
+    call = ModelCall(request={"transcript": "x" * OPTIMIZATION_HISTORY_MAX_BYTES},
+                     raw_response={"text": "saved"}, validated_result={"protocol": {}})
+    encoded = _model_call_bytes(call)
+    assert len(encoded) > OPTIMIZATION_HISTORY_MAX_BYTES
+    assert _model_call_from_bytes(encoded) == call

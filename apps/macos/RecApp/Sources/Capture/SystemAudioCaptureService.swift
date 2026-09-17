@@ -56,19 +56,18 @@ public struct CoreGraphicsSystemAudioPermissionAuthorizer: SystemAudioPermission
 
     public func verifyCurrentPermission() async -> CapturePermissionState {
         let observedState = currentPermissionState()
+        // SCShareableContent can present a system prompt. Never call it before consent.
+        guard observedState == .granted else { return observedState }
         #if canImport(ScreenCaptureKit)
-        do {
-            let content = try await SCShareableContent.excludingDesktopWindows(
-                false,
-                onScreenWindowsOnly: true
-            )
-            guard content.displays.first != nil else {
-                return observedState == .granted ? .stale : observedState
+        let available = await SystemAudioPermissionProbe.check { completion in
+            SCShareableContent.getExcludingDesktopWindows(false, onScreenWindowsOnly: true) { content, error in
+                completion(error == nil && content?.displays.first != nil)
             }
-            return .granted
-        } catch {
-            return observedState == .granted ? .stale : observedState
         }
+        // A revocation during the asynchronous probe takes precedence over its result.
+        let currentState = currentPermissionState()
+        guard currentState == .granted else { return currentState }
+        return available ? .granted : .stale
         #else
         return observedState
         #endif
@@ -85,6 +84,39 @@ public struct CoreGraphicsSystemAudioPermissionAuthorizer: SystemAudioPermission
         #else
         return .unknown
         #endif
+    }
+}
+
+// Like RuntimeStartCompletion below, this releases the caller even when a native
+// callback never arrives. A late callback cannot complete a newer check.
+final class SystemAudioPermissionProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Bool, Never>?
+
+    private init(_ continuation: CheckedContinuation<Bool, Never>) {
+        self.continuation = continuation
+    }
+
+    static func check(
+        timeoutSeconds: TimeInterval = 8,
+        start: @Sendable (@escaping @Sendable (Bool) -> Void) -> Void
+    ) async -> Bool {
+        await withCheckedContinuation { continuation in
+            let probe = SystemAudioPermissionProbe(continuation)
+            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + timeoutSeconds) {
+                probe.complete(false)
+            }
+            start { probe.complete($0) }
+        }
+    }
+
+    private func complete(_ result: Bool) {
+        let pending = lock.withLock {
+            let pending = continuation
+            continuation = nil
+            return pending
+        }
+        pending?.resume(returning: result)
     }
 }
 
@@ -120,7 +152,8 @@ public actor SystemAudioCaptureService {
         runtimeStartCleanupTimeoutSeconds: TimeInterval = 2,
         runtimeStopTimeoutSeconds: TimeInterval = 120,
         waitForTimedOutRuntimeStartCleanup: Bool? = nil,
-        runtimeStartFailureLogger: (@Sendable (String) -> Void)? = nil
+        runtimeStartFailureLogger: (@Sendable (String) -> Void)? = nil,
+        diagnosticLogger: (@Sendable (String) -> Void)? = nil
     ) {
         precondition(runtime == nil || runtimeFactory == nil, "Pass runtime or runtimeFactory, not both")
         let resolvedSampleSource = sampleSource ?? BufferedLocalRecordingSampleSource(
@@ -133,7 +166,7 @@ public actor SystemAudioCaptureService {
             resolvedRuntimeFactory = { runtime }
         } else {
             resolvedRuntimeFactory = {
-                Self.makeDefaultRuntime(sampleSource: resolvedSampleSource)
+                Self.makeDefaultRuntime(sampleSource: resolvedSampleSource, diagnosticLogger: diagnosticLogger)
             }
         }
         self.bufferedSampleSource = resolvedSampleSource
@@ -374,10 +407,11 @@ public actor SystemAudioCaptureService {
     }
 
     private nonisolated static func makeDefaultRuntime(
-        sampleSource: BufferedLocalRecordingSampleSource
+        sampleSource: BufferedLocalRecordingSampleSource,
+        diagnosticLogger: (@Sendable (String) -> Void)?
     ) -> SystemAudioCaptureRuntime {
         #if canImport(ScreenCaptureKit) && canImport(CoreMedia) && canImport(AudioToolbox)
-        return ScreenCaptureKitSystemAudioRuntime { batch in
+        return ScreenCaptureKitSystemAudioRuntime(diagnosticLogger: diagnosticLogger) { batch in
             sampleSource.append(batch)
         }
         #else
@@ -523,6 +557,7 @@ private final class RuntimeStopCompletion: @unchecked Sendable {
 #if canImport(ScreenCaptureKit) && canImport(CoreMedia) && canImport(AudioToolbox) && canImport(CoreAudio)
 public final class ScreenCaptureKitSystemAudioRuntime: NSObject, SystemAudioCaptureRuntime, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
     private let sampleHandler: @Sendable (RecordingAudioBatch) -> Void
+    private let diagnosticLogger: (@Sendable (String) -> Void)?
     private let outputQueue = DispatchQueue(label: "pro.2brain.graf.screencapturekit.audio", qos: .userInitiated)
     private let streamLock = NSLock()
     private var stream: SCStream?
@@ -530,9 +565,14 @@ public final class ScreenCaptureKitSystemAudioRuntime: NSObject, SystemAudioCapt
     private var lastPresentationTime: RecordingAudioPresentationTimestamp?
     private var outputRouteListener: AudioObjectPropertyListenerBlock?
     private var outputRouteChangePublished = false
+    // Only accessed on outputQueue; retained for one bounded diagnostic per recording.
+    private var previousBatchTiming: SystemAudioBatchTiming?
+    private var maxCompletedCallbackDuration = 0.0
+    private var reportedTimingAnomaly = false
 
-    public init(sampleHandler: @escaping @Sendable (RecordingAudioBatch) -> Void) {
+    public init(diagnosticLogger: (@Sendable (String) -> Void)? = nil, sampleHandler: @escaping @Sendable (RecordingAudioBatch) -> Void) {
         self.sampleHandler = sampleHandler
+        self.diagnosticLogger = diagnosticLogger
         super.init()
     }
 
@@ -557,6 +597,11 @@ public final class ScreenCaptureKitSystemAudioRuntime: NSObject, SystemAudioCapt
         configuration.showsCursor = false
 
         let stream = SCStream(filter: filter, configuration: configuration, delegate: self)
+        outputQueue.sync {
+            previousBatchTiming = nil
+            maxCompletedCallbackDuration = 0
+            reportedTimingAnomaly = false
+        }
         try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: outputQueue)
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: outputQueue)
         setCurrentStream(stream)
@@ -592,7 +637,49 @@ public final class ScreenCaptureKitSystemAudioRuntime: NSObject, SystemAudioCapt
     ) {
         guard outputType == .audio else { return }
         guard isCurrentStream(stream) else { return }
-        guard let batch = SystemAudioSampleExtractor.extractRecordingAudioBatch(from: sampleBuffer) else { return }
+        let callbackStart = reportedTimingAnomaly ? nil : ProcessInfo.processInfo.systemUptime
+        defer {
+            if let callbackStart, !reportedTimingAnomaly {
+                maxCompletedCallbackDuration = max(maxCompletedCallbackDuration,
+                    ProcessInfo.processInfo.systemUptime - callbackStart)
+            }
+        }
+        let extractedBatch = SystemAudioSampleExtractor.extractRecordingAudioBatch(from: sampleBuffer)
+        if !reportedTimingAnomaly {
+            let declaredFrames = CMSampleBufferGetNumSamples(sampleBuffer)
+            if let batch = extractedBatch {
+                let decodedFrames = batch.samples.count / batch.format.channelCount
+                let declaredGap = previousBatchTiming.map {
+                    batch.presentationTime.seconds - $0.pts - Double($0.declaredFrames) / $0.rate
+                } ?? 0
+                let decodedGap = previousBatchTiming.map {
+                    batch.presentationTime.seconds - $0.pts - Double($0.decodedFrames) / $0.rate
+                } ?? 0
+                let timing = SystemAudioBatchTiming(sampleBuffer: sampleBuffer,
+                    decodedFrames: decodedFrames, rate: batch.format.sampleRate,
+                    arrival: callbackStart ?? .nan,
+                    convertedHostTime: stream.synchronizationClock.map {
+                        CMSyncConvertTime(CMSampleBufferGetPresentationTimeStamp(sampleBuffer),
+                            from: $0, to: CMClockGetHostTimeClock())
+                    } ?? .invalid)
+                if declaredFrames != decodedFrames || abs(declaredGap) > 0.001 || abs(decodedGap) > 0.001 {
+                    reportedTimingAnomaly = true
+                    diagnosticLogger?(String(format: "system_audio_timing_anomaly declared_frames=%ld decoded_frames=%ld rate=%g channels=%ld declared_gap_ms=%g decoded_gap_ms=%g",
+                          declaredFrames, decodedFrames, batch.format.sampleRate, batch.format.channelCount,
+                          declaredGap * 1_000, decodedGap * 1_000)
+                        + timing.relativeDiagnostic(previous: previousBatchTiming,
+                            maxCompletedCallbackDuration: maxCompletedCallbackDuration))
+                }
+                previousBatchTiming = timing
+            } else {
+                reportedTimingAnomaly = true
+                diagnosticLogger?(String(format: "system_audio_batch_rejected declared_frames=%ld data_ready=%d pts_valid=%d has_format=%d",
+                      declaredFrames, CMSampleBufferDataIsReady(sampleBuffer) ? 1 : 0,
+                      CMTIME_IS_VALID(CMSampleBufferGetPresentationTimeStamp(sampleBuffer)) ? 1 : 0,
+                      CMSampleBufferGetFormatDescription(sampleBuffer) != nil ? 1 : 0))
+            }
+        }
+        guard let batch = extractedBatch else { return }
         let routedBatch = RecordingAudioBatch(
             samples: batch.samples,
             format: batch.format,
@@ -721,6 +808,51 @@ public final class ScreenCaptureKitSystemAudioRuntime: NSObject, SystemAudioCapt
 #endif
 
 #if canImport(CoreMedia) && canImport(AudioToolbox)
+// Diagnostic snapshot only. Absolute times never leave memory or replace the batch PTS.
+struct SystemAudioBatchTiming {
+    let pts: Double
+    let outputPTS: Double
+    let convertedHostPTS: Double
+    let duration: Double
+    let outputDuration: Double
+    let declaredFrames: Int
+    let decodedFrames: Int
+    let rate: Double
+    let arrival: Double
+
+    init(sampleBuffer: CMSampleBuffer, decodedFrames: Int, rate: Double, arrival: Double,
+        convertedHostTime: CMTime = .invalid) {
+        func seconds(_ time: CMTime) -> Double {
+            let value = CMTimeGetSeconds(time)
+            return value.isFinite ? value : .nan
+        }
+        pts = seconds(CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
+        outputPTS = seconds(CMSampleBufferGetOutputPresentationTimeStamp(sampleBuffer))
+        convertedHostPTS = seconds(convertedHostTime)
+        duration = seconds(CMSampleBufferGetDuration(sampleBuffer))
+        outputDuration = seconds(CMSampleBufferGetOutputDuration(sampleBuffer))
+        declaredFrames = CMSampleBufferGetNumSamples(sampleBuffer)
+        self.decodedFrames = decodedFrames
+        self.rate = rate
+        self.arrival = arrival
+    }
+
+    func relativeDiagnostic(previous: Self?, maxCompletedCallbackDuration: Double) -> String {
+        String(format: " previous_declared_frames=%ld previous_decoded_frames=%ld previous_rate=%g output_gap_ms=%g raw_duration_gap_ms=%g output_duration_gap_ms=%g previous_output_minus_raw_ms=%g output_minus_raw_ms=%g previous_duration_ms=%g duration_ms=%g previous_output_duration_ms=%g output_duration_ms=%g arrival_gap_ms=%g max_completed_callback_ms=%g converted_host_gap_ms=%g",
+            previous?.declaredFrames ?? 0, previous?.decodedFrames ?? 0, previous?.rate ?? .nan,
+            previous.map { (outputPTS - $0.outputPTS - Double($0.declaredFrames) / $0.rate) * 1_000 } ?? .nan,
+            previous.map { (pts - $0.pts - $0.duration) * 1_000 } ?? .nan,
+            previous.map { (outputPTS - $0.outputPTS - $0.outputDuration) * 1_000 } ?? .nan,
+            previous.map { ($0.outputPTS - $0.pts) * 1_000 } ?? .nan,
+            (outputPTS - pts) * 1_000,
+            (previous?.duration ?? .nan) * 1_000, duration * 1_000,
+            (previous?.outputDuration ?? .nan) * 1_000, outputDuration * 1_000,
+            previous.map { (arrival - $0.arrival) * 1_000 } ?? .nan,
+            maxCompletedCallbackDuration * 1_000,
+            previous.map { (convertedHostPTS - $0.convertedHostPTS - Double($0.declaredFrames) / $0.rate) * 1_000 } ?? .nan)
+    }
+}
+
 enum SystemAudioSampleExtractor {
     static func extractRecordingAudioBatch(from sampleBuffer: CMSampleBuffer) -> RecordingAudioBatch? {
         guard CMSampleBufferDataIsReady(sampleBuffer),

@@ -1,11 +1,13 @@
+> Путь запуска обновлён: используйте единственный `/Applications/GRAF Dev.app` через `infra/scripts/dev-harness.sh`; см. [действующую инструкцию](/docs/agent-guidance/local-development.md). Старые отдельные приложения больше не собираются.
+
 # Quickstart Validation
 
 ## Capture
 
 1. From `apps/macos`, run focused meeting detection tests.
 2. Build `swift build --package-path apps/macos --product TwoBrainRecApp`.
-3. Run the local app with `apps/macos/Scripts/run-local-app.sh` against the local
-   server. Use a verified native target and an active assisted policy for timeout
+3. Build/promote/smoke the selected SHA through the Dev harness, then open
+   `/Applications/GRAF Dev.app` against its Dev server. Use a verified native target and an active assisted policy for timeout
    and saved-target start; confirm prompt/button behavior with metadata-only logs.
 4. End the synthetic target and wait beyond the 15-second detector grace period;
    confirm one stop, one finalization and no active session remains.

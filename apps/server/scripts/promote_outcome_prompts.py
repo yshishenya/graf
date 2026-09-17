@@ -8,9 +8,9 @@ import json
 from pathlib import Path
 from urllib.parse import urlparse
 
-from twobrain_rec_server.cli.langfuse_prompts import desired_prompts
 from twobrain_rec_server.outcomes.prompt_optimization import move_production_label
 from twobrain_rec_server.outcomes.prompts import validate_prompt_snapshot
+from twobrain_rec_server.outcomes.templates import BUILT_IN_TEMPLATES
 
 
 def _client(*, base_url: str, public_key_file: Path, secret_key_file: Path):
@@ -42,9 +42,7 @@ def _transition(item: dict[str, object], mode: str) -> tuple[int, int, str]:
 def run(args: argparse.Namespace) -> list[dict[str, object]]:
     manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
     items = manifest.get("prompts")
-    allowed_names = {
-        name for name in desired_prompts() if name.startswith("graf/meeting-outcome/")
-    }
+    allowed_names = {item.prompt_name for item in BUILT_IN_TEMPLATES} | {"graf/meeting-outcome/custom"}
     if manifest.get("feature") != "139-meeting-outcome-value":
         raise ValueError("prompt manifest feature mismatch")
     if not isinstance(items, list) or len(items) != len(allowed_names):

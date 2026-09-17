@@ -30,10 +30,11 @@
     </form>
     {% if view.audit.entries %}
       <table class="admin-table">
-        <thead><tr><th>Источник</th><th>Действие</th><th>Объект</th><th>Результат</th></tr></thead>
+        <thead><tr><th>Дата и время</th><th>Источник</th><th>Действие</th><th>Объект</th><th>Результат</th></tr></thead>
         <tbody>
           {% for entry in view.audit.entries %}
             <tr>
+              <td>{{ user_time_element(entry.created_at, show_zone=True) }}</td>
               <td>{{ entry.source }}</td>
               <td>{{ entry.action }}</td>
               <td>{{ entry.object_kind }}</td>

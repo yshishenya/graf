@@ -107,7 +107,10 @@ def test_runtime_image_uses_runtime_dependencies_and_constraints() -> None:
     constraints = CONSTRAINTS_PATH.read_text()
 
     assert "constraints.txt" in dockerfile
-    assert 'pip install --constraint constraints.txt ".[evaluation]"' in dockerfile
+    assert 'pip install --requirement constraints.txt' in dockerfile
+    assert 'pip install --no-deps --prefix=/install ".[evaluation]"' in dockerfile
+    assert dockerfile.index('pip install --requirement') < dockerfile.index('COPY apps/server/src')
+    assert dockerfile.index('COPY apps/server/src') < dockerfile.index('ARG GRAF_DEV_SOURCE_SHA')
     assert '".[dev]"' not in dockerfile
     assert "pytest" not in constraints
     assert "ruff" not in constraints
@@ -657,11 +660,11 @@ def test_minio_init_publishes_storage_readiness_sentinel() -> None:
 
 def test_dockerfile_keeps_ffmpeg_in_media_target_only() -> None:
     dockerfile = DOCKERFILE_PATH.read_text()
-    media_block = dockerfile.split("FROM base AS media-runtime", maxsplit=1)[1].split(
-        "FROM base AS runtime",
+    media_block = dockerfile.split("FROM dependencies AS media-dependencies", maxsplit=1)[1].split(
+        "FROM dependencies AS runtime",
         maxsplit=1,
     )[0]
-    runtime_block = dockerfile.split("FROM base AS runtime", maxsplit=1)[1]
+    runtime_block = dockerfile.split("FROM dependencies AS runtime", maxsplit=1)[1]
 
     assert (
         DOCKERFILE_PATH.read_text()
@@ -697,7 +700,7 @@ def test_production_api_allows_runtime_public_analytics_overrides() -> None:
     )
     assert (
         api_env["TWOBRAIN_PUBLIC_ANALYTICS_CONSENT_COPY_VERSION"]
-        == "${TWOBRAIN_PUBLIC_ANALYTICS_CONSENT_COPY_VERSION:-2026-08-13.1}"
+        == "${TWOBRAIN_PUBLIC_ANALYTICS_CONSENT_COPY_VERSION:-2026-09-15.1}"
     )
     assert "TWOBRAIN_PUBLIC_ANALYTICS_YANDEX_METRICA_ID" not in worker_env
 

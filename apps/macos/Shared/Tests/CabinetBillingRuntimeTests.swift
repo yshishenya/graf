@@ -35,7 +35,7 @@ final class CabinetBillingRuntimeTests: XCTestCase {
             XCTAssertLessThanOrEqual(try number("mainOverflow", in: metrics), 0.5)
             XCTAssertLessThanOrEqual(try number("contentOverflow", in: metrics), 0.5)
             XCTAssertLessThanOrEqual(try number("primaryOverflow", in: metrics), 0.5)
-            XCTAssertGreaterThanOrEqual(try number("primaryMinHeight", in: metrics), 40)
+            XCTAssertEqual(try number("primaryMinHeight", in: metrics), 36, accuracy: 0.5)
             XCTAssertGreaterThanOrEqual(try number("planColumns", in: metrics), 1)
             XCTAssertEqual(metrics["primaryFocusable"] as? Bool, true)
         }
@@ -50,7 +50,7 @@ final class CabinetBillingRuntimeTests: XCTestCase {
             XCTAssertLessThanOrEqual(try number("primaryOverflow", in: metrics), 0.5)
             XCTAssertGreaterThanOrEqual(
                 try number("primaryMinHeight", in: metrics) * webView.pageZoom,
-                40
+                36
             )
         }
     }

@@ -34,7 +34,6 @@ from twobrain_rec_server.outcomes.ai_service import (
     OutcomeGenerationTerminalError,
     SummarySlotCASConflict,
     _candidate_segments,
-    _canonical_source_refs,
     _cas_summary_slot,
     _stored_prompt_snapshot,
     create_summary_candidate,
@@ -44,7 +43,11 @@ from twobrain_rec_server.outcomes.ai_service import (
 )
 from twobrain_rec_server.outcomes.generator import canonical_transcript
 from twobrain_rec_server.outcomes.models import OutcomeTranscriptSegment
-from twobrain_rec_server.outcomes.prompts import outcome_config, prompt_snapshot_hash
+from twobrain_rec_server.outcomes.prompts import (
+    meeting_protocol_config,
+    outcome_config,
+    prompt_snapshot_hash,
+)
 from twobrain_rec_server.processing.store import latest_processing_result as latest_store_result
 from twobrain_rec_server.workflows.outcome_generation_workflow import (
     outcome_generation_retry_policy,
@@ -147,6 +150,59 @@ def test_invalid_pinned_prompt_is_terminal_and_not_retryable() -> None:
     )
 
 
+def test_historical_snapshot_is_readable_only_for_delivery_and_still_checks_hash() -> None:
+    prompt = [{"role": "user", "content": (
+        "{{transcript_json}} {{output_language}} {{detail_level}} {{template_sections_json}}"
+    )}]
+    config = outcome_config(schema_name="graf_meeting_outcome_auto_v1")
+    attempt = MeetingOutcomeGenerationAttempt(
+        prompt_name="graf/meeting-outcome/auto", prompt_version=1,
+        prompt_definition=prompt, prompt_config=config,
+        prompt_source="verified_promoted_snapshot",
+        prompt_hash=prompt_snapshot_hash(prompt=prompt, config=config),
+    )
+    snapshot = _stored_prompt_snapshot(attempt, require_current_contract=False)
+    assert snapshot is not None and snapshot.canonical_hash == attempt.prompt_hash
+    assert snapshot.config == config
+    with pytest.raises(OutcomeGenerationTerminalError, match="summary_prompt_contract_incompatible"):
+        _stored_prompt_snapshot(attempt)
+    attempt.prompt_hash = "0" * 64
+    with pytest.raises(OutcomeGenerationTerminalError, match="summary_prompt_snapshot_corrupt"):
+        _stored_prompt_snapshot(attempt, require_current_contract=False)
+
+
+def test_historical_protocol_schema_is_retained_without_weakening_live_validation() -> None:
+    prompt = [{"role": "user", "content": (
+        "{{transcript_json}} {{output_language}} {{detail_level}} "
+        "{{template_sections_json}} {{meeting_metadata_json}}"
+    )}]
+    config = meeting_protocol_config(model="synthetic-history-model")
+    # Frozen pre-adapter spelling: do not derive it from today's enum schema.
+    historical_version_schema = {"const": "graf-meeting-protocol-v1", "type": "string"}
+    config["response_format"]["json_schema"]["schema"]["properties"]["schema_version"] = (
+        historical_version_schema
+    )
+    original_hash = prompt_snapshot_hash(prompt=prompt, config=config)
+    attempt = MeetingOutcomeGenerationAttempt(
+        prompt_name="graf/meeting-outcome/auto", prompt_version=1,
+        prompt_definition=prompt, prompt_config=config,
+        prompt_source="verified_promoted_snapshot", prompt_hash=original_hash,
+    )
+    snapshot = _stored_prompt_snapshot(attempt, require_current_contract=False)
+    assert snapshot is not None and snapshot.canonical_hash == original_hash
+    assert snapshot.config == config
+    assert snapshot.config["response_format"]["json_schema"]["schema"]["properties"][
+        "schema_version"
+    ] == historical_version_schema
+    assert prompt_snapshot_hash(prompt=prompt, config=config) == original_hash
+    with pytest.raises(OutcomeGenerationTerminalError, match="summary_prompt_snapshot_corrupt"):
+        _stored_prompt_snapshot(attempt)
+    attempt.prompt_hash = "0" * 64
+    for require_current_contract in (False, True):
+        with pytest.raises(OutcomeGenerationTerminalError, match="summary_prompt_snapshot_corrupt"):
+            _stored_prompt_snapshot(attempt, require_current_contract=require_current_contract)
+
+
 def test_ai_source_refs_use_canonical_pinned_segment_metadata() -> None:
     segment = OutcomeTranscriptSegment(
         segment_id=uuid4(),
@@ -158,29 +214,28 @@ def test_ai_source_refs_use_canonical_pinned_segment_metadata() -> None:
         text="Подтверждённое решение.",
     )
 
-    assert _canonical_source_refs(
-        [
-            {
-                "transcript_segment_id": str(segment.segment_id),
-                "sequence": 4,
-                "evidence_kind": "decision",
-                "start_seconds": 999,
-                "source_role": "untrusted",
-            }
-        ],
-        [segment],
-    ) == [
+    from tests.unit.test_meeting_protocol import protocol_fixture
+    from twobrain_rec_server.outcomes.prompts import validate_meeting_protocol
+
+    document = protocol_fixture()
+    document.update(executive_summary=[], objectives=[], topics=[], action_items=[], notes=[])
+    document["decisions"] = [{"text": segment.text, "source_refs": [{"sequence": 4, "quote": None}]}]
+    result_id = uuid4()
+    validated = validate_meeting_protocol(document, segments=[segment], processing_result_id=result_id)
+    assert validated["protocol"]["decisions"][0]["source_refs"] == [
         {
+            "processing_result_id": str(result_id),
             "transcript_segment_id": str(segment.segment_id),
             "sequence": 4,
             "start_seconds": 12.345,
             "end_seconds": 18.765,
             "speaker_label": "Алексей",
             "source_role": "system",
-            "evidence_kind": "decision",
+            "evidence_kind": "segment",
+            "quote": None,
         }
     ]
-    assert AI_GENERATOR_VERSION == "outcomes-ai-v1"
+    assert AI_GENERATOR_VERSION == "meeting-protocol-v1"
 
 
 def test_candidate_segments_use_stable_confirmed_speaker_name(client) -> None:
@@ -557,18 +612,28 @@ def test_same_format_requires_explicit_refresh_and_refresh_is_idempotent(client)
     meeting_id = create_outcome_ready_meeting(client, "same-format-refresh")
 
     async def run():
-        service = __import__(
-            "twobrain_rec_server.outcomes.service", fromlist=["ensure_outcomes_for_meeting"]
-        )
         async with client.app_state["sessionmaker"]() as seed_db:
             seed_meeting = await seed_db.scalar(select(Meeting).where(Meeting.id == meeting_id))
             result = await seed_db.scalar(
                 select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
             )
             assert seed_meeting is not None and result is not None
-            accepted = await service.ensure_outcomes_for_processing_result(seed_db, result=result)
-            accepted.revision_state = "accepted"
-            accepted.template_key = "graf-auto-v1"
+            # Previously accepted history exists independently of new generation.
+            accepted = MeetingOutcomeSet(
+                id=uuid4(),
+                workspace_id=seed_meeting.workspace_id,
+                meeting_id=seed_meeting.id,
+                processing_result_id=result.id,
+                template_key="graf-auto-v1",
+                template_version=1,
+                status="available",
+                revision_state="accepted",
+                generator_version="test:saved-history",
+                source_fingerprint=f"result:{result.id}",
+                deletion_epoch_at_start=seed_meeting.deletion_epoch,
+            )
+            seed_db.add(accepted)
+            await seed_db.flush()
             slot = MeetingSummarySlot(
                 workspace_id=seed_meeting.workspace_id,
                 meeting_id=seed_meeting.id,
@@ -826,35 +891,55 @@ def test_manual_refresh_does_not_reuse_accepted_ai_candidate(client) -> None:
     meeting_id = create_outcome_ready_meeting(client, "accepted-ai-refresh")
 
     async def run():
-        service = __import__(
-            "twobrain_rec_server.outcomes.service", fromlist=["ensure_outcomes_for_meeting"]
-        )
         async with client.app_state["sessionmaker"]() as db:
             meeting = await db.scalar(select(Meeting).where(Meeting.id == meeting_id))
             result = await db.scalar(
                 select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id)
             )
             assert meeting is not None and result is not None
-            accepted = await service.ensure_outcomes_for_processing_result(db, result=result)
-            accepted.revision_state = "accepted"
-            accepted.template_key = "graf-auto-v1"
-            db.add(
-                MeetingSummarySlot(
-                    workspace_id=meeting.workspace_id,
-                    meeting_id=meeting.id,
-                    template_key="graf-auto-v1",
-                    current_outcome_set_id=accepted.id,
+            prior = await create_summary_candidate(
+                db,
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                requested_by_user_id=meeting.created_by_user_id,
+                template_key="graf-auto-v1",
+                template_id=None,
+                template_version=1,
+                expected_current_outcome_set_id=None,
+                request_intent="automatic_baseline",
+            )
+            # Persist accepted AI history without invoking the removed baseline.
+            accepted = MeetingOutcomeSet(
+                id=uuid4(),
+                workspace_id=meeting.workspace_id,
+                meeting_id=meeting.id,
+                media_revision_id=result.media_revision_id,
+                processing_result_id=result.id,
+                candidate_id=prior.candidate_id,
+                template_key=prior.template_key,
+                template_version=prior.template_version,
+                status="available",
+                revision_state="accepted",
+                source_kind="litellm",
+                generator_kind="litellm",
+                generator_version="test:saved-ai-history",
+                source_result_hash=prior.source_result_hash,
+                source_fingerprint=prior.source_fingerprint,
+                deletion_epoch_at_start=prior.deletion_epoch_at_start,
+            )
+            db.add(accepted)
+            await db.flush()
+            slot = await db.scalar(
+                select(MeetingSummarySlot).where(
+                    MeetingSummarySlot.workspace_id == meeting.workspace_id,
+                    MeetingSummarySlot.meeting_id == meeting.id,
+                    MeetingSummarySlot.template_key == prior.template_key,
                 )
             )
+            assert slot is not None
+            slot.current_outcome_set_id = accepted.id
             meeting.current_outcome_set_id = accepted.id
             await db.flush()
-            prior = await db.scalar(
-                select(MeetingOutcomeGenerationAttempt).where(
-                    MeetingOutcomeGenerationAttempt.outcome_set_id == accepted.id,
-                    MeetingOutcomeGenerationAttempt.request_intent == "automatic_baseline",
-                )
-            )
-            assert prior is not None
             prior.status = "accepted"
             prior.outcome_set_id = accepted.id
             await db.flush()
@@ -1650,10 +1735,13 @@ def test_new_source_after_reservation_is_blocked_before_litellm_egress(
             prompt = [
                 {
                     "role": "system",
-                    "content": "{{transcript_json}} {{output_language}} {{detail_level}} {{template_sections_json}}",
+                    "content": (
+                        "{{transcript_json}} {{output_language}} {{detail_level}} "
+                        "{{template_sections_json}} {{meeting_metadata_json}}"
+                    ),
                 }
             ]
-            config = outcome_config(schema_name="graf_outcome")
+            config = meeting_protocol_config(model="test-protocol-model")
             attempt.prompt_name = "graf/meeting-outcome/graf-auto-v1"
             attempt.prompt_version = 1
             attempt.prompt_definition = prompt

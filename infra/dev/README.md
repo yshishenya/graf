@@ -14,6 +14,9 @@ looks like production is rejected. Origins must be loopback (`localhost`,
 `127.0.0.1` or `[::1]`). Set `GRAF_DEV_STATE_DIR` explicitly when a disposable
 fixture needs a worktree-local state directory.
 
+Перед ручными проверками установленного приложения прочитайте
+[обязательные правила GRAF Dev](../../docs/agent-guidance/local-development.md).
+
 ## Operations
 
 ```sh
@@ -44,6 +47,13 @@ dev_state="$(./infra/scripts/dev-harness.sh status --json | jq -r '.state_dir')"
 `build --live` под общим Dev lock проверяет `docker-compose.dev.yml`, импорт
 backend, собирает полный набор образов с label exact SHA и подписывает ровно
 один `GRAF Dev.app`.
+
+Для двух датированных образов MinIO используется
+`docker compose pull --policy missing`: уже загруженные версии используются
+повторно, отсутствующие требуют успешной загрузки. Postgres/Temporal продолжают
+загружаться как раньше. Image ID всех компонентов измеряются и архивируются;
+проверки точного SHA, подписи, блокировки и установки сохраняются.
+
 `promote --live` использует только `start-dev-runtime.sh`: Compose namespace
 `graf-dev` поднимает Postgres, MinIO, Temporal, migration, API и оба worker.
 Migration preflight и seed выполняются внутри выбранного immutable server image

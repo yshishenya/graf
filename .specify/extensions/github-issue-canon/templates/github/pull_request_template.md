@@ -18,8 +18,8 @@
 ## Как проверено
 
 - Focused-проверки:
-- GitHub `governance-fast` на exact SHA — обязательный authoritative PR
-  gate (ссылка на успешный run):
+- Обязательные GitHub checks по правилам проекта на exact SHA
+  (названия проверок и ссылки на успешные runs):
 - `infra/scripts/ci-local.sh --fast`: requested/effective lane, components,
   coverage, next gate, result, duration:
 - `infra/scripts/ci-local.sh --full`: exact SHA, result, duration, collection

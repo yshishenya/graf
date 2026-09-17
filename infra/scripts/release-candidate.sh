@@ -263,6 +263,18 @@ def parse_positive_ints(value, field):
         die(f"{field} must contain positive numeric values")
     return [int(item) for item in items]
 
+def verify_release_pr_checks(source_sha, included_prs=None):
+    owner, repo = github_origin_repo()
+    command = [sys.executable, str(root / "scripts/validate-pr-checks.py"),
+               "--repository", f"{owner}/{repo}", "--source-sha", source_sha]
+    if included_prs is not None:
+        command += ["--included-prs", ",".join(str(number) for number in included_prs)]
+    result = subprocess.run(command, cwd=root, text=True, capture_output=True)
+    if result.returncode:
+        die("current complete release PR checks could not be verified")
+    return json.loads(result.stdout)
+
+
 def train_current(data, path, exempt_paths=()):
     require_metadata_identity(path, data.get("train_id"), "train")
     if data["source_sha"] != current_sha():
@@ -270,6 +282,7 @@ def train_current(data, path, exempt_paths=()):
     if data["changelog_digest"] != digest(root / "CHANGELOG.md"):
         die("train changelog digest differs from current CHANGELOG.md; train is stale")
     require_clean_source((path, metadata_identity_path(path), *exempt_paths))
+    verify_release_pr_checks(data["source_sha"], data["included_prs"])
 
 def current_sha():
     try:
@@ -296,6 +309,7 @@ def require_current(data, record_path=None, exempt_paths=()):
     if record_path is not None:
         exempt_paths = (*exempt_paths, metadata_identity_path(record_path))
     require_clean_source(exempt_paths)
+    verify_release_pr_checks(data["source_sha"])
 
 def metadata_identity_path(path):
     path = pathlib.Path(path).resolve()
@@ -728,6 +742,7 @@ if op == "train-freeze":
         "decision": "pending",
         "rollback_target": str(values["rollback_target"]).strip(),
     }
+    verify_release_pr_checks(source_sha, prs)
     validate_train(train)
     output = pathlib.Path(values["output"] or (root / ".dev/release/trains" / f"{train_id}.json"))
     text = json.dumps(train, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
@@ -897,6 +912,8 @@ if op == "freeze":
         if train_features != sorted(feature_ids, key=int):
             die("candidate feature IDs must exactly match the release train feature set")
         train_id = train["train_id"]
+    if not values["train"]:
+        verify_release_pr_checks(sha)
     candidate_identity = json.dumps(
         {"source_sha": sha, "features": sorted(feature_ids, key=int), "train_id": train_id,
          "changelog_digest": digest(root / "CHANGELOG.md")},

@@ -33,6 +33,7 @@ ALLOW_ADHOC_APP_SIGNING="${GRAF_ALLOW_ADHOC_APP_SIGNING:-${TWO_BRAIN_REC_ALLOW_A
 ALLOW_LOCAL_SELF_SIGNED_APP_SIGNING="${GRAF_ALLOW_LOCAL_SELF_SIGNED_APP_SIGNING:-${TWO_BRAIN_REC_ALLOW_LOCAL_SELF_SIGNED_APP_SIGNING:-0}}"
 REQUIRE_PUBLIC_TRUST="${GRAF_REQUIRE_PUBLIC_UPDATE_TRUST:-0}"
 DEVELOPER_ID_INSTALLER_IDENTITY="${DEVELOPER_ID_INSTALLER_IDENTITY:-}"
+ARTIFACTS="$SCRIPT_DIR/release-artifacts.py"
 
 case "$REQUIRE_PUBLIC_TRUST" in
   0) ;;
@@ -163,6 +164,26 @@ elif [ -n "$SPARKLE_PUBLIC_ED_KEY" ]; then
   exit 1
 fi
 
+mkdir -p "$MACOS_DIR/.build"
+# ponytail: one packaging output per checkout; split only if concurrent releases become necessary.
+INSTALLER_LOCK="$MACOS_DIR/.build/.graf-installer.lock"
+mkdir "$INSTALLER_LOCK" 2>/dev/null || {
+  echo "Another installer/notary attempt is in progress; verify the owner before recovery." >&2
+  exit 1
+}
+trap 'rmdir "$INSTALLER_LOCK"' EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+BUILD_SOURCE=
+if [ "$REQUIRE_PUBLIC_TRUST" = 1 ]; then
+  BUILD_SOURCE=$(python3 "$ARTIFACTS" source)
+fi
+BUILD_KEY=$(python3 "$ARTIFACTS" swift-key)
+SWIFT_CACHE="$MACOS_DIR/.build/installer-cache/$BUILD_KEY"
+case "$SWIFT_CACHE/" in
+  "$BUILD_DIR/"*) echo "Packaging directory must not contain the compiler cache." >&2; exit 1 ;;
+esac
 rm -rf "$BUILD_DIR"
 mkdir -p "$STAGE_DIR/app/Applications"
 mkdir -p "$COMPONENT_DIR"
@@ -171,7 +192,7 @@ mkdir -p "$SCRIPTS_DIR/desktop-app"
 build_architecture() {
   architecture=$1
   triple=$2
-  scratch_path="$BUILD_DIR/swift-$architecture"
+  scratch_path="$SWIFT_CACHE/swift-$architecture"
   if ! swift build \
     --package-path "$MACOS_DIR" \
     --scratch-path "$scratch_path" \
@@ -193,8 +214,8 @@ INTEL_BIN_DIR=$(build_architecture x86_64 x86_64-apple-macosx14.5)
 ARM_APP_EXECUTABLE="$ARM_BIN_DIR/TwoBrainRecApp"
 INTEL_APP_EXECUTABLE="$INTEL_BIN_DIR/TwoBrainRecApp"
 APP_CORE_RESOURCE_BUNDLE="$ARM_BIN_DIR/$APP_CORE_RESOURCE_BUNDLE_NAME"
-SPARKLE_FRAMEWORK_SOURCE="$BUILD_DIR/swift-arm64/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework"
-SPARKLE_LICENSE_SOURCE="$BUILD_DIR/swift-arm64/checkouts/Sparkle/LICENSE"
+SPARKLE_FRAMEWORK_SOURCE="$SWIFT_CACHE/swift-arm64/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework"
+SPARKLE_LICENSE_SOURCE="$SWIFT_CACHE/swift-arm64/checkouts/Sparkle/LICENSE"
 
 for executable in "$ARM_APP_EXECUTABLE" "$INTEL_APP_EXECUTABLE"; do
   if [ ! -x "$executable" ]; then
@@ -312,7 +333,7 @@ if [ -n "$UPDATE_FEED_URL" ]; then
   /usr/bin/plutil -insert SUFeedURL -string "$UPDATE_FEED_URL" "$APP_BUNDLE/Contents/Info.plist"
   /usr/bin/plutil -insert SUPublicEDKey -string "$SPARKLE_PUBLIC_ED_KEY" "$APP_BUNDLE/Contents/Info.plist"
   /usr/bin/plutil -insert SUEnableAutomaticChecks -bool YES "$APP_BUNDLE/Contents/Info.plist"
-  /usr/bin/plutil -insert SUScheduledCheckInterval -integer 86400 "$APP_BUNDLE/Contents/Info.plist"
+  /usr/bin/plutil -insert SUScheduledCheckInterval -integer 14400 "$APP_BUNDLE/Contents/Info.plist"
   /usr/bin/plutil -insert SUAutomaticallyUpdate -bool NO "$APP_BUNDLE/Contents/Info.plist"
   /usr/bin/plutil -insert SUAllowsAutomaticUpdates -bool NO "$APP_BUNDLE/Contents/Info.plist"
   /usr/bin/plutil -insert SUEnableSystemProfiling -bool NO "$APP_BUNDLE/Contents/Info.plist"
@@ -542,4 +563,8 @@ else
     "$OUTPUT_PKG"
 fi
 
+if [ "$REQUIRE_PUBLIC_TRUST" = 1 ]; then
+  python3 "$ARTIFACTS" build-receipt --source "$BUILD_SOURCE" --version "$VERSION" \
+    --key "$BUILD_KEY" --app "$APP_BUNDLE" --pkg "$OUTPUT_PKG"
+fi
 echo "$OUTPUT_PKG"

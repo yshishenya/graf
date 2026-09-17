@@ -4,9 +4,9 @@ import TwoBrainRecShared
 
 public struct MeetingDetectionSettingsView: View {
     public static let windowTitle = "Настройки"
-    public static let sidebarTitle = "Встречи"
-    public static let pageTitle = "Автозапись"
-    public static let autoRecordSectionTitle = "Приложения"
+    public static let windowSize = NSSize(width: 1040, height: 800)
+    public static let pageTitle = "Запись встреч"
+    public static let autoRecordSectionTitle = "Автозапись для приложений"
     public static let applyToAllTitle = "Для всех приложений"
     private let store: MeetingDetectionSettingsStore
     private let registryStore: MeetingTargetRegistryStore
@@ -15,6 +15,9 @@ public struct MeetingDetectionSettingsView: View {
     @State private var settings: MeetingDetectionSettings
     @State private var promptCapableTargets: [MeetingTargetRegistryTarget] = []
     @State private var saveError: String?
+    @State private var pendingRules: [String: AutomaticRecordingRule] = [:]
+    @State private var search = ""
+    @State private var settingsAvailable: Bool
 
     public init(
         store: MeetingDetectionSettingsStore = MeetingDetectionSettingsStore(),
@@ -27,20 +30,19 @@ public struct MeetingDetectionSettingsView: View {
         self.store = store
         self.registryStore = registryStore
         self.notificationCenter = notificationCenter
-        _settings = State(initialValue: (try? store.load()) ?? MeetingDetectionSettings())
+        let loaded = try? store.load()
+        _settings = State(initialValue: loaded ?? MeetingDetectionSettings())
+        _settingsAvailable = State(initialValue: loaded != nil)
         _promptCapableTargets = State(initialValue: Self.loadPromptCapableTargets(from: registryStore))
     }
 
     public var body: some View {
-        HStack(spacing: 0) {
-            sidebar
-            Divider()
-            content
-        }
-        .frame(width: 760, height: 500)
+        content
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
         .tint(DesktopMeetingShellChrome.shellAccentColor)
         .onAppear {
+            reloadSettings()
             reloadRegistryTargets()
         }
         .onReceive(notificationCenter.publisher(for: .twoBrainRecMeetingDetectionSettingsDidChange)) { _ in
@@ -52,96 +54,96 @@ public struct MeetingDetectionSettingsView: View {
         }
     }
 
-    private var sidebar: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Button {
-                Task { @MainActor in
-                    NSApp.keyWindow?.close()
-                }
-            } label: {
-                Label("Назад", systemImage: "chevron.left")
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
-            .padding(.top, 18)
-
-            VStack(alignment: .leading, spacing: 7) {
-                Text(Self.sidebarTitle)
-                    .font(.caption)
-                    .fontWeight(.semibold)
-                    .foregroundStyle(.secondary)
-
-                Label(Self.pageTitle, systemImage: "record.circle")
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(Color.accentColor.opacity(0.18), in: RoundedRectangle(cornerRadius: 6))
-                    .accessibilityAddTraits(.isSelected)
-            }
-
-            Spacer()
-        }
-        .padding(.horizontal, 16)
-        .frame(width: 176)
-        .background(.bar)
+    private var filteredTargets: [MeetingTargetRegistryTarget] {
+        promptCapableTargets.filter { NativeSettingsComboBox.matchesSearch($0.displayName, query: search) }
     }
 
     private var content: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
-                Label(Self.pageTitle, systemImage: "dot.radiowaves.left.and.right")
-                    .font(.headline)
+            VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(Self.pageTitle)
+                        .font(.title2.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text("«Спрашивать»: запись начнется через 8 секунд, если не отказаться.")
+                }
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
 
-                Form {
-                    Section(header: Text(Self.autoRecordSectionTitle).fontWeight(.medium)) {
-                        VStack(alignment: .leading, spacing: 6) {
+                if let saveError {
+                    HStack {
+                        Text(saveError).foregroundStyle(DesktopDesignTokens.red)
+                        Button("Повторить") {
+                            if pendingRules.isEmpty { reloadSettings() } else { updateRules(pendingRules) }
+                        }
+                        .frame(minHeight: 40)
+                    }.font(.callout)
+                }
+                VStack(alignment: .leading, spacing: 16) {
+                    Text(Self.autoRecordSectionTitle)
+                        .font(.headline)
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 12) {
                             Text(Self.applyToAllTitle)
-                                .font(.subheadline)
                                 .fontWeight(.medium)
+                                .frame(maxWidth: .infinity, alignment: .leading)
                             AutomaticRecordingRulePicker(
                                 title: Self.applyToAllTitle,
                                 selection: bulkRuleBinding,
-                                isDisabled: promptCapableTargets.isEmpty
+                                isDisabled: promptCapableTargets.isEmpty || !settingsAvailable
                             )
                         }
-
-                        if promptCapableTargets.isEmpty {
-                            Text("Список появится после загрузки реестра.")
+                        if !promptCapableTargets.isEmpty && bulkRuleBinding.wrappedValue == nil {
+                            Text("Для приложений выбраны разные правила.")
                                 .font(.callout)
                                 .foregroundStyle(.secondary)
-                        } else {
-                            ForEach(promptCapableTargets, id: \.id) { target in
+                        }
+                    }
+
+                    NativeSettingsComboBox(
+                        title: "Приложения",
+                        options: promptCapableTargets.map { .init(id: $0.id, label: $0.displayName) },
+                        placeholder: "Выберите приложение или начните вводить",
+                        filter: $search
+                    )
+                    .frame(maxWidth: 380)
+                    .frame(height: 32)
+                    Divider()
+                    if promptCapableTargets.isEmpty {
+                        Text("Список приложений пока недоступен. Попробуйте открыть настройки позже.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Button("Повторить загрузку") { reloadRegistryTargets() }
+                            .frame(minHeight: 40)
+                    } else if filteredTargets.isEmpty {
+                        Text("Приложения не найдены. Измените поиск.").foregroundStyle(.secondary)
+                    } else {
+                        VStack(spacing: 0) {
+                            ForEach(filteredTargets, id: \.id) { target in
                                 HStack(spacing: 12) {
-                                    Image(systemName: "app.dashed")
-                                        .foregroundStyle(.secondary)
-                                        .frame(width: 20)
                                     Text(target.displayName)
                                         .fontWeight(.medium)
+                                        .fixedSize(horizontal: false, vertical: true)
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                     AutomaticRecordingRulePicker(
                                         title: target.displayName,
-                                        selection: ruleBinding(for: target.id)
+                                        selection: ruleBinding(for: target.id),
+                                        isDisabled: promptCapableTargets.isEmpty || !settingsAvailable
                                     )
+                                }
+                                .frame(minHeight: 40)
+                                if target.id != filteredTargets.last?.id {
+                                    Divider()
                                 }
                             }
                         }
                     }
                 }
-                .formStyle(.grouped)
-
-                if let saveError {
-                    Label(saveError, systemImage: "exclamationmark.triangle.fill")
-                        .font(.callout)
-                        .foregroundStyle(.orange)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Spacer()
             }
-
-
+            .padding(24)
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -150,52 +152,51 @@ public struct MeetingDetectionSettingsView: View {
     private var bulkRuleBinding: Binding<AutomaticRecordingRule?> {
         Binding(
             get: {
-                let rules = promptCapableTargets.map { settings.recordingRule(for: $0.id) }
+                let rules = promptCapableTargets.map { pendingRules[$0.id] ?? settings.recordingRule(for: $0.id) }
                 guard let first = rules.first, rules.allSatisfy({ $0 == first }) else { return nil }
                 return first
             },
             set: { rule in
                 guard let rule else { return }
-                updateSettings { draft in
-                    for target in promptCapableTargets {
-                        draft.setRecordingRule(rule, for: target.id)
-                    }
-                }
+                updateRules(Dictionary(uniqueKeysWithValues: promptCapableTargets.map { ($0.id, rule) }))
             }
         )
     }
 
     private func ruleBinding(for targetID: String) -> Binding<AutomaticRecordingRule> {
         Binding(
-            get: { settings.recordingRule(for: targetID) },
+            get: { pendingRules[targetID] ?? settings.recordingRule(for: targetID) },
             set: { rule in
-                updateSettings { draft in
-                    draft.setRecordingRule(rule, for: targetID)
-                }
+                updateRules([targetID: rule])
             }
         )
     }
 
-    private func updateSettings(_ transform: (inout MeetingDetectionSettings) -> Void) {
-        var draft = settings
-        transform(&draft)
+    private func updateRules(_ changes: [String: AutomaticRecordingRule]) {
+        let changes = pendingRules.merging(changes) { _, latest in latest }
         do {
-            try store.save(draft)
-            settings = draft
+            settings = try store.update { draft in
+                for (targetID, rule) in changes { draft.setRecordingRule(rule, for: targetID) }
+            }
+            pendingRules = [:]
+            settingsAvailable = true
             saveError = nil
             notificationCenter.post(name: .twoBrainRecMeetingDetectionSettingsDidChange, object: nil)
         } catch {
-            saveError = "Настройки временно не сохранены"
+            pendingRules = changes
+            saveError = "Не сохранено. Повторите попытку."
         }
     }
 
     private func reloadSettings() {
         guard let loaded = try? store.load() else {
+            settingsAvailable = false
             saveError = "Настройки временно недоступны"
             return
         }
         settings = loaded
-        saveError = nil
+        settingsAvailable = true
+        if pendingRules.isEmpty { saveError = nil }
     }
 
     private func reloadRegistryTargets() {
@@ -228,7 +229,6 @@ private struct AutomaticRecordingRulePicker: View {
     let title: String
     @Binding var selection: AutomaticRecordingRule?
     var isDisabled = false
-    @State private var hoveredRule: AutomaticRecordingRule?
 
     init(
         title: String,
@@ -254,58 +254,54 @@ private struct AutomaticRecordingRulePicker: View {
     }
 
     var body: some View {
-        HStack(spacing: 6) {
-            ForEach(AutomaticRecordingRule.allCases, id: \.self) { rule in
-                Button {
-                    selection = rule
-                } label: {
-                    HStack(spacing: 5) {
-                        Image(systemName: rule.symbolName)
-                        Text(rule.displayName)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.8)
-                    }
-                    .font(.callout)
-                    .frame(width: 112, height: 38)
-                    .foregroundStyle(selection == rule ? .white : .primary)
-                    .background(
-                        selection == rule
-                            ? DesktopMeetingShellChrome.shellAccentColor
-                            : hoveredRule == rule ? DesktopMeetingShellChrome.shellAccentColor.opacity(0.12) : Color.clear,
-                        in: RoundedRectangle(cornerRadius: 10)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 10)
-                            .stroke(
-                                selection == rule
-                                    ? DesktopMeetingShellChrome.shellAccentColor
-                                    : hoveredRule == rule
-                                        ? DesktopMeetingShellChrome.shellAccentColor.opacity(0.55)
-                                        : Color.secondary.opacity(0.25),
-                                lineWidth: 1
-                            )
-                    )
-                }
-                .buttonStyle(.plain)
-                .disabled(isDisabled)
-                .onHover { isHovering in
-                    hoveredRule = isHovering ? rule : nil
-                }
-                .accessibilityAddTraits(selection == rule ? .isSelected : [])
-            }
+        NativeSettingsComboBox(
+            title: title,
+            options: AutomaticRecordingRule.allCases.map { rule in
+                .init(id: rule.rawValue, label: rule.displayName)
+            },
+            selectedID: selection?.rawValue,
+            placeholder: selection?.displayName ?? "Разные правила"
+        ) { value in
+            guard let rule = AutomaticRecordingRule(rawValue: value) else { return }
+            selection = rule
         }
-        .accessibilityLabel(title)
-        .accessibilityValue(selection?.displayName ?? "Разные")
-        .accessibilityHint(isDisabled ? "Недоступно" : "Выберите состояние автозаписи")
+        .frame(width: 172, height: 32)
+        .disabled(isDisabled)
     }
 }
 
-private extension AutomaticRecordingRule {
-    var symbolName: String {
-        switch self {
-        case .always: return "record.circle"
-        case .ask: return "questionmark.circle"
-        case .never: return "nosign"
+/// Local controls remain reachable while the cabinet is unavailable.
+public struct LocalSettingsFallbackView: View {
+    @State private var notifications: Bool
+    private let onOpenAll: () -> Void
+    public init(notifications: Bool, onOpenAll: @escaping () -> Void) {
+        _notifications = State(initialValue: notifications)
+        self.onOpenAll = onOpenAll
+    }
+    public var body: some View {
+        HStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 12) {
+                Button(action: onOpenAll) { Label("Все настройки GRAF", systemImage: "chevron.left") }
+                    .buttonStyle(.plain)
+                    .frame(minHeight: 40)
+                Text("На этом Mac").font(.caption).foregroundStyle(.secondary).padding(.top, 16)
+                ForEach([false, true], id: \.self) { item in
+                    Button { notifications = item } label: {
+                        Label(item ? "Уведомления" : "Запись", systemImage: item ? "bell" : "record.circle")
+                            .frame(maxWidth: .infinity, alignment: .leading).padding(10)
+                            .background(notifications == item ? DesktopDesignTokens.accentSurface : .clear, in: RoundedRectangle(cornerRadius: DesktopDesignTokens.Radius.xs))
+                    }
+                    .buttonStyle(.plain)
+                    .frame(minHeight: 40)
+                    .accessibilityAddTraits(notifications == item ? .isSelected : [])
+                }
+                Spacer()
+                Text("Кабинет недоступен. Локальные настройки продолжают работать.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }.padding(16).frame(width: 208).frame(maxHeight: .infinity).background(DesktopDesignTokens.surface2)
+            Divider()
+            if notifications { DesktopNotificationsSettingsView() }
+            else { MeetingDetectionSettingsView() }
         }
     }
 }

@@ -5,6 +5,7 @@
     <header class="cabinet-topbar">
       <div class="cabinet-titleline">
         <h1 data-list-title tabindex="-1">Мои встречи</h1>
+        <a class="button quiet" href="{{ "/desktop" if embedded else "" }}/deletions">Удаления</a>
       </div>
       <form class="cabinet-list-controls" method="get" action="{{ filter_action }}"
         data-hx-get="{{ filter_action }}"
@@ -21,7 +22,7 @@
         </div>
 
         <details class="cabinet-control-disclosure{% if active_filter_count %} is-active{% endif %}" data-filter-disclosure>
-          <summary class="icon-control" aria-label="{{ filter_label }}">
+          <summary class="icon-button icon-button--bordered" aria-label="{{ filter_label }}">
             {{ icons.icon("filter") }}
             <span class="cabinet-control-label">{{ filter_label }}</span>
           </summary>
@@ -45,7 +46,7 @@
         </details>
 
         <details class="cabinet-control-disclosure" data-sort-disclosure>
-          <summary class="icon-control" aria-label="Сортировка: {{ sort_label }}">
+          <summary class="icon-button icon-button--bordered" aria-label="Сортировка: {{ sort_label }}">
             {{ icons.icon("sort") }}
             <span class="cabinet-control-label">{{ sort_label }}</span>
           </summary>
@@ -54,8 +55,8 @@
             <select id="meeting-sort" name="sort">
               <option value="started_desc"{% if sort_value == "started_desc" %} selected{% endif %}>Сначала новые</option>
               <option value="started_asc"{% if sort_value == "started_asc" %} selected{% endif %}>Сначала старые</option>
-              <option value="updated_desc"{% if sort_value == "updated_desc" %} selected{% endif %}>Недавно обновлённые</option>
-              <option value="updated_asc"{% if sort_value == "updated_asc" %} selected{% endif %}>Давно обновлённые</option>
+              <option value="updated_desc"{% if sort_value == "updated_desc" %} selected{% endif %}>Недавно обновленные</option>
+              <option value="updated_asc"{% if sort_value == "updated_asc" %} selected{% endif %}>Давно обновленные</option>
               <option value="duration_asc"{% if sort_value == "duration_asc" %} selected{% endif %}>Сначала короткие</option>
               <option value="duration_desc"{% if sort_value == "duration_desc" %} selected{% endif %}>Сначала длинные</option>
               <option value="title_asc"{% if sort_value == "title_asc" %} selected{% endif %}>По названию</option>
@@ -63,7 +64,7 @@
           </div>
         </details>
 
-        <a class="icon-control cabinet-filter-reset" href="{{ filter_reset_url }}" data-filter-reset aria-label="Сбросить поиск и фильтры"{% if not filters_active %} hidden{% endif %}>{{ icons.icon("x") }}<span class="cabinet-control-label">Сбросить</span></a>
+        <a class="icon-button icon-button--bordered cabinet-filter-reset" href="{{ filter_reset_url }}" data-filter-reset aria-label="Сбросить поиск и фильтры"{% if not filters_active %} hidden{% endif %}>{{ icons.icon("x") }}<span class="cabinet-control-label">Сбросить</span></a>
         <button class="button primary manual-upload-trigger" type="button" data-manual-upload-open aria-label="Загрузить запись">
           {{ icons.icon("upload") }}<span>Загрузить запись</span>
         </button>
@@ -82,7 +83,7 @@
         </label>
         <div class="selection-count" data-selection-count>Выбрано: 0</div>
         <button class="quiet selection-clear" type="button" data-clear-selection>Снять выбор</button>
-        <button class="icon-control danger-button selection-delete" type="button" aria-label="Удалить выбранные встречи" data-selection-delete>{{ icons.icon("trash") }}<span>Удалить</span></button>
+        <button class="icon-button icon-button--bordered danger-button selection-delete" type="button" aria-label="Удалить выбранные встречи" data-selection-delete>{{ icons.icon("trash") }}<span>Удалить</span></button>
       </div>
     </div>
     <div class="upload-activity-list" data-upload-activity-list></div>

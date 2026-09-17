@@ -17,6 +17,15 @@ public struct DesktopCabinetConfiguration: Equatable, Sendable {
     public static let packagedDefaultBaseURL = "https://rec.2brain.pro"
     public static let defaultLoadTimeoutSeconds: TimeInterval = 15
 
+    public static func applicationNameForUserAgent(
+        version: String? = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+    ) -> String {
+        guard let version, version.utf8.count <= 32,
+              version.utf8.allSatisfy({ (48...57).contains($0) || $0 == 46 }),
+              AppUpdateConfiguration.isValidCalVer(version) else { return "GRAFDesktop/unknown" }
+        return "GRAFDesktop/\(version)"
+    }
+
     public let baseURL: URL
     public let headers: [String: String]
     public let loadTimeoutSeconds: TimeInterval

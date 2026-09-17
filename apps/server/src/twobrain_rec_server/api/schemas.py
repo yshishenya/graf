@@ -291,11 +291,18 @@ class CalendarDisconnectResponse(BaseModel):
 
 
 class CalendarEventSummary(BaseModel):
+    all_day: bool = False
     event_id: UUID
     provider_family: str
     starts_at: datetime
     ends_at: datetime
     title: str | None = None
+    description: str | None = None
+    location: str | None = None
+    participants: list[dict[str, Any]] = Field(default_factory=list)
+    attachments: list[dict[str, Any]] = Field(default_factory=list)
+    conference_links: list[dict[str, Any]] = Field(default_factory=list)
+    provider_extras: dict[str, Any] = Field(default_factory=dict)
     title_state: Literal["available", "private_redacted", "free_busy_only", "policy_hidden"]
     meeting_link_present: bool = False
     attendee_count: int = 0
@@ -320,6 +327,8 @@ class DesktopCalendarPromptEvent(CalendarEventSummary):
 
 
 class DesktopCalendarPromptResponse(BaseModel):
+    notification_owner_id: str | None = None
+    notification_workspace_id: str | None = None
     show_upcoming_time: bool = True
     show_upcoming_title: bool = True
     events: list[DesktopCalendarPromptEvent] = Field(default_factory=list)
@@ -907,6 +916,7 @@ class DesktopSyncReviewState(BaseModel):
     transcript_available: bool = False
     diarization_available: bool = False
     content_available: bool = False
+    summary_status: str | None = None
     web_url: str | None = None
     desktop_url: str | None = None
 
@@ -1197,6 +1207,10 @@ class DeletionVerificationReport(BaseModel):
 
 
 class DeletionRequestResponse(BaseModel):
+    receipt_type: Literal["meeting_deletion"] = "meeting_deletion"
+    phase: Literal["accepted"] = "accepted"
+    deletion_epoch: int = Field(ge=0)
+    local_recording_id: str | None = None
     request_id: UUID
     meeting_id: UUID
     lifecycle: DeletionLifecycleState
@@ -1495,6 +1509,8 @@ class UpdateSummaryTemplateRequest(CreateSummaryTemplateRequest):
 
 
 class SummaryTemplateView(BaseModel):
+    actor: str = ""
+    workspace: str = ""
     template_id: UUID | None = None
     template_key: str
     kind: SummaryTemplateKind
@@ -1510,6 +1526,8 @@ class SummaryTemplateView(BaseModel):
 
 
 class SummaryTemplateListResponse(BaseModel):
+    actor: str = ""
+    workspace: str = ""
     default_template_key: str
     can_manage_default: bool = False
     recommended: list[SummaryTemplateView] = Field(default_factory=list, max_length=4)
@@ -1701,7 +1719,8 @@ class SummaryTypeReadResponse(SummaryStateEventV1):
     model_config = ConfigDict(extra="forbid")
 
     outcome_set_id: UUID | None = None
-    items: list["OutcomeItemView"] = Field(default_factory=list, max_length=256)
+    items: list["OutcomeItemView"] = Field(default_factory=list)
+    protocol: dict[str, Any] | None = None
     attempt: SummaryTypeAttemptStateV1 | None = None
 
 
@@ -1773,6 +1792,8 @@ class SummaryCandidateListResponse(BaseModel):
 
 
 class CreateScopedShareGrantRequest(BaseModel):
+    can_comment: bool = False
+    can_edit: bool = False
     model_config = ConfigDict(extra="forbid")
 
     audience_type: ShareAudienceType = "user"
@@ -1792,6 +1813,8 @@ class CreateScopedShareGrantRequest(BaseModel):
 
 
 class CreateMeetingShareInvitationRequest(BaseModel):
+    can_comment: bool = False
+    can_edit: bool = False
     model_config = ConfigDict(extra="forbid")
 
     address: str = Field(min_length=3, max_length=320)
@@ -1821,6 +1844,9 @@ class MeetingShareInvitationResponse(BaseModel):
     invitation_id: UUID
     status: ShareInvitationStatus
     expires_at: datetime
+    content_scope: ShareContentScope
+    can_comment: bool
+    can_edit: bool
 
 
 class ShareRecipientView(BaseModel):
@@ -1839,10 +1865,13 @@ class PublicShareSummaryResponse(BaseModel):
     meeting_label: str
     occurred_at: datetime
     duration_seconds: int = Field(ge=0)
-    summary_sections: list[dict[str, object]] = Field(default_factory=list, max_length=100)
+    summary_sections: list[dict[str, object]] = Field(default_factory=list)
+    protocol: dict[str, Any] | None = None
 
 
 class MeetingAccessState(BaseModel):
+    can_comment: bool = False
+    can_edit: bool = False
     state: AccessState
     label: str
     reason: str | None = None
@@ -1864,6 +1893,8 @@ class ArtifactEgressState(BaseModel):
 
 
 class ShareGrantView(BaseModel):
+    can_comment: bool = False
+    can_edit: bool = False
     grant_id: UUID
     display_name: str
     role_label: Literal["Owner", "Team", "Can view"]
@@ -1875,6 +1906,8 @@ class ShareGrantView(BaseModel):
 
 
 class ShareInvitationView(BaseModel):
+    can_comment: bool = False
+    can_edit: bool = False
     invitation_id: UUID
     status: ShareInvitationStatus
     created_at: datetime
@@ -1887,6 +1920,7 @@ class SharePanelState(BaseModel):
     team_visibility: TeamVisibilityState
     active_grants: list[ShareGrantView] = Field(default_factory=list)
     active_invitations: list[ShareInvitationView] = Field(default_factory=list)
+    can_manage_roles: bool = False
     copy_link_state: CopyLinkState
     public_link_state: PublicLinkState
     capability_state: ShareCapabilityState = "available"
@@ -1922,6 +1956,8 @@ class MeetingAccessResponse(BaseModel):
 
 
 class CreateShareGrantRequest(BaseModel):
+    can_comment: bool = False
+    can_edit: bool = False
     model_config = ConfigDict(extra="forbid")
 
     grantee_user_id: UUID | None = None
@@ -2139,6 +2175,7 @@ class NotesActionCategoryState(BaseModel):
 
 
 class NotesActionTruthState(BaseModel):
+    protocol: dict[str, Any] | None = None
     summary: NotesActionCategoryState
     key_points: NotesActionCategoryState = Field(default_factory=_default_deferred_notes_category)
     decisions: NotesActionCategoryState
@@ -2187,6 +2224,7 @@ class PlaybackPreparationState(BaseModel):
 class MeetingListItem(BaseModel):
     meeting_id: UUID
     title: str
+    title_version: str | None = None
     started_at: datetime | None = None
     uploaded_at: datetime | None = None
     ended_at: datetime | None = None
@@ -2200,6 +2238,7 @@ class MeetingListItem(BaseModel):
     transcript_available: bool = False
     diarization_available: bool = False
     notes_available: bool = False
+    summary_status: str | None = None
     notes_action_truth: NotesActionTruthState = Field(default_factory=default_notes_action_truth)
     updated_at: datetime | None = None
     access: MeetingAccessState | None = None
@@ -2402,3 +2441,37 @@ class MeetingReviewResponse(BaseModel):
     deletion_truth_copy: str | None = None
     assistant: SlotState
     template: SlotState
+
+
+class OriginCancellationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    operation_id: UUID
+    confirmation_boundary: str = Field(max_length=240)
+
+
+class OriginCancellationReceipt(BaseModel):
+    receipt_type: Literal["origin_cancellation"] = "origin_cancellation"
+    request_id: UUID
+    local_recording_id: str
+    accepted_at: datetime
+    phase: Literal["accepted"] = "accepted"
+
+
+class RecordingLifecycleLookup(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    origins: list[Annotated[SafeClientText, Field(min_length=1, max_length=240)]] = Field(default_factory=list, max_length=100)
+    meeting_ids: list[UUID] = Field(default_factory=list, max_length=100)
+
+    @model_validator(mode="after")
+    def bounded_selection(self) -> Self:
+        if not 1 <= len(self.origins) + len(self.meeting_ids) <= 100:
+            raise ValueError("Select between 1 and 100 recordings")
+        return self
+
+
+class RecordingLifecycleEntry(BaseModel):
+    target_type: Literal["own_origin", "meeting"]
+    target_id: str
+    state: Literal["allowed", "deletion_accepted", "canceled_before_creation", "unavailable"]
+    meeting_id: UUID | None = None
+    receipt: DeletionRequestResponse | OriginCancellationReceipt | None = None

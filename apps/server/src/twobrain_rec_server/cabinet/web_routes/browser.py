@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.cabinet import (
     PublicShareDbDependency,
+    ShareOperationDbDependency,
     _recipient_share_access_proof,
 )
 from twobrain_rec_server.api.problems import ProblemDetail
@@ -41,6 +42,7 @@ from twobrain_rec_server.cabinet.queries import (
     get_calendar_settings_surface,
     list_cabinet_meetings,
     list_shared_with_me_meetings,
+    shared_meeting_display_metadata,
 )
 from twobrain_rec_server.cabinet.rendering import (
     render_meeting_detail_fragment,
@@ -195,12 +197,17 @@ async def _render_shared_summary_for_grant(
         occurred_at=meeting.started_at or meeting.created_at,
         duration_seconds=meeting.duration_seconds,
         summary_sections=[{"category": item.category, "text": item.text or ""} for item in items],
+        protocol=outcome.protocol_json if outcome is not None else None,
     )
+    display_title, display_time, uploaded = await shared_meeting_display_metadata(session, meeting=meeting)
     return render_shared_meeting_summary_page(
-        meeting_title=str(projection["meeting_label"]),
-        occurred_at=projection["occurred_at"],
+        meeting_title=display_title,
+        occurred_at=display_time,
+        time_is_upload=uploaded,
         duration_seconds=int(projection["duration_seconds"]),
         summary_sections=projection["summary_sections"],
+        protocol=projection.get("protocol"),
+        generator_version=outcome.generator_version if outcome is not None else None,
         authenticated=True,
         embedded=embedded,
     )
@@ -496,6 +503,7 @@ async def share_invitation_magic_link(
         now = datetime.now(UTC)
         device = await _resolve_email_browser_device(
             session,
+            user_agent=request.headers.get("user-agent"),
             workspace=personal_workspace,
             user=user,
             now=now,
@@ -709,7 +717,8 @@ async def share_invitation_accept_page(
                 _csrf_token_for_principal(request, principal) if principal is not None else None
             ),
             meeting_title=preview.meeting_title if preview else None,
-            meeting_occurred_at=preview.occurred_at if preview else None,
+            meeting_occurred_at=preview.display_occurred_at if preview else None,
+            meeting_time_is_upload=preview.display_time_is_upload if preview else False,
             meeting_duration_seconds=preview.duration_seconds if preview else None,
             invitation_expires_at=preview.expires_at if preview else None,
             content_scope=preview.content_scope if preview else "summary_only",
@@ -867,6 +876,7 @@ async def shared_with_me_list_page(
 async def meeting_detail_page(
     request: Request,
     meeting_id: str,
+    source_result_id: Annotated[UUID | None, Query()] = None,
     calendar_context_action: str | None = Query(default=None, pattern="^change$"),
     tenant_scope: TenantScope = WebTenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
@@ -890,6 +900,7 @@ async def meeting_detail_page(
         meeting_id=parsed_meeting_id,
         viewer_user_id=principal.user_id,
         selected_summary_template_key=request.query_params.get("summary_format"),
+        source_result_id=source_result_id,
         storage=storage,
         include_calendar_correction_candidates=calendar_context_action == "change",
         external_invitations_enabled=request.app.state.settings.share_external_invitations_enabled,
@@ -1059,7 +1070,7 @@ async def meeting_share_fragment(
     tenant_scope: TenantScope = WebTenantDependency,
     principal: AuthenticatedPrincipal = PrincipalDependency,
     storage: object = StorageDependency,
-    db: AsyncSession | None = WebDbDependency,
+    db: AsyncSession | None = ShareOperationDbDependency,
 ) -> HTMLResponse:
     if db is None:
         raise ProblemDetail(
@@ -1067,7 +1078,7 @@ async def meeting_share_fragment(
         )
     response = await get_cabinet_meeting_review(
         db,
-        workspace_id=tenant_scope.workspace_id,
+        workspace_id=db.info.get("share_owner_workspace", tenant_scope.workspace_id),
         meeting_id=meeting_id,
         viewer_user_id=principal.user_id,
         storage=storage,
@@ -1083,4 +1094,4 @@ async def meeting_share_fragment(
             request,
             csrf_token=_csrf_token_for_principal(request, principal),
         )
-    return cabinet_html_response(render_meeting_share_fragment(response), hx_request=True)
+    return cabinet_html_response(render_meeting_share_fragment(response, share_workspace_id=db.info.get("share_owner_workspace")), hx_request=True)

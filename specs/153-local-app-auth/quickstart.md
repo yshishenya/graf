@@ -1,11 +1,12 @@
+> Путь запуска обновлён: используйте единственный `/Applications/GRAF Dev.app` через `infra/scripts/dev-harness.sh`; см. [действующую инструкцию](/docs/agent-guidance/local-development.md). Старые отдельные приложения больше не собираются.
+
 # Quickstart
 
 ```sh
-infra/scripts/start-local.sh
-apps/macos/Scripts/build-local-app.sh --open
+infra/scripts/dev-harness.sh status --json
 ```
 
-In `GRAF Local`, use the local «Войти в кабинет» action, enter
+После build/promote/smoke по действующей инструкции, in `GRAF Dev`, use the local «Войти в кабинет» action, enter
 `local@graf.test`, enter the code shown by the local server, and confirm that the
 meetings view loads. A browser login is not reused by the app.
 

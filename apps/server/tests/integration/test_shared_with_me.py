@@ -154,3 +154,72 @@ def test_summary_only_share_opens_summary_from_recipient_list(client) -> None:
 
     assert target.status_code == 200
     assert "Проектный синк" in target.text
+
+
+@pytest.mark.parametrize("source", ["known", "manual", "unknown"])
+def test_shared_and_invitation_dates_use_display_truth_without_changing_transport(client, source):
+    from datetime import UTC, datetime, timedelta
+
+    from sqlalchemy import select
+
+    from tests.fakes.auth_contexts import USER_ID
+    from twobrain_rec_server.cabinet.access import hash_share_token, share_invitation_preview
+    from twobrain_rec_server.cabinet.rendering import render_share_invitation_accept_page
+    from twobrain_rec_server.cabinet.user_time import _display_timezone
+    from twobrain_rec_server.db.models import MediaRevision, Meeting, MeetingShareInvitation
+
+    seeds = seed_cabinet_meetings(client)
+    add_workspace_user(client)
+    client.cookies.set("graf_timezone", "Asia/Yekaterinburg")
+    instant = datetime(2026, 9, 5, 21, 30, tzinfo=UTC)
+    receipt = datetime(2026, 9, 6, 21, 30, tzinfo=UTC)
+    raw_token = "synthetic-f252-invitation-token"
+
+    async def seed_preview():
+        async with client.app_state["sessionmaker"]() as db:
+            meeting = await db.get(Meeting, seeds.ready_id)
+            meeting.started_at = instant if source == "known" else None
+            meeting.created_at = receipt
+            meeting.recording_display_timezone_offset_minutes = -420
+            meeting.title = "Meeting - 2026-09-05 21:30"
+            meeting.title_source = "generic"
+            revision = await db.scalar(select(MediaRevision).where(MediaRevision.meeting_id == meeting.id).order_by(MediaRevision.revision_number.desc()).limit(1))
+            assert revision is not None
+            if source == "manual":
+                revision.source_kind = "manual_upload"
+            db.add(MeetingShareInvitation(
+                workspace_id=WORKSPACE_ID, meeting_id=meeting.id, invited_by_user_id=USER_ID,
+                normalized_address_hash="synthetic-f252-hash", encrypted_delivery_address="synthetic-ciphertext",
+                token_hash=hash_share_token(raw_token), status="pending", expires_at=datetime.now(UTC)+timedelta(days=2),
+            ))
+            await db.commit()
+            preview = await share_invitation_preview(db, workspace_id=WORKSPACE_ID, raw_token=raw_token)
+            assert preview is not None
+            assert preview.occurred_at == (instant if source == "known" else receipt)
+            assert preview.display_occurred_at == (None if source == "unknown" else instant if source == "known" else receipt)
+            return preview
+    preview = client.portal.call(seed_preview)
+    token = _display_timezone.set("Asia/Yekaterinburg")
+    try:
+        invitation_html = render_share_invitation_accept_page(
+            share_token=raw_token, workspace_id=str(WORKSPACE_ID), csrf_token=None,
+            meeting_title=preview.meeting_title, meeting_occurred_at=preview.display_occurred_at,
+            meeting_time_is_upload=preview.display_time_is_upload,
+            meeting_duration_seconds=preview.duration_seconds, invitation_expires_at=preview.expires_at,
+        )
+    finally:
+        _display_timezone.reset(token)
+    created = client.post(f"/api/v1/cabinet/meetings/{seeds.ready_id}/shares", headers=auth_headers(), json={"audience_type":"user", "audience_id":str(SHARED_USER_ID), "content_scope":"summary_only"})
+    assert created.status_code == 201
+    shared = client.get(f"/shared-meetings/{seeds.ready_id}?workspace_id={WORKSPACE_ID}", headers=auth_headers_for())
+    assert shared.status_code == 200
+    for html in (shared.text, invitation_html):
+        assert "Meeting - 2026-09-05 21:30" not in html
+        if source == "unknown":
+            assert "Без даты" in html
+            assert "07.09.2026, 02:30" not in html
+            assert "Загружено" not in html
+        else:
+            assert ("06.09.2026, 02:30" if source == "known" else "07.09.2026, 02:30") in html
+            assert "data-user-datetime" in html
+            assert ("Загружено" in html) == (source == "manual")

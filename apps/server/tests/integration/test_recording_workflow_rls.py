@@ -554,7 +554,8 @@ def test_upgrade_preserves_legacy_grant_and_downgrade_restores_0030_schema(
             await engine.dispose()
 
     asyncio.run(seed_legacy())
-    command.upgrade(config, "head")
+    # This historical round trip stops before irreversible deletion evidence.
+    command.upgrade(config, "0091_comment_reader_projection")
 
     async def upgraded_state() -> tuple[tuple[str, object, str, bool, bool], set[str]]:
         engine = create_async_engine(postgres_clean_database_url)

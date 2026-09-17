@@ -131,7 +131,7 @@ def test_098_calendar_roster_uses_exact_invitee_not_speaker_copy_on_both_surface
         )
         assert context_match is not None
         context_block = context_match.group(0)
-        assert context_block.count("Приглашённые участники, не подтверждённые спикеры") == 1
+        assert context_block.count("Приглашенные участники, не подтвержденные спикеры") == 1
         assert context_block.count(f"Участники из календаря · {len(CALENDAR_ROSTER_NAMES)}") == 1
         for name in CALENDAR_ROSTER_NAMES:
             assert context_block.count(name) == 1
@@ -249,7 +249,7 @@ def test_manual_upload_detail_handoff_keeps_processing_truth_separate_from_revie
     assert payload["notes"]["available"] is False
     assert payload["notes_action_truth"]["summary"]["state"] == "processing"
     assert page.status_code == 200
-    assert "Транскрипт готовится" in page.text
+    assert "Расшифровка готовится" in page.text
     assert "Итоги готовятся" in page.text
 
 
@@ -441,15 +441,27 @@ def test_cabinet_detail_keeps_complete_content_during_partial_replacement(client
         assert 'class="playback-bar detail-playback"' in failed.text
 
 
-def test_cabinet_summary_reported_without_stored_output_is_blocked(client) -> None:
+def test_cabinet_summary_reported_without_stored_output_is_unavailable(client) -> None:
     meeting_id = create_summary_reported_meeting(client)
 
     response = client.get(f"/api/v1/cabinet/meetings/{meeting_id}", headers=auth_headers())
 
     assert response.status_code == 200
     truth = response.json()["notes_action_truth"]
-    assert truth["summary"]["state"] == "blocked"
-    assert truth["summary"]["copy_key"] == "notes.summary.blocked_missing_stored_output"
+    assert truth["summary"]["state"] == "unavailable"
+    assert truth["summary"]["copy_key"] == "notes.summary.unavailable"
+    assert truth["source_basis"] != "stored_output"
+
+    async def check_unrequested_format() -> None:
+        from twobrain_rec_server.outcomes.progress import summary_progress
+
+        async with client.app_state["sessionmaker"]() as db:
+            meeting = await db.get(Meeting, meeting_id)
+            result = await db.scalar(select(ProcessingResult).where(ProcessingResult.meeting_id == meeting_id))
+            assert await summary_progress(db, meeting=meeting, result=result) == "unavailable"
+            assert await summary_progress(db, meeting=meeting, result=result, template_key="standup") == "not_requested"
+
+    asyncio.run(check_unrequested_format())
     assert truth["decisions"]["state"] == "deferred"
     assert truth["action_items"]["state"] == "deferred"
 
@@ -626,7 +638,7 @@ def test_cabinet_ready_and_processing_web_detail_shells(client) -> None:
     assert f'src="/api/v1/cabinet/meetings/{seeds.ready_id}/playback"' in ready.text
     assert f'href="/api/v1/cabinet/meetings/{seeds.ready_id}/downloads/audio"' in ready.text
     assert processing.status_code == 200
-    assert "Транскрипт готовится" in processing.text
+    assert "Расшифровка готовится" in processing.text
     assert "Итоги готовятся" in processing.text
     assert 'data-summary-result-state="absent"' in processing.text
     assert 'data-summary-generation-state="preparing"' in processing.text
@@ -668,7 +680,7 @@ def test_cabinet_embedded_ready_detail_keeps_review_governance_and_removes_nativ
     assert SAFE_TRANSCRIPT_TEXT in response.text
     assert "Файлы" in response.text
     assert "Поделиться" in response.text
-    assert "Ещё" in response.text
+    assert "Еще" in response.text
     assert 'class="meeting-actions-menu"' in response.text
     assert 'id="meeting-details-dialog"' in response.text
     assert "Record live" not in response.text
@@ -693,7 +705,7 @@ def test_cabinet_and_embedded_detail_share_calendar_recording_title(client) -> N
         response = client.get(path, headers=auth_headers())
 
         assert response.status_code == 200, path
-        assert "Планирование релиза — 16 июн, 11:00" in response.text
+        assert "Планирование релиза — 16.06.2026, 08:00 (UTC)" in response.text
 
 
 def test_cabinet_embedded_ready_detail_keeps_playback_and_seek_controls(client) -> None:
@@ -772,8 +784,8 @@ def test_098_ambiguous_owner_detail_renders_safe_chooser_with_web_embedded_parit
         assert response.text.count("Synthetic Design Review") == 1
         assert response.text.count("Synthetic Planning Review") == 1
         assert response.text.count("Synthetic Work Calendar") == 2
-        assert "12:00" in response.text
-        assert "13:30" in response.text
+        assert "13.07.2026, 09:00 (UTC)" in response.text
+        assert "13.07.2026, 10:30 (UTC)" in response.text
         assert "Сохранить выбор" in response.text
         assert "Продолжить без календаря" in response.text
         assert 'aria-live="polite"' in response.text
@@ -925,8 +937,9 @@ def test_098_owner_can_reopen_safe_correction_chooser_in_web_and_embedded_review
     assert corrected.status_code == 200
     assert 'data-calendar-context-state="matched_user"' in corrected.text
     assert "Synthetic Planning Review" in corrected.text
-    assert "12:05–13:05" in corrected.text
-    assert "Контекст и список приглашённых исчезнут" in corrected.text
+    assert "13.07.2026, 09:05 (UTC)" in corrected.text
+    assert "13.07.2026, 10:05 (UTC)" in corrected.text
+    assert "Контекст и список приглашенных исчезнут" in corrected.text
 
     api_context = client.get(
         f"/api/v1/meetings/{meeting_id}/calendar-context",
@@ -1012,7 +1025,7 @@ def test_098_authorized_recurring_pointer_reuses_context_block_with_web_embedded
         assert response.status_code == 200, surface
         assert response.text.count('class="calendar-context"') == 1
         assert response.text.count("В серии") == 1
-        assert response.text.count("Предыдущая встреча · 6 июл") == 1
+        assert response.text.count("Предыдущая встреча · 06.07.2026, 09:00 (UTC)") == 1
         assert response.text.count("Обрабатывается") == 1
         assert f'href="{previous_href}"' in response.text
         pointer_tags = [
@@ -1024,7 +1037,7 @@ def test_098_authorized_recurring_pointer_reuses_context_block_with_web_embedded
         pointer_tag = pointer_tags[0]
         assert 'aria-label="' in pointer_tag
         assert "Synthetic Previous Planning" in pointer_tag
-        assert "6 июл" in pointer_tag
+        assert "06.07.2026, 09:00 (UTC)" in pointer_tag
         assert "Обрабатывается" in pointer_tag
 
         assert "Synthetic Current Planning" in response.text

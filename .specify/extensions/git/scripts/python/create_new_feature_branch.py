@@ -274,6 +274,13 @@ def check_existing_branches(
         )
         highest_branch = get_highest_from_branches(repo_root, scope_prefix)
 
+    allocator = repo_root / "scripts" / "claim-feature.py"
+    if allocator.is_file() and (os.environ.get("GRAF_SKIP_FEATURE_CLAIM") != "1" or ((repo_root / ".specify/feature-numbering.json").exists() or (repo_root / ".specify/feature-numbering.json").is_symlink())):
+        suggestion = subprocess.run(
+            [sys.executable, str(allocator), "--root", str(repo_root), "--json"],
+            cwd=repo_root, check=True, capture_output=True, text=True,
+        )
+        return int(json.loads(suggestion.stdout)["next_available"])
     return max(highest_branch, get_highest_from_specs(specs_dir)) + 1
 
 
@@ -366,6 +373,21 @@ def resolve_branch_template(config_file: Path) -> str:
 def validate_branch_template(template: str) -> None:
     if not template:
         return
+    if "$" in template:
+        _err(
+            "Error: branch_template contains a shell-style placeholder. Use "
+            "{author}, {app}, {number}, and {slug} without a dollar sign."
+        )
+        raise SystemExit(1)
+    unsupported_tokens = template
+    for token in ("{author}", "{app}", "{number}", "{slug}"):
+        unsupported_tokens = unsupported_tokens.replace(token, "_")
+    if "{" in unsupported_tokens or "}" in unsupported_tokens:
+        _err(
+            "Error: branch_template contains an unsupported or malformed placeholder. "
+            "Allowed tokens: {author}, {app}, {number}, {slug}."
+        )
+        raise SystemExit(1)
     if "{number}" not in template:
         _err(
             "Error: branch_template must include the {number} token so generated "
@@ -551,13 +573,26 @@ def main(argv: list[str]) -> int:
         )
         _err(f"[specify] Truncated to: {branch_name} ({_byte_length(branch_name)} bytes)")
 
+    # Validate explicit/generated identity before dry-run output or writes.
+    if ((repo_root / ".specify/feature-numbering.json").exists() or (repo_root / ".specify/feature-numbering.json").is_symlink()):
+        allocator = repo_root / "scripts/claim-feature.py"
+        if not allocator.is_file():
+            _err("Error: repository feature-numbering policy requires scripts/claim-feature.py")
+            return 1
+        validation = subprocess.run([
+            sys.executable, str(allocator), "--root", str(repo_root),
+            "--check-feature-id", feature_num, "--branch", branch_name,
+        ], cwd=repo_root)
+        if validation.returncode:
+            return validation.returncode
+
     if not args.dry_run:
         if has_git_repo:
-            # GRAF's project adapter reserves the Feature ID and umbrella issue
-            # before the branch exists. The generic extension remains usable in
-            # standalone repositories where this script is absent.
+            # A consumer may provide a repository-local allocator that
+            # reserves the feature ID and umbrella issue before branch
+            # creation. Standalone repositories keep the generic path.
             claim_script = repo_root / "scripts" / "claim-feature.py"
-            if claim_script.is_file() and os.environ.get("GRAF_SKIP_FEATURE_CLAIM", "") != "1":
+            if claim_script.is_file() and (os.environ.get("GRAF_SKIP_FEATURE_CLAIM", "") != "1" or ((repo_root / ".specify/feature-numbering.json").exists() or (repo_root / ".specify/feature-numbering.json").is_symlink())):
                 claim_command = [
                     sys.executable, str(claim_script), "--root", str(repo_root),
                     "--allocate", "--branch", branch_name, "--slug", branch_suffix,

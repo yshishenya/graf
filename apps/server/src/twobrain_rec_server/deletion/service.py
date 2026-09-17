@@ -170,11 +170,30 @@ async def request_meeting_deletion(
     if locked_meeting is None:
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
     meeting = locked_meeting
+    deletion_epoch = int(meeting.deletion_epoch or 0)
     if meeting.deleted_at is not None or (
         meeting.deletion_state or DeletionState.NONE.value
     ) != DeletionState.NONE.value:
-        raise ProblemDetail(
-            status=409, code="meeting_deletion_active", title="Meeting deletion is already active"
+        existing = await db.scalar(
+            select(MeetingDeletionRequest)
+            .where(
+                MeetingDeletionRequest.workspace_id == workspace_id,
+                MeetingDeletionRequest.meeting_id == meeting_id,
+            )
+            .order_by(desc(MeetingDeletionRequest.created_at))
+            .limit(1)
+        )
+        if existing is None:
+            # A tombstone without its receipt is not permission to rerun physical cleanup.
+            raise ProblemDetail(
+                status=409, code="meeting_deletion_active", title="Meeting deletion is already active"
+            )
+        return DeletionRequestResponse(
+            deletion_epoch=deletion_epoch,
+            request_id=existing.id,
+            meeting_id=meeting_id,
+            lifecycle=lifecycle_state(await lifecycle_for_meeting(meeting=meeting)),
+            report_url=f"/api/v1/cabinet/meetings/{meeting_id}/deletion-report",
         )
     active_request = await db.scalar(
         select(MeetingDeletionRequest)
@@ -189,7 +208,8 @@ async def request_meeting_deletion(
         )
 
     now = datetime.now(UTC)
-    meeting.deletion_epoch = int(meeting.deletion_epoch or 0) + 1
+    deletion_epoch += 1
+    meeting.deletion_epoch = deletion_epoch
     meeting.deleted_at = now
     meeting.current_outcome_set_id = None
     deletion_fence = await ensure_deletion_fence(db, meeting=meeting)
@@ -328,6 +348,7 @@ async def request_meeting_deletion(
         if report is not None and report.overall_state == DeletionState.ACTIVE_PURGE_COMPLETE.value:
             await db.rollback()
             return DeletionRequestResponse(
+                deletion_epoch=deletion_epoch,
                 request_id=request_id,
                 meeting_id=meeting_id,
                 lifecycle=lifecycle_state(DeletionState.ACTIVE_PURGE_COMPLETE),
@@ -358,6 +379,7 @@ async def request_meeting_deletion(
     if report is not None and report.overall_state == DeletionState.ACTIVE_PURGE_COMPLETE.value:
         await db.rollback()
         return DeletionRequestResponse(
+            deletion_epoch=deletion_epoch,
             request_id=request_id,
             meeting_id=meeting_id,
             lifecycle=lifecycle_state(DeletionState.ACTIVE_PURGE_COMPLETE),
@@ -412,6 +434,7 @@ async def request_meeting_deletion(
     fence.completed_at = completed_at
     await db.commit()
     return DeletionRequestResponse(
+        deletion_epoch=deletion_epoch,
         request_id=request_id,
         meeting_id=meeting_id,
         lifecycle=lifecycle_state(DeletionState.ACTIVE_PURGE_COMPLETE),
@@ -515,6 +538,7 @@ async def retry_meeting_deletion(
     if locked_meeting is None:
         raise ProblemDetail(status=404, code="meeting_not_found", title="Meeting not found")
     meeting = locked_meeting
+    deletion_epoch = int(meeting.deletion_epoch or 0)
     report = await db.scalar(
         select(MeetingDeletionReport)
         .where(
@@ -640,6 +664,7 @@ async def retry_meeting_deletion(
         if report.overall_state == DeletionState.ACTIVE_PURGE_COMPLETE.value:
             await db.rollback()
             return DeletionRequestResponse(
+                deletion_epoch=deletion_epoch,
                 request_id=report_request_id,
                 meeting_id=meeting_id,
                 lifecycle=lifecycle_state(DeletionState.ACTIVE_PURGE_COMPLETE),
@@ -722,6 +747,7 @@ async def retry_meeting_deletion(
     if report.overall_state == DeletionState.ACTIVE_PURGE_COMPLETE.value:
         await db.rollback()
         return DeletionRequestResponse(
+            deletion_epoch=deletion_epoch,
             request_id=report_request_id,
             meeting_id=meeting_id,
             lifecycle=lifecycle_state(DeletionState.ACTIVE_PURGE_COMPLETE),
@@ -772,6 +798,7 @@ async def retry_meeting_deletion(
     fence.completed_at = completed_at
     await db.commit()
     return DeletionRequestResponse(
+        deletion_epoch=deletion_epoch,
         request_id=report_request_id,
         meeting_id=meeting_id,
         lifecycle=lifecycle_state(DeletionState.ACTIVE_PURGE_COMPLETE),
@@ -2225,6 +2252,15 @@ async def _purge_server_controlled_content(
         result.materialized_classes.add(DeletionArtifactClass.UPLOAD_TEMP)
         result.purged_classes.add(DeletionArtifactClass.UPLOAD_TEMP)
 
+    from twobrain_rec_server.db.models import MeetingComment, ServerNotification
+    await db.execute(delete(ServerNotification).where(ServerNotification.workspace_id == meeting.workspace_id,
+        ServerNotification.meeting_id == meeting.id, ServerNotification.family == "comment"))
+    comments_deleted = await db.execute(delete(MeetingComment).where(MeetingComment.workspace_id == meeting.workspace_id,
+        MeetingComment.meeting_id == meeting.id))
+    if comments_deleted.rowcount:
+        result.materialized_classes.add(DeletionArtifactClass.COMMENTS)
+        result.purged_classes.add(DeletionArtifactClass.COMMENTS)
+
     transcript_delete = await db.execute(
         delete(TranscriptSegment)
         .where(TranscriptSegment.workspace_id == meeting.workspace_id)
@@ -2440,6 +2476,7 @@ async def _purge_meeting_outcomes(db: AsyncSession, *, meeting: Meeting) -> None
         outcome_set.lifecycle_state = OutcomeLifecycleState.DELETED.value
         outcome_set.failure_reason = "meeting_deleted"
         outcome_set.content_hash = None
+        outcome_set.protocol_json = None
 
     outcome_items = (
         await db.scalars(
@@ -2587,6 +2624,12 @@ def _initial_artifact_states(
             DeletionControlScope.CONTROLLED,
             _purge_state(DeletionArtifactClass.TRANSCRIPT, purged_artifact_classes),
             _purge_reason("Transcript", DeletionArtifactClass.TRANSCRIPT, purged_artifact_classes),
+        ),
+        (
+            DeletionArtifactClass.COMMENTS,
+            DeletionControlScope.CONTROLLED,
+            _purge_state(DeletionArtifactClass.COMMENTS, purged_artifact_classes),
+            _purge_reason("Comments", DeletionArtifactClass.COMMENTS, purged_artifact_classes),
         ),
         (
             DeletionArtifactClass.DIARIZATION,

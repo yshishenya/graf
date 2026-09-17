@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -121,6 +122,29 @@ release_notes: "Пароль: password = RealCredential123456"
     assert any("forbidden secret/private/path token" in error for error in errors)
 
 
+def test_changelog_fragment_allows_high_risk_validation_lane(tmp_path: Path) -> None:
+    validator = load_script("validate-changelog-fragments")
+    fragment = tmp_path / "changes" / "unreleased" / "F216.yaml"
+    fragment.parent.mkdir(parents=True)
+    fragment.write_text(
+        '''schema_version: 1
+feature_id: 216
+category: Changed
+summary: "Добавлена проверка"
+issue: 6090
+tasks: [T001]
+compatibility: "нет"
+validation_lane: "high-risk-product"
+release_notes: "Русские заметки"
+known_limitations:
+  - "Ограничения отсутствуют"
+''',
+        encoding="utf-8",
+    )
+
+    assert validator.validate(tmp_path) == []
+
+
 def test_agent_context_requires_object_branch_and_full_source_sha(tmp_path: Path) -> None:
     validator = load_script("validate-agent-context")
     pointer = tmp_path / ".specify" / "feature.json"
@@ -186,6 +210,41 @@ def test_issue_canon_pr_template_keeps_feature_and_legacy_gates() -> None:
     )
     for marker in ("## Feature identity", "Exact source SHA", "## Legacy Impact"):
         assert marker in template
+
+
+def test_issue_canon_ensure_preserves_project_checks(tmp_path: Path) -> None:
+    result = subprocess.run(
+        [sys.executable, "-B", "-I", "-c", '''
+import hashlib
+import sys
+from pathlib import Path
+from unittest.mock import patch
+source, root = map(Path, sys.argv[1:])
+ext = source / ".specify/extensions/github-issue-canon"
+sys.path.insert(0, str(ext / "scripts"))
+import ensure_issue_canon as ensure
+import issue_canon_common as common
+template = root / ".github/pull_request_template.md"
+template.parent.mkdir(parents=True)
+expected = (source / ".github/pull_request_template.md").read_bytes()
+template.write_bytes(expected)
+digest = hashlib.sha256(expected).hexdigest()
+for name in (b"governance-fast", b"macos-pr", b"pr-metadata", b"## Feature identity", b"## Legacy Impact"):
+    assert name in expected
+with (patch.object(ensure, "repo_root", return_value=root),
+      patch.object(ensure, "extension_root", return_value=ext),
+      patch.object(ensure, "repo_slug", return_value="owner/repo"),
+      patch.object(ensure, "current_feature", return_value="211"),
+      patch.object(ensure, "ensure_labels"),
+      patch.object(common, "run", side_effect=AssertionError("unexpected GitHub call"))):
+    for _ in range(2):
+        assert ensure.main() == 0
+        assert template.read_bytes() == expected
+        assert hashlib.sha256(template.read_bytes()).hexdigest() == digest
+''', str(ROOT), str(tmp_path)],
+        capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_changelog_required_fields_must_be_top_level(tmp_path: Path) -> None:
@@ -422,7 +481,11 @@ def test_feature_claim_allocate_reuses_requested_issue_in_second_probe(monkeypat
 
     monkeypatch.setattr(validator, "_github_umbrella", lambda *_args: None)
     monkeypatch.setattr(validator, "_git_refs", lambda _root, strict=False: ["codex/001-old"])
-    monkeypatch.setattr(validator, "_github_ids", lambda _root, **kwargs: seen.append(kwargs.get("exclude_issue")) or set())
+    def github_ids(_root, **kwargs):
+        seen.append(kwargs.get("exclude_issue"))
+        return {2} if kwargs["candidates"] == {2} else set()
+
+    monkeypatch.setattr(validator, "_github_ids", github_ids)
 
     assert validator.main(
         [
@@ -432,7 +495,7 @@ def test_feature_claim_allocate_reuses_requested_issue_in_second_probe(monkeypat
             "--issue-number",
             "6090",
             "--branch",
-            "codex/002-x",
+            "codex/003-x",
             "--slug",
             "x",
             "--json",
@@ -697,6 +760,7 @@ def test_feature_closeout_verifies_github_workflow_conclusion_and_head_sha(monke
         "body": "Refs #6337",
     }
     monkeypatch.setattr(validator, "_github_pr", lambda _repo, _number: pr)
+    monkeypatch.setattr(validator, "_github_pr_checks", lambda *_args: {})
     assert validator.verify_feature_runs(
         "yshishenya/graf",
         [issue],
@@ -1080,3 +1144,101 @@ def test_process_changed_legacy_scan_collects_committed_and_worktree_specs(tmp_p
         Path("specs/001-old/spec.md"),
         Path("specs/002-new/spec.md"),
     ]
+
+
+def test_single_issue_live_cli_checks_actual_pr_and_run(tmp_path, monkeypatch):
+    import sys
+    validator = load_script('validate-issue-closeout')
+    issue_path = tmp_path / 'issue.json'
+    tasks_path = tmp_path / 'tasks.md'
+    issue_path.write_text(json.dumps(_closeout_issue(_closeout_comment())))
+    tasks_path.write_text('- [X] T001 Проверить (Issue #6337)\n')
+    monkeypatch.setattr(sys, 'argv', ['validate-issue-closeout', '--issue-json', str(issue_path),
+        '--tasks', str(tasks_path), '--expected-sha', 'a'*40, '--repo', 'yshishenya/graf', '--verify-live'])
+    pr = {'mergedAt': '2026-09-08T00:00:00Z', 'state': 'MERGED',
+          'headRefOid': 'a'*40, 'body': 'Refs #6337'}
+    run = {'conclusion': 'success', 'workflowName': 'governance-fast', 'event': 'pull_request',
+           'workflowPath': '.github/workflows/governance-fast.yml', 'pullRequestNumbers': [6383], 'headSha': 'a'*40}
+    monkeypatch.setattr(validator, '_github_pr', lambda *_a: pr)
+    monkeypatch.setattr(validator, '_github_pr_checks', lambda *_a: {})
+    monkeypatch.setattr(validator, '_github_run', lambda *_a: run)
+    assert validator.main() == 0
+    # An unrelated expected SHA hidden elsewhere in the comment cannot stand in
+    # for the actual PR's tested SHA.
+    altered = _closeout_comment().replace('Exact source SHA: '+ 'a'*40, 'Exact source SHA: '+ 'b'*40)
+    issue_path.write_text(json.dumps(_closeout_issue(altered)))
+    sha_index = sys.argv.index('--expected-sha') + 1
+    sys.argv[sha_index] = 'b'*40
+    assert validator.main() == 1
+    sys.argv[sha_index] = 'a'*40
+    issue_path.write_text(json.dumps(_closeout_issue(_closeout_comment())))
+    pr['state'] = 'OPEN'
+    assert validator.main() == 1  # a green run does not prove merge
+    pr['state'] = 'MERGED'
+    run['headSha'] = 'b'*40
+    assert validator.main() == 1
+    run['headSha'] = 'a'*40
+    run['conclusion'] = 'failure'
+    assert validator.main() == 1
+    tasks_path.write_text('- [ ] T001 Проверить (Issue #6337)\n')
+    monkeypatch.setattr(validator, '_github_run', lambda *_a: (_ for _ in ()).throw(AssertionError('unchecked task reached network')))
+    assert validator.main() == 1
+
+
+def test_single_issue_live_cli_requires_repo(tmp_path, monkeypatch):
+    import sys
+    import pytest
+    validator = load_script('validate-issue-closeout')
+    monkeypatch.setattr(sys, 'argv', ['validate-issue-closeout', '--verify-live', '--issue-json', 'issue.json',
+        '--tasks', 'tasks.md', '--expected-sha', 'a'*40])
+    with pytest.raises(SystemExit) as error:
+        validator.main()
+    assert error.value.code == 2
+
+
+def test_installed_workflow_cannot_finish_at_implementation():
+    import yaml
+    workflow = yaml.safe_load((ROOT / '.specify/workflows/speckit/workflow.yml').read_text())
+    steps = workflow['steps']
+    commands = [step['command'] for step in steps if 'command' in step]
+    assert commands == ['speckit.'+name for name in (
+        'specify', 'clarify', 'plan', 'checklist', 'tasks', 'analyze',
+        'taskstoissues', 'implement', 'converge', 'taskstoissues')]
+    ids = [step['id'] for step in steps]
+    assert len(ids) == len(set(ids))
+    assert ids.index('validation-release') < ids.index('tracker-closeout') < ids.index('review-closeout')
+    assert ids.index('converge') < ids.index('review-convergence') < ids.index('validation-release')
+    convergence_gate = next(step for step in steps if step['id'] == 'review-convergence')
+    assert convergence_gate['type'] == 'gate' and convergence_gate['on_reject'] == 'abort'
+    assert 'taskstoissues → implement' in convergence_gate['message']
+
+    closeout = next(step for step in steps if step['id'] == 'tracker-closeout')
+    assert closeout['input']['args'].startswith('closeout:')
+    assert '--verify-live' in closeout['input']['args']
+    assert steps[-1]['type'] == 'gate' and steps[-1]['on_reject'] == 'abort'
+    assert 'tracker pending' in steps[-1]['message']
+    skill = (ROOT / '.agents/skills/speckit-taskstoissues/SKILL.md').read_text()
+    assert skill.index('## Closeout mode') < skill.index('## Outline')
+    assert '--verify-live' in skill and 'This mode creates no new issues' in skill
+
+
+def test_closeout_requires_current_full_pr_check_set(monkeypatch):
+    validator = load_script("validate-issue-closeout")
+    issue = _closeout_issue(_closeout_comment())
+    monkeypatch.setattr(validator, "_github_pr", lambda *_args: {
+        "state": "MERGED", "mergedAt": "2026-09-13T00:00:00Z",
+        "headRefOid": "a"*40, "body": "Refs #6337",
+    })
+    monkeypatch.setattr(validator, "_github_run", lambda *_args: {
+        "conclusion": "success", "workflowName": "governance-fast", "headSha": "a"*40,
+        "event": "pull_request", "workflowPath": ".github/workflows/governance-fast.yml",
+        "pullRequestNumbers": [6383],
+    })
+    calls = []
+    def checks(*args):
+        calls.append(args)
+        raise ValueError("stale metadata or missing native proof")
+    monkeypatch.setattr(validator, "_github_pr_checks", checks)
+    errors = validator.verify_feature_runs("yshishenya/graf", [issue], "a"*40)
+    assert calls == [("yshishenya/graf", 6383, "a"*40, "123")]
+    assert any("current complete PR checks" in error for error in errors)

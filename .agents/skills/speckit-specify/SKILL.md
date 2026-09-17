@@ -50,7 +50,7 @@ You **MUST** consider the user input before proceeding (if not empty).
 
     Wait for the result of the hook command before proceeding to the Outline.
     ```
-    After emitting the block above you MUST actually invoke the hook and wait for it to finish before continuing. Run it the same way you would run the command yourself in this agent/session (the invocation may differ from the literal `{command}` id shown above, e.g. a skills-mode agent runs it as `/skill:speckit-...` or `$speckit-...`). Emitting the block alone does not run the hook. Before invocation, classify the hook as read-only or state-changing. Commit, publish, deploy, destructive, or other state-changing hooks require explicit user confirmation at this point even when `optional: false`; without confirmation, STOP instead of executing them.
+    After emitting the block above you MUST actually invoke the hook and wait for it to finish before continuing. Run it the same way you would run the command yourself in this agent/session (the invocation may differ from the literal `{command}` id shown above, e.g. a skills-mode agent runs it as `/skill:speckit-...` or `$speckit-...`). Emitting the block alone does not run the hook. Before invocation, classify the hook as read-only or state-changing. Commit, publish, deploy, destructive, or other state-changing hooks require explicit user confirmation at this point even when `optional: false`; only enabled `after_constitution`, `after_specify`, `after_clarify`, `after_plan`, `after_checklist`, `after_tasks`, and `after_analyze` hooks that invoke the Spec Kit auto-commit command are pre-approved, and only after their completed documentation-stage change scope has been checked. `after_implement` is never covered by this exception and always requires an explicit user-approved implementation commit. Without confirmation, STOP instead of executing publish, deploy, destructive, or other non-auto-commit state changes.
 - If no hooks are registered or `.specify/extensions.yml` does not exist, skip silently
 
 ## Outline
@@ -73,7 +73,7 @@ Given that feature description, do this:
 
 2. **Branch creation** (optional, via hook):
 
-   If a `before_specify` hook ran successfully in the Pre-Execution Checks above, it will have created/switched to a git branch and output JSON containing `BRANCH_NAME` and `FEATURE_NUM`. Note these values for reference, but the branch name does **not** dictate the spec directory name.
+   If a `before_specify` hook ran successfully in the Pre-Execution Checks above, it will have created/switched to a git branch and output JSON containing `BRANCH_NAME` and `FEATURE_NUM`. Keep these values for the specification step. In repositories with `scripts/claim-feature.py`, the reserved `FEATURE_NUM` is the shared identity for the branch, spec directory and tracker; never allocate a second number for the directory.
 
    If the user explicitly provided `GIT_BRANCH_NAME`, pass it through to the hook so the branch script uses the exact value as the branch name (bypassing all prefix/suffix generation).
 
@@ -81,7 +81,16 @@ Given that feature description, do this:
 
    Specs live under the default `specs/` directory unless the user explicitly provides `SPECIFY_FEATURE_DIRECTORY`.
 
-   **Resolution order for `SPECIFY_FEATURE_DIRECTORY`**:
+   **Repository allocator takes precedence**:
+   - If `scripts/claim-feature.py` exists, use the reservation from the successful branch hook and its complete `.specify/feature.json`; do not independently scan `specs/`, increment a number, or call the allocator for another suggestion after reserving.
+   - Before creating any directory, verify that the pointer's `feature_id` equals the hook's `FEATURE_NUM`, its `branch` equals `BRANCH_NAME` and the current Git branch, and its directory has that exact numeric prefix. A stale or mismatched pointer is a blocking error, not permission to overwrite it.
+   - If no reservation exists for this invocation, run `$speckit-git-feature` first within the user's authorized scope and wait for success. For an existing-feature update, reuse its validated reservation and pointer instead. A failed hook or missing allocator must never fall back to independent numbering in a repository configured with `.specify/feature-numbering.json`.
+   - Default to the reserved `feature_directory`. If the user explicitly provided `SPECIFY_FEATURE_DIRECTORY`, apply the path containment checks below and require its final directory component to start with the exact reserved `<FEATURE_NUM>-`; reject a mismatched number or missing numeric prefix before any write.
+   - New numbers must satisfy `.specify/feature-numbering.json`, including `max_feature_id` when configured. Do not bypass this with timestamp mode or `GRAF_SKIP_FEATURE_CLAIM`. Existing historical feature updates retain their validated identity.
+   - Preserve every field in the existing pointer. When an explicitly requested directory is valid, merge only `feature_directory` and its corresponding entry in `owned_paths`, retaining unrelated owned paths and all claim metadata. Write the merged object atomically; never replace a complete claim pointer with a directory-only object.
+   - The generic resolution and directory-only pointer example below apply only to repositories without a local allocator or numbering policy.
+
+   **Resolution order for `SPECIFY_FEATURE_DIRECTORY` (without a repository allocator)**:
    1. If the user explicitly provided `SPECIFY_FEATURE_DIRECTORY` (e.g., via environment variable, argument, or configuration), resolve it against the repository root and reject absolute paths, `..` segments, symlink escapes, or any target outside the repository
    2. Otherwise, auto-generate it under `specs/`:
       - Check `.specify/init-options.json` for `feature_numbering` (preferred) or `branch_numbering` (deprecated, migration only — will be removed in a future release)
@@ -96,7 +105,7 @@ Given that feature description, do this:
    - Resolve the active `spec-template` through the Spec Kit preset/template resolution stack (equivalent to `specify preset resolve spec-template`)
    - If `SPECIFY_FEATURE_DIRECTORY/spec.md` does not exist, copy the resolved `spec-template` there as the starting point; if it already exists, preserve it and load it for the update flow
    - Set `SPEC_FILE` to `SPECIFY_FEATURE_DIRECTORY/spec.md`
-   - Persist the resolved path to `.specify/feature.json`:
+   - Persist the resolved path to `.specify/feature.json` using the allocator merge rule above when applicable. Only repositories without an allocator use the following directory-only object:
      ```json
      {
        "feature_directory": "<resolved feature dir>"
@@ -107,7 +116,7 @@ Given that feature description, do this:
 
    **IMPORTANT**:
    - You must only create one feature per `$speckit-specify` invocation
-   - The spec directory name and the git branch name are independent — they may be the same but that is the user's choice
+   - The spec directory and branch may have different names, but allocator-backed features must share the same reserved numeric identity
    - A missing spec directory/file is created by this command, never by the hook; an existing spec is updated in place and never overwritten by the template
 
 4. Load the resolved active `spec-template` file to understand required sections.
@@ -125,7 +134,7 @@ Given that feature description, do this:
          - The choice significantly impacts feature scope or user experience
          - Multiple reasonable interpretations exist with different implications
          - No reasonable default exists
-       - **LIMIT: Maximum 3 [NEEDS CLARIFICATION] markers total**
+       - Ask at most 3 initial clarification questions in this command. Preserve every additional material ambiguity as a `[NEEDS CLARIFICATION: ...]` marker for `$speckit-clarify`; never replace a required user decision with a guess to satisfy this question limit.
        - Prioritize clarifications by impact: scope > security/privacy > user experience > technical details
     4. Fill User Scenarios & Testing section
        If no clear user flow: ERROR "Cannot determine user scenarios"
@@ -137,7 +146,7 @@ Given that feature description, do this:
        Include both quantitative metrics (time, performance, volume) and qualitative measures (user satisfaction, task completion)
        Each criterion must be verifiable without implementation details
     7. Identify Key Entities (if data involved)
-    8. Return: SUCCESS (spec ready for planning)
+    8. Return: SUCCESS only when validation passes; unresolved markers mean the spec is ready for `$speckit-clarify`, not planning
 
 7. Write the specification to SPEC_FILE using the template structure, replacing placeholders with concrete details derived from the feature description (arguments) while preserving section order and headings.
 
@@ -198,7 +207,7 @@ Given that feature description, do this:
 
       - **If [NEEDS CLARIFICATION] markers remain**:
         1. Extract all [NEEDS CLARIFICATION: ...] markers from the spec
-        2. **LIMIT CHECK**: If more than 3 markers exist, keep only the 3 most critical (by scope/security/UX impact) and make informed guesses for the rest
+        2. **LIMIT CHECK**: If more than 3 markers exist, ask only the 3 most critical in this command and leave every remaining marker unresolved for `$speckit-clarify`; do not guess or discard material decisions
         3. For each clarification needed (max 3), present options to user in this format:
 
            ```markdown
@@ -229,7 +238,7 @@ Given that feature description, do this:
         6. Present all questions together before waiting for responses
         7. Wait for user to respond with their choices for all questions (e.g., "Q1: A, Q2: Custom - [details], Q3: B")
         8. Update the spec by replacing each [NEEDS CLARIFICATION] marker with the user's selected or provided answer
-        9. Re-run validation after all clarifications are resolved
+        9. Re-run validation; if markers remain, STOP and run `$speckit-clarify` instead of reporting the spec ready for planning
 
    d. **Update Checklist**: After each validation iteration, update the checklist file with current pass/fail status
 
@@ -256,7 +265,7 @@ Check if `.specify/extensions.yml` exists in the project root.
     Executing: `/{command}`
     EXECUTE_COMMAND: {command}
     ```
-    After emitting the block above you MUST actually invoke the hook and wait for it to finish before continuing. Run it the same way you would run the command yourself in this agent/session (the invocation may differ from the literal `{command}` id shown above, e.g. a skills-mode agent runs it as `/skill:speckit-...` or `$speckit-...`). Emitting the block alone does not run the hook. Before invocation, classify the hook as read-only or state-changing. Commit, publish, deploy, destructive, or other state-changing hooks require explicit user confirmation at this point even when `optional: false`; without confirmation, STOP instead of executing them.
+    After emitting the block above you MUST actually invoke the hook and wait for it to finish before continuing. Run it the same way you would run the command yourself in this agent/session (the invocation may differ from the literal `{command}` id shown above, e.g. a skills-mode agent runs it as `/skill:speckit-...` or `$speckit-...`). Emitting the block alone does not run the hook. Before invocation, classify the hook as read-only or state-changing. Commit, publish, deploy, destructive, or other state-changing hooks require explicit user confirmation at this point even when `optional: false`; only enabled `after_constitution`, `after_specify`, `after_clarify`, `after_plan`, `after_checklist`, `after_tasks`, and `after_analyze` hooks that invoke the Spec Kit auto-commit command are pre-approved, and only after their completed documentation-stage change scope has been checked. `after_implement` is never covered by this exception and always requires an explicit user-approved implementation commit. Without confirmation, STOP instead of executing publish, deploy, destructive, or other non-auto-commit state changes.
   - **Optional hook** (`optional: true`):
     ```
     ## Extension Hooks

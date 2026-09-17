@@ -1054,6 +1054,7 @@ async def _merge_preview_from_db(
                 MeetingShareGrant.content_scope,
                 MeetingShareGrant.can_download,
                 MeetingShareGrant.can_export,
+                MeetingShareGrant.can_comment, MeetingShareGrant.can_edit,
                 MeetingShareGrant.expires_at,
             )
             .where(MeetingShareGrant.grantee_user_id.in_((survivor_user_id, source_user_id)))
@@ -1659,6 +1660,8 @@ async def confirm_merge_intent(
                 )
                 existing.can_download = existing.can_download or grant.can_download
                 existing.can_export = existing.can_export or grant.can_export
+                existing.can_comment = existing.can_comment or grant.can_comment
+                existing.can_edit = existing.can_edit or grant.can_edit
                 if existing.expires_at is not None and (
                     grant.expires_at is None
                     or _aware(grant.expires_at) > _aware(existing.expires_at)
@@ -1667,6 +1670,9 @@ async def confirm_merge_intent(
                 grant.status = "revoked"
                 grant.revoked_at = now
                 grant.revoked_by_user_id = intent.survivor_user_id
+
+    from twobrain_rec_server.cabinet.comments import merge_comment_identity
+    await merge_comment_identity(db, intent.source_user_id, intent.survivor_user_id)
 
     source_notification_preference = await db.get(
         BillingNotificationPreference,

@@ -5,7 +5,7 @@
 <nav class="cabinet-sidebar-nav" aria-label="Навигация кабинета">
   {%- for item in items -%}
   {%- set selected = item.id == active -%}
-  <a class="cabinet-sidebar-nav__item{% if selected %} is-selected{% endif %}" href="{{ item.href }}" aria-label="{{ item.label }}" title="{{ item.label }}" data-state="{{ 'selected' if selected else 'normal' }}"{% if selected %} aria-current="page"{% endif %}>
+  <a class="cabinet-sidebar-nav__item{% if selected %} is-selected{% endif %}" href="{{ item.href }}" aria-label="{{ item.label }}" title="{{ item.label }}" data-state="{{ 'selected' if selected else 'normal' }}"{% if item.id == "meetings" %} data-analytics-action="nav_recordings" data-analytics-target="recordings"{% elif item.id == "settings" %} data-analytics-action="settings_opened" data-analytics-target="settings"{% endif %}{% if selected %} aria-current="page"{% endif %}>
     {{ icons.icon(item.icon) }}
     <span class="cabinet-sidebar-nav__label">{{ item.label }}</span>
   </a>
@@ -15,21 +15,17 @@
 
 {% macro cabinet_sidebar(navigation, embedded=False, static_url="", csrf_token=None, settings_navigation=(), settings_active="overview", profile=None) -%}
 <aside class="sidebar" id="cabinet-sidebar" data-cabinet-navigation>
-  <button class="cabinet-rail-toggle" type="button" data-cabinet-rail-toggle aria-label="Показать боковую панель" title="Показать боковую панель" aria-controls="cabinet-sidebar" aria-expanded="false">{{ icons.icon("panel-left-open") }}{{ icons.icon("panel-left-close") }}</button>
+  <button class="cabinet-rail-toggle" type="button" data-cabinet-rail-toggle aria-label="Показать боковую панель" title="Показать боковую панель" aria-controls="cabinet-sidebar" aria-expanded="false">{{ icons.icon("panel-left-open") }}{{ icons.icon("panel-left-close") }}{% if navigation.active == "settings" %}<span class="settings-rail-label">Разделы</span>{% endif %}</button>
   {{ workspace_header("ГРАФ", none, mark_src=static_url ~ "/graf-icon.png", wordmark_src=static_url ~ "/graf-wordmark-dark.png", wordmark_srcset=static_url ~ "/graf-wordmark-dark@2x.png 2x") }}
   {% if navigation.active == "settings" %}
   <nav class="cabinet-sidebar-nav cabinet-sidebar-nav--settings" aria-label="Навигация кабинета" data-settings-primary-nav>
-    <a class="cabinet-sidebar-nav__item cabinet-sidebar-nav__item--back" href="{{ '/desktop/meetings' if embedded else '/meetings' }}" aria-label="К встречам" title="К встречам" data-settings-primary-nav-item="meetings">
+    <a class="cabinet-sidebar-nav__item cabinet-sidebar-nav__item--back" href="{{ '/desktop/meetings' if embedded else '/meetings' }}" aria-label="К встречам" title="К встречам" data-settings-primary-nav-item="meetings" data-analytics-action="nav_recordings" data-analytics-target="recordings">
       {{ icons.icon("calendar-days") }}
       <span class="cabinet-sidebar-nav__label">К встречам</span>
     </a>
-    <span class="cabinet-sidebar-nav__section-label">Настройки</span>
-    <a class="cabinet-sidebar-nav__item{% if settings_active == 'overview' %} is-selected{% endif %}" href="{{ '/desktop/settings' if embedded else '/settings' }}" aria-label="Обзор" title="Обзор" data-settings-primary-nav-item="overview"{% if settings_active == 'overview' %} aria-current="page"{% endif %}>
-      {{ icons.icon("settings") }}
-      <span class="cabinet-sidebar-nav__label">Обзор</span>
-    </a>
     {% for item in settings_navigation %}
-    <a class="cabinet-sidebar-nav__item{% if item.id == settings_active %} is-selected{% endif %}" href="{{ item.href }}" aria-label="{{ item.label }}" title="{{ item.label }}" data-settings-primary-nav-item="{{ item.id }}"{% if item.id == settings_active %} aria-current="page"{% endif %}>
+    {% if loop.changed(item.group_label) %}<span class="cabinet-sidebar-nav__section-label">{{ item.group_label }}</span>{% endif %}
+    <a class="cabinet-sidebar-nav__item{% if item.id == settings_active %} is-selected{% endif %}" href="{{ item.href }}" aria-label="{{ item.label }}" title="{{ item.label }}" data-settings-primary-nav-item="{{ item.id }}"{% if item.id == "calendar" %} data-analytics-action="calendar_settings_opened" data-analytics-target="calendar_settings"{% endif %}{% if item.id == settings_active %} aria-current="page"{% endif %}>
       {{ icons.icon(item.icon) }}
       <span class="cabinet-sidebar-nav__label">{{ item.label }}</span>
     </a>
@@ -44,29 +40,32 @@
   <a class="sidebar-download" data-sidebar-download href="/download" title="Скачать приложение">{{ icons.icon("download") }}<span class="sidebar-download__label">Скачать приложение</span></a>
   {%- endif %}
   <div class="sidebar-foot">
+    {% if navigation.active != "settings" %}{% include "cabinet/components/notification_inbox.html" %}{% endif %}
     {% set profile_name = profile.display_name if profile and profile.display_name else "Профиль" %}
     {% set profile_email = profile.primary_email if profile and profile.primary_email else none %}
     <div class="sidebar-profile" data-profile-menu-root>
       <button class="sidebar-profile__trigger" type="button" data-profile-menu-trigger aria-label="Открыть меню профиля" aria-controls="cabinet-profile-menu" aria-expanded="false" title="Открыть меню профиля">
         <span class="sidebar-profile__icon" aria-hidden="true">{{ icons.icon("users-round") }}</span>
-        <span class="sidebar-profile__copy"><strong class="sidebar-profile__name">{{ profile_name }}</strong>{% if profile_email %}<span class="sidebar-profile__email">{{ profile_email }}</span>{% endif %}</span>
+        <span class="sidebar-profile__copy"><strong class="sidebar-profile__name" title="{{ profile_name }}">{{ profile_name }}</strong>{% if profile_email %}<span class="sidebar-profile__email" title="{{ profile_email }}">{{ profile_email }}</span>{% endif %}</span>
       </button>
       <div class="sidebar-profile-menu" id="cabinet-profile-menu" data-profile-menu popover="manual" hidden>
         <a class="sidebar-profile-menu__account" href="{{ '/desktop/settings/account' if embedded else '/settings/account' }}" data-profile-menu-item="account">
           <span class="sidebar-profile-menu__account-icon" aria-hidden="true">{{ icons.icon("users-round") }}</span>
-          <span class="sidebar-profile-menu__account-copy"><strong>{{ profile_name }}</strong>{% if profile_email %}<span>{{ profile_email }}</span>{% endif %}</span>
+          <span class="sidebar-profile-menu__account-copy"><strong title="{{ profile_name }}">{{ profile_name }}</strong>{% if profile_email %}<span title="{{ profile_email }}">{{ profile_email }}</span>{% endif %}</span>
         </a>
         <div class="sidebar-profile-menu__separator" role="separator"></div>
         {% if profile %}<details class="sidebar-profile-menu__disclosure">
           <summary class="sidebar-profile-menu__item">{{ icons.icon("sun") }}<span>Вид</span></summary>
           <div class="sidebar-profile-menu__submenu" data-profile-menu-submenu>
-            <form class="sidebar-profile-menu__theme-form" data-account-preferences data-account-preferences-auto-save="true" method="post" action="{{ '/desktop/settings/account/preferences' if embedded else '/settings/account/preferences' }}">
+            <form class="sidebar-profile-menu__theme-form" data-account-preferences data-settings-autosave method="post" action="{{ '/desktop/settings/account/preferences' if embedded else '/settings/account/preferences' }}"><fieldset data-settings-inputs disabled>
               {{ csrf_field(csrf_token) }}
+              <input type="hidden" name="return_to" value="" data-account-preferences-return>
               {{ ui.theme_picker(profile.theme) }}
-            </form>
+              <span class="settings-form-status" data-settings-form-status hidden role="status" aria-live="polite"></span>
+            </fieldset></form>
           </div>
         </details>{% endif %}
-        <a class="sidebar-profile-menu__item" href="{{ '/desktop/settings' if embedded else '/settings' }}" data-profile-menu-item="settings">{{ icons.icon("settings") }}<span>Настройки</span></a>
+        <a class="sidebar-profile-menu__item" href="{{ '/desktop/settings' if embedded else '/settings' }}" data-profile-menu-item="settings" data-analytics-action="settings_opened" data-analytics-target="settings">{{ icons.icon("settings") }}<span>Настройки</span></a>
         <div class="sidebar-profile-menu__separator" role="separator"></div>
         <details class="sidebar-profile-menu__disclosure">
           <summary class="sidebar-profile-menu__item">{{ icons.icon("info") }}<span>Решение проблем</span></summary>
@@ -98,16 +97,16 @@
 <div class="app-shell{% if embedded %} desktop-embedded{% endif %}" data-shell-scroll="contained" data-cabinet-shell data-active-nav="{{ navigation.active }}" data-rail-tooltip="Показать боковую панель">
   <a class="skip-link" href="#{{ skip_target }}">К содержимому</a>
   {% if not embedded %}<noscript class="cabinet-mobile-noscript"><nav class="cabinet-mobile-noscript-nav" aria-label="Навигация кабинета без JavaScript">
+    <a href="/notifications">Уведомления</a>
     {% for item in navigation.items %}<a href="{{ item.href }}"{% if item.id == navigation.active %} data-current="true" aria-label="Текущая страница: {{ item.label }}"{% endif %}>{{ item.label }}</a>{% endfor %}
     {% if navigation.active == "settings" %}
-    <a href="/settings">Обзор настроек</a>
     {% for item in settings_navigation %}<a href="{{ item.href }}"{% if item.id == settings_active %} data-current="true" aria-label="Текущая страница: {{ item.label }}"{% endif %}>{{ item.label }}</a>{% endfor %}
     {% endif %}
   </nav></noscript>{% endif %}
   {% if not embedded %}<nav class="cabinet-mobile-nav" aria-label="Основная навигация кабинета">
     <a class="cabinet-mobile-nav__brand" href="/meetings" aria-label="GRAF — мои встречи"><span aria-hidden="true">Г</span></a>
     <span class="cabinet-mobile-nav__divider" aria-hidden="true"></span>
-    {% for item in navigation.items %}<a class="cabinet-mobile-nav__item{% if item.id == navigation.active %} is-selected{% endif %}" href="{{ item.href }}" aria-label="{% if item.id == navigation.active %}Текущий раздел: {% endif %}{{ item.label }}" title="{{ item.label }}" data-state="{{ 'selected' if item.id == navigation.active else 'normal' }}">{{ icons.icon(item.icon) }}<span>{{ item.label }}</span></a>{% endfor %}
+    {% for item in navigation.items %}<a class="cabinet-mobile-nav__item{% if item.id == navigation.active %} is-selected{% endif %}" href="{{ item.href }}" aria-label="{% if item.id == navigation.active %}Текущий раздел: {% endif %}{{ item.label }}" title="{{ item.label }}" data-state="{{ 'selected' if item.id == navigation.active else 'normal' }}"{% if item.id == "meetings" %} data-analytics-action="nav_recordings" data-analytics-target="recordings"{% elif item.id == "settings" %} data-analytics-action="settings_opened" data-analytics-target="settings"{% endif %}>{{ icons.icon(item.icon) }}<span>{{ item.label }}</span></a>{% endfor %}
   </nav>{% endif %}
   {{ cabinet_sidebar(navigation, embedded=embedded, static_url=static_url, csrf_token=csrf_token, settings_navigation=settings_navigation, settings_active=settings_active, profile=profile) }}
   {% if content is not none %}
@@ -165,12 +164,12 @@
 
 
 {% macro trial_confirmation(csrf_token=None, starts_at=None, ends_at=None, primary=False) -%}
-<details class="billing-coupon" data-trial-confirmation>
+<details class="billing-trial-confirmation" data-trial-confirmation>
   <summary class="button quiet"{% if primary %} data-billing-primary{% endif %}>Начать 7 дней бесплатно</summary>
   <p><strong>Карта не нужна. Автосписания не будет.</strong></p>
   <p>Пробный период доступен один раз. После семи дней автоматически включится Free.</p>
   {% if starts_at and ends_at %}<p>На момент открытия страницы предварительный период: с {{ starts_at }} до {{ ends_at }}.</p>{% endif %}
-  <p>Семь полных дней начнутся при окончательном подтверждении. Точные даты появятся здесь после запуска. Чтобы отказаться, сверните этот блок.</p>
+  <p>Семь дней начнутся после подтверждения. Точные даты появятся после запуска.</p>
   <form action="/billing/trial/activate" method="post">
     {{ csrf_field(csrf_token) }}
     <input type="hidden" name="confirmation" value="start_trial">

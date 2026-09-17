@@ -85,7 +85,7 @@ def test_merge_page_continues_email_task_with_compact_ia_and_actual_providers() 
 
     assert "<h1>Один профиль — все способы входа</h1>" in page
     assert '<h2 id="account-linking-result-title">Что изменится</h2>' in page
-    assert page.count("<h2") == 1
+    assert page.split('<main id="cabinet-main"', 1)[1].split("</main>", 1)[0].count("<h2") == 1
     for copy in (
         "Сейчас",
         "После подключения",
@@ -210,10 +210,10 @@ def test_provider_link_restart_is_only_available_for_terminal_recovery_states(
 @pytest.mark.parametrize(
     ("result", "title", "role"),
     (
-        ("callback_verified", "Вход подтверждён", "status"),
+        ("callback_verified", "Вход подтвержден", "status"),
         ("provider_link_denied", "Подключение отклонено", "alert"),
         ("provider_link_invalid", "Ссылка недействительна", "alert"),
-        ("provider_link_expired", "Срок подключения истёк", "alert"),
+        ("provider_link_expired", "Срок подключения истек", "alert"),
         ("provider_link_reused", "Подтверждение уже использовано", "alert"),
         ("provider_link_unavailable", "Подключение временно недоступно", "alert"),
     ),
@@ -279,9 +279,9 @@ def test_settings_and_login_results_share_the_focusable_outcome_contract() -> No
     for page in (settings, login):
         assert page.count("data-outcome-focus") == 1
         assert re.search(r'tabindex="-1"[^>]*data-outcome-focus', page)
-    assert settings.count('role="alert"') == 1
-    assert login.count('role="status"') == 1
-    assert "Яндекс ID подключён" in login
+    assert 'role="alert"' in re.search(r"<[^>]*data-outcome-focus[^>]*>", settings).group()
+    assert 'role="status"' in re.search(r"<[^>]*data-outcome-focus[^>]*>", login).group()
+    assert "Яндекс ID подключен" in login
 
 
 def test_stale_email_merge_can_start_a_fresh_code_flow_inline() -> None:

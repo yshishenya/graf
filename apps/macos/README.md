@@ -1,5 +1,11 @@
 # GRAF macOS Architecture
 
+> Проверки разработки выполняются только в `/Applications/GRAF Dev.app` через
+> `infra/scripts/dev-harness.sh`: [инструкция](/docs/agent-guidance/local-development.md).
+> Команды Installer ниже предназначены для подготовки и проверки релизных
+> артефактов; они не заменяют Dev-стенд и не разрешают устанавливать ещё одну
+> тестовую копию приложения.
+
 This directory contains the macOS system-audio-first product. The retired
 separate audio-routing implementation is not a build target, runtime option, or
 installer component.

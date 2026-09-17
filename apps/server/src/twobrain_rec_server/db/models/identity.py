@@ -70,7 +70,7 @@ class UserIdentity(Base):
     external_subject: Mapped[str] = mapped_column(String(240), nullable=False)
     display_name: Mapped[str | None] = mapped_column(String(240))
     locale: Mapped[str] = mapped_column(String(16), nullable=False, default="ru-RU")
-    timezone: Mapped[str] = mapped_column(String(64), nullable=False, default="Europe/Moscow")
+    timezone: Mapped[str | None] = mapped_column(String(64), nullable=True)
     theme: Mapped[str] = mapped_column(String(16), nullable=False, default="system")
     status: Mapped[str] = mapped_column(String(32), default="active")
     merged_into_user_id: Mapped[UUID | None] = mapped_column(ForeignKey("user_identities.id"))

@@ -1,3 +1,5 @@
+> Путь запуска обновлён: используйте единственный `/Applications/GRAF Dev.app` через `infra/scripts/dev-harness.sh`; см. [действующую инструкцию](/docs/agent-guidance/local-development.md). Старые отдельные приложения больше не собираются.
+
 # Quickstart Validation
 
 ## Focused native checks
@@ -10,8 +12,8 @@ swift build --package-path apps/macos --product TwoBrainRecApp
 
 ## Manual UX check
 
-1. Запустить локальное macOS-приложение через
-   `apps/macos/Scripts/run-local-app.sh`.
+1. Выполнить build/promote/smoke через Dev harness по действующей инструкции
+   и открыть `/Applications/GRAF Dev.app`.
 2. Проверить в dark и light theme: Record, Stop, Pause/Resume, recovery,
    permission, support и settings buttons.
 3. Сверить с веб-кабинетом: видимая высота 32 px, radius 7 px, primary

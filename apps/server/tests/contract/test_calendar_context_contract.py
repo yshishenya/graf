@@ -289,7 +289,7 @@ def test_meeting_calendar_context_link_and_unlink_contract(client) -> None:
     assert relinked.json()["event_id"] == event_id
 
 
-def test_upcoming_calendar_contract_returns_safe_roster_counts_without_attendee_dump(
+def test_upcoming_calendar_contract_returns_full_owner_roster(
     client,
 ) -> None:
     _seed_calendar_event(client)
@@ -304,8 +304,8 @@ def test_upcoming_calendar_contract_returns_safe_roster_counts_without_attendee_
     assert event["attendee_count"] == 2
     assert event["roster_state"] == "available"
     assert event["recipient_candidate_count"] == 2
-    assert "organizer@example.test" not in upcoming.text
-    assert "attendee@example.test" not in upcoming.text
+    assert "organizer@example.test" in upcoming.text
+    assert "attendee@example.test" in upcoming.text
 
 
 def _seed_calendar_event(client) -> str:
@@ -352,6 +352,7 @@ def _seed_calendar_event(client) -> str:
                         ends_at=starts_at + timedelta(hours=1),
                     )
                 ),
+                credential_encryption_key=client.app.state.credential_encryption_key,
             )
             await session.commit()
             return str(snapshot.id)

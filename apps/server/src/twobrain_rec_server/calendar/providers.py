@@ -56,6 +56,8 @@ class CalendarEventPage:
     next_page_token: str | None = None
     next_sync_token: str | None = None
     full_resync_required: bool = False
+    deleted_event_ids: tuple[str, ...] = ()
+    deleted_ical_uids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

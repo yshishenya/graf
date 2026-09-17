@@ -55,6 +55,7 @@ from twobrain_rec_server.db.models import (
     ExternalCalendar,
     Meeting,
     RecordingCalendarContextLink,
+    UserIdentity,
 )
 from twobrain_rec_server.domain.metadata_text import safe_metadata_text
 from twobrain_rec_server.processing.fences import meeting_is_deleted_or_deleting
@@ -175,7 +176,7 @@ def calendar_duplicate_group_key(event: CalendarEventSnapshot) -> str:
         normalized_hashes[0] if normalized_hashes else conference_summary.get("url_hash")
     )
     if meeting_link_key:
-        return f"link:{meeting_link_key}"
+        return f"link:{meeting_link_key}:{event.starts_at.astimezone(UTC).isoformat()}:{event.ends_at.astimezone(UTC).isoformat()}"
     provider_event_id = getattr(event, "provider_event_id", None)
     calendar_source_id = getattr(event, "calendar_source_id", None)
     external_calendar_id = getattr(event, "external_calendar_id", None)
@@ -279,6 +280,7 @@ async def save_calendar_settings_preferences(
     tenant_scope: TenantScope,
     **updates: bool,
 ) -> CalendarSettingsPreference:
+    await db.get(UserIdentity, tenant_scope.user_id, with_for_update=True)
     preference = await load_calendar_settings_preferences(db, tenant_scope)
     allowed = {
         "join_prompt_enabled",
@@ -470,12 +472,20 @@ async def replace_selected_calendars(
     selected_provider_calendar_ids: list[str],
     *,
     allow_missing: bool = True,
+    expected_selected_ids: list[str] | None = None,
 ) -> None:
     selected_ids = selected_calendar_ids_or_error(selected_provider_calendar_ids)
+    await db.flush()
+    await db.refresh(source, with_for_update=True)
     existing = {
         calendar.provider_calendar_id: calendar
         for calendar in await calendars_for_source(db, source.id)
     }
+    if expected_selected_ids is not None and set(expected_selected_ids) != {
+        calendar.provider_calendar_id for calendar in existing.values() if calendar.selected
+    }:
+        raise ProblemDetail(status=409, code="calendar_selection_conflict",
+                            title="Выбор календарей изменился на другом устройстве")
     for calendar in existing.values():
         calendar.selected = False
         if calendar.visibility == "selected":
@@ -502,6 +512,14 @@ async def replace_selected_calendars(
         source.selected_calendar_count += sum(
             1 for provider_calendar_id in selected_ids if provider_calendar_id not in existing
         )
+
+    source.last_sync_started_at = datetime.now(UTC)
+    source.sync_horizon_start, source.sync_horizon_end = future_sync_horizon(
+        source.last_sync_started_at
+    )
+    if source.connection_state == "active" and source.credential_state == "sealed":
+        source.sync_state = "queued" if source.selected_calendar_count else "never_synced"
+        source.last_safe_error_code = None
 
 
 def selected_calendar_ids_or_error(values: Iterable[str]) -> list[str]:
@@ -568,19 +586,25 @@ async def request_source_sync(
     failure_reason: str | None = None,
 ) -> CalendarSource:
     source = await get_source(db, tenant_scope, source_id)
+    await db.refresh(source, with_for_update=True)
     if source.disconnected_at is not None or source.connection_state == "disconnected":
         source.sync_state = "failed_closed"
         return source
     if source.connection_state in {"disabled", "disabled_by_policy", "needs_action"}:
         return source
-    if source.sync_state in {"queued", "syncing"}:
+    if source.sync_state == "queued":
         return source
-    if source.sync_state in {
-        "credential_failed",
-        "provider_unavailable",
-        "rate_limited",
-        "failed_closed",
-    }:
+    if (
+        source.sync_state == "syncing"
+        and source.last_sync_started_at
+        and datetime.now(UTC) - source.last_sync_started_at < timedelta(minutes=5)
+    ):
+        return source
+    if source.sync_state == "credential_failed" or (
+        source.sync_state == "failed_closed"
+        and source.last_safe_error_code
+        not in {"provider_unavailable", "credential_encryption_unavailable"}
+    ):
         return source
     now = datetime.now(UTC)
     if failure_reason:
@@ -626,6 +650,8 @@ async def list_upcoming_events(
             CalendarEventSnapshot.workspace_id == tenant_scope.workspace_id,
             CalendarSource.workspace_id == tenant_scope.workspace_id,
             CalendarSource.owner_user_id == tenant_scope.user_id,
+            CalendarSource.connection_state == "active",
+            CalendarSource.disconnected_at.is_(None),
             ExternalCalendar.workspace_id == tenant_scope.workspace_id,
             ExternalCalendar.selected.is_(True),
             ExternalCalendar.visibility.in_(SELECTABLE_CALENDAR_VISIBILITIES),
@@ -657,7 +683,7 @@ def _apply_calendar_preference_query_filters(query, preference: CalendarSettings
     if not preference.include_private_free_busy_prompt_candidates:
         query = query.where(
             CalendarEventSnapshot.safe_to_show_in_list.is_(True),
-            CalendarEventSnapshot.privacy_class.notin_({"private", "free_busy", "free_busy_only"}),
+            CalendarEventSnapshot.privacy_class.notin_({"free_busy", "free_busy_only"}),
         )
     return query
 
@@ -678,14 +704,13 @@ def calendar_event_matches_preferences(
     )
     if event.all_day and not include_all_day:
         return False
-    if (
-        event.privacy_class in {"private", "free_busy", "free_busy_only"}
-        or not event.safe_to_show_in_list
-    ):
+    if event.privacy_class in {"free_busy", "free_busy_only"} or not event.safe_to_show_in_list:
         return include_private
     participant_count = _event_participant_count(event)
     has_link_or_location = bool(
-        (event.conference_summary_json or {}).get("meeting_link_present") or event.location
+        (event.conference_summary_json or {}).get("meeting_link_present")
+        or event.location
+        or (event.provider_extras_json or {}).get("location_present")
     )
     if participant_count > 0 or has_link_or_location:
         return True

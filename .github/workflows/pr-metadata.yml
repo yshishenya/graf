@@ -1,0 +1,105 @@
+name: pr-metadata
+
+on:
+  pull_request_target:
+    branches: [master]
+    types: [opened, synchronize, reopened, ready_for_review, edited]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: graf-pr-metadata-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  pr-metadata:
+    name: pr-metadata
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout trusted policy SHA
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Fetch current PR
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]] || { echo "Invalid PR number" >&2; exit 1; }
+          if ! gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" > "$RUNNER_TEMP/current-pr.json" 2>/dev/null; then
+            echo "Cannot fetch current PR metadata" >&2
+            exit 1
+          fi
+
+      - name: Fetch PR Git objects
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -I - "$RUNNER_TEMP/current-pr.json" > "$RUNNER_TEMP/pr-object-shas" <<'PY'
+          import json, re, sys
+          try:
+              pr = json.load(open(sys.argv[1]))
+              values = [pr["head"]["sha"], pr["base"]["sha"]]
+              if pr.get("merged"):
+                  values.append(pr["merge_commit_sha"])
+              if not all(isinstance(sha, str) and re.fullmatch(r"[0-9a-f]{40}", sha) for sha in values):
+                  raise ValueError()
+          except (OSError, ValueError, TypeError, KeyError):
+              raise SystemExit("Cannot resolve PR Git object identity")
+          print("\n".join(sorted(set(values))))
+          PY
+          while IFS= read -r sha; do
+            if ! git cat-file -e "$sha^{commit}" 2>/dev/null; then
+              git fetch --no-tags origin "$sha" > /dev/null 2>&1 || { echo "Cannot fetch PR Git object" >&2; exit 1; }
+            fi
+          done < "$RUNNER_TEMP/pr-object-shas"
+
+      - name: Validate current PR metadata
+        env:
+          POLICY_SHA: ${{ github.workflow_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -I scripts/validate-pr-metadata.py \
+            --event "$GITHUB_EVENT_PATH" --current-pr "$RUNNER_TEMP/current-pr.json" \
+            --trusted-policy-sha "$POLICY_SHA" --repository "$GITHUB_REPOSITORY"
+
+      - name: Fetch PR after validation
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]] || exit 1
+          if ! gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" > "$RUNNER_TEMP/after-pr.json" 2>/dev/null; then
+            echo "Cannot refresh PR metadata" >&2
+            exit 1
+          fi
+
+      - name: Verify snapshot freshness and write proof
+        shell: bash
+        env:
+          POLICY_SHA: ${{ github.workflow_sha }}
+        run: |
+          set -euo pipefail
+          python3 -I scripts/validate-pr-metadata.py \
+            --event "$GITHUB_EVENT_PATH" --current-pr "$RUNNER_TEMP/current-pr.json" \
+            --current-pr-after "$RUNNER_TEMP/after-pr.json" \
+            --trusted-policy-sha "$POLICY_SHA" --repository "$GITHUB_REPOSITORY" \
+            --result "$RUNNER_TEMP/pr-metadata.json"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: graf-pr-metadata-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/pr-metadata.json
+          if-no-files-found: error
+          retention-days: 90

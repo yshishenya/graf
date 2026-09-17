@@ -34,6 +34,7 @@ from twobrain_rec_server.db.models import (
     Meeting,
     PlaybackNormalizationAttempt,
     PlaybackNormalizationJob,
+    ProcessingWorkflow,
     TrackArtifact,
 )
 from twobrain_rec_server.db.tenant_context import (
@@ -52,7 +53,10 @@ from twobrain_rec_server.normalization.service import (
     inventory_playback_backfill_page,
     run_normalization_job,
 )
-from twobrain_rec_server.normalization.worker import require_schema_head
+from twobrain_rec_server.normalization.worker import (
+    _wake_processing_after_normalization,
+    require_schema_head,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 MIGRATION = (
@@ -64,6 +68,43 @@ RUNTIME_IDENTITY_VERIFY = REPO_ROOT / "apps/server/scripts/verify_runtime_databa
 PROFILE_VERSION = "review_m4a_aac_lc_48k_mono_64k_v1"
 VALIDATION_VERSION = "playback_validator_v1"
 pytestmark = pytest.mark.strict_rls
+
+
+@pytest.mark.asyncio
+async def test_media_role_wakes_current_processing_without_content_or_write_privileges(
+    migrated_postgres_url: str, media_postgres_url: str,
+) -> None:
+    owner_engine = create_async_engine(migrated_postgres_url)
+    media_engine = create_async_engine(media_postgres_url)
+    try:
+        ids = await _seed_revision(owner_engine)
+        other = await _seed_revision(owner_engine)
+        async with async_sessionmaker(owner_engine)() as db:
+            for scope in [ids, other]:
+                db.add(ProcessingWorkflow(workspace_id=scope["workspace_id"], meeting_id=scope["meeting_id"],
+                    media_revision_id=scope["media_revision_id"], workflow_id="processing/" + str(scope["meeting_id"]),
+                    status="waiting_retry", attempt_ordinal=2))
+            await db.commit()
+        calls = []
+        class Temporal:
+            def get_workflow_handle(self, identity):
+                calls.append(identity)
+                return self
+            async def signal(self, _signal):
+                calls.append("signal")
+        async with async_sessionmaker(media_engine)() as db:
+            await apply_tenant_scope(db, TenantScope(**{key: ids[key] for key in ["organization_id", "workspace_id", "user_id", "device_id"]}), context_kind="worker")
+            await _wake_processing_after_normalization(db=db, temporal_client=Temporal(),
+                workspace_id=ids["workspace_id"], meeting_id=ids["meeting_id"], media_revision_id=ids["media_revision_id"])
+            assert calls == ["processing/" + str(ids["meeting_id"]), "signal"]
+            assert await db.scalar(select(ProcessingWorkflow.workflow_id).where(ProcessingWorkflow.workspace_id == other["workspace_id"])) is None
+            for statement in [select(ProcessingWorkflow), update(ProcessingWorkflow).values(status="processed")]:
+                with pytest.raises(DBAPIError):
+                    async with db.begin_nested():
+                        await db.execute(statement)
+    finally:
+        await media_engine.dispose()
+        await owner_engine.dispose()
 
 
 def _load_migration() -> ModuleType:
@@ -133,6 +174,10 @@ async def _create_media_test_role(owner_url: str) -> tuple[str, bool]:
             await conn.execute(text(f"alter role {quoted_role} set row_security = on"))
             await conn.execute(text(f"grant usage on schema public to {quoted_role}"))
             bootstrap = _load_runtime_role_bootstrap()
+            await conn.execute(text(
+                f"grant select ({', '.join(bootstrap.MEDIA_WORKFLOW_COLUMNS)}) "
+                f"on public.processing_workflows to {quoted_role}"
+            ))
             await conn.execute(
                 text(
                     "grant select on "
@@ -537,16 +582,16 @@ def test_postgres_new_tables_force_rls_and_downgrade_restores_maintenance_allowl
 
 @pytest.mark.asyncio
 async def test_runtime_role_bootstrap_is_idempotent_and_verifies_privileges(
-    migrated_postgres_url: str,
+    postgres_isolated_cluster_database_url: str,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    owner_url = make_url(migrated_postgres_url)
+    owner_url = make_url(postgres_isolated_cluster_database_url)
     owner_password = owner_url.password
     if not owner_password:
-        pytest.skip("disposable PostgreSQL owner password is required")
+        pytest.fail("disposable PostgreSQL owner password is required")
 
-    owner_engine = create_async_engine(migrated_postgres_url, isolation_level="AUTOCOMMIT")
+    owner_engine = create_async_engine(postgres_isolated_cluster_database_url, isolation_level="AUTOCOMMIT")
     role_names = [
         "twobrain_rec_app",
         "twobrain_rec_maintenance",
@@ -565,7 +610,7 @@ async def test_runtime_role_bootstrap_is_idempotent_and_verifies_privileges(
                 or 0
             )
         if existing:
-            pytest.skip("runtime-role bootstrap proof requires a disposable role namespace")
+            pytest.fail("runtime-role bootstrap proof requires a disposable role namespace")
 
         owner_secret = tmp_path / "owner"
         app_secret = tmp_path / "app"

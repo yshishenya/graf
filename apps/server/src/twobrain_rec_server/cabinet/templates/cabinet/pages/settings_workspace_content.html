@@ -1,21 +1,11 @@
+{% import "cabinet/components/primitives.html" as ui %}
 {% import "cabinet/components/sections.html" as sections %}
 <main id="cabinet-main" class="cabinet-main" tabindex="-1">
   <div class="cabinet-workspace settings-page">
     <div class="settings-page__content">
-    <header class="cabinet-topbar settings-page__topbar">
-      <div class="page-title">
-        <h1>Пространства</h1>
-      </div>
-    </header>
+    {{ ui.settings_header("Пространства") }}
     {% if workspace_switch_result %}<p class="settings-status" role="status" aria-live="polite">{{ workspace_switch_result }}</p>{% endif %}
-    <section class="settings-section" id="active-workspace" aria-labelledby="active-workspace-title">
-      <div class="settings-section__heading">
-        <div>
-          <span class="settings-scope-badge">Текущее пространство</span>
-          <h2 id="active-workspace-title">Куда сохраняются новые встречи</h2>
-          <p class="muted">Новые встречи и загрузки сохраняются здесь. Уже начатые операции не переносятся.</p>
-        </div>
-      </div>
+    <section class="settings-section" id="active-workspace" aria-label="Доступные пространства">
       {% if workspace_spaces %}
       <ul class="settings-list" aria-label="Доступные пространства">
         {% for space in workspace_spaces %}
@@ -40,9 +30,9 @@
     <section class="settings-section" id="workspace-join-offers" aria-labelledby="workspace-join-offers-title">
       <div class="settings-section__heading">
         <div>
-          <span class="settings-scope-badge">Личная настройка</span>
-          <h2 id="workspace-join-offers-title">Приглашения в рабочие пространства</h2>
-          <p class="muted">Присоединение добавит рабочее пространство, но не перенесёт личные встречи.</p>
+
+          <h2 id="workspace-join-offers-title">Приглашения</h2>
+
         </div>
       </div>
       {% if workspace_offer_result %}<p class="settings-status" role="status" aria-live="polite">{{ workspace_offer_result }}</p>{% endif %}

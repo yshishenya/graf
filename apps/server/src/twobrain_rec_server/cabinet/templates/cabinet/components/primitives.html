@@ -15,7 +15,7 @@
 </label>
 {%- endmacro %}
 
-{% macro switch(name, label, checked=False, disabled=False, value=None, description=None, hint=None, hint_id=None, data_manual_upload_archive=False) -%}
+{% macro switch(name, label, checked=False, disabled=False, value=None, description=None, hint=None, hint_id=None, data_manual_upload_archive=False, local_notification_field=None) -%}
 {% set control_id = name ~ "-switch" %}
 <div class="settings-control-row" data-state="{{ 'disabled' if disabled else 'selected' if checked else 'normal' }}">
   <span class="settings-control-row__copy">
@@ -23,7 +23,7 @@
     {% if description %}<span class="settings-control-row__description">{{ description }}</span>{% endif %}
   </span>
   <label class="cabinet-switch" for="{{ control_id }}">
-    <input id="{{ control_id }}" name="{{ name }}" type="checkbox" role="switch" aria-label="{{ label }}"{% if hint_id %} aria-describedby="{{ hint_id }}"{% endif %}{% if value is not none %} value="{{ value }}"{% endif %}{% if checked %} checked{% endif %}{% if disabled %} disabled aria-disabled="true"{% endif %}{% if data_manual_upload_archive %} data-manual-upload-archive{% endif %}>
+    <input id="{{ control_id }}" name="{{ name }}" type="checkbox" role="switch" aria-label="{{ label }}"{% if hint_id %} aria-describedby="{{ hint_id }}"{% endif %}{% if value is not none %} value="{{ value }}"{% endif %}{% if checked %} checked{% endif %}{% if disabled %} disabled aria-disabled="true"{% endif %}{% if data_manual_upload_archive %} data-manual-upload-archive{% endif %}{% if local_notification_field %} data-local-notification-field="{{ local_notification_field }}"{% endif %}>
     <span class="cabinet-switch__track" aria-hidden="true"></span>
   </label>
 </div>
@@ -44,7 +44,7 @@
 <fieldset class="theme-picker">
   <legend class="field-label">Тема</legend>
   <div class="theme-picker__options">
-    {% for value, label, icon_name in [("light", "Светлая", "sun"), ("dark", "Тёмная", "moon"), ("system", "Системная", "laptop")] %}
+    {% for value, label, icon_name in [("light", "Светлая", "sun"), ("dark", "Темная", "moon"), ("system", "Системная", "laptop")] %}
     <label class="theme-picker__option">
       <input type="radio" name="theme" value="{{ value }}"{% if selected == value %} checked{% endif %}>
       <span>{{ icons.icon(icon_name) }}<span>{{ label }}</span></span>
@@ -52,4 +52,17 @@
     {% endfor %}
   </div>
 </fieldset>
+{%- endmacro %}
+
+{% macro settings_header(title, extra_class="") -%}
+<header class="cabinet-topbar settings-page__topbar {{ extra_class }}" data-settings-header>
+  <div class="page-title"><h1>{{ title }}</h1></div>
+  {% if caller is defined %}{{ caller() }}{% endif %}
+</header>
+{%- endmacro %}
+
+{% macro billing_member_quota_notice(plan_code, threshold, reset_label) -%}
+  {% if plan_code|default(None) == "free" and threshold|default("normal") in ["approaching", "exhausted"] %}
+  <p class="notice notice--warning" role="status" aria-live="polite">{% if threshold == "approaching" %}Лимит обработки скоро закончится.{% else %}Лимит обработки исчерпан: новая обработка, в том числе без сохранения аудио, недоступна.{% endif %} Дождитесь сброса {{ reset_label|default("лимита", true) }} или обратитесь к плательщику для смены тарифа.</p>
+  {% endif %}
 {%- endmacro %}

@@ -1,30 +1,37 @@
+{% import "cabinet/components/primitives.html" as ui %}
 <main id="cabinet-main" class="cabinet-main" tabindex="-1">
   <div class="cabinet-workspace settings-page">
     <div class="settings-page__content">
-    <header class="cabinet-topbar settings-page__topbar">
-      <div class="page-title">
-        <h1>Запись встреч</h1>
+    {{ ui.settings_header("Запись встреч") }}
+    {% if embedded %}
+    <section class="settings-section" aria-labelledby="recording-rules-title" data-recording-settings>
+      <div class="settings-section__heading"><div class="settings-heading-label"><h2 id="recording-rules-title">Автозапись</h2>{{ ui.tooltip("recording-rules-help", "Правила действуют на этом Mac. «Спрашивать»: запись начнется через 8 секунд, если не отказаться.", "Как работает автозапись") }}</div></div>
+      <div data-recording-settings-controls hidden>
+        <label class="settings-control-row">
+          <span class="settings-control-row__copy"><span class="settings-control-row__title">Для всех приложений</span></span>
+          <select data-settings-combobox data-recording-settings-all aria-label="Автозапись для всех приложений">
+            <option value="" disabled>Разные правила</option>
+            <option value="always">Всегда</option><option value="ask">Спрашивать</option><option value="never">Никогда</option>
+          </select>
+        </label>
+        <label class="settings-search">Приложения<input type="search" aria-label="Приложения" data-recording-settings-search placeholder="Найти приложение" autocomplete="off"></label>
+        <div data-recording-settings-targets tabindex="0" role="region" aria-label="Правила записи для приложений"></div>
+        <p class="muted" data-recording-settings-empty hidden>Приложения не найдены. Измените поиск.</p>
       </div>
-    </header>
-    <section class="settings-section" aria-labelledby="recording-handoff-title" data-recording-handoff>
-      <span class="settings-scope-badge">На этом Mac</span>
-      <h2 id="recording-handoff-title">Настройка записи находится в приложении GRAF</h2>
-      <p>Эти настройки действуют только на этом Mac.</p>
-      <ul class="settings-boundary-list">
-        <li><strong>Обнаружение встреч</strong><span>Настраивается в приложении.</span></li>
-        <li><strong>Ручная запись</strong><span>Старт и стоп доступны всегда.</span></li>
-        <li><strong>Веб</strong><span>Показывает записи, но не управляет аудио.</span></li>
-      </ul>
-      {% if embedded %}
-        <a class="button quiet" href="/desktop/settings/meeting-detection">Открыть настройки записи в приложении</a>
-      {% endif %}
+      <template data-recording-settings-select><select data-settings-combobox><option value="always">Всегда</option><option value="ask">Спрашивать</option><option value="never">Никогда</option></select></template>
+      <p class="muted" role="status" aria-live="polite" data-recording-settings-status>Загрузка настроек этого Mac…</p>
+      <button type="button" class="button quiet" data-recording-settings-retry hidden>Повторить загрузку</button>
     </section>
-
+    {% else %}
+    <section class="settings-section" aria-labelledby="recording-handoff-title" data-recording-handoff>
+      <h2 id="recording-handoff-title">Запись на вашем Mac</h2>
+      <p>Откройте GRAF на нужном Mac и выберите «Настройки → Запись».</p>
+    </section>
     <section class="settings-section" aria-labelledby="recording-unavailable-title">
       <h2 id="recording-unavailable-title">Нет приложения GRAF?</h2>
-      <p class="muted">Скачайте приложение для macOS, чтобы управлять записями.</p>
-      {% if not embedded %}<p class="muted">Ссылка на скачивание находится в нижней части боковой панели.</p>{% endif %}
+      <a class="button quiet" href="/download">Скачать GRAF для macOS</a>
     </section>
+    {% endif %}
     </div>
   </div>
 </main>

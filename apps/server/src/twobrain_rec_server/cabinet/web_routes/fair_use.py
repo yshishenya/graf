@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from uuid import UUID
-from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -15,6 +14,7 @@ from twobrain_rec_server.billing.trial import merged_user_lineage
 from twobrain_rec_server.cabinet.queries import get_account_profile_view
 from twobrain_rec_server.cabinet.rendering_shared import _page_shell
 from twobrain_rec_server.cabinet.templates import cabinet_html_response
+from twobrain_rec_server.cabinet.user_time import format_user_datetime
 from twobrain_rec_server.cabinet.web_routes.support import (
     PrincipalDependency,
     WebCSRFDependency,
@@ -28,7 +28,6 @@ from twobrain_rec_server.product_analytics.browser_context import (
 )
 
 router = APIRouter(tags=["cabinet-web"])
-MOSCOW = ZoneInfo("Europe/Moscow")
 FairUseResultQuery = Query(default=None, max_length=24, alias="result")
 
 _REASON_LABELS = {
@@ -52,7 +51,7 @@ _STATE_LABELS = {
 
 
 def _date_label(value: datetime) -> str:
-    return value.astimezone(MOSCOW).strftime("%d.%m.%Y, %H:%M")
+    return format_user_datetime(value, show_zone=True)
 
 
 def _review_view(row: FairUseReviewRecord, *, now: datetime, can_appeal: bool) -> dict[str, object]:

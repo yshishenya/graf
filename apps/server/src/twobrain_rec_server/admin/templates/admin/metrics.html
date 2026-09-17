@@ -35,7 +35,7 @@
           <div><dt>Знаменатель</dt><dd>{{ metric.denominator }}</dd></div>
           <div><dt>Источник</dt><dd>{{ metric.source_category }}</dd></div>
           <div><dt>Свежесть</dt><dd>{{ metric.freshness }}</dd></div>
-          <div><dt>Окно</dt><dd>{{ metric.date_window['from'] or "нет данных" }} - {{ metric.date_window['to'] or "нет данных" }}</dd></div>
+          <div><dt>Окно</dt><dd>{{ format_user_datetime(metric.date_window['from'], date_only=True) if metric.date_window['from'] else "нет данных" }} - {{ format_user_datetime(metric.date_window['to'], date_only=True) if metric.date_window['to'] else "нет данных" }}</dd></div>
           <div><dt>Детали</dt><dd><a href="{{ metric.drill_down_path }}">Открыть</a></dd></div>
         </dl>
       </article>

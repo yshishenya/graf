@@ -3,11 +3,11 @@
   <div class="cabinet-workspace settings-page">
     <div class="settings-page__content">
       <header class="cabinet-topbar settings-page__topbar">
-        <div class="page-title"><h1>Пригласить друзей</h1><p class="muted">Друг получит 10% скидки на первую подписку. Вам начислят дни после подтверждённой оплаты.</p></div>
+        <div class="page-title"><h1>Пригласить друзей</h1><p class="muted">Друг получит 10% скидки на первую подписку. Вам начислят дни после подтвержденной оплаты.</p></div>
       </header>
       <section class="settings-section cabinet-card" aria-labelledby="referral-link-title">
         <h2 id="referral-link-title">Ваша ссылка</h2>
-        {% if referral_issue_result == "issued" %}<p class="notice" role="status" aria-live="polite">Ссылка активирована. Теперь приглашения будут учитываться.</p>{% elif referral_issue_result == "unavailable" %}<p class="notice" role="alert">Не удалось активировать ссылку. Попробуйте ещё раз или обратитесь в поддержку.</p>{% endif %}
+        {% if referral_issue_result == "issued" %}<p class="notice notice--success" role="status" aria-live="polite">Ссылка активирована. Теперь приглашения будут учитываться.</p>{% elif referral_issue_result == "unavailable" %}<p class="notice notice--error" role="alert">Не удалось активировать ссылку. Попробуйте еще раз или обратитесь в поддержку.</p>{% endif %}
         {% if referral_issued|default(False) %}
         <label for="referral-link">Ссылка для приглашения</label>
         <input id="referral-link" type="text" value="{{ referral_link }}" readonly aria-describedby="referral-link-help">
@@ -15,13 +15,13 @@
         <button class="button" type="button" data-copy-target="referral-link">Скопировать ссылку</button>
         <button class="button quiet" type="button" data-copy-target="referral-link">Поделиться</button>
         {% else %}
-        <p class="notice" role="status">Ссылка ещё не активирована для учёта приглашений.</p>
+        <p class="notice" role="status">Ссылка еще не активирована для учета приглашений.</p>
         <form action="/referrals/issue" method="post">{{ sections.csrf_field(csrf_token|default(None)) }}<button class="button" type="submit">Активировать ссылку</button></form>
         {% endif %}
       </section>
       <section class="settings-section cabinet-card" aria-labelledby="referral-safety-title">
         <h2 id="referral-safety-title">Как это работает</h2>
-        <p>Скидка действует только на первую оплату приглашённого. Одна ссылка может использоваться несколькими приглашёнными, а бонусы ограничены 180 днями за скользящие 12 месяцев.</p>
+        <p>Скидка действует только на первую оплату приглашенного. Одна ссылка может использоваться несколькими приглашенными, а бонусы ограничены 180 днями за скользящие 12 месяцев.</p>
         <p class="muted">Статус приглашений показывается без email и других персональных данных.</p>
       </section>
       <section class="settings-section cabinet-card" aria-labelledby="referral-history-title">
@@ -33,8 +33,8 @@
           <li class="settings-choice-row"><span>Приглашение №{{ item.number }} — {{ item.status_label }}</span><span class="muted">{{ item.updated_label }}{% if item.reward_days %} · {{ item.reward_days }} дней{% endif %}{% if item.risk_review %} · нужна дополнительная проверка{% endif %}</span></li>
           {% endfor %}
         </ol>
-        {% else %}<p class="muted" role="status">Пока нет зарегистрированных приглашённых.</p>{% endif %}
-        <p class="muted">Для вопросов о начислении обратитесь в поддержку; email и платёжные данные приглашённых не показываются.</p>
+        {% else %}<p class="muted" role="status">Пока нет зарегистрированных приглашенных.</p>{% endif %}
+        <p class="muted">Для вопросов о начислении обратитесь в поддержку; email и платежные данные приглашенных не показываются.</p>
         {% if support_email %}<p><a class="button quiet" href="mailto:{{ support_email }}">Обратиться в поддержку</a></p>{% endif %}
       </section>
     </div>

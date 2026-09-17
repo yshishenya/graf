@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
+import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -160,6 +164,203 @@ def validate(
     return errors
 
 
+def _pr_identity(value: object) -> tuple[int, str, str, str]:
+    if not isinstance(value, dict):
+        raise ValueError("PR must be an object")
+    number, head, base = value.get("number"), value.get("head"), value.get("base")
+    if type(number) is not int or number <= 0:
+        raise ValueError("PR number must be a positive integer")
+    if not isinstance(head, dict) or not isinstance(base, dict):
+        raise ValueError("PR head/base must be objects")
+    for sha in (head.get("sha"), base.get("sha")):
+        if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-fA-F]{40}", sha):
+            raise ValueError("PR head/base must contain full SHAs")
+    if not isinstance(base.get("ref"), str) or not base["ref"].strip():
+        raise ValueError("PR base ref is required")
+    return number, head["sha"].lower(), base["sha"].lower(), base["ref"]
+
+
+def metadata_snapshot(pr: dict, repository: str) -> dict:
+    """Project API data to identity and digests only; never persist PR text."""
+    number, head, base, ref = _pr_identity(pr)
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
+        raise ValueError("invalid repository")
+    repos = [pr[side].get("repo") for side in ("head", "base")]
+    if not all(isinstance(repo, dict) and isinstance(repo.get("full_name"), str)
+               and re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repo["full_name"]) for repo in repos):
+        raise ValueError("PR repository identity is required")
+    if repos[1]["full_name"] != repository:
+        raise ValueError("PR base repository mismatch")
+    if type(pr.get("merged")) is not bool or pr.get("state") not in {"open", "closed"}:
+        raise ValueError("invalid PR state")
+    if (pr["state"] == "closed") != pr["merged"]:
+        raise ValueError("PR must be open or merged")
+    merge = pr.get("merge_commit_sha")
+    if merge is not None and (not isinstance(merge, str) or not re.fullmatch(r"[0-9a-f]{40}", merge)):
+        raise ValueError("invalid merge SHA")
+    if pr["merged"] and merge is None:
+        raise ValueError("merged PR requires merge SHA")
+    # GitHub computes an open PR's synthetic test merge asynchronously. Only
+    # the real, immutable merge of a closed PR is part of source identity.
+    if not pr["merged"]:
+        merge = None
+    if type(pr.get("commits")) is not int or not 1 <= pr["commits"] <= 1000:
+        raise ValueError("invalid PR commit count")
+    if not all(isinstance(pr.get(key), str) and pr[key].strip() for key in ("title", "body")):
+        raise ValueError("current PR title/body must be nonempty strings")
+    digest = hashlib.sha256(json.dumps([pr["title"], pr["body"]], ensure_ascii=True).encode()).hexdigest()
+    return dict(repository=repository, pr_number=number, target_sha=head, api_base_sha=base,
+                base_ref=ref, head_repository=repos[0]["full_name"], state=pr["state"],
+                merged=pr["merged"], merge_commit_sha=merge, commits=pr["commits"], metadata_digest=digest)
+
+
+def _git(*args: str) -> str:
+    return subprocess.check_output(["git", *args], stderr=subprocess.DEVNULL).decode("ascii").strip()
+
+
+def checked_base(pr: dict) -> str:
+    """Recover the actual strict, linear merge base, never today's master."""
+    _, head, base, _ = _pr_identity(pr)
+    if not pr["merged"]:
+        return base
+    merge, count = pr["merge_commit_sha"], pr["commits"]
+
+    def predecessor(sha: str, size: int) -> str:
+        rows = _git("rev-list", "--parents", f"--max-count={size}", sha).splitlines()
+        if len(rows) != size or any(len(row.split()) != 2 for row in rows):
+            raise ValueError("merge/source range must be linear")
+        for left, right in zip(rows, rows[1:]):
+            if left.split()[1] != right.split()[0]:
+                raise ValueError("merge/source range must be contiguous")
+        return rows[-1].split()[1]
+
+    def is_ancestor(ancestor: str, descendant: str) -> bool:
+        return subprocess.run(
+            ["git", "merge-base", "--is-ancestor", ancestor, descendant],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        ).returncode == 0
+
+    merge_parent = predecessor(merge, 1)
+    merge_tree = _git("rev-parse", f"{merge}^{{tree}}")
+    head_tree = _git("rev-parse", f"{head}^{{tree}}")
+    if merge_tree != head_tree:
+        # GitHub can squash a PR whose target advanced after the PR branch was
+        # cut.  The merge tree then contains both the reviewed PR and those
+        # target commits.  Accept only the exact three-way merge result for the
+        # immutable API base and the real merge parent; an edited tree fails.
+        if not (is_ancestor(base, merge_parent) and is_ancestor(base, head)):
+            raise ValueError("merged tree differs from checked PR head")
+        if int(_git("rev-list", "--count", f"{base}..{head}")) != count:
+            raise ValueError("merged PR commit count does not match checked base")
+        try:
+            expected_tree = _git("merge-tree", "--write-tree", merge_parent, head)
+        except subprocess.CalledProcessError as exc:
+            raise ValueError("merged tree cannot be reconstructed from checked base") from exc
+        if not re.fullmatch(r"[0-9a-f]{40}", expected_tree) or expected_tree != merge_tree:
+            raise ValueError("merged tree differs from checked PR merge result")
+        return base
+
+    # Squash preserves a linear target even when the PR incorporated master
+    # with a merge commit. Its exact parent/count/tree bind the checked range.
+    squash_base = predecessor(merge, 1)
+    if (_git("merge-base", squash_base, head) == squash_base
+            and int(_git("rev-list", "--count", f"{squash_base}..{head}")) == count):
+        return squash_base
+    source_base = predecessor(head, count)
+    if predecessor(merge, count) == source_base:
+        return source_base
+    raise ValueError("merge is not an exact squash or linear rebase of the checked range")
+
+
+def _validate_diff(current: dict, head: str, base: str) -> list[str]:
+    paths = subprocess.check_output([
+        "git", "diff", "--no-ext-diff", "--no-textconv", "--name-only", "--no-renames", "-z", f"{base}...{head}",
+    ], stderr=subprocess.DEVNULL).decode("utf-8", errors="surrogateescape").split("\0")
+    patterns = (
+        re.compile(r"^specs/(\d{3,})-[^/]+/"),
+        re.compile(r"^changes/(?:unreleased|releases/v[^/]+)/F(\d{3,})\.yaml\Z"),
+    )
+    features = sorted({match.group(1) for path in paths for pattern in patterns
+                       if (match := pattern.match(path)) is not None})
+    errors = validate(current["body"], ",".join(features), expected_sha=head,
+                      title=current["title"], scoped=not features)
+    return [error.split(": ", 1)[0] for error in errors]
+
+
+def validate_trusted(event_path: Path, current_path: Path, *, policy: str, repository: str,
+                     after_path: Path | None = None, result_path: Path | None = None) -> list[str]:
+    try:
+        if not re.fullmatch(r"[0-9a-f]{40}", policy) or _git("rev-parse", "HEAD") != policy:
+            raise ValueError("checkout differs from trusted policy SHA")
+        event, current = (json.loads(path.read_text(encoding="utf-8")) for path in (event_path, current_path))
+        if not isinstance(event, dict) or event.get("repository", {}).get("full_name") != repository:
+            raise ValueError("event repository mismatch")
+        before = metadata_snapshot(current, repository)
+        event_pr = event.get("pull_request")
+        _pr_identity(event_pr)
+        event_identity = metadata_snapshot({**event_pr, "title": current["title"], "body": current["body"]}, repository)
+        if type(event.get("number")) is not int or event["number"] != before["pr_number"]:
+            raise ValueError("event PR number mismatch")
+        if any(before[key] != event_identity[key] for key in before if key != "metadata_digest"):
+            raise ValueError("current PR identity differs from event")
+        base = checked_base(current)
+        errors = _validate_diff(current, before["target_sha"], base)
+        if errors:
+            return errors
+        if after_path is not None:
+            after = json.loads(after_path.read_text(encoding="utf-8"))
+            if before != metadata_snapshot(after, repository):
+                raise ValueError("PR changed during metadata validation")
+        if result_path is not None:
+            if after_path is None:
+                raise ValueError("result requires two API snapshots")
+            run_id, attempt = os.environ.get("GITHUB_RUN_ID", ""), os.environ.get("GITHUB_RUN_ATTEMPT", "")
+            if not all(re.fullmatch(r"[1-9]\d*", value) for value in (run_id, attempt)):
+                raise ValueError("run identity is required")
+            with result_path.open("x", encoding="utf-8") as output:
+                json.dump(dict(before, schema_version=1, policy_sha=policy, base_sha=base,
+                               run_id=int(run_id), run_attempt=int(attempt), result="pass"), output, sort_keys=True)
+    except (OSError, UnicodeError, ValueError, TypeError, AttributeError, RecursionError, subprocess.CalledProcessError):
+        return ["trusted PR identity, policy, metadata or snapshot validation failed"]
+    return []
+
+
+def validate_event(event_path: Path, current_path: Path) -> list[str]:
+    try:
+        event = json.loads(event_path.read_text(encoding="utf-8"))
+        current = json.loads(current_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, ValueError, RecursionError):
+        return ["cannot read event/current PR JSON"]
+    try:
+        if not isinstance(event, dict):
+            raise ValueError("event must be an object")
+        identity = _pr_identity(event.get("pull_request"))
+        if type(event.get("number")) is not int or event["number"] != identity[0]:
+            raise ValueError("event PR number mismatch")
+        if _pr_identity(current) != identity:
+            raise ValueError("current PR identity differs from event")
+        if current.get("state") != "open":
+            raise ValueError("current PR must be open")
+        if not all(isinstance(current.get(key), str) and current[key].strip() for key in ("title", "body")):
+            raise ValueError("current PR title/body must be nonempty strings")
+    except ValueError as exc:
+        return [str(exc)]
+    _, head, base, _ = identity
+    try:
+        checkout = subprocess.run(
+            ["git", "rev-parse", "HEAD"], check=True, capture_output=True,
+        ).stdout.strip().decode("ascii")
+        if checkout != head:
+            return ["checkout HEAD differs from event PR head"]
+        return _validate_diff(current, head, base)
+    except (OSError, UnicodeError, subprocess.CalledProcessError):
+        return ["cannot determine exact PR diff with shared history"]
+    except ValueError:
+        return ["invalid PR metadata values"]
+
+
 def self_test() -> int:
     sha = "a" * 40
     title = "[F216] Перестроить процесс"
@@ -206,21 +407,44 @@ def main() -> int:
     parser.add_argument("--title")
     parser.add_argument("--scoped", action="store_true")
     parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("--event", type=Path)
+    parser.add_argument("--current-pr", type=Path)
+    parser.add_argument("--current-pr-after", type=Path)
+    parser.add_argument("--trusted-policy-sha")
+    parser.add_argument("--repository")
+    parser.add_argument("--result", type=Path)
     args = parser.parse_args()
-    if args.self_test:
-        return self_test()
-    if args.body is None:
-        parser.error("body is required unless --self-test is used")
-    if not args.feature_id:
-        parser.error("--feature-id is required unless --self-test is used")
-    if args.title is None:
-        parser.error("--title is required unless --self-test is used")
-    try:
-        body = args.body.read_text(encoding="utf-8")
-    except OSError as exc:
-        print(f"pr-metadata: ERROR: {exc}", file=sys.stderr)
-        return 1
-    errors = validate(body, args.feature_id, expected_sha=args.expected_sha, title=args.title, scoped=args.scoped)
+    if any((args.current_pr_after, args.trusted_policy_sha, args.repository, args.result)):
+        if not all((args.event, args.current_pr, args.trusted_policy_sha, args.repository)):
+            parser.error("trusted mode requires event, current PR, policy SHA and repository")
+        if args.result is not None and args.current_pr_after is None:
+            parser.error("trusted result requires the second API snapshot")
+    if args.event is not None or args.current_pr is not None:
+        if args.event is None or args.current_pr is None:
+            parser.error("--event and --current-pr are required together")
+        if (args.body is not None or args.feature_id is not None or args.expected_sha is not None
+                or args.title is not None or args.scoped or args.self_test):
+            parser.error("event mode cannot be combined with body-file or self-test options")
+        if args.trusted_policy_sha:
+            errors = validate_trusted(args.event, args.current_pr, policy=args.trusted_policy_sha,
+                                      repository=args.repository, after_path=args.current_pr_after, result_path=args.result)
+        else:
+            errors = validate_event(args.event, args.current_pr)
+    else:
+        if args.self_test:
+            return self_test()
+        if args.body is None:
+            parser.error("body is required unless --self-test is used")
+        if not args.feature_id:
+            parser.error("--feature-id is required unless --self-test is used")
+        if args.title is None:
+            parser.error("--title is required unless --self-test is used")
+        try:
+            body = args.body.read_text(encoding="utf-8")
+        except OSError as exc:
+            print(f"pr-metadata: ERROR: {exc}", file=sys.stderr)
+            return 1
+        errors = validate(body, args.feature_id, expected_sha=args.expected_sha, title=args.title, scoped=args.scoped)
     if errors:
         for error in errors:
             print(f"pr-metadata: ERROR: {error}", file=sys.stderr)

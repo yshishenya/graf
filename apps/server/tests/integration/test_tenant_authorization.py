@@ -354,16 +354,21 @@ def test_revoked_device_is_denied_for_ingest_operations(client) -> None:
 
 
 def test_auth_fails_closed_without_persistent_context(client) -> None:
+    # The application instance is shared by the whole worker process, so the
+    # removed sessionmaker must come back before the next test runs.
+    sessionmaker = client.app.state.db_sessionmaker
     delattr(client.app.state, "db_sessionmaker")
+    try:
+        response = client.post(
+            "/api/v1/meetings",
+            headers=auth_headers(),
+            json={"local_recording_id": "no-db-auth", "duration_seconds": 60},
+        )
 
-    response = client.post(
-        "/api/v1/meetings",
-        headers=auth_headers(),
-        json={"local_recording_id": "no-db-auth", "duration_seconds": 60},
-    )
-
-    assert response.status_code == 503
-    assert response.json()["code"] == "auth_context_unavailable"
+        assert response.status_code == 503
+        assert response.json()["code"] == "auth_context_unavailable"
+    finally:
+        client.app.state.db_sessionmaker = sessionmaker
 
 
 def test_production_rejects_legacy_header_auth_without_session(client) -> None:
@@ -559,7 +564,7 @@ def test_revoked_scoped_session_is_invalidated_without_retargeting_personal_acce
     assert fallback.status_code == 200
     spaces = fallback.json()["spaces"]
     assert len(spaces) == 1
-    assert spaces[0]["name"] == "Моё пространство"
+    assert spaces[0]["name"] == "Мое пространство"
     assert spaces[0]["kind"] == "personal"
     assert spaces[0]["role"] == "owner"
     assert spaces[0]["active"] is True

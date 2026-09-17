@@ -5,6 +5,28 @@ import TwoBrainRecAppCore
 import XCTest
 
 final class DesktopCabinetNavigationRequestPolicyTests: XCTestCase {
+    func testDeletionFormCanSubmitWithoutReplayingPostOrWideningRoutes() throws {
+        let base = try XCTUnwrap(URL(string: "https://rec.2brain.dev"))
+        let routePolicy = DesktopCabinetRoutePolicy(baseURL: base)
+        let target = try XCTUnwrap(URL(string: "/desktop/meetings/meeting-033/deletion-requests", relativeTo: base)?.absoluteURL)
+        XCTAssertEqual(routePolicy.decision(for: target).decision, .allow)
+        XCTAssertEqual(routePolicy.decision(for: target).route.meetingId, "meeting-033")
+        var request = URLRequest(url: target)
+        request.httpMethod = "POST"
+        request.httpBody = Data("_csrf=synthetic&confirmation_boundary=synthetic".utf8)
+        XCTAssertEqual(try makePolicy().decision(forNavigationRequest: request, isForMainFrame: true), .allow)
+        for path in [
+            "/desktop/meetings/meeting-033/deletion-requests/extra",
+            "/desktop/meetings/meeting-033/delete-everything",
+            "https://foreign.example/desktop/meetings/meeting-033/deletion-requests",
+            "https://rec.2brain.dev:444/desktop/meetings/meeting-033/deletion-requests",
+            "https://user@rec.2brain.dev/desktop/meetings/meeting-033/deletion-requests"
+        ] {
+            let invalid = try XCTUnwrap(URL(string: path, relativeTo: base)?.absoluteURL)
+            XCTAssertEqual(routePolicy.decision(for: invalid).decision, .blockWithMessage, path)
+        }
+    }
+
     func testReloadsMeetingDetailNavigationWithDesktopHeaders() throws {
         let policy = try makePolicy()
         let detailURL = try XCTUnwrap(URL(string: "https://rec.2brain.dev/desktop/meetings/meeting-033"))

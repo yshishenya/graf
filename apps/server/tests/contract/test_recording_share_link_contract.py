@@ -16,7 +16,9 @@ def test_public_link_projection_is_summary_only() -> None:
         "occurred_at",
         "duration_seconds",
         "summary_sections",
+        "protocol",
     }
+    assert projection["protocol"] is None
     serialized = repr(projection).lower()
     for forbidden in ("transcript", "playback", "speaker", "participant", "template"):
         assert forbidden not in serialized

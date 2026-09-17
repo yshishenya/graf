@@ -6,6 +6,15 @@ import XCTest
 
 @MainActor
 final class EmbeddedCabinetWebViewZoomTests: XCTestCase {
+    func testReplacementWebViewFillsContainerBeforeDeferredLayout() {
+        let webView = WKWebView()
+        let container = EmbeddedCabinetWebView.WebViewContainer(webView: webView)
+        for size in [NSSize(width: 720, height: 640), NSSize(width: 840, height: 680)] {
+            container.setFrameSize(size)
+            XCTAssertEqual(webView.frame, container.bounds)
+        }
+    }
+
     func testApplyingWorkspaceZoomUpdatesPageZoomWithoutLoadingRoute() {
         let webView = WKWebView()
 

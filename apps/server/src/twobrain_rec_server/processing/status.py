@@ -3,16 +3,14 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.api.schemas import ProcessingArtifactProjection, ProcessingStatusResponse
-from twobrain_rec_server.db.models import MeetingOutcomeSet, MeetingSummarySlot, ProcessingResult
 from twobrain_rec_server.domain.statuses import (
-    OutcomeSetStatus,
     ProcessingResultStatus,
     ProcessingStatus,
 )
+from twobrain_rec_server.outcomes.progress import summary_progress
 from twobrain_rec_server.processing import store
 from twobrain_rec_server.processing.reasons import (
     BLOCKED_CONFIG,
@@ -35,6 +33,7 @@ async def get_content_safe_processing_status(
     *,
     workspace_id: UUID,
     meeting_id: UUID,
+    summary_template_key: str | None = None,
 ) -> ProcessingStatusResponse | None:
     server_time = datetime.now(UTC)
     meeting = await store.load_meeting_for_workspace(
@@ -288,7 +287,6 @@ async def get_content_safe_processing_status(
         manual_action = "new_attempt"
     elif state in {ProcessingStatus.BLOCKED, ProcessingStatus.FAILED_RETRYABLE}:
         manual_action = "contact_support"
-    summary_state = store.summary_status_from_result(effective_result).value
     terminal_without_usable_transcript = (
         state
         in {
@@ -317,55 +315,7 @@ async def get_content_safe_processing_status(
         else safe_workflow_result.diarization_status
     )
 
-    if effective_result is not None:
-        default_slot = await db.scalar(
-            select(MeetingSummarySlot).where(
-                MeetingSummarySlot.workspace_id == workspace_id,
-                MeetingSummarySlot.meeting_id == meeting_id,
-                MeetingSummarySlot.is_meeting_default.is_(True),
-            )
-        )
-        published_outcome = None
-        published_result = None
-        if default_slot is not None and default_slot.current_outcome_set_id is not None:
-            published_outcome = await db.scalar(
-                select(MeetingOutcomeSet).where(
-                    MeetingOutcomeSet.id == default_slot.current_outcome_set_id,
-                    MeetingOutcomeSet.workspace_id == workspace_id,
-                    MeetingOutcomeSet.meeting_id == meeting_id,
-                    MeetingOutcomeSet.media_revision_id == media_revision_id,
-                    MeetingOutcomeSet.lifecycle_state == "active",
-                    MeetingOutcomeSet.status.in_(
-                        [OutcomeSetStatus.AVAILABLE.value, OutcomeSetStatus.PARTIAL.value]
-                    ),
-                    or_(
-                        MeetingOutcomeSet.revision_state.is_(None),
-                        MeetingOutcomeSet.revision_state == "accepted",
-                    ),
-                )
-            )
-            if published_outcome is not None:
-                published_result = await db.scalar(
-                    select(ProcessingResult).where(
-                        ProcessingResult.id == published_outcome.processing_result_id,
-                        ProcessingResult.workspace_id == workspace_id,
-                        ProcessingResult.meeting_id == meeting_id,
-                    )
-                )
-        if (
-            published_outcome is not None
-            and result_lineage_is_current(published_result, media_revision_id=media_revision_id)
-            and (
-                not published_outcome.source_result_hash
-                or not published_result.source_result_hash
-                or published_outcome.source_result_hash == published_result.source_result_hash
-            )
-        ):
-            summary_state = (
-                "partial"
-                if published_outcome.status == OutcomeSetStatus.PARTIAL.value
-                else "available"
-            )
+    summary_state = await summary_progress(db, meeting=meeting, result=effective_result, template_key=summary_template_key)
     return ProcessingStatusResponse(
         meeting_id=meeting.id,
         media_revision_id=media_revision_id,
@@ -408,7 +358,7 @@ async def get_content_safe_processing_status(
                 visible=diarization_available,
             ),
             "summary": ProcessingArtifactProjection(
-                state=summary_state, visible=summary_state == "available"
+                state=summary_state, visible=summary_state in {"available", "partial"}
             ),
         },
         updated_at=updated_at,

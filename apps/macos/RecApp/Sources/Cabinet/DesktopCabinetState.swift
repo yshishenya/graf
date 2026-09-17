@@ -13,14 +13,14 @@ public enum DesktopCabinetState: String, CaseIterable, Equatable, Sendable {
     case malformedResponse
     case blockedRoute
 
-    private static let localRecordingBoundary = "Запись на этом Mac остаётся доступна."
+    private static let localRecordingBoundary = "Запись на этом Mac остается доступна."
 
     public var userMessage: String {
         switch self {
         case .notConfigured:
             return "Подключите рабочее пространство GRAF, чтобы видеть встречи. \(Self.localRecordingBoundary)"
         case .loading:
-            return "Загружаем встречи. Управление записью остаётся в приложении."
+            return "Загружаем встречи. Управление записью остается в приложении."
         case .ready:
             return "Встречи загружены."
         case .offline:
@@ -30,7 +30,7 @@ public enum DesktopCabinetState: String, CaseIterable, Equatable, Sendable {
         case .expiredSession:
             return "Войдите снова, чтобы видеть встречи. \(Self.localRecordingBoundary)"
         case .workspaceReselectionRequired:
-            return "Доступ к выбранному пространству больше не подтверждён. Войдите снова и выберите доступное пространство. \(Self.localRecordingBoundary)"
+            return "Доступ к выбранному пространству больше не подтвержден. Войдите снова и выберите доступное пространство. \(Self.localRecordingBoundary)"
         case .accessDenied:
             return "Не удалось подтвердить доступ к встречам. Обратитесь к владельцу рабочего пространства. \(Self.localRecordingBoundary)"
         case .notFound:

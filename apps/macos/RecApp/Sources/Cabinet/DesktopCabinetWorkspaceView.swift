@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import TwoBrainRecShared
 
 @MainActor
 public struct DesktopCabinetWorkspaceView: View {
@@ -7,7 +8,6 @@ public struct DesktopCabinetWorkspaceView: View {
     public static let workspaceAccessibilityLabel = "Встречи и обзор записей"
     public static let embeddedSurfaceHeight: CGFloat = 420
     public static let shellEmbeddedSurfaceMinHeight: CGFloat = 520
-    public static let embeddedWorkspaceMaxWidth: CGFloat = 1120
 
     private let configuration: DesktopCabinetConfiguration?
     private let initialRoute: URL?
@@ -17,8 +17,12 @@ public struct DesktopCabinetWorkspaceView: View {
     private let showsAppUpdateBadge: Bool
     private let onCheckForUpdates: EmbeddedCabinetWebView.CheckForUpdatesAction
     private let onOpenMeetingDetectionSettings: EmbeddedCabinetWebView.OpenMeetingDetectionSettingsAction
+    private let onOpenNotificationSettings: EmbeddedCabinetWebView.OpenMeetingDetectionSettingsAction
     private let supportIncidentBridge: EmbeddedCabinetSupportIncidentBridge?
+    private let recoveryRequired: Bool
+    private let deletionOperations: [RecordingDeletionOperation]
     private let localRecordingRows: [EmbeddedCabinetLocalRecordingRow]
+    private let onDeleteRecordings: EmbeddedCabinetWebView.DeletionAction
     private let onLocalRecordingAction: EmbeddedCabinetWebView.LocalRecordingAction
     private let externalCabinetState: Binding<DesktopCabinetState>?
     @StateObject private var navigationController = EmbeddedCabinetNavigationController()
@@ -36,9 +40,13 @@ public struct DesktopCabinetWorkspaceView: View {
         showsAppUpdateBadge: Bool = false,
         onCheckForUpdates: @escaping EmbeddedCabinetWebView.CheckForUpdatesAction = {},
         onOpenMeetingDetectionSettings: @escaping EmbeddedCabinetWebView.OpenMeetingDetectionSettingsAction = {},
+        onOpenNotificationSettings: @escaping EmbeddedCabinetWebView.OpenMeetingDetectionSettingsAction = {},
         supportIncidentBridge: EmbeddedCabinetSupportIncidentBridge? = nil,
         localRecordingRows: [EmbeddedCabinetLocalRecordingRow] = [],
+        deletionOperations: [RecordingDeletionOperation] = [],
+        recoveryRequired: Bool = false,
         onLocalRecordingAction: @escaping EmbeddedCabinetWebView.LocalRecordingAction = { _, _ in },
+        onDeleteRecordings: @escaping EmbeddedCabinetWebView.DeletionAction = { _ in .failed },
         initialState: DesktopCabinetState? = nil
     ) {
         let resolvedInitialState = initialState ?? (configuration == nil ? .notConfigured : .loading)
@@ -50,9 +58,13 @@ public struct DesktopCabinetWorkspaceView: View {
         self.showsAppUpdateBadge = showsAppUpdateBadge
         self.onCheckForUpdates = onCheckForUpdates
         self.onOpenMeetingDetectionSettings = onOpenMeetingDetectionSettings
+        self.onOpenNotificationSettings = onOpenNotificationSettings
         self.supportIncidentBridge = supportIncidentBridge
         self.localRecordingRows = localRecordingRows
+        self.deletionOperations = deletionOperations
+        self.recoveryRequired = recoveryRequired
         self.onLocalRecordingAction = onLocalRecordingAction
+        self.onDeleteRecordings = onDeleteRecordings
         self.externalCabinetState = cabinetState
         _internalCabinetState = State(initialValue: cabinetState?.wrappedValue ?? resolvedInitialState)
         _currentRoute = currentRoute
@@ -73,11 +85,11 @@ public struct DesktopCabinetWorkspaceView: View {
                 stack
                     .padding(16)
                     .background(
-                        RoundedRectangle(cornerRadius: 8)
+                        RoundedRectangle(cornerRadius: DesktopDesignTokens.Radius.sm)
                             .fill(DesktopMeetingShellChrome.shellSurfaceColor)
                     )
                     .overlay(
-                        RoundedRectangle(cornerRadius: 8)
+                        RoundedRectangle(cornerRadius: DesktopDesignTokens.Radius.sm)
                             .stroke(DesktopMeetingShellChrome.shellStrokeColor, lineWidth: 1)
                     )
             case .shell:
@@ -126,9 +138,13 @@ public struct DesktopCabinetWorkspaceView: View {
                 showsAppUpdateBadge: showsAppUpdateBadge,
                 onCheckForUpdates: onCheckForUpdates,
                 onOpenMeetingDetectionSettings: onOpenMeetingDetectionSettings,
+                onOpenNotificationSettings: onOpenNotificationSettings,
                 supportIncidentBridge: supportIncidentBridge,
                 localRecordingRows: localRecordingRows,
+                deletionOperations: deletionOperations,
+            recoveryRequired: recoveryRequired,
                 onLocalRecordingAction: onLocalRecordingAction,
+                onDeleteRecordings: onDeleteRecordings,
                 fallbackRequest: configuration.urlRequest(for: configuration.meetingsURL()),
                 navigationController: navigationController
             )
@@ -192,8 +208,8 @@ public struct DesktopCabinetWorkspaceView: View {
             alignment: .center
         )
         .padding(presentation == .shell ? DesktopMeetingShellChrome.spacingXLarge : 14)
-        .background(Color.secondary.opacity(presentation == .shell ? 0 : 0.08))
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .background(DesktopDesignTokens.surface2.opacity(presentation == .shell ? 0 : 1))
+        .clipShape(RoundedRectangle(cornerRadius: DesktopDesignTokens.Radius.sm))
         .accessibilityElement(children: recoveryTarget == nil ? .combine : .contain)
         .accessibilityIdentifier(DesktopCabinetAccessibilityIdentifier.unavailableState)
     }
@@ -327,13 +343,11 @@ public struct DesktopCabinetWorkspaceView: View {
     private var statusColor: Color {
         switch activeCabinetState {
         case .ready:
-            return .green
+            return DesktopDesignTokens.green
         case .loading:
-            return .secondary
-        case .notConfigured:
-            return .orange
+            return DesktopDesignTokens.muted
         default:
-            return .orange
+            return DesktopDesignTokens.amber
         }
     }
 
@@ -351,18 +365,25 @@ public enum DesktopCabinetWorkspacePresentation: Equatable, Sendable {
     case shell
 }
 
+public enum DesktopCabinetNavigationShortcut {
+    public static func hint(for shortcut: KeyEquivalent) -> String {
+        "⌘" + String(shortcut.character).uppercased()
+    }
+}
+
 private struct DesktopCabinetNavigationTitlebarAccessory: NSViewRepresentable {
+    @Environment(\.isEnabled) private var isEnabled
     @ObservedObject var controller: EmbeddedCabinetNavigationController
     let isVisible: Bool
 
     func makeNSView(context _: Context) -> DesktopCabinetNavigationTitlebarAccessoryAnchor {
         let anchor = DesktopCabinetNavigationTitlebarAccessoryAnchor()
-        anchor.update(controller: controller, isVisible: isVisible)
+        anchor.update(controller: controller, isVisible: isVisible && isEnabled)
         return anchor
     }
 
     func updateNSView(_ nsView: DesktopCabinetNavigationTitlebarAccessoryAnchor, context _: Context) {
-        nsView.update(controller: controller, isVisible: isVisible)
+        nsView.update(controller: controller, isVisible: isVisible && isEnabled)
     }
 
     static func dismantleNSView(
@@ -459,7 +480,7 @@ private struct DesktopCabinetNavigationControls: View {
                 action: controller.goBack
             )
             navigationButton(
-                title: "Вперёд",
+                title: "Вперед",
                 hint: "Перейти к следующему экрану",
                 symbol: "chevron.right",
                 enabled: controller.canGoForward && !controller.isLoading,
@@ -491,7 +512,7 @@ private struct DesktopCabinetNavigationControls: View {
     ) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: 15, weight: .semibold))
+                .font(.system(size: DesktopDesignTokens.FontSize.subtitle, weight: .semibold))
                 .frame(
                     width: DesktopMeetingShellChrome.minimumInteractiveTarget,
                     height: DesktopMeetingShellChrome.minimumInteractiveTarget
@@ -499,13 +520,13 @@ private struct DesktopCabinetNavigationControls: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .foregroundStyle(enabled ? Color.primary : Color.secondary.opacity(0.35))
+        .foregroundStyle(enabled ? DesktopDesignTokens.text : DesktopDesignTokens.muted.opacity(0.35))
         .disabled(!enabled)
         .keyboardShortcut(shortcut, modifiers: .command)
         .help(
             controller.isLoading
                 ? "Загрузка…"
-                : "\(title) (⌘\(String(describing: shortcut)))"
+                : "\(title) (\(DesktopCabinetNavigationShortcut.hint(for: shortcut)))"
         )
         .accessibilityLabel(title)
         .accessibilityHint(controller.isLoading ? "Загрузка выполняется" : hint)
@@ -519,7 +540,7 @@ private struct DesktopCabinetNavigationControls: View {
             return DesktopCabinetAccessibilityIdentifier.navigationHome
         case "Назад":
             return DesktopCabinetAccessibilityIdentifier.navigationBack
-        case "Вперёд":
+        case "Вперед":
             return DesktopCabinetAccessibilityIdentifier.navigationForward
         default:
             return DesktopCabinetAccessibilityIdentifier.navigationReload

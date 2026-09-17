@@ -4,7 +4,7 @@ description: Validate GitHub issues against the project issue canon after task-t
   sync.
 compatibility: Requires spec-kit project structure with .specify/ directory
 metadata:
-  author: github-spec-kit
+  author: yshishenya
   source: extension:github-issue-canon
 ---
 

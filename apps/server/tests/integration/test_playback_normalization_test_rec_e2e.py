@@ -484,7 +484,7 @@ def test_authorized_test_rec_converts_automatically_and_leaves_no_residue(
     ffmpeg = shutil.which("ffmpeg")
     ffprobe = shutil.which("ffprobe")
     if ffmpeg is None or ffprobe is None:
-        pytest.skip("FFmpeg capability is validated in the media runtime container")
+        pytest.fail("FFmpeg and ffprobe are required for this media test; install ffmpeg and ensure both tools are on PATH", pytrace=False)
 
     original_sources = _authorized_sources(source_root)
     working_root = tmp_path / "feature-099-test-rec"

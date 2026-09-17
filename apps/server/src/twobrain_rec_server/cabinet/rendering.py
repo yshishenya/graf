@@ -1,17 +1,18 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta, timezone
+from dataclasses import dataclass, replace
+from datetime import UTC, datetime, timedelta
 from html import escape
-from urllib.parse import urlencode
+from urllib.parse import parse_qs, urlencode, urlsplit
 from uuid import UUID
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from twobrain_rec_server.api.schemas import (
     MeetingListItem,
     MeetingListResponse,
     MeetingReviewResponse,
     NotesActionCategoryState,
+    OutcomeItemView,
+    OutcomeSourceReferenceView,
     PreviousRecurringMeetingView,
     SpeakerLane,
     TranscriptSegmentView,
@@ -39,8 +40,10 @@ from twobrain_rec_server.cabinet.deletion_rendering import (
 from twobrain_rec_server.cabinet.deletion_rendering import (
     render_deletion_report_page as render_deletion_report_page,
 )
+from twobrain_rec_server.cabinet.meeting_protocol import EMPTY
 from twobrain_rec_server.cabinet.rendering_shared import (
     _base_path,
+    _copy_convention,
     _page_shell,
     _settings_path,
     _ui_text,
@@ -56,8 +59,14 @@ from twobrain_rec_server.cabinet.templates import (
     render_template,
     trusted_component_html,
 )
+from twobrain_rec_server.cabinet.user_time import (
+    format_user_datetime,
+    local_datetime,
+    user_time_element,
+)
 from twobrain_rec_server.deletion.report import BOUNDED_DELETE_COPY
 from twobrain_rec_server.domain.media_filenames import MANUAL_MEDIA_UPLOAD_ACCEPT
+from twobrain_rec_server.outcomes.models import PROTOCOL_ABOUT_GENERATOR_VERSION
 from twobrain_rec_server.outcomes.templates import (
     BUILT_IN_BY_KEY,
     BUILT_IN_TEMPLATES,
@@ -78,13 +87,13 @@ class AccountMergePresentation:
 
 _PROVIDER_LINK_OUTCOMES = {
     "callback_verified": {
-        "title": "Вход подтверждён",
+        "title": "Вход подтвержден",
         "detail": "Провайдер подтвердил вход. Завершите подключение в GRAF.",
         "kind": "success",
     },
     "confirmed": {
-        "title": "Способ входа подключён",
-        "detail": "Способ входа подключён к текущему профилю.",
+        "title": "Способ входа подключен",
+        "detail": "Способ входа подключен к текущему профилю.",
         "kind": "success",
     },
     "provider_link_denied": {
@@ -98,7 +107,7 @@ _PROVIDER_LINK_OUTCOMES = {
         "kind": "error",
     },
     "provider_link_expired": {
-        "title": "Срок подключения истёк",
+        "title": "Срок подключения истек",
         "detail": "Данные профиля не изменены. Начните подключение заново.",
         "kind": "error",
     },
@@ -124,7 +133,7 @@ _PROVIDER_LINK_OUTCOMES = {
     },
     "merge_cancelled": {
         "title": "Профили оставлены раздельно",
-        "detail": "Профили остались раздельными. Способ входа не подключён к текущему профилю.",
+        "detail": "Профили остались раздельными. Способ входа не подключен к текущему профилю.",
         "kind": "success",
     },
     "reauth_required": {
@@ -136,8 +145,8 @@ _PROVIDER_LINK_OUTCOMES = {
 
 _PROVIDER_UNLINK_OUTCOMES = {
     "success": {
-        "title": "Способ входа отключён",
-        "detail": "Остальные подтверждённые способы входа сохранены.",
+        "title": "Способ входа отключен",
+        "detail": "Остальные подтвержденные способы входа сохранены.",
         "kind": "success",
     },
     "reauth_required": {
@@ -147,17 +156,17 @@ _PROVIDER_UNLINK_OUTCOMES = {
     },
     "recovery_path_required": {
         "title": "Сначала подключите другой способ входа",
-        "detail": "Этот способ нельзя отключить, пока нет другого подтверждённого способа восстановления.",
+        "detail": "Этот способ нельзя отключить, пока нет другого подтвержденного способа восстановления.",
         "kind": "error",
     },
     "not_found": {
         "title": "Способ входа уже недоступен",
-        "detail": "Обновите страницу: возможно, способ входа уже был отключён.",
+        "detail": "Обновите страницу: возможно, способ входа уже был отключен.",
         "kind": "error",
     },
     "unavailable": {
         "title": "Не удалось отключить способ входа",
-        "detail": "Данные не изменены. Попробуйте ещё раз позже.",
+        "detail": "Данные не изменены. Попробуйте еще раз позже.",
         "kind": "error",
     },
 }
@@ -350,6 +359,7 @@ def render_share_invitation_accept_page(
     csrf_token: str | None,
     meeting_title: str | None = None,
     meeting_occurred_at: datetime | None = None,
+    meeting_time_is_upload: bool = False,
     meeting_duration_seconds: int | None = None,
     invitation_expires_at: datetime | None = None,
     content_scope: str = "summary_only",
@@ -372,6 +382,7 @@ def render_share_invitation_accept_page(
         meeting_list_href=_base_path(False),
         meeting_title=meeting_title,
         meeting_occurred_at=meeting_occurred_at,
+        meeting_time_is_upload=meeting_time_is_upload,
         meeting_duration_seconds=meeting_duration_seconds,
         invitation_expires_at=invitation_expires_at,
         content_scope=content_scope,
@@ -387,9 +398,12 @@ def render_share_invitation_accept_page(
 def render_shared_meeting_summary_page(
     *,
     meeting_title: str,
-    occurred_at: datetime,
+    occurred_at: datetime | None,
     duration_seconds: int,
     summary_sections: list[dict[str, object]],
+    protocol: dict | None = None,
+    generator_version: str | None = None,
+    time_is_upload: bool = False,
     authenticated: bool = False,
     embedded: bool = False,
 ) -> str:
@@ -399,8 +413,14 @@ def render_shared_meeting_summary_page(
         content_template="cabinet/pages/shared_meeting_summary_content.html",
         meeting_title=meeting_title,
         occurred_at=occurred_at,
+        time_is_upload=time_is_upload,
         duration_seconds=duration_seconds,
         summary_sections=_localized_shared_summary_sections(summary_sections),
+        protocol=protocol,
+        protocol_about=generator_version == PROTOCOL_ABOUT_GENERATOR_VERSION,
+        protocol_html=_render_full_protocol(
+            protocol, source_destination_available=False, base_heading_level=2
+        ) if protocol else None,
         authenticated=authenticated,
         meeting_list_href=_base_path(embedded),
     )
@@ -447,7 +467,7 @@ def render_settings_page(
     csrf_token: str | None = None,
     product_analytics_provider: dict[str, object] | None = None,
     profile=None,
-    category: str = "overview",
+    category: str = "account",
     provider_link_options: tuple[cabinet_view_models.ProviderLinkStartOption, ...] = (),
     workspace_spaces: tuple[WorkspaceAccessView, ...] = (),
     workspace_join_offers: tuple[WorkspaceJoinOfferView, ...] = (),
@@ -457,6 +477,7 @@ def render_settings_page(
     provider_link_result: str | None = None,
     device_revoke_result: str | None = None,
     session_result: str | None = None,
+    session_confirmation: dict[str, str] | None = None,
     notification_result: str | None = None,
     account_close_result: str | None = None,
     profile_result: str | None = None,
@@ -464,7 +485,7 @@ def render_settings_page(
     provider_unlink_result: str | None = None,
     account_active: str = "profile",
     notification_preferences: object | None = None,
-    show_account_navigation: bool = True,
+    show_account_navigation: bool = False,
 ) -> str:
     offer_result_copy = {
         "accepted": "Рабочее пространство добавлено. Текущее пространство не изменилось.",
@@ -475,50 +496,72 @@ def render_settings_page(
         "activated": "Текущее пространство изменено. Новые встречи сохранятся здесь.",
     }.get(workspace_switch_result)
     provider_link_outcome = _provider_link_outcome(provider_link_result)
-    provider_link_result_copy = provider_link_outcome["detail"] if provider_link_outcome else None
     provider_unlink_outcome = _PROVIDER_UNLINK_OUTCOMES.get(provider_unlink_result or "")
-    provider_unlink_result_copy = (
-        provider_unlink_outcome["detail"] if provider_unlink_outcome else None
+    requires_account_reauth = "reauth_required" in (
+        provider_link_result,
+        provider_unlink_result,
+        device_revoke_result,
+        session_result,
+        account_close_result,
     )
+    if provider_link_result == "reauth_required":
+        provider_link_outcome = {**provider_link_outcome, "kind": "warning"}
+    if provider_unlink_result == "reauth_required":
+        provider_unlink_outcome = {**provider_unlink_outcome, "kind": "warning"}
     device_revoke_result_copy = {
         "revoked": "Устройство отозвано. Его активные сессии больше не действуют.",
-        "others_revoked": "Доступ на остальных устройствах завершён. Текущее устройство остаётся активным.",
-        "reauth_required": "Для этого действия войдите через подтверждённую веб-сессию и повторите попытку.",
-        "failed": "Не удалось отозвать устройство. Попробуйте ещё раз.",
+        "others_revoked": "Доступ на остальных устройствах завершен. Текущее устройство остается активным.",
+        "reauth_required": "Для этого действия войдите через подтвержденную веб-сессию и повторите попытку.",
+        "failed": "Не удалось отозвать устройство. Попробуйте еще раз.",
     }.get(device_revoke_result)
     other_account_result = " ".join(
         message
         for message in (
-            provider_unlink_result_copy,
             device_revoke_result_copy,
             {
-                "revoked": "Сеанс завершён.",
-                "others_revoked": "Остальные сеансы завершены. Текущая сессия остаётся активной.",
-                "reauth_required": "Для управления сессиями войдите через подтверждённую веб-сессию и повторите попытку.",
+                "revoked": "В том приложении или браузере потребуется войти снова. Здесь вы остались в аккаунте.",
+                "failed": "Не удалось завершить вход. Попробуйте еще раз.",
+                "others_revoked": "Другие входы в этом рабочем пространстве завершены. Здесь вы остались в аккаунте.",
+                "reauth_required": "Чтобы управлять входами, войдите в GRAF снова и повторите попытку.",
             }.get(session_result),
             {
                 "scheduled": "Закрытие аккаунта запланировано. До даты отмены доступ и данные сохраняются, будущие списания отключены.",
                 "canceled": "Закрытие аккаунта отменено.",
-                "reauth_required": "Для закрытия аккаунта войдите через подтверждённую веб-сессию и повторите попытку.",
+                "reauth_required": "Для закрытия аккаунта войдите через подтвержденную веб-сессию и повторите попытку.",
             }.get(account_close_result),
         )
         if message
     )
-    account_outcome = (
-        provider_link_outcome
-        or provider_unlink_outcome
-        or (
+    other_account_kind = (
+        "error"
+        if "failed" in (device_revoke_result, session_result)
+        else "warning"
+        if "reauth_required" in (device_revoke_result, session_result, account_close_result)
+        else "success"
+    )
+    account_outcomes = (
+        provider_link_outcome,
+        provider_unlink_outcome,
+        (
             {
-                "title": "Настройки обновлены",
+                "title": {
+                    "error": "Не удалось изменить настройки",
+                    "warning": "Нужно войти снова",
+                    "success": "Настройки обновлены",
+                }[other_account_kind],
                 "detail": other_account_result,
-                "kind": "success",
+                "kind": other_account_kind,
             }
             if other_account_result
             else None
-        )
+        ),
+    )
+    account_outcome = max(
+        (outcome for outcome in account_outcomes if outcome),
+        key=lambda outcome: {"success": 0, "warning": 1, "error": 2}[outcome["kind"]],
+        default=None,
     )
     content_templates = {
-        "overview": "cabinet/pages/settings_content.html",
         "recording": "cabinet/pages/settings_recording_content.html",
         "summaries": "cabinet/pages/settings_summaries_content.html",
         "workspace": "cabinet/pages/settings_workspace_content.html",
@@ -526,14 +569,13 @@ def render_settings_page(
         "notifications": "cabinet/pages/settings_notifications_content.html",
     }
     titles = {
-        "overview": "Настройки",
         "recording": "Запись встреч",
         "summaries": "Итоги",
         "workspace": "Пространства",
         "account": "Аккаунт и безопасность",
         "notifications": "Уведомления",
     }
-    resolved_category = category if category in content_templates else "overview"
+    resolved_category = category if category in content_templates else "account"
     settings_context = {
         "provider_link_options": provider_link_options,
         "provider_link_start_base_path": "/desktop/settings/provider-links"
@@ -550,31 +592,22 @@ def render_settings_page(
         "workspace_offer_action_base_path": "/desktop/settings/join-offers"
         if embedded
         else "/settings/join-offers",
-        "summary_formats": BUILT_IN_TEMPLATES,
+        "summary_formats": [_format_for_display(item) for item in BUILT_IN_TEMPLATES],
+        "session_confirmation": session_confirmation,
         "account_surface": account_surface or cabinet_view_models.AccountSettingsSurface(),
-        "provider_link_result": provider_link_result_copy,
         "account_outcome": account_outcome,
-        "requires_account_reauth": provider_link_result == "reauth_required"
-        or provider_unlink_result == "reauth_required",
+        "account_close_requested": account_close_result == "reauth_required",
+        "requires_account_reauth": requires_account_reauth,
         "account_reauth_action": "/desktop/meetings" if embedded else "/logout",
         "account_reauth_next": "/login?next="
         + ("/desktop/settings/account" if embedded else "/settings/account"),
-        "provider_unlink_result": provider_unlink_result_copy,
-        "device_revoke_result": device_revoke_result_copy,
-        "session_result": {
-            "revoked": "Сеанс завершён.",
-            "others_revoked": "Остальные сеансы завершены. Текущая сессия остаётся активной.",
-            "reauth_required": "Для управления сессиями войдите через подтверждённую веб-сессию и повторите попытку.",
-        }.get(session_result),
-        "notification_result": {"saved": "Настройки уведомлений сохранены."}.get(
+        "notification_result": {
+            "saved": "Настройки уведомлений сохранены.",
+            "conflict": "Настройки изменились или не прошли проверку. Ваш выбор сохранен в форме. Загрузите актуальные настройки перед повторным сохранением.",
+        }.get(
             notification_result
         ),
-        "account_close_result": {
-            "scheduled": "Закрытие аккаунта запланировано. До даты отмены доступ и данные сохраняются, будущие списания отключены.",
-            "canceled": "Закрытие аккаунта отменено.",
-            "reauth_required": "Для закрытия аккаунта войдите через подтверждённую веб-сессию и повторите попытку.",
-        }.get(account_close_result),
-        "profile_result": {"saved": "Профиль сохранён."}.get(profile_result),
+        "profile_result": {"saved": "Профиль сохранен."}.get(profile_result),
         "preferences_result": {"saved": "Настройки языка, часового пояса и темы сохранены."}.get(
             preferences_result
         ),
@@ -950,6 +983,7 @@ def render_meeting_detail_page(
     product_analytics_provider: dict[str, object] | None = None,
     profile=None,
     shared_workspace_id: UUID | None = None,
+    title_edit: dict[str, str] | None = None,
 ) -> str:
     content = _render_meeting_detail_content(
         review,
@@ -957,6 +991,7 @@ def render_meeting_detail_page(
         csrf_token=csrf_token,
         poll_url=poll_url,
         shared_workspace_id=shared_workspace_id,
+        title_edit=title_edit,
     )
     return _page_shell(
         review.meeting.title,
@@ -1002,6 +1037,7 @@ def _render_meeting_detail_content(
     focus_calendar_context: bool = False,
     poll_url: str | None = None,
     shared_workspace_id: UUID | None = None,
+    title_edit: dict[str, str] | None = None,
 ) -> str:
     transcript_rows = (
         review.transcript.speaker_turns or review.transcript.segments
@@ -1013,6 +1049,11 @@ def _render_meeting_detail_content(
     transcript = trusted_component_html(
         _render_transcript(transcript_rows, speaker_palette), source="meeting_detail.transcript"
     )
+    if "source_result_id" in parse_qs(urlsplit(poll_url or "").query):
+        transcript = trusted_component_html(
+            '<div class="muted" role="status">Показана сохраненная редакция расшифровки из ссылки на источник.</div>'
+            + str(transcript), source="meeting_detail.transcript",
+        )
     if not review.transcript.available:
         transcript = trusted_component_html(
             f"""
@@ -1092,7 +1133,24 @@ def _render_meeting_detail_content(
         embedded=embedded,
         base_path=_base_path(embedded),
         meeting_title=review.meeting.title,
-        meeting_date=cabinet_view_models.date_label(review.meeting),
+        protocol=review.notes_action_truth.protocol,
+        protocol_about=(
+            review.notes_action_truth.provenance is not None
+            and review.notes_action_truth.provenance.generator_version == PROTOCOL_ABOUT_GENERATOR_VERSION
+        ),
+        title_version=review.meeting.title_version if shared_workspace_id is None else None,
+        title_edit=title_edit or {},
+        title_csrf_token=csrf_token or "",
+        meeting_date=(
+            "Загружено "
+            if review.meeting.started_at is None
+            and review.meeting.source == "manual_upload"
+            and review.meeting.uploaded_at is not None
+            else ""
+        )
+        + user_time_element(
+            cabinet_view_models.meeting_time_value(review.meeting, time_basis="meeting")
+        ),
         meeting_duration=cabinet_view_models.format_duration(review.meeting.duration_seconds),
         status_label=_ui_text(review.meeting.status_label),
         media_revision_id=(
@@ -1124,17 +1182,34 @@ def _render_meeting_detail_content(
         transcript_available=review.transcript.available,
         transcript_degraded_reason=review.transcript.degraded_reason or "",
         stored_outcomes_available=review.notes_action_truth.source_basis == "stored_output",
+        summary_rendered_state="available" if review.notes_action_truth.source_basis == "stored_output" else review.notes_action_truth.summary.state,
         playback_live_label=review.playback.label,
         top_actions=trusted_component_html(
             _render_meeting_workspace_actions(
                 review,
                 embedded=embedded,
                 more_actions_available=more_actions_available,
+                shared_workspace_id=shared_workspace_id,
             ),
             source="meeting_detail.top_actions",
         ),
         outcomes_selected=outcomes_selected,
         content_export_available=content_export_available,
+        no_script_downloads=[
+            {
+                "label": "Скачать расшифровку" if artifact.artifact_class == "transcript" else "Скачать итоги",
+                "href": (
+                    f"{shared_api_root}/downloads/{artifact.artifact_class}{shared_query}"
+                    if shared_workspace_id is not None
+                    else f"/api/v1/cabinet/meetings/{review.meeting.meeting_id}/downloads/{artifact.artifact_class}"
+                ),
+            }
+            for artifact in review.artifacts
+            if artifact.artifact_class in {"transcript", "summary"}
+            and artifact.state == "available"
+            and artifact.action == "download"
+            and not replacement_active
+        ],
         meeting_details_available=meeting_details_available,
         more_actions_available=more_actions_available,
         meeting_id=review.meeting.meeting_id,
@@ -1146,7 +1221,7 @@ def _render_meeting_detail_content(
             and review.access.state == "owner"
             and review.transcript.available
         ),
-        summary_formats=BUILT_IN_TEMPLATES,
+        summary_formats=[_format_for_display(item) for item in BUILT_IN_TEMPLATES],
         current_summary_format_key=current_summary_format_key,
         current_summary_format_version=str(
             review.template.template_version
@@ -1216,7 +1291,7 @@ def _render_meeting_detail_content(
             else ""
         ),
         speaker_lanes=trusted_component_html(
-            _render_speaker_lanes(review, embedded=embedded, csrf_token=csrf_token),
+            _render_speaker_lanes(review, embedded=embedded, csrf_token=csrf_token, shared_workspace_id=shared_workspace_id),
             source="meeting_detail.speaker_lanes",
         ),
         activity=trusted_component_html(_render_activity(review), source="meeting_detail.activity"),
@@ -1226,6 +1301,7 @@ def _render_meeting_detail_content(
                 embedded=embedded,
                 csrf_token=csrf_token,
                 playback_path=playback_path,
+                shared_workspace_id=shared_workspace_id,
             ),
             source="meeting_detail.playback",
         ),
@@ -1324,6 +1400,7 @@ def _render_meeting_workspace_actions(
     *,
     embedded: bool,
     more_actions_available: bool,
+    shared_workspace_id: UUID | None = None,
 ) -> str:
     share_available = review.governance.share.state == "available"
     share_attributes = (
@@ -1338,12 +1415,14 @@ def _render_meeting_workspace_actions(
         "Поделиться пока недоступно по политике встречи</span>"
     )
     share_url = f"{_base_path(embedded)}/{review.meeting.meeting_id}/share"
+    if shared_workspace_id is not None:
+        share_url += f"?workspace_id={shared_workspace_id}"
     more_action = ""
     if more_actions_available:
         more_action = """
       <button type="button" id="meeting-actions-trigger" data-meeting-panel-open="more"
               aria-haspopup="menu" aria-controls="meeting-context-more"
-              aria-expanded="false">Ещё</button>
+              aria-expanded="false">Еще</button>
         """
     return f"""
       <button type="button" data-share-dialog-open aria-controls="meeting-share-dialog" hx-get="{share_url}" hx-target="#meeting-share-host" hx-swap="innerHTML"{share_attributes}>Поделиться</button>
@@ -1477,7 +1556,6 @@ def _render_content_export_dialog(
               <div class="content-export-options">
                 <label data-export-option-speakers><input type="checkbox" name="include_speaker_labels" checked> Указывать участников</label>
                 <label data-export-option-timestamps><input type="checkbox" name="include_timestamps" checked> Добавлять время</label>
-                <label data-export-option-evidence><input type="checkbox" name="include_evidence" checked> Добавлять ссылки на фрагменты</label>
                 <button type="button" class="quiet content-export-copy" data-export-copy>Скопировать текст</button>
               </div>
             </details>
@@ -1493,6 +1571,14 @@ def _render_content_export_dialog(
       </dialog>
     """
 
+
+def _format_for_display(format_view):
+    """Каталог версии 1 неизменяем; конвенция текста применяется к показу."""
+    return replace(
+        format_view,
+        name=_copy_convention(format_view.name),
+        purpose=_copy_convention(format_view.purpose),
+    )
 
 def _speaker_display_label(label: str) -> str:
     if label.startswith("SPEAKER_") and label.removeprefix("SPEAKER_").isdigit():
@@ -1523,16 +1609,16 @@ def _speaker_attribution_notice(review: MeetingReviewResponse) -> tuple[str, str
     if confirmed and unconfirmed:
         return (
             "Часть речи без имени",
-            "Этот фрагмент сохранён как «Спикер не определён». Остальные реплики и имена не изменены.",
+            "Этот фрагмент сохранен как «Спикер не определен». Остальные реплики и имена не изменены.",
         )
     if confirmed:
         return (
             "Спикеры показаны",
-            "Реплики и имена показаны по доступным данным. Текст записи сохранён.",
+            "Реплики и имена показаны по доступным данным. Текст записи сохранен.",
         )
     return (
-        "Текст записи сохранён",
-        "Надёжно разделить голоса не удалось, поэтому реплики показаны без имён.",
+        "Текст записи сохранен",
+        "Надежно разделить голоса не удалось, поэтому реплики показаны без имен.",
     )
 
 
@@ -1634,8 +1720,20 @@ def _render_meeting_row(
         if can_manage_lifecycle
         else '<span class="row-delete-form row-contextual-placeholder" aria-hidden="true"></span>'
     )
+    time_value = cabinet_view_models.meeting_time_value(item, time_basis=time_basis)
+    start_value = cabinet_view_models.meeting_time_value(item, time_basis="meeting")
+
+    def instant_attribute(value: datetime | None) -> str:
+        return (value if value.tzinfo else value.replace(tzinfo=UTC)).isoformat() if value else ""
+
+    time_prefix = (
+        "Обновлено "
+        if time_basis == "updated"
+        else ("Загружено " if item.started_at is None and item.source == "manual_upload" else "")
+    )
+    time_markup = f"{time_prefix}{user_time_element(time_value)}" if time_value else "Без даты"
     return f"""
-      <li class="meeting-row cabinet-row{row_state_classes}" data-meeting-row data-meeting-id="{item.meeting_id}">
+      <li class="meeting-row cabinet-row{row_state_classes}" data-meeting-row data-meeting-id="{item.meeting_id}" data-summary-pending="{'true' if item.notes_action_truth.summary.state == 'processing' else 'false'}" data-processing-transcript-visible="{str(item.transcript_available).lower()}" data-sort-started="{instant_attribute(start_value)}" data-sort-updated="{instant_attribute(item.updated_at)}" data-sort-duration="{item.duration_seconds}" data-sort-title="{title}">
         {selection_control}
         <span class="row-icon" data-media-kind="{source_label}" aria-hidden="true">{source_icon}</span>
         <div class="meeting-content">
@@ -1646,7 +1744,7 @@ def _render_meeting_row(
           {meta_html}
         </div>
         {delete_control}
-        <span class="meeting-date" id="{time_id}">{escape(presentation.time_label)}</span>
+        <span class="meeting-date" id="{time_id}">{time_markup}</span>
       </li>
     """
 
@@ -1688,8 +1786,13 @@ def _render_meeting_row_meta(
             f'aria-label="Выбрать встречу {action_context}">'
             "Выбрать встречу</a>"
         )
+    retry_class = {
+        "failed": "terminal",
+        "limited": "retryable",
+    }.get(presentation.status_kind or "", "")
+    retry_attr = f' data-processing-retry-class="{retry_class}"' if retry_class else ""
     readiness = (
-        f'<span class="meeting-content-readiness" id="{readiness_id}">'
+        f'<span class="meeting-content-readiness" id="{readiness_id}"{retry_attr}>'
         f"{escape(presentation.content_readiness_label)}</span>"
         if presentation.content_readiness_label is not None
         else ""
@@ -1765,12 +1868,12 @@ def _render_home_upcoming(
     else:
         state_copy = "Из выбранных календарей"
 
-    if credential_issue:
+    if credential_issue and not preview:
         body = (
             '<div class="calendar-home-upcoming__empty"><strong>Календарь нужно переподключить</strong>'
             "<p>Откройте настройки и восстановите доступ. Ручная запись по-прежнему доступна.</p></div>"
         )
-    elif provider_issue:
+    elif provider_issue and not preview:
         body = (
             '<div class="calendar-home-upcoming__empty"><strong>Календарный сервис недоступен</strong>'
             "<p>Попробуйте позже. GRAF не показывает устаревшее событие как актуальное.</p></div>"
@@ -1779,10 +1882,10 @@ def _render_home_upcoming(
         rows = "".join(
             f"""
             <article class="calendar-home-upcoming__row">
-              {f'<time datetime="{escape(item.starts_at.isoformat())}">{escape(_home_upcoming_time_label(item.starts_at, display_timezone))}</time>' if calendar_surface.preferences.show_upcoming_time else '<span class="calendar-home-upcoming__time-hidden">Время скрыто настройкой</span>'}
+              {f'<time datetime="{escape(item.starts_at.isoformat())}" title="{escape(format_user_datetime(item.starts_at.date() if item.all_day else item.starts_at, show_zone=True))}" aria-label="{escape(format_user_datetime(item.starts_at.date() if item.all_day else item.starts_at, show_zone=True))}">{escape(_home_upcoming_time_label(item.starts_at, display_timezone, all_day=item.all_day))}</time>' if calendar_surface.preferences.show_upcoming_time else '<span class="calendar-home-upcoming__time-hidden">Время скрыто настройкой</span>'}
               <div>
                 <strong>{escape(item.title if calendar_surface.preferences.show_upcoming_title else "Название скрыто настройкой")}</strong>
-                <small>{"Есть ссылка на встречу" if item.meeting_link_present else "Без ссылки на встречу"}</small>
+                <small>{"Есть ссылка на встречу" if item.meeting_link_present else "Без ссылки на встречу"}{" · данные могут быть устаревшими" if item.sync_confidence_state == "stale" else " · обновляется" if item.sync_confidence_state == "updating" else ""}</small>
               </div>
               {f'<a class="button quiet calendar-home-upcoming__join" href="/api/v1/calendar/events/{escape(item.event_id)}/open">Подключиться</a>' if item.open_meeting_available else ""}
             </article>
@@ -1809,7 +1912,7 @@ def _render_home_upcoming(
         )
 
     return f"""
-      <details class="calendar-home-upcoming" open{f' data-calendar-upcoming-refresh-at="{escape(upcoming_refresh_at.isoformat())}"' if upcoming_refresh_at is not None else ''}>
+      <details class="calendar-home-upcoming" data-calendar-live="upcoming" open{f' data-calendar-upcoming-refresh-at="{escape(upcoming_refresh_at.isoformat())}"' if upcoming_refresh_at is not None else ''}>
         <summary>
           <span>Ближайшие встречи</span>
           <small>{escape(state_copy)}</small>
@@ -1817,27 +1920,27 @@ def _render_home_upcoming(
         {body}
         {recurring_content}
         <a class="calendar-home-upcoming__settings" href="{settings_href}">Настроить календарь</a>
+        <p data-calendar-refresh-status role="status" aria-live="polite" hidden></p>
       </details>
     """
 
 
-def _home_upcoming_time_label(value: datetime, timezone_name: str) -> str:
-    try:
-        target_timezone = ZoneInfo(timezone_name)
-    except ZoneInfoNotFoundError:
-        target_timezone = UTC
-    localized = (value if value.tzinfo is not None else value.replace(tzinfo=UTC)).astimezone(
-        target_timezone
-    )
-    today = datetime.now(target_timezone).date()
+def _home_upcoming_time_label(value: datetime, timezone_name: str, *, all_day: bool = False) -> str:
+    if all_day:
+        return f"{format_user_datetime(value.date())}, весь день"
+    localized = local_datetime(value)
+    today = local_datetime(datetime.now(UTC)).date()
     day_label = (
         "Сегодня"
         if localized.date() == today
         else "Завтра"
         if localized.date() == today + timedelta(days=1)
-        else localized.strftime("%d.%m")
+        else ""
     )
-    return f"{day_label}, {localized.strftime('%H:%M')}"
+    return (
+        f"{day_label}, {format_user_datetime(value, time_only=True)}"
+        if day_label else format_user_datetime(value)
+    )
 
 
 def _render_previous_recurring_pointer(
@@ -1853,7 +1956,7 @@ def _render_previous_recurring_pointer(
     )
     readiness = {
         "notes_ready": "Итоги готовы",
-        "transcript_ready": "Транскрипт готов",
+        "transcript_ready": "Расшифровка готова",
         "processing": "Обрабатывается",
         "unavailable": "",
     }[previous.readiness_state]
@@ -1997,7 +2100,7 @@ def _render_calendar_context(
             f'<span class="muted">{escape(_calendar_participant_label(participant.participant_kind))}</span></div>'
             for participant in roster.participants
         )
-        roster_copy = "Приглашённые участники, не подтверждённые спикеры"
+        roster_copy = "Приглашенные участники, не подтвержденные спикеры"
     elif context.state in {"matched_auto", "matched_user"}:
         roster_copy = "Список участников недоступен. Спикеры определяются отдельно по записи."
     elif context.reason_label is not None:
@@ -2058,7 +2161,7 @@ def _render_calendar_context(
             data-hx-post="{clear_action}" data-hx-target="#cabinet-main"
             data-hx-select="#cabinet-main" data-hx-swap="outerHTML">
             {_calendar_context_csrf_field(csrf_token)}
-            <p class="truth-copy">Контекст и список приглашённых исчезнут. Название записи останется прежним.</p>
+            <p class="truth-copy">Контекст и список приглашенных исчезнут. Название записи останется прежним.</p>
             <button type="submit" class="secondary">Убрать контекст</button>
           </form>
         """
@@ -2082,9 +2185,7 @@ def _render_calendar_context(
 
 
 def _calendar_context_time(value, timezone_offset_minutes: int) -> str:
-    display_timezone = timezone(timedelta(minutes=timezone_offset_minutes))
-    localized = value.replace(tzinfo=UTC) if value.tzinfo is None else value
-    return localized.astimezone(display_timezone).strftime("%H:%M")
+    return str(user_time_element(value))
 
 
 def _calendar_context_csrf_field(csrf_token: str | None) -> str:
@@ -2115,7 +2216,7 @@ def _render_list_delete_dialog() -> str:
           <button type="button" class="quiet" data-delete-cancel>Отмена</button>
           <button type="button" class="danger-button" data-delete-confirm>Удалить</button>
         </div>
-        <div class="dialog-error" data-delete-error hidden>Не удалось удалить запись. Попробуйте ещё раз.</div>
+        <div class="dialog-error" data-delete-error hidden>Не удалось удалить запись. Попробуйте еще раз.</div>
       </dialog>
     """
 
@@ -2160,40 +2261,94 @@ def _render_playback(
     embedded: bool,
     csrf_token: str | None,
     playback_path: str | None = None,
+    shared_workspace_id: UUID | None = None,
 ) -> str:
     playback_path = playback_path or review.playback.playback_path
     if review.playback.can_play and playback_path:
-        speed_options = ",".join(f"{speed:g}" for speed in review.playback.speed_options)
         speaker_palette = _speaker_palette(review)
+        speakers = sorted(review.speakers.speakers, key=lambda speaker: -speaker.talk_time_percent)
+        has_speakers = bool(speakers) and review.speakers.available
+        speaker_timeline, speaker_overview = _render_playback_speaker_timeline(review, speaker_palette=speaker_palette)
+        listen_rows = ''.join(
+            f'<label class="playback-listen-row {"speaker-color-" + str(speaker_palette.get(speaker.speaker_key, 0))}" data-speaker-key="{escape(speaker.speaker_key)}">'
+            f'<span class="speaker-manager-dot" aria-hidden="true"></span><span class="speaker-manager-name">{escape(_speaker_display_label(speaker.label))}</span>'
+            f'<input type="checkbox" data-listen-speaker="{escape(speaker.speaker_key)}" aria-label="Слушать: {escape(_speaker_display_label(speaker.label))}"></label>'
+            for speaker in speakers
+        )
+        speed_items = ''.join(
+            f'<button type="button" role="menuitemradio" aria-checked="{str(speed == 1).lower()}" data-playback-speed-option="{speed:g}">{speed:g}</button>'
+            for speed in review.playback.speed_options
+        )
+        avatars = ''.join(
+            f'<button type="button" class="playback-avatar speaker-color-{speaker_palette.get(speaker.speaker_key, 0)}" '
+            f'data-playback-avatar="{escape(speaker.speaker_key)}" data-speaker-key="{escape(speaker.speaker_key)}" '
+            f'aria-label="Следующая реплика: {escape(_speaker_display_label(speaker.label))}" title="{escape(_speaker_display_label(speaker.label))}">'
+            f'<span data-speaker-initials aria-hidden="true">{escape(_speaker_display_label(speaker.label)[:1].upper())}</span></button>'
+            for speaker in speakers
+        )
+        result_id = next((turn.processing_result_id for turn in review.transcript.speaker_turns if turn.processing_result_id), None)
+        result_id = result_id or (review.content_exports.processing_result_id if review.content_exports else None)
+        comment_access = review.access or review.meeting.access
+        can_comment = bool(getattr(comment_access, "can_comment", False))
+        comments_available = bool(comment_access and comment_access.can_view_full_meeting)
+        comments_query = f"?workspace_id={shared_workspace_id}" if shared_workspace_id else ""
+        comment_attrs = (
+            f'data-meeting-id="{review.meeting.meeting_id}" data-workspace-id="{shared_workspace_id or ""}" '
+            f'data-media-revision-id="{review.provenance.media_revision_id or ""}" data-processing-result-id="{result_id or ""}" '
+            f'data-comments-url="/api/v1/cabinet/meetings/{review.meeting.meeting_id}/comments{comments_query}" '
+            f'data-comments-can-comment="{str(can_comment).lower()}" data-comments-available="{str(comments_available).lower()}"'
+        )
         return f"""
-          <section class="playback-bar detail-playback" data-playback-shell data-playback-state="available" data-playback-reason="{escape(review.playback.reason_code)}" data-source-mode="{escape(review.playback.source_mode)}" aria-label="Воспроизведение записи" aria-describedby="playback-live-status">
+          <section class="playback-bar detail-playback" data-playback-shell data-playback-state="available" data-playback-reason="{escape(review.playback.reason_code)}" data-source-mode="{escape(review.playback.source_mode)}" {comment_attrs} aria-label="Воспроизведение записи" aria-describedby="playback-live-status">
             <audio class="playback-audio" data-playback-player preload="metadata" src="{escape(playback_path)}"></audio>
+            <div class="speaker-timeline-resize-row"{' hidden' if not has_speakers else ''}>
+              <div class="speaker-timeline-resize" data-speaker-timeline-resize role="separator" aria-orientation="horizontal" aria-controls="speaker-timeline" aria-label="Изменить высоту дорожек спикеров" aria-valuemin="33" aria-valuemax="120" aria-valuenow="120" tabindex="0"></div>
+            </div>
             <div class="playback-toolbar">
-              {_render_speaker_manager(review, embedded=embedded, csrf_token=csrf_token, speaker_palette=speaker_palette)}
+              <div class="playback-tools">
+                <button type="button" class="playback-round" data-playback-timeline-toggle aria-expanded="true" aria-controls="speaker-timeline" aria-label="Скрыть дорожки" title="Показать или скрыть дорожки"{' disabled' if not has_speakers else ''}>{_ui_icon("timeline")}</button>
+                <span class="playback-divider" aria-hidden="true"></span>
+                <div class="playback-menu-anchor"{' hidden' if len(speakers) <= 1 else ''}>
+                  <button type="button" class="playback-round" data-playback-listen-toggle aria-expanded="false" aria-controls="playback-listen-menu" aria-label="Слушать спикеров" title="Слушать спикеров">{_ui_icon("audio")}<span data-listen-count class="playback-listen-count" hidden></span></button>
+                  <div id="playback-listen-menu" class="playback-menu playback-listen-menu" data-playback-listen-menu role="group" aria-label="Слушать спикеров" hidden>
+                    <label class="playback-listen-row"><span>Все спикеры</span><input type="checkbox" data-listen-all checked></label>
+                    {listen_rows}
+                  </div>
+                </div>
+                <button type="button" class="playback-round" data-playback-comment aria-label="Комментарии" title="Комментарий"{' hidden' if not comments_available else ''}>{_ui_icon("comment")}</button>
+                {_render_speaker_manager(review, embedded=embedded, csrf_token=csrf_token, speaker_palette=speaker_palette, shared_workspace_id=shared_workspace_id)}
+              </div>
               <div class="playback-controls" aria-label="Управление воспроизведением">
-                <button type="button" class="playback-round" data-playback-skip="-15" aria-label="Назад на 15 секунд">15</button>
-                <button type="button" class="playback-round primary-play" data-playback-toggle aria-label="Воспроизвести">▶</button>
-                <button type="button" class="playback-round" data-playback-skip="15" aria-label="Вперед на 15 секунд">15</button>
-                <button type="button" class="playback-speed" data-playback-speed-toggle data-speed-options="{escape(speed_options)}">1x</button>
+                <button type="button" class="playback-round" data-playback-skip="-15" aria-label="Назад на 15 секунд" title="Назад на 15 секунд (←)">{_ui_icon("back-15")}</button>
+                <button type="button" class="playback-round primary-play" data-playback-toggle aria-label="Воспроизвести" title="Воспроизвести / пауза (Пробел)"><span data-playback-play-icon>{_ui_icon("play")}</span><span data-playback-pause-icon hidden>{_ui_icon("pause")}</span></button>
+                <button type="button" class="playback-round" data-playback-skip="15" aria-label="Вперед на 15 секунд" title="Вперед на 15 секунд (→)">{_ui_icon("forward-15")}</button>
+                <button type="button" class="playback-round" data-playback-next aria-label="Следующая реплика" title="Следующая реплика (Shift+→)"{' disabled' if not has_speakers else ''}>{_ui_icon("skip-next")}</button>
+                <div class="playback-menu-anchor">
+                  <button type="button" class="playback-speed" data-playback-speed-toggle aria-label="Скорость воспроизведения" aria-haspopup="menu" aria-expanded="false" aria-controls="playback-speed-menu">1x</button>
+                  <div id="playback-speed-menu" class="playback-menu playback-speed-menu" data-playback-speed-menu role="menu" aria-label="Скорость воспроизведения" hidden>{speed_items}</div>
+                </div>
+              </div>
+              <div class="playback-speaker-carousel" data-playback-carousel{' hidden' if not has_speakers else ''}>
+                <span class="playback-active-speaker" data-playback-active-speaker aria-hidden="true">{_ui_icon("audio")}</span>
+                <button type="button" class="playback-round" data-avatar-scroll="-1" aria-label="Предыдущие спикеры" disabled>{_ui_icon("chevron-left")}</button>
+                <div class="playback-avatars" data-playback-avatars>{avatars}</div>
+                <button type="button" class="playback-round" data-avatar-scroll="1" aria-label="Следующие спикеры" disabled>{_ui_icon("chevron-right")}</button>
               </div>
             </div>
             <p class="playback-error" data-playback-error role="status" aria-live="polite" hidden>Воспроизведение временно недоступно.</p>
             <div class="playback-progress-row">
               <span class="playback-time" data-playback-current>00:00</span>
               <span class="timeline-scale playback-scale">
-                <input class="playback-progress" data-playback-progress type="range" min="0" max="{review.playback.duration_seconds}" step="0.1" value="0" aria-label="Позиция записи">
-                <span class="playback-range-track" aria-hidden="true"><span class="playback-range-thumb"></span></span>
+                <input class="playback-progress" data-playback-progress type="range" min="0" max="{review.playback.duration_seconds}" step="0.01" value="0" aria-label="Позиция записи">
+                <span class="playback-range-track" aria-hidden="true"><span class="playback-speaker-overview">{speaker_overview}</span><span class="playback-range-thumb"></span></span>
               </span>
               <span class="playback-time" data-playback-duration>{_timecode(review.playback.duration_seconds)}</span>
             </div>
-            {_render_playback_speaker_timeline(review, speaker_palette=speaker_palette)}
+            {speaker_timeline}
+            <span class="sr-only" data-playback-listen-status role="status"></span>
           </section>
         """
-    focus_attribute = (
-        ""
-        if review.playback.state == "preparing"
-        else ' role="status" tabindex="0" aria-live="off"'
-    )
+    focus_attribute = "" if review.playback.state == "preparing" else ' role="status" tabindex="0" aria-live="off"'
     state_classes = "is-unavailable"
     if review.playback.state != "unavailable":
         state_classes += f" is-{escape(review.playback.state)}"
@@ -2209,45 +2364,48 @@ def _render_playback_speaker_timeline(
     review: MeetingReviewResponse,
     *,
     speaker_palette: dict[str, int],
-) -> str:
-    if not review.speakers.available:
-        return '<div class="speaker-timeline" data-speaker-timeline></div>'
-    if not review.speakers.speakers:
-        return '<div id="speaker-timeline" class="speaker-timeline" data-speaker-timeline data-speaker-timeline-count="0"></div>'
+) -> tuple[str, str]:
+    if not review.speakers.available or not review.speakers.speakers:
+        return '<div id="speaker-timeline" class="speaker-timeline" data-speaker-timeline data-speaker-timeline-count="0"></div>', ""
     duration = max(1, review.playback.duration_seconds)
     lanes = []
-    for speaker in review.speakers.speakers:
+    overview = []
+    turns = review.speakers.turns or review.transcript.speaker_turns
+    turn_sources = {(turn.speaker_key, round(turn.start_seconds, 3)): " ".join(turn.source_segment_ids) for turn in turns}
+    for speaker in sorted(review.speakers.speakers, key=lambda speaker: -speaker.talk_time_percent):
         speaker_label = _speaker_display_label(speaker.label)
         color_class = f"speaker-color-{speaker_palette.get(speaker.speaker_key, 0)}"
         segments = []
         for segment in speaker.segments:
             start = max(0.0, float(segment.start_seconds))
             end = min(float(duration), max(start, float(segment.end_seconds)))
+            if end <= start:
+                continue
             left = min(100.0, max(0.0, start / duration * 100))
-            width = min(100.0 - left, max(0.2, (end - start) / duration * 100))
+            width = min(100.0 - left, (end - start) / duration * 100)
+            overview.append(
+                f'<span class="playback-speaker-interval {color_class}" data-speaker-key="{escape(speaker.speaker_key)}" '
+                f'style="left:{left:.6f}%;width:{width:.6f}%"></span>'
+            )
+            source_ids = turn_sources.get((speaker.speaker_key, round(start, 3)), "")
             segment_label = f"{speaker_label} {_timecode(int(start))}-{_timecode(int(end))}"
             segments.append(
-                f'<span class="timeline-segment" data-lane-segment data-start-seconds="{start:.3f}" data-end-seconds="{end:.3f}" title="{escape(segment_label)}" '
-                f'aria-label="{escape(segment_label)}" style="left:{left:.2f}%;width:{width:.2f}%"></span>'
+                f'<button type="button" class="timeline-segment" data-lane-segment data-start-seconds="{start:.3f}" data-end-seconds="{end:.3f}" data-source-segments="{escape(source_ids)}" title="{escape(segment_label)}" '
+                f'aria-label="{escape(segment_label)}" style="left:{left:.6f}%;width:{width:.6f}%"></button>'
             )
-        lanes.append(
-            f"""
+        lanes.append(f"""
             <div class="timeline-lane {color_class}" data-speaker-lane="{escape(speaker.speaker_key)}" data-speaker-key="{escape(speaker.speaker_key)}">
-              <span class="timeline-speaker" title="{escape(speaker_label)}"><span class="speaker-dot" aria-hidden="true"></span><span class="timeline-label">{escape(speaker_label)}</span></span>
-              <span class="timeline-scale lane-scale"><span class="timeline-track" data-timeline-track role="button" tabindex="0" aria-label="Перейти по дорожке {escape(speaker_label)}: переместить воспроизведение к фрагменту записи">{"".join(segments)}<span class="timeline-playhead" data-timeline-playhead aria-hidden="true"></span></span></span>
-              <span class="timeline-share">{speaker.talk_time_percent}%</span>
+              <span class="timeline-avatar" aria-hidden="true" data-speaker-initials>{escape(speaker_label[:1].upper())}</span>
+              <span class="timeline-speaker" title="{escape(speaker_label)}"><span class="timeline-label">{escape(speaker_label)}</span></span>
+              <span class="timeline-scale lane-scale"><span class="timeline-track" data-timeline-track role="group" tabindex="0" aria-label="Дорожка {escape(speaker_label)}: стрелки перемещают позицию">{"".join(segments)}<span class="timeline-playhead" data-timeline-playhead aria-hidden="true"></span></span></span>
+              <span class="timeline-share" title="{escape(review.speakers.talk_time_label)}">{speaker.talk_time_percent}%</span>
             </div>
-            """
-        )
+        """)
     return f"""
       <div class="speaker-timeline-shell" data-speaker-timeline-shell>
-        <div class="speaker-timeline-resize-row">
-          <div id="speaker-timeline-resize" class="speaker-timeline-resize" data-speaker-timeline-resize role="separator" aria-orientation="horizontal" aria-controls="speaker-timeline" aria-label="Изменить высоту таймлайнов спикеров" aria-valuemin="120" aria-valuemax="120" aria-valuenow="120" aria-valuetext="Стандартная высота" tabindex="0" hidden></div>
-        </div>
-        <p class="speaker-timeline-hint" data-speaker-timeline-hint>Нажмите на цветной фрагмент, чтобы перейти к этому месту записи. Проценты: {escape(review.speakers.talk_time_label.lower())} каждого спикера.</p>
         <div id="speaker-timeline" class="speaker-timeline" data-speaker-timeline data-speaker-timeline-count="{len(lanes)}" data-speaker-timeline-default-height="120">{"".join(lanes)}</div>
       </div>
-    """
+    """, "".join(overview)
 
 
 def _render_speaker_manager(
@@ -2256,6 +2414,7 @@ def _render_speaker_manager(
     embedded: bool,
     csrf_token: str | None,
     speaker_palette: dict[str, int],
+    shared_workspace_id: UUID | None = None,
 ) -> str:
     if not review.speakers.available:
         return ""
@@ -2278,6 +2437,7 @@ def _render_speaker_manager(
                 speaker,
                 embedded=embedded,
                 csrf_token=csrf_token,
+                shared_workspace_id=shared_workspace_id,
                 form_id=form_id,
                 extra_class="speaker-manager-form",
                 hidden=True,
@@ -2296,7 +2456,7 @@ def _render_speaker_manager(
     return f"""
       <div class="speaker-manager" data-speaker-manager>
         <button class="speaker-manager-trigger" type="button" data-speaker-manager-toggle aria-expanded="false" aria-controls="speaker-manager-popover">
-          <span>Спикеры · {confirmed_count}</span><span class="speaker-manager-markers" aria-hidden="true">{markers}</span>
+          {_ui_icon("users-round")}<span class="sr-only">Спикеры · {confirmed_count}</span><span class="speaker-manager-markers sr-only" aria-hidden="true">{markers}</span>
         </button>
         <div id="speaker-manager-popover" class="speaker-manager-popover" hidden>{"".join(rows)}</div>
       </div>
@@ -2308,6 +2468,7 @@ def _render_speaker_lanes(
     *,
     embedded: bool = False,
     csrf_token: str | None = None,
+    shared_workspace_id: UUID | None = None,
 ) -> str:
     if not review.speakers.available:
         return f'<div class="muted">{escape(_ui_text("Speaker lanes are reserved until diarization is available."))}</div>'
@@ -2321,6 +2482,7 @@ def _render_speaker_lanes(
                 speaker,
                 embedded=embedded,
                 csrf_token=csrf_token,
+                shared_workspace_id=shared_workspace_id,
                 form_id=f"speaker-name-form-{speaker.speaker_key}",
             )
         lanes.append(
@@ -2344,6 +2506,7 @@ def _render_speaker_name_form(
     form_id: str,
     extra_class: str = "",
     hidden: bool = False,
+    shared_workspace_id: UUID | None = None,
 ) -> str:
     speaker_label = _speaker_display_label(speaker.label)
     csrf = (
@@ -2356,14 +2519,15 @@ def _render_speaker_name_form(
         if hidden
         else ""
     )
+    shared_query = f"?workspace_id={shared_workspace_id}" if shared_workspace_id else ""
     return f"""
-      <form id="{escape(form_id)}" class="speaker-name-form {escape(extra_class)}" data-speaker-name-form data-speaker-key="{escape(speaker.speaker_key)}" method="post" action="{_base_path(embedded)}/{review.meeting.meeting_id}/speakers/{escape(speaker.speaker_key)}"{" hidden" if hidden else ""}>
+      <form id="{escape(form_id)}" class="speaker-name-form {escape(extra_class)}" data-speaker-name-form data-speaker-key="{escape(speaker.speaker_key)}" method="post" action="{_base_path(embedded)}/{review.meeting.meeting_id}/speakers/{escape(speaker.speaker_key)}{shared_query}"{" hidden" if hidden else ""}>
         {csrf}
         <label class="sr-only" for="speaker-name-{escape(speaker.speaker_key)}">Имя для {escape(speaker_label)}</label>
         <input id="speaker-name-{escape(speaker.speaker_key)}" name="display_name" value="{escape(speaker.display_name or "")}" placeholder="Имя спикера" maxlength="80" autocomplete="off">
         <button type="submit" class="quiet">Сохранить</button>
         {cancel}
-        <span class="speaker-name-error" data-speaker-name-error role="status" aria-live="polite" hidden>Не удалось сохранить имя. Проверьте имя и попробуйте ещё раз.</span>
+        <span class="speaker-name-error" data-speaker-name-error role="status" aria-live="polite" hidden>Не удалось сохранить имя. Проверьте имя и попробуйте еще раз.</span>
       </form>
     """
 
@@ -2384,7 +2548,83 @@ def _render_revision_status(review: MeetingReviewResponse) -> str:
     """
 
 
+def _render_full_protocol(document, *, source_destination_available: bool, base_heading_level: int = 3, source_targets: frozenset[tuple[str, str]] = frozenset()) -> str:
+    def render_row(row):
+        item = OutcomeItemView(
+            category="summary", sequence=0, text=row.get("text", row.get("task")),
+            truth_label="supported",
+            source_refs=[OutcomeSourceReferenceView(
+                **ref, seekable=(str(ref["processing_result_id"]), str(ref["transcript_segment_id"])) in source_targets,
+            ) for ref in row.get("source_refs", [])],
+        )
+        return _render_outcome_item(item, source_destination_available=source_destination_available)
+
+    heading = base_heading_level
+    blocks = []
+    for key, title, empty in (
+        ("executive_summary", "Главное", "Краткие итоги не зафиксированы."),
+        ("decisions", "Принятые решения", EMPTY["Принятые решения"]),
+        ("action_items", "Задачи", "Задачи не зафиксированы."),
+        ("open_questions", "Открытые вопросы и следующие шаги", EMPTY["Открытые вопросы и следующие шаги"]),
+    ):
+        rows = document[key]
+        if key == "open_questions":
+            rows = rows + document["next_steps"]
+        body = "".join(render_row(row) for row in rows)
+        if key == "action_items" and rows:
+            # Explicit table roles preserve semantics when narrow layouts stack cells (including WebKit).
+            body = '<table class="notes-action-table" role="table"><caption class="sr-only">Задачи встречи</caption><thead role="rowgroup"><tr role="row">'
+            body += ''.join(f'<th role="columnheader" scope="col">{name}</th>' for name in ("Задача", "Ответственный", "Срок"))
+            body += '</tr></thead><tbody role="rowgroup">'
+            for row in rows:
+                body += (f'<tr role="row"><td role="cell">{render_row(row)}</td>'
+                         '<td role="cell"><span class="notes-task-label" aria-hidden="true">Ответственный: </span>'
+                         f'{escape(row["owner_text"] or "Не назначен")}</td>'
+                         '<td role="cell"><span class="notes-task-label" aria-hidden="true">Срок: </span>'
+                         f'{escape(row["due_date_text"] or "Не указан")}</td></tr>')
+            body += '</tbody></table>'
+        elif not rows:
+            body = f'<p class="muted">{escape(empty)}</p>'
+        blocks.append(f'<section class="notes-section"><h{heading}>{escape(title)}</h{heading}>{body}</section>')
+    topics = []
+    for topic in document["topics"]:
+        body = ""
+        for key, title in (("outcome", "Итог"), ("context", "Контекст"),
+                           ("discussion", "Обсуждение"), ("proposals", "Предложения")):
+            if topic[key]:
+                body += (f'<section class="notes-topic-part"><h{heading + 2}>{title}</h{heading + 2}>'
+                         + ''.join(render_row(row) for row in topic[key]) + '</section>')
+        topics.append(
+            f'<details class="notes-topic"><summary><h{heading + 1}>{escape(topic["title"])}</h{heading + 1}>'
+            f'</summary><div class="notes-topic-content">{body}</div></details>'
+        )
+    blocks.append(
+        f'<section class="notes-section"><h{heading}>Ключевые обсуждения</h{heading}>'
+        + (''.join(topics) or '<p class="muted">Темы обсуждений не зафиксированы.</p>') + '</section>'
+    )
+    if document["notes"]:
+        blocks.append(
+            f'<details class="notes-section notes-protocol-notes"><summary><h{heading}>Примечания</h{heading}>'
+            '</summary>' + ''.join(render_row(row) for row in document["notes"]) + '</details>'
+        )
+    return '<div class="notes-full-protocol">' + ''.join(blocks) + '</div>'
+
+
 def _render_notes_outcomes(review: MeetingReviewResponse) -> str:
+    if review.notes_action_truth.protocol is not None:
+        return _render_full_protocol(
+            review.notes_action_truth.protocol,
+            source_targets=frozenset(
+                (str(segment.processing_result_id), segment.segment_id)
+                for segment in review.transcript.segments
+            ) | frozenset(
+                (str(turn.processing_result_id), segment_id)
+                for turn in review.transcript.speaker_turns for segment_id in turn.source_segment_ids
+            ),
+            source_destination_available=review.transcript.available and bool(
+                review.playback.can_play or review.transcript.speaker_turns or review.transcript.segments
+            ),
+        )
     rows = {
         "summary": ("summary", "Summary", review.notes_action_truth.summary),
         "key_points": ("key_points", "Key points", review.notes_action_truth.key_points),
@@ -2474,7 +2714,7 @@ def _render_notes_outcomes(review: MeetingReviewResponse) -> str:
         aggregate_html = (
             '<div class="notes-aggregate-state" data-outcome-state="empty" role="status">'
             "<strong>Полезных итогов не найдено</strong>"
-            "<p>В разговоре нет достаточно подтверждённых решений, действий "
+            "<p>В разговоре нет достаточно подтвержденных решений, действий "
             "или других результатов для выбранного формата.</p>"
             "</div>"
         )
@@ -2492,7 +2732,7 @@ def _render_notes_outcomes(review: MeetingReviewResponse) -> str:
         )
     secondary_html = (
         f"""
-        <details class="notes-more">
+        <details class="notes-more" open>
           <summary>{secondary_label}</summary>
           <div class="notes-outcomes notes-secondary-outcomes" aria-label="Дополнительные разделы">
             {secondary_rows}
@@ -2601,23 +2841,17 @@ def _render_outcome_item(item, *, source_destination_available: bool) -> str:
             f'aria-label="Открыть источник {escape(timestamp)} в расшифровке">{escape(timestamp)}</button>'
         )
     if source_controls:
-        overflow_count = max(0, len(source_controls) - 2)
-        source_noun = (
-            "источник"
-            if overflow_count == 1
-            else "источника"
-            if overflow_count < 5
-            else "источников"
-        )
+        overflow_count = len(source_controls) - 1
         overflow_html = (
-            f'<details class="notes-source-more"><summary aria-label="Показать ещё {overflow_count} {source_noun}">'
-            f"Ещё {overflow_count}</summary>{''.join(source_controls[2:])}</details>"
+            f'<details class="notes-source-more"><summary aria-label="Другие источники: {overflow_count}">'
+            f'Еще {overflow_count}</summary><div class="notes-source-list">'
+            f"{''.join(source_controls[1:])}</div></details>"
             if overflow_count
             else ""
         )
         source_html = (
-            '<div class="notes-item-sources"><span class="notes-source-label">Источник:</span>'
-            + "".join(source_controls[:2])
+            ' <div class="notes-item-sources"><span class="notes-source-label">Источник:</span>'
+            + source_controls[0]
             + overflow_html
             + "</div>"
         )
@@ -2628,20 +2862,20 @@ def _render_outcome_item(item, *, source_destination_available: bool) -> str:
     )
     return (
         f'<article class="outcome-item" data-outcome-truth-label="{escape(truth_label)}">'
-        f'<p class="outcome-item-text">{text}</p>{metadata_html}{source_html}</article>'
+        f'<p class="outcome-item-text">{text}</p>{source_html}{metadata_html}</article>'
     )
 
 
 def _empty_title(review: MeetingReviewResponse) -> str:
     if review.transcript.degraded_reason == "diarization_pending":
-        return "Спикеры ещё определяются"
+        return "Спикеры еще определяются"
     if review.processing.state in {"processing", "submitted"}:
-        return "Транскрипт готовится"
+        return "Расшифровка готовится"
     if review.processing.state == "failed":
         return "Обработка остановилась"
     if review.processing.state == "blocked":
         return "Обработка требует проверки"
-    return "Транскрипт недоступен"
+    return "Расшифровка недоступна"
 
 
 def _empty_body(review: MeetingReviewResponse) -> str:

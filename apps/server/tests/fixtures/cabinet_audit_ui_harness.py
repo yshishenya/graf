@@ -8,6 +8,8 @@ from twobrain_rec_server.cabinet.rendering import render_settings_page
 from twobrain_rec_server.cabinet.view_models import AccountProfileView, AccountSettingsSurface
 
 
+@app.get("/settings", response_class=HTMLResponse)
+@app.get("/desktop/settings", response_class=HTMLResponse)
 @app.get("/settings/account", response_class=HTMLResponse)
 @app.get("/desktop/settings/account", response_class=HTMLResponse)
 async def account(request: Request) -> HTMLResponse:
@@ -18,7 +20,7 @@ async def account(request: Request) -> HTMLResponse:
     )
     return HTMLResponse(
         render_settings_page(
-            category="account",
+            category="account" if request.url.path.endswith("/account") else "overview",
             embedded=request.url.path.startswith("/desktop/"),
             csrf_token="synthetic-csrf",
             profile=profile,

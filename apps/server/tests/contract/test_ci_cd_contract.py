@@ -3,7 +3,11 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
+import shutil
 import subprocess
+import sys
+import textwrap
 import uuid
 from pathlib import Path
 
@@ -41,6 +45,7 @@ def run_stubbed_ci(
 ) -> subprocess.CompletedProcess[str]:
     script = r'''
 source "$1"
+repo_root="${GRAF_TEST_REPO_ROOT:-$repo_root}"
 uname() {
   # The lane-selection contract is platform-independent; model the macOS
   # branch explicitly so the contract is deterministic on GitHub's Linux runner.
@@ -56,7 +61,7 @@ git() {
   command git "$@"
 }
 changed_files() {
-  [[ "$GRAF_TEST_DIFF_AVAILABLE" == "true" ]] || return 9
+  [[ "$GRAF_TEST_DIFF_AVAILABLE" == "true" ]] || return 1
   printf '%s\n' "$GRAF_TEST_CHANGED_FILES"
 }
 calendar_performance_test_path() {
@@ -64,8 +69,26 @@ calendar_performance_test_path() {
 }
 run_step() {
   local name="$1"
+  if [[ "$name" == "Development process preflight" && "${GRAF_TEST_REAL_PREFLIGHT:-}" == "1" ]]; then
+    shift
+    "$@" || return $?
+  fi
+  if [[ "$name" == "related behavior tests" ]]; then
+    # Use the real selector while leaving actual product execution to its
+    # separate focused acceptance. Drop only --run from this fixture call.
+    shift 2
+    local paths="$1"
+    shift 2
+    behavior_tests "$paths" "$@" || return $?
+  fi
+  if [[ "$name" == "server lint" || "$name" == "python compile" ]]; then
+    printf 'static_command=%s\n' "$*"
+  fi
   if [[ "$name" == "server tests" || "$name" == "calendar performance proof" ]]; then
     printf 'server_test_gate=%s\n' "$4"
+  fi
+  if [[ "$name" == "changed server tests" || "$name" == "CI contracts" ]]; then
+    printf 'test_command=%s\n' "$*"
   fi
   if [[ "$name" == "$GRAF_TEST_FAIL_STAGE" ]]; then
     printf 'ci_stage=%s status=fail duration_seconds=0\n' "$name"
@@ -83,6 +106,8 @@ main "$2"
         str(LOCAL_CI),
         mode,
         env={
+            # This fixture owns its synthetic diff; explicit test overrides follow.
+            "GRAF_CI_BASE_REF": "",
             "GRAF_PERFORMANCE_GATE": "auto",
             "GRAF_TEST_CHANGED_FILES": changed_files,
             "GRAF_TEST_DIFF_AVAILABLE": str(diff_available).lower(),
@@ -111,6 +136,200 @@ def test_local_ci_help_is_explicit_and_runs_no_stage() -> None:
     assert "ci_stage=" not in result.stdout
 
 
+def test_shared_cabinet_change_selects_unchanged_behavior_proofs() -> None:
+    result = run_stubbed_ci(
+        "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js",
+        "--fast",
+    )
+
+    assert result.returncode == 0, result.stdout
+    assert "ci_stage=related behavior tests status=pass" in result.stdout
+    plan = next(json.loads(line) for line in result.stdout.splitlines() if line.startswith('{"'))
+    assert plan["tests"] == [
+        "tests/contract/test_cabinet_static_assets_contract.py",
+        "tests/contract/test_settings_ui_contract.py",
+    ]
+    assert plan["covered_tests"] == ["tests/unit/test_settings_view_models.py"]
+    assert "ci_stage=server tests status=pass" in result.stdout
+    assert "coverage=partial next_gate=full_before_release" in result.stdout
+
+
+def behavior_repo(tmp_path: Path) -> Path:
+    """Small real Git/pytest fixture, without product imports or a database."""
+    for relative in ("infra/scripts/ci-local.sh", "scripts/ci-behavior-tests.py"):
+        target = tmp_path / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / relative, target)
+    for relative in (
+        "contract/test_cabinet_static_assets_contract.py",
+        "contract/test_settings_ui_contract.py",
+        "unit/test_settings_view_models.py",
+    ):
+        target = tmp_path / "apps/server/tests" / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        name = ("test_cabinet_rail_node_harness_keeps_responsive_defaults_and_manual_state"
+                if "static_assets" in relative else "test_fixture")
+        target.write_text(f"def {name}():\n    assert True\n")
+    (tmp_path / ".gitignore").write_text(".venv/\n.pytest_cache/\n__pycache__/\n")
+    for args in (("init", "-q"), ("config", "user.email", "ci-contract@example.test"),
+                 ("config", "user.name", "CI Contract"), ("add", "."), ("commit", "-qm", "base")):
+        assert run("git", *args, cwd=tmp_path).returncode == 0
+    return tmp_path / "infra/scripts/ci-local.sh"
+
+
+def test_local_plan_and_fast_share_groups_without_repeating_changed_files() -> None:
+    paths = (
+        "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js\n"
+        "apps/server/src/twobrain_rec_server/cabinet/web_routes/settings.py\n"
+        "apps/server/tests/contract/test_cabinet_static_assets_contract.py\n"
+        "apps/server/tests/contract/test_settings_ui_contract.py\n"
+        "unknown/other.bin"
+    )
+    local = run_stubbed_ci(paths, "--plan")
+    fast = run_stubbed_ci(paths, "--fast")
+    assert local.returncode == fast.returncode == 0
+    local_plan = json.loads(local.stdout)
+    fast_plan = next(json.loads(line) for line in fast.stdout.splitlines() if line.startswith('{"'))
+    assert local_plan["groups"] == fast_plan["groups"]
+    assert set(local_plan["tests"]) == set(fast_plan["tests"] + fast_plan["covered_tests"])
+    assert local_plan["scope"] == "working_tree_diagnostic"
+    assert local_plan["coverage"] == "partial"
+    assert fast.stdout.count("ci_stage=related behavior tests status=pass") == 1
+    assert "ci_stage=changed server tests" not in fast.stdout
+    assert fast.stdout.index("ci_stage=python compile") < fast.stdout.index("ci_stage=related behavior tests")
+    assert fast.stdout.index("ci_stage=related behavior tests") < fast.stdout.index("ci_stage=server tests")
+
+
+def test_plan_is_read_only_and_preserves_real_git_rename_and_special_paths(tmp_path: Path) -> None:
+    runner = behavior_repo(tmp_path)
+    original = tmp_path / "apps/server/src/twobrain_rec_server/cabinet/templates/old file.html"
+    original.parent.mkdir(parents=True)
+    original.write_text("before\n")
+    assert run("git", "add", ".", cwd=tmp_path).returncode == 0
+    assert run("git", "commit", "-qm", "source", cwd=tmp_path).returncode == 0
+    base = run("git", "rev-parse", "HEAD", cwd=tmp_path).stdout.strip()
+    renamed = original.with_name("меню $() `touch injected` ' \".html")
+    original.rename(renamed)
+    spies = tmp_path / ".venv/bin"
+    spies.mkdir(parents=True)
+    for name in ("docker", "uv", "pytest", "node", "curl", "gh", "swift"):
+        executable = spies / name
+        executable.write_text("#!/bin/sh\ntouch injected\nexit 99\n")
+        executable.chmod(0o755)
+    before = set(tmp_path.rglob("*"))
+    result = run(str(runner), "--plan", cwd=tmp_path,
+                 env={"GRAF_CI_BASE_REF": base, "PATH": f"{spies}:{os.environ['PATH']}"})
+    assert result.returncode == 0, result.stdout
+    plan = json.loads(result.stdout)
+    assert plan["changed_paths"] == sorted([str(original.relative_to(tmp_path)), str(renamed.relative_to(tmp_path))])
+    assert [group["name"] for group in plan["groups"]] == ["cabinet-shell", "settings"]
+    assert plan["dirty_worktree"] is True
+    assert len(plan["tests"]) == 3
+    assert set(tmp_path.rglob("*")) == before
+    assert "ci_local_result" not in result.stdout and "ci_evidence_path" not in result.stdout
+    invalid = renamed.with_name("line\nbreak.html")
+    renamed.rename(invalid)
+    rejected = run(str(runner), "--plan", cwd=tmp_path, env={"GRAF_CI_BASE_REF": base})
+    assert rejected.returncode != 0
+    assert "unsupported_changed_path" in rejected.stdout
+    assert "ci_focused_result=pass" not in rejected.stdout
+
+
+@pytest.mark.parametrize("condition", ["missing", "empty", "rail_removed"])
+def test_missing_mandatory_behavior_proof_fails_before_execution(tmp_path: Path, condition: str) -> None:
+    runner = behavior_repo(tmp_path)
+    target = tmp_path / "apps/server/tests/contract/test_cabinet_static_assets_contract.py"
+    if condition == "missing":
+        target.unlink()
+    else:
+        target.write_text("" if condition == "empty" else "def test_other():\n    pass\n")
+    result = run(str(runner), "--focused", cwd=tmp_path, env={"GRAF_CI_BASE_REF": "HEAD"})
+    assert result.returncode != 0
+    assert "required_test_" in result.stdout
+    assert "server_venv_missing" not in result.stdout
+    assert not (tmp_path / "apps/server/.venv").exists()
+
+
+@pytest.mark.parametrize("condition", ["pass", "skip", "deselect", "failure"])
+def test_focused_requires_executed_proof_despite_pytest_filters(tmp_path: Path, condition: str) -> None:
+    runner = behavior_repo(tmp_path)
+    target = tmp_path / "apps/server/tests/contract/test_cabinet_static_assets_contract.py"
+    original = target.read_text()
+    if condition == "skip":
+        target.write_text("import pytest\n@pytest.mark.skip(reason='fixture')\n" + original)
+    elif condition == "failure":
+        target.write_text(original.replace("assert True", "assert False"))
+    if condition == "deselect":
+        (target.parent / "conftest.py").write_text(
+            "def pytest_collection_modifyitems(items):\n    items[:] = [i for i in items if 'rail_node' not in i.name]\n"
+        )
+    source = tmp_path / "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js"
+    source.parent.mkdir(parents=True)
+    source.write_text("// fixture\n")
+    python = tmp_path / "apps/server/.venv/bin/python"
+    python.parent.mkdir(parents=True)
+    python.write_text(f'#!/bin/sh\nexec {shlex.quote(sys.executable)} "$@"\n')
+    python.chmod(0o755)
+    result = run(str(runner), "--focused", cwd=tmp_path, env={
+        "GRAF_CI_BASE_REF": "HEAD", "PYTEST_ADDOPTS": "-k should_never_select_anything",
+    })
+    if condition == "pass":
+        assert result.returncode == 0, result.stdout
+        assert "3 passed" in result.stdout
+        assert "ci_focused_result=pass" in result.stdout
+    else:
+        assert result.returncode != 0, result.stdout
+        assert "ci_focused_result=fail" in result.stdout
+        expected = {"skip": "required_behavior_test_skipped", "deselect": "required_test_file_not_executed",
+                    "failure": "AssertionError"}
+        assert expected[condition] in result.stdout
+    assert not (tmp_path / ".dev/ci-evidence").exists()
+
+
+def test_focused_empty_missing_runtime_and_bad_base_do_not_pass(tmp_path: Path) -> None:
+    runner = behavior_repo(tmp_path)
+    (tmp_path / "unknown.bin").write_text("fixture\n")
+    empty = run(str(runner), "--focused", cwd=tmp_path, env={"GRAF_CI_BASE_REF": "HEAD"})
+    assert empty.returncode == 2 and "no_focused_tests_selected" in empty.stdout
+    invalid = run(str(runner), "--plan", cwd=tmp_path, env={"GRAF_CI_BASE_REF": "f" * 40})
+    assert invalid.returncode != 0 and "invalid_diff_or_explicit_base" in invalid.stdout
+    missing = run(str(runner), "--plan", cwd=tmp_path, env={"GRAF_CI_BASE_REF": ""})
+    assert missing.returncode == 0 and json.loads(missing.stdout)["diff_available"] is False
+    target = tmp_path / "apps/server/tests/contract/test_settings_ui_contract.py"
+    target.write_text(target.read_text() + "\n")
+    runtime = run(str(runner), "--focused", cwd=tmp_path, env={"GRAF_CI_BASE_REF": "HEAD"})
+    assert runtime.returncode != 0 and "server_venv_missing" in runtime.stdout
+    explicit_fast = run_stubbed_ci("", "--fast", diff_available=False, env={"GRAF_CI_BASE_REF": "f" * 40})
+    assert explicit_fast.returncode != 0 and "ci_stage=" not in explicit_fast.stdout
+
+
+@pytest.mark.parametrize("mode", ["--fast", "--full"])
+@pytest.mark.parametrize("fail_stage", ["", "server lint", "python compile"])
+def test_server_static_checks_precede_tests_and_fail_fast(mode: str, fail_stage: str) -> None:
+    result = run_stubbed_ci(
+        "apps/server/src/twobrain_rec_server/calendar/matching.py\n"
+        "apps/server/tests/contract/test_ci_cd_contract.py",
+        mode, fail_stage=fail_stage,
+    )
+    stages = re.findall(r"ci_stage=(.*?) status=", result.stdout)
+    server_tests = {"server tests", "changed server tests", "calendar performance proof"}
+    assert stages.count("server lint") == 1
+    assert "static_command=server lint bash -c cd apps/server && PYTHONPATH=src uv run --extra dev ruff check ." in result.stdout
+    if fail_stage != "server lint":
+        assert stages.count("python compile") == 1
+        assert "static_command=python compile python3 -m compileall -q apps/server/src apps/server/tests apps/server/scripts" in result.stdout
+    if fail_stage:
+        assert result.returncode == 17, result.stdout
+        assert not server_tests.intersection(stages)
+        assert result.stdout.count("ci_local_result=fail") == 1
+    else:
+        assert result.returncode == 0, result.stdout
+        selected = server_tests if mode == "--fast" else {"server tests"}
+        assert selected.issubset(stages)
+        assert stages.index("server lint") < stages.index("python compile")
+        assert all(stages.index("python compile") < stages.index(stage) for stage in selected)
+
+
 @pytest.mark.parametrize(
     ("path", "expected"),
     [
@@ -125,6 +344,11 @@ def test_local_ci_help_is_explicit_and_runs_no_stage() -> None:
         ("apps/macos/Sources/App.swift", "macos"),
         ("apps/macos/Package.resolved", "macos"),
         ("docs/user-guide.md", "docs"),
+        ("changes/unreleased/F211.yaml", "docs"),
+        ("changes/releases/v2026.09.14.1/F211.yaml", "docs"),
+        ("changes/unreleased/F211.yaml.bak", "infra"),
+        ("changes/releases/vfoo/F211.yaml", "unknown"),
+        ("changes/scripts/build.py", "unknown"),
         ("docs/agent-guidance/release-and-validation.md", "governance"),
         ("AGENTS.md", "governance"),
         (".github/pull_request_template.md", "governance"),
@@ -146,6 +370,59 @@ def test_fast_component_classification_is_fail_closed(path: str, expected: str) 
 
     assert result.returncode == 0, result.stdout
     assert result.stdout.strip() == expected
+
+
+@pytest.mark.parametrize("scenario", ["archive", "product", "infra", "invalid"])
+def test_changelog_metadata_uses_only_necessary_fast_checks(tmp_path: Path, scenario: str) -> None:
+    runner = behavior_repo(tmp_path)
+    for name in ("check-development-process.py", "validate-changelog-fragments.py", "emit-ci-evidence.py"):
+        shutil.copy2(ROOT / "scripts" / name, tmp_path / "scripts" / name)
+    fragment = tmp_path / "changes/unreleased/F211.yaml"
+    fragment.parent.mkdir(parents=True)
+    fragment.write_text(
+        'schema_version: 1\nfeature_id: 211\ncategory: Ops\nsummary: "Проверка процесса"\n'
+        'issue: 6986\ntasks: [T094]\ncompatibility: "Без изменений"\n'
+        'known_limitations: ["Нет"]\nrelease_notes: "Проверка фрагмента"\n'
+    )
+    for args in (("add", "."), ("commit", "-qm", "metadata"),
+                 ("update-ref", "refs/remotes/origin/master", "HEAD")):
+        assert run("git", *args, cwd=tmp_path).returncode == 0
+    if scenario == "archive":
+        archived = tmp_path / "changes/releases/v2026.09.14.1/F211.yaml"
+        archived.parent.mkdir(parents=True)
+        fragment.rename(archived)
+        (tmp_path / "CHANGELOG.md").write_text("# Проверенный выпуск\n")
+    else:
+        fragment.write_text(fragment.read_text().replace("category: Ops", "category: Invalid")
+                            if scenario == "invalid" else fragment.read_text() + "# Изменение\n")
+        if scenario in {"product", "infra"}:
+            extra = tmp_path / ("apps/server/src/twobrain_rec_server/domain/statuses.py"
+                                if scenario == "product" else "infra/scripts/example.sh")
+            extra.parent.mkdir(parents=True, exist_ok=True)
+            extra.write_text("# Проверяемое изменение\n")
+    selected = run("bash", "-c", 'source "$1"; changed_files', "contract", str(runner),
+                   env={"GRAF_CI_BASE_REF": "origin/master"})
+    assert selected.returncode == 0, selected.stdout
+    if scenario == "archive":
+        assert set(selected.stdout.splitlines()) == {
+            "CHANGELOG.md", "changes/unreleased/F211.yaml", "changes/releases/v2026.09.14.1/F211.yaml",
+        }
+    assert not (tmp_path / ".specify/feature.json").exists()
+    result = run_stubbed_ci(selected.stdout, "--fast", env={
+        "GRAF_TEST_REPO_ROOT": str(tmp_path), "GRAF_TEST_REAL_PREFLIGHT": "1",
+    })
+    if scenario == "invalid":
+        assert result.returncode != 0, result.stdout
+        assert "invalid category" in result.stdout
+        assert "ci_stage=Spec Kit governance" not in result.stdout
+        assert "ci_local_result=pass" not in result.stdout
+    else:
+        assert result.returncode == 0, result.stdout
+        assert "development-process: OK feature=repository-only" in result.stdout
+        assert ("ci_stage=governance tests" in result.stdout) == (scenario == "infra")
+        assert ("ci_stage=CI contracts" in result.stdout) == (scenario == "infra")
+        assert ("ci_stage=server tests" in result.stdout) == (scenario == "product")
+        assert result.stdout.count("ci_stage=Development process preflight status=pass") == 1
 
 
 def test_fast_lane_runs_the_union_of_known_components_once() -> None:
@@ -214,7 +491,8 @@ def test_explicit_fast_never_escalates_to_full(changed_files: str) -> None:
     assert "effective=full" not in result.stdout
 
 
-def test_unknown_and_unavailable_diffs_report_partial_fast_coverage() -> None:
+def test_unknown_and_unavailable_diffs_report_partial_fast_coverage(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GRAF_CI_BASE_REF", "a" * 40)
     unknown = run_stubbed_ci("unknown/surface.bin", "--fast")
     unavailable = run_stubbed_ci("", "--fast", diff_available=False)
 
@@ -271,6 +549,86 @@ def test_changed_contract_and_integration_tests_run_focused_once() -> None:
     assert "effective=fast components=server" in result.stdout
 
 
+@pytest.mark.parametrize("infra", [False, True])
+@pytest.mark.parametrize("fail_stage", ["", "CI contracts"])
+def test_ci_contracts_have_one_owner(infra: bool, fail_stage: str) -> None:
+    contracts = ["tests/contract/test_ci_cd_contract.py", "tests/contract/test_local_postgres_test_runner.py"]
+    other = "tests/integration/test_calendar_auto_context_match.py"
+    changed = "\n".join("apps/server/" + path for path in [*contracts, other])
+    if infra:
+        changed += "\ninfra/scripts/ci-local.sh"
+    result = run_stubbed_ci(changed, "--fast", fail_stage=fail_stage)
+    # Each selected file occurs in exactly one executable test command.
+    commands = result.stdout.split("test_command=", 1)[1]
+    for path in [*contracts, other]:
+        assert commands.count(path) == 1, result.stdout
+    assert result.returncode == (17 if infra and fail_stage else 0), result.stdout
+    if infra and fail_stage:
+        assert "ci_stage=production compose config" not in result.stdout
+        assert "ci_local_result=fail" in result.stdout
+
+
+def test_infra_contract_command_fails_if_required_file_disappears(tmp_path: Path) -> None:
+    script = LOCAL_CI.read_text()
+    command = re.search(r'run_step "CI contracts" bash -c "(.*?)" \|\|', script, re.S).group(1)
+    server = tmp_path / "apps/server"
+    (server / "tests/contract").mkdir(parents=True)
+    (server / "tests/contract/test_ci_cd_contract.py").write_text("def test_present(): assert True\n")
+    # Execute the real selected pytest command, using the prepared environment.
+    command = command.replace("uv run --extra dev pytest", shlex.quote(sys.executable) + " -m pytest")
+    result = run("bash", "-c", command, cwd=tmp_path)
+    assert result.returncode != 0
+    assert "test_local_postgres_test_runner.py" in result.stdout
+    assert "file or directory not found" in result.stdout
+
+
+@pytest.mark.parametrize("failure", ["", "lint", "compile"])
+def test_release_full_static_commands_run_before_tests(tmp_path: Path, failure: str) -> None:
+    step = FULL_CI_WORKFLOW.read_text().split("      - name: Run Ubuntu full component\n", 1)[1]
+    body = textwrap.dedent(step.split("        run: |\n", 1)[1].split("\n      - name:", 1)[0])
+    wrappers = r'''
+record() { printf '%s\n' "$*" >> "$RUNNER_TEMP/commands"; }
+python3() {
+  if [[ "$1" == - ]]; then command "$TEST_PYTHON" "$@"; return $?; fi
+  record python3 "$@"
+  if [[ "$*" == *compileall* && "$TEST_FAILURE" == compile ]]; then return 17; fi
+}
+uv() {
+  record uv "$@"
+  if [[ "$*" == *"ruff check"* && "$TEST_FAILURE" == lint ]]; then return 17; fi
+}
+pytest() { record pytest "$@"; }
+bash() { record bash "$@"; }
+sh() { record sh "$@"; }
+docker() { record docker "$@"; }
+git() { record git "$@"; }
+'''
+    # The scanner is a script, not a shell builtin: provide only its filesystem stub.
+    (tmp_path / "infra/scripts").mkdir(parents=True)
+    (tmp_path / "apps/server").mkdir(parents=True)
+    scanner = tmp_path / "infra/scripts/scan-deployment-evidence.sh"
+    scanner.write_text("#!/bin/sh\nexit 0\n")
+    scanner.chmod(0o755)
+    result = run("bash", "-c", wrappers + body, cwd=tmp_path, env={
+        "RUNNER_TEMP": str(tmp_path), "REQUESTED_SHA": "a" * 40, "GITHUB_RUN_ID": "123",
+        "TEST_PYTHON": sys.executable, "TEST_FAILURE": failure,
+    })
+    commands = (tmp_path / "commands").read_text().splitlines()
+    tests = [i for i, command in enumerate(commands) if "pytest" in command or "run_local_postgres_tests.sh" in command]
+    lint = [i for i, command in enumerate(commands) if "ruff check" in command]
+    compile_steps = [i for i, command in enumerate(commands) if "compileall" in command]
+    assert len(lint) == 1
+    if failure != "lint":
+        assert len(compile_steps) == 1
+    assert result.returncode == (17 if failure else 0), result.stdout
+    terminal = json.loads((tmp_path / "server-result.json").read_text())
+    assert terminal["status"] == ("failed" if failure else "passed")
+    if failure:
+        assert tests == []
+    else:
+        assert tests and lint[0] < compile_steps[0] < min(tests)
+
+
 def test_removed_server_test_uses_bounded_unit_fallback() -> None:
     result = run_stubbed_ci("apps/server/tests/contract/test_removed.py", "--fast")
 
@@ -301,20 +659,31 @@ def test_synchronized_full_requires_performance_when_the_diff_is_empty() -> None
     assert "performance_gate=required" in result.stdout
 
 
-def test_changed_files_propagates_a_tracked_diff_failure() -> None:
+@pytest.mark.parametrize("command", ["diff", "ls-files"])
+@pytest.mark.parametrize("mode", ["--plan", "--focused"])
+def test_git_collection_failure_never_selects_partial_behavior_tests(command: str, mode: str) -> None:
     script = r'''
 source "$1"
+merge_base_commit() { printf 'HEAD\n'; }
 git() {
   case "$*" in
-    *diff*--name-only*) return 9 ;;
+    *diff*--name-only*)
+      [[ "$GRAF_TEST_GIT_FAILURE" != "diff" ]] || return 128
+      printf '%s\0' 'apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js'
+      ;;
+    *ls-files*--others*) return 128 ;;
     *) command git "$@" ;;
   esac
 }
-changed_files
+behavior_tests() { printf 'unexpected_behavior_selection\n'; }
+focused_main "$2"
 '''
-    result = run("bash", "-c", script, "contract", str(LOCAL_CI))
+    result = run("bash", "-c", script, "contract", str(LOCAL_CI), mode,
+                 env={"GRAF_TEST_GIT_FAILURE": command, "GRAF_CI_BASE_REF": ""})
 
-    assert result.returncode != 0
+    assert result.returncode == 2, result.stdout
+    assert "ci_selection_error=invalid_diff_or_explicit_base" in result.stdout
+    assert "unexpected_behavior_selection" not in result.stdout
 
 
 def test_changed_files_disables_rename_detection_for_both_endpoints() -> None:
@@ -369,7 +738,11 @@ def test_shell_syntax_check_includes_untracked_changed_scripts(tmp_path: Path) -
     )
 
     assert result.returncode != 0
-    assert "syntax error" in result.stdout
+    # bash prints diagnostics in the runner's own language, so this asserts the
+    # offending file from the fixture rather than an English phrase. Matching
+    # "syntax error" failed on a non-English machine even though the syntax
+    # check itself worked correctly.
+    assert "z-invalid.sh" in result.stdout
 
 
 def test_whitespace_check_includes_untracked_non_shell_files(tmp_path: Path) -> None:
@@ -522,7 +895,7 @@ def test_cd_dry_run_declares_authoritative_full_gate() -> None:
     result = run(str(REMOTE_CD), "--dry-run", "--branch", "211-optimize-ci-cd")
 
     assert result.returncode == 0, result.stdout
-    assert "local_ci=full_required" in result.stdout
+    assert "local_ci=authoritative_full_required" in result.stdout
     assert "steps=clean_worktree,branch_sync,pinned_sha,local_ci,remote_fetch,backup" in result.stdout
 
 
@@ -558,7 +931,7 @@ def test_active_documentation_has_no_ambiguous_bare_ci_command() -> None:
     ambiguous: list[str] = []
     for path in dict.fromkeys(active):
         for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-            if "infra/scripts/ci-local.sh" in line and "--fast" not in line and "--full" not in line:
+            if "infra/scripts/ci-local.sh" in line and not any(mode in line for mode in ("--fast", "--full", "--plan", "--focused")):
                 ambiguous.append(f"{path.relative_to(ROOT)}:{line_number}")
 
     assert ambiguous == []
@@ -577,6 +950,16 @@ def test_active_documentation_matches_bounded_fast_contract() -> None:
     assert "coverage, next gate, result, duration" in pull_request_template
     assert 'git diff --check "$(git merge-base origin/master HEAD)" HEAD' in quickstart
     assert 'bash -n "$script"' in quickstart
+    flow = (ROOT / "docs/agent-guidance/spec-kit-flow.md").read_text(encoding="utf-8")
+    for lane in ("Active Spec Kit slice", "Significant feature / architecture", "High-risk product area"):
+        row = next(line for line in flow.splitlines() if line.startswith(f"| {lane} |"))
+        assert "GitHub `governance-fast`" in row
+        assert "ci-local.sh --fast" not in row
+    assert "then the fast lane before the PR" not in release_guidance
+    assert "finish with `infra/scripts/ci-local.sh --fast`" not in release_guidance
+    assert "ready slice or PR: required GitHub `governance-fast`" in release_guidance
+    assert all(f"`{name}`" in pull_request_template for name in ("governance-fast", "macos-pr", "pr-metadata"))
+    assert "только ручная диагностика/offline fallback" in pull_request_template
 
 
 def test_github_full_workflow_contract_is_self_validating() -> None:
@@ -643,3 +1026,28 @@ def test_macos_diagnostic_workflow_is_exact_sha_and_non_authoritative() -> None:
     assert "secrets." not in workflow
     assert "environment:" not in workflow
     assert "id-token:" not in workflow
+
+
+def test_release_full_worker_count_stays_within_runner_support() -> None:
+    """Релиз не может запросить потоков больше, чем допускает набор.
+
+    Число потоков релизной задачи поднимается, чтобы полнее использовать
+    раннер, но выход за диапазон остаётся ошибкой конфигурации, а отказ от
+    параллелизма вернул бы длинный критический путь.
+    """
+    runner = (ROOT / "apps/server/scripts/run_local_postgres_tests.sh").read_text()
+    cap = re.search(r"workers > (\d+)", runner)
+    assert cap is not None, "скрипт набора должен ограничивать число потоков сверху"
+    limit = int(cap.group(1))
+
+    workflow = FULL_CI_WORKFLOW.read_text()
+    requested = re.search(
+        r"GRAF_TEST_WORKERS=(\d+)\s+GRAF_PERFORMANCE_GATE=required", workflow
+    )
+    assert requested is not None, "релизная задача должна задавать число потоков явно"
+    workers = int(requested.group(1))
+
+    assert 1 <= workers <= limit, (
+        f"релизная задача просит {workers} потоков при допустимых 1–{limit}"
+    )
+    assert workers > 1, "релиз должен использовать параллелизм, а не один поток"

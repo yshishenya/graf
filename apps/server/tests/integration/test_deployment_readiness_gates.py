@@ -124,10 +124,10 @@ def test_production_runtime_cannot_be_called_without_master_release_gate() -> No
     assert 'remote_branch="$(git branch --show-current)"' in wrapper
     assert "TWOBRAIN_PRODUCTION_RELEASE_GATE=1" in wrapper
     assert 'if [[ "$branch" != "master" ]]' in runtime
-    assert 'TWOBRAIN_PRODUCTION_RELEASE_GATE:-' in runtime
-    assert 'TWOBRAIN_PRODUCTION_RELEASE_LOCK_HELD:-0' in runtime
-    assert 'reason=production_runtime_requires_release_gate' in runtime
-    assert 'reason=production_runtime_sha_mismatch' in runtime
+    assert "TWOBRAIN_PRODUCTION_RELEASE_GATE:-" in runtime
+    assert "TWOBRAIN_PRODUCTION_RELEASE_LOCK_HELD:-0" in runtime
+    assert "reason=production_runtime_requires_release_gate" in runtime
+    assert "reason=production_runtime_sha_mismatch" in runtime
 
 
 def test_production_migration_entrypoint_requires_release_gate() -> None:
@@ -380,68 +380,33 @@ printf 'extended_acl_result=blocked\n'
     assert result.stdout == "extended_acl_result=blocked\n"
 
 
-@pytest.mark.parametrize(
-    ("compose_images", "inspect_result", "expected_code"),
-    [
-        (
-            "twobrain-rec-rec-api\ntwobrain-rec-rec-media-worker\npostgres:17-alpine",
-            "pass",
-            0,
-        ),
-        ("twobrain-rec-rec-api\npostgres:17-alpine", "pass", 1),
-        ("twobrain-rec-rec-media-worker", "fail", 1),
-    ],
-)
-def test_remote_deploy_resolves_new_media_image_without_existing_container(
-    compose_images: str,
-    inspect_result: str,
-    expected_code: int,
+@pytest.mark.parametrize("helper_status", [0, 1])
+def test_remote_deploy_resolves_prepared_media_id_without_existing_container(
+    helper_status: int,
 ) -> None:
-    import os
-    import subprocess
-    from pathlib import Path
-
     runtime = (Path(__file__).parents[4] / "infra/scripts/cd-remote-runtime.sh").read_text()
-    gate_start = runtime.index('media_image_ref="$(')
+    gate_start = runtime.index('media_image="$(')
     gate_end = runtime.index("expected_schema_head=", gate_start)
     image_gate = runtime[gate_start:gate_end]
     fixture_script = f"""
 set -euo pipefail
-docker() {{
-  if [[ "$1" == "compose" && "$2" == "config" && "$3" == "--images" ]]; then
-    printf '%s\\n' "$COMPOSE_IMAGES"
-    return 0
-  fi
-  if [[ "$1" == "image" && "$2" == "inspect" ]]; then
-    [[ "$3" == "twobrain-rec-rec-media-worker" ]] || return 8
-    [[ "$INSPECT_RESULT" == "pass" ]] || return 1
-    printf 'sha256:fixture\\n'
-    return 0
-  fi
-  return 9
+image_helper=/private-attempt/release-images.py
+python3() {{
+  [[ "$*" == "/private-attempt/release-images.py image candidate rec-media-worker" ]] || return 9
+  [[ "$HELPER_STATUS" == "0" ]] || return 1
+  printf 'sha256:fixture\\n'
 }}
-compose=(docker compose)
 {image_gate}
-"""
-
+[[ "$media_image" == "sha256:fixture" ]]
+""".replace("{{", "{{").replace("}}", "}}")
     result = subprocess.run(
         ["bash", "-c", fixture_script],
-        check=False,
         capture_output=True,
         text=True,
-        env={
-            **os.environ,
-            "COMPOSE_IMAGES": compose_images,
-            "INSPECT_RESULT": inspect_result,
-        },
+        env={**os.environ, "HELPER_STATUS": str(helper_status)},
     )
-
-    assert '"${compose[@]}" config --images' in runtime
-    assert 'docker image inspect "$media_image_ref"' in runtime
+    assert result.returncode == helper_status, result.stderr
     assert '"${compose[@]}" images -q rec-media-worker' not in runtime
-    assert result.returncode == expected_code
-    if expected_code == 1:
-        assert "reason=media_worker_image_missing" in result.stdout
 
 
 def test_remote_deploy_rollback_never_deletes_099_truth_to_reach_old_code() -> None:
@@ -554,8 +519,10 @@ def test_remote_rollback_discovers_operations_profile_services() -> None:
     assert "{{.State.Status}}" in runtime
 
 
+@pytest.mark.parametrize("prompt_running", [False, True])
 def test_previous_safe_processing_fallback_executes_verified_single_network_restore(
     tmp_path: Path,
+    prompt_running: bool,
 ) -> None:
     runtime = (Path(__file__).parents[4] / "infra/scripts/cd-remote-runtime.sh").read_text()
     helper_start = runtime.index("wait_for_previous_temporal_health()")
@@ -566,6 +533,9 @@ def test_previous_safe_processing_fallback_executes_verified_single_network_rest
 set -euo pipefail
 compose=(compose_stub)
 previous_sha=previous-safe-sha
+image_attempt=/private-attempt
+prompt_worker_was_running="{"prompt-container" if prompt_running else ""}"
+images_recovery_verified=0
 backup_reference=fixture-backup
 previous_schema_head=0023_production_smoke_setup
 expected_schema_head=0023_production_smoke_setup
@@ -576,9 +546,6 @@ git() {{
 }}
 compose_stub() {{
   case "$1:$2:${{3:-}}" in
-    build:rec-api:rec-processing-worker)
-      printf 'compose_build_previous\n' >>"$TRACE_PATH"
-      ;;
     ps:-aq:rec-media-worker)
       printf 'media-container\n'
       ;;
@@ -596,6 +563,8 @@ compose_stub() {{
         printf 'compose_up_previous_temporal\n' >>"$TRACE_PATH"
       elif [[ "$*" == *"rec-processing-worker"* ]]; then
         printf 'compose_up_previous_processing\n' >>"$TRACE_PATH"
+      elif [[ "$*" == *"rec-prompt-optimization-worker"* ]]; then
+        printf 'compose_up_previous_prompt\n' >>"$TRACE_PATH"
       elif [[ "$*" == *"rec-api"* ]]; then
         printf 'compose_up_previous_api\n' >>"$TRACE_PATH"
       fi
@@ -604,6 +573,15 @@ compose_stub() {{
   esac
 }}
 docker() {{
+  if [[ "$1" == "compose" ]]; then
+    [[ "$2 $3 $4 $5 $6 $7" == "--profile operations -f infra/docker-compose.yml -f /private-attempt/previous.json" ]] || return 8
+    shift 7
+    if [[ "$1" == "up" ]]; then
+      [[ "$*" == *"--no-build"* && "$*" == *"--pull never"* ]] || return 9
+    fi
+    compose_stub "$@"
+    return $?
+  fi
   case "$1:$2" in
     rm:-f)
       printf 'docker_remove_media\n' >>"$TRACE_PATH"
@@ -655,7 +633,6 @@ restore_previous_safe_processing_runtime 0023_production_smoke_setup
     trace = trace_path.read_text()
     for receipt in (
         "git_reset_--hard",
-        "compose_build_previous",
         "docker_disconnect_media_network",
         "docker_restart_temporal",
         "temporal_cluster_health",
@@ -666,7 +643,9 @@ restore_previous_safe_processing_runtime 0023_production_smoke_setup
         "api_dispatch_closed",
     ):
         assert receipt in trace
-    assert trace.index("git_reset_--hard") < trace.index("compose_build_previous")
+    assert ("compose_up_previous_prompt" in trace) is prompt_running
+    assert "compose_build_previous" not in trace
+    assert trace.index("git_reset_--hard") < trace.index("compose_up_previous_temporal")
     assert trace.index("docker_disconnect_media_network") < trace.index("temporal_cluster_health")
     assert trace.index("activity_poller_receipt") < trace.index("api_dispatch_closed")
 
@@ -776,9 +755,17 @@ def test_remote_deploy_publishes_and_verifies_the_public_installer(
     rollback = runtime.index("rollback_on_exit()")
     rollback_api_stop = runtime.index('"${compose[@]}" stop rec-api', rollback)
     rollback_restore = runtime.index("\n  if ! restore_public_download; then\n", rollback)
-    assert rollback_api_stop < rollback_restore < runtime.index(
-        'elif [[ "$runtime_mutated" == "1" ]]', rollback_restore
+    assert (
+        rollback_api_stop
+        < rollback_restore
+        < runtime.index('elif [[ "$runtime_mutated" == "1" ]]', rollback_restore)
     )
+
+    from hashlib import sha256
+
+    from fastapi.testclient import TestClient
+    from starlette.applications import Starlette
+    from starlette.routing import Mount
 
     from twobrain_rec_server.public import templates as public_templates
 
@@ -787,22 +774,53 @@ def test_remote_deploy_publishes_and_verifies_the_public_installer(
     cached_package = cached_dir / "graf.pkg"
     cached_package.write_bytes(b"previous-package")
     monkeypatch.setattr(public_templates, "public_static_dir", lambda: str(cached_dir))
-    public_templates.public_static_asset_url.cache_clear()
+    read_bytes = Path.read_bytes
+    version_reads = []
+
+    def counted_read(path: Path) -> bytes:
+        if path == cached_package:
+            version_reads.append(path)
+        return read_bytes(path)
+
+    monkeypatch.setattr(Path, "read_bytes", counted_read)
+    public_templates._public_static_asset_url.cache_clear()
     try:
         previous_url = public_templates.public_static_asset_url("graf.pkg")
-        candidate = cached_dir / "candidate.pkg"
-        candidate.write_bytes(b"candidate-package")
-        candidate.replace(cached_package)
+        assert previous_url.endswith(sha256(b"previous-package").hexdigest()[:12])
         assert public_templates.public_static_asset_url("graf.pkg") == previous_url
+        assert len(version_reads) == 1
+        original_stat = cached_package.stat()
+        candidate = cached_dir / "candidate.pkg"
+        candidate.write_bytes(b"updated-package!")
+        os.utime(candidate, ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns))
+        assert candidate.stat().st_size == original_stat.st_size
+        candidate.replace(cached_package)
+        current_url = public_templates.public_static_asset_url("graf.pkg")
+        assert current_url != previous_url
+        assert current_url.endswith(sha256(b"updated-package!").hexdigest()[:12])
+        app = Starlette(
+            routes=[
+                Mount(
+                    "/static/public",
+                    app=public_templates.VersionedPublicStaticFiles(directory=cached_dir),
+                )
+            ]
+        )
+        with TestClient(app) as client:
+            previous = client.get(previous_url)
+            current = client.get(current_url)
+        assert previous.content == current.content == b"updated-package!"
+        assert previous.headers["cache-control"] == "no-cache"
+        assert current.headers["cache-control"] == "public, max-age=31536000, immutable"
+        assert len(version_reads) == 2
     finally:
-        public_templates.public_static_asset_url.cache_clear()
+        public_templates._public_static_asset_url.cache_clear()
 
     helper_start = runtime.index("restore_public_download()")
     helper_end = runtime.index("verify_public_download()", helper_start)
     helper_source = runtime[helper_start:helper_end]
     source = (
-        tmp_path
-        / "apps/server/src/twobrain_rec_server/public/static/public/downloads/graf.pkg"
+        tmp_path / "apps/server/src/twobrain_rec_server/public/static/public/downloads/graf.pkg"
     )
     target = tmp_path / "infra/runtime/public-downloads/graf.pkg"
     source.parent.mkdir(parents=True)
@@ -819,8 +837,16 @@ public_download_backup=""
 public_download_temporary=""
 {helper_source}
 stat() {{ id -u; }}
+if [[ "$2" == "write-fail" ]]; then
+  install() {{ return 1; }}
+  trap restore_public_download EXIT
+fi
 sync_public_download
 cmp "$public_download_target" "$public_download_source"
+if [[ "$2" == "exists" ]]; then
+  [[ "$(<"$public_download_target")" == "previous-package" ]]
+  [[ "$public_download_updated" == "0" && -z "$public_download_backup" ]]
+fi
 restore_public_download
 if [[ "$2" == "exists" ]]; then
   [[ "$(<"$public_download_target")" == "previous-package" ]]
@@ -848,9 +874,32 @@ fi
     assert result.returncode == 0, result.stderr
     assert not target.exists()
 
+    result = subprocess.run(
+        ["bash", "-c", fixture_script, "bash", str(tmp_path), "write-fail"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0
+    assert not target.exists()
+    assert not list(target.parent.glob(".graf.pkg.*"))
 
-@pytest.mark.parametrize("invalid_path", ["source", "runtime", "target_dir", "target"])
-def test_public_installer_sync_rejects_symlinks_without_altering_target(
+
+@pytest.mark.parametrize(
+    "invalid_path",
+    [
+        "source",
+        "runtime",
+        "target_dir",
+        "target",
+        "empty",
+        "directory",
+        "dangling",
+        "runtime_owner",
+        "target_owner",
+    ],
+)
+def test_public_installer_sync_rejects_invalid_paths_without_altering_target(
     tmp_path: Path, invalid_path: str
 ) -> None:
     runtime = (Path(__file__).parents[4] / "infra/scripts/cd-remote-runtime.sh").read_text()
@@ -858,8 +907,7 @@ def test_public_installer_sync_rejects_symlinks_without_altering_target(
     helper_end = runtime.index("verify_public_download()", helper_start)
     helper_source = runtime[helper_start:helper_end]
     source = (
-        tmp_path
-        / "apps/server/src/twobrain_rec_server/public/static/public/downloads/graf.pkg"
+        tmp_path / "apps/server/src/twobrain_rec_server/public/static/public/downloads/graf.pkg"
     )
     source.parent.mkdir(parents=True)
     source.write_bytes(b"candidate-package")
@@ -871,23 +919,79 @@ def test_public_installer_sync_rejects_symlinks_without_altering_target(
         target = outside / "public-downloads/graf.pkg"
     elif invalid_path == "target_dir":
         (tmp_path / "infra/runtime").mkdir(parents=True)
-        (tmp_path / "infra/runtime/public-downloads").symlink_to(
-            outside, target_is_directory=True
-        )
+        (tmp_path / "infra/runtime/public-downloads").symlink_to(outside, target_is_directory=True)
         target = outside / "graf.pkg"
     elif invalid_path == "target":
         target = tmp_path / "infra/runtime/public-downloads/graf.pkg"
         target.parent.mkdir(parents=True)
         target.symlink_to(outside / "graf.pkg")
         (outside / "graf.pkg").write_bytes(b"previous-package")
-    else:
+    elif invalid_path == "source":
         target = tmp_path / "infra/runtime/public-downloads/graf.pkg"
         target.parent.mkdir(parents=True)
         source.unlink()
         source.symlink_to(tmp_path / "candidate.pkg")
         (tmp_path / "candidate.pkg").write_bytes(b"candidate-package")
+    else:
+        target = tmp_path / "infra/runtime/public-downloads/graf.pkg"
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_bytes(b"previous-package")
+    if invalid_path == "empty":
+        target.touch()
+    elif invalid_path == "directory":
+        target.mkdir()
+    elif invalid_path == "dangling":
+        target.symlink_to(outside / "missing.pkg")
+    elif invalid_path != "source":
+        target.write_bytes(b"previous-package")
+    fixture_script = f"""
+set -euo pipefail
+repo_root="$1"
+public_download_updated=0
+public_download_source=""
+public_download_target=""
+public_download_backup=""
+public_download_temporary=""
+{helper_source}
+invalid_path="$2"
+stat() {{
+  if [[ ( "$invalid_path" == "runtime_owner" && "$4" == "$repo_root/infra/runtime" ) \
+    || ( "$invalid_path" == "target_owner" && "$4" == "$repo_root/infra/runtime/public-downloads" ) ]]; then
+    printf '99999999\n'
+  else id -u; fi
+}}
+sync_public_download
+"""
+    result = subprocess.run(
+        ["bash", "-c", fixture_script, "bash", str(tmp_path), invalid_path],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    if invalid_path == "directory":
+        assert target.is_dir() and not list(target.iterdir())
+    elif invalid_path == "dangling":
+        assert target.is_symlink() and not target.exists()
+    elif invalid_path == "source":
+        assert not target.exists()
+    else:
+        assert target.read_bytes() == (b"" if invalid_path == "empty" else b"previous-package")
+
+
+def test_public_installer_sync_preserves_existing_target_when_bootstrap_source_is_invalid(
+    tmp_path: Path,
+) -> None:
+    runtime = (Path(__file__).parents[4] / "infra/scripts/cd-remote-runtime.sh").read_text()
+    helper_start = runtime.index("restore_public_download()")
+    helper_end = runtime.index("verify_public_download()", helper_start)
+    helper_source = runtime[helper_start:helper_end]
+    source = tmp_path / "apps/server/src/twobrain_rec_server/public/static/public/downloads/graf.pkg"
+    target = tmp_path / "infra/runtime/public-downloads/graf.pkg"
+    source.parent.mkdir(parents=True)
+    target.parent.mkdir(parents=True)
+    source.symlink_to(tmp_path / "missing.pkg")
+    target.write_bytes(b"published-package")
     fixture_script = f"""
 set -euo pipefail
 repo_root="$1"
@@ -899,6 +1003,9 @@ public_download_temporary=""
 {helper_source}
 stat() {{ id -u; }}
 sync_public_download
+[[ "$public_download_source" == "$public_download_target" ]]
+[[ "$public_download_updated" == "0" && -z "$public_download_backup" ]]
+[[ "$(<"$public_download_target")" == "published-package" ]]
 """
     result = subprocess.run(
         ["bash", "-c", fixture_script, "bash", str(tmp_path)],
@@ -906,9 +1013,8 @@ sync_public_download
         capture_output=True,
         text=True,
     )
-
-    assert result.returncode != 0
-    assert target.read_bytes() == b"previous-package"
+    assert result.returncode == 0, result.stderr
+    assert target.read_bytes() == b"published-package"
 
 
 @pytest.mark.parametrize("served_package", [b"candidate-package", b"other-package"])

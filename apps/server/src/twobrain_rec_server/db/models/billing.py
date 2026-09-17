@@ -336,6 +336,7 @@ class BillingNotificationPreference(Base):
     user_id: Mapped[UUID] = mapped_column(ForeignKey("user_identities.id"), primary_key=True)
     optional_email_enabled: Mapped[bool] = mapped_column(nullable=False, default=True)
     optional_in_app_enabled: Mapped[bool] = mapped_column(nullable=False, default=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 

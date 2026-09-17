@@ -596,6 +596,9 @@ def test_summary_state_matrix_preserves_current_result_and_advances_version(clie
                 status="blocked_dependency",
                 provider_kind="test",
                 generator_version="test-state-matrix",
+                media_revision_id=result.media_revision_id,
+                source_result_hash=result.source_result_hash,
+                deletion_epoch_at_start=meeting.deletion_epoch,
                 template_key="graf-auto-v1",
                 template_version=1,
                 failure_code="summary_generation_unavailable",
@@ -691,6 +694,29 @@ async def _generate_and_store(client, meeting_id, service) -> None:
         assert stored is not None
         stored.template_key = "graf-auto-v1"
         stored.template_version = 1
+        # Explicit historical fixture: opening a meeting no longer invokes an
+        # extractive generator to manufacture the saved document for this test.
+        stored.status = "available"
+        stored.generated_at = datetime.now(UTC)
+        stored.content_hash = "synthetic-saved-outcome"
+        stored.failure_reason = None
+        from twobrain_rec_server.outcomes.store import set_outcome_category_states
+        set_outcome_category_states(stored, "not_found")
+        segments = (await db.scalars(select(TranscriptSegment).where(
+            TranscriptSegment.processing_result_id == stored.processing_result_id
+        ).order_by(TranscriptSegment.sequence))).all()
+        for category in ("summary", "key_points", "evidence"):
+            setattr(stored, category + "_state", "available")
+            for sequence, segment in enumerate(segments):
+                db.add(MeetingOutcomeItem(
+                    workspace_id=meeting.workspace_id, meeting_id=meeting.id,
+                    outcome_set_id=stored.id, category=category, sequence=sequence,
+                    state="available", text=segment.text, truth_label="supported",
+                    source_refs_json=[{"transcript_segment_id": str(segment.id),
+                                       "start_seconds": float(segment.start_seconds),
+                                       "end_seconds": float(segment.end_seconds),
+                                       "sequence": segment.sequence}],
+                ))
         stored.revision_state = "accepted"
         stored.accepted_at = stored.generated_at or datetime.now(UTC)
         db.add(
@@ -1200,7 +1226,9 @@ def test_no_accepted_outcome_opens_preparing_result_without_transcript_mock(clie
     assert 'id="detail-tab-outcomes" aria-selected="true"' in response.text
     outcomes = _outcomes_panel(response.text)
     assert "Итоги не запрошены" in outcomes
-    assert "Формат: <strong data-summary-format-label>Авто</strong>" in outcomes
+    header = response.text.split('id="detail-panel-outcomes"', 1)[0]
+    assert 'data-summary-format-controls' in header
+    assert '<span class="sr-only">Формат: </span><strong data-summary-format-label>Авто</strong>' in header
     assert outcomes.count('class="notes-aggregate-state"') == 1
     assert "data-outcome-category" not in outcomes
     assert SAFE_TRANSCRIPT_TEXT not in outcomes
@@ -1227,7 +1255,8 @@ def test_no_accepted_outcome_opens_blocked_error_with_one_safe_action(client) ->
     outcomes = _outcomes_panel(response.text)
     assert outcomes.count('class="notes-aggregate-state"') == 1
     assert 'data-outcome-state="deferred"' in outcomes
-    assert outcomes.count("data-summary-refresh-button") == 1
+    assert response.text.count("data-summary-refresh-button") == 1
+    assert response.text.index("data-summary-refresh-button") < response.text.index('id="detail-panel-outcomes"')
     assert "data-outcome-category" not in outcomes
     assert SAFE_TRANSCRIPT_TEXT not in outcomes
 

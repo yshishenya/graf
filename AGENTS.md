@@ -56,6 +56,17 @@ Use the Codex skill names for Spec Kit, including `$speckit-specify`,
 `$speckit-plan`, `$speckit-analyze`, `$speckit-taskstoissues`, and
 `$speckit-implement`; the guidance index has the complete sequence.
 
+## Единственное приложение для локальных проверок macOS
+
+Все ручные и сквозные проверки выполняй в `/Applications/GRAF Dev.app`.
+Перед сборкой или запуском приложения прочитай `docs/agent-guidance/local-development.md`.
+Не создавай и не запускай отдельные GRAF Local/Preview/Test или копии приложения
+из worktree и `/tmp`; не запускай исполняемый файл через `swift run`.
+Обновляй единственный GRAF Dev через существующий `dev-harness` с сохранением
+bundle ID, подписи и разрешений. Ошибка этого пути не разрешает обход:
+исправь причину, сохрани защитные проверки. Исключение — только прямое
+указание пользователя на отдельную копию; общее разрешение на тесты им не является.
+
 ## Development flow
 
 Choose a risk/validation lane from `docs/agent-guidance/spec-kit-flow.md` and
@@ -99,8 +110,9 @@ third-party asset-provenance review.
 ## Validation and release
 
 Use `release-and-validation.md` for the selected lane and closeout evidence.
-Default PR validation is the required GitHub Actions `governance-fast` check,
-bound to the exact PR SHA. `infra/scripts/ci-local.sh --fast` / `--full` remain
+Default PR validation requires GitHub Actions `governance-fast`, `macos-pr` and
+`pr-metadata`, bound to the exact PR SHA and checked base. Use the common
+`scripts/validate-pr-checks.py` for current evidence; text-only edits do not rerun code. `infra/scripts/ci-local.sh --fast` / `--full` remain
 available as local diagnostic/fallback lanes; `infra/scripts/cd-remote.sh
 --dry-run` is required before production execution, and
 `./scripts/prepare-release.sh YYYY.MM.DD.N` prepares product releases.
@@ -183,21 +195,6 @@ infra/scripts/ci-local.sh --full
 - Когда задача отмечена `[X]` в `tasks.md`, закрывай соответствующий GitHub issue только после проверки evidence и добавляй подробный понятный closure comment: что закрыто, почему важно, как проверено, что не входит, какой PR и task закрыты.
 - Если GitHub issue закрыт, но `tasks.md` еще открыт, сначала проверь реализацию и evidence, а не отмечай задачу выполненной молча.
 <!-- SPECKIT GITHUB ISSUE END -->
-
-<!-- SPECKIT PONYTAIL START -->
-## Ponytail в Spec Kit
-
-- Ponytail управляет формой реализации: меньше кода, меньше новых зависимостей, reuse/stdlib/native-first, минимальный рабочий diff.
-- Ponytail не снижает выбранный risk/validation lane: low-risk lanes остаются scoped, а significant/high-risk lanes сохраняют specs, plan, checklists, tasks, analyze, taskstoissues, GitHub issues, PR evidence, release notes и closeout.
-- Реальное поведение Ponytail приходит из установленного Codex plugin; этот блок описывает только границы применения внутри Spec Kit.
-- Upstream Ponytail `AGENTS.md` fallback обновляется в `docs/agent-guidance/ponytail-upstream.md`; не копируй его в корневой `AGENTS.md` вручную.
-- Если plugin hooks недоступны, используй upstream fallback-файл как справку по Ponytail, но приоритет корневого `AGENTS.md` и Spec Kit managed-блоков выше.
-- На этапе реализации применяй Ponytail ladder после чтения реального потока: не строить лишнее, искать существующий helper/pattern, использовать stdlib/native, писать минимум кода, но сохранять security, accessibility, trust-boundary validation и проверки.
-- Для сложного diff перед PR/merge запускай `@ponytail-review` и убирай найденное переусложнение, если это не ломает требования и evidence.
-- Если оставляешь намеренное упрощение, помечай его `ponytail:` comment с потолком решения и trigger/upgrade path; периодически собирай такие места через `@ponytail-debt`.
-- Если пользователь просит `@ponytail off`, `normal mode` или явно настаивает на полной версии, выполняй это без спора.
-<!-- SPECKIT PONYTAIL END -->
-
 Все GitHub issues в этом репозитории, созданные вручную, через
 `$speckit-taskstoissues` или через прямой `gh issue create`, должны следовать
 project issue canon в `docs/agent-guidance/github-issue-canon.md`.

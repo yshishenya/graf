@@ -54,6 +54,8 @@ class MeetingShareGrant(Base):
     content_scope: Mapped[str] = mapped_column(
         String(32), nullable=False, default="summary_only"
     )
+    can_comment: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    can_edit: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
     can_download: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     can_export: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -106,6 +108,8 @@ class MeetingShareInvitation(Base):
     content_scope: Mapped[str] = mapped_column(
         String(32), nullable=False, default="summary_only"
     )
+    can_comment: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
+    can_edit: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=text("false"))
     can_download: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     can_export: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     token_hash: Mapped[str] = mapped_column(String(128), nullable=False)

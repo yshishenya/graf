@@ -76,7 +76,7 @@ SSH. Release candidates must carry the immutable authoritative Full CI evidence
 from the release workflow; the workstation does not start a local Full CI run.
 On `2brain.dev`, it
 verifies the remote `origin/<branch>` still resolves to the pinned SHA before reset, then performs backup, restore
-rehearsal, production Compose secret-exposure scan, rebuild/up, runtime
+rehearsal, production Compose secret-exposure scan, pinned-image startup, runtime
 secret-environment scan, production smoke, and public health checks.
 
 `--skip-local-ci` is an emergency operator bypass for the full local CI step
@@ -85,3 +85,22 @@ worktree, branch sync, pinned SHA, backup, restore rehearsal, secret scans,
 smoke, or public health gates.
 
 Local CD does not store production secrets in GitHub.
+
+
+### Образы выпуска и повтор выкатки
+
+Обычный `cd-remote.sh` готовит два образа (runtime и media-runtime) до остановки
+служб. API, workers и одноразовые команды используют их точные IDs. Повтор
+того же SHA на той же платформе проверяет сохранённые образы и использует их
+без сборки. Разрешённый откат возвращает реальные прежние образы, без сборки
+и скачивания. Зависимости и FFmpeg находятся в сохраняемых слоях Docker.
+
+Состояние находится в приватном каталоге Git `graf-release-images`; его
+обслуживает `infra/scripts/release-images.py` под существующей блокировкой
+выкатки. Незавершённая попытка сохраняет прежний baseline и блокирует новый
+запуск. Не удаляйте её файлы и не запускайте `finish` для обхода: сначала
+восстановите службы штатной процедурой отката, подтвердите образы, backup,
+схему, smoke и public download. Ошибка отката требует восстановления; она
+не считается успешным повтором выкатки. `result.json` записывается только
+после проверенного результата. Самостоятельные smoke/migration/backup и
+restore rehearsal автоматически проверяют сохранённый набор образов.

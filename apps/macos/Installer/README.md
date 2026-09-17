@@ -1,5 +1,11 @@
 # GRAF macOS Installer
 
+> Проверки разработки выполняются только в `/Applications/GRAF Dev.app` через
+> `infra/scripts/dev-harness.sh`: [инструкция](/docs/agent-guidance/local-development.md).
+> Команды Installer ниже предназначены для подготовки и проверки релизных
+> артефактов; они не заменяют Dev-стенд и не разрешают устанавливать ещё одну
+> тестовую копию приложения.
+
 This directory owns the local app-only macOS installer package.
 
 ## MVP Scope
@@ -78,18 +84,23 @@ GRAF_UPDATE_FEED_URL="https://rec.2brain.pro/static/public/downloads/graf-appcas
   "apps/macos/.build/release/GRAF-YYYY.MM.DD.N.pkg"
 ```
 
-Submit the app ZIP and package to Apple with the local Keychain profile
-`graf-notary`, wait for acceptance, staple both artifacts, and validate them
-before copying any public asset:
+Continue that exact build with the resumable notarization command:
 
 ```sh
-xcrun notarytool submit GRAF-YYYY.MM.DD.N.zip --keychain-profile graf-notary --wait
-xcrun notarytool submit GRAF-YYYY.MM.DD.N.pkg --keychain-profile graf-notary --wait
-xcrun stapler staple GRAF.app
-xcrun stapler staple GRAF-YYYY.MM.DD.N.pkg
-spctl --assess --type execute --verbose=4 GRAF.app
-spctl --assess --type install --verbose=4 GRAF-YYYY.MM.DD.N.pkg
+python3 apps/macos/Installer/Scripts/release-artifacts.py notarize \
+  --app apps/macos/RecApp/.build/GRAF.app \
+  --pkg apps/macos/.build/release/GRAF-YYYY.MM.DD.N.pkg \
+  --profile graf-notary
 ```
+
+The builder retains compatible Swift compilation scratch, calls both builds every
+time, and emits a content-bound `.build.json` next to the PKG. The notarization
+command submits both inputs before polling, keeps known request IDs and original
+bytes, then staples separate copies and validates public trust. Repeat the same
+command after an interruption; use the reported `final/` app, PKG and candidate
+ZIP. An ambiguous submission requires digest-bound Apple recovery evidence.
+See [the canonical notarization procedure](../../../docs/agent-guidance/macos-notarization.md)
+for time bounds, recovery, locks and draft publication.
 
 Run the public update validator only after the previous Developer ID app,
 archive and staged appcast are available. It must pass before replacing the
@@ -389,6 +400,10 @@ same-identity inputs, public credential-free HTTPS URLs, Russian notes, archive
 metadata, signatures, architecture, and minimum macOS version. It writes
 inspectable artifacts only under `apps/macos/.build/updates/` by default. It
 does not upload, publish, tag, release, deploy, or alter the public feed.
+Repeating the same version requires identical input identity and complete output
+hashes; ZIP, appcast, checksum and original attestation are reused byte-for-byte.
+A changed input/output fails without replacing the old version. `--verify-only`
+runs the same validation but cannot prepare an absent version.
 
 Production staging must set `GRAF_REQUIRE_RELEASE_PROVENANCE=1`. The helper then
 fails closed unless the worktree is clean, `HEAD` equals the published
@@ -491,7 +506,8 @@ used for a new publication; current Apple publication is Developer ID/notarized
 only.
 
 For a normal Developer ID release, first attach the signed candidate-app ZIP,
-predecessor ZIP, and Russian notes to a draft GitHub Release. From a clean
+and Russian notes to a draft GitHub Release; the predecessor ZIP comes from its
+published release. Use a distinct `*-candidate.zip` input name. From a clean
 checkout of the exact tag on current `origin/master`, run the local command:
 
 ```sh
@@ -504,7 +520,11 @@ apps/macos/Installer/Scripts/sign-graf-app-update-local.sh \
 ```
 
 It reads those exact-tag draft inputs, signs into the draft, uploads the ZIP,
-appcast, checksums and safe attestation, and serializes release attempts. These
+appcast, checksums and safe attestation, and serializes release attempts. Checked
+input/Sparkle archives are cached; retries upload only missing assets after
+checking the entire target set. Conflicts never overwrite remote bytes. Fresh
+Keychain/public/Sparkle checks and both architecture startup checks remain
+mandatory, and the retained public attestation keeps its original 24-hour TTL. These
 GitHub Release assets stay draft-only until review is complete. It has no
 public-host write command. Verify those draft assets before changing the live
 catalog. On the download host copy the

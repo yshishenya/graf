@@ -51,7 +51,10 @@ async def test_deletion_full_page_loads_profile_but_fragment_does_not(
         display_name="Synthetic Profile", locale="en-US", timezone="UTC", theme="dark"
     )
     db = SimpleNamespace(get=AsyncMock(return_value=user), scalars=AsyncMock(return_value=[]))
-    request = Request({"type": "http", "headers": [(b"hx-request", b"true")] if fragment else []})
+    request = Request({"type": "http", "method": "GET", "scheme": "http",
+                       "server": ("testserver", 80), "query_string": b"",
+                       "path": ("/desktop" if embedded else "") + "/meetings/00000000-0000-0000-0000-000000000004/deletion-report",
+                       "headers": [(b"hx-request", b"true")] if fragment else []})
     response = await handler(
         request,
         UUID(int=4),
@@ -154,8 +157,8 @@ async def test_billing_routes_render_real_profile_and_persisted_trial_dates(
     assert 'name="locale"' not in html and 'name="timezone"' not in html
     if active_trial:
         assert "Пробный период: с " in html
-        assert billing._billing_datetime_label(trial.starts_at, seconds=True) in html
-        assert billing._billing_datetime_label(trial.ends_at, seconds=True) in html
+        assert billing._billing_datetime_label(trial.starts_at) in html
+        assert billing._billing_datetime_label(trial.ends_at) in html
         assert "1,5 MB" in html
     else:
         assert "Контакт поддержки пока не настроен" in html
@@ -164,7 +167,7 @@ async def test_billing_routes_render_real_profile_and_persisted_trial_dates(
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "form",
-    [{"theme": "light"}, {"locale": "ru-RU", "timezone": "Europe/Moscow", "theme": "system"}],
+    [{"theme": "light"}, {"locale": "ru-RU", "timezone": "Europe/Moscow", "theme": "system"}, {"timezone": "Asia/Kathmandu"}],
 )
 async def test_preferences_preserve_omitted_fields(monkeypatch, form):
     user = SimpleNamespace(
@@ -183,7 +186,7 @@ async def test_preferences_preserve_omitted_fields(monkeypatch, form):
         request=SimpleNamespace(form=AsyncMock(return_value=form)),
     )
     assert vars(user) == original | form
-    assert audit.await_args.kwargs["metadata"]["fields"] == list(form)
+    assert set(audit.await_args.kwargs["metadata"]["fields"]) == set(form)
     assert db.get.await_args.kwargs["with_for_update"] is True
     db.commit.assert_awaited_once()
 
@@ -230,9 +233,25 @@ def test_profile_menu_submits_only_theme_and_enables_existing_autosave(embedded)
         profile=AccountProfileView("Synthetic", "local@graf.test", "en-US", "UTC", "dark"),
     )
     form = re.search(r"<form[^>]*data-account-preferences.*?</form>", page, re.S).group()
-    assert 'data-account-preferences-auto-save="true"' in form
+    assert 'data-settings-autosave' in form
     assert 'name="locale"' not in form and 'name="timezone"' not in form
     assert 'value="dark" checked' in form
+    assert 'name="return_to"' in form
+    assert 'data-settings-form-status' in form
+
+
+@pytest.mark.parametrize(
+    ("requested", "embedded", "expected"),
+    [
+        ("/desktop/meetings", True, "/desktop/meetings?preferences=saved"),
+        ("/meetings?status=ready", False, "/meetings?status=ready&preferences=saved"),
+        ("https://example.test/phishing", True, "/desktop/settings/account?preferences=saved"),
+        ("//example.test/phishing", False, "/settings/account?preferences=saved"),
+        ("/logout", False, "/settings/account?preferences=saved"),
+    ],
+)
+def test_account_preferences_return_path_stays_first_party(requested, embedded, expected):
+    assert settings._account_preferences_redirect_target(requested, embedded=embedded) == expected
 
 
 def test_all_billing_and_deletion_shell_callers_supply_profile():
@@ -291,8 +310,8 @@ def test_trial_discloses_terms_before_separate_confirmation(page_name):
         payment_method_label=None,
         next_charge_label=None,
         support_email=None,
-        trial_preview_starts_at_label="06.09.2026, 12:00:00 (МСК)",
-        trial_preview_ends_at_label="13.09.2026, 12:00:00 (МСК)",
+        trial_preview_starts_at_label="06.09.2026, 12:00 (UTC)",
+        trial_preview_ends_at_label="13.09.2026, 12:00 (UTC)",
     )
     disclosure = re.search(r"<details[^>]*data-trial-confirmation.*?</details>", page, re.S)
     assert disclosure

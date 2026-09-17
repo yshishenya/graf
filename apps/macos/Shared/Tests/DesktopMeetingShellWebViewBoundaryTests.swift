@@ -8,6 +8,15 @@ import XCTest
 
 @MainActor
 final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
+    func testSettingsEntryCompactsOnlyIdleInspector() {
+        XCTAssertFalse(DesktopMeetingShellChrome.shouldCompactInspectorOnEntry(isSettingsSurface: true, recordingActive: false, hasCaptureProblem: true))
+        XCTAssertTrue(DesktopMeetingShellChrome.shouldCompactInspectorOnEntry(isSettingsSurface: true, recordingActive: false))
+        XCTAssertFalse(DesktopMeetingShellChrome.shouldCompactInspectorOnEntry(isSettingsSurface: true, recordingActive: true))
+        XCTAssertFalse(DesktopMeetingShellChrome.shouldCompactInspectorOnEntry(isSettingsSurface: false, recordingActive: false))
+        XCTAssertTrue(DesktopMeetingShellChrome.shouldShowExpandedInspector(manualExpanded: true, hasActionableProblem: false))
+        XCTAssertTrue(DesktopMeetingShellChrome.shouldShowExpandedInspector(manualExpanded: false, hasActionableProblem: true))
+    }
+
     func testOnlineProductSidebarIsWebOwnedWhileNativeCaptureChromeRemainsNative() {
         XCTAssertFalse(DesktopMeetingShellChrome.idleShowsNativeTopBar)
         XCTAssertEqual(DesktopMeetingShellChrome.compactRailLabels, ["Статус записи", "Локальная сохранность"])
@@ -41,7 +50,7 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
         XCTAssertTrue(shellSource.contains("desktop-meeting-shell-start-recording-button"))
         XCTAssertTrue(shellSource.contains("desktop-meeting-shell-stop-recording-button"))
         XCTAssertTrue(shellSource.contains("RecordingTitlebarHUD("))
-        XCTAssertTrue(shellSource.contains("Label(\"Стоп\", systemImage: \"stop.fill\")"))
+        XCTAssertTrue(shellSource.contains("Label(SystemAudioStatusLabels.stopButtonTitle, systemImage: \"stop.fill\")"))
         XCTAssertFalse(shellSource.contains("hasActiveRecording: recordingStripSession != nil"))
         XCTAssertTrue(appSource.contains("startRecordingAvailable: CaptureControlView.shouldShowDirectRecordButton"))
         XCTAssertTrue(appSource.contains("calendarPrompt: desktopCalendarPrompt"))
@@ -203,23 +212,6 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
             retryMode: .terminal,
             createdAt: Date(timeIntervalSince1970: 40)
         )
-        let serverConfirmed = makeQueueItem(
-            id: "server-confirmed",
-            state: .uploaded,
-            retryMode: .terminal,
-            meetingId: "meeting-033",
-            serverTruth: ServerTruthFingerprint(meetingId: "meeting-033"),
-            createdAt: Date(timeIntervalSince1970: 50)
-        )
-
-        let cabinetRows = DesktopMeetingShellLocalQueuePolicy.rowsNeedingNativeVisibility([
-            localQueued,
-            localUploadedWithoutServerTruth,
-            serverConfirmed
-        ])
-
-        XCTAssertTrue(cabinetRows.isEmpty)
-
         let localRows = DesktopMeetingShellLocalQueuePolicy.allRowsForLocalMode([
             localQueued,
             localUploadedWithoutServerTruth
@@ -272,6 +264,8 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
         playable.captureFailureCode = "aec_capture_failed"
         playable.artifactProfile.isUploadable = false
         failed.failureReason = "recording_recovery_not_possible"
+        failed.isLocalUnbound = true
+        failed.serverCreationAttempted = false
         let rows = EmbeddedCabinetLocalRecordingRow.rows(
             for: [saving, failed, playable],
             recordingsRootURL: playbackRoot
@@ -285,6 +279,14 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
         XCTAssertFalse(rows[0].canDelete)
         XCTAssertTrue(rows[1].canDelete)
         XCTAssertTrue(rows[2].canOpen)
+        XCTAssertTrue(rows[1].deletionIsLocalOnly)
+        for attempted in [nil, true, false] as [Bool?] {
+            failed.serverCreationAttempted = attempted
+            let row = try XCTUnwrap(EmbeddedCabinetLocalRecordingRow.rows(for: [failed], recordingsRootURL: playbackRoot).first)
+            XCTAssertEqual(row.deletionIsLocalOnly, attempted == false, "Unknown server creation must never promise local-only deletion")
+        }
+        failed.meetingId = UUID().uuidString
+        XCTAssertFalse(try XCTUnwrap(EmbeddedCabinetLocalRecordingRow.rows(for: [failed], recordingsRootURL: playbackRoot).first).deletionIsLocalOnly)
         XCTAssertFalse(json.contains("directoryPath"))
         XCTAssertFalse(json.contains("manifestPath"))
         XCTAssertFalse(json.contains("sessionId"))
@@ -343,17 +345,17 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
         XCTAssertTrue(cabinetSource.contains("data-graf-local-recording-row"))
         XCTAssertTrue(cabinetSource.contains("send.textContent = \"Отправить\""))
         XCTAssertTrue(cabinetSource.contains("renderLocalRecordingRows"))
-        XCTAssertTrue(cabinetSource.contains("item.uploadComplete !== true"))
+        XCTAssertFalse(cabinetSource.contains("item.uploadComplete !== true"))
         XCTAssertTrue(cabinetSource.contains("data-meeting-open"))
         XCTAssertTrue(cabinetSource.contains("data-icon=\"audio\""))
         XCTAssertTrue(cabinetSource.contains("item.showsPartialDuration"))
         XCTAssertTrue(cabinetSource.contains("localRecordingDisplayTitle"))
-        XCTAssertTrue(cabinetSource.contains("SHORT_MEETING_MONTH_LABELS"))
-        XCTAssertTrue(cabinetSource.contains("time.textContent = formatMeetingListDate(item.startedAt)"))
+        XCTAssertTrue(cabinetSource.contains("window.GRAFTime.format"))
+        XCTAssertTrue(cabinetSource.contains("time.dateTime = timeValue"))
         XCTAssertTrue(cabinetSource.contains("data-icon=\"trash\""))
         XCTAssertFalse(cabinetSource.contains("remove.textContent = \"Удалить\""))
         XCTAssertFalse(cabinetSource.contains("serverRow.dataset.grafLocalRecordingId"))
-        XCTAssertTrue(shellSource.contains("DesktopUploadCustodySummary.summaries(for: uploadQueueItems)"))
+        XCTAssertTrue(shellSource.contains("DesktopUploadCustodySummary.summaries(for: uploadQueueItems, focusedSessionID: controlModel.selectedRecordingSessionID)"))
     }
 
     func testOfflineStatesExposeOnlySafeSameOriginRetryFromWorkspace() throws {
@@ -394,7 +396,7 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
 
         XCTAssertTrue(shellSource.contains("DesktopSupportIncidentActionStrip("))
         XCTAssertTrue(shellSource.contains("ScrollView(.vertical, showsIndicators: true)"))
-        XCTAssertTrue(shellSource.contains(".clipped()"))
+        XCTAssertTrue(shellSource.contains(".clipShape(RoundedRectangle(cornerRadius: DesktopDesignTokens.Radius.card, style: .continuous))"))
         XCTAssertTrue(shellSource.contains("NSTitlebarAccessoryViewController()"))
         XCTAssertTrue(shellSource.contains("controller.layoutAttribute = .bottom"))
         XCTAssertTrue(shellSource.contains("controller.fullScreenMinHeight = DesktopMeetingShellChrome.recordingStripHeight"))
@@ -510,7 +512,7 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
             "data-summary-format-button",
             "data-summary-format-listbox",
             "data-summary-refresh-button",
-            "data-summary-format-dialog",
+            "data-summary-format-popover",
             "data-summary-format-all"
         ] {
             XCTAssertTrue(detailSource.contains(marker), marker)

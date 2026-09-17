@@ -1,0 +1,545 @@
+{
+  "schema_version": 1,
+  "feature": "256",
+  "reference": "Krisp",
+  "reference_version": "3.15.6",
+  "observed_on": "2026-09-08",
+  "status": "reference_capture_not_implementation_acceptance",
+  "scope": "Playback panel and its navigation only",
+  "evidence_policy": {
+    "private_content_included": false,
+    "third_party_assets_included": false,
+    "source_code_included": false,
+    "observed_selector_note": "Selectors identify observed DOM only; data-test-id is often duplicated. Do not copy selectors as product API."
+  },
+  "tokens": {
+    "control_size_px": 32,
+    "control_icon_px": 20,
+    "control_padding_px": 5,
+    "play_margin_inline_px": 8,
+    "controls_min_height_px": 44,
+    "controls_padding_top_px": 12,
+    "controls_margin_bottom_px": 8,
+    "scrubber_height_px": 5,
+    "row_pitch_px": 33,
+    "track_height_px": 5,
+    "track_radius_px": 5,
+    "segment_min_visual_width_px": 1,
+    "row_avatar_px": 20,
+    "carousel_avatar_px": 30,
+    "resize_hit_height_px": 12,
+    "speed_menu_px": [
+      308,
+      40
+    ],
+    "speed_menu_padding_px": 8,
+    "speed_menu_radius_px": 8,
+    "speed_item_px": [
+      52,
+      24
+    ],
+    "listen_menu_width_px": 220,
+    "listen_menu_radius_px": 6,
+    "trim_menu_px": [
+      247,
+      151
+    ],
+    "trim_time_input_px": [
+      68.5,
+      30
+    ],
+    "comment_width_px": 360,
+    "comment_initial_height_px": 38,
+    "comment_radius_px": 10,
+    "comment_padding_px": [
+      6,
+      8,
+      6,
+      10
+    ],
+    "comment_editor_max_height_px": 120,
+    "comment_send_px": 24,
+    "share_width_px": 560,
+    "share_radius_px": 16,
+    "tooltip_font_px": [
+      12,
+      16
+    ],
+    "tooltip_padding_px": 8,
+    "tooltip_radius_px": 4,
+    "unselected_speaker_opacity": 0.4,
+    "dark": {
+      "canvas": "#1C1F20",
+      "surface": "#242729",
+      "text": "#F5F5F5",
+      "muted": "#9FA1A3",
+      "track": "#3A3D3F",
+      "hover": "rgba(245,245,245,0.1)"
+    },
+    "light": {
+      "canvas": "#FEFEFE",
+      "surface": "#FEFEFE",
+      "text": "#242729",
+      "muted": "#6C6E70",
+      "track": "#E5E5E6",
+      "hover": null
+    },
+    "observed_speech_color": "#FE6257",
+    "speeds": [
+      0.75,
+      1,
+      1.25,
+      1.5,
+      2
+    ],
+    "avatar_css_min_width_px": 788,
+    "timeline_css_min_width_px": 992,
+    "collapse_duration_ms": 500,
+    "collapse_easing": "ease-out",
+    "row_opacity_duration_ms": 100,
+    "reduced_motion_disables_row_label_handle_transition": true
+  },
+  "controls": [
+    {
+      "id": "C01",
+      "name": "timeline_toggle",
+      "observed_selector_value": "btn-toggle-timeline",
+      "reference_label": "",
+      "transition": "collapse_expand",
+      "evidence": "UI_DOM"
+    },
+    {
+      "id": "C02",
+      "name": "listen",
+      "observed_selector_value": "btn-listen-to-speaker",
+      "reference_label": "Listen to",
+      "transition": "listen_menu",
+      "evidence": "UI_DOM"
+    },
+    {
+      "id": "C03",
+      "name": "trim",
+      "observed_selector_value": "btn-trim",
+      "reference_label": "Trim",
+      "transition": "selection",
+      "evidence": "UI_DOM"
+    },
+    {
+      "id": "C04",
+      "name": "comment",
+      "observed_selector_value": "btn-comment",
+      "reference_label": "Comment",
+      "transition": "comment_compose",
+      "evidence": "UI_DOM"
+    },
+    {
+      "id": "C05",
+      "name": "backward",
+      "observed_selector_value": "btn-step-backward",
+      "reference_label": "Step backward [<-]",
+      "transition": "seek_minus_15",
+      "evidence": "UI_CODE"
+    },
+    {
+      "id": "C06",
+      "name": "play_pause",
+      "observed_selector_value": "btn-play-pause",
+      "reference_label": "Play [Space bar]",
+      "transition": "toggle_playback",
+      "evidence": "UI_DOM"
+    },
+    {
+      "id": "C07",
+      "name": "forward",
+      "observed_selector_value": "btn-step-forward",
+      "reference_label": "Step forward [->]",
+      "transition": "seek_plus_15",
+      "evidence": "UI_CODE"
+    },
+    {
+      "id": "C08",
+      "name": "next_speech",
+      "observed_selector_value": "btn-next-speaker",
+      "reference_label": "Next Speaker [⇧->]",
+      "transition": "next_timestamp",
+      "evidence": "UI_CODE"
+    },
+    {
+      "id": "C09",
+      "name": "speed",
+      "observed_selector_value": "btn-playback-speed",
+      "reference_label": "Playback speed",
+      "transition": "speed_menu",
+      "evidence": "UI_DOM"
+    },
+    {
+      "id": "C10",
+      "name": "scrubber",
+      "observed_selector_value": "MediaPlayerRange",
+      "reference_label": "",
+      "transition": "seek_coordinate",
+      "evidence": "UI_DOM"
+    },
+    {
+      "id": "C11",
+      "name": "speaker_avatar",
+      "observed_selector_value": "SpeakersSlider",
+      "reference_label": "",
+      "transition": "next_speech_for_speaker",
+      "evidence": "CODE"
+    },
+    {
+      "id": "C12",
+      "name": "speech_segment",
+      "observed_selector_value": "Item",
+      "reference_label": "",
+      "transition": "seek_source_start",
+      "evidence": "CODE"
+    },
+    {
+      "id": "C13",
+      "name": "empty_track",
+      "observed_selector_value": "Row",
+      "reference_label": "",
+      "transition": "seek_coordinate",
+      "evidence": "UI_CODE"
+    },
+    {
+      "id": "C14",
+      "name": "resize",
+      "observed_selector_value": "ResizeDragHandle",
+      "reference_label": "",
+      "transition": "resize_timeline",
+      "evidence": "UI_DOM"
+    },
+    {
+      "id": "C15",
+      "name": "listen_all",
+      "observed_selector_value": null,
+      "reference_label": "All speakers",
+      "transition": "select_all",
+      "evidence": "UI"
+    },
+    {
+      "id": "C16",
+      "name": "listen_speaker",
+      "observed_selector_value": null,
+      "reference_label": "Speaker {n}",
+      "transition": "toggle_speaker_autoplay",
+      "evidence": "UI"
+    },
+    {
+      "id": "C17",
+      "name": "speed_option",
+      "observed_selector_value": null,
+      "reference_label": "{speed}",
+      "transition": "set_rate_close_menu",
+      "evidence": "UI"
+    },
+    {
+      "id": "C18",
+      "name": "range_start",
+      "observed_selector_value": "RangeFieldDefault",
+      "reference_label": "HH:MM:SS",
+      "transition": "set_start",
+      "evidence": "UI_DOM"
+    },
+    {
+      "id": "C19",
+      "name": "range_end",
+      "observed_selector_value": "RangeFieldDefault",
+      "reference_label": "HH:MM:SS",
+      "transition": "set_end_clamp",
+      "evidence": "UI_DOM"
+    },
+    {
+      "id": "C20",
+      "name": "range_reset",
+      "observed_selector_value": null,
+      "reference_label": "",
+      "transition": "reset_selection",
+      "evidence": "UI"
+    },
+    {
+      "id": "C21",
+      "name": "range_share",
+      "observed_selector_value": null,
+      "reference_label": "Share",
+      "transition": "share_highlight",
+      "evidence": "UI"
+    },
+    {
+      "id": "C22",
+      "name": "range_delete",
+      "observed_selector_value": null,
+      "reference_label": "Delete selection",
+      "transition": "delete_confirmation",
+      "evidence": "UI"
+    },
+    {
+      "id": "C23",
+      "name": "delete_dismiss",
+      "observed_selector_value": null,
+      "reference_label": "Dismiss",
+      "transition": "cancel_delete",
+      "evidence": "UI"
+    },
+    {
+      "id": "C24",
+      "name": "delete_confirm",
+      "observed_selector_value": null,
+      "reference_label": "Delete",
+      "transition": "submit_trim",
+      "evidence": "UI_SYNTHETIC"
+    },
+    {
+      "id": "C25",
+      "name": "trim_update",
+      "observed_selector_value": "TrimmingComplete",
+      "reference_label": "Update",
+      "transition": "reload_result",
+      "evidence": "UI_SYNTHETIC"
+    },
+    {
+      "id": "C26",
+      "name": "share_copy",
+      "observed_selector_value": null,
+      "reference_label": "Copy link",
+      "transition": "copy_navigation_link",
+      "evidence": "UI_TOAST_ONLY"
+    },
+    {
+      "id": "C27",
+      "name": "invite",
+      "observed_selector_value": null,
+      "reference_label": "Invite",
+      "transition": "invite_form_then_submit",
+      "evidence": "UI_FORM_ONLY"
+    },
+    {
+      "id": "C28",
+      "name": "invite_role",
+      "observed_selector_value": null,
+      "reference_label": "Can edit / Can comment / Can view / Can view AI Notes",
+      "transition": "select_role",
+      "evidence": "UI_FORM_ONLY"
+    },
+    {
+      "id": "C29",
+      "name": "comment_send",
+      "observed_selector_value": "CommentInputStandalone",
+      "reference_label": "",
+      "transition": "save_comment",
+      "evidence": "UI_SYNTHETIC"
+    },
+    {
+      "id": "C30",
+      "name": "comment_reply",
+      "observed_selector_value": "ReplyInput",
+      "reference_label": "Reply...",
+      "transition": "save_reply",
+      "evidence": "UI_SYNTHETIC"
+    },
+    {
+      "id": "C31",
+      "name": "comment_edit",
+      "observed_selector_value": null,
+      "reference_label": "Edit",
+      "transition": "edit_save",
+      "evidence": "UI_SYNTHETIC"
+    },
+    {
+      "id": "C32",
+      "name": "comment_reaction",
+      "observed_selector_value": null,
+      "reference_label": "{emoji} {count}",
+      "transition": "toggle_own_reaction",
+      "evidence": "UI_SYNTHETIC_RECHECK"
+    },
+    {
+      "id": "C33",
+      "name": "comment_resolve",
+      "observed_selector_value": null,
+      "reference_label": "",
+      "transition": "resolve_reopen",
+      "evidence": "UI_SYNTHETIC_RECHECK"
+    },
+    {
+      "id": "C34",
+      "name": "comment_copy",
+      "observed_selector_value": null,
+      "reference_label": "Copy link",
+      "transition": "copy_comment_link",
+      "evidence": "UI_MENU_ONLY"
+    },
+    {
+      "id": "C35",
+      "name": "comment_delete",
+      "observed_selector_value": null,
+      "reference_label": "Delete",
+      "transition": "confirm_delete_thread",
+      "evidence": "UI_SYNTHETIC"
+    },
+    {
+      "id": "C36",
+      "name": "comment_filter",
+      "observed_selector_value": "CommentsPanel",
+      "reference_label": "Source / Status / Person",
+      "transition": "filter_discussions",
+      "evidence": "UI"
+    },
+    {
+      "id": "C37",
+      "name": "comment_show_open",
+      "observed_selector_value": "CommentsPanel",
+      "reference_label": "Show all open",
+      "transition": "reset_to_open",
+      "evidence": "UI"
+    },
+    {
+      "id": "C38",
+      "name": "mention",
+      "observed_selector_value": null,
+      "reference_label": "@",
+      "transition": "recipient_picker",
+      "evidence": "UI_PICKER_ONLY"
+    },
+    {
+      "id": "C39",
+      "name": "emoji_search",
+      "observed_selector_value": null,
+      "reference_label": "Search",
+      "transition": "filter_emoji",
+      "evidence": "UI"
+    }
+  ],
+  "synthetic_trim_oracle": {
+    "removed_seconds": [
+      10,
+      20
+    ],
+    "duration_before_approx_seconds": 46,
+    "duration_after_approx_seconds": 36,
+    "speaker_2_start_before_approx_seconds": 25,
+    "speaker_2_start_after_approx_seconds": 15,
+    "shares_before": [
+      56,
+      44
+    ],
+    "shares_after": [
+      42,
+      58
+    ],
+    "comments": {
+      "before": {
+        "old": 0,
+        "new": 0
+      },
+      "inside": "removed_from_visible_list",
+      "after": {
+        "old": 38,
+        "new": 28
+      }
+    },
+    "state": "historical_first_controlled_trim"
+  },
+  "known_reference_defects": [
+    "escape_does_not_close_listen_speed_trim",
+    "narrow_layout_overlap_or_horizontal_overflow",
+    "sidebar_can_cover_share_dialog",
+    "one_speaker_hides_trim_and_comments",
+    "short_remainder_expands_to_full_deletion",
+    "zero_range_actions_remain_enabled"
+  ],
+  "target_deviations": [
+    "accessible_escape_and_focus",
+    "no_narrow_overlap_or_overflow",
+    "correct_modal_stacking",
+    "preserve_trim_and_comment_for_one_speaker",
+    "explicit_full_deletion_scope",
+    "reject_empty_range",
+    "preserve_graf_deletion_truth",
+    "independent_code_and_licensed_assets"
+  ],
+  "open_evidence": [
+    "actual_clipboard_url_and_recipient_navigation",
+    "second_user_permissions_and_moderation",
+    "mention_notification_delivery",
+    "server_purge_and_retries",
+    "exact_10_second_boundary",
+    "partial_overlap_comment_thread_policy",
+    "server_text_length_limit",
+    "resize_bounds_and_cross_session_persistence",
+    "last_speaker_avatar_fallback",
+    "additional_synthetic_edit_cause",
+    "manual_edit_and_boundary_trim_behavior",
+    "graf_optional_words_alignment_contract"
+  ],
+  "pending_product_decisions": [],
+  "acceptance": {
+    "geometry_tolerance_css_px": 2,
+    "seek_tolerance_ms": 100,
+    "required_surfaces": [
+      "web",
+      "GRAF Dev"
+    ],
+    "required_widths_px": [
+      390,
+      768,
+      787,
+      788,
+      991,
+      992,
+      1440
+    ],
+    "required_themes": [
+      "dark",
+      "light"
+    ],
+    "required_zoom_percent": [
+      100,
+      200
+    ]
+  },
+  "trim_transcript_contract": {
+    "target": "preserve_remaining_words_edits_and_speaker_identity",
+    "automatic_retranscription_that_changes_remaining_content": false,
+    "evidence_document": "trim-reverse-engineering.md",
+    "later_observed_transition": {
+      "cause": "unconfirmed_external_or_background_change",
+      "speaker_2_words_before": 57,
+      "speaker_2_words_after": 49,
+      "remaining_words_exact_match": true,
+      "unchanged_word_starts": 17,
+      "shifted_word_starts": 32,
+      "shift_seconds": 1.49,
+      "time_comparison_tolerance_seconds": 1e-09,
+      "utterance_and_speaker_ids_preserved": true,
+      "loaded_audio_duration_seconds": 34.6935,
+      "recording_sessions_end_seconds": 34.6595
+    },
+    "limits": [
+      "server_source_unavailable",
+      "word_boundary_rule_unverified",
+      "manual_edit_preservation_unverified"
+    ]
+  },
+  "delivery_stages": {
+    "current": "playback_speakers_comments",
+    "deferred_controls": [
+      "C03",
+      "C18",
+      "C19",
+      "C20",
+      "C21",
+      "C22",
+      "C23",
+      "C24",
+      "C25",
+      "C26",
+      "C27",
+      "C28"
+    ],
+    "deferred_reason": "Owner deferred scissors and their transitions; independent comments remain in scope"
+  }
+}

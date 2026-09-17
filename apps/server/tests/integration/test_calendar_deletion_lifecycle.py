@@ -183,6 +183,7 @@ def _seed_calendar_event(client) -> str:
                         ends_at=starts_at + timedelta(hours=1),
                     )
                 ),
+                credential_encryption_key=client.app.state.credential_encryption_key,
             )
             await session.commit()
             return str(snapshot.id)

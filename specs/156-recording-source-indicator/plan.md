@@ -1,3 +1,5 @@
+> Путь запуска обновлён: используйте единственный `/Applications/GRAF Dev.app` через `infra/scripts/dev-harness.sh`; см. [действующую инструкцию](/docs/agent-guidance/local-development.md). Старые отдельные приложения больше не собираются.
+
 # Implementation Plan: Источник системного звука в индикаторе записи
 
 **Branch**: `codex/156-recording-source-indicator` | **Date**: 2026-08-16 | **Spec**: [spec.md](spec.md)
@@ -46,7 +48,7 @@
 
 1. Run `swift test --package-path apps/macos --filter CaptureIndicatorTests` for source mapping, lifecycle visibility, fallback and accessibility text.
 2. Run `swift test --package-path apps/macos --filter AppControlAccessibilityTests` for source-level accessibility contracts.
-3. Run `apps/macos/Scripts/build-local-app.sh` or the focused package build on a macOS host.
+3. Run the focused package build; for installed-app checks use build/promote/smoke through the Dev harness.
 4. Run `infra/scripts/ci-local.sh --fast` before closeout because the change affects a shared user-facing capture surface.
 5. No deploy, release preparation, notarization, or CD command is in scope.
 

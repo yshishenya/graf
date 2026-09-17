@@ -122,7 +122,7 @@ validate_review_m4a_metadata() {
         blocked "afinfo is required to inspect review M4A metadata on macOS"
     metadata=$(afinfo "$review" 2>&1) ||
         fail_invalid "review M4A cannot be read by the macOS metadata inspector"
-    echo "$metadata" | grep -E "Data format: 1 ch, (48000|48,000) Hz, 'aac '" >/dev/null ||
+    printf '%s\n' "$metadata" | grep -E "^Data format:[[:space:]]+1 ch,[[:space:]]+(48000|48,000) Hz,[[:space:]]+('aac '|aac)([[:space:]]|$)" >/dev/null ||
         fail_invalid "review M4A must be AAC mono 48 kHz"
 }
 
@@ -235,7 +235,29 @@ self_test_artifact_metadata() {
     if (GRAF_V5_SKIP_MEDIA_PROBE=1 validate_artifact_directory "$package") >/dev/null 2>&1; then
         fail_invalid "unexpected artifact was accepted by v5 validator"
     fi
-    passed "temporary v5 metadata rejects non-v5 members"
+    # Exercise the real format check; only afinfo's textual output is synthetic.
+    afinfo() { printf '%s\n' "$metadata_fixture"; }
+    while IFS= read -r metadata_fixture; do
+        (validate_review_m4a_metadata "$package/meeting-review.m4a") >/dev/null ||
+            fail_invalid "valid afinfo layout was rejected"
+    done <<'VALID_FORMATS'
+Data format: 1 ch, 48,000 Hz, 'aac ' (0x00000000)
+Data format:     1 ch,  48000 Hz, aac  (0x00000000)
+VALID_FORMATS
+    while IFS= read -r metadata_fixture; do
+        if (validate_review_m4a_metadata "$package/meeting-review.m4a") >/dev/null 2>&1; then
+            fail_invalid "invalid afinfo format was accepted"
+        fi
+    done <<'INVALID_FORMATS'
+Data format: 2 ch, 48000 Hz, aac (0x00000000)
+Data format: 1 ch, 44100 Hz, aac (0x00000000)
+Data format: 1 ch, 48000 Hz, alac (0x00000000)
+Data format: 1 ch, 48000 Hz, aacp (0x00000000)
+Other metadata: Data format: 1 ch, 48000 Hz, aac
+Data format: broken
+
+INVALID_FORMATS
+    passed "temporary v5 metadata rejects non-v5 members and invalid media formats"
 }
 
 self_test_latest_artifact_selection() {
