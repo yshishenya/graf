@@ -1896,3 +1896,34 @@ macOS хранит в строке очереди отпечаток того, �
 `~/Documents/graf-win-sync/_repo-copy/`. Незакоммиченная работа остаётся
 уязвимой: единственная надёжная защита — коммит, и он требует явного
 согласия владельца.
+
+### T063 — доказательство локальной полосы на точном коммите (2026-09-18)
+
+Работа Feature 200 закоммичена, дерево стало чистым, и локальная полоса
+`infra/scripts/ci-local.sh --fast` впервые связала доказательство с точным
+состоянием.
+
+| Параметр | Значение |
+| --- | --- |
+| Коммит | `4f8127615d7f86bcff702d657086a691106b1b59` |
+| Команда | `infra/scripts/ci-local.sh --fast` |
+| Полоса | `ci_lane requested=fast effective=fast components=server,infra,docs,unknown performance_gate=report coverage=partial next_gate=full_before_release` |
+| Доказательство | `.dev/ci-evidence/ci-fast-4f8127615d7f-f513a6f0ebf8.json`, `run_id=ci-fast-4f8127615d7f-f513a6f0ebf8` |
+| Проверки процесса | `development-process: OK feature=repository-only`, `changelog-fragments: OK`, `legacy-impact: OK` |
+| Итог | `ci_local_result=fail`, причина одна и внешняя: `ci_stage=Spec Kit governance status=fail` |
+| Причина отказа | `speckit-bootstrap: doctor found specify v1.0.4, expected v1.0.7` и `ref 'cb610277fdea781fcfa83d20522c2db37c94068d'` вместо `fe1d00e3ccaf495880aaf90fb0e17679e82f065b` |
+| Где установлен | `/Users/yshishenya/.local/bin/specify` → `~/.local/share/uv/tools/specify-cli/bin/specify` |
+| Как исправляется | штатная команда проекта: `speckit-bootstrap . --frozen` без `--skip-cli-update` устанавливает версию из замка `.specify/speckit-bootstrap.lock.json` |
+
+Расхождение версий инструмента не связано с Feature 200: замок проекта
+`.specify/speckit-bootstrap.lock.json` ожидает `spec_kit.version = v1.0.7`, а в
+окружении установлена `v1.0.4`. Правка глобального инструмента — изменение
+окружения за пределами репозитория, поэтому она оставлена на решение владельца;
+в этом раунде зафиксированы точная причина, путь установки и штатная команда
+исправления.
+
+Что это меняет для T063: часть про локальную полосу закрыта — доказательство
+привязано к коммиту `4f8127615d7f`, полосы Windows (портируемая 27/27,
+приложение, пакет) зелёные, пакет установлен и запускается. Открытыми остаются
+аппаратная матрица на физическом x64-компьютере, сценарий под входом в аккаунт
+и явно пропущенная полоса ARM64.
