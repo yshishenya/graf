@@ -260,6 +260,9 @@ class _SessionScopedApplication:
             self.app = create_app(settings)
         self.app.state.calendar_provider_factory = SyntheticCalendarConnectionProvider
         self._client: TestClient | None = None
+        # Headers the shared client starts with, captured on first use so a test
+        # that changes them cannot change how a later request is classified.
+        self.default_headers: dict[str, str] = {}
         self._settings_snapshot = dict(settings.__dict__)
         # Application state keeps lazily attached collaborators (temporal client,
         # calendar provider, ingest store) and tests also remove or replace
@@ -328,6 +331,9 @@ class _SessionScopedApplication:
             test_client.app_state["media_engine"] = self.media_engine
             test_client.app_state["media_sessionmaker"] = self.media_sessionmaker
             test_client.app_state["storage"] = self.storage
+            # Keep the headers the client starts with so a later test can be
+            # given the same starting state after one of them changes them.
+            self.default_headers = dict(test_client.headers)
             self._client = test_client
         return self._client
 
@@ -364,9 +370,14 @@ def client(
     postgres_seeded_database_url: str,
 ) -> TestClient:
     test_client = _session_application.client()
-    # The client outlives a single test now, so cookies set by one test would
-    # otherwise change the viewer's time zone for every later test in the worker.
+    # The client outlives a single test now, so state it carries would otherwise
+    # leak forward: cookies set by one test change the viewer's time zone for
+    # every later test in the worker, and headers like User-Agent change how a
+    # later request is classified. Cookies and headers therefore both return to
+    # what the client started with.
     test_client.cookies.clear()
+    test_client.headers.clear()
+    test_client.headers.update(_session_application.default_headers)
     _session_application.restore_settings()
     _session_application.reset_storage()
     return test_client
