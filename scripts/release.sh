@@ -71,6 +71,13 @@ step_done() {
   printf 'release_step=%s duration_seconds=%s status=done\n' "$1" "$elapsed"
   total_elapsed=$((total_elapsed + elapsed))
 }
+# The three checks that branch protection requires, as "name=STATE" pairs.  An
+# empty result means the check runs do not exist yet.
+read_required_checks() {
+  gh pr checks "$1" --json name,state \
+    --jq '[.[]|select(.name=="governance-fast" or .name=="macos-pr" or .name=="pr-metadata")|"\(.name)=\(.state)"]|join(" ")' \
+    2>/dev/null || true
+}
 total_elapsed=0
 started_all="$(date -u +%s)"
 
@@ -218,10 +225,24 @@ EOF
   fi
 
   step "prep: дождаться обязательных проверок и влить"
+  required_checks="governance-fast macos-pr pr-metadata"
+  checks=""
+  # A freshly created pull request has no check runs for the first seconds, and
+  # `gh pr checks` reports that as an error rather than an empty list.  Wait for
+  # the checks to exist before watching them, otherwise the release stops on a
+  # pull request that is perfectly healthy.
+  for attempt in $(seq 1 40); do
+    checks="$(read_required_checks "$pr_number")"
+    [[ -n "$checks" ]] && break
+    printf 'release: обязательные проверки ещё не появились, ожидание %s/40\n' "$attempt"
+    sleep 15
+  done
+  [[ -n "$checks" ]] \
+    || { printf 'release: обязательные проверки так и не появились на пул-реквесте %s\n' "$pr_number" >&2; exit 1; }
   gh pr checks "$pr_number" --watch --interval 30 || true
-  checks="$(gh pr checks "$pr_number" --json name,state --jq '[.[]|select(.name=="governance-fast" or .name=="macos-pr" or .name=="pr-metadata")|"\(.name)=\(.state)"]|join(" ")')"
+  checks="$(read_required_checks "$pr_number")"
   printf 'release_pr_checks=%s\n' "$checks"
-  for required in governance-fast macos-pr pr-metadata; do
+  for required in $required_checks; do
     printf '%s' "$checks" | grep -q "${required}=SUCCESS" \
       || { printf 'release: required check %s is not successful\n' "$required" >&2; exit 1; }
   done
