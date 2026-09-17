@@ -1060,10 +1060,20 @@ class GrafLocalAdapter:
                 return
             archive.unlink()
         env = self._env(manifest, pin_images=False)
+        # The predecessor manifest owns the definition of what it ran: a newer
+        # checkout may add a component this manifest legitimately lacks, and
+        # reading the current definition would then demand an image the rollback
+        # target never had.  Only image components are archived; the app bundle
+        # has its own digest and is not a container image.
+        image_components = {
+            component for component, _variable, _fallback, _source_bound in COMPOSE_IMAGE_COMPONENTS.values()
+        }
+        components = manifest.get("components") or {}
         digests = sorted(
             {
-                str(manifest["components"][component]["digest"])
-                for component, _variable, _fallback, _source_bound in COMPOSE_IMAGE_COMPONENTS.values()
+                str(components[name]["digest"])
+                for name in components
+                if name in image_components and components[name].get("digest")
             }
         )
         for digest in digests:
@@ -1118,6 +1128,31 @@ class GrafLocalAdapter:
         if candidate.get("manifest_id") != target_id:
             return None, f"rollback manifest identity differs: {target_id}"
         return candidate, None
+
+    def _pending_candidate_ids(self, active: Optional[Dict[str, Any]]) -> tuple:
+        """Return manifests that are built but not promoted yet.
+
+        A build keeps its candidate until it is promoted, and the documented
+        cleanup command may run in between.  Retention must therefore not treat
+        a ready candidate as stale merely because it is neither the active
+        manifest nor its recorded parent.
+        """
+        directory = self.state / "manifests"
+        if not directory.is_dir():
+            return ()
+        active_id = str(active.get("manifest_id")) if active else None
+        pending = []
+        for path in sorted(directory.glob("*.json")):
+            if path.is_symlink():
+                continue
+            try:
+                manifest = _read_json(path)
+            except HarnessError:
+                continue
+            manifest_id = str(manifest.get("manifest_id") or "")
+            if manifest_id and manifest_id != active_id and str(manifest.get("status")) == "ready":
+                pending.append(manifest_id)
+        return tuple(pending)
 
     def _apply_retention(
         self,
@@ -1207,7 +1242,12 @@ class GrafLocalAdapter:
             partial_reasons.append(f"prune blocked: {blocked_reason}")
             return removed, partial_reasons, []
         keep = self._apply_retention(
-            active, target, dry_run=dry_run, removed=removed, partial_reasons=partial_reasons
+            active,
+            target,
+            keep_extra=self._pending_candidate_ids(active),
+            dry_run=dry_run,
+            removed=removed,
+            partial_reasons=partial_reasons,
         )
         journal = _read_schema_transition(self.state)
         keep_operation = journal["operation_id"] if journal and journal["phase"] not in {"complete", "recovered"} else None
