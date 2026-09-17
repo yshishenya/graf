@@ -476,6 +476,53 @@ file. Follow `docs/agent-guidance/macos-notarization.md` and run
 `apps/macos/Installer/Scripts/sign-graf-app-update-local.sh` only from the clean
 exact release tag on current `origin/master`.
 
+### The app release runs beside the server train, not after it
+
+The macOS app release is local and manual: no workflow in `.github/workflows/`
+builds, notarizes, or publishes the app or its appcast, and
+`scripts/prepare-release.sh` touches release metadata only. The whole chain is
+therefore the operator's to schedule, and its cost is dominated by one external
+wait that cannot be shortened.
+
+Measured on this workstation for `2026.09.17.1` from the retained release state
+under `apps/macos/.build/`. Rows marked "measured" come from artifact
+modification times, which the helpers write in a fixed order; the build rows are
+bounded that way rather than timed by the builder itself.
+
+| Phase | Measured | Note |
+| --- | --- | --- |
+| `swift build` arm64 release | 8 min 46 s | longest local step; bounded by the fixed build-start marker |
+| `swift build` x86_64 release | 55 s | warm, after the arm64 build |
+| packaging, signing, `pkgbuild`/`productbuild` | 9 s | |
+| notary input preparation | 21 s | stored submitted copies |
+| Apple notarization wait | 55 s | external; 49 s on the previous attempt |
+| stapling and trust validation | 9 s | `stapler` + `spctl` |
+| Sparkle signing, appcast, draft upload | ~4 min 30 s | upper bound; includes GitHub input download on a cold cache |
+
+Apple waiting is about a minute per release, so the critical path is local work
+and GitHub transfer, not Apple. `release-full` measured 17 min 54 s for the
+server release (`docs/current-product-status.md`), so server alone is the longer
+of the two lanes.
+
+The overlap that matters: `--phase prepare` needs only the clean frozen commit,
+and `--phase publish` needs only the published tag. Neither needs the server
+release to finish, so both app phases can run beside the server train instead of
+after it. Run in series the two gates add up; run this way the app is already
+notarized and Gatekeeper-checked when the server side finishes.
+
+```sh
+# terminal 1 — start with the frozen commit, before the server train finishes
+sh apps/macos/Installer/Scripts/release-app-update.sh \
+  --version YYYY.MM.DD.N --phase prepare
+# publish the commit and tag, and let the server release train run
+sh apps/macos/Installer/Scripts/release-app-update.sh \
+  --version YYYY.MM.DD.N --phase publish --verify-feed YYYY.MM.DD.N
+```
+
+The entrypoint prints a measured duration per phase, so the next release is
+planned from real numbers instead of estimates. It never replaces the live
+appcast; that stays a separate, deliberate owner action.
+
 Server CD preserves an existing regular, nonempty runtime `graf.pkg`; its
 public-download smoke verifies those preserved bytes. Only an absent runtime
 file uses the tracked package for initial installation and rollback. Publish

@@ -72,6 +72,25 @@ stapled, Gatekeeper-checked and installed over `2026.07.26.7` through the
 ordinary Developer ID → Developer ID Sparkle path. Future public releases must
 follow this same sequence.
 
+Run the whole chain with one command. It adds no gate of its own: every step
+delegates to the reviewed helper below, and it prints a measured duration per
+phase. It never replaces the live appcast.
+
+```sh
+# Build, notarize, staple and prove Gatekeeper. Needs only the clean frozen
+# commit, so run it while the server release train is still running.
+sh apps/macos/Installer/Scripts/release-app-update.sh \
+  --version YYYY.MM.DD.N --phase prepare
+
+# After the commit and tag are published: Sparkle signature and draft assets.
+sh apps/macos/Installer/Scripts/release-app-update.sh \
+  --version YYYY.MM.DD.N --phase publish --verify-feed YYYY.MM.DD.N
+```
+
+Use `--phase all` for one foreground chain, or `--dry-run` to print the plan and
+resolve the Developer ID identities without building, calling Apple, uploading,
+or creating a release. The steps below stay the manual fallback.
+
 Build the exact CalVer candidate with the public guard enabled:
 
 ```sh
