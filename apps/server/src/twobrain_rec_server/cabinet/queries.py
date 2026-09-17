@@ -177,6 +177,13 @@ GENERATED_CAPTURE_TITLE_SQL_RE = (
 )
 GENERATED_MANUAL_UPLOAD_SQL_RE = r"^manual[-_]upload([-_][a-z0-9]+)+$"
 
+# The meeting list prefetches per-meeting reads in batches before its loop. The
+# loop can consume more rows than the page shows, because a status filter and
+# the access decision run inside it, so the batch reaches past the page size.
+# This factor bounds that reach: rows beyond it fall back to the per-meeting
+# helpers rather than making the batched read scale with the whole workspace.
+_LIST_PREFETCH_PAGE_FACTOR = 4
+
 
 async def get_provider_link_start_options(
     db: AsyncSession,
@@ -665,11 +672,19 @@ async def list_cabinet_meetings(
 
     # Batch every per-meeting read before the loop; the projection helpers
     # then serve the loop from this prefetch instead of one query per meeting.
+    #
+    # The loop keeps at most `limit + 1` meetings, but a status filter and the
+    # access decision are applied inside it, and `title_asc` sorts the whole
+    # result before trimming. Prefetching the entire workspace therefore scales
+    # with the workspace rather than with the page. The prefetch is capped, and
+    # any meeting the loop reaches beyond the cap falls back to the per-meeting
+    # helpers, so the page stays correct while the batched read stays bounded.
+    prefetch_limit = max(limit, 1) * _LIST_PREFETCH_PAGE_FACTOR + 1
     await _prefetch_meeting_list_reads(
         db,
         workspace_id=workspace_id,
         viewer_user_id=viewer_user_id,
-        meetings=list(meetings),
+        meetings=list(meetings[:prefetch_limit]),
     )
     try:
         items = []
