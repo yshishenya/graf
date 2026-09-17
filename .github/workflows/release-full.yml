@@ -191,7 +191,7 @@ jobs:
               [[ -z "$shell_path" ]] || bash -n "$shell_path"
             done < <(git ls-files '*.sh')
             sh apps/macos/Scripts/validate-no-legacy-audio-driver.sh
-            GRAF_TEST_WORKERS=4 GRAF_PERFORMANCE_GATE=required \
+            GRAF_TEST_WORKERS=8 GRAF_PERFORMANCE_GATE=required \
               bash apps/server/scripts/run_local_postgres_tests.sh --full -q
             (cd apps/server && PYTHONPATH=src uv run python scripts/verify_rls_hardening.py)
             docker compose -f infra/docker-compose.yml config >/dev/null
