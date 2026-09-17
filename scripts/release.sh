@@ -86,6 +86,12 @@ latest_published_tag() {
     --jq '[.[]|select(.isDraft==false and .isPrerelease==false and .publishedAt!=null and .tagName!="")]|max_by(.publishedAt)|.tagName' \
     2>/dev/null || true
 }
+# The release candidate takes numeric feature IDs, while the changelog marker
+# spells them as F271.  Convert one into the other so the operator never has to
+# retype the list.
+numeric_feature_ids() {
+  python3 -c 'import re,sys; print(",".join(dict.fromkeys(re.findall(r"[0-9]{3,}", sys.argv[1]))))' "$1"
+}
 total_elapsed=0
 started_all="$(date -u +%s)"
 
@@ -179,7 +185,11 @@ print(marker.group(1).strip())
 PY
 )"
   [[ -n "$features" ]] || { printf 'release: release features marker is empty\n' >&2; exit 1; }
-  printf 'release_features=%s\n' "$features"
+  feature_ids="$(numeric_feature_ids "$features")"
+  [[ -n "$feature_ids" ]] \
+    || { printf 'release: release features marker has no numeric IDs\n' >&2; exit 1; }
+  feature_id="${feature_ids%%,*}"
+  printf 'release_features=%s feature_ids=%s\n' "$features" "$feature_ids"
 
   git add -A
   git commit -m "Подготовка релиза ${version}
@@ -304,7 +314,11 @@ print(match.group(1).strip() if match else "")
 PY
 )"
   source_sha="$(git rev-parse HEAD)"
-  feature_id="$(printf '%s' "$features" | tr ',' '\n' | head -1 | tr -d ' F')"
+  feature_ids="$(numeric_feature_ids "$features")"
+  [[ -n "$feature_ids" ]] \
+    || { printf 'release: release features marker has no numeric IDs\n' >&2; exit 1; }
+  feature_id="${feature_ids%%,*}"
+  printf 'release_features=%s feature_ids=%s\n' "$features" "$feature_ids"
 fi
 
 # --------------------------------------------------------------- step: train
@@ -346,14 +360,14 @@ if should_run train; then
   train_output="$(infra/scripts/release-candidate.sh train-freeze \
     --source-sha "$source_sha" --base-sha "$base_sha" \
     --synthetic-merge-sha "$synthetic_sha" \
-    --prs "$pr_list" --features "$features" --operator "$operator" \
+    --prs "$pr_list" --features "$feature_ids" --operator "$operator" \
     --pr-receipts "$receipt_list")"
   printf '%s\n' "$train_output" | tail -3
   train_file="$(ls -t .dev/release/trains/train-*.json | grep -v -- '-go.json' | head -1)"
   printf 'release_train=%s\n' "$train_file"
 
   infra/scripts/release-candidate.sh freeze \
-    --sha "$source_sha" --features "$features" --operator "$operator" --train "$train_file" | tail -3
+    --sha "$source_sha" --features "$feature_ids" --operator "$operator" --train "$train_file" | tail -3
   candidate_file="$(ls -t .dev/release/candidates/rc-*.json | head -1)"
   candidate_id="$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['candidate_id'])" "$candidate_file")"
   printf 'release_candidate=%s\n' "$candidate_id"
