@@ -1,0 +1,136 @@
+name: backup-restore-rehearsal
+
+# Weekly proof that the newest production backup can actually be restored.
+#
+# The rehearsal used to run inside every release (step `restore_rehearsal` of
+# `infra/scripts/cd-remote.sh`). It restores the whole Postgres dump and the
+# whole object store into disposable targets and dominated release time, so it
+# moved here: the release keeps its own fresh backup
+# (`infra/scripts/backup-rec-stack.sh`) and reports `backup_reference=`, and
+# this workflow keeps the recurring restore proof.
+#
+# State of production host access
+# -------------------------------
+# CI has no access to the production host today: every job in this repository
+# runs on GitHub-hosted runners, no workflow uses SSH, and Actions holds no
+# deploy key. This job therefore fails closed with
+# `reason=production_host_ssh_secret_missing` and prints the manual command
+# until the operator provisions the secrets below. It is deliberately red
+# rather than silently green: a weekly run that proves nothing would hide the
+# lost per-release rehearsal.
+#
+# Required repository secrets (Settings -> Secrets and variables -> Actions):
+#   PROD_SSH_HOST         production host, e.g. 2brain.dev
+#   PROD_SSH_USER         deploy user that owns /opt/projects/2brain-rec
+#   PROD_SSH_KEY          OpenSSH private key for that user
+#   PROD_SSH_KNOWN_HOSTS  pinned host key line for PROD_SSH_HOST
+#
+# Until then, run the same rehearsal by hand from a workstation that can reach
+# the host exactly as `infra/scripts/cd-remote.sh` does:
+#
+#   infra/scripts/rehearse-restore-scheduled.sh --dry-run
+#   infra/scripts/rehearse-restore-scheduled.sh --execute
+#
+# Optional repository variable `PROD_DEPLOY_PATH` overrides the deploy path
+# (default `/opt/projects/2brain-rec`).
+
+on:
+  schedule:
+    # Every Monday at 03:17 UTC, outside release windows.
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+    inputs:
+      backup_reference:
+        description: "Абсолютный путь к каталогу резервной копии на прод-хосте; пусто — самый свежий"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backup-restore-rehearsal
+  cancel-in-progress: false
+
+jobs:
+  rehearsal:
+    name: restore rehearsal on the production host
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PROD_SSH_HOST: ${{ secrets.PROD_SSH_HOST }}
+      PROD_SSH_USER: ${{ secrets.PROD_SSH_USER }}
+      PROD_SSH_KEY: ${{ secrets.PROD_SSH_KEY }}
+      PROD_SSH_KNOWN_HOSTS: ${{ secrets.PROD_SSH_KNOWN_HOSTS }}
+      BACKUP_REFERENCE: ${{ inputs.backup_reference }}
+    steps:
+      - name: Checkout rehearsal tooling
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Validate rehearsal tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n infra/scripts/cd-remote.sh
+          bash -n infra/scripts/cd-remote-runtime.sh
+          sh -n infra/scripts/backup-rec-stack.sh
+          sh -n infra/scripts/rehearse-rec-restore.sh
+          sh -n infra/scripts/rehearse-restore-scheduled.sh
+          sh infra/scripts/rehearse-restore-scheduled.sh --dry-run
+
+      - name: Require production host access
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -n "${PROD_SSH_HOST:-}" ] || missing+=(PROD_SSH_HOST)
+          [ -n "${PROD_SSH_USER:-}" ] || missing+=(PROD_SSH_USER)
+          [ -n "${PROD_SSH_KEY:-}" ] || missing+=(PROD_SSH_KEY)
+          [ -n "${PROD_SSH_KNOWN_HOSTS:-}" ] || missing+=(PROD_SSH_KNOWN_HOSTS)
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "restore_rehearsal_schedule_result=blocked"
+            echo "reason=production_host_ssh_secret_missing"
+            echo "missing_secrets=$(IFS=,; printf '%s' "${missing[*]}")"
+            echo "manual_command=infra/scripts/rehearse-restore-scheduled.sh --execute"
+            echo "note=CI has no production host access; run the rehearsal from a workstation that has it, or add the secrets listed above."
+            exit 1
+          fi
+          echo "production_host_access_result=configured"
+
+      - name: Configure pinned SSH access
+        shell: bash
+        run: |
+          set -euo pipefail
+          install -d -m 0700 "$HOME/.ssh"
+          printf '%s\n' "$PROD_SSH_KEY" > "$HOME/.ssh/id_rehearsal"
+          chmod 0600 "$HOME/.ssh/id_rehearsal"
+          printf '%s\n' "$PROD_SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 0600 "$HOME/.ssh/known_hosts"
+          {
+            printf 'Host rehearsal-target\n'
+            printf '  HostName %s\n' "$PROD_SSH_HOST"
+            printf '  User %s\n' "$PROD_SSH_USER"
+            printf '  IdentityFile %s\n' "$HOME/.ssh/id_rehearsal"
+            printf '  IdentitiesOnly yes\n'
+            printf '  StrictHostKeyChecking yes\n'
+            printf '  UserKnownHostsFile %s\n' "$HOME/.ssh/known_hosts"
+          } > "$HOME/.ssh/config"
+          chmod 0600 "$HOME/.ssh/config"
+          echo "production_host_ssh_config_result=pass"
+
+      - name: Run restore rehearsal on the production host
+        shell: bash
+        env:
+          TWOBRAIN_DEPLOY_HOST: rehearsal-target
+          TWOBRAIN_DEPLOY_PATH: ${{ vars.PROD_DEPLOY_PATH || '/opt/projects/2brain-rec' }}
+        run: |
+          set -euo pipefail
+          if [ -n "${BACKUP_REFERENCE:-}" ]; then
+            infra/scripts/rehearse-restore-scheduled.sh --execute --backup-reference "$BACKUP_REFERENCE"
+          else
+            infra/scripts/rehearse-restore-scheduled.sh --execute
+          fi

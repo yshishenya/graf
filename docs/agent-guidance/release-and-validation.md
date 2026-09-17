@@ -399,9 +399,9 @@ infra/scripts/cd-remote.sh --execute --branch master \
 
 `--execute` requires a clean tracked-and-untracked worktree, synchronizes and
 pins the SHA, verifies the candidate's immutable Full CI evidence digest, and
-only then proceeds to the unchanged backup, restore rehearsal, migration/RLS,
-secret, deployment, health, smoke and guarded rollback gates. It does not run a
-second Full CI for a candidate that already has authoritative evidence.
+only then proceeds to the unchanged backup, migration/RLS, secret, deployment,
+health, smoke and guarded rollback gates. It does not run a second Full CI for a
+candidate that already has authoritative evidence.
 `--skip-local-ci` is an incident exception only: it requires
 `--skip-local-ci-evidence <json>` containing non-empty `reason`, `approved_by`
 and `approved_at` fields. The evidence is machine-readable and must identify
@@ -572,9 +572,14 @@ must preserve:
 - clean tracked-and-untracked working tree;
 - branch/ref sync with the intended remote;
 - pinned commit SHA;
-- backup and restore rehearsal evidence where required;
+- backup evidence for the deployed SHA in every release, plus the recurring
+  restore rehearsal that proves a backup can actually be restored;
 - secret scans;
 - health checks and smoke evidence;
+- a repeated Temporal and processing-worker readiness check after the smoke
+  test: the containers are the same, but the smoke test runs a real upload and
+  a real processing workflow on them, so this second observation is what
+  catches a crash, restart or unhealthy state introduced by that work;
 - metadata-only evidence.
 
 Use the exact production sequence:
@@ -598,6 +603,26 @@ Batch small validated changes into an intentional release candidate when that
 reduces repeated release overhead. Two planned release windows per day are a
 useful operating rhythm, not a hard gate; an explicitly marked hotfix remains
 available when production risk requires it.
+
+### Restore rehearsal cadence
+
+The restore rehearsal restores the whole Postgres dump and the whole object
+store into disposable targets. It no longer runs inside every release, because
+it dominated release time; the release still creates and reports its own fresh
+backup and blocks without one. The rehearsal now runs weekly and on demand:
+
+- `.github/workflows/backup-restore-rehearsal.yml` — schedule (Mondays 03:17
+  UTC) and `workflow_dispatch`;
+- `infra/scripts/rehearse-restore-scheduled.sh --dry-run|--execute` — the same
+  check from a workstation, rehearsing the newest backup under
+  `/opt/projects/2brain-rec/backups/` unless `--backup-reference` names one.
+
+CI has no production host access: every job runs on GitHub-hosted runners, no
+workflow uses SSH and Actions holds no deploy key. The scheduled job therefore
+fails closed with `reason=production_host_ssh_secret_missing` and prints the
+manual command until `PROD_SSH_HOST`, `PROD_SSH_USER`, `PROD_SSH_KEY` and
+`PROD_SSH_KNOWN_HOSTS` exist. A failing weekly run means the restore proof is
+missing; treat it as a blocked rollout trigger, not as noise.
 
 ### Release-train checklist
 
