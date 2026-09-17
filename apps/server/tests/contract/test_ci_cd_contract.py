@@ -1026,3 +1026,28 @@ def test_macos_diagnostic_workflow_is_exact_sha_and_non_authoritative() -> None:
     assert "secrets." not in workflow
     assert "environment:" not in workflow
     assert "id-token:" not in workflow
+
+
+def test_release_full_worker_count_stays_within_runner_support() -> None:
+    """Релиз не может запросить потоков больше, чем допускает набор.
+
+    Число потоков релизной задачи поднимается, чтобы полнее использовать
+    раннер, но выход за диапазон остаётся ошибкой конфигурации, а отказ от
+    параллелизма вернул бы длинный критический путь.
+    """
+    runner = (ROOT / "apps/server/scripts/run_local_postgres_tests.sh").read_text()
+    cap = re.search(r"workers > (\d+)", runner)
+    assert cap is not None, "скрипт набора должен ограничивать число потоков сверху"
+    limit = int(cap.group(1))
+
+    workflow = FULL_CI_WORKFLOW.read_text()
+    requested = re.search(
+        r"GRAF_TEST_WORKERS=(\d+)\s+GRAF_PERFORMANCE_GATE=required", workflow
+    )
+    assert requested is not None, "релизная задача должна задавать число потоков явно"
+    workers = int(requested.group(1))
+
+    assert 1 <= workers <= limit, (
+        f"релизная задача просит {workers} потоков при допустимых 1–{limit}"
+    )
+    assert workers > 1, "релиз должен использовать параллелизм, а не один поток"
