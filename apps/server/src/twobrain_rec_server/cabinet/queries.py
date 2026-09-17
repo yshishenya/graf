@@ -13,6 +13,7 @@ from sqlalchemy import (
     asc,
     case,
     cast,
+    column,
     desc,
     exists,
     func,
@@ -21,6 +22,7 @@ from sqlalchemy import (
     or_,
     select,
     tuple_,
+    values,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -670,25 +672,37 @@ async def list_cabinet_meetings(
         else None
     )
 
-    # Batch every per-meeting read before the loop; the projection helpers
-    # then serve the loop from this prefetch instead of one query per meeting.
+    # Batch the per-meeting reads for the loop, in bounded chunks.
     #
     # The loop keeps at most `limit + 1` meetings, but a status filter and the
     # access decision are applied inside it, and `title_asc` sorts the whole
-    # result before trimming. Prefetching the entire workspace therefore scales
-    # with the workspace rather than with the page. The prefetch is capped, and
-    # any meeting the loop reaches beyond the cap falls back to the per-meeting
-    # helpers, so the page stays correct while the batched read stays bounded.
-    prefetch_limit = max(limit, 1) * _LIST_PREFETCH_PAGE_FACTOR + 1
+    # result before trimming. Reading the entire workspace at once would scale
+    # the batched read with the workspace, and covering only one fixed window
+    # would send every later meeting back to the per-meeting helpers, turning a
+    # large page into one query per row. Instead the loop extends the batch in
+    # chunks as it advances, so every read stays bounded and no meeting falls
+    # back to a query of its own.
+    prefetch_chunk = max(limit, 1) * _LIST_PREFETCH_PAGE_FACTOR + 1
+    meeting_list = list(meetings)
+    prefetched_through = len(meeting_list[:prefetch_chunk])
     await _prefetch_meeting_list_reads(
         db,
         workspace_id=workspace_id,
         viewer_user_id=viewer_user_id,
-        meetings=list(meetings[:prefetch_limit]),
+        meetings=meeting_list[:prefetch_chunk],
     )
     try:
         items = []
-        for meeting in meetings:
+        for meeting_index, meeting in enumerate(meeting_list):
+            if meeting_index >= prefetched_through:
+                next_through = meeting_index + prefetch_chunk
+                await _prefetch_meeting_list_reads(
+                    db,
+                    workspace_id=workspace_id,
+                    viewer_user_id=viewer_user_id,
+                    meetings=meeting_list[prefetched_through:next_through],
+                )
+                prefetched_through = next_through
             decision = await decide_meeting_access(
                 db,
                 meeting,
@@ -1778,45 +1792,73 @@ async def batch_previous_recurring_links(
     }
     series_keys.discard(None)
     if series_keys:
-        # Ask for one predecessor per current meeting instead of the whole
-        # series history. Selecting every link of every series present on the
-        # page, then rescanning that list once per meeting, made the read grow
-        # with the history of a series and the scan grow with the page, even
-        # though a meeting points at exactly one previous meeting.
-        current_rows = [
-            (
-                meeting_id,
-                link.recurring_series_key_sha256,
-                link.matched_event_starts_at,
-            )
-            for meeting_id, link in current_links.items()
-            if _previous_recurring_candidate_ready(link)
-        ]
-        for meeting_id, series_key, starts_at in current_rows:
-            candidate = (
-                await db.execute(
-                    select(RecordingCalendarContextLink, Meeting)
-                    .join(Meeting, Meeting.id == RecordingCalendarContextLink.meeting_id)
-                    .where(
-                        RecordingCalendarContextLink.workspace_id == workspace_id,
-                        Meeting.workspace_id == workspace_id,
-                        RecordingCalendarContextLink.context_state.in_(
-                            {"matched_auto", "matched_user"}
-                        ),
-                        RecordingCalendarContextLink.recurring_series_key_sha256 == series_key,
-                        RecordingCalendarContextLink.meeting_id != meeting_id,
-                        RecordingCalendarContextLink.matched_event_starts_at.is_not(None),
-                        RecordingCalendarContextLink.matched_event_starts_at < starts_at,
-                    )
-                    .order_by(
+        # One predecessor per current meeting, in one query.
+        #
+        # Selecting every link of every series on the page made the read grow
+        # with the history of a series, even though a meeting points at exactly
+        # one previous meeting. Asking once per meeting replaced that with one
+        # round trip per row. The comparison belongs in the database, so the
+        # current meetings are handed to it as a row set and the newest earlier
+        # link of the same series is joined back for each of them.
+        current_rows = values(
+            column("meeting_id", RecordingCalendarContextLink.meeting_id.type),
+            column(
+                "series_key",
+                RecordingCalendarContextLink.recurring_series_key_sha256.type,
+            ),
+            column(
+                "starts_at",
+                RecordingCalendarContextLink.matched_event_starts_at.type,
+            ),
+            name="current_recurring_rows",
+        ).data(
+            [
+                (meeting_id, link.recurring_series_key_sha256, link.matched_event_starts_at)
+                for meeting_id, link in current_links.items()
+                if _previous_recurring_candidate_ready(link)
+            ]
+        )
+        candidate = (
+            select(
+                current_rows.c.meeting_id.label("current_meeting_id"),
+                RecordingCalendarContextLink.id.label("link_id"),
+                func.row_number()
+                .over(
+                    partition_by=current_rows.c.meeting_id,
+                    order_by=(
                         RecordingCalendarContextLink.matched_event_starts_at.desc(),
                         RecordingCalendarContextLink.id.desc(),
-                    )
-                    .limit(1)
+                    ),
                 )
-            ).first()
-            if candidate is not None:
-                result[meeting_id] = (candidate[0], candidate[1])
+                .label("predecessor_rank"),
+            )
+            .join(
+                RecordingCalendarContextLink,
+                and_(
+                    RecordingCalendarContextLink.workspace_id == workspace_id,
+                    RecordingCalendarContextLink.context_state.in_(
+                        {"matched_auto", "matched_user"}
+                    ),
+                    RecordingCalendarContextLink.recurring_series_key_sha256
+                    == current_rows.c.series_key,
+                    RecordingCalendarContextLink.meeting_id != current_rows.c.meeting_id,
+                    RecordingCalendarContextLink.matched_event_starts_at.is_not(None),
+                    RecordingCalendarContextLink.matched_event_starts_at < current_rows.c.starts_at,
+                ),
+            )
+            .subquery()
+        )
+        rows = await db.execute(
+            select(candidate.c.current_meeting_id, Meeting, RecordingCalendarContextLink)
+            .join(RecordingCalendarContextLink, RecordingCalendarContextLink.id == candidate.c.link_id)
+            .join(Meeting, Meeting.id == RecordingCalendarContextLink.meeting_id)
+            .where(
+                Meeting.workspace_id == workspace_id,
+                candidate.c.predecessor_rank == 1,
+            )
+        )
+        for current_meeting_id, meeting, link in rows:
+            result[current_meeting_id] = (link, meeting)
     if prefetch is not None:
         prefetch.previous_links.update(result)
     return result
