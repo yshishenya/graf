@@ -1132,10 +1132,16 @@ class GrafLocalAdapter:
             for manifest_id in sorted(removed_manifests):
                 for _service, (component, _variable, _fallback, _source_bound) in COMPOSE_IMAGE_COMPONENTS.items():
                     tag = f"graf-dev-immutable:{manifest_id}-{component.replace('_', '-')}"
+                    if dry_run:
+                        # A dry run reports the plan; it must not change the host.
+                        removed.append({"path": tag, "bytes": 0, "kind": "image_tag"})
+                        continue
                     try:
                         _run_command(["docker", "image", "rm", tag], cwd=self.root, env=env)
                     except HarnessError:
                         partial_reasons.append(f"image tag retained: {tag}")
+                    else:
+                        removed.append({"path": tag, "bytes": 0, "kind": "image_tag"})
         return keep
 
     def _cleanup_schema_snapshots(self, *, keep_operation: Optional[str] = None, dry_run: bool = False) -> list:
@@ -1154,13 +1160,31 @@ class GrafLocalAdapter:
         """Compute the retention plan and optionally apply it under the state lock."""
         active = _load_active(self.state)
         target = None
+        blocked_reason = None
         if active and active.get("parent_manifest_id"):
             target_id = _safe_id(str(active["parent_manifest_id"]), "manifest_id")
             target_path = _manifest_path(self.state, target_id)
-            if target_path.exists():
-                target = _read_json(target_path)
+            if not target_path.exists():
+                # The rollback target is the only material an automatic rollback
+                # can restore; when it cannot be proven present and intact,
+                # retention must not remove anything.
+                blocked_reason = f"rollback manifest missing: {target_id}"
+            else:
+                candidate_target = _read_json(target_path)
+                try:
+                    _validate_manifest(candidate_target)
+                except HarnessError as exc:
+                    blocked_reason = f"rollback manifest invalid: {target_id}: {exc}"
+                else:
+                    if candidate_target.get("manifest_id") != target_id:
+                        blocked_reason = f"rollback manifest identity differs: {target_id}"
+                    else:
+                        target = candidate_target
         removed: list = []
         partial_reasons: list = []
+        if blocked_reason is not None:
+            partial_reasons.append(f"prune blocked: {blocked_reason}")
+            return removed, partial_reasons, []
         keep = self._apply_retention(
             active, target, dry_run=dry_run, removed=removed, partial_reasons=partial_reasons
         )
