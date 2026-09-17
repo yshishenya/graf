@@ -267,6 +267,42 @@ def release_for_tag(repo, tag):
         page += 1
 
 
+def latest_app_release(repo, before=None, limit=40):
+    """Find the newest release that actually publishes a GRAF app update.
+
+    A server-only release carries no GRAF-<version>.zip, so the predecessor for
+    a Sparkle update is not simply the previous tag.  Scanning is bounded and
+    reads published releases only; drafts are never signing inputs.
+    """
+    if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repo):
+        raise ValueError('invalid release identity')
+    if before is not None and not re.fullmatch(r'v[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[1-9][0-9]*', before):
+        raise ValueError('invalid release identity')
+    page = 1
+    seen = 0
+    while seen < limit:
+        rows = json.loads(command('gh', 'api', f'repos/{repo}/releases?per_page=100&page={page}'))
+        if not rows:
+            break
+        for row in rows:
+            tag = row.get('tag_name', '')
+            if row.get('draft') or not re.fullmatch(r'v[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[1-9][0-9]*', tag):
+                continue
+            if before is not None and tag >= before:
+                continue
+            seen += 1
+            asset = f'GRAF-{tag.removeprefix("v")}.zip'
+            for candidate in row.get('assets', []):
+                if candidate.get('name') == asset and candidate.get('state') == 'uploaded':
+                    return tag, asset
+            if seen >= limit:
+                break
+        if len(rows) < 100:
+            break
+        page += 1
+    return None
+
+
 def release_snapshot(repo, tag, source=None, draft=None):
     if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repo) or not re.fullmatch(r'[A-Za-z0-9_.-]+', tag):
         raise ValueError(f'release identity {repo!r} / {tag!r} is not a GitHub owner/repo and a plain tag; '
@@ -536,6 +572,17 @@ def validate_signed_build(app, pkg, version):
                          'Installer identity 94N8HYG672; re-sign the package before publishing it')
 
 
+def receipt_source(pkg):
+    """Return the source commit recorded by the build receipt for this package."""
+    receipt = read_json(str(pkg) + '.build.json')
+    source = receipt.get('source')
+    if not isinstance(source, str) or not re.fullmatch('[0-9a-f]{40}', source):
+        raise ValueError('build receipt does not name a source commit')
+    if receipt.get('tag') != 'v' + str(receipt.get('version')):
+        raise ValueError('invalid public build receipt')
+    return source
+
+
 def build_receipt(args):
     calver(args.version)
     source = clean_source(args.source)
@@ -688,6 +735,11 @@ def notarize(args):
             with tempfile.TemporaryDirectory(dir=directory.parent) as temporary:
                 work = Path(temporary) / 'attempt'
                 work.mkdir()
+                # This stored copy is the evidence of the exact submitted bytes,
+                # and the stapled final app is built from it rather than from the
+                # mutable build output. It is deliberately a real copy, not a
+                # link: a later rebuild of the same path must not be able to
+                # change what was notarized.
                 command('ditto', args.app, work / 'GRAF.app')
                 shutil.copyfile(args.pkg, work / 'submitted.pkg')
                 if fingerprint(work / 'GRAF.app') != receipt['app']:
@@ -817,6 +869,10 @@ def main():
     receipt = sub.add_parser('build-receipt')
     for name in ('source', 'version', 'key', 'app', 'pkg'):
         receipt.add_argument('--' + name, required=True)
+    sub.add_parser('receipt-source').add_argument('pkg')
+    previous = sub.add_parser('latest-app-release')
+    previous.add_argument('--repo', required=True)
+    previous.add_argument('--before', default=None)
     inputs = sub.add_parser('cache-inputs')
     for name in ('repo', 'tag', 'source', 'previous-tag', 'previous-source', 'candidate', 'previous', 'notes', 'output'):
         inputs.add_argument('--' + name, required=True)
@@ -844,6 +900,13 @@ def main():
         sync_dir(args.directory)
     elif args.action == 'build-receipt':
         build_receipt(args)
+    elif args.action == 'receipt-source':
+        print(receipt_source(args.pkg))
+    elif args.action == 'latest-app-release':
+        found = latest_app_release(args.repo, args.before)
+        if found is None:
+            raise SystemExit('release-artifacts: no earlier release publishes an app update')
+        print(f'tag={found[0]}\nasset={found[1]}')
     elif args.action == 'cache-inputs':
         cache_inputs(args)
     elif args.action == 'cache-sparkle':
