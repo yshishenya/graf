@@ -223,10 +223,15 @@ jobs:
           # after every test has run: a trailing blank line could therefore fail
           # a pull request roughly 25 minutes in, even though nothing was wrong
           # with the change. Checking the same thing up front turns that wait
-          # into a few seconds. This runs the identical git check, so the
-          # outcome for a clean tree is unchanged.
-          if [[ "$GRAF_CI_BASE_REF" =~ ^[0-9a-f]{40}$ ]]; then
-            git diff --check "$GRAF_CI_BASE_REF" -- || {
+          # into a few seconds.
+          #
+          # The comparison uses the merge base, exactly as the fast lane does.
+          # Diffing against the base tip instead would report whitespace that
+          # the base already fixed on its own, failing a branch that merely
+          # trails master.
+          if [[ "$GRAF_CI_BASE_REF" =~ ^[0-9a-f]{40}$ ]] \
+            && merge_base="$(git merge-base HEAD "$GRAF_CI_BASE_REF")"; then
+            git diff --check "$merge_base" -- || {
               echo "diff has whitespace defects; reported early to avoid a slow lane run" >&2
               exit 1
             }
