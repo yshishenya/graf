@@ -79,7 +79,7 @@ const { chromium, webkit } = require(path.join(process.env.GRAF_NODE_MODULES, 'p
     const input = page.getByRole('textbox', { name: 'Текст комментария' });
     await input.fill('  Синтетический комментарий 🧪  ');
     await page.getByRole('button', { name: 'Отправить', exact: true }).click();
-    await page.getByText('Комментарий сохранён.', { exact: true }).waitFor().catch(async error => { console.error(commentResponses, failures, await page.locator('.playback-comments-status, .playback-comment-editor-error').allTextContents()); throw error; });
+    await page.getByText('Комментарий сохранен.', { exact: true }).waitFor().catch(async error => { console.error(commentResponses, failures, await page.locator('.playback-comments-status, .playback-comment-editor-error').allTextContents()); throw error; });
     assert.equal(await page.locator('.playback-comment-body').first().textContent(), '  Синтетический комментарий 🧪  ');
     await page.getByRole('button', { name: 'Обсуждения реплики: 1', exact: true }).waitFor();
     const id = await page.locator('[data-comment-id]').first().getAttribute('data-comment-id');
