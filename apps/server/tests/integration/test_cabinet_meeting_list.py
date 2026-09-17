@@ -1294,6 +1294,40 @@ def test_098_recurring_pointer_has_browser_and_embedded_meeting_list_route_parit
         assert "transcript excerpt" not in upcoming
 
 
+def test_recurring_candidate_without_start_time_does_not_break_the_list(client) -> None:
+    # A persisted recurring link may carry a series key with a null start time.
+    # The single-meeting read let the database compare timestamps, where a null
+    # simply failed the predicate; the batched read compares in Python, so a
+    # missing guard would raise TypeError and take down the whole page.
+    previous_id = _create_recurring_list_pair(client)
+
+    async def clear_candidate_start() -> None:
+        async with client.app_state["sessionmaker"]() as db:
+            link = await db.scalar(
+                select(RecordingCalendarContextLink).where(
+                    RecordingCalendarContextLink.workspace_id == WORKSPACE_ID,
+                    RecordingCalendarContextLink.meeting_id == previous_id,
+                )
+            )
+            assert link is not None
+            link.matched_event_starts_at = None
+            await db.commit()
+
+    client.portal.call(clear_candidate_start)
+
+    response = client.get(
+        "/meetings",
+        params={"q": "Synthetic T082 Current"},
+        headers=auth_headers(),
+    )
+
+    # The page must stay usable: no guard would raise TypeError and fail here.
+    assert response.status_code == 200
+    assert "Synthetic T082 Current" in response.text
+    # The unusable candidate is simply not offered as the previous meeting.
+    assert "Предыдущая встреча" not in response.text
+
+
 def test_cabinet_settings_calendar_anchor_renders_in_web_and_embedded(client) -> None:
     web = client.get("/settings", headers=auth_headers())
     embedded = client.get("/desktop/settings", headers=auth_headers())

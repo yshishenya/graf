@@ -30,6 +30,7 @@ QUERY_OWNER_CLASSES = {
     "apps/server/src/twobrain_rec_server/cabinet/egress.py": "egress_read",
     "apps/server/src/twobrain_rec_server/cabinet/exports.py": "export_read",
     "apps/server/src/twobrain_rec_server/cabinet/queries.py": "cabinet_read",
+    "apps/server/src/twobrain_rec_server/cabinet/read_prefetch.py": "cabinet_read_batch_prefetch",
     "apps/server/src/twobrain_rec_server/cabinet/rendering.py": "render_read",
     "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.js": "ui_contract",
     "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages/meeting_detail_content.html": "ui_contract",
