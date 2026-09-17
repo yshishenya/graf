@@ -78,6 +78,14 @@ read_required_checks() {
     --jq '[.[]|select(.name=="governance-fast" or .name=="macos-pr" or .name=="pr-metadata")|"\(.name)=\(.state)"]|join(" ")' \
     2>/dev/null || true
 }
+# The previous release base comes from published GitHub Releases rather than
+# from tags.  A stray or future-dated tag would otherwise move the release base
+# and make the release compare itself against the wrong history.
+latest_published_tag() {
+  gh release list --limit 100 --json tagName,isDraft,isPrerelease,publishedAt \
+    --jq '[.[]|select(.isDraft==false and .isPrerelease==false and .publishedAt!=null and .tagName!="")]|max_by(.publishedAt)|.tagName' \
+    2>/dev/null || true
+}
 total_elapsed=0
 started_all="$(date -u +%s)"
 
@@ -125,7 +133,10 @@ require_clean_master() {
 if should_run prep; then
   step "prep: собрать раздел журнала и открыть пул-реквест"
   require_clean_master
-  previous_tag="$(git tag --list 'v*' --sort=-v:refname | head -1)"
+  previous_tag="$(latest_published_tag)"
+  [[ -n "$previous_tag" ]] \
+    || { printf 'release: cannot resolve the latest published release
+' >&2; exit 1; }
   [[ -n "$previous_tag" ]] || { printf 'release: no previous release tag found\n' >&2; exit 1; }
   base_sha="$(git rev-list -n 1 "$previous_tag")"
   printf 'release_base=%s base_sha=%s\n' "$previous_tag" "$base_sha"
@@ -262,7 +273,10 @@ EOF
   printf 'release_source_sha=%s\n' "$source_sha"
   step_done "prep:sync"
 else
-  previous_tag="$(git tag --list 'v*' --sort=-v:refname | head -1)"
+  previous_tag="$(latest_published_tag)"
+  [[ -n "$previous_tag" ]] \
+    || { printf 'release: cannot resolve the latest published release
+' >&2; exit 1; }
   base_sha="$(git rev-list -n 1 "$previous_tag")"
   features="$(python3 - <<'PY'
 import pathlib, re
