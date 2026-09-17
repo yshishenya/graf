@@ -35,6 +35,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 
 # Metadata-only release operations must never materialize bytecode in the
 # source tree: the cleanliness gate treats generated files as source drift.
@@ -264,15 +265,32 @@ def parse_positive_ints(value, field):
     return [int(item) for item in items]
 
 def verify_release_pr_checks(source_sha, included_prs=None):
+    """Verify every included pull request, tolerating one flaky lookup.
+
+    The verification reads several checks through the GitHub API.  A single
+    network hiccup used to abort the whole release step and force a manual
+    retry.  Repeating the very same verification a few times removes that
+    manual step without weakening anything: a release whose checks really are
+    missing still fails, only after the attempts are spent.
+    """
     owner, repo = github_origin_repo()
     command = [sys.executable, str(root / "scripts/validate-pr-checks.py"),
                "--repository", f"{owner}/{repo}", "--source-sha", source_sha]
     if included_prs is not None:
         command += ["--included-prs", ",".join(str(number) for number in included_prs)]
-    result = subprocess.run(command, cwd=root, text=True, capture_output=True)
-    if result.returncode:
-        die("current complete release PR checks could not be verified")
-    return json.loads(result.stdout)
+    attempts = 3
+    for attempt in range(1, attempts + 1):
+        result = subprocess.run(command, cwd=root, text=True, capture_output=True)
+        if result.returncode == 0:
+            return json.loads(result.stdout)
+        if attempt < attempts:
+            print(
+                f"release-candidate: pull request check verification attempt "
+                f"{attempt}/{attempts} did not complete; retrying",
+                file=sys.stderr,
+            )
+            time.sleep(5 * attempt)
+    die("current complete release PR checks could not be verified")
 
 
 def require_recorded_pr_evidence(data):
@@ -287,7 +305,13 @@ def require_recorded_pr_evidence(data):
     accepted; anything else still falls through to a full verification.
     """
     receipt = data.get("authoritative_full_ci_receipt")
-    recorded_go = data.get("status") == "go"
+    # A release train records its outcome in "decision" while a candidate and a
+    # decision record use "status".  Reading only one of the two fields left
+    # every train without recorded evidence, so train attest, the decision and
+    # the deploy each re-downloaded and re-compared the same pull request
+    # checks, which is most of the release wall time.  Both fields describe the
+    # same recorded outcome, so both are accepted.
+    recorded_go = data.get("status") == "go" or data.get("decision") == "go"
     bound_receipt = (
         isinstance(receipt, dict)
         and receipt.get("status") == "passed"
