@@ -2137,3 +2137,35 @@ suites reuse one application instance instead of rebuilding it per test.
   change, so they wait for it to merge rather than conflicting with it.
 - Release lane: `significant-feature`. Evidence for this update is local
   validation plus the required pull-request checks on the exact commit.
+
+## Validation update (2026-09-17) — F271 release run uses the full parallelism of the runner
+
+Feature 271 changed no product behaviour. The required release run now starts
+the full server suite with eight test processes instead of four, which is the
+upper bound the suite runner allows in `--full` mode.
+
+Measured on the authoritative `release-full` workflow, not estimated:
+
+| Run | Commit | Ubuntu component | Whole release |
+| --- | --- | --- | --- |
+| 35153978174 | `630c515ff` (before F270) | 42 min 27 s | 43 min 06 s |
+| 35183409199 | `9aa86e4f0` (after F270) | 26 min 21 s | 26 min 55 s |
+| 35189322951 | `7cba8b257` (this change) | 17 min 26 s | 17 min 54 s |
+
+- The Ubuntu component, which is the critical path of the release, fell from
+  42 min 27 s to 17 min 26 s across both changes, a 2.4× speed-up; this change
+  alone accounts for 8 min 55 s of it.
+- Coverage was checked by comparing test identities rather than counts. The
+  parallel phase moved from 13431 to 13434 reported cases with zero cases
+  removed and exactly one case added — the new contract test in
+  `apps/server/tests/contract/test_ci_cd_contract.py`. The strict phase stayed
+  at 204 cases and the performance phase at 3. No case failed in either run.
+- `test_release_full_worker_count_stays_within_runner_support` keeps the
+  release value inside the 1–8 range the runner accepts and rejects a fall back
+  to a single worker.
+- The measured phase total is 4852 s of case time at four processes and the
+  file-level balance is already close to ideal, so the remaining cost is
+  capacity rather than distribution; no test was removed or weakened.
+- Release lane: `significant-feature`. Evidence for this update is the
+  `release-full` run on the merged commit plus the required pull-request checks
+  on the exact commit.
