@@ -325,6 +325,39 @@ def _retention_kept_paths(state: Path, keep: Dict[str, set]) -> list:
     return kept
 
 
+def _retained_tag_backlog(state: Path) -> list:
+    """Return image tags a previous prune could not remove.
+
+    Retention deletes artifact directories and their immutable tags together.
+    When Docker is unavailable the directories are gone while the tags remain,
+    so every later prune would skip them and report success; the recorded
+    receipt is the durable list of what still has to be removed.
+    """
+    history = state / PRUNE_HISTORY_FILE
+    if not history.is_file() or history.is_symlink():
+        return []
+    try:
+        lines = [line for line in history.read_text(encoding="utf-8").splitlines() if line.strip()]
+    except OSError:
+        return []
+    if not lines:
+        return []
+    try:
+        receipt = json.loads(lines[-1])
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(receipt, dict):
+        return []
+    prefix = "image tag retained: "
+    return sorted(
+        {
+            reason[len(prefix):]
+            for reason in receipt.get("partial_reasons") or []
+            if isinstance(reason, str) and reason.startswith(prefix)
+        }
+    )
+
+
 def _prune_receipt(
     *,
     operation: str,
@@ -1203,21 +1236,27 @@ class GrafLocalAdapter:
             for child in sorted(transactions.glob("previous-*.app")):
                 _remove_within_state(child, self.state, "app_backup", removed, dry_run=dry_run)
         env_manifest = active_manifest or target_manifest
-        if removed_manifests and env_manifest is not None:
+        tags: list = []
+        for manifest_id in sorted(removed_manifests):
+            for _service, (component, _variable, _fallback, _source_bound) in COMPOSE_IMAGE_COMPONENTS.items():
+                tags.append(f"graf-dev-immutable:{manifest_id}-{component.replace('_', '-')}")
+        # A previous prune may have removed the artifact directories but failed
+        # to remove their tags, for example while Docker was unavailable; those
+        # tags are retried instead of being reported as success forever.
+        tags.extend(_retained_tag_backlog(self.state))
+        if tags and env_manifest is not None:
             env = self._env(env_manifest, pin_images=False)
-            for manifest_id in sorted(removed_manifests):
-                for _service, (component, _variable, _fallback, _source_bound) in COMPOSE_IMAGE_COMPONENTS.items():
-                    tag = f"graf-dev-immutable:{manifest_id}-{component.replace('_', '-')}"
-                    if dry_run:
-                        # A dry run reports the plan; it must not change the host.
-                        removed.append({"path": tag, "bytes": 0, "kind": "image_tag"})
-                        continue
-                    try:
-                        _run_command(["docker", "image", "rm", tag], cwd=self.root, env=env)
-                    except HarnessError:
-                        partial_reasons.append(f"image tag retained: {tag}")
-                    else:
-                        removed.append({"path": tag, "bytes": 0, "kind": "image_tag"})
+            for tag in sorted(set(tags)):
+                if dry_run:
+                    # A dry run reports the plan; it must not change the host.
+                    removed.append({"path": tag, "bytes": 0, "kind": "image_tag"})
+                    continue
+                try:
+                    _run_command(["docker", "image", "rm", tag], cwd=self.root, env=env)
+                except HarnessError:
+                    partial_reasons.append(f"image tag retained: {tag}")
+                else:
+                    removed.append({"path": tag, "bytes": 0, "kind": "image_tag"})
         return keep
 
     def _cleanup_schema_snapshots(self, *, keep_operation: Optional[str] = None, dry_run: bool = False) -> list:
