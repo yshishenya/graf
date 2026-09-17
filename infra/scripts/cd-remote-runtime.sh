@@ -1044,8 +1044,12 @@ if [[ -z "$backup_reference" ]]; then
   echo "reason=backup_reference_missing"
   exit 1
 fi
-run_step restore_rehearsal env RESTORE_BACKUP_REFERENCE="$backup_reference" \
-  infra/scripts/rehearse-rec-restore.sh --execute
+# The restore rehearsal is no longer part of the release: it restores the whole
+# database and object store into disposable targets and dominated release time.
+# It now runs on a schedule instead (`.github/workflows/backup-restore-
+# rehearsal.yml`, see also `infra/scripts/rehearse-restore-scheduled.sh`), while
+# the release keeps its own fresh backup above and reports it as
+# `backup_reference=`. A deployment without a fresh backup still blocks.
 
 "${compose[@]}" config >/tmp/twobrain-rec-compose-deploy.yml
 compose_secret_file() {

@@ -75,16 +75,37 @@ exact commit SHA, and re-checks the clean worktree plus local/remote SHA before
 SSH. Release candidates must carry the immutable authoritative Full CI evidence
 from the release workflow; the workstation does not start a local Full CI run.
 On `2brain.dev`, it
-verifies the remote `origin/<branch>` still resolves to the pinned SHA before reset, then performs backup, restore
-rehearsal, production Compose secret-exposure scan, pinned-image startup, runtime
+verifies the remote `origin/<branch>` still resolves to the pinned SHA before reset, then performs backup,
+production Compose secret-exposure scan, pinned-image startup, runtime
 secret-environment scan, production smoke, and public health checks.
 
 `--skip-local-ci` is an emergency operator bypass for the full local CI step
 only. It requires explicit incident approval and does not bypass the clean
-worktree, branch sync, pinned SHA, backup, restore rehearsal, secret scans,
-smoke, or public health gates.
+worktree, branch sync, pinned SHA, backup, secret scans, smoke, or public health
+gates.
 
 Local CD does not store production secrets in GitHub.
+
+### Восстановление из резервной копии
+
+Проверка восстановления больше не входит в каждую выкатку: она разворачивает
+всю базу и всё объектное хранилище во временные цели и занимала заметную часть
+времени релиза. Резервная копия в релизе остаётся обязательной
+(`infra/scripts/backup-rec-stack.sh`), а сама проверка идёт по расписанию — раз
+в неделю в `.github/workflows/backup-restore-rehearsal.yml` и вручную:
+
+```sh
+infra/scripts/rehearse-restore-scheduled.sh --dry-run
+infra/scripts/rehearse-restore-scheduled.sh --execute
+```
+
+Запускать нужно с рабочей станции, у которой уже есть SSH-доступ к прод-хосту,
+как у `cd-remote.sh`: у GitHub Actions доступа к прод-хосту нет, поэтому
+запланированный workflow закрывается отказом с
+`reason=production_host_ssh_secret_missing`, пока не заданы секреты
+`PROD_SSH_HOST`, `PROD_SSH_USER`, `PROD_SSH_KEY`, `PROD_SSH_KNOWN_HOSTS`.
+Сама проверка не разрушительная: временная база и временный бакет удаляются
+после прогона.
 
 
 ### Образы выпуска и повтор выкатки
