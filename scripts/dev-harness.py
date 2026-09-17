@@ -1016,12 +1016,28 @@ class GrafLocalAdapter:
         # outside the active/target pair and the candidate is stale.
         active = _load_active(self.state)
         target = None
+        retention_blocked = False
         if active and active.get("parent_manifest_id"):
             target_id = _safe_id(str(active["parent_manifest_id"]), "manifest_id")
             target_path = _manifest_path(self.state, target_id)
-            if target_path.exists():
-                target = _read_json(target_path)
-        self._apply_retention(active, target, keep_extra=(str(manifest["manifest_id"]),))
+            if not target_path.exists():
+                # Without a proven rollback target, retention cannot tell
+                # recovery material from stale material, so nothing is removed
+                # while a rollback is still required.
+                retention_blocked = True
+            else:
+                candidate_target = _read_json(target_path)
+                try:
+                    _validate_manifest(candidate_target)
+                except HarnessError:
+                    retention_blocked = True
+                else:
+                    if candidate_target.get("manifest_id") != target_id:
+                        retention_blocked = True
+                    else:
+                        target = candidate_target
+        if not retention_blocked:
+            self._apply_retention(active, target, keep_extra=(str(manifest["manifest_id"]),))
         return {"mode": "live", "app_bundle_digest": manifest["components"]["macos_app"]["digest"]}
 
     def rehydrate(self, manifest: Dict[str, Any]) -> Dict[str, str]:
