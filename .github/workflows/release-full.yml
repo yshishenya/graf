@@ -266,6 +266,29 @@ jobs:
         with:
           swift-version: "6.0.3"
 
+      - name: Cache Swift build
+        id: swift-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            apps/macos/.build
+            ~/.cache/org.swift.swiftpm
+            ~/Library/Caches/org.swift.swiftpm
+          # The .build tree holds compiled outputs for repository sources, so the
+          # key must change with them; caches are immutable, so a key based on the
+          # dependency lockfile alone kept restoring a stale build state.
+          key: swift-${{ runner.os }}-${{ runner.arch }}-spm6.0.3-${{ hashFiles('apps/macos/Package.resolved') }}-${{ hashFiles('apps/macos/**/*.swift', 'apps/macos/Package.swift') }}-v2
+          restore-keys: |
+            swift-${{ runner.os }}-${{ runner.arch }}-spm6.0.3-
+
+      - name: Refresh restored build timestamps
+        if: steps.swift-cache.outputs.cache-hit == 'true'
+        shell: bash
+        # actions/checkout writes sources after the restore, so freshly restored
+        # outputs look older than the checkout; llbuild would then rebuild all
+        # modules. Touch the restored artifacts so incremental state is honored.
+        run: find apps/macos/.build -exec touch {} +
+
       - name: Run macOS full component
         shell: bash
         run: |

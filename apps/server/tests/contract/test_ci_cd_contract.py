@@ -19,8 +19,54 @@ REMOTE_CD = ROOT / "infra/scripts/cd-remote.sh"
 FULL_CI_WORKFLOW = ROOT / ".github/workflows/release-full.yml"
 FULL_CI_VALIDATOR = ROOT / "scripts/validate-full-ci-workflow.py"
 MACOS_DIAGNOSTIC_WORKFLOW = ROOT / ".github/workflows/macos-diagnostic.yml"
+MACOS_PR_WORKFLOW = ROOT / ".github/workflows/macos-pr.yml"
 MACOS_TEST_RUNNER = ROOT / "apps/macos/Scripts/run-swift-tests.sh"
 SIGNING_CUSTODY_TEST = ROOT / "apps/macos/Installer/Scripts/test-release-signing-custody.sh"
+
+
+def test_macos_workflows_cache_swift_build_without_gating_validation() -> None:
+    expected_key = (
+        "swift-${{ runner.os }}-${{ runner.arch }}-spm6.0.3-"
+        "${{ hashFiles('apps/macos/Package.resolved') }}-"
+        "${{ hashFiles('apps/macos/**/*.swift', 'apps/macos/Package.swift') }}-v2"
+    )
+    for workflow in (MACOS_PR_WORKFLOW, FULL_CI_WORKFLOW):
+        text = workflow.read_text(encoding="utf-8")
+        assert "actions/cache@v4" in text
+        assert "id: swift-cache" in text
+        assert "apps/macos/.build" in text
+        assert "~/.cache/org.swift.swiftpm" in text
+        assert "~/Library/Caches/org.swift.swiftpm" in text
+        assert expected_key in text
+        assert "swift-version: \"6.0.3\"" in text
+        # A cache hit must never replace or skip a validation step; it only
+        # refreshes timestamps so llbuild can honor incremental state.
+        assert "if: steps.swift-cache.outputs.cache-hit == 'true'" in text
+        assert "find apps/macos/.build -exec touch {} +" in text
+        for command in ("swift build --package-path apps/macos", "bash apps/macos/Scripts/run-swift-tests.sh"):
+            assert command in text
+
+
+def test_local_ci_evidence_uses_compiled_products_not_the_build_cache() -> None:
+    text = LOCAL_CI.read_text(encoding="utf-8")
+    assert "macos-build=$repo_root/apps/macos/.build" not in text
+    for name in (
+        "macos-product-two-brain-rec-app",
+        "macos-product-contract-validation",
+        "macos-product-meeting-mute-truth",
+        "macos-tests",
+    ):
+        assert name in text
+    assert "$repo_root/apps/macos/.build/debug/" in text
+
+    # The .build tree persists between runs, so evidence may only be bound to
+    # products this package actually builds; a leftover from an older checkout
+    # must never satisfy the existence check.
+    package = (ROOT / "apps/macos" / "Package.swift").read_text(encoding="utf-8")
+    products = re.findall(r'"macos-product-[a-z0-9-]+:([A-Za-z0-9]+)"', text)
+    assert products, "compiled-product evidence list is missing"
+    for product in products:
+        assert f'"{product}"' in package, f"artifact is not a package product: {product}"
 
 
 def run(*args: str, cwd: Path = ROOT, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:

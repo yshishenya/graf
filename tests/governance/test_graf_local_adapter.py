@@ -548,6 +548,7 @@ def test_live_promote_relaunches_new_app_and_restores_previous_launch_state(monk
     monkeypatch.setattr(adapter, "_start_backend", lambda *_: calls.append("start-backend"))
     monkeypatch.setattr(adapter, "_launch_dev_app", lambda _: calls.append("start-app"))
     monkeypatch.setattr(adapter, "smoke", lambda _: {"app_presentation": "pass", "mode": "live"})
+    monkeypatch.setattr(adapter, "_ensure_rollback_archive", lambda _: None)
 
     adapter.promote(candidate)
 
