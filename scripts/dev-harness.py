@@ -1713,7 +1713,19 @@ print(json.dumps({"heads": s.get_heads(), "parents": {r.revision: list(r._normal
         if phase in {"complete", "recovered"}:
             # Feature 269: cold volume snapshots are only needed while the
             # transition is unfinished; remove them as soon as it completes.
-            self._cleanup_schema_snapshots(keep_operation=None, dry_run=False)
+            # The journal already records the finished phase, so a filesystem
+            # failure here must not report the whole transition as failed; the
+            # leftover is reported and stays for the next cleanup.
+            try:
+                self._cleanup_schema_snapshots(keep_operation=None, dry_run=False)
+            except (HarnessError, OSError) as exc:
+                print(
+                    json.dumps(
+                        {"status": "warning", "error": f"schema snapshot cleanup incomplete: {exc}"},
+                        ensure_ascii=False,
+                    ),
+                    file=sys.stderr,
+                )
 
     def _schema_stop(self, manifest):
         self._terminate_dev_app(Path("/Applications/GRAF Dev.app"))
