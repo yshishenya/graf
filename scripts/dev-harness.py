@@ -18,6 +18,7 @@ import plistlib
 from pathlib import Path
 import re
 import signal
+import tarfile
 import shutil
 import socket
 import subprocess
@@ -1069,7 +1070,12 @@ class GrafLocalAdapter:
         artifact_root.mkdir(parents=True, exist_ok=True)
         archive = artifact_root / "runtime-images.tar"
         if archive.is_file():
-            return
+            # Reuse is safe only when the archive is complete: a truncated or
+            # unreadable file must be rebuilt instead of being trusted as
+            # rollback material.
+            if archive.stat().st_size > 0 and tarfile.is_tarfile(archive):
+                return
+            archive.unlink()
         env = self._env(manifest, pin_images=False)
         digests = sorted(
             {
