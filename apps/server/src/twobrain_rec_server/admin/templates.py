@@ -36,7 +36,7 @@ STATUS_LABELS = {
     "revoked": "Отозван",
     "pending": "Ожидает принятия",
     "completed": "Принято",
-    "expired": "Срок истёк",
+    "expired": "Срок истек",
 }
 
 

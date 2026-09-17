@@ -332,7 +332,7 @@ async def start_new_processing_attempt(
             "source_expired": (
                 409,
                 "processing_source_expired",
-                "Срок временного хранения записи истёк. Загрузите файл заново.",
+                "Срок временного хранения записи истек. Загрузите файл заново.",
             ),
             "quota_exceeded": (
                 409,
@@ -342,7 +342,7 @@ async def start_new_processing_attempt(
             "not_terminal": (
                 409,
                 "processing_attempt_not_allowed",
-                "Новую попытку можно начать только после подтверждённого окончательного сбоя.",
+                "Новую попытку можно начать только после подтвержденного окончательного сбоя.",
             ),
             "meeting_not_found": (404, "meeting_not_found", "Meeting not found"),
         }
@@ -474,7 +474,7 @@ async def reprocess_meeting(
             "source_expired": (
                 409,
                 "processing_source_expired",
-                "Срок хранения исходной записи истёк. Загрузите файл заново.",
+                "Срок хранения исходной записи истек. Загрузите файл заново.",
             ),
             "quota_exceeded": (
                 409,
@@ -630,7 +630,7 @@ async def check_processing(
                 status=503,
                 code="processing_manual_check_unavailable",
                 title="Не удалось запустить повторную подготовку",
-                detail="Попробуйте ещё раз позже.",
+                detail="Попробуйте еще раз позже.",
             ) from exc
         if retry.result not in {"accepted", "already_in_flight"}:
             await db.rollback()
@@ -672,7 +672,7 @@ async def check_processing(
                 status=503,
                 code="processing_manual_check_unavailable",
                 title="Не удалось запустить повторную подготовку",
-                detail="Попробуйте ещё раз позже.",
+                detail="Попробуйте еще раз позже.",
             ) from exc
         latest = (
             await get_content_safe_processing_status(
@@ -718,7 +718,7 @@ async def check_processing(
             status=503,
             code="processing_temporal_unavailable",
             title="Проверка обработки временно недоступна",
-            detail="Попробуйте ещё раз позже.",
+            detail="Попробуйте еще раз позже.",
         )
     try:
         dispatched = await request_processing_manual_check(
@@ -735,7 +735,7 @@ async def check_processing(
             status=503,
             code="processing_manual_check_unavailable",
             title="Не удалось запустить проверку обработки",
-            detail="Попробуйте ещё раз позже.",
+            detail="Попробуйте еще раз позже.",
         ) from exc
     latest = (
         await get_content_safe_processing_status(

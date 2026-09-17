@@ -239,7 +239,7 @@ def test_recording_settings_keep_native_boundary_copy_compact() -> None:
     assert "data-sidebar-download" not in embedded_page
     assert 'href="/desktop/settings/meeting-detection"' not in embedded_page
     assert "data-recording-settings-search" in embedded_page
-    assert "запись начнётся через 8 секунд" in embedded_page
+    assert "запись начнется через 8 секунд" in embedded_page
     assert "data-recording-settings" in embedded_page
     assert "data-recording-settings-controls hidden" in embedded_page
     assert "data-recording-settings" not in page

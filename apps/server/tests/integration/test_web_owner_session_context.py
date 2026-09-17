@@ -2076,7 +2076,7 @@ def test_browser_email_login_wrong_code_keeps_state_for_retry(client) -> None:
 
     assert all(response.status_code == 400 for response in wrong_attempts)
     assert all('action="/login/email/verify"' in response.text for response in wrong_attempts)
-    assert all("Код введён неверно" in response.text for response in wrong_attempts)
+    assert all("Код введен неверно" in response.text for response in wrong_attempts)
     assert replay.status_code == 303, replay.text
     assert replay.headers["location"] == "/meetings"
     assert replay.cookies.get(AUTH_SESSION_COOKIE_NAME)
@@ -2855,7 +2855,7 @@ def test_personal_owner_continues_existing_checkout_without_second_operation(
     checkout = client.get("/billing/checkout")
     assert checkout.status_code == 200
     assert "https://yookassa.test/checkout/recovery-9" in checkout.text
-    assert "Продолжить этот платёж в ЮKassa" in checkout.text
+    assert "Продолжить этот платеж в ЮKassa" in checkout.text
     assert len(calls) == 1
 
 

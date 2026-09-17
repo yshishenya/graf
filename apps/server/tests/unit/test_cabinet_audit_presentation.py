@@ -75,7 +75,7 @@ def test_admin_translates_labels_but_submits_original_codes_and_keeps_role_guard
                 user=user,
             ),
         )
-        assert "Отозван" in detail and "Срок истёк" in detail
+        assert "Отозван" in detail and "Срок истек" in detail
         assert '<option value="member">Участник</option>' in detail
         assert ('<option value="owner">Владелец</option>' in detail) == (actor == "owner")
     user["status"] = "future_state"

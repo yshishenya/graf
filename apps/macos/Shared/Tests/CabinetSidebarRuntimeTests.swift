@@ -814,7 +814,7 @@ final class CabinetSidebarRuntimeTests: XCTestCase {
                     </div></div>
                     <div class="account-linking-comparison">
                       <article class="account-linking-comparison__card"><h3>Сейчас</h3><div class="account-linking-provider-group"><strong>Текущий профиль</strong><ul><li>Яндекс</li></ul></div><div class="account-linking-provider-group"><strong>Другой профиль</strong><ul><li>Email</li></ul></div></article>
-                      <article class="account-linking-comparison__card"><h3>После подключения</h3><p>Один основной профиль со всеми подтверждёнными способами входа:</p><ul><li>Яндекс</li><li>Email</li></ul></article>
+                      <article class="account-linking-comparison__card"><h3>После подключения</h3><p>Один основной профиль со всеми подтвержденными способами входа:</p><ul><li>Яндекс</li><li>Email</li></ul></article>
                     </div>
                     <ul class="settings-list account-linking-results"><li class="settings-list-item"><div class="settings-list-item__content"><span class="settings-list-item__title">2 пространства останутся отдельными.</span><span class="settings-list-item__desc">Встречи, записи, файлы и результаты обработки сохранятся.</span></div></li></ul>
                     <p class="account-linking-alert account-linking-alert--warning" role="status">Все активные сессии завершатся, а доверие устройств будет отозвано.</p>

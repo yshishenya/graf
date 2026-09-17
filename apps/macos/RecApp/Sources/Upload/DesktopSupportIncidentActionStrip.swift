@@ -99,17 +99,24 @@ struct DesktopSupportIncidentActionStrip: View {
         if summary.safeReport != nil, showsSupportSurface {
             VStack(alignment: .leading, spacing: 6) {
                 if let message = DesktopSupportIncidentActionCopy.visibleMessage(for: submissionState) {
-                    Text(message)
-                        .font(.caption2)
-                        .foregroundStyle(statusTextColor)
-                        .lineLimit(3)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .accessibilityLabel(message)
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        if isSending {
+                            ProgressView().controlSize(.small)
+                        }
+                        Text(message)
+                            .font(.caption2)
+                            .foregroundStyle(statusTextColor)
+                            .lineLimit(3)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityLabel(message)
+                    }
                 }
 
                 if showsSendButton {
                     Button(action: submit) {
                         Label(sendButtonTitle, systemImage: "questionmark.bubble")
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.9)
                     }
                     .font(.caption)
                     .buttonStyle(DesktopWebButtonStyle(.secondary))
@@ -121,6 +128,8 @@ struct DesktopSupportIncidentActionStrip: View {
                 if showsSyncButton {
                     Button(action: sync) {
                         Label(DesktopSupportIncidentActionCopy.syncTitle, systemImage: "arrow.triangle.2.circlepath")
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.9)
                     }
                     .font(.caption)
                     .buttonStyle(DesktopWebButtonStyle(.secondary))
@@ -131,6 +140,8 @@ struct DesktopSupportIncidentActionStrip: View {
                 if DesktopSupportIncidentActionCopy.requiresSignIn(submissionState) {
                     Button(action: onOpenSignIn) {
                         Label(DesktopSupportIncidentActionCopy.signInTitle, systemImage: "person.crop.circle.badge.exclamationmark")
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.9)
                     }
                     .font(.caption)
                     .buttonStyle(DesktopWebButtonStyle(.secondary))
@@ -141,6 +152,8 @@ struct DesktopSupportIncidentActionStrip: View {
                    showsCopyFallbackButton {
                     Button(action: copySafeReport) {
                         Label(DesktopSupportIncidentActionCopy.copyTitle, systemImage: "doc.on.doc")
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.9)
                     }
                     .font(.caption)
                     .buttonStyle(DesktopWebButtonStyle(.secondary))
@@ -191,11 +204,11 @@ struct DesktopSupportIncidentActionStrip: View {
     private var statusTextColor: Color {
         switch submissionState?.state {
         case .sent:
-            return .secondary
-        case .pendingSync, .failedWithCopyFallback, .unavailable:
-            return .orange
-        case .sending, .notSent, nil:
-            return .secondary
+            return DesktopDesignTokens.green
+        case .failedWithCopyFallback, .unavailable:
+            return DesktopDesignTokens.red
+        case .pendingSync, .sending, .notSent, nil:
+            return DesktopDesignTokens.muted
         }
     }
 

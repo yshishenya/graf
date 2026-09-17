@@ -1,5 +1,6 @@
 import inspect
 from pathlib import Path
+from urllib.parse import unquote
 
 import pytest
 
@@ -32,7 +33,7 @@ def test_refund_mailto_contains_only_safe_static_support_content() -> None:
 
     assert mailto.startswith("mailto:billing@example.test?")
     assert "INV-2026-0001" in mailto
-    assert "YooKassa" in mailto
+    assert "ЮKassa" in unquote(mailto)
     assert "amount" not in mailto.lower()
     assert "card" not in mailto.lower()
     assert "provider" not in mailto.lower()
@@ -64,7 +65,7 @@ def test_history_ui_keeps_refund_as_email_only_and_warns_against_sensitive_data(
     assert "Написать письмо" in template
     assert "Скопировать номер платежа" in template
     assert "Не отправляйте данные карты" in template
-    assert "не создаёт заявку в продукте" in template
+    assert "не создает заявку в продукте" in template
     assert not hasattr(YooKassaClient, "create_refund")
     assert '"POST", "/v3/refunds' not in inspect.getsource(YooKassaClient)
 
@@ -75,7 +76,7 @@ def test_invoice_detail_ui_exposes_only_safe_copy_and_mailto_actions() -> None:
     assert "Скопировать номер платежа" in template
     assert "Скопировать email" in template
     assert "Написать письмо" in template
-    assert "GRAF не создаёт заявку" in template
+    assert "GRAF не создает заявку" in template
     assert "не отправляйте данные карты" in template.lower()
     assert "refund_mailto" in template
     assert "invoice.receipt_url" in template

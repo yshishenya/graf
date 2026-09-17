@@ -64,12 +64,12 @@
         <div><h2 id="account-providers-title">Способы входа</h2></div>
       </div>
       {% if account_surface.providers %}
-      <ul class="settings-list" aria-label="Подключённые способы входа">
+      <ul class="settings-list" aria-label="Подключенные способы входа">
         {% for provider in account_surface.providers %}
         <li class="settings-list-item"><div class="settings-list-item__content"><span class="settings-list-item__title">{{ provider.label }}</span><span class="settings-list-item__desc">{{ provider.status_label }}{% if provider.primary %} · Основной{% endif %}</span></div>{% if provider.can_unlink and provider.identity_id %}<form action="{{ '/desktop/settings/account/providers/' if embedded else '/settings/account/providers/' }}{{ provider.identity_id }}/unlink" method="post">{{ sections.csrf_field(csrf_token) }}<button class="button quiet" type="submit" data-confirm="Отключить этот способ входа?">Отключить</button></form>{% endif %}</li>
         {% endfor %}
       </ul>
-      {% else %}<p class="settings-empty-state" role="status">Подключённых способов входа пока нет.</p>{% endif %}
+      {% else %}<p class="settings-empty-state" role="status">Подключенных способов входа пока нет.</p>{% endif %}
 
       <details class="settings-disclosure"><summary>Добавить способ входа</summary>
       <form class="account-email-form" action="{{ '/desktop/settings/account/email-link/start' if embedded else '/settings/account/email-link/start' }}" method="post">
@@ -95,7 +95,7 @@
         <h3 id="session-confirmation-title">{{ session_confirmation.title }}</h3>
         <p>{{ session_confirmation.detail }}</p>
         <p>Там потребуется войти снова. Здесь вы останетесь в аккаунте.</p>
-        <p class="muted">Файлы на устройстве останутся. Запись, которая уже идёт, не остановится.</p>
+        <p class="muted">Файлы на устройстве останутся. Запись, которая уже идет, не остановится.</p>
         <form class="settings-actions" action="{{ session_confirmation.action }}" method="post">
           {{ sections.csrf_field(csrf_token) }}
           <input type="hidden" name="confirm" value="1">

@@ -2584,7 +2584,7 @@ public struct DesktopUploadQueueSummary: Equatable, Sendable {
 
     public var title: String {
         pendingCount > 1
-            ? "\(primaryItem.state.displayName) + ещё \(pendingCount - 1)"
+            ? "\(primaryItem.state.displayName) + еще \(pendingCount - 1)"
             : primaryItem.state.displayName
     }
 
@@ -2615,7 +2615,7 @@ public struct DesktopUploadQueueSummary: Equatable, Sendable {
         case "local_recording_package_not_uploadable", "local_artifacts_not_uploadable":
             return "нужна ручная проверка локальной записи"
         case LocalRecordingFailureReason.historicalPackage.rawValue:
-            return "сохранённая ранее запись будет отправлена в режиме совместимости"
+            return "сохраненная ранее запись будет отправлена в режиме совместимости"
         case LocalRecordingFailureReason.silentInput.rawValue:
             return "микрофон был слишком тихим или пустым; отправим как есть"
         case LocalRecordingFailureReason.permissionDenied.rawValue:

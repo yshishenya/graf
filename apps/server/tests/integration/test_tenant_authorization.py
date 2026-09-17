@@ -564,7 +564,7 @@ def test_revoked_scoped_session_is_invalidated_without_retargeting_personal_acce
     assert fallback.status_code == 200
     spaces = fallback.json()["spaces"]
     assert len(spaces) == 1
-    assert spaces[0]["name"] == "Моё пространство"
+    assert spaces[0]["name"] == "Мое пространство"
     assert spaces[0]["kind"] == "personal"
     assert spaces[0]["role"] == "owner"
     assert spaces[0]["active"] is True

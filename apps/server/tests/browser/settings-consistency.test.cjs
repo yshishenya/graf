@@ -40,7 +40,7 @@ const pages=['account','workspace','recording','summaries','integrations/calenda
      unnamed:controls.filter(el=>!el.getAttribute('aria-label')&&!el.labels?.length&&!el.getAttribute('aria-labelledby')).length};
    });
    const label=`${surface} ${route} ${theme} ${width}`;
-   assert(!result.overflow,`Overflow: ${label}`);assert.equal(result.title.fontSize,'18px',label);assert.equal(result.unnamed,0,label);
+   assert(!result.overflow,`Overflow: ${label}`);assert.equal(result.title.fontSize,'20px',label);assert.equal(result.unnamed,0,label);
    assert(result.headings.every(s=>s.fontSize==='15px'),`Headings: ${label} ${JSON.stringify(result.headings)}`);
    for(const s of [...result.controls,...result.buttons])assert.deepEqual(s,{minHeight:'36px',borderRadius:'6px',fontSize:'13px'},label);
    if(result.switches.length){signatures.switch||=result.switches[0];assert(result.switches.every(s=>JSON.stringify(s)===JSON.stringify(signatures.switch)),`Switches: ${label}`);}

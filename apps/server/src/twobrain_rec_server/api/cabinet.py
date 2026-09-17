@@ -3872,9 +3872,9 @@ async def _summary_type_entry(
         else 1
     )
     if is_personal:
-        name = personal.name if personal is not None else "Сохранённый формат"
+        name = personal.name if personal is not None else "Сохраненный формат"
         description = (
-            personal.purpose if personal is not None else "Сохранённый результат личного формата"
+            personal.purpose if personal is not None else "Сохраненный результат личного формата"
         )
         availability_state = (
             "available" if personal is not None and personal.status == "active" else "retired"

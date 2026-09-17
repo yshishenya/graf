@@ -419,7 +419,7 @@ def test_referral_routes_keep_contract_alias_and_gate_unissued_link() -> None:
     assert "expires_at > landing_now" in route_source
     assert "if not request.app.state.settings.billing_checkout_enabled" in route_source
     assert "referral_enabled and secret_path" in route_source
-    assert "Одна ссылка может использоваться несколькими приглашёнными" in template_source
+    assert "Одна ссылка может использоваться несколькими приглашенными" in template_source
     landing_template = (
         Path(__file__).parents[2]
         / "src/twobrain_rec_server/cabinet/templates/cabinet/auth/referral_landing.html"

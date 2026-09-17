@@ -259,11 +259,11 @@ def test_playback_reason_copy_has_complete_bounded_ru_en_pairs() -> None:
             "The file format or codec is not supported",
         ),
         "encrypted_media": (
-            "Защищённый файл нельзя подготовить для воспроизведения",
+            "Защищенный файл нельзя подготовить для воспроизведения",
             "Protected media cannot be prepared for playback",
         ),
         "corrupt_source": (
-            "Файл повреждён и не может быть воспроизведён",
+            "Файл поврежден и не может быть воспроизведен",
             "The file is corrupt and cannot be played",
         ),
         "limit_exceeded": (
@@ -1030,7 +1030,7 @@ def test_watchdog_status_is_consistent_in_meeting_list_projection() -> None:
     assert item.status == "processing"
     assert item.status_label == "Нужна проверка"
     assert item.status_reason == "processing_retry_deadline_exceeded"
-    assert row.content_readiness_label == "Результат ещё не подтверждён · откройте встречу для проверки"
+    assert row.content_readiness_label == "Результат еще не подтвержден · откройте встречу для проверки"
 
 
 def test_previous_recurring_readiness_keeps_current_lineaged_transcript_ready() -> None:

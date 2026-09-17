@@ -258,7 +258,7 @@ def test_unknown_provider_identity_cannot_be_renamed(client) -> None:
     unknown_key = re.search(r'data-speaker-key="(unknown:[^"]+)"', page.text)
 
     assert page.status_code == 200
-    assert "Спикер не определён" in page.text
+    assert "Спикер не определен" in page.text
     assert unknown_key is not None
     assert unknown_key.group(1) not in _renameable_keys_from_html(page.text)
 

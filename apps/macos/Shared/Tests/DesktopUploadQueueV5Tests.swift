@@ -362,7 +362,7 @@ final class DesktopUploadQueueTests: XCTestCase {
             pendingCount: 6,
             totalCount: 6
         )
-        XCTAssertEqual(manualSummary.title, "Нужна проверка + ещё 5")
+        XCTAssertEqual(manualSummary.title, "Нужна проверка + еще 5")
         XCTAssertEqual(manualSummary.detail, "нужна ручная проверка локальной записи")
     }
 
@@ -385,7 +385,7 @@ final class DesktopUploadQueueTests: XCTestCase {
             pendingCount: 1,
             totalCount: 1
         )
-        XCTAssertEqual(historicalSummary.detail, "сохранённая ранее запись будет отправлена в режиме совместимости")
+        XCTAssertEqual(historicalSummary.detail, "сохраненная ранее запись будет отправлена в режиме совместимости")
         XCTAssertEqual(silentSummary.detail, "микрофон был слишком тихим или пустым; отправим как есть")
     }
 

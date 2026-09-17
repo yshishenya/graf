@@ -50,7 +50,7 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
         XCTAssertTrue(shellSource.contains("desktop-meeting-shell-start-recording-button"))
         XCTAssertTrue(shellSource.contains("desktop-meeting-shell-stop-recording-button"))
         XCTAssertTrue(shellSource.contains("RecordingTitlebarHUD("))
-        XCTAssertTrue(shellSource.contains("Label(\"Стоп\", systemImage: \"stop.fill\")"))
+        XCTAssertTrue(shellSource.contains("Label(SystemAudioStatusLabels.stopButtonTitle, systemImage: \"stop.fill\")"))
         XCTAssertFalse(shellSource.contains("hasActiveRecording: recordingStripSession != nil"))
         XCTAssertTrue(appSource.contains("startRecordingAvailable: CaptureControlView.shouldShowDirectRecordButton"))
         XCTAssertTrue(appSource.contains("calendarPrompt: desktopCalendarPrompt"))
@@ -396,7 +396,7 @@ final class DesktopMeetingShellWebViewBoundaryTests: XCTestCase {
 
         XCTAssertTrue(shellSource.contains("DesktopSupportIncidentActionStrip("))
         XCTAssertTrue(shellSource.contains("ScrollView(.vertical, showsIndicators: true)"))
-        XCTAssertTrue(shellSource.contains(".clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))"))
+        XCTAssertTrue(shellSource.contains(".clipShape(RoundedRectangle(cornerRadius: DesktopDesignTokens.Radius.card, style: .continuous))"))
         XCTAssertTrue(shellSource.contains("NSTitlebarAccessoryViewController()"))
         XCTAssertTrue(shellSource.contains("controller.layoutAttribute = .bottom"))
         XCTAssertTrue(shellSource.contains("controller.fullScreenMinHeight = DesktopMeetingShellChrome.recordingStripHeight"))

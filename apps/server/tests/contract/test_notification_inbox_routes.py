@@ -114,7 +114,7 @@ def test_notification_settings_save_conflict_and_html_draft(client, path):
     conflict = client.post(path, data=data)
     assert conflict.status_code == 409, conflict.text
     assert 'data-notification-settings' in conflict.text
-    assert 'Ваш выбор сохранён в форме' in conflict.text
+    assert 'Ваш выбор сохранен в форме' in conflict.text
     assert 'Загрузите актуальные настройки' in conflict.text
     invalid = client.post(path, data={**data, 'version':'1', 'optional_email_enabled':'invalid'})
     assert invalid.status_code == 422

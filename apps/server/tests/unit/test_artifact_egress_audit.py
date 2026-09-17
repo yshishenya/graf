@@ -99,7 +99,7 @@ def test_safe_audit_metadata_for_content_export_keeps_revision_tokens_not_conten
             "revision_token": "safe-revision-token",
             "revision_fingerprint": "a" * 64,
             "schema_version": "graf.transcript-export.v1",
-            "renderer_version": "export-v1",
+            "renderer_version": "export-v2",
             "turn_policy_version": "canonical-turns-v2",
             "byte_length": 2048,
             "transcript_text": "private transcript",
@@ -118,7 +118,7 @@ def test_safe_audit_metadata_for_content_export_keeps_revision_tokens_not_conten
         "revision_token": "[REDACTED]",
         "revision_fingerprint": "a" * 64,
         "schema_version": "graf.transcript-export.v1",
-        "renderer_version": "export-v1",
+        "renderer_version": "export-v2",
         "turn_policy_version": "canonical-turns-v2",
         "byte_length": 2048,
     }
