@@ -776,7 +776,11 @@ def test_shell_syntax_check_includes_untracked_changed_scripts(tmp_path: Path) -
     )
 
     assert result.returncode != 0
-    assert "syntax error" in result.stdout
+    # bash prints diagnostics in the runner's own language, so this asserts the
+    # offending file from the fixture rather than an English phrase. Matching
+    # "syntax error" failed on a non-English machine even though the syntax
+    # check itself worked correctly.
+    assert "z-invalid.sh" in result.stdout
 
 
 def test_whitespace_check_includes_untracked_non_shell_files(tmp_path: Path) -> None:
