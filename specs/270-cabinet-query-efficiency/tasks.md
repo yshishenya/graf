@@ -41,9 +41,9 @@
 
 ## Фаза 5. Проверка результата
 
-- [ ] T016 [US1] Замерить число обращений и время для `/meetings` при 5, 10, 20 и 50 встречах и для `/meetings/{id}`; сравнить с эталоном из `research.md`; результат внести в отчёт. (Issue #7145)
-- [ ] T017 [US1] Прогнать полный серверный прогон `GRAF_TEST_WORKERS=4 GRAF_PERFORMANCE_GATE=required GRAF_TEST_REPORT_DIR=/tmp/graf-after bash apps/server/scripts/run_local_postgres_tests.sh --full -q` и сравнить с эталоном `/tmp/graf-baseline/parallel.jsonl`. (Issue #7146)
-- [ ] T018 [US2] Прогнать фокусированные проверки доступа, приватности, удаления и выгрузки по `quickstart.md`, сценарий 4, без правки ожиданий. (Issue #7147)
+- [x] T016 [US1] Замерить число обращений и время для `/meetings` при 5, 10, 20 и 50 встречах и для `/meetings/{id}`; сравнить с эталоном из `research.md`; результат внести в отчёт. (Issue #7145)
+- [x] T017 [US1] Прогнать полный серверный прогон `GRAF_TEST_WORKERS=4 GRAF_PERFORMANCE_GATE=required GRAF_TEST_REPORT_DIR=/tmp/graf-after bash apps/server/scripts/run_local_postgres_tests.sh --full -q` и сравнить с эталоном `/tmp/graf-baseline/parallel.jsonl`. (Issue #7146)
+- [x] T018 [US2] Прогнать фокусированные проверки доступа, приватности, удаления и выгрузки по `quickstart.md`, сценарий 4, без правки ожиданий. (Issue #7147)
 - [x] T019 [US1] Создать `changes/unreleased/F270.yaml` по формату `changes/unreleased/README.md`. (Issue #7148)
 
 ## Фаза 6. Закрытие
