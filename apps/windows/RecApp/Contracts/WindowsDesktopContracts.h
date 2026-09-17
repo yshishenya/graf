@@ -10,7 +10,14 @@ inline constexpr std::string_view kManifestSchemaVersion = "local-recording-mani
 inline constexpr std::string_view kCanonicalMixProfile = "canonical-mix.v1";
 inline constexpr std::string_view kV5SourceKind = "initial_mixed_recording";
 inline constexpr std::string_view kV5MediaScribeSourceMode = "single_wav_v1";
-inline constexpr std::string_view kQueueSchemaVersion = "desktop-upload-queue.v2";
+inline constexpr std::string_view kQueueSchemaVersion = "desktop-upload-queue.v3";
+// Version 2 has no timestamps and no deletion requests. It is still readable:
+// refusing it would drop a pending upload that exists only on this computer.
+inline constexpr std::string_view kQueueSchemaVersionV2 = "desktop-upload-queue.v2";
+// The ledger file keeps the name it was created under. An installed app reads
+// exactly this path, and moving it would orphan a queue that holds recordings the
+// user has not sent yet. The version that matters is written inside the file.
+inline constexpr std::string_view kQueueLedgerFileName = "desktop-upload-queue.v2";
 inline constexpr std::string_view kBridgeProtocol = "graf.desktop.bridge";
 inline constexpr std::uint32_t kBridgeProtocolVersion = 1;
 inline constexpr std::size_t kBridgeMaxSerializedBytes = 64 * 1024;
@@ -19,6 +26,45 @@ inline constexpr std::size_t kBridgeMaxPayloadDepth = 8;
 inline constexpr std::array<std::string_view, 3> kV5WireRoles = {
     "manifest", "media", "playback",
 };
+
+// Feature 6796 parity with macOS: a normally stopped recording whose canonical
+// 48 kHz audio is shorter than 30 seconds is not kept as a meeting.
+//
+// The unit is the canonical 10 ms frame (480 samples), which is exactly what the
+// Windows writer counts. Expressing the threshold in raw samples would put it
+// 480 times too high and reject every real recording, so it is derived here and
+// never hand-written at a call site.
+inline constexpr std::uint64_t kCanonicalSamplesPerFrame = 480;
+inline constexpr std::uint64_t kCanonicalFrameRate = 48'000;
+inline constexpr std::uint64_t kCanonicalFramesPerSecond =
+    kCanonicalFrameRate / kCanonicalSamplesPerFrame;
+inline constexpr std::uint64_t kShortRecordingMinimumSeconds = 30;
+inline constexpr std::uint64_t kShortRecordingMinimumFrames =
+    kCanonicalFramesPerSecond * kShortRecordingMinimumSeconds;
+inline constexpr std::string_view kShortRecordingDiscardedField = "short_recording_discarded";
+inline constexpr std::wstring_view kShortRecordingDiscardedMessage =
+    L"Запись короче 30 секунд не сохранена";
+
+// Why capture ended. Only an operator- or meeting-driven stop is "normal"; an
+// interruption must always keep the recoverable fragment.
+enum class RecordingStopReason {
+    userRequested,
+    meetingEnded,
+    interruption,
+};
+
+[[nodiscard]] constexpr bool isNormalStop(RecordingStopReason reason) noexcept {
+    return reason == RecordingStopReason::userRequested || reason == RecordingStopReason::meetingEnded;
+}
+
+// Duration is the exact canonical audio, never rounded up and never reduced by
+// silence or by a muted microphone. An unreliable or interrupted finalization
+// never authorizes a discard. `canonicalFrames` counts 10 ms frames.
+[[nodiscard]] constexpr bool isShortRecording(
+    std::uint64_t canonicalFrames, RecordingStopReason reason, bool captureFailed) noexcept {
+    return isNormalStop(reason) && !captureFailed && canonicalFrames > 0 &&
+           canonicalFrames < kShortRecordingMinimumFrames;
+}
 
 enum class SessionState {
     idle,

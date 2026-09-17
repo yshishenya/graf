@@ -73,7 +73,7 @@ int main() {
             const bool healthy = faultTimeline.push(std::move(batch));
             for (const auto& frame : faultTimeline.takeFrames()) if (!faultWriter.append(frame)) return false;
             return healthy;
-        }, [&](ReasonCode reason) {
+        }, [&](ReasonCode reason, graf::windows::RecordingStopReason) {
             ++finalizations;
             assert(reason != ReasonCode::none);
             const auto result = faultWriter.finalize(ReasonCode::aecUnavailable);

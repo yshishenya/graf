@@ -1,10 +1,12 @@
 #include "../../RecApp/Recording/LocalRecordingPackage.h"
 #include "../../RecApp/Storage/AtomicFileStore.h"
+#include "../../RecApp/Upload/DesktopApiClient.h"
 
 #ifdef NDEBUG
 #undef NDEBUG
 #endif
 #include <cassert>
+#include <ctime>
 #include <fstream>
 #include <limits>
 
@@ -44,6 +46,60 @@ int main() {
     assert(!writer.append(frame));
     const auto package = LocalRecordingPackage::inspect(directory);
     assert(package.integrity == PackageIntegrity::valid && package.durationMs == 10);
+    // The first accepted frame carries the start; finalization closes the bounds.
+    // Ten milliseconds of audio cannot outlive the recording that produced it.
+    assert(result.startedAtMs != 0 && result.stoppedAtMs >= result.startedAtMs);
+    assert(result.stoppedAtMs - result.startedAtMs < 60'000);
+    assert(result.displayTimezoneOffsetMinutes >= -14 * 60 && result.displayTimezoneOffsetMinutes <= 14 * 60);
+    assert(package.startedAtMs == result.startedAtMs && package.stoppedAtMs == result.stoppedAtMs);
+    assert(package.displayTimezoneOffsetMinutes == result.displayTimezoneOffsetMinutes);
+    {
+        // The stored offset has to agree with the operating system for the same
+        // instant. This is an independent path: localtime plus strftime, not the
+        // arithmetic that produced the offset or the label.
+        const auto seconds = static_cast<std::time_t>(result.startedAtMs / 1000);
+        std::tm local{};
+#ifdef _WIN32
+        assert(localtime_s(&local, &seconds) == 0);
+#else
+        assert(localtime_r(&seconds, &local) != nullptr);
+#endif
+        char buffer[32] = {};
+        assert(std::strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M", &local) > 0);
+        assert(DesktopApiClient::formatDisplayMinute(result.startedAtMs, result.displayTimezoneOffsetMinutes) == buffer);
+    }
+    {
+        // A package written before the bounds existed stays readable and simply
+        // reports no time instead of a guessed one.
+        std::ifstream input(result.manifestPath);
+        const std::string original((std::istreambuf_iterator<char>(input)), {});
+        input.close();
+        const auto bounds = original.find(",\"started_at_ms\":");
+        assert(bounds != std::string::npos);
+        const auto artifacts = original.find(",\"artifacts\":", bounds);
+        assert(artifacts != std::string::npos);
+        auto legacyManifest = original;
+        legacyManifest.erase(bounds, artifacts - bounds);
+        { std::ofstream output(result.manifestPath); output << legacyManifest; }
+        const auto legacy = LocalRecordingPackage::inspect(directory, directory.parent_path());
+        assert(legacy.integrity == PackageIntegrity::valid && legacy.durationMs == 10);
+        assert(legacy.startedAtMs == 0 && legacy.stoppedAtMs == 0 && legacy.displayTimezoneOffsetMinutes == 0);
+        // An impossible pair is dropped; a recording never ends before it starts.
+        const auto stoppedAt = original.find("\"stopped_at_ms\":");
+        assert(stoppedAt != std::string::npos);
+        const auto stoppedEnd = original.find(',', stoppedAt);
+        assert(stoppedEnd != std::string::npos);
+        auto corrupted = original;
+        corrupted.replace(stoppedAt, stoppedEnd - stoppedAt,
+            "\"stopped_at_ms\":" + std::to_string(result.startedAtMs - 1));
+        { std::ofstream output(result.manifestPath); output << corrupted; }
+        const auto rejected = LocalRecordingPackage::inspect(directory, directory.parent_path());
+        assert(rejected.integrity == PackageIntegrity::valid);
+        assert(rejected.startedAtMs == 0 && rejected.stoppedAtMs == 0);
+        { std::ofstream output(result.manifestPath); output << original; }
+        const auto restored = LocalRecordingPackage::inspect(directory, directory.parent_path());
+        assert(restored.startedAtMs == result.startedAtMs && restored.stoppedAtMs == result.stoppedAtMs);
+    }
     assert(!package.playbackAvailable); // No explicit custody root / no real AAC fixture.
     assert(!LocalRecordingPackage::inspect(directory, custodyRoot).playbackAvailable);
     {

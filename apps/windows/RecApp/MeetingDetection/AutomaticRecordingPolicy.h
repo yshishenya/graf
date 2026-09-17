@@ -10,6 +10,11 @@ namespace graf::windows {
 
 enum class AutomaticRecordingPreference { always, ask, never };
 [[nodiscard]] std::string_view automaticRecordingPreferenceLabel(AutomaticRecordingPreference preference) noexcept;
+// The stored and published spelling. It is the same word in the registry value
+// and in the cabinet's settings page, so the page can save what it was shown.
+[[nodiscard]] std::string_view automaticRecordingPreferenceToken(AutomaticRecordingPreference preference) noexcept;
+[[nodiscard]] std::optional<AutomaticRecordingPreference> automaticRecordingPreferenceFromToken(
+    std::string_view token) noexcept;
 
 // One bounded registry value is replaced atomically, including bulk edits.
 // Injection is for deterministic tests; the default uses HKCU on Windows.

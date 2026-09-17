@@ -3,6 +3,7 @@
 #include "DesktopHttpTransport.h"
 #include "DesktopUploadQueueService.h"
 
+#include <chrono>
 #include <cstdint>
 #include <functional>
 
@@ -35,6 +36,16 @@ public:
     [[nodiscard]] std::size_t drain();
     void cancel() noexcept;
     [[nodiscard]] bool busy() const noexcept;
+    // Server-requested pause after a 429. No flight starts before it elapses, so
+    // the client stops asking while the server is asking it to wait.
+    void deferFor(std::uint32_t seconds) noexcept;
+    // The server renewed the session while answering and named the new deadline.
+    // Called on the owner thread with that deadline, so the shell can carry it to
+    // the cabinet's own session cookie. Never called with a deadline the server
+    // did not name.
+    using SessionExpiryHandler = std::function<void(std::int64_t)>;
+    void setSessionExpiryHandler(SessionExpiryHandler handler) { sessionExpiryHandler_ = std::move(handler); }
+    [[nodiscard]] std::uint64_t deferralRemainingMs() const noexcept;
 
 private:
     struct Flight;
@@ -43,7 +54,10 @@ private:
     void apply(const UploadCustodyItem& item, const DesktopTransportResult& result);
     DesktopUploadQueueService& queue_;
     std::uint32_t maxAttempts_;
+    SessionExpiryHandler sessionExpiryHandler_;
     std::shared_ptr<Flight> flight_;
+    // Wall-clock-independent pause: a sleep or a clock change must not shorten it.
+    std::chrono::steady_clock::time_point deferredUntil_{};
 };
 
 } // namespace graf::windows

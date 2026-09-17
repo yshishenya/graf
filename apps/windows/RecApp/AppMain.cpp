@@ -12,9 +12,13 @@
 #include "Shell/CabinetWindow.h"
 #include "Shell/WindowsTray.h"
 #include "Shell/AutomaticRecordingPrompt.h"
+#include "Shell/RecordingNoticePresenter.h"
+#include "Shell/ShellPalette.h"
 #include "Upload/DesktopUploadQueueService.h"
 #include "Upload/DesktopUploadRecoveryScheduler.h"
+#include "Upload/DesktopApiClient.h"
 #include "Upload/DesktopHttpTransport.h"
+#include "Web/NativeSettingsBridge.h"
 #include "../Native/GrafAEC3/GrafAEC3WebRtcAdapter.h"
 
 #include <windows.h>
@@ -56,6 +60,7 @@
 #include <mfapi.h>
 #include <mftransform.h>
 
+#include <chrono>
 #include <filesystem>
 #include <algorithm>
 #include <atomic>
@@ -81,31 +86,61 @@ using winrt::Windows::UI::Text::FontWeight;
 using winrt::Windows::UI::Text::FontWeights;
 using winrt::Microsoft::UI::Dispatching::DispatcherQueueTimer;
 
-void refreshShellPalette() {
+// Какая тема у системы. Кабинет объявляет «system», когда пользователь не выбрал
+// тему в самом кабинете, и тогда оформление окна обязано совпасть с системой.
+bool systemThemeIsDark() {
+    DWORD appsUseLightTheme = 1;
+    DWORD size = sizeof(appsUseLightTheme);
+    HKEY key = nullptr;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER,
+                      L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+                      0, KEY_QUERY_VALUE, &key) == ERROR_SUCCESS) {
+        if (RegQueryValueExW(key, L"AppsUseLightTheme", nullptr, nullptr,
+                            reinterpret_cast<LPBYTE>(&appsUseLightTheme), &size) != ERROR_SUCCESS) {
+            appsUseLightTheme = 1;
+        }
+        RegCloseKey(key);
+    }
+    return appsUseLightTheme == 0;
+}
+
+// Высокая контрастность Windows распоряжается цветами сама.
+bool shellHighContrast() {
     HIGHCONTRASTW contrast{sizeof(HIGHCONTRASTW)};
-    const bool highContrast = SystemParametersInfoW(SPI_GETHIGHCONTRAST, sizeof(contrast), &contrast, 0) &&
+    return SystemParametersInfoW(SPI_GETHIGHCONTRAST, sizeof(contrast), &contrast, 0) &&
         (contrast.dwFlags & HCF_HIGHCONTRASTON) != 0;
-    static int previous = -1;
-    if (!highContrast && previous == 0) return;
-    const bool firstRun = previous < 0;
-    previous = highContrast;
-    // Current DesktopMeetingShellChrome tokens; Windows High Contrast owns its colors.
-    struct Entry { const wchar_t* key; std::uint32_t rgb; int contrastColor; };
-    const Entry entries[] = {
-        {L"ApplicationPageBackgroundThemeBrush", 0x0A0A0B, COLOR_WINDOW},
-        {L"LayerFillColorDefaultBrush", 0x121214, COLOR_WINDOW},
-        {L"CardBackgroundFillColorDefaultBrush", 0x1C1C1F, COLOR_WINDOW},
-        {L"CardStrokeColorDefaultBrush", 0x30343A, COLOR_WINDOWTEXT},
-        {L"AccentFillColorDefaultBrush", 0x8C73FF, COLOR_HIGHLIGHT},
-        {L"GrafRecordingStripBrush", 0x342087, COLOR_WINDOW}
+}
+
+// Кисти оболочки берутся из одного набора (`ShellPalette`), значения которого
+// совпадают с палитрой кабинета и с macOS. Высокая контрастность Windows
+// распоряжается цветами сама: там значения набора не применяются.
+void refreshShellPalette(bool isDark) {
+    const bool highContrast = shellHighContrast();
+    static int previousDark = -1;
+    if (!highContrast && previousDark == static_cast<int>(isDark)) return;
+    const bool firstRun = previousDark < 0;
+    previousDark = static_cast<int>(isDark);
+    const auto contrastColor = [](std::wstring_view key) {
+        // Полоса записи — состояние, а не оформление: остаётся цветом окна.
+        if (key.find(L"RecordingStrip") != std::wstring_view::npos) return COLOR_WINDOW;
+        // Текст обязан быть виден на окне: system colors дают его иначе невидимым.
+        if (key.find(L"TextBrush") != std::wstring_view::npos) return COLOR_WINDOWTEXT;
+        if (key.find(L"Stroke") != std::wstring_view::npos ||
+            key.find(L"Line") != std::wstring_view::npos) {
+            return COLOR_WINDOWTEXT;
+        }
+        if (key.find(L"Accent") != std::wstring_view::npos) return COLOR_HIGHLIGHT;
+        return COLOR_WINDOW;
     };
     auto resources = Application::Current().Resources();
-    for (const auto& entry : entries) {
-        const auto system = GetSysColor(entry.contrastColor);
-        const auto value = winrt::Windows::UI::ColorHelper::FromArgb(255,
-            highContrast ? GetRValue(system) : static_cast<BYTE>(entry.rgb >> 16),
-            highContrast ? GetGValue(system) : static_cast<BYTE>(entry.rgb >> 8),
-            highContrast ? GetBValue(system) : static_cast<BYTE>(entry.rgb));
+    for (const auto& entry : graf::windows::shellPaletteEntries()) {
+        const auto palette = graf::windows::shellPaletteColor(entry, isDark);
+        const auto system = GetSysColor(contrastColor(std::wstring_view(entry.key)));
+        const auto red = highContrast ? GetRValue(system) : static_cast<BYTE>(palette.rgb >> 16);
+        const auto green = highContrast ? GetGValue(system) : static_cast<BYTE>(palette.rgb >> 8);
+        const auto blue = highContrast ? GetBValue(system) : static_cast<BYTE>(palette.rgb & 0xFF);
+        const auto alpha = highContrast ? 255 : static_cast<BYTE>(palette.alpha * 255.0 + 0.5);
+        const auto value = winrt::Windows::UI::ColorHelper::FromArgb(alpha, red, green, blue);
         const auto key = box_value(entry.key);
         if (!firstRun && resources.HasKey(key)) {
             if (const auto brush = resources.Lookup(key).try_as<SolidColorBrush>()) {
@@ -114,6 +149,53 @@ void refreshShellPalette() {
             }
         }
         resources.Insert(key, SolidColorBrush(value));
+    }
+}
+
+HWND nativeWindowHandle(Window const& window) noexcept;
+
+// Размер окна задан в логических точках, как у macOS, а WinUI считает размер в
+// физических пикселях. На экране с масштабом 200 % окно выходило вдвое меньше
+// задуманного: панель управления не помещалась по ширине.
+void resizeWindowLogical(Window const& window, std::int32_t logicalWidth, std::int32_t logicalHeight, bool centerOnWorkArea = false) {
+    try {
+        const auto handle = nativeWindowHandle(window);
+        const auto dpi = handle ? static_cast<double>(GetDpiForWindow(handle)) : 96.0;
+        const auto scale = dpi > 0.0 ? dpi / 96.0 : 1.0;
+        auto width = static_cast<std::int32_t>(logicalWidth * scale + 0.5);
+        auto height = static_cast<std::int32_t>(logicalHeight * scale + 0.5);
+        // Окно не должно оказаться больше рабочей области: иначе часть
+        // управления недоступна, а окно нельзя подвинуть.
+        try {
+            const auto area = winrt::Microsoft::UI::Windowing::DisplayArea::GetFromWindowId(
+                window.AppWindow().Id(), winrt::Microsoft::UI::Windowing::DisplayAreaFallback::Primary);
+            const auto work = area.WorkArea();
+            if (work.Width > 0 && work.Height > 0) {
+                width = std::min(width, work.Width);
+                height = std::min(height, work.Height);
+            }
+        } catch (...) {
+            // Рабочая область недоступна: размер остаётся задуманным.
+        }
+        window.AppWindow().Resize(winrt::Windows::Graphics::SizeInt32{width, height});
+        // Главное окно и настройки становятся по центру рабочей области, как
+        // окна macOS: системное размещение оставляет их в углу экрана.
+        if (centerOnWorkArea) {
+            try {
+                const auto area = winrt::Microsoft::UI::Windowing::DisplayArea::GetFromWindowId(
+                    window.AppWindow().Id(), winrt::Microsoft::UI::Windowing::DisplayAreaFallback::Primary);
+                const auto work = area.WorkArea();
+                if (work.Width > 0 && work.Height > 0) {
+                    const auto left = work.X + (work.Width - width) / 2;
+                    const auto top = work.Y + (work.Height - height) / 2;
+                    window.AppWindow().Move(winrt::Windows::Graphics::PointInt32{left, top});
+                }
+            } catch (...) {
+                // Рабочая область недоступна: окно остаётся там, где его поставила система.
+            }
+        }
+    } catch (...) {
+        // Окно остаётся системного размера: это не повод не показывать его.
     }
 }
 
@@ -132,11 +214,14 @@ Brush themeBrush(std::wstring_view name) {
     return Application::Current().Resources().Lookup(box_value(hstring(name))).as<Brush>();
 }
 
+// Текст оболочки всегда берёт цвет из набора оформления: системный цвет текста
+// совпадает с фоном окна в противоположной теме и делает надписи нечитаемыми.
 void styleText(TextBlock const& text, double size = 13.0,
-               FontWeight weight = FontWeights::Normal()) {
+               FontWeight weight = FontWeights::Normal(), bool muted = false) {
     text.FontSize(size);
     text.FontWeight(weight);
     text.TextWrapping(TextWrapping::Wrap);
+    text.Foreground(themeBrush(muted ? L"GrafMutedTextBrush" : L"GrafTextBrush"));
 }
 
 void setAccessible(DependencyObject const& element, std::wstring name, std::wstring help = {}) {
@@ -146,12 +231,63 @@ void setAccessible(DependencyObject const& element, std::wstring name, std::wstr
     }
 }
 
+// Кнопки оболочки рисуются её же кистями, а не системными: иначе в светлой теме
+// на тёмной панели появляются светлые кнопки с тёмными подписями. Рецепт тот же,
+// что у кнопок кабинета: поверхность `surface-2`, граница `line`, текст `text`,
+// наведение — `surface-3`, скругление 9.
+void applyShellButtonPalette(Button const& button) {
+    // В высокой контрастности кнопки остаются системными: свои кисти сделали бы
+    // неактивную кнопку неотличимой от активной.
+    if (shellHighContrast()) return;
+    button.CornerRadius(CornerRadius{9, 9, 9, 9});
+    auto resources = button.Resources();
+    const std::pair<const wchar_t*, const wchar_t*> entries[] = {
+        {L"ButtonBackground", L"GrafSurface2Brush"},
+        {L"ButtonBackgroundPointerOver", L"GrafSurface3Brush"},
+        {L"ButtonBackgroundPressed", L"GrafSurface3Brush"},
+        {L"ButtonBackgroundDisabled", L"GrafPanelBrush"},
+        {L"ButtonForeground", L"GrafTextBrush"},
+        {L"ButtonForegroundPointerOver", L"GrafTextBrush"},
+        {L"ButtonForegroundPressed", L"GrafTextBrush"},
+        {L"ButtonForegroundDisabled", L"GrafMutedTextBrush"},
+        {L"ButtonBorderBrush", L"GrafLineBrush"},
+        {L"ButtonBorderBrushPointerOver", L"GrafAccentBrush"},
+        {L"ButtonBorderBrushPressed", L"GrafAccentBrush"},
+        {L"ButtonBorderBrushDisabled", L"GrafLineSoftBrush"},
+    };
+    for (const auto& [key, token] : entries) {
+        resources.Insert(box_value(key), themeBrush(token));
+    }
+}
+
 Button styledButton(std::wstring label, bool primary = false) {
     auto button = Button();
     button.Content(box_value(label));
     button.MinHeight(36);
     button.Padding(Thickness{14, 0, 14, 0});
-    if (primary) button.Style(Application::Current().Resources().Lookup(box_value(L"AccentButtonStyle")).as<Style>());
+    if (primary) {
+        button.Style(Application::Current().Resources().Lookup(box_value(L"AccentButtonStyle")).as<Style>());
+        button.CornerRadius(CornerRadius{9, 9, 9, 9});
+        // Стиль акцентной кнопки берёт системный акцент: заливка обязана быть
+        // акцентом GRAF, как у macOS, иначе кнопка выпадает из оформления окна.
+        auto accent = button.Resources();
+        const std::pair<const wchar_t*, const wchar_t*> accents[] = {
+            {L"AccentButtonBackground", L"GrafAccentSolidBrush"},
+            {L"AccentButtonBackgroundPointerOver", L"GrafAccentHoverBrush"},
+            {L"AccentButtonBackgroundPressed", L"GrafAccentHoverBrush"},
+            {L"AccentButtonBackgroundDisabled", L"GrafSurface3Brush"},
+            {L"AccentButtonForeground", L"GrafAccentForegroundBrush"},
+            {L"AccentButtonForegroundPointerOver", L"GrafAccentForegroundBrush"},
+            {L"AccentButtonForegroundPressed", L"GrafAccentForegroundBrush"},
+            {L"AccentButtonForegroundDisabled", L"GrafMutedTextBrush"},
+            {L"AccentButtonBorderBrush", L"GrafAccentSolidBrush"},
+        };
+        for (const auto& [key, token] : accents) {
+            accent.Insert(box_value(key), themeBrush(token));
+        }
+        return button;
+    }
+    applyShellButtonPalette(button);
     return button;
 }
 
@@ -314,10 +450,13 @@ public:
     NativeCapture()
         : aecSelection_(selectAec()),
           custodyRoot_(localCustodyRoot()),
-          queue_(custodyRoot_ / "desktop-upload-queue.v2", custodyRoot_),
+          queue_(custodyRoot_ / std::string(graf::windows::kQueueLedgerFileName), custodyRoot_),
           scheduler_(queue_) {
         createRecordingPipeline();
         (void)queue_.load();
+        // A cleanup interrupted by a crash is finished here, before any upload
+        // recovery can select the recording.
+        (void)queue_.sweepDiscardedShortRecordings();
         recover(graf::windows::RecoveryTrigger::launch);
         readiness_.aecReady = aecSelection_.ready;
         readiness_.storageWritable = !custodyRoot_.empty();
@@ -334,6 +473,15 @@ public:
         return controller_->record(readiness_);
     }
     void refreshPermission() noexcept { readiness_.microphonePermissionGranted = microphonePrivacyGranted(); }
+    // The server renewed the session while answering a flight and named the new
+    // deadline. It travels to the shell, which carries it to the cabinet's own
+    // session cookie, exactly as macOS rewrites that cookie.
+    void setSessionExpiryHandler(std::function<void(std::int64_t)> handler) {
+        sessionExpiryHandler_ = std::move(handler);
+        scheduler_.setSessionExpiryHandler([this](std::int64_t seconds) {
+            if (sessionExpiryHandler_) sessionExpiryHandler_(seconds);
+        });
+    }
     void setAuthSessionToken(std::string token) {
         if (authSessionToken_ == token) return;
         scheduler_.cancel();
@@ -374,6 +522,9 @@ public:
         config.sessionToken = authSessionToken_;
         config.workspaceId = currentAccount_->workspaceId;
         // The workspace was verified by /auth/me. No fabricated device identity.
+        // The confirmed account travels with the flight so a retry does not ask
+        // /auth/me again; setAuthSessionToken clears it before any new upload.
+        config.confirmedIdentity = currentAccount_;
         const auto trigger = *pendingRecovery_;
         pendingRecovery_.reset();
         // Failed dispatch is retried by the bounded 30-second recovery timer;
@@ -385,11 +536,17 @@ public:
         pendingRecovery_.reset();
         scheduler_.cancel();
         if (accountCancellation_) accountCancellation_->store(true);
-        (void)controller_->stop();
+        // App exit is not a deliberate stop: the recoverable fragment is kept.
+        (void)controller_->stop(graf::windows::RecordingStopReason::interruption);
+        noticePresenter_.dismiss();
     }
     [[nodiscard]] graf::windows::TransitionResult pause() { return controller_->pause(); }
     [[nodiscard]] graf::windows::TransitionResult resume() { return controller_->resume(); }
     [[nodiscard]] graf::windows::TransitionResult stop() { return controller_->stop(); }
+    [[nodiscard]] graf::windows::TransitionResult stop(graf::windows::RecordingStopReason reason) {
+        return controller_->stop(reason);
+    }
+    void tickNotice() { noticePresenter_.tick(std::chrono::steady_clock::now()); }
     void pollHealth() {
         (void)controller_->pollHealth();
         const auto& state = indicator();
@@ -442,6 +599,11 @@ public:
     [[nodiscard]] const auto& localItems() const noexcept { return queue_.items(); }
     [[nodiscard]] const auto& custodyRoot() const noexcept { return custodyRoot_; }
     [[nodiscard]] bool uploadsBusy() const noexcept { return scheduler_.busy(); }
+    // The shell asks before its ordinary recovery tick: a server-requested pause
+    // must not be cut short by the cadence that normally drives retries.
+    [[nodiscard]] std::uint64_t uploadDeferralRemainingMs() const noexcept {
+        return scheduler_.deferralRemainingMs();
+    }
     [[nodiscard]] std::optional<graf::windows::UploadCustodyItem> localItem(std::string_view id) const {
         if (queue_.quarantined()) return std::nullopt;
         for (const auto& item : queue_.items()) {
@@ -460,6 +622,24 @@ public:
         if (!queue_.requestRetry(id)) return false;
         recover(graf::windows::RecoveryTrigger::scheduled);
         return true;
+    }
+    // The custody ledger, for the three phases of a deletion: store on the owner
+    // thread, send off it, record the answers back on it. The worker never sees
+    // this object.
+    [[nodiscard]] graf::windows::DesktopUploadQueueService& deletionLedger() noexcept { return queue_; }
+    // A deletion the user asked for is recorded before the file operation, so a
+    // crash or a closed lid can leave the mark behind with the files still there.
+    // The recorded intent is the confirmation, and carrying it out is what makes
+    // the mark the cabinet shows — "очистка ещё не завершена" — true rather than
+    // permanent. Runs on the owner thread, like every other ledger write.
+    void finishPendingLocalDeletions(HWND owner) {
+        if (indicator().visible || scheduler_.busy() || !owner) return;
+        for (const auto& id : queue_.pendingLocalDeletionIds()) {
+            (void)queue_.removeLocalCopy(id, graf::windows::LocalPurgeProof::userConfirmedLocalCopy,
+                [owner](const std::filesystem::path& path) {
+                    return graf::windows::DesktopLocalPurgeService::recycle(path, reinterpret_cast<std::uintptr_t>(owner));
+                });
+        }
     }
     graf::windows::LocalCopyRemovalResult removeLocalCopy(std::string_view id, HWND owner) {
         if (indicator().visible || scheduler_.busy() || !localItem(id)) return graf::windows::LocalCopyRemovalResult::unsafePath;
@@ -481,6 +661,7 @@ public:
         std::size_t needsAuth = 0;
         std::size_t uploaded = 0;
         std::size_t damaged = 0;
+        std::size_t blocked = 0;
         for (const auto& item : queue_.items()) {
             switch (item.status) {
             case graf::windows::UploadQueueStatus::pending:
@@ -497,9 +678,13 @@ public:
             case graf::windows::UploadQueueStatus::quarantined:
                 ++damaged;
                 break;
+            case graf::windows::UploadQueueStatus::blocked:
+                ++blocked;
+                break;
             }
         }
         if (damaged != 0) return L"Требуют проверки: " + std::to_wstring(damaged) + L". Локальные записи не отправлены.";
+        if (blocked != 0) return L"Отправка приостановлена сервером: " + std::to_wstring(blocked) + L". Автоматические попытки остановлены.";
         if (needsAuth != 0) return L"Нужен вход — локальные записи ждут отправки";
         if (pending != 0 && authSessionToken_.empty()) return L"Локальные записи ждут входа в аккаунт.";
         if (pending != 0 && !currentAccount_) return L"Не удалось подтвердить аккаунт для отправки. Записи остаются на компьютере.";
@@ -585,12 +770,13 @@ private:
                 }
                 return true;
             },
-            [this](graf::windows::ReasonCode failure) -> std::optional<graf::windows::CaptureFinalization> {
+            [this](graf::windows::ReasonCode failure, graf::windows::RecordingStopReason stopReason)
+                -> std::optional<graf::windows::CaptureFinalization> {
                 if (!finalizationFuture_.valid()) {
                     // Both capture workers have finished. The job owns only
                     // writer/timeline, never the UI, account, or upload queue.
                     std::packaged_task<graf::windows::V5WriterResult()> task(
-                        [timeline = timeline_, writer = writer_, failure]() mutable {
+                        [timeline = timeline_, writer = writer_, failure, stopReason]() mutable {
                             for (const auto& frame : timeline->takeFrames()) {
                                 if (!writer->append(frame)) {
                                     failure = graf::windows::ReasonCode::storageUnavailable;
@@ -599,7 +785,7 @@ private:
                             }
                             if (!timeline->healthy() && failure == graf::windows::ReasonCode::none)
                                 failure = graf::windows::ReasonCode::clockDiscontinuity;
-                            return writer->finalize(failure);
+                            return writer->finalize(failure, stopReason);
                         });
                     auto future = task.get_future();
                     std::thread(std::move(task)).detach();
@@ -609,6 +795,17 @@ private:
                 if (finalizationFuture_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return std::nullopt;
                 const auto result = finalizationFuture_.get();
                 failure = result.captureFailure;
+                // Feature 6796 parity with macOS: a normally stopped recording
+                // shorter than 30 seconds is not kept as a meeting. Nothing is
+                // enqueued, no capture error is registered and the user gets one
+                // passive notice. The on-disk marker lets the startup sweep
+                // finish a cleanup that a crash interrupted.
+                if (result.shortRecordingDiscarded) {
+                    (void)queue_.discardShortRecording(result.packageDirectory);
+                    noticePresenter_.showShortRecordingDiscarded(std::chrono::steady_clock::now());
+                    return graf::windows::CaptureFinalization{
+                        false, graf::windows::ReasonCode::none, false, true};
+                }
                 if (!result.normalPackage()) {
                     if (result.trustedPrefixRetained) {
                         (void)queue_.enqueue({sessionId_, sessionId_, sessionId_, result.packageDirectory,
@@ -681,7 +878,11 @@ private:
     std::filesystem::path custodyRoot_;
     std::shared_ptr<graf::windows::V5LocalRecordingWriter> writer_;
     std::future<graf::windows::V5WriterResult> finalizationFuture_;
+    graf::windows::RecordingNoticePresenter noticePresenter_;
     graf::windows::DesktopUploadQueueService queue_;
+    // The shell's handler for the session deadline the server names while
+    // answering. Empty means the shell does not carry it anywhere.
+    std::function<void(std::int64_t)> sessionExpiryHandler_;
     graf::windows::DesktopUploadRecoveryScheduler scheduler_;
     std::optional<graf::windows::RecoveryTrigger> pendingRecovery_;
     bool shuttingDown_ = false;
@@ -714,20 +915,36 @@ public:
     }
     void OnLaunched(LaunchActivatedEventArgs const&) {
         Resources().MergedDictionaries().Append(XamlControlsResources());
-        refreshShellPalette();
+        const bool systemIsDark = systemThemeIsDark();
+        shellIsDark_ = graf::windows::resolveShellIsDark(announcedAppearance_, systemIsDark);
+        refreshShellPalette(shellIsDark_);
+        if (cabinet_) cabinet_->webView().setPreferredColorScheme(shellIsDark_);
         window_ = Window();
         root_ = Grid();
-        root_.RequestedTheme(ElementTheme::Dark);
+        root_.RequestedTheme(shellIsDark_ ? ElementTheme::Dark : ElementTheme::Light);
         root_.Background(themeBrush(L"ApplicationPageBackgroundThemeBrush"));
         window_.Content(root_);
         bool shellReady = false;
         try {
             buildShell();
             window_.AppWindow().Title(L"GRAF");
-            // Keep the whole native rail reachable on a compact Windows
-            // display; the web cabinet remains responsive inside this shell.
-            window_.AppWindow().Resize(winrt::Windows::Graphics::SizeInt32{1080, 620});
+            // Размер ставится при первой активации: до неё окно ещё не привязано
+            // к монитору, `GetDpiForWindow` отвечает промежуточным значением, и
+            // окно получалось втрое больше задуманного. Смысл размера прежний:
+            // вся нативная панель помещается на небольшом экране Windows, а
+            // кабинет остаётся отзывчивым внутри оболочки.
+            window_.Activated([this](auto const&, WindowActivatedEventArgs const& args) {
+                if (mainWindowSized_ || args.WindowActivationState() == WindowActivationState::Deactivated) return;
+                mainWindowSized_ = true;
+                resizeWindowLogical(window_, 1080, 620, true);
+            });
             capture_ = std::make_unique<NativeCapture>();
+            capture_->setSessionExpiryHandler([this](std::int64_t seconds) {
+                if (!cabinet_ || shuttingDown_) return;
+                // The cookie is rewritten only while it still holds the token the
+                // request used; a session that changed meanwhile is never prolonged.
+                cabinet_->webView().extendAuthCookieExpiry(capture_->authSessionToken(), seconds);
+            });
             (void)ensureRecordingIndicator(false);
             refreshNativeState();
             shellReady = true;
@@ -1171,6 +1388,8 @@ private:
     void configureCabinet() {
         cabinet_ = std::make_unique<graf::windows::CabinetWindow>();
         auto& host = cabinet_->webView();
+        // Тема уже решена до создания среды: страница обязана увидеть ту же.
+        host.setPreferredColorScheme(shellIsDark_);
         host.setNavigationHandler([this](graf::windows::RouteEvaluation evaluation) {
             if (evaluation.decision == graf::windows::RouteDecision::allow &&
                 evaluation.kind == graf::windows::RouteKind::nativeSettings) {
@@ -1204,6 +1423,13 @@ private:
         });
         host.setLocalRecordingHandler([this](std::string action, std::string id) {
             handleLocalRecording(action, id);
+        });
+        host.setDeletionSelectionHandler([this](graf::windows::WebView2Host::DeletionRequest request) {
+            handleDeletionSelection(std::move(request));
+        });
+        host.setAppearanceHandler([this](std::string theme) { applyCabinetAppearance(theme); });
+        host.setNativeSettingsHandler([this](graf::windows::WebView2Host::NativeSettingsRequest request) {
+            return answerNativeSettings(request);
         });
         host.setRecreateHandler([this] {
             if (shuttingDown_) return;
@@ -1255,18 +1481,27 @@ private:
         const bool active = capture_->indicator().visible;
         std::string displayKey = inventoryKey + std::to_string(localMetadataVersion_) + (busy ? "B" : "-") + (active ? "A" : "-");
         for (const auto& item : capture_->localItems())
-            displayKey += std::to_string(static_cast<int>(item.status)) + ":" + item.safeReason + "\n";
+            displayKey += std::to_string(static_cast<int>(item.status)) + ":" + item.safeReason + ":" + item.meetingId + "\n";
+        for (const auto& operation : capture_->deletionLedger().deletionOperations())
+            displayKey += operation.operationId + ":" + std::to_string(static_cast<int>(operation.phase)) + ":" +
+                operation.safeReason + "\n";
         if (displayKey == localDisplayKey_) return;
         localDisplayKey_ = std::move(displayKey);
         std::vector<graf::windows::WebViewLocalRecordingRow> rows;
         for (const auto& item : capture_->localItems()) {
             graf::windows::WebViewLocalRecordingRow row;
             row.id = item.localRecordingId;
+            row.meetingId = item.meetingId;
             const auto metadata = std::find_if(localMetadata_.begin(), localMetadata_.end(),
                 [&item](const auto& value) { return value.first == item.localRecordingId; });
+            std::uint64_t startedAtMs = 0;
+            std::uint64_t stoppedAtMs = 0;
             if (metadata != localMetadata_.end()) {
-                row.durationSeconds = metadata->second.durationMs / 1000;
-                row.canOpen = metadata->second.playbackAvailable;
+                const auto& snapshot = metadata->second;
+                row.durationSeconds = snapshot.durationMs / 1000;
+                row.canOpen = snapshot.playbackAvailable;
+                startedAtMs = snapshot.startedAtMs;
+                stoppedAtMs = snapshot.stoppedAtMs;
             }
             using Status = graf::windows::UploadQueueStatus;
             switch (item.status) {
@@ -1284,14 +1519,93 @@ private:
                 break;
             case Status::uploaded: row.status = "Отправлено"; row.uploadComplete = true; break;
             case Status::quarantined: row.status = row.canOpen ? "Сохранена часть записи · не отправлена" : "Требует проверки · не отправлена"; break;
+            case Status::blocked:
+                row.status = item.safeReason == "needs_admin"
+                    ? "Ожидает действия администратора рабочего пространства · нажмите «Отправить» после решения"
+                    : "Отправка невозможна без исправления на этом компьютере · нажмите «Отправить» после исправления";
+                break;
             }
             const bool known = capture_->localItem(row.id).has_value();
             row.canOpen = row.canOpen && known;
-            row.canSend = known && !busy && (item.status == Status::pending || item.status == Status::retry || item.status == Status::needsAuth);
+            // A quarantined row is the one that kept a confirmed prefix after a
+            // fault, so it is the only row allowed to report a partial duration.
+            graf::windows::WebView2Host::applyLocalPackageTiming(
+                row, startedAtMs, stoppedAtMs, item.status == Status::quarantined);
+            row.canSend = known && !busy && (item.status == Status::pending || item.status == Status::retry ||
+                item.status == Status::needsAuth || item.status == Status::blocked);
             row.canDelete = known && !busy && !active;
+            // A row whose local copy the user already asked to remove is reported
+            // as a pending cleanup, not as a recording, and a copy the server was
+            // never told about deletes without touching the server at all.
+            row.localDeletionPending = graf::windows::DesktopUploadQueueService::localDeletionPending(item);
+            row.deletionIsLocalOnly = !graf::windows::DesktopUploadQueueService::hasServerIdentity(item);
             rows.push_back(std::move(row));
         }
-        cabinet_->webView().setLocalRecordings(std::move(rows));
+        // The deletions in flight travel with the rows: the cabinet prints what the
+        // app has stored, so a request that is waiting for the server is visible
+        // rather than only remembered. Nothing is hidden on Windows, so the page's
+        // account-recovery notice stays off rather than claiming hidden rows.
+        std::vector<graf::windows::CabinetDeletionOperation> operations;
+        for (const auto& record : capture_->deletionLedger().deletionOperations()) {
+            graf::windows::CabinetDeletionOperation operation;
+            operation.id = record.operationId;
+            operation.phase = deletionPhaseLabel(record.phase);
+            operation.waitReason = graf::windows::pageDeletionWaitReason(record.safeReason);
+            if (record.target == graf::windows::DeletionTarget::meeting) operation.targetMeetingId = record.targetId;
+            else operation.targetDirectoryId = record.targetId;
+            // The report link is offered only when a receipt named the meeting, so
+            // the identifier the page would put in a URL is never a guess: for a
+            // meeting target that is what acceptance means, and for a local copy
+            // the receipt named the copy rather than a meeting.
+            const bool answered = record.phase == graf::windows::DeletionOperationPhase::accepted ||
+                record.phase == graf::windows::DeletionOperationPhase::verified;
+            if (answered && !operation.targetMeetingId.empty()) {
+                operation.receiptMeetingId = operation.targetMeetingId;
+            }
+            operations.push_back(std::move(operation));
+        }
+        cabinet_->webView().setLocalRecordings(std::move(rows), std::move(operations), false);
+    }
+
+    // The cabinet's theme setting decides the appearance of the native surfaces.
+    // What follows the page is what the system draws — menus, dialogs, scrollbars,
+    // control chrome — because the shell's own colours are the shipped dark design
+    // tokens on both platforms. `system` is the default the app starts with, so a
+    // page that has not chosen one changes nothing.
+    void applyCabinetAppearance(const std::string& theme) {
+        // Объявление кабинета решает всё, кроме «system»: там решает система.
+        // Кисти оболочки пересобираются вместе с темой, иначе окно остаётся
+        // тёмным на светлой странице или наоборот.
+        if (theme == announcedAppearance_) return;
+        announcedAppearance_ = theme;
+        const bool isDark = graf::windows::resolveShellIsDark(theme, systemThemeIsDark());
+        if (isDark == shellIsDark_ && root_) return;
+        shellIsDark_ = isDark;
+        refreshShellPalette(isDark);
+        // Страница узнаёт системную тему из `prefers-color-scheme`: без этого
+        // кабинет с оформлением «системная» рисуется тёмным на светлом окне.
+        if (cabinet_) cabinet_->webView().setPreferredColorScheme(isDark);
+        const auto requested = isDark ? ElementTheme::Dark : ElementTheme::Light;
+        if (root_) root_.RequestedTheme(requested);
+        // Собственные окна приложения следуют той же теме, что и главное.
+        if (settingsContent_) settingsContent_.RequestedTheme(requested);
+        if (automaticPromptContent_) automaticPromptContent_.RequestedTheme(requested);
+        if (indicatorPanel_) indicatorPanel_.RequestedTheme(requested);
+    }
+
+    // The names the cabinet prints for a deletion phase. They are the ledger's own
+    // names on purpose: one spelling means the page and the app cannot disagree
+    // about what state a deletion is in.
+    [[nodiscard]] static std::string deletionPhaseLabel(graf::windows::DeletionOperationPhase phase) {
+        switch (phase) {
+        case graf::windows::DeletionOperationPhase::queued: return "queued";
+        case graf::windows::DeletionOperationPhase::sending: return "sending";
+        case graf::windows::DeletionOperationPhase::resolving: return "resolving";
+        case graf::windows::DeletionOperationPhase::accepted: return "accepted";
+        case graf::windows::DeletionOperationPhase::rejected: return "rejected";
+        case graf::windows::DeletionOperationPhase::verified: break;
+        }
+        return "verified";
     }
 
     void handleLocalRecording(const std::string& action, const std::string& id) {
@@ -1361,6 +1675,276 @@ private:
         }
     }
 
+    // The origin every stored request names: the transport's own default, read
+    // from one place so a request is never recorded against an origin this client
+    // would refuse to talk to.
+    [[nodiscard]] static std::string serverOrigin() { return graf::windows::DesktopHttpConfig{}.baseOrigin; }
+
+    // A deletion the cabinet asked for. The ledger is only ever written on this
+    // thread, so the pass has three phases: store the confirmed selection here,
+    // send the stored requests off the UI thread, then record what the server
+    // answered back here.
+    void handleDeletionSelection(graf::windows::WebView2Host::DeletionRequest request) {
+        if (!cabinet_ || !capture_ || shuttingDown_) return;
+        const auto owner = capture_->currentAccount();
+        // The ledger records whose request this is. Without a confirmed account
+        // there is no name to store, so the page is told the request was not saved
+        // instead of being left with a deletion nobody will ask the server for.
+        if (!owner || capture_->authSessionToken().empty()) {
+            cabinet_->webView().completeDeletionSelection(request, {});
+            return;
+        }
+        std::vector<graf::windows::DesktopUploadQueueService::DeletionTargetRequest> targets;
+        targets.reserve(request.targets.size());
+        for (const auto& target : request.targets) targets.push_back({target.target, target.targetId});
+        const auto plan = capture_->deletionLedger().planDeletionSelection(targets, *owner, serverOrigin());
+        const auto requests = plan.requests;
+        // Nothing to ask the server: the local copies the server never saw are
+        // removed here, and the page is answered from what happened.
+        if (requests.empty()) {
+            finishDeletionSelection(std::move(request), plan, {}, {}, *owner);
+            return;
+        }
+        const auto dispatcher = root_.DispatcherQueue();
+        const auto alive = alive_;
+        const auto token = capture_->authSessionToken();
+        const auto confirmed = *owner;
+        try { std::thread([this, alive, dispatcher, request = std::move(request), plan, requests, token, confirmed]() mutable {
+            std::vector<graf::windows::DesktopUploadQueueService::DeletionWireResult> answers;
+            try {
+                winrt::init_apartment(winrt::apartment_type::multi_threaded);
+                graf::windows::DesktopHttpConfig config;
+                config.sessionToken = token;
+                config.workspaceId = confirmed.workspaceId;
+                config.confirmedIdentity = confirmed;
+                // The scope is what the server compares with the confirmed
+                // session: a request for another actor is refused before it can
+                // change anything.
+                config.scopedAccount = graf::windows::DeletionScope{confirmed.userId, confirmed.workspaceId};
+                config.cancellation = std::make_shared<std::atomic_bool>(false);
+                graf::windows::DesktopHttpTransport transport(config);
+                // Read the server's declared support before asking it to change
+                // anything. One reading decides the whole bounded pass: a server
+                // that does not declare it is not asked to mutate at all.
+                const auto context = transport.notificationContext(*config.scopedAccount);
+                graf::windows::DesktopUploadQueueService::DeletionWireResult gate;
+                gate.status = context.status;
+                gate.body = context.body;
+                gate.transportFailed = context.transportFailed;
+                gate.waitReason = context.safeReason;
+                const auto gateReason =
+                    graf::windows::DesktopUploadQueueService::deletionGateReason(gate, confirmed);
+                if (!gateReason.empty()) {
+                    // Nothing was sent. Every request waits for the same reason.
+                    answers.assign(requests.size(), {0, "", false, 0, gateReason});
+                } else {
+                    answers.reserve(requests.size());
+                    for (const auto& entry : requests) {
+                        const auto response = transport.requestDeletion(entry.path, entry.body, *config.scopedAccount);
+                        graf::windows::DesktopUploadQueueService::DeletionWireResult wire;
+                        wire.status = response.status;
+                        wire.body = response.body;
+                        wire.transportFailed = response.transportFailed;
+                        wire.retryAfterSeconds = response.retryAfterSeconds;
+                        // A call refused here never reached the wire, and that is
+                        // not an answer about the recording. The safe reason says
+                        // why, in words the ledger accepts.
+                        wire.waitReason = response.safeReason;
+                        answers.push_back(std::move(wire));
+                        // One timeout says the same thing about every remaining
+                        // request; one missing meeting says nothing about them.
+                        if (graf::windows::DesktopUploadQueueService::deletionFailureIsShared(answers.back())) break;
+                    }
+                }
+                winrt::uninit_apartment();
+            } catch (...) {
+                // The requests are already durable. Answers that did not arrive
+                // leave them queued, and the cabinet is told they are pending.
+                answers.clear();
+            }
+            dispatcher.TryEnqueue([this, alive, request = std::move(request), plan, requests,
+                                   answers = std::move(answers), confirmed]() mutable {
+                if (!alive->load()) return;
+                finishDeletionSelection(std::move(request), plan, requests, answers, confirmed);
+            });
+        }).detach(); } catch (...) {
+            // The selection is stored, so the page is answered from the ledger.
+            finishDeletionSelection(std::move(request), plan, {}, {}, confirmed);
+        }
+    }
+
+    // The server deletes a meeting and then asks this device to remove the local
+    // copies of it. The queue is written on the owner thread, so the files are
+    // removed here and only the two network calls happen off it: read the tasks and
+    // ask for the missing ones, then answer with what could be proven.
+    void startLocalPurgePass() {
+        if (!capture_ || shuttingDown_ || localPurgeInFlight_) return;
+        const auto owner = capture_->currentAccount();
+        if (!owner || capture_->authSessionToken().empty()) return;
+        // Nothing may be removed while a recording or an upload owns those files.
+        if (capture_->uploadsBusy() || capture_->indicator().visible ||
+            capture_->indicator().state == graf::windows::SessionState::recording) return;
+        localPurgeInFlight_ = true;
+        pendingPurgeAcks_.clear();
+        const auto dispatcher = root_.DispatcherQueue();
+        const auto alive = alive_;
+        const auto token = capture_->authSessionToken();
+        const auto confirmed = *owner;
+        const auto awaiting = capture_->deletionLedger().meetingsAwaitingLocalPurge();
+        try { std::thread([this, alive, dispatcher, token, confirmed, awaiting]() mutable {
+            std::vector<std::string> listed;
+            std::vector<std::string> ensured;
+            try {
+                winrt::init_apartment(winrt::apartment_type::multi_threaded);
+                graf::windows::DesktopHttpConfig config;
+                config.sessionToken = token;
+                config.workspaceId = confirmed.workspaceId;
+                config.confirmedIdentity = confirmed;
+                config.scopedAccount = graf::windows::DeletionScope{confirmed.userId, confirmed.workspaceId};
+                config.cancellation = std::make_shared<std::atomic_bool>(false);
+                graf::windows::DesktopHttpTransport transport(config);
+                const auto scope = *config.scopedAccount;
+                const auto tasks = transport.localPurgeTasks(scope);
+                if (tasks.answered() && tasks.status == 200) listed.push_back(tasks.body);
+                // The server creates the task on its own side, so a deletion this
+                // device confirmed but has no task for is asked about directly.
+                for (const auto& meeting : awaiting) {
+                    const auto created = transport.ensureLocalPurgeTask(meeting, scope);
+                    if (created.answered() && (created.status == 200 || created.status == 201)) {
+                        ensured.push_back(created.body);
+                    }
+                }
+                winrt::uninit_apartment();
+            } catch (...) {
+                listed.clear();
+                ensured.clear();
+            }
+            dispatcher.TryEnqueue([this, alive, listed = std::move(listed), ensured = std::move(ensured)] {
+                if (!alive->load()) return;
+                prepareLocalPurgeAnswers(listed, ensured);
+            });
+        }).detach(); } catch (...) { localPurgeInFlight_ = false; }
+    }
+
+    // Owner thread: what the ledger could prove about every task, and the answers
+    // that still have to be sent.
+    void prepareLocalPurgeAnswers(const std::vector<std::string>& listed, const std::vector<std::string>& ensured) {
+        if (!capture_ || shuttingDown_) { localPurgeInFlight_ = false; return; }
+        // The world can change while the list is read: a recording that started in
+        // the meantime owns those files, and without an owner window the Windows
+        // Recycle Bin operation cannot be carried out at all.
+        if (!mainWindowHandle_ || capture_->uploadsBusy() || capture_->indicator().visible ||
+            capture_->indicator().state == graf::windows::SessionState::recording) {
+            localPurgeInFlight_ = false;
+            return;
+        }
+        std::vector<graf::windows::LocalPurgeTask> tasks;
+        for (const auto& body : listed) {
+            const auto decoded = graf::windows::DesktopApiClient::decodeLocalPurgeTaskList(body);
+            // A list with one task this client cannot act on is not a list it may
+            // work from, so the pass keeps what it already had and touches nothing.
+            if (decoded) tasks = *decoded;
+        }
+        for (const auto& body : ensured) {
+            const auto decoded = graf::windows::DesktopApiClient::decodeLocalPurgeTask(body);
+            if (decoded) tasks.push_back(*decoded);
+        }
+        auto& ledger = capture_->deletionLedger();
+        for (const auto& task : tasks) {
+            if (task.acknowledged()) continue;
+            const auto completion = ledger.completeLocalPurgeTask(task,
+                [this](const std::filesystem::path& package) {
+                    return graf::windows::DesktopLocalPurgeService::recycle(
+                        package, reinterpret_cast<std::uintptr_t>(mainWindowHandle_));
+                });
+            PendingPurgeAck answer;
+            answer.taskId = task.taskId;
+            answer.state = completion.ack;
+            answer.reasonCode = completion.reasonCode;
+            answer.completedAtIso = utcNowIso();
+            pendingPurgeAcks_.push_back(std::move(answer));
+        }
+        if (pendingPurgeAcks_.empty()) {
+            localPurgeInFlight_ = false;
+            return;
+        }
+        const auto dispatcher = root_.DispatcherQueue();
+        const auto alive = alive_;
+        const auto token = capture_->authSessionToken();
+        const auto owner = capture_->currentAccount();
+        if (!owner || token.empty()) { localPurgeInFlight_ = false; pendingPurgeAcks_.clear(); return; }
+        const auto confirmed = *owner;
+        const auto answers = pendingPurgeAcks_;
+        try { std::thread([this, alive, dispatcher, token, confirmed, answers]() mutable {
+            try {
+                winrt::init_apartment(winrt::apartment_type::multi_threaded);
+                graf::windows::DesktopHttpConfig config;
+                config.sessionToken = token;
+                config.workspaceId = confirmed.workspaceId;
+                config.confirmedIdentity = confirmed;
+                config.scopedAccount = graf::windows::DeletionScope{confirmed.userId, confirmed.workspaceId};
+                config.cancellation = std::make_shared<std::atomic_bool>(false);
+                graf::windows::DesktopHttpTransport transport(config);
+                for (const auto& answer : answers) {
+                    (void)transport.acknowledgeLocalPurgeTask(answer.taskId, answer.state, answer.reasonCode,
+                        answer.completedAtIso, *config.scopedAccount);
+                }
+                winrt::uninit_apartment();
+            } catch (...) {}
+            dispatcher.TryEnqueue([this, alive] {
+                if (!alive->load()) return;
+                localPurgeInFlight_ = false;
+                pendingPurgeAcks_.clear();
+                if (capture_) updateLocalRecordings();
+            });
+        }).detach(); } catch (...) { localPurgeInFlight_ = false; pendingPurgeAcks_.clear(); }
+    }
+
+    // The instant the answer names, in the form the server accepts. Empty when the
+    // clock of this machine cannot produce one, which the body then omits.
+    [[nodiscard]] static std::string utcNowIso() {
+        const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+        if (now <= 0) return {};
+        return graf::windows::DesktopApiClient::formatUtcInstant(static_cast<std::uint64_t>(now));
+    }
+
+    // The answer the cabinet is waiting for, read back from the ledger: an accepted
+    // request is one the server named in a receipt, never one that was merely sent.
+    void finishDeletionSelection(graf::windows::WebView2Host::DeletionRequest request,
+                                 const graf::windows::DesktopUploadQueueService::DeletionPlan& plan,
+                                 const std::vector<graf::windows::DesktopUploadQueueService::DeletionRequestPlan>& requests,
+                                 const std::vector<graf::windows::DesktopUploadQueueService::DeletionWireResult>& answers,
+                                 const graf::windows::DesktopAccountIdentity& owner) {
+        auto& ledger = capture_->deletionLedger();
+        for (std::size_t index = 0; index < answers.size() && index < requests.size(); ++index) {
+            (void)ledger.applyDeletionAnswer(requests[index], owner, serverOrigin(), answers[index]);
+        }
+        auto outcome = ledger.deletionSelectionOutcome(plan);
+        outcome.saved = plan.saved;
+        // A local copy the server has never been told about needs no request: it is
+        // removed here, on the thread that owns the files and the window, and the
+        // removal itself is what the cabinet is told about.
+        for (const auto& id : plan.localOnly) {
+            if (capture_->removeLocalCopy(id, mainWindowHandle_) == graf::windows::LocalCopyRemovalResult::removed) {
+                ++outcome.accepted;
+            } else {
+                ++outcome.pending;
+            }
+        }
+        graf::windows::CabinetDeletionOutcome reply;
+        reply.saved = outcome.saved;
+        reply.accepted = outcome.accepted;
+        reply.pending = outcome.pending;
+        reply.rejected = outcome.rejected;
+        cabinet_->webView().completeDeletionSelection(request, reply);
+        updateLocalRecordings();
+        // The server creates the purge task once it has accepted a deletion, so
+        // the next tick is the right moment to look for it rather than a minute
+        // later.
+        if (outcome.accepted != 0) lastLocalPurge_ = 0;
+    }
+
     void confirmLocalAction(hstring title, hstring body, hstring button, std::function<void()> confirmed) {
         if (localActionDialogOpen_) return;
         ContentDialog dialog;
@@ -1400,9 +1984,11 @@ private:
         }
         settingsWindow_ = Window();
         settingsWindow_.AppWindow().Title(L"Настройки GRAF");
-        settingsWindow_.AppWindow().Resize(winrt::Windows::Graphics::SizeInt32{760, 500});
+        // Размер ставится после активации: тогда масштаб окна уже известен.
+
         auto settingsLayout = Grid();
-        settingsLayout.RequestedTheme(ElementTheme::Dark);
+        settingsContent_ = settingsLayout;
+        settingsLayout.RequestedTheme(shellIsDark_ ? ElementTheme::Dark : ElementTheme::Light);
         settingsLayout.Background(themeBrush(L"ApplicationPageBackgroundThemeBrush"));
         auto sidebarColumn = ColumnDefinition();
         sidebarColumn.Width(GridLengthHelper::FromValueAndType(176.0, GridUnitType::Pixel));
@@ -1510,6 +2096,7 @@ private:
             automaticSettingsError_ = nullptr;
         });
         settingsWindow_.Activate();
+        resizeWindowLogical(settingsWindow_, 760, 500, true);
     }
 
     ComboBox automaticPreferencePicker(std::wstring title,
@@ -1538,6 +2125,71 @@ private:
         return picker;
     }
 
+    // The cabinet's automatic-recording page asks this app what it stores, and
+    // saves through it. One store, two surfaces: the native page and the cabinet
+    // page cannot disagree about what an application's rule is.
+    std::string recordingSettingsAnswer() const {
+        const auto settings = automaticPolicy_.settings();
+        std::vector<graf::windows::NativeSettingsBridge::Target> targets;
+        targets.reserve(settings.applications.size());
+        for (const auto& application : settings.applications) {
+            targets.push_back({
+                application.target.targetKey,
+                application.target.displayName,
+                std::string(graf::windows::automaticRecordingPreferenceToken(application.preference))});
+        }
+        return graf::windows::NativeSettingsBridge::settingsReply(targets);
+    }
+
+    std::string answerNativeSettings(const graf::windows::WebView2Host::NativeSettingsRequest& request) {
+        using graf::windows::NativeSettingsBridge::Action;
+        if (request.handler == graf::windows::NativeSettingsBridge::kNotificationSettingsHandler) {
+            // The page reads this state and disables its controls from it. An
+            // edit is refused with the reason, because there is nothing to save.
+            if (graf::windows::NativeSettingsBridge::actionFromToken(request.action) !=
+                graf::windows::NativeSettingsBridge::Action::read) {
+                return graf::windows::NativeSettingsBridge::failureReply(
+                    "Напоминания о встречах в приложении для Windows не поддерживаются.");
+            }
+            return graf::windows::NativeSettingsBridge::notificationSettingsReply({});
+        }
+        if (request.handler != graf::windows::NativeSettingsBridge::kRecordingSettingsHandler) {
+            return graf::windows::NativeSettingsBridge::failureReply("Неизвестная страница настроек.");
+        }
+        const auto action = graf::windows::NativeSettingsBridge::actionFromToken(request.action);
+        if (!action) return graf::windows::NativeSettingsBridge::failureReply("Неизвестное действие.");
+        if (*action == Action::read) return recordingSettingsAnswer();
+        const auto preference = graf::windows::automaticRecordingPreferenceFromToken(request.rule);
+        if (!preference) {
+            return graf::windows::NativeSettingsBridge::failureReply("Неизвестное значение автозаписи.");
+        }
+        bool saved = false;
+        if (*action == Action::setAll) {
+            saved = automaticPolicy_.setAllPreferences(*preference);
+        } else {
+            const auto* target = verifiedTarget(request.targetId);
+            if (!target) return graf::windows::NativeSettingsBridge::failureReply("Приложение не найдено в списке.");
+            saved = automaticPolicy_.setPreference(*target, *preference);
+        }
+        if (!saved) {
+            return graf::windows::NativeSettingsBridge::failureReply(
+                "Настройки не сохранены. Предыдущий выбор продолжает действовать.");
+        }
+        automaticPreferenceError_ = false;
+        // The native page shows the same store, so it is brought to the state that
+        // was just saved; the cabinet page is answered with that same state.
+        refreshAutomaticSettings();
+        return recordingSettingsAnswer();
+    }
+
+    const graf::windows::VerifiedTargetIdentity* verifiedTarget(std::string_view targetKey) const {
+        if (targetKey.empty()) return nullptr;
+        for (const auto& target : verifiedTargets_.targets()) {
+            if (target.targetKey == targetKey) return &target;
+        }
+        return nullptr;
+    }
+
     void refreshAutomaticSettings() {
         if (!bulkAutomaticPreference_) return;
         const auto settings = automaticPolicy_.settings();
@@ -1551,6 +2203,7 @@ private:
         for (const auto& [target, picker] : automaticPreferencePickers_)
             picker.SelectedIndex(index(automaticPolicy_.preference(target)));
         updatingAutomaticPreferences_ = false;
+        if (cabinet_) cabinet_->webView().refreshNativeSettings();
         const auto failed = automaticPreferenceError_ || settings.preferenceWriteFailed;
         automaticSettingsError_.Text(failed ? L"Настройки не сохранены. Предыдущий выбор продолжает действовать." : L"");
         automaticSettingsError_.Visibility(failed ? Visibility::Visible : Visibility::Collapsed);
@@ -1640,9 +2293,10 @@ private:
             automaticPromptTargetKey_ = key;
             const auto generation = ++automaticPromptGeneration_;
             automaticPromptWindow_.AppWindow().Title(L"Автозапись GRAF");
-            automaticPromptWindow_.AppWindow().Resize(winrt::Windows::Graphics::SizeInt32{520, 300});
+            resizeWindowLogical(automaticPromptWindow_, 520, 300);
             StackPanel content;
-            content.RequestedTheme(ElementTheme::Dark);
+            automaticPromptContent_ = content;
+            content.RequestedTheme(shellIsDark_ ? ElementTheme::Dark : ElementTheme::Light);
             content.Background(themeBrush(L"ApplicationPageBackgroundThemeBrush"));
             content.Padding(Thickness{24, 20, 24, 20});
             content.Spacing(14);
@@ -1752,7 +2406,9 @@ private:
         if (!capture_ || !capture_->indicator().visible) { window_.Close(); return; }
         exitRequested_ = true;
         automaticPolicy_.cancel();
-        (void)capture_->stop();
+        // Closing the app while recording is a termination, not a Stop, so the
+        // short-recording threshold must not discard the fragment.
+        (void)capture_->stop(graf::windows::RecordingStopReason::interruption);
         // Keep the window/indicator alive until UI polling finalizes the local
         // package and queue after both native workers have actually stopped.
     }
@@ -1763,9 +2419,10 @@ private:
                 indicatorWindow_ = Window();
                 indicatorWindow_.AppWindow().Title(L"Запись — GRAF");
                 indicatorWindow_.AppWindow().SetPresenter(winrt::Microsoft::UI::Windowing::AppWindowPresenterKind::CompactOverlay);
-                indicatorWindow_.AppWindow().Resize(winrt::Windows::Graphics::SizeInt32{360, 150});
+                resizeWindowLogical(indicatorWindow_, 360, 150);
                 auto panel = StackPanel();
-                panel.RequestedTheme(ElementTheme::Dark);
+                indicatorPanel_ = panel;
+                panel.RequestedTheme(shellIsDark_ ? ElementTheme::Dark : ElementTheme::Light);
                 panel.Background(themeBrush(L"ApplicationPageBackgroundThemeBrush"));
                 panel.Padding(Thickness{12, 8, 12, 8});
                 panel.Spacing(8);
@@ -1869,11 +2526,12 @@ private:
     void refreshNativeState() {
         if (!capture_ || shuttingDown_) return;
         capture_->pollHealth();
+        capture_->tickNotice();
         if (exitRequested_ && !capture_->indicator().visible) { window_.Close(); return; }
         if (capture_->indicator().state == graf::windows::SessionState::recording && recordingStartedAt_ == 0) {
             recordingStartedAt_ = GetTickCount64();
         }
-        refreshShellPalette();
+        refreshShellPalette(shellIsDark_);
         if (cabinet_) {
             backButton_.IsEnabled(cabinet_->webView().canGoBack());
             forwardButton_.IsEnabled(cabinet_->webView().canGoForward());
@@ -1881,9 +2539,20 @@ private:
         const auto now = GetTickCount64();
         if (lastStateTick_ && now - lastStateTick_ > 5000) capture_->recover(graf::windows::RecoveryTrigger::wake);
         lastStateTick_ = now;
-        if (now - lastUploadRecovery_ >= 30000) {
+        // The ordinary cadence, held back while the server is asking for a pause:
+        // a 429 answered with Retry-After must not be followed by a retry the
+        // server already refused.
+        if (now - lastUploadRecovery_ >= 30000 && capture_->uploadDeferralRemainingMs() == 0) {
             capture_->recover(graf::windows::RecoveryTrigger::scheduled);
+            capture_->finishPendingLocalDeletions(mainWindowHandle_);
             lastUploadRecovery_ = now;
+        }
+        // The server asks this device to remove the local copies of a meeting it
+        // deleted. The pass runs at most once a minute, and only while nothing else
+        // owns the files.
+        if (now - lastLocalPurge_ >= 60000) {
+            lastLocalPurge_ = now;
+            startLocalPurgePass();
         }
         capture_->pollUploads();
         updateLocalRecordings();
@@ -2085,6 +2754,28 @@ private:
     ULONGLONG lastStateTick_ = 0;
     bool exitRequested_ = false;
     ULONGLONG lastUploadRecovery_ = 0;
+    std::function<void(std::int64_t)> sessionExpiryHandler_;
+    // The appearance the cabinet asked for. The app starts with the system one,
+    // which is what macOS shows before the page announces its own.
+    // Объявление кабинета как есть и решённая тема: «system» — это не тема, а
+    // указание спросить систему.
+    std::string announcedAppearance_ = "system";
+    bool shellIsDark_ = true;
+    bool mainWindowSized_ = false;
+    Grid settingsContent_{nullptr};
+    StackPanel automaticPromptContent_{nullptr};
+    StackPanel indicatorPanel_{nullptr};
+    // The purge pass: at most one at a time, and the answers it has prepared but
+    // not yet sent.
+    bool localPurgeInFlight_ = false;
+    ULONGLONG lastLocalPurge_ = 0;
+    struct PendingPurgeAck {
+        std::string taskId;
+        graf::windows::LocalPurgeAckState state = graf::windows::LocalPurgeAckState::failed;
+        std::string reasonCode;
+        std::string completedAtIso;
+    };
+    std::vector<PendingPurgeAck> pendingPurgeAcks_;
     graf::windows::VerifiedTargetRegistry verifiedTargets_{graf::windows::VerifiedTargetRegistry::bundled()};
     graf::windows::AutomaticRecordingPolicy automaticPolicy_{verifiedTargets_};
     Window automaticPromptWindow_{nullptr};

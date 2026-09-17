@@ -5,6 +5,7 @@
 
 #include <array>
 #include <charconv>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <regex>
@@ -120,20 +121,42 @@ LocalRecordingPackageSnapshot LocalRecordingPackage::inspect(
 
     // Exact bounded serialization emitted by the Windows writer, including its
     // pre-capture-status form. Do not infer validity from matching substrings.
+    // The wall-clock bounds stay optional so a package written before they
+    // existed is still readable and simply carries no time to report.
     static const std::regex shape(
-        R"manifest(\{"schema_version":"local-recording-manifest\.v5","canonical_mix_profile":"canonical-mix\.v1","source_kind":"initial_mixed_recording","media_scribe_source_mode":"single_wav_v1"(?:,"capture_status":"(normal|degraded)","capture_reason_code":"([a-z_]+)")?,"duration_ms":([0-9]+),"artifacts":\{"media":\{"bytes":([0-9]+),"sha256":"([0-9a-f]{64})"\},"playback":\{"bytes":([0-9]+),"sha256":"([0-9a-f]{64})"\}\}\})manifest");
+        R"manifest(\{"schema_version":"local-recording-manifest\.v5","canonical_mix_profile":"canonical-mix\.v1","source_kind":"initial_mixed_recording","media_scribe_source_mode":"single_wav_v1"(?:,"capture_status":"(normal|degraded)","capture_reason_code":"([a-z_]+)")?,"duration_ms":([0-9]+)(?:,"started_at_ms":([0-9]+),"stopped_at_ms":([0-9]+),"display_timezone_offset_minutes":(-?[0-9]+))?,"artifacts":\{"media":\{"bytes":([0-9]+),"sha256":"([0-9a-f]{64})"\},"playback":\{"bytes":([0-9]+),"sha256":"([0-9a-f]{64})"\}\}\})manifest");
     std::smatch fields;
     std::uint64_t durationMs = 0, wavBytes = 0, playbackBytes = 0;
     if (!std::regex_match(json, fields, shape) ||
         !parseNumber(fields[3].str(), durationMs) || durationMs == 0 ||
-        !parseNumber(fields[4].str(), wavBytes) ||
-        !parseNumber(fields[6].str(), playbackBytes)) {
+        !parseNumber(fields[7].str(), wavBytes) ||
+        !parseNumber(fields[9].str(), playbackBytes)) {
         result.integrity = PackageIntegrity::malformed;
         return result;
     }
-    const bool mediaValid = matchesArtifact(directory, wav, wavBytes, fields[5].str()) &&
+    // An impossible bound is dropped instead of trusted; the duration stays
+    // authoritative for the package itself, and no time is reported.
+    std::uint64_t startedAtMs = 0, stoppedAtMs = 0;
+    int displayOffsetMinutes = 0;
+    if (fields[4].matched && fields[5].matched && parseNumber(fields[4].str(), startedAtMs) &&
+        parseNumber(fields[5].str(), stoppedAtMs) && startedAtMs != 0 && stoppedAtMs >= startedAtMs) {
+        const auto offset = std::strtol(fields[6].str().c_str(), nullptr, 10);
+        if (offset < -14 * 60 || offset > 14 * 60) {
+            startedAtMs = 0;
+            stoppedAtMs = 0;
+        } else {
+            displayOffsetMinutes = static_cast<int>(offset);
+        }
+    } else {
+        startedAtMs = 0;
+        stoppedAtMs = 0;
+    }
+    result.startedAtMs = startedAtMs;
+    result.stoppedAtMs = stoppedAtMs;
+    result.displayTimezoneOffsetMinutes = displayOffsetMinutes;
+    const bool mediaValid = matchesArtifact(directory, wav, wavBytes, fields[8].str()) &&
         canonicalWav(wav, wavBytes, durationMs);
-    const bool playbackMatches = matchesArtifact(directory, playback, playbackBytes, fields[7].str());
+    const bool playbackMatches = matchesArtifact(directory, playback, playbackBytes, fields[10].str());
     const bool degraded = retained || fields[1].str() == "degraded" ||
         (fields[2].matched && fields[2].str() != "none");
     result.integrity = mediaValid && playbackMatches

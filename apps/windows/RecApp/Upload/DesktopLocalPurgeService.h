@@ -9,6 +9,11 @@ enum class LocalPurgeProof {
     none,
     // Native user confirmation only; never server deletion/ACK evidence.
     userConfirmedLocalCopy,
+    // A purge task the server created after it deleted the meeting, matched to
+    // this row by the meeting identifier the server itself returned. Only the
+    // purge pass may pass this value: the user did not confirm this copy, so it
+    // must never be reachable from a menu action.
+    serverRequestedPurge,
 };
 
 class DesktopLocalPurgeService final {

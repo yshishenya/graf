@@ -46,22 +46,6 @@ std::optional<std::string> accountField(
 
 constexpr std::size_t kMaxJsonResponseBytes = 2 * 1024 * 1024;
 
-std::string jsonEscape(std::string_view value) {
-    std::string result;
-    result.reserve(value.size());
-    for (const char character : value) {
-        switch (character) {
-        case '\\': result += "\\\\"; break;
-        case '"': result += "\\\""; break;
-        case '\n': result += "\\n"; break;
-        case '\r': result += "\\r"; break;
-        case '\t': result += "\\t"; break;
-        default: result += character; break;
-        }
-    }
-    return result;
-}
-
 #endif
 
 std::optional<std::string> jsonStringField(std::string_view json, std::string_view key) {
@@ -161,9 +145,17 @@ struct LocalTrack {
     std::string sha256;
 };
 
-std::optional<std::vector<LocalTrack>> packageTracks(const UploadCustodyItem& item, std::uint32_t* durationSeconds) {
+std::optional<std::vector<LocalTrack>> packageTracks(const UploadCustodyItem& item, std::uint32_t* durationSeconds,
+                                                     std::uint64_t* startedAtMs = nullptr,
+                                                     std::uint64_t* stoppedAtMs = nullptr,
+                                                     int* displayOffsetMinutes = nullptr) {
     const auto snapshot = LocalRecordingPackage::inspect(item.packageDirectory);
     if (snapshot.integrity != PackageIntegrity::valid) return std::nullopt;
+    // The snapshot already validated the wall-clock bounds, including rejecting
+    // an impossible pair, so they are taken from it rather than re-read here.
+    if (startedAtMs != nullptr) *startedAtMs = snapshot.startedAtMs;
+    if (stoppedAtMs != nullptr) *stoppedAtMs = snapshot.stoppedAtMs;
+    if (displayOffsetMinutes != nullptr) *displayOffsetMinutes = snapshot.displayTimezoneOffsetMinutes;
     const auto manifestPath = item.packageDirectory / "manifest.json";
     const auto manifest = readBoundedText(manifestPath, 256 * 1024);
     if (manifest.empty()) return std::nullopt;
@@ -207,7 +199,22 @@ struct HttpResponse {
     DWORD status = 0;
     std::string body;
     bool transportFailed = false;
+    std::string retryAfter;
+    std::string authExpiresAt;
 };
+
+// A response header that must be ASCII digits and nothing else. macOS reads the
+// same header with the same rule, so a decorated or localized value is not a
+// deadline on either platform.
+std::optional<std::int64_t> parseEpochSeconds(std::string_view raw) {
+    if (raw.empty() || raw.size() > 19) return std::nullopt;
+    std::int64_t value = 0;
+    for (const char character : raw) {
+        if (character < '0' || character > '9') return std::nullopt;
+        value = value * 10 + (character - '0');
+    }
+    return value;
+}
 
 struct ByteRange {
     std::uint64_t start = 0;
@@ -299,6 +306,16 @@ HttpResponse request(const DesktopHttpConfig& config, std::wstring method, std::
     if (byteOffset) headers += L"X-Byte-Offset: " + std::to_wstring(*byteOffset) + L"\r\n";
     if (!contentSha256.empty()) headers += L"X-Content-SHA256: " + utf8ToWide(contentSha256) + L"\r\n";
     if (!config.sessionToken.empty()) headers += L"X-Auth-Session: " + utf8ToWide(config.sessionToken) + L"\r\n";
+    // A scoped mutation declares which account it is for. Both identifiers are
+    // validated before they are serialized, so a malformed scope cannot travel
+    // as a header the server would read as permission for another actor.
+    if (config.scopedAccount) {
+        const auto scoped = DesktopApiClient::scopedAccountHeaders(*config.scopedAccount);
+        if (scoped.size() == 2) {
+            headers += utf8ToWide(scoped[0].first) + L": " + utf8ToWide(scoped[0].second) + L"\r\n";
+            headers += utf8ToWide(scoped[1].first) + L": " + utf8ToWide(scoped[1].second) + L"\r\n";
+        }
+    }
     headers += jsonBody ? L"Content-Type: application/json\r\n" : L"Content-Type: application/octet-stream\r\n";
     const auto sent = !cancelled(config) && WinHttpSendRequest(handle, headers.c_str(), static_cast<DWORD>(headers.size()),
         body.empty() ? WINHTTP_NO_REQUEST_DATA : const_cast<char*>(body.data()), static_cast<DWORD>(body.size()),
@@ -309,6 +326,49 @@ HttpResponse request(const DesktopHttpConfig& config, std::wstring method, std::
         DWORD statusSize = sizeof(result.status);
         WinHttpQueryHeaders(handle, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
                             WINHTTP_HEADER_NAME_BY_INDEX, &result.status, &statusSize, WINHTTP_NO_HEADER_INDEX);
+        // The header is read only so the scheduler can wait as long as the server
+        // asked; it never changes what the response means.
+        DWORD retrySize = 0;
+        WinHttpQueryHeaders(handle, WINHTTP_QUERY_CUSTOM, L"Retry-After",
+                            WINHTTP_NO_OUTPUT_BUFFER, &retrySize, WINHTTP_NO_HEADER_INDEX);
+        if (retrySize > sizeof(wchar_t) && retrySize <= 256) {
+            std::wstring raw(retrySize / sizeof(wchar_t), L'\0');
+            if (WinHttpQueryHeaders(handle, WINHTTP_QUERY_CUSTOM, L"Retry-After", raw.data(), &retrySize,
+                                    WINHTTP_NO_HEADER_INDEX)) {
+                raw.resize(std::wstring::traits_type::length(raw.c_str()));
+                // Only ASCII digits are usable; anything else is left empty so the
+                // client falls back to the macOS default instead of guessing.
+                bool usable = !raw.empty();
+                for (const auto character : raw) {
+                    if (character < 0x20 || character > 0x7e) { usable = false; break; }
+                }
+                if (usable) {
+                    result.retryAfter.reserve(raw.size());
+                    for (const auto character : raw) result.retryAfter.push_back(static_cast<char>(character));
+                }
+            }
+        }
+        // The server renewed its session while answering, and the deadline it
+        // names is what the cabinet's own cookie has to learn. The header is read
+        // the same way macOS reads it: digits only, or nothing at all.
+        DWORD expirySize = 0;
+        WinHttpQueryHeaders(handle, WINHTTP_QUERY_CUSTOM, L"X-GRAF-Auth-Expires-At",
+                            WINHTTP_NO_OUTPUT_BUFFER, &expirySize, WINHTTP_NO_HEADER_INDEX);
+        if (expirySize > sizeof(wchar_t) && expirySize <= 64) {
+            std::wstring raw(expirySize / sizeof(wchar_t), L'\0');
+            if (WinHttpQueryHeaders(handle, WINHTTP_QUERY_CUSTOM, L"X-GRAF-Auth-Expires-At", raw.data(), &expirySize,
+                                    WINHTTP_NO_HEADER_INDEX)) {
+                raw.resize(std::wstring::traits_type::length(raw.c_str()));
+                bool digestible = !raw.empty();
+                for (const auto character : raw) {
+                    if (character < L'0' || character > L'9') { digestible = false; break; }
+                }
+                if (digestible) {
+                    result.authExpiresAt.reserve(raw.size());
+                    for (const auto character : raw) result.authExpiresAt.push_back(static_cast<char>(character));
+                }
+            }
+        }
         while (result.body.size() < kMaxJsonResponseBytes) {
             if (cancelled(config) || std::chrono::steady_clock::now() >= deadline) {
                 result.transportFailed = true;
@@ -402,6 +462,18 @@ std::optional<std::string> nestedStringField(std::string_view json, std::string_
     return jsonStringField(*object, field);
 }
 
+// Server statuses are compared the way the macOS client compares them: case and
+// surrounding whitespace must not decide whether accepted media is re-uploaded.
+std::string normalizedStatus(std::string value) {
+    const auto notSpace = [](unsigned char character) { return std::isspace(character) == 0; };
+    const auto first = std::find_if(value.begin(), value.end(), notSpace);
+    const auto last = std::find_if(value.rbegin(), value.rend(), notSpace).base();
+    std::string result(first, last);
+    std::transform(result.begin(), result.end(), result.begin(),
+                   [](unsigned char character) { return static_cast<char>(std::tolower(character)); });
+    return result;
+}
+
 } // namespace
 
 std::optional<DesktopRemoteUploadState> DesktopHttpTransport::decodeSyncState(
@@ -412,6 +484,7 @@ std::optional<DesktopRemoteUploadState> DesktopHttpTransport::decodeSyncState(
     result.meetingId = *meetingId;
     result.truth.localRecordingId = std::string(localRecordingId);
     result.truth.meetingExists = true;
+    result.truth.meetingId = *meetingId;
     if (const auto session = jsonObjectField(json, "upload_session")) {
         if (const auto id = jsonStringField(*session, "session_id")) {
             if (!isSafeIdentifier(*id)) return std::nullopt;
@@ -421,10 +494,47 @@ std::optional<DesktopRemoteUploadState> DesktopHttpTransport::decodeSyncState(
         if (const auto status = jsonStringField(*session, "status")) result.sessionStatus = *status;
         if (const auto accepted = acceptedBytes(*session)) result.truth.acceptedBytes = *accepted;
     }
+    // The server's own fingerprint: which revision it accepted, which session
+    // carries it and how far the meeting and its processing have come. macOS
+    // keeps the same values in its queue row.
+    if (const auto revision = jsonObjectField(json, "media_revision")) {
+        if (const auto id = jsonStringField(*revision, "media_revision_id"))
+            result.truth.mediaRevisionId = *id;
+        // The revision status is a lifecycle state of its own; it is kept as the
+        // server names it and never guessed from the upload session.
+        if (const auto status = jsonStringField(*revision, "status"))
+            result.truth.mediaRevisionStatus = normalizedStatus(*status);
+    }
+    if (result.truth.uploadSessionExists) result.truth.uploadSessionId = result.sessionId;
+    if (const auto meetingStatus = nestedStringField(json, "meeting", "status"))
+        result.truth.serverStatus = normalizedStatus(*meetingStatus);
+    if (const auto processing = jsonObjectField(json, "processing")) {
+        if (const auto status = jsonStringField(*processing, "status"))
+            result.truth.processingStatus = normalizedStatus(*status);
+    }
     const auto conflictState = nestedStringField(json, "conflict", "state");
     if (!conflictState) return std::nullopt;
-    const bool finalized = result.truth.uploadSessionExists &&
-        (result.sessionStatus == "finalized" || result.sessionStatus == "degraded");
+    // The server owns the retry classification. The Windows port records it and
+    // lets the scheduler act on it instead of retrying every conflict blindly.
+    if (const auto custody = jsonObjectField(json, "custody")) {
+        if (const auto retryClass = jsonStringField(*custody, "retry_class"))
+            result.retryClass = normalizedStatus(*retryClass);
+    }
+    // The server drops terminal upload sessions from its active selection, so a
+    // finalize whose response was lost comes back as no session at all. The
+    // meeting status is then the only server-owned evidence that this revision
+    // was already accepted. Without it the client creates a second session for
+    // an immutable revision, gets media_revision_immutable and burns its retry
+    // budget instead of moving the item to uploaded. The accepted statuses are
+    // the same ones the macOS client treats as finalized.
+    const auto meetingStatus = nestedStringField(json, "meeting", "status");
+    const bool meetingFinalized = meetingStatus.has_value() &&
+        (normalizedStatus(*meetingStatus) == "ingested_pending_processing" ||
+         normalizedStatus(*meetingStatus) == "degraded");
+    const bool finalized = meetingFinalized ||
+        (result.truth.uploadSessionExists &&
+         (normalizedStatus(result.sessionStatus) == "finalized" ||
+          normalizedStatus(result.sessionStatus) == "degraded"));
     // Processing is a separate lifecycle: a lost finalize response must not
     // turn already accepted media back into an upload retry.
     const bool processingOnly = *conflictState == "processing_failed" || *conflictState == "processing_blocked";
@@ -446,7 +556,7 @@ bool isUnknownRecording(const HttpResponse& response) {
 
 DesktopTransportStatus uploadFile(const DesktopHttpConfig& config, const LocalTrack& track, std::string_view sessionId,
                                   const std::vector<ByteRange>& ranges,
-                                  std::array<std::uint64_t, 3>* accepted) {
+                                  std::array<std::uint64_t, 3>* accepted, std::uint32_t* retryAfter) {
     std::ifstream input(track.path, std::ios::binary);
     if (!input) return DesktopTransportStatus::invalidPackage;
     if (sha256File(track.path) != track.sha256) return DesktopTransportStatus::invalidPackage;
@@ -464,7 +574,12 @@ DesktopTransportStatus uploadFile(const DesktopHttpConfig& config, const LocalTr
                 utf8ToWide(track.role) + L"/parts/" + std::to_wstring(offset / partSize);
             const auto response = request(config, L"PUT", path, data, false, {}, offset, sha256(data));
             const auto status = mapResponse(response);
-            if (status != DesktopTransportStatus::uploaded) return status;
+            if (status != DesktopTransportStatus::uploaded) {
+                if (retryAfter != nullptr) {
+                    *retryAfter = DesktopHttpTransport::rateLimitPauseSeconds(response.status, response.retryAfter);
+                }
+                return status;
+            }
             const auto acceptedOffset = jsonNumberField(response.body, "byte_offset");
             const auto acceptedLength = jsonNumberField(response.body, "byte_length");
             if (!acceptedOffset || !acceptedLength || *acceptedOffset != offset || *acceptedLength != length) {
@@ -480,6 +595,30 @@ DesktopTransportStatus uploadFile(const DesktopHttpConfig& config, const LocalTr
 #endif
 
 } // namespace
+
+std::optional<std::int64_t> DesktopHttpTransport::epochSecondsFromHeader(std::string_view raw) {
+    return parseEpochSeconds(raw);
+}
+
+std::uint32_t DesktopHttpTransport::rateLimitPauseSeconds(std::uint32_t status, std::string_view retryAfter) {
+    // Only a rate limit is a request to wait. An unavailable endpoint keeps the
+    // client's own schedule, which is what macOS does as well.
+    if (status != 429) return 0;
+    // macOS reads the same header and falls back to 60 s, so a value this client
+    // cannot read must never turn into "retry immediately".
+    constexpr std::uint32_t fallback = 60;
+    constexpr std::uint32_t maximum = 24 * 60 * 60;
+    if (retryAfter.empty()) return fallback;
+    std::uint64_t seconds = 0;
+    for (const auto character : retryAfter) {
+        if (character < '0' || character > '9') return fallback;
+        seconds = seconds * 10 + static_cast<std::uint64_t>(character - '0');
+        if (seconds >= maximum) return maximum;
+    }
+    // "Retry-After: 0" is not a pause, and the server may not mean "now".
+    if (seconds == 0) return fallback;
+    return static_cast<std::uint32_t>(seconds);
+}
 
 DesktopHttpTransport::DesktopHttpTransport(DesktopHttpConfig config)
     : config_(std::move(config)) {
@@ -520,10 +659,27 @@ std::optional<std::string> DesktopHttpTransport::decodeActiveWorkspace(std::stri
 }
 
 DesktopHttpTransport::IdentityResult DesktopHttpTransport::accountIdentity(const IdentityGet& get) const {
-    if (cancelled(config_)) return {std::nullopt, DesktopTransportStatus::retryableFailure};
-    if (!get || config_.sessionToken.empty() ||
-        (!config_.workspaceId.empty() && !DesktopApiClient::accountId(config_.workspaceId))) return {};
-    auto config = config_;
+    return resolveAccountIdentity(config_, get);
+}
+
+DesktopHttpTransport::IdentityResult DesktopHttpTransport::resolveAccountIdentity(
+    const DesktopHttpConfig& confirmed, const IdentityGet& get) {
+    if (cancelled(confirmed)) return {std::nullopt, DesktopTransportStatus::retryableFailure};
+    // The shell confirms the account once for the session it holds. Asking again
+    // for every attempt adds a request the server has already answered and gives
+    // a rate limiter one more reason to answer 429. The snapshot is not authority
+    // on its own: it must still describe a real account and agree with the
+    // workspace it travels with, and it is cleared on any session change.
+    if (confirmed.confirmedIdentity) {
+        const auto& identity = *confirmed.confirmedIdentity;
+        if (!DesktopApiClient::accountId(identity.userId) || !DesktopApiClient::accountId(identity.workspaceId))
+            return {};
+        if (!confirmed.workspaceId.empty() && confirmed.workspaceId != identity.workspaceId) return {};
+        return {identity, DesktopTransportStatus::uploaded};
+    }
+    if (!get || confirmed.sessionToken.empty() ||
+        (!confirmed.workspaceId.empty() && !DesktopApiClient::accountId(confirmed.workspaceId))) return {};
+    auto config = confirmed;
     config.deviceId.clear();
     IdentityResult result;
     const auto read = [&](std::string_view path) -> std::optional<std::string> {
@@ -564,7 +720,104 @@ DesktopHttpTransport::IdentityResponse requestIdentity(const DesktopHttpConfig& 
     return {0, {}, true};
 #endif
 }
+
+// One deletion-protocol call. Nothing is sent without a scope that names a real
+// account: the server would read a request without the expected-account headers
+// as an unscoped one, which is exactly the ambiguity the gate exists to remove.
+DesktopDeletionResponse deletionCall(const DesktopHttpConfig& base, const DeletionScope& scope,
+                                     std::wstring method, std::string_view path, const std::string& body) {
+    DesktopDeletionResponse result;
+    // The local refusals come first and read the same on every platform: a scope
+    // that does not name a real account, or a session there is nothing to delete
+    // with, is never sent.
+    if (DesktopApiClient::scopedAccountHeaders(scope).size() != 2) {
+        result.safeReason = "invalid_scope";
+        return result;
+    }
+    if (base.sessionToken.empty()) {
+        result.safeReason = "auth_required";
+        return result;
+    }
+#ifndef _WIN32
+    (void)method; (void)path; (void)body;
+    result.transportFailed = true;
+    return result;
+#else
+    auto config = base;
+    config.scopedAccount = scope;
+    const auto response = request(config, std::move(method), utf8ToWide(path), body, true);
+    result.status = response.status;
+    result.body = response.body;
+    result.transportFailed = response.transportFailed;
+    result.retryAfterSeconds = DesktopHttpTransport::rateLimitPauseSeconds(response.status, response.retryAfter);
+    result.authExpiresAt = parseEpochSeconds(response.authExpiresAt);
+    return result;
+#endif
+}
 } // namespace
+
+DesktopDeletionResponse DesktopHttpTransport::notificationContext(const DeletionScope& scope) const {
+    return deletionCall(config_, scope, L"GET", DesktopApiClient::notificationContextPath, {});
+}
+
+DesktopDeletionResponse DesktopHttpTransport::requestDeletion(std::string_view path, std::string body,
+                                                              const DeletionScope& scope) const {
+    if (path.empty()) {
+        DesktopDeletionResponse result;
+        result.safeReason = "invalid_target";
+        return result;
+    }
+    return deletionCall(config_, scope, L"POST", path, body);
+}
+
+DesktopDeletionResponse DesktopHttpTransport::recordingLifecycle(const std::vector<std::string>& origins,
+                                                                const std::vector<std::string>& meetingIds,
+                                                                const DeletionScope& scope) const {
+    if (!DesktopApiClient::validLifecycleSelection(origins, meetingIds, kLifecycleSelectionLimit)) {
+        DesktopDeletionResponse result;
+        result.safeReason = "invalid_selection";
+        return result;
+    }
+    return deletionCall(config_, scope, L"POST", DesktopApiClient::lifecyclePath,
+                        DesktopApiClient::lifecycleBody(origins, meetingIds));
+}
+
+DesktopDeletionResponse DesktopHttpTransport::ensureLocalPurgeTask(std::string_view meetingId,
+                                                                  const DeletionScope& scope) const {
+    const auto path = DesktopApiClient::localPurgeTaskPath(meetingId);
+    if (path.empty()) {
+        DesktopDeletionResponse result;
+        result.safeReason = "invalid_target";
+        return result;
+    }
+    return deletionCall(config_, scope, L"POST", path, {});
+}
+
+DesktopDeletionResponse DesktopHttpTransport::localPurgeTasks(const DeletionScope& scope) const {
+    return deletionCall(config_, scope, L"GET", DesktopApiClient::purgeTasksPath, {});
+}
+
+DesktopDeletionResponse DesktopHttpTransport::acknowledgeLocalPurgeTask(std::string_view taskId,
+                                                                       LocalPurgeAckState state,
+                                                                       std::string_view reasonCode,
+                                                                       std::string_view completedAtIso,
+                                                                       const DeletionScope& scope) const {
+    const auto path = DesktopApiClient::localPurgeAckPath(taskId);
+    if (path.empty()) {
+        DesktopDeletionResponse result;
+        result.safeReason = "invalid_target";
+        return result;
+    }
+    // The answer carries a proof code from the client's own vocabulary; an empty
+    // or malformed one would tell the server nothing about the local copies.
+    const auto body = DesktopApiClient::localPurgeAckBody(state, reasonCode, config_.clientVersion, completedAtIso);
+    if (body.empty()) {
+        DesktopDeletionResponse result;
+        result.safeReason = "invalid_body";
+        return result;
+    }
+    return deletionCall(config_, scope, L"POST", path, body);
+}
 
 std::optional<DesktopAccountIdentity> DesktopHttpTransport::accountIdentity() const {
     return accountIdentity(requestIdentity).identity;
@@ -600,22 +853,34 @@ DesktopTransportResult DesktopHttpTransport::upload(const UploadCustodyItem& ite
     return {DesktopTransportStatus::unsupportedPlatform, std::nullopt};
 #else
     std::uint32_t durationSeconds = 0;
-    const auto tracks = packageTracks(item, &durationSeconds);
+    std::uint64_t startedAtMs = 0;
+    std::uint64_t stoppedAtMs = 0;
+    int displayOffsetMinutes = 0;
+    const auto tracks = packageTracks(item, &durationSeconds, &startedAtMs, &stoppedAtMs, &displayOffsetMinutes);
     if (!tracks || !isSafeIdentifier(item.directoryId) || !isSafeIdentifier(item.localRecordingId) ||
         !isSafeIdentifier(item.sessionId)) {
         return {DesktopTransportStatus::invalidPackage, std::nullopt};
     }
-    // Resolve with the same copied session used by every following request.
-    // This precedes sync-state too: recording_not_found is not claim authority.
-    const auto account = accountIdentity(requestIdentity);
+    // Resolve with the same copied session used by every following request, and
+    // prefer the snapshot the shell confirmed for it. This precedes sync-state
+    // too: recording_not_found is not claim authority.
+    const auto account = resolveAccountIdentity(config_, requestIdentity);
     const auto block = ownerBlockReason(item, account.identity);
     if (!block.empty()) return {account.identity ? DesktopTransportStatus::authRequired : account.status,
                                std::nullopt, std::string(block)};
     UploadServerTruth truth;
     truth.localRecordingId = item.localRecordingId;
     const auto localRevision = item.directoryId + "--initial";
-    auto withTruth = [&truth](DesktopTransportStatus status) {
-        return DesktopTransportResult{status, truth.meetingExists ? std::optional<UploadServerTruth>(truth) : std::nullopt};
+    // A 429 is the server asking the client to wait, so the pause travels with
+    // the result and the scheduler holds the attempt until it elapses instead of
+    // spending the retry budget on a request the server just refused.
+    auto withTruth = [&truth](DesktopTransportStatus status, const HttpResponse* response = nullptr) {
+        DesktopTransportResult result{status, truth.meetingExists ? std::optional<UploadServerTruth>(truth) : std::nullopt};
+        if (response != nullptr) {
+            result.retryAfterSeconds = DesktopHttpTransport::rateLimitPauseSeconds(response->status, response->retryAfter);
+            result.authExpiresAt = parseEpochSeconds(response->authExpiresAt);
+        }
+        return result;
     };
 
     std::optional<DesktopRemoteUploadState> remote;
@@ -626,11 +891,18 @@ DesktopTransportResult DesktopHttpTransport::upload(const UploadCustodyItem& ite
         remote = std::nullopt;
     } else {
         const auto syncStatus = mapResponse(response);
-        if (syncStatus != DesktopTransportStatus::uploaded) return withTruth(syncStatus);
+        if (syncStatus != DesktopTransportStatus::uploaded) return withTruth(syncStatus, &response);
         remote = decodeSyncState(response.body, item.localRecordingId);
         if (!remote) return withTruth(DesktopTransportStatus::serverRejected);
         truth = remote->truth;
-        if (remote->blockedByConflict) return withTruth(DesktopTransportStatus::serverRejected);
+        if (remote->blockedByConflict) {
+            // A conflict the server classified as paused or not retryable must
+            // not become another automatic attempt. The class travels with the
+            // result so the queue can stop and show the real reason.
+            auto blocked = withTruth(DesktopTransportStatus::serverRejected);
+            blocked.retryClass = remote->retryClass;
+            return blocked;
+        }
         if (truth.finalized) {
             return withTruth(DesktopTransportStatus::uploaded);
         }
@@ -639,23 +911,19 @@ DesktopTransportResult DesktopHttpTransport::upload(const UploadCustodyItem& ite
     std::string meetingId = remote ? remote->meetingId : std::string{};
     if (meetingId.empty()) {
         const auto meetingRequest = DesktopApiClient::createMeetingRequest(
-            item.directoryId, localRevision, durationSeconds);
+            item.directoryId, localRevision, durationSeconds, startedAtMs, stoppedAtMs, displayOffsetMinutes);
         if (!meetingRequest) return withTruth(DesktopTransportStatus::invalidPackage);
-        const auto createBody = std::string("{\"local_recording_id\":\"") +
-            jsonEscape(meetingRequest->localRecordingId) +
-            "\",\"local_media_revision_id\":\"" + jsonEscape(meetingRequest->localMediaRevisionId) +
-            "\",\"source_kind\":\"" + jsonEscape(meetingRequest->sourceKind) +
-            "\",\"media_scribe_source_mode\":\"" + jsonEscape(meetingRequest->mediaScribeSourceMode) +
-            "\",\"duration_seconds\":" + std::to_string(meetingRequest->durationSeconds) + "}";
+        const auto createBody = DesktopApiClient::createMeetingBody(*meetingRequest);
         const auto meetingKey = DesktopApiClient::idempotencyKey("meeting", item.directoryId, item.sessionId);
         if (meetingKey.empty()) return withTruth(DesktopTransportStatus::invalidPackage);
         response = request(config_, L"POST", L"/api/v1/meetings", createBody, true, meetingKey);
         const auto status = mapResponse(response);
-        if (status != DesktopTransportStatus::uploaded) return withTruth(status);
+        if (status != DesktopTransportStatus::uploaded) return withTruth(status, &response);
         const auto createdMeetingId = jsonStringField(response.body, "meeting_id");
         if (!createdMeetingId || !isSafeIdentifier(*createdMeetingId)) return withTruth(DesktopTransportStatus::serverRejected);
         meetingId = *createdMeetingId;
         truth.meetingExists = true;
+        truth.meetingId = *createdMeetingId;
     }
 
     std::string serverSessionId = remote && !remote->needsNewUploadSession ? remote->sessionId : std::string{};
@@ -687,7 +955,7 @@ DesktopTransportResult DesktopHttpTransport::upload(const UploadCustodyItem& ite
         response = request(config_, L"POST", utf8ToWide("/api/v1/meetings/" + meetingId + "/upload-sessions"),
                            sessionBody, true, sessionKey);
         const auto status = mapResponse(response);
-        if (status != DesktopTransportStatus::uploaded) return withTruth(status);
+        if (status != DesktopTransportStatus::uploaded) return withTruth(status, &response);
         const auto createdSessionId = jsonStringField(response.body, "session_id");
         if (!createdSessionId || !isSafeIdentifier(*createdSessionId)) return withTruth(DesktopTransportStatus::serverRejected);
         serverSessionId = *createdSessionId;
@@ -701,17 +969,23 @@ DesktopTransportResult DesktopHttpTransport::upload(const UploadCustodyItem& ite
 
     response = request(config_, L"GET", utf8ToWide("/api/v1/upload-sessions/" + serverSessionId + "/missing-ranges"), "", true);
     auto status = mapResponse(response);
-    if (status != DesktopTransportStatus::uploaded) return withTruth(status);
+    if (status != DesktopTransportStatus::uploaded) return withTruth(status, &response);
     const auto ranges = missingRanges(response.body);
     if (!ranges) return withTruth(DesktopTransportStatus::serverRejected);
     for (const auto& track : *tracks) {
-        status = uploadFile(config_, track, serverSessionId, (*ranges)[trackIndex(track.role)], &truth.acceptedBytes);
-        if (status != DesktopTransportStatus::uploaded) return withTruth(status);
+        std::uint32_t pauseSeconds = 0;
+        status = uploadFile(config_, track, serverSessionId, (*ranges)[trackIndex(track.role)], &truth.acceptedBytes,
+                            &pauseSeconds);
+        if (status != DesktopTransportStatus::uploaded) {
+            auto result = withTruth(status);
+            result.retryAfterSeconds = pauseSeconds;
+            return result;
+        }
     }
 
     response = request(config_, L"GET", utf8ToWide("/api/v1/upload-sessions/" + serverSessionId + "/missing-ranges"), "", true);
     status = mapResponse(response);
-    if (status != DesktopTransportStatus::uploaded) return withTruth(status);
+    if (status != DesktopTransportStatus::uploaded) return withTruth(status, &response);
     const auto remaining = missingRanges(response.body);
     if (!remaining) return withTruth(DesktopTransportStatus::serverRejected);
     for (const auto& rangesForTrack : *remaining) {
@@ -733,7 +1007,7 @@ DesktopTransportResult DesktopHttpTransport::upload(const UploadCustodyItem& ite
                        finalizeBody, true);
     status = mapResponse(response);
     if (status == DesktopTransportStatus::uploaded) truth.finalized = true;
-    return withTruth(status);
+    return withTruth(status, &response);
 #endif
 }
 

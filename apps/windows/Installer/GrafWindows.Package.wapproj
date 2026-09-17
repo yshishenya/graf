@@ -32,6 +32,17 @@
     <DefaultLanguage>ru-RU</DefaultLanguage>
     <WindowsPackageType>MSIX</WindowsPackageType>
     <AppxPackage>true</AppxPackage>
+    <!-- The payload is a native C++ WinUI 3 executable. Microsoft.DesktopBridge.props
+         normally suppresses the .NET CoreRuntime imports, but this project does not
+         import that props file, so Microsoft.Common.targets would pull
+         Microsoft.Net.CoreRuntime.ImportAfter.targets in (TargetPlatformIdentifier is
+         UAP and AppxPackage is true) and inject a Microsoft.NET.CoreRuntime.1.1
+         package dependency. A native app must not carry it, and that dependency asks
+         for a framework a clean Windows image does not have, which blocks install.
+         Setting the same suppression here, before the imports at the end of the file
+         are evaluated, is the minimal equivalent of that props file. -->
+    <NetfxCoreRuntimeTargets>Empty</NetfxCoreRuntimeTargets>
+    <NetfxCoreRuntimeSettingsTargets>Empty</NetfxCoreRuntimeSettingsTargets>
     <AppxPackageSigningEnabled>false</AppxPackageSigningEnabled>
     <AppxBundle>Never</AppxBundle>
     <SkipCopyBuildProduct>true</SkipCopyBuildProduct>
@@ -60,7 +71,13 @@
     <IntermediateOutputPath>out\obj\GrafWindows.Package\ARM64\Release\</IntermediateOutputPath>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\RecApp\GrafWindowsApp.vcxproj" />
+    <!-- The packaged payload takes its Windows App SDK runtime from package
+         identity instead of bootstrapping it, so the entry project must be built
+         with WindowsPackageType=MSIX. The standalone validation build keeps the
+         default None. -->
+    <ProjectReference Include="..\RecApp\GrafWindowsApp.vcxproj">
+      <AdditionalProperties>GrafWindowsPackageType=MSIX</AdditionalProperties>
+    </ProjectReference>
     <AppxManifest Include="Package.appxmanifest" />
     <Content Include="Assets\StoreLogo.png" />
     <Content Include="Assets\Square150x150Logo.png" />

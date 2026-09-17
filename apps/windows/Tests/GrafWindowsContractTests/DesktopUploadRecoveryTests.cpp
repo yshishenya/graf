@@ -284,6 +284,41 @@ void testSyncDecoder() {
     const auto noSession = DesktopHttpTransport::decodeSyncState(
         R"({"meeting":{"meeting_id":"meeting-id"},"upload_session":null,"conflict":{"state":"processing_failed"}})", "local-id");
     assert(noSession && noSession->blockedByConflict && !noSession->truth.finalized);
+    // A finalize whose response was lost: the server drops the terminal session
+    // from its active selection, so the meeting status is the only evidence that
+    // this revision was already accepted. Without it the client would create a
+    // second session for an immutable revision and then exhaust its retries.
+    for (const auto status : {"ingested_pending_processing", "degraded", "INGESTED_PENDING_PROCESSING", " degraded "}) {
+        const auto dropped = DesktopHttpTransport::decodeSyncState(
+            std::string(R"({"meeting":{"meeting_id":"meeting-id","status":")") + status +
+            R"("},"upload_session":null,"conflict":{"state":"none"}})", "local-id");
+        assert(dropped && dropped->truth.finalized && !dropped->blockedByConflict);
+        assert(!dropped->needsNewUploadSession && dropped->truth.meetingExists);
+        assert(!dropped->truth.uploadSessionExists && dropped->sessionId.empty());
+        const auto withProcessing = DesktopHttpTransport::decodeSyncState(
+            std::string(R"({"meeting":{"meeting_id":"meeting-id","status":")") + status +
+            R"("},"upload_session":null,"conflict":{"state":"processing_failed","next_action":"contact_operator"}})", "local-id");
+        assert(withProcessing && withProcessing->truth.finalized && !withProcessing->blockedByConflict);
+    }
+    // A meeting that is still being ingested is not finalized, and its absent
+    // session is not an instruction to open a new one.
+    for (const auto status : {"created", "uploading", "processing", ""}) {
+        const auto active = DesktopHttpTransport::decodeSyncState(
+            std::string(R"({"meeting":{"meeting_id":"meeting-id","status":")") + status +
+            R"("},"upload_session":null,"conflict":{"state":"none"}})", "local-id");
+        assert(active && !active->truth.finalized && !active->needsNewUploadSession && !active->blockedByConflict);
+    }
+    // The server owns the retry classification; the port records it verbatim,
+    // normalized, and keeps it empty when the server said nothing.
+    const auto classified = DesktopHttpTransport::decodeSyncState(
+        R"({"meeting":{"meeting_id":"meeting-id"},"upload_session":null,"conflict":{"state":"server_meeting_deleted"},"custody":{"retry_class":" PAUSED_UNTIL_ADMIN_ACTION "}})", "local-id");
+    assert(classified && classified->blockedByConflict && classified->retryClass == "paused_until_admin_action");
+    // The meeting id travels with the truth so the cabinet can bind the local
+    // row to the server meeting it belongs to.
+    assert(classified->truth.meetingId == "meeting-id" && classified->truth.meetingExists);
+    const auto unclassified = DesktopHttpTransport::decodeSyncState(
+        R"({"meeting":{"meeting_id":"meeting-id"},"upload_session":null,"conflict":{"state":"server_meeting_deleted"},"custody":{"retry_class":""}})", "local-id");
+    assert(unclassified && unclassified->blockedByConflict && unclassified->retryClass.empty());
 }
 
 template <typename Predicate> void waitFor(Predicate predicate) {
@@ -348,6 +383,57 @@ void testManualRetry(const std::filesystem::path& root) {
         assert(item.localRecordingId == "selected" && item.attempts == 0);
         return DesktopTransportResult{DesktopTransportStatus::uploaded, std::nullopt};
     }) == 1);
+}
+
+void testRetryClassClassification(const std::filesystem::path& root) {
+    using namespace graf::windows;
+    std::filesystem::create_directories(root / "package");
+    DesktopUploadQueueService queue(root / "queue.json", root);
+    assert(queue.load());
+    // One row per server-owned retry class, plus an unclassified rejection that
+    // must keep the ordinary retry path.
+    const std::array<std::string, 5> ids{"class-user", "class-admin", "class-not-retryable", "class-terminal", "class-unclassified"};
+    const std::array<std::string, 5> classes{"paused_until_user_action", "paused_until_admin_action",
+        "not_retryable", "terminal", ""};
+    for (std::size_t index = 0; index < ids.size(); ++index) {
+        assert(queue.enqueue({ids[index], ids[index], "session", root / "package",
+            UploadQueueStatus::retry, {}, 0, "", owner.userId, owner.workspaceId}));
+    }
+    DesktopUploadRecoveryScheduler scheduler(queue);
+    assert(runWorker(scheduler, RecoveryTrigger::scheduled, [&](const UploadCustodyItem& item, auto) {
+        std::size_t index = 0;
+        while (index < ids.size() && ids[index] != item.localRecordingId) ++index;
+        assert(index < ids.size());
+        return DesktopTransportResult{DesktopTransportStatus::serverRejected,
+            UploadServerTruth{item.localRecordingId, true, true, {1, 2, 3}, false}, "conflict", classes[index]};
+    }) == static_cast<std::size_t>(ids.size()));
+
+    // A sign-in is a user action the account flow can recover from.
+    assert(queue.items()[0].status == UploadQueueStatus::needsAuth && queue.items()[0].safeReason == "auth_required");
+    // An admin pause and a not-retryable conflict stop automatic attempts but
+    // stay recoverable by an explicit request from the owner.
+    assert(queue.items()[1].status == UploadQueueStatus::blocked && queue.items()[1].safeReason == "needs_admin");
+    assert(queue.items()[2].status == UploadQueueStatus::blocked && queue.items()[2].safeReason == "not_retryable");
+    // A terminal conflict cannot be sent at all.
+    assert(queue.items()[3].status == UploadQueueStatus::quarantined && queue.items()[3].safeReason == "terminal_undelivered");
+    // The server expressed no opinion, so the row keeps retrying.
+    assert(queue.items()[4].status == UploadQueueStatus::retry && queue.items()[4].safeReason == "server_rejected");
+
+    // None of the classified rows may be picked up by another automatic pass.
+    std::size_t automatic = 0;
+    assert(scheduler.startAsync(RecoveryTrigger::scheduled, [&](const UploadCustodyItem&, auto) {
+        ++automatic;
+        return DesktopTransportResult{DesktopTransportStatus::retryableFailure, std::nullopt};
+    }));
+    waitFor([&] { (void)scheduler.drain(); return !scheduler.busy(); });
+    assert(automatic == 1);
+
+    // An explicit request still rearms a blocked row, but never a terminally
+    // quarantined one.
+    assert(queue.requestRetry("class-admin"));
+    assert(queue.items()[1].status == UploadQueueStatus::retry && queue.items()[1].attempts == 0);
+    assert(!queue.requestRetry("class-terminal"));
+    assert(queue.items()[3].status == UploadQueueStatus::quarantined);
 }
 
 void testReplacementSessionKey() {
@@ -559,6 +645,149 @@ void testWorker(const std::filesystem::path& root) {
 }
 } // namespace
 
+void testSessionDeadlineHeader() {
+    using namespace graf::windows;
+    // The header is a deadline the server names for its own session. macOS reads
+    // it with the same rule, so anything that is not a run of digits is not a
+    // deadline: a decorated or negative value must not become a date in the past
+    // or a date in the far future that the app would then write onto its cookie.
+    assert(DesktopHttpTransport::epochSecondsFromHeader("1800000000") == 1800000000);
+    assert(DesktopHttpTransport::epochSecondsFromHeader("0") == 0);
+    for (const auto value : {"", " ", "abc", " 1800000000", "1800000000 ", "+1800000000",
+                             "1800000000.5", "1.8e9", "-1800000000", "1800000000s"}) {
+        assert(!DesktopHttpTransport::epochSecondsFromHeader(value).has_value());
+    }
+    // A value longer than any real instant is refused as a whole instead of
+    // overflowing into a number the app would trust.
+    assert(!DesktopHttpTransport::epochSecondsFromHeader("99999999999999999999").has_value());
+    assert(DesktopHttpTransport::epochSecondsFromHeader("9999999999999999999").has_value());
+}
+
+void testRateLimitPause(const std::filesystem::path& root) {
+    using namespace graf::windows;
+    // Only a rate limit is a request to wait. macOS reads the same header with a
+    // 60-second fallback, so a value this client cannot read must never turn into
+    // "retry immediately", and an endpoint that is merely unavailable keeps the
+    // client's own schedule.
+    assert(DesktopHttpTransport::rateLimitPauseSeconds(429, "120") == 120);
+    assert(DesktopHttpTransport::rateLimitPauseSeconds(429, "1") == 1);
+    assert(DesktopHttpTransport::rateLimitPauseSeconds(429, "86400") == 86400);
+    for (const auto value : {"", "0", "abc", " 30", "30 ", "+30", "3.5", "60s", "1e2", "-5"}) {
+        assert(DesktopHttpTransport::rateLimitPauseSeconds(429, value) == 60);
+    }
+    // A pause longer than a day is not a pause this client will hold: it looks
+    // again on its own, and the server can ask again. This also covers values so
+    // long that they would otherwise overflow.
+    for (const auto value : {"999999999", "99999999999999999999"}) {
+        assert(DesktopHttpTransport::rateLimitPauseSeconds(429, value) == 86400);
+    }
+    for (const auto status : {200u, 301u, 401u, 403u, 404u, 408u, 500u, 503u}) {
+        assert(DesktopHttpTransport::rateLimitPauseSeconds(status, "120") == 0);
+    }
+
+    std::filesystem::create_directories(root / "package");
+    DesktopUploadQueueService queue(root / "queue.json", root);
+    assert(queue.load());
+    assert(queue.enqueue({"rate-limited", "rate-limited", "session", root / "package",
+        UploadQueueStatus::retry, {}, 3, "", owner.userId, owner.workspaceId}));
+    DesktopUploadRecoveryScheduler scheduler(queue);
+    assert(runWorker(scheduler, RecoveryTrigger::scheduled, [](const UploadCustodyItem&, auto) {
+        DesktopTransportResult result{DesktopTransportStatus::retryableFailure, std::nullopt};
+        result.safeReason = "transport_unavailable";
+        result.retryAfterSeconds = 1;
+        return result;
+    }) == 1);
+    // Waiting is not failing: the row stays retryable with its attempt count, and
+    // no automatic pass may start while the pause the server asked for is running.
+    assert(queue.items()[0].status == UploadQueueStatus::retry && queue.items()[0].safeReason == "rate_limited");
+    assert(queue.items()[0].attempts == 3);
+    assert(scheduler.deferralRemainingMs() > 0);
+    assert(!scheduler.startAsync(RecoveryTrigger::scheduled, [](const UploadCustodyItem&, auto) {
+        return DesktopTransportResult{DesktopTransportStatus::uploaded, std::nullopt};
+    }));
+
+    // The pause is bounded, and the ordinary cadence takes over when it elapses.
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (scheduler.deferralRemainingMs() > 0) {
+        assert(std::chrono::steady_clock::now() < deadline);
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    assert(runWorker(scheduler, RecoveryTrigger::scheduled, [](const UploadCustodyItem&, auto) {
+        return DesktopTransportResult{DesktopTransportStatus::uploaded, std::nullopt};
+    }) == 1);
+    assert(queue.items()[0].status == UploadQueueStatus::uploaded);
+
+    // A failure the server did not ask to delay still spends an attempt.
+    assert(queue.enqueue({"plain-failure", "plain-failure", "session", root / "package",
+        UploadQueueStatus::retry, {}, 3, "", owner.userId, owner.workspaceId}));
+    assert(runWorker(scheduler, RecoveryTrigger::scheduled, [](const UploadCustodyItem&, auto) {
+        return DesktopTransportResult{DesktopTransportStatus::retryableFailure, std::nullopt};
+    }) == 1);
+    assert(queue.items()[1].status == UploadQueueStatus::retry && queue.items()[1].attempts == 4);
+    assert(queue.items()[1].safeReason == "transport_unavailable" && scheduler.deferralRemainingMs() == 0);
+}
+
+void testConfirmedIdentitySnapshot() {
+    using namespace graf::windows;
+    // The shell confirms the account once for the session it holds. The transport
+    // reuses that snapshot instead of asking /auth/me for every attempt, and only
+    // falls back to the server when it has no confirmed identity. The count of
+    // requests is the point of the test: the old behaviour asked for every try.
+    std::size_t calls = 0;
+    const DesktopHttpTransport::IdentityGet counter = [&calls](const DesktopHttpConfig&, std::string_view path) {
+        ++calls;
+        const auto spaces = "{\"spaces\":[{\"id\":\"" + owner.workspaceId + "\",\"active\":true}]}";
+        return DesktopHttpTransport::IdentityResponse{
+            200, path == "/desktop/settings/spaces" ? spaces : meResponse(owner.userId, owner.workspaceId), false};
+    };
+
+    DesktopHttpConfig config;
+    config.sessionToken = "00000000-0000-4000-8000-0000000000ff";
+    config.workspaceId = owner.workspaceId;
+    config.confirmedIdentity = owner;
+    const auto snapshot = DesktopHttpTransport::resolveAccountIdentity(config, counter);
+    assert(snapshot.identity && snapshot.identity->userId == owner.userId &&
+           snapshot.identity->workspaceId == owner.workspaceId);
+    assert(calls == 0);
+
+    // Without a snapshot the client asks, and an unknown workspace still needs the
+    // spaces bootstrap before /auth/me.
+    auto unresolved = config;
+    unresolved.confirmedIdentity.reset();
+    assert(DesktopHttpTransport::resolveAccountIdentity(unresolved, counter).identity.has_value());
+    assert(calls == 1);
+    unresolved.workspaceId.clear();
+    assert(DesktopHttpTransport::resolveAccountIdentity(unresolved, counter).identity.has_value());
+    assert(calls == 3);
+
+    // A snapshot is not authority by itself: it must describe a real account and
+    // agree with the workspace it travels with. A cancelled or incomplete attempt
+    // asks nothing at all.
+    auto mismatched = config;
+    mismatched.workspaceId = owner.userId;
+    assert(!DesktopHttpTransport::resolveAccountIdentity(mismatched, counter).identity);
+    auto invalid = config;
+    invalid.confirmedIdentity = DesktopAccountIdentity{"not-a-uuid", owner.workspaceId};
+    assert(!DesktopHttpTransport::resolveAccountIdentity(invalid, counter).identity);
+    auto unclaimed = config;
+    unclaimed.confirmedIdentity.reset();
+    unclaimed.sessionToken.clear();
+    assert(!DesktopHttpTransport::resolveAccountIdentity(unclaimed, counter).identity);
+    auto cancelledConfig = config;
+    cancelledConfig.cancellation = std::make_shared<const std::atomic_bool>(true);
+    const auto cancelledResult = DesktopHttpTransport::resolveAccountIdentity(cancelledConfig, counter);
+    assert(!cancelledResult.identity && cancelledResult.status == DesktopTransportStatus::retryableFailure);
+    assert(calls == 3);
+
+    // The owner check still runs against whatever identity was resolved, and the
+    // old local row of another account is refused before any audio request.
+    UploadCustodyItem foreign;
+    foreign.localRecordingId = "foreign";
+    foreign.ownerUserId = owner.workspaceId;
+    foreign.ownerWorkspaceId = owner.workspaceId;
+    assert(DesktopHttpTransport::ownerBlockReason(foreign, snapshot.identity) == "account_mismatch");
+}
+
 int main() {
     using namespace graf::windows;
     testSyncDecoder();
@@ -572,6 +801,10 @@ int main() {
     const auto package = root / "recording";
     std::filesystem::create_directories(package);
     testManualRetry(root / "manual");
+    testRetryClassClassification(root / "retry-class");
+    testRateLimitPause(root / "rate-limit");
+    testSessionDeadlineHeader();
+    testConfirmedIdentitySnapshot();
     testTransientIdentityRecovery(root / "identity-recovery");
     testWorker(root / "worker");
     testOwnerRecovery(root / "owner");

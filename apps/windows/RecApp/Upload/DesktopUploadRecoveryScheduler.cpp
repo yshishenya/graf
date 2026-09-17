@@ -27,6 +27,10 @@ DesktopUploadRecoveryScheduler::~DesktopUploadRecoveryScheduler() {
 
 bool DesktopUploadRecoveryScheduler::prepare(RecoveryTrigger trigger) {
     if (busy() || queue_.quarantined()) return false;
+    // The server asked for a pause, so nothing may start before it elapses: the
+    // work is not refused, it is only early. A recovered sign-in is the one
+    // event the server cannot be waiting for the client to notice.
+    if (deferralRemainingMs() > 0 && trigger != RecoveryTrigger::authRecovered) return false;
     std::error_code error;
     auto key = std::filesystem::weakly_canonical(queue_.ledgerPath(), error).native();
     if (error || key.empty()) return false;
@@ -132,8 +136,23 @@ std::size_t DesktopUploadRecoveryScheduler::drain() {
     return handled;
 }
 
+void DesktopUploadRecoveryScheduler::deferFor(std::uint32_t seconds) noexcept {
+    if (seconds == 0) return;
+    const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(seconds);
+    if (until > deferredUntil_) deferredUntil_ = until;
+}
+
+std::uint64_t DesktopUploadRecoveryScheduler::deferralRemainingMs() const noexcept {
+    const auto now = std::chrono::steady_clock::now();
+    if (deferredUntil_ <= now) return 0;
+    return static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(deferredUntil_ - now).count());
+}
+
 void DesktopUploadRecoveryScheduler::apply(const UploadCustodyItem& item, const DesktopTransportResult& result) {
     if (queue_.quarantined()) return;
+    if (result.retryAfterSeconds > 0) deferFor(result.retryAfterSeconds);
+    if (result.authExpiresAt && sessionExpiryHandler_) sessionExpiryHandler_(*result.authExpiresAt);
     if (result.serverTruth && result.serverTruth->localRecordingId == item.localRecordingId)
         (void)queue_.reconcile(*result.serverTruth);
     switch (result.status) {
@@ -147,13 +166,30 @@ void DesktopUploadRecoveryScheduler::apply(const UploadCustodyItem& item, const 
         (void)queue_.markQuarantined(item.localRecordingId, "invalid_package");
         break;
     case DesktopTransportStatus::serverRejected:
-        (void)queue_.markRetry(item.localRecordingId, "server_rejected");
+        // The server says what another automatic attempt could still achieve.
+        // Retrying a paused or non-retryable item only burns the budget and
+        // hides the real reason, so its classification decides how the row
+        // stops. An unclassified rejection keeps the ordinary retry path.
+        if (result.retryClass == "paused_until_user_action")
+            (void)queue_.markNeedsAuth(item.localRecordingId, "auth_required");
+        else if (result.retryClass == "paused_until_admin_action")
+            (void)queue_.markBlocked(item.localRecordingId, "needs_admin");
+        else if (result.retryClass == "not_retryable")
+            (void)queue_.markBlocked(item.localRecordingId, "not_retryable");
+        else if (result.retryClass == "terminal")
+            (void)queue_.markQuarantined(item.localRecordingId, "terminal_undelivered");
+        else
+            (void)queue_.markRetry(item.localRecordingId, "server_rejected");
         break;
     case DesktopTransportStatus::unsupportedPlatform:
         (void)queue_.markRetry(item.localRecordingId, "unsupported_platform");
         break;
     case DesktopTransportStatus::retryableFailure:
-        (void)queue_.markRetry(item.localRecordingId, "transport_unavailable");
+        // A 429 asked for a specific wait: hold the row for that long without
+        // counting it as a failed attempt. Any other failure keeps the ordinary
+        // retry path and its budget.
+        if (result.retryAfterSeconds > 0) (void)queue_.markDeferred(item.localRecordingId, "rate_limited");
+        else (void)queue_.markRetry(item.localRecordingId, "transport_unavailable");
         break;
     }
 }

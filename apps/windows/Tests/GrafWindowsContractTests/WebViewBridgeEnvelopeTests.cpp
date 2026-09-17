@@ -62,7 +62,17 @@ int main() {
     message.nonce = "nonce-2";
     assert(bridge.validate(message) == BridgeValidationError::none);
     WebView2Host host;
-    host.setLocalRecordings({{"known", "Локальная запись", {}, "Ожидает отправки", 1, true, true, false, false}});
+    // Built field by field: a positional aggregate silently changes meaning
+    // whenever the row gains a field.
+    WebViewLocalRecordingRow knownRow;
+    knownRow.id = "known";
+    knownRow.title = "Запись";
+    knownRow.status = "Ожидает отправки";
+    knownRow.durationSeconds = 1;
+    knownRow.sessionDurationSeconds = 1;
+    knownRow.canOpen = true;
+    knownRow.canSend = true;
+    host.setLocalRecordings({knownRow});
     assert(!host.localRecordingActionAllowed("open", "known"));
     host.setRuntimeState(WebRuntimeState::ready);
     assert(host.localRecordingActionAllowed("open", "known"));

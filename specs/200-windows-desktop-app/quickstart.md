@@ -191,13 +191,45 @@ motion. До этой проверки доступность и поведен�
 
 ```powershell
 msbuild apps/windows/Installer/GrafWindows.Package.wapproj /p:Configuration=Release /p:Platform=x64
+pwsh -File apps/windows/scripts/build-dev-signed-package.ps1 -Package <unsigned-msix>
 pwsh -File apps/windows/scripts/validate-package-smoke.ps1 -Package <signed-msix>
 ```
+
+Предварительных условий у пакета нет — это проверяемое свойство, а не обещание:
+
+- распространяемый пакет Visual C++ лежит рядом с исполняемым файлом внутри
+  пакета (`vcruntime140`, `msvcp140` и спутники), поэтому машинный
+  redistributable не нужен;
+- зависимость `Microsoft.WindowsAppRuntime.2` объявлена в манифесте, а сам
+  framework-пакет лежит рядом с MSIX в `Dependencies\x64\`. Если в системе его
+  нет, поставить его нужно **до** пакета:
+
+```powershell
+Get-ChildItem .\Dependencies\x64\*.msix | ForEach-Object { Add-AppxPackage -Path $_.FullName }
+Add-AppxPackage -Path <signed-msix>
+```
+
+Проверить, что предварительных условий не осталось, можно так:
+
+```powershell
+$p = Get-AppxPackage com.graf.desktop
+Get-ChildItem (Join-Path $p.InstallLocation '*.dll') | Select-Object -ExpandProperty Name
+```
+
+В списке должны быть `vcruntime140.dll` и `msvcp140.dll`: тогда приложение
+берёт их из пакета, а не из системы.
 
 На чистом x64 image проверить install, first launch, WebView2 missing/repair,
 update, interrupted update, rollback, uninstall и сохранность user-scoped
 recordings/queue. До signed-package evidence нельзя заявлять distribution
 readiness; до отдельного approval нельзя публиковать release или deploy.
+
+Ограничение проверки на 2026-09-18: буквальный прогон на образе без среды
+разработки не выполнен — доступна одна виртуальная машина, и в ней есть и среда,
+и runtime. Вместо этого зафиксированы три проверяемых факта: все импортируемые
+библиотеки лежат внутри пакета, framework-пакет поставляется вместе с MSIX, а
+установка, обновление и откат проходят на текущем образе (см.
+`validation-2026-09-17.md`, раздел T070/T093).
 
 ## 9. Repository gate and evidence handoff
 

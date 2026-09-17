@@ -6,7 +6,9 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
+#include <ctime>
 #include <fstream>
 #include <limits>
 
@@ -32,6 +34,32 @@ std::uint64_t fileSize(const std::filesystem::path& path) {
     std::error_code error;
     const auto size = std::filesystem::file_size(path, error);
     return error ? 0 : size;
+}
+
+std::uint64_t wallClockMs() {
+    return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count());
+}
+
+// Offset of the local time zone at the given instant, in minutes east of UTC.
+// It is resolved for the recording start rather than for "now", so a recording
+// that began before a daylight-saving change keeps the wall clock it was made
+// at, which is what the cabinet shows.
+int displayOffsetMinutes(std::uint64_t epochMs) {
+    const auto seconds = static_cast<std::time_t>(epochMs / 1000);
+    std::tm local{};
+    std::tm utc{};
+#ifdef _WIN32
+    if (localtime_s(&local, &seconds) != 0 || gmtime_s(&utc, &seconds) != 0) return 0;
+    const auto asUtc = [](std::tm value) -> std::time_t { return _mkgmtime(&value); };
+#else
+    if (localtime_r(&seconds, &local) == nullptr || gmtime_r(&seconds, &utc) == nullptr) return 0;
+    const auto asUtc = [](std::tm value) -> std::time_t { return timegm(&value); };
+#endif
+    const auto difference = std::difftime(asUtc(local), asUtc(utc));
+    const auto minutes = static_cast<long long>(difference) / 60;
+    if (minutes < -14 * 60 || minutes > 14 * 60) return 0;
+    return static_cast<int>(minutes);
 }
 
 #ifdef _WIN32
@@ -156,6 +184,8 @@ bool V5LocalRecordingWriter::append(const CanonicalAudioFrame& frame) {
     canonicalOutput_.write(reinterpret_cast<const char*>(frame.mixed.data()),
                            static_cast<std::streamsize>(frame.mixed.size() * sizeof(float)));
     if (!canonicalOutput_.good()) { appendError_ = V5WriterError::storageUnavailable; return false; }
+    // The first accepted frame is the start of the audio the package will hold.
+    if (startedAtMs_ == 0) startedAtMs_ = wallClockMs();
     ++frameCount_;
     return true;
 }
@@ -194,13 +224,26 @@ bool V5LocalRecordingWriter::writePlayback(const std::filesystem::path& path) {
 }
 
 std::string V5LocalRecordingWriter::manifestJson(const V5WriterResult& result) const {
+    // A discarded short recording is structurally complete but is written as
+    // blocked so no reader can mistake it for a meeting. The marker outlives
+    // every audio byte so interrupted cleanup can be retried.
+    const auto captureStatus = result.shortRecordingDiscarded
+        ? "blocked"
+        : (result.captureFailure == ReasonCode::none ? "normal" : "degraded");
+    const auto discardMarker = result.shortRecordingDiscarded
+        ? std::string(",\"") + std::string(kShortRecordingDiscardedField) + "\":true"
+        : std::string();
     return std::string("{\"schema_version\":\"") + std::string(kManifestSchemaVersion) +
         "\",\"canonical_mix_profile\":\"" + std::string(kCanonicalMixProfile) +
         "\",\"source_kind\":\"" + std::string(kV5SourceKind) +
         "\",\"media_scribe_source_mode\":\"" + std::string(kV5MediaScribeSourceMode) +
-        "\",\"capture_status\":\"" + (result.captureFailure == ReasonCode::none ? "normal" : "degraded") +
+        "\",\"capture_status\":\"" + captureStatus +
         "\",\"capture_reason_code\":\"" + std::string(toString(result.captureFailure)) +
         "\",\"duration_ms\":" + std::to_string(result.durationMs) +
+        ",\"started_at_ms\":" + std::to_string(result.startedAtMs) +
+        ",\"stopped_at_ms\":" + std::to_string(result.stoppedAtMs) +
+        ",\"display_timezone_offset_minutes\":" + std::to_string(result.displayTimezoneOffsetMinutes) +
+        discardMarker +
         ",\"artifacts\":{\"media\":{\"bytes\":" + std::to_string(result.wavBytes) +
         ",\"sha256\":\"" + result.wavSha256 + "\"},\"playback\":{\"bytes\":" +
         std::to_string(result.playbackBytes) + ",\"sha256\":\"" + result.playbackSha256 + "\"}}}";
@@ -229,7 +272,7 @@ void V5LocalRecordingWriter::retainPrefix(V5WriterResult& result) {
         custodyRoot_, packageDirectory_ / "capture-recovery.json", metadata).ok();
 }
 
-V5WriterResult V5LocalRecordingWriter::finalize(ReasonCode captureFailure) {
+V5WriterResult V5LocalRecordingWriter::finalize(ReasonCode captureFailure, RecordingStopReason stopReason) {
     if (finalized_) return result_;
     finalized_ = true;
     auto& result = result_;
@@ -238,6 +281,11 @@ V5WriterResult V5LocalRecordingWriter::finalize(ReasonCode captureFailure) {
     result.manifestPath = packageDirectory_ / "manifest.json";
     result.wavPath = packageDirectory_ / "meeting-transcription.wav";
     result.playbackPath = packageDirectory_ / "meeting-review.m4a";
+    // Recorded before any early return so every written manifest carries the
+    // same bounds, including a degraded package that keeps only its prefix.
+    result.startedAtMs = startedAtMs_;
+    result.stoppedAtMs = std::max(startedAtMs_, wallClockMs());
+    result.displayTimezoneOffsetMinutes = startedAtMs_ == 0 ? 0 : displayOffsetMinutes(startedAtMs_);
     const bool closed = closeCanonical();
     if (frameCount_ == 0) { result.error = V5WriterError::emptyRecording; return result; }
     if (!closed || appendError_ != V5WriterError::none) {
@@ -284,6 +332,12 @@ V5WriterResult V5LocalRecordingWriter::finalize(ReasonCode captureFailure) {
     if (result.wavSha256.empty() || result.playbackSha256.empty() || result.wavBytes == 0 || result.playbackBytes == 0) {
         return fail(V5WriterError::integrityFailed);
     }
+    // Feature 6796: decide on the exact canonical 48 kHz frame count, only after
+    // the package proved complete and only for a normal stop without a fault.
+    // Interruption, capture failure, zero frames and unknown duration never
+    // authorize a discard.
+    result.shortRecordingDiscarded = isShortRecording(
+        frameCount_, stopReason, result.captureFailure != ReasonCode::none);
     const auto manifest = manifestJson(result);
     if (!AtomicFileStore::writeWithinRoot(custodyRoot_, result.manifestPath, manifest).ok()) {
         return fail(V5WriterError::storageUnavailable);

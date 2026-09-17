@@ -48,6 +48,37 @@ int main() {
                            "/desktop/account/fair-use/%2f/appeal", "/desktop/accounts/profile"}) {
         assert(policy.evaluate(std::string("https://rec.2brain.pro") + path).decision == RouteDecision::deny);
     }
+    // The notification inbox and the deletion page are ordinary same-origin
+    // anchors in the cabinet, so both must stay navigable. Their children are
+    // not routes: the pages are exact, and a state-changing read endpoint the
+    // cabinet calls with fetch() must never become a navigable document.
+    for (const auto path : {"/desktop/notifications", "/notifications"}) {
+        const auto result = policy.evaluate(std::string("https://rec.2brain.pro") + path);
+        assert(result.decision == RouteDecision::allow && result.kind == RouteKind::meetings);
+    }
+    const auto deletions = policy.evaluate("https://rec.2brain.pro/desktop/deletions");
+    assert(deletions.decision == RouteDecision::allow && deletions.kind == RouteKind::deletionReport);
+    for (const auto path : {"/desktop/notifications/archive", "/notifications/1", "/desktop/deletions/42",
+                           "/api/v1/notifications/11111111-1111-4111-8111-111111111111/read"}) {
+        assert(policy.evaluate(std::string("https://rec.2brain.pro") + path).decision == RouteDecision::deny);
+    }
+
+    // Support links leave the window only as one plain address, so a page cannot
+    // compose a message, copy a recipient or attach anything.
+    const auto support = policy.evaluate("mailto:support@2brain.pro");
+    assert(support.decision == RouteDecision::openExternal && support.kind == RouteKind::external);
+    assert(support.normalizedUrl == "mailto:support@2brain.pro");
+    assert(policy.evaluate("MAILTO:support@2brain.pro").normalizedUrl == "mailto:support@2brain.pro");
+    for (const auto url : {"mailto:support@2brain.pro?subject=hi", "mailto:support@2brain.pro#fragment",
+                           "mailto:support@2brain.pro,other@2brain.pro", "mailto:support@2brain.pro;other@2brain.pro",
+                           "mailto:support@2brain.pro?cc=other@2brain.pro", "mailto:a b@2brain.pro",
+                           "mailto:@2brain.pro", "mailto:support@", "mailto:a@b@c", "mailto:",
+                           "mailto:support@2brain.pro\\", "javascript:alert(1)"}) {
+        assert(policy.evaluate(url).decision == RouteDecision::deny);
+    }
+    assert(policy.evaluate("mailto:support@2brain.pro", false).decision == RouteDecision::deny);
+    assert(policy.evaluate(std::string("mailto:") + std::string(300, 'a') + "@2brain.pro").decision == RouteDecision::deny);
+
     assert(policy.authContinuationForStart("https://rec.2brain.pro/login/yandex/start?next=/desktop/meetings") == AuthContinuation::yandex);
     assert(policy.authContinuationForStart("https://rec.2brain.pro/desktop/settings/provider-links/vk/start") == AuthContinuation::vk);
     assert(policy.authContinuationForStart("https://rec.2brain.pro/desktop/settings/provider-links/yandex/start") == AuthContinuation::yandex);

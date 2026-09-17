@@ -23,6 +23,9 @@ struct CaptureFinalization {
     bool savedLocal = false;
     ReasonCode reason = ReasonCode::none;
     bool trustedPrefixRetained = false;
+    // Feature 6796: the recording was deliberately not kept because it was
+    // shorter than the product threshold. It is neither a save nor a failure.
+    bool shortRecordingDiscarded = false;
 };
 
 class WindowsCaptureSessionController final {
@@ -30,7 +33,7 @@ public:
     using BatchSink = std::function<bool(AudioBatch)>;
     // UI-thread polling callback: nullopt means native writer work is pending.
     // The callback owns dispatch; it must not wait for that work on the UI thread.
-    using Finalizer = std::function<std::optional<CaptureFinalization>(ReasonCode)>;
+    using Finalizer = std::function<std::optional<CaptureFinalization>(ReasonCode, RecordingStopReason)>;
     using MicrophonePauseHandler = std::function<void(bool)>;
 
     WindowsCaptureSessionController(std::string sessionId, BatchSink batchSink = {},
@@ -48,7 +51,11 @@ public:
     [[nodiscard]] TransitionResult record(const ReadinessInputs& readiness);
     [[nodiscard]] TransitionResult pause();
     [[nodiscard]] TransitionResult resume();
-    [[nodiscard]] TransitionResult stop();
+    // Only a deliberate stop can make a short recording eligible for discard.
+    // App exit, shutdown and error paths pass interruption so the recoverable
+    // fragment is always kept.
+    [[nodiscard]] TransitionResult stop(
+        RecordingStopReason reason = RecordingStopReason::userRequested);
     [[nodiscard]] TransitionResult pollHealth();
 
     // Commands, health polling and these views are UI-thread-only. Workers
@@ -80,6 +87,9 @@ private:
     std::unique_ptr<WasapiCaptureWorker> renderWorker_;
     std::unique_ptr<WasapiCaptureWorker> microphoneWorker_;
     CaptureFinalization finalization_;
+    // Latched when a deliberate stop is accepted; interruption is the default
+    // so an unclassified or fault-driven finalization keeps its audio.
+    RecordingStopReason stopReason_ = RecordingStopReason::interruption;
     bool pollingFinalizer_ = false; // UI-thread-only reentrancy guard.
     std::chrono::steady_clock::time_point startupDeadline_{};
     std::atomic_bool acceptingBatches_{false};

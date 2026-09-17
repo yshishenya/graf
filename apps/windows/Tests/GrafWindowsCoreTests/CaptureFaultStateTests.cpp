@@ -294,7 +294,7 @@ int main() {
     ready.formatNormalizationReady = ready.aecReady = ready.storageWritable = ready.aacEncoderReady = true;
     int startupFinalizations = 0;
     WindowsCaptureSessionController startup("startup-failure", [](AudioBatch) { return true; },
-        [&](ReasonCode reason) {
+        [&](ReasonCode reason, RecordingStopReason) {
             ++startupFinalizations;
             assert(reason == ReasonCode::endpointInvalidated);
             return CaptureFinalization{false, reason};
@@ -311,7 +311,7 @@ int main() {
         int finalized = 0;
         WindowsCaptureSessionController controller("discard-startup", [](AudioBatch) {
             assert(false); return false;
-        }, [&](ReasonCode reason) {
+        }, [&](ReasonCode reason, RecordingStopReason) {
             assert(reason == (clockFailure ? ReasonCode::clockDiscontinuity : ReasonCode::endpointInvalidated));
             ++finalized;
             return CaptureFinalization{false, reason};
@@ -364,7 +364,7 @@ int main() {
         WindowsCaptureSessionController controller("async-start", [&](AudioBatch) {
             ++delivered;
             return true;
-        }, [&](ReasonCode reason) {
+        }, [&](ReasonCode reason, RecordingStopReason) {
             assert(std::this_thread::get_id() == uiThread);
             assert(CaptureSessionTestPeer::finished(*current));
             assert(current->indicator().snapshot().visible);
@@ -435,7 +435,7 @@ int main() {
         int finalized = 0;
         WindowsCaptureSessionController controller("async-failure", [](AudioBatch) {
             assert(false); return false;
-        }, [&](ReasonCode reason) {
+        }, [&](ReasonCode reason, RecordingStopReason) {
             assert(reason == ReasonCode::endpointInvalidated);
             ++finalized;
             return CaptureFinalization{false, reason};
@@ -471,7 +471,7 @@ int main() {
             sinkEntered.store(true);
             waitUntil([&] { return releaseSink.load(); });
             return true;
-        }, [&](ReasonCode reason) {
+        }, [&](ReasonCode reason, RecordingStopReason) {
             assert(releaseSink.load() && reason == ReasonCode::none);
             ++finalized;
             return CaptureFinalization{true, reason};
@@ -500,7 +500,7 @@ int main() {
         WindowsCaptureSessionController controller("fault", [&](AudioBatch) {
             ++acceptedBatches;
             return !reject;
-        }, [&](ReasonCode reason) {
+        }, [&](ReasonCode reason, RecordingStopReason) {
             ++finalized;
             assert(reason == (workerFault ? ReasonCode::endpointInvalidated : ReasonCode::clockDiscontinuity));
             assert(CaptureSessionTestPeer::stopped(*current));
@@ -542,7 +542,7 @@ int main() {
         const auto uiThread = std::this_thread::get_id();
         WindowsCaptureSessionController* current = nullptr;
         WindowsCaptureSessionController controller("pending-finalizer", [](AudioBatch) { return true; },
-            [&](ReasonCode reason) -> std::optional<CaptureFinalization> {
+            [&](ReasonCode reason, RecordingStopReason) -> std::optional<CaptureFinalization> {
                 assert(std::this_thread::get_id() == uiThread && reason == ReasonCode::none);
                 assert(current->session().state() == SessionState::finalizing);
                 assert(current->indicator().snapshot().visible);
@@ -583,7 +583,7 @@ int main() {
     WindowsCaptureSessionController normal("normal", [&](AudioBatch) {
         ++batches;
         return true;
-    }, [&](ReasonCode reason) {
+    }, [&](ReasonCode reason, RecordingStopReason) {
         assert(reason == ReasonCode::none);
         ++normalFinalizations;
         return CaptureFinalization{true, ReasonCode::none};
@@ -610,7 +610,7 @@ int main() {
     assert(normal.stop().status == TransitionStatus::idempotent && normalFinalizations == 1);
 
     WindowsCaptureSessionController throwing("throwing", [](AudioBatch) { return true; },
-        [](ReasonCode) -> CaptureFinalization { throw std::runtime_error("synthetic finalizer fault"); });
+        [](ReasonCode, RecordingStopReason) -> CaptureFinalization { throw std::runtime_error("synthetic finalizer fault"); });
     CaptureSessionTestPeer::begin(throwing);
     assert(throwing.stop().reason == ReasonCode::finalizationFailed);
     assert(CaptureSessionTestPeer::stopped(throwing));

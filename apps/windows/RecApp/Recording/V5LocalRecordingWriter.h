@@ -29,13 +29,24 @@ struct V5WriterResult {
     std::uint64_t durationMs = 0;
     std::uint64_t wavBytes = 0;
     std::uint64_t playbackBytes = 0;
+    // Wall-clock bounds of the captured audio, epoch milliseconds UTC, and the
+    // display offset of the moment the recording started. The server needs them
+    // to place the meeting on a timeline; a duration alone cannot.
+    std::uint64_t startedAtMs = 0;
+    std::uint64_t stoppedAtMs = 0;
+    int displayTimezoneOffsetMinutes = 0;
     std::string wavSha256;
     std::string playbackSha256;
     ReasonCode captureFailure = ReasonCode::none;
     bool trustedPrefixRetained = false;
+    // Structurally complete, but Feature 6796 forbids it from becoming a meeting.
+    bool shortRecordingDiscarded = false;
 
     [[nodiscard]] bool ok() const noexcept { return error == V5WriterError::none; }
     [[nodiscard]] bool normalPackage() const noexcept { return ok() && captureFailure == ReasonCode::none; }
+    [[nodiscard]] bool keepablePackage() const noexcept {
+        return normalPackage() && !shortRecordingDiscarded;
+    }
 };
 
 using PlaybackEncoder = std::function<bool(
@@ -56,7 +67,9 @@ public:
     V5LocalRecordingWriter& operator=(const V5LocalRecordingWriter&) = delete;
 
     [[nodiscard]] bool append(const CanonicalAudioFrame& frame);
-    [[nodiscard]] V5WriterResult finalize(ReasonCode captureFailure = ReasonCode::none);
+    [[nodiscard]] V5WriterResult finalize(
+        ReasonCode captureFailure = ReasonCode::none,
+        RecordingStopReason stopReason = RecordingStopReason::interruption);
 
     [[nodiscard]] std::uint64_t frameCount() const noexcept { return frameCount_; }
 
@@ -75,6 +88,8 @@ private:
     PlaybackEncoder encoder_;
     std::ofstream canonicalOutput_;
     std::uint64_t frameCount_ = 0;
+    // Wall clock of the first accepted frame; zero until audio arrives.
+    std::uint64_t startedAtMs_ = 0;
     bool finalized_ = false;
     V5WriterError appendError_ = V5WriterError::none;
     V5WriterResult result_;

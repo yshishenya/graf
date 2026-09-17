@@ -177,13 +177,61 @@ int main() {
     assert(queue.enqueue({"recording", "directory", "session", package, UploadQueueStatus::pending, {}, 0, ""}));
     assert(!queue.enqueue({"escape", "directory", "session-escape", outside, UploadQueueStatus::pending, {}, 0, ""}));
     assert(!queue.enqueue({"recording", "directory", "session2", package, UploadQueueStatus::pending, {}, 0, ""}));
-    assert(queue.reconcile({"recording", true, true, {10, 20, 30}, false}));
+    assert(queue.reconcile({"recording", true, true, {10, 20, 30}, false, "meeting-id"}));
     assert(queue.items()[0].status == UploadQueueStatus::uploading);
     assert(queue.items()[0].acceptedBytes[1] == 20);
+    // The cabinet binds a local row to its server meeting by this id, so it has
+    // to survive a restart instead of being relearned from the network.
+    assert(queue.items()[0].meetingId == "meeting-id");
+    // A later server response must not overwrite the binding, and an unusable
+    // id must not reach the ledger.
+    assert(queue.reconcile({"recording", true, true, {10, 20, 30}, false, "other-id"}));
+    assert(queue.items()[0].meetingId == "meeting-id");
+    assert(queue.reconcile({"recording", true, true, {10, 20, 30}, false, "not a safe id"}));
+    assert(queue.items()[0].meetingId == "meeting-id");
+    // The rest of the server's fingerprint is written with the row and read back
+    // after a restart: which revision the server accepted, which session carries
+    // it and how far the meeting and its processing have come. macOS keeps the
+    // same values in its queue row.
+    {
+        graf::windows::UploadServerTruth truth;
+        truth.localRecordingId = "recording";
+        truth.meetingExists = true;
+        truth.uploadSessionExists = true;
+        truth.acceptedBytes = {10, 20, 30};
+        truth.meetingId = "meeting-id";
+        truth.mediaRevisionId = "11111111-2222-3333-4444-555555555555";
+        truth.uploadSessionId = "66666666-7777-8888-9999-000000000000";
+        truth.serverStatus = "ingested_pending_processing";
+        truth.processingStatus = "queued";
+        truth.mediaRevisionStatus = "uploaded";
+        assert(queue.reconcile(truth));
+    }
+    // A value the ledger may not hold is refused instead of being written; the
+    // values already stored stay untouched.
+    {
+        graf::windows::UploadServerTruth truth;
+        truth.localRecordingId = "recording";
+        truth.meetingExists = true;
+        truth.uploadSessionExists = true;
+        truth.acceptedBytes = {10, 20, 30};
+        truth.meetingId = "meeting-id";
+        truth.mediaRevisionId = "not a safe id";
+        truth.serverStatus = "Not A Safe Status";
+        assert(queue.reconcile(truth));
+        assert(queue.items()[0].mediaRevisionId == "11111111-2222-3333-4444-555555555555");
+        assert(queue.items()[0].serverStatus == "ingested_pending_processing");
+    }
     DesktopUploadQueueService restarted(path, root);
     assert(restarted.load());
     assert(restarted.items().size() == 1 && restarted.items()[0].acceptedBytes[2] == 30);
     assert(restarted.items()[0].status == UploadQueueStatus::retry);
+    assert(restarted.items()[0].meetingId == "meeting-id");
+    assert(restarted.items()[0].mediaRevisionId == "11111111-2222-3333-4444-555555555555");
+    assert(restarted.items()[0].uploadSessionId == "66666666-7777-8888-9999-000000000000");
+    assert(restarted.items()[0].serverStatus == "ingested_pending_processing");
+    assert(restarted.items()[0].processingStatus == "queued");
+    assert(restarted.items()[0].mediaRevisionStatus == "uploaded");
     assert(restarted.pendingItems(32).size() == 1 && restarted.nextPending());
     assert(restarted.load() && restarted.items()[0].status == UploadQueueStatus::retry);
     assert(queue.markUploaded("recording"));

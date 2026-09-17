@@ -12,7 +12,15 @@
     <RootNamespace>GrafWindowsApp</RootNamespace>
     <AppContainerApplication>false</AppContainerApplication>
     <AppxPackage>false</AppxPackage>
-    <WindowsPackageType>None</WindowsPackageType>
+    <!-- Windows App SDK needs to know at compile time whether the process gets
+         its runtime from package identity or bootstraps it itself. The standalone
+         validation build (WindowsPackageType=None) links the bootstrapper, which
+         the MSIX payload must not do: inside a package the bootstrapper cannot
+         resolve the framework, and it runs from a static initializer, so the
+         process ends before wWinMain. The packaging lane passes
+         GrafWindowsPackageType=MSIX through the project reference. -->
+    <WindowsPackageType Condition="'$(GrafWindowsPackageType)' != ''">$(GrafWindowsPackageType)</WindowsPackageType>
+    <WindowsPackageType Condition="'$(WindowsPackageType)' == ''">None</WindowsPackageType>
     <DesktopCompatible>true</DesktopCompatible>
     <UseWinUI>true</UseWinUI>
     <CppWinRTOptimized>true</CppWinRTOptimized>
@@ -95,8 +103,12 @@
     <ClCompile Include="Shell\AutomaticRecordingPrompt.cpp" />
     <ClCompile Include="Shell\CabinetWindow.cpp" />
     <ClCompile Include="Shell\RecordingIndicator.cpp" />
+    <ClCompile Include="Shell\ShellPalette.cpp" />
+    <ClCompile Include="Shell\RecordingNoticePresenter.cpp" />
     <ClCompile Include="Shell\WindowsTray.cpp" />
     <ClCompile Include="Web\WebView2Host.cpp" />
+    <ClCompile Include="Web\RecordingDeletionBridge.cpp" />
+    <ClCompile Include="Web\NativeSettingsBridge.cpp" />
     <ClCompile Include="Web\WebViewBridge.cpp" />
     <ClCompile Include="Web\WebViewRoutePolicy.cpp" />
     <ClCompile Include="..\Native\GrafAEC3\GrafAEC3.cpp" />
@@ -108,12 +120,18 @@
     <PackageReference Include="Microsoft.Windows.CppWinRT" />
     <Reference Include="$(GrafWebView2NativeRoot)\..\..\lib\Microsoft.Web.WebView2.Core.winmd" />
   </ItemGroup>
+  <!-- The MSIX packaging targets require an AppxManifest whenever
+       WindowsPackageType is not None. Only the packaging lane sets that, and the
+       real package manifest lives with the packaging project. -->
+  <ItemGroup Condition="'$(WindowsPackageType)' == 'MSIX'">
+    <AppxManifest Include="$(MSBuildThisFileDirectory)..\Installer\Package.appxmanifest" />
+  </ItemGroup>
   <ItemDefinitionGroup>
     <ClCompile>
       <PreprocessorDefinitions>GRAF_WINDOWS_APP_SDK;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>windowsapp.lib;mfplat.lib;mfreadwrite.lib;mfuuid.lib;ole32.lib;avrt.lib;advapi32.lib;shell32.lib;comdlg32.lib;winhttp.lib;wintrust.lib;bcrypt.lib;WebView2Loader.dll.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>windowsapp.lib;mfplat.lib;mfreadwrite.lib;mfuuid.lib;ole32.lib;avrt.lib;advapi32.lib;shell32.lib;comdlg32.lib;gdi32.lib;winhttp.lib;wintrust.lib;bcrypt.lib;WebView2Loader.dll.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>$(GrafWebView2NativeRoot)\$(Platform);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalLibraryDirectories Condition="'$(GrafAEC3Available)' == 'true'">$(GrafAEC3BuildRoot)\webrtc\modules\audio_processing;$(GrafAEC3BuildRoot)\webrtc\api;$(GrafAEC3BuildRoot)\webrtc\common_audio;$(GrafAEC3BuildRoot)\webrtc\rtc_base;$(GrafAEC3BuildRoot)\webrtc\system_wrappers;$(GrafAEC3BuildRoot)\webrtc\modules\third_party\fft;$(GrafAEC3BuildRoot)\webrtc\third_party\pffft;$(GrafAEC3BuildRoot)\webrtc\third_party\rnnoise;$(GrafAEC3BuildRoot)\subprojects\abseil-cpp-20240722.0;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies Condition="'$(GrafAEC3Available)' == 'true'">$(GrafAEC3Library);libwebrtc_audio_processing_privatearch.a;liblibapi.a;libcommon_audio_sse2.a;libcommon_audio_avx.a;libcommon_audio.a;liblibbase.a;libsystem_wrappers.a;liblibfft.a;liblibpffft.a;liblibrnnoise.a;libabsl_base.a;libabsl_container.a;libabsl_crc.a;libabsl_debugging.a;libabsl_flags.a;libabsl_hash.a;libabsl_log.a;libabsl_numeric.a;libabsl_profiling.a;libabsl_random.a;libabsl_status.a;libabsl_strings.a;libabsl_synchronization.a;libabsl_time.a;libabsl_types.a;%(AdditionalDependencies)</AdditionalDependencies>
@@ -122,6 +140,20 @@
   <ItemGroup>
     <Content Include="$(GrafWebView2NativeRoot)\$(Platform)\WebView2Loader.dll" Condition="Exists('$(GrafWebView2NativeRoot)\$(Platform)\WebView2Loader.dll')">
       <Link>WebView2Loader.dll</Link>
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      <Visible>False</Visible>
+    </Content>
+    <!-- T093: the payload carries the Visual C++ runtime next to the executable
+         instead of requiring the machine-wide redistributable. A packaged
+         full-trust app loads an app-local copy of vcruntime140 and msvcp140
+         before anything in System32, and Microsoft's redistributable licence
+         allows exactly this deployment, so a clean Windows image needs no
+         prerequisite install. The DLLs are read from the installed toolset at
+         build time and never enter the repository. VCToolsRedistDir is empty
+         before the VC targets run, so the versioned directory under VCInstallDir
+         is globbed instead. -->
+    <Content Include="$(VCInstallDir)Redist\MSVC\14.*\$(Platform)\Microsoft.VC143.CRT\*.dll">
+      <Link>%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
       <Visible>False</Visible>
     </Content>

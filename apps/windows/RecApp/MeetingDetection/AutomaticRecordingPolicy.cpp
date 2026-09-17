@@ -39,6 +39,23 @@ std::string_view automaticRecordingPreferenceLabel(AutomaticRecordingPreference 
     return "Спрашивать";
 }
 
+std::string_view automaticRecordingPreferenceToken(AutomaticRecordingPreference value) noexcept {
+    switch (value) {
+        case AutomaticRecordingPreference::always: return "always";
+        case AutomaticRecordingPreference::ask: return "ask";
+        case AutomaticRecordingPreference::never: return "never";
+    }
+    return "ask";
+}
+
+std::optional<AutomaticRecordingPreference> automaticRecordingPreferenceFromToken(
+    std::string_view token) noexcept {
+    if (token == "always") return AutomaticRecordingPreference::always;
+    if (token == "ask") return AutomaticRecordingPreference::ask;
+    if (token == "never") return AutomaticRecordingPreference::never;
+    return std::nullopt;
+}
+
 AutomaticRecordingPreferenceStore AutomaticRecordingPreferenceStore::native() {
 #ifdef _WIN32
     // The pre-catalog build could not save real V1 per-app rules. Leave V1 and

@@ -28,6 +28,38 @@ bool safePathComponent(std::string_view value) noexcept {
     return true;
 }
 
+bool hasScheme(std::string_view url, std::string_view scheme) noexcept {
+    if (url.size() < scheme.size()) return false;
+    for (std::size_t i = 0; i < scheme.size(); ++i) {
+        const auto character = static_cast<unsigned char>(url[i]);
+        const auto expected = static_cast<unsigned char>(scheme[i]);
+        const auto lower = character >= 'A' && character <= 'Z' ? static_cast<unsigned char>(character + 32) : character;
+        if (lower != expected) return false;
+    }
+    return true;
+}
+
+// The cabinet links to support with a plain mailto address.  Only that shape
+// leaves the window: no additional recipients, no copied address, no fragment
+// and no prefilled subject, because a page could otherwise compose a message on
+// the user's behalf.  Mac admits one optional subject; GRAF's own templates
+// never send one, so the narrower rule costs nothing.
+std::string supportMailtoUrl(std::string_view url) {
+    constexpr std::string_view scheme = "mailto:";
+    if (!hasScheme(url, scheme)) return {};
+    const auto address = url.substr(scheme.size());
+    if (address.empty() || address.size() > 254) return {};
+    for (const auto character : address) {
+        const auto byte = static_cast<unsigned char>(character);
+        if (byte <= 0x20 || byte == 0x7f || character == '#' || character == '?' || character == ',' ||
+            character == ';' || character == '\\') return {};
+    }
+    const auto at = address.find('@');
+    if (at == std::string_view::npos || at == 0 || at + 1 >= address.size()) return {};
+    if (address.find('@', at + 1) != std::string_view::npos) return {};
+    return "mailto:" + std::string(address);
+}
+
 bool artifactDownload(std::string_view path) noexcept {
     constexpr std::string_view prefix = "/api/v1/cabinet/meetings/";
     if (!startsWith(path, prefix)) return false;
@@ -128,6 +160,14 @@ bool WebViewRoutePolicy::isAllowedDownload(std::string_view url, std::string_vie
 RouteEvaluation WebViewRoutePolicy::evaluate(std::string_view url, bool topLevel, AuthContinuation auth) const {
     RouteEvaluation result;
     result.normalizedUrl = std::string(url);
+    if (hasScheme(url, "mailto:")) {
+        const auto sanitized = topLevel ? supportMailtoUrl(url) : std::string{};
+        if (sanitized.empty()) { result.kind = RouteKind::denied; return result; }
+        result.decision = RouteDecision::openExternal;
+        result.kind = RouteKind::external;
+        result.normalizedUrl = std::move(sanitized);
+        return result;
+    }
     if (!topLevel || url.empty() || !safeUrl(url) || startsWith(url, "file:") || startsWith(url, "data:") ||
         startsWith(url, "javascript:") || !startsWith(url, "https://")) {
         result.kind = RouteKind::denied;
@@ -174,6 +214,11 @@ RouteEvaluation WebViewRoutePolicy::evaluate(std::string_view url, bool topLevel
         return result;
     }
     else if (path == "/desktop/meetings" || path == "/desktop/shared-with-me") result.kind = RouteKind::meetings;
+    // The cabinet sidebar and the settings pages link to the notification inbox
+    // with an ordinary same-origin anchor, and the deletion page is the same kind
+    // of route.  Mac admits both; denying them made the bell a dead link.
+    else if (path == "/desktop/notifications" || path == "/notifications") result.kind = RouteKind::meetings;
+    else if (path == "/desktop/deletions") result.kind = RouteKind::deletionReport;
     else if (meetingAction(path, "deletion-report")) result.kind = RouteKind::deletionReport;
     else if (meetingAction(path, "share")) result.kind = RouteKind::share;
     else if (exactOrChild(path, "/desktop/meetings")) result.kind = RouteKind::meetingDetail;

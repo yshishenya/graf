@@ -96,7 +96,8 @@ TransitionResult WindowsCaptureSessionController::pollHealth() {
             latchFault(failure);
             (void)session_.markDegraded(failure);
             indicator_.publish(session_.state(), session_.reason());
-            return stop();
+            // A fault-driven stop must never be classified as a deliberate one.
+            return stop(RecordingStopReason::interruption);
         }
         if (state == SessionState::starting && renderWorker_->ready() && microphoneWorker_->ready()) {
             const auto started = session_.startRecording();
@@ -108,10 +109,13 @@ TransitionResult WindowsCaptureSessionController::pollHealth() {
     return {TransitionStatus::idempotent, session_.state(), session_.reason()};
 }
 
-TransitionResult WindowsCaptureSessionController::stop() {
+TransitionResult WindowsCaptureSessionController::stop(RecordingStopReason reason) {
     const auto beforeStop = captureFailureReason();
     const auto requested = session_.stop();
     if (requested.status != TransitionStatus::accepted) return requested;
+    // Latch only after the transition was accepted, so an idempotent repeat
+    // cannot overwrite the reason the original stop was classified with.
+    stopReason_ = reason;
     indicator_.publish(session_.state(), session_.reason());
     // Latch unexpected worker termination before the deliberate shutdown.
     if (beforeStop != ReasonCode::none) latchFault(beforeStop);
@@ -143,7 +147,9 @@ TransitionResult WindowsCaptureSessionController::finishStop() {
     }
     pollingFinalizer_ = true;
     try {
-        const auto result = finalizer_ ? finalizer_(failure) : std::optional<CaptureFinalization>{CaptureFinalization{}};
+        const auto result = finalizer_
+            ? finalizer_(failure, stopReason_)
+            : std::optional<CaptureFinalization>{CaptureFinalization{}};
         if (!result) {
             pollingFinalizer_ = false;
             return {TransitionStatus::idempotent, session_.state(), session_.reason()};
@@ -155,12 +161,19 @@ TransitionResult WindowsCaptureSessionController::finishStop() {
     pollingFinalizer_ = false;
     if (failure != ReasonCode::none) {
         finalization_.savedLocal = false;
+        finalization_.shortRecordingDiscarded = false;
         if (finalization_.reason == ReasonCode::none) finalization_.reason = failure;
     }
-    const auto result = finalization_.savedLocal && finalization_.reason == ReasonCode::none
-        ? session_.saveLocal()
-        : session_.fail(finalization_.reason == ReasonCode::none
-            ? ReasonCode::finalizationFailed : finalization_.reason);
+    // A discarded short recording is a deliberate, successful outcome: nothing
+    // is stored, no capture error is registered, and the session ends blocked
+    // (the same terminal truth macOS writes into the manifest).
+    const auto result = finalization_.shortRecordingDiscarded
+        ? session_.block(ReasonCode::none)
+        : (finalization_.savedLocal && finalization_.reason == ReasonCode::none
+            ? session_.saveLocal()
+            : session_.fail(finalization_.reason == ReasonCode::none
+                ? ReasonCode::finalizationFailed : finalization_.reason));
+    stopReason_ = RecordingStopReason::interruption;
     indicator_.publish(session_.state(), session_.reason());
     return result;
 }

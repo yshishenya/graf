@@ -30,6 +30,7 @@
     <ClCompile Include="..\..\RecApp\Diagnostics\MetadataSafeDiagnostics.cpp" />
     <ClCompile Include="..\..\RecApp\Permissions\WindowsReadinessGate.cpp" />
     <ClCompile Include="..\..\RecApp\Storage\AtomicFileStore.cpp" />
+    <ClCompile Include="..\..\RecApp\Storage\Sha256.cpp" />
     <ClCompile Include="..\..\RecApp\Upload\DesktopApiClient.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
