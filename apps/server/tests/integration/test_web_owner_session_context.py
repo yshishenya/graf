@@ -1329,7 +1329,9 @@ def test_authenticated_email_link_is_passwordless_and_csrf_protected(client) -> 
 
 def test_authenticated_email_link_delivery_failure_is_recoverable(monkeypatch, client) -> None:
     csrf = _login_owner_and_get_settings_csrf(client)
-    client.app.state.settings.env = "production"
+    # The application instance is shared by every test in the worker, so the
+    # production switch must be reverted automatically instead of left behind.
+    monkeypatch.setattr(client.app.state.settings, "env", "production")
 
     async def fail_send_email_login_code(**_kwargs):
         raise email_delivery.EmailLoginDeliveryError("postal_request_failed")

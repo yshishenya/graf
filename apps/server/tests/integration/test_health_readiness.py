@@ -7,20 +7,27 @@ from twobrain_rec_server.main import create_app
 
 
 def test_ready_reports_not_ready_when_database_probe_fails(client) -> None:
+    # The application instance is shared by the whole worker process, so the
+    # cleared sessionmaker must come back before the next test runs.
+    sessionmaker = client.app.state.db_sessionmaker
     client.app.state.db_sessionmaker = None
+    try:
+        response = client.get("/api/v1/health/ready")
 
-    response = client.get("/api/v1/health/ready")
+        assert response.status_code == 503
+        assert response.json() == {"status": "not_ready"}
 
-    assert response.status_code == 503
-    assert response.json() == {"status": "not_ready"}
+        blocked_internal = client.get("/api/v1/health/ready/internal")
+        assert blocked_internal.status_code == 403
+        assert blocked_internal.json() == {"status": "forbidden"}
 
-    blocked_internal = client.get("/api/v1/health/ready/internal")
-    assert blocked_internal.status_code == 403
-    assert blocked_internal.json() == {"status": "forbidden"}
-
-    internal = client.get("/api/v1/health/ready/internal", headers={"X-Internal-Health-Check": "true"})
-    assert internal.status_code == 503
-    assert internal.json()["checks"]["postgres"] == "unreachable"
+        internal = client.get(
+            "/api/v1/health/ready/internal", headers={"X-Internal-Health-Check": "true"}
+        )
+        assert internal.status_code == 503
+        assert internal.json()["checks"]["postgres"] == "unreachable"
+    finally:
+        client.app.state.db_sessionmaker = sessionmaker
 
 
 def test_ready_reports_not_ready_when_minio_probe_fails(client) -> None:

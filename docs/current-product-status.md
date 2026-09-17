@@ -2110,3 +2110,30 @@ the current accepted implementation or `012` ingest slice.
 - The preceding validation record intentionally described pre-deploy local
   testing; the production evidence for this release is recorded in
   `docs/deployments/2brain-rec/release-v2026.07.26.2.md`.
+
+## Validation update (2026-09-17) — F270 cabinet query efficiency and test speed
+
+Features 270 changed no product behaviour and no user-visible copy. It removed
+repeated per-meeting reads in the cabinet list path and made the required test
+suites reuse one application instance instead of rebuilding it per test.
+
+- Measured on the cabinet list page: 5 meetings went from 135–144 queries to
+  42, and 20 meetings from 609 to a constant page cost. The guard test
+  `apps/server/tests/integration/test_cabinet_meeting_list_query_budget.py`
+  fails when the count grows with the number of meetings.
+- The required full server suite now reuses one FastAPI application, two
+  database engines and one fake storage instance across tests. On 481 files
+  present in both runs, serial test time fell from 7583 s to about 2148 s, a
+  3.53× speed-up, with no file of the baseline suite lost and one guard file
+  added.
+- Stability work: the exact source SHA line in a pull request body is now
+  written by `scripts/sync-pr-source-sha.py` instead of by hand, whitespace
+  defects are rejected before the slow lane instead of after it, and the shell
+  syntax contract no longer depends on the runner's language.
+- Access, privacy, deletion, retention and export expectations were not
+  changed: the same checks pass with unchanged assertions.
+- Two items remain open: splitting the release run into parallel jobs and
+  binding evidence to the code tree both touch files owned by the open F269
+  change, so they wait for it to merge rather than conflicting with it.
+- Release lane: `significant-feature`. Evidence for this update is local
+  validation plus the required pull-request checks on the exact commit.
