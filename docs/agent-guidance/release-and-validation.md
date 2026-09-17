@@ -137,7 +137,8 @@ existing results and do not execute product tests. The personal repository keeps
 serial merges because native merge queue is unavailable.
 
 For an iterative macOS-only failure, manually dispatch `macos-diagnostic` on
-the exact SHA instead of rerunning `release-full`. It runs no server-full job,
+the exact SHA instead of rerunning `release-full`. It runs no server component
+job (`server-static`, `server-phases`, `server-parallel`),
 publishes no authoritative evidence and cannot approve a release. After the
 macOS problem is resolved, the frozen candidate still needs exactly one complete
 `release-full` with both server and macOS components.
