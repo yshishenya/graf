@@ -1016,28 +1016,11 @@ class GrafLocalAdapter:
         # The fresh candidate must survive until it is promoted; everything
         # outside the active/target pair and the candidate is stale.
         active = _load_active(self.state)
-        target = None
-        retention_blocked = False
-        if active and active.get("parent_manifest_id"):
-            target_id = _safe_id(str(active["parent_manifest_id"]), "manifest_id")
-            target_path = _manifest_path(self.state, target_id)
-            if not target_path.exists():
-                # Without a proven rollback target, retention cannot tell
-                # recovery material from stale material, so nothing is removed
-                # while a rollback is still required.
-                retention_blocked = True
-            else:
-                candidate_target = _read_json(target_path)
-                try:
-                    _validate_manifest(candidate_target)
-                except HarnessError:
-                    retention_blocked = True
-                else:
-                    if candidate_target.get("manifest_id") != target_id:
-                        retention_blocked = True
-                    else:
-                        target = candidate_target
-        if not retention_blocked:
+        target, blocked = self._rollback_target(active)
+        # Without a proven rollback target, retention cannot tell recovery
+        # material from stale material, so nothing is removed while a rollback
+        # is still required.
+        if blocked is None:
             self._apply_retention(active, target, keep_extra=(str(manifest["manifest_id"]),))
         return {"mode": "live", "app_bundle_digest": manifest["components"]["macos_app"]["digest"]}
 
@@ -1111,6 +1094,30 @@ class GrafLocalAdapter:
         finally:
             with contextlib.suppress(FileNotFoundError):
                 temporary_archive.unlink()
+
+    def _rollback_target(self, active: Optional[Dict[str, Any]]) -> tuple:
+        """Return the recorded rollback target and why it is unusable.
+
+        The parent manifest of the active candidate is the only material an
+        automatic rollback can restore.  A caller that removes files must know
+        whether that parent is proven present and intact before deciding what is
+        stale, so an unusable target is reported instead of being silently
+        treated as absent.
+        """
+        if not active or not active.get("parent_manifest_id"):
+            return None, None
+        target_id = _safe_id(str(active["parent_manifest_id"]), "manifest_id")
+        target_path = _manifest_path(self.state, target_id)
+        if not target_path.exists():
+            return None, f"rollback manifest missing: {target_id}"
+        candidate = _read_json(target_path)
+        try:
+            _validate_manifest(candidate)
+        except HarnessError as exc:
+            return None, f"rollback manifest invalid: {target_id}: {exc}"
+        if candidate.get("manifest_id") != target_id:
+            return None, f"rollback manifest identity differs: {target_id}"
+        return candidate, None
 
     def _apply_retention(
         self,
@@ -1193,27 +1200,7 @@ class GrafLocalAdapter:
     def estimate_or_apply_prune(self, *, dry_run: bool) -> tuple:
         """Compute the retention plan and optionally apply it under the state lock."""
         active = _load_active(self.state)
-        target = None
-        blocked_reason = None
-        if active and active.get("parent_manifest_id"):
-            target_id = _safe_id(str(active["parent_manifest_id"]), "manifest_id")
-            target_path = _manifest_path(self.state, target_id)
-            if not target_path.exists():
-                # The rollback target is the only material an automatic rollback
-                # can restore; when it cannot be proven present and intact,
-                # retention must not remove anything.
-                blocked_reason = f"rollback manifest missing: {target_id}"
-            else:
-                candidate_target = _read_json(target_path)
-                try:
-                    _validate_manifest(candidate_target)
-                except HarnessError as exc:
-                    blocked_reason = f"rollback manifest invalid: {target_id}: {exc}"
-                else:
-                    if candidate_target.get("manifest_id") != target_id:
-                        blocked_reason = f"rollback manifest identity differs: {target_id}"
-                    else:
-                        target = candidate_target
+        target, blocked_reason = self._rollback_target(active)
         removed: list = []
         partial_reasons: list = []
         if blocked_reason is not None:
@@ -1917,6 +1904,11 @@ print(json.dumps({"heads": s.get_heads(), "parents": {r.revision: list(r._normal
         if schema_change:
             if not previous_was_live or previous_adapter is self:
                 raise HarnessError("schema transition requires a live verified predecessor checkout")
+            # Feature 269: the predecessor becomes the one rollback target, so
+            # its exact images must be archived before the transition publishes
+            # the new active manifest.  This path returns here, so it cannot be
+            # left to the ordinary path below.
+            self._ensure_rollback_archive(previous_manifest)
             return self._promote_schema(previous_manifest, manifest, previous_adapter)
         app_destination = Path(os.environ.get("GRAF_DEV_INSTALL_PATH", "/Applications/GRAF Dev.app"))
         previous_app_was_running = self._app_is_running(app_destination)
@@ -1966,7 +1958,25 @@ print(json.dumps({"heads": s.get_heads(), "parents": {r.revision: list(r._normal
         else:
             if app_backup is not None:
                 shutil.rmtree(app_backup)
-            self._apply_retention(manifest, previous_manifest)
+            # A repeat promotion of the unchanged active manifest must not drop
+            # the rollback target: the manifest is then its own predecessor, so
+            # the parent recorded on it is the material a rollback needs.
+            retention_target = previous_manifest
+            if previous_manifest is not None and str(previous_manifest.get("manifest_id")) == str(manifest.get("manifest_id")):
+                retention_target, _ = self._rollback_target(manifest)
+            try:
+                self._apply_retention(manifest, retention_target)
+            except (HarnessError, OSError) as exc:
+                # Retention is best effort and runs after the promotion already
+                # published the manifest and removed the app backup, so a
+                # cleanup failure must not report the promotion as failed.
+                print(
+                    json.dumps(
+                        {"status": "warning", "error": f"retention incomplete: {exc}"},
+                        ensure_ascii=False,
+                    ),
+                    file=sys.stderr,
+                )
         return {"mode": "live", "backend": "started", "app": "installed", "checks": checks}
 
     def rollback(self, active: Dict[str, Any], target: Dict[str, Any], *, previous_checkout=None, target_checkout=None) -> Dict[str, Any]:
