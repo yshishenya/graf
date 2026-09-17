@@ -527,6 +527,10 @@ must preserve:
 - backup and restore rehearsal evidence where required;
 - secret scans;
 - health checks and smoke evidence;
+- a repeated Temporal and processing-worker readiness check after the smoke
+  test: the containers are the same, but the smoke test runs a real upload and
+  a real processing workflow on them, so this second observation is what
+  catches a crash, restart or unhealthy state introduced by that work;
 - metadata-only evidence.
 
 Use the exact production sequence:

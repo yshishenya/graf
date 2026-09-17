@@ -1348,11 +1348,22 @@ curl -fsS https://rec.2brain.pro/api/v1/health/ready >/dev/null
 verify_public_download
 step_timer_stop
 
+# This is not a repeat of the earlier `temporal_readiness` probe. Between the
+# two probes the smoke test pushed a real upload through rec-api and a real
+# processing workflow through rec-processing-worker, and the media worker was
+# recreated twice. The containers are the same, but this second observation is
+# taken after that work, so it catches a crash, restart or unhealthy state that
+# the pre-smoke probe could not see. `apps/server/tests/integration/
+# test_deployment_readiness_gates.py::test_remote_deploy_rechecks_temporal_and_
+# processing_worker_before_success` requires it before `deployment_complete=1`.
+# Keep it.
+step_timer_start final_temporal_readiness
 if ! verify_processing_runtime_health; then
   echo "deploy_result=blocked"
   echo "reason=final_processing_runtime_readiness_failed"
   exit 1
 fi
+step_timer_stop
 echo "final_temporal_readiness_result=pass"
 echo "final_processing_worker_readiness_result=pass"
 
