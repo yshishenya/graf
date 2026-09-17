@@ -1230,37 +1230,54 @@ async def batch_result_media_presence(
     db: AsyncSession,
     *,
     workspace_id: UUID,
-    result_ids: Iterable[UUID],
+    result_pairs: Iterable[tuple[UUID, UUID]],
     prefetch: CabinetReadPrefetch | None = None,
 ) -> dict[UUID, bool]:
-    """Batch variant of the transcript/diarization presence probe."""
+    """Batch variant of the transcript/diarization presence probe.
+
+    ``result_pairs`` carries ``(result_id, meeting_id)``. The single-meeting
+    probe fenced segments with ``Segment.meeting_id == meeting.id``, and the
+    schema has independent foreign keys, so a segment could otherwise reference
+    a result of meeting A while carrying meeting B. Presence is therefore keyed
+    by both columns instead of the result alone.
+    """
     if prefetch is None:
         prefetch = active_read_prefetch(db)
-    result_ids = list(dict.fromkeys(result_ids))
+    pairs = list(dict.fromkeys(result_pairs))
+    result_ids = list(dict.fromkeys(result_id for result_id, _ in pairs))
     presence: dict[UUID, bool] = {result_id: False for result_id in result_ids}
-    if result_ids:
-        transcript_ids = set(
-            await db.scalars(
-                select(TranscriptSegment.processing_result_id)
+    if pairs:
+        transcript_pairs = set(
+            await db.execute(
+                select(TranscriptSegment.processing_result_id, TranscriptSegment.meeting_id)
                 .where(
                     TranscriptSegment.workspace_id == workspace_id,
                     TranscriptSegment.processing_result_id.in_(result_ids),
+                    TranscriptSegment.meeting_id.in_(
+                        [meeting_id for _, meeting_id in pairs]
+                    ),
                 )
                 .distinct()
             )
         )
-        diarization_ids = set(
-            await db.scalars(
-                select(DiarizationSegment.processing_result_id)
+        diarization_pairs = set(
+            await db.execute(
+                select(DiarizationSegment.processing_result_id, DiarizationSegment.meeting_id)
                 .where(
                     DiarizationSegment.workspace_id == workspace_id,
                     DiarizationSegment.processing_result_id.in_(result_ids),
+                    DiarizationSegment.meeting_id.in_(
+                        [meeting_id for _, meeting_id in pairs]
+                    ),
                 )
                 .distinct()
             )
         )
-        for result_id in result_ids:
-            presence[result_id] = result_id in transcript_ids and result_id in diarization_ids
+        for result_id, meeting_id in pairs:
+            presence[result_id] = (
+                (result_id, meeting_id) in transcript_pairs
+                and (result_id, meeting_id) in diarization_pairs
+            )
     if prefetch is not None:
         prefetch.result_media_presence.update(presence)
     return presence

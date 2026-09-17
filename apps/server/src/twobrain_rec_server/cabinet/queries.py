@@ -517,12 +517,16 @@ async def _prefetch_meeting_list_reads(
         prefetch=prefetch,
     )
 
-    # 5. Transcript/diarization presence for the effective results.
+    # 5. Transcript/diarization presence for the effective results. Presence is
+    # asked per (result, meeting) pair because a segment carries both keys and
+    # the single-meeting probe required them to agree.
     await batch_result_media_presence(
         db,
         workspace_id=workspace_id,
-        result_ids=[
-            result.id for result in prefetch.effective_results.values() if result is not None
+        result_pairs=[
+            (result.id, meeting_id)
+            for meeting_id, result in prefetch.effective_results.items()
+            if result is not None
         ],
         prefetch=prefetch,
     )
