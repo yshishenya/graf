@@ -49,7 +49,7 @@
 ## Фаза 6. Закрытие
 
 - [X] T020 [US1] Прогнать `$speckit-analyze` и убедиться, что CRITICAL и HIGH равны нулю. Требования: SC-005. (Issue #7149)
-- [ ] T021 [US1] Получить обязательные GitHub-проверки `governance-fast`, `macos-pr`, `pr-metadata` на точном SHA пул-реквеста. Требования: SC-004. (Issue #7150)
+- [X] T021 [US1] Получить обязательные GitHub-проверки `governance-fast`, `macos-pr`, `pr-metadata` на точном SHA пул-реквеста. Требования: SC-004. (Issue #7150)
 - [X] T022 [US1] Обновить `docs/current-product-status.md`, если поведение продукта описано там, и `specs/270-cabinet-query-efficiency/tasks.md` по факту выполнения. Требования: SC-005. (Issue #7151)
 
 ## Зависимости
