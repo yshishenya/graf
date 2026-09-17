@@ -1762,49 +1762,46 @@ async def batch_previous_recurring_links(
         if _previous_recurring_candidate_ready(link)
     }
     series_keys.discard(None)
-    candidates: dict[str, list[tuple[RecordingCalendarContextLink, Meeting]]] = {}
     if series_keys:
-        rows = await db.execute(
-            select(RecordingCalendarContextLink, Meeting)
-            .join(
-                Meeting,
-                Meeting.id == RecordingCalendarContextLink.meeting_id,
+        # Ask for one predecessor per current meeting instead of the whole
+        # series history. Selecting every link of every series present on the
+        # page, then rescanning that list once per meeting, made the read grow
+        # with the history of a series and the scan grow with the page, even
+        # though a meeting points at exactly one previous meeting.
+        current_rows = [
+            (
+                meeting_id,
+                link.recurring_series_key_sha256,
+                link.matched_event_starts_at,
             )
-            .where(
-                RecordingCalendarContextLink.workspace_id == workspace_id,
-                Meeting.workspace_id == workspace_id,
-                RecordingCalendarContextLink.context_state.in_(
-                    {"matched_auto", "matched_user"}
-                ),
-                RecordingCalendarContextLink.recurring_series_key_sha256.in_(series_keys),
-            )
-            .order_by(
-                RecordingCalendarContextLink.recurring_series_key_sha256.asc(),
-                RecordingCalendarContextLink.matched_event_starts_at.desc(),
-                RecordingCalendarContextLink.id.desc(),
-            )
-        )
-        for link, meeting in rows:
-            candidates.setdefault(link.recurring_series_key_sha256, []).append((link, meeting))
-    for meeting_id, current_link in current_links.items():
-        if not _previous_recurring_candidate_ready(current_link):
-            continue
-        series_key = current_link.recurring_series_key_sha256
-        starts_at = current_link.matched_event_starts_at
-        for candidate_link, candidate_meeting in candidates.get(series_key, ()):
-            if candidate_link.meeting_id == meeting_id:
-                continue
-            # The single-meeting path let the database compare the timestamps,
-            # where a null start time simply failed the predicate. Comparing in
-            # Python instead must reject the same rows explicitly: the model
-            # allows a series key with a null start time, and `None < datetime`
-            # would raise TypeError and fail the whole page.
-            candidate_starts_at = candidate_link.matched_event_starts_at
-            if candidate_starts_at is None:
-                continue
-            if candidate_starts_at < starts_at:
-                result[meeting_id] = (candidate_link, candidate_meeting)
-                break
+            for meeting_id, link in current_links.items()
+            if _previous_recurring_candidate_ready(link)
+        ]
+        for meeting_id, series_key, starts_at in current_rows:
+            candidate = (
+                await db.execute(
+                    select(RecordingCalendarContextLink, Meeting)
+                    .join(Meeting, Meeting.id == RecordingCalendarContextLink.meeting_id)
+                    .where(
+                        RecordingCalendarContextLink.workspace_id == workspace_id,
+                        Meeting.workspace_id == workspace_id,
+                        RecordingCalendarContextLink.context_state.in_(
+                            {"matched_auto", "matched_user"}
+                        ),
+                        RecordingCalendarContextLink.recurring_series_key_sha256 == series_key,
+                        RecordingCalendarContextLink.meeting_id != meeting_id,
+                        RecordingCalendarContextLink.matched_event_starts_at.is_not(None),
+                        RecordingCalendarContextLink.matched_event_starts_at < starts_at,
+                    )
+                    .order_by(
+                        RecordingCalendarContextLink.matched_event_starts_at.desc(),
+                        RecordingCalendarContextLink.id.desc(),
+                    )
+                    .limit(1)
+                )
+            ).first()
+            if candidate is not None:
+                result[meeting_id] = (candidate[0], candidate[1])
     if prefetch is not None:
         prefetch.previous_links.update(result)
     return result
