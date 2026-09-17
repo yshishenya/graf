@@ -117,7 +117,7 @@ def test_tiny_unknown_degrades_without_confirmed_third_participant() -> None:
     assert [turn.speaker_label for turn in model.turns] == [
         "SPEAKER_00",
         "SPEAKER_01",
-        "Спикер не определен",
+        "Спикер не определён",
     ]
     assert model.diagnostics.accepted_turn_count == 3
     assert len(model.confirmed_speaker_keys) == 2
@@ -251,7 +251,7 @@ def test_raw_provider_key_is_preserved_exactly_while_unknown_detection_is_normal
     )
 
     assert model.turns[0].provider_speaker_key == raw_key
-    assert model.turns[0].speaker_label == "Спикер не определен"
+    assert model.turns[0].speaker_label == "Спикер не определён"
     assert model.turns[0].attribution_state == "unknown"
 
 
@@ -349,7 +349,7 @@ def test_empty_provider_key_stays_unknown_without_becoming_a_participant() -> No
 
     assert model.result_state == "accepted"
     assert model.turns[0].provider_speaker_key == ""
-    assert model.turns[0].speaker_label == "Спикер не определен"
+    assert model.turns[0].speaker_label == "Спикер не определён"
     assert model.turns[0].attribution_state == "unknown"
     assert model.confirmed_speaker_keys == ()
 

@@ -314,7 +314,8 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
     }
     public func enable(isCurrent: () -> Bool = { true }) async {
         let epoch = authEpoch
-        guard !owner.isEmpty else { return }
+        // Системное разрешение не требует аккаунта: вход нужен только для
+        // серверных предпочтений, которые без владельца остаются отключёнными.
         do {
             if let requestPermission { _ = try await requestPermission() }
             else if let center {

@@ -77,13 +77,13 @@ _BUILT_IN_TEMPLATE_CATALOG_V1: Final[tuple[SummaryTemplateDefinition, ...]] = (
     _built_in(
         "one-to-one",
         "Один на один",
-        "Темы сотрудника, нагрузка, обратная связь и взаимные договоренности",
+        "Темы сотрудника, нагрузка, обратная связь и взаимные договорённости",
         ("summary", "key_points", "action_items", "followups", "questions"),
     ),
     _built_in(
         "client-status-update",
         "Статус для клиента",
-        "Достигнутая ценность, подтвержденный прогресс, риски и следующие шаги",
+        "Достигнутая ценность, подтверждённый прогресс, риски и следующие шаги",
         ("summary", "key_points", "decisions", "action_items", "risks"),
     ),
     _built_in(

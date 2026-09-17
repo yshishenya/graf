@@ -4,6 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from twobrain_rec_server.api.schemas import CreateSummaryTemplateRequest
+from twobrain_rec_server.cabinet.rendering import _format_for_display
 from twobrain_rec_server.cabinet.view_models import summary_template_slot
 from twobrain_rec_server.db.models import MeetingOutcomeSet
 from twobrain_rec_server.outcomes.templates import (
@@ -63,11 +64,11 @@ def test_all_builtin_purposes_sections_and_versions_remain_compatible() -> None:
             ("summary", "key_points", "action_items", "risks", "questions"),
         ),
         "graf-one-to-one-v1": (
-            "Темы сотрудника, нагрузка, обратная связь и взаимные договоренности",
+            "Темы сотрудника, нагрузка, обратная связь и взаимные договорённости",
             ("summary", "key_points", "action_items", "followups", "questions"),
         ),
         "graf-client-status-update-v1": (
-            "Достигнутая ценность, подтвержденный прогресс, риски и следующие шаги",
+            "Достигнутая ценность, подтверждённый прогресс, риски и следующие шаги",
             ("summary", "key_points", "decisions", "action_items", "risks"),
         ),
         "graf-interview-v1": (
@@ -84,6 +85,8 @@ def test_all_builtin_purposes_sections_and_versions_remain_compatible() -> None:
         template.key: (template.purpose, template.sections) for template in BUILT_IN_TEMPLATES
     } == expected
     assert all(template.version == 1 and template.key.endswith("-v1") for template in BUILT_IN_TEMPLATES)
+    assert all("ё" not in _format_for_display(template).name for template in BUILT_IN_TEMPLATES)
+    assert all("ё" not in _format_for_display(template).purpose for template in BUILT_IN_TEMPLATES)
 
 
 def test_personal_template_is_structured_and_bounded() -> None:

@@ -5988,13 +5988,16 @@ html:not([data-cabinet-js="ready"]) .detail-page-main:not([data-processing-repla
 [data-notification-items] { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 [data-notification-status]:empty { display: none; }
 .notification-card { padding: 16px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
-.notification-card h3 { margin: 0 0 6px; font-size: var(--font-size-subtitle); }
+.notification-card h3 { margin: 0 0 6px; font-size: var(--font-size-subtitle); }.notification-card h3 { margin: 0 0 6px; font-size: var(--font-size-subtitle); }
+.notification-history-page__list .notification-card h2 { margin: 0 0 6px; font-size: var(--font-size-subtitle); }
 .notification-card p { margin: 6px 0; }
 .notification-card time { display: block; margin: 10px 0; color: var(--muted); font-size: var(--font-size-helper); }
 .notification-card > a { display: inline-block; margin-top: 4px; text-decoration: underline; text-underline-offset: 3px; }
 .notification-card button { display: block; margin-top: 10px; }
 .notification-panel footer { margin-top: 16px; }
 .notification-bell:focus-visible, .notification-panel :focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.notification-bell[aria-current="page"] { background: var(--surface-3); color: var(--text); font-weight: 700; }
+
 @media (max-width: 600px) {
   .notification-panel button, .notification-bell { min-height: 44px; }
 }

@@ -311,7 +311,9 @@ public final class CalendarTrayController: NSObject, NSMenuDelegate {
         item.target = self
         item.identifier = NSUserInterfaceItemIdentifier(id)
         if informational {
-            item.isEnabled = true
+            // Строка не активируется, но не выглядит серой: цвет задаёт
+            // атрибутированный заголовок.
+            item.isEnabled = false
             item.attributedTitle = NSAttributedString(
                 string: title,
                 attributes: [.foregroundColor: NSColor.secondaryLabelColor]
@@ -412,6 +414,7 @@ public final class CalendarTrayController: NSObject, NSMenuDelegate {
             let previousTitle = self.model.showUpcomingTitle
             let previousTime = self.model.showUpcomingTime
             await self.model.refresh()
+            self.updateStatusItem()
             if self.menuIsOpen && (previousEvents != self.model.events ||
                 previousTitle != self.model.showUpcomingTitle || previousTime != self.model.showUpcomingTime) {
                 self.menu.cancelTracking()

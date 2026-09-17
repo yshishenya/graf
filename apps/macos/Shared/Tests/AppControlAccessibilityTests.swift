@@ -516,6 +516,11 @@ final class AppControlAccessibilityTests: XCTestCase {
         XCTAssertTrue(source.contains("AutomaticRecordingRulePicker"))
         XCTAssertTrue(source.contains("bulkRuleBinding"))
         XCTAssertTrue(source.contains("rule.displayName"))
+        XCTAssertTrue(
+            source.contains("selection: ruleBinding(for: target.id),\n                                        isDisabled: promptCapableTargets.isEmpty || !settingsAvailable")
+                || source.components(separatedBy: "isDisabled: promptCapableTargets.isEmpty || !settingsAvailable").count == 3,
+            "Per-app rules must be disabled while stored settings are unavailable"
+        )
         XCTAssertTrue(source.contains("selection?.displayName ?? \"Разные правила\""))
         XCTAssertTrue(source.contains("NativeSettingsComboBox("))
         XCTAssertTrue(source.contains("selectedID: selection?.rawValue"))

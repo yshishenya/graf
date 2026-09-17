@@ -124,7 +124,7 @@ def test_canonical_turns_preserve_boundaries_unknown_and_long_gaps(export_fixtur
     assert len(snapshot.raw_segments) == 7
     assert len(snapshot.canonical_turns) == 7
     assert snapshot.raw_segments[3].attribution_state == "uncertain"
-    assert snapshot.canonical_turns[3].speaker_label == "Спикер не определен"
+    assert snapshot.canonical_turns[3].speaker_label == "Спикер не определён"
     assert snapshot.canonical_turns[0].speaker_label == "Анна"
     assert snapshot.canonical_turns[2].speaker_label == "Анна"
     assert snapshot.canonical_turns[0].turn_id != snapshot.canonical_turns[2].turn_id

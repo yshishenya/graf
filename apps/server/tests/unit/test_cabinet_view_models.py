@@ -1296,7 +1296,7 @@ def test_transcript_mapping_uses_timestamp_speaker_and_source_role_truth() -> No
 
     assert state.available is True
     assert state.segments[0].timestamp_label == "01:05"
-    assert state.segments[0].speaker_label == "Спикер не определен"
+    assert state.segments[0].speaker_label == "Спикер не определён"
     assert state.segments[0].source_role == "incoming_system"
     assert state.segments[0].seekable is False
     assert state.segments[0].seek_seconds is None
@@ -1605,7 +1605,7 @@ def test_manual_upload_transcript_uses_diarization_rows_for_speaker_labels() -> 
     )
 
     assert state.result_state == "degraded_provider_result"
-    assert {segment.speaker_label for segment in state.segments} == {"Спикер не определен"}
+    assert {segment.speaker_label for segment in state.segments} == {"Спикер не определён"}
     assert [segment.text for segment in state.segments] == [
         "speaker zero",
         "speaker one",
@@ -2036,7 +2036,7 @@ def test_manual_upload_transcript_falls_back_to_transcript_text_when_diarization
         "first transcript row",
         "second transcript row",
     ]
-    assert {segment.speaker_label for segment in state.segments} == {"Спикер не определен"}
+    assert {segment.speaker_label for segment in state.segments} == {"Спикер не определён"}
     assert state.result_state == "degraded_provider_result"
     assert all(segment.text.strip() for segment in state.segments)
 
@@ -2100,7 +2100,7 @@ def test_manual_upload_transcript_omits_blank_diarization_display_rows() -> None
         "speaker one text",
     ]
     assert [segment.speaker_label for segment in state.speaker_turns] == [
-        "Спикер не определен",
+        "Спикер не определён",
         "SPEAKER_00",
     ]
     assert all(segment.text.strip() for segment in state.speaker_turns)
@@ -2242,7 +2242,7 @@ def test_manual_upload_speaker_mapping_hides_unknown_when_speaker_labels_are_pre
     assert {speaker.label for speaker in state.speakers} == {
         "SPEAKER_00",
         "SPEAKER_01",
-        "Спикер не определен",
+        "Спикер не определён",
     }
     assert sum(speaker.confirmed for speaker in state.speakers) == 2
 
@@ -2271,7 +2271,7 @@ def test_manual_upload_speaker_mapping_preserves_unknown_rows() -> None:
         transcript_segments=_transcript_evidence(segments),
     )
 
-    assert [speaker.label for speaker in state.speakers] == ["Спикер не определен"]
+    assert [speaker.label for speaker in state.speakers] == ["Спикер не определён"]
     assert state.speakers[0].confirmed is False
     assert state.speakers[0].can_rename is False
 
@@ -2769,7 +2769,7 @@ def test_transcript_state_derives_same_speaker_turns_and_preserves_raw_segments(
     assert [segment.text for segment in state.segments] == [
         f"synthetic fragment {index}" for index in range(4)
     ]
-    assert {segment.speaker_label for segment in state.segments} == {"Спикер не определен"}
+    assert {segment.speaker_label for segment in state.segments} == {"Спикер не определён"}
     assert {segment.attribution_state for segment in state.segments} == {"uncertain"}
     assert {segment.speaker_key for segment in state.segments} == {f"evidence:{result_id.hex}"}
     assert [turn.source_segment_ids for turn in state.speaker_turns] == [
@@ -2821,7 +2821,7 @@ def test_speaker_display_name_changes_labels_without_changing_keys() -> None:
     )
 
     assert transcript.segments[0].speaker_key == f"evidence:{result_id.hex}"
-    assert transcript.segments[0].speaker_label == "Спикер не определен"
+    assert transcript.segments[0].speaker_label == "Спикер не определён"
     assert transcript.speaker_turns[0].speaker_key == stable_key
     assert transcript.speaker_turns[0].speaker_label == "Мария"
     assert speakers.speakers[0].speaker_key == stable_key
@@ -2974,7 +2974,7 @@ def test_transcript_and_timeline_share_degraded_asr_fallback_without_provider_tu
     assert speaker_state.available is True
     assert speaker_state.can_rename is False
     assert len(speaker_state.speakers) == 1
-    assert speaker_state.speakers[0].label == "Спикер не определен"
+    assert speaker_state.speakers[0].label == "Спикер не определён"
     assert speaker_state.speakers[0].confirmed is False
     assert speaker_state.turns != transcript_state.speaker_turns
     assert [

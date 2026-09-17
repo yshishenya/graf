@@ -76,7 +76,7 @@ def test_notification_history_renders_inside_shared_shell_with_theme_and_cards()
     assert '<a class="button quiet" href="?filter=history">История</a>' in page
 
     assert 'class="notification-card cabinet-card"' in page
-    assert "<h3>Не удалось обработать встречу</h3>" in page
+    assert "<h2 class=\"notification-card__title\">Не удалось обработать встречу</h2>" in page
     assert "Синтетическая встреча" in page
     assert "data-user-datetime" in page
     assert f'action="/api/v1/notifications/{NOTICE_ID}/read"' in page

@@ -62,9 +62,9 @@ ExportFormat = Literal["txt", "md", "csv", "xlsx", "json", "srt", "vtt"]
 AttributionState = Literal["confirmed", "unconfirmed", "unknown", "mixed", "uncertain"]
 
 SCHEMA_VERSION = "graf.transcript-export.v3"
-RENDERER_VERSION = "export-v1"
+RENDERER_VERSION = "export-v2"
 TURN_POLICY_VERSION = "canonical-provider-turns-v4"
-UNKNOWN_SPEAKER_LABEL = "Спикер не определен"
+UNKNOWN_SPEAKER_LABEL = "Спикер не определён"
 FORMAT_COMPATIBILITY = CONTENT_EXPORT_FORMATS_BY_SCOPE
 MEDIA_TYPES: dict[ExportFormat, str] = {
     "txt": "text/plain; charset=utf-8",
@@ -752,7 +752,7 @@ def _human_transcript_lines(snapshot: ExportSnapshot, *, markdown: bool) -> list
         raw_segments=snapshot.raw_segments,
     ):
         first = group[0]
-        heading = first.speaker_label if snapshot.selection.include_speaker_labels else "Реплики"
+        heading = _display_copy(first.speaker_label) if snapshot.selection.include_speaker_labels else "Реплики"
         if markdown:
             lines.extend((f"### {_markdown_escape(heading)}", ""))
         else:
@@ -801,7 +801,7 @@ def human_display_groups(
 def _summary_lines(snapshot: ExportSnapshot, *, markdown: bool) -> list[str]:
     summary = snapshot.summary
     if summary is None:
-        return ["Сохраненные итоги недоступны."]
+        return ["Сохранённые итоги недоступны."]
     if summary.protocol is not None:
         return list(protocol_lines(
             summary.protocol, markdown=markdown, include_evidence=snapshot.selection.include_evidence,
@@ -922,7 +922,7 @@ def _render_srt(snapshot: ExportSnapshot) -> bytes:
     for counter, turn in enumerate(snapshot.canonical_turns, start=1):
         text = _subtitle_literal(turn.text)
         if snapshot.selection.include_speaker_labels:
-            text = f"{_subtitle_literal(turn.speaker_label)}: {text}"
+            text = f"{_subtitle_literal(_display_copy(turn.speaker_label))}: {text}"
         blocks.append(f"{counter}\n{_srt_time(turn.start_ms)} --> {_srt_time(turn.end_ms)}\n{text}")
     return ("\n\n".join(blocks) + ("\n" if blocks else "")).encode("utf-8")
 
@@ -932,7 +932,7 @@ def _render_vtt(snapshot: ExportSnapshot) -> bytes:
     for turn in snapshot.canonical_turns:
         text = _subtitle_literal(turn.text)
         if snapshot.selection.include_speaker_labels:
-            text = f"{_subtitle_literal(turn.speaker_label)}: {text}"
+            text = f"{_subtitle_literal(_display_copy(turn.speaker_label))}: {text}"
         blocks.append(f"{_vtt_time(turn.start_ms)} --> {_vtt_time(turn.end_ms)}\n{text}")
     body = "WEBVTT\n\n" + "\n\n".join(blocks)
     return (body + ("\n" if blocks else "")).encode("utf-8")
@@ -1232,6 +1232,11 @@ def _markdown_escape(value: str) -> str:
     value = value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     return re.sub(r"([!\"#$%\'()*+,./:=?@\\\[\]^_`{|}~-])", r"\\\1", value)
 
+
+
+def _display_copy(value: str) -> str:
+    """Конвенция текста: канонические данные не меняются, показ без «ё»."""
+    return value.replace(chr(0x451), chr(0x435)).replace(chr(0x401), chr(0x415))
 
 def _subtitle_literal(value: str) -> str:
     return " ".join(value.replace("<", "&lt;").replace(">", "&gt;").split())

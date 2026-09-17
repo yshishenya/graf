@@ -10,7 +10,7 @@ from decimal import Decimal
 from typing import Literal, Protocol
 from uuid import UUID
 
-UNKNOWN_SPEAKER_LABEL = "Спикер не определен"
+UNKNOWN_SPEAKER_LABEL = "Спикер не определён"
 UNKNOWN_PROVIDER_KEYS = frozenset({"", "UNKNOWN", "UNIDENTIFIED", "UNASSIGNED"})
 TINY_UNKNOWN_SECONDS = Decimal("0.050")
 SOURCE_ROLE_ORDER = {"mic": 0, "incoming": 1, "mixed": 2}

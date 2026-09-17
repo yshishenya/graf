@@ -87,6 +87,7 @@ from twobrain_rec_server.domain.media_filenames import (
 )
 from twobrain_rec_server.domain.metadata_text import safe_metadata_text
 from twobrain_rec_server.domain.speaker_turns import (
+    UNKNOWN_SPEAKER_LABEL,
     CanonicalSpeakerTurn,
     canonical_speaker_model,
     canonical_speech_available,
@@ -1645,8 +1646,11 @@ def cabinet_navigation(
         CabinetNavigationItem("settings", "Настройки", settings_href, "settings"),
     )
     item_ids = {item.id for item in items}
+    # «notifications» — раздел без собственного пункта основного меню: он
+    # отмечает колокольчик и не подсвечивает «Мои встречи».
+    passthrough_states = {"notifications"}
     return CabinetNavigationModel(
-        active=active if active in item_ids else "meetings",
+        active=active if active in item_ids or active in passthrough_states else "meetings",
         items=items,
     )
 
@@ -2795,7 +2799,7 @@ def transcript_state(
                 start_seconds=float(row.start_seconds),
                 end_seconds=float(row.end_seconds),
                 timestamp_label=format_timestamp(row.start_seconds),
-                speaker_label="Спикер не определен",
+                speaker_label=UNKNOWN_SPEAKER_LABEL,
                 speaker_key=f"evidence:{processing_result_id.hex}",
                 provider_speaker_key=None,
                 attribution_state="uncertain",

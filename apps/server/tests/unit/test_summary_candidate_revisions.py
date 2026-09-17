@@ -362,7 +362,7 @@ def test_candidate_segments_use_unknown_without_diarization(client) -> None:
             await db.flush()
             return [segment.speaker_label for segment in await _candidate_segments(db, attempt)]
 
-    assert asyncio.run(run()) == ["Спикер не определен", "Спикер не определен"]
+    assert asyncio.run(run()) == ["Спикер не определён", "Спикер не определён"]
 
 
 def test_candidate_request_is_idempotent_and_does_not_replace_accepted_notes(client) -> None:

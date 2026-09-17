@@ -12,7 +12,7 @@
     <div class="notification-history-page__list">
       {% for item in items %}
       <article class="notification-card cabinet-card">
-        <h3>{{ item.title }}</h3>
+        <h2 class="notification-card__title">{{ item.title }}</h2>
         <p>{{ item.meeting_title }}</p>
         <p>{{ item.body }}</p>
         {{ user_time_element(item.updated_at) }}

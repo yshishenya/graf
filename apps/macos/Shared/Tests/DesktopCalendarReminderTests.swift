@@ -772,7 +772,12 @@ final class DesktopCalendarReminderTests: XCTestCase {
             let first = try XCTUnwrap(tray.menu.items.first)
             XCTAssertEqual(first.title, title)
             XCTAssertEqual(first.action != nil, hasAction)
-            XCTAssertTrue(first.isEnabled, "State rows must stay readable instead of looking disabled")
+            if hasAction {
+                XCTAssertTrue(first.isEnabled, "Action rows must stay enabled")
+            } else {
+                XCTAssertFalse(first.isEnabled, "Informational rows must not be actionable")
+                XCTAssertNotNil(first.attributedTitle, "Informational rows must keep a readable title")
+            }
             tray.startRecording()
             XCTAssertEqual(starts, 1, "A queued stale Start must not invoke capture")
             if hasAction { tray.menu.performActionForItem(at: 0) }
@@ -870,7 +875,7 @@ final class DesktopCalendarReminderTests: XCTestCase {
             let header = try XCTUnwrap(tray.menu.items.first { $0.identifier?.rawValue == "graf.menu.upcoming" })
             XCTAssertEqual(header.title, "Ближайшие встречи")
             XCTAssertNil(header.action)
-            XCTAssertTrue(header.isEnabled, "A section header must not look disabled")
+            XCTAssertFalse(header.isEnabled, "A section header must not be actionable")
             XCTAssertEqual(
                 try XCTUnwrap(header.attributedTitle).attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor,
                 NSColor.secondaryLabelColor

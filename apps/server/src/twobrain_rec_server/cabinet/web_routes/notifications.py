@@ -113,6 +113,7 @@ async def notifications_html(request: Request, filter: Filter = 'important',
     html = _page_shell(
         'Уведомления',
         embedded=embedded,
+        active_nav='notifications',
         content_template='cabinet/pages/notification_history.html',
         csrf_token=_csrf_token_for_principal(request, principal),
         profile=await get_account_profile_view(db, tenant_scope),

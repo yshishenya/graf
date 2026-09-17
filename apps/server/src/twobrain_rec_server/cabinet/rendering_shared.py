@@ -198,11 +198,16 @@ UI_TEXT: dict[str, str] = {
 }
 
 
+def _copy_convention(value: str) -> str:
+    """Presentation-only convention: user-visible strings carry no U+0451."""
+    return value.replace(chr(0x451), chr(0x435)).replace(chr(0x401), chr(0x415))
+
+
 def _ui_text(value: str | None) -> str:
     if value is None:
         return ""
     normalized = value.replace("_", " ")
-    return UI_TEXT.get(value, UI_TEXT.get(normalized, normalized))
+    return _copy_convention(UI_TEXT.get(value, UI_TEXT.get(normalized, normalized)))
 
 
 def _base_path(embedded: bool) -> str:

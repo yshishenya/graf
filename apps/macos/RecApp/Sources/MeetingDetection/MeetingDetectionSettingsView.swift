@@ -130,7 +130,8 @@ public struct MeetingDetectionSettingsView: View {
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                     AutomaticRecordingRulePicker(
                                         title: target.displayName,
-                                        selection: ruleBinding(for: target.id)
+                                        selection: ruleBinding(for: target.id),
+                                        isDisabled: promptCapableTargets.isEmpty || !settingsAvailable
                                     )
                                 }
                                 .frame(minHeight: 40)

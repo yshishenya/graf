@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from html import escape
 from urllib.parse import parse_qs, urlencode, urlsplit
@@ -43,6 +43,7 @@ from twobrain_rec_server.cabinet.deletion_rendering import (
 from twobrain_rec_server.cabinet.meeting_protocol import EMPTY
 from twobrain_rec_server.cabinet.rendering_shared import (
     _base_path,
+    _copy_convention,
     _page_shell,
     _settings_path,
     _ui_text,
@@ -591,7 +592,7 @@ def render_settings_page(
         "workspace_offer_action_base_path": "/desktop/settings/join-offers"
         if embedded
         else "/settings/join-offers",
-        "summary_formats": BUILT_IN_TEMPLATES,
+        "summary_formats": [_format_for_display(item) for item in BUILT_IN_TEMPLATES],
         "session_confirmation": session_confirmation,
         "account_surface": account_surface or cabinet_view_models.AccountSettingsSurface(),
         "account_outcome": account_outcome,
@@ -1220,7 +1221,7 @@ def _render_meeting_detail_content(
             and review.access.state == "owner"
             and review.transcript.available
         ),
-        summary_formats=BUILT_IN_TEMPLATES,
+        summary_formats=[_format_for_display(item) for item in BUILT_IN_TEMPLATES],
         current_summary_format_key=current_summary_format_key,
         current_summary_format_version=str(
             review.template.template_version
@@ -1571,6 +1572,14 @@ def _render_content_export_dialog(
     """
 
 
+def _format_for_display(format_view):
+    """Каталог версии 1 неизменяем; конвенция текста применяется к показу."""
+    return replace(
+        format_view,
+        name=_copy_convention(format_view.name),
+        purpose=_copy_convention(format_view.purpose),
+    )
+
 def _speaker_display_label(label: str) -> str:
     if label.startswith("SPEAKER_") and label.removeprefix("SPEAKER_").isdigit():
         return label
@@ -1777,8 +1786,13 @@ def _render_meeting_row_meta(
             f'aria-label="Выбрать встречу {action_context}">'
             "Выбрать встречу</a>"
         )
+    retry_class = {
+        "failed": "terminal",
+        "limited": "retryable",
+    }.get(presentation.status_kind or "", "")
+    retry_attr = f' data-processing-retry-class="{retry_class}"' if retry_class else ""
     readiness = (
-        f'<span class="meeting-content-readiness" id="{readiness_id}">'
+        f'<span class="meeting-content-readiness" id="{readiness_id}"{retry_attr}>'
         f"{escape(presentation.content_readiness_label)}</span>"
         if presentation.content_readiness_label is not None
         else ""
