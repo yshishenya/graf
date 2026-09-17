@@ -21,18 +21,61 @@ MACOS = SCRIPTS.parents[1]
 ROOT = MACOS.parents[1]
 STATE = MACOS / '.build'
 SPARKLE_SHA = 'cb6fdbdc8884f15d62a616e79face92b08322410fd2d425edc6596ccbf4ba3b0'
+# A word that may safely appear in a failure message: lowercase command words,
+# never paths, option values or anything a tool printed.
+SAFE_WORD = re.compile('[a-z][a-z0-9-]{0,20}')
+# What each release tool was supposed to achieve, so a failure names the stage
+# instead of only the command family.
+RELEASE_STEPS = (
+    ('gh api', 'the GitHub release state was not read'),
+    ('gh release upload', 'the draft release asset was not uploaded'),
+    ('xcrun notarytool', 'Apple notarization did not answer'),
+    ('xcrun stapler', 'the notarization ticket was not stapled or validated'),
+    ('xcrun', 'the Apple toolchain step did not complete'),
+    ('codesign', 'the code signature was not verified'),
+    ('spctl', 'the Gatekeeper assessment did not pass'),
+    ('pkgutil', 'the installer package signature was not read'),
+    ('ditto', 'the release archive was not produced'),
+    ('git', 'the release checkout was not read'),
+    ('swift', 'the Swift toolchain was not read'),
+    ('env', 'the prepared public update did not pass its own validation'),
+)
+
+
+def invocation(args):
+    """The tool and its safe subcommand words: never paths, values or output."""
+    words = [str(value) for value in args]
+    return ' '.join([words[0], *[word for word in words[1:] if SAFE_WORD.fullmatch(word)][:2]])
+
+
+def failed_step(args):
+    """The release step behind a failed invocation, in plain words."""
+    name = invocation(args)
+    for prefix, step in RELEASE_STEPS:
+        if name.startswith(prefix):
+            return step
+    return 'the release step'
 
 
 def command(*args, output=None):
+    """Run one external release tool.
+
+    External output may contain credentials, so a failure reports the tool, its
+    safe subcommand words, the exit status, the stage that needed it and the
+    retry path -- never the tool's own output.
+    """
     try:
         result = subprocess.run([str(a) for a in args], cwd=ROOT, stdout=output or subprocess.PIPE,
                                 stderr=subprocess.PIPE, check=False,
                                 timeout=45 if args[:2] == ('xcrun', 'notarytool') else None)
     except subprocess.TimeoutExpired:
-        raise ValueError(f'{args[0]} timed out; existing release state retained') from None
+        raise ValueError(f'{invocation(args)} did not answer within 45 seconds: {failed_step(args)}; '
+                         'the saved request and every existing release file are kept, so the same '
+                         'command can be resumed') from None
     if result.returncode:
-        # External output may contain credentials. Report only the command family.
-        raise ValueError(f'{args[0]} failed; no release stage acknowledged')
+        raise ValueError(f'{invocation(args)} exited with status {result.returncode}: {failed_step(args)}; '
+                         'nothing was uploaded or published, all existing release state is kept, and '
+                         'the same command can be retried') from None
     return result.stdout.decode().strip() if output is None else ''
 
 
@@ -52,14 +95,15 @@ def fingerprint(path):
     elif stat.S_ISDIR(mode):
         result['tree'] = digest({p.name: fingerprint(p) for p in sorted(path.iterdir())})
     else:
-        raise ValueError('unsupported artifact file type')
+        raise ValueError(f'unsupported artifact file type at {path}: expected a regular file, '
+                         'a directory or a symlink')
     return result
 
 
 def regular(path):
     value = fingerprint(path)
     if 'sha256' not in value:
-        raise ValueError('artifact must be a regular file')
+        raise ValueError(f'{path} is not a regular file; release inputs and outputs must be regular files')
     return value
 
 
@@ -98,7 +142,8 @@ def locked(path):
     try:
         path.mkdir()
     except FileExistsError:
-        raise ValueError('another release attempt is in progress; verify the owner before recovery') from None
+        raise ValueError(f'another release attempt is in progress: {path} already exists; '
+                         'verify the owner of that attempt before any recovery') from None
     try:
         yield
     finally:
@@ -128,13 +173,23 @@ def save_stage(directory, identity):
                 {'schema': 1, 'identity': identity, 'outputs': stage_outputs(directory)})
 
 
+def stage_difference(saved, current):
+    """The names that differ between a saved mapping and the current one."""
+    names = [name for name in sorted(set(saved) | set(current)) if saved.get(name) != current.get(name)]
+    return ', '.join(names) if names else 'none'
+
+
 def check_stage(directory, identity):
     directory = Path(directory)
     saved = read_json(directory / '.prepared.json')
     if saved.get('schema') != 1 or saved.get('identity') != identity:
-        raise ValueError('prepared release identity differs; keep the original version unchanged')
+        differing = stage_difference(saved.get('identity') or {}, identity)
+        raise ValueError(f'prepared release identity differs in: {differing}; keep the original version '
+                         'unchanged, or prepare the new version under its own version number')
     if not saved.get('outputs') or saved['outputs'] != stage_outputs(directory):
-        raise ValueError('prepared release output is incomplete or changed')
+        differing = stage_difference(saved.get('outputs') or {}, stage_outputs(directory))
+        raise ValueError(f'prepared release output is incomplete or changed in: {differing}; '
+                         're-prepare the release instead of publishing these files')
     # A retry also acknowledges a directory write that may have failed previously.
     sync_dir(directory)
 
@@ -150,10 +205,17 @@ def swift_key():
 
 def clean_source(expected=None):
     source = command('git', 'rev-parse', 'HEAD')
-    if not re.fullmatch('[0-9a-f]{40}', source) or command('git', 'status', '--porcelain', '--untracked-files=all'):
-        raise ValueError('public release requires clean exact source')
+    changes = command('git', 'status', '--porcelain', '--untracked-files=all')
+    if not re.fullmatch('[0-9a-f]{40}', source):
+        raise ValueError(f'git reported HEAD as {source!r}, which is not a commit SHA; '
+                         'a public release needs a real commit, not a branch name or an empty checkout')
+    if changes:
+        first = changes.splitlines()[0]
+        raise ValueError(f'the release checkout is dirty ({first}); commit or stash every change '
+                         'before preparing a public release')
     if expected and source != expected:
-        raise ValueError('release source changed')
+        raise ValueError(f'the checkout is at {source} but this release was prepared for {expected}; '
+                         'check out the prepared commit and retry')
     return source
 
 
@@ -185,10 +247,13 @@ def release_for_tag(repo, tag):
     """
     try:
         release = json.loads(command('gh', 'api', f'repos/{repo}/releases/tags/{tag}'))
-    except ValueError:
-        release = None
-    if isinstance(release, dict) and release.get('tag_name') == tag:
-        return release
+    except ValueError as error:
+        # A draft release has no by-tag answer; the release list below is the fallback.
+        lookup_error = error
+    else:
+        lookup_error = None
+        if isinstance(release, dict) and release.get('tag_name') == tag:
+            return release
     page = 1
     while True:
         rows = json.loads(command('gh', 'api', f'repos/{repo}/releases?per_page=100&page={page}'))
@@ -196,21 +261,30 @@ def release_for_tag(repo, tag):
             if row.get('tag_name') == tag:
                 return row
         if len(rows) < 100:
-            raise ValueError('release identity differs')
+            cause = f'; the by-tag lookup failed with: {lookup_error}' if lookup_error else ''
+            raise ValueError(f'release {tag} was not found in {repo} after reading every release page{cause}; '
+                             'create the draft release for this tag before publishing to it')
         page += 1
 
 
 def release_snapshot(repo, tag, source=None, draft=None):
     if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repo) or not re.fullmatch(r'[A-Za-z0-9_.-]+', tag):
-        raise ValueError('invalid release identity')
+        raise ValueError(f'release identity {repo!r} / {tag!r} is not a GitHub owner/repo and a plain tag; '
+                         'pass the repository and tag exactly as they appear on GitHub')
     release = release_for_tag(repo, tag)
     if release['tag_name'] != tag or not isinstance(release['id'], int):
-        raise ValueError('release identity differs')
+        raise ValueError(f'the release found for {tag} in {repo} answers with tag {release["tag_name"]!r} '
+                         f'and id {release["id"]!r}; refusing to publish to a release that is not this tag')
     if draft is not None and release['draft'] is not draft:
-        raise ValueError('release draft state differs')
+        state = 'a draft' if release['draft'] else 'published'
+        wanted = 'a draft' if draft else 'published'
+        raise ValueError(f'release {tag} is {state} but this step requires it to be {wanted}; '
+                         'change the release state on GitHub before retrying')
     if source is not None:
-        if json.loads(command('gh', 'api', f'repos/{repo}/commits/{tag}'))['sha'] != source:
-            raise ValueError('remote source differs')
+        remote = json.loads(command('gh', 'api', f'repos/{repo}/commits/{tag}'))['sha']
+        if remote != source:
+            raise ValueError(f'release {tag} points at commit {remote} instead of the prepared source {source}; '
+                             'the tag was moved, so stop and re-cut the release')
     identity = {'repository': repo, 'tag': tag, 'id': release['id'], 'source': source, 'draft': release['draft']}
     assets = []
     page = 1
@@ -225,20 +299,26 @@ def release_snapshot(repo, tag, source=None, draft=None):
 def one_asset(assets, name):
     matches = [a for a in assets if a['name'] == name]
     if len(matches) > 1:
-        raise ValueError('duplicate remote release asset')
+        raise ValueError(f'{len(matches)} release assets are named {name}; a duplicated name cannot be '
+                         'pinned to exact bytes, so remove the duplicate on the release first')
     return matches[0] if matches else None
 
 
 def asset_identity(asset):
     if asset.get('state') != 'uploaded' or not isinstance(asset.get('id'), int):
-        raise ValueError('remote asset upload is incomplete')
+        raise ValueError(f'release asset {asset.get("name")!r} is in state {asset.get("state")!r} without a '
+                         'server ID; its upload never finished, so retry the upload instead of trusting it')
     return {key: asset.get(key) for key in ('id', 'name', 'size', 'digest', 'updated_at')}
 
 
 def download_asset(repo, asset, destination):
     with Path(destination).open('xb') as stream:
-        command('gh', 'api', f'repos/{repo}/releases/assets/{asset["id"]}',
-                '-H', 'Accept: application/octet-stream', output=stream)
+        try:
+            command('gh', 'api', f'repos/{repo}/releases/assets/{asset["id"]}',
+                    '-H', 'Accept: application/octet-stream', output=stream)
+        except ValueError as error:
+            raise ValueError(f'release asset {asset.get("name")!r} (id {asset["id"]}) was not downloaded '
+                             f'from {repo}: {error}') from None
         stream.flush()
         os.fsync(stream.fileno())
 
@@ -250,12 +330,16 @@ def cached_asset(repo, release, asset, cache, expected_digest=None):
     path = cache / f'{digest([repo, release["tag"], asset["name"]])}.asset'
     record = path.with_suffix('.json')
     if path.is_symlink() or record.is_symlink():
-        raise ValueError('cached input must not be a symlink')
+        raise ValueError(f'cached input {path.name} or its record is a symlink; a cached input must be '
+                         'a regular file created by this helper')
     if record.exists():
         saved = read_json(record)
         content = regular(path)
         if saved != {'identity': identity, 'content': content}:
-            raise ValueError('cached input identity or bytes differ')
+            difference = 'identity' if saved.get('identity') != identity else 'bytes'
+            raise ValueError(f'cached input {path.name} differs in its {difference} from the saved record '
+                             f'{record.name}; establish whether the local cache or the remote asset changed '
+                             'before removing either file')
     else:
         if path.exists():
             regular(path)  # An interrupted record write can leave an ordinary asset.
@@ -271,13 +355,20 @@ def cached_asset(repo, release, asset, cache, expected_digest=None):
 
 
 def verify_asset_bytes(asset, content, expected_digest=None):
+    name = asset.get('name')
     if content['size'] != asset['size']:
-        raise ValueError('remote asset size differs')
+        raise ValueError(f'release asset {name!r} size differs: the downloaded file is {content["size"]} '
+                         f'bytes but the release lists {asset["size"]} bytes; the download was discarded, '
+                         'so retry it instead of using the partial file')
     remote_digest = asset.get('digest')
     if remote_digest and remote_digest != 'sha256:' + content['sha256']:
-        raise ValueError('remote asset digest differs')
+        raise ValueError(f'release asset {name!r} digest differs: the downloaded bytes are sha256 '
+                         f'{content["sha256"]} but the release lists {remote_digest}; the download was '
+                         'discarded, so retry it and report a persistent mismatch')
     if expected_digest and content['sha256'] != expected_digest:
-        raise ValueError('pinned asset digest differs')
+        raise ValueError(f'release asset {name!r} digest differs from the pinned digest: the downloaded '
+                         f'bytes are sha256 {content["sha256"]} but this release pins {expected_digest}; '
+                         'do not replace the pinned input without an explicit decision')
 
 
 def validate_context(context):
@@ -285,16 +376,20 @@ def validate_context(context):
     for label, expected in context['releases'].items():
         actual, rows = release_snapshot(expected['repository'], expected['tag'], expected['source'], expected['draft'])
         if actual != expected:
-            raise ValueError('release identity changed')
+            differing = stage_difference(expected, actual)
+            raise ValueError(f'the recorded {label} release identity changed in: {differing}; '
+                             're-read the release on GitHub before publishing anything')
         snapshots[label] = rows
     for saved in context['inputs']:
         actual = one_asset(snapshots[saved['release']], saved['asset']['name'])
         if not actual or asset_identity(actual) != saved['asset']:
-            raise ValueError('release input asset changed')
+            raise ValueError(f'the {saved["release"]} release input {saved["asset"]["name"]!r} is no longer '
+                             'the asset this release was prepared from; stop and re-prepare the release')
     return snapshots['candidate']
 
 
 def remote_matches(repo, asset, path):
+    """True only when the remote asset is byte-for-byte the local file."""
     asset_identity(asset)
     content = regular(path)
     if asset['size'] != content['size']:
@@ -313,19 +408,24 @@ def upload_missing(context, files):
     repo, tag = release['repository'], release['tag']
     originals = {Path(p).name: regular(p) for p in files}
     if len(originals) != len(files):
-        raise ValueError('duplicate local release asset')
+        raise ValueError(f'a duplicate local release asset is listed: {len(files)} files but only '
+                         f'{len(originals)} distinct names; each prepared release asset must be uploaded '
+                         'exactly once')
 
     def preflight():
         rows = validate_context(context)
         missing = []
         for path in map(Path, files):
             if regular(path) != originals[path.name]:
-                raise ValueError('local upload bytes changed')
+                raise ValueError(f'the local release asset {path.name} changed while the upload was running; '
+                                 'nothing was uploaded from the changed file, so re-prepare the release')
             remote = one_asset(rows, path.name)
             if remote is None:
                 missing.append(path)
             elif not remote_matches(repo, remote, path):
-                raise ValueError('remote asset conflict; no overwrite is allowed')
+                raise ValueError(f'release asset {path.name} already exists on {tag} with different bytes; '
+                                 'this helper never overwrites a published asset, so resolve the conflict '
+                                 'on the release first')
         return missing
 
     for path in preflight():
@@ -333,14 +433,19 @@ def upload_missing(context, files):
             continue
         try:
             command('gh', '--repo', repo, 'release', 'upload', tag, path)
-        except ValueError:
+        except ValueError as error:
             # An interrupted response is success only after exact remote readback.
             if path in preflight():
-                raise
+                raise ValueError(f'{error}; release asset {path.name} is still missing from {tag} after the '
+                                 'failed upload, so nothing was acknowledged and the same upload can be '
+                                 'retried') from None
         if path in preflight():
-            raise ValueError('uploaded release asset is still missing')
-    if preflight():
-        raise ValueError('release upload is incomplete')
+            raise ValueError(f'release asset {path.name} is still missing from {tag} after the upload '
+                             'command reported success; nothing was acknowledged, so retry the upload')
+    still_missing = preflight()
+    if still_missing:
+        raise ValueError(f'release {tag} is still missing {", ".join(p.name for p in still_missing)}; '
+                         'nothing further was published, so rerun the upload for this prepared release')
 
 
 def cache_inputs(args):
@@ -352,10 +457,12 @@ def cache_inputs(args):
         names = [args.candidate, args.notes] if label == 'candidate' else [args.previous]
         for name in names:
             if not re.fullmatch('[A-Za-z0-9][A-Za-z0-9._-]*', name):
-                raise ValueError('invalid input asset name')
+                raise ValueError(f'{name!r} is not a usable release asset name; use letters, digits, dots, '
+                                 'dashes and underscores, starting with a letter or digit')
             asset = one_asset(rows, name)
             if asset is None:
-                raise ValueError('required release input is missing')
+                raise ValueError(f'the {label} release {tag} has no asset named {name}; upload that release '
+                                 'input before preparing this release')
             path = cached_asset(args.repo, release, asset, STATE / 'release-inputs')
             shutil.copyfile(path, Path(args.output) / name)
             context['inputs'].append({'release': label, 'asset': asset_identity(asset), 'content': regular(path)})
@@ -365,25 +472,39 @@ def cache_inputs(args):
 
 def cache_sparkle(output):
     repo = 'sparkle-project/Sparkle'
-    release, rows = release_snapshot(repo, '2.9.4', draft=False)
+    tag = '2.9.4'
+    release, rows = release_snapshot(repo, tag, draft=False)
     asset = one_asset(rows, 'Sparkle-for-Swift-Package-Manager.zip')
     if asset is None:
-        raise ValueError('pinned Sparkle archive is missing')
+        raise ValueError(f'release {tag} of {repo} no longer offers Sparkle-for-Swift-Package-Manager.zip; '
+                         f'the pinned Sparkle archive cannot be fetched, and its digest '
+                         f'{SPARKLE_SHA} must not be replaced without a new decision')
     path = cached_asset(repo, release, asset, STATE / 'release-inputs', SPARKLE_SHA)
     shutil.copyfile(path, output)
 
 
 def calver(value):
     if not re.fullmatch(r'[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[1-9][0-9]*', value):
-        raise ValueError('invalid release version')
+        raise ValueError(f'release version {value!r} is not CalVer YYYY.MM.DD.N with a positive build '
+                         'number, for example 2026.09.17.2')
     year, month, day, _ = map(int, value.split('.'))
-    date(year, month, day)
+    try:
+        date(year, month, day)
+    except ValueError:
+        raise ValueError(f'release version {value!r} contains the impossible date '
+                         f'{year:04d}-{month:02d}-{day:02d}') from None
     return value
 
 
 def request_id(value):
-    if str(UUID(value)) != value.lower():
-        raise ValueError('invalid Apple request ID')
+    try:
+        canonical = str(UUID(value))
+    except (AttributeError, TypeError, ValueError):
+        raise ValueError(f'Apple request ID {value!r} is not a UUID; pass the exact ID that Apple '
+                         'returned for this submission') from None
+    if canonical != value.lower():
+        raise ValueError(f'Apple request ID {value!r} is not in canonical form {canonical}; pass the exact '
+                         'ID that Apple returned for this submission')
     return value
 
 
@@ -391,15 +512,28 @@ def validate_signed_build(app, pkg, version):
     app = Path(app)
     info = plistlib.loads((app / 'Contents/Info.plist').read_bytes())
     if info['CFBundleVersion'] != version or info['CFBundleIdentifier'] != 'pro.2brain.graf':
-        raise ValueError('build product identity differs')
+        raise ValueError(f'the app {app} declares version {info["CFBundleVersion"]!r} and identifier '
+                         f'{info["CFBundleIdentifier"]!r}, but this release needs version {version!r} and '
+                         'identifier pro.2brain.graf; rebuild the app for this version')
     command('codesign', '--verify', '--deep', '--strict', app)
-    signature = subprocess.run(['codesign', '-dv', '--verbose=4', str(app)], capture_output=True, text=True, check=True)
-    if ('Authority=Developer ID Application:' not in signature.stderr
-            or 'TeamIdentifier=94N8HYG672' not in signature.stderr):
-        raise ValueError('build does not have the trusted Developer ID identity')
+    try:
+        signature = subprocess.run(['codesign', '-dv', '--verbose=4', str(app)],
+                                   capture_output=True, text=True, check=True)
+    except subprocess.CalledProcessError as error:
+        raise ValueError(f'codesign could not read the signature of {app} (exit status '
+                         f'{error.returncode}); sign the app with the Developer ID Application identity '
+                         'before writing a public build receipt') from None
+    authority = 'Authority=Developer ID Application:' in signature.stderr
+    team = 'TeamIdentifier=94N8HYG672' in signature.stderr
+    if not authority or not team:
+        missing = ', '.join(part for part, found in (('the Developer ID Application authority', authority),
+                                                     ('team identifier 94N8HYG672', team)) if not found)
+        raise ValueError(f'the app {app} is not signed by the trusted GRAF Developer ID: missing {missing}; '
+                         'rebuild it with the release signing identity')
     package_signature = command('pkgutil', '--check-signature', pkg)
     if 'Developer ID Installer:' not in package_signature or '(94N8HYG672)' not in package_signature:
-        raise ValueError('package does not have the trusted Developer ID Installer identity')
+        raise ValueError(f'the installer package {pkg} is not signed by the trusted GRAF Developer ID '
+                         'Installer identity 94N8HYG672; re-sign the package before publishing it')
 
 
 def build_receipt(args):
@@ -416,35 +550,56 @@ def notarize_jobs(directory, profile, recover):
     state_path = directory / 'requests.json'
     state = read_json(state_path)
     if set(state['inputs']) != {'zip', 'pkg'} or not set(state['jobs']) <= {'zip', 'pkg'}:
-        raise ValueError('invalid notary input set')
-    for job in state['jobs'].values():
+        raise ValueError(f'the saved notary attempt {state_path} describes inputs {sorted(state["inputs"])} '
+                         f'and jobs {sorted(state["jobs"])} instead of exactly one zip and one pkg '
+                         'submission; recover the Apple requests for this build before retrying')
+    for kind, job in state['jobs'].items():
         if job['status'] not in ('submitting', 'submitted', 'Accepted'):
-            raise ValueError('invalid saved notary status')
+            raise ValueError(f'the saved {kind} notary job has status {job["status"]!r}, which is not a '
+                             f'state this helper writes; inspect {state_path} before retrying')
         if job.get('id'):
             request_id(job['id'])
         elif job['status'] != 'submitting':
-            raise ValueError('saved notary status requires a request ID')
+            raise ValueError(f'the saved {kind} notary job is {job["status"]!r} without an Apple request ID; '
+                             f'pass the ID that submitted these exact bytes as --recover {kind}=<ID>')
     for kind in ('zip', 'pkg'):
         original = directory / f'submitted.{kind}'
         if regular(original) != state['inputs'][kind]:
-            raise ValueError('notary submitted bytes changed')
+            raise ValueError(f'the saved {original.name} no longer matches the bytes that were submitted '
+                             f'(sha256 {state["inputs"][kind]["sha256"]}); restore the original file or '
+                             'notarize a new build instead of resubmitting changed bytes')
         job = state['jobs'].get(kind)
         if job is None:
             job = state['jobs'][kind] = {'status': 'submitting'}
             atomic_json(state_path, state)  # Never submit without durable intent.
-            answer = json.loads(command('xcrun', 'notarytool', 'submit', original,
-                                        '--keychain-profile', profile, '--output-format', 'json'))
+            try:
+                answer = json.loads(command('xcrun', 'notarytool', 'submit', original,
+                                            '--keychain-profile', profile, '--output-format', 'json'))
+            except ValueError as error:
+                raise ValueError(f'the {kind} submission did not complete: {error}; the durable '
+                                 f'"submitting" intent is kept, so pass the Apple request ID as '
+                                 f'--recover {kind}=<ID> once it is known and rerun') from None
             identifier = request_id(answer['id'])
             job.update(id=identifier, status='submitted')
             atomic_json(state_path, state)
         elif not job.get('id'):
             identifier = recover.get(kind)
             if not identifier:
-                raise ValueError(f'{kind} submission is ambiguous; recover its digest-bound Apple ID before retry')
+                raise ValueError(f'the {kind} submission is ambiguous: it started but no Apple request ID '
+                                 'was saved, so no status can be read; recover the digest-bound Apple ID '
+                                 f'of the request that uploaded these exact bytes and pass it as '
+                                 f'--recover {kind}=<ID> before any retry')
             request_id(identifier)
-            log = json.loads(command('xcrun', 'notarytool', 'log', identifier, '--keychain-profile', profile))
+            try:
+                log = json.loads(command('xcrun', 'notarytool', 'log', identifier, '--keychain-profile', profile))
+            except ValueError as error:
+                raise ValueError(f'the Apple log for the recovered {kind} request {identifier} could not be '
+                                 f'read: {error}; without it the request cannot be bound to these bytes') from None
             if log.get('jobId') != identifier or log.get('sha256') != state['inputs'][kind]['sha256']:
-                raise ValueError('Apple recovery ID does not bind submitted digest')
+                raise ValueError(f'the Apple log for {identifier} reports job {log.get("jobId")!r} and digest '
+                                 f'{log.get("sha256")!r}, which do not bind the submitted {kind} digest '
+                                 f'{state["inputs"][kind]["sha256"]}; pass the request ID that submitted '
+                                 'these exact bytes')
             job.update(id=identifier, status='submitted')
             atomic_json(state_path, state)
     # Both submissions have durable IDs. Poll together; no long, opaque wait command.
@@ -454,47 +609,80 @@ def notarize_jobs(directory, profile, recover):
         for kind, job in state['jobs'].items():
             if job['status'] == 'Accepted':
                 continue
-            answer = json.loads(command('xcrun', 'notarytool', 'info', job['id'],
-                                        '--keychain-profile', profile, '--output-format', 'json'))
+            try:
+                answer = json.loads(command('xcrun', 'notarytool', 'info', job['id'],
+                                            '--keychain-profile', profile, '--output-format', 'json'))
+            except ValueError as error:
+                raise ValueError(f'the status of the submitted {kind} request {job["id"]} could not be read: '
+                                 f'{error}; the request is saved, so rerun the same command to keep '
+                                 'polling') from None
             if answer.get('id') != job['id']:
-                raise ValueError('Apple response request ID differs')
+                raise ValueError(f'Apple answered about request {answer.get("id")!r} while {job["id"]} was '
+                                 f'asked about the {kind} submission; stop and confirm the request IDs '
+                                 'before retrying')
             if answer.get('status') == 'In Progress':
                 pending.append(kind)
             elif answer.get('status') == 'Accepted':
                 job['status'] = 'Accepted'
                 atomic_json(state_path, state)
             else:
-                raise ValueError('Apple has not accepted this submission; existing request retained')
+                raise ValueError(f'Apple has not accepted the {kind} submission {job["id"]}: status '
+                                 f'{answer.get("status")!r}; the request is kept, so read its Apple log '
+                                 'before any resubmission')
         if not pending:
             break
         if time.monotonic() >= deadline:
-            raise ValueError('Apple has not accepted this submission within 45 minutes; resume the same request')
+            raise ValueError(f'Apple has not accepted the {", ".join(pending)} submission within 45 minutes; '
+                             'the saved request IDs are kept, so rerun the same command to keep polling or '
+                             'read the Apple log')
         print(f'notary=waiting inputs={",".join(pending)}; interruption is resumable', flush=True)
         time.sleep(10)
     return state
 
 
 def validate_notarized(app, pkg):
-    command('codesign', '--verify', '--deep', '--strict', app)
+    """The notarized app and package must pass signature, staple and Gatekeeper checks."""
+    try:
+        command('codesign', '--verify', '--deep', '--strict', app)
+    except ValueError as error:
+        raise ValueError(f'the notarized app {app} did not verify as signed: {error}') from None
     for path, kind in ((app, 'execute'), (pkg, 'install')):
-        command('xcrun', 'stapler', 'validate', path)
-        command('spctl', '--assess', '--type', kind, '--verbose=4', path)
+        for check in (('xcrun', 'stapler', 'validate', path), ('spctl', '--assess', '--type', kind, '--verbose=4', path)):
+            try:
+                command(*check)
+            except ValueError as error:
+                raise ValueError(f'the notarized {kind} artifact {path} did not pass {" ".join(check[:2])}: '
+                                 f'{error}') from None
 
 
 def notarize(args):
     with locked(STATE / '.graf-installer.lock'):
-        receipt = read_json(str(args.pkg) + '.build.json')
+        receipt_path = str(args.pkg) + '.build.json'
+        if not Path(receipt_path).exists():
+            raise ValueError(f'there is no build receipt at {receipt_path}; notarization only accepts the '
+                             'exact artifacts of a recorded build, so build this version with '
+                             'build-local-installer.sh first')
+        receipt = read_json(receipt_path)
         calver(receipt['version'])
         clean_source(receipt['source'])
         if receipt['schema'] != 1 or receipt['tag'] != 'v' + receipt['version']:
-            raise ValueError('invalid public build receipt')
+            raise ValueError(f'the public build receipt {str(args.pkg) + ".build.json"} has schema '
+                             f'{receipt["schema"]!r} and tag {receipt["tag"]!r}, but this helper writes '
+                             'schema 1 with tag v<version>; rebuild the app with build-local-installer.sh '
+                             'instead of editing the receipt')
         if fingerprint(args.app) != receipt['app'] or regular(args.pkg) != receipt['pkg']:
-            raise ValueError('build receipt does not bind the current app/package')
+            changed = ', '.join(part for part, same in
+                                ((f'the app {args.app}', fingerprint(args.app) == receipt['app']),
+                                 (f'the package {args.pkg}', regular(args.pkg) == receipt['pkg'])) if not same)
+            raise ValueError(f'the build receipt does not bind {changed}: the bytes differ from the build '
+                             'that was recorded, so notarize the exact artifacts of that build')
         validate_signed_build(args.app, args.pkg, receipt['version'])
         directory = STATE / 'notary' / f'{receipt["version"]}-{receipt["source"]}'
         if directory.exists():
             if read_json(directory / 'build.json') != receipt:
-                raise ValueError('notary attempt belongs to another build')
+                raise ValueError(f'the saved notary attempt {directory} belongs to another build of '
+                                 f'{receipt["version"]}; finish or discard that attempt before starting a '
+                                 'new one for these artifacts')
         else:
             directory.parent.mkdir(parents=True, exist_ok=True)
             with tempfile.TemporaryDirectory(dir=directory.parent) as temporary:
@@ -503,24 +691,32 @@ def notarize(args):
                 command('ditto', args.app, work / 'GRAF.app')
                 shutil.copyfile(args.pkg, work / 'submitted.pkg')
                 if fingerprint(work / 'GRAF.app') != receipt['app']:
-                    raise ValueError('app changed while creating notary input')
+                    raise ValueError(f'the copy of {args.app} that was staged for notarization no longer '
+                                     'matches the recorded build; the app changed while the attempt was '
+                                     'prepared, so rebuild and notarize again')
                 command('ditto', '-c', '-k', '--sequesterRsrc', '--keepParent', work / 'GRAF.app', work / 'submitted.zip')
                 inputs = {kind: regular(work / f'submitted.{kind}') for kind in ('zip', 'pkg')}
                 if inputs['pkg']['sha256'] != receipt['pkg']['sha256']:
-                    raise ValueError('package changed while creating notary input')
+                    raise ValueError(f'the copy of {args.pkg} that was staged for notarization has sha256 '
+                                     f'{inputs["pkg"]["sha256"]} instead of the recorded '
+                                     f'{receipt["pkg"]["sha256"]}; the package changed while the attempt was '
+                                     'prepared, so rebuild and notarize again')
                 atomic_json(work / 'build.json', receipt)
                 atomic_json(work / 'requests.json', {'inputs': inputs, 'jobs': {}})
                 sync_tree(work)
                 os.replace(work, directory)
                 sync_dir(directory.parent)
         if fingerprint(directory / 'GRAF.app') != receipt['app']:
-            raise ValueError('saved notary app differs from the original build')
+            raise ValueError(f'the app saved in the notary attempt {directory} differs from the build '
+                             'receipt; notarization must restart from the recorded build, so discard this '
+                             'attempt explicitly')
         sync_dir(directory.parent)
         recover = {}
         for value in args.recover:
             kind, separator, identifier = value.partition('=')
             if kind not in ('zip', 'pkg') or not separator or kind in recover:
-                raise ValueError('recovery must be zip=ID or pkg=ID, once per input')
+                raise ValueError(f'recovery {value!r} is not usable; pass the Apple request ID exactly once '
+                                 'per input, as --recover zip=<ID> or --recover pkg=<ID>')
             recover[kind] = identifier
         state = notarize_jobs(directory, args.profile, recover)
         identity = {'build': receipt, 'requests': state}
@@ -553,36 +749,52 @@ def upload_prepared(args):
     release = context['releases']['candidate']
     directory = Path(args.files[0]).parent
     if directory.resolve() != (STATE / 'updates').resolve():
-        raise ValueError('upload must use the prepared update directory')
+        raise ValueError(f'the upload takes files from {directory} but this release prepares them in '
+                         f'{STATE / "updates"}; prepare the update before uploading it')
     version = calver(release['tag'].removeprefix('v'))
     expected_names = {f'GRAF-{version}.zip', 'graf-appcast.xml', f'GRAF-{version}.sha256',
                       f'GRAF-{version}-signing-attestation.json'}
-    if {Path(p).name for p in args.files} != expected_names or any(Path(p).parent != directory for p in args.files):
-        raise ValueError('upload must contain the exact four prepared assets')
+    given_names = {Path(p).name for p in args.files}
+    if given_names != expected_names or any(Path(p).parent != directory for p in args.files):
+        missing = ', '.join(sorted(expected_names - given_names)) or 'none'
+        unexpected = ', '.join(sorted(given_names - expected_names)) or 'none'
+        raise ValueError(f'the upload must contain the exact four prepared assets of {version} from one '
+                         f'directory: missing {missing}; unexpected {unexpected}')
     clean_source(release['source'])
     origin = command('git', 'remote', 'get-url', 'origin').removesuffix('.git')
-    if origin not in (f'https://github.com/{release["repository"]}',
-                      f'git@github.com:{release["repository"]}',
-                      f'ssh://git@github.com/{release["repository"]}'):
-        raise ValueError('upload repository differs from origin')
+    allowed = (f'https://github.com/{release["repository"]}',
+               f'git@github.com:{release["repository"]}',
+               f'ssh://git@github.com/{release["repository"]}')
+    if origin not in allowed:
+        raise ValueError(f'the upload targets {release["repository"]} but this checkout has origin '
+                         f'{origin}; publish from a checkout of that repository')
     info = plistlib.loads((Path(args.app) / 'Contents/Info.plist').read_bytes())
     url = info['SUFeedURL'].removesuffix('/graf-appcast.xml')
     # Reuse the public validation path, including fresh Keychain and both signatures.
     # Verify-only cannot create, sign or replace a missing/different prepared version.
-    command('env', 'GRAF_REQUIRE_PUBLIC_UPDATE_TRUST=1', 'GRAF_REQUIRE_RELEASE_PROVENANCE=1',
-            'GRAF_RELEASE_SIGNING_MODE=keychain', f'GRAF_VERSION={version}',
-            f'GRAF_UPDATE_APP_BUNDLE={args.app}', f'GRAF_PREVIOUS_APP_BUNDLE={args.previous}',
-            f'GRAF_UPDATE_RELEASE_NOTES={args.notes}', f'GRAF_UPDATE_DOWNLOAD_BASE_URL={url}',
-            f'GRAF_RELEASE_INPUT_CONTEXT={args.context}',
-            f'GRAF_RELEASE_SIGNING_KEYCHAIN_ATTESTATION={directory / ("GRAF-" + version + "-signing-attestation.json")}',
-            SCRIPTS / 'prepare-app-update.sh', '--verify-only')
+    try:
+        command('env', 'GRAF_REQUIRE_PUBLIC_UPDATE_TRUST=1', 'GRAF_REQUIRE_RELEASE_PROVENANCE=1',
+                'GRAF_RELEASE_SIGNING_MODE=keychain', f'GRAF_VERSION={version}',
+                f'GRAF_UPDATE_APP_BUNDLE={args.app}', f'GRAF_PREVIOUS_APP_BUNDLE={args.previous}',
+                f'GRAF_UPDATE_RELEASE_NOTES={args.notes}', f'GRAF_UPDATE_DOWNLOAD_BASE_URL={url}',
+                f'GRAF_RELEASE_INPUT_CONTEXT={args.context}',
+                f'GRAF_RELEASE_SIGNING_KEYCHAIN_ATTESTATION={directory / ("GRAF-" + version + "-signing-attestation.json")}',
+                SCRIPTS / 'prepare-app-update.sh', '--verify-only')
+    except ValueError as error:
+        raise ValueError(f'the prepared update for {version} did not pass its own public validation: '
+                         f'{error}; fix the prepared inputs and re-prepare the release instead of '
+                         'uploading it') from None
     with locked(STATE / '.graf-update-staging.lock'):
         identity_args = argparse.Namespace(app=args.app, previous=args.previous, notes=args.notes,
                                            version=version, url=url, public='1', context=args.context)
         identity = stage_identity(identity_args)
         check_stage(directory, identity)
         for architecture in ('arm64', 'x86_64'):
-            command(MACOS / 'Scripts/validate-packaged-app-launch.sh', args.app, '5', architecture)
+            try:
+                command(MACOS / 'Scripts/validate-packaged-app-launch.sh', args.app, '5', architecture)
+            except ValueError as error:
+                raise ValueError(f'the packaged app did not start cleanly for {architecture}: {error}; '
+                                 'the prepared update is not publishable') from None
         check_stage(directory, stage_identity(identity_args))
         clean_source(release['source'])
         upload_missing(context, args.files)
