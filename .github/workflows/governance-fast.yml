@@ -212,6 +212,28 @@ jobs:
             --authoritative-response "$RUNNER_TEMP/graf-merge-group-api.json" \
             | tee "$RUNNER_TEMP/graf-merge-group-verification.json"
 
+      - name: Reject trivial diff defects before the slow lane
+        if: needs.scope.outputs.text_only == 'false'
+        shell: bash
+        env:
+          GRAF_CI_BASE_REF: ${{ steps.identity.outputs.base_sha }}
+        run: |
+          set -euo pipefail
+          # Whitespace defects are reported by the fast lane itself, but only
+          # after every test has run: a trailing blank line could therefore fail
+          # a pull request roughly 25 minutes in, even though nothing was wrong
+          # with the change. Checking the same thing up front turns that wait
+          # into a few seconds. This runs the identical git check, so the
+          # outcome for a clean tree is unchanged.
+          if [[ "$GRAF_CI_BASE_REF" =~ ^[0-9a-f]{40}$ ]]; then
+            git diff --check "$GRAF_CI_BASE_REF" -- || {
+              echo "diff has whitespace defects; reported early to avoid a slow lane run" >&2
+              exit 1
+            }
+          else
+            git diff --check
+          fi
+
       - name: Prepare browser resources only for server changes
         if: needs.scope.outputs.text_only == 'false'
         shell: bash
