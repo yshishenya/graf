@@ -194,9 +194,12 @@ PY
 
 ## Как проверено
 
-- \`scripts/prepare-release.sh ${version}\` — раздел собран, фрагменты проверены
-- Локально: \`tests/governance/\` — см. вывод выше
-- Обязательные проверки GitHub \`governance-fast\`, \`macos-pr\`, \`pr-metadata\` на точном SHA — этот пул-реквест
+- \`scripts/prepare-release.sh ${version}\` — pass: раздел \`CHANGELOG.md\` собран,
+  фрагменты выпуска проверены и перенесены в архив
+- \`git diff --stat origin/master...HEAD\` — pass: меняются только журнал
+  изменений, архив фрагментов и записанный номер версии
+- Обязательные проверки GitHub \`governance-fast\`, \`macos-pr\` и
+  \`pr-metadata\` на точном SHA — этот пул-реквест
 
 ## Risk / validation lane
 
