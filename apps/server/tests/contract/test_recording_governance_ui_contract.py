@@ -31,7 +31,7 @@ def test_more_menu_is_compact_ordered_and_keeps_details_separate() -> None:
     assert source.index('role="menu"') < source.index('id="meeting-details-dialog"')
     assert source.index('id="meeting-details-dialog"') < source.index("{{ artifacts }}")
     assert "governance" not in source.casefold()
-    assert '<h2 id="meeting-context-more-title">Ещё</h2>' not in source
+    assert '<h2 id="meeting-context-more-title">Еще</h2>' not in source
 
 
 def test_delete_confirmation_is_a_focused_named_dialog_with_plain_copy() -> None:
@@ -42,7 +42,7 @@ def test_delete_confirmation_is_a_focused_named_dialog_with_plain_copy() -> None
     assert 'aria-labelledby="meeting-delete-title"' in source
     assert "data-meeting-delete-dialog-cancel" in source
     assert "data-meeting-delete-dialog-confirm" in source
-    assert "Встреча будет удалена из GRAF. Восстановить её не получится." in source
+    assert "Встреча будет удалена из GRAF. Восстановить ее не получится." in source
     assert "Удаление не затронет скачанные и отправленные копии." not in source
     assert "Generation Call" not in source
     assert "Langfuse" not in source

@@ -4,6 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from twobrain_rec_server.api.schemas import CreateSummaryTemplateRequest
+from twobrain_rec_server.cabinet.rendering import _format_for_display
 from twobrain_rec_server.cabinet.view_models import summary_template_slot
 from twobrain_rec_server.db.models import MeetingOutcomeSet
 from twobrain_rec_server.outcomes.templates import (
@@ -84,6 +85,8 @@ def test_all_builtin_purposes_sections_and_versions_remain_compatible() -> None:
         template.key: (template.purpose, template.sections) for template in BUILT_IN_TEMPLATES
     } == expected
     assert all(template.version == 1 and template.key.endswith("-v1") for template in BUILT_IN_TEMPLATES)
+    assert all("ё" not in _format_for_display(template).name for template in BUILT_IN_TEMPLATES)
+    assert all("ё" not in _format_for_display(template).purpose for template in BUILT_IN_TEMPLATES)
 
 
 def test_personal_template_is_structured_and_bounded() -> None:

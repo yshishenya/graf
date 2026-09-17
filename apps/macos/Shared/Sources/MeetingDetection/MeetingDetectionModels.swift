@@ -21,6 +21,69 @@ public enum MeetingDetectionSupportMode: String, Codable, Sendable {
     case disabled
 }
 
+/// Честный статус автозаписи: производитель и потребитель используют один тип,
+/// поэтому «заблокировано» не может отобразиться как «включено».
+public enum MeetingDetectionStatus: Equatable, Sendable {
+    case notStarted
+    case configured
+    case configuredForApp(String)
+    case blocked
+    case detecting(String)
+    case meetingFound(String)
+    case candidate
+    case unavailable
+    case notSaved
+    case failed
+
+    public var label: String {
+        switch self {
+        case .notStarted:
+            return "Ожидает запуск"
+        case .configured:
+            return "Автозапись настроена"
+        case .configuredForApp(let displayName):
+            return "Автозапись: \(displayName)"
+        case .blocked:
+            return "Автозапись заблокирована: проверьте разрешение и встречу"
+        case .detecting(let displayName):
+            return "Проверяется автозапись: \(displayName)"
+        case .meetingFound(let displayName):
+            return "Найдена встреча: \(displayName)"
+        case .candidate:
+            return "Найден кандидат для проверки"
+        case .unavailable:
+            return "Недоступно"
+        case .notSaved:
+            return "Выбор не сохранен"
+        case .failed:
+            return "Запись не началась: разрешение или встреча уже изменились"
+        }
+    }
+
+    public var summary: String? {
+        switch self {
+        case .notStarted:
+            return nil
+        case .configured:
+            return "Автозапись настроена"
+        case .configuredForApp(let displayName):
+            return "Автозапись: \(displayName)"
+        case .blocked:
+            return "Автозапись заблокирована"
+        case .detecting:
+            return "Проверяем автозапись"
+        case .meetingFound, .candidate:
+            return "Встреча обнаружена"
+        case .unavailable:
+            return "Автозапись недоступна"
+        case .notSaved:
+            return "Выбор не сохранен"
+        case .failed:
+            return "Запись не началась"
+        }
+    }
+}
+
 public enum MeetingDetectionTargetFamily: String, Codable, Sendable {
     case nativeApp = "native_app"
     case browserMeeting = "browser_meeting"

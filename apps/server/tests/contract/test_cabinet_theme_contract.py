@@ -64,6 +64,9 @@ def assert_theme_palette_contract(css: str) -> None:
 
     Match the root and approved F256/F257 palette blocks, not general CSS syntax.
     Every approved scope is checked with inherited tokens at the same contrast limits.
+    Feature 268 removed the local `.detail-page-main`/`.detail-playback` palettes:
+    those scopes must inherit the root palette and the shadow scan below rejects
+    any rule that tries to reintroduce a scoped theme-token override.
     """
     css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
     selectors = (":root", 'html[data-theme="light"]', ":root:not([data-theme])")
@@ -85,12 +88,7 @@ def assert_theme_palette_contract(css: str) -> None:
     assert dark.keys() >= SHARED_COLORS, f"Missing shared colors: {SHARED_COLORS - dark.keys()}"
 
     scoped_selectors = (
-        'html[data-theme="dark"] .detail-page-main',
-        '.detail-playback',
-        'html[data-theme="light"] .detail-playback',
-        'html:not([data-theme]) .detail-playback',
         'html[data-theme="dark"] .app-shell[data-active-nav="settings"]',
-        'html:not([data-theme]) .detail-page-main',
         'html:not([data-theme]) .app-shell[data-active-nav="settings"]',
     )
     scoped = {}
@@ -99,18 +97,17 @@ def assert_theme_palette_contract(css: str) -> None:
         matches = [block for block in matches if _declarations(block).keys() & SHARED_COLORS]
         assert len(matches) == 1, f"Expected one {selector} palette, got {len(matches)}"
         scoped[selector] = _declarations(matches[0])
-    assert scoped[scoped_selectors[2]] == scoped[scoped_selectors[3]], (
-        "System light player palette differs from explicit light"
+    assert scoped[scoped_selectors[0]] == scoped[scoped_selectors[1]], (
+        "System dark palette differs: " + scoped_selectors[1]
     )
-    for explicit, system in ((scoped_selectors[0], scoped_selectors[5]),
-                             (scoped_selectors[4], scoped_selectors[6])):
-        assert scoped[explicit] == scoped[system], f"System dark palette differs: {system}"
-        assert re.search(
-            r"@media\s*\(prefers-color-scheme:\s*dark\)\s*\{\s*"
-            rf"{re.escape(system)}\s*\{{[^{{}}]*\}}\s*\}}", css,
-        ), f"System dark palette must follow OS: {system}"
+    assert re.search(
+        r"@media\s*\(prefers-color-scheme:\s*dark\)\s*\{\s*"
+        rf"{re.escape(scoped_selectors[1])}\s*\{{[^{{}}]*\}}\s*\}}", css,
+    ), f"System dark palette must follow OS: {scoped_selectors[1]}"
 
     # Unreviewed component shadows remain forbidden; approved scopes are tested below.
+    # Removed detail-page/player palettes are covered here too: their selectors are
+    # no longer approved, so any shared-token override on them fails.
     for match in re.finditer(r"([^{}]+)\{([^{}]*)\}", css):
         selector, body = match.groups()
         overrides = {
@@ -125,8 +122,7 @@ def assert_theme_palette_contract(css: str) -> None:
 
     failures = []
     palettes = [("dark", dark), ("light", dark | explicit_light)]
-    palettes.extend((selector, dark | (explicit_light if index in (2, 3) else {}) | scoped[selector])
-                    for index, selector in enumerate(scoped_selectors))
+    palettes.extend((selector, dark | scoped[selector]) for selector in scoped_selectors)
     for theme, palette in palettes:
         pairs = (
             [(text, surface, 4.5) for text in TEXT_COLORS for surface in BACKGROUNDS]
@@ -213,7 +209,7 @@ def test_palette_contract_rejects_system_light_drift() -> None:
         assert_theme_palette_contract(css)
 
 
-@pytest.mark.parametrize("scope", [".detail-page-main", '.app-shell[data-active-nav="settings"]'])
+@pytest.mark.parametrize("scope", ['.app-shell[data-active-nav="settings"]'])
 def test_palette_contract_rejects_system_dark_drift(scope: str) -> None:
     css = CABINET_CSS.read_text(encoding="utf-8")
     selector = f"html:not([data-theme]) {scope} {{"
@@ -227,24 +223,34 @@ def test_palette_contract_rejects_low_contrast_text() -> None:
     css = re.sub(r"--text:\s*#[\da-fA-F]+;", "--text: #fff;", css)
     with pytest.raises(AssertionError, match=r"light --text/--panel: 1\.00 < 4\.5"):
         assert_theme_palette_contract(css)
-
-
-@pytest.mark.parametrize("selector", ['html[data-theme="dark"] .detail-page-main', 'html[data-theme="light"] .detail-playback'])
+@pytest.mark.parametrize("selector", ['.app-shell[data-active-nav="settings"]'])
 def test_palette_contract_rejects_low_contrast_scoped_text(selector: str) -> None:
     css = CABINET_CSS.read_text(encoding="utf-8")
-    background = "#474a4c" if '"dark"' in selector else "#e5e5e6"
-    css = re.sub(
-        rf"({re.escape(selector)}\s*\{{[^{{}}]*?--text:)\s*#[\da-fA-F]+;",
-        rf"\g<1> {background};", css,
-    )
-    if '"light"' in selector:
-        css = css.replace("--text: #242729;", f"--text: {background};")
-    else:
+    background = "#474a4c"
+    for scoped_selector in (
+        f'html[data-theme="dark"] {selector}',
+        f"html:not([data-theme]) {selector}",
+    ):
         css = re.sub(
-            r"(html:not\(\[data-theme\]\) \.detail-page-main\s*\{[^{}]*?--text:)\s*#[\da-fA-F]+;",
-            rf"\g<1> {background};", css,
+            rf"({re.escape(scoped_selector)}\s*\{{[^{{}}]*?--text:)\s*#[\da-fA-F]+;",
+            rf"\g<1> {background};",
+            css,
         )
     with pytest.raises(AssertionError, match="Declared palette contrast"):
+        assert_theme_palette_contract(css)
+
+
+def test_palette_contract_rejects_returning_detail_page_local_palette() -> None:
+    css = CABINET_CSS.read_text(encoding="utf-8")
+    css += '\nhtml[data-theme="dark"] .detail-page-main { --bg: #1c1f20; }\n'
+    with pytest.raises(AssertionError, match="Scoped theme-token shadow"):
+        assert_theme_palette_contract(css)
+
+
+def test_palette_contract_rejects_returning_player_local_palette() -> None:
+    css = CABINET_CSS.read_text(encoding="utf-8")
+    css += "\n.detail-playback { --text: #f5f5f5; --surface-3: #3a3d3f; }\n"
+    with pytest.raises(AssertionError, match="Scoped theme-token shadow"):
         assert_theme_palette_contract(css)
 
 

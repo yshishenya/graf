@@ -28,10 +28,10 @@
             <li>Обработка без сохранения аудио при заполненном архиве</li>
           </ul>
           <div class="billing-plan-card__action">
-            {% if item.code == "personal" and item.is_current %}<span class="muted">Подключён сейчас{% if not billing_owner %}; оплатой управляет текущий плательщик{% endif %}</span>
+            {% if item.code == "personal" and item.is_current %}<span class="muted">Подключен сейчас{% if not billing_owner %}; оплатой управляет текущий плательщик{% endif %}</span>
             {% elif item.code == "personal" and current_plan_code|default(None) == "personal" %}<span class="muted">Другой период оплаты; текущие условия не изменятся без отдельного подтверждения.</span>
-            {% elif item.code == "personal" and operation_pending|default(False) %}<span class="muted">Платёж проверяется; новую оплату пока не предлагаем.</span>
-            {% elif item.is_current and billing_owner %}<span class="muted">Подключён сейчас</span>
+            {% elif item.code == "personal" and operation_pending|default(False) %}<span class="muted">Платеж проверяется; новую оплату пока не предлагаем.</span>
+            {% elif item.is_current and billing_owner %}<span class="muted">Подключен сейчас</span>
             {% elif item.code == "personal" and (billing_owner or billing_role|default(None) == "owner") and billing_enabled and item.catalog_ready %}<a class="button" href="/billing/checkout?cycle={{ selected_cycle }}">Выбрать «Личный»</a>
             {% elif item.code == "personal" and not item.catalog_ready %}<span class="muted">Цена пока недоступна. Попробуйте позже.</span>
             {% elif item.code == "personal" and not billing_enabled %}<span class="muted">Оплата временно недоступна. Попробуйте позже.</span>
@@ -55,7 +55,7 @@
       </section>
 
       <section class="billing-section billing-row-section" aria-labelledby="billing-plan-boundary-title">
-        <div><h2 id="billing-plan-boundary-title">Важно о хранении</h2><p>Платная обработка не ограничена по времени, но архив имеет конечную ёмкость. Дополнительное место оплачивается отдельно, когда доступно его подключение.</p></div>
+        <div><h2 id="billing-plan-boundary-title">Важно о хранении</h2><p>Платная обработка не ограничена по времени, но архив имеет конечную емкость. Дополнительное место оплачивается отдельно, когда доступно его подключение.</p></div>
         {% if billing_owner %}<a class="button quiet" href="/billing/storage">Настроить хранилище</a>{% endif %}
       </section>
       {% if support_email|default(None) %}<p class="billing-help"><a class="button quiet" href="mailto:{{ support_email|e }}">Связаться с нами</a></p>{% endif %}

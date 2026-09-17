@@ -27,7 +27,7 @@ def build_refund_mailto(*, support_email: str, safe_invoice_number: str) -> str:
     subject = quote(f"Возврат по платежу {reference}")
     body = quote(
         f"Номер платежа: {reference}\n\n"
-        "Опишите запрос. Не отправляйте данные карты, идентификаторы YooKassa, "
+        "Опишите запрос. Не отправляйте данные карты, идентификаторы ЮKassa, "
         "ссылки или содержимое встреч."
     )
     return f"mailto:{address}?subject={subject}&body={body}"

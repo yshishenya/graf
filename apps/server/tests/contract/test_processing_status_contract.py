@@ -774,7 +774,7 @@ def test_expired_transient_source_requires_a_new_upload(client) -> None:
 
     assert response.status_code == 409
     assert response.json()["code"] == "processing_source_expired"
-    assert response.json()["detail"] == "Срок временного хранения записи истёк. Загрузите файл заново."
+    assert response.json()["detail"] == "Срок временного хранения записи истек. Загрузите файл заново."
 
 
 def test_manual_check_releases_claim_when_temporal_connect_is_cancelled(client, monkeypatch) -> None:

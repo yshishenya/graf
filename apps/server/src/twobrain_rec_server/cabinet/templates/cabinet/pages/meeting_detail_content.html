@@ -30,7 +30,7 @@
         <h1>{{ meeting_title }}</h1>
         {% endif %}
         {% if protocol %}
-        <p class="meeting-about"><span class="meeting-meta-label">{{ 'О чём встреча' if protocol_about else 'Тип встречи' }}:</span> {{ protocol.meeting_type }}</p>
+        <p class="meeting-about"><span class="meeting-meta-label">{{ 'О чем встреча' if protocol_about else 'Тип встречи' }}:</span> {{ protocol.meeting_type }}</p>
         {% endif %}
         <div class="row-meta">
           <span>{{ meeting_date }}</span><span>·</span><span>{{ meeting_duration }}</span><span data-meeting-status-label>{{ status_label }}</span>
@@ -98,7 +98,7 @@
         <div>
           <p class="processing-recovery-kicker">Обработка записи</p>
           <h2 id="processing-recovery-title" data-processing-recovery-title tabindex="-1">{% if replacement_active %}Готовим новую версию{% elif replacement_failed %}Не удалось подготовить новую версию{% elif processing_state == 'failed' %}Обработка остановилась{% elif processing_state == 'blocked' %}Обработка требует проверки{% elif processing_state == 'ready' %}Обработка завершена{% else %}Обработка записи{% endif %}</h2>
-          <p class="processing-recovery-copy" id="processing-recovery-copy" data-processing-recovery-copy>{% if replacement_failed %}Текущая версия не изменилась.{% elif processing_reason_label %}{{ processing_reason_label }}{% elif transcript_degraded_reason == 'diarization_pending' %}Спикеры ещё определяются. Расшифровка появится после завершения диаризации.{% elif processing_state in ['processing', 'submitted'] %}GRAF проверяет запись. Спикеры и итоги могут появиться по отдельности.{% elif processing_state == 'failed' %}Проверьте статус обработки или начните новую попытку.{% elif processing_state == 'blocked' %}Проверьте настройки и повторите обработку позже.{% else %}Проверяем статус обработки…{% endif %}</p>
+          <p class="processing-recovery-copy" id="processing-recovery-copy" data-processing-recovery-copy>{% if replacement_failed %}Текущая версия не изменилась.{% elif processing_reason_label %}{{ processing_reason_label }}{% elif transcript_degraded_reason == 'diarization_pending' %}Спикеры еще определяются. Расшифровка появится после завершения диаризации.{% elif processing_state in ['processing', 'submitted'] %}GRAF проверяет запись. Спикеры и итоги могут появиться по отдельности.{% elif processing_state == 'failed' %}Проверьте статус обработки или начните новую попытку.{% elif processing_state == 'blocked' %}Проверьте настройки и повторите обработку позже.{% else %}Проверяем статус обработки…{% endif %}</p>
         </div>
         <p class="processing-recovery-countdown" data-processing-countdown aria-live="off" hidden></p>
       </div>

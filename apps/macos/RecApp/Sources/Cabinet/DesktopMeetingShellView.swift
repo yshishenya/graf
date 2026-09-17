@@ -9,50 +9,50 @@ public enum DesktopMeetingShellChrome {
     public static let spacingXLarge: CGFloat = 24
     public static let controlHeight: CGFloat = 32
     public static let webButtonHeight: CGFloat = 32
-    public static let webButtonCornerRadius: CGFloat = 7
+    public static let webButtonCornerRadius = DesktopDesignTokens.Radius.sm
     public static let webButtonHorizontalPadding: CGFloat = 12
     public static let webButtonDisabledOpacity: CGFloat = 0.68
-    public static let webButtonPrimaryHex = "#8c73ff"
-    public static let webButtonSecondaryDarkHex = "#26282c"
-    public static let webButtonBorderDarkHex = "#30343a"
-    public static let webButtonPrimaryColor = Color(red: 0.549, green: 0.451, blue: 1.000)
-    public static let webButtonSecondaryDarkColor = Color(red: 0.149, green: 0.157, blue: 0.173)
-    public static let webButtonSecondaryLightColor = Color(red: 0.957, green: 0.961, blue: 0.969)
-    public static let webButtonBorderDarkColor = Color(red: 0.188, green: 0.204, blue: 0.227)
-    public static let webButtonBorderLightColor = Color(red: 0.788, green: 0.804, blue: 0.827)
-    public static let webButtonTextDarkColor = Color(red: 0.910, green: 0.918, blue: 0.933)
-    public static let webButtonTextLightColor = Color(red: 0.110, green: 0.125, blue: 0.149)
-    public static let webButtonDestructiveColor = Color(red: 1.000, green: 0.420, blue: 0.420)
+    public static let webButtonPrimaryHex = "#7056e9"
+    public static let webButtonSecondaryDarkHex = "#272a30"
+    public static let webButtonBorderDarkHex = "#7e8898"
+    public static let webButtonPrimaryColor = DesktopDesignTokens.accentSolid
+    public static let webButtonSecondaryDarkColor = DesktopDesignTokens.surface2
+    public static let webButtonSecondaryLightColor = DesktopDesignTokens.surface2
+    public static let webButtonBorderDarkColor = DesktopDesignTokens.line
+    public static let webButtonBorderLightColor = DesktopDesignTokens.line
+    public static let webButtonTextDarkColor = DesktopDesignTokens.text
+    public static let webButtonTextLightColor = DesktopDesignTokens.text
+    public static let webButtonDestructiveColor = DesktopDesignTokens.red
     public static let minimumInteractiveTarget: CGFloat = 40
     public static let collapsedInspectorWidth: CGFloat = 52
     public static let expandedInspectorWidth: CGFloat = 308
-    public static let shellBackgroundHex = "#0a0a0b"
-    public static let shellRailHex = "#121214"
-    public static let shellSurfaceHex = "#1c1c1f"
+    public static let shellBackgroundHex = "#17181b"
+    public static let shellRailHex = "#1d1f23"
+    public static let shellSurfaceHex = "#22252a"
     public static let recordingStripHex = "#342087"
-    public static let shellAccentHex = "#8c73ff"
+    public static let shellAccentHex = "#7056e9"
     public static let webEmbeddedBackgroundHex = shellBackgroundHex
-    public static let shellBackgroundColor = Color(nsColor: .windowBackgroundColor)
-    public static let shellRailColor = Color(nsColor: .controlBackgroundColor)
-    public static let shellSurfaceColor = Color(nsColor: .controlBackgroundColor)
-    public static let shellStrokeColor = Color(nsColor: .separatorColor)
-    public static let shellHighContrastStrokeColor = Color.primary.opacity(0.65)
+    public static let shellBackgroundColor = DesktopDesignTokens.background
+    public static let shellRailColor = DesktopDesignTokens.panel
+    public static let shellSurfaceColor = DesktopDesignTokens.surface
+    public static let shellStrokeColor = DesktopDesignTokens.lineSoft
+    public static let shellHighContrastStrokeColor = DesktopDesignTokens.line
     public static let recordingStripColor = Color(red: 0.204, green: 0.125, blue: 0.529)
-    public static let shellAccentColor = Color(red: 0.549, green: 0.451, blue: 1.000)
+    public static let shellAccentColor = DesktopDesignTokens.accentSolid
     public static let recordingStripHeight: CGFloat = 44
     public static let idleShowsNativeTopBar = false
     public static let fontStackDescription = "SF Pro Text / system"
     public static let compactRailLabels = ["Статус записи", "Локальная сохранность"]
     public static let compactRailStartLabel = "Начать запись"
-    public static let compactRailStopLabel = "Остановить запись"
+    public static let compactRailStopLabel = SystemAudioStatusLabels.stopButtonTitle
     public static let compactRailActionHitSize: CGFloat = 40
     public static let settingsRailLabel = "Настройки"
     public static let appUpdateLabel = "Доступно обновление"
     public static let appUpdateAccessibilityLabel = "Доступно обновление GRAF. Открыть проверку обновлений."
     public static let appUpdateHitSize: CGFloat = 40
-    public static let webEmbeddedBackgroundNSColor = NSColor.windowBackgroundColor
+    public static let webEmbeddedBackgroundNSColor = NSColor(DesktopDesignTokens.background)
     public static let inspectorToggleHitSize: CGFloat = 44
-    public static let inspectorToggleCornerRadius: CGFloat = 12
+    public static let inspectorToggleCornerRadius = DesktopDesignTokens.Radius.card
     public static let inspectorToggleTopInset: CGFloat = 10
     public static let inspectorToggleTrailingInset: CGFloat = 4
     public static let inspectorToggleCollapsedSymbol = "chevron.left.2"
@@ -98,7 +98,6 @@ public enum DesktopWebButtonVariant: Equatable, Sendable {
 
 public struct DesktopWebButtonStyle: ButtonStyle {
     private let variant: DesktopWebButtonVariant
-    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.isEnabled) private var isEnabled
 
     public init(_ variant: DesktopWebButtonVariant = .secondary) {
@@ -112,7 +111,7 @@ public struct DesktopWebButtonStyle: ButtonStyle {
         )
 
         configuration.label
-            .font(.system(size: 13, weight: variant == .primary ? .bold : .medium))
+            .font(.system(size: DesktopDesignTokens.FontSize.label, weight: variant == .primary ? .bold : .medium))
             .foregroundStyle(foregroundColor)
             .padding(.horizontal, DesktopMeetingShellChrome.webButtonHorizontalPadding)
             .frame(minHeight: DesktopMeetingShellChrome.webButtonHeight)
@@ -124,34 +123,24 @@ public struct DesktopWebButtonStyle: ButtonStyle {
             .opacity(isEnabled ? 1 : DesktopMeetingShellChrome.webButtonDisabledOpacity)
     }
 
-    private var isDark: Bool {
-        colorScheme == .dark
-    }
-
     private var backgroundColor: Color {
         variant == .primary
             ? DesktopMeetingShellChrome.webButtonPrimaryColor
-            : (isDark
-                ? DesktopMeetingShellChrome.webButtonSecondaryDarkColor
-                : DesktopMeetingShellChrome.webButtonSecondaryLightColor)
+            : DesktopMeetingShellChrome.webButtonSecondaryDarkColor
     }
 
     private var borderColor: Color {
         variant == .primary
             ? DesktopMeetingShellChrome.webButtonPrimaryColor
-            : (isDark
-                ? DesktopMeetingShellChrome.webButtonBorderDarkColor
-                : DesktopMeetingShellChrome.webButtonBorderLightColor)
+            : DesktopMeetingShellChrome.webButtonBorderDarkColor
     }
 
     private var foregroundColor: Color {
         switch variant {
         case .primary:
-            return .white
+            return DesktopDesignTokens.accentForeground
         case .secondary:
-            return isDark
-                ? DesktopMeetingShellChrome.webButtonTextDarkColor
-                : DesktopMeetingShellChrome.webButtonTextLightColor
+            return DesktopMeetingShellChrome.webButtonTextDarkColor
         case .destructive:
             return DesktopMeetingShellChrome.webButtonDestructiveColor
         }
@@ -293,12 +282,9 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
             inspectorContainer
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: DesktopDesignTokens.Radius.card, style: .continuous))
         .padding(DesktopMeetingShellChrome.spacingSmall)
-        .background(
-            DesktopMeetingShellChrome.shellBackgroundColor
-                .overlay(Color.primary.opacity(0.06))
-        )
+        .background(DesktopMeetingShellChrome.shellBackgroundColor)
         .tint(DesktopMeetingShellChrome.shellAccentColor)
         .background {
             RecordingTitlebarAccessory(
@@ -390,11 +376,11 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                         }
                     }
                     .background(
-                        RoundedRectangle(cornerRadius: 8)
+                        RoundedRectangle(cornerRadius: DesktopDesignTokens.Radius.sm)
                             .fill(DesktopMeetingShellChrome.shellSurfaceColor)
                     )
                     .overlay(
-                        RoundedRectangle(cornerRadius: 8)
+                        RoundedRectangle(cornerRadius: DesktopDesignTokens.Radius.sm)
                             .stroke(shellStrokeColor, lineWidth: 1)
                     )
                 }
@@ -406,7 +392,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         Button(action: onCheckForUpdates) {
             HStack(spacing: DesktopMeetingShellChrome.spacingSmall) {
                 Image(systemName: "arrow.down.circle.fill")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.system(size: DesktopDesignTokens.FontSize.subtitle, weight: .semibold))
                 Text(DesktopMeetingShellChrome.appUpdateLabel)
                     .font(.subheadline)
                     .fontWeight(.semibold)
@@ -419,16 +405,16 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                 alignment: .leading
             )
             .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(DesktopMeetingShellChrome.shellAccentColor.opacity(0.16))
+                RoundedRectangle(cornerRadius: DesktopDesignTokens.Radius.sm)
+                    .fill(DesktopDesignTokens.accentSurface)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(DesktopMeetingShellChrome.shellAccentColor.opacity(0.62), lineWidth: 1)
+                RoundedRectangle(cornerRadius: DesktopDesignTokens.Radius.sm)
+                    .stroke(DesktopDesignTokens.accentBorder, lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
-        .foregroundStyle(DesktopMeetingShellChrome.shellAccentColor)
+        .foregroundStyle(DesktopDesignTokens.accent)
         .contentShape(Rectangle())
         .help(DesktopMeetingShellChrome.appUpdateAccessibilityLabel)
         .accessibilityLabel(DesktopMeetingShellChrome.appUpdateAccessibilityLabel)
@@ -438,7 +424,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     private var localCabinetStatus: some View {
         HStack(spacing: DesktopMeetingShellChrome.spacingMedium) {
             Image(systemName: cabinetStatusPresentation.systemImage)
-                .font(.system(size: 15, weight: .semibold))
+                .font(.system(size: DesktopDesignTokens.FontSize.subtitle, weight: .semibold))
                 .foregroundStyle(cabinetStatusColor)
                 .frame(width: 24)
             VStack(alignment: .leading, spacing: 3) {
@@ -456,11 +442,11 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 8)
+            RoundedRectangle(cornerRadius: DesktopDesignTokens.Radius.sm)
                 .fill(DesktopMeetingShellChrome.shellSurfaceColor)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 8)
+            RoundedRectangle(cornerRadius: DesktopDesignTokens.Radius.sm)
                 .stroke(shellStrokeColor, lineWidth: 1)
         )
         .accessibilityElement(children: .combine)
@@ -480,11 +466,11 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         .padding(16)
         .frame(maxWidth: .infinity, minHeight: 180, alignment: .topLeading)
         .background(
-            RoundedRectangle(cornerRadius: 8)
+            RoundedRectangle(cornerRadius: DesktopDesignTokens.Radius.sm)
                 .fill(DesktopMeetingShellChrome.shellSurfaceColor)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 8)
+            RoundedRectangle(cornerRadius: DesktopDesignTokens.Radius.sm)
                 .stroke(shellStrokeColor, lineWidth: 1)
         )
     }
@@ -635,15 +621,15 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     private func localRecordingColor(for item: DesktopUploadQueueItem) -> Color {
         switch item.state {
         case .uploaded:
-            return .green
+            return DesktopDesignTokens.green
         case .saving, .uploading, .queued:
             return DesktopMeetingShellChrome.shellAccentColor
         case .retrying, .degraded:
-            return .orange
+            return DesktopDesignTokens.amber
         case .blocked:
-            return .secondary
+            return DesktopDesignTokens.muted
         case .failed, .terminalDeleted:
-            return .red
+            return DesktopDesignTokens.red
         }
     }
 
@@ -687,12 +673,12 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                         inspectorExpanded = true
                     } label: {
                         Text("\(attentionCustodyItemCount)")
-                            .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                            .foregroundStyle(.white)
+                            .font(.system(size: DesktopDesignTokens.FontSize.caption, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(DesktopDesignTokens.speakerContrastText)
                             .frame(width: 30, height: 24)
                             .background(
-                                RoundedRectangle(cornerRadius: 7)
-                                    .fill(Color.orange.opacity(0.82))
+                                RoundedRectangle(cornerRadius: DesktopDesignTokens.Radius.sm)
+                                    .fill(DesktopDesignTokens.amber.opacity(0.82))
                             )
                     }
                     .buttonStyle(.plain)
@@ -716,15 +702,15 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         if let session = recordingStripSession {
             Button(role: .destructive, action: onStopRecording) {
                 Image(systemName: "stop.fill")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(.white)
+                    .font(.system(size: DesktopDesignTokens.FontSize.label, weight: .bold))
+                    .foregroundStyle(DesktopDesignTokens.accentForeground)
                     .frame(
                         width: DesktopMeetingShellChrome.compactRailActionHitSize,
                         height: DesktopMeetingShellChrome.compactRailActionHitSize
                     )
                     .background(
-                        RoundedRectangle(cornerRadius: 9, style: .continuous)
-                            .fill(Color.red.opacity(0.88))
+                        RoundedRectangle(cornerRadius: DesktopDesignTokens.Radius.control, style: .continuous)
+                            .fill(DesktopDesignTokens.red.opacity(0.88))
                     )
             }
             .buttonStyle(.plain)
@@ -736,14 +722,14 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         } else {
             Button(action: onStartRecording) {
                 Image(systemName: recordingTransitionInProgress ? "clock" : "record.circle.fill")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(.white)
+                    .font(.system(size: DesktopDesignTokens.FontSize.label, weight: .bold))
+                    .foregroundStyle(DesktopDesignTokens.accentForeground)
                     .frame(
                         width: DesktopMeetingShellChrome.compactRailActionHitSize,
                         height: DesktopMeetingShellChrome.compactRailActionHitSize
                     )
                     .background(
-                        RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        RoundedRectangle(cornerRadius: DesktopDesignTokens.Radius.control, style: .continuous)
                             .fill(DesktopMeetingShellChrome.webButtonPrimaryColor)
                     )
             }
@@ -757,17 +743,17 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
         }
     }
 
-    private func railIcon(_ icon: String, selected: Bool, color: Color = .secondary) -> some View {
+    private func railIcon(_ icon: String, selected: Bool, color: Color = DesktopDesignTokens.muted) -> some View {
         Image(systemName: icon)
-            .font(.system(size: 13, weight: .semibold))
-            .foregroundStyle(selected ? color : Color.secondary)
+            .font(.system(size: DesktopDesignTokens.FontSize.label, weight: .semibold))
+            .foregroundStyle(selected ? color : DesktopDesignTokens.muted)
             .frame(width: 30, height: 30)
             .background(
-                RoundedRectangle(cornerRadius: 7)
+                RoundedRectangle(cornerRadius: DesktopDesignTokens.Radius.sm)
                     .fill(selected ? color.opacity(0.28) : Color.clear)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 7)
+                RoundedRectangle(cornerRadius: DesktopDesignTokens.Radius.sm)
                     .stroke(selected ? color.opacity(0.54) : Color.clear, lineWidth: 1)
             )
     }
@@ -781,7 +767,7 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                 VStack(alignment: .leading, spacing: DesktopMeetingShellChrome.spacingMedium) {
                     HStack(alignment: .center) {
                         Text("Запись")
-                            .font(.system(size: 15, weight: .semibold))
+                            .font(.system(size: DesktopDesignTokens.FontSize.subtitle, weight: .semibold))
                         Spacer()
                         Button(action: onOpenSettings) {
                             Label(DesktopMeetingShellChrome.settingsRailLabel, systemImage: "gearshape")
@@ -802,11 +788,11 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
                         .focusable()
                         .focused($focusedRecordingSessionID, equals: "capture:" + (session?.id ?? "none"))
                         .background(
-                            RoundedRectangle(cornerRadius: 8)
+                            RoundedRectangle(cornerRadius: DesktopDesignTokens.Radius.sm)
                                 .fill(DesktopMeetingShellChrome.shellSurfaceColor)
                         )
                         .overlay(
-                            RoundedRectangle(cornerRadius: 8)
+                            RoundedRectangle(cornerRadius: DesktopDesignTokens.Radius.sm)
                                 .stroke(shellStrokeColor, lineWidth: 1)
                         )
 
@@ -864,11 +850,11 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
             .padding(.top, 8)
         } label: {
             Label("Записи, требующие внимания", systemImage: "internaldrive")
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: DesktopDesignTokens.FontSize.label, weight: .semibold))
         }
         .padding(12)
         .background(
-            RoundedRectangle(cornerRadius: 8)
+            RoundedRectangle(cornerRadius: DesktopDesignTokens.Radius.sm)
                 .fill(DesktopMeetingShellChrome.shellSurfaceColor)
         )
     }
@@ -936,17 +922,19 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     private func custodyDetailColor(for projection: DesktopUploadCustodyProjection) -> Color {
         switch projection.custodyState {
         case .delivered, .finalized:
-            return .green
+            return DesktopDesignTokens.green
         case .processing:
-            return projection.copyKey == "custody.unknown_blocked" ? .orange : .green
+            return projection.copyKey == "custody.unknown_blocked"
+                ? DesktopDesignTokens.amber
+                : DesktopDesignTokens.green
         case .partialUploaded, .uploadSessionCreated, .serverRegistered:
             return DesktopMeetingShellChrome.shellAccentColor
         case .serverUnknownLocalSaved:
-            return .secondary
+            return DesktopDesignTokens.muted
         case .retainedAwaitingCondition:
-            return .orange
+            return DesktopDesignTokens.amber
         case .cannotSend, .terminalUndelivered:
-            return .red
+            return DesktopDesignTokens.red
         }
     }
 
@@ -1000,16 +988,16 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     }
 
     private var captureStatusColor: Color {
-        guard let session else { return .secondary }
+        guard let session else { return DesktopDesignTokens.muted }
         switch session.state {
         case .active, .starting:
-            return .green
+            return DesktopDesignTokens.green
         case .paused:
-            return .orange
+            return DesktopDesignTokens.amber
         case .failed, .degraded:
-            return .red
+            return DesktopDesignTokens.red
         default:
-            return .secondary
+            return DesktopDesignTokens.muted
         }
     }
 
@@ -1029,13 +1017,13 @@ public struct DesktopMeetingShellView<CaptureControls: View, MeetingsWorkspace: 
     private var cabinetStatusColor: Color {
         switch cabinetStatusPresentation.tone {
         case .success:
-            return .green
+            return DesktopDesignTokens.green
         case .warning:
-            return .orange
+            return DesktopDesignTokens.amber
         case .error:
-            return .red
+            return DesktopDesignTokens.red
         case .neutral:
-            return .secondary
+            return DesktopDesignTokens.muted
         }
     }
 
@@ -1266,16 +1254,16 @@ private struct RecordingTitlebarHUD: View {
             HStack(spacing: 10) {
                 HStack(spacing: 7) {
                     Image(systemName: "waveform")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(.green)
+                        .font(.system(size: DesktopDesignTokens.FontSize.helper, weight: .bold))
+                        .foregroundStyle(DesktopDesignTokens.green)
                     Text(CaptureStatusItem.statusLabel(for: session))
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .font(.system(size: DesktopDesignTokens.FontSize.helper, weight: .semibold, design: .rounded))
                         .lineLimit(1)
 
                     if let sourceLabel = CaptureStatusItem.sourceIndicatorLabel(for: session) {
                         Text(sourceLabel)
-                            .font(.system(size: 10.5, weight: .medium, design: .rounded))
-                            .foregroundStyle(Color.white.opacity(0.62))
+                            .font(.system(size: DesktopDesignTokens.FontSize.caption, weight: .medium, design: .rounded))
+                            .foregroundStyle(DesktopDesignTokens.muted)
                             .lineLimit(1)
                             .truncationMode(.tail)
                             .frame(minWidth: 0, maxWidth: 180, alignment: .leading)
@@ -1292,8 +1280,8 @@ private struct RecordingTitlebarHUD: View {
 
                 TimelineView(.periodic(from: .now, by: 1)) { context in
                     Text(recordingElapsedText(at: context.date))
-                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(Color.white.opacity(0.90))
+                        .font(.system(size: DesktopDesignTokens.FontSize.helper, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(DesktopDesignTokens.text)
                 }
                 .frame(width: 54)
 
@@ -1307,12 +1295,12 @@ private struct RecordingTitlebarHUD: View {
             .padding(.trailing, 6)
             .frame(height: 32)
             .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                RoundedRectangle(cornerRadius: DesktopDesignTokens.Radius.card, style: .continuous)
                     .fill(DesktopMeetingShellChrome.shellSurfaceColor)
-                    .shadow(color: Color.black.opacity(0.2), radius: 4, x: 0, y: 2)
+                    .shadow(color: DesktopDesignTokens.overlayBackdrop.opacity(0.4), radius: 4, x: 0, y: 2)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                RoundedRectangle(cornerRadius: DesktopDesignTokens.Radius.card, style: .continuous)
                     .stroke(DesktopMeetingShellChrome.recordingStripColor.opacity(0.58), lineWidth: 1)
             )
 
@@ -1352,7 +1340,7 @@ private struct RecordingTitlebarHUD: View {
 
         if CaptureStatusItem.showsStopButton(for: session) {
             Button(role: .destructive, action: onStop) {
-                Label("Стоп", systemImage: "stop.fill")
+                Label(SystemAudioStatusLabels.stopButtonTitle, systemImage: "stop.fill")
             }
             .buttonStyle(DesktopWebButtonStyle(.destructive))
             .disabled(!session.stopActionAvailable || transitionInProgress)
@@ -1391,9 +1379,9 @@ private struct InspectorDisclosureButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: DesktopMeetingShellChrome.inspectorToggleSymbol(isExpanded: isExpanded))
-                .font(.system(size: 18, weight: .bold))
+                .font(.system(size: DesktopDesignTokens.FontSize.headingSmall, weight: .bold))
                 .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(Color.primary.opacity(0.86))
+                .foregroundStyle(DesktopDesignTokens.text.opacity(0.86))
                 .frame(
                     width: DesktopMeetingShellChrome.inspectorToggleHitSize,
                     height: DesktopMeetingShellChrome.inspectorToggleHitSize
@@ -1403,7 +1391,7 @@ private struct InspectorDisclosureButton: View {
                         cornerRadius: DesktopMeetingShellChrome.inspectorToggleCornerRadius,
                         style: .continuous
                     )
-                    .fill(isHovering ? Color.primary.opacity(0.10) : Color.clear)
+                    .fill(isHovering ? DesktopDesignTokens.surface3 : Color.clear)
                 )
                 .contentShape(
                     RoundedRectangle(

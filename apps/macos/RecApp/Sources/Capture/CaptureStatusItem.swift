@@ -134,19 +134,19 @@ public struct CaptureStatusItem: View {
         case .ready:
             return DesktopMeetingShellChrome.shellAccentColor
         case .active:
-            return .green
+            return DesktopDesignTokens.green
         case .paused:
-            return .orange
+            return DesktopDesignTokens.amber
         case .degraded, .error:
-            return .red
+            return DesktopDesignTokens.red
         case .hidden:
-            return .secondary
+            return DesktopDesignTokens.muted
         }
     }
 
     private func color(for session: CaptureSession) -> Color {
         if session.state == .stopped || session.state == .finalized {
-            return .green
+            return DesktopDesignTokens.green
         }
         return color(for: session.visibleIndicatorState)
     }
@@ -169,9 +169,9 @@ public struct CaptureStatusItem: View {
         case .starting:
             return "Начинаем запись…"
         case .active:
-            return "Идёт запись"
+            return "Идет запись"
         case .paused:
-            return "Идёт запись · микрофон выключен"
+            return "Идет запись · микрофон выключен"
         case .degraded:
             return "Запись с ограничением"
         case .stopping:

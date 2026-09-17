@@ -46,7 +46,7 @@ def test_unavailable_invitation_page_reuses_safe_cabinet_state() -> None:
     rendered = render_share_invitation_unavailable_page()
 
     assert "Приглашение недоступно" in rendered
-    assert "Ссылка уже использована, отозвана или срок её действия истёк." in rendered
+    assert "Ссылка уже использована, отозвана или срок ее действия истек." in rendered
     assert 'href="/meetings"' in rendered
     assert 'class="cabinet-main cabinet-state-page"' in rendered
     assert 'class="cabinet-state cabinet-state--unavailable cabinet-unavailable cabinet-card"' in rendered

@@ -826,7 +826,7 @@ async def _unlink_account_provider(
         raise ProblemDetail(
             status=422,
             code="recovery_path_required",
-            title="Сначала подключите другой подтверждённый способ восстановления",
+            title="Сначала подключите другой подтвержденный способ восстановления",
         )
     revoked_count = 0
     current_session_revoked = False
@@ -1226,7 +1226,7 @@ async def _session_revoke_action(
                 action = f"{base}/sessions/{session_id}/revoke"
             else:
                 title = "Завершить остальные входы?"
-                detail = f"Других входов: {sum(row.can_revoke for row in surface.sessions)}. Доступ через них в текущее рабочее пространство будет завершён."
+                detail = f"Других входов: {sum(row.can_revoke for row in surface.sessions)}. Доступ через них в текущее рабочее пространство будет завершен."
                 action = f"{base}/sessions/revoke-others"
             return await _render_settings(
                 request, category="account", embedded=embedded, tenant_scope=tenant_scope,

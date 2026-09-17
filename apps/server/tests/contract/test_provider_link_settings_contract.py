@@ -132,7 +132,7 @@ def test_active_workspace_selector_is_accessible_and_uses_server_scoped_activati
     spaces = (
         WorkspaceAccessView(
             id=personal_id,
-            name="Моё пространство",
+            name="Мое пространство",
             kind="personal",
             role="owner",
             active=True,
@@ -161,14 +161,14 @@ def test_active_workspace_selector_is_accessible_and_uses_server_scoped_activati
 
     assert 'id="active-workspace"' in page
     assert 'aria-label="Доступные пространства"' in page
-    assert "Моё пространство" in page
+    assert "Мое пространство" in page
     assert "Команда продукта" in page
     assert "Личное · Владелец" in page
     assert "Рабочее пространство · Участник" in page
     assert "Текущее" in page
     assert 'aria-current="true"' in page
     assert '<span class="settings-status-badge">Текущее</span>' in page
-    assert '<div class="settings-list-item__content"><span class="settings-list-item__title">Моё пространство</span>' in page
+    assert '<div class="settings-list-item__content"><span class="settings-list-item__title">Мое пространство</span>' in page
     assert '<div class="settings-list-item__content"><span class="settings-list-item__title">Команда продукта</span>' in page
     assert '<span class="settings-status-badge" role="status">Текущее</span>' not in page
     assert 'aria-label="Доступные пространства"' in page

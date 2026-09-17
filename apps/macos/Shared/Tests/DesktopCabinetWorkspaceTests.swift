@@ -364,6 +364,22 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         XCTAssertEqual(DesktopCabinetAccessibilityIdentifier.navigationHome, "desktop-cabinet-navigation-home")
     }
 
+    func testNativeNavigationHintsShowHumanReadableShortcutCombinations() throws {
+        XCTAssertEqual(DesktopCabinetNavigationShortcut.hint(for: KeyEquivalent("0")), "⌘0")
+        XCTAssertEqual(DesktopCabinetNavigationShortcut.hint(for: KeyEquivalent("[")), "⌘[")
+        XCTAssertEqual(DesktopCabinetNavigationShortcut.hint(for: KeyEquivalent("]")), "⌘]")
+        XCTAssertEqual(DesktopCabinetNavigationShortcut.hint(for: KeyEquivalent("r")), "⌘R")
+        XCTAssertFalse(DesktopCabinetNavigationShortcut.hint(for: KeyEquivalent("r")).contains("KeyEquivalent"))
+
+        let source = try String(
+            contentsOf: Self.repositoryRoot().appendingPathComponent(
+                "apps/macos/RecApp/Sources/Cabinet/DesktopCabinetWorkspaceView.swift"
+            ),
+            encoding: .utf8
+        )
+        XCTAssertFalse(source.contains("String(describing: shortcut)"), "No service text in user-facing hints")
+    }
+
     func testSharedNavigationContractCoversEveryCabinetSection() throws {
         let configuration = try XCTUnwrap(DesktopCabinetConfiguration(rawBaseURL: "https://rec.2brain.dev", headers: [:]))
         let policy = DesktopCabinetRoutePolicy(baseURL: configuration.baseURL)
@@ -1024,7 +1040,7 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         }
 
         for state in [DesktopCabinetState.notConfigured, .offline, .timeout, .expiredSession, .malformedResponse] {
-            XCTAssertTrue(state.userMessage.contains("Запись на этом Mac остаётся доступна"), "\(state)")
+            XCTAssertTrue(state.userMessage.contains("Запись на этом Mac остается доступна"), "\(state)")
         }
     }
 
@@ -1109,6 +1125,22 @@ final class DesktopCabinetWorkspaceTests: XCTestCase {
         XCTAssertEqual(ready.uploadState, .finalized)
         XCTAssertTrue(ready.reviewAvailable)
         XCTAssertEqual(ready.normalUserAction, .openReview)
+    }
+
+    private static func repositoryRoot() throws -> URL {
+        var candidate = URL(fileURLWithPath: #filePath)
+        while candidate.path != "/" {
+            let marker = candidate.appendingPathComponent("apps/macos/Package.swift")
+            if FileManager.default.fileExists(atPath: marker.path) {
+                return candidate
+            }
+            candidate.deleteLastPathComponent()
+        }
+        throw NSError(
+            domain: "DesktopCabinetWorkspaceTests",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "Repository root not found"]
+        )
     }
 }
 #endif

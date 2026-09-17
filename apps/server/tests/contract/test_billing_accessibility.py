@@ -185,7 +185,7 @@ def test_checkout_renders_server_calculated_promo_amounts() -> None:
     assert "Стоимость тарифа" in html
     assert "−79 ₽ (10%)" in html
     assert "711 ₽" in html
-    assert 'Оплатить 711 ₽ в YooKassa — месяц' in html
+    assert 'Оплатить 711 ₽ в ЮKassa — месяц' in html
     assert 'action="/billing/checkout/preview"' in html
     assert 'name="promo_code" value="SAVE10"' in html
     assert 'name="cycle" value="year"' in html

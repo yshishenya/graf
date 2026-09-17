@@ -50,7 +50,7 @@ def test_feature_159_login_copy_is_truthful_without_removing_explicit_signup_rou
     signup = render_signup_page(workspace_id=UUID(int=1), providers=[], mode="email")
     routes = {route.path for route in auth_router.routes if isinstance(route, APIRoute)}
 
-    assert "Обычный вход не создаёт аккаунт автоматически." in login
+    assert "Обычный вход не создает аккаунт автоматически." in login
     assert "Зарегистрироваться" not in login
     assert 'action="/sign-up/email/start"' in signup
     assert "/sign-up" in routes
@@ -375,8 +375,8 @@ def test_wrong_email_code_keeps_retry_form_but_rate_limit_hides_it() -> None:
     )
 
     assert 'action="/login/email/verify"' in wrong_page
-    assert "Код введён неверно" in wrong_page
-    assert "После трёх неверных попыток код блокируется" in wrong_page
+    assert "Код введен неверно" in wrong_page
+    assert "После трех неверных попыток код блокируется" in wrong_page
     assert 'action="/login/email/verify"' not in blocked_page
     assert "Слишком много попыток" in blocked_page
     assert 'action="/login/email/start"' in blocked_page
@@ -636,7 +636,7 @@ def test_blocked_merge_prioritizes_recovery_without_burying_it_under_preview() -
 
     for copy in (
         "Что нужно сделать",
-        "Email пока не подключён. Данные не изменены.",
+        "Email пока не подключен. Данные не изменены.",
         "Выберите доступное действие ниже.",
         "Роли профилей нельзя безопасно совместить автоматически",
         "Оставить профили раздельными",
@@ -706,7 +706,7 @@ def test_provider_unlink_outcomes_are_first_party_and_actionable() -> None:
     )
 
     assert "Сначала подключите другой способ входа" in recovery
-    assert "другого подтверждённого способа восстановления" in recovery
+    assert "другого подтвержденного способа восстановления" in recovery
     assert '<form action="/desktop/meetings" method="post">' in reauth
     assert 'name="next" value="/login?next=/desktop/settings/account"' in reauth
 
@@ -715,7 +715,7 @@ def test_merge_cancel_and_success_return_copy_are_outcomes_not_session_errors() 
     settings = render_settings_page(category="account", provider_link_result="merge_cancelled")
     confirm_source = inspect.getsource(account_merge_routes._confirm)
 
-    assert "Профили остались раздельными. Способ входа не подключён к текущему профилю." in settings
+    assert "Профили остались раздельными. Способ входа не подключен к текущему профилю." in settings
     assert "_relogin_result(provider_id)" in confirm_source
     assert "auth_session_invalid" not in confirm_source
     assert "next=/settings/account" in confirm_source
@@ -935,7 +935,7 @@ def test_account_security_renders_bulk_result_as_persistent_status() -> None:
         session_result="others_revoked",
     )
 
-    assert "Доступ на остальных устройствах завершён. Текущее устройство остаётся активным." in page
+    assert "Доступ на остальных устройствах завершен. Текущее устройство остается активным." in page
     assert "Другие входы в этом рабочем пространстве завершены. Здесь вы остались в аккаунте." in page
 
 
@@ -1000,10 +1000,10 @@ def test_unverified_identity_surface_never_renders_an_unverified_email_as_login(
 
     assert "Email можно проверить в способах входа." in page
     assert "Проверка не завершена" in page
-    assert "Подключённых способов входа пока нет." not in page
+    assert "Подключенных способов входа пока нет." not in page
     assert (
         "<input"
-        not in page.split("Подключённые способы входа", 1)[-1].split("</ul>", 1)[0]
+        not in page.split("Подключенные способы входа", 1)[-1].split("</ul>", 1)[0]
     )
 
 

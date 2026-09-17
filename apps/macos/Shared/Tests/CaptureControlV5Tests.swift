@@ -304,7 +304,7 @@ final class CaptureControlTests: XCTestCase {
             blockedReason: "Запись продолжается с ограничением"
         ))
         XCTAssertFalse(CaptureControlView.shouldShowLocalRecordingStatus(
-            "Локальная запись идёт",
+            "Локальная запись идет",
             for: activeSession
         ))
         let savedSession = makePresentationSession(
@@ -330,20 +330,41 @@ final class CaptureControlTests: XCTestCase {
             blockedReason: "Не удалось начать запись"
         ))
         XCTAssertEqual(
-            CaptureControlView.meetingDetectionSummary(for: "Найдена встреча: Яндекс Телемост"),
+            CaptureControlView.meetingDetectionSummary(for: .meetingFound("Яндекс Телемост")),
             "Встреча обнаружена"
         )
         XCTAssertEqual(
-            CaptureControlView.meetingDetectionSummary(for: "Запрашивать запись включено"),
-            "Автоопределение: спрашивать"
+            CaptureControlView.meetingDetectionSummary(for: .blocked),
+            "Автозапись заблокирована"
         )
+        XCTAssertFalse(
+            CaptureControlView.meetingDetectionSummary(for: .blocked)?
+                .localizedCaseInsensitiveContains("включено") == true,
+            "Заблокированная автозапись не должна выглядеть включенной"
+        )
+        XCTAssertNil(CaptureControlView.meetingDetectionSummary(for: .notStarted))
+        XCTAssertEqual(
+            CaptureControlView.meetingDetectionSummary(for: .configured),
+            "Автозапись настроена"
+        )
+        XCTAssertEqual(
+            CaptureControlView.meetingDetectionSummary(for: .unavailable),
+            "Автозапись недоступна"
+        )
+        XCTAssertEqual(
+            CaptureControlView.meetingDetectionSummary(for: .failed),
+            "Запись не началась"
+        )
+        XCTAssertEqual(MeetingDetectionStatus.notSaved.label, "Выбор не сохранен")
+        XCTAssertEqual(MeetingDetectionStatus.notStarted.label, "Ожидает запуск")
+        XCTAssertEqual(MeetingDetectionStatus.blocked.summary, "Автозапись заблокирована")
         XCTAssertEqual(
             CaptureControlView.primaryStatus(
                 for: makePresentationSession(state: .active, indicator: .active, canStop: true),
                 blockedReason: nil,
                 localRecordingStatus: nil
             ),
-            "Идёт запись"
+            "Идет запись"
         )
         XCTAssertEqual(
             CaptureControlView.primaryStatus(
@@ -351,10 +372,10 @@ final class CaptureControlTests: XCTestCase {
                 blockedReason: nil,
                 localRecordingStatus: nil
             ),
-            "Идёт запись · микрофон выключен"
+            "Идет запись · микрофон выключен"
         )
         XCTAssertEqual(CaptureControlView.localRecordingSummary(for: SystemAudioStatusLabels.localRecordingPausedStatus),
-                       "Идёт запись · микрофон выключен")
+                       "Идет запись · микрофон выключен")
         XCTAssertEqual(
             CaptureControlView.primaryStatus(
                 for: makePresentationSession(state: .stopping, indicator: .active, canStop: true),
@@ -469,7 +490,10 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertFalse(settingsSource.contains("promptToggleTitle"))
         XCTAssertFalse(settingsSource.contains("recordingPromptBinding"))
         XCTAssertTrue(settingsSource.contains("ScrollView"))
-        XCTAssertTrue(settingsSource.contains("pageTitle = \"Автозапись\""))
+        XCTAssertTrue(settingsSource.contains("pageTitle = \"Запись встреч\""))
+        XCTAssertTrue(settingsSource.contains("autoRecordSectionTitle = \"Автозапись для приложений\""))
+        XCTAssertTrue(settingsSource.contains("Автозапись"))
+        XCTAssertTrue(settingsSource.contains("Для всех приложений"))
         XCTAssertTrue(settingsSource.contains("ForEach(filteredTargets"))
         XCTAssertTrue(settingsSource.contains("AutomaticRecordingRulePicker"))
         XCTAssertTrue(settingsSource.contains("bulkRuleBinding"))
@@ -495,6 +519,7 @@ final class CaptureControlTests: XCTestCase {
         )
         XCTAssertTrue(controlsSource.contains("onMeetingDetectionSettings"))
         XCTAssertTrue(controlsSource.contains("Image(systemName: \"gearshape\")"))
+        XCTAssertTrue(controlsSource.contains(".frame(width: 40, height: 40)"))
         XCTAssertTrue(controlsSource.contains("meetingDetectionSettingsButton"))
         XCTAssertTrue(shellSource.contains("settingsRailLabel = \"Настройки\""))
         XCTAssertFalse(shellSource.contains("desktop-meeting-shell-settings-button"))
@@ -1117,6 +1142,9 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertFalse(stripSource.contains("Отправить отчет"))
         XCTAssertTrue(stripSource.contains("lineLimit(3)"))
         XCTAssertTrue(stripSource.contains("fixedSize(horizontal: false, vertical: true)"))
+        XCTAssertTrue(stripSource.contains("ProgressView().controlSize(.small)"))
+        XCTAssertTrue(stripSource.contains(".lineLimit(1)"))
+        XCTAssertTrue(stripSource.contains(".minimumScaleFactor(0.9)"))
     }
 
     func testConflictStateCopyIsSafeAndActionable() throws {

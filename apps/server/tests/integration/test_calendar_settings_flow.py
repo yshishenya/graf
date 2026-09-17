@@ -688,7 +688,7 @@ def test_google_calendar_connect_is_fail_closed_until_oauth_dependencies_exist(c
     )
     rendered = client.get(response.headers["location"], headers=auth_headers())
     assert "Google Calendar пока недоступен" in rendered.text
-    assert "Календарь не подключён" in rendered.text
+    assert "Календарь не подключен" in rendered.text
 
     sessionmaker = client.app_state["sessionmaker"]
 
@@ -1998,7 +1998,7 @@ def test_calendar_settings_disconnect_stops_future_contribution_purges_credentia
         response.headers["location"] == "/settings/integrations/calendar?disconnect_result=success"
     )
     rendered = client.get(response.headers["location"], headers=auth_headers())
-    assert "Календарь отключён от GRAF." in rendered.text
+    assert "Календарь отключен от GRAF." in rendered.text
     assert "Future calendar event" not in rendered.text
     assert "secret-app-password" not in rendered.text
     assert 'class="calendar-source-card"' not in rendered.text

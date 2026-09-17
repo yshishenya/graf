@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import UUID
@@ -22,6 +23,11 @@ from twobrain_rec_server.cabinet.web_routes.billing import (
 )
 from twobrain_rec_server.cabinet.web_routes.billing import (
     router as billing_router,
+)
+
+CABINET_CSS = (
+    Path(__file__).resolve().parents[4]
+    / "apps/server/src/twobrain_rec_server/cabinet/static/cabinet/cabinet.css"
 )
 
 
@@ -57,8 +63,8 @@ def test_new_money_mutations_block_initial_checkout_and_renewal_operations() -> 
 
 
 def test_in_flight_operation_labels_are_explicit() -> None:
-    assert _operation_state_label("sent") == "Платёж отправлен в ЮKassa"
-    assert _operation_state_label("processing") == "ЮKassa обрабатывает платёж"
+    assert _operation_state_label("sent") == "Платеж отправлен в ЮKassa"
+    assert _operation_state_label("processing") == "ЮKassa обрабатывает платеж"
 
 
 def test_billing_receipt_registration_uses_provider_status_mapping() -> None:
@@ -485,6 +491,70 @@ def test_subscription_and_usage_surfaces_keep_no_grace_and_unlimited_copy() -> N
     assert "Обработать без сохранения аудио" in usage_html
 
 
+def test_billing_notices_and_list_statuses_use_one_toned_component() -> None:
+    common = {
+        "embedded": False,
+        "settings_navigation": settings_category_navigation(active="billing"),
+        "settings_active": "billing",
+        "csrf_token": "synthetic-csrf",
+        "active": False,
+        "subscription": None,
+    }
+    subscription_html = {
+        result: render_template(
+            "cabinet/pages/billing_subscription_content.html", **common, result=result
+        )
+        for result in ("cancelled", "conflict", "unavailable")
+    }
+    assert 'class="notice notice--success"' in subscription_html["cancelled"]
+    assert 'class="notice notice--error"' in subscription_html["conflict"]
+    assert 'class="notice notice--warning"' in subscription_html["unavailable"]
+
+    storage_html = render_template(
+        "cabinet/pages/billing_storage_content.html",
+        **common,
+        result="unavailable",
+        current_capacity=None,
+        current_capacity_label=None,
+        addon_options=(),
+        capacity_labels=(),
+        eligible=False,
+        billing_enabled=False,
+    )
+    assert 'class="notice notice--error"' in storage_html
+
+    payment_method_html = {
+        result: render_template(
+            "cabinet/pages/billing_payment_method_content.html",
+            **common,
+            result=result,
+            method_label="•••• 4242",
+            method_kind="bank_card",
+            billing_enabled=True,
+        )
+        for result in ("renewal_on", "removed", "none", "conflict")
+    }
+    assert 'class="notice notice--error"' in payment_method_html["renewal_on"]
+    assert 'class="notice notice--success"' in payment_method_html["removed"]
+    assert 'class="notice notice--success"' in payment_method_html["none"]
+    assert 'class="notice notice--error"' in payment_method_html["conflict"]
+
+    css = CABINET_CSS.read_text(encoding="utf-8")
+    assert (
+        ".notice { margin: 0; padding: 10px 12px; border: 1px solid var(--line); "
+        "border-radius: var(--radius-card); background: var(--surface-2); color: var(--text); }"
+    ) in css
+    assert '.notice[role="alert"],' in css
+    assert ".notice.notice--warning { color: var(--amber); border-color: var(--warning-border); background: var(--warning-surface); }" in css
+    assert ".notice.notice--success { color: var(--green); border-color: var(--success-border); background: var(--success-surface); }" in css
+    assert ".notice + .notice { margin-top: 8px; }" in css
+    assert ".meeting-status,\n.meeting-content-readiness,\n.meeting-result-count { color: var(--muted); font-size: var(--font-size-helper); }" in css
+    assert '.meeting-status[data-status-kind="failed"],' in css
+    assert '.meeting-content-readiness[data-processing-retry-class="terminal"]' in css
+    assert '.meeting-status[data-status-kind="limited"],' in css
+    assert '.meeting-content-readiness[data-processing-retry-class="unknown_outcome"]' in css
+
+
 def test_checkout_requires_explicit_recurring_consent_copy() -> None:
     html = render_template(
         "cabinet/pages/billing_checkout_content.html",
@@ -547,8 +617,8 @@ def test_pending_checkout_hides_recomputed_order_total() -> None:
         promo_preview_error="Промокод истёк",
     )
 
-    assert "Платёж уже создан" in html
-    assert "Продолжить этот платёж в ЮKassa" in html
+    assert "Платеж уже создан" in html
+    assert "Продолжить этот платеж в ЮKassa" in html
     assert "Промокод истёк" not in html
     assert 'class="billing-order-summary"' not in html
     assert "790 ₽" not in html
@@ -945,7 +1015,7 @@ def test_non_owner_billing_overview_hides_invoice_and_usage_but_shows_capacity()
     assert "15.09.2026" not in html
     assert "29.09.2026" not in html
     assert "790 ₽" not in html
-    assert "Платёжные данные доступны владельцу пространства" in html
+    assert "Платежные данные доступны владельцу пространства" in html
 
 
 def test_workspace_owner_can_start_guarded_billing_takeover() -> None:
@@ -1164,7 +1234,7 @@ def test_plan_comparison_does_not_label_another_cycle_as_connected() -> None:
     )
 
     assert "Другой период оплаты" in html
-    assert "Подключён сейчас" not in html
+    assert "Подключен сейчас" not in html
     assert 'href="/billing/checkout' not in html
 
 
@@ -1208,7 +1278,7 @@ def test_plan_comparison_explains_pending_and_disabled_checkout_states() -> None
         operation_pending=False,
     )
 
-    assert "Платёж проверяется" in pending
+    assert "Платеж проверяется" in pending
     assert 'href="/billing/checkout' not in pending
     assert "Оплата временно недоступна" in disabled
     assert "Цена появится после утверждения" not in disabled
@@ -1394,5 +1464,5 @@ def test_manual_checkout_recovery_offers_continue_instead_of_noop_refresh() -> N
     assert "Проверить статус" not in recovery_html
     assert "Проверить статус" in pending_html
     assert "Продолжить оплату" not in pending_html
-    assert "Новую оплату не создаём" in processing_html
+    assert "Новую оплату не создаем" in processing_html
     assert "Операция не найдена" not in processing_html

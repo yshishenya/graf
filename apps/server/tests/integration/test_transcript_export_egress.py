@@ -845,7 +845,7 @@ def test_export_capability_never_pairs_an_accepted_summary_with_a_newer_result(c
     pinned = client.get(f"/meetings/{seeds.ready_id}?source_result_id={old_result_id}", headers=auth_headers())
     assert pinned.status_code == 200, pinned.text
     assert str(old_segment_id) in pinned.text
-    assert "Показана сохранённая редакция расшифровки" in pinned.text
+    assert "Показана сохраненная редакция расшифровки" in pinned.text
     for meeting_id, result_id in [(seeds.ready_id, uuid4()), (seeds.processing_id, old_result_id),
                                   (seeds.foreign_id, old_result_id)]:
         denied = client.get(f"/meetings/{meeting_id}?source_result_id={result_id}", headers=auth_headers())

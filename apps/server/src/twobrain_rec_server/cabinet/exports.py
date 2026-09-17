@@ -62,7 +62,7 @@ ExportFormat = Literal["txt", "md", "csv", "xlsx", "json", "srt", "vtt"]
 AttributionState = Literal["confirmed", "unconfirmed", "unknown", "mixed", "uncertain"]
 
 SCHEMA_VERSION = "graf.transcript-export.v3"
-RENDERER_VERSION = "export-v1"
+RENDERER_VERSION = "export-v2"
 TURN_POLICY_VERSION = "canonical-provider-turns-v4"
 UNKNOWN_SPEAKER_LABEL = "Спикер не определён"
 FORMAT_COMPATIBILITY = CONTENT_EXPORT_FORMATS_BY_SCOPE
@@ -752,7 +752,7 @@ def _human_transcript_lines(snapshot: ExportSnapshot, *, markdown: bool) -> list
         raw_segments=snapshot.raw_segments,
     ):
         first = group[0]
-        heading = first.speaker_label if snapshot.selection.include_speaker_labels else "Реплики"
+        heading = _unknown_label_for_display(first.speaker_label) if snapshot.selection.include_speaker_labels else "Реплики"
         if markdown:
             lines.extend((f"### {_markdown_escape(heading)}", ""))
         else:
@@ -922,7 +922,7 @@ def _render_srt(snapshot: ExportSnapshot) -> bytes:
     for counter, turn in enumerate(snapshot.canonical_turns, start=1):
         text = _subtitle_literal(turn.text)
         if snapshot.selection.include_speaker_labels:
-            text = f"{_subtitle_literal(turn.speaker_label)}: {text}"
+            text = f"{_subtitle_literal(_unknown_label_for_display(turn.speaker_label))}: {text}"
         blocks.append(f"{counter}\n{_srt_time(turn.start_ms)} --> {_srt_time(turn.end_ms)}\n{text}")
     return ("\n\n".join(blocks) + ("\n" if blocks else "")).encode("utf-8")
 
@@ -932,7 +932,7 @@ def _render_vtt(snapshot: ExportSnapshot) -> bytes:
     for turn in snapshot.canonical_turns:
         text = _subtitle_literal(turn.text)
         if snapshot.selection.include_speaker_labels:
-            text = f"{_subtitle_literal(turn.speaker_label)}: {text}"
+            text = f"{_subtitle_literal(_unknown_label_for_display(turn.speaker_label))}: {text}"
         blocks.append(f"{_vtt_time(turn.start_ms)} --> {_vtt_time(turn.end_ms)}\n{text}")
     body = "WEBVTT\n\n" + "\n\n".join(blocks)
     return (body + ("\n" if blocks else "")).encode("utf-8")
@@ -1209,7 +1209,7 @@ def _turn_row(
         "start_time": _human_time(turn.start_ms),
         "end_time": _human_time(turn.end_ms),
         "speaker_key": clean(turn.speaker_key),
-        "speaker_label": clean(turn.speaker_label),
+        "speaker_label": _unknown_label_for_display(clean(turn.speaker_label)),
         "provider_speaker_key": clean(turn.provider_speaker_key),
         "attribution_state": turn.attribution_state,
         "result_state": turn.result_state,
@@ -1232,6 +1232,13 @@ def _markdown_escape(value: str) -> str:
     value = value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     return re.sub(r"([!\"#$%\'()*+,./:=?@\\\[\]^_`{|}~-])", r"\\\1", value)
 
+
+
+def _unknown_label_for_display(value: str) -> str:
+    """Показ служебной метки без U+0451; имена, заданные пользователем, не меняются."""
+    if value != UNKNOWN_SPEAKER_LABEL:
+        return value
+    return value.replace(chr(0x451), chr(0x435)).replace(chr(0x401), chr(0x415))
 
 def _subtitle_literal(value: str) -> str:
     return " ".join(value.replace("<", "&lt;").replace(">", "&gt;").split())
@@ -1278,10 +1285,10 @@ def _attribution_status_label(snapshot: ExportSnapshot) -> str:
     confirmed = any(turn.attribution_state == "confirmed" for turn in snapshot.canonical_turns)
     unconfirmed = any(turn.attribution_state != "confirmed" for turn in snapshot.canonical_turns)
     if confirmed and unconfirmed:
-        return "частично готово; фрагменты без имени отмечены как «Спикер не определён»"
+        return "частично готово; фрагменты без имени отмечены как «Спикер не определен»"
     if confirmed:
-        return "показано по доступным данным; текст сохранён"
-    return "без имён; текст сохранён"
+        return "показано по доступным данным; текст сохранен"
+    return "без имен; текст сохранен"
 
 
 def _effective_export_selection(selection: ExportSelection) -> ExportSelection:

@@ -33,6 +33,9 @@ from twobrain_rec_server.db.tenant_context import (
     apply_tenant_context,
 )
 
+PERSONAL_WORKSPACE_NAME = "Мое пространство"
+# Историческое написание сохранено для совместимости с уже созданными пространствами.
+LEGACY_PERSONAL_WORKSPACE_NAMES = frozenset({"Мое пространство", "Моё пространство"})
 
 @dataclass(frozen=True, slots=True)
 class WorkspaceJoinOfferView:
@@ -97,7 +100,7 @@ async def ensure_personal_workspace(
                     owner_user_id=user_id,
                     kind="personal",
                     slug=f"personal-{user_id.hex}",
-                    name="Моё пространство",
+                    name="Мое пространство",
                 )
                 db.add(candidate)
                 await db.flush()
@@ -112,8 +115,8 @@ async def ensure_personal_workspace(
             )
             if workspace is None:
                 raise
-    elif workspace.name != "Моё пространство":
-        workspace.name = "Моё пространство"
+    elif workspace.name not in LEGACY_PERSONAL_WORKSPACE_NAMES:
+        workspace.name = PERSONAL_WORKSPACE_NAME
 
     membership = await db.get(
         WorkspaceMembership,
@@ -227,7 +230,7 @@ async def list_active_workspaces(
     return tuple(
         WorkspaceAccessView(
             id=workspace.id,
-            name="Моё пространство" if workspace.kind == "personal" else workspace.name,
+            name="Мое пространство" if workspace.kind == "personal" else workspace.name,
             kind=workspace.kind,
             role=membership.role,
             active=workspace.id == current_workspace_id,
@@ -626,7 +629,6 @@ async def _mark_join_offer_unavailable(
     raise ProblemDetail(
         status=409, code="workspace_join_offer_unavailable", title="Join offer unavailable"
     )
-
 
 def join_offer_is_actionable(offer: WorkspaceJoinOffer, *, now: datetime | None = None) -> bool:
     now = now or datetime.now(UTC)

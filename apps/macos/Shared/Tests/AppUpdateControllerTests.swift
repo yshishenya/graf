@@ -305,16 +305,55 @@ final class AppUpdateControllerTests: XCTestCase {
         XCTAssertNil(defaults.data(forKey: AppUpdateController.reminderDefaultsKey))
     }
 
-    func testNoticeRendersAtMainWindowAndTrayWidths() throws {
+    func testActionBannerAppearsOnlyForPhasesThatNeedAction() {
+        for phase in AppUpdatePhase.allCases {
+            let presentation = AppUpdatePresentation(
+                phase: phase, availableVersion: "2026.09.06.10", isUserInitiated: false, message: nil
+            )
+            XCTAssertEqual(
+                presentation.showsActionBanner,
+                [.downloading, .installing, .readyToInstall, .failed].contains(phase),
+                "Unexpected banner behavior for \(phase)"
+            )
+        }
+        XCTAssertFalse(
+            AppUpdatePolicy.available(version: "2026.09.06.10", userInitiated: false, protectedWork: .idle)
+                .showsActionBanner,
+            "An available update stays a sidebar badge, not a top banner"
+        )
+        XCTAssertTrue(AppUpdatePolicy.failure(userInitiated: true).showsActionBanner)
+    }
+
+    func testUpdateCopyComesFromOneVocabulary() {
+        let idle = AppUpdatePresentation(phase: .idle, availableVersion: nil, isUserInitiated: false, message: nil)
+        XCTAssertEqual(idle.menuItemTitle, "Проверить обновления…")
+
+        let available = AppUpdatePolicy.available(
+            version: "2026.09.08.1", userInitiated: false, protectedWork: .idle
+        )
+        XCTAssertEqual(available.menuItemTitle, "Обновить GRAF до 2026.09.08.1…")
+        XCTAssertEqual(available.bannerTitle, "Доступна новая версия GRAF 2026.09.08.1")
+        XCTAssertEqual(available.bannerActionTitle, "Обновить GRAF")
+
+        let downloading = AppUpdatePresentation(
+            phase: .downloading, availableVersion: "2026.09.08.1", isUserInitiated: true, message: nil
+        )
+        XCTAssertEqual(downloading.bannerActionTitle, "Открыть обновление")
+
+        let failed = AppUpdatePolicy.failure(userInitiated: true, from: available)
+        XCTAssertEqual(failed.bannerActionTitle, "Повторить")
+        XCTAssertEqual(failed.bannerTitle, available.bannerTitle)
+    }
+
+    func testNoticeRendersActionBannersAtMainWindowAndTrayWidths() throws {
         for width: CGFloat in [360, 900] {
             for scheme in [ColorScheme.light, .dark] {
-                for phase in [AppUpdatePhase.available, .deferredForCapture, .failed] {
+                for phase in [AppUpdatePhase.downloading, .installing, .readyToInstall, .failed] {
                     let presentation = AppUpdatePresentation(
                         phase: phase, availableVersion: "2026.09.06.10", isUserInitiated: false,
-                        message: phase == .deferredForCapture
-                            ? "Обновление установится после завершения записи."
-                            : phase == .failed ? "Не удалось загрузить обновление. Повторите попытку."
-                            : "Обновите GRAF, чтобы получить последние улучшения."
+                        message: phase == .failed
+                            ? "Не удалось загрузить обновление. Повторите попытку."
+                            : "Загружаем обновление GRAF 2026.09.06.10…"
                     )
                     let renderer = ImageRenderer(content:
                         AppUpdateNotice(presentation: presentation, isActionEnabled: true, onUpdate: {})

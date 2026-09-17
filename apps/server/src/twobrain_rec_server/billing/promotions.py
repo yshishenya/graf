@@ -115,7 +115,7 @@ def check_eligibility(
         raise PromoError("Промокод временно занят, повторите позже", code="promo_reserved")
     current = _aware(now)
     if promo.starts_at is not None and current < _aware(promo.starts_at):
-        raise PromoError("Промокод ещё не действует", code="promo_not_started")
+        raise PromoError("Промокод еще не действует", code="promo_not_started")
     if promo.ends_at is not None and current >= _aware(promo.ends_at):
         raise PromoError("Срок действия промокода закончился", code="promo_expired")
     return PromoEligibility(normalized, promo_code_hash(normalized), promo.discount_percent, promo.campaign_version)

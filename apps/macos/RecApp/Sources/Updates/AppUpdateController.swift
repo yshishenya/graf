@@ -52,6 +52,37 @@ public struct AppUpdatePresentation: Equatable, Sendable {
     )
 }
 
+extension AppUpdatePresentation {
+    /// Одна команда обновления для меню приложения и трея.
+    public var menuItemTitle: String {
+        guard let availableVersion else { return "Проверить обновления…" }
+        return "Обновить GRAF до \(availableVersion)…"
+    }
+
+    /// Полоса обновления появляется только там, где нужно действие или внимание.
+    public var showsActionBanner: Bool {
+        switch phase {
+        case .downloading, .installing, .readyToInstall, .failed: true
+        default: false
+        }
+    }
+
+    /// Заголовок полосы обновления.
+    public var bannerTitle: String {
+        guard let availableVersion else { return "Обновление GRAF" }
+        return "Доступна новая версия GRAF \(availableVersion)"
+    }
+
+    /// Подпись кнопки действия в полосе обновления.
+    public var bannerActionTitle: String {
+        switch phase {
+        case .failed: "Повторить"
+        case .downloading, .installing: "Открыть обновление"
+        default: "Обновить GRAF"
+        }
+    }
+}
+
 public struct ProtectedUpdateWork: Equatable, Sendable {
     public let captureActive: Bool
     public let captureTransitioning: Bool

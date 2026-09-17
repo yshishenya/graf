@@ -167,7 +167,7 @@ def test_degraded_state_is_visible_in_human_and_structured_exports(export_fixtur
 
     assert (
         "Разделение по спикерам: частично готово; фрагменты без имени отмечены как "
-        "«Спикер не определён»"
+        "«Спикер не определен»"
     ) in text
     assert all(row.result_state == "degraded_provider_result" for row in degraded.raw_segments)
     assert metadata["attribution_result_state"] == "degraded_provider_result"
@@ -270,7 +270,7 @@ def test_srt_uses_one_turn_per_cue_preserves_hour_and_has_no_pause(export_fixtur
 
     assert body.count(" --> ") == 7
     assert "01:01:40,100 --> 01:01:41,100" in body
-    assert "Спикер не определён: Неизвестная атрибуция." in body
+    assert "Спикер не определен: Неизвестная атрибуция." in body
     assert "Пауза" not in body
 
 
@@ -482,7 +482,7 @@ def test_vtt_uses_canonical_turn_boundaries(export_fixture) -> None:
     assert body.startswith("WEBVTT\n\n")
     assert body.count(" --> ") == 7
     assert "01:01:40.100 --> 01:01:41.100" in body
-    assert "Спикер не определён: Неизвестная атрибуция." in body
+    assert "Спикер не определен: Неизвестная атрибуция." in body
 
 
 @pytest.mark.parametrize("format", ["srt", "vtt"])

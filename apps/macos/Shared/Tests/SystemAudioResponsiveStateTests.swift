@@ -5,7 +5,18 @@ import XCTest
 
 final class SystemAudioResponsiveStateTests: XCTestCase {
     func testShortVisibleLabelsFitCompactControls() {
-        XCTAssertLessThanOrEqual(SystemAudioStatusLabels.stopButtonTitle.count, 12)
+        XCTAssertEqual(SystemAudioStatusLabels.stopButtonTitle, SystemAudioStatusLabels.stopButtonAccessibilityLabel)
+        XCTAssertEqual(SystemAudioStatusLabels.stopButtonTitle, "Остановить запись")
+        let statusSurface = try? String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .appendingPathComponent("../../RecApp/Sources/Capture/CaptureStatusItem.swift")
+                .standardizedFileURL,
+            encoding: .utf8
+        )
+        XCTAssertTrue(statusSurface?.contains("Label(SystemAudioStatusLabels.stopButtonTitle, systemImage: \"stop.fill\")") == true)
+        XCTAssertTrue(statusSurface?.contains(".fixedSize(horizontal: false, vertical: true)") == true)
+        XCTAssertTrue(statusSurface?.contains(".frame(maxWidth: .infinity, minHeight: DesktopMeetingShellChrome.controlHeight)") == true)
         XCTAssertLessThanOrEqual(SystemAudioStatusLabels.activeState.count, 12)
         XCTAssertLessThanOrEqual(SystemAudioStatusLabels.silentState.count, 12)
         XCTAssertLessThanOrEqual(SystemAudioStatusLabels.microphoneTitle.count, 16)

@@ -10,7 +10,7 @@
   {{ provider_logo(provider) }}
   <span class="calendar-provider-button__copy">
     <strong>{{ provider.label }}</strong>
-    <small>{% if provider.connected_source_count %}{{ provider.connected_source_count }} подключено · добавить ещё{% else %}{{ provider.method_label }}{% endif %}</small>
+    <small>{% if provider.connected_source_count %}{{ provider.connected_source_count }} подключено · добавить еще{% else %}{{ provider.method_label }}{% endif %}</small>
   </span>
 </button>
 {%- endmacro %}
@@ -36,7 +36,7 @@
         <h2 id="calendar-provider-dialog-{{ provider.provider_family }}-title">Подключить {{ provider.label }}</h2>
         <p>{{ provider.explanation }}</p>
       </div>
-      <button type="button" class="button quiet icon-button" data-calendar-provider-close aria-label="Закрыть окно подключения">×</button>
+      <button type="button" class="icon-button" data-calendar-provider-close aria-label="Закрыть окно подключения">×</button>
     </header>
     <div class="calendar-provider-modal__body">
       {% if provider.method_category == "oauth" %}
@@ -197,7 +197,7 @@
                     <h2 id="calendar-disconnect-dialog-{{ source.source_id }}-title">{{ source.disconnect_confirmation.title }}</h2>
                     <p>{{ source.provider_label }}</p>
                   </div>
-                  <button type="button" class="button quiet icon-button" data-calendar-provider-close aria-label="Закрыть подтверждение отключения">×</button>
+                  <button type="button" class="icon-button" data-calendar-provider-close aria-label="Закрыть подтверждение отключения">×</button>
                 </header>
                 <div class="calendar-provider-modal__body calendar-disconnect__body">
                   <p>{{ source.disconnect_confirmation.future_sync_copy }}</p>

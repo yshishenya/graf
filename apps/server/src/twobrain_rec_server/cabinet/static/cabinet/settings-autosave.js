@@ -142,7 +142,7 @@
   const offerRemote = (element, queue, state) => {
     if(state!=='conflict')return;
     const button=document.createElement('button');button.type='button';button.className='button quiet';
-    button.textContent='Загрузить сохранённое';button.onclick=()=>queue.acceptRemote();element.append(' ',button);
+    button.textContent='Загрузить сохраненное';button.onclick=()=>queue.acceptRemote();element.append(' ',button);
   };
   function init() {
     document.querySelectorAll('form[data-settings-autosave]').forEach((form, index) => {

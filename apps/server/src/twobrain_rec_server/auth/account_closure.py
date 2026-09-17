@@ -184,7 +184,7 @@ async def begin_account_close_finalization(
         return close_view(request, now=now_utc), ()
     if now_utc < _utc(request.finalize_at):
         raise ProblemDetail(
-            status=409, code="account_close_cooling_active", title="Период отмены ещё не завершён"
+            status=409, code="account_close_cooling_active", title="Период отмены еще не завершен"
         )
     content_workspace_ids = _frozen_content_workspace_ids(request)
     if not content_workspace_ids:
@@ -349,7 +349,7 @@ async def cancel_account_close(
     now_utc = _utc(now)
     if now_utc >= _utc(request.finalize_at):
         raise ProblemDetail(
-            status=409, code="account_close_cooling_expired", title="Период отмены уже завершён"
+            status=409, code="account_close_cooling_expired", title="Период отмены уже завершен"
         )
     request.state = "canceled"
     request.canceled_at = now_utc

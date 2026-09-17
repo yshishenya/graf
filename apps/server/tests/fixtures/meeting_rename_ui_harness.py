@@ -93,7 +93,7 @@ async def rename(request: Request, meeting_id: str):
                 "code": "meeting_title_conflict",
                 "title": state["title"],
                 "title_version": str(state["version"]),
-                "message": "Название уже изменено. Enter — сохранить своё, Esc — оставить текущее",
+                "message": "Название уже изменено. Enter — сохранить свое, Esc — оставить текущее",
             },
             status_code=409,
         )

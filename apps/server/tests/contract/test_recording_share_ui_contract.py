@@ -38,7 +38,7 @@ def test_share_fragment_is_simple_first_and_accessible() -> None:
     assert "Открываем запись" in invitation_page
     assert "Открываем итоги" in invitation_page
     assert "Приглашение недоступно" in invitation_page
-    assert "Ссылка уже использована, отозвана или срок её действия истёк." in invitation_page
+    assert "Ссылка уже использована, отозвана или срок ее действия истек." in invitation_page
     assert "Расшифровка и итоги" in (
         REPO_ROOT
         / "apps/server/src/twobrain_rec_server/cabinet/rendering.py"
@@ -52,6 +52,48 @@ def test_share_fragment_is_simple_first_and_accessible() -> None:
     assert "Матрица ролей" not in source
     assert "can_download" not in source
     assert "can_export" not in source
+
+
+def test_share_capability_block_switches_copy_by_state() -> None:
+    from types import SimpleNamespace
+
+    from twobrain_rec_server.cabinet.templates import render_template
+
+    def render(capability_state: str, capability_reason: str | None, can_manage_roles: bool) -> str:
+        return render_template(
+            "cabinet/fragments/meeting_share.html",
+            meeting_id="meeting-1",
+            share=SimpleNamespace(
+                capability_state=capability_state,
+                capability_reason=capability_reason,
+                can_manage_roles=can_manage_roles,
+                external_invitation_state="available",
+                active_grants=[],
+                active_invitations=[],
+            ),
+            share_workspace_id=None,
+        )
+
+    available = render("available", None, True)
+    assert "Внешний доступ: запись · просмотр" in available
+    assert (
+        "Итоги, расшифровка, прослушивание и скачивание аудио. Доступ можно отозвать в любой момент."
+        in available
+    )
+    assert "Внешний доступ недоступен" not in available
+
+    unavailable = render(
+        "auth_required",
+        "Для управления доступом войдите в аккаунт с правом владельца.",
+        False,
+    )
+    assert "Внешний доступ недоступен" in unavailable
+    assert "Для управления доступом войдите в аккаунт с правом владельца." in unavailable
+    assert "Внешний доступ: запись · просмотр" not in unavailable
+    assert (
+        "Итоги, расшифровка, прослушивание и скачивание аудио. Доступ можно отозвать в любой момент."
+        not in unavailable
+    )
 
 
 def test_share_focus_and_isolated_styles_are_registered() -> None:

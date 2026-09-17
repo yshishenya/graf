@@ -31,7 +31,7 @@ def test_account_provider_projection_masks_identity_subject_and_translates_statu
 
     assert isinstance(result, AccountProviderView)
     assert result.label == "Яндекс ID"
-    assert result.status_label == "Подключён"
+    assert result.status_label == "Подключен"
     assert result.primary is True
     assert not hasattr(result, "provider_subject")
 
@@ -214,7 +214,7 @@ def test_session_surface_separates_effective_access_and_uses_local_time() -> Non
     assert surface.active_sessions[0].client_label == 'GRAF для macOS'
     assert surface.active_sessions[0].last_seen_label == '06.09.2026, 16:57 (UTC+05:00)'
     assert surface.active_sessions[1].client_label == 'Устройство не подключено'
-    assert {s.status_label for s in surface.session_history} == {'Срок истёк', 'Завершён', 'Доступ заблокирован'}
+    assert {s.status_label for s in surface.session_history} == {'Срок истек', 'Завершен', 'Доступ заблокирован'}
     assert all(not s.can_revoke for s in surface.session_history)
     assert surface.has_other_sessions
 

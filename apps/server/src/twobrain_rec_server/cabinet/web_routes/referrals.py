@@ -129,10 +129,10 @@ async def referrals_page(
                 "paid": "Оплата подтверждена, бонус ожидает 14 дней",
                 "pending_maturity": "Оплата подтверждена, бонус ожидает 14 дней",
                 "available": "Бонус доступен",
-                "applied": "Бонус применён",
-                "expired": "Бонус истёк",
-                "rejected": "Бонус отклонён по правилам кампании",
-                "reversed": "Бонус отменён после проверки платежа",
+                "applied": "Бонус применен",
+                "expired": "Бонус истек",
+                "rejected": "Бонус отклонен по правилам кампании",
+                "reversed": "Бонус отменен после проверки платежа",
             }
             for index, row in enumerate(attributions, start=1):
                 ledger = ledger_by_attribution.get(row.id)
