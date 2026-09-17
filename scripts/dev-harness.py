@@ -2439,7 +2439,17 @@ def operation_build(args: argparse.Namespace) -> Dict[str, Any]:
             existing = _read_json(existing_path)
             if existing == manifest:
                 return {"operation": "build", "dry_run": bool(args.dry_run), "status": existing.get("status", "built"), "adapter": {"mode": "existing"}, "manifest": existing, "idempotent": True}
-            raise HarnessError("manifest identity already exists with different metadata")
+            if not _same_manifest_identity(existing, manifest):
+                raise HarnessError("manifest identity already exists with different metadata")
+            # The documented deeper-rollback path rebuilds a previously seen
+            # SHA after retention removed its artifacts but kept its record.
+            # The rebuild keeps the recorded lineage, so it cannot silently
+            # repoint the rollback target of that candidate.
+            manifest = {
+                **manifest,
+                "created_at": existing.get("created_at", manifest["created_at"]),
+                "parent_manifest_id": existing.get("parent_manifest_id"),
+            }
         adapter_info: Dict[str, str] = {"mode": "metadata-only"}
         if getattr(args, "live", False) and not args.dry_run:
             adapter_info = GrafLocalAdapter(_repo_root(), root).build(manifest)
@@ -2450,6 +2460,17 @@ def operation_build(args: argparse.Namespace) -> Dict[str, Any]:
             _mkdirs(root)
             _write_json(existing_path, manifest)
         return {"operation": "build", "dry_run": bool(args.dry_run), "adapter": adapter_info, "manifest": manifest}
+
+
+def _same_manifest_identity(existing: Dict[str, Any], candidate: Dict[str, Any]) -> bool:
+    """Say whether two records describe the same immutable candidate.
+
+    Rebuilding artifacts after retention removed the files must stay possible,
+    so the comparison covers the identity of the candidate and ignores the
+    fields that legitimately differ between two runs.
+    """
+    fields = ("schema_version", "manifest_id", "feature_id", "source_sha", "components", "migration_head")
+    return all(existing.get(field) == candidate.get(field) for field in fields)
 
 
 def _publish_active(root: Path, manifest: Dict[str, Any], mode: str) -> None:
