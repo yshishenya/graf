@@ -1991,11 +1991,18 @@ async def batch_latest_workflows(
         (meeting_id, media_revision_id): None for meeting_id, media_revision_id in pairs
     }
     if result:
+        # Ask only for the revision pairs the caller needs. Filtering by meeting
+        # alone would read one workflow for every historical revision of every
+        # listed meeting, even though a page renders only its current revision.
+        requested_revision_ids = {
+            media_revision_id for _, media_revision_id in result if media_revision_id is not None
+        }
         rows = await db.scalars(
             select(ProcessingWorkflow)
             .where(
                 ProcessingWorkflow.workspace_id == workspace_id,
                 ProcessingWorkflow.meeting_id.in_({meeting_id for meeting_id, _ in result}),
+                ProcessingWorkflow.media_revision_id.in_(requested_revision_ids),
             )
             .distinct(ProcessingWorkflow.meeting_id, ProcessingWorkflow.media_revision_id)
             .order_by(
