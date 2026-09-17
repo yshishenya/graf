@@ -178,10 +178,17 @@ def stage_identity(args):
 def release_for_tag(repo, tag):
     """Find a release by tag, including drafts.
 
-    The by-tag endpoint answers 404 for a draft release, so the release list is
-    the only reliable lookup while the release is still a draft.  Published
-    releases are still resolvable through the by-tag endpoint as a fallback.
+    The by-tag endpoint is tried first, so published releases keep the exact
+    behaviour they had before.  It answers 404 for a draft release, and a draft
+    is visible only through the release list, so that list is the fallback while
+    a release is still a draft.
     """
+    try:
+        release = json.loads(command('gh', 'api', f'repos/{repo}/releases/tags/{tag}'))
+    except ValueError:
+        release = None
+    if isinstance(release, dict) and release.get('tag_name') == tag:
+        return release
     page = 1
     while True:
         rows = json.loads(command('gh', 'api', f'repos/{repo}/releases?per_page=100&page={page}'))
@@ -189,9 +196,8 @@ def release_for_tag(repo, tag):
             if row.get('tag_name') == tag:
                 return row
         if len(rows) < 100:
-            break
+            raise ValueError('release identity differs')
         page += 1
-    return json.loads(command('gh', 'api', f'repos/{repo}/releases/tags/{tag}'))
 
 
 def release_snapshot(repo, tag, source=None, draft=None):
