@@ -1790,7 +1790,15 @@ async def batch_previous_recurring_links(
         for candidate_link, candidate_meeting in candidates.get(series_key, ()):
             if candidate_link.meeting_id == meeting_id:
                 continue
-            if candidate_link.matched_event_starts_at < starts_at:
+            # The single-meeting path let the database compare the timestamps,
+            # where a null start time simply failed the predicate. Comparing in
+            # Python instead must reject the same rows explicitly: the model
+            # allows a series key with a null start time, and `None < datetime`
+            # would raise TypeError and fail the whole page.
+            candidate_starts_at = candidate_link.matched_event_starts_at
+            if candidate_starts_at is None:
+                continue
+            if candidate_starts_at < starts_at:
                 result[meeting_id] = (candidate_link, candidate_meeting)
                 break
     if prefetch is not None:

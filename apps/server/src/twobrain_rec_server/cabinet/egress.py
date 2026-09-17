@@ -921,7 +921,9 @@ async def batch_current_outcome_sets(
         results = {row.id: row for row in rows}
 
     def _resolve(
-        slot: MeetingSummarySlot | None, template_key: str | None
+        meeting_id: UUID,
+        slot: MeetingSummarySlot | None,
+        template_key: str | None,
     ) -> tuple[MeetingOutcomeSet, ProcessingResult] | None:
         if slot is None:
             # An absent requested/default slot is an honest no-result state.
@@ -943,6 +945,13 @@ async def batch_current_outcome_sets(
             if outcome.processing_result_id is not None
             else None
         )
+        # The single-meeting read fenced the result with
+        # `ProcessingResult.meeting_id == meeting_id`. The batch read asks for
+        # every result of the page at once, so the fence has to be repeated
+        # here: an outcome of this meeting must never resolve against a result
+        # that belongs to a different meeting on the same page.
+        if result is not None and result.meeting_id != meeting_id:
+            result = None
         return _validate_outcome_resolution(
             outcome=outcome,
             result=result,
@@ -953,9 +962,13 @@ async def batch_current_outcome_sets(
         )
 
     for meeting_id in meeting_ids:
-        resolutions[(meeting_id, None)] = _resolve(default_slot_by_meeting[meeting_id], None)
+        resolutions[(meeting_id, None)] = _resolve(
+            meeting_id, default_slot_by_meeting[meeting_id], None
+        )
         for slot in slots_by_meeting.get(meeting_id, ()):
-            resolutions[(meeting_id, slot.template_key)] = _resolve(slot, slot.template_key)
+            resolutions[(meeting_id, slot.template_key)] = _resolve(
+                meeting_id, slot, slot.template_key
+            )
     if prefetch is not None:
         prefetch.outcome_resolutions.update(resolutions)
     return resolutions
