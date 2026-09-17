@@ -326,6 +326,7 @@ def _retention_kept_paths(state: Path, keep: Dict[str, set]) -> list:
 
 def _prune_receipt(
     *,
+    operation: str,
     dry_run: bool,
     removed: list,
     kept: list,
@@ -336,6 +337,7 @@ def _prune_receipt(
 ) -> Dict[str, Any]:
     return {
         "schema_version": PRUNE_RECEIPT_SCHEMA_VERSION,
+        "operation": operation,
         "dry_run": dry_run,
         "removed": removed,
         "kept": kept,
@@ -2492,6 +2494,7 @@ def operation_prune(args: argparse.Namespace) -> Dict[str, Any]:
         adapter = GrafLocalAdapter(_repo_root(), root)
         removed, partial_reasons, kept = adapter.estimate_or_apply_prune(dry_run=bool(args.dry_run))
         receipt = _prune_receipt(
+            operation="prune",
             dry_run=bool(args.dry_run),
             removed=removed,
             kept=kept,
@@ -2502,8 +2505,17 @@ def operation_prune(args: argparse.Namespace) -> Dict[str, Any]:
         )
         if not args.dry_run:
             history = root / PRUNE_HISTORY_FILE
-            with history.open("a", encoding="utf-8") as handle:
-                handle.write(json.dumps(receipt, ensure_ascii=False, sort_keys=True) + "\n")
+            if history.is_symlink():
+                raise HarnessError(f"refusing to append to a symlinked prune history: {history}")
+            try:
+                with history.open("a", encoding="utf-8") as handle:
+                    handle.write(json.dumps(receipt, ensure_ascii=False, sort_keys=True) + "\n")
+            except OSError as exc:
+                preserved = root / f"{PRUNE_HISTORY_FILE}.failed-{started_at.replace(':', '').replace('-', '')}"
+                _write_json(preserved, receipt)
+                raise HarnessError(
+                    f"prune receipt could not be appended to history; receipt preserved at {preserved}: {exc}"
+                ) from exc
         return {"operation": "prune", **receipt}
 
 
