@@ -135,13 +135,28 @@ if should_run prep; then
   require_clean_master
   previous_tag="$(latest_published_tag)"
   [[ -n "$previous_tag" ]] \
-    || { printf 'release: cannot resolve the latest published release
-' >&2; exit 1; }
-  [[ -n "$previous_tag" ]] || { printf 'release: no previous release tag found\n' >&2; exit 1; }
+    || { printf 'release: cannot resolve the latest published release\n' >&2; exit 1; }
   base_sha="$(git rev-list -n 1 "$previous_tag")"
   printf 'release_base=%s base_sha=%s\n' "$previous_tag" "$base_sha"
 
   branch="release-prep-${version}"
+  # An abandoned earlier attempt at this exact version can leave the branch and
+  # its pull request behind.  The version has no published release yet, so the
+  # preparation is rebuilt from scratch instead of failing on a raw git error.
+  for stale_pr in $(gh pr list --head "$branch" --state open --json number --jq '.[].number' 2>/dev/null); do
+    [[ -n "$stale_pr" ]] || continue
+    gh pr close "$stale_pr" \
+      --comment "Подготовка релиза ${version} выполняется заново: прошлая попытка была прервана." >/dev/null
+    printf 'release: закрыт прерванный пул-реквест подготовки %s\n' "$stale_pr"
+  done
+  if git show-ref --verify --quiet "refs/heads/${branch}"; then
+    git branch -D "$branch" >/dev/null
+    printf 'release: местная ветка подготовки %s пересобрана с нуля\n' "$branch"
+  fi
+  if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+    git push -q origin --delete "$branch"
+    printf 'release: ветка подготовки %s удалена на сервере и пересобрана\n' "$branch"
+  fi
   git switch -c "$branch"
   GRAF_RELEASE_OPERATOR="$operator" ./scripts/prepare-release.sh "$version"
 
