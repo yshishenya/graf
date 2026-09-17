@@ -175,10 +175,29 @@ def stage_identity(args):
             'external': read_json(args.context) if args.context else None}
 
 
+def release_for_tag(repo, tag):
+    """Find a release by tag, including drafts.
+
+    The by-tag endpoint answers 404 for a draft release, so the release list is
+    the only reliable lookup while the release is still a draft.  Published
+    releases are still resolvable through the by-tag endpoint as a fallback.
+    """
+    page = 1
+    while True:
+        rows = json.loads(command('gh', 'api', f'repos/{repo}/releases?per_page=100&page={page}'))
+        for row in rows:
+            if row.get('tag_name') == tag:
+                return row
+        if len(rows) < 100:
+            break
+        page += 1
+    return json.loads(command('gh', 'api', f'repos/{repo}/releases/tags/{tag}'))
+
+
 def release_snapshot(repo, tag, source=None, draft=None):
     if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repo) or not re.fullmatch(r'[A-Za-z0-9_.-]+', tag):
         raise ValueError('invalid release identity')
-    release = json.loads(command('gh', 'api', f'repos/{repo}/releases/tags/{tag}'))
+    release = release_for_tag(repo, tag)
     if release['tag_name'] != tag or not isinstance(release['id'], int):
         raise ValueError('release identity differs')
     if draft is not None and release['draft'] is not draft:
