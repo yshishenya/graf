@@ -207,7 +207,14 @@ def _ui_text(value: str | None) -> str:
     if value is None:
         return ""
     normalized = value.replace("_", " ")
-    return _copy_convention(UI_TEXT.get(value, UI_TEXT.get(normalized, normalized)))
+    mapped = UI_TEXT.get(value)
+    if mapped is None:
+        mapped = UI_TEXT.get(normalized)
+    if mapped is None:
+        # Не словарная строка: это пользовательские данные (имя спикера,
+        # название встречи) — их написание не меняем.
+        return normalized
+    return _copy_convention(mapped)
 
 
 def _base_path(embedded: bool) -> str:

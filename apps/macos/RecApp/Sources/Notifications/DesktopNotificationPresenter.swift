@@ -376,7 +376,7 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
     }
     public func test(isCurrent: () -> Bool = { true }) async {
         let epoch = authEpoch
-        guard !owner.isEmpty else { return }
+        // Проверка показа — системное действие и не требует аккаунта.
         await refreshPermission()
         guard epoch == authEpoch, isCurrent() else { return }
         let authorized = await allowed()

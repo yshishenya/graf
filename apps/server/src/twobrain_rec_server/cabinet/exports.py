@@ -752,7 +752,7 @@ def _human_transcript_lines(snapshot: ExportSnapshot, *, markdown: bool) -> list
         raw_segments=snapshot.raw_segments,
     ):
         first = group[0]
-        heading = _display_copy(first.speaker_label) if snapshot.selection.include_speaker_labels else "Реплики"
+        heading = _unknown_label_for_display(first.speaker_label) if snapshot.selection.include_speaker_labels else "Реплики"
         if markdown:
             lines.extend((f"### {_markdown_escape(heading)}", ""))
         else:
@@ -922,7 +922,7 @@ def _render_srt(snapshot: ExportSnapshot) -> bytes:
     for counter, turn in enumerate(snapshot.canonical_turns, start=1):
         text = _subtitle_literal(turn.text)
         if snapshot.selection.include_speaker_labels:
-            text = f"{_subtitle_literal(_display_copy(turn.speaker_label))}: {text}"
+            text = f"{_subtitle_literal(_unknown_label_for_display(turn.speaker_label))}: {text}"
         blocks.append(f"{counter}\n{_srt_time(turn.start_ms)} --> {_srt_time(turn.end_ms)}\n{text}")
     return ("\n\n".join(blocks) + ("\n" if blocks else "")).encode("utf-8")
 
@@ -932,7 +932,7 @@ def _render_vtt(snapshot: ExportSnapshot) -> bytes:
     for turn in snapshot.canonical_turns:
         text = _subtitle_literal(turn.text)
         if snapshot.selection.include_speaker_labels:
-            text = f"{_subtitle_literal(_display_copy(turn.speaker_label))}: {text}"
+            text = f"{_subtitle_literal(_unknown_label_for_display(turn.speaker_label))}: {text}"
         blocks.append(f"{_vtt_time(turn.start_ms)} --> {_vtt_time(turn.end_ms)}\n{text}")
     body = "WEBVTT\n\n" + "\n\n".join(blocks)
     return (body + ("\n" if blocks else "")).encode("utf-8")
@@ -1209,7 +1209,7 @@ def _turn_row(
         "start_time": _human_time(turn.start_ms),
         "end_time": _human_time(turn.end_ms),
         "speaker_key": clean(turn.speaker_key),
-        "speaker_label": clean(turn.speaker_label),
+        "speaker_label": _unknown_label_for_display(clean(turn.speaker_label)),
         "provider_speaker_key": clean(turn.provider_speaker_key),
         "attribution_state": turn.attribution_state,
         "result_state": turn.result_state,
@@ -1234,8 +1234,10 @@ def _markdown_escape(value: str) -> str:
 
 
 
-def _display_copy(value: str) -> str:
-    """Конвенция текста: канонические данные не меняются, показ без «ё»."""
+def _unknown_label_for_display(value: str) -> str:
+    """Показ служебной метки без U+0451; имена, заданные пользователем, не меняются."""
+    if value != UNKNOWN_SPEAKER_LABEL:
+        return value
     return value.replace(chr(0x451), chr(0x435)).replace(chr(0x401), chr(0x415))
 
 def _subtitle_literal(value: str) -> str:
