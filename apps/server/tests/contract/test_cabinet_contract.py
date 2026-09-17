@@ -109,8 +109,8 @@ def test_cabinet_ready_detail_contract_shape(client) -> None:
     assert payload["transcript"]["available"] is True
     assert payload["transcript"]["segments"][0]["timestamp_label"] == "00:00"
     assert [segment["speaker_label"] for segment in payload["transcript"]["segments"]] == [
-        "Спикер не определен",
-        "Спикер не определен",
+        "Спикер не определён",
+        "Спикер не определён",
     ]
     assert [turn["speaker_label"] for turn in payload["transcript"]["speaker_turns"]] == [
         "SPEAKER_00",
@@ -244,8 +244,8 @@ def test_cabinet_calendar_roster_is_metadata_only_and_does_not_relabel_speakers(
     assert after["transcript"] == before["transcript"]
     assert after["speakers"] == before["speakers"]
     assert [segment["speaker_label"] for segment in after["transcript"]["segments"]] == [
-        "Спикер не определен",
-        "Спикер не определен",
+        "Спикер не определён",
+        "Спикер не определён",
     ]
     assert [turn["speaker_label"] for turn in after["transcript"]["speaker_turns"]] == [
         "SPEAKER_00",

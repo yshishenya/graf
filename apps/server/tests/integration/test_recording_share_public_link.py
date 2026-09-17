@@ -216,7 +216,7 @@ def test_summary_only_share_never_discloses_an_unaccepted_candidate(client) -> N
     assert html_summary.status_code == 200
     assert "Сохранённый итог." in api_summary.text
     assert "Полный опубликованный протокол" not in html_summary.text
-    assert "О чём встреча" in html_summary.text
+    assert "О чем встреча" in html_summary.text
     assert "Полный опубликованный протокол" in api_summary.text
     assert "source_refs" not in api_summary.json()["protocol"].__str__()
     assert "quote" not in api_summary.json()["protocol"].__str__()
@@ -231,7 +231,7 @@ def test_summary_only_share_never_discloses_an_unaccepted_candidate(client) -> N
         )
         assert canonical.status_code == 200
         assert "Полный опубликованный протокол" not in canonical.text
-        assert "О чём встреча" in canonical.text
+        assert "О чем встреча" in canonical.text
         assert "Сделать макет" in canonical.text and "наверное, завтра" in canonical.text
         assert '<h2>Главное</h2>' in canonical.text
         assert '<h2>Ключевые обсуждения</h2>' in canonical.text

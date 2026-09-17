@@ -319,7 +319,7 @@ def test_candidate_content_is_not_rendered_in_the_meeting_shell() -> None:
     assert "currentSummaryFormatVersion" in script
     assert "candidateErrorAction" in script
     assert '"summary_revision_conflict"' in script
-    assert 'result_invalid: "Модель вернула неподтверждённый результат.' in script
+    assert 'result_invalid: "Модель вернула неподтвержденный результат.' in script
     assert 'summary_generation_in_progress: "Другой вариант уже готовится.' in script
     assert 'summary_request_unavailable: "Не удалось связаться с сервисом итогов.' in script
     assert "const latestFailure = candidates.find" in script
@@ -388,7 +388,7 @@ def test_candidate_history_has_a_bounded_recovery_action() -> None:
     assert "recoverMeetingDetailFromResponse(response" in script
     assert "isMeetingDetailRecoveredError(error)" in script
     assert "resumeCachedCandidate()" in history_recovery
-    assert "Не удалось проверить сохранённые варианты" in history_recovery
+    assert "Не удалось проверить сохраненные варианты" in history_recovery
     assert 'text: "Повторить"' in history_recovery
     assert "action: () => window.location.reload()" in history_recovery
 
