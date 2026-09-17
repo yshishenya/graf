@@ -18,7 +18,6 @@ usage: scripts/release.sh <YYYY.MM.DD.N> [options]
   --operator <name>   release operator identity (default: git config user.name)
   --merge             merge the release-preparation pull request after checks pass
   --deploy            deploy to production after a clean dry run
-  --skip-local-tests  skip the local governance slice before starting
   --from <step>       resume at a step: prep, train, ci, decide, deploy, publish
   --stop-after <step> stop once this step is done
 
@@ -33,7 +32,6 @@ version=""
 operator="${GRAF_RELEASE_OPERATOR:-$(git config user.name || true)}"
 merge=false
 deploy=false
-skip_local_tests=false
 resume_step=""
 stop_after=""
 
@@ -43,7 +41,6 @@ while [[ $# -gt 0 ]]; do
     --operator) operator="${2:-}"; shift 2 ;;
     --merge) merge=true; shift ;;
     --deploy) deploy=true; shift ;;
-    --skip-local-tests) skip_local_tests=true; shift ;;
     --from) resume_step="${2:-}"; shift 2 ;;
     --stop-after) stop_after="${2:-}"; shift ;;
     -*) printf 'release: unknown option %s\n' "$1" >&2; usage >&2; exit 2 ;;
