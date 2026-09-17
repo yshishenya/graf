@@ -27,7 +27,8 @@ SIGNING_CUSTODY_TEST = ROOT / "apps/macos/Installer/Scripts/test-release-signing
 def test_macos_workflows_cache_swift_build_without_gating_validation() -> None:
     expected_key = (
         "swift-${{ runner.os }}-${{ runner.arch }}-spm6.0.3-"
-        "${{ hashFiles('apps/macos/Package.resolved') }}-v1"
+        "${{ hashFiles('apps/macos/Package.resolved') }}-"
+        "${{ hashFiles('apps/macos/**/*.swift', 'apps/macos/Package.swift') }}-v2"
     )
     for workflow in (MACOS_PR_WORKFLOW, FULL_CI_WORKFLOW):
         text = workflow.read_text(encoding="utf-8")
@@ -53,12 +54,19 @@ def test_local_ci_evidence_uses_compiled_products_not_the_build_cache() -> None:
         "macos-product-two-brain-rec-app",
         "macos-product-contract-validation",
         "macos-product-meeting-mute-truth",
-        "macos-product-webrtc-aec3",
-        "macos-product-leakage",
         "macos-tests",
     ):
         assert name in text
     assert "$repo_root/apps/macos/.build/debug/" in text
+
+    # The .build tree persists between runs, so evidence may only be bound to
+    # products this package actually builds; a leftover from an older checkout
+    # must never satisfy the existence check.
+    package = (ROOT / "apps/macos" / "Package.swift").read_text(encoding="utf-8")
+    products = re.findall(r'"macos-product-[a-z0-9-]+:([A-Za-z0-9]+)"', text)
+    assert products, "compiled-product evidence list is missing"
+    for product in products:
+        assert f'"{product}"' in package, f"artifact is not a package product: {product}"
 
 
 def run(*args: str, cwd: Path = ROOT, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:

@@ -83,7 +83,10 @@ jobs:
             apps/macos/.build
             ~/.cache/org.swift.swiftpm
             ~/Library/Caches/org.swift.swiftpm
-          key: swift-${{ runner.os }}-${{ runner.arch }}-spm6.0.3-${{ hashFiles('apps/macos/Package.resolved') }}-v1
+          # The .build tree holds compiled outputs for repository sources, so the
+          # key must change with them; caches are immutable, so a key based on the
+          # dependency lockfile alone kept restoring a stale build state.
+          key: swift-${{ runner.os }}-${{ runner.arch }}-spm6.0.3-${{ hashFiles('apps/macos/Package.resolved') }}-${{ hashFiles('apps/macos/**/*.swift', 'apps/macos/Package.swift') }}-v2
           restore-keys: |
             swift-${{ runner.os }}-${{ runner.arch }}-spm6.0.3-
       - name: Refresh restored build timestamps

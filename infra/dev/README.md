@@ -143,9 +143,17 @@ outside the retention policy cannot be rehydrated: rebuild a new candidate.
 
 Порядок восстановления сохранённого отката:
 
+Восстановление выполняется из рабочей копии того SHA, на который делается откат.
+Проверка точного соответствия сравнивает манифест цели с текущей рабочей копией,
+поэтому из копии активного манифеста восстановление всегда отвергается — это
+ожидаемое поведение защиты, а не сбой.
+
 ```sh
 state="$(./infra/scripts/dev-harness.sh status --json | jq -r '.state_dir')"
-./infra/scripts/dev-harness.sh rehydrate --manifest "$state/manifests/dev-<sha12>.json"
+manifest="$state/manifests/dev-<sha12>.json"
+sha="$(jq -r '.source_sha' "$manifest")"
+git switch --detach "$sha"   # рабочая копия цели отката, дерево должно быть чистым
+./infra/scripts/dev-harness.sh rehydrate --manifest "$manifest"
 ./infra/scripts/dev-harness.sh rollback --dry-run
 ```
 
