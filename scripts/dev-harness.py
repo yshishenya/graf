@@ -1143,9 +1143,19 @@ class GrafLocalAdapter:
                     removed_manifests.append(child.name)
                     _remove_within_state(child, self.state, "artifact_set", removed, dry_run=dry_run)
                     continue
+                keep_for_manifest = keep.get(child.name, set())
                 build_dir = child / "build"
                 if build_dir.exists():
                     _remove_within_state(build_dir, self.state, "build_dir", removed, dry_run=dry_run)
+                # An interrupted archive save leaves a large temporary file that
+                # the policy never retains.
+                for temporary in sorted(child.glob("*.tmp")):
+                    _remove_within_state(temporary, self.state, "archive_temp", removed, dry_run=dry_run)
+                archive = child / "runtime-images.tar"
+                if archive.exists() and "archive" not in keep_for_manifest:
+                    # A consumed archive: the active manifest keeps only its app
+                    # bundle, and the rollback archive belongs to its parent.
+                    _remove_within_state(archive, self.state, "archive", removed, dry_run=dry_run)
         transactions = self.state / "transactions"
         if transactions.is_dir():
             for child in sorted(transactions.glob("previous-*.app")):
