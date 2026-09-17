@@ -160,9 +160,19 @@ def _active_feature_id() -> str:
     return feature_id
 
 
-def state_dir(*, live: bool = False) -> Path:
+def global_state_dir() -> Path:
+    """Return the repository-global Dev state, ignoring any override.
+
+    The override exists so tests and operators can use a disposable state, but
+    the global directory stays the authority for machine-wide resources such as
+    the single Docker image namespace.
+    """
     base = Path.home() / ("Library/Application Support" if sys.platform == "darwin" else ".cache") / "GRAF Dev"
-    global_path = (base / _repo_identity() / "harness").resolve()
+    return (base / _repo_identity() / "harness").resolve()
+
+
+def state_dir(*, live: bool = False) -> Path:
+    global_path = global_state_dir()
     raw = os.environ.get("GRAF_DEV_STATE_DIR")
     if raw:
         path = Path(raw).expanduser()
@@ -1138,6 +1148,18 @@ class GrafLocalAdapter:
             with contextlib.suppress(FileNotFoundError):
                 temporary_archive.unlink()
 
+    def _live_state_owns_tags(self, manifest_ids) -> bool:
+        """Say whether the canonical live state also records these manifests.
+
+        Docker image tags live in one global namespace, so a fixture or a copied
+        state whose manifests came from the live state must not remove them:
+        that would take the images of the live runtime away.
+        """
+        live = global_state_dir()
+        if live == self.state.resolve() or not live.is_dir():
+            return False
+        return any(_manifest_path(live, manifest_id).is_file() for manifest_id in manifest_ids)
+
     def _rollback_target(self, active: Optional[Dict[str, Any]]) -> tuple:
         """Return the recorded rollback target and why it is unusable.
 
@@ -1236,27 +1258,33 @@ class GrafLocalAdapter:
             for child in sorted(transactions.glob("previous-*.app")):
                 _remove_within_state(child, self.state, "app_backup", removed, dry_run=dry_run)
         env_manifest = active_manifest or target_manifest
-        tags: list = []
+        tag_owners: Dict[str, str] = {}
         for manifest_id in sorted(removed_manifests):
             for _service, (component, _variable, _fallback, _source_bound) in COMPOSE_IMAGE_COMPONENTS.items():
-                tags.append(f"graf-dev-immutable:{manifest_id}-{component.replace('_', '-')}")
+                tag_owners[f"graf-dev-immutable:{manifest_id}-{component.replace('_', '-')}"] = manifest_id
         # A previous prune may have removed the artifact directories but failed
         # to remove their tags, for example while Docker was unavailable; those
         # tags are retried instead of being reported as success forever.
-        tags.extend(_retained_tag_backlog(self.state))
-        if tags and env_manifest is not None:
-            env = self._env(env_manifest, pin_images=False)
-            for tag in sorted(set(tags)):
-                if dry_run:
-                    # A dry run reports the plan; it must not change the host.
-                    removed.append({"path": tag, "bytes": 0, "kind": "image_tag"})
-                    continue
-                try:
-                    _run_command(["docker", "image", "rm", tag], cwd=self.root, env=env)
-                except HarnessError:
-                    partial_reasons.append(f"image tag retained: {tag}")
-                else:
-                    removed.append({"path": tag, "bytes": 0, "kind": "image_tag"})
+        for tag in _retained_tag_backlog(self.state):
+            tag_owners.setdefault(tag, "")
+        if tag_owners and env_manifest is not None:
+            if self._live_state_owns_tags({owner for owner in tag_owners.values() if owner}):
+                partial_reasons.append(
+                    "image tags retained: manifests belong to the repository-global state"
+                )
+            else:
+                env = self._env(env_manifest, pin_images=False)
+                for tag in sorted(tag_owners):
+                    if dry_run:
+                        # A dry run reports the plan; it must not change the host.
+                        removed.append({"path": tag, "bytes": 0, "kind": "image_tag"})
+                        continue
+                    try:
+                        _run_command(["docker", "image", "rm", tag], cwd=self.root, env=env)
+                    except HarnessError:
+                        partial_reasons.append(f"image tag retained: {tag}")
+                    else:
+                        removed.append({"path": tag, "bytes": 0, "kind": "image_tag"})
         return keep
 
     def _cleanup_schema_snapshots(self, *, keep_operation: Optional[str] = None, dry_run: bool = False) -> list:
