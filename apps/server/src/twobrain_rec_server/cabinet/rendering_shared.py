@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from twobrain_rec_server.cabinet import view_models as cabinet_view_models
 from twobrain_rec_server.cabinet.templates import render_template, trusted_component_html
+from twobrain_rec_server.domain.speaker_turns import UNKNOWN_SPEAKER_LABEL
 
 
 def _page_shell(
@@ -203,6 +204,10 @@ def _copy_convention(value: str) -> str:
     return value.replace(chr(0x451), chr(0x435)).replace(chr(0x401), chr(0x415))
 
 
+#: Доменные метки, которые являются продуктовой копией, а не данными пользователя.
+PRODUCT_COPY = frozenset({UNKNOWN_SPEAKER_LABEL})
+
+
 def _ui_text(value: str | None) -> str:
     if value is None:
         return ""
@@ -210,11 +215,13 @@ def _ui_text(value: str | None) -> str:
     mapped = UI_TEXT.get(value)
     if mapped is None:
         mapped = UI_TEXT.get(normalized)
-    if mapped is None:
-        # Не словарная строка: это пользовательские данные (имя спикера,
-        # название встречи) — их написание не меняем.
-        return normalized
-    return _copy_convention(mapped)
+    if mapped is not None:
+        return _copy_convention(mapped)
+    # Служебные доменные метки — продуктовая копия, её показываем по конвенции.
+    if value in PRODUCT_COPY or normalized in PRODUCT_COPY:
+        return _copy_convention(normalized)
+    # Остальное — пользовательские данные (имя спикера, название встречи).
+    return normalized
 
 
 def _base_path(embedded: bool) -> str:
