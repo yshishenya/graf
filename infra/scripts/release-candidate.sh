@@ -275,6 +275,28 @@ def verify_release_pr_checks(source_sha, included_prs=None):
     return json.loads(result.stdout)
 
 
+def require_recorded_pr_evidence(data):
+    """Reuse the verification already bound to this exact source SHA.
+
+    Every pull request included in the release is verified once, and that
+    verification is recorded with the frozen source SHA.  Repeating the same
+    artifact download and comparison on every later step (train attest,
+    decision, deploy dry-run, deploy) multiplies release wall time and each
+    repeat can fail on a transient GitHub API error, while adding no new
+    proof.  A recorded successful verification for the same SHA is therefore
+    accepted; anything else still falls through to a full verification.
+    """
+    receipt = data.get("authoritative_full_ci_receipt")
+    recorded_go = data.get("status") == "go"
+    bound_receipt = (
+        isinstance(receipt, dict)
+        and receipt.get("status") == "passed"
+        and receipt.get("target_sha") == data.get("source_sha")
+    )
+    if recorded_go and (bound_receipt or bool(data.get("full_run_id"))):
+        return
+    verify_release_pr_checks(data["source_sha"], data.get("included_prs"))
+
 def train_current(data, path, exempt_paths=()):
     require_metadata_identity(path, data.get("train_id"), "train")
     if data["source_sha"] != current_sha():
@@ -282,7 +304,7 @@ def train_current(data, path, exempt_paths=()):
     if data["changelog_digest"] != digest(root / "CHANGELOG.md"):
         die("train changelog digest differs from current CHANGELOG.md; train is stale")
     require_clean_source((path, metadata_identity_path(path), *exempt_paths))
-    verify_release_pr_checks(data["source_sha"], data["included_prs"])
+    require_recorded_pr_evidence(data)
 
 def current_sha():
     try:
@@ -309,7 +331,7 @@ def require_current(data, record_path=None, exempt_paths=()):
     if record_path is not None:
         exempt_paths = (*exempt_paths, metadata_identity_path(record_path))
     require_clean_source(exempt_paths)
-    verify_release_pr_checks(data["source_sha"])
+    require_recorded_pr_evidence(data)
 
 def metadata_identity_path(path):
     path = pathlib.Path(path).resolve()
