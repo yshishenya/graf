@@ -75,18 +75,35 @@ gh run view <run-id> --json jobs \
 
 ## Сценарий 6. Состав проверок не изменился (SC-003)
 
+Сравнивать нужно опознавательные признаки случаев и итог, а не число случаев и
+не суммарную длительность: новая контрактная проверка добавляет строки отчёта
+(запуск, вызов, завершение), а суммарная длительность зависит от числа потоков.
+
 ```sh
 gh run download <run-id> -n "$(gh api repos/yshishenya/graf/actions/runs/<run-id>/artifacts \
   --jq '.artifacts[]|select(.name|startswith("graf-test-timings"))|.name')" -D /tmp/ci-after
-python3 -c "
-import json,pathlib
-rows=[json.loads(l) for l in (pathlib.Path('/tmp/ci-after')/'parallel.jsonl').read_text().splitlines() if l.strip()]
-print('случаев', len(rows), 'сумма', sum(r.get('duration') or 0 for r in rows))
-"
+gh run download 35183409199 -n "$(gh api repos/yshishenya/graf/actions/runs/35183409199/artifacts \
+  --jq '.artifacts[]|select(.name|startswith("graf-test-timings"))|.name')" -D /tmp/ci-before
+python3 - <<'PY'
+import json, pathlib
+
+def load(where):
+    rows = [json.loads(l) for l in (pathlib.Path(where) / "parallel.jsonl").read_text().splitlines() if l.strip()]
+    return {r["case_id"] for r in rows}, [r["outcome"] for r in rows]
+
+before_ids, before_outcomes = load("/tmp/ci-before")
+after_ids, after_outcomes = load("/tmp/ci-after")
+added = sorted(after_ids - before_ids)
+removed = sorted(before_ids - after_ids)
+print("добавлено случаев:", len(added))
+print("снято случаев:", len(removed))
+print("отказов до:", sum(o != "passed" for o in before_outcomes),
+      "после:", sum(o != "passed" for o in after_outcomes))
+PY
 ```
 
-Число случаев и итог набора должны совпасть с прогоном `35183409199`
-(13431 случай, 4852 с).
+Ожидается: снятых случаев нет; добавленные относятся к новой контрактной
+проверке; отказов нет ни до, ни после. Именно эти три условия проверяет T008.
 
 ## Откат
 
