@@ -332,6 +332,97 @@ fi
 # overlap the train, the full check and the deploy instead of adding to them.
 app_prepare_pid=""
 app_prepare_log=""
+app_finish_pid=""
+app_finish_log=""
+upload_release_input() {
+  # The signer reads the candidate archive and the release notes from the release
+  # itself, so both must be attached before it runs.  The asset name is set by
+  # the target file name, because gh keeps the local basename otherwise.
+  local source_path="$1" asset_name="$2" staging
+  [[ -f "$source_path" ]] || { printf 'release: missing release input %s\n' "$source_path" >&2; exit 1; }
+  staging="$(mktemp -d)"
+  cp "$source_path" "$staging/$asset_name"
+  gh release upload "$tag" "$staging/$asset_name" --clobber >/dev/null
+  rm -rf "$staging"
+  printf 'release_input_uploaded=%s\n' "$asset_name"
+}
+
+finish_app_update() {
+  # Runs in the background next to the release train.  It must not print step
+  # markers: the main flow prints the single step that waits for it.
+  if [[ -n "${app_prepare_pid:-}" ]]; then
+    wait "$app_prepare_pid" || {
+      printf 'release: app update build failed; log %s\n' "$app_prepare_log"
+      tail -20 "$app_prepare_log" || true
+      return 1
+    }
+    app_candidate_zip="$(sed -n 's/^prepared_candidate_zip=//p' "$app_prepare_log" | tail -1)"
+    grep -E '^prepared_app=|^source=' "$app_prepare_log" || true
+  fi
+  [[ -n "${app_candidate_zip:-}" ]] \
+    || { printf 'release: the app build did not report a candidate archive\n'; return 1; }
+  upload_release_input "$app_candidate_zip" "GRAF-$version-candidate.zip" || return 1
+  if [[ -n "${release_notes_file:-}" && -f "$release_notes_file" ]]; then
+    upload_release_input "$release_notes_file" "release-notes-v$version.md" || return 1
+  fi
+  bash apps/macos/Installer/Scripts/release-app-update.sh \
+    --version "$version" --phase publish || return 1
+  [[ -n "${release_notes_file:-}" ]] && rm -f "$release_notes_file"
+  return 0
+}
+
+start_app_finish() {
+  [[ "$with_app" == "true" ]] || return 0
+  [[ -n "${app_prepare_pid:-}" || -n "${app_candidate_zip:-}" ]] || return 0
+  app_finish_log="$(mktemp)"
+  finish_app_update >"$app_finish_log" 2>&1 &
+  app_finish_pid="$!"
+  printf 'release_app_finish=started pid=%s\n' "$app_finish_pid"
+}
+
+
+open_draft_release() {
+  # The update signer can only attach to a draft release, and preparing the
+  # draft here lets the app signing and upload overlap the release train, the
+  # full check and the deploy instead of running after them.  A draft release
+  # does not create the tag: GitHub creates it when the release goes public, so
+  # a failed release leaves no stray tag behind.
+  [[ -n "${source_sha:-}" ]] || return 0
+  if gh release view "$tag" >/dev/null 2>&1; then
+    printf 'release_draft=exists tag=%s\n' "$tag"
+    return 0
+  fi
+  release_notes_file="$(mktemp)"
+  notes_python
+  gh release create "$tag" --draft --title "${tag}" --notes-file "$release_notes_file" --target "$source_sha" >/dev/null
+  printf 'release_draft=created tag=%s\n' "$tag"
+}
+
+notes_python() {
+  python3 - "$version" "$release_notes_file" <<'NOTES'
+import pathlib
+import re
+import sys
+
+version, output = sys.argv[1], sys.argv[2]
+text = pathlib.Path("CHANGELOG.md").read_text(encoding="utf-8")
+heading = re.search(rf"^## \[{re.escape(version)}\]", text, re.MULTILINE)
+if not heading:
+    raise SystemExit("release section missing from CHANGELOG.md")
+line_end = text.index("\n", heading.start())
+tail = text[line_end + 1:]
+next_heading = re.search(r"^## \[", tail, re.MULTILINE)
+section = tail[: next_heading.start()] if next_heading else tail
+section = re.sub(r"<!--.*?-->", "", section, flags=re.DOTALL).strip()
+pathlib.Path(output).write_text(
+    "## Что изменилось\n\n" + section + "\n\n## Проверка\n\nПолная проверка GitHub "
+    "`release-full` на точном SHA прошла. Обязательные проверки `governance-fast`, "
+    "`macos-pr` и `pr-metadata` пройдены. Выкатка подтверждена отчётом `deploy_result=pass`.\n",
+    encoding="utf-8",
+)
+NOTES
+}
+
 start_app_prepare() {
   [[ "$with_app" == "true" ]] || return 0
   [[ -n "${source_sha:-}" ]] || return 0
@@ -350,7 +441,9 @@ start_app_prepare() {
   app_prepare_pid="$!"
   printf 'release_app_prepare=started pid=%s log=%s\n' "$app_prepare_pid" "$app_prepare_log"
 }
+open_draft_release
 start_app_prepare
+start_app_finish
 
 # --------------------------------------------------------------- step: train
 
@@ -497,90 +590,35 @@ EOF
   step_done "deploy:execute"
 fi
 
-upload_release_input() {
-  # The signer reads the candidate archive and the release notes from the release
-  # itself, so both must be attached before it runs.  The asset name is set by
-  # the target file name, because gh keeps the local basename otherwise.
-  local source_path="$1" asset_name="$2" staging
-  [[ -f "$source_path" ]] || { printf 'release: missing release input %s\n' "$source_path" >&2; exit 1; }
-  staging="$(mktemp -d)"
-  cp "$source_path" "$staging/$asset_name"
-  gh release upload "$tag" "$staging/$asset_name" --clobber >/dev/null
-  rm -rf "$staging"
-  printf 'release_input_uploaded=%s\n' "$asset_name"
-}
-
-attach_app_update() {
-  [[ "$with_app" == "true" ]] || return 0
-  if [[ -n "$app_prepare_pid" ]]; then
-    step "publish: дождаться сборки обновления приложения"
-    if ! wait "$app_prepare_pid"; then
-      printf 'release: app update build failed; log %s\n' "$app_prepare_log" >&2
-      tail -20 "$app_prepare_log" >&2 || true
-      exit 1
-    fi
-    app_candidate_zip="$(sed -n 's/^prepared_candidate_zip=//p' "$app_prepare_log" | tail -1)"
-    grep -E '^prepared_app=|^source=' "$app_prepare_log" || true
-    step_done "publish:app-prepare"
-    app_prepare_pid=""
-  fi
-  step "publish: приложить входные файлы обновления"
-  [[ -n "${app_candidate_zip:-}" ]] \
-    || { printf 'release: the app build did not report a candidate archive\n' >&2; exit 1; }
-  upload_release_input "$app_candidate_zip" "GRAF-$version-candidate.zip"
-  [[ -n "${release_notes_file:-}" && -f "$release_notes_file" ]] \
-    && upload_release_input "$release_notes_file" "release-notes-v$version.md"
-  step_done "publish:app-inputs"
-  step "publish: подписать и приложить обновление приложения"
-  bash apps/macos/Installer/Scripts/release-app-update.sh \
-    --version "$version" --phase publish
-  step_done "publish:app-attach"
-  [[ -n "${release_notes_file:-}" ]] && rm -f "$release_notes_file"
-}
-
 # ------------------------------------------------------------- step: publish
 
 if should_run publish; then
   step "publish: тег, выпуск и подтверждение"
   [[ -n "${source_sha:-}" ]] || source_sha="$(git rev-parse HEAD)"
-  if gh release view "$tag" >/dev/null 2>&1; then
-    printf 'release_publish=already_published tag=%s\n' "$tag"
+  if [[ -n "${app_finish_pid:-}" ]]; then
+    step "publish: дождаться обновления приложения"
+    if ! wait "$app_finish_pid"; then
+      printf 'release: app update failed; log %s\n' "$app_finish_log" >&2
+      cat "$app_finish_log" >&2 || true
+      exit 1
+    fi
+    cat "$app_finish_log"
+    app_finish_pid=""
+    step_done "publish:app-attach"
+  fi
+  # The tag is created only now, after every check passed.  A draft release does
+  # not create it, so nothing is published while the release is still unproven.
+  if git ls-remote --tags origin "refs/tags/$tag" | grep -q .; then
+    printf 'release_tag=exists tag=%s\n' "$tag"
   else
-    notes="$(mktemp)"
-    release_notes_file="$notes"
-    python3 - "$version" "$notes" <<'PY'
-import pathlib
-import re
-import sys
-
-version, output = sys.argv[1], sys.argv[2]
-text = pathlib.Path("CHANGELOG.md").read_text(encoding="utf-8")
-heading = re.search(rf"^## \[{re.escape(version)}\][^\n]*\n", text, re.MULTILINE)
-if not heading:
-    raise SystemExit("release section missing from CHANGELOG.md")
-tail = text[heading.end():]
-next_heading = re.search(r"^## \[", tail, re.MULTILINE)
-section = tail[: next_heading.start()] if next_heading else tail
-section = re.sub(r"<!--.*?-->", "", section, flags=re.DOTALL).strip()
-pathlib.Path(output).write_text(
-    "## Что изменилось\n\n" + section + "\n\n## Проверка\n\nПолная проверка GitHub "
-    "`release-full` на точном SHA прошла. Обязательные проверки `governance-fast`, "
-    "`macos-pr` и `pr-metadata` пройдены. Выкатка подтверждена отчётом `deploy_result=pass`.\n",
-    encoding="utf-8",
-)
-PY
     git tag -a "$tag" -m "Релиз ${version}" "$source_sha"
     git push origin "$tag"
-    # The app update can only be attached while the release is still a draft,
-    # so the release is created as a draft and made public after every asset is
-    # attached.  Publishing first closed that window and left the app update
-    # unpublished even though its build had succeeded.
-    gh release create "$tag" --draft --title "${tag}" --notes-file "$notes" --target "$source_sha"
   fi
-  attach_app_update
   if [[ "$(gh release view "$tag" --json isDraft --jq .isDraft 2>/dev/null || true)" == "true" ]]; then
     gh release edit "$tag" --draft=false
     printf 'release_published=%s\n' "$tag"
+  else
+    printf 'release_publish=already_published tag=%s\n' "$tag"
   fi
   decision_file="${decision_file:-$(ls -t .dev/release/decisions/*.decision.json | head -1)}"
   infra/scripts/release-candidate.sh attest "$decision_file" \
