@@ -519,6 +519,11 @@ def dump(values):
         if isinstance(value, list):
             joined = ", ".join(json.dumps(item, ensure_ascii=False) for item in value)
             lines.append(f"{key}: [{joined}]" if value else f"{key}: []")
+        elif key in {"schema_version", "feature_id"} and str(value).isdigit():
+            # Номер версии схемы и номер доработки — числа, а не строки.  В
+            # кавычках их не принимает проверка архивного фрагмента, и следующий
+            # выпуск считает такой файл испорченным.
+            lines.append(f"{key}: {value}")
         else:
             lines.append(f"{key}: {json.dumps(str(value), ensure_ascii=False)}")
     return "\n".join(lines) + "\n"
