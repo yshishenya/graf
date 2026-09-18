@@ -171,6 +171,8 @@ final class EmbeddedCabinetNotificationSettingsBridgeTests: XCTestCase {
         XCTAssertFalse(presenter.save(value))
     }
 
+    // Выход из аккаунта во время запроса разрешения или проверки показа не
+    // оставляет следов: ни сообщения, ни карточки на экране.
     func testLogoutWhilePermissionOrTestIsPendingHasNoLateEffects() async throws {
         for action in ["permission", "test"] {
             let suite = "F260-\(UUID().uuidString)"
@@ -178,16 +180,26 @@ final class EmbeddedCabinetNotificationSettingsBridgeTests: XCTestCase {
             defer { defaults.removePersistentDomain(forName: suite) }
             let gate = NotificationSettingsGate()
             var sent: [String] = [], removed: [String] = []
-            let presenter = DesktopNotificationPresenter(store: .init(defaults: defaults), model: DesktopControlModel(), status: { .authorized },
-                submit: { request in sent.append(request.identifier); await gate.wait() },
+            var statusCalls = 0
+            let presenter = DesktopNotificationPresenter(store: .init(defaults: defaults), model: DesktopControlModel(),
+                status: {
+                    statusCalls += 1
+                    if statusCalls == 1 { await gate.wait() }
+                    return .authorized
+                },
+                submit: { request in sent.append(request.identifier) },
                 remove: { removed.append(contentsOf: $0 ?? sent) },
                 requestPermission: { await gate.wait(); return true })
             presenter.updateContext(user: "a", workspace: "w")
             let task = Task { if action == "test" { await presenter.test() } else { await presenter.enable() } }
             await gate.untilWaiting()
-            presenter.invalidate(); gate.release(); await task.value
+            presenter.invalidate()
+            gate.release()
+            await task.value
             XCTAssertEqual(presenter.message, "")
             XCTAssertTrue(sent.allSatisfy { removed.contains($0) })
+            XCTAssertFalse(presenter.card.isVisible, "\(action): карточка не появляется после выхода")
+            presenter.card.dismiss()
         }
     }
 }

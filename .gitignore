@@ -115,3 +115,7 @@ docs/evidence/**/private-appshots/
 
 # Local synthetic browser checks (reproducible from feature scripts).
 /output/playwright/
+
+# Рабочие каталоги инструментов агента (снимки, артефакты проверок).
+/.dsh-computer-use/
+/.dsh-vision-toolkit/

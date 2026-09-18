@@ -13,31 +13,30 @@ final class AppLifecycleWindowRegressionTests: XCTestCase {
             let range = try XCTUnwrap(Range(match.range, in: source))
             methods += String(source[range]).replacingOccurrences(of: "private func", with: "func") + "\n"
         }
-        let marginLine = try XCTUnwrap(source.split(separator: "\n").first { $0.contains("static let meetingDetectionPromptVisibleMargin:") })
+        let margins = source.split(separator: "\n")
+            .filter { $0.contains("static let meetingDetectionPromptVisibleMargin:")
+                   || $0.contains("static let meetingDetectionPromptTopInset:") }
+            .joined(separator: "\n")
         let script = """
         import AppKit
         struct Layout {
-        \(marginLine)
+        \(margins)
         \(methods)
         }
         let layout = Layout()
-        let size = NSSize(width: 320, height: 192)
+        let size = NSSize(width: 448, height: 192)
         let normal = NSRect(x: 0, y: 25, width: 1800, height: 1100)
         let fallback = layout.meetingDetectionPromptFrame(windowSize: size, visibleFrame: normal)
         assert(fallback.size == size)
-        assert(fallback.maxX == normal.maxX - 22 && fallback.maxY == normal.maxY - 22)
-        let anchor = NSRect(x: 1000, y: 1125, width: 24, height: 24)
-        let anchored = layout.meetingDetectionPromptFrame(windowSize: size, visibleFrame: normal, anchorFrame: anchor)
-        assert(anchored.midX == anchor.midX)
+        // Правый верхний угол: правый край рабочей области, верх ниже строки меню.
+        assert(fallback.maxX == normal.maxX - 10)
+        assert(normal.maxY - fallback.maxY == 29)
         for screen in [normal, NSRect(x: -1920, y: -1080, width: 1920, height: 1040),
                        NSRect(x: -240, y: 50, width: 240, height: 160),
                        NSRect(x: 0, y: 0, width: 30, height: 20)] {
-            for target in [nil, NSRect(x: screen.minX, y: screen.maxY, width: 24, height: 24),
-                           NSRect(x: screen.maxX - 24, y: screen.maxY, width: 24, height: 24)] as [NSRect?] {
-                let frame = layout.meetingDetectionPromptFrame(windowSize: size, visibleFrame: screen, anchorFrame: target)
-                assert(screen.contains(frame) && frame.width > 0 && frame.height > 0)
-                assert(frame == layout.meetingDetectionPromptFrame(windowSize: size, visibleFrame: screen, anchorFrame: target))
-            }
+            let frame = layout.meetingDetectionPromptFrame(windowSize: size, visibleFrame: screen)
+            assert(screen.contains(frame) && frame.width > 0 && frame.height > 0)
+            assert(frame == layout.meetingDetectionPromptFrame(windowSize: size, visibleFrame: screen))
         }
         """
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

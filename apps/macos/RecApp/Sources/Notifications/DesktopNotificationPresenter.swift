@@ -174,7 +174,7 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
     // Поверхности показа доступны проверкам: окно карточки измеряется на
     // настоящем окне, а индикатор проверяется по показанному состоянию.
     let card = DesktopNotificationCardPresenter()
-    let indicator = DesktopRecordingIndicatorPresenter()
+    private var lastRecordingNotice: RecordingNoticeState?
     private var cardTimer: Task<Void, Never>?
     private var cardDeadline: Date?
     private var dismissedCards: Set<String> = []
@@ -387,29 +387,17 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
         let status = await authorizationStatus()
         return status == .authorized || status == .provisional
     }
+    /// Проверка показа: показывает ту же карточку, что и настоящее напоминание.
+    /// Проверка не зависит от разрешения macOS и режима «Не беспокоить» — именно
+    /// эта поверхность и должна быть видна пользователю.
     public func test(isCurrent: () -> Bool = { true }) async {
         let epoch = authEpoch
-        // Проверка показа — системное действие и не требует аккаунта.
         await refreshPermission()
         guard epoch == authEpoch, isCurrent() else { return }
-        let authorized = await allowed()
-        guard epoch == authEpoch, isCurrent() else { return }
-        guard authorized else {
-            message = "Разрешите уведомления для GRAF в настройках macOS."; return
-        }
-        let content = UNMutableNotificationContent()
-        content.title = "Проверка уведомлений GRAF"
-        content.body = "Это тестовое сообщение. Управление записью всегда доступно в приложении."
-        if preferences.sound && !lastSnapshot.active { content.sound = .default }
-        let id = "graf.local.test." + UUID().uuidString
-        do {
-            try await addNotification(UNNotificationRequest(identifier: id, content: content, trigger: nil))
-            guard epoch == authEpoch, isCurrent() else { removeNotifications([id]); return }
-            message = "Тест передан macOS. Показ зависит от системных настроек и Фокусирования."
-        } catch {
-            guard epoch == authEpoch, isCurrent() else { removeNotifications([id]); return }
-            message = "Не удалось передать тест macOS. Повторите попытку."
-        }
+        card.presentNotice(title: "Проверка уведомлений GRAF",
+                           message: "Так выглядит напоминание о встрече.",
+                           duration: 15)
+        message = "Проверочное уведомление показано в правом верхнем углу."
     }
     private func scheduleReminders() async {
         guard !schedulingReminders else { return }
@@ -516,7 +504,13 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
             card.present(content,
                         dismissAfter: deadline,
                         onAction: { [weak self] action in self?.handleCardAction(action, eventID: event.eventId) },
-                        onTick: { [weak self] in self?.tickCard(eventID: event.eventId) })
+                        onTick: { [weak self] in self?.tickCard(eventID: event.eventId) },
+                        onExpire: { [weak self] in
+                            // Карточка закрылась сама: следующий показ решает
+                            // общая сверка, а не прежнее состояние окна.
+                            self?.presentedCardID = nil
+                            self?.reconcileCard()
+                        })
         }
         scheduleCardTimer(until: deadline, now: now)
     }
@@ -604,26 +598,45 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
         clearCard()
     }
 
-    /// Индикатор состояния записи поверх других окон. Показывается, пока запись
-    /// идёт или останавливается; после завершения скрывается.
-    public func updateRecordingIndicator(_ snapshot: DesktopControlSnapshot, elapsed: String) {
-        guard snapshot.active else {
-            indicator.hide()
-            return
-        }
-        let stopping = snapshot.stopping
-        indicator.show(indicatorState(stopping: stopping, elapsed: elapsed),
-                       onStop: { [weak self] in self?.model.send(.stop) },
-                       onOpen: { [weak self] in self?.onOpenCalendar?() },
-                       onRefresh: { [weak self] in
-                           guard let self, self.lastSnapshot.active else { return nil }
-                           return self.indicatorState(stopping: self.lastSnapshot.stopping,
-                                                      elapsed: self.model.elapsed())
-                       })
+    /// Состояние записи сообщается карточкой один раз на переход: «Запись
+    /// началась» и «Расшифровка началась». Постоянного окна поверх других окон
+    /// нет — состояние записи видно в строке меню и в окне приложения, а
+    /// висящее окно перекрывало содержимое соседних приложений.
+    func updateRecordingIndicator(_ snapshot: DesktopControlSnapshot, elapsed: String) {
+        let state = RecordingNoticeState(snapshot: snapshot)
+        defer { lastRecordingNotice = state }
+        guard let state, state != lastRecordingNotice else { return }
+        card.presentNotice(title: state.title, message: state.message)
     }
 
-    private func indicatorState(stopping: Bool, elapsed: String) -> DesktopRecordingIndicatorState {
-        stopping ? .transcribing(elapsed: elapsed) : .recording(elapsed: elapsed)
+    /// Запись идёт или расшифровка — то, о чём стоит сообщить один раз.
+    enum RecordingNoticeState: Equatable {
+        case recording
+        case transcribing
+        case finished
+
+        init?(snapshot: DesktopControlSnapshot) {
+            guard snapshot.session != nil else { return nil }
+            if snapshot.active { self = snapshot.stopping ? .transcribing : .recording }
+            else if snapshot.completedRecording { self = .finished }
+            else { return nil }
+        }
+
+        var title: String {
+            switch self {
+            case .recording: return "Запись началась"
+            case .transcribing: return "Расшифровка началась"
+            case .finished: return "Запись остановлена"
+            }
+        }
+
+        var message: String {
+            switch self {
+            case .recording: return "Остановить запись можно в строке меню."
+            case .transcribing: return "Запись сохраняется и уходит на расшифровку."
+            case .finished: return "Запись сохранена на этом Mac."
+            }
+        }
     }
 
     /// Карточка о проблеме с локальной записью: не зависит от системного баннера.
@@ -640,8 +653,8 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
 
     func dismissAllCards() {
         dismissedCards.removeAll()
+        lastRecordingNotice = nil
         clearCard()
-        indicator.hide()
     }
 
     public enum ResponseAction: Equatable { case calendar, join, settings, localRecording }

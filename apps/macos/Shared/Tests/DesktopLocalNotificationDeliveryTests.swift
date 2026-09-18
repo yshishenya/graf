@@ -12,29 +12,30 @@ final class DesktopLocalNotificationDeliveryTests: XCTestCase {
         return LocalDeliveryFixture(defaults: try XCTUnwrap(UserDefaults(suiteName: name)))
     }
 
-    func testGeneratedTestNotificationPresentsAndOpensSettings() async throws {
+    // Проверка показа из настроек показывает ту же карточку, что и настоящее
+    // напоминание: она не зависит от разрешения macOS и режима «Не беспокоить».
+    func testGeneratedTestNotificationShowsTheCardAndOpensSettings() async throws {
         let f = try fixture()
         let presenter = f.presenter()
         var preferences = presenter.preferences; preferences.sound = true
         XCTAssertTrue(presenter.save(preferences))
         var settingsOpened = 0
         presenter.onOpenSettings = { settingsOpened += 1 }
+        defer { presenter.card.dismiss() }
         await presenter.test()
-        let id = try XCTUnwrap(f.sent.last?.identifier)
-        XCTAssertNotEqual(id, "graf.local.test")
-        XCTAssertEqual(presenter.presentationOptions(for: id), [.banner, .list, .sound])
-        presenter.openResponse(id, actionIdentifier: UNNotificationDefaultActionIdentifier)
-        XCTAssertEqual(settingsOpened, 1)
-        var recording = f.snapshot([]); recording.stopping = true
-        await presenter.updateSnapshot(recording)?.value
-        XCTAssertEqual(presenter.presentationOptions(for: id), [.banner, .list])
-        for invalid in ["graf.local.test.", "graf.local.test.invalid", "foreign." + id] {
-            XCTAssertEqual(presenter.presentationOptions(for: invalid), [])
-            presenter.openResponse(invalid, actionIdentifier: UNNotificationDefaultActionIdentifier)
-        }
-        presenter.openResponse(id, actionIdentifier: UNNotificationDismissActionIdentifier)
-        XCTAssertEqual(settingsOpened, 1)
+        XCTAssertTrue(presenter.card.isVisible, "проверка обязана показать карточку")
+        XCTAssertEqual(presenter.card.presentedContent,
+                       .notice(title: "Проверка уведомлений GRAF",
+                               message: "Так выглядит напоминание о встрече.",
+                               actionTitle: nil))
+        let panel = try XCTUnwrap(presenter.card.window)
+        XCTAssertEqual(panel.identifier?.rawValue, "graf-notification-card")
+        XCTAssertEqual(panel.frame.width, DesktopNotificationCardPresenter.windowWidth)
+        XCTAssertFalse(panel.canBecomeKey)
+        // Системный баннер не отправляется: проверка показывает поверхность GRAF.
+        XCTAssertNil(f.sent.last?.identifier)
         XCTAssertTrue(DesktopNotificationPresenter.isTestNotification("graf.local.test"))
+        XCTAssertEqual(settingsOpened, 0)
     }
 
     func testNotificationTargetIsVisibleEvenWhenAnotherFailureLeadsItsGroup() throws {
