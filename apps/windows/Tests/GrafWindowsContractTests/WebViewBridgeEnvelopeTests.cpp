@@ -17,17 +17,21 @@ int main() {
     assert(bridge.validate(message) == BridgeValidationError::replay);
     message.messageId = 2; message.command = "local_recording"; message.payloadJson = R"({"action":"open","id":"known"})";
     assert(bridge.validate(message) == BridgeValidationError::none);
-    message.messageId = 3; message.command = "capture_start";
+    // Объявление оформления обязано проходить проверку: иначе живая смена темы
+    // в кабинете молча теряется, а окно остаётся прежним до перезагрузки.
+    message.messageId = 3; message.command = "app_appearance"; message.payloadJson = R"({"theme":"light"})";
+    assert(bridge.validate(message) == BridgeValidationError::none);
+    message.messageId = 4; message.command = "capture_start"; message.payloadJson = R"({"action":"open","id":"known"})";
     assert(bridge.validate(message) == BridgeValidationError::commandDenied);
-    message.messageId = 4; message.command = "request_app_quit";
+    message.messageId = 5; message.command = "request_app_quit";
     assert(bridge.validate(message) == BridgeValidationError::none);
     assert(WebView2Host::isAllowedQuitPayload(R"({"action":"quit"})"));
     assert(!WebView2Host::isAllowedQuitPayload(R"({"action":"terminate"})"));
-    message.messageId = 5; message.command = "request_app_quit"; message.origin = "https://evil.example";
+    message.messageId = 6; message.command = "request_app_quit"; message.origin = "https://evil.example";
     assert(bridge.validate(message) == BridgeValidationError::wrongOrigin);
-    message.messageId = 6; message.origin = "https://rec.2brain.pro"; message.payloadJson = std::string(65 * 1024, 'x');
+    message.messageId = 7; message.origin = "https://rec.2brain.pro"; message.payloadJson = std::string(65 * 1024, 'x');
     assert(bridge.validate(message) == BridgeValidationError::payloadTooLarge);
-    message.messageId = 7; message.payloadJson = "not-json";
+    message.messageId = 8; message.payloadJson = "not-json";
     assert(bridge.validate(message) == BridgeValidationError::malformedEnvelope);
     message.messageId = 8; message.payloadJson = "{}{}";
     assert(bridge.validate(message) == BridgeValidationError::malformedEnvelope);

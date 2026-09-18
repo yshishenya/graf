@@ -20,6 +20,8 @@
 #include <shellapi.h>
 
 #include <filesystem>
+#include <fstream>
+#include <winrt/Windows.Storage.h>
 #include <iterator>
 #include <cmath>
 #include <optional>
@@ -87,6 +89,33 @@ std::optional<std::wstring> chooseDownloadPath(
     dialog.nFilterIndex = 1;
     dialog.Flags = OFN_PATHMUSTEXIST | OFN_OVERWRITEPROMPT;
     return GetSaveFileNameW(&dialog) ? std::optional<std::wstring>(buffer) : std::nullopt;
+}
+
+// Мост между страницей и приложением молча отбрасывает всё, что не прошло
+// проверку, и без следа понять, где именно потерялось объявление, невозможно.
+// Журнал хранит только имена команд и причины отказа: ни текстов, ни адресов,
+// ни содержимого встреч здесь нет, поэтому он безопасен для диагностики.
+void logBridgeEvent(std::string_view event) {
+    static const std::filesystem::path path = [] {
+        try {
+            const auto folder = winrt::Windows::Storage::ApplicationData::Current().LocalFolder().Path();
+            return std::filesystem::path(folder.c_str()) / L"bridge.log";
+        } catch (...) {
+            return std::filesystem::path{};
+        }
+    }();
+    if (path.empty()) return;
+    try {
+        std::error_code error;
+        if (std::filesystem::exists(path, error) && std::filesystem::file_size(path, error) > 64u * 1024u) {
+            std::filesystem::remove(path, error);
+        }
+        std::ofstream log(path, std::ios::app);
+        if (!log) return;
+        log << GetTickCount64() << ' ' << event << '\n';
+    } catch (...) {
+        // Диагностика не имеет права мешать работе страницы.
+    }
 }
 
 std::optional<WebViewBridgeEnvelope> parseEnvelope(std::string_view json, std::string origin) {
@@ -770,9 +799,23 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
                     if (rawJson.size() > kBridgeMaxSerializedBytes) return;
                     const auto sourceUrl = utf8(args.Source());
                     if (sourceUrl != utf8(core.Source()) || sourceUrl != currentUrl_ ||
-                        policy_.evaluate(sourceUrl).decision != RouteDecision::allow) return;
+                        policy_.evaluate(sourceUrl).decision != RouteDecision::allow) {
+                        // Страница ушла вперёд приложения: сообщение приходит из
+                        // документа, который приложение ещё не считает текущим.
+                        logBridgeEvent(sourceUrl != currentUrl_ ? "stale-document" : "source-rejected");
+                        return;
+                    }
                     const auto message = parseEnvelope(rawJson, originFromUrl(sourceUrl));
-                    if (!message || bridge_.validate(*message) != BridgeValidationError::none) return;
+                    if (!message) {
+                        logBridgeEvent("envelope-rejected");
+                        return;
+                    }
+                    const auto validation = bridge_.validate(*message);
+                    if (validation != BridgeValidationError::none) {
+                        logBridgeEvent("validation-rejected " + message->command);
+                        return;
+                    }
+                    logBridgeEvent("accepted " + message->command);
                     if (message->command == "native_settings") {
                         // A settings request is answered only for the page it
                         // belongs to, and only for the document that was handed

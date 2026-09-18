@@ -170,7 +170,9 @@ BridgeValidationError WebViewBridge::validate(const WebViewBridgeEnvelope& messa
 }
 
 bool WebViewBridge::isAllowedWebCommand(std::string_view command) noexcept {
-    return command == "request_app_quit" || command == "local_recording";
+    // Объявление оформления идёт тем же конвертом, что и остальные команды:
+    // без него живая смена темы в кабинете до приложения не доходит.
+    return command == "request_app_quit" || command == "local_recording" || command == "app_appearance";
 }
 
 std::size_t WebViewBridge::jsonDepth(std::string_view payload) noexcept {
