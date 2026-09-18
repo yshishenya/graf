@@ -96,6 +96,16 @@ compensation fails, metadata-only `rollback-required.json` makes terminal
 `rollback_required` visible through `status`, including a first promotion with
 no previous active manifest.
 
+`status` also reports the installed application as `app.path` and
+`app.installed`. If `/Applications/GRAF Dev.app` is absent while a manifest is
+active, `status` adds a `warnings` entry naming that path. Do not trust a running
+process instead of this field: the lifecycle helper identifies the app by bundle
+path, so an app whose bundle was removed keeps running and still answers
+`running`. Restore it with `promote` of the unchanged active manifest from its
+exact-SHA checkout; the verified bundle of the active manifest stays in
+`artifacts/<manifest-id>/GRAF Dev.app`. Never repair the installation by copying
+a bundle by hand.
+
 `rollback` selects the manifest's parent unless an explicit manifest ID is
 provided. `reset-data` is intentionally limited to metadata-only Dev state and
 requires `--confirm-dev-reset`; it never removes production or application

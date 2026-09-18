@@ -42,6 +42,7 @@ MANIFEST_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 APP_BUNDLE_ID = "pro.2brain.graf.dev"
 APP_CHANNEL = "dev"
 PRODUCTION_APP_PATH = Path("/Applications/GRAF.app")
+DEV_APP_PATH = Path("/Applications/GRAF Dev.app")
 SCHEMA_VERSION = "dev-manifest.v1"
 POINTER_VERSION = "dev-active-pointer.v1"
 PROCESS_STOP_TIMEOUT_SECONDS = 10
@@ -194,6 +195,28 @@ def state_dir(*, live: bool = False) -> Path:
     if path == Path("/") or path == Path.home():
         raise HarnessError("Dev state path is too broad: " + str(path))
     return path
+
+
+def _dev_app_destination() -> Path:
+    """Resolve the installed Dev app path.
+
+    The destination is fixed at /Applications/GRAF Dev.app; tests and operators
+    can still inject an explicit path through GRAF_DEV_INSTALL_PATH.  Every
+    caller resolves it through this helper so the reported state and the mutated
+    path can never drift apart.
+    """
+    return Path(os.environ.get("GRAF_DEV_INSTALL_PATH", str(DEV_APP_PATH)))
+
+
+def _installed_app_state() -> Dict[str, Any]:
+    """Report whether the installed Dev app is present, without launching it.
+
+    The process check in dev-app-lifecycle.swift matches a running process by
+    its bundle path, so it still answers ``running`` after the bundle is gone.
+    Presence on disk is therefore the only signal that notices a lost install.
+    """
+    destination = _dev_app_destination()
+    return {"path": str(destination), "installed": destination.is_dir()}
 
 
 def _assert_dev_environment() -> None:
@@ -1569,7 +1592,7 @@ class GrafLocalAdapter:
 
     def _install_app(self, manifest: Dict[str, Any], env: Dict[str, str]) -> None:
         env = dict(env)
-        env["GRAF_DEV_INSTALL_PATH"] = os.environ.get("GRAF_DEV_INSTALL_PATH", "/Applications/GRAF Dev.app")
+        env["GRAF_DEV_INSTALL_PATH"] = str(_dev_app_destination())
         env["GRAF_DEV_APP_SOURCE_BUNDLE"] = str(self._checked_app_bundle(manifest))
         _run_command(["sh", str(self.install_app_script)], cwd=self.root, env=env)
 
@@ -1635,7 +1658,7 @@ class GrafLocalAdapter:
                 raise HarnessError("LaunchServices registration failed") from exc
 
     def _snapshot_app(self) -> Optional[Path]:
-        destination = Path(os.environ.get("GRAF_DEV_INSTALL_PATH", "/Applications/GRAF Dev.app"))
+        destination = _dev_app_destination()
         self._assert_dev_app_destination(destination)
         if not destination.exists():
             return None
@@ -1658,7 +1681,7 @@ class GrafLocalAdapter:
             raise HarnessError("Dev destination cannot be the production GRAF.app or a child path")
 
     def _restore_app(self, backup: Optional[Path]) -> None:
-        destination = Path(os.environ.get("GRAF_DEV_INSTALL_PATH", "/Applications/GRAF Dev.app"))
+        destination = _dev_app_destination()
         self._assert_dev_app_destination(destination)
         self._terminate_dev_app(destination)
         if destination.exists():
@@ -1822,7 +1845,7 @@ print(json.dumps({"heads": s.get_heads(), "parents": {r.revision: list(r._normal
                 )
 
     def _schema_stop(self, manifest):
-        self._terminate_dev_app(Path("/Applications/GRAF Dev.app"))
+        self._terminate_dev_app(_dev_app_destination())
         self._stop_previous()
         self._schema_compose(manifest, "stop", "--timeout", "60")
         journal = _read_schema_transition(self.state)
@@ -1904,7 +1927,7 @@ print(json.dumps({"heads": s.get_heads(), "parents": {r.revision: list(r._normal
         self._schema_phase(journal, "writers_may_have_started" if forward else "previous_writers_may_have_started")
         self._schema_start_authorized(adapter, chosen, journal)
         if forward or journal["app_was_running"]:
-            self._launch_dev_app(Path("/Applications/GRAF Dev.app"))
+            self._launch_dev_app(_dev_app_destination())
         checks = adapter.smoke(chosen)
         self._assert_transition_smoke(checks, app_was_running=forward or journal["app_was_running"])
         result = dict(chosen, status="active", health={"result": "pass", "checked_at": now(), "checks": checks})
@@ -1939,7 +1962,7 @@ print(json.dumps({"heads": s.get_heads(), "parents": {r.revision: list(r._normal
         journal = {"schema_version": "dev-schema-transition.v1", "operation_id": operation,
                    "previous": previous, "target": target, "previous_checkout": str(previous_adapter.root),
                    "target_checkout": str(self.root), "previous_runtime": _read_json(self._runtime_record()), "volumes": volumes, "migration_path": path,
-                   "app_was_running": self._app_is_running(Path("/Applications/GRAF Dev.app")),
+                   "app_was_running": self._app_is_running(_dev_app_destination()),
                    "controller_pid": os.getpid(), "controller_start": self._process_start_token(os.getpid()), "snapshots": {}}
         self._schema_phase(journal, "prepared")
         try:
@@ -1958,7 +1981,7 @@ print(json.dumps({"heads": s.get_heads(), "parents": {r.revision: list(r._normal
             self._install_app(target, self._env(target))
             self._schema_phase(journal, "writers_may_have_started")
             self._schema_start_authorized(self, target, journal)
-            self._launch_dev_app(Path("/Applications/GRAF Dev.app"))
+            self._launch_dev_app(_dev_app_destination())
             checks = self.smoke(target)
             self._assert_transition_smoke(checks)
             self._schema_phase(journal, "verified")
@@ -2017,7 +2040,7 @@ print(json.dumps({"heads": s.get_heads(), "parents": {r.revision: list(r._normal
             # left to the ordinary path below.
             self._ensure_rollback_archive(previous_manifest)
             return self._promote_schema(previous_manifest, manifest, previous_adapter)
-        app_destination = Path(os.environ.get("GRAF_DEV_INSTALL_PATH", "/Applications/GRAF Dev.app"))
+        app_destination = _dev_app_destination()
         previous_app_was_running = self._app_is_running(app_destination)
         app_backup = self._snapshot_app()
         try:
@@ -2110,7 +2133,7 @@ print(json.dumps({"heads": s.get_heads(), "parents": {r.revision: list(r._normal
         previous_env = previous_adapter._env(active)
         previous_adapter._compose_config(previous_env)
         previous_adapter._assert_manifest_images(active, previous_env)
-        app_destination = Path(os.environ.get("GRAF_DEV_INSTALL_PATH", "/Applications/GRAF Dev.app"))
+        app_destination = _dev_app_destination()
         previous_app_was_running = self._app_is_running(app_destination)
         app_backup = self._snapshot_app()
         try:
@@ -2231,7 +2254,7 @@ print(json.dumps({"heads": s.get_heads(), "parents": {r.revision: list(r._normal
             checks["representative_api"] = "pass" if representative_status in {200, 401, 403} else "fail"
         except HarnessError:
             checks["representative_api"] = "fail"
-        app_path = Path(os.environ.get("GRAF_DEV_INSTALL_PATH", "/Applications/GRAF Dev.app"))
+        app_path = _dev_app_destination()
         info_plist = app_path / "Contents" / "Info.plist"
         try:
             app_sha = _run_command(["plutil", "-extract", "GRAFSourceSHA", "raw", str(info_plist)], cwd=self.root)
@@ -2653,13 +2676,26 @@ def operation_status(args: argparse.Namespace) -> Dict[str, Any]:
     artifacts = root / "artifacts"
     if artifacts.is_dir():
         retention["artifacts_bytes"] = sum(_path_bytes(child) for child in artifacts.iterdir())
-    return {
+    app_state = _installed_app_state()
+    payload = {
         "operation": "status",
         "status": active.get("status", "active"),
         "state_dir": str(root),
         "manifest": active,
         "retention": retention,
+        "app": app_state,
     }
+    # A process whose bundle is already gone still answers `running`, because
+    # the lifecycle helper matches it by bundle path.  Without an explicit
+    # presence report the loss stays invisible until the next promotion
+    # replaces the whole application.
+    if not app_state["installed"]:
+        payload["warnings"] = [
+            f"installed Dev app is missing at {app_state['path']}; re-promote the "
+            "active manifest from its exact-SHA checkout to restore it before "
+            "manual checks"
+        ]
+    return payload
 
 
 def operation_prune(args: argparse.Namespace) -> Dict[str, Any]:
