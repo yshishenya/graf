@@ -21,6 +21,11 @@ fi
 # fragments. Never invalidate a candidate that has already been frozen for
 # this exact source tree; create a new candidate only after the release-prep
 # commit is complete.
+#
+# A candidate left behind by a release that never reached publication carries
+# an abandonment record written by that failed release.  The frozen record and
+# its identity digest stay untouched; only the retry is allowed through,
+# otherwise a failure would force manual cleanup before the next attempt.
 current_sha="$(git rev-parse HEAD 2>/dev/null || true)"
 if ! python3 - "$PWD/.dev/release/candidates" "$current_sha" <<'PY'
 import json
@@ -38,11 +43,19 @@ for path in sorted(candidate_dir.glob("rc-*.json")):
         raise SystemExit(f"error: release candidate is unreadable: {path}: {exc}")
     if not isinstance(data, dict):
         raise SystemExit(f"error: release candidate is malformed: {path}")
-    if data.get("status") == "frozen" and data.get("source_sha") == current_sha:
-        raise SystemExit(
-            f"error: frozen release candidate targets current HEAD: {path}; "
-            "validate or invalidate it before preparing a release"
+    if data.get("status") != "frozen" or data.get("source_sha") != current_sha:
+        continue
+    abandoned = path.with_name("." + path.name + ".abandoned.json")
+    if abandoned.exists():
+        print(
+            f"release_candidate_abandoned={path.name} "
+            f"record={abandoned.name} reason=unpublished-release"
         )
+        continue
+    raise SystemExit(
+        f"error: frozen release candidate targets current HEAD: {path}; "
+        "validate or invalidate it before preparing a release"
+    )
 PY
 then
   exit 1

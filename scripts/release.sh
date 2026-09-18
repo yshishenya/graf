@@ -62,6 +62,7 @@ root="$(git rev-parse --show-toplevel)"
 cd "$root"
 tag="v${version}"
 release_published=false
+candidate_file=""
 
 cleanup_unpublished_release() {
   local status=$?
@@ -75,7 +76,63 @@ cleanup_unpublished_release() {
     git push origin ":refs/tags/$tag" >/dev/null 2>&1 || true
     git tag -d "$tag" >/dev/null 2>&1 || true
   fi
+  abandon_unpublished_candidate
   return "$status"
+}
+
+# A frozen candidate is an immutable record and is never rewritten.  Preparing
+# a release refuses to start while a frozen candidate still targets the current
+# tree, which is correct while a release is running but blocks the retry after a
+# failure.  Record the abandonment as a separate file next to the candidate so
+# the retry can proceed without touching the frozen record or its identity
+# digest.
+abandon_unpublished_candidate() {
+  [[ -n "$candidate_file" && -f "$candidate_file" ]] || return 0
+  python3 - "$candidate_file" "$tag" <<'PY' || true
+import datetime as dt
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+tag = sys.argv[2]
+try:
+    candidate = json.loads(path.read_text(encoding="utf-8"))
+except (OSError, UnicodeError, json.JSONDecodeError):
+    raise SystemExit(0)
+if candidate.get("status") != "frozen":
+    raise SystemExit(0)
+record = path.with_name("." + path.name + ".abandoned.json")
+if record.exists():
+    raise SystemExit(0)
+identity = path.with_name("." + path.name + ".identity.json")
+record.write_text(
+    json.dumps(
+        {
+            "candidate_id": candidate.get("candidate_id"),
+            "candidate_path": str(path.resolve()),
+            "candidate_digest": identity.read_text(encoding="utf-8").strip()
+            if identity.exists()
+            else None,
+            "release_tag": tag,
+            "reason": f"выпуск {tag} не дошёл до публикации; кандидат оставлен без выпуска",
+            "abandoned_at": dt.datetime.now(dt.timezone.utc)
+            .replace(microsecond=0)
+            .isoformat()
+            .replace("+00:00", "Z"),
+        },
+        ensure_ascii=False,
+        indent=2,
+        sort_keys=True,
+    )
+    + "\n",
+    encoding="utf-8",
+)
+print(
+    f"release_cleanup=abandoned_candidate candidate={path.name} record={record.name}",
+    file=sys.stderr,
+)
+PY
 }
 trap cleanup_unpublished_release EXIT
 
