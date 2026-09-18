@@ -668,7 +668,12 @@ jobs:
               "server-shard-3-result.json": "server",
               "macos-result.json": "macos_app",
           }
-          files = {path.name: path for path in root.glob("*-result.json")}
+          # Artifacts keep the directory layout they were uploaded with, so the
+          # coverage evidence arrives under test-timings/ while the component
+          # results sit at the root.  Index every file by name instead of
+          # assuming one flat directory.
+          by_name = {path.name: path for path in root.rglob("*") if path.is_file()}
+          files = {name: path for name, path in by_name.items() if name.endswith("-result.json")}
           if set(files) != set(expected):
               raise SystemExit(f"unexpected component result set: {sorted(files)}")
           requested = os.environ["REQUESTED_SHA"].lower()
@@ -687,9 +692,9 @@ jobs:
           full_lists = {}
           union = []
           for index in range(4):
-              full_path = root / f"parallel-full-nodeids-{index}.txt"
-              shard_path = root / f"shard-nodeids-{index}.txt"
-              if not full_path.is_file() or not shard_path.is_file():
+              full_path = by_name.get(f"parallel-full-nodeids-{index}.txt")
+              shard_path = by_name.get(f"shard-nodeids-{index}.txt")
+              if full_path is None or shard_path is None:
                   raise SystemExit(f"shard coverage evidence missing for shard {index}")
               full = [line for line in full_path.read_text(encoding="utf-8").splitlines() if line]
               shard = [line for line in shard_path.read_text(encoding="utf-8").splitlines() if line]

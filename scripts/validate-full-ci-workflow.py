@@ -31,8 +31,12 @@ RESULT_FILES = (
 # The parts may only prove completeness together, so the aggregating job must
 # keep every one of these fail-closed coverage checks.
 COVERAGE_PROOF = (
-    'root / f"parallel-full-nodeids-{index}.txt"',
-    'root / f"shard-nodeids-{index}.txt"',
+    # Artifacts keep the upload layout, so the coverage files arrive under
+    # test-timings/.  A flat-directory lookup silently misses them and the
+    # aggregate fails after a full, expensive release run.
+    'by_name = {path.name: path for path in root.rglob("*") if path.is_file()}',
+    'by_name.get(f"parallel-full-nodeids-{index}.txt")',
+    'by_name.get(f"shard-nodeids-{index}.txt")',
     "shard coverage evidence missing for shard",
     "shards collected different test sets",
     "shard union does not cover the full parallel test set",
@@ -247,10 +251,11 @@ jobs:
           merge-multiple: true
       - run: |
           python3 - "$component_dir" <<'PY'
+          by_name = {path.name: path for path in root.rglob("*") if path.is_file()}
           for index in range(4):
-              full_path = root / f"parallel-full-nodeids-{index}.txt"
-              shard_path = root / f"shard-nodeids-{index}.txt"
-              if not full_path.is_file() or not shard_path.is_file():
+              full_path = by_name.get(f"parallel-full-nodeids-{index}.txt")
+              shard_path = by_name.get(f"shard-nodeids-{index}.txt")
+              if full_path is None or shard_path is None:
                   raise SystemExit(f"shard coverage evidence missing for shard {index}")
               full_lists[index] = full
               union.extend(shard)
