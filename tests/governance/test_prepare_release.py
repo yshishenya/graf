@@ -682,3 +682,45 @@ def test_prepare_release_merges_same_feature_across_failed_attempt_and_current_w
     assert "Старая запись из провалившегося выпуска" in section, section
     assert "Новая работа по той же доработке" in section, section
     assert "сведены" in output.lower() or "merged" in output.lower(), output
+
+
+def test_prepare_release_proceeds_after_failed_release_abandoned_its_candidate(
+    tmp_path: Path,
+) -> None:
+    """Повторный запуск после провала не должен упираться в замороженного кандидата.
+
+    Кандидат — неизменяемая запись, поэтому провалившийся выпуск оставляет рядом
+    отдельную отметку об отмене. Сама запись и её контрольная сумма не трогаются,
+    а подготовка следующего выпуска проходит.
+    """
+    root = fixture(tmp_path)
+    subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=root, check=True)
+    subprocess.run(["git", "config", "user.name", "Release Test"], cwd=root, check=True)
+    subprocess.run(["git", "add", "."], cwd=root, check=True)
+    subprocess.run(["git", "commit", "-qm", "fixture"], cwd=root, check=True)
+    sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
+    candidate = root / ".dev" / "release" / "candidates" / "rc-current.json"
+    candidate.parent.mkdir(parents=True)
+    frozen = f'{{"status": "frozen", "source_sha": "{sha}"}}\n'
+    candidate.write_text(frozen, encoding="utf-8")
+    (candidate.parent / ".rc-current.json.identity.json").write_text(
+        '{"digest": "sha256:stub"}\n', encoding="utf-8"
+    )
+    (candidate.parent / ".rc-current.json.abandoned.json").write_text(
+        '{"reason": "выпуск не дошёл до публикации"}\n', encoding="utf-8"
+    )
+
+    result = subprocess.run(
+        ["bash", "scripts/prepare-release.sh", "2099.01.01.5"],
+        cwd=root,
+        text=True,
+        capture_output=True,
+        check=False,
+        env=release_env(),
+    )
+
+    output = result.stdout + result.stderr
+    assert result.returncode == 0, output
+    assert "release_candidate_abandoned=rc-current.json" in output, output
+    assert candidate.read_text(encoding="utf-8") == frozen, "неизменяемая запись изменена"
+    assert (root / "CHANGELOG.md").read_text(encoding="utf-8").count("## [2099.01.01.5]") == 1
