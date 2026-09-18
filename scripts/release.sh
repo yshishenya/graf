@@ -61,6 +61,23 @@ done
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
 tag="v${version}"
+release_published=false
+
+cleanup_unpublished_release() {
+  local status=$?
+  [[ "$release_published" == "true" ]] && return "$status"
+  # The tag is created early so the app update can be signed and uploaded next
+  # to the release train instead of after the deploy.  A release that fails
+  # before it becomes public must not leave that tag behind: an unpublished tag
+  # is visible to everyone and would have to be removed by hand.
+  if git ls-remote --tags origin "refs/tags/$tag" 2>/dev/null | grep -q .; then
+    printf 'release_cleanup=deleting_unpublished_tag tag=%s\n' "$tag" >&2
+    git push origin ":refs/tags/$tag" >/dev/null 2>&1 || true
+    git tag -d "$tag" >/dev/null 2>&1 || true
+  fi
+  return "$status"
+}
+trap cleanup_unpublished_release EXIT
 
 step_index=0
 step_started=0
@@ -396,6 +413,16 @@ open_draft_release() {
   notes_python
   gh release create "$tag" --draft --title "${tag}" --notes-file "$release_notes_file" --target "$source_sha" >/dev/null
   printf 'release_draft=created tag=%s\n' "$tag"
+  # The update signer independently requires the tag to exist at the built
+  # commit, so the tag is created here and removed again if the release fails
+  # before it becomes public.
+  if git ls-remote --tags origin "refs/tags/$tag" 2>/dev/null | grep -q .; then
+    printf 'release_tag=exists tag=%s\n' "$tag"
+  else
+    git tag -a "$tag" -m "Релиз ${version}" "$source_sha"
+    git push origin "$tag"
+    printf 'release_tag=created tag=%s\n' "$tag"
+  fi
 }
 
 notes_python() {
@@ -576,6 +603,14 @@ fi
 if should_run publish; then
   step "publish: тег, выпуск и подтверждение"
   [[ -n "${source_sha:-}" ]] || source_sha="$(git rev-parse HEAD)"
+  # A resumed run may reach this step without having opened the draft: the draft
+  # and the tag are created together right after the preparation, and that only
+  # happens when the source is known.
+  if ! gh release view "$tag" >/dev/null 2>&1; then
+    open_draft_release
+    gh release view "$tag" >/dev/null 2>&1 \
+      || { printf 'release: could not open the release draft %s\n' "$tag" >&2; exit 1; }
+  fi
   if [[ -n "${app_work_pid:-}" ]]; then
     step "publish: дождаться обновления приложения"
     if ! wait "$app_work_pid"; then
@@ -597,8 +632,10 @@ if should_run publish; then
   fi
   if [[ "$(gh release view "$tag" --json isDraft --jq .isDraft 2>/dev/null || true)" == "true" ]]; then
     gh release edit "$tag" --draft=false
+    release_published=true
     printf 'release_published=%s\n' "$tag"
   else
+    release_published=true
     printf 'release_publish=already_published tag=%s\n' "$tag"
   fi
   decision_file="${decision_file:-$(ls -t .dev/release/decisions/*.decision.json | head -1)}"
