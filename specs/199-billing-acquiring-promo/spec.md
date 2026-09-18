@@ -221,3 +221,11 @@ immutable checkout request с тем же ключом и не создаёт в
   action.
 - Production provider credentials and merchant decisions are supplied outside
   Git and are not written to evidence.
+
+## Legacy Impact
+
+Classification: `untouched`
+
+Feature 272 only removed references to the retired billing emergency-stop
+setting from this specification. No legacy compatibility surface, migration,
+API shape or runtime path described here is changed by that edit.
