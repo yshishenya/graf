@@ -335,6 +335,15 @@ app_prepare_log=""
 start_app_prepare() {
   [[ "$with_app" == "true" ]] || return 0
   [[ -n "${source_sha:-}" ]] || return 0
+  # A resumed release must not rebuild an app that is already notarized for this
+  # exact source.  The notary guard rejects a second attempt for the same
+  # version, so the release stopped on a build that had already succeeded.
+  local built="$root/apps/macos/.build/notary/$version-$source_sha/final/GRAF-$version-candidate.zip"
+  if [[ -f "$built" && -f "$root/apps/macos/.build/release-state/$version.handoff" ]]; then
+    app_candidate_zip="$built"
+    printf 'release_app_prepare=reused source=%s\n' "$source_sha"
+    return 0
+  fi
   app_prepare_log="$(mktemp)"
   bash apps/macos/Installer/Scripts/release-app-update.sh \
     --version "$version" --phase prepare >"$app_prepare_log" 2>&1 &
@@ -396,6 +405,24 @@ if should_run train; then
   step_done train
 fi
 
+download_evidence() {
+  # GitHub intermittently fails this download with a TLS handshake timeout, and
+  # that transient failure used to end the whole release after every check had
+  # already passed.  Retry with a growing pause before giving up.
+  local run_id="$1" artifact="$2" work="$3" attempt delay=5
+  for attempt in 1 2 3 4 5; do
+    if gh run download "$run_id" -n "$artifact" -D "$work"; then
+      [[ "$attempt" -gt 1 ]] && printf 'release_evidence_attempts=%s\n' "$attempt"
+      return 0
+    fi
+    printf 'release: evidence download attempt %s of 5 failed; retrying in %ss\n' "$attempt" "$delay" >&2
+    sleep "$delay"
+    delay=$((delay * 2))
+  done
+  printf 'release: could not download %s after 5 attempts\n' "$artifact" >&2
+  return 1
+}
+
 # ------------------------------------------------------------------ step: ci
 
 if should_run ci; then
@@ -415,7 +442,7 @@ if should_run ci; then
   gh run watch "$run_id" --exit-status --interval 60
   mkdir -p .dev/ci-evidence
   work="$(mktemp -d)"
-  gh run download "$run_id" -n "graf-full-ci-${candidate_id}" -D "$work"
+  download_evidence "$run_id" "graf-full-ci-${candidate_id}" "$work"
   cp "$work/authoritative-${candidate_id}.json" ".dev/ci-evidence/authoritative-${candidate_id}.json"
   rm -rf "$work"
   printf 'release_evidence=.dev/ci-evidence/authoritative-%s.json\n' "$candidate_id"
