@@ -347,8 +347,10 @@ fi
 # The app update needs a build, a notarization wait and Apple trust checks, and
 # it does not depend on the release train.  Starting it here lets that work
 # overlap the train, the full check and the deploy instead of adding to them.
-app_work_pid=""
-app_work_log=""
+app_build_pid=""
+app_build_log=""
+app_sign_pid=""
+app_sign_log=""
 upload_release_input() {
   # The signer reads the candidate archive and the release notes from the release
   # itself, so both must be attached before it runs.  The asset name is set by
@@ -362,12 +364,9 @@ upload_release_input() {
   printf 'release_input_uploaded=%s\n' "$asset_name"
 }
 
-app_work() {
-  # The whole app update runs in one background job next to the release train:
-  # build, notarize, attach the inputs and sign.  It cannot wait for a process
-  # the main shell started — a subshell may only wait for its own children —
-  # so the build runs here too.  It must not print step markers: the main flow
-  # prints the single step that waits for it.
+app_build() {
+  # The build and the notarization wait need no tag, so they start right after
+  # the preparation and overlap the whole train and full check.
   if [[ -f "$root/apps/macos/.build/notary/$version-$source_sha/final/GRAF-$version-candidate.zip" \
      && -f "$root/apps/macos/.build/release-state/$version.handoff" ]]; then
     printf 'release_app_prepare=reused source=%s\n' "$source_sha"
@@ -375,6 +374,12 @@ app_work() {
     bash apps/macos/Installer/Scripts/release-app-update.sh \
       --version "$version" --phase prepare || return 1
   fi
+  printf 'release_app_build=done version=%s\n' "$version"
+}
+
+app_sign() {
+  # Signing and uploading need the release tag, and the tag may only exist after
+  # the train is attested, so this half runs next to the production deploy.
   app_candidate_zip="$root/apps/macos/.build/notary/$version-$source_sha/final/GRAF-$version-candidate.zip"
   [[ -f "$app_candidate_zip" ]] \
     || { printf 'release: the app build produced no candidate archive\n'; return 1; }
@@ -386,16 +391,24 @@ app_work() {
     --version "$version" --phase publish || return 1
   [[ -n "${release_notes_file:-}" ]] && rm -f "$release_notes_file"
   printf 'release_app_update=done version=%s\n' "$version"
-  return 0
 }
 
-start_app_work() {
+start_app_build() {
   [[ "$with_app" == "true" ]] || return 0
   [[ -n "${source_sha:-}" ]] || return 0
-  app_work_log="$(mktemp)"
-  app_work >"$app_work_log" 2>&1 &
-  app_work_pid="$!"
-  printf 'release_app_work=started pid=%s\n' "$app_work_pid"
+  app_build_log="$(mktemp)"
+  app_build >"$app_build_log" 2>&1 &
+  app_build_pid="$!"
+  printf 'release_app_build=started pid=%s\n' "$app_build_pid"
+}
+
+start_app_sign() {
+  [[ "$with_app" == "true" ]] || return 0
+  [[ -n "${source_sha:-}" ]] || return 0
+  app_sign_log="$(mktemp)"
+  app_sign >"$app_sign_log" 2>&1 &
+  app_sign_pid="$!"
+  printf 'release_app_sign=started pid=%s\n' "$app_sign_pid"
 }
 
 open_draft_release() {
@@ -413,16 +426,6 @@ open_draft_release() {
   notes_python
   gh release create "$tag" --draft --title "${tag}" --notes-file "$release_notes_file" --target "$source_sha" >/dev/null
   printf 'release_draft=created tag=%s\n' "$tag"
-  # The update signer independently requires the tag to exist at the built
-  # commit, so the tag is created here and removed again if the release fails
-  # before it becomes public.
-  if git ls-remote --tags origin "refs/tags/$tag" 2>/dev/null | grep -q .; then
-    printf 'release_tag=exists tag=%s\n' "$tag"
-  else
-    git tag -a "$tag" -m "Релиз ${version}" "$source_sha"
-    git push origin "$tag"
-    printf 'release_tag=created tag=%s\n' "$tag"
-  fi
 }
 
 notes_python() {
@@ -451,7 +454,7 @@ NOTES
 }
 
 open_draft_release
-start_app_work
+start_app_build
 
 # --------------------------------------------------------------- step: train
 
@@ -566,6 +569,29 @@ if should_run decide; then
   decision_file="$(ls -t .dev/release/decisions/*.decision.json | head -1)"
   printf 'release_decision=%s\n' "$decision_file"
   step_done decide
+  # The tag may only exist once the train is attested, and the update signer
+  # requires it, so the tag is created here: late enough for the attestation,
+  # early enough for the signing to overlap the production deploy.  A release
+  # that fails before it becomes public removes the tag again.
+  if [[ -n "${source_sha:-}" ]]; then
+    if git ls-remote --tags origin "refs/tags/$tag" 2>/dev/null | grep -q .; then
+      printf 'release_tag=exists tag=%s\n' "$tag"
+    else
+      git tag -a "$tag" -m "Релиз ${version}" "$source_sha"
+      git push origin "$tag"
+      printf 'release_tag=created tag=%s\n' "$tag"
+    fi
+  fi
+  if [[ -n "${app_build_pid:-}" ]]; then
+    if ! wait "$app_build_pid"; then
+      printf 'release: app build failed; log %s\n' "$app_build_log" >&2
+      cat "$app_build_log" >&2 || true
+      exit 1
+    fi
+    cat "$app_build_log"
+    app_build_pid=""
+  fi
+  start_app_sign
 fi
 
 # -------------------------------------------------------------- step: deploy
@@ -611,24 +637,21 @@ if should_run publish; then
     gh release view "$tag" >/dev/null 2>&1 \
       || { printf 'release: could not open the release draft %s\n' "$tag" >&2; exit 1; }
   fi
-  if [[ -n "${app_work_pid:-}" ]]; then
+  if [[ -n "${app_sign_pid:-}" ]]; then
     step "publish: дождаться обновления приложения"
-    if ! wait "$app_work_pid"; then
-      printf 'release: app update failed; log %s\n' "$app_work_log" >&2
-      cat "$app_work_log" >&2 || true
+    if ! wait "$app_sign_pid"; then
+      printf 'release: app update failed; log %s\n' "$app_sign_log" >&2
+      cat "$app_sign_log" >&2 || true
       exit 1
     fi
-    cat "$app_work_log"
-    app_work_pid=""
+    cat "$app_sign_log"
+    app_sign_pid=""
     step_done "publish:app-attach"
   fi
-  # The tag is created only now, after every check passed.  A draft release does
-  # not create it, so nothing is published while the release is still unproven.
-  if git ls-remote --tags origin "refs/tags/$tag" | grep -q .; then
-    printf 'release_tag=exists tag=%s\n' "$tag"
-  else
+  if ! git ls-remote --tags origin "refs/tags/$tag" 2>/dev/null | grep -q .; then
     git tag -a "$tag" -m "Релиз ${version}" "$source_sha"
     git push origin "$tag"
+    printf 'release_tag=created tag=%s\n' "$tag"
   fi
   if [[ "$(gh release view "$tag" --json isDraft --jq .isDraft 2>/dev/null || true)" == "true" ]]; then
     gh release edit "$tag" --draft=false
