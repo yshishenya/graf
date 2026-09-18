@@ -9,6 +9,12 @@
   </Properties>
   <Dependencies>
     <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19045.0" MaxVersionTested="10.0.26100.0" />
+    <!-- Приложение собрано с динамической библиотекой времени выполнения C++,
+         поэтому пакет обязан объявить её платформу: без объявления на машине без
+         установленного распространяемого пакета Visual C++ приложение не
+         запустится, а установка об этом не предупредит. -->
+    <PackageDependency Name="Microsoft.VCLibs.140.00.UWPDesktop" MinVersion="14.0.30035.0"
+                       Publisher="CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US" />
   </Dependencies>
   <Resources><Resource Language="x-generate" /></Resources>
   <Capabilities>
