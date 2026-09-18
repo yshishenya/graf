@@ -3065,6 +3065,7 @@ private struct MeetingPromptKeyboardNavigation: ViewModifier {
     }
 }
 
+@MainActor
 private struct MeetingDetectionPromptView: View {
     private static let countdownSeconds: TimeInterval = 8
 
@@ -3209,7 +3210,9 @@ private struct MeetingDetectionPromptView: View {
     }
 
     /// Тёмное оформление берётся у системы: карточка должна совпадать с
-    /// поверхностью уведомлений.
+    /// поверхностью уведомлений. Главный актор указан явно: обращение к
+    /// оформлению приложения разрешено только из него.
+    @MainActor
     private var isDarkPromptAppearance: Bool {
         NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
     }
