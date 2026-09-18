@@ -485,6 +485,10 @@ def upload_missing(context, files):
 
 
 def cache_inputs(args):
+    # The caller names a staging directory that does not exist yet, and copying
+    # the cached assets into it failed with a bare "no such file or directory"
+    # after the whole app build had already succeeded.
+    Path(args.output).mkdir(parents=True, exist_ok=True)
     context = {'releases': {}, 'inputs': []}
     for label, tag, source, draft in (('candidate', args.tag, args.source, True),
                                      ('previous', args.previous_tag, args.previous_source, False)):

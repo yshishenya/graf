@@ -470,6 +470,19 @@ EOF
   step_done "deploy:execute"
 fi
 
+upload_release_input() {
+  # The signer reads the candidate archive and the release notes from the release
+  # itself, so both must be attached before it runs.  The asset name is set by
+  # the target file name, because gh keeps the local basename otherwise.
+  local source_path="$1" asset_name="$2" staging
+  [[ -f "$source_path" ]] || { printf 'release: missing release input %s\n' "$source_path" >&2; exit 1; }
+  staging="$(mktemp -d)"
+  cp "$source_path" "$staging/$asset_name"
+  gh release upload "$tag" "$staging/$asset_name" --clobber >/dev/null
+  rm -rf "$staging"
+  printf 'release_input_uploaded=%s\n' "$asset_name"
+}
+
 attach_app_update() {
   [[ "$with_app" == "true" ]] || return 0
   if [[ -n "$app_prepare_pid" ]]; then
@@ -479,14 +492,23 @@ attach_app_update() {
       tail -20 "$app_prepare_log" >&2 || true
       exit 1
     fi
+    app_candidate_zip="$(sed -n 's/^prepared_candidate_zip=//p' "$app_prepare_log" | tail -1)"
     grep -E '^prepared_app=|^source=' "$app_prepare_log" || true
     step_done "publish:app-prepare"
     app_prepare_pid=""
   fi
+  step "publish: приложить входные файлы обновления"
+  [[ -n "${app_candidate_zip:-}" ]] \
+    || { printf 'release: the app build did not report a candidate archive\n' >&2; exit 1; }
+  upload_release_input "$app_candidate_zip" "GRAF-$version-candidate.zip"
+  [[ -n "${release_notes_file:-}" && -f "$release_notes_file" ]] \
+    && upload_release_input "$release_notes_file" "release-notes-v$version.md"
+  step_done "publish:app-inputs"
   step "publish: подписать и приложить обновление приложения"
   bash apps/macos/Installer/Scripts/release-app-update.sh \
     --version "$version" --phase publish
   step_done "publish:app-attach"
+  [[ -n "${release_notes_file:-}" ]] && rm -f "$release_notes_file"
 }
 
 # ------------------------------------------------------------- step: publish
@@ -498,6 +520,7 @@ if should_run publish; then
     printf 'release_publish=already_published tag=%s\n' "$tag"
   else
     notes="$(mktemp)"
+    release_notes_file="$notes"
     python3 - "$version" "$notes" <<'PY'
 import pathlib
 import re
@@ -526,7 +549,6 @@ PY
     # attached.  Publishing first closed that window and left the app update
     # unpublished even though its build had succeeded.
     gh release create "$tag" --draft --title "${tag}" --notes-file "$notes" --target "$source_sha"
-    rm -f "$notes"
   fi
   attach_app_update
   if [[ "$(gh release view "$tag" --json isDraft --jq .isDraft 2>/dev/null || true)" == "true" ]]; then
