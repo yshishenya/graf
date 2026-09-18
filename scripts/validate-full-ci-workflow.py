@@ -89,6 +89,10 @@ def validate(path: Path) -> list[str]:
         "release performance gate": r"GRAF_PERFORMANCE_GATE=required",
         "release worker count": r"GRAF_TEST_WORKERS=\d+\s+bash\s+apps/server/scripts/run_local_postgres_tests\.sh",
         "shard coverage upload": r"parallel-full-nodeids-\$\{\{\s*matrix\.shard\s*\}\}\.txt",
+        # The coverage files are uploaded from test-timings/, so the evidence
+        # step must read them from there; a flat path fails after a full run.
+        "shard coverage evidence path": r'--artifact "parallel-full-nodeids-0=\$component_dir/test-timings/parallel-full-nodeids-0\.txt"',
+        "shard slice evidence path": r'--artifact "shard-nodeids-0=\$component_dir/test-timings/shard-nodeids-0\.txt"',
         "postgres phase verification": r"scripts/verify_rls_hardening\.py",
         "macOS tests": r"bash\s+apps/macos/Scripts/run-swift-tests\.sh",
         "macOS arm64 assertion": r"uname\s+-m.*arm64",
@@ -271,7 +275,7 @@ jobs:
                          "server-shard-2-result.json", "server-shard-3-result.json",
                          "macos-result.json"):
               printf '%s\\n' "$result"
-      - run: python3 scripts/emit-ci-evidence.py --authoritative-full --component-sha server=${{ inputs.requested_sha }} --skipped-gate []
+      - run: python3 scripts/emit-ci-evidence.py --authoritative-full --component-sha server=${{ inputs.requested_sha }} --skipped-gate [] --artifact "parallel-full-nodeids-0=$component_dir/test-timings/parallel-full-nodeids-0.txt" --artifact "shard-nodeids-0=$component_dir/test-timings/shard-nodeids-0.txt"
       - run: python3 scripts/validate-ci-evidence.py evidence.json
       - uses: actions/upload-artifact@v4
 """
