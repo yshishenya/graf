@@ -78,6 +78,12 @@ process-lifecycle checks plus exact-artifact release validation.
 - [X] T021 [US3] Replace the already published CalVer fixture with a collision-free synthetic CalVer in `tests/governance/test_release_candidate.py` (Issue #6359)
 - [X] T022 [US3] Keep `infra/scripts/ci-local.sh --help` independent from the uninitialized worktree snapshot while preserving fast/full cleanliness checks in `infra/scripts/ci-local.sh` (Issue #6360)
 
+## Phase 8: Follow-up readiness hardening
+
+**Purpose**: Make the packaged launch gate prove that the candidate presented its main window, not only that the launch handler started.
+
+- [ ] T023 [US3] Require `event=app_main_window_presented` in `apps/macos/Scripts/validate-packaged-app-launch.sh`, cover it with a `no-window` fixture in `apps/macos/Installer/Scripts/test-packaged-app-launch.sh`, and describe the readiness signal in `specs/232-macos-resource-bundle-hotfix/contracts/packaged-startup.md` (Issue #7209)
+
 ## Dependencies & Execution Order
 
 - T001-T002 are test-first and precede all implementation.
