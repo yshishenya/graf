@@ -203,15 +203,23 @@ public final class DesktopNotificationCardPresenter {
     private func startClickMonitor(for window: NSWindow) {
         stopClickMonitor()
         clickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { [weak self, weak window] event in
-            guard let self, let window, event.window === window,
-                  let close = self.closeControl else { return event }
-            let point = window.contentView?.convert(event.locationInWindow, from: nil) ?? .zero
-            guard let hit = window.contentView?.hitTest(point), hit === close || hit.isDescendant(of: close) else {
-                return event
-            }
-            close.performClick(nil)
-            return nil
+            guard let self, let window, event.window === window else { return event }
+            return self.handleCardClick(at: event.locationInWindow) ? nil : event
         }
+    }
+
+    /// Нажатие в области знака закрытия закрывает карточку и не передаётся
+    /// дальше. Нажатие мимо знака остаётся обычным нажатием окна.
+    @discardableResult
+    func handleCardClick(at pointInWindow: NSPoint) -> Bool {
+        guard let close = closeControl,
+              let content = panel?.contentView else { return false }
+        let point = content.convert(pointInWindow, from: nil)
+        guard let hit = content.hitTest(point), hit === close || hit.isDescendant(of: close) else {
+            return false
+        }
+        close.performClick(nil)
+        return true
     }
 
     private func stopClickMonitor() {

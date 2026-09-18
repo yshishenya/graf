@@ -443,6 +443,25 @@ final class DesktopNotificationCardTests: XCTestCase {
         XCTAssertFalse(presenter.isVisible)
     }
 
+    // Сторож нажатий закрывает карточку по нажатию в знак закрытия и не
+    // трогает нажатия мимо него.
+    func testClickMonitorClosesCardOnlyOnTheCloseControl() throws {
+        let presenter = DesktopNotificationCardPresenter()
+        presenter.presentNotice(title: "Проверка уведомлений GRAF",
+                                message: "Так выглядит напоминание о встрече.")
+        let panel = try XCTUnwrap(presenter.window)
+        let view = try XCTUnwrap(panel.contentView as? DesktopNotificationCardView)
+        let close = try XCTUnwrap(view.closeButton)
+        let inWindow = close.convert(close.bounds, to: nil)
+        // Нажатие мимо знака закрытия карточку не закрывает.
+        XCTAssertFalse(presenter.handleCardClick(at: NSPoint(x: inWindow.minX - 120, y: inWindow.midY)))
+        XCTAssertTrue(presenter.isVisible)
+        // Нажатие в знак закрытия закрывает карточку и убирает окно.
+        XCTAssertTrue(presenter.handleCardClick(at: NSPoint(x: inWindow.midX, y: inWindow.midY)))
+        XCTAssertFalse(presenter.isVisible)
+        XCTAssertNil(presenter.window)
+    }
+
     // Приложение может быть неактивным. Пока GRAF не впереди, система отдаёт
     // первое нажатие активации, поэтому окно нажатие не получает: карточку
     // закрывает сторож нажатий. Здесь проверяется, что окно нажатия принимает,
