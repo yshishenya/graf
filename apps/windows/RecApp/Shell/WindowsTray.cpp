@@ -2,12 +2,17 @@
 
 #ifdef _WIN32
 
+#include "ShellPalette.h"
+
 #include <windows.h>
 #include <windowsx.h>
 #include <shellapi.h>
 
+#include <memory>
 #include <stdexcept>
+#include <string>
 #include <utility>
+#include <vector>
 
 namespace graf::windows {
 
@@ -19,9 +24,18 @@ struct WindowsTray::Impl {
     static constexpr UINT kQuitCommand = 3;
     static constexpr UINT kPauseResumeCommand = 4;
 
+    struct MenuItem {
+        std::wstring text;
+        bool separator = false;
+        bool disabled = false;
+    };
+
     HWND window = nullptr;
     HICON icon = nullptr;
     UINT taskbarCreated = 0;
+    // Тема приходит из оболочки: меню рисуется её кистями, а не системными.
+    bool isDark = true;
+    std::vector<std::unique_ptr<MenuItem>> menuItems;
     Handler openHandler;
     Handler stopHandler;
     Handler quitHandler;
@@ -83,6 +97,14 @@ struct WindowsTray::Impl {
             if (handler) handler();
             return 0;
         }
+        if (message == WM_MEASUREITEM) {
+            self->measureItem(reinterpret_cast<MEASUREITEMSTRUCT*>(lParam));
+            return TRUE;
+        }
+        if (message == WM_DRAWITEM) {
+            self->drawItem(reinterpret_cast<const DRAWITEMSTRUCT*>(lParam));
+            return TRUE;
+        }
         if (message == WM_DESTROY) {
             self->removeIcon();
             return 0;
@@ -92,6 +114,92 @@ struct WindowsTray::Impl {
             self->window = nullptr;
         }
         return DefWindowProcW(window, message, wParam, lParam);
+    }
+
+
+    // Кисти берутся из палитры оболочки: меню обязано совпадать с окном.
+    COLORREF colorOf(const wchar_t* key, COLORREF fallback) const {
+        for (const auto& entry : shellPaletteEntries()) {
+            if (std::wcscmp(entry.key, key) != 0) continue;
+            const auto value = shellPaletteColor(entry, isDark);
+            return RGB((value.rgb >> 16) & 0xFF, (value.rgb >> 8) & 0xFF, value.rgb & 0xFF);
+        }
+        return fallback;
+    }
+
+    HBRUSH backgroundBrush() const {
+        return CreateSolidBrush(colorOf(L"GrafPanelBrush", isDark ? RGB(29, 31, 35) : RGB(255, 255, 255)));
+    }
+
+    void addItem(HMENU menu, const std::wstring& text, UINT id, bool separator, bool disabled = false) {
+        auto item = std::make_unique<MenuItem>();
+        item->text = text;
+        item->separator = separator;
+        item->disabled = disabled;
+        // Для MF_OWNERDRAW данные пункта передаются в параметре строки.
+        AppendMenuW(menu, MF_OWNERDRAW, id, reinterpret_cast<LPCWSTR>(item.get()));
+        menuItems.push_back(std::move(item));
+    }
+
+    void measureItem(MEASUREITEMSTRUCT* measure) const {
+        const auto* item = reinterpret_cast<const MenuItem*>(measure->itemData);
+        if (item == nullptr) return;
+        measure->itemHeight = item->separator ? 9 : 30;
+        if (item->separator) {
+            measure->itemWidth = 220;
+            return;
+        }
+        const auto dc = GetDC(window);
+        if (dc == nullptr) {
+            measure->itemWidth = 260;
+            return;
+        }
+        // Ширина по самой длинной строке плюс поля, как у системного меню.
+        auto font = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+        const auto previous = SelectObject(dc, font);
+        SIZE size{};
+        GetTextExtentPoint32W(dc, item->text.c_str(), static_cast<int>(item->text.size()), &size);
+        SelectObject(dc, previous);
+        ReleaseDC(window, dc);
+        measure->itemWidth = static_cast<UINT>(size.cx) + 64;
+    }
+
+    void drawItem(const DRAWITEMSTRUCT* draw) const {
+        const auto* item = reinterpret_cast<const MenuItem*>(draw->itemData);
+        if (item == nullptr) return;
+        const bool selected = (draw->itemState & ODS_SELECTED) != 0 && !item->disabled;
+        if (item->separator) {
+            const auto background = CreateSolidBrush(colorOf(L"GrafPanelBrush", RGB(29, 31, 35)));
+            FillRect(draw->hDC, &draw->rcItem, background);
+            DeleteObject(background);
+            const auto line = CreateSolidBrush(colorOf(L"GrafLineSoftBrush", RGB(70, 74, 84)));
+            RECT rule = draw->rcItem;
+            rule.top += 4;
+            rule.bottom = rule.top + 1;
+            rule.left += 12;
+            rule.right -= 12;
+            FillRect(draw->hDC, &rule, line);
+            DeleteObject(line);
+            return;
+        }
+        const auto background = CreateSolidBrush(selected
+            ? colorOf(L"GrafAccentSolidBrush", RGB(112, 86, 233))
+            : colorOf(L"GrafPanelBrush", RGB(29, 31, 35)));
+        FillRect(draw->hDC, &draw->rcItem, background);
+        DeleteObject(background);
+        SetBkMode(draw->hDC, TRANSPARENT);
+        const COLORREF text = selected ? RGB(255, 255, 255)
+                                       : item->disabled ? colorOf(L"GrafMutedTextBrush", RGB(173, 178, 188))
+                                                        : colorOf(L"GrafTextBrush", RGB(240, 241, 244));
+        SetTextColor(draw->hDC, text);
+        auto font = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+        const auto previous = SelectObject(draw->hDC, font);
+        RECT text_rect = draw->rcItem;
+        text_rect.left += 16;
+        text_rect.right -= 12;
+        DrawTextW(draw->hDC, item->text.c_str(), static_cast<int>(item->text.size()), &text_rect,
+                  DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
+        SelectObject(draw->hDC, previous);
     }
 
     void showMenu(POINT point) {
@@ -110,23 +218,31 @@ struct WindowsTray::Impl {
         const auto menu = CreatePopupMenu();
         if (!menu) return;
         auto data = iconData();
-        AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, data.szTip);
-        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-        AppendMenuW(menu, MF_STRING, kOpenCommand, L"Открыть GRAF");
+        // Пункты рисуются сами: системное меню берёт цвета у Windows и на
+        // тёмном окне GRAF выглядит светлым чужеродным пятном.
+        addItem(menu, data.szTip, 0, false, true);
+        addItem(menu, L"", 0, true);
+        addItem(menu, L"Открыть GRAF", kOpenCommand, false);
         SetMenuDefaultItem(menu, kOpenCommand, FALSE);
         if (pauseResumeHandler && (snapshot.state == SessionState::recording || snapshot.state == SessionState::paused)) {
-            AppendMenuW(menu, MF_STRING, kPauseResumeCommand,
-                        snapshot.state == SessionState::paused ? L"Продолжить запись микрофона" : L"Пауза микрофона");
+            addItem(menu, snapshot.state == SessionState::paused ? L"Продолжить запись микрофона" : L"Пауза микрофона",
+                    kPauseResumeCommand, false);
         }
-        AppendMenuW(menu, snapshot.stopAvailable ? MF_STRING : MF_STRING | MF_GRAYED, kStopCommand, L"Остановить запись");
-        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-        AppendMenuW(menu, MF_STRING, kQuitCommand, L"Закрыть GRAF");
+        addItem(menu, L"Остановить запись", kStopCommand, false, !snapshot.stopAvailable);
+        addItem(menu, L"", 0, true);
+        addItem(menu, L"Закрыть GRAF", kQuitCommand, false);
+        MENUINFO info{};
+        info.cbSize = sizeof(info);
+        info.fMask = MIM_BACKGROUND | MIM_APPLYTOSUBMENUS;
+        info.hbrBack = backgroundBrush();
+        SetMenuInfo(menu, &info);
         const auto menuWindow = window;
         SetForegroundWindow(menuWindow);
         const auto command = TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON,
                                              point.x, point.y, menuWindow, nullptr);
         // The nested menu loop may close the owner. Use only local handles from here.
         DestroyMenu(menu);
+        menuItems.clear();
         if (IsWindow(menuWindow)) {
             PostMessageW(menuWindow, WM_NULL, 0, 0);
             Shell_NotifyIconW(NIM_SETFOCUS, &data);
@@ -223,6 +339,11 @@ void WindowsTray::setState(const RecordingIndicatorSnapshot& snapshot) {
     impl_->updateIcon();
 }
 
+void WindowsTray::setTheme(bool isDark) {
+    if (!impl_) return;
+    impl_->isDark = isDark;
+}
+
 } // namespace graf::windows
 
 #else
@@ -237,6 +358,8 @@ WindowsTray::WindowsTray(std::uintptr_t, Handler, Handler, Handler, Handler)
 WindowsTray::~WindowsTray() = default;
 
 void WindowsTray::setState(const RecordingIndicatorSnapshot&) {}
+
+void WindowsTray::setTheme(bool) {}
 
 } // namespace graf::windows
 

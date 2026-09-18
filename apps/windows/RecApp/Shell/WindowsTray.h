@@ -23,6 +23,10 @@ public:
     // The shell must keep a visible indicator: Windows may hide tray icons.
     void setState(const RecordingIndicatorSnapshot& snapshot);
 
+    // Меню рисуется кистями оболочки: тема приходит тем же решением, что и у
+    // окон, иначе меню остаётся системным на фоне окна GRAF.
+    void setTheme(bool isDark);
+
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;

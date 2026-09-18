@@ -1039,6 +1039,7 @@ public:
             [this] { stopCapture(); },
             [this] { requestExit(); },
             [this] { pauseResumeCapture(); });
+            tray_->setTheme(shellIsDark_);
         } catch (...) {
             trayFailureText_.Text(L"Значок GRAF недоступен. Управляйте записью в этом окне; кнопка «Остановить» остаётся доступной.");
             trayFailureText_.Visibility(Visibility::Visible);
@@ -2674,7 +2675,10 @@ private:
         setAccessible(compactStatus_, L"Статус записи: " + std::wstring(captureStatus_.Text().c_str()));
         compactStatus_.Symbol(paused ? Symbol::Pause : snapshot.state == graf::windows::SessionState::degraded ? Symbol::Important : Symbol::Microphone);
         recordingStripStop_.IsEnabled(active);
-        if (tray_) tray_->setState(snapshot);
+        if (tray_) {
+            tray_->setState(snapshot);
+            tray_->setTheme(shellIsDark_);
+        }
         pauseButton_.Visibility(active ? Visibility::Visible : Visibility::Collapsed);
         stopButton_.Visibility(active ? Visibility::Visible : Visibility::Collapsed);
         if (meters_) {
