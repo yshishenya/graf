@@ -18,8 +18,12 @@ usage: scripts/release.sh <YYYY.MM.DD.N> [options]
   --operator <name>   release operator identity (default: git config user.name)
   --merge             merge the release-preparation pull request after checks pass
   --deploy            deploy to production after a clean dry run
+  --no-app            skip building and attaching the macOS app update
   --from <step>       resume at a step: prep, train, ci, decide, deploy, publish
   --stop-after <step> stop once this step is done
+
+The macOS app update is built in the background while the release train runs
+and is attached to the release before it becomes public; --no-app skips it.
 
 Steps: prep, train, ci, decide, deploy, publish.
 Without --merge the script stops after the release-preparation pull request is
@@ -32,6 +36,7 @@ version=""
 operator="${GRAF_RELEASE_OPERATOR:-$(git config user.name || true)}"
 merge=false
 deploy=false
+with_app=true
 resume_step=""
 stop_after=""
 
@@ -41,6 +46,7 @@ while [[ $# -gt 0 ]]; do
     --operator) operator="${2:-}"; shift 2 ;;
     --merge) merge=true; shift ;;
     --deploy) deploy=true; shift ;;
+    --no-app) with_app=false; shift ;;
     --from) resume_step="${2:-}"; shift 2 ;;
     --stop-after) stop_after="${2:-}"; shift ;;
     -*) printf 'release: unknown option %s\n' "$1" >&2; usage >&2; exit 2 ;;
@@ -321,6 +327,22 @@ PY
   printf 'release_features=%s feature_ids=%s\n' "$features" "$feature_ids"
 fi
 
+# The app update needs a build, a notarization wait and Apple trust checks, and
+# it does not depend on the release train.  Starting it here lets that work
+# overlap the train, the full check and the deploy instead of adding to them.
+app_prepare_pid=""
+app_prepare_log=""
+start_app_prepare() {
+  [[ "$with_app" == "true" ]] || return 0
+  [[ -n "${source_sha:-}" ]] || return 0
+  app_prepare_log="$(mktemp)"
+  bash apps/macos/Installer/Scripts/release-app-update.sh \
+    --version "$version" --phase prepare >"$app_prepare_log" 2>&1 &
+  app_prepare_pid="$!"
+  printf 'release_app_prepare=started pid=%s log=%s\n' "$app_prepare_pid" "$app_prepare_log"
+}
+start_app_prepare
+
 # --------------------------------------------------------------- step: train
 
 if should_run train; then
@@ -448,6 +470,25 @@ EOF
   step_done "deploy:execute"
 fi
 
+attach_app_update() {
+  [[ "$with_app" == "true" ]] || return 0
+  if [[ -n "$app_prepare_pid" ]]; then
+    step "publish: дождаться сборки обновления приложения"
+    if ! wait "$app_prepare_pid"; then
+      printf 'release: app update build failed; log %s\n' "$app_prepare_log" >&2
+      tail -20 "$app_prepare_log" >&2 || true
+      exit 1
+    fi
+    grep -E '^prepared_app=|^source=' "$app_prepare_log" || true
+    step_done "publish:app-prepare"
+    app_prepare_pid=""
+  fi
+  step "publish: подписать и приложить обновление приложения"
+  bash apps/macos/Installer/Scripts/release-app-update.sh \
+    --version "$version" --phase publish
+  step_done "publish:app-attach"
+}
+
 # ------------------------------------------------------------- step: publish
 
 if should_run publish; then
@@ -480,8 +521,17 @@ pathlib.Path(output).write_text(
 PY
     git tag -a "$tag" -m "Релиз ${version}" "$source_sha"
     git push origin "$tag"
-    gh release create "$tag" --title "${tag}" --notes-file "$notes" --target "$source_sha"
+    # The app update can only be attached while the release is still a draft,
+    # so the release is created as a draft and made public after every asset is
+    # attached.  Publishing first closed that window and left the app update
+    # unpublished even though its build had succeeded.
+    gh release create "$tag" --draft --title "${tag}" --notes-file "$notes" --target "$source_sha"
     rm -f "$notes"
+  fi
+  attach_app_update
+  if [[ "$(gh release view "$tag" --json isDraft --jq .isDraft 2>/dev/null || true)" == "true" ]]; then
+    gh release edit "$tag" --draft=false
+    printf 'release_published=%s\n' "$tag"
   fi
   decision_file="${decision_file:-$(ls -t .dev/release/decisions/*.decision.json | head -1)}"
   infra/scripts/release-candidate.sh attest "$decision_file" \
