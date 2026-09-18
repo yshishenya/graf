@@ -32,12 +32,18 @@ std::string VerifiedTargetRegistry::identityKey(const VerifiedTargetIdentity& id
 VerifiedTargetRegistry VerifiedTargetRegistry::bundled() {
     VerifiedTargetRegistry registry;
     // Teams 26213.1006.5014.9784 ARM64, native WinVerifyTrust proof 2026-09-06.
-    // Provenance: specs/200-windows-desktop-app/research.md (first Windows catalog).
+    // Yandex Telemost 2.42.4.9707 x64 on Windows 11 ARM64, native WinVerifyTrust
+    // proof 2026-09-18.
+    // Provenance: specs/200-windows-desktop-app/research.md (Windows catalog).
     // Other versions are not enrolled by discovery; each needs reviewed pins.
     registry.targets_ = {{
         "d2538d0290c463a896e2710534b5e078066d4c9519e3111754186f7f38fe2dd4",
         "c4514cb03fff0842be711ecfec8560be9cc5fc7dbd1f7db95c68257ff77aae2f",
         "Microsoft Teams", 1, "microsoft_teams_new"
+    }, {
+        "fa3c6ff3a0f0d8f4d1e39ea79988f0926747d75c6351da0a0727aca0fb0f4249",
+        "8d24d59ad5240de240bb7d6b474c717d78a7155edd4cf347a047d5a2e8f0bf49",
+        "Yandex Telemost", 1, "yandex_telemost"
     }};
     return registry;
 }

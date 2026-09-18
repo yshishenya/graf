@@ -377,6 +377,32 @@ reader не нужен; V2 сохраняет правила временно о
 | EXE SHA-256 | `d2538d0290c463a896e2710534b5e078066d4c9519e3111754186f7f38fe2dd4` |
 | Signer DER SHA-256 | `c4514cb03fff0842be711ecfec8560be9cc5fc7dbd1f7db95c68257ff77aae2f` |
 
+### Вторая запись каталога: Yandex Telemost (2026-09-18)
+
+Владелец попросил поставить в машину Microsoft Teams и Яндекс Телемост, чтобы
+живая проверка автозаписи стала возможной. Teams в машине уже стоял — ровно та
+сборка, что записана выше. Телемост поставили: установщик `TelemostSetup.exe`
+(подпись `CN=YANDEX LLC`, `Valid`) скачивает полезную нагрузку
+`YTelemostSetup.msi` и проверяет её по собственной опубликованной сумме; на Mac
+файл скачан целиком (233 881 600 байт) и сумма совпала с той, что назвал
+установщик. MSI поставлен молча, приложение работает.
+
+Вторая запись берёт постоянный ключ из общего продуктового каталога
+(`apps/macos/RecApp/Resources/meeting-target-registry-baseline.json`, запись
+`yandex_telemost`, `prompt_enabled`, рынок `russia`). Точные хеши подтверждены
+метаданными установки и проверкой Windows:
+
+| Метаданные | Проверенное значение |
+|---|---|
+| Продукт / версия | Yandex Telemost / 2.42.4.9707 |
+| Путь / размер | `C:\Program Files\Yandex\YandexTelemost\YandexTelemost.exe` / 144 480 792 |
+| Издатель / подпись | YANDEX LLC / `Get-AuthenticodeSignature` = Valid |
+| EXE SHA-256 | `fa3c6ff3a0f0d8f4d1e39ea79988f0926747d75c6351da0a0727aca0fb0f4249` |
+| Signer DER SHA-256 | `8d24d59ad5240de240bb7d6b474c717d78a7155edd4cf347a047d5a2e8f0bf49` |
+
+Запись, как и первая, привязана к точной сборке: другая версия или другая
+архитектура требуют собственной проверенной записи и сами в каталог не попадают.
+
 После обычного запуска уже установленного Teams существующий native
 `AutomaticRecordingSmokeTests --inspect-process` подтвердил те же два хеша
 через WindowsTargetDetector/WinVerifyTrust (проверка подписи и цепочки из кеша).

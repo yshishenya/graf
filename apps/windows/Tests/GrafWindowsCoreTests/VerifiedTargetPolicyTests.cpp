@@ -120,11 +120,17 @@ int main() {
     assert(!WindowsTargetDetector::isPromptCandidate(observed, registry));
 
     const auto bundled = VerifiedTargetRegistry::bundled();
-    assert(bundled.targets().size() == 1);
+    assert(bundled.targets().size() == 2);
     const auto& teams = bundled.targets().front();
     assert(teams.targetKey == "microsoft_teams_new");
     assert(teams.displayName == "Microsoft Teams");
     assert(VerifiedTargetRegistry::validIdentity(teams));
+    // The shared product catalog already lists Telemost; the Windows pin adds
+    // the exact approved binary and signer for this platform.
+    const auto& telemost = bundled.targets().back();
+    assert(telemost.targetKey == "yandex_telemost");
+    assert(telemost.displayName == "Yandex Telemost");
+    assert(VerifiedTargetRegistry::validIdentity(telemost));
     observed.hasRenderStream = true;
     observed.signatureVerified = false;
     assert(!WindowsTargetDetector::isPromptCandidate(observed, registry));
