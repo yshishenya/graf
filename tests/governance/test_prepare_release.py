@@ -432,7 +432,13 @@ def test_prepare_release_rejects_github_tag_that_does_not_match_local_tag(tmp_pa
     assert "## [2026.09.04.1]" not in (root / "CHANGELOG.md").read_text(encoding="utf-8")
 
 
-def test_prepare_release_rejects_duplicate_feature_across_unpublished_and_current_fragments(tmp_path: Path) -> None:
+def test_prepare_release_merges_fragment_shared_with_unpublished_section(tmp_path: Path) -> None:
+    """Доработка с фрагментом и в провалившемся выпуске, и в текущей работе.
+
+    Раньше подготовка останавливалась и требовала ручной расчистки: два
+    фрагмента претендовали на один и тот же файл в архиве. Теперь они сводятся
+    в один, потому что описывают одну доработку одного выпуска.
+    """
     root = fixture(tmp_path)
     (root / "CHANGELOG.md").write_text(
         """# История изменений
@@ -468,9 +474,21 @@ def test_prepare_release_rejects_duplicate_feature_across_unpublished_and_curren
         env=github_release_env(root, "v2026.09.02.1"),
     )
 
-    assert result.returncode != 0
-    assert "multiple fragments map to archive destination F217.yaml" in result.stdout + result.stderr
-    assert "## [2026.09.04.1]" not in (root / "CHANGELOG.md").read_text(encoding="utf-8")
+    output = result.stdout + result.stderr
+    assert result.returncode == 0, output
+    archived = sorted(path.name for path in (root / "changes" / "releases" / "v2026.09.04.1").glob("F*.yaml"))
+    assert archived == ["F217.yaml"], output
+    assert not (root / "changes" / "unreleased" / "F217.yaml").exists(), output
+    changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
+    section = changelog.split("## [2026.09.04.1]", 1)[1].split("\n## [", 1)[0]
+    entries = [
+        line
+        for line in section.splitlines()
+        if line.startswith("- ") and "Пока нет записей" not in line
+    ]
+    assert len(entries) == 1, section
+    assert "Старая подготовленная запись" in entries[0], section
+    assert "Процесс собирает release metadata" in entries[0], section
 
 
 def test_prepare_release_uses_archived_fragment_for_concise_unmarked_entries(tmp_path: Path) -> None:
@@ -603,3 +621,64 @@ def test_prepare_release_rejects_orphan_unpublished_fragment_directory(tmp_path:
 
     assert result.returncode != 0
     assert "orphan unpublished fragment directory" in result.stdout + result.stderr
+
+
+def failed_attempt_changelog() -> str:
+    return """# История изменений
+
+## [Unreleased]
+
+### Изменено
+- _Пока нет записей._
+
+## [2026.09.02.2] - 2026-09-02
+
+<!-- Release features: F217 -->
+
+### Изменено
+- Старая запись из провалившегося выпуска. (Фича 217, issue #6217, tasks [T001])
+
+## [2026.09.02.1] - 2026-09-02
+
+### Изменено
+- Реально опубликованная запись.
+"""
+
+
+def test_prepare_release_merges_same_feature_across_failed_attempt_and_current_work(
+    tmp_path: Path,
+) -> None:
+    """Доработка, пережившая провалившийся выпуск, не должна блокировать следующий.
+
+    Провалившийся выпуск оставляет неопубликованный раздел и архивный фрагмент.
+    Новая работа по той же доработке добавляет ещё один фрагмент. Подготовка
+    обязана свести их в одну запись и один файл, а не останавливаться.
+    """
+    root = fixture(tmp_path)
+    (root / "CHANGELOG.md").write_text(failed_attempt_changelog(), encoding="utf-8")
+    pending = root / "changes" / "releases" / "v2026.09.02.2"
+    pending.mkdir(parents=True)
+    (pending / "F217.yaml").write_text(fragment(217, "Старая запись из провалившегося выпуска"), encoding="utf-8")
+    (root / "changes" / "unreleased" / "F217.yaml").write_text(
+        fragment(217, "Новая работа по той же доработке"), encoding="utf-8"
+    )
+    configure_github_release_repo(root, "v2026.09.02.1")
+
+    result = subprocess.run(
+        ["bash", "scripts/prepare-release.sh", "2026.09.04.1"],
+        cwd=root,
+        text=True,
+        capture_output=True,
+        check=False,
+        env=github_release_env(root, "v2026.09.02.1"),
+    )
+
+    output = result.stdout + result.stderr
+    assert result.returncode == 0, output
+    archived = sorted(path.name for path in (root / "changes" / "releases" / "v2026.09.04.1").glob("F*.yaml"))
+    assert archived == ["F217.yaml"], output
+    changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
+    section = changelog.split("## [2026.09.04.1]", 1)[1].split("\n## [", 1)[0]
+    assert "Старая запись из провалившегося выпуска" in section, section
+    assert "Новая работа по той же доработке" in section, section
+    assert "сведены" in output.lower() or "merged" in output.lower(), output
