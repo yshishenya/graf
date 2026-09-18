@@ -161,56 +161,88 @@ final class DesktopNotificationCardTests: XCTestCase {
         XCTAssertEqual(ticks, 1)
     }
 
-    // Геометрия карточки измеряется на настоящем окне: ширина, поля, радиусы и
-    // высота кнопок совпадают с наблюдаемым эталоном.
-    func testMeetingCardGeometryMatchesReference() throws {
+    // Геометрия карточки измеряется на настоящем окне и совпадает с наблюдаемым
+    // эталоном: 420 точек внутри окна 448, высота 82, поля 10, радиус 16.
+    func testCardWithOneActionMatchesReferenceGeometry() throws {
+        let presenter = DesktopNotificationCardPresenter()
+        presenter.present(.meeting(title: "Встреча команды", startText: "Начало в 10:00", hasJoinLink: false),
+                          onAction: { _ in })
+        defer { presenter.dismiss() }
+        let (panel, view) = try fitted(presenter)
+        let card = try XCTUnwrap(view.subviews.compactMap { $0 as? CardBackgroundView }.first)
+        card.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(view.frame.width, DesktopNotificationCardPresenter.windowWidth)
+        XCTAssertEqual(view.frame.height, DesktopNotificationCardPresenter.windowHeight, accuracy: 1)
+        XCTAssertEqual(card.frame.width, DesktopNotificationCardPresenter.cardWidth)
+        XCTAssertEqual(card.frame.height, DesktopNotificationCardPresenter.cardHeight, accuracy: 1)
+        XCTAssertEqual(card.frame.minX, DesktopNotificationCardPresenter.horizontalMargin)
+        XCTAssertEqual(card.frame.minY, DesktopNotificationCardPresenter.bottomPadding, accuracy: 1)
+        XCTAssertEqual(card.layer?.cornerRadius, DesktopNotificationCardPresenter.cornerRadius)
+
+        let buttons = descendants(of: view).compactMap { $0 as? NotificationCardButton }
+        XCTAssertEqual(buttons.count, 1, "одно действие в карточке без ссылки")
+        for button in buttons {
+            XCTAssertGreaterThanOrEqual(button.frame.height, DesktopNotificationCardPresenter.buttonHeight)
+            XCTAssertEqual(button.layer?.cornerRadius, 10)
+            XCTAssertFalse(button.isBordered)
+        }
+
+        // Одна строка: значок, текст и действие.
+        let stacks = card.subviews.compactMap { $0 as? NSStackView }
+        XCTAssertEqual(stacks.count, 1, "карточка с одним действием собрана в одну строку")
+        let row = try XCTUnwrap(stacks.first)
+        XCTAssertEqual(row.frame.midY, card.frame.height / 2, accuracy: 1)
+        let title = try XCTUnwrap(descendants(of: row).compactMap { $0 as? NSTextField }
+            .first { $0.stringValue == "Встреча команды" })
+        let buttonFrame = try XCTUnwrap(buttons.first).convert(buttons[0].bounds, to: card)
+        XCTAssertGreaterThan(buttonFrame.minX, title.convert(title.bounds, to: card).maxX)
+        XCTAssertLessThanOrEqual(buttonFrame.maxX, card.frame.width - 20)
+
+        let close = try XCTUnwrap(view.subviews.compactMap { $0 as? NSButton }
+            .first { $0.accessibilityLabel() == "Закрыть уведомление" })
+        XCTAssertLessThanOrEqual(close.frame.width, 26)
+        XCTAssertLessThanOrEqual(close.frame.height, 26)
+        XCTAssertEqual(close.frame.midX, card.frame.maxX - 20, accuracy: 3)
+        XCTAssertEqual(close.frame.midY, card.frame.midY, accuracy: 4)
+        _ = panel
+    }
+
+    // Двум действиям нужна отдельная строка: подписи эталона длиннее латинских.
+    func testCardWithTwoActionsKeepsBothActionsInsideCard() throws {
         let presenter = DesktopNotificationCardPresenter()
         presenter.present(.meeting(title: "Встреча команды", startText: "Начало в 10:00", hasJoinLink: true),
                           onAction: { _ in })
         defer { presenter.dismiss() }
-        let panel = try XCTUnwrap(presenter.window)
-        let view = try XCTUnwrap(panel.contentView)
-        panel.setContentSize(NSSize(width: DesktopNotificationCardPresenter.windowWidth, height: 132))
-        view.layoutSubtreeIfNeeded()
-        view.displayIfNeeded()
-
+        let (_, view) = try fitted(presenter)
         let card = try XCTUnwrap(view.subviews.compactMap { $0 as? CardBackgroundView }.first)
         card.layoutSubtreeIfNeeded()
-        XCTAssertEqual(view.frame.width, DesktopNotificationCardPresenter.windowWidth)
+
         XCTAssertEqual(card.frame.width, DesktopNotificationCardPresenter.cardWidth)
-        XCTAssertEqual(card.frame.minX, DesktopNotificationCardPresenter.horizontalMargin)
-        XCTAssertEqual(card.frame.minY, DesktopNotificationCardPresenter.bottomPadding)
-        XCTAssertEqual(card.layer?.cornerRadius, DesktopNotificationCardPresenter.cornerRadius)
-
+        XCTAssertGreaterThan(card.frame.height, DesktopNotificationCardPresenter.cardHeight,
+                             "двум действиям нужна вторая строка")
         let buttons = descendants(of: view).compactMap { $0 as? NotificationCardButton }
-        XCTAssertEqual(buttons.filter { $0.isPrimary }.count, 1, "в карточке ровно одно главное действие")
+        XCTAssertEqual(buttons.count, 2)
+        XCTAssertEqual(buttons.filter { $0.isPrimary }.count, 1)
         for button in buttons {
-            XCTAssertGreaterThanOrEqual(button.frame.height, 40)
-            XCTAssertEqual(button.layer?.cornerRadius, 10)
-            XCTAssertFalse(button.isBordered)
+            let frame = button.convert(button.bounds, to: card)
+            XCTAssertGreaterThanOrEqual(frame.minX, 8)
+            XCTAssertLessThanOrEqual(frame.maxX, card.frame.width - 8)
+            XCTAssertGreaterThanOrEqual(frame.height, DesktopNotificationCardPresenter.buttonHeight)
         }
-        XCTAssertTrue(buttons.contains { $0.isPrimary })
+    }
 
-        // Действия не выходят за карточку и стоят ниже строки заголовка.
-        let stacks = card.subviews.compactMap { $0 as? NSStackView }
-        XCTAssertEqual(stacks.count, 2, "строка заголовка и строка действий")
-        let header = try XCTUnwrap(stacks.first { stack in
-            descendants(of: stack).contains { ($0 as? NSTextField)?.stringValue == "Встреча команды" }
-        })
-        let actions = try XCTUnwrap(stacks.first { $0 !== header })
-        print("ORDER", "header", header.frame, "actions", actions.frame)
-        XCTAssertLessThanOrEqual(actions.frame.maxY, header.frame.minY)
-        for button in buttons {
-            let frame = button.convert(button.bounds, to: view)
-            XCTAssertLessThanOrEqual(frame.maxX, card.frame.maxX - 8)
-            XCTAssertGreaterThanOrEqual(frame.minX, card.frame.minX + 8)
+    private func fitted(_ presenter: DesktopNotificationCardPresenter) throws -> (NSWindow, NSView) {
+        let panel = try XCTUnwrap(presenter.window)
+        let view = try XCTUnwrap(panel.contentView)
+        for _ in 0..<3 {
+            view.layoutSubtreeIfNeeded()
+            panel.setContentSize(NSSize(width: DesktopNotificationCardPresenter.windowWidth,
+                                        height: view.fittingSize.height))
         }
-
-        let close = try XCTUnwrap(view.subviews.compactMap { $0 as? NSButton }.first { $0.accessibilityLabel() == "Закрыть уведомление" })
-        XCTAssertLessThanOrEqual(close.frame.width, 24)
-        XCTAssertLessThanOrEqual(close.frame.height, 24)
-        XCTAssertEqual(close.frame.midX, card.frame.maxX - 14, accuracy: 3)
-        XCTAssertEqual(close.frame.midY, card.frame.maxY - 14, accuracy: 3)
+        view.layoutSubtreeIfNeeded()
+        view.displayIfNeeded()
+        return (panel, view)
     }
 
     func testIndicatorCardKeepsSingleRowGeometry() throws {
@@ -219,15 +251,15 @@ final class DesktopNotificationCardTests: XCTestCase {
         defer { presenter.dismiss() }
         let panel = try XCTUnwrap(presenter.window)
         let view = try XCTUnwrap(panel.contentView)
-        panel.setContentSize(NSSize(width: DesktopNotificationCardPresenter.windowWidth, height: 104))
+        panel.setContentSize(NSSize(width: DesktopNotificationCardPresenter.windowWidth,
+                                    height: DesktopNotificationCardPresenter.windowHeight))
         view.layoutSubtreeIfNeeded()
         view.displayIfNeeded()
         let card = try XCTUnwrap(view.subviews.compactMap { $0 as? CardBackgroundView }.first)
         card.layoutSubtreeIfNeeded()
         XCTAssertEqual(card.frame.width, DesktopNotificationCardPresenter.cardWidth)
-        // Индикатор занимает одну строку и ниже карточки встречи.
-        XCTAssertEqual(card.frame.height, 64, accuracy: 1, "индикатор записи — одна строка")
-        XCTAssertLessThan(card.frame.height, 110, "индикатор записи ниже карточки встречи")
+        XCTAssertEqual(card.frame.height, DesktopNotificationCardPresenter.cardHeight, accuracy: 1)
+        XCTAssertEqual(card.subviews.compactMap { $0 as? NSStackView }.count, 1)
     }
 
     // Индикатор обновляет длительность сам, не дожидаясь смены состояния записи.
@@ -329,6 +361,50 @@ final class DesktopNotificationCardTests: XCTestCase {
 
         harness.presenter.updateRecordingIndicator(DesktopControlSnapshot(), elapsed: "0:05")
         XCTAssertFalse(harness.presenter.indicator.isVisible)
+    }
+
+    // Снимок поверхности для ручной сверки с эталоном. Пишется только когда
+    // задан GRAF_CARD_SNAPSHOT_DIR: обычный прогон тестов ничего не сохраняет.
+    func testCardSurfacesCanBeCapturedForReferenceComparison() throws {
+        guard let directory = ProcessInfo.processInfo.environment["GRAF_CARD_SNAPSHOT_DIR"], !directory.isEmpty else {
+            throw XCTSkip("снимок не запрашивался")
+        }
+        let target = URL(fileURLWithPath: directory, isDirectory: true)
+        try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+
+        let card = DesktopNotificationCardPresenter()
+        defer { card.dismiss() }
+        card.present(.meeting(title: "Встреча команды", startText: "Начало в 14:30", hasJoinLink: true), onAction: { _ in })
+        try write(card.window, to: target.appendingPathComponent("card-meeting.png"))
+
+        card.present(.meeting(title: "Встреча в календаре", startText: "Начало в 14:30", hasJoinLink: false), onAction: { _ in })
+        try write(card.window, to: target.appendingPathComponent("card-meeting-no-link.png"))
+
+        card.present(.problem(title: "Запись требует вашего внимания",
+                              message: "Откройте запись в GRAF, чтобы проверить ее сохранность и отправку.",
+                              actionTitle: "Открыть запись",
+                              sessionID: "session"), onAction: { _ in })
+        try write(card.window, to: target.appendingPathComponent("card-problem.png"))
+        card.dismiss()
+
+        let indicator = DesktopRecordingIndicatorPresenter()
+        defer { indicator.hide() }
+        indicator.show(.recording(elapsed: "12:34"), onStop: {}, onOpen: {})
+        try write(indicator.window, to: target.appendingPathComponent("indicator-recording.png"))
+        indicator.show(.transcribing(elapsed: "12:34"), onStop: {}, onOpen: {})
+        try write(indicator.window, to: target.appendingPathComponent("indicator-transcribing.png"))
+    }
+
+    private func write(_ window: NSWindow?, to url: URL) throws {
+        let view = try XCTUnwrap(window?.contentView)
+        let size = try XCTUnwrap(window?.contentView?.bounds.size)
+        view.layoutSubtreeIfNeeded()
+        view.displayIfNeeded()
+        let representation = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+        view.cacheDisplay(in: view.bounds, to: representation)
+        XCTAssertEqual(representation.pixelsWide, Int(size.width * (window?.backingScaleFactor ?? 1)))
+        let png = try XCTUnwrap(representation.representation(using: .png, properties: [:]))
+        try png.write(to: url)
     }
 
     private func descendants(of view: NSView) -> [NSView] {

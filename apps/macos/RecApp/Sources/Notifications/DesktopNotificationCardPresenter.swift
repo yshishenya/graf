@@ -60,6 +60,13 @@ public final class DesktopNotificationCardPresenter {
     public static let topInset: CGFloat = 39
     public static let bottomPadding: CGFloat = 12
     public static let cornerRadius: CGFloat = 16
+    /// Высота кнопки действия: карточка эталона 82 точки при полях 10 и тексте
+    /// в две строки по 20 точек.
+    public static let buttonHeight: CGFloat = 40
+    /// Наблюдаемая высота карточки эталона.
+    public static let cardHeight: CGFloat = 82
+    /// Наблюдаемая высота окна карточки эталона.
+    public static let windowHeight: CGFloat = 104
 
     private var panel: NSPanel?
     private var ticker: Task<Void, Never>?
@@ -241,15 +248,6 @@ final class DesktopNotificationCardView: NSView {
         effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
     }
 
-    /// Карточка встречи и карточка проблемы складываются из строки с текстом и
-    /// отдельной строки действий: так ширина остаётся наблюдаемыми 420 точками.
-    private var usesStackedLayout: Bool {
-        switch content {
-        case .meeting, .problem: return true
-        case .recording, .transcribing: return false
-        }
-    }
-
     private func build() {
         let card = CardBackgroundView(cornerRadius: DesktopNotificationCardPresenter.cornerRadius)
         card.translatesAutoresizingMaskIntoConstraints = false
@@ -268,10 +266,11 @@ final class DesktopNotificationCardView: NSView {
         close.setAccessibilityLabel("Закрыть уведомление")
         addSubview(close)
 
+
         let header = NSStackView()
         header.orientation = .horizontal
         header.alignment = .centerY
-        header.spacing = 12
+        header.spacing = 8
         header.translatesAutoresizingMaskIntoConstraints = false
         card.addSubview(header)
 
@@ -293,71 +292,82 @@ final class DesktopNotificationCardView: NSView {
                                  color: Self.secondaryText(dark: isDark))
         text.addArrangedSubview(titleLabel)
         text.addArrangedSubview(messageLabel)
+        // Текстовый блок не растягивается: действия остаются справа.
+        text.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
         header.addArrangedSubview(icon)
         header.addArrangedSubview(text)
-        header.addArrangedSubview(NSView())
 
-        var constraints: [NSLayoutConstraint] = [
+        // Строка действий. С одним действием она помещается рядом с текстом,
+        // как в наблюдаемом эталоне. Двум действиям нужна отдельная строка:
+        // подписи эталона длиннее латинских, а ширина карточки наблюдаемая —
+        // 420 точек.
+        let actions = NSStackView()
+        actions.orientation = .horizontal
+        actions.alignment = .centerY
+        actions.spacing = 8
+        actions.translatesAutoresizingMaskIntoConstraints = false
+        if actionButtons.count == 1 {
+            header.addArrangedSubview(actions)
+        } else {
+            card.addSubview(actions)
+        }
+        for (buttonTitle, action, isPrimary) in actionButtons {
+            let button = NotificationCardButton(title: buttonTitle) { [weak self] in self?.onAction(action) }
+            button.isPrimary = isPrimary
+            button.translatesAutoresizingMaskIntoConstraints = false
+            button.heightAnchor.constraint(greaterThanOrEqualToConstant: DesktopNotificationCardPresenter.buttonHeight).isActive = true
+            actions.addArrangedSubview(button)
+            buttons.append((button, action))
+        }
+        let usesSecondRow = actionButtons.count > 1
+
+        // Наблюдаемый эталон: одна строка со значком, текстом и действиями,
+        // поля карточки 10 точек сверху и снизу, 14 точек по бокам.
+        let constraints: [NSLayoutConstraint] = [
             card.leadingAnchor.constraint(equalTo: leadingAnchor, constant: DesktopNotificationCardPresenter.horizontalMargin),
             card.trailingAnchor.constraint(equalTo: leadingAnchor,
                                            constant: DesktopNotificationCardPresenter.horizontalMargin
                                                + DesktopNotificationCardPresenter.cardWidth),
-            card.topAnchor.constraint(greaterThanOrEqualTo: topAnchor, constant: 10),
-            // Высота карточки определяется содержимым, а не остатком окна.
-            card.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor,
+            card.topAnchor.constraint(equalTo: topAnchor, constant: 10),
+            // Высота карточки наблюдаемая: строка действия плюс поля 10 точек.
+            // Кнопка действия стоит по центру строки.
+            header.centerYAnchor.constraint(equalTo: card.centerYAnchor),
+            // Ниже карточки остаётся наблюдаемый запас: окно 104 точки при
+            // карточке 82 точки.
+            card.bottomAnchor.constraint(equalTo: bottomAnchor,
                                          constant: -DesktopNotificationCardPresenter.bottomPadding),
-            close.topAnchor.constraint(equalTo: topAnchor, constant: 12),
-            close.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -4),
+            close.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -10),
             close.widthAnchor.constraint(equalToConstant: 20),
             close.heightAnchor.constraint(equalToConstant: 20),
             header.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 14),
-            header.topAnchor.constraint(equalTo: card.topAnchor, constant: 12),
-            // Текст не заходит под кнопку закрытия и не расширяет окно.
-            header.trailingAnchor.constraint(lessThanOrEqualTo: card.trailingAnchor, constant: -34),
-            titleLabel.widthAnchor.constraint(lessThanOrEqualToConstant: DesktopNotificationCardPresenter.cardWidth - 96),
-            messageLabel.widthAnchor.constraint(lessThanOrEqualToConstant: DesktopNotificationCardPresenter.cardWidth - 96)
+            // Действия не заходят под кнопку закрытия.
+            header.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -34),
+            titleLabel.widthAnchor.constraint(lessThanOrEqualToConstant: DesktopNotificationCardPresenter.cardWidth - 210),
+            messageLabel.widthAnchor.constraint(lessThanOrEqualToConstant: DesktopNotificationCardPresenter.cardWidth - 210),
+            text.widthAnchor.constraint(greaterThanOrEqualToConstant: 104)
         ]
 
-        if usesStackedLayout {
-            let actions = NSStackView()
-            actions.orientation = .horizontal
-            actions.alignment = .centerY
-            actions.spacing = 8
-            actions.translatesAutoresizingMaskIntoConstraints = false
-            card.addSubview(actions)
-            for (buttonTitle, action, isPrimary) in actionButtons {
-                let button = NotificationCardButton(title: buttonTitle) { [weak self] in self?.onAction(action) }
-                button.isPrimary = isPrimary
-                button.translatesAutoresizingMaskIntoConstraints = false
-                button.heightAnchor.constraint(greaterThanOrEqualToConstant: 40).isActive = true
-                actions.addArrangedSubview(button)
-                buttons.append((button, action))
-            }
-            actions.addArrangedSubview(NSView())
-            constraints += [
+        var all = constraints
+        if usesSecondRow {
+            all.append(close.centerYAnchor.constraint(equalTo: header.centerYAnchor))
+            // Высота карточки: строка с текстом, зазор 8 точек и строка действий.
+            all += [
                 actions.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 14),
                 actions.trailingAnchor.constraint(lessThanOrEqualTo: card.trailingAnchor, constant: -14),
-                actions.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 10),
-                actions.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -12)
+                actions.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 8),
+                card.bottomAnchor.constraint(equalTo: actions.bottomAnchor, constant: 10),
+                card.topAnchor.constraint(equalTo: topAnchor, constant: 10)
             ]
-            // Нижняя граница карточки задаётся строкой действий.
-            card.bottomAnchor.constraint(equalTo: actions.bottomAnchor, constant: 12).isActive = true
         } else {
-            for (buttonTitle, action, isPrimary) in actionButtons {
-                let button = NotificationCardButton(title: buttonTitle) { [weak self] in self?.onAction(action) }
-                button.isPrimary = isPrimary
-                button.translatesAutoresizingMaskIntoConstraints = false
-                button.heightAnchor.constraint(greaterThanOrEqualToConstant: 40).isActive = true
-                header.addArrangedSubview(button)
-                buttons.append((button, action))
-            }
-            constraints += [
-                header.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -12)
+            // Одно действие: наблюдаемая высота карточки эталона.
+            all += [
+                close.centerYAnchor.constraint(equalTo: card.centerYAnchor),
+                card.heightAnchor.constraint(equalToConstant: DesktopNotificationCardPresenter.cardHeight),
+                actions.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -34)
             ]
         }
-
-        NSLayoutConstraint.activate(constraints)
+        NSLayoutConstraint.activate(all)
     }
 
     private var iconName: String {

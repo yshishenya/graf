@@ -47,6 +47,8 @@ public final class DesktopRecordingIndicatorPresenter {
     public init() {}
 
     public var isVisible: Bool { panel != nil }
+    /// Окно индикатора доступно проверкам: геометрия измеряется на настоящем окне.
+    var window: NSWindow? { panel }
     public var presentedState: DesktopRecordingIndicatorState? { state }
 
     public func show(_ state: DesktopRecordingIndicatorState,
