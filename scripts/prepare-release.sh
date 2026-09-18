@@ -581,9 +581,20 @@ for name in sorted(by_name, key=lambda item: int(re.search(r"\d+", item).group()
     merged["known_limitations"] = list(dict.fromkeys(limitations))
     categories = {str(values.get("category", "")) for _, values in ordered}
     if len(categories) > 1:
-        raise SystemExit(
-            f"conflicting categories for Feature {feature_id}: {sorted(categories)}; "
-            "align the fragments before preparing the release"
+        # Доработка живёт несколько выпусков и естественно накапливает
+        # фрагменты с разными категориями: одну её часть поправили, другую
+        # изменили.  Это не повод останавливать выпуск.  Запись одна, поэтому
+        # раздел выбирает свежая работа — та, что лежит в unreleased.
+        chosen = str(base.get("category", ""))
+        print(
+            f"release_fragment_category=feature {feature_id} chosen={chosen} "
+            f"others={sorted(categories - {chosen})}",
+            file=sys.stderr,
+        )
+        print(
+            f"Категории фрагментов доработки {feature_id} различались "
+            f"({', '.join(sorted(categories))}); запись попадёт в раздел «{chosen}».",
+            file=sys.stderr,
         )
     destination = merge_dir / f"F{feature_id}.yaml"
     destination.write_text(dump(merged), encoding="utf-8")
