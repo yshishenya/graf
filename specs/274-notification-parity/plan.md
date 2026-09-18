@@ -1,7 +1,7 @@
 # Implementation Plan: Паритет уведомлений GRAF с Krisp
 
-**Branch**: `272-notification-parity` | **Date**: 2026-09-18 | **Spec**: [spec.md](spec.md)
-**Input**: Спецификация фичи из `/specs/272-notification-parity/spec.md`
+**Branch**: `274-notification-parity` | **Date**: 2026-09-18 | **Spec**: [spec.md](spec.md)
+**Input**: Спецификация фичи из `/specs/274-notification-parity/spec.md`
 **Research**: [research.md](research.md) — реверс-инжиниринг наблюдаемого Krisp 3.16.8
 
 ## Summary
@@ -88,7 +88,7 @@ clarify/checklist/analyze
 ### Documentation (this feature)
 
 ```text
-specs/272-notification-parity/
+specs/274-notification-parity/
 ├── spec.md                  # Спецификация и уточнения
 ├── research.md              # Наблюдения эталона и текущее состояние GRAF
 ├── plan.md                  # Этот файл
@@ -113,7 +113,7 @@ apps/macos/Shared/Tests/
 ├── DesktopNotificationControlTests.swift       # без изменений: регрессия
 └── DesktopLocalNotificationDeliveryTests.swift # без изменений: регрессия
 
-changes/unreleased/F272.yaml                    # НОВЫЙ: фрагмент журнала изменений
+changes/unreleased/F274.yaml                    # НОВЫЙ: фрагмент журнала изменений
 ```
 
 **Structure Decision**: поверхность уведомлений остаётся внутри модуля
