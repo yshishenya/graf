@@ -1068,6 +1068,13 @@ public:
             tray_ = std::make_unique<graf::windows::WindowsTray>(
             reinterpret_cast<std::uintptr_t>(mainWindowHandle_),
             [this] {
+                // Возврат окна из значка — то, что нельзя проверить иначе, чем
+                // живым щелчком: шаг записывается в журнал оформления.
+                try {
+                    const auto folder = winrt::Windows::Storage::ApplicationData::Current().LocalFolder().Path();
+                    std::ofstream log(std::filesystem::path(folder.c_str()) / L"appearance.log", std::ios::app);
+                    log << GetTickCount64() << " tray-open\n";
+                } catch (...) {}
                 // Окно могло быть скрыто закрытием: сначала показать, потом поднять.
                 if (window_) window_.AppWindow().Show();
                 if (mainWindowHandle_) {
