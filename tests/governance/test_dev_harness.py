@@ -249,6 +249,43 @@ def test_app_snapshot_preserves_bundle_symlinks(monkeypatch, tmp_path):
     assert (backup / "Contents/Current").readlink() == Path("Versions/A")
 
 
+def test_status_reports_missing_installed_app(monkeypatch, tmp_path):
+    """A lost installation must be visible in status, not only at the next promote."""
+    destination = tmp_path / "GRAF Dev.app"
+    monkeypatch.setenv("GRAF_DEV_INSTALL_PATH", str(destination))
+    manifest = build(tmp_path, "c" * 40)
+    run(
+        "promote",
+        tmp_path,
+        manifest=str(tmp_path / "manifests" / f"{manifest['manifest_id']}.json"),
+        dry_run=False,
+    )
+
+    missing = run("status", tmp_path)
+
+    assert missing["app"] == {"path": str(destination), "installed": False}
+    assert len(missing["warnings"]) == 1
+    assert "missing" in missing["warnings"][0]
+    assert str(destination) in missing["warnings"][0]
+
+    destination.mkdir()
+
+    present = run("status", tmp_path)
+
+    assert present["app"] == {"path": str(destination), "installed": True}
+    assert "warnings" not in present
+
+
+def test_dev_app_destination_honours_the_injected_path(monkeypatch, tmp_path):
+    """Every lifecycle site, including schema transitions, resolves one path."""
+    injected = tmp_path / "GRAF Dev.app"
+    monkeypatch.setenv("GRAF_DEV_INSTALL_PATH", str(injected))
+    assert dev_harness._dev_app_destination() == injected
+
+    monkeypatch.delenv("GRAF_DEV_INSTALL_PATH")
+    assert dev_harness._dev_app_destination() == dev_harness.DEV_APP_PATH
+
+
 def _promote_worker(root: str, manifest: str, queue) -> None:
     try:
         result = run("promote", Path(root), manifest=manifest, dry_run=False)
