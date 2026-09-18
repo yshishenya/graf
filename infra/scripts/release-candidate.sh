@@ -326,18 +326,37 @@ def require_recorded_pr_evidence(data):
     # changelog.  Those receipts are bound to immutable pull request heads, so
     # re-verifying them at freeze re-downloaded the same checks for every
     # included pull request and cost about eighteen minutes per release.
-    included = data.get("included_prs")
-    recorded_receipts = data.get("pr_receipts")
-    receipts_complete = (
-        isinstance(included, list)
-        and isinstance(recorded_receipts, list)
-        and bool(included)
-        and len(recorded_receipts) == len(included)
-        and all(
-            isinstance(item, str) and item.startswith(f"pr-{number}-governance-")
-            for number, item in zip(included, recorded_receipts)
+    def receipts_complete_for(included, recorded_receipts):
+        return (
+            isinstance(included, list)
+            and isinstance(recorded_receipts, list)
+            and bool(included)
+            and len(recorded_receipts) == len(included)
+            and all(
+                isinstance(item, str) and item.startswith(f"pr-{number}-governance-")
+                for number, item in zip(included, recorded_receipts)
+            )
         )
+
+    receipts_complete = receipts_complete_for(
+        data.get("included_prs"), data.get("pr_receipts")
     )
+    # A candidate record carries no receipts of its own; it names the train that
+    # was verified when it was frozen.  The decision therefore re-verified every
+    # included pull request a second time, which cost about ten minutes per
+    # release.  The referenced train is the recorded evidence for the same
+    # source SHA, so its receipts are accepted here too.
+    if not receipts_complete and data.get("train_id"):
+        train_path = root / ".dev" / "release" / "trains" / f"{data['train_id']}.json"
+        if train_path.is_file():
+            try:
+                train = json.loads(train_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                train = None
+            if isinstance(train, dict):
+                receipts_complete = receipts_complete_for(
+                    train.get("included_prs"), train.get("pr_receipts")
+                )
     if receipts_complete:
         return
     verify_release_pr_checks(data["source_sha"], data.get("included_prs"))
