@@ -232,6 +232,36 @@ final class DesktopNotificationCardTests: XCTestCase {
         }
     }
 
+    // Карточка показывается поверх других окон и на всех рабочих столах, но не
+    // забирает клавиатурный фокус.
+    func testCardWindowFloatsAboveOtherWindowsWithoutFocus() throws {
+        let presenter = DesktopNotificationCardPresenter()
+        presenter.present(.meeting(title: "Встреча команды", startText: "Начало в 10:00", hasJoinLink: true),
+                          onAction: { _ in })
+        defer { presenter.dismiss() }
+        let panel = try XCTUnwrap(presenter.window)
+        XCTAssertEqual(panel.level, .statusBar)
+        XCTAssertTrue(panel.collectionBehavior.contains(.canJoinAllSpaces))
+        XCTAssertTrue(panel.collectionBehavior.contains(.fullScreenAuxiliary))
+        XCTAssertFalse(panel.canBecomeKey)
+        XCTAssertFalse(panel.isOpaque)
+        XCTAssertFalse(panel.hasShadow)
+        XCTAssertTrue(panel.styleMask.contains(.nonactivatingPanel))
+    }
+
+    // Положение: правый край рабочей области без отступа, верх ниже строки меню.
+    func testCardPositionKeepsRightEdgeAndMenuBarInset() throws {
+        let presenter = DesktopNotificationCardPresenter()
+        presenter.present(.meeting(title: "Встреча команды", startText: "Начало в 10:00", hasJoinLink: true),
+                          onAction: { _ in })
+        defer { presenter.dismiss() }
+        let panel = try XCTUnwrap(presenter.window)
+        let screen = try XCTUnwrap(panel.screen ?? NSScreen.main)
+        let visible = screen.visibleFrame
+        XCTAssertEqual(panel.frame.maxX, visible.maxX, accuracy: 1)
+        XCTAssertEqual(visible.maxY - panel.frame.maxY, DesktopNotificationCardPresenter.topInset, accuracy: 1.5)
+    }
+
     private func fitted(_ presenter: DesktopNotificationCardPresenter) throws -> (NSWindow, NSView) {
         let panel = try XCTUnwrap(presenter.window)
         let view = try XCTUnwrap(panel.contentView)
