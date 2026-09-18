@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
+import contextlib
 import datetime as dt
 import hashlib
 import importlib.util
@@ -163,7 +165,23 @@ def api(repository, endpoint, *, pages_key=None):
     return [row for page in value for row in (page[pages_key] if pages_key else page)] if pages_key is not None else value
 
 
-def artifact(repository, run, workflow, *, optional=False):
+# Downloads are reused only inside one verification; outside one, every call
+# reads GitHub again so a stale archive can never be trusted.
+_ACTIVE_CACHE = None
+
+
+@contextlib.contextmanager
+def artifact_cache():
+    global _ACTIVE_CACHE
+    previous = _ACTIVE_CACHE
+    _ACTIVE_CACHE = {}
+    try:
+        yield
+    finally:
+        _ACTIVE_CACHE = previous
+
+
+def download_artifact(repository, run, workflow, *, optional=False):
     names = {"governance-fast": f"graf-governance-fast-evidence-{run['id']}-{run['run_attempt']}",
              "code-scope": f"graf-code-scope-{run['id']}-{run['run_attempt']}",
              "macos-pr": f"graf-native-scope-{run['id']}-{run['run_attempt']}",
@@ -186,6 +204,64 @@ def artifact(repository, run, workflow, *, optional=False):
         files = [item for item in archive.infolist() if Path(item.filename).name == filename]
         require(len(files) == 1 and files[0].file_size <= 1_000_000, "missing/oversized/ambiguous proof")
         return json.loads(archive.read(files[0]))
+
+
+def artifact(repository, run, workflow, *, optional=False):
+    """Return one workflow proof archive, downloading each archive at most once.
+
+    A release train verifies every included pull request, and each one needs up
+    to four independent archives.  Downloading them one after another spent most
+    of the release wall time waiting on the network, so `prefetch_artifacts`
+    fetches them at the same time and this function serves the cached result to
+    the sequential validation that follows.
+
+    The cache exists only while one verification runs: `verify` and `reuse` open
+    it, so a later verification always re-reads GitHub state instead of trusting
+    a download made earlier in the same process.
+    """
+    key = (run["id"], workflow)
+    cache = _ACTIVE_CACHE
+    if cache is not None and key in cache:
+        value = cache[key]
+        if isinstance(value, BaseException):
+            raise value
+        return value
+    value = download_artifact(repository, run, workflow, optional=optional)
+    if cache is not None:
+        cache[key] = value
+    return value
+
+
+def prefetch_artifacts(repository, jobs):
+    """Download independent proof archives at the same time.
+
+    `jobs` holds (run, workflow) pairs.  A failed download is cached and
+    re-raised by `artifact`, so verification still fails with the same message
+    it produced while downloads were sequential.  Archives are fetched strictly
+    except the optional scope archive, which may legitimately be absent.
+    """
+    cache = _ACTIVE_CACHE
+    if cache is None:
+        return
+    pending = {}
+    for run, workflow in jobs:
+        key = (run["id"], workflow)
+        if key not in cache:
+            pending[key] = (run, workflow)
+    if not pending:
+        return
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(8, len(pending))) as pool:
+        futures = {
+            pool.submit(download_artifact, repository, run, workflow,
+                        optional=workflow == "code-scope"): key
+            for key, (run, workflow) in pending.items()
+        }
+        for future in concurrent.futures.as_completed(futures):
+            key = futures[future]
+            try:
+                cache[key] = future.result()
+            except BaseException as error:  # re-raised by artifact()
+                cache[key] = error
 
 
 def workflow_runs(repository, workflow, pr):
@@ -471,6 +547,7 @@ def code_snapshot(pr, repository):
     return {key: value for key, value in snapshot.items() if key not in {"metadata_digest", "api_base_sha"}}
 
 
+@artifact_cache()
 def reuse(repository, event, workflow, run_id, attempt, *, wait_seconds=0):
     require(re.fullmatch(r"[\w.-]+/[\w.-]+", repository), "invalid repository")
     require(workflow in {"governance-fast", "macos-pr"} and 0 <= wait_seconds <= 2640,
@@ -512,6 +589,7 @@ def reuse(repository, event, workflow, run_id, attempt, *, wait_seconds=0):
         return dict(reference(*source), workflow=workflow, target_sha=scope["target_sha"], base_sha=scope["base_sha"])
 
 
+@artifact_cache()
 def verify(repository, number, *, expected_sha=None, code_run_id=None):
     require(re.fullmatch(r"[\w.-]+/[\w.-]+", repository) and type(number) is int and number > 0, "invalid repository/PR")
     pr = api(repository, f"pulls/{number}")
@@ -530,6 +608,12 @@ def verify(repository, number, *, expected_sha=None, code_run_id=None):
             and utc(foundation["merged_at"]) < utc(policy["activated_at"]), "unverified policy foundation")
     workflows = ["governance-fast"] if old else ["governance-fast", "macos-pr", "pr-metadata"]
     bundles = {name: current_run(repository, name, pr, base) for name in workflows}
+    jobs = []
+    for name in workflows:
+        jobs.append((bundles[name][0], name))
+        if name != "pr-metadata":
+            jobs.append((bundles[name][0], "code-scope" if name == "governance-fast" else "macos-pr"))
+    prefetch_artifacts(repository, jobs)
     gates = {name: current_gate(repository, name, pr, base) for name in workflows}
     if code_run_id is not None:
         require(str(bundles["governance-fast"][0]["id"]) == str(code_run_id), "referenced code run is no longer current")
