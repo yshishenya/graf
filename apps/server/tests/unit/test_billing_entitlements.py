@@ -156,6 +156,108 @@ async def test_confirmed_payment_grants_once_and_records_receipt_state(
 
 
 @pytest.mark.anyio
+async def test_early_payment_and_cycle_change_keep_the_paid_remainder(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def no_promo(*_args: object, **_kwargs: object) -> str:
+        return "none"
+
+    async def no_credit(*_args: object, **_kwargs: object) -> str:
+        return "ineligible"
+
+    async def capture_notification(*_args: object, **kwargs: object) -> bool:
+        return True
+
+    monkeypatch.setattr(entitlements, "redeem_invoice_promo", no_promo)
+    monkeypatch.setattr(entitlements, "create_pending_credit", no_credit)
+    monkeypatch.setattr(entitlements, "enqueue_billing_notification", capture_notification)
+
+    paid_at = datetime(2026, 8, 20, 9, tzinfo=UTC)
+    already_paid_through = datetime(2026, 9, 1, 12, tzinfo=UTC)
+    operation = BillingOperation(
+        id=OPERATION_ID,
+        workspace_id=WORKSPACE_ID,
+        kind="initial_checkout",
+        idempotency_key="early-checkout",
+        provider_id="payment-early",
+        request_snapshot={
+            "plan_code": "personal",
+            "cycle": "year",
+            "billing_actor_user_id": str(OWNER_ID),
+            "recurring_consent": False,
+        },
+    )
+    invoice = BillingInvoice(
+        id=INVOICE_ID,
+        workspace_id=WORKSPACE_ID,
+        operation_id=OPERATION_ID,
+        safe_number="INV-EARLY",
+        amount_minor=1_000_000,
+        currency="RUB",
+        plan_snapshot={"plan_code": "personal", "cycle": "year"},
+    )
+    owner = WorkspaceMembership(
+        workspace_id=WORKSPACE_ID,
+        user_id=OWNER_ID,
+        role="owner",
+        status="active",
+    )
+    workspace = Workspace(
+        id=WORKSPACE_ID,
+        organization_id=UUID("66666666-6666-4666-8666-666666666666"),
+        slug="personal",
+        name="Personal",
+        kind="personal",
+        owner_user_id=OWNER_ID,
+    )
+    subscription = WorkspaceSubscription(
+        workspace_id=WORKSPACE_ID,
+        billing_owner_id=OWNER_ID,
+        state="personal",
+        plan_code="personal",
+        cycle="month",
+        paid_through=already_paid_through,
+        recurring_allowed=True,
+        recurring_authority_version=3,
+    )
+    db = _FakeDb([operation, invoice, None, workspace, owner, subscription])
+
+    result = await entitlements.grant_confirmed_payment(
+        db,
+        workspace_id=WORKSPACE_ID,
+        provider_payment_id="payment-early",
+        amount_minor=1_000_000,
+        currency="RUB",
+        paid_at=paid_at,
+    )
+
+    assert result == "granted"
+    # The year is added to the paid remainder instead of restarting the period
+    # on the payment date.
+    assert subscription.paid_through == datetime(2027, 9, 1, 12, tzinfo=UTC)
+    assert subscription.cycle == "year"
+    grant = next(row for row in db.added if isinstance(row, BillingEntitlementGrant))
+    assert grant.starts_at == already_paid_through
+    assert grant.ends_at == subscription.paid_through
+
+    # A repeated delivery of the same payment must not extend the period twice.
+    duplicate = _FakeDb([operation, invoice, grant])
+    assert (
+        await entitlements.grant_confirmed_payment(
+            duplicate,
+            workspace_id=WORKSPACE_ID,
+            provider_payment_id="payment-early",
+            amount_minor=1_000_000,
+            currency="RUB",
+            paid_at=paid_at,
+        )
+        == "duplicate"
+    )
+    assert subscription.paid_through == datetime(2027, 9, 1, 12, tzinfo=UTC)
+    assert not [row for row in duplicate.added if isinstance(row, BillingEntitlementGrant)]
+
+
+@pytest.mark.anyio
 async def test_confirmed_payment_does_not_grant_personal_entitlement_to_linked_workspace() -> None:
     operation = BillingOperation(
         id=OPERATION_ID,

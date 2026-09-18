@@ -773,46 +773,51 @@ def test_browser_email_login_ignores_public_workspace_id_and_uses_internal_boots
     assert "workspace_id" not in response.text
 
 
-def test_browser_email_login_start_rejects_unknown_email_without_code(client) -> None:
+def test_browser_email_login_start_issues_code_for_new_email_without_creating_it(client) -> None:
     async def auth_state_counts() -> tuple[int, int]:
         async with client.app_state["sessionmaker"]() as db:
             callbacks = list(await db.scalars(select(AuthCallbackState)))
             sessions = list(await db.scalars(select(AuthSession)))
             return len(callbacks), len(sessions)
 
-    before = client.portal.call(auth_state_counts)
+    async def email_identity_count() -> int:
+        async with client.app_state["sessionmaker"]() as db:
+            identities = list(
+                await db.scalars(
+                    select(ExternalIdentity).where(
+                        ExternalIdentity.provider == "email",
+                        ExternalIdentity.email == "missing-owner@example.test",
+                    )
+                )
+            )
+            return len(identities)
+
+    before_states = client.portal.call(auth_state_counts)
+    before_identities = client.portal.call(email_identity_count)
     response = client.post(
         "/login/email/start",
         data={"email": "missing-owner@example.test", "next": "/meetings"},
     )
 
-    assert response.status_code == 400
-    assert "Не удалось начать вход по email." in response.text
-    assert "выберите другой способ входа или зарегистрируйтесь" in response.text
-    assert "Код для локальной проверки" not in response.text
+    assert response.status_code == 200
+    assert "Проверьте почту и введите одноразовый код." in response.text
     assert 'value="missing-owner@example.test"' in response.text
-    assert '<a class="auth-provider" href="/login/yandex/start?next=%2Fmeetings">' in response.text
-    assert '<a class="auth-provider" href="/login/vk/start?next=%2Fmeetings">' in response.text
-    assert client.portal.call(auth_state_counts) == before
+    after_states = client.portal.call(auth_state_counts)
+    assert after_states[0] == before_states[0] + 1
+    assert after_states[1] == before_states[1]
+    # The account itself is created only when the code is confirmed.
+    assert client.portal.call(email_identity_count) == before_identities
 
 
-def test_browser_email_login_error_normalizes_email_and_preserves_embedded_providers(client) -> None:
+def test_browser_email_login_code_page_normalizes_email_without_download_pitch(client) -> None:
     response = client.post(
         "/login/email/start",
         data={"email": "  Missing-Desktop@Example.Test  ", "next": "/desktop/meetings"},
     )
 
-    assert response.status_code == 400
+    assert response.status_code == 200
     assert 'value="missing-desktop@example.test"' in response.text
     assert "/download" not in response.text
-    assert (
-        '<a class="auth-provider" href="/login/yandex/start?next=%2Fdesktop%2Fmeetings">'
-        in response.text
-    )
-    assert (
-        '<a class="auth-provider" href="/login/vk/start?next=%2Fdesktop%2Fmeetings">'
-        in response.text
-    )
 
 
 def test_browser_email_login_invalid_html_like_input_is_not_reflected(client) -> None:
@@ -848,7 +853,7 @@ def test_browser_email_login_error_respects_partially_disabled_provider_policy(
 
     response = client.post(
         "/login/email/start",
-        data={"email": "missing-policy-owner@example.test", "next": "/meetings"},
+        data={"email": "missing-policy-owner", "next": "/meetings"},
     )
 
     assert response.status_code == 400
@@ -861,7 +866,7 @@ def test_browser_email_login_start_is_durably_rate_limited(client) -> None:
 
     for _ in range(3):
         response = client.post("/login/email/start", data=payload)
-        assert response.status_code == 400
+        assert response.status_code == 200
 
     blocked = client.post("/login/email/start", data=payload)
 
@@ -921,14 +926,13 @@ def test_browser_email_error_fails_closed_when_provider_snapshot_is_unavailable(
     monkeypatch.setattr(auth_routes, "_load_browser_login_providers", unavailable)
     response = client.post(
         "/login/email/start",
-        data={"email": "missing-policy@example.test", "next": "/meetings"},
+        data={"email": "missing-policy", "next": "/meetings"},
     )
 
     assert response.status_code == 400
     assert "Сервис входа временно недоступен" in response.text
     assert 'href="/login/yandex/start?' not in response.text
     assert 'href="/login/vk/start?' not in response.text
-    assert 'value="missing-policy@example.test"' in response.text
 
 
 @pytest.mark.parametrize(("agent", "platform", "version"), (
@@ -1178,7 +1182,7 @@ def test_email_login_digest_requires_server_secret_and_browser_nonce(client) -> 
 
 
 @pytest.mark.parametrize("provider", ("yandex", "vk"))
-def test_email_login_rejects_oauth_provider_email_metadata(client, provider: str) -> None:
+def test_email_login_does_not_trust_oauth_provider_email_metadata(client, provider: str) -> None:
     email = f"{provider}-metadata-only@example.test"
 
     async def seed_oauth_metadata() -> None:
@@ -1201,8 +1205,9 @@ def test_email_login_rejects_oauth_provider_email_metadata(client, provider: str
         data={"email": email, "next": "/meetings"},
     )
 
-    assert response.status_code == 400
-    assert "Код для локальной проверки" not in response.text
+    # A code is issued, because a first login now creates the account. The
+    # provider metadata alone still proves nothing: access needs the code.
+    assert response.status_code == 200
 
     async def read_result() -> tuple[int, int]:
         async with client.app_state["sessionmaker"]() as db:
@@ -1221,7 +1226,9 @@ def test_email_login_rejects_oauth_provider_email_metadata(client, provider: str
             )
             return len(callbacks), len(sessions)
 
-    assert client.portal.call(read_result) == (0, 0)
+    callbacks, sessions = client.portal.call(read_result)
+    assert callbacks == 1
+    assert sessions == 0
 
 
 def test_browser_email_login_response_failure_rolls_back_session_and_callback(
@@ -2801,7 +2808,6 @@ def test_personal_owner_continues_existing_checkout_without_second_operation(
     session = client.portal.call(seed)
     monkeypatch.setattr(billing_routes, "YooKassaClient", lambda _settings: Provider())
     client.app.state.settings.billing_checkout_enabled = True
-    client.app.state.settings.billing_emergency_stop = False
     client.app.state.settings.public_base_url = "https://rec.example.test"
     client.cookies.set(AUTH_SESSION_COOKIE_NAME, token)
     csrf_token = issue_csrf_token(

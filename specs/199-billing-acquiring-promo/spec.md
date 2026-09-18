@@ -25,7 +25,7 @@ review и production enablement остаются внешними операци
 - Удаляем `billing_launch_gates` из active runtime path, ORM и схемы следующей
   миграцией. Историческая миграция `0072` остаётся в цепочке Alembic.
 - Checkout и renewal сохраняют server-owned catalog validation, explicit
-  YooKassa environment/shop, checkout flag, emergency stop, owner/CSRF/consent,
+  YooKassa environment/shop, checkout flag, owner/CSRF/consent,
   idempotency, invoice/operation ledger, receipt, webhook and reconciliation
   checks.
 - Provider canary and independent review remain operational evidence, but
@@ -106,7 +106,7 @@ no-go state.
 
 **Acceptance Scenarios**:
 
-1. **Given** checkout disabled, emergency stop или невалидны catalog/shop/
+1. **Given** checkout disabled или невалидны catalog/shop/
    provider settings, **When** оператор пытается открыть checkout, **Then**
    billing safety checks block it.
 2. **Given** test canary passed and operational review is recorded, **When**
@@ -146,7 +146,7 @@ immutable checkout request с тем же ключом и не создаёт в
   final invoice snapshot is authoritative.
 - A malformed or expired short-lived browser cookie is ignored without exposing
   its contents in URL, analytics or logs.
-- A missing catalog, disabled billing flag, emergency stop or invalid provider
+- A missing catalog, disabled billing flag or invalid provider
   environment/shop keeps amounts/provider actions unavailable rather than
   inventing a price.
 - Provider/configuration/transport failure metadata contains only a bounded
@@ -175,7 +175,8 @@ immutable checkout request с тем же ключом и не создаёт в
 - **FR-007**: No public admin UI, refund workflow, stacking rule or zero-total
   checkout may be introduced by this feature.
 - **FR-008**: Launch documentation MUST preserve test/prod separation, provider
-  observation, operational review, emergency stop and exact-SHA evidence.
+  observation, operational review, the disabled checkout flag and exact-SHA
+  evidence.
 - **FR-009**: A checkout failure before `provider_id` MUST preserve the existing
   operation/invoice and MUST NOT authorize a second checkout operation.
 - **FR-010**: Explicit continuation MUST reuse the immutable checkout snapshot
@@ -205,7 +206,7 @@ immutable checkout request с тем же ключом и не создаёт в
 - **SC-003**: Duplicate, expired, ineligible, exhausted, confusable and
   below-floor cases fail closed in automated tests.
 - **SC-004**: Checkout remains controlled by explicit settings, provider/shop
-  separation and emergency stop; no code change silently enables production
+  separation and the checkout flag; no code change silently enables production
   money mutations.
 - **SC-005**: Focused tests prove that reject/timeout recovery makes at most one
   logical provider request identity and that expired keys perform zero provider

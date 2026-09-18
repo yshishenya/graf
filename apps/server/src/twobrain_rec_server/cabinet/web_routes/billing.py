@@ -44,7 +44,7 @@ from twobrain_rec_server.billing.entitlements import effective_plan_code
 from twobrain_rec_server.billing.history import mask_payment_method
 from twobrain_rec_server.billing.operations import (
     CHECKOUT_BLOCKING_STATES,
-    BillingEmergencyStop,
+    BillingCheckoutDisabled,
     provider_key_is_expired,
     require_billing_enabled,
 )
@@ -141,6 +141,7 @@ from twobrain_rec_server.db.tenant_context import (
 from twobrain_rec_server.product_analytics.browser_context import (
     build_request_browser_provider_context,
 )
+from twobrain_rec_server.public.offers import PUBLIC_APPROVED_OFFER_VERSION
 
 if TYPE_CHECKING:
     from twobrain_rec_server.config import Settings
@@ -409,7 +410,7 @@ def _initial_checkout_failure_metadata(
         failure_class = "transport_timeout"
     elif isinstance(exc, httpx.HTTPError):
         failure_class = "transport_error"
-    elif isinstance(exc, BillingEmergencyStop):
+    elif isinstance(exc, BillingCheckoutDisabled):
         failure_class = "checkout_disabled"
     elif isinstance(exc, ValueError):
         failure_class = "invalid_checkout_snapshot"
@@ -799,7 +800,12 @@ async def _approved_personal_catalog(
     *,
     now: datetime,
 ) -> dict[str, object]:
-    """Read the same approved catalog authority used by checkout UI and POST."""
+    """Read the same approved catalog authority used by checkout UI and POST.
+
+    The public page only claims a sale for the published offer revision, so the
+    cabinet must apply the same bar. Otherwise an exact-price row carrying some
+    other revision would open checkout while the landing page stays silent.
+    """
     if db is None:
         return {}
     rows = await db.scalars(
@@ -815,9 +821,12 @@ async def _approved_personal_catalog(
         if row.cycle in approved:
             continue
         try:
-            approved[row.cycle] = validate_plan_version(row, now=now)
+            snapshot = validate_plan_version(row, now=now)
         except (CatalogNotApproved, ValueError):
             continue
+        if snapshot.offer_version != PUBLIC_APPROVED_OFFER_VERSION:
+            continue
+        approved[row.cycle] = snapshot
     return approved
 
 
@@ -1773,7 +1782,6 @@ async def billing_checkout_status_page(
     can_continue_payment = bool(
         operation is not None
         and settings.billing_checkout_enabled
-        and not settings.billing_emergency_stop
         and actor_matches
         and _initial_checkout_can_continue(operation)
     )
@@ -1946,9 +1954,8 @@ async def continue_billing_checkout(
     try:
         require_billing_enabled(
             checkout_enabled=bool(settings.billing_checkout_enabled),
-            emergency_stop=bool(settings.billing_emergency_stop),
         )
-    except BillingEmergencyStop:
+    except BillingCheckoutDisabled:
         return RedirectResponse(
             _checkout_status_location(safe_number, result="unavailable"),
             status_code=303,
@@ -2742,7 +2749,6 @@ async def billing_checkout_page(
         and blocking_operation.request_snapshot.get("billing_actor_user_id")
         in {None, str(principal.user_id)}
         and settings.billing_checkout_enabled
-        and not settings.billing_emergency_stop
         else None
     )
     checkout_continuation_url = (
@@ -2875,7 +2881,7 @@ async def preview_billing_checkout(
 ) -> RedirectResponse:
     """Validate a promo and show its price without reserving or charging."""
     settings = request.app.state.settings
-    if db is None or not settings.billing_checkout_enabled or settings.billing_emergency_stop:
+    if db is None or not settings.billing_checkout_enabled:
         return RedirectResponse("/billing/checkout?result=unavailable", status_code=303)
     if await _billing_role(db, tenant_scope=tenant_scope, principal=principal) != "owner":
         return RedirectResponse("/billing?result=owner_only", status_code=303)
@@ -3003,7 +3009,6 @@ async def start_billing_checkout(
         )
         require_billing_enabled(
             checkout_enabled=bool(settings.billing_checkout_enabled),
-            emergency_stop=bool(settings.billing_emergency_stop),
         )
         key = idempotency_key.strip()
         if not key:
@@ -3038,13 +3043,9 @@ async def start_billing_checkout(
                 )
             return RedirectResponse("/billing?result=pending", status_code=303)
         now = datetime.now(UTC)
-        if (
-            subscription is not None
-            and subscription.plan_code == "personal"
-            and subscription.paid_through is not None
-            and subscription.paid_through.astimezone(UTC) > now
-        ):
-            return RedirectResponse("/billing?result=already_active", status_code=303)
+        # An active paid period must never block a new payment: a person who
+        # wants to pay early can pay at any moment, and the granted period is
+        # added to the paid remainder instead of replacing it.
 
         # New money mutation must use an enabled, effective database catalog
         # row.  Static descriptors remain useful for read-only copy and unit
@@ -3327,7 +3328,7 @@ async def start_billing_checkout(
             return RedirectResponse("/billing?result=pending", status_code=303)
         return RedirectResponse("/billing/checkout?result=unavailable", status_code=303)
     except (
-        BillingEmergencyStop,
+        BillingCheckoutDisabled,
         ValueError,
         YooKassaConfigurationError,
         YooKassaProviderError,

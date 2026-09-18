@@ -8,6 +8,7 @@ worker restart cannot create a second charge for the same paid interval.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import NAMESPACE_URL, UUID, uuid5
@@ -27,9 +28,11 @@ from twobrain_rec_server.billing.catalog import (
     PlanCatalogSnapshot,
     validate_plan_version,
 )
+from twobrain_rec_server.billing.events import enqueue_billing_notification
+from twobrain_rec_server.billing.notifications import BillingNotification
 from twobrain_rec_server.billing.operations import (
     CHECKOUT_BLOCKING_STATES,
-    BillingEmergencyStop,
+    BillingCheckoutDisabled,
     require_billing_enabled,
 )
 from twobrain_rec_server.billing.payment_methods import (
@@ -58,6 +61,14 @@ from twobrain_rec_server.db.models import (
 
 RENEWAL_REMINDER_HOURS = 72
 RENEWAL_PROVIDER_WINDOW = timedelta(hours=24)
+# Three attempts land 72, 48 and 24 hours before the paid-through boundary.
+# The attempt interval equals the provider window, so the attempts never
+# overlap: one declined card still leaves room for a real next attempt.
+RENEWAL_ATTEMPT_COUNT = 3
+RENEWAL_ATTEMPT_INTERVAL = timedelta(hours=24)
+RENEWAL_ATTEMPTS = tuple(range(1, RENEWAL_ATTEMPT_COUNT + 1))
+# The copy for a failed attempt states the moment access ends, in Moscow time.
+MOSCOW_OFFSET = timedelta(hours=3)
 # A missing provider id after a transport error is not safe to POST again:
 # YooKassa may have accepted the first request. Only an untouched operation
 # may enter the outbound mutation path; unknown is GET/list/manual recovery.
@@ -79,10 +90,54 @@ def _utc(value: datetime) -> datetime:
     return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
 
-def renewal_operation_key(*, workspace_id: UUID, paid_through: datetime) -> str:
+def renewal_attempt_due_at(*, paid_through: datetime, attempt: int) -> datetime:
+    """Return the moment one renewal attempt may start.
+
+    Attempt ``1`` lands ``RENEWAL_REMINDER_HOURS`` before the paid-through
+    boundary, every next attempt one interval later.  A subscription that
+    enters the reminder window late does not wait for a future moment: the
+    earlier attempt is already due and is charged by the next pass.
+    """
+    if attempt not in RENEWAL_ATTEMPTS:
+        raise ValueError("renewal attempt number is invalid")
+    first = _utc(paid_through) - timedelta(hours=RENEWAL_REMINDER_HOURS)
+    return first + RENEWAL_ATTEMPT_INTERVAL * (attempt - 1)
+
+
+def renewal_attempt_of(operation: BillingOperation) -> int:
+    """Return the stored attempt number of one renewal operation.
+
+    Operations planned before attempt scheduling existed carry no number. They
+    were the only attempt of their period, so they stay final.
+    """
+    snapshot = operation.request_snapshot
+    attempt = snapshot.get("renewal_attempt") if isinstance(snapshot, Mapping) else None
+    if isinstance(attempt, int) and not isinstance(attempt, bool) and attempt in RENEWAL_ATTEMPTS:
+        return attempt
+    return RENEWAL_ATTEMPT_COUNT
+
+
+def renewal_operation_key(
+    *,
+    workspace_id: UUID,
+    paid_through: datetime,
+    attempt: int = 1,
+) -> str:
+    """Return the idempotency key of one attempt of one paid period.
+
+    The period reference is the same for every attempt, so re-planning one
+    attempt reuses its operation.  The attempt suffix keeps the three attempts
+    of one period apart, so each of them is a separate payment.
+    """
+    if attempt not in RENEWAL_ATTEMPTS:
+        raise ValueError("renewal attempt number is invalid")
     period = _utc(paid_through).isoformat()
     stable_id = uuid5(NAMESPACE_URL, f"graf:renewal:{workspace_id}:{period}")
-    return f"renewal:{stable_id}"
+    return f"renewal:{stable_id}:a{attempt}"
+
+
+def _moscow_label(value: datetime) -> str:
+    return (_utc(value) + MOSCOW_OFFSET).strftime("%d.%m.%Y %H:%M")
 
 
 def renewal_invoice_number(operation_id: UUID) -> str:
@@ -236,25 +291,60 @@ async def plan_due_renewals(
         if not isinstance(receipt_contact, str) or not receipt_contact.strip():
             subscription.renewal_resolution = "receipt_contact_required"
             continue
-        key = renewal_operation_key(
-            workspace_id=subscription.workspace_id,
-            paid_through=subscription.paid_through,
-        )
-        existing = await db.scalar(
-            select(BillingOperation)
-            .where(
-                BillingOperation.workspace_id == subscription.workspace_id,
-                BillingOperation.kind == "renewal",
-                BillingOperation.idempotency_key == key,
+        selected: tuple[int, str, datetime] | None = None
+        # Attempts of one period are strictly sequential: the next key is
+        # created only once the previous attempt is resolved at the provider,
+        # so two attempts can never be in flight for the same paid period.
+        for attempt in RENEWAL_ATTEMPTS:
+            due_at = renewal_attempt_due_at(
+                paid_through=subscription.paid_through,
+                attempt=attempt,
             )
-            .with_for_update()
-        )
-        if existing is not None:
-            if existing.state in RENEWAL_CANDIDATE_STATES and existing.provider_id is None:
-                planned.append(existing.id)
+            if due_at > current:
+                # This attempt is still ahead, and so is every later one.
+                break
+            key = renewal_operation_key(
+                workspace_id=subscription.workspace_id,
+                paid_through=subscription.paid_through,
+                attempt=attempt,
+            )
+            existing = await db.scalar(
+                select(BillingOperation)
+                .where(
+                    BillingOperation.workspace_id == subscription.workspace_id,
+                    BillingOperation.kind == "renewal",
+                    BillingOperation.idempotency_key == key,
+                )
+                .with_for_update()
+            )
+            if existing is not None:
+                if (
+                    existing.provider_id is None
+                    and existing.provider_key_expires_at is not None
+                    and _utc(existing.provider_key_expires_at) > current
+                    and existing.state in RENEWAL_CANDIDATE_STATES
+                ):
+                    # Still chargeable: charge this attempt before the next one.
+                    planned.append(existing.id)
+                    break
+                if existing.provider_id is not None or existing.state in {
+                    "unknown",
+                    "processing",
+                }:
+                    # The provider may still complete this attempt, so a new
+                    # idempotency key must not open a second payment.
+                    break
+                # Resolved, or spent with an expired provider window: the next
+                # attempt of the same period takes over.
+                continue
+            selected = (attempt, key, due_at)
+            break
+        if selected is None:
             continue
+        attempt, key, due_at = selected
         operation_id = uuid5(NAMESPACE_URL, f"graf:renewal-operation:{key}")
         snapshot = _snapshot(subscription=subscription, catalog=catalog)
+        snapshot["renewal_attempt"] = attempt
         method_label = getattr(default_method, "masked_label", None)
         if isinstance(method_label, str) and method_label:
             snapshot["payment_method_label"] = method_label
@@ -264,9 +354,13 @@ async def plan_due_renewals(
             kind="renewal",
             idempotency_key=key,
             state="scheduled",
-            # Reserve during the reminder window, but do not mutate the
-            # provider before the paid-through boundary.
-            provider_key_expires_at=_utc(subscription.paid_through) + RENEWAL_PROVIDER_WINDOW,
+            # The attempt opens its own provider window when it is launched, so
+            # an attempt planned inside the reminder window is chargeable right
+            # away. Nothing reaches further than one window past the boundary.
+            provider_key_expires_at=min(
+                max(due_at, current) + RENEWAL_PROVIDER_WINDOW,
+                _utc(subscription.paid_through) + RENEWAL_PROVIDER_WINDOW,
+            ),
             request_snapshot=snapshot,
         )
         db.add(operation)
@@ -292,7 +386,11 @@ async def plan_due_renewals(
                 outcome="scheduled",
                 reason_code="one_operation_per_period",
                 metadata_json=metadata_only(
-                    {"cycle": str(subscription.cycle), "amount_minor": str(catalog.amount_minor)}
+                    {
+                        "cycle": str(subscription.cycle),
+                        "amount_minor": str(catalog.amount_minor),
+                        "attempt": str(attempt),
+                    }
                 ),
             )
         )
@@ -307,7 +405,7 @@ async def pending_renewal_charge_candidates(
     now: datetime | None = None,
     limit: int = 100,
 ) -> tuple[tuple[UUID, UUID], ...]:
-    """Return scheduled operations whose paid-through boundary has arrived."""
+    """Return scheduled operations whose own attempt moment has arrived."""
     current = _utc(now or datetime.now(UTC))
     rows = await db.execute(
         select(BillingOperation.id, BillingOperation.workspace_id)
@@ -344,7 +442,10 @@ async def pending_renewal_charge_candidates(
         if not isinstance(paid_through_at, str):
             continue
         try:
-            due_at = _utc(datetime.fromisoformat(paid_through_at))
+            due_at = renewal_attempt_due_at(
+                paid_through=datetime.fromisoformat(paid_through_at),
+                attempt=renewal_attempt_of(operation),
+            )
         except ValueError:
             continue
         if due_at <= current:
@@ -487,6 +588,30 @@ async def project_renewal_cutoffs(
     return projected
 
 
+async def _enqueue_renewal_attempt_failure(
+    db: AsyncSession,
+    *,
+    subscription: WorkspaceSubscription,
+    invoice: BillingInvoice,
+) -> None:
+    """Tell the payer that one attempt failed and when access ends."""
+    if subscription.billing_owner_id is None or subscription.paid_through is None:
+        return
+    await enqueue_billing_notification(
+        db,
+        workspace_id=subscription.workspace_id,
+        recipient_id=subscription.billing_owner_id,
+        event_id=f"renewal:{invoice.id}:attempt_failed",
+        kind=BillingNotification.RENEWAL_ATTEMPT_FAILED,
+        payload={
+            "invoice": invoice.safe_number,
+            "access_until": _moscow_label(subscription.paid_through),
+            "action_path": "/billing/subscription",
+        },
+        marketing_allowed=False,
+    )
+
+
 async def charge_renewal_operation(
     db: AsyncSession,
     settings: Settings,
@@ -581,9 +706,16 @@ async def charge_renewal_operation(
         )
         await db.commit()
         return RenewalChargeResult(operation_id, "canceled")
-    if subscription.paid_through is not None and _utc(subscription.paid_through) > current:
-        # The reminder window reserves the operation; the provider mutation
-        # starts at the exact paid-through boundary, never earlier.
+    attempt = renewal_attempt_of(operation)
+    due_at = (
+        renewal_attempt_due_at(paid_through=subscription.paid_through, attempt=attempt)
+        if subscription.paid_through is not None
+        else None
+    )
+    if due_at is None or due_at > current:
+        # Each attempt waits for its own moment inside the reminder window and
+        # never starts earlier; an attempt planned late fires at once. A
+        # renewal without a paid period cannot be charged at all.
         await db.rollback()
         return RenewalChargeResult(operation_id, "scheduled")
     if (
@@ -609,7 +741,6 @@ async def charge_renewal_operation(
     try:
         require_billing_enabled(
             checkout_enabled=bool(settings.billing_checkout_enabled),
-            emergency_stop=bool(settings.billing_emergency_stop),
         )
         expected_version = operation.request_snapshot.get("recurring_authority_version")
         if (
@@ -686,7 +817,7 @@ async def charge_renewal_operation(
         )
         await db.commit()
         return RenewalChargeResult(operation_id, "sent", provider_id)
-    except BillingEmergencyStop:
+    except BillingCheckoutDisabled:
         await db.rollback()
         return RenewalChargeResult(operation_id, "blocked")
     except BillingAuthorizationError:
@@ -706,19 +837,33 @@ async def charge_renewal_operation(
         if exc.status_code is not None and 400 <= exc.status_code < 500:
             operation.state = "canceled"
             invoice.status = "canceled"
-            subscription.recurring_allowed = False
-            subscription.recurring_authority_version = (
-                subscription.recurring_authority_version or 0
-            ) + 1
-            subscription.renewal_resolution = "canceled"
-            if subscription.paid_through is not None and _utc(subscription.paid_through) <= current:
-                _project_free(subscription)
+            if attempt >= RENEWAL_ATTEMPT_COUNT:
+                # Only the last attempt of the period ends recurring access.
+                subscription.recurring_allowed = False
+                subscription.recurring_authority_version = (
+                    subscription.recurring_authority_version or 0
+                ) + 1
+                subscription.renewal_resolution = "canceled"
+                if (
+                    subscription.paid_through is not None
+                    and _utc(subscription.paid_through) <= current
+                ):
+                    _project_free(subscription)
+            else:
+                # The paid period stays active until its own boundary and the
+                # next attempt takes over.
+                subscription.renewal_resolution = "attempt_failed"
             _record_charge_audit(
                 db,
                 subscription=subscription,
                 operation=operation,
                 outcome="canceled",
                 reason_code="provider_declined",
+            )
+            await _enqueue_renewal_attempt_failure(
+                db,
+                subscription=subscription,
+                invoice=invoice,
             )
             await db.commit()
             return RenewalChargeResult(operation_id, "canceled")

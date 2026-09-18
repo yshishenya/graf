@@ -52,6 +52,9 @@ class PaymentObservation:
     status: Literal["pending", "waiting_for_capture", "succeeded", "canceled"]
     provider_created_at: datetime
     receipt_registration: ReceiptRegistration | None = None
+    # Our own operation id, echoed by the provider. It lets a payment be matched
+    # even when the create-payment response never reached us.
+    operation_id: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,7 +104,21 @@ def extract_payment_observation(
         status=_payment_status(payload.get("status")),
         provider_created_at=_timestamp(payload.get("created_at"), required=True),
         receipt_registration=_receipt_registration(payload.get("receipt_registration")),
+        operation_id=_operation_id(payload.get("metadata")),
     )
+
+
+def _operation_id(metadata: object) -> UUID | None:
+    """Read our operation id from provider metadata, ignoring anything malformed."""
+    if not isinstance(metadata, Mapping):
+        return None
+    raw = metadata.get("operation_id")
+    if not raw:
+        return None
+    try:
+        return UUID(str(raw))
+    except (ValueError, TypeError):
+        return None
 
 
 def saved_bank_card_confirmed(payload: Mapping[str, Any]) -> bool:

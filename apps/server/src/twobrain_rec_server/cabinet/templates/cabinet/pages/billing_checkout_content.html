@@ -59,7 +59,7 @@
           <input type="hidden" name="promo_code" value="{{ checkout_promo_code|default('') }}">
           <input type="hidden" name="cycle" value="{{ checkout_cycle }}">
           <label class="billing-consent"><input type="checkbox" name="offer_consent" value="true" required> <span>Принимаю <a href="/offer" target="_blank" rel="noopener">оферту</a> версии {{ offer_version_label|default("billing-personal-v1") }}.</span></label>
-          <label class="billing-consent"><input type="checkbox" name="recurring_consent" value="true" required> <span>Согласен на регулярное списание до отключения автопродления.</span></label>
+          <label class="billing-consent"><input type="checkbox" name="recurring_consent" value="true" required> <span>Согласен на регулярное списание: оплата списывается автоматически, отключить автопродление можно в кабинете.</span></label>
           <button class="button billing-checkout-form__submit" data-billing-primary type="submit">Оплатить {{ selected_price_label }} в ЮKassa — {% if checkout_cycle == "year" %}год{% else %}месяц{% endif %}</button>
         </form>
         {% elif not billing_enabled %}<p role="status">Оплата пока недоступна. Попробуйте позже.</p>

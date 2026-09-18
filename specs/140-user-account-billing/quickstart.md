@@ -249,8 +249,8 @@ elsewhere; real-shop canary is a separate approved release step.
 Этот раздел описывает, как собрать доказательства для controlled canary. Он не
 является разрешением включить checkout и не заменяет подписи. До выполнения
 всех gates `TWOBRAIN_BILLING_CHECKOUT_ENABLED` должен оставаться `false` в
-защищённой production-конфигурации; `TWOBRAIN_BILLING_EMERGENCY_STOP` обычно
-`false` при выключенном checkout и переключается в `true` при остановке.
+защищённой production-конфигурации; выключенный checkout и есть штатный механизм
+остановки оплаты.
 В evidence нельзя писать
 секреты, содержимое webhook/CSV, реальные payment/refund/provider IDs, номера
 карт, email покупателей, аудио или текст встреч. Для связи используется только
@@ -262,7 +262,7 @@ elsewhere; real-shop canary is a separate approved release step.
 | --- | --- | --- |
 | YooKassa | Отдельный тестовый магазин и отдельные API/webhook secrets; идентификатор не коммитится | Магазин `1430118`, отдельные secrets; provider secrets монтируются только в server-side API и maintenance/processing roles |
 | Приложение | Изолированный test host, callback и return URL; отдельные DB, object bucket и Temporal namespace | `https://rec.2brain.pro`, production DB/bucket/Temporal namespace; публичный callback принимает только production events |
-| Конфигурация | `TWOBRAIN_BILLING_CHECKOUT_ENABLED=false` по умолчанию; включается на короткое окно теста | `TWOBRAIN_BILLING_CHECKOUT_ENABLED=false` до четырёх-eyes approval; emergency stop остаётся готовым к немедленному включению |
+| Конфигурация | `TWOBRAIN_BILLING_CHECKOUT_ENABLED=false` по умолчанию; включается на короткое окно теста | `TWOBRAIN_BILLING_CHECKOUT_ENABLED=false` до четырёх-eyes approval; выключение checkout остаётся готовым к немедленному применению |
 | Данные | Только синтетические пользователи, планы, media metadata и provider doubles/test objects | Только заранее allowlisted synthetic/consented canary identity; не копировать test DB, secrets, receipts или webhook payload в production |
 | Ротация | Ротировать test secret после завершения сессии или утечки | Ротировать перед первым включением и после любого инцидента; проверять права файлов (`0600`, владелец deploy operator) |
 
@@ -341,7 +341,7 @@ allowlisted identity и один операторский слот; расшир
 closeout записи. Обязательная последовательность:
 
 1. Проверить exact SHA, migration/backup evidence, production secret mounts,
-   webhook TLS/source filtering, emergency-stop и read-only reconciliation.
+   webhook TLS/source filtering, выключенный флаг оплаты и read-only reconciliation.
 2. Выполнить base plan + один разрешённый add-on payment. Подтвердить
    authoritative GET, webhook, exact receipt, entitlement и storage projection.
 3. Провести согласованный renewal failure → immediate Free (тестовый метод
@@ -375,11 +375,12 @@ unresolved incident все записи становятся `stale`; checkout �
 ### F. Stop/rollback rehearsal
 
 До real-shop canary оператор в test shop выполняет dry-run остановки и записывает
-результат. Emergency stop должен:
+результат. Выключение флага оплаты должно:
 
 - выставить в защищённой deployment-конфигурации
-  `TWOBRAIN_BILLING_CHECKOUT_ENABLED=false` и
-  `TWOBRAIN_BILLING_EMERGENCY_STOP=true`, затем пройти
+  `TWOBRAIN_BILLING_CHECKOUT_ENABLED=false` и оставить
+  `TWOBRAIN_BILLING_PROVIDER_OBSERVATION_ENABLED=true`, чтобы сверка с
+  провайдером продолжалась, затем пройти
   `infra/scripts/cd-remote.sh --dry-run`; `--execute` разрешён только отдельным
   release approver;
 - заблокировать новые checkout, zero-binding и automatic renewal mutations,

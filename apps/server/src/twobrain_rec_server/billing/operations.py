@@ -10,7 +10,7 @@ class OperationOutcome(StrEnum):
     UNKNOWN = "unknown"
 
 
-class BillingEmergencyStop(RuntimeError):
+class BillingCheckoutDisabled(RuntimeError):
     pass
 
 
@@ -38,11 +38,9 @@ def blocks_new_checkout(operation_state: str) -> bool:
     return operation_state in CHECKOUT_BLOCKING_STATES
 
 
-def require_billing_enabled(*, checkout_enabled: bool, emergency_stop: bool) -> None:
-    if emergency_stop:
-        raise BillingEmergencyStop("billing operations are temporarily stopped")
+def require_billing_enabled(*, checkout_enabled: bool) -> None:
     if not checkout_enabled:
-        raise BillingEmergencyStop("billing checkout is disabled")
+        raise BillingCheckoutDisabled("billing checkout is disabled")
 
 
 def classify_provider_outcome(
