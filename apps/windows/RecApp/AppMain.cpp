@@ -93,6 +93,19 @@ using winrt::Microsoft::UI::Dispatching::DispatcherQueueTimer;
 
 // Какая тема у системы. Кабинет объявляет «system», когда пользователь не выбрал
 // тему в самом кабинете, и тогда оформление окна обязано совпасть с системой.
+// Значок берётся из пакета: без него в заголовке и на панели задач виден
+// системный значок-заглушка, и приложение выглядит чужим. Значок ставится
+// каждому окну: у настроек, автозаписи и полосы записи он свой.
+void applyWindowIcon(const winrt::Microsoft::UI::Xaml::Window& window) noexcept {
+    try {
+        const winrt::Windows::ApplicationModel::Package package =
+            winrt::Windows::ApplicationModel::Package::Current();
+        window.AppWindow().SetIcon(package.InstalledLocation().Path() + L"\\Assets\\Graf.ico");
+    } catch (...) {
+        // Незапакованный запуск: значок остаётся системным, работа важнее.
+    }
+}
+
 bool systemThemeIsDark() {
     DWORD appsUseLightTheme = 1;
     DWORD size = sizeof(appsUseLightTheme);
@@ -944,15 +957,7 @@ public:
         try {
             buildShell();
             window_.AppWindow().Title(L"GRAF");
-            // Значок берётся из пакета: без него в заголовке и на панели задач
-            // виден системный значок-заглушка, и приложение выглядит чужим.
-            try {
-                const winrt::Windows::ApplicationModel::Package package =
-                    winrt::Windows::ApplicationModel::Package::Current();
-                window_.AppWindow().SetIcon(package.InstalledLocation().Path() + L"\\Assets\\Graf.ico");
-            } catch (...) {
-                // Незапакованный запуск: значок остаётся системным, работа важнее.
-            }
+            applyWindowIcon(window_);
             // Размер ставится при первой активации: до неё окно ещё не привязано
             // к монитору, `GetDpiForWindow` отвечает промежуточным значением, и
             // окно получалось втрое больше задуманного. Смысл размера прежний:
@@ -2009,6 +2014,7 @@ private:
         }
         settingsWindow_ = Window();
         settingsWindow_.AppWindow().Title(L"Настройки GRAF");
+            applyWindowIcon(settingsWindow_);
         // Размер ставится после активации: тогда масштаб окна уже известен.
 
         auto settingsLayout = Grid();
@@ -2318,6 +2324,7 @@ private:
             automaticPromptTargetKey_ = key;
             const auto generation = ++automaticPromptGeneration_;
             automaticPromptWindow_.AppWindow().Title(L"Автозапись GRAF");
+            applyWindowIcon(automaticPromptWindow_);
             resizeWindowLogical(automaticPromptWindow_, 520, 300);
             StackPanel content;
             automaticPromptContent_ = content;
@@ -2443,6 +2450,7 @@ private:
             if (!indicatorWindow_) {
                 indicatorWindow_ = Window();
                 indicatorWindow_.AppWindow().Title(L"Запись — GRAF");
+            applyWindowIcon(indicatorWindow_);
                 indicatorWindow_.AppWindow().SetPresenter(winrt::Microsoft::UI::Windowing::AppWindowPresenterKind::CompactOverlay);
                 resizeWindowLogical(indicatorWindow_, 360, 150);
                 auto panel = StackPanel();
