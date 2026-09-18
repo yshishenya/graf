@@ -1149,6 +1149,22 @@ DesktopUploadQueueService::DeletionSelectionOutcome DesktopUploadQueueService::d
     return outcome;
 }
 
+std::optional<int> DesktopUploadQueueService::uploadProgressPercent(
+    const UploadCustodyItem& item, const std::array<std::uint64_t, 3>& trackBytes) noexcept {
+    std::uint64_t total = 0;
+    for (const auto bytes : trackBytes) total += bytes;
+    if (total == 0) return std::nullopt;
+    std::uint64_t accepted = 0;
+    for (std::size_t index = 0; index < trackBytes.size(); ++index) {
+        // Сервер не может принять больше, чем дорожка весит: иначе прогресс
+        // перескочил бы за сто процентов и строка выглядела бы сломанной.
+        accepted += std::min(item.acceptedBytes[index], trackBytes[index]);
+    }
+    const auto percent = static_cast<int>((accepted * 100) / total);
+    return std::clamp(percent, 0, 100);
+}
+
+
 bool DesktopUploadQueueService::localDeletionPending(const UploadCustodyItem& item) noexcept {
     // The mark is written before the Recycle Bin operation and removed together
     // with the row, so a row still carrying it is a deletion that did not finish.

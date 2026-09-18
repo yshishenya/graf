@@ -361,6 +361,13 @@ public:
     // copy but has not proven the files gone. The cabinet reads this as "очистка
     // ещё не завершена" and must not draw such a row as a recording.
     [[nodiscard]] static bool localDeletionPending(const UploadCustodyItem& item) noexcept;
+    // Сколько записи уже принято сервером. Сервер называет принятые байты по
+    // дорожкам, размеры дорожек знает локальный пакет; без обеих половин прогресс
+    // неизвестен, и строка обязана молчать, а не показывать ноль. macOS считает
+    // так же (`DesktopMeetingShellLocalQueuePolicy.progressPercent(for:)`).
+    [[nodiscard]] static std::optional<int> uploadProgressPercent(
+        const UploadCustodyItem& item, const std::array<std::uint64_t, 3>& trackBytes) noexcept;
+
     // The rows that intent names, so a deletion interrupted by a crash or a closed
     // lid is carried out again instead of staying a mark in the ledger forever.
     [[nodiscard]] std::vector<std::string> pendingLocalDeletionIds() const;

@@ -6,6 +6,7 @@
 #include "NativeSettingsBridge.h"
 
 #include <functional>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -56,6 +57,9 @@ struct WebViewLocalRecordingRow {
     // The user asked to remove this local copy and the files are not proven gone.
     // The cabinet reports such a row as a pending cleanup instead of drawing it as
     // a recording, so it is not offered for upload or deletion again.
+    // Сколько записи уже принято сервером, если это измеримо. Кабинет показывает
+    // «Отправляется · N %», а неизвестный прогресс обязан молчать, а не врать нулём.
+    std::optional<int> progressPercent;
     bool localDeletionPending = false;
     // The server was never told about this recording, so deleting it is a purely
     // local act. The cabinet says so in the delete dialog, and the executor treats

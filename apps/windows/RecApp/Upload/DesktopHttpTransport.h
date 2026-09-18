@@ -95,6 +95,11 @@ struct DesktopDeletionResponse {
     [[nodiscard]] bool accepted() const noexcept { return !transportFailed && (status == 200 || status == 202); }
 };
 
+// Размеры дорожек локального пакета по ролям (`manifest`, `media`, `playback`).
+// Нужны строке локальной записи, чтобы показать, сколько уже принято сервером:
+// сервер называет принятые байты, а весит дорожку локальный пакет.
+[[nodiscard]] std::array<std::uint64_t, 3> packageTrackBytes(const UploadCustodyItem& item);
+
 class DesktopHttpTransport final {
 public:
     explicit DesktopHttpTransport(DesktopHttpConfig config = {});

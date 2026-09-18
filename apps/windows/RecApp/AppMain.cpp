@@ -1569,6 +1569,10 @@ private:
             // as a pending cleanup, not as a recording, and a copy the server was
             // never told about deletes without touching the server at all.
             row.localDeletionPending = graf::windows::DesktopUploadQueueService::localDeletionPending(item);
+            // Прогресс отправки: принятые сервером байты против веса дорожек
+            // локального пакета. Пока пакет не прочитан, прогресс неизвестен.
+            row.progressPercent = graf::windows::DesktopUploadQueueService::uploadProgressPercent(
+                item, graf::windows::packageTrackBytes(item));
             row.deletionIsLocalOnly = !graf::windows::DesktopUploadQueueService::hasServerIdentity(item);
             rows.push_back(std::move(row));
         }

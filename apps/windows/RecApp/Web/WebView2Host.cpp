@@ -1014,6 +1014,11 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
                             row.Insert(L"canSend", JsonValue::CreateBooleanValue(item.canSend));
                             row.Insert(L"canDelete", JsonValue::CreateBooleanValue(item.canDelete));
                             row.Insert(L"uploadComplete", JsonValue::CreateBooleanValue(item.uploadComplete));
+                            // Кабинет ждёт число или отсутствие поля: неизмеримый
+                            // прогресс не превращается в ноль процентов.
+                            if (item.progressPercent.has_value()) {
+                                row.Insert(L"progressPercent", JsonValue::CreateNumberValue(*item.progressPercent));
+                            }
                             row.Insert(L"localDeletionPending", JsonValue::CreateBooleanValue(item.localDeletionPending));
                             row.Insert(L"deletionIsLocalOnly", JsonValue::CreateBooleanValue(item.deletionIsLocalOnly));
                             if (!item.meetingId.empty())

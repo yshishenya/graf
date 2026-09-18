@@ -153,6 +153,30 @@ void testInterruptedValidation(const std::filesystem::path& root) {
     assert((queue.items()[0].acceptedBytes == std::array<std::uint64_t, 3>{11, 22, 33}));
     assert(queue.items()[0].directoryId == "directory" && queue.items()[0].sessionId == "session");
 }
+void testUploadProgressPercent() {
+    using namespace graf::windows;
+    // Прогресс собирается из двух половин: принятые сервером байты по дорожкам и
+    // вес дорожек локального пакета. Неизмеримый прогресс молчит, а не показывает
+    // ноль процентов.
+    UploadCustodyItem item;
+    item.acceptedBytes = {0, 0, 0};
+    const std::array<std::uint64_t, 3> bytes{100, 300, 600};
+    assert(DesktopUploadQueueService::uploadProgressPercent(item, bytes) == 0);
+    item.acceptedBytes = {100, 300, 600};
+    assert(DesktopUploadQueueService::uploadProgressPercent(item, bytes) == 100);
+    item.acceptedBytes = {50, 150, 300};
+    assert(DesktopUploadQueueService::uploadProgressPercent(item, bytes) == 50);
+    // Сервер не может принять больше, чем дорожка весит: иначе прогресс
+    // перескочил бы за сто процентов.
+    item.acceptedBytes = {100, 300, 900};
+    assert(DesktopUploadQueueService::uploadProgressPercent(item, bytes) == 100);
+    // Пакет ещё не прочитан: веса дорожек нулевые, и прогресс неизвестен.
+    item.acceptedBytes = {10, 10, 10};
+    assert(!DesktopUploadQueueService::uploadProgressPercent(item, std::array<std::uint64_t, 3>{}).has_value());
+    // Часть дорожек уже принята, часть ещё нет.
+    item.acceptedBytes = {100, 0, 0};
+    assert(DesktopUploadQueueService::uploadProgressPercent(item, bytes) == 10);
+}
 } // namespace
 
 int main() {
@@ -165,6 +189,7 @@ int main() {
     std::filesystem::remove_all(outside);
     std::filesystem::create_directories(package);
     testOwners(root);
+    testUploadProgressPercent();
     testRetryGuards(root / "retry-guards");
     testInterruptedValidation(root / "interrupted-validation");
     assert(AtomicFileStore::isWithinRoot(root, package));

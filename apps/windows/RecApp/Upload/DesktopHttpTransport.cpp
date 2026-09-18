@@ -476,6 +476,15 @@ std::string normalizedStatus(std::string value) {
 
 } // namespace
 
+std::array<std::uint64_t, 3> packageTrackBytes(const UploadCustodyItem& item) {
+    std::array<std::uint64_t, 3> result{};
+    std::uint32_t durationSeconds = 0;
+    const auto tracks = packageTracks(item, &durationSeconds);
+    if (!tracks) return result;
+    for (const auto& track : *tracks) result[trackIndex(track.role)] = track.bytes;
+    return result;
+}
+
 std::optional<DesktopRemoteUploadState> DesktopHttpTransport::decodeSyncState(
     std::string_view json, std::string_view localRecordingId) {
     const auto meetingId = nestedStringField(json, "meeting", "meeting_id");
