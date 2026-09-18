@@ -57,6 +57,11 @@
 #include <winrt/Windows.Graphics.h>
 #include <winrt/Windows.System.Profile.h>
 #include <winrt/Windows.Storage.h>
+#include <dwmapi.h>
+#include <fstream>
+
+// Заголовок окна рисует система, поэтому её же библиотека нужна для его цветов.
+#pragma comment(lib, "dwmapi.lib")
 #include <winrt/Windows.UI.h>
 #include <winrt/Windows.UI.Text.h>
 #include <winrt/Windows.UI.Xaml.Interop.h>
@@ -226,6 +231,33 @@ HWND nativeWindowHandle(Window const& window) noexcept {
         handle = nullptr;
     }
     return handle;
+}
+
+// Системный заголовок окна Windows рисует сама и по системной теме: на тёмном
+// приложении он остаётся светлой полосой. Цвета заголовка задаются явно, чтобы
+// окна приложения выглядели одинаково в обеих темах.
+void applyWindowChrome(HWND window, bool isDark) {
+    if (!window) return;
+    BOOL dark = isDark ? TRUE : FALSE;
+    // 20 — Windows 11, 19 — сборки до неё: первый поддерживаемый и решает.
+    if (FAILED(DwmSetWindowAttribute(window, 20, &dark, sizeof(dark)))) {
+        DwmSetWindowAttribute(window, 19, &dark, sizeof(dark));
+    }
+    const auto colorOf = [isDark](std::wstring_view key, COLORREF fallback) {
+        for (const auto& entry : graf::windows::shellPaletteEntries()) {
+            if (entry.key != key) continue;
+            const auto value = graf::windows::shellPaletteColor(entry, isDark);
+            return RGB((value.rgb >> 16) & 0xFF, (value.rgb >> 8) & 0xFF, value.rgb & 0xFF);
+        }
+        return fallback;
+    };
+    // 35 — фон заголовка, 36 — его текст, 34 — рамка окна.
+    const auto caption = colorOf(L"GrafPanelBrush", isDark ? RGB(29, 31, 35) : RGB(255, 255, 255));
+    const auto text = colorOf(L"GrafTextBrush", isDark ? RGB(240, 241, 244) : RGB(29, 34, 43));
+    const auto border = colorOf(L"GrafLineSoftBrush", isDark ? RGB(70, 74, 84) : RGB(226, 229, 235));
+    DwmSetWindowAttribute(window, 35, &caption, sizeof(caption));
+    DwmSetWindowAttribute(window, 36, &text, sizeof(text));
+    DwmSetWindowAttribute(window, 34, &border, sizeof(border));
 }
 
 Brush themeBrush(std::wstring_view name) {
@@ -1611,16 +1643,33 @@ private:
         // Объявление кабинета решает всё, кроме «system»: там решает система.
         // Кисти оболочки пересобираются вместе с темой, иначе окно остаётся
         // тёмным на светлой странице или наоборот.
-        if (theme == announcedAppearance_) return;
+        // Оформление окна — то, что человек видит, поэтому решение записывается
+        // в журнал: без него расхождение окна и страницы неотличимо от ошибки.
+        const auto note = [&](const char* step, bool dark) {
+            try {
+                const auto folder = winrt::Windows::Storage::ApplicationData::Current().LocalFolder().Path();
+                std::ofstream log(std::filesystem::path(folder.c_str()) / L"appearance.log", std::ios::app);
+                log << GetTickCount64() << ' ' << step << " announced=" << theme
+                    << " dark=" << (dark ? 1 : 0) << '\n';
+            } catch (...) {}
+        };
+        note("received", shellIsDark_);
+        if (theme == announcedAppearance_) { note("same-announcement", shellIsDark_); return; }
         announcedAppearance_ = theme;
         const bool isDark = graf::windows::resolveShellIsDark(theme, systemThemeIsDark());
-        if (isDark == shellIsDark_ && root_) return;
+        note("resolved", isDark);
+        if (isDark == shellIsDark_ && root_) { note("same-theme", isDark); return; }
         shellIsDark_ = isDark;
         refreshShellPalette(isDark);
         // Страница узнаёт системную тему из `prefers-color-scheme`: без этого
         // кабинет с оформлением «системная» рисуется тёмным на светлом окне.
         if (cabinet_) cabinet_->webView().setPreferredColorScheme(isDark);
         const auto requested = isDark ? ElementTheme::Dark : ElementTheme::Light;
+        // Заголовки окон рисует система: без явных цветов они остаются светлыми.
+        applyWindowChrome(mainWindowHandle_, isDark);
+        if (settingsWindow_) applyWindowChrome(nativeWindowHandle(settingsWindow_), isDark);
+        if (automaticPromptWindow_) applyWindowChrome(nativeWindowHandle(automaticPromptWindow_), isDark);
+        if (indicatorWindow_) applyWindowChrome(nativeWindowHandle(indicatorWindow_), isDark);
         if (root_) root_.RequestedTheme(requested);
         // Собственные окна приложения следуют той же теме, что и главное.
         if (settingsContent_) settingsContent_.RequestedTheme(requested);
@@ -2125,6 +2174,10 @@ private:
         Grid::SetColumn(scroll, 1);
         settingsLayout.Children().Append(scroll);
         settingsWindow_.Content(settingsLayout);
+        // Окно открывается заново каждый раз: тему и заголовок берём из текущего
+        // оформления, а не из того, что было при первом запуске.
+        settingsLayout.RequestedTheme(shellIsDark_ ? ElementTheme::Dark : ElementTheme::Light);
+        applyWindowChrome(nativeWindowHandle(settingsWindow_), shellIsDark_);
         settingsWindow_.Closed([this](auto const&, auto const&) {
             settingsWindow_ = nullptr;
             bulkAutomaticPreference_ = nullptr;
@@ -2330,6 +2383,7 @@ private:
             const auto generation = ++automaticPromptGeneration_;
             automaticPromptWindow_.AppWindow().Title(L"Автозапись GRAF");
             applyWindowIcon(automaticPromptWindow_);
+            applyWindowChrome(nativeWindowHandle(automaticPromptWindow_), shellIsDark_);
             resizeWindowLogical(automaticPromptWindow_, 520, 300);
             StackPanel content;
             automaticPromptContent_ = content;
@@ -2456,6 +2510,7 @@ private:
                 indicatorWindow_ = Window();
                 indicatorWindow_.AppWindow().Title(L"Запись — GRAF");
             applyWindowIcon(indicatorWindow_);
+            applyWindowChrome(nativeWindowHandle(indicatorWindow_), shellIsDark_);
                 indicatorWindow_.AppWindow().SetPresenter(winrt::Microsoft::UI::Windowing::AppWindowPresenterKind::CompactOverlay);
                 resizeWindowLogical(indicatorWindow_, 360, 150);
                 auto panel = StackPanel();
