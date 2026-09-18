@@ -24,8 +24,17 @@ validate-packaged-app-launch.sh /absolute/path/GRAF.app [minimum-seconds] [nativ
 - Uses an isolated temporary HOME and closed loopback product origins.
 - Runs the explicitly requested universal slice when an architecture is given.
 - Passes only if that PID remains alive for at least five seconds.
+- Passes only if the isolated startup log records both `event=app_launch_finished`
+  and `event=app_main_window_presented`.
+- The readiness signal is the presented main window, not the start of the launch
+  handler. `app_launch_finished` is written before `NSApp.activate` and before
+  `presentMainWindow(reason: "launch")`, so on its own it proves only that
+  `applicationDidFinishLaunching` was entered.
+- A candidate that starts, stays alive for the full window but never presents its
+  main window fails the gate.
 - On exit or interruption, terminates and waits only for its own child.
-- Fails for malformed bundles, missing binaries and early process exit.
+- Fails for malformed bundles, missing binaries, early process exit, a missing
+  startup log, a missing launch marker and a missing main-window marker.
 - Emits bounded metadata only; never process logs or private local paths in
   committed/public evidence.
 
