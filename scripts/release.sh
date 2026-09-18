@@ -536,18 +536,37 @@ if should_run train; then
   # derived from the successful governance run on each pull request's exact
   # head, so the operator never copies identifiers by hand.  The loop avoids
   # mapfile because macOS still ships bash 3.2.
+  # GitHub occasionally answers with a transient network error.  Without a
+  # retry one hiccup silently drops a pull request from the train, and the
+  # release then stops on "train PR set differs from the published-release
+  # range" — a message that hides which pull request went missing.  Every call
+  # below is retried, and every skip is reported with its reason.
+  gh_retry() {
+    local attempt output
+    for attempt in 1 2 3 4 5; do
+      output="$("$@" 2>/dev/null)" && { printf '%s' "$output"; return 0; }
+      sleep $((attempt * 3))
+    done
+    return 1
+  }
+  repo_slug="$(gh_retry gh repo view --json nameWithOwner --jq '.nameWithOwner' || true)"
+  [[ -n "$repo_slug" ]] || { printf 'release: cannot resolve the repository slug\n' >&2; exit 1; }
+
   prs=()
   receipts=()
   while IFS= read -r number; do
     [[ -n "$number" ]] || continue
-    merge_sha="$(gh pr view "$number" --json mergeCommit --jq '.mergeCommit.oid')"
-    [[ -n "$merge_sha" && "$merge_sha" != "null" ]] || continue
+    merge_sha="$(gh_retry gh pr view "$number" --json mergeCommit --jq '.mergeCommit.oid' || true)"
+    [[ -n "$merge_sha" && "$merge_sha" != "null" ]] \
+      || { printf 'release: pull request %s has no merge commit; skipped\n' "$number" >&2; continue; }
     git merge-base --is-ancestor "$merge_sha" HEAD 2>/dev/null || continue
     git merge-base --is-ancestor "$merge_sha" "$base_sha" 2>/dev/null && continue
-    head_sha="$(gh pr view "$number" --json headRefOid --jq '.headRefOid')"
-    run_id="$(gh api "repos/$(gh repo view --json nameWithOwner --jq '.nameWithOwner')/commits/${head_sha}/check-runs?per_page=100" \
-      --jq '[.check_runs[]|select(.name=="governance-fast" and .conclusion=="success")]|sort_by(.id)|last|.id' 2>/dev/null || true)"
-    [[ -n "$run_id" && "$run_id" != "null" ]] || continue
+    head_sha="$(gh_retry gh pr view "$number" --json headRefOid --jq '.headRefOid' || true)"
+    run_id="$(gh_retry gh api "repos/${repo_slug}/commits/${head_sha}/check-runs?per_page=100" \
+      --jq '[.check_runs[]|select(.name=="governance-fast" and .conclusion=="success")]|sort_by(.id)|last|.id' || true)"
+    [[ -n "$run_id" && "$run_id" != "null" ]] \
+      || { printf 'release: pull request %s has no successful governance check on %s; skipped\n' \
+             "$number" "${head_sha:0:12}" >&2; continue; }
     prs+=("$number")
     receipts+=("pr-${number}-governance-${run_id}")
   done < <(gh pr list --state merged --base master --limit 50 --json number --jq '.[].number')
