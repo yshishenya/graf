@@ -739,14 +739,14 @@ jobs:
             --artifact "server-shard-2-result=$component_dir/server-shard-2-result.json" \
             --artifact "server-shard-3-result=$component_dir/server-shard-3-result.json" \
             --artifact "macos-result=$component_dir/macos-result.json" \
-            --artifact "parallel-full-nodeids-0=$component_dir/parallel-full-nodeids-0.txt" \
-            --artifact "parallel-full-nodeids-1=$component_dir/parallel-full-nodeids-1.txt" \
-            --artifact "parallel-full-nodeids-2=$component_dir/parallel-full-nodeids-2.txt" \
-            --artifact "parallel-full-nodeids-3=$component_dir/parallel-full-nodeids-3.txt" \
-            --artifact "shard-nodeids-0=$component_dir/shard-nodeids-0.txt" \
-            --artifact "shard-nodeids-1=$component_dir/shard-nodeids-1.txt" \
-            --artifact "shard-nodeids-2=$component_dir/shard-nodeids-2.txt" \
-            --artifact "shard-nodeids-3=$component_dir/shard-nodeids-3.txt"
+            --artifact "parallel-full-nodeids-0=$component_dir/test-timings/parallel-full-nodeids-0.txt" \
+            --artifact "parallel-full-nodeids-1=$component_dir/test-timings/parallel-full-nodeids-1.txt" \
+            --artifact "parallel-full-nodeids-2=$component_dir/test-timings/parallel-full-nodeids-2.txt" \
+            --artifact "parallel-full-nodeids-3=$component_dir/test-timings/parallel-full-nodeids-3.txt" \
+            --artifact "shard-nodeids-0=$component_dir/test-timings/shard-nodeids-0.txt" \
+            --artifact "shard-nodeids-1=$component_dir/test-timings/shard-nodeids-1.txt" \
+            --artifact "shard-nodeids-2=$component_dir/test-timings/shard-nodeids-2.txt" \
+            --artifact "shard-nodeids-3=$component_dir/test-timings/shard-nodeids-3.txt"
           python3 scripts/validate-ci-evidence.py "$evidence_path"
           python3 - "$RUNNER_TEMP/graf-full-identity.json" <<'PY'
           import json
