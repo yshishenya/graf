@@ -171,15 +171,22 @@ std::string_view documentScript() noexcept {
   // server growing a second copy of the page: a server change would also change
   // macOS, and the owner has not asked for that.
   const platformWords = [
+    ['Правила автозаписи на Mac', 'Правила автозаписи в Windows'],
     ['В приложении на Mac', 'В приложении для Windows'],
+    ['Уведомления на этом Mac', 'Уведомления на этом компьютере'],
+    ['изменить уведомления Mac', 'изменить уведомления в приложении'],
     ['настройки этого Mac', 'настройки этого компьютера'],
     ['этого Mac', 'этого компьютера'],
     ['На этом Mac', 'На этом компьютере'],
     ['Настройки macOS', 'Настройки Windows'],
     ['разрешение macOS', 'разрешение Windows']
   ];
+  // The words live outside the settings forms too: the page heading, the section
+  // legend, the navigation card and the no-script note all name the Mac. Walking
+  // the whole document catches them; the list is exact phrases, so nothing else
+  // changes.
   const adaptPlatformWords = () => {
-    const root = document.querySelector('[data-local-notification-settings], [data-recording-settings]');
+    const root = document.body;
     if (!root) return;
     root.querySelectorAll('[data-local-notification-action="openSystemSettings"]')
       .forEach((button) => { button.hidden = true; });

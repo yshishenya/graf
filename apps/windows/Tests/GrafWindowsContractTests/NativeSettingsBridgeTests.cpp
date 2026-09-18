@@ -157,6 +157,14 @@ void testTheSharedSettingsPageStopsClaimingToBeAMac() {
     assert(script.find("['Настройки macOS', 'Настройки Windows']") != std::string::npos);
     assert(script.find("['разрешение macOS', 'разрешение Windows']") != std::string::npos);
     assert(script.find("'настройки этого компьютера'") != std::string::npos);
+    // Живая проверка 2026-09-19: заголовок страницы «На этом Mac» стоит вне формы
+    // настроек, поэтому обход идёт по всему документу — иначе заголовок, легенда
+    // раздела, карточка навигации и примечание для страниц без скриптов остаются
+    // маковскими.
+    assert(script.find("const root = document.body;") != std::string::npos);
+    assert(script.find("['Правила автозаписи на Mac', 'Правила автозаписи в Windows']") != std::string::npos);
+    assert(script.find("['Уведомления на этом Mac', 'Уведомления на этом компьютере']") != std::string::npos);
+    assert(script.find("['изменить уведомления Mac', 'изменить уведомления в приложении']") != std::string::npos);
     // Кнопка системных настроек на Windows скрывается: у этой страницы нет
     // системного разрешения, которое она могла бы открыть.
     assert(script.find("[data-local-notification-action=\"openSystemSettings\"]") != std::string::npos);
