@@ -94,6 +94,7 @@
     <ClCompile Include="Audio\RecordingAudioTimeline.cpp" />
     <ClCompile Include="Audio\WasapiCaptureWorker.cpp" />
     <ClCompile Include="Audio\WasapiEndpointEnumerator.cpp" />
+    <ClCompile Include="Capture\CaptureReasonMapping.cpp" />
     <ClCompile Include="Capture\WindowsCaptureSessionController.cpp" />
     <ClCompile Include="MeetingDetection\AutomaticRecordingPolicy.cpp" />
     <ClCompile Include="MeetingDetection\VerifiedTargetRegistry.cpp" />
@@ -104,6 +105,8 @@
     <ClCompile Include="Shell\CabinetWindow.cpp" />
     <ClCompile Include="Shell\RecordingIndicator.cpp" />
     <ClCompile Include="Shell\ShellPalette.cpp" />
+    <ClCompile Include="Shell\MicrophoneConsentKey.cpp" />
+    <ClCompile Include="Shell\RecordingOutcomeText.cpp" />
     <ClCompile Include="Shell\RecordingNoticePresenter.cpp" />
     <ClCompile Include="Shell\WindowsTray.cpp" />
     <ClCompile Include="Web\WebView2Host.cpp" />

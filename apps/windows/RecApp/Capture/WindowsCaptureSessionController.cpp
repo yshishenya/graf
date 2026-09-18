@@ -1,24 +1,13 @@
 #include "WindowsCaptureSessionController.h"
 
+#include "CaptureReasonMapping.h"
+
 namespace graf::windows {
 
 CaptureClockDiagnostics WindowsCaptureSessionController::clockDiagnostics(AudioSource source) const noexcept {
     const auto& worker = source == AudioSource::systemRender ? renderWorker_ : microphoneWorker_;
     return worker ? worker->clockDiagnostics() : CaptureClockDiagnostics{};
 }
-namespace {
-
-ReasonCode workerReason(CaptureWorkerError error) noexcept {
-    switch (error) {
-    case CaptureWorkerError::none: return ReasonCode::none;
-    case CaptureWorkerError::unsupportedFormat: return ReasonCode::formatNormalizationUnavailable;
-    case CaptureWorkerError::bufferOverflow: return ReasonCode::queueOverflow;
-    case CaptureWorkerError::clockDiscontinuity: return ReasonCode::clockDiscontinuity;
-    default: return ReasonCode::endpointInvalidated;
-    }
-}
-
-} // namespace
 
 WindowsCaptureSessionController::WindowsCaptureSessionController(std::string sessionId, BatchSink batchSink,
                                                                  Finalizer finalizer,
@@ -57,6 +46,9 @@ TransitionResult WindowsCaptureSessionController::record(const ReadinessInputs& 
     const auto starting = session_.beginStart();
     indicator_.publish(session_.state(), session_.reason());
     acceptingBatches_.store(false);
+    // Новая запись начинается без прошлых ограничений: причина живёт одну сессию.
+    microphoneDegraded_ = false;
+    degradedReason_ = ReasonCode::none;
     startupDeadline_ = std::chrono::steady_clock::now() + std::chrono::seconds(5);
     if (!startWorkers()) return stop();
     return starting;
@@ -90,8 +82,31 @@ TransitionResult WindowsCaptureSessionController::pollHealth() {
     if (state == SessionState::starting || state == SessionState::recording ||
         state == SessionState::paused || state == SessionState::degraded) {
         auto failure = captureFailureReason();
-        if (failure == ReasonCode::none && state == SessionState::starting &&
-            std::chrono::steady_clock::now() >= startupDeadline_) failure = ReasonCode::endpointInvalidated;
+        const bool startupExpired = failure == ReasonCode::none && state == SessionState::starting &&
+            std::chrono::steady_clock::now() >= startupDeadline_;
+        if (startupExpired) {
+            // Истёк срок запуска: виноват не «отключившийся» источник, а тот,
+            // который так и не поднялся. Человеку нужен точный адрес проблемы.
+            failure = renderWorker_ && renderWorker_->ready() ? ReasonCode::microphoneEndpointUnavailable
+                                                              : ReasonCode::renderEndpointUnavailable;
+        }
+        // Системный звук — главный источник встречи. Если он поднялся, а
+        // микрофон молчит (нет устройства, нет доступа, устройство занято),
+        // запись продолжается без голоса, а не обрывается.
+        const bool microphoneOnly = microphoneOnlyFault() ||
+            (startupExpired && renderWorker_ && renderWorker_->ready() && !renderWorker_->finished());
+        if (failure != ReasonCode::none && microphoneOnly) {
+            const auto reason = microphoneOnlyFault() ? failure : ReasonCode::microphoneEndpointUnavailable;
+            microphoneDegraded_ = true;
+            degradedReason_ = reason;
+            if (microphoneWorker_) microphoneWorker_->stop();
+            (void)session_.markDegraded(reason);
+            // Без этого системный звук не попадёт в запись: пакеты принимаются
+            // только после готовности источников.
+            acceptingBatches_.store(true);
+            indicator_.publish(session_.state(), session_.reason());
+            return {TransitionStatus::accepted, session_.state(), session_.reason()};
+        }
         if (failure != ReasonCode::none) {
             latchFault(failure);
             (void)session_.markDegraded(failure);
@@ -164,6 +179,10 @@ TransitionResult WindowsCaptureSessionController::finishStop() {
         finalization_.shortRecordingDiscarded = false;
         if (finalization_.reason == ReasonCode::none) finalization_.reason = failure;
     }
+    if (degradedReason_ != ReasonCode::none && finalization_.degradedReason == ReasonCode::none) {
+        // Ограниченная запись сохраняется: причина едет с записью, а не вместо неё.
+        finalization_.degradedReason = degradedReason_;
+    }
     // A discarded short recording is a deliberate, successful outcome: nothing
     // is stored, no capture error is registered, and the session ends blocked
     // (the same terminal truth macOS writes into the manifest).
@@ -199,20 +218,34 @@ bool WindowsCaptureSessionController::startWorkers() {
         return false;
     }
     const auto callback = [this](AudioBatch batch) { return enqueueBatch(std::move(batch)); };
-    for (auto* worker : {renderWorker_.get(), microphoneWorker_.get()}) {
+    const std::pair<WasapiCaptureWorker*, bool> workers[] = {
+        {renderWorker_.get(), false}, {microphoneWorker_.get(), true}};
+    for (const auto& [worker, isMicrophone] : workers) {
         const auto error = worker->start(callback);
-        if (error != CaptureWorkerError::none) latchFault(workerReason(error));
+        if (error != CaptureWorkerError::none) latchFault(reasonForWorkerError(error, isMicrophone));
         if (captureFault_.load() != ReasonCode::none) return false;
     }
     return true;
 }
 
+bool WindowsCaptureSessionController::microphoneOnlyFault() const noexcept {
+    if (microphoneDegraded_ || !renderWorker_ || !microphoneWorker_) return false;
+    const auto renderError = reasonForWorkerError(renderWorker_->lastError(), false);
+    if (renderError != ReasonCode::none || renderWorker_->finished()) return false;
+    return microphoneWorker_->finished() ||
+           reasonForWorkerError(microphoneWorker_->lastError(), true) != ReasonCode::none;
+}
+
 ReasonCode WindowsCaptureSessionController::captureFailureReason() const noexcept {
     const auto pending = captureFault_.load();
     if (pending != ReasonCode::none) return pending;
-    for (const auto* worker : {renderWorker_.get(), microphoneWorker_.get()}) {
+    const std::pair<const WasapiCaptureWorker*, bool> workers[] = {
+        {renderWorker_.get(), false}, {microphoneWorker_.get(), true}};
+    for (const auto& [worker, isMicrophone] : workers) {
+        // Ограничение по микрофону уже учтено: повторно оно запись не обрывает.
+        if (isMicrophone && microphoneDegraded_) continue;
         if (worker == nullptr) continue;
-        const auto error = workerReason(worker->lastError());
+        const auto error = reasonForWorkerError(worker->lastError(), isMicrophone);
         if (error != ReasonCode::none) return error;
         const auto state = session_.state();
         if ((state == SessionState::starting || state == SessionState::recording ||

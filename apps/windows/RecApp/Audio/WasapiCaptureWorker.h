@@ -25,6 +25,10 @@ enum class CaptureWorkerError {
     bufferOverflow,
     clockDiscontinuity,
     unsupportedPlatform,
+    // Доступ к устройству запрещён системой: у микрофона это отказ в
+    // разрешении, и человеку нужно сказать именно это, а не «устройство
+    // отключилось».
+    accessDenied,
 };
 
 struct CaptureWorkerConfig {

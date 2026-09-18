@@ -12,7 +12,9 @@
 #include "Shell/CabinetWindow.h"
 #include "Shell/WindowsTray.h"
 #include "Shell/AutomaticRecordingPrompt.h"
+#include "Shell/MicrophoneConsentKey.h"
 #include "Shell/RecordingNoticePresenter.h"
+#include "Shell/RecordingOutcomeText.h"
 #include "Shell/ShellPalette.h"
 #include "Upload/DesktopUploadQueueService.h"
 #include "Upload/DesktopUploadRecoveryScheduler.h"
@@ -48,6 +50,8 @@
 #include <winrt/Windows.ApplicationModel.Activation.h>
 #include <winrt/Windows.ApplicationModel.h>
 #include <winrt/Windows.ApplicationModel.DataTransfer.h>
+#include <appmodel.h>
+
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Foundation.Collections.h>
 #include <winrt/Windows.Graphics.h>
@@ -345,11 +349,22 @@ bool readMicrophoneConsent(std::wstring_view suffix, bool& found) noexcept {
     return found && _wcsicmp(value, L"Allow") == 0;
 }
 
+std::wstring currentPackageFamilyName() noexcept {
+    UINT32 length = 0;
+    if (GetCurrentPackageFamilyName(&length, nullptr) != ERROR_INSUFFICIENT_BUFFER || length == 0) return {};
+    std::wstring name(length, L'\0');
+    if (GetCurrentPackageFamilyName(&length, name.data()) != ERROR_SUCCESS) return {};
+    name.resize(std::wcslen(name.c_str()));
+    return name;
+}
+
 bool microphonePrivacyGranted() noexcept {
     bool found = false;
-    const auto nonPackaged = readMicrophoneConsent(L"\\NonPackaged", found);
-    if (found) return nonPackaged;
-    return readMicrophoneConsent({}, found);
+    for (const auto& suffix : graf::windows::microphoneConsentKeySuffixes(currentPackageFamilyName())) {
+        const auto granted = readMicrophoneConsent(suffix, found);
+        if (found) return granted;
+    }
+    return false;
 }
 
 std::string selectedMicrophonePreference() {
@@ -2572,10 +2587,23 @@ private:
         const auto& finalization = capture_->finalization();
         diagnosticsButton_.Visibility(!active && !capture_->diagnostics().empty() ? Visibility::Visible : Visibility::Collapsed);
         std::wstring outcome;
-        if (snapshot.state == graf::windows::SessionState::failed) outcome = finalization.trustedPrefixRetained
-            ? L"Запись прервана. Подтверждённый фрагмент сохранён локально, но не отправлен. Проверьте устройство перед новой записью."
-            : L"Не удалось сохранить запись. Проверьте устройство и свободное место перед новой попыткой.";
+        if (snapshot.state == graf::windows::SessionState::failed) {
+            // Причина называется прямо: отказ в доступе к микрофону, отключённое
+            // устройство и нехватка места требуют разных действий человека.
+            outcome = graf::windows::recordingFailureText(
+                graf::windows::effectiveFailureReason(snapshot.reason, capture_->microphonePermissionGranted()),
+                finalization.trustedPrefixRetained);
+        }
         else if (snapshot.state == graf::windows::SessionState::savedLocal) outcome = L"Запись сохранена на этом компьютере.";
+        // Ограниченная запись сохраняется, но человек должен знать, что голоса
+        // в ней нет: иначе он узнает об этом на расшифровке.
+        const bool microphoneLimited = graf::windows::isMicrophoneOnlyReason(finalization.degradedReason) &&
+            (snapshot.state == graf::windows::SessionState::degraded ||
+             snapshot.state == graf::windows::SessionState::savedLocal);
+        if (microphoneLimited) {
+            if (!outcome.empty()) outcome += L"\n";
+            outcome += graf::windows::recordingDegradedText(finalization.degradedReason);
+        }
         if (!localActionNotice_.empty()) {
             if (!outcome.empty()) outcome += L"\n";
             outcome += localActionNotice_;
@@ -2593,13 +2621,19 @@ private:
         const bool permissionMissing = !capture_->microphonePermissionGranted();
         captureStatus_.Text(winrt::to_hstring(snapshot.statusText));
         const bool paused = snapshot.state == graf::windows::SessionState::paused;
-        readinessText_.Text(active ? (paused ? L"Микрофон на паузе. Системный звук продолжает записываться." : L"Общий системный звук и локальный микрофон") : capture_->readinessSummary());
+        const bool microphoneOff = snapshot.state == graf::windows::SessionState::degraded;
+        readinessText_.Text(active ? (paused ? L"Микрофон на паузе. Системный звук продолжает записываться."
+                                             : microphoneOff ? L"Микрофон недоступен: запись продолжается с системным звуком."
+                                                             : L"Общий системный звук и локальный микрофон")
+                                   : capture_->readinessSummary());
         recordButton_.Visibility(active ? Visibility::Collapsed : Visibility::Visible);
         recordButton_.IsEnabled(!active && capture_->recordingReady());
         permissionButton_.Visibility(!active && permissionMissing ? Visibility::Visible : Visibility::Collapsed);
         custodyStatus_.Text(capture_->custodySummary());
         recordingStrip_.Visibility(active ? Visibility::Visible : Visibility::Collapsed);
-        recordingStripText_.Text(winrt::to_hstring(snapshot.statusText + (paused ? " · Микрофон на паузе" : " · Системный звук и микрофон")));
+        recordingStripText_.Text(winrt::to_hstring(snapshot.statusText +
+            (paused ? " · Микрофон на паузе"
+                    : microphoneOff ? " · Только системный звук" : " · Системный звук и микрофон")));
         if (active && recordingStartedAt_ != 0) {
             const auto seconds = (GetTickCount64() - recordingStartedAt_) / 1000;
             const auto timer = std::to_wstring(seconds / 60) + L":" + (seconds % 60 < 10 ? L"0" : L"") + std::to_wstring(seconds % 60);

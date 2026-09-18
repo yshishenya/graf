@@ -66,6 +66,13 @@ struct CaptureSessionTestPeer {
     static bool push(WindowsCaptureSessionController& controller) {
         return controller.handleBatch({});
     }
+    static void failMicrophoneWorker(WindowsCaptureSessionController& controller) {
+        // Пустой идентификатор устройства — тот же отказ, что видит человек,
+        // когда микрофон пропадает на ходу.
+        controller.microphoneWorker_ = std::make_unique<WasapiCaptureWorker>(WasapiEndpointSnapshot{}, false);
+        assert(controller.microphoneWorker_->start([](AudioBatch) { return true; }) ==
+               CaptureWorkerError::invalidEndpoint);
+    }
     static void failWorker(WindowsCaptureSessionController& controller) {
         controller.renderWorker_ = std::make_unique<WasapiCaptureWorker>(WasapiEndpointSnapshot{}, true);
         assert(controller.renderWorker_->start([](AudioBatch) { return true; }) ==
@@ -81,13 +88,20 @@ struct CaptureSessionTestPeer {
 
 namespace {
 template<class Predicate>
-void waitUntil(Predicate predicate) {
+void waitUntilImpl(Predicate predicate, const char* text, int line) {
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
     while (!predicate()) {
-        assert(std::chrono::steady_clock::now() < deadline);
+        if (std::chrono::steady_clock::now() >= deadline) {
+            // Место ожидания важнее самого факта: без него непонятно, какое
+            // условие не наступило.
+            std::fprintf(stderr, "waitUntil timeout at line %d: %s\n", line, text);
+            std::fflush(stderr);
+            assert(false);
+        }
         std::this_thread::yield();
     }
 }
+#define waitUntil(predicate) waitUntilImpl((predicate), #predicate, __LINE__)
 
 // Simulates device/COM calls that cannot return until explicitly released, but
 // runs inside the actual WasapiCaptureWorker thread and cancellation lifecycle.
@@ -296,7 +310,11 @@ int main() {
     WindowsCaptureSessionController startup("startup-failure", [](AudioBatch) { return true; },
         [&](ReasonCode reason, RecordingStopReason) {
             ++startupFinalizations;
-            assert(reason == ReasonCode::endpointInvalidated);
+            // Пустой идентификатор устройства — это недоступное устройство, и
+            // причина называется по источнику: первым стартует системный звук.
+            // Раньше любая ошибка старта сводилась к «устройство отключилось»,
+            // и человек читал неверное объяснение.
+            assert(reason == ReasonCode::renderEndpointUnavailable);
             return CaptureFinalization{false, reason};
         });
     startup.setEndpoints({}, {});
@@ -312,7 +330,10 @@ int main() {
         WindowsCaptureSessionController controller("discard-startup", [](AudioBatch) {
             assert(false); return false;
         }, [&](ReasonCode reason, RecordingStopReason) {
-            assert(reason == (clockFailure ? ReasonCode::clockDiscontinuity : ReasonCode::endpointInvalidated));
+            // Ограничение по микрофону не является отказом захвата: запись
+            // цела, причина ограничения едет отдельно, в итоге записи.
+            // Истёк срок запуска: причина называет источник, который не поднялся.
+            assert(reason == (clockFailure ? ReasonCode::none : ReasonCode::renderEndpointUnavailable));
             ++finalized;
             return CaptureFinalization{false, reason};
         });
@@ -339,8 +360,17 @@ int main() {
         if (clockFailure) {
             fail.store(true);
             waitUntil([&] { return CaptureSessionTestPeer::microphoneFinished(controller); });
-        } else CaptureSessionTestPeer::expireStartup(controller);
-        (void)controller.pollHealth();
+            // Отказ часов микрофона ограничивает запись, а не обрывает её:
+            // системный звук продолжает писаться, встречу терять нельзя.
+            assert(controller.pollHealth().state == SessionState::degraded);
+            assert(controller.indicator().snapshot().state == SessionState::degraded);
+            // Остановка принимается сразу; финализация может завершиться в этом
+            // же вызове, поэтому проверяем факт остановки, а не момент времени.
+            assert(controller.stop().status == TransitionStatus::accepted);
+        } else {
+            CaptureSessionTestPeer::expireStartup(controller);
+            (void)controller.pollHealth();
+        }
         waitUntil([&] { return CaptureSessionTestPeer::finished(controller); });
         assert(controller.pollHealth().state == SessionState::failed && finalized == 1);
         const auto render = controller.clockDiagnostics(AudioSource::systemRender);
@@ -372,8 +402,10 @@ int main() {
             WindowsDesktopSession competing("during-finalizer");
             assert(!competing.beginReadinessCheck().accepted());
             ++finalized;
-            assert(reason == (scenario == 2 ? ReasonCode::endpointInvalidated : ReasonCode::none));
-            return CaptureFinalization{scenario == 0, reason};
+            // Ограничение по молчащему микрофону — не отказ захвата: системный
+            // звук писался, поэтому причина отказа пуста во всех трёх случаях.
+            assert(reason == ReasonCode::none);
+            return CaptureFinalization{scenario != 1, reason};
         });
         current = &controller;
         CaptureSessionTestPeer::devices(controller,
@@ -399,11 +431,13 @@ int main() {
         const auto beforeStop = std::chrono::steady_clock::now();
         if (scenario == 2) {
             CaptureSessionTestPeer::expireStartup(controller);
-            assert(controller.pollHealth().state == SessionState::stopping);
-        } else {
-            const auto stopped = controller.stop();
-            assert(stopped.state == SessionState::stopping && stopped.status == TransitionStatus::accepted);
+            // Системный звук уже идёт, микрофон молчит: встреча не теряется,
+            // запись продолжается ограниченной.
+            assert(controller.pollHealth().state == SessionState::degraded);
+            assert(controller.pollHealth().state == SessionState::degraded && finalized == 0);
         }
+        const auto stopped = controller.stop();
+        assert(stopped.status == TransitionStatus::accepted);
         assert(std::chrono::steady_clock::now() - beforeStop < std::chrono::milliseconds(500));
         assert(controller.stop().status == TransitionStatus::idempotent);
         assert(controller.pollHealth().state == SessionState::stopping && finalized == 0);
@@ -420,25 +454,72 @@ int main() {
         microphone.allowCleanup.store(true);
         waitUntil([&] { return CaptureSessionTestPeer::finished(controller); });
         const auto terminal = controller.pollHealth();
-        assert(terminal.state == (scenario == 0 ? SessionState::savedLocal : SessionState::failed));
+        assert(terminal.state == (scenario == 1 ? SessionState::failed : SessionState::savedLocal));
+        if (scenario == 2) {
+            assert(controller.finalization().degradedReason == ReasonCode::microphoneEndpointUnavailable);
+        }
         assert(!controller.indicator().snapshot().visible && finalized == 1);
         assert(controller.stop().status == TransitionStatus::idempotent);
         assert(controller.pollHealth().status == TransitionStatus::idempotent && finalized == 1);
         assert(competing.beginReadinessCheck().accepted());
     }
 
-    // A real worker thread's startup exception cancels its still-initializing
-    // peer, with no timeline writes or premature finalization.
+    // Сбой микрофона не обрывает встречу: запись продолжается системным звуком,
+    // сессия становится ограниченной — так же ведёт себя macOS, где отказавшая
+    // дорожка помечается degraded, а запись сохраняется.
+    {
+        DeviceStage render, microphone;
+        int finalized = 0;
+        WindowsCaptureSessionController controller("degraded-microphone", [](AudioBatch) { return true; },
+            [&](ReasonCode reason, RecordingStopReason) {
+                // Отказа захвата нет: системный звук писался всё время, а
+                // ограничение по микрофону приходит отдельной причиной.
+                assert(reason == ReasonCode::none);
+                ++finalized;
+                return CaptureFinalization{true, reason};
+            });
+        render.allowStartup.store(true); microphone.allowStartup.store(true);
+        render.allowCleanup.store(true); microphone.allowCleanup.store(true);
+        CaptureSessionTestPeer::devices(controller,
+            [&](const auto& running, auto& deviceReady, const auto& callback) { render.run(running, deviceReady, callback); },
+            [&](const auto& running, auto& deviceReady, const auto& callback) { microphone.run(running, deviceReady, callback); });
+        assert(controller.record(ready).state == SessionState::starting);
+        waitUntil([&] { return render.initialized.load() && microphone.initialized.load(); });
+        assert(controller.pollHealth().state == SessionState::recording);
+        // Микрофон отказывает на ходу: запись остаётся живой и ограниченной.
+        CaptureSessionTestPeer::failMicrophoneWorker(controller);
+        assert(controller.pollHealth().state == SessionState::degraded);
+        assert(controller.pollHealth().state == SessionState::degraded && finalized == 0);
+        assert(controller.indicator().snapshot().visible);
+        assert(controller.indicator().snapshot().state == SessionState::degraded);
+        assert(CaptureSessionTestPeer::push(controller));
+        // Человек останавливает запись сам: она сохраняется, причина едет с ней.
+        assert(controller.stop().status == TransitionStatus::accepted);
+        render.allowCleanup.store(true);
+        waitUntil([&] { return CaptureSessionTestPeer::finished(controller); });
+        assert(controller.pollHealth().state == SessionState::savedLocal && finalized == 1);
+        assert(controller.finalization().savedLocal);
+        // Причина ограничения едет отдельно от причины отказа: запись цела.
+        assert(controller.finalization().degradedReason == ReasonCode::microphoneEndpointUnavailable);
+        assert(controller.finalization().reason == ReasonCode::none);
+    }
+
+    // Сбой микрофона на старте не отменяет системный звук: сессия становится
+    // ограниченной, а звук встречи пишется дальше.
     {
         DeviceStage render;
         std::atomic_bool failMicrophone{false};
+        std::atomic<int> delivered{0};
         int finalized = 0;
-        WindowsCaptureSessionController controller("async-failure", [](AudioBatch) {
-            assert(false); return false;
+        WindowsCaptureSessionController controller("async-failure", [&](AudioBatch) {
+            ++delivered;
+            return true;
         }, [&](ReasonCode reason, RecordingStopReason) {
-            assert(reason == ReasonCode::endpointInvalidated);
+            // Сбой микрофона не отказ захвата: системный звук писался, а
+            // ограничение приходит отдельной причиной.
+            assert(reason == ReasonCode::none);
             ++finalized;
-            return CaptureFinalization{false, reason};
+            return CaptureFinalization{true, reason};
         });
         CaptureSessionTestPeer::devices(controller,
             [&](const auto& running, auto& deviceReady, const auto& callback) { render.run(running, deviceReady, callback); },
@@ -450,13 +531,20 @@ int main() {
         waitUntil([&] { return render.entered.load(); });
         failMicrophone.store(true);
         waitUntil([&] { return CaptureSessionTestPeer::microphoneFinished(controller); });
-        assert(controller.pollHealth().state == SessionState::stopping && finalized == 0);
+        // Отказ микрофона не обрывает встречу и на старте: системный звук ещё
+        // поднимается, а сессия уже ограничена.
+        assert(controller.pollHealth().state == SessionState::degraded && finalized == 0);
+        assert(controller.indicator().snapshot().state == SessionState::degraded);
         render.allowStartup.store(true);
-        waitUntil([&] { return render.cleaning.load(); });
-        assert(controller.pollHealth().state == SessionState::stopping && finalized == 0);
+        waitUntil([&] { return render.initialized.load(); });
+        assert(controller.pollHealth().state == SessionState::degraded);
+        // Ограниченная запись принимает системный звук: иначе встреча потеряется.
+        waitUntil([&] { return delivered.load() > 0; });
         render.allowCleanup.store(true);
+        assert(controller.stop().status == TransitionStatus::accepted);
         waitUntil([&] { return CaptureSessionTestPeer::finished(controller); });
-        assert(controller.pollHealth().state == SessionState::failed && finalized == 1);
+        assert(controller.pollHealth().state == SessionState::savedLocal && finalized == 1);
+        assert(controller.finalization().degradedReason == ReasonCode::microphoneEndpointUnavailable);
     }
 
     // Stop must not block on an already-entered writer callback either. The
@@ -502,7 +590,9 @@ int main() {
             return !reject;
         }, [&](ReasonCode reason, RecordingStopReason) {
             ++finalized;
-            assert(reason == (workerFault ? ReasonCode::endpointInvalidated : ReasonCode::clockDiscontinuity));
+            // Синтетический сбой подставлен системному звуку: пустой
+            // идентификатор устройства называется недоступным устройством.
+            assert(reason == (workerFault ? ReasonCode::renderEndpointUnavailable : ReasonCode::clockDiscontinuity));
             assert(CaptureSessionTestPeer::stopped(*current));
             assert(current->indicator().snapshot().visible);
             assert(current->indicator().snapshot().state == SessionState::finalizing);

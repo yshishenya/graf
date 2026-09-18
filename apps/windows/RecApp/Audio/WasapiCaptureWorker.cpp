@@ -113,9 +113,12 @@ struct WasapiCaptureWorker::Impl {
                 error = CaptureWorkerError::invalidEndpoint; break;
             }
             if (!running.load()) break;
-            if (FAILED(device->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr,
-                                        reinterpret_cast<void**>(client.GetAddressOf())))) {
-                error = CaptureWorkerError::initializationFailed; break;
+            const auto activateResult = device->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr,
+                                                          reinterpret_cast<void**>(client.GetAddressOf()));
+            if (FAILED(activateResult)) {
+                error = activateResult == E_ACCESSDENIED ? CaptureWorkerError::accessDenied
+                                                         : CaptureWorkerError::initializationFailed;
+                break;
             }
             if (!running.load()) break;
             if (FAILED(client->GetMixFormat(&format))) { error = CaptureWorkerError::initializationFailed; break; }
@@ -130,9 +133,12 @@ struct WasapiCaptureWorker::Impl {
             constexpr REFERENCE_TIME bufferDuration = 100'000;
             DWORD flags = AUDCLNT_STREAMFLAGS_EVENTCALLBACK;
             if (renderLoopback) flags |= AUDCLNT_STREAMFLAGS_LOOPBACK;
-            if (FAILED(client->Initialize(AUDCLNT_SHAREMODE_SHARED, flags, bufferDuration, 0,
-                                           format, nullptr))) {
-                error = CaptureWorkerError::initializationFailed; break;
+            const auto initializeResult = client->Initialize(AUDCLNT_SHAREMODE_SHARED, flags, bufferDuration, 0,
+                                                             format, nullptr);
+            if (FAILED(initializeResult)) {
+                error = initializeResult == E_ACCESSDENIED ? CaptureWorkerError::accessDenied
+                                                           : CaptureWorkerError::initializationFailed;
+                break;
             }
             if (!running.load()) break;
             if (FAILED(client->SetEventHandle(eventHandle))) { error = CaptureWorkerError::initializationFailed; break; }
@@ -148,7 +154,12 @@ struct WasapiCaptureWorker::Impl {
                 break;
             }
             if (!running.load()) break;
-            if (FAILED(client->Start())) { error.store(CaptureWorkerError::initializationFailed); break; }
+            const auto startResult = client->Start();
+            if (FAILED(startResult)) {
+                error.store(startResult == E_ACCESSDENIED ? CaptureWorkerError::accessDenied
+                                                          : CaptureWorkerError::initializationFailed);
+                break;
+            }
             static_assert(ClockObservation::dataDiscontinuity == AUDCLNT_BUFFERFLAGS_DATA_DISCONTINUITY &&
                 ClockObservation::silent == AUDCLNT_BUFFERFLAGS_SILENT &&
                 ClockObservation::timestampError == AUDCLNT_BUFFERFLAGS_TIMESTAMP_ERROR);

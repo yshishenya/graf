@@ -26,6 +26,9 @@ struct CaptureFinalization {
     // Feature 6796: the recording was deliberately not kept because it was
     // shorter than the product threshold. It is neither a save nor a failure.
     bool shortRecordingDiscarded = false;
+    // Запись сохранена, но один источник отказал: причина ограничения едет
+    // рядом с записью и не превращает её в отказ.
+    ReasonCode degradedReason = ReasonCode::none;
 };
 
 class WindowsCaptureSessionController final {
@@ -69,6 +72,7 @@ private:
     friend struct CaptureSessionTestPeer;
     [[nodiscard]] bool startWorkers();
     [[nodiscard]] ReasonCode captureFailureReason() const noexcept;
+    [[nodiscard]] bool microphoneOnlyFault() const noexcept;
     void stopWorkers() noexcept;
     [[nodiscard]] bool enqueueBatch(AudioBatch batch);
     void dispatchLoop() noexcept;
@@ -94,6 +98,11 @@ private:
     std::chrono::steady_clock::time_point startupDeadline_{};
     std::atomic_bool acceptingBatches_{false};
     std::atomic<ReasonCode> captureFault_{ReasonCode::none};
+    // Сбой микрофона не обрывает запись: системный звук продолжает писаться, а
+    // причина остаётся, чтобы человек увидел ограничение и в итоге записи.
+    // macOS ведёт себя так же: дорожка помечается degraded, сессия сохраняется.
+    bool microphoneDegraded_ = false;
+    ReasonCode degradedReason_ = ReasonCode::none;
     std::mutex captureMutex_;
     static constexpr std::size_t maxPendingBatches_ = 256;
     std::mutex dispatchMutex_;
