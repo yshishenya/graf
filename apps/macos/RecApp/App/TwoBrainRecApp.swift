@@ -148,8 +148,13 @@ private enum TwoBrainRecAppMain {
 @MainActor
 private struct ContentView: View {
     private let meetingDetectionRegistryRefreshIntervalNanoseconds: UInt64 = 3_600_000_000_000
-    private static let meetingDetectionPromptWindowSize = NSSize(width: 320, height: 192)
-    private static let meetingDetectionPromptVisibleMargin: CGFloat = 22
+    // Вопрос о записи показывается той же поверхностью, что и уведомления:
+    // ширина карточки 448 точек, правый верхний угол рабочей области.
+    // Отступ справа 10 точек и верх 29 точек дают тот же правый верхний угол,
+    // что у карточки уведомления (10 и 39).
+    private static let meetingDetectionPromptWindowSize = NSSize(width: 448, height: 192)
+    private static let meetingDetectionPromptVisibleMargin: CGFloat = 10
+    private static let meetingDetectionPromptTopInset: CGFloat = 29
 
     @ObservedObject private var appUpdateController: AppUpdateController
     @State private var captureController = CaptureSessionController()
@@ -1611,11 +1616,12 @@ private struct ContentView: View {
             window.center()
             return
         }
-        let frame = meetingDetectionPromptFrame(
-            windowSize: Self.meetingDetectionPromptWindowSize,
-            visibleFrame: screen.visibleFrame,
-            anchorFrame: (NSApp.delegate as? AppLifecycleDelegate)?.meetingDetectionPromptAnchor(on: screen)
-        )
+        // Высота берётся по содержимому: вопрос о записи не растягивается на
+        // пустое место и стоит в правом верхнем углу, как уведомления.
+        let fitted = window.contentView?.fittingSize.height ?? 0
+        let size = NSSize(width: Self.meetingDetectionPromptWindowSize.width,
+                          height: fitted > 0 ? fitted : Self.meetingDetectionPromptWindowSize.height)
+        let frame = meetingDetectionPromptFrame(windowSize: size, visibleFrame: screen.visibleFrame)
         window.setFrame(frame, display: true)
     }
 
@@ -1631,18 +1637,21 @@ private struct ContentView: View {
             ?? NSScreen.screens.first
     }
 
-    private func meetingDetectionPromptFrame(windowSize: NSSize, visibleFrame: NSRect, anchorFrame: NSRect? = nil) -> NSRect {
+    /// Положение вопроса о записи: правый верхний угол рабочей области, как у
+    /// карточки уведомления. Верх отступает на столько же, на сколько у
+    /// уведомления, чтобы обе поверхности стояли в одной полосе.
+    private func meetingDetectionPromptFrame(windowSize: NSSize, visibleFrame: NSRect) -> NSRect {
         let margin = Self.meetingDetectionPromptVisibleMargin
         let horizontalMargin = min(margin, max(0, visibleFrame.width / 2 - 1))
-        let verticalMargin = min(margin, max(0, visibleFrame.height / 2 - 1))
+        let verticalMargin = min(Self.meetingDetectionPromptTopInset, max(0, visibleFrame.height / 2 - 1))
         let safeFrame = visibleFrame.insetBy(dx: horizontalMargin, dy: verticalMargin)
         let width = min(windowSize.width, max(1, safeFrame.width))
         let height = min(windowSize.height, max(1, safeFrame.height))
         let maxX = safeFrame.maxX - width
         let maxY = safeFrame.maxY - height
         return NSRect(
-            x: clamp(anchorFrame.map { $0.midX - width / 2 } ?? maxX, lower: safeFrame.minX, upper: maxX),
-            y: clamp(anchorFrame.map { $0.minY - height - 8 } ?? maxY, lower: safeFrame.minY, upper: maxY),
+            x: clamp(maxX, lower: safeFrame.minX, upper: maxX),
+            y: clamp(maxY, lower: safeFrame.minY, upper: maxY),
             width: width,
             height: height
         )
@@ -3056,6 +3065,7 @@ private struct MeetingPromptKeyboardNavigation: ViewModifier {
     }
 }
 
+@MainActor
 private struct MeetingDetectionPromptView: View {
     private static let countdownSeconds: TimeInterval = 8
 
@@ -3073,11 +3083,6 @@ private struct MeetingDetectionPromptView: View {
         GeometryReader { geometry in
             ScrollView(.vertical) {
                 VStack(spacing: 0) {
-                    Text("GRAF")
-                        .font(.system(size: 11, weight: .bold))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 5)
-                        .background(DesktopDesignTokens.surface)
                     VStack(alignment: .leading, spacing: 10) {
                         HStack(alignment: .top, spacing: 10) {
                             Image(systemName: "record.circle")
@@ -3121,17 +3126,21 @@ private struct MeetingDetectionPromptView: View {
                             }
                         }
                     }
-                    .padding(12)
                 }
                 .frame(maxWidth: .infinity, minHeight: geometry.size.height, alignment: .top)
             }
         }
-        .background(DesktopDesignTokens.panel, in: RoundedRectangle(cornerRadius: DesktopDesignTokens.Radius.dialog))
-        .clipShape(RoundedRectangle(cornerRadius: DesktopDesignTokens.Radius.dialog))
+        // Наблюдаемый эталон: та же поверхность, что у карточки уведомления —
+        // скругление 16, тонкая рамка, поля 16 по бокам и 14 сверху и снизу.
+        .background(Color(nsColor: DesktopNotificationCardView.cardBackground(dark: isDarkPromptAppearance)),
+                    in: RoundedRectangle(cornerRadius: DesktopNotificationCardPresenter.cornerRadius))
+        .clipShape(RoundedRectangle(cornerRadius: DesktopNotificationCardPresenter.cornerRadius))
         .overlay(
-            RoundedRectangle(cornerRadius: DesktopDesignTokens.Radius.dialog)
-                .stroke(DesktopDesignTokens.line, lineWidth: 1)
+            RoundedRectangle(cornerRadius: DesktopNotificationCardPresenter.cornerRadius)
+                .stroke(Color(nsColor: DesktopNotificationCardView.cardBorder(dark: isDarkPromptAppearance)), lineWidth: 1)
         )
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
         .onAppear {
             appearedAt = Date()
             countdown = MeetingDetectionCountdown(startedAt: appearedAt)
@@ -3200,6 +3209,14 @@ private struct MeetingDetectionPromptView: View {
         )
     }
 
+    /// Тёмное оформление берётся у системы: карточка должна совпадать с
+    /// поверхностью уведомлений. Главный актор указан явно: обращение к
+    /// оформлению приложения разрешено только из него.
+    @MainActor
+    private var isDarkPromptAppearance: Bool {
+        NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+    }
+
     private func progress(at date: Date) -> CGFloat {
         guard !isStartDisabled else { return 0 }
         return min(max(CGFloat(date.timeIntervalSince(appearedAt) / Self.countdownSeconds), 0), 1)
@@ -3235,10 +3252,6 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
     private var terminationReplyPending = false
     private var settingsExitPending = false
     private var relaunchAfterTermination = false
-
-    func meetingDetectionPromptAnchor(on screen: NSScreen) -> NSRect? {
-        calendarTrayController?.visibleStatusItemFrame(on: screen)
-    }
 
     override init() {
         appUpdateController = AppUpdateController { event, detail in

@@ -587,14 +587,18 @@ final class CaptureControlTests: XCTestCase {
         XCTAssertTrue(source.contains("MeetingDetectionPromptPanel("))
         XCTAssertTrue(source.contains("window.level = .statusBar"))
         XCTAssertTrue(source.contains("window.hidesOnDeactivate = false"))
-        XCTAssertTrue(source.contains("meetingDetectionPromptWindowSize = NSSize(width: 320, height: 192)"))
+        XCTAssertTrue(source.contains("meetingDetectionPromptWindowSize = NSSize(width: 448, height: 192)"))
         XCTAssertTrue(source.contains("window.setContentSize(promptWindowSize)"))
         XCTAssertTrue(source.contains("meetingDetectionPromptScreen()"))
         XCTAssertTrue(source.contains("NSEvent.mouseLocation"))
         XCTAssertTrue(source.contains("NSMouseInRect(mouseLocation, $0.frame, false)"))
         XCTAssertTrue(source.contains("visibleFrame.insetBy"))
-        // Anchor/clamping execute in AppLifecycleWindowRegressionTests; T031 no longer centers the panel.
+        // Положение в правом верхнем углу: та же ширина и тот же верх, что у
+        // карточки уведомления. Точные координаты считает
+        // AppLifecycleWindowRegressionTests на настоящем коде раскладки.
         XCTAssertTrue(source.contains("window.setFrame(frame, display: true)"))
+        XCTAssertTrue(source.contains("DesktopNotificationCardPresenter.cornerRadius"))
+        XCTAssertTrue(source.contains("DesktopNotificationCardView.cardBackground(dark: isDarkPromptAppearance)"))
         XCTAssertTrue(source.contains("orderFrontRegardless()"))
         XCTAssertFalse(source.contains("Task { @MainActor [weak window]"))
         XCTAssertTrue(source.contains("meeting_detection.prompt_presented"))
