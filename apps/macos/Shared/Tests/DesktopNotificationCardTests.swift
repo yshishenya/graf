@@ -462,6 +462,33 @@ final class DesktopNotificationCardTests: XCTestCase {
         XCTAssertNil(presenter.window)
     }
 
+    // Сторож нажатий получает настоящее событие мыши этого окна: синтетическое
+    // событие с номером окна карточки он обязан закрыть карточку и не пропустить
+    // событие дальше.
+    func testClickMonitorHandlesSyntheticMouseDown() throws {
+        let presenter = DesktopNotificationCardPresenter()
+        presenter.presentNotice(title: "Проверка уведомлений GRAF",
+                                message: "Так выглядит напоминание о встрече.")
+        let panel = try XCTUnwrap(presenter.window)
+        let view = try XCTUnwrap(panel.contentView as? DesktopNotificationCardView)
+        let close = try XCTUnwrap(view.closeButton)
+        let inWindow = close.convert(close.bounds, to: nil)
+        let point = NSPoint(x: inWindow.midX, y: inWindow.midY)
+        let event = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseDown,
+                                                    location: point,
+                                                    modifierFlags: [],
+                                                    timestamp: ProcessInfo.processInfo.systemUptime,
+                                                    windowNumber: panel.windowNumber,
+                                                    context: nil,
+                                                    eventNumber: 0,
+                                                    clickCount: 1,
+                                                    pressure: 1))
+        XCTAssertTrue(event.window === panel, "событие должно принадлежать окну карточки")
+        XCTAssertTrue(presenter.handleCardClick(at: event.locationInWindow),
+                      "сторож обязан принять нажатие в знак закрытия")
+        XCTAssertFalse(presenter.isVisible, "нажатие в знак закрытия убирает карточку")
+    }
+
     // Приложение может быть неактивным. Пока GRAF не впереди, система отдаёт
     // первое нажатие активации, поэтому окно нажатие не получает: карточку
     // закрывает сторож нажатий. Здесь проверяется, что окно нажатия принимает,
