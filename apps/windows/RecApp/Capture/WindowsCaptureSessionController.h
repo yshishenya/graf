@@ -72,7 +72,9 @@ private:
     friend struct CaptureSessionTestPeer;
     [[nodiscard]] bool startWorkers();
     [[nodiscard]] ReasonCode captureFailureReason() const noexcept;
-    [[nodiscard]] bool microphoneOnlyFault() const noexcept;
+    [[nodiscard]] bool sourceUsable(bool startupExpired) const noexcept;
+    [[nodiscard]] bool sourceDead(const WasapiCaptureWorker* worker, bool isMicrophone) const noexcept;
+    [[nodiscard]] bool sourceProducing(const WasapiCaptureWorker* worker, bool isMicrophone) const noexcept;
     void stopWorkers() noexcept;
     [[nodiscard]] bool enqueueBatch(AudioBatch batch);
     void dispatchLoop() noexcept;
@@ -102,6 +104,7 @@ private:
     // причина остаётся, чтобы человек увидел ограничение и в итоге записи.
     // macOS ведёт себя так же: дорожка помечается degraded, сессия сохраняется.
     bool microphoneDegraded_ = false;
+    bool renderDegraded_ = false;
     ReasonCode degradedReason_ = ReasonCode::none;
     std::mutex captureMutex_;
     static constexpr std::size_t maxPendingBatches_ = 256;

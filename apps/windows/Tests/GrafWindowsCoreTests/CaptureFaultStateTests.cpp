@@ -73,6 +73,12 @@ struct CaptureSessionTestPeer {
         assert(controller.microphoneWorker_->start([](AudioBatch) { return true; }) ==
                CaptureWorkerError::invalidEndpoint);
     }
+    static void failRenderWorker(WindowsCaptureSessionController& controller) {
+        // Отказ системного звука на ходу: устройство воспроизведения пропало.
+        controller.renderWorker_ = std::make_unique<WasapiCaptureWorker>(WasapiEndpointSnapshot{}, true);
+        assert(controller.renderWorker_->start([](AudioBatch) { return true; }) ==
+               CaptureWorkerError::invalidEndpoint);
+    }
     static void failWorker(WindowsCaptureSessionController& controller) {
         controller.renderWorker_ = std::make_unique<WasapiCaptureWorker>(WasapiEndpointSnapshot{}, true);
         assert(controller.renderWorker_->start([](AudioBatch) { return true; }) ==
@@ -326,14 +332,17 @@ int main() {
     for (const bool clockFailure : {false, true}) {
         std::atomic<int> discardedSources{0};
         std::atomic_bool fail{false};
+        std::atomic<int> delivered{0};
         int finalized = 0;
-        WindowsCaptureSessionController controller("discard-startup", [](AudioBatch) {
-            assert(false); return false;
+        WindowsCaptureSessionController controller("discard-startup", [&](AudioBatch) {
+            // Ограниченная запись принимает звук живого источника: иначе
+            // встреча потерялась бы вместе с отказавшим.
+            ++delivered;
+            return true;
         }, [&](ReasonCode reason, RecordingStopReason) {
-            // Ограничение по микрофону не является отказом захвата: запись
-            // цела, причина ограничения едет отдельно, в итоге записи.
-            // Истёк срок запуска: причина называет источник, который не поднялся.
-            assert(reason == (clockFailure ? ReasonCode::none : ReasonCode::renderEndpointUnavailable));
+            // Ограничение не является отказом захвата: живой источник писал
+            // встречу, а причина ограничения едет отдельно, в итоге записи.
+            assert(reason == ReasonCode::none);
             ++finalized;
             return CaptureFinalization{false, reason};
         });
@@ -369,10 +378,17 @@ int main() {
             assert(controller.stop().status == TransitionStatus::accepted);
         } else {
             CaptureSessionTestPeer::expireStartup(controller);
-            (void)controller.pollHealth();
+            // Истёк срок запуска: микрофон жив, поэтому встреча не теряется —
+            // запись продолжается с микрофоном и помечается ограниченной.
+            assert(controller.pollHealth().state == SessionState::degraded);
+            assert(controller.stop().status == TransitionStatus::accepted);
         }
         waitUntil([&] { return CaptureSessionTestPeer::finished(controller); });
         assert(controller.pollHealth().state == SessionState::failed && finalized == 1);
+        if (!clockFailure) {
+            // Причина ограничения называет источник, который не поднялся.
+            assert(controller.finalization().degradedReason == ReasonCode::renderEndpointUnavailable);
+        }
         const auto render = controller.clockDiagnostics(AudioSource::systemRender);
         const auto microphone = controller.clockDiagnostics(AudioSource::microphone);
         assert(render.startupDiscardedFrames == 480 && microphone.startupDiscardedFrames == 480);
@@ -501,6 +517,46 @@ int main() {
         assert(controller.finalization().savedLocal);
         // Причина ограничения едет отдельно от причины отказа: запись цела.
         assert(controller.finalization().degradedReason == ReasonCode::microphoneEndpointUnavailable);
+        assert(controller.finalization().reason == ReasonCode::none);
+    }
+
+    // Отказ системного звука тоже не обрывает встречу: микрофон продолжает
+    // писать голос, а сессия помечается ограниченной — как в macOS, где
+    // `markDegraded(source:)` называет отказавший источник.
+    {
+        DeviceStage render, microphone;
+        std::atomic<int> delivered{0};
+        int finalized = 0;
+        WindowsCaptureSessionController controller("degraded-render", [&](AudioBatch) {
+            ++delivered;
+            return true;
+        }, [&](ReasonCode reason, RecordingStopReason) {
+            // Отказа захвата нет: микрофон писал всё время, ограничение едет
+            // отдельной причиной.
+            assert(reason == ReasonCode::none);
+            ++finalized;
+            return CaptureFinalization{true, reason};
+        });
+        render.allowStartup.store(true); microphone.allowStartup.store(true);
+        render.allowCleanup.store(true); microphone.allowCleanup.store(true);
+        CaptureSessionTestPeer::devices(controller,
+            [&](const auto& running, auto& deviceReady, const auto& callback) { render.run(running, deviceReady, callback); },
+            [&](const auto& running, auto& deviceReady, const auto& callback) { microphone.run(running, deviceReady, callback); });
+        assert(controller.record(ready).state == SessionState::starting);
+        waitUntil([&] { return render.initialized.load() && microphone.initialized.load(); });
+        assert(controller.pollHealth().state == SessionState::recording);
+        waitUntil([&] { return delivered.load() > 0; });
+        const auto deliveredBefore = delivered.load();
+        CaptureSessionTestPeer::failRenderWorker(controller);
+        assert(controller.pollHealth().state == SessionState::degraded);
+        assert(controller.pollHealth().state == SessionState::degraded && finalized == 0);
+        assert(controller.indicator().snapshot().state == SessionState::degraded);
+        // Голос продолжает попадать в запись, хотя системный звук отказал.
+        waitUntil([&] { return delivered.load() > deliveredBefore; });
+        assert(controller.stop().status == TransitionStatus::accepted);
+        waitUntil([&] { return CaptureSessionTestPeer::finished(controller); });
+        assert(controller.pollHealth().state == SessionState::savedLocal && finalized == 1);
+        assert(controller.finalization().degradedReason == ReasonCode::renderEndpointUnavailable);
         assert(controller.finalization().reason == ReasonCode::none);
     }
 

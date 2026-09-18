@@ -19,8 +19,18 @@ bool isMicrophoneOnlyReason(ReasonCode reason) noexcept {
            reason == ReasonCode::microphoneEndpointUnavailable;
 }
 
+bool isRenderOnlyReason(ReasonCode reason) noexcept {
+    return reason == ReasonCode::renderEndpointUnavailable;
+}
+
 std::wstring recordingDegradedText(ReasonCode reason) {
+    // Отказать может любой источник, и человеку важно знать, какой именно:
+    // «системный звук недоступен» и «микрофон недоступен» требуют разных
+    // действий. Так же называет источник macOS (`degradedSource`).
     switch (reason) {
+        case ReasonCode::renderEndpointUnavailable:
+            return L"Системный звук недоступен. Запись сохранена с микрофоном, "
+                   L"звук встречи в неё не попал.";
         case ReasonCode::microphonePermissionDenied:
             return L"Микрофон недоступен: нет разрешения. Запись сохранена с системным звуком, "
                    L"голос в неё не попал.";

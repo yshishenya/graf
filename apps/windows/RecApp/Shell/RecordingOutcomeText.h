@@ -20,6 +20,9 @@ namespace graf::windows {
 
 // Причина ограничена микрофоном: запись продолжается системным звуком.
 [[nodiscard]] bool isMicrophoneOnlyReason(ReasonCode reason) noexcept;
+// Ограничение может касаться любого источника: и текст, и полоса записи
+// называют тот, который отказал.
+bool isRenderOnlyReason(ReasonCode reason) noexcept;
 
 // Что человеку сказать про ограниченную запись: она сохранена, но без голоса.
 [[nodiscard]] std::wstring recordingDegradedText(ReasonCode reason);

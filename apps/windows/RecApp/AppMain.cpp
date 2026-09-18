@@ -2615,10 +2615,11 @@ private:
         else if (snapshot.state == graf::windows::SessionState::savedLocal) outcome = L"Запись сохранена на этом компьютере.";
         // Ограниченная запись сохраняется, но человек должен знать, что голоса
         // в ней нет: иначе он узнает об этом на расшифровке.
-        const bool microphoneLimited = graf::windows::isMicrophoneOnlyReason(finalization.degradedReason) &&
+        const bool limited = (graf::windows::isMicrophoneOnlyReason(finalization.degradedReason) ||
+                              graf::windows::isRenderOnlyReason(finalization.degradedReason)) &&
             (snapshot.state == graf::windows::SessionState::degraded ||
              snapshot.state == graf::windows::SessionState::savedLocal);
-        if (microphoneLimited) {
+        if (limited) {
             if (!outcome.empty()) outcome += L"\n";
             outcome += graf::windows::recordingDegradedText(finalization.degradedReason);
         }
@@ -2639,8 +2640,12 @@ private:
         const bool permissionMissing = !capture_->microphonePermissionGranted();
         captureStatus_.Text(winrt::to_hstring(snapshot.statusText));
         const bool paused = snapshot.state == graf::windows::SessionState::paused;
-        const bool microphoneOff = snapshot.state == graf::windows::SessionState::degraded;
+        const bool microphoneOff = snapshot.state == graf::windows::SessionState::degraded &&
+            !graf::windows::isRenderOnlyReason(finalization.degradedReason);
+        const bool renderOff = snapshot.state == graf::windows::SessionState::degraded &&
+            graf::windows::isRenderOnlyReason(finalization.degradedReason);
         readinessText_.Text(active ? (paused ? L"Микрофон на паузе. Системный звук продолжает записываться."
+                                             : renderOff ? L"Системный звук недоступен: запись продолжается с микрофоном."
                                              : microphoneOff ? L"Микрофон недоступен: запись продолжается с системным звуком."
                                                              : L"Общий системный звук и локальный микрофон")
                                    : capture_->readinessSummary());
@@ -2651,6 +2656,7 @@ private:
         recordingStrip_.Visibility(active ? Visibility::Visible : Visibility::Collapsed);
         recordingStripText_.Text(winrt::to_hstring(snapshot.statusText +
             (paused ? " · Микрофон на паузе"
+                    : renderOff ? " · Только микрофон"
                     : microphoneOff ? " · Только системный звук" : " · Системный звук и микрофон")));
         if (active && recordingStartedAt_ != 0) {
             const auto seconds = (GetTickCount64() - recordingStartedAt_) / 1000;

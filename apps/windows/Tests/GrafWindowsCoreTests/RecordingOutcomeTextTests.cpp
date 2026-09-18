@@ -14,6 +14,7 @@ namespace {
 using graf::windows::ReasonCode;
 using graf::windows::effectiveFailureReason;
 using graf::windows::isMicrophoneOnlyReason;
+using graf::windows::isRenderOnlyReason;
 using graf::windows::recordingDegradedText;
 using graf::windows::recordingFailureText;
 
@@ -124,6 +125,17 @@ void testDegradedRecordingIsExplained() {
     assert(contains(recordingDegradedText(ReasonCode::microphoneEndpointUnavailable), L"системным звуком"));
     // Ограничение — не отказ: текст не должен пугать потерей записи.
     assert(!contains(denied, L"Не удалось сохранить"));
+
+    // Отказать может и системный звук: тогда запись остаётся с микрофоном, и
+    // текст обязан назвать именно системный звук — иначе человек пойдёт чинить
+    // микрофон.
+    assert(isRenderOnlyReason(ReasonCode::renderEndpointUnavailable));
+    assert(!isRenderOnlyReason(ReasonCode::microphoneEndpointUnavailable));
+    assert(!isRenderOnlyReason(ReasonCode::endpointInvalidated));
+    const auto render = recordingDegradedText(ReasonCode::renderEndpointUnavailable);
+    assert(contains(render, L"Системный звук недоступен"));
+    assert(contains(render, L"микрофоном"));
+    assert(!contains(render, L"Не удалось сохранить"));
 }
 
 } // namespace

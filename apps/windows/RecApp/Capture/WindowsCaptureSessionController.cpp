@@ -48,6 +48,7 @@ TransitionResult WindowsCaptureSessionController::record(const ReadinessInputs& 
     acceptingBatches_.store(false);
     // Новая запись начинается без прошлых ограничений: причина живёт одну сессию.
     microphoneDegraded_ = false;
+    renderDegraded_ = false;
     degradedReason_ = ReasonCode::none;
     startupDeadline_ = std::chrono::steady_clock::now() + std::chrono::seconds(5);
     if (!startWorkers()) return stop();
@@ -93,13 +94,31 @@ TransitionResult WindowsCaptureSessionController::pollHealth() {
         // Системный звук — главный источник встречи. Если он поднялся, а
         // микрофон молчит (нет устройства, нет доступа, устройство занято),
         // запись продолжается без голоса, а не обрывается.
-        const bool microphoneOnly = microphoneOnlyFault() ||
-            (startupExpired && renderWorker_ && renderWorker_->ready() && !renderWorker_->finished());
-        if (failure != ReasonCode::none && microphoneOnly) {
-            const auto reason = microphoneOnlyFault() ? failure : ReasonCode::microphoneEndpointUnavailable;
-            microphoneDegraded_ = true;
+        const bool hasLiveSource = sourceUsable(startupExpired);
+        if (failure != ReasonCode::none && hasLiveSource) {
+            // Кто отказал — тот и назван: причина уходит в текст для человека и
+            // в саму запись, чтобы ограничение было видно и после остановки.
+            bool microphoneFault = sourceDead(microphoneWorker_.get(), true);
+            if (!microphoneFault && !sourceDead(renderWorker_.get(), false)) {
+                // Никто не отказал явно: значит истёк срок запуска, и виноват
+                // тот источник, который так и не дал звук.
+                microphoneFault = !sourceProducing(microphoneWorker_.get(), true);
+            }
+            auto reason = failure;
+            if (startupExpired || failure == ReasonCode::endpointInvalidated) {
+                // «Источник пропал» без имени бесполезно: человеку нужно знать,
+                // что чинить — микрофон или устройство воспроизведения.
+                reason = microphoneFault ? ReasonCode::microphoneEndpointUnavailable
+                                         : ReasonCode::renderEndpointUnavailable;
+            }
+            if (microphoneFault) {
+                microphoneDegraded_ = true;
+                if (microphoneWorker_) microphoneWorker_->stop();
+            } else {
+                renderDegraded_ = true;
+                if (renderWorker_) renderWorker_->stop();
+            }
             degradedReason_ = reason;
-            if (microphoneWorker_) microphoneWorker_->stop();
             (void)session_.markDegraded(reason);
             // Без этого системный звук не попадёт в запись: пакеты принимаются
             // только после готовности источников.
@@ -228,12 +247,33 @@ bool WindowsCaptureSessionController::startWorkers() {
     return true;
 }
 
-bool WindowsCaptureSessionController::microphoneOnlyFault() const noexcept {
-    if (microphoneDegraded_ || !renderWorker_ || !microphoneWorker_) return false;
-    const auto renderError = reasonForWorkerError(renderWorker_->lastError(), false);
-    if (renderError != ReasonCode::none || renderWorker_->finished()) return false;
-    return microphoneWorker_->finished() ||
-           reasonForWorkerError(microphoneWorker_->lastError(), true) != ReasonCode::none;
+bool WindowsCaptureSessionController::sourceDead(const WasapiCaptureWorker* worker, bool isMicrophone) const noexcept {
+    if (worker == nullptr) return true;
+    if (isMicrophone && microphoneDegraded_) return true;
+    if (!isMicrophone && renderDegraded_) return true;
+    if (worker->finished()) return true;
+    return reasonForWorkerError(worker->lastError(), isMicrophone) != ReasonCode::none;
+}
+
+bool WindowsCaptureSessionController::sourceProducing(const WasapiCaptureWorker* worker, bool isMicrophone) const noexcept {
+    if (sourceDead(worker, isMicrophone)) return false;
+    // Источник считается пишущим, только если он уже дал звук: молчащий
+    // источник — это и есть отказ, ради которого запись ограничивается.
+    return worker->ready() || worker->clockDiagnostics().startupDiscardedFrames > 0;
+}
+
+bool WindowsCaptureSessionController::sourceUsable(bool startupExpired) const noexcept {
+    const bool starting = session_.state() == SessionState::starting;
+    const auto usable = [&](const WasapiCaptureWorker* worker, bool isMicrophone) {
+        if (sourceDead(worker, isMicrophone)) return false;
+        // Истёк срок запуска: годится только тот источник, который уже дал звук.
+        if (startupExpired) return sourceProducing(worker, isMicrophone);
+        // Запись идёт: источник обязан писать, иначе запись выйдет пустой.
+        if (!starting) return sourceProducing(worker, isMicrophone);
+        // Источник ещё поднимается: ему дают договорить.
+        return true;
+    };
+    return usable(renderWorker_.get(), false) || usable(microphoneWorker_.get(), true);
 }
 
 ReasonCode WindowsCaptureSessionController::captureFailureReason() const noexcept {
@@ -242,8 +282,9 @@ ReasonCode WindowsCaptureSessionController::captureFailureReason() const noexcep
     const std::pair<const WasapiCaptureWorker*, bool> workers[] = {
         {renderWorker_.get(), false}, {microphoneWorker_.get(), true}};
     for (const auto& [worker, isMicrophone] : workers) {
-        // Ограничение по микрофону уже учтено: повторно оно запись не обрывает.
+        // Ограничение уже учтено: повторно оно запись не обрывает.
         if (isMicrophone && microphoneDegraded_) continue;
+        if (!isMicrophone && renderDegraded_) continue;
         if (worker == nullptr) continue;
         const auto error = reasonForWorkerError(worker->lastError(), isMicrophone);
         if (error != ReasonCode::none) return error;
