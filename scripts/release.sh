@@ -272,6 +272,19 @@ PY
   printf 'release_features=%s feature_ids=%s\n' "$features" "$feature_ids"
 
   git add -A
+  if git diff --cached --quiet; then
+    # Прошлая попытка уже влила подготовку этого выпуска в мастер. Собирать
+    # нечего — это не ошибка.  Раньше здесь стоял `git commit`, который при
+    # отсутствии изменений молча убивал выпуск: оператор видел только
+    # "нечего коммитить" и не понимал, что делать дальше.
+    source_sha="$(git rev-parse HEAD)"
+    printf 'release_prep=already_merged version=%s sha=%s\n' "$version" "${source_sha:0:12}"
+    printf 'Подготовка выпуска %s уже влита в мастер прошлой попыткой.\n' "$version"
+    printf 'Дальше: продолжить выпуск с готового состояния командой\n'
+    printf '  scripts/release.sh %s --from train%s\n' "$version" \
+      "$([[ "$deploy" == true ]] && printf ' --deploy')"
+    exit 0
+  fi
   git commit -m "Подготовка релиза ${version}
 
 Раздел CHANGELOG.md собран из фрагментов выпуска, фрагменты перенесены в

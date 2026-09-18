@@ -92,3 +92,20 @@ def test_release_abandon_is_idempotent(tmp_path: Path) -> None:
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert record_path.read_text(encoding="utf-8") == '{"reason": "первая отметка"}\n'
+
+
+def test_release_driver_guards_the_prep_commit_against_no_changes() -> None:
+    """Повтор выпуска с уже влитой подготовкой не должен обрываться молча.
+
+    Если прошлая попытка влила подготовку в мастер, собирать нечего. Раньше
+    здесь стоял незащищённый `git commit`: при отсутствии изменений он
+    завершался с ошибкой, а `set -e` убивал выпуск без единого объяснения.
+    """
+    script = (ROOT / "scripts" / "release.sh").read_text(encoding="utf-8")
+
+    guard = script.index("if git diff --cached --quiet; then")
+    commit = script.index('git commit -m "Подготовка релиза')
+
+    assert guard < commit, "проверка на отсутствие изменений должна идти до commit"
+    assert "release_prep=already_merged" in script, "нет понятного отчёта о готовом состоянии"
+    assert "--from train" in script[guard:commit], "нет команды продолжения выпуска"
