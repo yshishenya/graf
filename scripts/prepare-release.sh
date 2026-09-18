@@ -83,6 +83,9 @@ fi
 published_tag=""
 published_version=""
 pending_versions=()
+shopt -s nullglob
+current_fragment_paths=("$PWD"/changes/unreleased/F*.yaml)
+shopt -u nullglob
 origin_url="$(git config --get remote.origin.url 2>/dev/null || true)"
 github_origin=0
 case "$origin_url" in
@@ -232,7 +235,7 @@ PY
     exit 1
   fi
   published_version="${published_tag#v}"
-  if ! pending_state_json="$(python3 - "$PWD" "$changelog" "$published_version" <<'PY'
+  if ! pending_state_json="$(python3 - "$PWD" "$changelog" "$published_version" "${current_fragment_paths[@]}" <<'PY'
 import json
 import re
 import sys
@@ -249,6 +252,16 @@ published_index = next(
 )
 if published_index is None:
     raise SystemExit(f"published release {published} is missing from CHANGELOG.md")
+
+superseded_features = set()
+for raw in sys.argv[4:]:
+    match = re.search(
+        r"^feature_id[ \t]*:[ \t]*(\d+)[ \t]*$",
+        Path(raw).read_text(encoding="utf-8"),
+        re.MULTILINE,
+    )
+    if match:
+        superseded_features.add(int(match.group(1)))
 
 pending = [
     match for match in headings[:published_index]
@@ -316,6 +329,10 @@ for match in pending:
         feature = re.search(r"Фича\s+(\d+)", value)
         if feature:
             feature_id = int(feature.group(1))
+            if feature_id in superseded_features:
+                # Текущая работа по этой доработке описана свежим фрагментом.
+                # Запись из провалившегося выпуска устарела: не дублируем её.
+                continue
             if feature_id not in fragment_feature_set:
                 raise SystemExit(
                     f"unpublished changelog entry references Feature {feature_id} without an archived fragment"
@@ -380,7 +397,6 @@ pending_content="${pending_content:-}"
 archive_dir="$PWD/changes/releases/v$next_version"
 
 shopt -s nullglob
-current_fragment_paths=("$PWD"/changes/unreleased/F*.yaml)
 fragment_paths=("${current_fragment_paths[@]}")
 for version in "${pending_versions[@]}"; do
   fragment_paths+=("$PWD"/changes/releases/"v$version"/F*.yaml)
@@ -391,37 +407,194 @@ if [[ -f "$PWD/scripts/validate-changelog-fragments.py" ]]; then
   python3 scripts/validate-changelog-fragments.py --root "$PWD"
 fi
 
-if ! python3 - "$archive_dir" "${fragment_paths[@]}" <<'PY'
+mkdir -p "$archive_dir"
+fragment_merge_dir="$(mktemp -d)"
+fragment_plan="$(mktemp)"
+if ! python3 - "$fragment_merge_dir" "${fragment_paths[@]}" > "$fragment_plan" <<'PY'
+import json
 import re
 import sys
 from pathlib import Path
 
-archive = Path(sys.argv[1])
-destinations = {}
+merge_dir = Path(sys.argv[1])
+paths = [Path(raw) for raw in sys.argv[2:]]
+FIELDS = (
+    "schema_version",
+    "feature_id",
+    "category",
+    "summary",
+    "issue",
+    "tasks",
+    "compatibility",
+    "release_notes",
+    "known_limitations",
+)
+
+
+def parse(path):
+    values = {}
+    lines = path.read_text(encoding="utf-8").splitlines()
+    index = 0
+    while index < len(lines):
+        match = re.match(r"^([A-Za-z_][A-Za-z0-9_-]*)[ \t]*:[ \t]*(.*)$", lines[index])
+        if not match:
+            index += 1
+            continue
+        name, raw = match.groups()
+        index += 1
+        if raw in {"|", ">", "|-", ">-", "|+", ">+"}:
+            block = []
+            while index < len(lines) and (
+                not lines[index].strip() or lines[index].startswith((" ", "\t"))
+            ):
+                block.append(lines[index].strip())
+                index += 1
+            values[name] = "\n".join(block) if raw.startswith("|") else " ".join(block)
+            continue
+        if raw.startswith("[") and raw.endswith("]"):
+            inner = raw[1:-1].strip()
+            values[name] = [unquote(part) for part in inner.split(",")] if inner else []
+            continue
+        if not raw:
+            items = []
+            while index < len(lines):
+                item = re.match(r"^[ \t]{2,}-[ \t]*(.*)$", lines[index])
+                if not item:
+                    break
+                items.append(unquote(item.group(1)))
+                index += 1
+            values[name] = items
+            continue
+        values[name] = unquote(raw)
+    return values
+
+
+def unquote(raw):
+    raw = raw.strip()
+    if raw.startswith('"') and raw.endswith('"'):
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            return raw[1:-1]
+    if raw.startswith("'") and raw.endswith("'"):
+        return raw[1:-1].replace("''", "'")
+    return raw.split(" #", 1)[0].strip()
+
+
+def as_list(value):
+    if isinstance(value, list):
+        return [item for item in value if item]
+    return [value] if value else []
+
+
+def combine(*values):
+    seen = []
+    for value in values:
+        for item in as_list(value):
+            normalized = " ".join(str(item).split())
+            if normalized and normalized not in seen:
+                seen.append(normalized)
+    return " ".join(seen)
+
+
+def dump(values):
+    lines = []
+    for key in FIELDS:
+        if key not in values:
+            continue
+        value = values[key]
+        if isinstance(value, list):
+            joined = ", ".join(json.dumps(item, ensure_ascii=False) for item in value)
+            lines.append(f"{key}: [{joined}]" if value else f"{key}: []")
+        else:
+            lines.append(f"{key}: {json.dumps(str(value), ensure_ascii=False)}")
+    return "\n".join(lines) + "\n"
+
+
+parsed = []
 mismatches = []
-for path in map(Path, sys.argv[2:]):
-    match = re.search(
-        r"^feature_id[ \t]*:[ \t]*(\d+)[ \t]*$",
-        path.read_text(encoding="utf-8"),
-        re.MULTILINE,
-    )
-    if not match:
+for path in paths:
+    values = parse(path)
+    feature_id = str(values.get("feature_id", "")).strip()
+    if not re.fullmatch(r"\d+", feature_id):
         raise SystemExit(f"invalid feature_id in release fragment {path.name}")
-    feature_id = match.group(1)
-    destination = archive / path.name
-    previous = destinations.get(destination)
-    if previous is not None and previous != path:
-        raise SystemExit(f"multiple fragments map to archive destination {path.name}")
-    destinations[destination] = path
     if path.name != f"F{feature_id}.yaml":
         mismatches.append(f"release fragment {path.name} must match feature_id {feature_id}")
+    parsed.append((feature_id, path, values))
+
+by_name = {}
+for feature_id, path, values in parsed:
+    by_name.setdefault(path.name, []).append((feature_id, path, values))
+
+# Одинаковое имя файла при разных номерах доработки — это не одна доработка,
+# а испорченный архив. Такой случай обязан остановить подготовку до изменений.
+collisions = [name for name, entries in by_name.items() if len({item[0] for item in entries}) > 1]
+if collisions:
+    raise SystemExit(f"multiple fragments map to archive destination {sorted(collisions)[0]}")
 if mismatches:
     raise SystemExit(mismatches[0])
+
+survivors = []
+for name in sorted(by_name, key=lambda item: int(re.search(r"\d+", item).group())):
+    entries = [(path, values) for _, path, values in by_name[name]]
+    feature_id = by_name[name][0][0]
+    if len(entries) == 1:
+        survivors.append(entries[0][0])
+        continue
+    # Одна доработка пережила провалившийся выпуск: её фрагменты лежат и в
+    # каталоге незавершённого выпуска, и среди текущей работы. Сводим их в один
+    # файл, иначе архивация упрётся в совпадение имён. Основой берём текущую
+    # работу: она описывает доработку полнее и свежее.
+    def rank(item):
+        path = item[0]
+        if path.parent.name == "unreleased":
+            return (0, "")
+        return (1, path.parent.name)
+
+    ordered = sorted(entries, key=rank)
+    base_path, base = ordered[0]
+    merged = {key: base[key] for key in base}
+    merged["schema_version"] = base.get("schema_version", 1)
+    merged["feature_id"] = feature_id
+    merged["summary"] = combine(*[values.get("summary") for _, values in ordered])
+    merged["compatibility"] = combine(*[values.get("compatibility") for _, values in ordered])
+    merged["release_notes"] = combine(*[values.get("release_notes") for _, values in ordered])
+    tasks = []
+    limitations = []
+    for _, values in ordered:
+        tasks.extend(as_list(values.get("tasks")))
+        limitations.extend(as_list(values.get("known_limitations")))
+    merged["tasks"] = list(dict.fromkeys(tasks))
+    merged["known_limitations"] = list(dict.fromkeys(limitations))
+    categories = {str(values.get("category", "")) for _, values in ordered}
+    if len(categories) > 1:
+        raise SystemExit(
+            f"conflicting categories for Feature {feature_id}: {sorted(categories)}; "
+            "align the fragments before preparing the release"
+        )
+    destination = merge_dir / f"F{feature_id}.yaml"
+    destination.write_text(dump(merged), encoding="utf-8")
+    for path, _ in entries:
+        path.unlink()
+    sources = ", ".join(str(path) for path, _ in entries)
+    print(
+        f"release_fragment_merge=feature {feature_id} "
+        f"sources={len(entries)} merged_into={destination}",
+        file=sys.stderr,
+    )
+    print(f"Фрагменты доработки {feature_id} сведены в один: {sources}", file=sys.stderr)
+    survivors.append(destination)
+
+for path in survivors:
+    print(path)
 PY
 then
+  rm -f "$fragment_plan"
   echo "error: invalid release fragment archive mapping"
   exit 1
 fi
+mapfile -t fragment_paths < "$fragment_plan"
+rm -f "$fragment_plan"
 
 release_features=()
 for fragment in "${fragment_paths[@]}"; do
