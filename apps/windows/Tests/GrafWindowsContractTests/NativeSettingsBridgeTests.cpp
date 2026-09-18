@@ -148,6 +148,25 @@ void testTheShimAsksOnlyWhatTheAppCanAnswer() {
     assert(script.find("if (window.__grafNativeSettingsInstalled) return;") != std::string::npos);
 }
 
+void testTheSharedSettingsPageStopsClaimingToBeAMac() {
+    const auto script = std::string(graf::windows::NativeSettingsBridge::documentScript());
+    // Общая серверная страница написана для macOS. На Windows это неправда, и
+    // оболочка приводит слова и кнопку в порядок, не трогая общую страницу.
+    assert(script.find("platformWords") != std::string::npos);
+    assert(script.find("['На этом Mac', 'На этом компьютере']") != std::string::npos);
+    assert(script.find("['Настройки macOS', 'Настройки Windows']") != std::string::npos);
+    assert(script.find("['разрешение macOS', 'разрешение Windows']") != std::string::npos);
+    assert(script.find("'настройки этого компьютера'") != std::string::npos);
+    // Кнопка системных настроек на Windows скрывается: у этой страницы нет
+    // системного разрешения, которое она могла бы открыть.
+    assert(script.find("[data-local-notification-action=\"openSystemSettings\"]") != std::string::npos);
+    assert(script.find("button.hidden = true") != std::string::npos);
+    // Страница приходит и целиком, и подстановкой, поэтому правка нужна в обоих
+    // случаях.
+    assert(script.find("document.addEventListener('DOMContentLoaded', adaptPlatformWords)") != std::string::npos);
+    assert(script.find("document.addEventListener('htmx:afterSwap', adaptPlatformWords)") != std::string::npos);
+}
+
 } // namespace
 
 int main() {
@@ -158,6 +177,7 @@ int main() {
     testQuotesAndControlCharactersCannotLeaveTheJson();
     testARefusalIsStillAnAnswer();
     testEachSettingsPageHasItsOwnRoute();
+    testTheSharedSettingsPageStopsClaimingToBeAMac();
     testTheNotificationReplyIsThePlatformTruth();
     testTheShimAsksOnlyWhatTheAppCanAnswer();
     std::puts("NativeSettingsBridgeTests passed");

@@ -164,6 +164,39 @@ std::string_view documentScript() noexcept {
   // Only the handlers this app can answer are installed.
   window.webkit.messageHandlers.grafRecordingSettings = handler('grafRecordingSettings');
   window.webkit.messageHandlers.grafNotificationSettings = handler('grafNotificationSettings');
+  // The cabinet's settings pages are one server page shared with macOS, so they
+  // say «На этом Mac» and offer «Настройки macOS». On Windows that is simply not
+  // true, and the button would lead to settings this page has no permission to
+  // show. The shell corrects the words and hides that button instead of the
+  // server growing a second copy of the page: a server change would also change
+  // macOS, and the owner has not asked for that.
+  const platformWords = [
+    ['В приложении на Mac', 'В приложении для Windows'],
+    ['настройки этого Mac', 'настройки этого компьютера'],
+    ['этого Mac', 'этого компьютера'],
+    ['На этом Mac', 'На этом компьютере'],
+    ['Настройки macOS', 'Настройки Windows'],
+    ['разрешение macOS', 'разрешение Windows']
+  ];
+  const adaptPlatformWords = () => {
+    const root = document.querySelector('[data-local-notification-settings], [data-recording-settings]');
+    if (!root) return;
+    root.querySelectorAll('[data-local-notification-action="openSystemSettings"]')
+      .forEach((button) => { button.hidden = true; });
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const nodes = [];
+    while (walker.nextNode()) nodes.push(walker.currentNode);
+    for (const node of nodes) {
+      let text = node.nodeValue;
+      for (const pair of platformWords) text = text.split(pair[0]).join(pair[1]);
+      if (text !== node.nodeValue) node.nodeValue = text;
+    }
+  };
+  // The page is server-rendered and then swapped in by its own navigation, so the
+  // correction runs on both moments; a page without these pages costs nothing.
+  document.addEventListener('DOMContentLoaded', adaptPlatformWords);
+  document.addEventListener('htmx:afterSwap', adaptPlatformWords);
+  if (document.readyState !== 'loading') adaptPlatformWords();
 })();
 )JS";
 }
