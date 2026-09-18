@@ -88,5 +88,18 @@ int main() {
     assert(!host.localRecordingActionAllowed("open", "known"));
     host.close();
     assert(!host.localRecordingActionAllowed("send", "known"));
+    // Страницы настроек кабинета и удаление записи идут тем же конвертом, что и
+    // остальные команды. Пока этих двух команд не было в списке разрешённых,
+    // страница настроек показывала «Не удалось загрузить настройки этого Mac»
+    // вместо честного ответа, а удаление из кабинета не доходило до приложения.
+    message.messageId = 2; message.command = "native_settings";
+    message.payloadJson =
+        R"({"handler":"grafNotificationSettings","requestId":1,"request":{"version":1,"action":"read"}})";
+    assert(bridge.validate(message) == BridgeValidationError::none);
+    message.messageId = 3; message.command = "delete_selection";
+    message.payloadJson = R"({"action":"delete","version":1,"requestId":"r-1","ids":[],"localIds":[]})";
+    assert(bridge.validate(message) == BridgeValidationError::none);
+    message.messageId = 4; message.command = "native_settings_purge";
+    assert(bridge.validate(message) == BridgeValidationError::commandDenied);
     return 0;
 }

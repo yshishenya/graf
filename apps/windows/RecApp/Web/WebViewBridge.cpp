@@ -172,7 +172,15 @@ BridgeValidationError WebViewBridge::validate(const WebViewBridgeEnvelope& messa
 bool WebViewBridge::isAllowedWebCommand(std::string_view command) noexcept {
     // Объявление оформления идёт тем же конвертом, что и остальные команды:
     // без него живая смена темы в кабинете до приложения не доходит.
-    return command == "request_app_quit" || command == "local_recording" || command == "app_appearance";
+    //
+    // Настройки кабинета и удаление записи идут тем же путём и обязаны проходить
+    // проверку: без них страницы настроек не загружаются вовсе («Не удалось
+    // загрузить настройки этого Mac» вместо честного ответа), а выбранное в
+    // кабинете удаление не доходит до приложения. Разбор полей у обеих команд
+    // строгий и живёт в обработчиках: конверт проверяет только право команды
+    // дойти до приложения.
+    return command == "request_app_quit" || command == "local_recording" || command == "app_appearance" ||
+           command == "native_settings" || command == "delete_selection";
 }
 
 std::size_t WebViewBridge::jsonDepth(std::string_view payload) noexcept {
