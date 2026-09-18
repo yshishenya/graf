@@ -421,6 +421,50 @@ final class DesktopNotificationCardTests: XCTestCase {
                                actionTitle: nil))
     }
 
+    // Карточку можно закрыть мышью: окно принимает нажатия, а точка знака
+    // закрытия действительно приходится на кнопку.
+    func testCardCloseButtonReceivesMouseClicks() throws {
+        let presenter = DesktopNotificationCardPresenter()
+        presenter.presentNotice(title: "Проверка уведомлений GRAF",
+                                message: "Так выглядит напоминание о встрече.")
+        defer { presenter.dismiss() }
+        let panel = try XCTUnwrap(presenter.window)
+        let view = try XCTUnwrap(panel.contentView)
+        view.layoutSubtreeIfNeeded()
+        XCTAssertFalse(panel.ignoresMouseEvents, "окно карточки не должно пропускать нажатия")
+        let close = try XCTUnwrap(view.subviews.compactMap { $0 as? NSButton }
+            .first { $0.accessibilityLabel() == "Закрыть уведомление" })
+        let inWindow = close.convert(close.bounds, to: nil)
+        let point = NSPoint(x: inWindow.midX, y: inWindow.midY)
+        let hit = view.hitTest(view.convert(point, from: nil))
+        XCTAssertTrue(hit === close, "нажатие в углу карточки должно попадать в знак закрытия")
+        // Нажатие закрывает карточку и убирает окно.
+        close.performClick(nil)
+        XCTAssertFalse(presenter.isVisible)
+    }
+
+    // Приложение может быть неактивным. Пока GRAF не впереди, система отдаёт
+    // первое нажатие активации, поэтому окно нажатие не получает: карточку
+    // закрывает сторож нажатий. Здесь проверяется, что окно нажатия принимает,
+    // фокус не забирает и знак закрытия доступен сторожу.
+    func testCardWindowAcceptsClicksWhileAppIsInactive() throws {
+        let presenter = DesktopNotificationCardPresenter()
+        presenter.presentNotice(title: "Проверка уведомлений GRAF",
+                                message: "Так выглядит напоминание о встрече.")
+        defer { presenter.dismiss() }
+        let panel = try XCTUnwrap(presenter.window)
+        let view = try XCTUnwrap(panel.contentView as? DesktopNotificationCardView)
+        XCTAssertFalse(panel.ignoresMouseEvents)
+        XCTAssertFalse(panel.canBecomeMain, "карточка не забирает главное окно")
+        XCTAssertFalse(panel.hidesOnDeactivate)
+        XCTAssertTrue(panel.styleMask.contains(.nonactivatingPanel))
+        XCTAssertFalse(panel.isKeyWindow, "карточка не забирает клавиатурный фокус")
+        let close = try XCTUnwrap(view.closeButton)
+        let inWindow = close.convert(close.bounds, to: nil)
+        let hit = view.hitTest(view.convert(NSPoint(x: inWindow.midX, y: inWindow.midY), from: nil))
+        XCTAssertTrue(hit === close, "сторож нажатий должен находить знак закрытия")
+    }
+
     // Сообщение исчезает само: иначе окно остаётся поверх чужих приложений.
     func testNoticeDisappearsAfterItsLifetime() async throws {
         let presenter = DesktopNotificationCardPresenter()

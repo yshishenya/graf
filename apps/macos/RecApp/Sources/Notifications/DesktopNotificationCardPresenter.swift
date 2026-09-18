@@ -77,6 +77,10 @@ public final class DesktopNotificationCardPresenter {
     private var panel: NSPanel?
     private var ticker: Task<Void, Never>?
     private var onExpire: (() -> Void)?
+    /// Знак закрытия показанной карточки и сторож нажатий: пока приложение не
+    /// впереди, первое нажатие до окна не доходит.
+    private weak var closeControl: NSButton?
+    private var clickMonitor: Any?
     private var content: DesktopNotificationCardContent?
     private var onAction: ((DesktopNotificationCardAction) -> Void)?
     private var onTick: (() -> DesktopNotificationCardContent?)?
@@ -139,16 +143,19 @@ public final class DesktopNotificationCardPresenter {
         let surface = NSSize(width: Self.windowWidth, height: Self.surfaceHeight(for: content))
         let window = makePanel(surface: surface)
         panel = window
-        window.contentView = DesktopNotificationCardView(
+        let view = DesktopNotificationCardView(
             content: content,
             rootHeight: Self.rootHeight(for: content),
             onAction: { [weak self] action in self?.onAction?(action) },
             onClose: { [weak self] in self?.dismiss() }
         )
+        window.contentView = view
+        closeControl = view.closeButton
         window.contentView?.frame = NSRect(origin: .zero, size: surface)
         window.orderFrontRegardless()
         position(window)
         window.contentView?.layoutSubtreeIfNeeded()
+        startClickMonitor(for: window)
         announce(content.accessibilitySummary)
         startTickerIfNeeded()
     }
@@ -157,6 +164,8 @@ public final class DesktopNotificationCardPresenter {
     /// следующего сообщения не должен зависеть от того, кто закрыл окно.
     public func dismiss() {
         let expired = dismissAfter != nil && (dismissAfter.map { Date() >= $0 } ?? false)
+        stopClickMonitor()
+        closeControl = nil
         ticker?.cancel()
         ticker = nil
         onTick = nil
@@ -185,6 +194,28 @@ public final class DesktopNotificationCardPresenter {
         guard next != content else { return }
         present(next, dismissAfter: dismissAfter, onAction: onAction ?? { _ in },
                 onTick: onTick, onExpire: onExpire)
+    }
+
+    /// Нажатие на знак закрытия, пока приложение не впереди, окно не получает:
+    /// система отдаёт первое нажатие активации. Сторож перехватывает его и
+    /// передаёт знаку закрытия, иначе карточку нельзя закрыть мышью.
+    private func startClickMonitor(for window: NSWindow) {
+        stopClickMonitor()
+        clickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { [weak self, weak window] event in
+            guard let self, let window, event.window === window,
+                  let close = self.closeControl else { return event }
+            let point = window.contentView?.convert(event.locationInWindow, from: nil) ?? .zero
+            guard let hit = window.contentView?.hitTest(point), hit === close || hit.isDescendant(of: close) else {
+                return event
+            }
+            close.performClick(nil)
+            return nil
+        }
+    }
+
+    private func stopClickMonitor() {
+        if let clickMonitor { NSEvent.removeMonitor(clickMonitor) }
+        clickMonitor = nil
     }
 
     private func startTickerIfNeeded() {
@@ -261,6 +292,10 @@ private final class DesktopNotificationCardPanel: NSPanel {
 /// Поверхность открыта приложению: вопрос о записи показывается той же
 /// карточкой, чтобы все сообщения выглядели одинаково.
 public final class DesktopNotificationCardView: NSView {
+    /// Знак закрытия: нужен сторожу нажатий, пока приложение не впереди.
+    var closeButton: NSButton? { close }
+    private var close: NSButton?
+
     private let content: DesktopNotificationCardContent
     private let rootHeight: CGFloat
     private let onAction: (DesktopNotificationCardAction) -> Void
@@ -328,6 +363,7 @@ public final class DesktopNotificationCardView: NSView {
         addSubview(card)
 
         let close = NotificationCardCloseButton(title: "", target: self, action: #selector(closeTapped))
+        self.close = close
         close.isBordered = false
         close.bezelStyle = .regularSquare
         close.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: "Закрыть уведомление")
