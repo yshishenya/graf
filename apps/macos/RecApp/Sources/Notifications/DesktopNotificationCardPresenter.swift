@@ -139,6 +139,7 @@ public final class DesktopNotificationCardPresenter {
         // Окно создаётся заново под новое содержимое: размер окна не зависит от
         // кадра предыдущего сообщения. Одновременно на экране всегда ровно одно
         // окно уведомления GRAF.
+        stopClickMonitor()
         panel?.orderOut(nil)
         let surface = NSSize(width: Self.windowWidth, height: Self.surfaceHeight(for: content))
         let window = makePanel(surface: surface)

@@ -396,7 +396,7 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
         guard epoch == authEpoch, isCurrent() else { return }
         card.presentNotice(title: "Проверка уведомлений GRAF",
                            message: "Так выглядит напоминание о встрече.",
-                           duration: 15)
+                           duration: 6)
         message = "Проверочное уведомление показано в правом верхнем углу."
     }
     private func scheduleReminders() async {
