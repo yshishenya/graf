@@ -1015,10 +1015,19 @@ public:
             showStartupError(L"Не удалось инициализировать Windows shell");
         }
         window_.AppWindow().Closing([this](auto const&, auto const& args) {
+            if (exitRequested_ || shuttingDown_) return;
             if (capture_ && capture_->indicator().visible) {
                 args.Cancel(true);
                 requestExit();
+                return;
             }
+            // Закрытие окна оставляет приложение в значке, как в macOS: окно
+            // скрывается, а не уничтожается. Уничтоженное окно вернуть нельзя —
+            // значок оставался без действия. Без значка прятать некуда: тогда
+            // окно закрывается обычным порядком.
+            if (!tray_) return;
+            args.Cancel(true);
+            window_.AppWindow().Hide();
         });
         window_.Closed([this](auto const&, auto const&) {
             shuttingDown_ = true;
@@ -1059,13 +1068,13 @@ public:
             tray_ = std::make_unique<graf::windows::WindowsTray>(
             reinterpret_cast<std::uintptr_t>(mainWindowHandle_),
             [this] {
+                // Окно могло быть скрыто закрытием: сначала показать, потом поднять.
+                if (window_) window_.AppWindow().Show();
                 if (mainWindowHandle_) {
                     ShowWindow(mainWindowHandle_, SW_RESTORE);
                     SetForegroundWindow(mainWindowHandle_);
                 }
-                if (window_) {
-                    window_.Activate();
-                }
+                if (window_) window_.Activate();
             },
             [this] { stopCapture(); },
             [this] { requestExit(); },
