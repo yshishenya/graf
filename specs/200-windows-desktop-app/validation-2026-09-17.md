@@ -2716,8 +2716,8 @@ appearance.log: received #F5F6F8 announced=system dark=0
 
 | Что видно | Снимок | sha256 (16) |
 | --- | --- | --- |
-| Три режима и строки приложений | `~/Documents/graf-vm-drop/graf-r42-state.png` | `d384b001fa4acf94` |
-| Список режимов раскрыт | `~/Documents/graf-vm-drop/graf-r42-set3.png` | `386509648134df7a` |
+| Три режима и строки приложений | `~/Documents/graf-vm-drop/graf-r42-state.png` | `c32309bd448980d0` |
+| Список режимов раскрыт | `~/Documents/graf-vm-drop/graf-r42-set3.png` | `8e35ac6ccc29d3c5` |
 
 ### Что осталось границей
 
