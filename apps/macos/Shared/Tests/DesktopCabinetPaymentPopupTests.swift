@@ -104,7 +104,7 @@ final class DesktopCabinetPaymentPopupTests: XCTestCase {
 }
 
 @MainActor
-private final class PopupRecorder: NSObject, WKNavigationDelegate {
+private final class PopupRecorder: NSObject, @preconcurrency WKNavigationDelegate {
     private(set) var popupAction: WKNavigationAction?
     private(set) var mainFrameRequests: [URL] = []
     private(set) var documentFinished = false
