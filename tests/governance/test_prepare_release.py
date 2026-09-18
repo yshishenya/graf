@@ -724,3 +724,62 @@ def test_prepare_release_proceeds_after_failed_release_abandoned_its_candidate(
     assert "release_candidate_abandoned=rc-current.json" in output, output
     assert candidate.read_text(encoding="utf-8") == frozen, "неизменяемая запись изменена"
     assert (root / "CHANGELOG.md").read_text(encoding="utf-8").count("## [2099.01.01.5]") == 1
+
+
+def test_prepare_release_merges_fragments_with_different_categories(tmp_path: Path) -> None:
+    """Доработка живёт несколько выпусков и меняет категорию — это не стоп.
+
+    Одну часть доработки поправили, другую изменили: фрагменты расходятся в
+    категории. Запись в журнале одна, поэтому раздел выбирает свежая работа —
+    та, что лежит в unreleased, — а подготовка печатает об этом отчёт.
+    """
+    root = fixture(tmp_path)
+    (root / "CHANGELOG.md").write_text(
+        """# История изменений
+
+## [Unreleased]
+
+### Изменено
+- _Пока нет записей._
+
+## [2026.09.02.2] - 2026-09-02
+
+### Изменено
+- Старая подготовленная запись. (Фича 217, issue #6217)
+
+## [2026.09.02.1] - 2026-09-02
+
+### Изменено
+- Реально опубликованная запись.
+""",
+        encoding="utf-8",
+    )
+    (root / "changes" / "unreleased" / "F217.yaml").write_text(
+        fragment(217, "Свежая работа").replace("category: Changed", "category: Fixed"),
+        encoding="utf-8",
+    )
+    pending = root / "changes" / "releases" / "v2026.09.02.2"
+    pending.mkdir(parents=True)
+    (pending / "F217.yaml").write_text(
+        fragment(217, "Старая подготовленная запись"), encoding="utf-8"
+    )
+    configure_github_release_repo(root, "v2026.09.02.1")
+
+    result = subprocess.run(
+        ["bash", "scripts/prepare-release.sh", "2026.09.04.1"],
+        cwd=root,
+        text=True,
+        capture_output=True,
+        check=False,
+        env=github_release_env(root, "v2026.09.02.1"),
+    )
+
+    output = result.stdout + result.stderr
+    assert result.returncode == 0, output
+    assert "release_fragment_category=feature 217 chosen=Fixed" in output, output
+    changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
+    assert "Свежая работа" in changelog, changelog
+    assert "Старая подготовленная запись" in changelog, changelog
+    archived = list((root / "changes" / "releases" / "v2026.09.04.1").glob("F217.yaml"))
+    assert len(archived) == 1, archived
+    assert 'category: "Fixed"' in archived[0].read_text(encoding="utf-8")
