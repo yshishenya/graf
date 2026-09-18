@@ -783,3 +783,63 @@ def test_prepare_release_merges_fragments_with_different_categories(tmp_path: Pa
     archived = list((root / "changes" / "releases" / "v2026.09.04.1").glob("F217.yaml"))
     assert len(archived) == 1, archived
     assert 'category: "Fixed"' in archived[0].read_text(encoding="utf-8")
+
+
+def test_merged_archive_fragment_keeps_numbers_unquoted(tmp_path: Path) -> None:
+    """Сведённый фрагмент должен быть пригоден для следующего выпуска.
+
+    Номер версии схемы и номер доработки — числа. В кавычках их не принимает
+    проверка архивного фрагмента, и следующий выпуск считает файл испорченным:
+
+        invalid pending fragment: .../F271.yaml
+        error: cannot reconcile unpublished changelog sections
+    """
+    root = fixture(tmp_path)
+    (root / "CHANGELOG.md").write_text(
+        """# История изменений
+
+## [Unreleased]
+
+### Изменено
+- _Пока нет записей._
+
+## [2026.09.02.2] - 2026-09-02
+
+### Изменено
+- Старая подготовленная запись. (Фича 217, issue #6217)
+
+## [2026.09.02.1] - 2026-09-02
+
+### Изменено
+- Реально опубликованная запись.
+""",
+        encoding="utf-8",
+    )
+    (root / "changes" / "unreleased" / "F217.yaml").write_text(
+        fragment(217, "Свежая работа"), encoding="utf-8"
+    )
+    pending = root / "changes" / "releases" / "v2026.09.02.2"
+    pending.mkdir(parents=True)
+    (pending / "F217.yaml").write_text(
+        fragment(217, "Старая подготовленная запись"), encoding="utf-8"
+    )
+    configure_github_release_repo(root, "v2026.09.02.1")
+
+    result = subprocess.run(
+        ["bash", "scripts/prepare-release.sh", "2026.09.04.1"],
+        cwd=root,
+        text=True,
+        capture_output=True,
+        check=False,
+        env=github_release_env(root, "v2026.09.02.1"),
+    )
+
+    output = result.stdout + result.stderr
+    assert result.returncode == 0, output
+    archived = (root / "changes" / "releases" / "v2026.09.04.1" / "F217.yaml").read_text(
+        encoding="utf-8"
+    )
+    assert 'schema_version: "1"' not in archived, archived
+    assert 'feature_id: "217"' not in archived, archived
+    assert "schema_version: 1" in archived, archived
+    assert "feature_id: 217" in archived, archived
