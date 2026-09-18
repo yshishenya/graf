@@ -370,7 +370,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
     env:
       CANDIDATE_ID: ${{ inputs.candidate_id }}
       REQUESTED_SHA: ${{ inputs.requested_sha }}
@@ -457,7 +457,7 @@ jobs:
           (
             set -euo pipefail
             GRAF_TEST_WORKERS=4 bash apps/server/scripts/run_local_postgres_tests.sh \
-              --focused --partitioned --phases parallel --shard ${{ matrix.shard }}/4 -q
+              --focused --partitioned --phases parallel --shard ${{ matrix.shard }}/8 -q
           )
           component_status=$?
           if (( component_status == 0 )); then
@@ -666,6 +666,10 @@ jobs:
               "server-shard-1-result.json": "server",
               "server-shard-2-result.json": "server",
               "server-shard-3-result.json": "server",
+              "server-shard-4-result.json": "server",
+              "server-shard-5-result.json": "server",
+              "server-shard-6-result.json": "server",
+              "server-shard-7-result.json": "server",
               "macos-result.json": "macos_app",
           }
           # Artifacts keep the directory layout they were uploaded with, so the
@@ -691,7 +695,7 @@ jobs:
           # фазы parallel. Пропуск или повтор теста обязан провалить проверку.
           full_lists = {}
           union = []
-          for index in range(4):
+          for index in range(8):
               full_path = by_name.get(f"parallel-full-nodeids-{index}.txt")
               shard_path = by_name.get(f"shard-nodeids-{index}.txt")
               if full_path is None or shard_path is None:
@@ -738,15 +742,27 @@ jobs:
             --artifact "server-shard-1-result=$component_dir/server-shard-1-result.json" \
             --artifact "server-shard-2-result=$component_dir/server-shard-2-result.json" \
             --artifact "server-shard-3-result=$component_dir/server-shard-3-result.json" \
+            --artifact "server-shard-4-result=$component_dir/server-shard-4-result.json" \
+            --artifact "server-shard-5-result=$component_dir/server-shard-5-result.json" \
+            --artifact "server-shard-6-result=$component_dir/server-shard-6-result.json" \
+            --artifact "server-shard-7-result=$component_dir/server-shard-7-result.json" \
             --artifact "macos-result=$component_dir/macos-result.json" \
             --artifact "parallel-full-nodeids-0=$component_dir/test-timings/parallel-full-nodeids-0.txt" \
             --artifact "parallel-full-nodeids-1=$component_dir/test-timings/parallel-full-nodeids-1.txt" \
             --artifact "parallel-full-nodeids-2=$component_dir/test-timings/parallel-full-nodeids-2.txt" \
             --artifact "parallel-full-nodeids-3=$component_dir/test-timings/parallel-full-nodeids-3.txt" \
+            --artifact "parallel-full-nodeids-4=$component_dir/test-timings/parallel-full-nodeids-4.txt" \
+            --artifact "parallel-full-nodeids-5=$component_dir/test-timings/parallel-full-nodeids-5.txt" \
+            --artifact "parallel-full-nodeids-6=$component_dir/test-timings/parallel-full-nodeids-6.txt" \
+            --artifact "parallel-full-nodeids-7=$component_dir/test-timings/parallel-full-nodeids-7.txt" \
             --artifact "shard-nodeids-0=$component_dir/test-timings/shard-nodeids-0.txt" \
             --artifact "shard-nodeids-1=$component_dir/test-timings/shard-nodeids-1.txt" \
             --artifact "shard-nodeids-2=$component_dir/test-timings/shard-nodeids-2.txt" \
-            --artifact "shard-nodeids-3=$component_dir/test-timings/shard-nodeids-3.txt"
+            --artifact "shard-nodeids-3=$component_dir/test-timings/shard-nodeids-3.txt" \
+            --artifact "shard-nodeids-4=$component_dir/test-timings/shard-nodeids-4.txt" \
+            --artifact "shard-nodeids-5=$component_dir/test-timings/shard-nodeids-5.txt" \
+            --artifact "shard-nodeids-6=$component_dir/test-timings/shard-nodeids-6.txt" \
+            --artifact "shard-nodeids-7=$component_dir/test-timings/shard-nodeids-7.txt"
           python3 scripts/validate-ci-evidence.py "$evidence_path"
           python3 - "$RUNNER_TEMP/graf-full-identity.json" <<'PY'
           import json

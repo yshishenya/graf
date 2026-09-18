@@ -728,11 +728,11 @@ def test_release_full_splits_postgres_work_across_parallel_jobs() -> None:
     ) in phases
     assert "verify_rls_hardening.py" in phases
 
-    assert jobs["server-parallel"]["strategy"]["matrix"]["shard"] == ["0", "1", "2", "3"]
+    assert jobs["server-parallel"]["strategy"]["matrix"]["shard"] == [str(index) for index in range(8)]
     parallel = release_full_step_run(jobs, "server-parallel", "Run Ubuntu postgres parallel shard component")
     assert (
         "GRAF_TEST_WORKERS=4 bash apps/server/scripts/run_local_postgres_tests.sh "
-        "--focused --partitioned --phases parallel --shard ${{ matrix.shard }}/4 -q"
+        "--focused --partitioned --phases parallel --shard ${{ matrix.shard }}/8 -q"
     ) in parallel
     assert "parallel-full-nodeids" in parallel and "shard-nodeids" in parallel
 
@@ -771,6 +771,7 @@ def test_release_full_artifacts_and_aggregate_prove_shard_coverage() -> None:
         "server-phases-result.json",
         "server-shard-0-result.json",
         "server-shard-3-result.json",
+        "server-shard-7-result.json",
         "macos-result.json",
         "shard coverage evidence missing for shard",
         "shards collected different test sets",
@@ -778,7 +779,7 @@ def test_release_full_artifacts_and_aggregate_prove_shard_coverage() -> None:
         "shard union repeats test cases",
     ):
         assert marker in proof, marker
-    assert 'for index in range(4):' in proof
+    assert 'for index in range(8):' in proof
 
 
 def test_release_full_python_heredocs_compile_after_yaml_stripping() -> None:
@@ -823,7 +824,7 @@ python3() { command "$TEST_PYTHON" "$@"; }
     })
     commands = (tmp_path / "commands").read_text()
     assert "run_local_postgres_tests.sh" in commands
-    assert "--phases parallel --shard 2/4 -q" in commands
+    assert "--phases parallel --shard 2/8 -q" in commands
     value = json.loads((tmp_path / "server-shard-2-result.json").read_text())
     assert value["component"] == "server"
     assert value["skipped_gates"] == []

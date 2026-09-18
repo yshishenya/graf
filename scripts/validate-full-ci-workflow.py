@@ -18,7 +18,7 @@ FORBIDDEN = (
 )
 
 SERVER_JOBS = ("server-static", "server-phases", "server-parallel")
-SHARD_COUNT = 4
+SHARD_COUNT = 8
 RESULT_FILES = (
     "server-static-result.json",
     "server-phases-result.json",
@@ -26,6 +26,10 @@ RESULT_FILES = (
     "server-shard-1-result.json",
     "server-shard-2-result.json",
     "server-shard-3-result.json",
+    "server-shard-4-result.json",
+    "server-shard-5-result.json",
+    "server-shard-6-result.json",
+    "server-shard-7-result.json",
     "macos-result.json",
 )
 # The parts may only prove completeness together, so the aggregating job must
@@ -80,12 +84,13 @@ def validate(path: Path) -> list[str]:
         "server static job": r"(?ms)^\s*server-static:\s*\n.*?runs-on:\s*ubuntu-latest",
         "server phases job": r"(?ms)^\s*server-phases:\s*\n.*?runs-on:\s*ubuntu-latest",
         "server parallel job": r"(?ms)^\s*server-parallel:\s*\n.*?runs-on:\s*ubuntu-latest",
-        "shard matrix": r"(?ms)^\s*server-parallel:\s*\n.*?matrix:\s*\n\s*shard:\s*\[\s*0\s*,\s*1\s*,\s*2\s*,\s*3\s*\]",
+        "shard matrix": r"(?ms)^\s*server-parallel:\s*\n.*?matrix:\s*\n\s*shard:\s*\[\s*0\s*,\s*1\s*,\s*2\s*,\s*3\s*,\s*4\s*,\s*5\s*,\s*6\s*,\s*7\s*\]",
         "macOS job": r"(?ms)^\s*macos-full:\s*\n.*?runs-on:\s*macos-14",
         "aggregate job": r"(?ms)^\s*aggregate:\s*\n.*?needs:\s*\[?reserve.*?server-static.*?server-phases.*?server-parallel.*?macos-full",
         "exact checkout": r"ref:\s*\$\{\{\s*inputs\.requested_sha\s*\}\}",
         "postgres serial phases": r"run_local_postgres_tests\.sh\s+--focused\s+--partitioned\s+--phases\s+strict,performance",
-        "postgres parallel shard": r"run_local_postgres_tests\.sh\s+--focused\s+--partitioned\s+--phases\s+parallel\s+--shard\s+\$\{\{\s*matrix\.shard\s*\}\}/4",
+        # Derived from SHARD_COUNT so the command and the checked count cannot drift.
+        "postgres parallel shard": rf"run_local_postgres_tests\.sh\s+--focused\s+--partitioned\s+--phases\s+parallel\s+--shard\s+\$\{{\{{\s*matrix\.shard\s*\}}\}}/{SHARD_COUNT}",
         "release performance gate": r"GRAF_PERFORMANCE_GATE=required",
         "release worker count": r"GRAF_TEST_WORKERS=\d+\s+bash\s+apps/server/scripts/run_local_postgres_tests\.sh",
         "shard coverage upload": r"parallel-full-nodeids-\$\{\{\s*matrix\.shard\s*\}\}\.txt",
@@ -226,10 +231,10 @@ jobs:
     timeout-minutes: 40
     strategy:
       matrix:
-        shard: [0, 1, 2, 3]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
     steps:
       - uses: actions/checkout@v4
-      - run: GRAF_TEST_WORKERS=4 bash apps/server/scripts/run_local_postgres_tests.sh --focused --partitioned --phases parallel --shard ${{ matrix.shard }}/4 -q
+      - run: GRAF_TEST_WORKERS=4 bash apps/server/scripts/run_local_postgres_tests.sh --focused --partitioned --phases parallel --shard ${{ matrix.shard }}/{{SHARD_COUNT}} -q
       - uses: actions/upload-artifact@v4
         with:
           name: graf-full-component-server-${{ needs.reserve.outputs.artifact_key }}-${{ github.run_id }}-shard-${{ matrix.shard }}
@@ -256,7 +261,7 @@ jobs:
       - run: |
           python3 - "$component_dir" <<'PY'
           by_name = {path.name: path for path in root.rglob("*") if path.is_file()}
-          for index in range(4):
+          for index in range(8):
               full_path = by_name.get(f"parallel-full-nodeids-{index}.txt")
               shard_path = by_name.get(f"shard-nodeids-{index}.txt")
               if full_path is None or shard_path is None:
@@ -273,6 +278,8 @@ jobs:
           for result in ("server-static-result.json", "server-phases-result.json",
                          "server-shard-0-result.json", "server-shard-1-result.json",
                          "server-shard-2-result.json", "server-shard-3-result.json",
+                         "server-shard-4-result.json", "server-shard-5-result.json",
+                         "server-shard-6-result.json", "server-shard-7-result.json",
                          "macos-result.json"):
               printf '%s\\n' "$result"
       - run: python3 scripts/emit-ci-evidence.py --authoritative-full --component-sha server=${{ inputs.requested_sha }} --skipped-gate [] --artifact "parallel-full-nodeids-0=$component_dir/test-timings/parallel-full-nodeids-0.txt" --artifact "shard-nodeids-0=$component_dir/test-timings/shard-nodeids-0.txt"
@@ -281,6 +288,7 @@ jobs:
 """
     with tempfile.TemporaryDirectory(prefix="graf-full-workflow-") as directory:
         path = Path(directory) / "workflow.yml"
+        good = good.replace("{{SHARD_COUNT}}", str(SHARD_COUNT))
         path.write_text(good, encoding="utf-8")
         errors = validate(path)
         assert errors == [], errors
@@ -298,7 +306,10 @@ jobs:
             encoding="utf-8",
         )
         assert any("static job must not run PostgreSQL tests" in item for item in validate(path))
-        path.write_text(good.replace("--shard ${{ matrix.shard }}/4", "--shard ${{ matrix.shard }}/5"), encoding="utf-8")
+        path.write_text(
+            good.replace(f"--shard ${{{{ matrix.shard }}}}/{SHARD_COUNT}", f"--shard ${{{{ matrix.shard }}}}/{SHARD_COUNT + 1}"),
+            encoding="utf-8",
+        )
         assert any("postgres parallel shard" in item for item in validate(path))
     print("full-ci-workflow self-test: OK")
     return 0
