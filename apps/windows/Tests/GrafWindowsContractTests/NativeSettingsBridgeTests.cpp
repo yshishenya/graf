@@ -169,10 +169,19 @@ void testTheSharedSettingsPageStopsClaimingToBeAMac() {
     // системного разрешения, которое она могла бы открыть.
     assert(script.find("[data-local-notification-action=\"openSystemSettings\"]") != std::string::npos);
     assert(script.find("button.hidden = true") != std::string::npos);
-    // Страница приходит и целиком, и подстановкой, поэтому правка нужна в обоих
-    // случаях.
-    assert(script.find("document.addEventListener('DOMContentLoaded', adaptPlatformWords)") != std::string::npos);
-    assert(script.find("document.addEventListener('htmx:afterSwap', adaptPlatformWords)") != std::string::npos);
+    // Живая проверка 2026-09-19 (раунд 52) показала, что одной подписки на события
+    // мало: оболочка ставится, когда документ уже идёт. Поэтому правка запускается
+    // сразу, на событии документа, на подстановке и ещё дважды по времени.
+    assert(script.find("const runAdaptation = () => {") != std::string::npos);
+    assert(script.find("document.addEventListener('DOMContentLoaded', runAdaptation)") != std::string::npos);
+    assert(script.find("document.addEventListener('htmx:afterSwap', () => reportAdaptation('swap'))") != std::string::npos);
+    assert(script.find("setTimeout(() => reportAdaptation('after-120ms'), 120)") != std::string::npos);
+    assert(script.find("setTimeout(() => reportAdaptation('after-600ms'), 600)") != std::string::npos);
+    // Отчёт нужен, чтобы отличить «слов не нашлось» от «правка не запускалась»:
+    // хозяин пишет неизвестную команду в bridge.log.
+    assert(script.find("'diag_' + stage + '_f' + result.found + '_r' + result.replaced") != std::string::npos);
+    assert(script.find("window.dispatchEvent(new CustomEvent('graf:native-settings'") != std::string::npos);
+    assert(script.find("(result.error ? '_err' : '')") != std::string::npos);
 }
 
 } // namespace

@@ -186,24 +186,66 @@ std::string_view documentScript() noexcept {
   // the whole document catches them; the list is exact phrases, so nothing else
   // changes.
   const adaptPlatformWords = () => {
-    const root = document.body;
-    if (!root) return;
-    root.querySelectorAll('[data-local-notification-action="openSystemSettings"]')
-      .forEach((button) => { button.hidden = true; });
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-    const nodes = [];
-    while (walker.nextNode()) nodes.push(walker.currentNode);
-    for (const node of nodes) {
-      let text = node.nodeValue;
-      for (const pair of platformWords) text = text.split(pair[0]).join(pair[1]);
-      if (text !== node.nodeValue) node.nodeValue = text;
+    try {
+      const root = document.body;
+      if (!root) return {found: 0, replaced: 0};
+      root.querySelectorAll('[data-local-notification-action="openSystemSettings"]')
+        .forEach((button) => { button.hidden = true; });
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      const nodes = [];
+      while (walker.nextNode()) nodes.push(walker.currentNode);
+      let found = 0;
+      let replaced = 0;
+      for (const node of nodes) {
+        let text = node.nodeValue;
+        for (const pair of platformWords) {
+          if (text.indexOf(pair[0]) === -1) continue;
+          found++;
+          text = text.split(pair[0]).join(pair[1]);
+        }
+        if (text !== node.nodeValue) {
+          node.nodeValue = text;
+          replaced++;
+        }
+      }
+      return {found: found, replaced: replaced};
+    } catch (error) {
+      return {found: 0, replaced: 0, error: String((error && error.message) || error)};
     }
   };
-  // The page is server-rendered and then swapped in by its own navigation, so the
-  // correction runs on both moments; a page without these pages costs nothing.
-  document.addEventListener('DOMContentLoaded', adaptPlatformWords);
-  document.addEventListener('htmx:afterSwap', adaptPlatformWords);
-  if (document.readyState !== 'loading') adaptPlatformWords();
+  // The host installs this script when the document is already under way, so a
+  // single listener is not enough: the correction runs at once, on the document
+  // event, on every swap and a few more times after that. The host logs an unknown
+  // command, which is how this line is visible in bridge.log: without it there is
+  // no way to tell «the correction found nothing» from «the correction never ran».
+  const reportAdaptation = (stage) => {
+    const result = adaptPlatformWords();
+    try {
+      // The host answers this page through the same custom event the page uses, and
+      // it writes the command it refused into bridge.log. The counts travel in the
+      // command name, so the log says whether the correction ran, how many phrases
+      // it found and whether it threw.
+      window.dispatchEvent(new CustomEvent('graf:native-settings', {
+        detail: {
+          handler: 'grafNotificationSettings',
+          requestId: 900000 + result.found * 10 + result.replaced,
+          request: {
+            version: 1,
+            action: 'diag_' + stage + '_f' + result.found + '_r' + result.replaced +
+              (result.error ? '_err' : '')
+          }
+        }
+      }));
+    } catch (_) {}
+  };
+  const runAdaptation = () => {
+    reportAdaptation('now');
+    setTimeout(() => reportAdaptation('after-120ms'), 120);
+    setTimeout(() => reportAdaptation('after-600ms'), 600);
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', runAdaptation);
+  else runAdaptation();
+  document.addEventListener('htmx:afterSwap', () => reportAdaptation('swap'));
 })();
 )JS";
 }
