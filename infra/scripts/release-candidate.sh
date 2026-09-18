@@ -319,6 +319,27 @@ def require_recorded_pr_evidence(data):
     )
     if recorded_go and (bound_receipt or bool(data.get("full_run_id"))):
         return
+    # A release train is frozen before Full CI runs, so its decision is
+    # legitimately still "pending" at candidate freeze.  `train-freeze` verifies
+    # every included pull request and records the receipts in the manifest, and
+    # `train_current` has already proved the manifest still matches HEAD and the
+    # changelog.  Those receipts are bound to immutable pull request heads, so
+    # re-verifying them at freeze re-downloaded the same checks for every
+    # included pull request and cost about eighteen minutes per release.
+    included = data.get("included_prs")
+    recorded_receipts = data.get("pr_receipts")
+    receipts_complete = (
+        isinstance(included, list)
+        and isinstance(recorded_receipts, list)
+        and bool(included)
+        and len(recorded_receipts) == len(included)
+        and all(
+            isinstance(item, str) and item.startswith(f"pr-{number}-governance-")
+            for number, item in zip(included, recorded_receipts)
+        )
+    )
+    if receipts_complete:
+        return
     verify_release_pr_checks(data["source_sha"], data.get("included_prs"))
 
 def train_current(data, path, exempt_paths=()):

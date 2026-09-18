@@ -118,6 +118,14 @@ def validate(path: Path) -> list[str]:
     if "authoritative_full=true" not in text and "--authoritative-full" not in text:
         errors.append("aggregate must explicitly produce authoritative_full=true")
     blocks = {job: job_block(text, job) for job in (*SERVER_JOBS, "aggregate", "reserve", "macos-full")}
+    # A job-level env cannot use the runner context; only a step can.  GitHub
+    # rejects the whole workflow with "Unrecognized named-value: 'runner'", so
+    # the release cannot even be dispatched.  YAML validity does not catch it,
+    # and this file deliberately avoids a YAML dependency.
+    for match in re.finditer(r"(?m)^ {6}([A-Za-z_][A-Za-z0-9_]*):[ \t]*(.*runner\..*)$", text):
+        errors.append(
+            f"job-level env {match.group(1)} uses the runner context; move it to a step"
+        )
     for job, block in blocks.items():
         if not block:
             errors.append(f"missing job: {job}")
