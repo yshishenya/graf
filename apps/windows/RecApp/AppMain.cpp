@@ -56,6 +56,7 @@
 #include <winrt/Windows.Foundation.Collections.h>
 #include <winrt/Windows.Graphics.h>
 #include <winrt/Windows.System.Profile.h>
+#include <winrt/Windows.Storage.h>
 #include <winrt/Windows.UI.h>
 #include <winrt/Windows.UI.Text.h>
 #include <winrt/Windows.UI.Xaml.Interop.h>
@@ -943,6 +944,15 @@ public:
         try {
             buildShell();
             window_.AppWindow().Title(L"GRAF");
+            // Значок берётся из пакета: без него в заголовке и на панели задач
+            // виден системный значок-заглушка, и приложение выглядит чужим.
+            try {
+                const winrt::Windows::ApplicationModel::Package package =
+                    winrt::Windows::ApplicationModel::Package::Current();
+                window_.AppWindow().SetIcon(package.InstalledLocation().Path() + L"\\Assets\\Graf.ico");
+            } catch (...) {
+                // Незапакованный запуск: значок остаётся системным, работа важнее.
+            }
             // Размер ставится при первой активации: до неё окно ещё не привязано
             // к монитору, `GetDpiForWindow` отвечает промежуточным значением, и
             // окно получалось втрое больше задуманного. Смысл размера прежний:

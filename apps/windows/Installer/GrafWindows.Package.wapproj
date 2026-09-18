@@ -79,6 +79,7 @@
       <AdditionalProperties>GrafWindowsPackageType=MSIX</AdditionalProperties>
     </ProjectReference>
     <AppxManifest Include="Package.appxmanifest" />
+    <Content Include="Assets\Graf.ico" />
     <Content Include="Assets\StoreLogo.png" />
     <Content Include="Assets\Square150x150Logo.png" />
     <Content Include="Assets\Square44x44Logo.png" />
