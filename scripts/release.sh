@@ -330,10 +330,8 @@ fi
 # The app update needs a build, a notarization wait and Apple trust checks, and
 # it does not depend on the release train.  Starting it here lets that work
 # overlap the train, the full check and the deploy instead of adding to them.
-app_prepare_pid=""
-app_prepare_log=""
-app_finish_pid=""
-app_finish_log=""
+app_work_pid=""
+app_work_log=""
 upload_release_input() {
   # The signer reads the candidate archive and the release notes from the release
   # itself, so both must be attached before it runs.  The asset name is set by
@@ -347,20 +345,22 @@ upload_release_input() {
   printf 'release_input_uploaded=%s\n' "$asset_name"
 }
 
-finish_app_update() {
-  # Runs in the background next to the release train.  It must not print step
-  # markers: the main flow prints the single step that waits for it.
-  if [[ -n "${app_prepare_pid:-}" ]]; then
-    wait "$app_prepare_pid" || {
-      printf 'release: app update build failed; log %s\n' "$app_prepare_log"
-      tail -20 "$app_prepare_log" || true
-      return 1
-    }
-    app_candidate_zip="$(sed -n 's/^prepared_candidate_zip=//p' "$app_prepare_log" | tail -1)"
-    grep -E '^prepared_app=|^source=' "$app_prepare_log" || true
+app_work() {
+  # The whole app update runs in one background job next to the release train:
+  # build, notarize, attach the inputs and sign.  It cannot wait for a process
+  # the main shell started — a subshell may only wait for its own children —
+  # so the build runs here too.  It must not print step markers: the main flow
+  # prints the single step that waits for it.
+  if [[ -f "$root/apps/macos/.build/notary/$version-$source_sha/final/GRAF-$version-candidate.zip" \
+     && -f "$root/apps/macos/.build/release-state/$version.handoff" ]]; then
+    printf 'release_app_prepare=reused source=%s\n' "$source_sha"
+  else
+    bash apps/macos/Installer/Scripts/release-app-update.sh \
+      --version "$version" --phase prepare || return 1
   fi
-  [[ -n "${app_candidate_zip:-}" ]] \
-    || { printf 'release: the app build did not report a candidate archive\n'; return 1; }
+  app_candidate_zip="$root/apps/macos/.build/notary/$version-$source_sha/final/GRAF-$version-candidate.zip"
+  [[ -f "$app_candidate_zip" ]] \
+    || { printf 'release: the app build produced no candidate archive\n'; return 1; }
   upload_release_input "$app_candidate_zip" "GRAF-$version-candidate.zip" || return 1
   if [[ -n "${release_notes_file:-}" && -f "$release_notes_file" ]]; then
     upload_release_input "$release_notes_file" "release-notes-v$version.md" || return 1
@@ -368,18 +368,18 @@ finish_app_update() {
   bash apps/macos/Installer/Scripts/release-app-update.sh \
     --version "$version" --phase publish || return 1
   [[ -n "${release_notes_file:-}" ]] && rm -f "$release_notes_file"
+  printf 'release_app_update=done version=%s\n' "$version"
   return 0
 }
 
-start_app_finish() {
+start_app_work() {
   [[ "$with_app" == "true" ]] || return 0
-  [[ -n "${app_prepare_pid:-}" || -n "${app_candidate_zip:-}" ]] || return 0
-  app_finish_log="$(mktemp)"
-  finish_app_update >"$app_finish_log" 2>&1 &
-  app_finish_pid="$!"
-  printf 'release_app_finish=started pid=%s\n' "$app_finish_pid"
+  [[ -n "${source_sha:-}" ]] || return 0
+  app_work_log="$(mktemp)"
+  app_work >"$app_work_log" 2>&1 &
+  app_work_pid="$!"
+  printf 'release_app_work=started pid=%s\n' "$app_work_pid"
 }
-
 
 open_draft_release() {
   # The update signer can only attach to a draft release, and preparing the
@@ -423,27 +423,8 @@ pathlib.Path(output).write_text(
 NOTES
 }
 
-start_app_prepare() {
-  [[ "$with_app" == "true" ]] || return 0
-  [[ -n "${source_sha:-}" ]] || return 0
-  # A resumed release must not rebuild an app that is already notarized for this
-  # exact source.  The notary guard rejects a second attempt for the same
-  # version, so the release stopped on a build that had already succeeded.
-  local built="$root/apps/macos/.build/notary/$version-$source_sha/final/GRAF-$version-candidate.zip"
-  if [[ -f "$built" && -f "$root/apps/macos/.build/release-state/$version.handoff" ]]; then
-    app_candidate_zip="$built"
-    printf 'release_app_prepare=reused source=%s\n' "$source_sha"
-    return 0
-  fi
-  app_prepare_log="$(mktemp)"
-  bash apps/macos/Installer/Scripts/release-app-update.sh \
-    --version "$version" --phase prepare >"$app_prepare_log" 2>&1 &
-  app_prepare_pid="$!"
-  printf 'release_app_prepare=started pid=%s log=%s\n' "$app_prepare_pid" "$app_prepare_log"
-}
 open_draft_release
-start_app_prepare
-start_app_finish
+start_app_work
 
 # --------------------------------------------------------------- step: train
 
@@ -595,15 +576,15 @@ fi
 if should_run publish; then
   step "publish: тег, выпуск и подтверждение"
   [[ -n "${source_sha:-}" ]] || source_sha="$(git rev-parse HEAD)"
-  if [[ -n "${app_finish_pid:-}" ]]; then
+  if [[ -n "${app_work_pid:-}" ]]; then
     step "publish: дождаться обновления приложения"
-    if ! wait "$app_finish_pid"; then
-      printf 'release: app update failed; log %s\n' "$app_finish_log" >&2
-      cat "$app_finish_log" >&2 || true
+    if ! wait "$app_work_pid"; then
+      printf 'release: app update failed; log %s\n' "$app_work_log" >&2
+      cat "$app_work_log" >&2 || true
       exit 1
     fi
-    cat "$app_finish_log"
-    app_finish_pid=""
+    cat "$app_work_log"
+    app_work_pid=""
     step_done "publish:app-attach"
   fi
   # The tag is created only now, after every check passed.  A draft release does
