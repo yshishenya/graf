@@ -109,3 +109,51 @@ def test_release_driver_guards_the_prep_commit_against_no_changes() -> None:
     assert guard < commit, "проверка на отсутствие изменений должна идти до commit"
     assert "release_prep=already_merged" in script, "нет понятного отчёта о готовом состоянии"
     assert "--from train" in script[guard:commit], "нет команды продолжения выпуска"
+
+
+def test_train_retries_transient_api_failures_and_reports_skips() -> None:
+    """Временный сбой GitHub не должен молча терять пул-реквест из поезда.
+
+    Один сетевой сбой при сборе квитанций выкидывал пул-реквест из поезда, и
+    выпуск останавливался на «train PR set differs from the published-release
+    range» — сообщении, которое скрывает, какой именно пул-реквест потерялся.
+    """
+    script = (ROOT / "scripts" / "release.sh").read_text(encoding="utf-8")
+
+    assert "gh_retry() {" in script, "нет повторов обращений к GitHub"
+    assert "has no successful governance check on" in script, "пропуск не объясняется"
+    assert "has no merge commit; skipped" in script, "пропуск не объясняется"
+    # Слаг репозитория берётся один раз до цикла, а не на каждой итерации:
+    # это до пятидесяти лишних обращений к GitHub на один выпуск.
+    loop = script.index("while IFS= read -r number; do")
+    body_end = script.index("done < <(gh pr list", loop)
+    assert "gh repo view" not in script[loop:body_end], "слаг запрашивается в цикле"
+    assert "repos/${repo_slug}/commits/" in script[loop:body_end], "цикл не использует готовый слаг"
+
+
+def test_validator_prints_the_real_reason(tmp_path: Path) -> None:
+    """Общая фраза бесполезна: оператору нужна причина.
+
+    Обработчик ошибок печатал только «current complete GitHub proof could not
+    be verified», скрывая и отсутствующее доказательство, и сетевой сбой, и
+    расхождение поезда с диапазоном выпуска.
+    """
+    result = subprocess.run(
+        [
+            "python3",
+            "scripts/validate-pr-checks.py",
+            "--repository",
+            "not-a-repo",
+            "--source-sha",
+            "a" * 40,
+        ],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert "could not be verified" in result.stderr, result.stderr
+    assert "reason:" in result.stderr, result.stderr
+    assert "invalid release source" in result.stderr, result.stderr

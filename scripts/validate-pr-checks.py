@@ -737,8 +737,12 @@ def main():
             require(args.included_prs is None, "included PRs require release source")
             result = verify(args.repository, args.pr, expected_sha=args.expected_sha, code_run_id=args.code_run_id)
         print(json.dumps(result, sort_keys=True))
-    except (OSError, ValueError, TypeError, KeyError, AttributeError, zipfile.BadZipFile, subprocess.CalledProcessError):
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, zipfile.BadZipFile, subprocess.CalledProcessError) as error:
+        # A bare "could not be verified" hides whether the proof is missing, the
+        # network hiccuped, or the train and the release range disagree.  The
+        # reason costs nothing and is what makes the failure actionable.
         print("pr-checks: current complete GitHub proof could not be verified", file=sys.stderr)
+        print(f"pr-checks: reason: {type(error).__name__}: {error}", file=sys.stderr)
         return 1
     return 0
 
