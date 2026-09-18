@@ -139,10 +139,9 @@ bool shellHighContrast() {
 // распоряжается цветами сама: там значения набора не применяются.
 void refreshShellPalette(bool isDark) {
     const bool highContrast = shellHighContrast();
-    static int previousDark = -1;
-    if (!highContrast && previousDark == static_cast<int>(isDark)) return;
-    const bool firstRun = previousDark < 0;
-    previousDark = static_cast<int>(isDark);
+    // Кисти обновляются всегда: ранний выход по «тема не менялась» однажды
+    // разошёлся с тем, что видно на экране, и окно осталось светлым при тёмной
+    // теме. Пересборка двух десятков кистей дешевле такого расхождения.
     const auto contrastColor = [](std::wstring_view key) {
         // Полоса записи — состояние, а не оформление: остаётся цветом окна.
         if (key.find(L"RecordingStrip") != std::wstring_view::npos) return COLOR_WINDOW;
@@ -165,7 +164,7 @@ void refreshShellPalette(bool isDark) {
         const auto alpha = highContrast ? 255 : static_cast<BYTE>(palette.alpha * 255.0 + 0.5);
         const auto value = winrt::Windows::UI::ColorHelper::FromArgb(alpha, red, green, blue);
         const auto key = box_value(entry.key);
-        if (!firstRun && resources.HasKey(key)) {
+        if (resources.HasKey(key)) {
             if (const auto brush = resources.Lookup(key).try_as<SolidColorBrush>()) {
                 brush.Color(value);
                 continue;
@@ -1653,12 +1652,23 @@ private:
                     << " dark=" << (dark ? 1 : 0) << '\n';
             } catch (...) {}
         };
-        note("received", shellIsDark_);
+        // Что получилось на самом деле: цвет фона окна после применения набора.
+        const auto applied = [this] {
+            try {
+                const auto brush = Application::Current().Resources()
+                    .Lookup(box_value(L"GrafBackgroundBrush")).as<SolidColorBrush>();
+                const auto value = brush.Color();
+                char text[16]{};
+                std::snprintf(text, sizeof(text), "#%02X%02X%02X", value.R, value.G, value.B);
+                return std::string(text);
+            } catch (...) { return std::string("unknown"); }
+        };
+        note(("received " + applied()).c_str(), shellIsDark_);
         if (theme == announcedAppearance_) { note("same-announcement", shellIsDark_); return; }
         announcedAppearance_ = theme;
         const bool isDark = graf::windows::resolveShellIsDark(theme, systemThemeIsDark());
-        note("resolved", isDark);
-        if (isDark == shellIsDark_ && root_) { note("same-theme", isDark); return; }
+        if (isDark == shellIsDark_ && root_) { note(("same-theme " + applied()).c_str(), isDark); return; }
+        note(("resolved " + applied()).c_str(), isDark);
         shellIsDark_ = isDark;
         refreshShellPalette(isDark);
         // Страница узнаёт системную тему из `prefers-color-scheme`: без этого

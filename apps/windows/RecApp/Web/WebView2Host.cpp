@@ -883,6 +883,9 @@ void WebView2Host::attach(winrt::Microsoft::UI::Xaml::Controls::WebView2 control
                         const auto payload = winrt::Windows::Data::Json::JsonObject::Parse(winrt::to_hstring(message->payloadJson));
                         if (payload.Size() != 1) return;
                         const auto theme = utf8(payload.GetNamedString(L"theme"));
+                        // Значение записывается в журнал: без него неотличимо,
+                        // не пришло объявление или пришло не то оформление.
+                        logBridgeEvent("appearance " + theme);
                         if (isAllowedAppearance(theme) && appearanceHandler_) appearanceHandler_(theme);
                     } else if (message->command == "request_app_quit") {
                         if (isAllowedQuitPayload(message->payloadJson) && quitHandler_) quitHandler_();
