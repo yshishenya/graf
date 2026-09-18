@@ -2820,6 +2820,33 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             let decision = routePolicy.decision(for: url)
             return decision.decision == .allow && decision.route.kind == .billing
         }
+
+        /// Оплата и подтверждение банка нередко открываются новым окном или
+        /// ссылкой с target="_blank". Отдельного окна у кабинета нет, поэтому
+        /// такой переход выполняется в текущем представлении. Адрес проходит ту
+        /// же проверку маршрута, что и обычный переход, и запрещённый адрес
+        /// по-прежнему не загружается.
+        @MainActor
+        public func webView(
+            _ webView: WKWebView,
+            createWebViewWith configuration: WKWebViewConfiguration,
+            for navigationAction: WKNavigationAction,
+            windowFeatures: WKWindowFeatures
+        ) -> WKWebView? {
+            guard isActive, let url = navigationAction.request.url else { return nil }
+            let scheme = url.scheme?.lowercased()
+            guard scheme == "http" || scheme == "https" else { return nil }
+            let decision = routePolicy.decision(
+                for: url,
+                allowExternalAuthProvider: authContinuationActive || isAuthRoute(webView.url),
+                allowExternalPaymentProvider: paymentNavigation.externalProviderNavigationAllowed
+                    || isCabinetBillingRoute(webView.url)
+                    || isCabinetBillingRoute(navigationAction.sourceFrame.documentRequestURL)
+            )
+            guard decision.decision == .allow else { return nil }
+            webView.load(navigationAction.request)
+            return nil
+        }
     }
 
     public final class WebViewContainer: NSView {

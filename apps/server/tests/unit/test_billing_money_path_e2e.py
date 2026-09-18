@@ -13,7 +13,7 @@ from __future__ import annotations
 import asyncio
 import importlib.util
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -33,6 +33,7 @@ from twobrain_rec_server.auth.workspace_onboarding import ensure_personal_worksp
 from twobrain_rec_server.billing import webhook_reconciliation
 from twobrain_rec_server.billing.catalog import CatalogNotApproved, validate_plan_version
 from twobrain_rec_server.billing.yookassa import YooKassaClient
+from twobrain_rec_server.cabinet.user_time import format_user_datetime
 from twobrain_rec_server.cabinet.web_routes import billing as billing_routes
 from twobrain_rec_server.db.models import (
     AuthSessionDeviceBinding,
@@ -66,9 +67,15 @@ PAID_THROUGH = datetime(2026, 10, 10, 9, 0, tzinfo=UTC)  # PAID_AT plus one mont
 class _FakeYooKassa:
     """Provider transport double that records exactly what the real client sent."""
 
-    def __init__(self, *, confirmed_amount: dict[str, str] | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        confirmed_amount: dict[str, str] | None = None,
+        saved_card: bool = False,
+    ) -> None:
         self.payment_id = f"pay-{uuid4().hex[:16]}"
         self.confirmed_amount = confirmed_amount
+        self.saved_card = saved_card
         self.create_payloads: list[dict[str, Any]] = []
         self.idempotence_keys: list[str] = []
         self.read_count = 0
@@ -87,6 +94,13 @@ class _FakeYooKassa:
         confirmed = dict(created, id=self.payment_id, status="succeeded",
                          created_at=PAID_AT.isoformat(),
                          amount=self.confirmed_amount or created["amount"])
+        if self.saved_card:
+            confirmed["payment_method"] = {
+                "id": "pm-synthetic-card-1",
+                "type": "bank_card",
+                "saved": True,
+                "card": {"last4": "4242"},
+            }
         return httpx.Response(200, json=confirmed)
 
 
@@ -481,3 +495,38 @@ def test_early_payment_extends_the_paid_period_and_keeps_the_remainder(
     )
     assert year_grant.starts_at == PAID_THROUGH
     assert year_grant.ends_at == state.subscription.paid_through
+
+
+def test_subscription_page_names_the_real_charge_day(client, monkeypatch, tmp_path: Path) -> None:
+    """The cabinet must not promise a charge day later than the real attempt.
+
+    The renewal starts three days before the paid period ends, so showing the
+    period end as "next charge" would tell the owner the money leaves on a day
+    the attempts are already over.
+    """
+    provider = _FakeYooKassa(saved_card=True)
+    opened = _open_checkout(client, monkeypatch, tmp_path, provider, "checkout-charge-day")
+    amount = f"{opened.state.invoice.amount_minor // 100}.{opened.state.invoice.amount_minor % 100:02d}"
+    assert _deliver_webhook(
+        client,
+        _payment_webhook(
+            workspace_id=opened.workspace_id,
+            operation_id=opened.state.operation.id,
+            payment_id=provider.payment_id,
+            value=amount,
+        ),
+    ).json() == {"status": "accepted"}
+    assert _reconcile(client) == {"processed": 1, "reconciled": 1, "pending": 0, "failed": 0}
+
+    state = _money_state(client, opened.workspace_id, "checkout-charge-day")
+    assert state.subscription.paid_through == PAID_THROUGH
+    assert state.subscription.recurring_allowed is True
+
+    page = client.get("/billing/subscription", headers=opened.headers)
+    assert page.status_code == 200, page.text
+    first_attempt = format_user_datetime(PAID_THROUGH - timedelta(hours=72), show_zone=True)
+    period_end = format_user_datetime(PAID_THROUGH, show_zone=True)
+    assert f"Следующее списание: <strong>{first_attempt}</strong>" in page.text
+    assert f"Следующее списание: <strong>{period_end}</strong>" not in page.text
+    # Оплаченный период по-прежнему показан его собственной датой.
+    assert f"Оплачено до: <strong>{period_end}</strong>" in page.text
