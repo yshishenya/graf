@@ -374,7 +374,6 @@ jobs:
     env:
       CANDIDATE_ID: ${{ inputs.candidate_id }}
       REQUESTED_SHA: ${{ inputs.requested_sha }}
-      GRAF_TEST_REPORT_DIR: ${{ runner.temp }}/test-timings
     steps:
       - name: Checkout exact candidate SHA
         uses: actions/checkout@v4
@@ -449,6 +448,8 @@ jobs:
 
       - name: Run Ubuntu postgres parallel shard component
         shell: bash
+        env:
+          GRAF_TEST_REPORT_DIR: ${{ runner.temp }}/test-timings
         run: |
           set +e
           result_path="$RUNNER_TEMP/server-shard-${{ matrix.shard }}-result.json"
