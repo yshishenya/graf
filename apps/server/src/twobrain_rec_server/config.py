@@ -264,7 +264,6 @@ class Settings(BaseSettings):
     billing_receipt_vat_code: int | None = None
     billing_receipt_payment_subject: str = "service"
     billing_receipt_payment_mode: str = "full_payment"
-    billing_emergency_stop: bool = False
 
     yandex_client_id: str = "twobrain-yandex-client-id"
     vk_client_id: str = "twobrain-vk-client-id"

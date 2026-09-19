@@ -1784,7 +1784,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         private let navigationRequestPolicy: DesktopCabinetNavigationRequestPolicy
         private let navigationEventLogger: NavigationEventLogger?
         private var authContinuationActive = false
-        private var paymentProviderNavigationActive = false
+        private var paymentNavigation: DesktopCabinetPaymentNavigation
         private var showsAppUpdateBadge: Bool
         private var onCheckForUpdates: CheckForUpdatesAction
         private let onOpenMeetingDetectionSettings: OpenMeetingDetectionSettingsAction
@@ -1840,6 +1840,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         self.onOpenNotificationSettings = onOpenNotificationSettings
             self.supportIncidentBridge = supportIncidentBridge
             self.navigationController = navigationController
+            paymentNavigation = DesktopCabinetPaymentNavigation(sessionOrigin: routePolicy.cabinetBaseURL)
             _cabinetState = cabinetState
             _currentRoute = currentRoute
         }
@@ -2237,14 +2238,20 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                 allowExternalAuthProvider: authContinuationActive || isAuthRoute(webView.url)
             )
 
-            let allowExternalPaymentProvider = paymentProviderNavigationActive
-                || isBillingCheckoutRoute(webView.url)
-                || isBillingCheckoutRoute(navigationAction.sourceFrame.documentRequestURL)
+            let allowExternalPaymentProvider = paymentNavigation.externalProviderNavigationAllowed
+                || isCabinetBillingRoute(webView.url)
+                || isCabinetBillingRoute(navigationAction.sourceFrame.documentRequestURL)
             let decision = routePolicy.decision(
                 for: url,
                 allowExternalAuthProvider: authContinuationActive || isAuthRoute(webView.url),
                 allowExternalPaymentProvider: allowExternalPaymentProvider
             )
+            // Handing the web view over from a cabinet billing page is the only
+            // way into a payment confirmation chain. Capture it here, before the
+            // deferred dispatch, because by then WebKit may already own a newer
+            // document URL.
+            let startsPaymentChain = isCabinetBillingRoute(webView.url)
+                || isCabinetBillingRoute(navigationAction.sourceFrame.documentRequestURL)
             if decision.decision == .allow,
                [.meetingDetectionSettings, .notificationSettings].contains(decision.route.kind) {
                 navigationController.cancelPendingNavigation(webView: webView)
@@ -2268,8 +2275,11 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             case .allow:
                 dispatchAuthNavigation(in: webView, targetURL: url, decisionHandler: decisionHandler) { [self] in
                     navigationController.retirePreviousNavigation(before: navigationAction)
-                    if decision.route.kind == .external, allowExternalPaymentProvider {
-                        paymentProviderNavigationActive = true
+                    if decision.route.kind == .external {
+                        paymentNavigation = paymentNavigation.begin(
+                            isBillingCheckoutDocument: startsPaymentChain,
+                            destination: url
+                        )
                     }
                     updateAuthContinuation(for: decision.route.kind)
                     switch navigationRequestPolicy.decision(
@@ -2494,13 +2504,18 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             let routeDecision = routePolicy.decision(
                 for: url,
                 allowExternalAuthProvider: authContinuationActive,
-                allowExternalPaymentProvider: paymentProviderNavigationActive
+                allowExternalPaymentProvider: paymentNavigation.externalProviderNavigationAllowed
             )
+            if paymentNavigation.isActive, paymentNavigation.report(loadedURL: url) == .stopSession {
+                paymentNavigation = paymentNavigation.stopped()
+                logNavigationEvent("cabinet_payment_chain_finished", detail: urlLogDetail(url))
+            }
             guard routeDecision.decision == .allow else {
                 return
             }
-            if routeDecision.route.kind == .external, paymentProviderNavigationActive {
-                paymentProviderNavigationActive = false
+            if routeDecision.route.kind == .external {
+                // Provider pages keep WebKit in charge of the chain; they must
+                // not become the workspace document or the SwiftUI route.
                 return
             }
             if routeDecision.route.kind == .artifactDownload {
@@ -2797,10 +2812,40 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             ].contains(routeKind)
         }
 
-        private func isBillingCheckoutRoute(_ url: URL?) -> Bool {
-            guard let url else { return false }
-            let components = routePolicy.decision(for: url).route
-            return components.kind == .billing && components.path.hasPrefix("/billing/checkout")
+        /// A billing document of the cabinet itself, whatever its path. Any of
+        /// them may offer "pay" or "continue this payment", and the server may
+        /// answer that with a direct redirect to the provider confirmation URL.
+        private func isCabinetBillingRoute(_ url: URL?) -> Bool {
+            guard let url, routePolicy.sharesSessionOrigin(with: url) else { return false }
+            let decision = routePolicy.decision(for: url)
+            return decision.decision == .allow && decision.route.kind == .billing
+        }
+
+        /// Оплата и подтверждение банка нередко открываются новым окном или
+        /// ссылкой с target="_blank". Отдельного окна у кабинета нет, поэтому
+        /// такой переход выполняется в текущем представлении. Адрес проходит ту
+        /// же проверку маршрута, что и обычный переход, и запрещённый адрес
+        /// по-прежнему не загружается.
+        @MainActor
+        public func webView(
+            _ webView: WKWebView,
+            createWebViewWith configuration: WKWebViewConfiguration,
+            for navigationAction: WKNavigationAction,
+            windowFeatures: WKWindowFeatures
+        ) -> WKWebView? {
+            guard isActive, let url = navigationAction.request.url else { return nil }
+            let scheme = url.scheme?.lowercased()
+            guard scheme == "http" || scheme == "https" else { return nil }
+            let decision = routePolicy.decision(
+                for: url,
+                allowExternalAuthProvider: authContinuationActive || isAuthRoute(webView.url),
+                allowExternalPaymentProvider: paymentNavigation.externalProviderNavigationAllowed
+                    || isCabinetBillingRoute(webView.url)
+                    || isCabinetBillingRoute(navigationAction.sourceFrame.documentRequestURL)
+            )
+            guard decision.decision == .allow else { return nil }
+            webView.load(navigationAction.request)
+            return nil
         }
     }
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from hashlib import sha256
 from typing import TYPE_CHECKING
+from uuid import UUID
 
 import httpx
 from sqlalchemy import select
@@ -27,6 +28,7 @@ from twobrain_rec_server.billing.provider_events import (
     ProviderEventError,
 )
 from twobrain_rec_server.billing.reconciliation import (
+    PaymentObservation,
     ProviderObservationError,
     ProviderScope,
     extract_payment_observation,
@@ -309,6 +311,46 @@ async def reconcile_pending_webhook_events(
     return counters
 
 
+async def _locked_operation(
+    db: AsyncSession,
+    *,
+    workspace_id: UUID,
+    observation: PaymentObservation,
+) -> BillingOperation | None:
+    """Return the operation a provider-confirmed payment belongs to.
+
+    Matching is normally by provider id. When the create-payment response never
+    reached us, provider_id was never stored, so the payment looks unmatched and
+    both access and cleanup stall. The provider echoes our operation id in the
+    payment metadata, so binding it here is what turns a lost response into a
+    granted entitlement instead of a permanently stuck operation.
+    """
+    operation = await db.scalar(
+        select(BillingOperation)
+        .where(
+            BillingOperation.workspace_id == workspace_id,
+            BillingOperation.provider_id == observation.provider_payment_id,
+        )
+        .with_for_update()
+    )
+    if operation is not None or observation.operation_id is None:
+        return operation
+    candidate = await db.scalar(
+        select(BillingOperation)
+        .where(
+            BillingOperation.id == observation.operation_id,
+            BillingOperation.workspace_id == workspace_id,
+            BillingOperation.provider_id.is_(None),
+        )
+        .with_for_update()
+    )
+    if candidate is None:
+        return None
+    candidate.provider_id = observation.provider_payment_id
+    await db.flush()
+    return candidate
+
+
 async def _reconcile_event(
     db: AsyncSession,
     settings: Settings,
@@ -338,13 +380,10 @@ async def _reconcile_event(
         payload = await provider.get_payment(event.object_id)
         observation = extract_payment_observation(payload, scope=scope)
         if observation.status == "succeeded":
-            operation = await db.scalar(
-                select(BillingOperation)
-                .where(
-                    BillingOperation.workspace_id == event.workspace_id,
-                    BillingOperation.provider_id == observation.provider_payment_id,
-                )
-                .with_for_update()
+            operation = await _locked_operation(
+                db,
+                workspace_id=event.workspace_id,
+                observation=observation,
             )
             if operation is not None and operation.kind == "renewal":
                 result = await grant_confirmed_renewal(
@@ -378,13 +417,10 @@ async def _reconcile_event(
                 receipt_registration=observation.receipt_registration,
             )
         if observation.status == "canceled":
-            operation = await db.scalar(
-                select(BillingOperation)
-                .where(
-                    BillingOperation.workspace_id == event.workspace_id,
-                    BillingOperation.provider_id == observation.provider_payment_id,
-                )
-                .with_for_update()
+            operation = await _locked_operation(
+                db,
+                workspace_id=event.workspace_id,
+                observation=observation,
             )
             await release_payment_promo(
                 db,

@@ -1,11 +1,17 @@
 # Запуск биллинга GRAF
 
-Этот runbook описывает только контролируемое включение биллинга Feature 140.
-Он не разрешает production rollout сам по себе: до всех обязательных подписей
-checkout, сохранение способа оплаты и автоматическое продление остаются
-`default-off`. Возврат выполняется оператором только во внешнем кабинете
-YooKassa; GRAF не создаёт refund mutation и не показывает клиенту результат
-возврата.
+Этот runbook описывает контролируемое включение биллинга: сначала Feature 140,
+затем выход на реальные платежи по Feature 272.
+
+Состояние на момент Feature 272: оформление оплаты и наблюдение за провайдером
+уже включены в production, но указывают на **тестовый** магазин `1436758`.
+Поэтому включение реальных платежей сводится к согласованному переключению
+окружения, shopId, секретов и адреса вебхука на боевой магазин `1430118`, а не к
+включению флага. До подписи ответственных из раздела 5 и до выполнения раздела 4
+реальные списания не начинаются.
+
+Возврат выполняется оператором только во внешнем кабинете YooKassa; GRAF не
+создаёт refund mutation и не показывает клиенту результат возврата.
 
 ## 0. Неизменяемые границы
 
@@ -53,6 +59,27 @@ YooKassa; GRAF не создаёт refund mutation и не показывает 
 неразрешённого адреса и подтверждённая доставка YooKassa; отсутствие любого
 доказательства оставляет T080/T078 blocked.
 
+Установка выполняется скриптом `infra/scripts/install-billing-webhook-edge.sh`
+(сначала `--dry-run`, затем `--execute`). Скрипт сам проверяет, что записанный в
+конфигурацию границы секрет совпадает с секретом, который загрузило приложение:
+после перезагрузки nginx он отправляет этот секрет напрямую в backend. Ответ,
+отличный от `401`, означает совпадение; `401` на обоих путях окружения считается
+провалом, и скрипт откатывает изменения. В отчёте это поля
+`secret_probe_production` и `secret_probe_test`. Значение `503` — ожидаемый
+успех: секрет принят, а уведомление без метаданных рабочего пространства
+отложено.
+
+### Каталог цен
+
+Каталог создаётся миграцией `0093_billing_catalog_seed` при обычном
+`alembic upgrade head` и не требует ручных действий оператора. Миграция
+идемпотентна: повторный прогон не создаёт дублей, а уже настроенные значения не
+перезаписываются. Проверка после развёртывания — что в `billing_plan_versions`
+ровно две строки для тарифа `personal`: месяц 100 000 копеек и год 1 000 000
+копеек, обе с редакцией оферты `personal-2026-08-21`. Публичная страница
+сообщает о готовности продажи только при боевом окружении платежей: пока
+магазин тестовый, цена не показывается как доступная к немедленной оплате.
+
 ### Текущая topology-проверка production
 
 На `2brain.dev` внешний `443` сейчас принимает общий Nginx `stream` SNI-router
@@ -99,7 +126,7 @@ dry-run, получает код через скрытый prompt/stdin, сох�
 - [ ] В production secret mounts присутствуют только у server-side ролей
   `rec-api`, `rec-processing-worker`, `rec-maintenance`; прямой публичный
   доступ к backend webhook закрыт.
-- [ ] Есть on-call owner, incident owner, deadline, emergency-stop operator и
+- [ ] Есть on-call owner, incident owner, deadline и
   независимый approver (four-eyes); canary cohort allowlisted и ограничен.
 
 ### Product, finance/legal and safety
@@ -211,7 +238,7 @@ infra/scripts/cd-remote.sh --dry-run
 canary оператор:
 
 1. сверяет exact SHA, backup/migration evidence, secret mounts, webhook TLS,
-   read-only reconciliation и emergency-stop;
+   read-only reconciliation и выключенный флаг оплаты;
 2. проводит base + one add-on payment и подтверждает authenticated GET,
    webhook, exact receipt, entitlement и storage projection;
 3. выполняет заранее одобренный renewal failure→immediate Free без retry/grace,
@@ -244,24 +271,29 @@ approver должны быть разными людьми; запись без 
 receipt/VAT, schema, provider capability, secret, cohort, deployment SHA или
 unresolved incident требует нового цикла sign-off.
 
-## 6. Emergency stop and rollback
+## 6. Выключение оплаты и откат
 
-### Немедленная остановка
+### Немедленное выключение оплаты
 
-В защищённой deployment-конфигурации выставить:
+Штатный выключатель оплаты — единственный механизм остановки. В защищённой
+deployment-конфигурации выставить:
 
 ```text
 TWOBRAIN_BILLING_CHECKOUT_ENABLED=false
-TWOBRAIN_BILLING_EMERGENCY_STOP=true
+TWOBRAIN_BILLING_PROVIDER_OBSERVATION_ENABLED=true
 ```
 
-Затем прогнать `infra/scripts/cd-remote.sh --dry-run`; execute — только с
-отдельной authorization. Stop обязан блокировать checkout, zero-binding и
-automatic renewal mutations, но сохранять cancel/refusal, payment history,
-support email, Record/Stop, deletion и export. Не удалять ledger, не отзывать
-историческое entitlement задним числом и не запускать refund из GRAF.
+`TWOBRAIN_BILLING_PROVIDER_OBSERVATION_ENABLED=true` при инциденте обязательно
+оставлять включённым: сверка с провайдером должна продолжаться, чтобы поздние
+webhook/GET-исходы не потерялись и reconciliation gap оставался видимым.
 
-### Причины обязательного stop
+Затем прогнать `infra/scripts/cd-remote.sh --dry-run`; execute — только с
+отдельной authorization. Выключенный checkout обязан блокировать checkout,
+zero-binding и automatic renewal mutations, но сохранять cancel/refusal, payment
+history, support email, Record/Stop, deletion и export. Не удалять ledger, не
+отзывать историческое entitlement задним числом и не запускать refund из GRAF.
+
+### Причины обязательного выключения оплаты
 
 - двойное списание или duplicate entitlement;
 - mismatch amount/currency/shop/environment или missing receipt;
@@ -282,7 +314,7 @@ support email, Record/Stop, deletion и export. Не удалять ledger, не
    downgrade схемы без утверждённого backup запрещён.
 4. После исправления повторить test-shop stop/recovery, capability evidence и
    все обязательные sign-offs. Только затем можно вернуть
-   `TWOBRAIN_BILLING_EMERGENCY_STOP=false` и открыть новый короткий rollout.
+   `TWOBRAIN_BILLING_CHECKOUT_ENABLED=true` и открыть новый короткий rollout.
 
 ## 7. После canary и revalidation
 

@@ -44,7 +44,7 @@ from twobrain_rec_server.billing.entitlements import effective_plan_code
 from twobrain_rec_server.billing.history import mask_payment_method
 from twobrain_rec_server.billing.operations import (
     CHECKOUT_BLOCKING_STATES,
-    BillingEmergencyStop,
+    BillingCheckoutDisabled,
     provider_key_is_expired,
     require_billing_enabled,
 )
@@ -64,6 +64,7 @@ from twobrain_rec_server.billing.receipts import (
 )
 from twobrain_rec_server.billing.referrals import referral_token_hash, validate_referral_token
 from twobrain_rec_server.billing.refund_email import build_refund_mailto
+from twobrain_rec_server.billing.renewal_charge import renewal_attempt_due_at
 from twobrain_rec_server.billing.storage import (
     StorageProjection,
     lock_storage_workspace,
@@ -141,6 +142,7 @@ from twobrain_rec_server.db.tenant_context import (
 from twobrain_rec_server.product_analytics.browser_context import (
     build_request_browser_provider_context,
 )
+from twobrain_rec_server.public.offers import PUBLIC_APPROVED_OFFER_VERSION
 
 if TYPE_CHECKING:
     from twobrain_rec_server.config import Settings
@@ -409,7 +411,7 @@ def _initial_checkout_failure_metadata(
         failure_class = "transport_timeout"
     elif isinstance(exc, httpx.HTTPError):
         failure_class = "transport_error"
-    elif isinstance(exc, BillingEmergencyStop):
+    elif isinstance(exc, BillingCheckoutDisabled):
         failure_class = "checkout_disabled"
     elif isinstance(exc, ValueError):
         failure_class = "invalid_checkout_snapshot"
@@ -799,7 +801,12 @@ async def _approved_personal_catalog(
     *,
     now: datetime,
 ) -> dict[str, object]:
-    """Read the same approved catalog authority used by checkout UI and POST."""
+    """Read the same approved catalog authority used by checkout UI and POST.
+
+    The public page only claims a sale for the published offer revision, so the
+    cabinet must apply the same bar. Otherwise an exact-price row carrying some
+    other revision would open checkout while the landing page stays silent.
+    """
     if db is None:
         return {}
     rows = await db.scalars(
@@ -815,9 +822,12 @@ async def _approved_personal_catalog(
         if row.cycle in approved:
             continue
         try:
-            approved[row.cycle] = validate_plan_version(row, now=now)
+            snapshot = validate_plan_version(row, now=now)
         except (CatalogNotApproved, ValueError):
             continue
+        if snapshot.offer_version != PUBLIC_APPROVED_OFFER_VERSION:
+            continue
+        approved[row.cycle] = snapshot
     return approved
 
 
@@ -1293,7 +1303,18 @@ async def billing_overview_page(
         and subscription.paid_through > now
     ):
         if subscription.recurring_allowed:
-            recurring_next_charge_label = _billing_datetime_label(subscription.paid_through)
+            # Списание за следующий период начинается заранее, а не в последний
+            # день оплаченного периода, поэтому в кабинете показываем момент
+            # первой попытки. Иначе надпись обещала бы дату, в которую деньги
+            # уже списаны.
+            first_attempt_at = renewal_attempt_due_at(
+                paid_through=subscription.paid_through, attempt=1
+            )
+            recurring_next_charge_label = (
+                "в ближайшее время"
+                if first_attempt_at <= now
+                else _billing_datetime_label(first_attempt_at)
+            )
             snapshot = (
                 latest_invoice.plan_snapshot
                 if latest_invoice and isinstance(latest_invoice.plan_snapshot, dict)
@@ -1773,7 +1794,6 @@ async def billing_checkout_status_page(
     can_continue_payment = bool(
         operation is not None
         and settings.billing_checkout_enabled
-        and not settings.billing_emergency_stop
         and actor_matches
         and _initial_checkout_can_continue(operation)
     )
@@ -1946,9 +1966,8 @@ async def continue_billing_checkout(
     try:
         require_billing_enabled(
             checkout_enabled=bool(settings.billing_checkout_enabled),
-            emergency_stop=bool(settings.billing_emergency_stop),
         )
-    except BillingEmergencyStop:
+    except BillingCheckoutDisabled:
         return RedirectResponse(
             _checkout_status_location(safe_number, result="unavailable"),
             status_code=303,
@@ -2306,6 +2325,18 @@ async def billing_subscription_page(
         and subscription.paid_through is not None
         and subscription.paid_through > now
     )
+    # Первая попытка списания за следующий период начинается заранее, поэтому
+    # показываем её момент, а не конец оплаченного периода.
+    next_charge_label = None
+    if active and subscription is not None and subscription.recurring_allowed:
+        first_attempt_at = renewal_attempt_due_at(
+            paid_through=subscription.paid_through, attempt=1
+        )
+        next_charge_label = (
+            "в ближайшее время"
+            if first_attempt_at <= now
+            else _billing_datetime_label(first_attempt_at)
+        )
     method_available = False
     next_charge_amount_label = None
     if db is not None and subscription is not None:
@@ -2342,6 +2373,7 @@ async def billing_subscription_page(
         paid_through_label=_billing_datetime_label(subscription.paid_through)
         if active and subscription is not None
         else None,
+        next_charge_label=next_charge_label,
         method_available=method_available,
         next_charge_amount_label=next_charge_amount_label,
         billing_enabled=bool(request.app.state.settings.billing_checkout_enabled),
@@ -2742,7 +2774,6 @@ async def billing_checkout_page(
         and blocking_operation.request_snapshot.get("billing_actor_user_id")
         in {None, str(principal.user_id)}
         and settings.billing_checkout_enabled
-        and not settings.billing_emergency_stop
         else None
     )
     checkout_continuation_url = (
@@ -2875,7 +2906,7 @@ async def preview_billing_checkout(
 ) -> RedirectResponse:
     """Validate a promo and show its price without reserving or charging."""
     settings = request.app.state.settings
-    if db is None or not settings.billing_checkout_enabled or settings.billing_emergency_stop:
+    if db is None or not settings.billing_checkout_enabled:
         return RedirectResponse("/billing/checkout?result=unavailable", status_code=303)
     if await _billing_role(db, tenant_scope=tenant_scope, principal=principal) != "owner":
         return RedirectResponse("/billing?result=owner_only", status_code=303)
@@ -3003,7 +3034,6 @@ async def start_billing_checkout(
         )
         require_billing_enabled(
             checkout_enabled=bool(settings.billing_checkout_enabled),
-            emergency_stop=bool(settings.billing_emergency_stop),
         )
         key = idempotency_key.strip()
         if not key:
@@ -3038,13 +3068,9 @@ async def start_billing_checkout(
                 )
             return RedirectResponse("/billing?result=pending", status_code=303)
         now = datetime.now(UTC)
-        if (
-            subscription is not None
-            and subscription.plan_code == "personal"
-            and subscription.paid_through is not None
-            and subscription.paid_through.astimezone(UTC) > now
-        ):
-            return RedirectResponse("/billing?result=already_active", status_code=303)
+        # An active paid period must never block a new payment: a person who
+        # wants to pay early can pay at any moment, and the granted period is
+        # added to the paid remainder instead of replacing it.
 
         # New money mutation must use an enabled, effective database catalog
         # row.  Static descriptors remain useful for read-only copy and unit
@@ -3327,7 +3353,7 @@ async def start_billing_checkout(
             return RedirectResponse("/billing?result=pending", status_code=303)
         return RedirectResponse("/billing/checkout?result=unavailable", status_code=303)
     except (
-        BillingEmergencyStop,
+        BillingCheckoutDisabled,
         ValueError,
         YooKassaConfigurationError,
         YooKassaProviderError,

@@ -91,6 +91,15 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
         self.baseURL = DesktopCabinetConfiguration(baseURL: baseURL).baseURL
     }
 
+    /// The normalized cabinet origin every route decision is measured against.
+    public var cabinetBaseURL: URL { baseURL }
+
+    /// Same-origin check reused by payment-chain tracking so that "back inside
+    /// the cabinet" means exactly what the route policy means by it.
+    public func sharesSessionOrigin(with url: URL) -> Bool {
+        sameOrigin(url)
+    }
+
     public func decision(
         for url: URL,
         allowExternalAuthProvider: Bool = false,
@@ -438,7 +447,11 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
             return block(path: normalizedPath(url.path), kind: .external, reason: .blockedUnknownRoute, message: "External links must use HTTPS.")
         }
         let host = url.host?.lowercased() ?? ""
-        if allowExternalPaymentProvider && Self.allowedPaymentProviderHosts.contains(host) {
+        if allowExternalPaymentProvider {
+            // The caller only sets this flag while a payment confirmation chain
+            // is live (see DesktopCabinetPaymentNavigation). The chain leaves
+            // the payment provider for the cardholder's own bank, whose domain
+            // differs for every card issuer and cannot be enumerated here.
             return DesktopCabinetRouteDecision(
                 route: DesktopCabinetRoute(path: normalizedPath(url.path), kind: .external),
                 decision: .allow,
@@ -717,14 +730,6 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
         }
         return components.count == 3 && components[1] == "invoices" && isSafePathComponent(components[2])
     }
-
-    private static let allowedPaymentProviderHosts: Set<String> = [
-        "api.yookassa.ru",
-        "api.yookassa.test",
-        "yookassa.ru",
-        "yookassa.test",
-        "yoomoney.ru"
-    ]
 
     private func isBrowserOwnedAccountRoute(_ components: [String]) -> Bool {
         components == ["referrals"] || components == ["account", "referrals"]

@@ -10,10 +10,11 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from twobrain_rec_server.billing.catalog import ADDON_CAPACITY_BYTES, PERSONAL_STORAGE_BYTES
+from twobrain_rec_server.billing.operations import CHECKOUT_BLOCKING_STATES
 from twobrain_rec_server.billing.promotions import expire_promo_reservations
 from twobrain_rec_server.billing.referral_rewards import mature_pending_credits
 from twobrain_rec_server.billing.storage import (
@@ -31,6 +32,10 @@ from twobrain_rec_server.db.models import (
 
 STUCK_OPERATION_MAX_AGE = timedelta(minutes=30)
 MAINTENANCE_BATCH_LIMIT = 100
+# The provider idempotence key lives for 24 hours from creation. A row that
+# somehow never stored one is given the same window before it counts as
+# abandoned, so no blocking state can outlive every recovery route.
+MISSING_PROVIDER_KEY_GRACE = timedelta(hours=24)
 
 
 def _snapshot_datetime(value: object) -> datetime | None:
@@ -186,9 +191,70 @@ async def reconcile_billing_maintenance(
         workspace_id=workspace_id,
     )
 
+    # An operation that never stored a provider payment id has no reachable
+    # payment: the create-payment response was lost, and the user never received
+    # a confirmation link. Its only recovery is the continue-payment route, which
+    # lives exactly as long as the provider idempotence key. Once that key is
+    # gone the operation can never be charged, so cancel it and stop it from
+    # blocking a fresh checkout forever.
+    #
+    # Every writer sets the key, but a row without one would otherwise be
+    # blocking and unreachable by every pass at the same time. Such a row is
+    # treated as expired once the same window has elapsed since creation.
+    abandoned_query = (
+        select(BillingOperation)
+        .where(
+            BillingOperation.kind == "initial_checkout",
+            BillingOperation.provider_id.is_(None),
+            BillingOperation.state.in_(CHECKOUT_BLOCKING_STATES),
+            or_(
+                BillingOperation.provider_key_expires_at <= current,
+                and_(
+                    BillingOperation.provider_key_expires_at.is_(None),
+                    BillingOperation.created_at <= current - MISSING_PROVIDER_KEY_GRACE,
+                ),
+            ),
+        )
+        .order_by(BillingOperation.updated_at, BillingOperation.id)
+        .limit(MAINTENANCE_BATCH_LIMIT)
+        .with_for_update()
+    )
+    if workspace_id is not None:
+        abandoned_query = abandoned_query.where(
+            BillingOperation.workspace_id == workspace_id
+        )
+    abandoned = await db.scalars(abandoned_query)
+    abandoned_operations = 0
+    for operation in abandoned:
+        operation.state = "canceled"
+        operation.updated_at = current
+        invoice = await db.scalar(
+            select(BillingInvoice)
+            .where(BillingInvoice.operation_id == operation.id)
+            .with_for_update()
+        )
+        if invoice is not None and invoice.status == "pending":
+            invoice.status = "canceled"
+        db.add(
+            BillingAuditEvent(
+                workspace_id=operation.workspace_id,
+                action="billing.abandoned_operation_canceled",
+                target_kind="billing_operation",
+                target_ref=None,
+                outcome="canceled",
+                reason_code="provider_key_expired_without_payment",
+                metadata_json={"operation_kind": operation.kind, "state": "canceled"},
+            )
+        )
+        abandoned_operations += 1
+    if abandoned_operations:
+        await db.flush()
+
     # A browser timeout must not leave an operation in a mutable state forever.
     # Marking it unknown is a local classification only; provider GET/list
     # reconciliation remains the authority and can resolve a late success.
+    # An operation without a provider payment id is excluded: it still has a
+    # reachable payment to continue, and the abandoned pass above owns its exit.
     stuck_cutoff = current - STUCK_OPERATION_MAX_AGE
     stuck_query = (
         select(BillingOperation)
@@ -198,6 +264,7 @@ async def reconcile_billing_maintenance(
             # own exact-cutoff state machine. Generic 30-minute stale
             # classification would make them ineligible for the charge.
             BillingOperation.kind != "renewal",
+            BillingOperation.provider_id.is_not(None),
             BillingOperation.updated_at <= stuck_cutoff,
         )
         .order_by(BillingOperation.updated_at, BillingOperation.id)
@@ -271,6 +338,7 @@ async def reconcile_billing_maintenance(
         "matured_credits": matured_credits,
         "released_storage_reservations": released_reservations,
         "stuck_operations": stuck_operations,
+        "abandoned_operations": abandoned_operations,
         "storage_projections_checked": storage_projections_checked,
         "storage_addons_checked": storage_addons_checked,
         "pending_notifications": pending_notifications,

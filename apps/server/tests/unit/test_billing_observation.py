@@ -5,6 +5,11 @@ from types import SimpleNamespace
 from uuid import UUID
 
 from twobrain_rec_server.billing import webhook_reconciliation
+from twobrain_rec_server.billing.reconciliation import (
+    PaymentObservation,
+    ProviderScope,
+    extract_payment_observation,
+)
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.db.models import (
     BillingInvoice,
@@ -299,3 +304,127 @@ def test_invalid_historical_webhook_is_terminal_without_provider_call(
     assert event.state == "reconciliation_gap"
     assert event.metadata_json == {"reconciliation": "workspace_scope_invalid"}
     assert db.commits == 1
+
+
+def _payment_observation(*, provider_payment_id: str, operation_id: UUID | None):
+    return PaymentObservation(
+        scope=ProviderScope(environment="production", shop_id="shop-1"),
+        provider_payment_id=provider_payment_id,
+        amount_minor=100_000,
+        currency="RUB",
+        status="succeeded",
+        provider_created_at=datetime(2026, 9, 18, tzinfo=UTC),
+        operation_id=operation_id,
+    )
+
+
+class _LookupDb:
+    """Scripted session: each scalar() call answers one lookup in order."""
+
+    def __init__(self, answers):
+        self.answers = list(answers)
+        self.queries = 0
+        self.flushed = False
+
+    async def scalar(self, _query):
+        self.queries += 1
+        return self.answers.pop(0)
+
+    async def flush(self):
+        self.flushed = True
+
+
+def test_lost_payment_response_is_bound_to_its_operation_by_metadata() -> None:
+    """A payment stored without provider_id must still reach its operation."""
+    workspace_id = UUID("30000000-0000-4000-8000-000000000003")
+    operation_id = UUID("40000000-0000-4000-8000-000000000004")
+    operation = SimpleNamespace(id=operation_id, provider_id=None)
+    db = _LookupDb([None, operation])
+
+    found = asyncio.run(
+        webhook_reconciliation._locked_operation(
+            db,
+            workspace_id=workspace_id,
+            observation=_payment_observation(
+                provider_payment_id="pay-lost-response",
+                operation_id=operation_id,
+            ),
+        )
+    )
+
+    assert found is operation
+    assert operation.provider_id == "pay-lost-response"
+    assert db.queries == 2
+    assert db.flushed is True
+
+
+def test_provider_id_match_stays_authoritative_over_metadata() -> None:
+    """A payment already linked to an operation never re-binds through metadata."""
+    bound = SimpleNamespace(id=UUID(int=7), provider_id="pay-known")
+    db = _LookupDb([bound])
+
+    found = asyncio.run(
+        webhook_reconciliation._locked_operation(
+            db,
+            workspace_id=UUID("30000000-0000-4000-8000-000000000003"),
+            observation=_payment_observation(
+                provider_payment_id="pay-known",
+                operation_id=UUID(int=9),
+            ),
+        )
+    )
+
+    assert found is bound
+    assert db.queries == 1
+    assert db.flushed is False
+
+
+def test_payment_without_operation_metadata_is_not_rebound() -> None:
+    """Without our operation id in metadata there is nothing to bind to."""
+    db = _LookupDb([None])
+
+    found = asyncio.run(
+        webhook_reconciliation._locked_operation(
+            db,
+            workspace_id=UUID("30000000-0000-4000-8000-000000000003"),
+            observation=_payment_observation(
+                provider_payment_id="pay-foreign",
+                operation_id=None,
+            ),
+        )
+    )
+
+    assert found is None
+    assert db.queries == 1
+    assert db.flushed is False
+
+
+def test_payment_observation_reads_our_operation_id_from_provider_metadata() -> None:
+    operation_id = UUID("40000000-0000-4000-8000-000000000004")
+    observation = extract_payment_observation(
+        {
+            "id": "pay-1",
+            "status": "succeeded",
+            "created_at": "2026-09-18T00:00:00+00:00",
+            "amount": {"value": "1000.00", "currency": "RUB"},
+            "metadata": {"workspace_id": str(UUID(int=3)), "operation_id": str(operation_id)},
+        },
+        scope=ProviderScope(environment="production", shop_id="shop-1"),
+    )
+
+    assert observation.operation_id == operation_id
+
+
+def test_payment_observation_ignores_malformed_operation_id() -> None:
+    observation = extract_payment_observation(
+        {
+            "id": "pay-1",
+            "status": "succeeded",
+            "created_at": "2026-09-18T00:00:00+00:00",
+            "amount": {"value": "1000.00", "currency": "RUB"},
+            "metadata": {"operation_id": "not-a-uuid"},
+        },
+        scope=ProviderScope(environment="production", shop_id="shop-1"),
+    )
+
+    assert observation.operation_id is None

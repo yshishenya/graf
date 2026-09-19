@@ -70,7 +70,6 @@ def _public_catalog_rows(*, annual_amount_minor: int = 1_000_000):
 async def test_public_offer_uses_exact_catalog_and_runtime_safety_flags() -> None:
     settings = Settings.model_construct(
         billing_checkout_enabled=True,
-        billing_emergency_stop=False,
         billing_yookassa_shop_id="shop-1",
     )
 
@@ -491,3 +490,28 @@ def test_public_legal_copy_matches_product_and_analytics_truth(client) -> None:
     assert "Вебвизор" in analytics
     assert "Вебвизор" in cookies
     assert "Платежный интерфейс временно недоступен" in offer
+
+
+@pytest.mark.anyio
+async def test_sale_ready_requires_a_live_production_shop() -> None:
+    test_shop = Settings.model_construct(
+        billing_checkout_enabled=True,
+        billing_yookassa_shop_id="shop-test",
+        billing_yookassa_environment="test",
+    )
+
+    offer = await build_public_offer_view(_OfferDb(_public_catalog_rows()), test_shop)
+
+    # The tariffs stay published, but a test shop never promises a payment.
+    assert offer.catalog_ready is True
+    assert offer.sale_ready is False
+    assert offer.monthly_label == "1 000 ₽"
+
+    live_shop = Settings.model_construct(
+        billing_checkout_enabled=True,
+        billing_yookassa_shop_id="shop-live",
+        billing_yookassa_environment="production",
+    )
+    live_offer = await build_public_offer_view(_OfferDb(_public_catalog_rows()), live_shop)
+
+    assert live_offer.sale_ready is True

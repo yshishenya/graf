@@ -55,6 +55,7 @@ def test_billing_maintenance_returns_only_safe_counters(monkeypatch) -> None:
         "matured_credits": 3,
         "released_storage_reservations": 0,
         "stuck_operations": 0,
+        "abandoned_operations": 0,
         "storage_projections_checked": 0,
         "storage_addons_checked": 0,
         "pending_notifications": 0,
@@ -89,7 +90,7 @@ def test_billing_maintenance_classifies_stuck_operation_and_projects_addon(monke
                 },
             )
             self.addon_operation = addon_operation
-            self.rows = [[addon_operation], [operation], [workspace_id], []]
+            self.rows = [[addon_operation], [], [operation], [workspace_id], []]
             self.scalar_rows = [
                 SimpleNamespace(
                     capacity_bytes=2_000_000_000,
@@ -145,3 +146,54 @@ def test_billing_maintenance_classifies_stuck_operation_and_projects_addon(monke
     assert result["pending_notifications"] == 5
     assert db.addon_operation.state == "succeeded_projected"
     assert len(db.added) == 2
+
+
+def test_billing_maintenance_cancels_operation_whose_provider_key_has_expired(monkeypatch) -> None:
+    """A payment we never got an id for, past its key window, must stop blocking."""
+    workspace_id = UUID("22222222-2222-4222-8222-222222222222")
+    operation = SimpleNamespace(
+        id=UUID("33333333-3333-4333-8333-333333333333"),
+        state="manual_resolution",
+        updated_at=None,
+        workspace_id=workspace_id,
+        kind="initial_checkout",
+    )
+    invoice = SimpleNamespace(status="pending")
+
+    class RowsDb(_FakeDb):
+        def __init__(self):
+            super().__init__()
+            self.rows = [[], [operation], [], [workspace_id], []]
+            self.scalar_rows = [invoice, None, 0]
+            self.added = []
+
+        async def scalars(self, query):
+            self.calls.append(query)
+            return _ScalarResult(self.rows.pop(0))
+
+        async def scalar(self, query):
+            self.calls.append(query)
+            return self.scalar_rows.pop(0)
+
+        def add(self, value):
+            self.added.append(value)
+
+    async def no_promos(_db, *, now):
+        return 0
+
+    async def no_credits(_db, *, now):
+        return 0
+
+    async def release(_db, *, workspace_id, now):
+        return 0
+
+    monkeypatch.setattr("twobrain_rec_server.billing.maintenance.expire_promo_reservations", no_promos)
+    monkeypatch.setattr("twobrain_rec_server.billing.maintenance.mature_pending_credits", no_credits)
+    monkeypatch.setattr("twobrain_rec_server.billing.maintenance.release_expired_storage_reservations", release)
+    db = RowsDb()
+    result = asyncio.run(reconcile_billing_maintenance(db, now=datetime(2026, 8, 7, tzinfo=UTC)))
+
+    assert operation.state == "canceled"
+    assert invoice.status == "canceled"
+    assert result["abandoned_operations"] == 1
+    assert result["stuck_operations"] == 0
