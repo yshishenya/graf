@@ -82,7 +82,7 @@ process-lifecycle checks plus exact-artifact release validation.
 
 **Purpose**: Make the packaged launch gate prove that the candidate presented its main window, not only that the launch handler started.
 
-- [ ] T023 [US3] Require `event=app_main_window_presented` in `apps/macos/Scripts/validate-packaged-app-launch.sh`, cover it with a `no-window` fixture in `apps/macos/Installer/Scripts/test-packaged-app-launch.sh`, and describe the readiness signal in `specs/232-macos-resource-bundle-hotfix/contracts/packaged-startup.md` (Issue #7209)
+- [ ] T023 [US3] Require `event=app_main_window_presented` only after the main window is visible in `apps/macos/Scripts/validate-packaged-app-launch.sh`, cover missing and premature readiness with fixtures and a source-order regression test, and describe the readiness signal in `specs/232-macos-resource-bundle-hotfix/contracts/packaged-startup.md` (Issue #7209)
 
 ## Dependencies & Execution Order
 

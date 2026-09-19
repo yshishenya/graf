@@ -30,6 +30,10 @@ validate-packaged-app-launch.sh /absolute/path/GRAF.app [minimum-seconds] [nativ
   handler. `app_launch_finished` is written before `NSApp.activate` and before
   `presentMainWindow(reason: "launch")`, so on its own it proves only that
   `applicationDidFinishLaunching` was entered.
+- `app_main_window_presented` is written only after the AppKit ordering and
+  activation calls return and only when the main window reports `isVisible`.
+  A failed visibility attempt writes `app_main_window_presentation_failed`
+  instead and cannot satisfy the gate.
 - A candidate that starts, stays alive for the full window but never presents its
   main window fails the gate.
 - On exit or interruption, terminates and waits only for its own child.
