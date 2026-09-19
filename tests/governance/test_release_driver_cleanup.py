@@ -131,6 +131,26 @@ def test_train_retries_transient_api_failures_and_reports_skips() -> None:
     assert "repos/${repo_slug}/commits/" in script[loop:body_end], "цикл не использует готовый слаг"
 
 
+def test_release_retargets_a_stale_draft_to_the_current_source() -> None:
+    """Старый черновик не должен прикрепить выпуск к прошлой подготовке."""
+    script = (ROOT / "scripts" / "release.sh").read_text(encoding="utf-8")
+
+    assert 'gh release view "$tag" --json isDraft,targetCommitish' in script
+    assert 'release_draft=retargeted tag=%s from=%s to=%s' in script
+    assert 'gh release edit "$tag" --draft --title' in script
+    assert 'already exists and is public; refusing to reuse it' in script
+
+
+def test_remote_deploy_retries_git_fetch_before_failing() -> None:
+    """Обрыв SSH/GitHub на удалённом fetch не должен отменять всю выкладку."""
+    script = (ROOT / "infra/scripts/cd-remote.sh").read_text(encoding="utf-8")
+
+    assert "fetch_remote_origin_retry() {" in script
+    assert "deploy_remote_fetch_attempts=" in script
+    assert "remote git fetch attempt" in script
+    assert "remote git fetch failed after 5 attempts" in script
+
+
 def test_validator_prints_the_real_reason(tmp_path: Path) -> None:
     """Общая фраза бесполезна: оператору нужна причина.
 
