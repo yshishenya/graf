@@ -56,6 +56,14 @@ def test_dry_run_validates_signed_archive_and_feed_binding(tmp_path: Path) -> No
     assert "appcast_sha256=" in result.stdout
 
 
+def test_publisher_verifies_public_feed_after_remote_install() -> None:
+    source = SCRIPT.read_text(encoding="utf-8")
+
+    assert "verify_public_feed" in source
+    assert "public_feed=pass" in source
+    assert "public_archive_length_mismatch" in source
+
+
 def test_dry_run_rejects_a_feed_length_mismatch(tmp_path: Path) -> None:
     archive = tmp_path / "GRAF-2026.09.20.1.zip"
     archive.write_bytes(b"signed archive")

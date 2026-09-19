@@ -120,6 +120,60 @@ if [[ "$DRY_RUN" == "1" ]]; then
   exit 0
 fi
 
+verify_public_feed() {
+  local live_feed feed_info live_archive live_length live_signature archive_info archive_status archive_bytes
+  live_feed="$(curl -fsSL --connect-timeout 10 --max-time 90 --retry 3 --retry-delay 1 --retry-all-errors "$FEED_URL")" \
+    || fail "public_feed_unreachable"
+  feed_info="$(LIVE_APPCAST="$live_feed" python3 - "$VERSION" "$FEED_URL" <<'PY'
+from __future__ import annotations
+
+import os
+import sys
+from urllib.parse import urlparse
+from xml.etree import ElementTree
+
+version, feed_url = sys.argv[1:]
+root = ElementTree.fromstring(os.environ["LIVE_APPCAST"])
+items = [node for node in root.iter() if node.tag.rsplit("}", 1)[-1] == "item"]
+matching = []
+for item in items:
+    children = {child.tag.rsplit("}", 1)[-1]: child for child in item}
+    version_node = children.get("version")
+    if version_node is not None and (version_node.text or "").strip() == version:
+        matching.append(item)
+if len(matching) != 1:
+    raise SystemExit(f"public appcast must contain one item for {version}, found {len(matching)}")
+item = matching[0]
+enclosure = next((child for child in item if child.tag.rsplit("}", 1)[-1] == "enclosure"), None)
+if enclosure is None:
+    raise SystemExit("public appcast item has no enclosure")
+signature = next((value for key, value in enclosure.attrib.items() if key.rsplit("}", 1)[-1] == "edSignature"), "")
+if not signature:
+    raise SystemExit("public appcast item has no Sparkle signature")
+url = enclosure.attrib.get("url", "")
+length = enclosure.attrib.get("length", "")
+parsed = urlparse(url)
+feed = urlparse(feed_url)
+expected_path = feed.path.rsplit("/", 1)[0] + f"/GRAF-{version}.zip"
+if parsed.scheme != "https" or parsed.netloc != feed.netloc or parsed.path != expected_path:
+    raise SystemExit("public appcast enclosure is not the expected HTTPS archive")
+if not length.isdigit():
+    raise SystemExit("public appcast enclosure length is not numeric")
+print(url, length, signature)
+PY
+  )" || fail "public_feed_invalid"
+  read -r live_archive live_length live_signature <<<"$feed_info"
+  [[ -n "$live_archive" && -n "$live_length" && -n "$live_signature" ]] || fail "public_feed_fields_missing"
+  archive_info="$(curl -fsSL --connect-timeout 10 --max-time 180 --retry 3 --retry-delay 1 --retry-all-errors \
+    -o /dev/null -w '%{http_code} %{size_download}' "$live_archive")" \
+    || fail "public_archive_unreachable"
+  read -r archive_status archive_bytes <<<"$archive_info"
+  [[ "$archive_status" == "200" && "$archive_bytes" == "$live_length" ]] \
+    || fail "public_archive_length_mismatch status=$archive_status bytes=$archive_bytes expected=$live_length"
+  printf 'public_feed=pass version=%s archive_http=%s archive_bytes=%s signature=present\n' \
+    "$VERSION" "$archive_status" "$archive_bytes"
+}
+
 staging=""
 cleanup() {
   if [[ -n "$staging" ]]; then
@@ -237,5 +291,6 @@ echo "appcast_feed=installed"
 echo "appcast_backup=${appcast_backup:-none}"
 REMOTE
 
+verify_public_feed
 printf 'appcast_publish=pass version=%s archive_bytes=%s archive_sha256=%s appcast_sha256=%s host=%s path=%s\n' \
   "$VERSION" "$archive_bytes" "$archive_sha" "$appcast_sha" "$REMOTE_HOST" "$REMOTE_PATH"
