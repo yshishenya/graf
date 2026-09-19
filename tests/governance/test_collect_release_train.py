@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 from pathlib import Path
 
-from scripts import collect_release_train as collector
+
+_MODULE_PATH = Path(__file__).resolve().parents[2] / "scripts" / "collect_release_train.py"
+_SPEC = importlib.util.spec_from_file_location("collect_release_train", _MODULE_PATH)
+assert _SPEC is not None and _SPEC.loader is not None
+collector = importlib.util.module_from_spec(_SPEC)
+_SPEC.loader.exec_module(collector)
 
 
 ROOT = Path(__file__).resolve().parents[2]
