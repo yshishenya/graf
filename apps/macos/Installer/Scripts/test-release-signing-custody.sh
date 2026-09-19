@@ -565,6 +565,8 @@ grep -Fq 'GRAF_APPLICATION_SUPPORT_DIRECTORY="$APPLICATION_SUPPORT_DIRECTORY"' "
   fail "packaged-app launch validator does not isolate application support storage"
 grep -Fq 'event=app_launch_finished' "$STARTUP_VALIDATOR" ||
   fail "packaged-app launch validator does not require a startup readiness marker"
+grep -Fq 'event=app_main_window_presented' "$STARTUP_VALIDATOR" ||
+  fail "packaged-app launch validator does not require a presented main window"
 grep -Fq "for architecture in ('arm64', 'x86_64')" "$ARTIFACTS" ||
   fail "upload does not validate both packaged candidate architectures"
 grep -Fq "Scripts/validate-packaged-app-launch.sh', args.app, '5', architecture" "$ARTIFACTS" ||

@@ -83,6 +83,8 @@ kill -0 "$CHILD_PID" 2>/dev/null || {
 }
 [ -f "$LOG_DIRECTORY/graf.log" ] || fail "candidate did not create its isolated startup log"
 grep -Fq 'event=app_launch_finished' "$LOG_DIRECTORY/graf.log" ||
-  fail "candidate did not emit the startup readiness marker"
+  fail "candidate did not emit the startup launch marker"
+grep -Fq 'event=app_main_window_presented' "$LOG_DIRECTORY/graf.log" ||
+  fail "candidate did not emit the startup readiness marker: main window was never presented"
 
 printf 'packaged_app_launch=pass minimum_seconds=%s architecture=%s child_pid_owned=yes\n' "$MINIMUM_SECONDS" "$ARCHITECTURE"
