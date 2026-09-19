@@ -143,14 +143,13 @@ Keychain, public/Sparkle validation and both packaged architecture startup check
 still precede upload. `prepare-app-update.sh --verify-only` only validates an
 already prepared version and cannot generate or replace it.
 
-Publish versioned ZIP/PKG files and their
-SHA-256 checksums in `infra/runtime/public-downloads` on the download host.
-Atomically replace the canonical `graf.pkg` in that runtime directory with the
-same validated package, then replace `graf-appcast.xml` last. Do not overwrite
-the tracked package under `apps/server/src`: server CD preserves an existing
-valid runtime package, and uses the tracked copy only to initialize an absent
-runtime file. Confirm the Git tree stays clean and the `/download` link's hash
-prefix matches the newly published package without restarting the API.
+After the server deployment, `scripts/release.sh` calls
+`infra/scripts/publish-appcast-remote.sh`. It publishes the versioned ZIP first,
+replaces `graf-appcast.xml` last, keeps the previous feed as a rollback copy,
+and treats a byte-identical repeat as a no-op. The helper validates the signed
+feed's exact version, HTTPS enclosure and archive length before SSH mutation.
+It does not overwrite the tracked package under `apps/server/src` or the server
+runtime `graf.pkg`; those remain under the existing server-CD ownership rules.
 
 ## 4. Closeout
 
@@ -161,8 +160,8 @@ After publication, download the public artifacts again and verify:
 - installed `/Applications/GRAF.app` version matches the live feed;
 - app and package pass stapler validation and Gatekeeper.
 
-The first two checks are scripted, because forgetting them is exactly how a
-client is left looking at a feed item whose archive does not exist yet:
+The release driver performs the publication and then the same live-feed check;
+for a resumed local signing-only operation, the read-only check remains:
 
 ```sh
 sh apps/macos/Installer/Scripts/release-app-update.sh \
@@ -171,7 +170,8 @@ sh apps/macos/Installer/Scripts/release-app-update.sh \
 
 `--verify-feed` reads the live feed read-only, requires well-formed XML, requires
 the highest feed version to equal the released version, and requires the named
-archive URL to be HTTPS and to answer HTTP 200. It never writes the feed.
+archive URL to be HTTPS and to answer HTTP 200. The publication helper writes
+only after its local version/length validation and uses an atomic remote swap.
 
 Keep the evidence metadata-only. Do not commit credentials, signed URLs, raw
 audio, transcript text, private meeting content, or private screenshots.

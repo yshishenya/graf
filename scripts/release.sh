@@ -549,47 +549,19 @@ if should_run train; then
   step "train: заморозить поезд и кандидата"
   require_clean_master
 
-  # The train needs one receipt reference per included pull request.  They are
-  # derived from the successful governance run on each pull request's exact
-  # head, so the operator never copies identifiers by hand.  The loop avoids
-  # mapfile because macOS still ships bash 3.2.
-  # GitHub occasionally answers with a transient network error.  Without a
-  # retry one hiccup silently drops a pull request from the train, and the
-  # release then stops on "train PR set differs from the published-release
-  # range" — a message that hides which pull request went missing.  Every call
-  # below is retried, and every skip is reported with its reason.
-  gh_retry() {
-    local attempt output
-    for attempt in 1 2 3 4 5; do
-      output="$("$@" 2>/dev/null)" && { printf '%s' "$output"; return 0; }
-      sleep $((attempt * 3))
-    done
-    return 1
-  }
-  repo_slug="$(gh_retry gh repo view --json nameWithOwner --jq '.nameWithOwner' || true)"
-  [[ -n "$repo_slug" ]] || { printf 'release: cannot resolve the repository slug\n' >&2; exit 1; }
-
-  prs=()
-  receipts=()
-  while IFS= read -r number; do
-    [[ -n "$number" ]] || continue
-    merge_sha="$(gh_retry gh pr view "$number" --json mergeCommit --jq '.mergeCommit.oid' || true)"
-    [[ -n "$merge_sha" && "$merge_sha" != "null" ]] \
-      || { printf 'release: pull request %s has no merge commit; skipped\n' "$number" >&2; continue; }
-    git merge-base --is-ancestor "$merge_sha" HEAD 2>/dev/null || continue
-    git merge-base --is-ancestor "$merge_sha" "$base_sha" 2>/dev/null && continue
-    head_sha="$(gh_retry gh pr view "$number" --json headRefOid --jq '.headRefOid' || true)"
-    run_id="$(gh_retry gh api "repos/${repo_slug}/commits/${head_sha}/check-runs?per_page=100" \
-      --jq '[.check_runs[]|select(.name=="governance-fast" and .conclusion=="success")]|sort_by(.id)|last|.id' || true)"
-    [[ -n "$run_id" && "$run_id" != "null" ]] \
-      || { printf 'release: pull request %s has no successful governance check on %s; skipped\n' \
-             "$number" "${head_sha:0:12}" >&2; continue; }
-    prs+=("$number")
-    receipts+=("pr-${number}-governance-${run_id}")
-  done < <(gh pr list --state merged --base master --limit 50 --json number --jq '.[].number')
-  [[ ${#prs[@]} -gt 0 ]] || { printf 'release: no merged pull requests found between %s and HEAD\n' "$previous_tag" >&2; exit 1; }
-  pr_list="$(IFS=,; printf '%s' "${prs[*]}")"
-  receipt_list="$(IFS=,; printf '%s' "${receipts[*]}")"
+  # The train needs one receipt reference per included pull request. They are
+  # derived from successful governance proofs on each exact PR head. The helper
+  # performs independent GitHub lookups concurrently while preserving every
+  # exact-SHA and successful-governance gate.
+  train_collection="$(python3 scripts/collect_release_train.py \
+    --base-sha "$base_sha" --source-sha "$source_sha")" \
+    || { printf 'release: не удалось собрать поезд пул-реквестов\n' >&2; exit 1; }
+  # The collector already validated the remote repository; no second lookup is needed.
+  pr_list="$(python3 -c 'import json,sys; print(",".join(json.load(sys.stdin)["prs"]))' <<<"$train_collection")"
+  receipt_list="$(python3 -c 'import json,sys; print(",".join(json.load(sys.stdin)["receipts"]))' <<<"$train_collection")"
+  [[ -n "$pr_list" ]] || { printf 'release: no merged pull requests found between %s and HEAD\n' "$previous_tag" >&2; exit 1; }
+  IFS=',' read -r -a prs <<<"$pr_list"
+  IFS=',' read -r -a receipts <<<"$receipt_list"
   printf 'release_prs=%s\n' "$pr_list"
 
   # A synthetic merge SHA is a real commit object whose tree is the released
@@ -728,6 +700,7 @@ EOF
   grep -q '^deploy_result=pass$' /tmp/release-deploy.log \
     || { printf 'release: production deploy did not report deploy_result=pass\n' >&2; exit 1; }
   step_done "deploy:execute"
+
 fi
 
 # ------------------------------------------------------------- step: publish
@@ -766,6 +739,15 @@ if should_run publish; then
   else
     release_published=true
     printf 'release_publish=already_published tag=%s\n' "$tag"
+  fi
+  if [[ "$with_app" == "true" ]]; then
+    step "publish: опубликовать подписанный appcast"
+    app_archive="$root/apps/macos/.build/updates/GRAF-$version.zip"
+    appcast_file="$root/apps/macos/.build/updates/graf-appcast.xml"
+    infra/scripts/publish-appcast-remote.sh \
+      --version "$version" --archive "$app_archive" --appcast "$appcast_file" \
+      --source-sha "$source_sha"
+    step_done "publish:appcast"
   fi
   decision_file="${decision_file:-$(ls -t .dev/release/decisions/*.decision.json | head -1)}"
   infra/scripts/release-candidate.sh attest "$decision_file" \

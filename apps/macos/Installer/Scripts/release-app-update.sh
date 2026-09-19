@@ -19,9 +19,9 @@
 # one foreground chain. Both are resumable: the underlying helpers reuse a
 # completed notarization and a completed staged update byte for byte.
 #
-# This command never publishes to the public feed. Replacing
-# infra/runtime/public-downloads/graf-appcast.xml stays a separate, deliberate
-# owner action, and --verify-feed checks the live feed afterwards.
+# This local command never publishes to the public feed. The outer release
+# driver replaces infra/runtime/public-downloads/graf-appcast.xml atomically
+# through publish-appcast-remote.sh after the signed assets are ready.
 set -eu
 
 SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
@@ -71,8 +71,9 @@ usage() {
   cat >&2 <<'EOF'
 usage: release-app-update.sh --version YYYY.MM.DD.N [options]
 
-One command for the public macOS app update release. Never publishes to the
-public feed; it produces and uploads draft release assets only.
+One command for the local public macOS app update release. It produces and
+uploads draft release assets only; the outer release driver publishes the signed
+archive and appcast atomically after deployment.
 
   --version V            CalVer release version without the leading v. Required.
   --phase P              prepare | publish | all. Default all.
@@ -598,9 +599,9 @@ run_publish() {
   fi
   timing_end
 
-  printf '\nrelease_tag=v%s\nprevious_tag=%s\nsource=%s\ndraft_assets_uploaded=yes\nproduction_feed=unchanged\n' \
+  printf '\nrelease_tag=v%s\nprevious_tag=%s\nsource=%s\ndraft_assets_uploaded=yes\nproduction_feed=awaiting_outer_release_driver\n' \
     "$VERSION" "$PREVIOUS_TAG" "$SOURCE_SHA"
-  printf 'next_step=publish the archive to the download host, then replace graf-appcast.xml last\n'
+  printf 'next_step=release.sh publishes the archive first and replaces graf-appcast.xml last\n'
   printf 'check=release-app-update.sh --version %s --phase publish --verify-feed %s\n' \
     "$VERSION" "$VERSION"
 }

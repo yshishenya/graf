@@ -295,4 +295,4 @@ python3 "$ARTIFACTS" upload --app "$APP_DIR/candidate/GRAF.app" \
 
 trap - EXIT HUP INT TERM
 cleanup
-printf 'release=%s\ncommit=%s\nsigner=macos-keychain\nupload=draft-only\nproduction_feed=unchanged\n' "$RELEASE_TAG" "$HEAD_COMMIT"
+printf 'release=%s\ncommit=%s\nsigner=macos-keychain\nupload=draft-only\nproduction_feed=awaiting_outer_release_driver\n' "$RELEASE_TAG" "$HEAD_COMMIT"
