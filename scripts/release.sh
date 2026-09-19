@@ -488,8 +488,25 @@ open_draft_release() {
   # does not create the tag: GitHub creates it when the release goes public, so
   # a failed release leaves no stray tag behind.
   [[ -n "${source_sha:-}" ]] || return 0
-  if gh release view "$tag" >/dev/null 2>&1; then
-    printf 'release_draft=exists tag=%s\n' "$tag"
+  draft_json="$(gh release view "$tag" --json isDraft,targetCommitish 2>/dev/null || true)"
+  if [[ -n "$draft_json" ]]; then
+    draft_is_draft="$(python3 -c 'import json,sys; print(str(json.load(sys.stdin)["isDraft"]).lower())' <<<"$draft_json")"
+    draft_target="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("targetCommitish") or "")' <<<"$draft_json")"
+    [[ "$draft_is_draft" == "true" ]] \
+      || { printf 'release: release %s already exists and is public; refusing to reuse it\n' "$tag" >&2; exit 1; }
+    if [[ "$draft_target" != "$source_sha" ]]; then
+      # A previous failed attempt may have left a draft pointing at its old
+      # preparation commit.  Reusing it unchanged would publish the wrong
+      # source and keep stale app assets attached to the next release.
+      release_notes_file="$(mktemp)"
+      notes_python
+      gh release edit "$tag" --draft --title "${tag}" \
+        --notes-file "$release_notes_file" --target "$source_sha" >/dev/null
+      printf 'release_draft=retargeted tag=%s from=%s to=%s\n' \
+        "$tag" "${draft_target:0:12}" "${source_sha:0:12}"
+    else
+      printf 'release_draft=exists tag=%s target=%s\n' "$tag" "${source_sha:0:12}"
+    fi
     return 0
   fi
   release_notes_file="$(mktemp)"
