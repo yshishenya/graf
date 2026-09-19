@@ -3353,6 +3353,9 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
+        // Карточка не должна переживать закрытие окна GRAF: она принадлежит
+        // текущему процессу и не может оставаться самостоятельным баннером.
+        DesktopNotificationPresenter.shared.dismissAllCards()
         guard !settingsExitPending else { return false }
         settingsExitPending = true
         Task { [weak self, weak sender] in
@@ -3364,6 +3367,9 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
     }
 
     func applicationShouldTerminate(_: NSApplication) -> NSApplication.TerminateReply {
+        // Карточка живёт в отдельной панели и иначе остаётся поверх экрана,
+        // пока асинхронное завершение приложения ещё не закончено.
+        DesktopNotificationPresenter.shared.dismissAllCards()
         guard !terminationReplyPending else { return .terminateLater }
         guard !settingsExitPending else { return .terminateCancel }
         terminationReplyPending = true

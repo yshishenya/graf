@@ -651,7 +651,7 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
                      })
     }
 
-    func dismissAllCards() {
+    public func dismissAllCards() {
         dismissedCards.removeAll()
         lastRecordingNotice = nil
         clearCard()
