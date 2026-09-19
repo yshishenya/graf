@@ -62,6 +62,8 @@ def test_publisher_verifies_public_feed_after_remote_install() -> None:
     assert "verify_public_feed" in source
     assert "public_feed=pass" in source
     assert "public_archive_length_mismatch" in source
+    assert ".graf-appcast-publish.lock" in source
+    assert "remote_publication_in_progress" in source
 
 
 def test_dry_run_rejects_a_feed_length_mismatch(tmp_path: Path) -> None:

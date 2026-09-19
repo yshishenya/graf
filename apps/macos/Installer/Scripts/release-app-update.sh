@@ -660,8 +660,8 @@ steps
   4. predecessor_lookup      last release that published GRAF-<version>.zip
   5. draft_release           create the draft release and cache the signing inputs
   6. sparkle_sign_and_upload Sparkle Keychain signature, public trust, both architecture startup checks
-  7. feed_check              only with --verify-feed; asserts the live feed already serves the version
-  never                      replace the public appcast; that stays a separate owner action
+  7. feed_check              after outer publication; asserts the live feed serves the version
+  never                      replace the public appcast from this local helper
 
 overlap
   --phase prepare needs only the clean frozen commit, so run it while the server

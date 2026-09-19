@@ -63,11 +63,12 @@ cd "$root"
 tag="v${version}"
 release_published=false
 release_was_public_before_run=false
+release_tag_owned_by_run=false
 candidate_file=""
 
 cleanup_unpublished_release() {
   local status=$?
-  [[ "$release_published" == "true" ]] && return "$status"
+  [[ "$release_published" == "true" || "$release_was_public_before_run" == "true" || "$release_tag_owned_by_run" != "true" ]] && return "$status"
   # The tag is created early so the app update can be signed and uploaded next
   # to the release train instead of after the deploy.  A release that fails
   # before it becomes public must not leave that tag behind: an unpublished tag
@@ -661,6 +662,7 @@ if should_run decide; then
     else
       git tag -a "$tag" -m "Релиз ${version}" "$source_sha"
       git push origin "$tag"
+      release_tag_owned_by_run=true
       printf 'release_tag=created tag=%s\n' "$tag"
     fi
   fi
@@ -744,16 +746,20 @@ if should_run publish; then
     release_published=true
     printf 'release_publish=already_published tag=%s\n' "$tag"
   fi
-  if [[ "$with_app" == "true" && "$release_was_public_before_run" != "true" ]]; then
-    step "publish: опубликовать подписанный appcast"
+  if [[ "$with_app" == "true" ]]; then
     app_archive="$root/apps/macos/.build/updates/GRAF-$version.zip"
     appcast_file="$root/apps/macos/.build/updates/graf-appcast.xml"
-    infra/scripts/publish-appcast-remote.sh \
-      --version "$version" --archive "$app_archive" --appcast "$appcast_file" \
-      --source-sha "$source_sha"
-    step_done "publish:appcast"
-  elif [[ "$with_app" == "true" ]]; then
-    printf 'publish: appcast publication already belongs to the completed release; verifying public feed\n'
+    if [[ "$release_was_public_before_run" != "true" ]]; then
+      step "publish: опубликовать подписанный appcast"
+      infra/scripts/publish-appcast-remote.sh \
+        --version "$version" --archive "$app_archive" --appcast "$appcast_file" \
+        --source-sha "$source_sha"
+      step_done "publish:appcast"
+    else
+      printf 'publish: appcast publication already belongs to the completed release; verifying public feed\n'
+    fi
+    bash apps/macos/Installer/Scripts/release-app-update.sh \
+      --version "$version" --phase publish --verify-feed "$version"
   fi
   decision_file="${decision_file:-$(ls -t .dev/release/decisions/*.decision.json | head -1)}"
   infra/scripts/release-candidate.sh attest "$decision_file" \

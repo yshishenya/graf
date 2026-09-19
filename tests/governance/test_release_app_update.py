@@ -114,6 +114,7 @@ def test_app_update_helper_keeps_signing_stage_separate_from_publication():
     source = SCRIPT.read_text()
     assert 'never publishes to the public feed' in source
     assert 'production_feed=awaiting_outer_release_driver' in source
+    assert 'the live feed offers' in source
 
 
 def test_feed_check_asserts_version_and_reachability():

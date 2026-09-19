@@ -175,6 +175,7 @@ PY
 }
 
 staging=""
+remote_lock=""
 cleanup() {
   if [[ -n "$staging" ]]; then
     ssh -o BatchMode=yes -o ConnectTimeout=20 "$REMOTE_HOST" \
@@ -199,6 +200,19 @@ target_dir="$1"
 version="$2"
 archive_name="$3"
 staging="$4"
+lock_dir="$target_dir/.graf-appcast-publish.lock"
+if ! mkdir "$lock_dir" 2>/dev/null; then
+  echo "appcast_publish=blocked reason=remote_publication_in_progress" >&2
+  exit 1
+fi
+lock_released=0
+release_lock() {
+  if [[ "$lock_released" == "0" ]]; then
+    rmdir -- "$lock_dir" 2>/dev/null || true
+    lock_released=1
+  fi
+}
+trap release_lock EXIT
 archive_source="$staging/$archive_name"
 appcast_source="$staging/graf-appcast.xml"
 archive_target="$target_dir/$archive_name"

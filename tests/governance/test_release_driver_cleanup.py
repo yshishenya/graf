@@ -129,7 +129,17 @@ def test_public_release_resume_does_not_delete_existing_tag() -> None:
 
     assert "release_was_public_before_run" in script
     assert "release_public=already_published" in script
-    assert "already exists and is public; refusing to reuse it" not in script
+    assert "release_tag_owned_by_run" in script
+    assert 'release_published" == "true" || "$release_was_public_before_run" == "true"' in script
+
+
+def test_publish_verifies_the_public_feed_before_attestation() -> None:
+    """A remote swap is not complete until the public feed is read back."""
+    script = (ROOT / "scripts" / "release.sh").read_text(encoding="utf-8")
+
+    assert "--verify-feed \"$version\"" in script
+    assert "release-candidate.sh attest" in script
+    assert script.index("--verify-feed \"$version\"") < script.index("release-candidate.sh attest")
 
 
 def test_release_retargets_a_stale_draft_to_the_current_source() -> None:
