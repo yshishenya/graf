@@ -123,6 +123,15 @@ def test_train_collects_prs_in_parallel_and_reports_skips() -> None:
     assert "ThreadPoolExecutor" in collector
 
 
+def test_public_release_resume_does_not_delete_existing_tag() -> None:
+    """A retry after public release must not treat the tag as disposable cleanup."""
+    script = (ROOT / "scripts" / "release.sh").read_text(encoding="utf-8")
+
+    assert "release_was_public_before_run" in script
+    assert "release_public=already_published" in script
+    assert "already exists and is public; refusing to reuse it" not in script
+
+
 def test_release_retargets_a_stale_draft_to_the_current_source() -> None:
     """Старый черновик не должен прикрепить выпуск к прошлой подготовке."""
     script = (ROOT / "scripts" / "release.sh").read_text(encoding="utf-8")
@@ -130,7 +139,7 @@ def test_release_retargets_a_stale_draft_to_the_current_source() -> None:
     assert 'gh release view "$tag" --json isDraft,targetCommitish' in script
     assert 'release_draft=retargeted tag=%s from=%s to=%s' in script
     assert 'gh release edit "$tag" --draft --title' in script
-    assert 'already exists and is public; refusing to reuse it' in script
+    assert 'release_public=already_published' in script
 
 
 def test_remote_deploy_retries_git_fetch_before_failing() -> None:

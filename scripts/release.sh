@@ -62,6 +62,7 @@ root="$(git rev-parse --show-toplevel)"
 cd "$root"
 tag="v${version}"
 release_published=false
+release_was_public_before_run=false
 candidate_file=""
 
 cleanup_unpublished_release() {
@@ -492,8 +493,11 @@ open_draft_release() {
   if [[ -n "$draft_json" ]]; then
     draft_is_draft="$(python3 -c 'import json,sys; print(str(json.load(sys.stdin)["isDraft"]).lower())' <<<"$draft_json")"
     draft_target="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("targetCommitish") or "")' <<<"$draft_json")"
-    [[ "$draft_is_draft" == "true" ]] \
-      || { printf 'release: release %s already exists and is public; refusing to reuse it\n' "$tag" >&2; exit 1; }
+    if [[ "$draft_is_draft" != "true" ]]; then
+      release_was_public_before_run=true
+      printf 'release_public=already_published tag=%s\n' "$tag"
+      return 0
+    fi
     if [[ "$draft_target" != "$source_sha" ]]; then
       # A previous failed attempt may have left a draft pointing at its old
       # preparation commit.  Reusing it unchanged would publish the wrong
@@ -740,7 +744,7 @@ if should_run publish; then
     release_published=true
     printf 'release_publish=already_published tag=%s\n' "$tag"
   fi
-  if [[ "$with_app" == "true" ]]; then
+  if [[ "$with_app" == "true" && "$release_was_public_before_run" != "true" ]]; then
     step "publish: опубликовать подписанный appcast"
     app_archive="$root/apps/macos/.build/updates/GRAF-$version.zip"
     appcast_file="$root/apps/macos/.build/updates/graf-appcast.xml"
@@ -748,6 +752,8 @@ if should_run publish; then
       --version "$version" --archive "$app_archive" --appcast "$appcast_file" \
       --source-sha "$source_sha"
     step_done "publish:appcast"
+  elif [[ "$with_app" == "true" ]]; then
+    printf 'publish: appcast publication already belongs to the completed release; verifying public feed\n'
   fi
   decision_file="${decision_file:-$(ls -t .dev/release/decisions/*.decision.json | head -1)}"
   infra/scripts/release-candidate.sh attest "$decision_file" \
