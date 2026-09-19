@@ -98,12 +98,19 @@ second intervals and finite retry counts. An exhausted deadline is `fail`, not
   unowned PID or unknown Compose project is never terminated.
 - Compensation failure writes a terminal metadata-only receipt surfaced by
   `status` as `rollback_required`, including first promotion without a parent.
-- `status` reports the installed Dev app as `app.path` and `app.installed`, and
-  adds a `warnings` entry naming that path when the app is absent. Presence on
-  disk is the only signal that detects a lost installation: the lifecycle helper
-  matches a running process by bundle path and still answers `running` after the
-  bundle has been removed, so a running process alone never proves that the
-  install exists.
+- Every `status` outcome — active, blocked, rollback-required and unfinished
+  schema transition — reports the installed Dev app as `app.path` and
+  `app.installed`, and adds a `warnings` entry naming that path when the app is
+  absent. The warning identifies the available recovery action: recover an
+  unfinished schema transition, restore from a rollback-required manifest,
+  re-promote the active manifest, or report that no active manifest is available.
+  Presence on disk is the only signal that detects a lost installation:
+  the lifecycle helper matches a running process by bundle path and still answers
+  `running` after the bundle has been removed, so a running process alone never
+  proves that the install exists.
+- An empty `GRAF_DEV_INSTALL_PATH` override is normalized to the default
+  `/Applications/GRAF Dev.app`; other invalid overrides are rejected before
+  status reads or lifecycle mutation. An empty override must never resolve to `.`.
 - Every lifecycle site — promotion, rollback, schema transition and the status
   report — resolves the destination through one helper, so the path that is
   reported can never differ from the path that is mutated.

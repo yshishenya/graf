@@ -97,8 +97,13 @@ compensation fails, metadata-only `rollback-required.json` makes terminal
 no previous active manifest.
 
 `status` also reports the installed application as `app.path` and
-`app.installed`. If `/Applications/GRAF Dev.app` is absent while a manifest is
-active, `status` adds a `warnings` entry naming that path. Do not trust a running
+`app.installed` in active, blocked, rollback-required and unfinished-transition
+responses. If `/Applications/GRAF Dev.app` is absent, it adds a `warnings` entry
+naming that path. The warning names the applicable recovery action for an
+unfinished transition, rollback-required manifest, active manifest, or missing
+active manifest. An empty `GRAF_DEV_INSTALL_PATH` override uses the default
+`/Applications/GRAF Dev.app`; other invalid overrides are rejected and never
+silently resolve to the current directory. Do not trust a running
 process instead of this field: the lifecycle helper identifies the app by bundle
 path, so an app whose bundle was removed keeps running and still answers
 `running`. Restore it with `promote` of the unchanged active manifest from its

@@ -201,11 +201,26 @@ def _dev_app_destination() -> Path:
     """Resolve the installed Dev app path.
 
     The destination is fixed at /Applications/GRAF Dev.app; tests and operators
-    can still inject an explicit path through GRAF_DEV_INSTALL_PATH.  Every
-    caller resolves it through this helper so the reported state and the mutated
-    path can never drift apart.
+    can still inject an explicit path through GRAF_DEV_INSTALL_PATH. Empty
+    overrides are treated as unset so ``Path("")`` can never silently resolve
+    status to the current working directory.
     """
-    return Path(os.environ.get("GRAF_DEV_INSTALL_PATH", str(DEV_APP_PATH)))
+    configured = os.environ.get("GRAF_DEV_INSTALL_PATH")
+    if configured is None or not configured.strip():
+        return DEV_APP_PATH
+    return Path(configured)
+
+
+def _validate_dev_app_destination(destination: Path) -> None:
+    """Reject invalid or production app destinations before reading or mutating."""
+    canonical = Path(os.path.realpath(destination))
+    production = Path(os.path.realpath(PRODUCTION_APP_PATH))
+    if not destination.is_absolute():
+        raise HarnessError("Dev destination must be absolute")
+    if destination.name != "GRAF Dev.app":
+        raise HarnessError("Dev destination must end in GRAF Dev.app")
+    if canonical == production or production in canonical.parents:
+        raise HarnessError("Dev destination cannot be the production GRAF.app or a child path")
 
 
 def _installed_app_state() -> Dict[str, Any]:
@@ -216,7 +231,19 @@ def _installed_app_state() -> Dict[str, Any]:
     Presence on disk is therefore the only signal that notices a lost install.
     """
     destination = _dev_app_destination()
+    _validate_dev_app_destination(destination)
     return {"path": str(destination), "installed": destination.is_dir()}
+
+
+def _status_app_fields(*, recovery_hint: str) -> Dict[str, Any]:
+    """Return app presence fields shared by every status outcome."""
+    app_state = _installed_app_state()
+    fields: Dict[str, Any] = {"app": app_state}
+    if not app_state["installed"]:
+        fields["warnings"] = [
+            f"installed Dev app is missing at {app_state['path']}; {recovery_hint}"
+        ]
+    return fields
 
 
 def _assert_dev_environment() -> None:
@@ -1672,13 +1699,8 @@ class GrafLocalAdapter:
 
     @staticmethod
     def _assert_dev_app_destination(destination: Path) -> None:
-        """Reject production app paths before reading or mutating them."""
-        canonical = Path(os.path.realpath(destination))
-        production = Path(os.path.realpath(PRODUCTION_APP_PATH))
-        if destination.name != "GRAF Dev.app":
-            raise HarnessError("Dev destination must end in GRAF Dev.app")
-        if canonical == production or production in canonical.parents:
-            raise HarnessError("Dev destination cannot be the production GRAF.app or a child path")
+        """Reject invalid or production app destinations before mutation."""
+        _validate_dev_app_destination(destination)
 
     def _restore_app(self, backup: Optional[Path]) -> None:
         destination = _dev_app_destination()
@@ -2637,7 +2659,17 @@ def operation_status(args: argparse.Namespace) -> Dict[str, Any]:
     root = state_dir(live=bool(getattr(args, "live", False)))
     journal = _read_schema_transition(root)
     if journal and journal["phase"] not in {"complete", "recovered"}:
-        return {"operation": "status", "status": "rollback_required", "phase": journal["phase"], "source_sha": journal["target"]["source_sha"], "state_dir": str(root)}
+        app_fields = _status_app_fields(
+            recovery_hint="recover the unfinished schema transition before manual checks"
+        )
+        return {
+            "operation": "status",
+            "status": "rollback_required",
+            "phase": journal["phase"],
+            "source_sha": journal["target"]["source_sha"],
+            "state_dir": str(root),
+            **app_fields,
+        }
     recovery_path = root / "rollback-required.json"
     if recovery_path.exists():
         recovery = _read_json(recovery_path)
@@ -2653,16 +2685,29 @@ def operation_status(args: argparse.Namespace) -> Dict[str, Any]:
         _validate_manifest(manifest)
         if manifest["source_sha"] != recovery["source_sha"]:
             raise HarnessError("rollback-required receipt does not match its manifest")
+        app_fields = _status_app_fields(
+            recovery_hint="restore it from the rollback-required manifest before manual checks"
+        )
         return {
             "operation": "status",
             "status": "rollback_required",
             "state_dir": str(root),
             "manifest": manifest,
             "recovery": recovery,
+            **app_fields,
         }
     active = _load_active(root)
     if active is None:
-        return {"operation": "status", "status": "blocked", "reason": "no active Dev manifest", "state_dir": str(root)}
+        app_fields = _status_app_fields(
+            recovery_hint="no active manifest is available"
+        )
+        return {
+            "operation": "status",
+            "status": "blocked",
+            "reason": "no active Dev manifest",
+            "state_dir": str(root),
+            **app_fields,
+        }
     retention = {
         "active_manifest_id": str(active["manifest_id"]),
         "rollback_target_id": None,
@@ -2676,26 +2721,17 @@ def operation_status(args: argparse.Namespace) -> Dict[str, Any]:
     artifacts = root / "artifacts"
     if artifacts.is_dir():
         retention["artifacts_bytes"] = sum(_path_bytes(child) for child in artifacts.iterdir())
-    app_state = _installed_app_state()
-    payload = {
+    app_fields = _status_app_fields(
+        recovery_hint="re-promote the active manifest from its exact-SHA checkout to restore it before manual checks"
+    )
+    return {
         "operation": "status",
         "status": active.get("status", "active"),
         "state_dir": str(root),
         "manifest": active,
         "retention": retention,
-        "app": app_state,
+        **app_fields,
     }
-    # A process whose bundle is already gone still answers `running`, because
-    # the lifecycle helper matches it by bundle path.  Without an explicit
-    # presence report the loss stays invisible until the next promotion
-    # replaces the whole application.
-    if not app_state["installed"]:
-        payload["warnings"] = [
-            f"installed Dev app is missing at {app_state['path']}; re-promote the "
-            "active manifest from its exact-SHA checkout to restore it before "
-            "manual checks"
-        ]
-    return payload
 
 
 def operation_prune(args: argparse.Namespace) -> Dict[str, Any]:

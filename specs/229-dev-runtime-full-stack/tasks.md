@@ -133,7 +133,7 @@ growth or release confusion.
 
 **Purpose**: Make a lost installed app visible instead of silent, and resolve the Dev app destination in one place.
 
-- [ ] T042 [US3] Report the installed Dev app as `app.path` and `app.installed` in the `status` payload, add a `warnings` entry naming the path when the app is absent, resolve every lifecycle site through one destination helper, and cover it in `tests/governance/test_dev_harness.py` with the contract, stand instructions and operator guidance updated (Issue #7213).
+- [ ] T042 [US3] Report the installed Dev app as `app.path` and `app.installed` in every `status` outcome, add a `warnings` entry naming the path when the app is absent, normalize empty and reject invalid destination overrides, resolve every lifecycle site through one destination helper, and cover active, blocked, recovery and transition states in `tests/governance/test_dev_harness.py` with the contract, stand instructions and operator guidance updated (Issue #7213).
 
 ## Dependencies & Execution Order
 

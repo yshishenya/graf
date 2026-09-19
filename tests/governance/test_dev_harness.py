@@ -282,8 +282,61 @@ def test_dev_app_destination_honours_the_injected_path(monkeypatch, tmp_path):
     monkeypatch.setenv("GRAF_DEV_INSTALL_PATH", str(injected))
     assert dev_harness._dev_app_destination() == injected
 
+    monkeypatch.setenv("GRAF_DEV_INSTALL_PATH", "")
+    assert dev_harness._dev_app_destination() == dev_harness.DEV_APP_PATH
+
+    monkeypatch.setenv("GRAF_DEV_INSTALL_PATH", str(tmp_path / "wrong-name"))
+    with pytest.raises(dev_harness.HarnessError, match="GRAF Dev.app"):
+        dev_harness._installed_app_state()
+
+    monkeypatch.setenv("GRAF_DEV_INSTALL_PATH", "GRAF Dev.app")
+    with pytest.raises(dev_harness.HarnessError, match="absolute"):
+        dev_harness._installed_app_state()
+
     monkeypatch.delenv("GRAF_DEV_INSTALL_PATH")
     assert dev_harness._dev_app_destination() == dev_harness.DEV_APP_PATH
+
+
+def test_status_reports_app_state_for_blocked_and_recovery_outcomes(monkeypatch, tmp_path):
+    monkeypatch.setenv("GRAF_DEV_INSTALL_PATH", str(tmp_path / "GRAF Dev.app"))
+
+    blocked = run("status", tmp_path)
+    assert blocked["status"] == "blocked"
+    assert blocked["app"] == {"path": str(tmp_path / "GRAF Dev.app"), "installed": False}
+    assert blocked["warnings"] == [
+        f"installed Dev app is missing at {tmp_path / 'GRAF Dev.app'}; no active manifest is available"
+    ]
+
+    monkeypatch.setattr(
+        dev_harness,
+        "_read_schema_transition",
+        lambda _root: {"phase": "migrating", "target": {"source_sha": "e" * 40}},
+    )
+    transition = run("status", tmp_path)
+    assert transition["status"] == "rollback_required"
+    assert transition["app"] == blocked["app"]
+    assert transition["warnings"] == [
+        f"installed Dev app is missing at {tmp_path / 'GRAF Dev.app'}; recover the unfinished schema transition before manual checks"
+    ]
+    monkeypatch.setattr(dev_harness, "_read_schema_transition", lambda _root: None)
+
+    recovery = {
+        "schema_version": "dev-rollback-required.v1",
+        "status": "rollback_required",
+        "manifest_id": "dev-" + "d" * 12,
+        "source_sha": "d" * 40,
+    }
+    manifest = build(tmp_path, "d" * 40)
+    recovery["manifest_id"] = manifest["manifest_id"]
+    dev_harness._write_json(tmp_path / "manifests" / f"{manifest['manifest_id']}.json", manifest)
+    dev_harness._write_json(tmp_path / "rollback-required.json", recovery)
+
+    required = run("status", tmp_path)
+    assert required["status"] == "rollback_required"
+    assert required["app"] == blocked["app"]
+    assert required["warnings"] == [
+        f"installed Dev app is missing at {tmp_path / 'GRAF Dev.app'}; restore it from the rollback-required manifest before manual checks"
+    ]
 
 
 def _promote_worker(root: str, manifest: str, queue) -> None:
