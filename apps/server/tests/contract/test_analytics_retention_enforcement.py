@@ -36,9 +36,9 @@ TTL_APPLY_PATH = REPO_ROOT / "infra/scripts/apply-posthog-event-ttl.sh"
 TTL_SQL_PATH = REPO_ROOT / "infra/posthog/clickhouse-retention.sql"
 PRODUCT_ANALYTICS_MODELS_PATH = REPO_ROOT / "apps/server/src/twobrain_rec_server/db/models/product_analytics.py"
 PRODUCT_ANALYTICS_MIGRATIONS = (
-    REPO_ROOT / "apps/server/src/twobrain_rec_server/db/migrations/versions/0093_anonymous_page_aggregate.py",
-    REPO_ROOT / "apps/server/src/twobrain_rec_server/db/migrations/versions/0094_public_attribution.py",
-    REPO_ROOT / "apps/server/src/twobrain_rec_server/db/migrations/versions/0095_client_attribution_bridge.py",
+    REPO_ROOT / "apps/server/src/twobrain_rec_server/db/migrations/versions/0094_anonymous_page_aggregate.py",
+    REPO_ROOT / "apps/server/src/twobrain_rec_server/db/migrations/versions/0095_public_attribution.py",
+    REPO_ROOT / "apps/server/src/twobrain_rec_server/db/migrations/versions/0096_client_attribution_bridge.py",
 )
 BILLING_MODELS_PATH = REPO_ROOT / "apps/server/src/twobrain_rec_server/db/models/billing.py"
 INVENTORY_PATH = REPO_ROOT / "infra/posthog/backup-volumes.txt"
