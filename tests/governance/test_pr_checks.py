@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import re
 import sys
+import threading
 import zipfile
 
 import pytest
@@ -260,6 +261,10 @@ def test_release_source_checks_actual_range(snapshot, monkeypatch, case):
     (root / ".github").mkdir()
     (root / ".github/pr-check-policy.json").write_text(json.dumps(policy))
     visited = []
+    active = 0
+    max_active = 0
+    active_lock = threading.Lock()
+    barrier = threading.Barrier(2) if case == "two-prs" else None
     def api(_repo, endpoint, **_kwargs):
         if endpoint.startswith("releases?"):
             releases = [dict(tag_name="v2026.08.31.1", published_at="2026-08-31T00:00:00Z")]
@@ -285,9 +290,20 @@ def test_release_source_checks_actual_range(snapshot, monkeypatch, case):
         return [dict(number=8 if commit == source else 7, merge_commit_sha=commit,
                      merged_at="2026-09-13T00:00:00Z", base=dict(ref="master"))]
     def verify(_repo, number):
+        nonlocal active, max_active
+        with active_lock:
+            active += 1
+            max_active = max(max_active, active)
         visited.append(number)
-        return dict(pr_number=number, merge_commit_sha=source if number == 8 else first,
-                    base_sha=base if number == 7 or case == "rebase" else first)
+        try:
+            if barrier is not None:
+                barrier.wait(timeout=2)
+            return dict(pr_number=number, merge_commit_sha=source if number == 8 else first,
+                        base_sha=base if number == 7 or case == "rebase" else first,
+                        target_sha=source)
+        finally:
+            with active_lock:
+                active -= 1
     monkeypatch.setattr(checks, "api", api)
     monkeypatch.setattr(checks, "verify", verify)
     expected = [8] if case in {"rebase", "mixed-prs"} else [7, 8]
@@ -302,7 +318,13 @@ def test_release_source_checks_actual_range(snapshot, monkeypatch, case):
     else:
         results = checks.verify_source("owner/repo", source, included_prs=expected)
         assert sorted(row["pr_number"] for row in results) == expected
-        assert visited == list(reversed(expected))
+        assert set(expected).issubset(visited)
+        if case == "rebase":
+            assert set(visited) == {7, 8}
+        else:
+            assert set(visited) == set(expected)
+        if case == "two-prs":
+            assert max_active >= 2
 
 
 def test_task_closeout_is_metadata_only_only_for_task_docs(snapshot, monkeypatch):

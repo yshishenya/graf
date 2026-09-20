@@ -665,15 +665,26 @@ def verify_source(repository, source_sha, *, included_prs=None):
             break
     require(base is not None, "previous published release ancestor is unavailable")
     commits = metadata._git("rev-list", "--first-parent", f"{base}..{source_sha}").splitlines()
-    covered, results = set(), []
+    candidates, results = [], []
+    covered = set()
+    deferred_prs = set()
     metadata_kinds = set()
     for commit in commits:
-        if commit in covered:
-            continue
         prs = api(repository, f"commits/{commit}/pulls?per_page=100", pages_key="")
+        all_matches = [pr for pr in prs if pr.get("merged_at")
+                       and pr.get("base", {}).get("ref") == "master"]
         matches = [pr for pr in prs if pr.get("merged_at") and pr.get("merge_commit_sha") == commit
                    and pr.get("base", {}).get("ref") == "master"]
         if not matches:
+            if all_matches:
+                require(len(all_matches) == 1 and isinstance(all_matches[0].get("number"), int),
+                        "release commit maps to multiple merged pull requests")
+                # Fast-forward merges expose the PR's individual commits on
+                # the first-parent range before the tip commit that GitHub
+                # records as merge_commit_sha. Defer those commits and verify
+                # the PR exactly once when its merge commit is reached.
+                deferred_prs.add(all_matches[0]["number"])
+                continue
             kind = (
                 "release-prep"
                 if metadata_only_release_prep(commit, published_version=base_release_tag)
@@ -688,10 +699,31 @@ def verify_source(repository, source_sha, *, included_prs=None):
             metadata_kinds.add(kind)
             continue
         require(len(matches) == 1, "release contains source without a unique merged PR")
-        proof = verify(repository, matches[0]["number"])
-        require(proof["merge_commit_sha"] == commit, "release PR merge identity changed")
-        covered.update(metadata._git("rev-list", "--first-parent", f"{proof['base_sha']}..{commit}").splitlines())
-        results.append(proof)
+        candidates.append((commit, matches[0]["number"]))
+
+    candidate_prs = {number for _commit, number in candidates}
+    require(deferred_prs <= candidate_prs,
+            "release contains source without a unique merged PR")
+
+    # PR checks are independent once the exact first-parent release range has
+    # been derived. Keep the concurrency bounded, but do not serialize network
+    # proof downloads behind the slowest PR. Results are consumed in release
+    # order so the manifest remains deterministic.
+    with concurrent.futures.ThreadPoolExecutor(
+        max_workers=min(8, len(candidates) or 1)
+    ) as pool:
+        futures = [pool.submit(verify, repository, number) for _commit, number in candidates]
+        for (commit, _number), future in zip(candidates, futures):
+            # A squash/rebase range can expose more than one commit for the
+            # same PR. The first verified merge commit covers the remainder;
+            # preserve that old exact-range rule while allowing the independent
+            # futures to run concurrently.
+            if commit in covered:
+                continue
+            proof = future.result()
+            require(proof["merge_commit_sha"] == commit, "release PR merge identity changed")
+            covered.update(metadata._git("rev-list", "--first-parent", f"{proof['base_sha']}..{commit}").splitlines())
+            results.append(proof)
     numbers = sorted(proof["pr_number"] for proof in results)
     if included_prs is not None:
         require(sorted(included_prs) == numbers, "train PR set differs from the published-release range")

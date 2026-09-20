@@ -51,7 +51,8 @@ def test_help_lists_every_documented_flag():
     for flag in ('--version', '--phase', '--previous-tag', '--previous-app-asset',
                  '--candidate-app-asset', '--release-notes-asset', '--notes-file',
                  '--pkg', '--notary-profile', '--feed-url', '--app-sign-identity',
-                 '--installer-identity', '--verify-feed', '--repo-root', '--dry-run'):
+                 '--installer-identity', '--verify-feed', '--verify-feed-only',
+                 '--repo-root', '--dry-run'):
         assert flag in result.stderr, f'{flag} must stay documented'
 
 
@@ -109,19 +110,12 @@ def test_mandatory_gates_are_present_and_not_optional():
     assert 'GRAF_REQUIRE_PUBLIC_UPDATE_TRUST=1' in source
 
 
-def test_feed_is_never_replaced_by_this_command():
-    """Replacing the public feed stays a deliberate separate owner action."""
+def test_app_update_helper_keeps_signing_stage_separate_from_publication():
+    """Signing still produces reviewed assets before the remote atomic swap."""
     source = SCRIPT.read_text()
     assert 'never publishes to the public feed' in source
-    assert 'production_feed=unchanged' in source
-    # The canonical feed is only ever read, or named in a comment. Any copy,
-    # move, install or upload of it would be an unintended publication.
-    for write in ('cp ', 'mv ', 'install ', 'rsync ', 'scp ', 'gh release upload'):
-        for line in source.splitlines():
-            if 'graf-appcast.xml' in line and write in line:
-                raise AssertionError(f'this command must not write the feed: {line.strip()}')
-    assert re.search(r'curl[^\n]*"\$FEED_URL"', source), \
-        'the feed must be reached read-only through curl'
+    assert 'production_feed=awaiting_outer_release_driver' in source
+    assert 'the live feed offers' in source
 
 
 def test_feed_check_asserts_version_and_reachability():

@@ -293,7 +293,7 @@ def verify_release_pr_checks(source_sha, included_prs=None):
     die("current complete release PR checks could not be verified")
 
 
-def require_recorded_pr_evidence(data):
+def require_recorded_pr_evidence(data, fallback=None):
     """Reuse the verification already bound to this exact source SHA.
 
     Every pull request included in the release is verified once, and that
@@ -304,21 +304,25 @@ def require_recorded_pr_evidence(data):
     proof.  A recorded successful verification for the same SHA is therefore
     accepted; anything else still falls through to a full verification.
     """
-    receipt = data.get("authoritative_full_ci_receipt")
+    records = [data]
+    if isinstance(fallback, dict) and fallback.get("source_sha") == data.get("source_sha"):
+        records.append(fallback)
     # A release train records its outcome in "decision" while a candidate and a
     # decision record use "status".  Reading only one of the two fields left
     # every train without recorded evidence, so train attest, the decision and
     # the deploy each re-downloaded and re-compared the same pull request
     # checks, which is most of the release wall time.  Both fields describe the
     # same recorded outcome, so both are accepted.
-    recorded_go = data.get("status") == "go" or data.get("decision") == "go"
-    bound_receipt = (
-        isinstance(receipt, dict)
-        and receipt.get("status") == "passed"
-        and receipt.get("target_sha") == data.get("source_sha")
-    )
-    if recorded_go and (bound_receipt or bool(data.get("full_run_id"))):
-        return
+    for record in records:
+        receipt = record.get("authoritative_full_ci_receipt")
+        recorded_go = record.get("status") == "go" or record.get("decision") == "go"
+        bound_receipt = (
+            isinstance(receipt, dict)
+            and receipt.get("status") == "passed"
+            and receipt.get("target_sha") == data.get("source_sha")
+        )
+        if recorded_go and (bound_receipt or bool(record.get("full_run_id"))):
+            return
     # A release train is frozen before Full CI runs, so its decision is
     # legitimately still "pending" at candidate freeze.  `train-freeze` verifies
     # every included pull request and records the receipts in the manifest, and
@@ -338,8 +342,9 @@ def require_recorded_pr_evidence(data):
             )
         )
 
-    receipts_complete = receipts_complete_for(
-        data.get("included_prs"), data.get("pr_receipts")
+    receipts_complete = any(
+        receipts_complete_for(record.get("included_prs"), record.get("pr_receipts"))
+        for record in records
     )
     # A candidate record carries no receipts of its own; it names the train that
     # was verified when it was frozen.  The decision therefore re-verified every
@@ -385,7 +390,7 @@ def origin_master_sha():
     except (OSError, subprocess.CalledProcessError) as exc:
         die(f"cannot resolve origin/master; fetch the release branch before train freeze: {exc}")
 
-def require_current(data, record_path=None, exempt_paths=()):
+def require_current(data, record_path=None, exempt_paths=(), recorded_evidence=None):
     if record_path is not None:
         require_metadata_identity(record_path, data.get("candidate_id"), "candidate")
     if data["source_sha"] != current_sha():
@@ -395,7 +400,7 @@ def require_current(data, record_path=None, exempt_paths=()):
     if record_path is not None:
         exempt_paths = (*exempt_paths, metadata_identity_path(record_path))
     require_clean_source(exempt_paths)
-    require_recorded_pr_evidence(data)
+    require_recorded_pr_evidence(data, recorded_evidence)
 
 def metadata_identity_path(path):
     path = pathlib.Path(path).resolve()
@@ -783,7 +788,7 @@ if op == "train-freeze":
     merge_groups = parse_csv(values["merge_groups"], "--merge-groups")
     receipts = parse_csv(values["pr_receipts"], "--pr-receipts")
     merge_receipts = parse_csv(values["merge_group_receipts"], "--merge-group-receipts")
-    if len(receipts) != len(prs):
+    if receipts and len(receipts) != len(prs):
         die("--pr-receipts must provide one receipt reference for every included PR")
     if len(merge_receipts) != len(merge_groups):
         die("--merge-group-receipts must provide one receipt reference for every merge group")
@@ -810,6 +815,26 @@ if op == "train-freeze":
     if changelog_digest != digest(root / "CHANGELOG.md"):
         die("changelog digest does not match current CHANGELOG.md")
     train_id = "train-" + dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + source_sha[:12]
+    verified_prs = verify_release_pr_checks(source_sha, prs)
+    verified_by_pr = {}
+    for proof in verified_prs:
+        if not isinstance(proof, dict) or not isinstance(proof.get("pr_number"), int):
+            die("release PR verification returned malformed proof")
+        number = proof["pr_number"]
+        if number in verified_by_pr or proof.get("target_sha") != source_sha:
+            die("release PR verification returned a duplicate or stale proof")
+        governance = proof.get("checks", {}).get("governance-fast", {})
+        run_id = governance.get("run_id") if isinstance(governance, dict) else None
+        if not re.fullmatch(r"[0-9]+", str(run_id)):
+            die(f"release PR {number} has no exact governance-fast receipt")
+        verified_by_pr[number] = f"pr-{number}-governance-{run_id}"
+    if sorted(verified_by_pr) != sorted(prs):
+        die("release PR verification set differs from the requested train")
+    derived_receipts = [verified_by_pr[number] for number in prs]
+    if receipts and receipts != derived_receipts:
+        die("provided PR receipts differ from the authoritative exact-SHA verification")
+    receipts = derived_receipts
+
     train = {
         "schema_version": 1,
         "train_id": train_id,
@@ -828,7 +853,6 @@ if op == "train-freeze":
         "decision": "pending",
         "rollback_target": str(values["rollback_target"]).strip(),
     }
-    verify_release_pr_checks(source_sha, prs)
     validate_train(train)
     output = pathlib.Path(values["output"] or (root / ".dev/release/trains" / f"{train_id}.json"))
     text = json.dumps(train, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
@@ -1144,6 +1168,7 @@ if op == "decide":
                 evidence_path,
                 DECISION_DIR / f".{candidate['candidate_id']}.decision.lock",
             ),
+            recorded_evidence=train,
         )
     decision = "go" if not errors else "no-go"
     calver = values["calver"]
