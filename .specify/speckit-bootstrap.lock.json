@@ -1,5 +1,5 @@
 {
-  "bootstrap_version": "0.9.10",
+  "bootstrap_version": "0.9.11",
   "extensions": {
     "agent_context": {
       "manifest_hash": "sha256:9a1dc02d2d0139bb03860392ecacef79183be2c442feda2f9ccaa4e5907b1e47",
@@ -26,6 +26,9 @@
     "marketplace_sha256": "disabled",
     "ref": "disabled",
     "version": "disabled"
+  },
+  "project_overrides": {
+    "speckit.implement": "4e854b70f9b6712c31583a30990203dacfc67ee95c6a6324237defdfdc8bc775"
   },
   "project_skills": {
     "speckit-agent-context-update": "d570b8f69215eb2ed302adcd8e0db18facb789d5aa30f3297dac9e5cd3f68cf8",
