@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
+from typing import Any
+
 from fastapi import APIRouter
 
 from twobrain_rec_server.cabinet.web_routes import (
@@ -21,7 +24,10 @@ from twobrain_rec_server.cabinet.web_routes import (
     titles,
 )
 from twobrain_rec_server.product_analytics.events import build_activation_event
-from twobrain_rec_server.product_analytics.milestones import first_value_decision
+from twobrain_rec_server.product_analytics.milestones import (
+    first_value_decision,
+    milestone_attribution_properties,
+)
 from twobrain_rec_server.product_analytics.telemetry_gate import build_required_disclosure
 
 router = APIRouter(tags=["cabinet-web"])
@@ -50,6 +56,7 @@ def build_first_result_viewed_product_analytics_payload(
     useful_output_present: bool,
     surface: str = "cabinet_web",
     elapsed_bucket: str | None = None,
+    campaign_context: Mapping[str, Any] | None = None,
 ) -> dict[str, object]:
     event = build_activation_event(
         "first_result_viewed",
@@ -58,6 +65,9 @@ def build_first_result_viewed_product_analytics_payload(
             "result_state": result_state,
             "useful_output_present": useful_output_present,
             "surface": surface,
+            # The campaign of the visit travels with the milestone (FR-018); a
+            # campaign nobody knows is reported as unknown, never as direct.
+            **milestone_attribution_properties(campaign_context=campaign_context),
             **({"elapsed_bucket": elapsed_bucket} if elapsed_bucket else {}),
         },
     )
@@ -71,6 +81,7 @@ def build_first_value_product_analytics_payload(
     useful_output_present: bool,
     useful_result_type: str | None,
     elapsed_bucket: str | None = None,
+    campaign_context: Mapping[str, Any] | None = None,
 ) -> dict[str, object] | None:
     decision = first_value_decision(
         result_state=result_state,
@@ -87,7 +98,11 @@ def build_first_value_product_analytics_payload(
             "first_result_viewed": True,
             "useful_output_present": True,
             "useful_result_type": decision.useful_result_type,
-            "attribution_reliability": "campaign_linked_reliable",
+            # The level is derived from the campaign this event actually
+            # carries: a fixed "linked" would claim a link the event cannot
+            # show, and an event without a campaign must stay ``unknown``
+            # (FR-018, FR-023, FR-024).
+            **milestone_attribution_properties(campaign_context=campaign_context),
             **({"elapsed_bucket": elapsed_bucket} if elapsed_bucket else {}),
         },
     )

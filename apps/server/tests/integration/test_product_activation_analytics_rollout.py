@@ -104,7 +104,7 @@ def test_synthetic_source_to_first_value_funnel_is_safe_and_server_mediated() ->
         ),
         (
             "desktop_autorecord_enabled",
-            {"policy_state": "enabled", "previous_state": "disabled", "source": "user_action", "surface": "desktop"},
+            {"policy_state": "enabled", "previous_state": "disabled", "autorecord_source": "user_action", "surface": "desktop"},
         ),
         (
             "first_recording_completed",

@@ -1,0 +1,836 @@
+{
+  "schema": "graf.analytics.report-catalog.v1",
+  "feature": "273-paid-traffic-analytics",
+  "tasks": ["T055", "T056", "T057", "T058", "T059", "T060", "T061"],
+  "requirements": ["FR-040", "FR-041", "FR-042", "FR-043", "SC-006", "SC-007", "SC-008"],
+  "language": "ru",
+  "purpose": "Один набор отчётов, который владелец открывает раз в неделю и понимает результат: какие каналы и объявления работают, где отваливаются люди, сколько стоит одна активация и не сломано ли измерение.",
+  "human_document": "docs/analytics/product-analytics-reports.md",
+  "apply_document": "infra/analytics/dashboards/README.md",
+  "runtime_status": "runtime-status.json",
+  "operator_evidence_schema": "operator-evidence.schema.json",
+  "provider_definitions": {
+    "posthog": "posthog/dashboards.json",
+    "yandex": "yandex/reports.json"
+  },
+  "report_minimums": {
+    "posthog_dashboards": 8,
+    "yandex_reports": 8,
+    "source_096": [
+      "specs/096-product-analytics-provider-rollout/contracts/posthog-provider-runbook.md",
+      "specs/096-product-analytics-provider-rollout/contracts/yandex-provider-runbook.md"
+    ],
+    "source_093": "specs/093-public-landing-analytics/contracts/analytics-provider-setup.md",
+    "claimed": {"posthog_dashboards": 14, "yandex_reports": 10}
+  },
+  "owner_questions": [
+    {
+      "id": "Q1",
+      "question": "Какие каналы дают результат, а какие жгут бюджет?",
+      "reports": ["R01", "R02", "R03"]
+    },
+    {
+      "id": "Q2",
+      "question": "Какие объявления и посадочные страницы работают?",
+      "reports": ["R02", "R03"]
+    },
+    {
+      "id": "Q3",
+      "question": "Где отваливаются люди на пути от клика до первой ценности?",
+      "reports": ["R04", "R05", "R06"]
+    },
+    {
+      "id": "Q4",
+      "question": "Сколько стоит один результат и не разошёлся ли расход с кабинетом?",
+      "reports": ["R07", "R08"]
+    },
+    {
+      "id": "Q5",
+      "question": "Можно ли верить цифрам: не сломано ли измерение, кого мы не видим и что с данными дальше?",
+      "reports": ["R09", "R10", "R11", "R12", "R13", "R14"]
+    }
+  ],
+  "attribution_rule": {
+    "rule": "last_non_direct_90d",
+    "window_days": 90,
+    "unknown_is_not_direct": true,
+    "applies_to": ["posthog_events", "yandex_metrica_reporting_api"],
+    "reference": "FR-017, FR-024, T049",
+    "code_reference": "apps/server/src/twobrain_rec_server/product_analytics/acquisition.py",
+    "normalization": "источник и канал приводятся к нижнему регистру, метки проходят тот же очиститель, что и обезличенный агрегат уровня 1 (T009)",
+    "reliability_values": {
+      "event_field": "attribution_reliability",
+      "event_values": ["campaign_linked_reliable", "campaign_linked_weak", "counted_unlinked", "not_linkable"],
+      "client_field": "attribution_confidence",
+      "client_values": ["linked", "weak", "unknown"],
+      "meaning": "«неизвестно» — это не «прямой заход»: строка неизвестных не складывается с прямыми"
+    }
+  },
+  "level_1_aggregate": {
+    "surface": "graf_aggregate_pg",
+    "meaning": "Обезличенный счёт публичных страниц: знаменатель, который не зависит от согласия.",
+    "code_reference": "apps/server/src/twobrain_rec_server/product_analytics/anonymous_aggregate.py",
+    "on_posthog_surface": false,
+    "minimum_bucket_size": 3,
+    "note": "Уровень 1 живёт в PostgreSQL. На отчётную поверхность PostHog он не выгружается: это отдельный шаг оператора, отмеченный во всех дашбордах. На отчётную поверхность продукта (GET /api/v1/product-analytics/reports) он выгружается кодом продукта, и доля согласия считается там же."
+  },
+  "metric_vocabulary": {
+    "visits_anonymous": {
+      "title": "Визиты (обезличенный счёт)",
+      "surface": "graf_aggregate_pg",
+      "level": 1,
+      "signal": "public_page_view_aggregate",
+      "unit": "визиты"
+    },
+    "consent_share": {
+      "title": "Доля посетителей с необязательным согласием",
+      "surface": "graf_aggregate_pg",
+      "level": 1,
+      "signal": "public_consent_share_aggregate",
+      "unit": "доля"
+    },
+    "download_intent_clicks": {
+      "title": "Нажатия «Скачать»",
+      "surface": "posthog_events",
+      "level": 3,
+      "event": "public_installer_download_clicked",
+      "unit": "нажатия",
+      "meaning": "намерение скачать, а не состоявшееся скачивание (FR-019, FR-043)"
+    },
+    "installer_downloads": {
+      "title": "Состоявшиеся скачивания установщика",
+      "surface": "graf_aggregate_pg",
+      "level": 1,
+      "signal": "public_installer_download_aggregate",
+      "unit": "скачивания",
+      "meaning": "файл фактически отдан, это факт, а не намерение (FR-019)"
+    },
+    "first_opened": {
+      "title": "Первый запуск приложения",
+      "surface": "posthog_events",
+      "level": 2,
+      "event": "desktop_first_opened",
+      "unit": "запуски"
+    },
+    "account_connected": {
+      "title": "Подключение аккаунта",
+      "surface": "posthog_events",
+      "level": 2,
+      "event": "desktop_account_connected",
+      "unit": "подключения"
+    },
+    "first_recording": {
+      "title": "Первая завершённая запись",
+      "surface": "posthog_events",
+      "level": 2,
+      "event": "first_recording_completed",
+      "unit": "записи"
+    },
+    "first_result_viewed": {
+      "title": "Первый просмотр результата",
+      "surface": "posthog_events",
+      "level": 2,
+      "event": "first_result_viewed",
+      "unit": "просмотры"
+    },
+    "first_value": {
+      "title": "Первая ценность (активация)",
+      "surface": "posthog_events",
+      "level": 2,
+      "event": "first_value_session_completed",
+      "unit": "активации",
+      "meaning": "именно эта веха называется «активация» в стоимости результата (SC-007)"
+    },
+    "spend_rub": {
+      "title": "Расход рекламного кабинета",
+      "surface": "ad_cabinet_export",
+      "unit": "₽",
+      "meaning": "выгрузка расхода Яндекс.Директа, соединяется с конверсиями по меткам кампании (FR-041)"
+    },
+    "delivery_gap_events": {
+      "title": "События с пробелом доставки",
+      "surface": "graf_readiness_api",
+      "unit": "события",
+      "meaning": "доставка не завершилась; в отчёте это пробел, а не ноль"
+    }
+  },
+  "empty_value_policy": {
+    "rule_id": "gap_is_not_zero",
+    "requirement": "T060, FR-040",
+    "why": "Разрыв в доставке сегодня маскируется нулём, и владелец принимает это за отсутствие интереса. Пробел обязан выглядеть как пробел.",
+    "meaning": {
+      "no_data": "За период не пришло ни одного события из этого источника. Показывать «нет данных».",
+      "true_zero": "Доставка проверена, событий действительно не было. Показывать 0.",
+      "measured": "Доставка подтверждена, значение показано как есть.",
+      "suppressed_small_bucket": "Корзина меньше минимального размера (FR-057). Показывать «скрыто: мало данных».",
+      "not_applicable": "Показатель к этому разрезу неприменим. Показывать «—» с пояснением."
+    },
+    "rendered_as": "нет данных",
+    "never_render_as": ["0", "0 %", "нулевая конверсия", "пустая ячейка без пояснения"],
+    "how_to_distinguish": "Плитка «Полнота данных и пробелы» за тот же период плюс состояние свежести отчёта.",
+    "default_period_value": null
+  },
+  "caveat_library": {
+    "no_optional_consent_share": {
+      "required_on_every_report": true,
+      "text": "Доля посетителей без необязательного согласия за период указана рядом с цифрами. Эти посетители не дают ни одного события уровня 3: их визиты видны только в обезличенном счёте уровня 1."
+    },
+    "internal_traffic": {
+      "required_on_every_report": true,
+      "text": "В цифры может попадать внутренний, служебный и тестовый трафик. Пока фильтр T075 не подтверждён, бизнес-выводы по абсолютным значениям делать нельзя."
+    },
+    "delivery_gap_note": {
+      "required_on_every_report": true,
+      "text": "Разрыв доставки — это пробел измерения, а не отсутствие интереса. Пробел показывается как «нет данных», никогда как 0."
+    },
+    "attribution_window_90d": {
+      "required_on_every_report": false,
+      "text": "Применяется одно правило атрибуции: последний непрямой источник в окне 90 дней. Конверсия позже окна к кампании не привязывается и попадает в строку «вне окна»."
+    },
+    "unknown_not_direct": {
+      "required_on_every_report": false,
+      "text": "«Кампания неизвестна» и «прямой заход» — разные строки. Неизвестное не складывается с прямыми и не переименовывается в них (FR-024)."
+    },
+    "aggregate_min_bucket": {
+      "required_on_every_report": false,
+      "text": "Корзины меньше трёх визитов не раскрываются (FR-057), поэтому сумма по разрезу может быть меньше общего числа визитов. Разница показывается отдельной строкой «скрыто: мало данных»."
+    },
+    "provider_retention": {
+      "required_on_every_report": false,
+      "text": "Удаление данных в GRAF не удаляет агрегаты, выгрузки и уже загруженные офлайн-конверсии у внешних получателей. Обещания об удалении ограничены хранилищем GRAF."
+    },
+    "posthog_delivery_disabled_today": {
+      "required_on_every_report": false,
+      "text": "На дату определения отчётов доставка событий в PostHog выключена. Пустой дашборд сейчас означает выключенную доставку, а не отсутствие интереса."
+    },
+    "level1_not_on_posthog_surface": {
+      "required_on_every_report": false,
+      "text": "Обезличенный счёт уровня 1 живёт в PostgreSQL и на отчётную поверхность PostHog не выгружается. Знаменатель «все визиты» берётся из продуктового контура, а не из PostHog."
+    },
+    "metrica_consented_only": {
+      "required_on_every_report": false,
+      "text": "Счётчик Метрики загружается только после необязательного согласия, поэтому её знаменатель — согласившиеся посетители. Визиты без согласия в Метрике отсутствуют полностью."
+    },
+    "metrica_sampling": {
+      "required_on_every_report": false,
+      "text": "При большом объёме отчёт Метрики может быть выборочным. Для сверки по кампаниям использовать точность «полная» (accuracy=full)."
+    },
+    "offline_conversions_two_milestones": {
+      "required_on_every_report": false,
+      "text": "В Метрику загружаются только две согласованные вехи: подключение аккаунта и первая ценность. Остальные вехи в Метрике отсутствуют и не должны там искаться."
+    },
+    "dedupe_rule": {
+      "required_on_every_report": false,
+      "text": "Повторная отправка вехи не удваивает счёт: применяется защита от двойного счёта на стороне приложения и сервера (FR-025)."
+    },
+    "cabinet_spend_delay": {
+      "required_on_every_report": false,
+      "text": "Расход берётся из выгрузки рекламного кабинета. Списания, возвраты и корректировки кабинета приходят с задержкой и переносятся в отчёт задним числом."
+    },
+    "cabinet_spend_no_vat_mixing": {
+      "required_on_every_report": false,
+      "text": "Расход приводится к одной основе: либо с НДС, либо без. Смешивать основы и валюты в одном периоде нельзя."
+    },
+    "partial_spend_period": {
+      "required_on_every_report": false,
+      "text": "Если расход загружен за часть периода, стоимость результата за период не считается: показывается «нет данных», а не заниженная цифра."
+    },
+    "unmatched_spend_rows": {
+      "required_on_every_report": false,
+      "text": "Расход, которому не нашлось кампании, не размазывается по другим строкам: он показывается отдельной строкой «кампания не сопоставлена»."
+    },
+    "freshness_stale_means_no_decision": {
+      "required_on_every_report": false,
+      "text": "Если данные старше 26 часов, отчёт помечается устаревшим. По устаревшему отчёту решения не принимаются."
+    },
+    "denominators_differ": {
+      "required_on_every_report": false,
+      "text": "Обезличенный счёт (все визиты) и события уровня 3 (только согласившиеся) — разные знаменатели. Сравнивать доли между ними напрямую нельзя, пока доля согласия не учтена."
+    },
+    "yandex_desktop_direct_blocked": {
+      "required_on_every_report": false,
+      "text": "Прямая отправка из приложения в Метрику запрещена: вехи попадают туда только как офлайн-конверсии через сервер."
+    }
+  },
+  "cost_join": {
+    "id": "C1",
+    "title": "Соединение расхода рекламного кабинета с конверсиями",
+    "requirement": "FR-041, SC-007",
+    "owner": "growth analytics operator",
+    "requires_operator": true,
+    "cost_source": {
+      "name": "выгрузка расхода Яндекс.Директа",
+      "surface": "ad_cabinet_export",
+      "fields": ["date", "campaign", "ad_group", "ad", "spend_rub", "impressions", "clicks"],
+      "cadence": "ежедневно",
+      "ingest": "оператор выгружает файл; автоматический обмен через API в фичу 273 не входит",
+      "freshness_hours": 26
+    },
+    "join": {
+      "keys": [
+        {"cost_field": "campaign", "conversion_field": "utm_campaign"},
+        {"cost_field": "ad", "conversion_field": "utm_content"}
+      ],
+      "normalization": "обе стороны приводятся к нижнему регистру и к разрешённому набору символов, как метки уровня 1 (T009)",
+      "many_to_many_rule": "если метке соответствует несколько объявлений, строка показывается как «неоднозначное сопоставление» и в стоимость результата не входит"
+    },
+    "metrics": [
+      {
+        "id": "cost_per_activation",
+        "title": "Стоимость одной активации, ₽",
+        "formula": "spend_rub / first_value",
+        "unit": "₽",
+        "undefined_when": "first_value = 0 или расход за период не загружен целиком",
+        "undefined_rendered_as": "нет данных",
+        "responsible_metric": "first_value"
+      },
+      {
+        "id": "cost_per_installer_download",
+        "title": "Стоимость состоявшегося скачивания, ₽",
+        "formula": "spend_rub / installer_downloads",
+        "unit": "₽",
+        "undefined_when": "installer_downloads = 0 или расход загружен не целиком",
+        "undefined_rendered_as": "нет данных",
+        "responsible_metric": "installer_downloads"
+      },
+      {
+        "id": "cost_per_download_intent",
+        "title": "Стоимость намерения скачать, ₽",
+        "formula": "spend_rub / download_intent_clicks",
+        "unit": "₽",
+        "undefined_when": "download_intent_clicks = 0 или расход загружен не целиком",
+        "undefined_rendered_as": "нет данных",
+        "responsible_metric": "download_intent_clicks",
+        "note": "вспомогательная величина: намерение дешевле активации и не заменяет стоимость результата (FR-043)"
+      },
+      {
+        "id": "spend_reconciliation_delta",
+        "title": "Расхождение с кабинетом, ₽",
+        "formula": "spend_in_report - spend_in_cabinet",
+        "unit": "₽",
+        "undefined_when": "одна из сторон не загружена",
+        "undefined_rendered_as": "нет данных"
+      }
+    ],
+    "rules": {
+      "zero_results": "Если результатов ноль, стоимость результата не определена: показывать «нет данных», а не 0 и не бесконечность. Это правило главнее правила нулевого расхода.",
+      "zero_spend": "Если расход подтверждённо равен нулю и результат есть, стоимость результата равна нулю — это настоящий ноль. Если результатов нет, стоимость не определена независимо от расхода.",
+      "missing_spend": "Если расход не загружен, стоимость результата «нет данных» на всех разрезах периода.",
+      "partial_period": "Если расход загружен за часть периода, стоимость результата не считается.",
+      "unmatched_rows": "Расход без кампании показывается отдельной строкой и не распределяется по другим кампаниям.",
+      "no_backfill_from_totals": "Нельзя досчитывать расход кампании из общего расхода пропорционально кликам."
+    },
+    "caveats": [
+      "cabinet_spend_delay",
+      "cabinet_spend_no_vat_mixing",
+      "partial_spend_period",
+      "unmatched_spend_rows",
+      "delivery_gap_note"
+    ],
+    "empty_state": {
+      "no_data": "Расход не загружен или конверсий за период нет: стоимость результата «нет данных».",
+      "true_zero": "Расход подтверждённо нулевой: стоимость результата 0.",
+      "how_to_tell": "Строка загрузки расхода и плитка «Полнота данных и пробелы»."
+    }
+  },
+  "consistency_check": {
+    "id": "S1",
+    "title": "Согласованность разбивки по кампаниям между Метрикой и продуктовой аналитикой",
+    "requirement": "SC-008, FR-017, T061",
+    "compared_surfaces": [
+      "yandex_metrica_reporting_api (только согласившиеся посетители)",
+      "posthog_events (события уровня 3, только согласившиеся посетители)"
+    ],
+    "single_rule": {
+      "rule": "last_non_direct_90d",
+      "window_days": 90,
+      "unknown_is_not_direct": true,
+      "normalization": "нижний регистр источника и канала, тот же очиститель меток, что и в уровне 1",
+      "code_reference": "apps/server/src/twobrain_rec_server/product_analytics/acquisition.py"
+    },
+    "procedure": [
+      "1. Зафиксировать период сверки и одну и ту же разбивку: кампания (utm_campaign), источник (utm_source), канал (utm_medium).",
+      "2. Из Метрики взять отчёты по последнему значимому источнику и по меткам кампании с полной точностью.",
+      "3. Из продуктовой аналитики взять события уровня 3 за тот же период с тем же правилом атрибуции и тем же окном 90 дней.",
+      "4. Применить одно правило: последний непрямой источник в окне; кампания неизвестна остаётся отдельной строкой и не складывается с прямыми.",
+      "5. Сравнить доли кампаний, а не абсолютные числа: знаменатели различаются из-за согласия и задержки обработки.",
+      "6. Записать результат сверки: период, число кампаний, расхождение по каждой кампании, вывод.",
+      "7. При расхождении больше допустимого — разобрать причины по списку и не публиковать выводы до устранения."
+    ],
+    "expected_on_sample": "точное совпадение по каждой кампании",
+    "bucket_mapping": {
+      "known_campaign": "если после очистки осталась метка кампании — корзина называется по метке",
+      "unknown_campaign": "если метки нет или она отброшена очистителем, а заход не прямой — корзина «кампания неизвестна»",
+      "direct": "если заход прямой — корзина «прямой заход», она не складывается с «кампанией неизвестна»",
+      "suppressed": "корзины меньше трёх визитов не раскрываются: и Метрика, и продуктовая аналитика обязаны скрывать одни и те же корзины"
+    },
+    "live_tolerance": {
+      "relative_difference_max": 0.05,
+      "note": "На живых данных допускается расхождение до 5 % из-за задержки обработки у провайдера и разного момента закрытия визита."
+    },
+    "mismatch_causes": [
+      "разные окна атрибуции или разные модели у провайдера",
+      "кампания неизвестна сложена с прямыми заходами",
+      "метки кампании не доехали до регистрации (нужен резервный путь FR-022)",
+      "выборочный отчёт Метрики вместо полной точности",
+      "задержка обработки данных у провайдера",
+      "не исключён внутренний и тестовый трафик"
+    ],
+    "on_mismatch": "Выводы по каналам не публикуются, расхождение записывается как блокер отчётности к разбору.",
+    "sample": "consistency/sample-campaign-breakdown.json",
+    "how_to_run": "cd apps/server && PYTHONPATH=src uv run --extra dev pytest -q tests/unit/test_product_analytics_report_campaign_consistency.py",
+    "requires_operator": true
+  },
+  "operator_required": [
+    "Применить определения дашбордов PostHog к рабочему пространству аналитики: подключение к продуктиве выполняет оператор.",
+    "Настроить отчёты Метрики по определениям и записать их имена и статусы.",
+    "Загружать выгрузку расхода рекламного кабинета в файл TWOBRAIN_PRODUCT_ANALYTICS_AD_CABINET_EXPORT_FILE: без неё стоимость результата не считается.",
+    "Заполнять файл счётчиков отчётной поверхности TWOBRAIN_PRODUCT_ANALYTICS_REPORT_COUNTS_FILE: в нём число согласившихся визитов и конверсии по кампании, только метки и числа.",
+    "Перенести долю согласия из отчёта продукта (GET /api/v1/product-analytics/reports) в плитку R11: агрегат уровня 1 выгружается на отчётную поверхность продукта кодом, а не оператором.",
+    "Для R01–R06, R08–R10 и R12–R14 применить определения к рабочему PostHog и Метрике: до этого их честное состояние — «определение подготовлено, применение за оператором».",
+    "Записать первый результат сверки кампаний между Метрикой и продуктовой аналитикой.",
+    "Подтвердить исключение внутреннего и служебного трафика (T075) до бизнес-выводов по абсолютным значениям."
+  ],
+  "reports": [
+    {
+      "report_id": "R01",
+      "slug": "channel-comparison",
+      "title": "Сравнение каналов",
+      "owner_question": "Q1",
+      "purpose": "Показать, какие каналы приводят посетителей, доходящих до первой ценности, и во сколько обходится активация в каждом канале.",
+      "owner": {
+        "role": "growth analytics operator",
+        "responsibility": "Раз в неделю смотрит отчёт, отмечает дорогие и дешёвые каналы и предлагает перераспределение бюджета."
+      },
+      "refresh": {"cadence": "daily", "stale_after_hours": 26, "freshness_field": "report_freshness_state"},
+      "data_sources": [
+        {"surface": "graf_aggregate_pg", "level": 1, "detail": "визиты и источник визита по обезличенному агрегату", "signals": ["public_page_view_aggregate", "public_source_aggregate"]},
+        {"surface": "posthog_events", "level": 3, "detail": "события публичных страниц по согласию", "events": ["public_landing_viewed", "public_installer_download_clicked"]},
+        {"surface": "posthog_events", "level": 2, "detail": "вехи активации", "events": ["desktop_first_opened", "desktop_account_connected", "first_value_session_completed"]},
+        {"surface": "ad_cabinet_export", "detail": "расход по кампании", "fields": ["campaign", "spend_rub"]}
+      ],
+      "dimensions": ["utm_source", "utm_medium", "utm_campaign"],
+      "metrics": ["visits_anonymous", "consent_share", "download_intent_clicks", "installer_downloads", "first_opened", "account_connected", "first_value", "cost_per_activation"],
+      "caveats": ["no_optional_consent_share", "internal_traffic", "delivery_gap_note", "attribution_window_90d", "unknown_not_direct", "aggregate_min_bucket", "provider_retention", "cabinet_spend_delay", "denominators_differ"],
+      "empty_state": {
+        "no_data": "За период не пришло ни одного события канала: показывать «нет данных» для всего канала, а не 0 в строке.",
+        "true_zero": "Доставка проверена, визиты были, активаций нет: показывать 0 активаций и стоимость активации «нет данных».",
+        "how_to_tell": "Плитка «Полнота данных и пробелы» и состояние свежести за тот же период."
+      },
+      "intent_vs_activation": {"separates": ["download_intent_clicks", "installer_downloads", "first_value"], "rule": "нажатие «Скачать» не подписывается как скачивание, скачивание не подписывается как активация"},
+      "cost_join": "C1",
+      "consistency_check": true,
+      "requires_operator": true,
+      "surfaces": {"posthog": "GRAF R01", "yandex": "GRAF Y01"}
+    },
+    {
+      "report_id": "R02",
+      "slug": "creative-comparison",
+      "title": "Сравнение объявлений",
+      "owner_question": "Q2",
+      "purpose": "Показать, какие объявления и ключевые слова дают активации, а какие только клики.",
+      "owner": {
+        "role": "growth analytics operator",
+        "responsibility": "Раз в неделю отключает объявления без активаций и усиливает объявления с дешёвой активацией."
+      },
+      "refresh": {"cadence": "daily", "stale_after_hours": 26, "freshness_field": "report_freshness_state"},
+      "data_sources": [
+        {"surface": "posthog_events", "level": 3, "detail": "нажатия и визиты по согласию", "events": ["public_landing_viewed", "public_installer_download_clicked"]},
+        {"surface": "posthog_events", "level": 2, "detail": "вехи активации с метками объявления", "events": ["desktop_first_opened", "first_value_session_completed"]},
+        {"surface": "ad_cabinet_export", "detail": "расход и клики по объявлению", "fields": ["campaign", "ad_group", "ad", "spend_rub", "clicks"]}
+      ],
+      "dimensions": ["utm_campaign", "utm_content", "utm_term", "ad_group"],
+      "metrics": ["visits_anonymous", "consent_share", "download_intent_clicks", "installer_downloads", "first_value", "cost_per_activation"],
+      "caveats": ["no_optional_consent_share", "internal_traffic", "delivery_gap_note", "attribution_window_90d", "unknown_not_direct", "aggregate_min_bucket", "cabinet_spend_delay", "unmatched_spend_rows", "denominators_differ"],
+      "empty_state": {
+        "no_data": "Объявление без событий за период: показывать «нет данных» и не считать его провальным.",
+        "true_zero": "Объявление получило клики, но ни одной активации при подтверждённой доставке: показывать 0 активаций, стоимость активации «нет данных».",
+        "how_to_tell": "Плитка «Полнота данных и пробелы» плюс наличие кликов по объявлению из кабинета."
+      },
+      "intent_vs_activation": {"separates": ["download_intent_clicks", "installer_downloads", "first_value"], "rule": "объявление с нажатиями и без активаций помечается «намерение без результата» отдельно от «нет данных»"},
+      "cost_join": "C1",
+      "consistency_check": true,
+      "requires_operator": true,
+      "surfaces": {"posthog": "GRAF R02", "yandex": "GRAF Y02"}
+    },
+    {
+      "report_id": "R03",
+      "slug": "landing-comparison",
+      "title": "Сравнение посадочных страниц",
+      "owner_question": "Q2",
+      "purpose": "Показать, какая посадочная страница доводит до скачивания и до активации, а какая теряет людей сразу.",
+      "owner": {
+        "role": "growth analytics operator",
+        "responsibility": "Раз в неделю сравнивает страницы входа и заказывает правки текста и призыва к действию на слабых страницах."
+      },
+      "refresh": {"cadence": "daily", "stale_after_hours": 26, "freshness_field": "report_freshness_state"},
+      "data_sources": [
+        {"surface": "graf_aggregate_pg", "level": 1, "detail": "визиты по странице входа", "signals": ["public_page_view_aggregate"]},
+        {"surface": "posthog_events", "level": 3, "detail": "события страницы по согласию", "events": ["public_landing_viewed", "public_landing_section_seen", "public_landing_cta_clicked", "public_download_viewed", "public_installer_download_clicked"]}
+      ],
+      "dimensions": ["landing_path", "utm_source", "utm_medium", "utm_campaign"],
+      "metrics": ["visits_anonymous", "consent_share", "download_intent_clicks", "installer_downloads", "first_opened", "first_value"],
+      "caveats": ["no_optional_consent_share", "internal_traffic", "delivery_gap_note", "aggregate_min_bucket", "attribution_window_90d", "denominators_differ"],
+      "empty_state": {
+        "no_data": "Страница не получила визитов за период или данные не пришли: «нет данных».",
+        "true_zero": "Визиты были, скачиваний и активаций нет при подтверждённой доставке: 0 и вывод «страница не доводит до скачивания».",
+        "how_to_tell": "Свежесть и полнота данных по странице плюс обезличенный счёт визитов."
+      },
+      "intent_vs_activation": {"separates": ["download_intent_clicks", "installer_downloads"], "rule": "страница с нажатиями и без состоявшихся скачиваний помечается как «намерение без скачивания»"},
+      "cost_join": null,
+      "consistency_check": false,
+      "requires_operator": true,
+      "surfaces": {"posthog": "GRAF R03", "yandex": "GRAF Y03"}
+    },
+    {
+      "report_id": "R04",
+      "slug": "visit-to-first-value-funnel",
+      "title": "Воронка от визита до первой ценности",
+      "owner_question": "Q3",
+      "purpose": "Показать полный путь «визит → скачивание → первый запуск → подключение аккаунта → первая ценность» и точку, где люди отваливаются.",
+      "owner": {
+        "role": "product analytics operator",
+        "responsibility": "Раз в неделю называет шаг с наибольшей потерей и заводит задачу на его исправление."
+      },
+      "refresh": {"cadence": "daily", "stale_after_hours": 26, "freshness_field": "report_freshness_state"},
+      "data_sources": [
+        {"surface": "graf_aggregate_pg", "level": 1, "detail": "визиты и состоявшиеся скачивания", "signals": ["public_page_view_aggregate", "public_installer_download_aggregate"]},
+        {"surface": "posthog_events", "level": 3, "detail": "шаги публичных страниц по согласию", "events": ["public_landing_viewed", "public_download_viewed", "public_installer_download_clicked"]},
+        {"surface": "posthog_events", "level": 2, "detail": "вехи активации", "events": ["desktop_first_opened", "desktop_account_connected", "desktop_autorecord_enabled", "first_recording_completed", "first_result_viewed", "first_value_session_completed"]}
+      ],
+      "dimensions": ["utm_source", "utm_medium", "utm_campaign", "utm_content"],
+      "metrics": ["visits_anonymous", "consent_share", "download_intent_clicks", "installer_downloads", "first_opened", "account_connected", "first_recording", "first_result_viewed", "first_value"],
+      "caveats": ["no_optional_consent_share", "internal_traffic", "delivery_gap_note", "attribution_window_90d", "unknown_not_direct", "dedupe_rule", "aggregate_min_bucket", "denominators_differ"],
+      "empty_state": {
+        "no_data": "Шаг воронки пуст из-за отсутствия доставки: шаг показывается как «нет данных», воронка не обрывается нулём.",
+        "true_zero": "Доставка подтверждена и на шаг не пришло ни одного человека: 0 с пометкой «настоящий ноль».",
+        "how_to_tell": "Плитка «Полнота данных и пробелы» по каждому источнику шага."
+      },
+      "intent_vs_activation": {"separates": ["download_intent_clicks", "installer_downloads", "first_value"], "rule": "шаг скачивания разделён на намерение и состоявшееся скачивание, активация — только первая ценность"},
+      "cost_join": null,
+      "consistency_check": true,
+      "requires_operator": true,
+      "surfaces": {"posthog": "GRAF R04", "yandex": "GRAF Y04"}
+    },
+    {
+      "report_id": "R05",
+      "slug": "download-intent-vs-activation",
+      "title": "Намерение скачать против состоявшейся активации",
+      "owner_question": "Q3",
+      "purpose": "Отдельно показать нажатия «Скачать», состоявшиеся скачивания установщика и реальные активации, чтобы намерение не выдавалось за результат.",
+      "owner": {
+        "role": "product analytics operator",
+        "responsibility": "Раз в неделю проверяет разрыв между намерением и активацией и называет причину разрыва."
+      },
+      "refresh": {"cadence": "daily", "stale_after_hours": 26, "freshness_field": "report_freshness_state"},
+      "data_sources": [
+        {"surface": "graf_aggregate_pg", "level": 1, "detail": "состоявшиеся скачивания установщика", "signals": ["public_installer_download_aggregate"]},
+        {"surface": "posthog_events", "level": 3, "detail": "нажатия кнопки скачивания", "events": ["public_installer_download_clicked", "public_download_viewed"]},
+        {"surface": "posthog_events", "level": 2, "detail": "запуск и активация", "events": ["desktop_first_opened", "desktop_account_connected", "first_value_session_completed"]}
+      ],
+      "dimensions": ["utm_campaign", "utm_content", "landing_path", "device_class"],
+      "metrics": ["download_intent_clicks", "installer_downloads", "first_opened", "account_connected", "first_value"],
+      "caveats": ["no_optional_consent_share", "internal_traffic", "delivery_gap_note", "attribution_window_90d", "unknown_not_direct", "dedupe_rule", "denominators_differ"],
+      "empty_state": {
+        "no_data": "События нажатий или скачиваний не пришли: показывать «нет данных» в обеих колонках и не показывать разрыв.",
+        "true_zero": "Нажатий нет при подтверждённой доставке: 0 нажатий, разрыв не считается.",
+        "how_to_tell": "Полнота данных отдельно для уровня 1 (скачивания) и уровня 3 (нажатия)."
+      },
+      "intent_vs_activation": {
+        "separates": ["download_intent_clicks", "installer_downloads", "first_opened", "first_value"],
+        "rule": "четыре разные колонки: нажатие, состоявшееся скачивание, запуск приложения, первая ценность. Подпись «скачивания» запрещена для нажатий, подпись «активации» — для скачиваний.",
+        "requirement": "FR-043, FR-019"
+      },
+      "cost_join": null,
+      "consistency_check": true,
+      "requires_operator": true,
+      "surfaces": {"posthog": "GRAF R05", "yandex": "GRAF Y05"}
+    },
+    {
+      "report_id": "R06",
+      "slug": "account-connection-dropoff",
+      "title": "Отваливание на подключении аккаунта",
+      "owner_question": "Q3",
+      "purpose": "Показать, сколько людей запустили приложение и не подключили аккаунт, потому что без подключения первая ценность недостижима.",
+      "owner": {
+        "role": "product analytics operator",
+        "responsibility": "Раз в неделю называет долю не подключивших аккаунт и передаёт её владельцу продукта."
+      },
+      "refresh": {"cadence": "daily", "stale_after_hours": 26, "freshness_field": "report_freshness_state"},
+      "data_sources": [
+        {"surface": "posthog_events", "level": 2, "detail": "запуск, подключение, авто-запись", "events": ["desktop_first_opened", "desktop_account_connected", "desktop_autorecord_enabled"]}
+      ],
+      "dimensions": ["utm_campaign", "referrer_category", "app_version_bucket"],
+      "metrics": ["first_opened", "account_connected", "first_value"],
+      "caveats": ["no_optional_consent_share", "internal_traffic", "delivery_gap_note", "dedupe_rule", "attribution_window_90d"],
+      "empty_state": {
+        "no_data": "Вехи не пришли из приложения: «нет данных», а не нулевое отваливание.",
+        "true_zero": "Запуски были при подтверждённой доставке, подключений нет: 0 подключений и отваливание 100 %.",
+        "how_to_tell": "Полнота данных по серверной и прикладной доставке вех."
+      },
+      "intent_vs_activation": {"separates": ["first_opened", "account_connected"], "rule": "запуск приложения не подписывается как активация"},
+      "cost_join": null,
+      "consistency_check": false,
+      "requires_operator": true,
+      "surfaces": {"posthog": "GRAF R06", "yandex": "GRAF Y06"}
+    },
+    {
+      "report_id": "R07",
+      "slug": "cost-per-result",
+      "title": "Стоимость результата",
+      "owner_question": "Q4",
+      "purpose": "Посчитать стоимость активации по каждой кампании, соединив расход рекламного кабинета с конверсиями.",
+      "owner": {
+        "role": "growth analytics operator",
+        "responsibility": "Раз в неделю называет кампании с недопустимой стоимостью активации и предлагает остановку или усиление."
+      },
+      "refresh": {"cadence": "daily", "stale_after_hours": 26, "freshness_field": "report_freshness_state"},
+      "data_sources": [
+        {"surface": "ad_cabinet_export", "detail": "расход по кампании и объявлению", "fields": ["date", "campaign", "ad", "spend_rub", "clicks"]},
+        {"surface": "posthog_events", "level": 2, "detail": "активации и вехи", "events": ["desktop_account_connected", "first_value_session_completed"]},
+        {"surface": "graf_aggregate_pg", "level": 1, "detail": "состоявшиеся скачивания для вспомогательной стоимости", "signals": ["public_installer_download_aggregate"]}
+      ],
+      "dimensions": ["date", "utm_campaign", "utm_content"],
+      "metrics": ["spend_rub", "cost_per_activation", "cost_per_installer_download", "cost_per_download_intent", "first_value", "installer_downloads", "download_intent_clicks"],
+      "caveats": ["no_optional_consent_share", "internal_traffic", "delivery_gap_note", "cabinet_spend_delay", "cabinet_spend_no_vat_mixing", "partial_spend_period", "unmatched_spend_rows", "attribution_window_90d", "provider_retention"],
+      "empty_state": {
+        "no_data": "Расход не загружен или конверсий нет: стоимость результата «нет данных» на всех строках периода.",
+        "true_zero": "Расход подтверждённо нулевой: стоимость результата 0.",
+        "how_to_tell": "Строка загрузки расхода за период и плитка «Полнота данных и пробелы»."
+      },
+      "intent_vs_activation": {"separates": ["cost_per_download_intent", "cost_per_installer_download", "cost_per_activation"], "rule": "стоимостью результата называется только стоимость активации; остальные две подписаны отдельно"},
+      "cost_join": "C1",
+      "consistency_check": false,
+      "requires_operator": true,
+      "surfaces": {"posthog": "GRAF R07", "yandex": "GRAF Y07"}
+    },
+    {
+      "report_id": "R08",
+      "slug": "ad-spend-reconciliation",
+      "title": "Полнота расхода рекламного кабинета",
+      "owner_question": "Q4",
+      "purpose": "Проверить, что расход загружен за весь период и совпадает с кабинетом, иначе стоимость результата врёт.",
+      "owner": {
+        "role": "growth analytics operator",
+        "responsibility": "Раз в неделю подтверждает полноту расхода и разбирает расхождения с кабинетом."
+      },
+      "refresh": {"cadence": "daily", "stale_after_hours": 26, "freshness_field": "report_freshness_state"},
+      "data_sources": [
+        {"surface": "ad_cabinet_export", "detail": "расход по дням и кампаниям", "fields": ["date", "campaign", "spend_rub"]},
+        {"surface": "yandex_metrica_reporting_api", "detail": "расход из связанного кабинета Директа (отчёт «Директ, расход»); доступен только при связанном кабинете"}
+      ],
+      "dimensions": ["date", "campaign"],
+      "metrics": ["spend_rub", "spend_reconciliation_delta"],
+      "caveats": ["no_optional_consent_share", "internal_traffic", "delivery_gap_note", "cabinet_spend_delay", "cabinet_spend_no_vat_mixing", "partial_spend_period", "unmatched_spend_rows"],
+      "empty_state": {
+        "no_data": "Одна из сторон не загружена: расхождение «нет данных», а не 0.",
+        "true_zero": "Обе стороны загружены и совпадают: расхождение 0.",
+        "how_to_tell": "Наличие строк за каждый день периода с обеих сторон."
+      },
+      "intent_vs_activation": null,
+      "cost_join": "C1",
+      "consistency_check": false,
+      "requires_operator": true,
+      "surfaces": {"posthog": "GRAF R08", "yandex": "GRAF Y08"}
+    },
+    {
+      "report_id": "R09",
+      "slug": "delivery-health",
+      "title": "Здоровье доставки данных",
+      "owner_question": "Q5",
+      "purpose": "Показать, идёт ли измерение вообще: свежесть, отставание, пробелы доставки и состояние готовности аналитики.",
+      "owner": {
+        "role": "infrastructure operator",
+        "responsibility": "Реагирует на деградацию доставки по правилам оповещения и записывает статус в отчёт."
+      },
+      "refresh": {"cadence": "hourly", "stale_after_hours": 26, "freshness_field": "report_freshness_state"},
+      "data_sources": [
+        {"surface": "graf_readiness_api", "detail": "блокеры готовности аналитики", "endpoint": "GET /api/v1/product-analytics/catalog", "field": "providers.analytics_operations.blockers"},
+        {"surface": "posthog_api", "detail": "здоровье узла аналитики и предупреждения приёма событий"},
+        {"surface": "yandex_metrica_reporting_api", "detail": "задержка обработки данных счётчика"}
+      ],
+      "dimensions": ["date", "source_surface"],
+      "metrics": ["delivery_gap_events"],
+      "caveats": ["no_optional_consent_share", "internal_traffic", "delivery_gap_note", "freshness_stale_means_no_decision", "provider_retention"],
+      "empty_state": {
+        "no_data": "Состояние доставки неизвестно: показывать «нет данных», а не «всё хорошо» и не 0.",
+        "true_zero": "Пробелов за период нет при подтверждённой свежести: 0 пробелов.",
+        "how_to_tell": "Отдельно проверяются свежесть, наличие пробелов и готовность аналитики."
+      },
+      "intent_vs_activation": null,
+      "cost_join": null,
+      "consistency_check": false,
+      "requires_operator": true,
+      "surfaces": {"posthog": "GRAF R09", "yandex": "GRAF Y09"}
+    },
+    {
+      "report_id": "R10",
+      "slug": "measurement-gaps",
+      "title": "Пробелы измерения: пробел не равен нулю",
+      "owner_question": "Q5",
+      "purpose": "Собрать в одном месте все места, где данных нет, чтобы пустая ячейка никогда не читалась как отсутствие интереса.",
+      "owner": {
+        "role": "infrastructure operator",
+        "responsibility": "Раз в неделю перечисляет пробелы, их причину и срок устранения."
+      },
+      "refresh": {"cadence": "daily", "stale_after_hours": 26, "freshness_field": "report_freshness_state"},
+      "data_sources": [
+        {"surface": "graf_readiness_api", "detail": "пробелы доставки по событиям", "field": "delivery_gap"},
+        {"surface": "posthog_api", "detail": "предупреждения приёма событий и отставание очереди"},
+        {"surface": "graf_aggregate_pg", "level": 1, "detail": "свежесть обезличенного агрегата"}
+      ],
+      "dimensions": ["date", "event", "source_surface", "gap_reason"],
+      "metrics": ["delivery_gap_events"],
+      "caveats": ["no_optional_consent_share", "internal_traffic", "delivery_gap_note", "freshness_stale_means_no_decision", "posthog_delivery_disabled_today", "level1_not_on_posthog_surface"],
+      "empty_state": {
+        "no_data": "Сам отчёт о пробелах пуст: значит состояние измерения неизвестно, показывать «нет данных».",
+        "true_zero": "Пробелов нет при подтверждённой свежести всех источников: 0 пробелов.",
+        "how_to_tell": "Проверка свежести каждого источника по отдельности, а не только по одному."
+      },
+      "intent_vs_activation": null,
+      "cost_join": null,
+      "consistency_check": false,
+      "requires_operator": true,
+      "surfaces": {"posthog": "GRAF R10", "yandex": "GRAF Y09"}
+    },
+    {
+      "report_id": "R11",
+      "slug": "consent-coverage",
+      "title": "Покрытие необязательным согласием",
+      "owner_question": "Q5",
+      "purpose": "Показать долю посетителей без необязательного согласия, чтобы каждая цифра по каналам читалась вместе с этой долей.",
+      "owner": {
+        "role": "privacy/security reviewer",
+        "responsibility": "Раз в неделю подтверждает долю согласия и следит, чтобы отказ соблюдался."
+      },
+      "refresh": {"cadence": "daily", "stale_after_hours": 26, "freshness_field": "report_freshness_state"},
+      "data_sources": [
+        {"surface": "graf_aggregate_pg", "level": 1, "detail": "доля посетителей с необязательным согласием", "signals": ["public_consent_share_aggregate"]},
+        {"surface": "posthog_events", "level": 3, "detail": "число событий по согласию как проверка знаменателя", "events": ["public_landing_viewed"]}
+      ],
+      "dimensions": ["date", "surface", "landing_path"],
+      "metrics": ["visits_anonymous", "consent_share"],
+      "caveats": ["no_optional_consent_share", "internal_traffic", "delivery_gap_note", "aggregate_min_bucket", "level1_not_on_posthog_surface", "metrica_consented_only"],
+      "empty_state": {
+        "no_data": "Доля согласия не измерена: «нет данных»; выводы по каналам не делаются.",
+        "true_zero": "Согласий не было при подтверждённом счёте визитов: доля 0 и это настоящий ноль.",
+        "how_to_tell": "Наличие обезличенного счёта визитов за тот же период."
+      },
+      "intent_vs_activation": null,
+      "cost_join": null,
+      "consistency_check": false,
+      "requires_operator": true,
+      "surfaces": {"posthog": "GRAF R11", "yandex": null}
+    },
+    {
+      "report_id": "R12",
+      "slug": "attribution-quality",
+      "title": "Качество атрибуции и защита от двойного счёта",
+      "owner_question": "Q5",
+      "purpose": "Показать, какая доля конверсий несёт надёжную кампанию, какая слабую, какая неизвестную, и не удваивается ли счёт вех.",
+      "owner": {
+        "role": "product analytics operator",
+        "responsibility": "Раз в неделю проверяет долю связанных конверсий и разбирает рост строки «кампания неизвестна»."
+      },
+      "refresh": {"cadence": "daily", "stale_after_hours": 26, "freshness_field": "report_freshness_state"},
+      "data_sources": [
+        {"surface": "posthog_events", "level": 2, "detail": "вехи с уровнем надёжности атрибуции", "events": ["desktop_first_opened", "desktop_account_connected", "first_value_session_completed"], "fields": ["attribution_reliability", "bridge_present", "graf_attribution_id"]},
+        {"surface": "yandex_metrica_reporting_api", "detail": "офлайн-конверсии по двум согласованным вехам"}
+      ],
+      "dimensions": ["attribution_reliability", "source_bucket", "utm_campaign", "date"],
+      "metrics": ["first_opened", "account_connected", "first_value"],
+      "caveats": ["no_optional_consent_share", "internal_traffic", "delivery_gap_note", "attribution_window_90d", "unknown_not_direct", "dedupe_rule", "offline_conversions_two_milestones", "yandex_desktop_direct_blocked"],
+      "empty_state": {
+        "no_data": "Данных о надёжности нет: «нет данных»; доля связанных конверсий не заявляется.",
+        "true_zero": "Ни одной связанной конверсии при подтверждённой доставке: 0 связанных и 100 % неизвестных — это повод к разбору, а не к выводу о каналах.",
+        "how_to_tell": "Полнота данных по вехам и сверка с разбивкой по кампаниям."
+      },
+      "intent_vs_activation": {"separates": ["first_opened", "first_value"], "rule": "запуск приложения не считается активацией, даже если он единственная связанная веха"},
+      "cost_join": null,
+      "consistency_check": true,
+      "requires_operator": true,
+      "surfaces": {"posthog": "GRAF R12", "yandex": "GRAF Y10"}
+    },
+    {
+      "report_id": "R13",
+      "slug": "internal-traffic-exclusion",
+      "title": "Внутренний, служебный и тестовый трафик",
+      "owner_question": "Q5",
+      "purpose": "Показать, сколько трафика признано внутренним и служебным, чтобы он не принимался за спрос.",
+      "owner": {
+        "role": "infrastructure operator",
+        "responsibility": "Раз в неделю подтверждает, что фильтр внутреннего трафика работает, и перечисляет источники служебных событий."
+      },
+      "refresh": {"cadence": "daily", "stale_after_hours": 26, "freshness_field": "report_freshness_state"},
+      "data_sources": [
+        {"surface": "posthog_events", "level": 2, "detail": "события с признаком внутреннего или служебного трафика", "fields": ["traffic_class"]},
+        {"surface": "graf_aggregate_pg", "level": 1, "detail": "визиты с признаком внутреннего трафика", "signals": ["public_page_view_aggregate"]}
+      ],
+      "dimensions": ["traffic_class", "date", "source_surface"],
+      "metrics": ["visits_anonymous", "first_value"],
+      "caveats": ["no_optional_consent_share", "internal_traffic", "delivery_gap_note", "freshness_stale_means_no_decision"],
+      "empty_state": {
+        "no_data": "Признак внутреннего трафика не измерен: «нет данных», к бизнес-выводам не переходить.",
+        "true_zero": "Внутреннего трафика за период нет при подтверждённом измерении: 0.",
+        "how_to_tell": "Отдельная проверка покрытия признака, а не вывод из общего числа."
+      },
+      "intent_vs_activation": null,
+      "cost_join": null,
+      "consistency_check": false,
+      "requires_operator": true,
+      "surfaces": {"posthog": "GRAF R13", "yandex": null}
+    },
+    {
+      "report_id": "R14",
+      "slug": "access-retention-readiness",
+      "title": "Доступ, хранение и удаление данных",
+      "owner_question": "Q5",
+      "purpose": "Показать, кто имеет доступ к аналитике и что происходит с данными по срокам хранения и удалению, чтобы отчёт не обещал лишнего.",
+      "owner": {
+        "role": "privacy/security reviewer",
+        "responsibility": "Раз в неделю подтверждает состав операторов, второй фактор, сроки хранения и честность текстов удаления."
+      },
+      "refresh": {"cadence": "weekly", "stale_after_hours": 192, "freshness_field": "report_freshness_state"},
+      "data_sources": [
+        {"surface": "graf_readiness_api", "detail": "состояние копий, проверки восстановления, сроков хранения и блокеров", "endpoint": "GET /api/v1/product-analytics/catalog", "field": "providers.analytics_operations"},
+        {"surface": "posthog_api", "detail": "состав ролей и журнал изменений конфигурации"}
+      ],
+      "dimensions": ["category", "retention_term", "state"],
+      "metrics": ["delivery_gap_events"],
+      "caveats": ["no_optional_consent_share", "internal_traffic", "delivery_gap_note", "provider_retention", "freshness_stale_means_no_decision"],
+      "empty_state": {
+        "no_data": "Состояние доступа или хранения неизвестно: «нет данных» и блокировка заявления о готовности.",
+        "true_zero": "Блокеров нет при подтверждённой свежести копии и проверки восстановления: 0 блокеров.",
+        "how_to_tell": "Список блокеров готовности аналитики, а не отсутствие строк в отчёте."
+      },
+      "intent_vs_activation": null,
+      "cost_join": null,
+      "consistency_check": false,
+      "requires_operator": true,
+      "surfaces": {"posthog": "GRAF R14", "yandex": null}
+    }
+  ],
+  "provider_minimum_coverage": [
+    {"provider": "posthog", "minimum_item": "source-to-first-value funnel", "covered_by": "R04"},
+    {"provider": "posthog", "minimum_item": "first milestone dedupe by pseudonymous user", "covered_by": "R12"},
+    {"provider": "posthog", "minimum_item": "onboarding/account connection drop-off", "covered_by": "R06"},
+    {"provider": "posthog", "minimum_item": "broad autocapture exploration dashboard", "covered_by": "R01", "note": "Широкий разбор автозахвата остаётся отдельным дашбордом 096; в недельный набор владельца он не входит, потому что не отвечает ни на один из пяти вопросов."},
+    {"provider": "posthog", "minimum_item": "delivery gaps and provider health", "covered_by": "R09"},
+    {"provider": "posthog", "minimum_item": "access/RBAC/audit readiness note", "covered_by": "R14"},
+    {"provider": "posthog", "minimum_item": "internal/support/smoke/test caveat dashboard note", "covered_by": "R13"},
+    {"provider": "posthog", "minimum_item": "retention/deletion truth note", "covered_by": "R14"},
+    {"provider": "yandex", "minimum_item": "sources by source/medium/campaign", "covered_by": "R01"},
+    {"provider": "yandex", "minimum_item": "public landing to download funnel", "covered_by": "R04"},
+    {"provider": "yandex", "minimum_item": "Yandex Direct report when linked", "covered_by": "R02"},
+    {"provider": "yandex", "minimum_item": "offline conversion report for two product milestones", "covered_by": "R12"},
+    {"provider": "yandex", "minimum_item": "page-class scope report", "covered_by": "R13", "note": "Область страниц ведётся инвентарём 096; в Метрике она видна как отчёт о доступности сбора."},
+    {"provider": "yandex", "minimum_item": "Webvisor/map/form availability report", "covered_by": "R09", "note": "Доступность записи поведения остаётся выключенной; отчёт показывает состояние, а не данные."},
+    {"provider": "yandex", "minimum_item": "retention/deletion caveat report", "covered_by": "R14"},
+    {"provider": "yandex", "minimum_item": "campaign caveat and legal blocker status", "covered_by": "R08"}
+  ],
+  "constraints": {
+    "no_screenshots": "Определения отчётов — это файлы, а не картинки и не скриншоты.",
+    "no_secrets": "В определениях нет идентификатора счётчика, ключей, токенов и персональных данных.",
+    "no_live_connection": "Применение определений к рабочему PostHog и Метрике выполняет оператор; из репозитория подключение к продуктиве не делается."
+  }
+}

@@ -37,7 +37,8 @@ def test_provider_smoke_output_covers_dashboard_blockers_and_no_secret_status() 
         "campaign_launch=blocked",
         "no_secret_scan=metadata_only_pass",
         "private_payload_status=none_committed",
-        "rollback_status=ready_not_executed",
+        "rollback_status=metadata_only_not_executed",
+        "rollback_execution=metadata_only_no_state_change",
     }
     for line in expected_lines:
         assert line in output

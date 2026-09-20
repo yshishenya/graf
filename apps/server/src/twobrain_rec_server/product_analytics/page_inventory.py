@@ -195,8 +195,15 @@ DEFAULT_PAGE_CLASS_POLICIES: tuple[PageClassAnalyticsPolicy, ...] = (
         yandex_state="blocked",
         sensitivity="auth",
         dashboard_purpose="product_onboarding",
-        expected_product_visible_data="auth flow interaction metadata without credentials",
-        dashboard_caveat="Credential fields must be suppressed before PostHog autocapture evidence can pass.",
+        expected_product_visible_data=(
+            "consented page view of the public auth page without any typed value"
+        ),
+        dashboard_caveat=(
+            "Consent-based measurement covers these public pages through the "
+            "first-party relay only: the external counter stays off them, form "
+            "analytics stays off, and no field value a visitor typed is part of a "
+            "measurement payload."
+        ),
     ),
     _policy(
         "auth_callback",
