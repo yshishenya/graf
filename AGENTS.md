@@ -121,8 +121,10 @@ Public GRAF macOS distribution is Developer ID-only. Notarization, stapling,
 Gatekeeper, Sparkle signature, and live appcast checks are mandatory; the full
 procedure is in `macos-notarization.md`. Never publish a non-notarized build.
 
-Implementation commits require explicit user approval after validation. Never
-reset or discard user changes. Feature work writes an owned changelog fragment
+Implementation commits may be created automatically when the task requires
+them. After checking the intended scope and running the applicable validation,
+commit without requesting separate user approval or stopping solely for commit
+approval. Never reset or discard user changes. Feature work writes an owned changelog fragment
 under `changes/unreleased/`; the release operator alone assembles root
 `CHANGELOG.md` for a frozen release candidate.
 
