@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import CryptoKit
+import Network
 import SwiftUI
 import TwoBrainRecShared
 import UserNotifications
@@ -173,12 +174,143 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
     private var requests: [String: (owner: String, event: DesktopCalendarPromptEvent?, sessionID: String?)] = [:]
     // Поверхности показа доступны проверкам: окно карточки измеряется на
     // настоящем окне, а индикатор проверяется по показанному состоянию.
-    let card = DesktopNotificationCardPresenter()
+    public let card = DesktopNotificationCardPresenter()
     private var lastRecordingNotice: RecordingNoticeState?
     private var cardTimer: Task<Void, Never>?
     private var cardDeadline: Date?
     private var dismissedCards: Set<String> = []
     private var presentedCardID: String?
+    private var activeCardOwner: CardOwner?
+
+    private enum CardOwner: Equatable {
+        case meeting(String)
+        case problem(String)
+        case preview
+        case shortRecording
+        case recordingPrompt
+    }
+
+    private static func cardPriority(_ owner: CardOwner) -> Int {
+        switch owner {
+        case .preview: return 1
+        case .meeting: return 2
+        case .recordingPrompt, .shortRecording: return 3
+        case .problem: return 4
+        }
+    }
+
+    private func canPresent(_ owner: CardOwner) -> Bool {
+        guard card.isVisible, let activeCardOwner else { return true }
+        return activeCardOwner == owner || Self.cardPriority(owner) > Self.cardPriority(activeCardOwner)
+    }
+
+    /// Сбрасывает только состояние согласователя. Само окно заменяется новым
+    /// вызовом карточки или снимается вызывающим методом.
+    private func resetCardState() {
+        cardTimer?.cancel()
+        cardTimer = nil
+        cardDeadline = nil
+        presentedCardID = nil
+        activeCardOwner = nil
+    }
+
+    private func finishExternalCard(_ owner: CardOwner) {
+        guard activeCardOwner == owner else { return }
+        resetCardState()
+    }
+
+    private func dismissExternalCard(_ owner: CardOwner) {
+        guard activeCardOwner == owner else { return }
+        resetCardState()
+        card.dismiss()
+    }
+
+    @discardableResult
+    public func presentPreview(title: String,
+                               message: String,
+                               duration: TimeInterval = DesktopNotificationCardPresenter.previewDisplayDuration,
+                               onExpire: (() -> Void)? = nil) -> Bool {
+        let owner: CardOwner = .preview
+        guard canPresent(owner) else { return false }
+        resetCardState()
+        activeCardOwner = owner
+        card.presentPreview(title: title, message: message, duration: duration,
+                            onExpire: { [weak self] in
+                                self?.finishExternalCard(owner)
+                                onExpire?()
+                            })
+        return true
+    }
+
+    @discardableResult
+    public func presentShortRecording(title: String,
+                                      message: String,
+                                      duration: TimeInterval = DesktopNotificationCardPresenter.noticeDisplayDuration,
+                                      onExpire: (() -> Void)? = nil) -> Bool {
+        let owner: CardOwner = .shortRecording
+        guard canPresent(owner) else { return false }
+        resetCardState()
+        activeCardOwner = owner
+        card.presentShortRecording(title: title, message: message, duration: duration,
+                                   onExpire: { [weak self] in
+                                       self?.finishExternalCard(owner)
+                                       onExpire?()
+                                   })
+        return true
+    }
+
+    @discardableResult
+    public func presentRecordingPrompt(
+        displayName: String,
+        remainingSeconds: Int,
+        progress: Double,
+        rememberChoice: Bool = false,
+        duration: TimeInterval = DesktopNotificationCardPresenter.recordingPromptDisplayDuration,
+        onStart: @escaping () -> Void,
+        onDismiss: @escaping () -> Void,
+        onRememberChoiceChanged: @escaping (Bool) -> Void,
+        onTick: (() -> DesktopNotificationCardContent?)? = nil,
+        onExpire: (() -> Void)? = nil,
+        onSkip: ((Bool) -> Void)? = nil
+    ) -> Bool {
+        let owner: CardOwner = .recordingPrompt
+        guard canPresent(owner) else { return false }
+        resetCardState()
+        activeCardOwner = owner
+        card.presentRecordingPrompt(
+            displayName: displayName,
+            remainingSeconds: remainingSeconds,
+            progress: progress,
+            rememberChoice: rememberChoice,
+            duration: duration,
+            onStart: { [weak self] in
+                onStart()
+                self?.dismissExternalCard(owner)
+            },
+            onDismiss: { [weak self] in
+                onDismiss()
+                self?.dismissExternalCard(owner)
+            },
+            onRememberChoiceChanged: onRememberChoiceChanged,
+            onTick: { [weak self] in
+                guard self?.activeCardOwner == owner else { return nil }
+                return onTick?()
+            },
+            onExpire: { [weak self] in
+                self?.finishExternalCard(owner)
+                onExpire?()
+            },
+            onSkip: { [weak self] rememberChoice in
+                onSkip?(rememberChoice)
+                self?.dismissExternalCard(owner)
+            }
+        )
+        return true
+    }
+
+    public func dismissPreview() { dismissExternalCard(.preview) }
+    public func dismissShortRecording() { dismissExternalCard(.shortRecording) }
+    public func dismissRecordingPrompt() { dismissExternalCard(.recordingPrompt) }
     private var observation: AnyCancellable?
     private var activationObservation: AnyCancellable?
     private var settingsObservation: AnyCancellable?
@@ -392,11 +524,15 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
     /// эта поверхность и должна быть видна пользователю.
     public func test(isCurrent: () -> Bool = { true }) async {
         let epoch = authEpoch
-        await refreshPermission()
         guard epoch == authEpoch, isCurrent() else { return }
-        card.presentNotice(title: "Проверка уведомлений GRAF",
-                           message: "Так выглядит напоминание о встрече.",
-                           duration: 6)
+        // Предпросмотр не обновляет разрешение, календарь, очередь инцидентов,
+        // системные запросы и состояние закрытых реальных карточек.
+        guard presentPreview(title: "Проверка уведомлений GRAF",
+                             message: "Так выглядит напоминание о встрече.",
+                             duration: DesktopNotificationCardPresenter.previewDisplayDuration) else {
+            message = "Проверочное уведомление не заменило уже показанное важное сообщение."
+            return
+        }
         message = "Проверочное уведомление показано в правом верхнем углу."
     }
     private func scheduleReminders() async {
@@ -440,7 +576,10 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
     }
     static func shouldRemind(_ event: DesktopCalendarPromptEvent, snapshot: DesktopControlSnapshot, now: Date) -> Bool {
         event.joinPromptState.canSurfacePrompt && min(event.endsAt, event.startsAt.addingTimeInterval(300)) > now
-            && !(snapshot.active && snapshot.calendarContextEventID == event.eventId)
+            // Пока запись идёт или завершается, не предлагаем пользователю
+            // вторую запись ни для текущей, ни для другой встречи.
+            && !snapshot.active
+            && !snapshot.stopping
     }
 
     // MARK: - Собственная карточка GRAF
@@ -452,7 +591,11 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
     static let cardDisplayDuration: TimeInterval = 120
 
     static func cardDeadline(for event: DesktopCalendarPromptEvent) -> Date {
-        min(event.endsAt, event.startsAt.addingTimeInterval(cardDisplayDuration))
+        // Окно начинается за 15 минут до встречи и длится не более 120 секунд;
+        // если встреча начинается раньше, карточка исчезает в момент начала.
+        let appearanceExpiry = event.startsAt
+            .addingTimeInterval(-cardLeadTime + cardDisplayDuration)
+        return min(event.endsAt, event.startsAt, appearanceExpiry)
     }
 
     static func shouldPresentCard(_ event: DesktopCalendarPromptEvent, snapshot: DesktopControlSnapshot, now: Date) -> Bool {
@@ -491,14 +634,23 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
             .filter { !dismissedCards.contains(Self.cardDismissalKey($0, context: context)) }
             .sorted { $0.startsAt < $1.startsAt }
         guard let event = candidates.first else {
-            clearCard()
+            if activeCardOwner == nil || isMeetingCardActive {
+                clearCard()
+            }
             scheduleCardAppearance(now: now)
             return
         }
         let id = Self.cardDismissalKey(event, context: context)
+        if case let .meeting(currentID) = activeCardOwner,
+           currentID != id,
+           !candidates.contains(where: { Self.cardDismissalKey($0, context: context) == currentID }) {
+            clearCard()
+        }
+        guard canPresent(.meeting(id)) else { return }
         let content = Self.meetingCardContent(event: event, preferences: preferences)
         let deadline = Self.cardDeadline(for: event)
         let unchanged = presentedCardID == id && card.isVisible && card.presentedContent == content
+        activeCardOwner = .meeting(id)
         presentedCardID = id
         if !unchanged {
             card.present(content,
@@ -510,9 +662,15 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
                             // общая сверка, а не прежнее состояние окна.
                             self?.presentedCardID = nil
                             self?.reconcileCard()
-                        })
+                        },
+                        onClose: { [weak self] in self?.dismissCard(eventID: event.eventId) })
         }
         scheduleCardTimer(until: deadline, now: now)
+    }
+
+    private var isMeetingCardActive: Bool {
+        if case .meeting = activeCardOwner { return true }
+        return false
     }
 
     private func tickCard(eventID: String) -> DesktopNotificationCardContent? {
@@ -554,10 +712,7 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
     }
 
     private func clearCard() {
-        cardTimer?.cancel()
-        cardTimer = nil
-        cardDeadline = nil
-        presentedCardID = nil
+        resetCardState()
         card.dismiss()
     }
 
@@ -585,6 +740,8 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
             model.send(.stop)
         case let .openRecording(sessionID):
             model.send(.localRecording(sessionID))
+        case .skipRecordingPrompt, .toggleRecordingPromptRemember:
+            return
         }
         if action != .stopRecording { dismissCard(eventID: eventID) }
     }
@@ -598,18 +755,18 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
         clearCard()
     }
 
-    /// Состояние записи сообщается карточкой один раз на переход: «Запись
-    /// началась» и «Расшифровка началась». Постоянного окна поверх других окон
-    /// нет — состояние записи видно в строке меню и в окне приложения, а
-    /// висящее окно перекрывало содержимое соседних приложений.
+    /// Состояние записи отображается только в самом приложении, строке меню и
+    /// панели управления. Рутинные переходы не являются уведомлениями: они не
+    /// создают ни карточку, ни системный баннер.
     func updateRecordingIndicator(_ snapshot: DesktopControlSnapshot, elapsed: String) {
-        let state = RecordingNoticeState(snapshot: snapshot)
-        defer { lastRecordingNotice = state }
-        guard let state, state != lastRecordingNotice else { return }
-        card.presentNotice(title: state.title, message: state.message)
+        // `elapsed` оставлен в сигнатуре, потому что обновление приходит из
+        // общего потока состояния записи. Плавающая поверхность здесь намеренно
+        // не создаётся.
+        lastRecordingNotice = RecordingNoticeState(snapshot: snapshot)
     }
 
-    /// Запись идёт или расшифровка — то, о чём стоит сообщить один раз.
+    /// Последний подтверждённый переход нужен только для защиты от повторной
+    /// обработки состояния; пользователь видит его в основном интерфейсе.
     enum RecordingNoticeState: Equatable {
         case recording
         case transcribing
@@ -621,38 +778,34 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
             else if snapshot.completedRecording { self = .finished }
             else { return nil }
         }
-
-        var title: String {
-            switch self {
-            case .recording: return "Запись началась"
-            case .transcribing: return "Расшифровка началась"
-            case .finished: return "Запись остановлена"
-            }
-        }
-
-        var message: String {
-            switch self {
-            case .recording: return "Остановить запись можно в строке меню."
-            case .transcribing: return "Запись сохраняется и уходит на расшифровку."
-            case .finished: return "Запись сохранена на этом Mac."
-            }
-        }
     }
 
     /// Карточка о проблеме с локальной записью: не зависит от системного баннера.
-    func presentProblemCard(_ incident: DesktopLocalNotificationIncident) {
+    @discardableResult
+    func presentProblemCard(_ incident: DesktopLocalNotificationIncident) -> Bool {
+        let owner: CardOwner = .problem(incident.sessionID)
+        guard canPresent(owner) else { return false }
+        resetCardState()
+        activeCardOwner = owner
         card.present(.problem(title: "Запись требует вашего внимания",
                               message: "Откройте запись в GRAF, чтобы проверить ее сохранность и отправку.",
                               actionTitle: "Открыть запись",
                               sessionID: incident.sessionID),
-                     dismissAfter: Date().addingTimeInterval(Self.cardDisplayDuration),
+                     dismissAfter: Date().addingTimeInterval(DesktopNotificationCardPresenter.noticeDisplayDuration),
                      onAction: { [weak self] action in
-                         if case let .openRecording(sessionID) = action { self?.model.send(.localRecording(sessionID)) }
-                     })
+                         if case let .openRecording(sessionID) = action {
+                             self?.model.send(.localRecording(sessionID))
+                             self?.dismissExternalCard(owner)
+                         }
+                     },
+                     onExpire: { [weak self] in self?.finishExternalCard(owner) },
+                     onClose: { [weak self] in self?.dismissExternalCard(owner) })
+        return card.isVisible && card.presentedContent?.identifier == "graf.card.problem"
     }
 
     public func dismissAllCards() {
-        dismissedCards.removeAll()
+        // Закрытие окна или выход из аккаунта убирает поверхность, но не
+        // забывает отказ пользователя для текущей встречи.
         lastRecordingNotice = nil
         clearCard()
     }
@@ -697,7 +850,18 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
 
     private static func safeMeetingURL(_ url: URL?) -> URL? {
         guard let url, url.scheme?.lowercased() == "https", let host = url.host, !host.isEmpty,
-              url.user == nil, url.password == nil else { return nil }
+              url.user == nil, url.password == nil, url.fragment == nil else { return nil }
+        let normalizedHost = host.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        guard normalizedHost != "localhost", !normalizedHost.hasSuffix(".localhost") else { return nil }
+        if let address = IPv4Address(normalizedHost) {
+            let bytes = address.rawValue
+            let privateRange = bytes[0] == 10
+                || (bytes[0] == 172 && (16...31).contains(bytes[1]))
+                || (bytes[0] == 192 && bytes[1] == 168)
+                || bytes[0] == 127
+                || bytes.allSatisfy { $0 == 0 }
+            guard !privateRange else { return nil }
+        }
         return url
     }
 
@@ -724,21 +888,20 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
         removeNotifications(obsolete)
         obsolete.forEach { requests.removeValue(forKey: $0) }
         guard !incidents.isEmpty, !owner.isEmpty, epoch == authEpoch, snapshot == lastSnapshot else { return }
-        guard await allowed(), epoch == authEpoch, snapshot == lastSnapshot else { return }
+        guard !card.isVisible || activeCardOwner != .meeting(presentedCardID ?? "") else { return }
         for incident in incidents where incident.fresh {
             guard epoch == authEpoch, snapshot == lastSnapshot else { return }
+            guard requests[incident.id] == nil else { continue }
+            // Инцидент нельзя поглощать очередью до подтверждённого показа:
+            // если более важная карточка уже заняла поверхность, он останется
+            // доступен для следующей сверки.
+            guard presentProblemCard(incident) else { continue }
             guard store.claimLocalIncident(incident, owner: owner, now: Date()) else { continue }
-            let content = UNMutableNotificationContent()
-            content.title = "Запись требует вашего внимания"
-            content.body = "Откройте запись в GRAF, чтобы проверить ее сохранность и отправку."
-            content.categoryIdentifier = "graf.recording"
-            if preferences.sound && !snapshot.active { content.sound = .default }
             requests[incident.id] = (owner, nil, incident.sessionID)
-            // Собственная карточка не зависит от разрешения macOS и режима
-            // «Не беспокоить»; системный баннер остаётся дополнительным каналом.
-            presentProblemCard(incident)
-            do { try await addNotification(UNNotificationRequest(identifier: incident.id, content: content, trigger: nil)) }
-            catch { message = "Не удалось передать уведомление macOS. Проверьте локальные записи в GRAF." }
+            // Карточка GRAF — единственный канал полезного события: не создаём
+            // дублирующий системный баннер.
+            center?.removePendingNotificationRequests(withIdentifiers: [incident.id])
+            center?.removeDeliveredNotifications(withIdentifiers: [incident.id])
             if epoch != authEpoch || requests[incident.id] == nil {
                 removeNotifications([incident.id]); return
             }
@@ -763,7 +926,7 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
         if let session = requests[id]?.sessionID {
             guard store.ownsSession(session, context: context),
                   DesktopLocalNotificationIncident.incidents(in: lastSnapshot, now: Date()).contains(where: { $0.sessionID == session }) else { return [] }
-            if card.isVisible, case .problem = card.presentedContent { return [] }
+            if card.isVisible, card.presentedContent?.identifier == "graf.card.problem" { return [] }
         }
         if let event = requests[id]?.event, !Self.shouldRemind(event, snapshot: lastSnapshot, now: Date()) { return [] }
         return preferences.sound && !lastSnapshot.active ? [.banner, .list, .sound] : [.banner, .list]
@@ -780,7 +943,8 @@ public final class DesktopNotificationPresenter: NSObject, ObservableObject, UNU
     }
     public static func currentMeetingURL(for target: DesktopCalendarPromptEvent,
                                          events: [DesktopCalendarPromptEvent], now: Date = Date()) -> URL? {
-        guard let event = currentMeeting(for: target, events: events, now: now) else { return nil }
+        guard let event = currentMeeting(for: target, events: events, now: now),
+              event.meetingLinkPresent else { return nil }
         return safeMeetingURL(event.openMeetingURL)
     }
     func openResponse(_ id: String, actionIdentifier: String) {

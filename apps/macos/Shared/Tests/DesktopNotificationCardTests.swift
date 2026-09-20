@@ -34,17 +34,20 @@ final class DesktopNotificationCardTests: XCTestCase {
         let far = event(startsIn: 40 * 60)
         XCTAssertFalse(DesktopNotificationPresenter.shouldPresentCard(far, snapshot: .init(), now: now))
 
-        let inside = event(startsIn: 10 * 60)
+        let inside = event(startsIn: 14 * 60)
         XCTAssertTrue(DesktopNotificationPresenter.shouldPresentCard(inside, snapshot: .init(), now: now))
 
+        let outsideEarlyWindow = event(startsIn: 10 * 60)
+        XCTAssertFalse(DesktopNotificationPresenter.shouldPresentCard(outsideEarlyWindow, snapshot: .init(), now: now))
+
         let justStarted = event(startsIn: -30)
-        XCTAssertTrue(DesktopNotificationPresenter.shouldPresentCard(justStarted, snapshot: .init(), now: now))
+        XCTAssertFalse(DesktopNotificationPresenter.shouldPresentCard(justStarted, snapshot: .init(), now: now))
 
         let past = event(startsIn: -180)
         XCTAssertFalse(DesktopNotificationPresenter.shouldPresentCard(past, snapshot: .init(), now: now))
     }
 
-    func testCardNeverOffersRecordingDuringActiveMeeting() {
+    func testCardNeverOffersASecondRecordingDuringActiveMeeting() {
         var snapshot = DesktopControlSnapshot()
         snapshot.session = CaptureSession(
             id: "active", mode: .audioRecording, state: .active,
@@ -55,6 +58,11 @@ final class DesktopNotificationCardTests: XCTestCase {
         let running = event(startsIn: 5 * 60)
         snapshot.calendarContextEventID = running.eventId
         XCTAssertFalse(DesktopNotificationPresenter.shouldPresentCard(running, snapshot: snapshot, now: Date()))
+        let other = event(startsIn: 6 * 60, title: "Другая встреча")
+        snapshot.calendarContextEventID = running.eventId
+        XCTAssertFalse(DesktopNotificationPresenter.shouldRemind(other, snapshot: snapshot, now: Date()))
+        snapshot.stopping = true
+        XCTAssertFalse(DesktopNotificationPresenter.shouldRemind(other, snapshot: snapshot, now: Date()))
     }
 
     func testMeetingCardContentFollowsTitlePreferenceAndLink() {
@@ -80,20 +88,33 @@ final class DesktopNotificationCardTests: XCTestCase {
     }
 
     func testCardContentIsAccessibleAndIdentified() {
+        let prompt = DesktopNotificationCardContent.recordingPrompt(
+            displayName: "Zoom",
+            remainingSeconds: 7,
+            progress: 0.125,
+            rememberChoice: false
+        )
+        XCTAssertEqual(prompt.identifier, "graf.card.recording-prompt")
+        XCTAssertTrue(prompt.accessibilitySummary.contains("7 секунд"))
+        XCTAssertTrue(prompt.accessibilitySummary.contains("88 процентов"))
+        XCTAssertTrue(prompt.accessibilitySummary.contains("Выбор не сохранён"))
+        XCTAssertGreaterThan(DesktopNotificationCardPresenter.surfaceHeight(for: prompt), DesktopNotificationCardPresenter.windowHeight)
+        XCTAssertEqual(DesktopNotificationCardPresenter.previewDisplayDuration, 6)
+        XCTAssertEqual(DesktopNotificationCardPresenter.recordingPromptDisplayDuration, 8)
+        XCTAssertEqual(DesktopNotificationCardPresenter.noticeDisplayDuration, 20)
+
         let meeting = DesktopNotificationCardContent.meeting(title: "Встреча команды",
                                                              startText: "Начало в 10:00",
                                                              hasJoinLink: true)
         XCTAssertTrue(meeting.accessibilitySummary.contains("Встреча команды"))
         XCTAssertTrue(meeting.accessibilitySummary.contains("10:00"))
         XCTAssertEqual(meeting.identifier, "graf.card.meeting")
-        XCTAssertEqual(DesktopNotificationCardContent.notice(title: "Запись началась",
-                                                             message: "Остановить запись можно в строке меню",
-                                                             actionTitle: nil).accessibilitySummary,
-                       "Запись началась. Остановить запись можно в строке меню.")
-        XCTAssertEqual(DesktopNotificationCardContent.notice(title: "Проверка",
-                                                             message: "Так выглядит напоминание",
-                                                             actionTitle: "Открыть").accessibilitySummary,
-                       "Проверка. Так выглядит напоминание. Действие: Открыть.")
+        XCTAssertEqual(DesktopNotificationCardContent.preview(title: "Проверка уведомлений GRAF",
+                                                              message: "Так выглядит напоминание о встрече.").accessibilitySummary,
+                       "Проверка уведомлений GRAF. Так выглядит напоминание о встрече.")
+        XCTAssertEqual(DesktopNotificationCardContent.preview(title: "Проверка",
+                                                              message: "Так выглядит напоминание").accessibilitySummary,
+                       "Проверка. Так выглядит напоминание.")
     }
 
     func testDismissalKeyIsStablePerOccurrence() {
@@ -106,8 +127,9 @@ final class DesktopNotificationCardTests: XCTestCase {
                           DesktopNotificationPresenter.cardDismissalKey(first, context: "other"))
     }
 
-    // Состояние записи сообщается один раз на переход, отдельного окна нет.
-    func testRecordingNoticeStatesCarryTruthfulText() {
+    // Переходы состояния остаются данными основного интерфейса и не превращаются
+    // в тексты плавающей карточки.
+    func testRecordingNoticeStatesAreNotNotificationContent() {
         var recording = DesktopControlSnapshot()
         recording.session = CaptureSession(
             id: "active", mode: .audioRecording, state: .active,
@@ -119,19 +141,43 @@ final class DesktopNotificationCardTests: XCTestCase {
         var stopping = recording
         stopping.stopping = true
         XCTAssertEqual(DesktopNotificationPresenter.RecordingNoticeState(snapshot: stopping), .transcribing)
-        XCTAssertEqual(DesktopNotificationPresenter.RecordingNoticeState(snapshot: recording)?.title,
-                       "Запись началась")
-        XCTAssertEqual(DesktopNotificationPresenter.RecordingNoticeState(snapshot: stopping)?.title,
-                       "Расшифровка началась")
         XCTAssertNil(DesktopNotificationPresenter.RecordingNoticeState(snapshot: DesktopControlSnapshot()))
+    }
+
+    @MainActor
+    func testPresenterDoesNotAnnounceRecordingStateTransitions() async {
+        let suiteName = "graf-recording-transition-\(UUID())"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = DesktopNotificationPreferencesStore(defaults: defaults)
+        let model = DesktopControlModel()
+        let presenter = DesktopNotificationPresenter(
+            store: store,
+            model: model,
+            status: { .denied },
+            submit: { _ in XCTFail("рутинный переход не отправляет системный запрос") },
+            remove: { _ in }
+        )
+        presenter.updateContext(user: "owner", workspace: "workspace")
+        var snapshot = DesktopControlSnapshot()
+        snapshot.session = CaptureSession(
+            id: "recording-transition", mode: .audioRecording, state: .active,
+            sourceAppEligibility: .eligible, policySnapshotRef: "policy", triggerEvidence: [:],
+            visibleIndicatorState: .active, stopActionAvailable: true,
+            bufferSummaryId: nil, startedAt: Date(), stoppedAt: nil
+        )
+        presenter.updateRecordingIndicator(snapshot, elapsed: "00:01")
+        XCTAssertFalse(presenter.card.isVisible)
+        snapshot.stopping = true
+        presenter.updateRecordingIndicator(snapshot, elapsed: "00:02")
+        XCTAssertFalse(presenter.card.isVisible)
     }
 
     // Карточка не должна забирать клавиатурный фокус у приложения со встречей.
     func testCardPanelNeverBecomesKeyWindow() {
         let presenter = DesktopNotificationCardPresenter()
-        presenter.present(.notice(title: "Запись началась",
-                                  message: "Остановить запись можно в строке меню.",
-                                  actionTitle: nil), onAction: { _ in })
+        presenter.present(.preview(title: "Проверка уведомлений GRAF",
+                                  message: "Так выглядит напоминание о встрече."), onAction: { _ in })
         defer { presenter.dismiss() }
         XCTAssertTrue(presenter.isVisible)
         let panel = presenter.window
@@ -145,9 +191,8 @@ final class DesktopNotificationCardTests: XCTestCase {
 
     func testDismissRemovesCardAndContent() {
         let presenter = DesktopNotificationCardPresenter()
-        presenter.present(.notice(title: "Запись началась",
-                                  message: "Остановить запись можно в строке меню.",
-                                  actionTitle: nil), onAction: { _ in })
+        presenter.present(.preview(title: "Проверка уведомлений GRAF",
+                                  message: "Так выглядит напоминание о встрече."), onAction: { _ in })
         XCTAssertNotNil(presenter.presentedContent)
         presenter.dismiss()
         XCTAssertFalse(presenter.isVisible)
@@ -156,9 +201,8 @@ final class DesktopNotificationCardTests: XCTestCase {
 
     func testPositionKeepsCardInsideVisibleFrameBelowMenuBar() {
         let presenter = DesktopNotificationCardPresenter()
-        presenter.present(.notice(title: "Запись началась",
-                                  message: "Остановить запись можно в строке меню.",
-                                  actionTitle: nil), onAction: { _ in })
+        presenter.present(.preview(title: "Проверка уведомлений GRAF",
+                                  message: "Так выглядит напоминание о встрече."), onAction: { _ in })
         defer { presenter.dismiss() }
         guard let panel = presenter.window,
               let screen = panel.screen ?? NSScreen.main else { return XCTFail("нет окна карточки") }
@@ -172,22 +216,19 @@ final class DesktopNotificationCardTests: XCTestCase {
     func testRefreshKeepsCardWhileContentIsCurrent() {
         let presenter = DesktopNotificationCardPresenter()
         var ticks = 0
-        presenter.present(.notice(title: "Запись началась",
-                                  message: "Остановить запись можно в строке меню.",
-                                  actionTitle: nil),
+        presenter.present(.preview(title: "Проверка уведомлений GRAF",
+                                   message: "Так выглядит напоминание о встрече."),
                           dismissAfter: Date().addingTimeInterval(60),
                           onAction: { _ in },
                           onTick: {
                               ticks += 1
-                              return .notice(title: "Запись началась",
-                                             message: "Остановить запись можно в строке меню.",
-                                             actionTitle: nil)
+                              return .preview(title: "Проверка уведомлений GRAF",
+                                               message: "Так выглядит напоминание о встрече.")
                           })
         defer { presenter.dismiss() }
         presenter.refresh()
-        XCTAssertEqual(presenter.presentedContent, .notice(title: "Запись началась",
-                                                            message: "Остановить запись можно в строке меню.",
-                                                            actionTitle: nil))
+        XCTAssertEqual(presenter.presentedContent, .preview(title: "Проверка уведомлений GRAF",
+                                                             message: "Так выглядит напоминание о встрече."))
         XCTAssertEqual(ticks, 1)
     }
 
@@ -233,13 +274,33 @@ final class DesktopNotificationCardTests: XCTestCase {
             .first { $0.accessibilityLabel() == "Закрыть уведомление" })
         XCTAssertLessThanOrEqual(close.frame.width, 28)
         XCTAssertLessThanOrEqual(close.frame.height, 28)
-        // Знак закрытия стоит в верхнем правом углу карточки.
-        XCTAssertEqual(close.frame.midX, card.frame.maxX - 24, accuracy: 3)
+        // Знак закрытия стоит в верхнем левом углу карточки и не пересекается
+        // с первой строкой содержимого.
+        XCTAssertEqual(close.frame.midX, card.frame.minX + 24, accuracy: 3)
         XCTAssertEqual(close.frame.midY, card.frame.maxY - 22, accuracy: 4)
+        XCTAssertLessThanOrEqual(close.frame.maxX, row.frame.minX)
         _ = panel
     }
 
-    // Двум действиям нужна отдельная строка: подписи эталона длиннее латинских.
+    // Два действия остаются отдельными кнопками, а постоянный выбор вынесен в
+    // настоящий флажок, чтобы подписи не сдавливали содержимое карточки.
+    func testRecordingPromptCardRendersCountdownAndRememberCheckbox() throws {
+        let presenter = DesktopNotificationCardPresenter()
+        presenter.present(.recordingPrompt(displayName: "Zoom", remainingSeconds: 7, progress: 0.125, rememberChoice: false), onAction: { _ in })
+        defer { presenter.dismiss() }
+        let (_, view) = try fitted(presenter)
+        let buttons = descendants(of: view).compactMap { $0 as? NotificationCardButton }
+        XCTAssertEqual(buttons.count, 2)
+        XCTAssertEqual(buttons.filter { $0.isPrimary }.count, 1)
+        XCTAssertTrue(buttons.contains { $0.title == "Записать" })
+        XCTAssertTrue(buttons.contains { $0.title == "Не записывать" })
+        let remember = descendants(of: view).compactMap { $0 as? NSButton }
+            .first { $0.title == "Запомнить выбор" }
+        XCTAssertNotNil(remember)
+        XCTAssertEqual(remember?.state, .off)
+        XCTAssertTrue(presenter.presentedContent?.accessibilitySummary.contains("7 секунд") == true)
+    }
+
     func testCardWithTwoActionsKeepsBothActionsInsideCard() throws {
         let presenter = DesktopNotificationCardPresenter()
         presenter.present(.meeting(title: "Встреча команды", startText: "Начало в 10:00", hasJoinLink: true),
@@ -261,6 +322,72 @@ final class DesktopNotificationCardTests: XCTestCase {
             XCTAssertLessThanOrEqual(frame.maxX, card.frame.width - 8)
             XCTAssertGreaterThanOrEqual(frame.height, DesktopNotificationCardPresenter.buttonHeight)
         }
+    }
+
+    func testAllCardKindsKeepTextAndActionsInsideAdaptiveSurface() throws {
+        let contents: [DesktopNotificationCardContent] = [
+            .meeting(title: "Встреча команды", startText: "Начало в 10:00", hasJoinLink: false),
+            .recordingPrompt(displayName: "Zoom", remainingSeconds: 7, progress: 0.125, rememberChoice: false),
+            .problem(title: "Запись требует внимания", message: "Откройте запись, чтобы проверить ее сохранность.", actionTitle: "Открыть запись", sessionID: "session"),
+            .preview(title: "Проверка уведомлений GRAF", message: "Так выглядит напоминание о встрече."),
+            .shortRecording(title: DesktopRecordingNoticePresenter.title, message: DesktopRecordingNoticePresenter.message)
+        ]
+        let presenter = DesktopNotificationCardPresenter()
+        defer { presenter.dismiss() }
+
+        for content in contents {
+            presenter.present(content, onAction: { _ in })
+            let (_, view) = try fitted(presenter)
+            let card = try XCTUnwrap(view.subviews.compactMap { $0 as? CardBackgroundView }.first)
+            card.layoutSubtreeIfNeeded()
+            let close = try XCTUnwrap(view.subviews.compactMap { $0 as? NSButton }
+                .first { $0.accessibilityLabel() == "Закрыть уведомление" })
+            let closeFrame = close.convert(close.bounds, to: card)
+            XCTAssertGreaterThanOrEqual(closeFrame.minX, 0)
+            XCTAssertLessThanOrEqual(closeFrame.maxX, card.frame.width)
+            for element in descendants(of: view).compactMap({ $0 as? NSButton }) {
+                let frame = element.convert(element.bounds, to: card)
+                XCTAssertGreaterThanOrEqual(frame.minX, 0, "\(content.identifier): кнопка слева за карточкой")
+                XCTAssertLessThanOrEqual(frame.maxX, card.frame.width, "\(content.identifier): кнопка справа за карточкой")
+                XCTAssertGreaterThanOrEqual(frame.minY, 0, "\(content.identifier): кнопка ниже карточки")
+                XCTAssertLessThanOrEqual(frame.maxY, card.frame.height, "\(content.identifier): кнопка выше карточки")
+            }
+            for label in descendants(of: view).compactMap({ $0 as? NSTextField }) {
+                let frame = label.convert(label.bounds, to: card)
+                XCTAssertGreaterThanOrEqual(frame.minX, 0, "\(content.identifier): текст слева за карточкой")
+                XCTAssertLessThanOrEqual(frame.maxX, card.frame.width, "\(content.identifier): текст справа за карточкой")
+                XCTAssertGreaterThanOrEqual(frame.minY, 0, "\(content.identifier): текст ниже карточки")
+                XCTAssertLessThanOrEqual(frame.maxY, card.frame.height, "\(content.identifier): текст выше карточки")
+                XCTAssertEqual(label.maximumNumberOfLines, 0)
+            }
+        }
+    }
+
+    func testLongRussianContentWrapsAndRaisesCardWithoutOverlap() throws {
+        let presenter = DesktopNotificationCardPresenter()
+        presenter.present(.problem(
+            title: "Запись требует дополнительной проверки сохранности",
+            message: "Откройте запись в GRAF, чтобы проверить сохранность локальных файлов и отправку результата после завершения обработки.",
+            actionTitle: "Открыть запись",
+            sessionID: "session"
+        ), onAction: { _ in })
+        defer { presenter.dismiss() }
+        let (_, view) = try fitted(presenter)
+        let card = try XCTUnwrap(view.subviews.compactMap { $0 as? CardBackgroundView }.first)
+        XCTAssertGreaterThan(card.frame.height, DesktopNotificationCardPresenter.cardHeight)
+        let labels = descendants(of: view).compactMap { $0 as? NSTextField }
+        XCTAssertGreaterThanOrEqual(labels.count, 2)
+        for label in labels {
+            let frame = label.convert(label.bounds, to: card)
+            XCTAssertLessThanOrEqual(frame.maxX, card.frame.width)
+            XCTAssertLessThanOrEqual(frame.maxY, card.frame.height)
+            XCTAssertEqual(label.lineBreakMode, .byWordWrapping)
+            XCTAssertEqual(label.maximumNumberOfLines, 0)
+        }
+        let close = try XCTUnwrap(view.subviews.compactMap { $0 as? NSButton }
+            .first { $0.accessibilityLabel() == "Закрыть уведомление" })
+        XCTAssertLessThanOrEqual(close.convert(close.bounds, to: card).maxX,
+                                 card.frame.width)
     }
 
     // Карточка показывается поверх других окон и на всех рабочих столах, но не
@@ -306,11 +433,12 @@ final class DesktopNotificationCardTests: XCTestCase {
         return (panel, view)
     }
 
-    // Служебное сообщение показывается одной строкой: текст и знак закрытия.
-    func testNoticeCardKeepsSingleRowGeometry() throws {
+    // Предпросмотр без действий показывает одну строку: текст и знак закрытия.
+    func testPreviewCardKeepsSingleRowGeometry() throws {
         let presenter = DesktopNotificationCardPresenter()
-        presenter.presentNotice(title: "Запись началась",
-                                message: "Остановить запись можно в строке меню.")
+        presenter.presentPreview(title: "Проверка уведомлений GRAF",
+                                 message: "Так выглядит напоминание о встрече.",
+                                 duration: 60)
         defer { presenter.dismiss() }
         let panel = try XCTUnwrap(presenter.window)
         let view = try XCTUnwrap(panel.contentView)
@@ -330,7 +458,7 @@ final class DesktopNotificationCardTests: XCTestCase {
     func testPresenterShowsCardForUpcomingMeetingAndSuppressesBanner() async throws {
         let harness = CardHarness()
         defer { harness.finish() }
-        let event = harness.event(startsIn: 10 * 60)
+        let event = harness.event(startsIn: 14 * 60)
         await harness.updateCalendar([event])
         XCTAssertEqual(harness.presenter.card.presentedContent,
                        .meeting(title: "Встреча команды", startText: harness.startText(event), hasJoinLink: true))
@@ -343,7 +471,7 @@ final class DesktopNotificationCardTests: XCTestCase {
     func testPresenterDoesNotRestoreDismissedCardAndKeepsBannerFallback() async throws {
         let harness = CardHarness()
         defer { harness.finish() }
-        let event = harness.event(startsIn: 10 * 60)
+        let event = harness.event(startsIn: 14 * 60)
         await harness.updateCalendar([event])
         let id = harness.reminderID(event)
         harness.presenter.dismissCard(eventID: event.eventId)
@@ -358,7 +486,7 @@ final class DesktopNotificationCardTests: XCTestCase {
     func testPresenterHidesCardWhenRemindersAreTurnedOff() async throws {
         let harness = CardHarness()
         defer { harness.finish() }
-        await harness.updateCalendar([harness.event(startsIn: 10 * 60)])
+        await harness.updateCalendar([harness.event(startsIn: 14 * 60)])
         XCTAssertTrue(harness.presenter.card.isVisible)
         harness.presenter.draft.reminders = false
         _ = harness.presenter.save(harness.presenter.draft)
@@ -368,7 +496,7 @@ final class DesktopNotificationCardTests: XCTestCase {
     func testPresenterHidesCardOnSignOut() async throws {
         let harness = CardHarness()
         defer { harness.finish() }
-        await harness.updateCalendar([harness.event(startsIn: 10 * 60)])
+        await harness.updateCalendar([harness.event(startsIn: 14 * 60)])
         XCTAssertTrue(harness.presenter.card.isVisible)
         harness.presenter.invalidate()
         XCTAssertFalse(harness.presenter.card.isVisible)
@@ -381,10 +509,9 @@ final class DesktopNotificationCardTests: XCTestCase {
         XCTAssertFalse(harness.presenter.card.isVisible)
     }
 
-    // Состояние записи сообщается один раз на переход: «Запись началась»,
-    // затем «Расшифровка началась», затем «Запись остановлена». Постоянного
-    // окна поверх других окон нет.
-    func testPresenterAnnouncesRecordingStatesOncePerTransition() {
+    // Переходы состояния записи не являются уведомлениями и не создают
+    // плавающую карточку или системный баннер.
+    func testPresenterDoesNotAnnounceRecordingStateTransitions() {
         let harness = CardHarness()
         defer { harness.finish() }
         var snapshot = DesktopControlSnapshot()
@@ -395,38 +522,27 @@ final class DesktopNotificationCardTests: XCTestCase {
             bufferSummaryId: nil, startedAt: Date(), stoppedAt: nil
         )
         harness.presenter.updateRecordingIndicator(snapshot, elapsed: "0:05")
-        XCTAssertEqual(harness.presenter.card.presentedContent,
-                       .notice(title: "Запись началась",
-                               message: "Остановить запись можно в строке меню.",
-                               actionTitle: nil))
-
-        // Повторное то же состояние ничего не показывает заново.
-        harness.presenter.card.dismiss()
-        harness.presenter.updateRecordingIndicator(snapshot, elapsed: "0:07")
         XCTAssertFalse(harness.presenter.card.isVisible)
 
         snapshot.stopping = true
         harness.presenter.updateRecordingIndicator(snapshot, elapsed: "0:07")
-        XCTAssertEqual(harness.presenter.card.presentedContent,
-                       .notice(title: "Расшифровка началась",
-                               message: "Запись сохраняется и уходит на расшифровку.",
-                               actionTitle: nil))
+        XCTAssertFalse(harness.presenter.card.isVisible)
 
         snapshot.stopping = false
         snapshot.session?.state = .stopped
         harness.presenter.updateRecordingIndicator(snapshot, elapsed: "0:07")
-        XCTAssertEqual(harness.presenter.card.presentedContent,
-                       .notice(title: "Запись остановлена",
-                               message: "Запись сохранена на этом Mac.",
-                               actionTitle: nil))
+        XCTAssertFalse(harness.presenter.card.isVisible)
+
+        XCTAssertTrue(harness.sent.isEmpty)
+        XCTAssertTrue(harness.presenter.presentationOptions(for: "graf.recording.transition").isEmpty)
     }
 
     // Карточку можно закрыть мышью: окно принимает нажатия, а точка знака
     // закрытия действительно приходится на кнопку.
     func testCardCloseButtonReceivesMouseClicks() throws {
         let presenter = DesktopNotificationCardPresenter()
-        presenter.presentNotice(title: "Проверка уведомлений GRAF",
-                                message: "Так выглядит напоминание о встрече.")
+        presenter.presentPreview(title: "Проверка уведомлений GRAF",
+                                 message: "Так выглядит напоминание о встрече.")
         defer { presenter.dismiss() }
         let panel = try XCTUnwrap(presenter.window)
         let view = try XCTUnwrap(panel.contentView)
@@ -447,8 +563,8 @@ final class DesktopNotificationCardTests: XCTestCase {
     // трогает нажатия мимо него.
     func testClickMonitorClosesCardOnlyOnTheCloseControl() throws {
         let presenter = DesktopNotificationCardPresenter()
-        presenter.presentNotice(title: "Проверка уведомлений GRAF",
-                                message: "Так выглядит напоминание о встрече.")
+        presenter.presentPreview(title: "Проверка уведомлений GRAF",
+                                 message: "Так выглядит напоминание о встрече.")
         let panel = try XCTUnwrap(presenter.window)
         let view = try XCTUnwrap(panel.contentView as? DesktopNotificationCardView)
         let close = try XCTUnwrap(view.closeButton)
@@ -467,8 +583,8 @@ final class DesktopNotificationCardTests: XCTestCase {
     // событие дальше.
     func testClickMonitorHandlesSyntheticMouseDown() throws {
         let presenter = DesktopNotificationCardPresenter()
-        presenter.presentNotice(title: "Проверка уведомлений GRAF",
-                                message: "Так выглядит напоминание о встрече.")
+        presenter.presentPreview(title: "Проверка уведомлений GRAF",
+                                 message: "Так выглядит напоминание о встрече.")
         let panel = try XCTUnwrap(presenter.window)
         let view = try XCTUnwrap(panel.contentView as? DesktopNotificationCardView)
         let close = try XCTUnwrap(view.closeButton)
@@ -489,14 +605,70 @@ final class DesktopNotificationCardTests: XCTestCase {
         XCTAssertFalse(presenter.isVisible, "нажатие в знак закрытия убирает карточку")
     }
 
+    func testRecordingPromptTimeoutCallsExpireAction() async throws {
+        let presenter = DesktopNotificationCardPresenter()
+        var expired = false
+        var dismissed = false
+        presenter.presentRecordingPrompt(
+            displayName: "Zoom",
+            remainingSeconds: 1,
+            progress: 0,
+            duration: 1,
+            onStart: {},
+            onDismiss: { dismissed = true },
+            onRememberChoiceChanged: { _ in },
+            onExpire: { expired = true }
+        )
+        XCTAssertTrue(presenter.isVisible)
+        try await Task.sleep(for: .seconds(2))
+        XCTAssertTrue(expired)
+        XCTAssertFalse(dismissed)
+        XCTAssertFalse(presenter.isVisible)
+    }
+
+    func testShortRecordingCardDoesNotCloseOnFirstTick() async throws {
+        let presenter = DesktopNotificationCardPresenter()
+        defer { presenter.dismiss() }
+        presenter.presentShortRecording(title: DesktopRecordingNoticePresenter.title,
+                                        message: DesktopRecordingNoticePresenter.message,
+                                        duration: 2)
+        try await Task.sleep(for: .milliseconds(1100))
+        XCTAssertTrue(presenter.isVisible)
+        try await Task.sleep(for: .seconds(2))
+        XCTAssertFalse(presenter.isVisible)
+    }
+
+    func testRecordingPromptCloseCallsDismissActionWithoutPresentingAnotherCard() {
+        let presenter = DesktopNotificationCardPresenter()
+        XCTAssertEqual(DesktopNotificationCardPresenter.noticeDisplayDuration, 20)
+        var dismissed = false
+        var skippedRememberChoice: Bool?
+
+        presenter.presentRecordingPrompt(
+            displayName: "Zoom",
+            remainingSeconds: 8,
+            progress: 0,
+            onStart: {},
+            onDismiss: { dismissed = true },
+            onRememberChoiceChanged: { _ in },
+            onSkip: { skippedRememberChoice = $0 }
+        )
+        defer { presenter.dismiss() }
+        let view = presenter.window?.contentView as? DesktopNotificationCardView
+        view?.closeButton?.performClick(nil)
+        XCTAssertTrue(dismissed)
+        XCTAssertNil(skippedRememberChoice)
+        XCTAssertFalse(presenter.isVisible)
+    }
+
     // Приложение может быть неактивным. Пока GRAF не впереди, система отдаёт
     // первое нажатие активации, поэтому окно нажатие не получает: карточку
     // закрывает сторож нажатий. Здесь проверяется, что окно нажатия принимает,
     // фокус не забирает и знак закрытия доступен сторожу.
     func testCardWindowAcceptsClicksWhileAppIsInactive() throws {
         let presenter = DesktopNotificationCardPresenter()
-        presenter.presentNotice(title: "Проверка уведомлений GRAF",
-                                message: "Так выглядит напоминание о встрече.")
+        presenter.presentPreview(title: "Проверка уведомлений GRAF",
+                                 message: "Так выглядит напоминание о встрече.")
         defer { presenter.dismiss() }
         let panel = try XCTUnwrap(presenter.window)
         let view = try XCTUnwrap(panel.contentView as? DesktopNotificationCardView)
@@ -512,14 +684,16 @@ final class DesktopNotificationCardTests: XCTestCase {
     }
 
     // Сообщение исчезает само: иначе окно остаётся поверх чужих приложений.
-    func testNoticeDisappearsAfterItsLifetime() async throws {
+    func testPreviewDisappearsAfterItsLifetime() async throws {
         let presenter = DesktopNotificationCardPresenter()
         defer { presenter.dismiss() }
-        presenter.presentNotice(title: "Запись началась",
-                                message: "Остановить запись можно в строке меню.",
-                                duration: 1)
+        presenter.presentPreview(title: "Проверка уведомлений GRAF",
+                                 message: "Так выглядит напоминание о встрече.",
+                                 duration: 2)
         XCTAssertTrue(presenter.isVisible)
-        try await Task.sleep(for: .seconds(3))
+        try await Task.sleep(for: .milliseconds(1100))
+        XCTAssertTrue(presenter.isVisible, "сообщение не должно закрываться на первом тике")
+        try await Task.sleep(for: .seconds(2))
         XCTAssertFalse(presenter.isVisible, "сообщение обязано исчезнуть само")
         XCTAssertNil(presenter.presentedContent)
     }
@@ -547,11 +721,11 @@ final class DesktopNotificationCardTests: XCTestCase {
                               sessionID: "session"), onAction: { _ in })
         try write(card.window, to: target.appendingPathComponent("card-problem.png"))
 
-        card.presentNotice(title: "Запись началась",
-                           message: "Остановить запись можно в строке меню.")
+        card.presentPreview(title: "Проверка уведомлений GRAF",
+                            message: "Так выглядит напоминание о встрече.")
         try write(card.window, to: target.appendingPathComponent("notice-recording.png"))
-        card.presentNotice(title: "Запись не сохранена",
-                           message: "Запись короче 30 секунд не сохранена.")
+        card.presentShortRecording(title: DesktopRecordingNoticePresenter.title,
+                                   message: DesktopRecordingNoticePresenter.message)
         try write(card.window, to: target.appendingPathComponent("notice-short-recording.png"))
         card.dismiss()
     }

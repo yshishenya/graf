@@ -174,8 +174,16 @@ measurable, consistent, and traceable. Avoid implementation-test wording like
 "verify the button works."
 
 Custom checklist checkbox state is reviewer-owned. Generation leaves new items
-unchecked; a reviewer records the result. Implementation MUST read that state
-as a gate and MUST NOT mark reviewer checklist items complete itself.
+unchecked. Before implementation, the main agent MUST dispatch an independent
+review agent to inspect every item in the active checklist and record concrete
+evidence. The review agent may edit only the checklist: it marks `[X]` only for
+items supported by current evidence, leaves items that require more evidence
+unchecked, and explains each remaining blocker in the reviewer notes.
+Implementation MUST NOT mark reviewer checklist items complete itself; the main
+agent only consumes the review result. The user does
+not need to perform this review or approve individual checklist items; the
+agent's recorded review is the required reviewer input. This does not remove
+separate user approval for commits, merges, deploys, or releases.
 
 ## 5. Tasks
 

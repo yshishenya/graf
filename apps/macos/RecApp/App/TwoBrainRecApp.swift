@@ -148,13 +148,8 @@ private enum TwoBrainRecAppMain {
 @MainActor
 private struct ContentView: View {
     private let meetingDetectionRegistryRefreshIntervalNanoseconds: UInt64 = 3_600_000_000_000
-    // Вопрос о записи показывается той же поверхностью, что и уведомления:
-    // ширина карточки 448 точек, правый верхний угол рабочей области.
-    // Отступ справа 10 точек и верх 29 точек дают тот же правый верхний угол,
-    // что у карточки уведомления (10 и 39).
-    private static let meetingDetectionPromptWindowSize = NSSize(width: 448, height: 192)
-    private static let meetingDetectionPromptVisibleMargin: CGFloat = 10
-    private static let meetingDetectionPromptTopInset: CGFloat = 29
+    // Вопрос о записи показывается той же карточкой, что и остальные полезные
+    // уведомления; отдельного плавающего окна для него нет.
 
     @ObservedObject private var appUpdateController: AppUpdateController
     @State private var captureController = CaptureSessionController()
@@ -177,7 +172,7 @@ private struct ContentView: View {
     @State private var selectedRecordingMicrophoneDeviceId: String?
     @State private var recordingMicrophoneSelection: RecordingMicrophoneSelection?
     @State private var activeMicrophoneSampleSource: AppOwnedMicrophoneSampleSource?
-    @State private var recordingNotice = DesktopRecordingNoticePresenter()
+    @State private var recordingNotice = DesktopRecordingNoticePresenter(presenter: DesktopNotificationPresenter.shared)
     @State private var desktopUploadQueueService = DesktopUploadQueueService()
     @State private var deletionSyncInProgress = false
     @State private var recordingDeletionOperations: [RecordingDeletionOperation] = []
@@ -206,7 +201,8 @@ private struct ContentView: View {
     @State private var meetingDetectionAdvanceTask: Task<Void, Never>?
     @State private var meetingDetectionStatus = MeetingDetectionStatus.notStarted
     @State private var meetingDetectionPrompt: MeetingDetectionPrompt?
-    @State private var meetingDetectionPromptWindow: NSWindow?
+    @State private var meetingDetectionPromptRememberChoice = false
+    @State private var meetingDetectionPromptStartedAt: Date?
     @State private var liveRecordingLevels = LiveRecordingLevels.inactive
     @State private var localRecordingActive = false
     @State private var levelsPollInProgress = false
@@ -462,6 +458,9 @@ private struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecMeetingDetectionSettingsDidChange)) { _ in
             reloadMeetingDetectionSettings()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecDismissMeetingDetectionPrompt)) { _ in
+            dismissMeetingDetectionPrompt()
         }
         .task {
             while !Task.isCancelled {
@@ -1521,56 +1520,68 @@ private struct ContentView: View {
 
     @MainActor
     private func presentMeetingDetectionPrompt(_ prompt: MeetingDetectionPrompt) {
-        dismissMeetingDetectionPromptWindow()
-        let promptWindowSize = Self.meetingDetectionPromptWindowSize
-
-        let window = MeetingDetectionPromptPanel(
-            contentRect: NSRect(origin: .zero, size: promptWindowSize),
-            styleMask: [.borderless, .fullSizeContentView, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
-        )
-        window.level = .statusBar
-        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
-        window.backgroundColor = .clear
-        window.isOpaque = false
-        window.hasShadow = true
-        window.hidesOnDeactivate = false
-        window.isReleasedWhenClosed = false
-        window.isMovableByWindowBackground = false
-        window.identifier = NSUserInterfaceItemIdentifier("graf-meeting-detection-prompt")
-        let hostingController = NSHostingController(
-            rootView: MeetingDetectionPromptView(
-                prompt: prompt,
-                isStartDisabled: recordingStartInProgress || recordingStopInProgress || calendarPromptRecordingIsActive,
-                onStart: { autoRecordOptIn, reason in
-                    acceptMeetingDetectionPrompt(
-                        prompt,
-                        autoRecordOptIn: autoRecordOptIn,
-                        reason: reason
-                    )
-                },
-                onDismiss: { rememberChoice, reason in
-                    dismissMeetingDetectionPrompt(
-                        prompt,
-                        rememberChoice: rememberChoice,
-                        reason: reason
-                    )
-                }
-            )
-        )
-        hostingController.view.frame = NSRect(origin: .zero, size: promptWindowSize)
-        window.contentViewController = hostingController
-        window.setContentSize(promptWindowSize)
-        positionMeetingDetectionPromptWindow(window)
-        meetingDetectionPromptWindow = window
+        meetingDetectionPromptRememberChoice = false
+        meetingDetectionPromptStartedAt = Date()
+        renderMeetingDetectionPrompt(prompt)
         AppLog.writeRaw(
             event: "meeting_detection.prompt_presented",
             detail: "targetId=\(prompt.targetID) bundleID=\(prompt.bundleID)"
         )
-        window.orderFrontRegardless()
-        window.contentView?.layoutSubtreeIfNeeded()
-        positionMeetingDetectionPromptWindow(window)
+    }
+
+    @MainActor
+    private func renderMeetingDetectionPrompt(_ prompt: MeetingDetectionPrompt) {
+        guard let startedAt = meetingDetectionPromptStartedAt else { return }
+        let elapsed = Date().timeIntervalSince(startedAt)
+        guard elapsed < 8 else { return }
+        let remainingDuration = max(0, 8 - elapsed)
+        _ = DesktopNotificationPresenter.shared.presentRecordingPrompt(
+            displayName: prompt.displayName,
+            remainingSeconds: max(0, Int(ceil(8 - elapsed))),
+            progress: min(max(elapsed / 8, 0), 1),
+            rememberChoice: meetingDetectionPromptRememberChoice,
+            duration: remainingDuration,
+            onStart: { [self] in
+                guard let prompt = self.meetingDetectionPrompt else { return }
+                self.acceptMeetingDetectionPrompt(
+                    prompt,
+                    autoRecordOptIn: self.meetingDetectionPromptRememberChoice,
+                    reason: .promptButton
+                )
+            },
+            onDismiss: { [self] in
+                guard let prompt = self.meetingDetectionPrompt else { return }
+                self.dismissMeetingDetectionPrompt(prompt, rememberChoice: false, reason: .userSkipped)
+            },
+            onRememberChoiceChanged: { [self] value in
+                self.meetingDetectionPromptRememberChoice = value
+                guard let prompt = self.meetingDetectionPrompt else { return }
+                self.renderMeetingDetectionPrompt(prompt)
+            },
+            onTick: { [self] in
+                guard let prompt = self.meetingDetectionPrompt,
+                      let startedAt = self.meetingDetectionPromptStartedAt else { return nil }
+                let elapsed = Date().timeIntervalSince(startedAt)
+                return .recordingPrompt(
+                    displayName: prompt.displayName,
+                    remainingSeconds: max(0, Int(ceil(8 - elapsed))),
+                    progress: min(max(elapsed / 8, 0), 1),
+                    rememberChoice: self.meetingDetectionPromptRememberChoice
+                )
+            },
+            onExpire: { [self] in
+                guard let prompt = self.meetingDetectionPrompt else { return }
+                self.acceptMeetingDetectionPrompt(
+                    prompt,
+                    autoRecordOptIn: self.meetingDetectionPromptRememberChoice,
+                    reason: .promptTimeout
+                )
+            },
+            onSkip: { [self] rememberChoice in
+                guard let prompt = self.meetingDetectionPrompt else { return }
+                self.dismissMeetingDetectionPrompt(prompt, rememberChoice: rememberChoice, reason: .userSkipped)
+            }
+        )
     }
 
     @MainActor
@@ -1582,7 +1593,9 @@ private struct ContentView: View {
             )
         }
         meetingDetectionPrompt = nil
-        dismissMeetingDetectionPromptWindow()
+        meetingDetectionPromptStartedAt = nil
+        meetingDetectionPromptRememberChoice = false
+        DesktopNotificationPresenter.shared.dismissRecordingPrompt()
     }
 
     @MainActor
@@ -1591,7 +1604,8 @@ private struct ContentView: View {
         rememberChoice: Bool = false,
         reason: MeetingDetectionPromptDismissReason = .userSkipped
     ) {
-        let decision = MeetingDetectionPromptDecision(action: .skip, rememberChoice: rememberChoice)
+        let shouldPersistChoice = rememberChoice && reason == .userSkipped
+        let decision = MeetingDetectionPromptDecision(action: .skip, rememberChoice: shouldPersistChoice)
         if let rule = decision.persistedRule {
             if !saveMeetingDetectionRule(rule, targetID: prompt.targetID) {
                 meetingDetectionStatus = .notSaved
@@ -1602,64 +1616,6 @@ private struct ContentView: View {
             outcome: .terminal(reason: reason.rawValue)
         )
         dismissMeetingDetectionPrompt()
-    }
-
-    @MainActor
-    private func dismissMeetingDetectionPromptWindow() {
-        meetingDetectionPromptWindow?.close()
-        meetingDetectionPromptWindow = nil
-    }
-
-    @MainActor
-    private func positionMeetingDetectionPromptWindow(_ window: NSWindow) {
-        guard let screen = meetingDetectionPromptScreen() else {
-            window.center()
-            return
-        }
-        // Высота берётся по содержимому: вопрос о записи не растягивается на
-        // пустое место и стоит в правом верхнем углу, как уведомления.
-        let fitted = window.contentView?.fittingSize.height ?? 0
-        let size = NSSize(width: Self.meetingDetectionPromptWindowSize.width,
-                          height: fitted > 0 ? fitted : Self.meetingDetectionPromptWindowSize.height)
-        let frame = meetingDetectionPromptFrame(windowSize: size, visibleFrame: screen.visibleFrame)
-        window.setFrame(frame, display: true)
-    }
-
-    @MainActor
-    private func meetingDetectionPromptScreen() -> NSScreen? {
-        let mouseLocation = NSEvent.mouseLocation
-        if let screen = NSScreen.screens.first(where: { NSMouseInRect(mouseLocation, $0.frame, false) }) {
-            return screen
-        }
-        return NSApp.keyWindow?.screen
-            ?? NSApp.mainWindow?.screen
-            ?? NSScreen.main
-            ?? NSScreen.screens.first
-    }
-
-    /// Положение вопроса о записи: правый верхний угол рабочей области, как у
-    /// карточки уведомления. Верх отступает на столько же, на сколько у
-    /// уведомления, чтобы обе поверхности стояли в одной полосе.
-    private func meetingDetectionPromptFrame(windowSize: NSSize, visibleFrame: NSRect) -> NSRect {
-        let margin = Self.meetingDetectionPromptVisibleMargin
-        let horizontalMargin = min(margin, max(0, visibleFrame.width / 2 - 1))
-        let verticalMargin = min(Self.meetingDetectionPromptTopInset, max(0, visibleFrame.height / 2 - 1))
-        let safeFrame = visibleFrame.insetBy(dx: horizontalMargin, dy: verticalMargin)
-        let width = min(windowSize.width, max(1, safeFrame.width))
-        let height = min(windowSize.height, max(1, safeFrame.height))
-        let maxX = safeFrame.maxX - width
-        let maxY = safeFrame.maxY - height
-        return NSRect(
-            x: clamp(maxX, lower: safeFrame.minX, upper: maxX),
-            y: clamp(maxY, lower: safeFrame.minY, upper: maxY),
-            width: width,
-            height: height
-        )
-    }
-
-    private func clamp(_ value: CGFloat, lower: CGFloat, upper: CGFloat) -> CGFloat {
-        guard upper >= lower else { return lower }
-        return min(max(value, lower), upper)
     }
 
     @MainActor
@@ -3042,204 +2998,6 @@ private enum MeetingDetectionPromptDismissReason: String, Sendable {
     case userSkipped = "user_skipped"
 }
 
-private final class MeetingDetectionPromptPanel: NSPanel {
-    override var canBecomeKey: Bool { true }
-    override var canBecomeMain: Bool { false }
-}
-
-private struct MeetingPromptKeyboardNavigation: ViewModifier {
-    var isEnabled = true
-    let onSpace: () -> Void
-
-    func body(content: Content) -> some View {
-        if NSApp.isFullKeyboardAccessEnabled {
-            content
-        } else {
-            content
-                .focusable(isEnabled, interactions: .edit)
-                .onKeyPress(.space, phases: .down) { _ in
-                    onSpace()
-                    return .handled
-                }
-        }
-    }
-}
-
-@MainActor
-private struct MeetingDetectionPromptView: View {
-    private static let countdownSeconds: TimeInterval = 8
-
-    let prompt: MeetingDetectionPrompt
-    let isStartDisabled: Bool
-    let onStart: (Bool, MeetingDetectionStartReason) -> Void
-    let onDismiss: (Bool, MeetingDetectionPromptDismissReason) -> Void
-
-    @State private var autoRecordOptIn = false
-    @State private var appearedAt = Date()
-    @State private var countdown = MeetingDetectionCountdown(startedAt: Date())
-    @State private var autoStartTask: Task<Void, Never>?
-
-    var body: some View {
-        GeometryReader { geometry in
-            ScrollView(.vertical) {
-                VStack(spacing: 0) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack(alignment: .top, spacing: 10) {
-                            Image(systemName: "record.circle")
-                                .font(.system(size: 25))
-                                .foregroundStyle(DesktopMeetingShellChrome.shellAccentColor)
-                                .accessibilityHidden(true)
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text("Записать встречу?")
-                                    .font(.headline)
-                                Text("Встреча в \(prompt.displayName)")
-                                    .font(.callout)
-                                    .foregroundStyle(.secondary)
-                            }
-                            .fixedSize(horizontal: false, vertical: true)
-                        }
-                        Toggle("Запомнить выбор", isOn: $autoRecordOptIn)
-                            .toggleStyle(.checkbox)
-                            .modifier(MeetingPromptKeyboardNavigation { autoRecordOptIn.toggle() })
-                            .accessibilityHint("Сохранить решение для приложения \(prompt.displayName)")
-
-                        let layout = geometry.size.width < 300
-                            ? AnyLayout(VStackLayout(spacing: 8))
-                            : AnyLayout(HStackLayout(spacing: 8))
-                        layout {
-                            Button("Не записывать") {
-                                resolveDismiss(reason: .userSkipped)
-                            }
-                            .buttonStyle(.plain)
-                            .keyboardShortcut(.cancelAction)
-                            .modifier(MeetingPromptKeyboardNavigation {
-                                resolveDismiss(reason: .userSkipped)
-                            })
-                            .frame(maxWidth: .infinity, minHeight: 34)
-                            .background(DesktopDesignTokens.surface, in: RoundedRectangle(cornerRadius: 7))
-
-                            TimelineView(.periodic(from: appearedAt, by: 0.05)) { context in
-                                countdownButton(
-                                    progress: progress(at: context.date),
-                                    remainingSeconds: countdown.remainingWholeSeconds(at: context.date)
-                                )
-                            }
-                        }
-                    }
-                }
-                .frame(maxWidth: .infinity, minHeight: geometry.size.height, alignment: .top)
-            }
-        }
-        // Наблюдаемый эталон: та же поверхность, что у карточки уведомления —
-        // скругление 16, тонкая рамка, поля 16 по бокам и 14 сверху и снизу.
-        .background(Color(nsColor: DesktopNotificationCardView.cardBackground(dark: isDarkPromptAppearance)),
-                    in: RoundedRectangle(cornerRadius: DesktopNotificationCardPresenter.cornerRadius))
-        .clipShape(RoundedRectangle(cornerRadius: DesktopNotificationCardPresenter.cornerRadius))
-        .overlay(
-            RoundedRectangle(cornerRadius: DesktopNotificationCardPresenter.cornerRadius)
-                .stroke(Color(nsColor: DesktopNotificationCardView.cardBorder(dark: isDarkPromptAppearance)), lineWidth: 1)
-        )
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
-        .onAppear {
-            appearedAt = Date()
-            countdown = MeetingDetectionCountdown(startedAt: appearedAt)
-            autoStartTask?.cancel()
-            autoStartTask = Task {
-                do {
-                    try await Task.sleep(nanoseconds: UInt64(Self.countdownSeconds * 1_000_000_000))
-                } catch {
-                    return
-                }
-                await MainActor.run {
-                    guard !Task.isCancelled else { return }
-                    resolveStart(reason: .promptTimeout)
-                }
-            }
-        }
-        .onDisappear {
-            _ = countdown.cancel()
-            autoStartTask?.cancel()
-            autoStartTask = nil
-        }
-    }
-
-    private func countdownButton(progress: CGFloat, remainingSeconds: Int) -> some View {
-        Button {
-            resolveStart(reason: .promptButton)
-        } label: {
-            GeometryReader { proxy in
-                ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 7)
-                        .fill(
-                            isStartDisabled
-                                ? DesktopDesignTokens.surface3
-                                : DesktopDesignTokens.accentSolid
-                        )
-                    RoundedRectangle(cornerRadius: 7)
-                        .fill(DesktopDesignTokens.accentForeground.opacity(0.22))
-                        .frame(width: proxy.size.width * progress)
-                    Text(
-                        isStartDisabled
-                            ? "Запись пока недоступна"
-                            : "Записать · \(remainingSeconds) с"
-                    )
-                        .font(.callout)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(isStartDisabled ? DesktopDesignTokens.muted : DesktopDesignTokens.accentForeground)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 4)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-            }
-            .frame(height: isStartDisabled ? 44 : 34)
-        }
-        .buttonStyle(.plain)
-        .disabled(isStartDisabled)
-        .keyboardShortcut(.defaultAction)
-        .modifier(MeetingPromptKeyboardNavigation(isEnabled: !isStartDisabled) {
-            resolveStart(reason: .promptButton)
-        })
-        .accessibilityLabel("Записать")
-        .accessibilityValue(
-            isStartDisabled
-                ? "Запись пока недоступна"
-                : "Запись начнется автоматически через \(remainingSeconds) секунд"
-        )
-    }
-
-    /// Тёмное оформление берётся у системы: карточка должна совпадать с
-    /// поверхностью уведомлений. Главный актор указан явно: обращение к
-    /// оформлению приложения разрешено только из него.
-    @MainActor
-    private var isDarkPromptAppearance: Bool {
-        NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-    }
-
-    private func progress(at date: Date) -> CGFloat {
-        guard !isStartDisabled else { return 0 }
-        return min(max(CGFloat(date.timeIntervalSince(appearedAt) / Self.countdownSeconds), 0), 1)
-    }
-
-    private func resolveStart(reason: MeetingDetectionStartReason) {
-        guard let resolvedReason = countdown.resolveStart(
-            reason: reason,
-            at: Date(),
-            startIsTemporarilyDisabled: isStartDisabled
-        )
-        else { return }
-        autoStartTask?.cancel()
-        onStart(autoRecordOptIn, resolvedReason)
-    }
-
-    private func resolveDismiss(reason: MeetingDetectionPromptDismissReason) {
-        guard countdown.cancel() else { return }
-        autoStartTask?.cancel()
-        onDismiss(autoRecordOptIn, reason)
-    }
-}
-
 @MainActor
 private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation, NSWindowDelegate {
     private var mainWindow: NSWindow?
@@ -3356,6 +3114,7 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
         // Карточка не должна переживать закрытие окна GRAF: она принадлежит
         // текущему процессу и не может оставаться самостоятельным баннером.
         DesktopNotificationPresenter.shared.dismissAllCards()
+        NotificationCenter.default.post(name: .twoBrainRecDismissMeetingDetectionPrompt, object: nil)
         guard !settingsExitPending else { return false }
         settingsExitPending = true
         Task { [weak self, weak sender] in
@@ -3370,6 +3129,7 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
         // Карточка живёт в отдельной панели и иначе остаётся поверх экрана,
         // пока асинхронное завершение приложения ещё не закончено.
         DesktopNotificationPresenter.shared.dismissAllCards()
+        NotificationCenter.default.post(name: .twoBrainRecDismissMeetingDetectionPrompt, object: nil)
         guard !terminationReplyPending else { return .terminateLater }
         guard !settingsExitPending else { return .terminateCancel }
         terminationReplyPending = true
@@ -3661,6 +3421,7 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
 }
 
 private extension Notification.Name {
+    static let twoBrainRecDismissMeetingDetectionPrompt = Notification.Name("pro.2brain.graf.dismissMeetingDetectionPrompt")
     static let twoBrainRecApplicationShouldTerminate = Notification.Name("pro.2brain.graf.applicationShouldTerminate")
     static let twoBrainRecApplicationTerminationCleanupFinished = Notification.Name("pro.2brain.graf.applicationTerminationCleanupFinished")
     static let twoBrainRecOpenSettings = Notification.Name("pro.2brain.graf.openSettings")

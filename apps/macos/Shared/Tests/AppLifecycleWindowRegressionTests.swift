@@ -2,58 +2,15 @@ import Foundation
 import XCTest
 
 final class AppLifecycleWindowRegressionTests: XCTestCase {
-    func testPromptGeometryUsesRealLayout() throws {
+    func testPromptGeometryUsesSharedCardLayout() throws {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-        let source = try String(contentsOf: root.appendingPathComponent("RecApp/App/TwoBrainRecApp.swift"), encoding: .utf8)
-        var methods = ""
-        for name in ["meetingDetectionPromptFrame", "clamp"] {
-            let regex = try NSRegularExpression(pattern: "(?m)^    private func " + name + "\\([\\s\\S]*?^    \\}")
-            let match = try XCTUnwrap(regex.firstMatch(in: source, range: NSRange(source.startIndex..., in: source)))
-            let range = try XCTUnwrap(Range(match.range, in: source))
-            methods += String(source[range]).replacingOccurrences(of: "private func", with: "func") + "\n"
-        }
-        let margins = source.split(separator: "\n")
-            .filter { $0.contains("static let meetingDetectionPromptVisibleMargin:")
-                   || $0.contains("static let meetingDetectionPromptTopInset:") }
-            .joined(separator: "\n")
-        let script = """
-        import AppKit
-        struct Layout {
-        \(margins)
-        \(methods)
-        }
-        let layout = Layout()
-        let size = NSSize(width: 448, height: 192)
-        let normal = NSRect(x: 0, y: 25, width: 1800, height: 1100)
-        let fallback = layout.meetingDetectionPromptFrame(windowSize: size, visibleFrame: normal)
-        assert(fallback.size == size)
-        // Правый верхний угол: правый край рабочей области, верх ниже строки меню.
-        assert(fallback.maxX == normal.maxX - 10)
-        assert(normal.maxY - fallback.maxY == 29)
-        for screen in [normal, NSRect(x: -1920, y: -1080, width: 1920, height: 1040),
-                       NSRect(x: -240, y: 50, width: 240, height: 160),
-                       NSRect(x: 0, y: 0, width: 30, height: 20)] {
-            let frame = layout.meetingDetectionPromptFrame(windowSize: size, visibleFrame: screen)
-            assert(screen.contains(frame) && frame.width > 0 && frame.height > 0)
-            assert(frame == layout.meetingDetectionPromptFrame(windowSize: size, visibleFrame: screen))
-        }
-        """
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let file = directory.appendingPathComponent("prompt-layout.swift")
-        try script.write(to: file, atomically: true, encoding: .utf8)
-        let output = Pipe()
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
-        process.arguments = ["swift", "-swift-version", "5", file.path]
-        process.standardOutput = output
-        process.standardError = output
-        try process.run()
-        let result = output.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        XCTAssertEqual(process.terminationStatus, 0, String(decoding: result, as: UTF8.self))
+        let source = try String(contentsOf: root.appendingPathComponent("RecApp/Sources/Notifications/DesktopNotificationCardPresenter.swift"), encoding: .utf8)
+        XCTAssertTrue(source.contains("public static let windowWidth: CGFloat = 448"))
+        XCTAssertTrue(source.contains("public static let cardWidth: CGFloat = 420"))
+        XCTAssertTrue(source.contains("public static let topInset: CGFloat = 39"))
+        XCTAssertTrue(source.contains("public func presentRecordingPrompt("))
+        XCTAssertTrue(source.contains("onClose: onDismiss"))
     }
 
     func testReopenAndActivationPreserveSelectedWindow() throws {

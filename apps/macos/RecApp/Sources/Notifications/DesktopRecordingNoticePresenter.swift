@@ -5,27 +5,41 @@ import AppKit
 /// области, которая исчезает сама.
 @MainActor
 public final class DesktopRecordingNoticePresenter {
-    public static let title = "Запись не сохранена"
-    public static let message = "Запись короче 30 секунд не сохранена."
+    public static let title = "Запись слишком короткая"
+    public static let message = "Записи короче 30 секунд не сохраняются."
     /// Сообщение о потере короткой записи живёт дольше обычной подсказки.
-    public static let displayDuration: TimeInterval = 30
+    public static let displayDuration: TimeInterval = 20
 
     private let card: DesktopNotificationCardPresenter
+    private weak var broker: DesktopNotificationPresenter?
 
-    public init(card: DesktopNotificationCardPresenter = DesktopNotificationCardPresenter()) {
+    public init(card: DesktopNotificationCardPresenter = DesktopNotificationCardPresenter(),
+                presenter: DesktopNotificationPresenter? = nil) {
         self.card = card
+        self.broker = presenter
     }
 
     /// Окно сообщения: доступно проверкам поверхности.
-    var window: NSWindow? { card.window }
+    var window: NSWindow? { broker?.card.window ?? card.window }
 
     public func showShortRecordingDiscarded() {
-        card.presentNotice(title: Self.title,
-                           message: Self.message,
-                           duration: Self.displayDuration)
+        if let broker {
+            _ = broker.presentShortRecording(title: Self.title,
+                                             message: Self.message,
+                                             duration: Self.displayDuration)
+        } else {
+            card.presentShortRecording(title: Self.title,
+                                       message: Self.message,
+                                       duration: Self.displayDuration)
+        }
+    }
+
+    public var presentedContent: DesktopNotificationCardContent? {
+        broker?.card.presentedContent ?? card.presentedContent
     }
 
     public func dismiss() {
-        card.dismiss()
+        if let broker { broker.dismissShortRecording() }
+        else { card.dismiss() }
     }
 }

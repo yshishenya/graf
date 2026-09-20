@@ -1,9 +1,9 @@
 import AppKit
 import Foundation
 
-/// Собственная карточка GRAF поверх других окон: единая поверхность для всех
-/// коротких сообщений — напоминания о встрече, состояния записи, проблемы с
-/// локальной записью и служебных подсказок.
+/// Собственная карточка GRAF поверх других окон: единая поверхность для
+/// напоминания о встрече, вопроса о записи, проблемы сохранения или отправки,
+/// короткой записи и безопасного предпросмотра из настроек.
 ///
 /// Наблюдаемый эталон: карточка-напоминание Krisp 3.16.8 шириной 448 точек в
 /// правом верхнем углу рабочей области, содержимое 420 точек со скруглением 16,
@@ -18,34 +18,44 @@ public enum DesktopNotificationCardAction: Equatable, Sendable {
     case openSettings
     case stopRecording
     case openRecording(String)
+    case skipRecordingPrompt
+    case toggleRecordingPromptRemember(Bool)
 }
 
 /// Содержимое карточки без AppKit: пригодно для проверок логики показа.
 public enum DesktopNotificationCardContent: Equatable, Sendable {
     case meeting(title: String, startText: String, hasJoinLink: Bool)
+    case recordingPrompt(displayName: String, remainingSeconds: Int, progress: Double, rememberChoice: Bool)
     case problem(title: String, message: String, actionTitle: String, sessionID: String?)
-    /// Служебное сообщение без действия или с одним действием.
-    case notice(title: String, message: String, actionTitle: String?)
+    /// Безопасное предварительное сообщение из настроек, не являющееся реальным событием.
+    case preview(title: String, message: String)
+    case shortRecording(title: String, message: String)
 
     public var accessibilitySummary: String {
         switch self {
         case let .meeting(title, startText, hasJoinLink):
             let join = hasJoinLink ? "Есть ссылка на встречу." : "Ссылки на встречу нет."
             return "Напоминание о встрече. \(title). Начало \(startText). \(join)"
+        case let .recordingPrompt(displayName, remainingSeconds, progress, rememberChoice):
+            let remember = rememberChoice ? "Выбор сохранён." : "Выбор не сохранён."
+            let remainingPercent = Int(((1 - min(max(progress, 0), 1)) * 100).rounded())
+            return "Вопрос о записи. Встреча в \(displayName). Записать через \(remainingSeconds) секунд. Осталось \(remainingPercent) процентов. \(remember)"
         case let .problem(title, message, actionTitle, _):
             return "\(title). \(message). Действие: \(actionTitle)."
-        case let .notice(title, message, actionTitle):
+        case let .preview(title, message), let .shortRecording(title, message):
             // Точка в конце сообщения не удваивается.
             let body = message.hasSuffix(".") ? message : message + "."
-            return actionTitle.map { "\(title). \(body) Действие: \($0)." } ?? "\(title). \(body)"
+            return "\(title). \(body)"
         }
     }
 
     public var identifier: String {
         switch self {
         case .meeting: return "graf.card.meeting"
+        case .recordingPrompt: return "graf.card.recording-prompt"
         case .problem: return "graf.card.problem"
-        case .notice: return "graf.card.notice"
+        case .preview: return "graf.card.preview"
+        case .shortRecording: return "graf.card.short-recording"
         }
     }
 }
@@ -71,7 +81,11 @@ public final class DesktopNotificationCardPresenter {
     public static let cardHeight: CGFloat = 82
     /// Наблюдаемая высота окна карточки эталона.
     public static let windowHeight: CGFloat = 104
-    /// Сколько живёт служебное сообщение, если не задано иное.
+    /// Предпросмотр из настроек живёт шесть секунд.
+    public static let previewDisplayDuration: TimeInterval = 6
+    /// Вопрос о записи живёт восемь секунд.
+    public static let recordingPromptDisplayDuration: TimeInterval = 8
+    /// Проблема сохранения и короткая запись живут двадцать секунд.
     public static let noticeDisplayDuration: TimeInterval = 20
 
     private var panel: NSPanel?
@@ -84,7 +98,9 @@ public final class DesktopNotificationCardPresenter {
     private var content: DesktopNotificationCardContent?
     private var onAction: ((DesktopNotificationCardAction) -> Void)?
     private var onTick: (() -> DesktopNotificationCardContent?)?
+    private var onCloseAction: (() -> Void)?
     private var dismissAfter: Date?
+    private var expiryGeneration = 0
     private var screenObserver: NSObjectProtocol?
 
     public init() {}
@@ -101,8 +117,7 @@ public final class DesktopNotificationCardPresenter {
     /// Высота карточки внутри поверхности. Одна строка действий — наблюдаемые
     /// 82 точки. Две строки — строка текста, зазор и строка действий.
     static func rootHeight(for content: DesktopNotificationCardContent) -> CGFloat {
-        guard DesktopNotificationCardView.rowCount(for: content) > 1 else { return cardHeight }
-        return cardHeight + buttonHeight + 14
+        DesktopNotificationCardView.measuredRootHeight(for: content)
     }
 
     /// Полная высота поверхности: карточка плюс наблюдаемые поля.
@@ -110,18 +125,71 @@ public final class DesktopNotificationCardPresenter {
         rootHeight(for: content) + topPadding + bottomPadding
     }
 
-    /// Служебное сообщение: короткая подсказка без действия или с одним
-    /// действием. Живёт ограниченное время и заменяет предыдущее сообщение.
-    public func presentNotice(title: String,
-                              message: String,
-                              actionTitle: String? = nil,
-                              onAction: ((DesktopNotificationCardAction) -> Void)? = nil,
-                              duration: TimeInterval = DesktopNotificationCardPresenter.noticeDisplayDuration,
-                              onExpire: (() -> Void)? = nil) {
-        present(.notice(title: title, message: message, actionTitle: actionTitle),
+    /// Безопасный предварительный просмотр карточки без привязки к реальному
+    /// событию и без изменения состояния согласователя.
+    public func presentPreview(title: String,
+                               message: String,
+                               duration: TimeInterval = DesktopNotificationCardPresenter.previewDisplayDuration,
+                               onExpire: (() -> Void)? = nil) {
+        present(.preview(title: title, message: message),
                 dismissAfter: Date().addingTimeInterval(duration),
-                onAction: onAction ?? { _ in },
+                onAction: { _ in },
                 onExpire: onExpire)
+    }
+
+    public func presentPreview(title: String,
+                               message: String,
+                               expiresAt: Date,
+                               onExpire: (() -> Void)? = nil) {
+        present(.preview(title: title, message: message),
+                dismissAfter: expiresAt,
+                onAction: { _ in },
+                onExpire: onExpire)
+    }
+
+    public func presentShortRecording(title: String,
+                                      message: String,
+                                      duration: TimeInterval = DesktopRecordingNoticePresenter.displayDuration,
+                                      onExpire: (() -> Void)? = nil) {
+        present(.shortRecording(title: title, message: message),
+                dismissAfter: Date().addingTimeInterval(duration),
+                onAction: { _ in },
+                onExpire: onExpire)
+    }
+
+    public func presentRecordingPrompt(
+        displayName: String,
+        remainingSeconds: Int,
+        progress: Double,
+        rememberChoice: Bool = false,
+        duration: TimeInterval = DesktopNotificationCardPresenter.recordingPromptDisplayDuration,
+        onStart: @escaping () -> Void,
+        onDismiss: @escaping () -> Void,
+        onRememberChoiceChanged: @escaping (Bool) -> Void,
+        onTick: (() -> DesktopNotificationCardContent?)? = nil,
+        onExpire: (() -> Void)? = nil,
+        onSkip: ((Bool) -> Void)? = nil
+    ) {
+        present(
+            .recordingPrompt(
+                displayName: displayName,
+                remainingSeconds: remainingSeconds,
+                progress: progress,
+                rememberChoice: rememberChoice
+            ),
+            dismissAfter: Date().addingTimeInterval(duration),
+            onAction: { action in
+                switch action {
+                case .joinAndRecord, .record: onStart()
+                case .skipRecordingPrompt: onSkip?(rememberChoice)
+                case .toggleRecordingPromptRemember(let value): onRememberChoiceChanged(value)
+                default: break
+                }
+            },
+            onTick: onTick,
+            onExpire: onExpire,
+            onClose: onDismiss
+        )
     }
 
     /// Показывает карточку. Повторный вызов с другим содержимым заменяет его,
@@ -130,10 +198,15 @@ public final class DesktopNotificationCardPresenter {
                         dismissAfter: Date? = nil,
                         onAction: @escaping (DesktopNotificationCardAction) -> Void,
                         onTick: (() -> DesktopNotificationCardContent?)? = nil,
-                        onExpire: (() -> Void)? = nil) {
+                        onExpire: (() -> Void)? = nil,
+                        onClose: (() -> Void)? = nil) {
+        ticker?.cancel()
+        ticker = nil
+        expiryGeneration += 1
         self.onAction = onAction
         self.onTick = onTick
         self.onExpire = onExpire
+        self.onCloseAction = onClose
         self.dismissAfter = dismissAfter
         self.content = content
         // Окно создаётся заново под новое содержимое: размер окна не зависит от
@@ -148,7 +221,7 @@ public final class DesktopNotificationCardPresenter {
             content: content,
             rootHeight: Self.rootHeight(for: content),
             onAction: { [weak self] action in self?.onAction?(action) },
-            onClose: { [weak self] in self?.dismiss() }
+            onClose: { [weak self] in self?.onCloseAction?(); self?.dismiss() }
         )
         window.contentView = view
         closeControl = view.closeButton
@@ -161,22 +234,36 @@ public final class DesktopNotificationCardPresenter {
         startTickerIfNeeded()
     }
 
-    /// Убирает карточку. Срок, истёкший сам, сообщается отдельно: показ
-    /// следующего сообщения не должен зависеть от того, кто закрыл окно.
+    /// Убирает карточку без применения автоматического решения. Это путь для
+    /// закрытия пользователем, выхода из аккаунта и замены карточки.
     public func dismiss() {
-        let expired = dismissAfter != nil && (dismissAfter.map { Date() >= $0 } ?? false)
+        clearCard()
+    }
+
+    /// Завершает карточку по её сроку и ровно один раз вызывает `onExpire`.
+    private func expire() {
+        guard let deadline = dismissAfter, Date() >= deadline else {
+            dismiss()
+            return
+        }
+        let callback = onExpire
+        clearCard()
+        callback?()
+    }
+
+    private func clearCard() {
         stopClickMonitor()
         closeControl = nil
         ticker?.cancel()
         ticker = nil
         onTick = nil
-        let expire = onExpire
         onExpire = nil
+        expiryGeneration += 1
+        onCloseAction = nil
         dismissAfter = nil
         content = nil
         panel?.orderOut(nil)
         panel = nil
-        if expired { expire?() }
     }
 
     /// Показанное окно карточки: нужно для измерений и проверок поверхности.
@@ -185,7 +272,9 @@ public final class DesktopNotificationCardPresenter {
     /// Обновляет показанное содержимое без пересоздания окна.
     public func refresh() {
         guard let onTick else {
-            if dismissAfter != nil { dismiss() }
+            if let deadline = dismissAfter, Date() >= deadline {
+                expire()
+            }
             return
         }
         guard let next = onTick() else {
@@ -194,7 +283,7 @@ public final class DesktopNotificationCardPresenter {
         }
         guard next != content else { return }
         present(next, dismissAfter: dismissAfter, onAction: onAction ?? { _ in },
-                onTick: onTick, onExpire: onExpire)
+                onTick: onTick, onExpire: onExpire, onClose: onCloseAction)
     }
 
     /// Нажатие на знак закрытия, пока приложение не впереди, окно не получает:
@@ -229,12 +318,13 @@ public final class DesktopNotificationCardPresenter {
 
     private func startTickerIfNeeded() {
         guard ticker == nil, onTick != nil || dismissAfter != nil else { return }
+        let generation = expiryGeneration
         ticker = Task { [weak self] in
             while !Task.isCancelled {
                 do { try await Task.sleep(for: .seconds(1)) } catch { return }
-                guard let self else { return }
+                guard let self, self.expiryGeneration == generation else { return }
                 if let deadline = self.dismissAfter, Date() >= deadline {
-                    self.dismiss()
+                    self.expire()
                     return
                 }
                 self.refresh()
@@ -327,12 +417,104 @@ public final class DesktopNotificationCardView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) не поддерживается") }
 
-    /// Сколько строк нужно содержимому: две, когда действий больше одного.
-    static func rowCount(for content: DesktopNotificationCardContent) -> Int {
+    private static let closeLeading: CGFloat = 14
+    private static let headerLeading: CGFloat = 50
+    private static let headerTrailing: CGFloat = 14
+    private static let iconWidth: CGFloat = 24
+    private static let headerSpacing: CGFloat = 8
+    private static let rowSpacing: CGFloat = 10
+    private static let verticalInset: CGFloat = 16
+
+    static func titleFont() -> NSFont {
+        let preferred = NSFont.preferredFont(forTextStyle: .headline)
+        return .systemFont(ofSize: max(14, preferred.pointSize), weight: .semibold)
+    }
+
+    static func messageFont() -> NSFont {
+        let preferred = NSFont.preferredFont(forTextStyle: .body)
+        return .systemFont(ofSize: max(14, preferred.pointSize))
+    }
+
+    static func actionFont(weight: NSFont.Weight) -> NSFont {
+        let preferred = NSFont.preferredFont(forTextStyle: .callout)
+        return .systemFont(ofSize: max(13, preferred.pointSize), weight: weight)
+    }
+
+    private static func text(for content: DesktopNotificationCardContent) -> (title: String, message: String) {
         switch content {
-        case let .meeting(_, _, hasJoinLink): return hasJoinLink ? 2 : 1
-        case .problem, .notice: return 1
+        case let .meeting(title, startText, _): return (title, startText)
+        case let .recordingPrompt(displayName, remainingSeconds, progress, _):
+            let percent = Int((min(max(progress, 0), 1) * 100).rounded())
+            return ("Записать встречу?", "Встреча в \(displayName) · Записать через \(remainingSeconds) с · \(percent)%")
+        case let .problem(title, message, _, _): return (title, message)
+        case let .preview(title, message), let .shortRecording(title, message): return (title, message)
         }
+    }
+
+    private static func actionTitles(for content: DesktopNotificationCardContent) -> [String] {
+        switch content {
+        case let .meeting(_, _, hasJoinLink):
+            return hasJoinLink ? ["Подключиться и начать запись", "Подключиться"] : ["Начать запись"]
+        case .recordingPrompt: return ["Записать", "Не записывать"]
+        case let .problem(_, _, actionTitle, _): return [actionTitle]
+        case .preview, .shortRecording: return []
+        }
+    }
+
+    private static func measuredWidth(_ text: String, font: NSFont) -> CGFloat {
+        ceil((text as NSString).size(withAttributes: [.font: font]).width)
+    }
+
+    static func measuredHeight(_ text: String, font: NSFont, width: CGFloat) -> CGFloat {
+        let rect = (text as NSString).boundingRect(
+            with: NSSize(width: max(1, width), height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: font]
+        )
+        return max(ceil(rect.height), ceil(font.pointSize * 1.35))
+    }
+
+    private static var baseTextWidth: CGFloat {
+        DesktopNotificationCardPresenter.cardWidth - headerLeading - headerTrailing - iconWidth - headerSpacing
+    }
+
+    static func textWidth(for content: DesktopNotificationCardContent, secondRow: Bool) -> CGFloat {
+        let base = baseTextWidth
+        guard !secondRow, let action = actionTitles(for: content).first else { return base }
+        let actionWidth = measuredWidth(action, font: actionFont(weight: .semibold)) + 30
+        return max(104, base - actionWidth - headerSpacing)
+    }
+
+    static func usesSecondRow(for content: DesktopNotificationCardContent) -> Bool {
+        let actions = actionTitles(for: content)
+        guard !actions.isEmpty else { return false }
+        guard actions.count <= 1 else { return true }
+        let width = textWidth(for: content, secondRow: false)
+        let values = text(for: content)
+        return measuredWidth(values.title, font: titleFont()) > width
+            || measuredWidth(values.message, font: messageFont()) > width
+    }
+
+    static func rowCount(for content: DesktopNotificationCardContent) -> Int {
+        usesSecondRow(for: content) ? 2 : 1
+    }
+
+    static func headerHeight(for content: DesktopNotificationCardContent, secondRow: Bool) -> CGFloat {
+        let width = textWidth(for: content, secondRow: secondRow)
+        let values = text(for: content)
+        let textHeight = measuredHeight(values.title, font: titleFont(), width: width)
+            + 2
+            + measuredHeight(values.message, font: messageFont(), width: width)
+        return max(iconWidth, textHeight)
+    }
+
+    static func measuredRootHeight(for content: DesktopNotificationCardContent) -> CGFloat {
+        let secondRow = usesSecondRow(for: content)
+        let header = headerHeight(for: content, secondRow: secondRow)
+        guard secondRow else {
+            return max(DesktopNotificationCardPresenter.cardHeight, header + 24)
+        }
+        return verticalInset + header + rowSpacing + DesktopNotificationCardPresenter.buttonHeight + verticalInset
     }
 
     public static func cardBackground(dark: Bool) -> NSColor {
@@ -400,15 +582,16 @@ public final class DesktopNotificationCardView: NSView {
         icon.symbolConfiguration = .init(pointSize: 20, weight: .medium)
         icon.translatesAutoresizingMaskIntoConstraints = false
         icon.widthAnchor.constraint(equalToConstant: 24).isActive = true
+        icon.heightAnchor.constraint(equalToConstant: 24).isActive = true
 
         let text = NSStackView()
         text.orientation = .vertical
         text.alignment = .leading
         text.spacing = 2
         text.translatesAutoresizingMaskIntoConstraints = false
-        let titleLabel = label(title, font: .systemFont(ofSize: 14, weight: .semibold),
+        let titleLabel = label(title, font: Self.titleFont(),
                                color: Self.primaryText(dark: isDark))
-        let messageLabel = label(message, font: .systemFont(ofSize: 14),
+        let messageLabel = label(message, font: Self.messageFont(),
                                  color: Self.secondaryText(dark: isDark))
         text.addArrangedSubview(titleLabel)
         text.addArrangedSubview(messageLabel)
@@ -431,8 +614,10 @@ public final class DesktopNotificationCardView: NSView {
         actions.translatesAutoresizingMaskIntoConstraints = false
         actions.setContentCompressionResistancePriority(.required, for: .vertical)
         actions.setContentHuggingPriority(.required, for: .vertical)
-        // Одно действие или ни одного: строка помещается рядом с текстом.
-        if actionButtons.count <= 1 {
+        let usesSecondRow = Self.usesSecondRow(for: content)
+        // Одно действие или ни одного: строка помещается рядом с текстом, если
+        // текст помещается. Длинное содержимое получает отдельную строку.
+        if !usesSecondRow {
             header.addArrangedSubview(actions)
         } else {
             card.addSubview(actions)
@@ -445,7 +630,15 @@ public final class DesktopNotificationCardView: NSView {
             actions.addArrangedSubview(button)
             buttons.append((button, action))
         }
-        let usesSecondRow = actionButtons.count > 1
+        if case let .recordingPrompt(_, _, _, rememberChoice) = content {
+            let remember = NSButton(checkboxWithTitle: "Запомнить выбор", target: self,
+                                    action: #selector(rememberChoiceChanged(_:)))
+            remember.state = rememberChoice ? .on : .off
+            remember.font = Self.actionFont(weight: .regular)
+            remember.setAccessibilityLabel("Запомнить выбор")
+            remember.translatesAutoresizingMaskIntoConstraints = false
+            actions.addArrangedSubview(remember)
+        }
 
         // Наблюдаемый эталон: одна строка со значком, текстом и действиями,
         // поля карточки 10 точек сверху и снизу, 14 точек по бокам.
@@ -462,17 +655,19 @@ public final class DesktopNotificationCardView: NSView {
             // карточке 82 точки.
             card.bottomAnchor.constraint(equalTo: bottomAnchor,
                                          constant: -DesktopNotificationCardPresenter.bottomPadding),
-            // Наблюдаемое положение: знак закрытия у верхнего правого угла.
-            // Знак закрытия прижат к верхнему правому углу: 20 на 20 точек.
+            // Крестик стандартного уведомления находится в левом верхнем углу;
+            // содержимое начинается после его зоны и не пересекается с ней.
             close.topAnchor.constraint(equalTo: card.topAnchor, constant: 12),
-            close.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -14),
-            header.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 14),
-            // Действия не заходят под кнопку закрытия.
-            header.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -34),
-            // Знак закрытия занимает 14 + 20 точек справа: текст не заходит под него.
-            titleLabel.widthAnchor.constraint(lessThanOrEqualToConstant: DesktopNotificationCardPresenter.cardWidth - 90),
-            messageLabel.widthAnchor.constraint(lessThanOrEqualToConstant: DesktopNotificationCardPresenter.cardWidth - 90),
-            text.widthAnchor.constraint(greaterThanOrEqualToConstant: 104)
+            close.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: Self.closeLeading),
+            header.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: Self.headerLeading),
+            header.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -Self.headerTrailing),
+            text.widthAnchor.constraint(equalToConstant: Self.textWidth(for: content, secondRow: usesSecondRow)),
+            titleLabel.widthAnchor.constraint(equalToConstant: Self.textWidth(for: content, secondRow: usesSecondRow)),
+            messageLabel.widthAnchor.constraint(equalToConstant: Self.textWidth(for: content, secondRow: usesSecondRow)),
+            titleLabel.heightAnchor.constraint(equalToConstant: Self.measuredHeight(title, font: Self.titleFont(), width: Self.textWidth(for: content, secondRow: usesSecondRow))),
+            messageLabel.heightAnchor.constraint(equalToConstant: Self.measuredHeight(message, font: Self.messageFont(), width: Self.textWidth(for: content, secondRow: usesSecondRow))),
+            header.heightAnchor.constraint(equalToConstant: Self.headerHeight(for: content, secondRow: usesSecondRow)),
+            card.heightAnchor.constraint(equalToConstant: rootHeight)
         ]
 
         var all = constraints
@@ -488,9 +683,8 @@ public final class DesktopNotificationCardView: NSView {
         } else {
             // Одно действие: наблюдаемые размеры карточки эталона и строка по центру.
             all += [
-                card.heightAnchor.constraint(equalToConstant: DesktopNotificationCardPresenter.cardHeight),
                 header.centerYAnchor.constraint(equalTo: card.centerYAnchor),
-                actions.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -DesktopNotificationCardPresenter.contentInset)
+                actions.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -20)
             ]
         }
         NSLayoutConstraint.activate(all)
@@ -499,24 +693,30 @@ public final class DesktopNotificationCardView: NSView {
     private var iconName: String {
         switch content {
         case .meeting: return "calendar"
+        case .recordingPrompt: return "record.circle"
         case .problem: return "exclamationmark.triangle"
-        case .notice: return "bell"
+        case .preview: return "bell"
+        case .shortRecording: return "exclamationmark.triangle"
         }
     }
 
     private var title: String {
         switch content {
         case let .meeting(title, _, _): return title
+        case .recordingPrompt: return "Записать встречу?"
         case let .problem(title, _, _, _): return title
-        case let .notice(title, _, _): return title
+        case let .preview(title, _), let .shortRecording(title, _): return title
         }
     }
 
     private var message: String {
         switch content {
         case let .meeting(_, startText, _): return startText
+        case let .recordingPrompt(displayName, remainingSeconds, progress, _):
+            let percent = Int((min(max(progress, 0), 1) * 100).rounded())
+            return "Встреча в \(displayName) · Записать через \(remainingSeconds) с · \(percent)%"
         case let .problem(_, message, _, _): return message
-        case let .notice(_, message, _): return message
+        case let .preview(_, message), let .shortRecording(_, message): return message
         }
     }
 
@@ -527,16 +727,21 @@ public final class DesktopNotificationCardView: NSView {
             // Подписи короткие: две длинные русские подписи выдавливают текст
             // встречи из строки шириной 420 точек.
             if hasJoinLink {
-                items.append(("Записать", .joinAndRecord, true))
+                items.append(("Подключиться и начать запись", .joinAndRecord, true))
                 items.append(("Подключиться", .join, false))
             } else {
-                items.append(("Записать", .record, true))
+                items.append(("Начать запись", .record, true))
             }
             return items
+        case .recordingPrompt:
+            return [
+                ("Записать", .record, true),
+                ("Не записывать", .skipRecordingPrompt, false)
+            ]
         case let .problem(_, _, actionTitle, sessionID):
             return [(actionTitle, sessionID.map { .openRecording($0) } ?? .openCalendar, true)]
-        case let .notice(_, _, actionTitle):
-            return actionTitle.map { [($0, .openCalendar, false)] } ?? []
+        case .preview, .shortRecording:
+            return []
         }
     }
 
@@ -544,12 +749,18 @@ public final class DesktopNotificationCardView: NSView {
         let field = NSTextField(labelWithString: text)
         field.font = font
         field.textColor = color
-        field.lineBreakMode = .byTruncatingTail
-        field.maximumNumberOfLines = 2
+        field.translatesAutoresizingMaskIntoConstraints = false
+        field.usesSingleLineMode = false
+        field.lineBreakMode = .byWordWrapping
+        field.maximumNumberOfLines = 0
         return field
     }
 
     @objc private func closeTapped() { onClose() }
+
+    @objc private func rememberChoiceChanged(_ sender: NSButton) {
+        onAction(.toggleRecordingPromptRemember(sender.state == .on))
+    }
 }
 
 final class CardBackgroundView: NSView {
@@ -597,7 +808,7 @@ final class NotificationCardButton: NSButton {
         bezelStyle = .regularSquare
         isBordered = false
         wantsLayer = true
-        font = .systemFont(ofSize: 13, weight: .semibold)
+        font = DesktopNotificationCardView.actionFont(weight: .semibold)
         setAccessibilityLabel(title)
         applyStyle()
     }
@@ -618,7 +829,7 @@ final class NotificationCardButton: NSButton {
             layer?.borderColor = NSColor.clear.cgColor
             attributedTitle = NSAttributedString(string: title, attributes: [
                 .foregroundColor: NSColor.white,
-                .font: NSFont.systemFont(ofSize: 13, weight: .semibold),
+                .font: DesktopNotificationCardView.actionFont(weight: .semibold),
                 .paragraphStyle: paragraph
             ])
         } else {
@@ -626,13 +837,13 @@ final class NotificationCardButton: NSButton {
             layer?.borderColor = DesktopNotificationCardView.cardBorder(dark: dark).cgColor
             attributedTitle = NSAttributedString(string: title, attributes: [
                 .foregroundColor: DesktopNotificationCardView.primaryText(dark: dark),
-                .font: NSFont.systemFont(ofSize: 13, weight: .medium),
+                .font: DesktopNotificationCardView.actionFont(weight: .medium),
                 .paragraphStyle: paragraph
             ])
         }
         // Наблюдаемый эталон: поля кнопки 15 точек по бокам вокруг текста.
         widthConstraint?.isActive = false
-        let text = (title as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 13, weight: .semibold)]).width
+        let text = (title as NSString).size(withAttributes: [.font: DesktopNotificationCardView.actionFont(weight: .semibold)]).width
         let width = widthAnchor.constraint(equalToConstant: ceil(text) + 30)
         width.isActive = true
         widthConstraint = width

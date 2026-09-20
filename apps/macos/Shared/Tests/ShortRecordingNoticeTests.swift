@@ -17,6 +17,12 @@ final class ShortRecordingNoticeTests: XCTestCase {
         XCTAssertEqual(window.frame.width, DesktopNotificationCardPresenter.windowWidth)
         XCTAssertEqual(window.frame.height, DesktopNotificationCardPresenter.windowHeight)
         XCTAssertEqual(window.identifier?.rawValue, "graf-notification-card")
+        XCTAssertEqual(DesktopRecordingNoticePresenter.displayDuration, 20)
+        XCTAssertEqual(DesktopNotificationCardPresenter.noticeDisplayDuration, 20)
+        XCTAssertEqual(presenter.presentedContent?.identifier, "graf.card.short-recording")
+        XCTAssertEqual(DesktopRecordingNoticePresenter.title, "Запись слишком короткая")
+        XCTAssertEqual(DesktopRecordingNoticePresenter.message, "Записи короче 30 секунд не сохраняются.")
+        XCTAssertNotEqual(DesktopRecordingNoticePresenter.title, DesktopRecordingNoticePresenter.message)
         // На экране всегда одно окно уведомления: повторный показ заменяет
         // предыдущее сообщение, а не добавляет второе окно.
         presenter.showShortRecordingDiscarded()
