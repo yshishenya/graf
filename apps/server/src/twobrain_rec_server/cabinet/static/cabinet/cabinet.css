@@ -5173,7 +5173,7 @@ html[data-cabinet-js="ready"] .app-shell[data-cabinet-shell]:not(.is-rail-pinned
   .sidebar-profile-menu__submenu { border-color: currentColor; }
 }
 
-@media (max-width: 520px), (max-height: 620px) {
+@media (max-width: 520px) {
   .sidebar-profile-menu {
     overflow-y: auto;
     overflow-x: hidden;

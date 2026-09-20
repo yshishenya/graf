@@ -166,9 +166,9 @@ std::string_view documentScript() noexcept {
   window.webkit.messageHandlers.grafNotificationSettings = handler('grafNotificationSettings');
   // The cabinet's settings pages are one server page shared with macOS, so they
   // say «На этом Mac» and offer «Настройки macOS». On Windows that is simply not
-  // true, and the button would lead to settings this page has no permission to
-  // show. The shell corrects the words and hides that button instead of the
-  // server growing a second copy of the page: a server change would also change
+  // true, and these actions have no Windows implementation to call. The shell
+  // corrects the words and hides both unsupported buttons instead of the server
+  // growing a second copy of the page: a server change would also change
   // macOS, and the owner has not asked for that.
   const platformWords = [
     ['Правила автозаписи на Mac', 'Правила автозаписи в Windows'],
@@ -189,7 +189,7 @@ std::string_view documentScript() noexcept {
     try {
       const root = document.body;
       if (!root) return {found: 0, replaced: 0};
-      root.querySelectorAll('[data-local-notification-action="openSystemSettings"]')
+      root.querySelectorAll('[data-local-notification-action="openSystemSettings"], [data-local-notification-action="test"]')
         .forEach((button) => { button.hidden = true; });
       const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
       const nodes = [];

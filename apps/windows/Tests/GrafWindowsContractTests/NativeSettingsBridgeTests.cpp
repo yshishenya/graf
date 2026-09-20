@@ -165,9 +165,9 @@ void testTheSharedSettingsPageStopsClaimingToBeAMac() {
     assert(script.find("['Правила автозаписи на Mac', 'Правила автозаписи в Windows']") != std::string::npos);
     assert(script.find("['Уведомления на этом Mac', 'Уведомления на этом компьютере']") != std::string::npos);
     assert(script.find("['изменить уведомления Mac', 'изменить уведомления в приложении']") != std::string::npos);
-    // Кнопка системных настроек на Windows скрывается: у этой страницы нет
-    // системного разрешения, которое она могла бы открыть.
-    assert(script.find("[data-local-notification-action=\"openSystemSettings\"]") != std::string::npos);
+    // Неработающие кнопки Windows скрываются: у этой страницы нет
+    // системного разрешения и локальных напоминаний, которые она могла бы выполнить.
+    assert(script.find("[data-local-notification-action=\"openSystemSettings\"], [data-local-notification-action=\"test\"]") != std::string::npos);
     assert(script.find("button.hidden = true") != std::string::npos);
     // Живая проверка 2026-09-19 (раунд 52) показала, что одной подписки на события
     // мало: оболочка ставится, когда документ уже идёт. Поэтому правка запускается
