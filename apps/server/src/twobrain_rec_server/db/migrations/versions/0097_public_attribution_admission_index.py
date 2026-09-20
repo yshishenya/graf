@@ -8,7 +8,7 @@ P1, FR-014, FR-058).
 
 from alembic import op
 
-revision: str = "0097_public_attribution_admission_index"
+revision: str = "0097_public_attribution_index"
 down_revision: str | None = "0096_client_attribution_bridge"
 branch_labels = None
 depends_on = None
