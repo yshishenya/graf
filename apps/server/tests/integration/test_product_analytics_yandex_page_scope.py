@@ -3,8 +3,6 @@ from pathlib import Path
 
 from twobrain_rec_server.config import Settings
 from twobrain_rec_server.product_analytics.provider_readiness import (
-    BACKUP_STATE_FILE_ENV,
-    RESTORE_STATE_FILE_ENV,
     RETENTION_STATE_FILE_ENV,
 )
 from twobrain_rec_server.public.analytics import (

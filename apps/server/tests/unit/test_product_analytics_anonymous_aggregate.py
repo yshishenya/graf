@@ -5,7 +5,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
-
 from twobrain_rec_server.product_analytics import anonymous_aggregate as aggregate
 from twobrain_rec_server.product_analytics.anonymous_aggregate import (
     ANONYMOUS_AGGREGATE_SURFACES,
@@ -331,13 +330,6 @@ def test_operator_marker_classifies_a_request_without_keeping_identifiers() -> N
         internal_hosts=("127.0.0.1",),
     )
     crawler = classify_public_traffic(user_agent="Googlebot/2.1 (+http://www.google.com/bot.html)")
-    visitor = classify_public_traffic(
-        headers={},
-        query_params={},
-        user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
-        client_host="203.0.113.9",
-        internal_hosts=("127.0.0.1",),
-    )
 
     assert marker == "test"
     assert crawler == "automated"
