@@ -221,6 +221,8 @@ private struct ContentView: View {
     @State private var desktopCabinetConfiguration = DesktopCabinetConfiguration.configuredFromEnvironment()
     @State private var desktopCabinetState: DesktopCabinetState = DesktopCabinetConfiguration.configuredFromEnvironment() == nil ? .notConfigured : .loading
     @State private var selectedCabinetRoute: URL?
+    @State private var activationReporter = ProductActivationAnalyticsReporter.configured()
+    @State private var attributionHandoffs = ProductAttributionHandoffStore()
     @State private var supportIncidentBridge = EmbeddedCabinetSupportIncidentBridge()
     @State private var permissionOnboardingStatus = DesktopPermissionOnboardingStatus.unknown
     @AppStorage("permissionOnboarding.active") private var permissionOnboardingPresented = false
@@ -447,6 +449,14 @@ private struct ContentView: View {
             startMeetingDetectionIfNeeded()
             appUpdateController.updateProtectedWork(protectedUpdateWork)
             syncControlPanel()
+            // Первый запуск приложения: веха отправляется из настоящего пути,
+            // когда пользователь уже принял раскрытие о телеметрии (FR-021).
+            Task {
+                await activationReporter.noteFirstLaunch(
+                    appVersion: currentApplicationVersion,
+                    installChannel: currentInstallChannel
+                )
+            }
         }
         .onChange(of: trayRecordingState, initial: true) { _, state in
             (NSApp.delegate as? AppLifecycleDelegate)?.updateTrayRecordingState(state)
@@ -512,7 +522,16 @@ private struct ContentView: View {
                 }
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecDesktopCabinetDidShowMeetingDetail)) { event in
+            reportFirstResultViewed(meetingId: event.userInfo?["meetingId"] as? String)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecDesktopAttributionHandoffDidArrive)) { _ in
+            openCabinetSignInWithAttributionHandoff(reason: "attribution_handoff")
+        }
         .onReceive(NotificationCenter.default.publisher(for: .twoBrainRecDesktopAuthSessionDidChange)) { _ in
+            // Аккаунт подключён: саму веху отправляет серверная авторизация,
+            // приложение запоминает связь и передаёт метки кампании во вход.
+            activationReporter.noteAccountConnected()
             invalidateMeetingDetectionRegistryForAuthChange()
             desktopUploadQueueService.setDeletionScope(nil)
             uploadQueueItems = (try? desktopUploadQueueService.loadItems()) ?? []
@@ -642,6 +661,71 @@ private struct ContentView: View {
 
     private var currentApplicationIdentityDetail: String {
         "appName=\(currentApplicationDisplayName) bundleID=\(Bundle.main.bundleIdentifier ?? "unknown")"
+    }
+
+    private var currentApplicationVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
+    }
+
+    /// Канал установки: сборка из установщика или локальная сборка разработчика.
+    private var currentInstallChannel: String {
+        Bundle.main.bundleURL.path.hasPrefix("/Applications/") ? "developer_id" : "local_build"
+    }
+
+    /// Первый просмотр результата и первая ценность (FR-021).
+    ///
+    /// Событие отправляется тогда, когда пользователь действительно открыл
+    /// результат во встроенном кабинете, а не тогда, когда он нажал кнопку.
+    private func reportFirstResultViewed(meetingId: String?) {
+        guard let meetingId, !meetingId.isEmpty,
+              let item = uploadQueueItems.first(where: {
+                  $0.serverTruth.meetingId == meetingId || $0.meetingId == meetingId
+              })
+        else {
+            return
+        }
+        let projection = DesktopUploadCustodyProjection(item: item)
+        let transcriptAvailable = item.serverTruth.transcriptAvailable == true
+        Task {
+            await activationReporter.noteFirstResultViewed(
+                resultState: projection.reviewAvailable ? "ready" : "processing",
+                surface: "embedded_cabinet_meeting_detail",
+                usefulOutputPresent: transcriptAvailable
+            )
+            guard projection.reviewAvailable, transcriptAvailable else { return }
+            await activationReporter.noteFirstValueSessionCompleted(usefulResultType: "transcript")
+        }
+    }
+
+    /// Открывает вход в кабинете вместе с метками кампании (FR-022).
+    ///
+    /// Этот же путь используют все входы в кабинет: и первый, и повторный вход
+    /// из раздела поддержки. Маршрут собирает `DesktopCabinetWorkspace.signInRoute`,
+    /// поэтому метки не могут потеряться на одном из входов.
+    private func openCabinetSignInWithAttributionHandoff(reason: String) {
+        guard let configuration = desktopCabinetConfiguration else { return }
+        let handoff = attributionHandoffs.current()
+        if let handoff {
+            AppLog.writeRaw(
+                event: "attribution.handoff_applied",
+                detail: "reason=\(reason) campaignKnown=\(handoff.campaignKnown) bridgePresent=\(handoff.bridgeID != nil)"
+            )
+        }
+        selectedCabinetRoute = DesktopCabinetWorkspace.signInRoute(
+            configuration: configuration,
+            handoff: handoff
+        )
+    }
+
+    /// Грубая длительность записи: точное значение в веху не попадает.
+    static func durationBucket(seconds: TimeInterval) -> String {
+        switch seconds {
+        case ..<60: return "under_1m"
+        case ..<600: return "1m_to_10m"
+        case ..<1_800: return "10m_to_30m"
+        case ..<3_600: return "30m_to_60m"
+        default: return "over_60m"
+        }
     }
 
     private var effectivePermissionOnboardingStatus: DesktopPermissionOnboardingStatus {
@@ -1672,6 +1756,17 @@ private struct ContentView: View {
                 meetingDetectionStatus = .notSaved
             }
         }
+        if autoRecordOptIn {
+            // Пользователь включил авто-запись: веха отправляется из этого пути.
+            Task {
+                await activationReporter.noteAutorecordEnabled(
+                    policyState: "enabled",
+                    previousState: "disabled",
+                    source: reason == .promptButton ? "prompt_button" : "prompt_timeout",
+                    surface: "meeting_detection_prompt"
+                )
+            }
+        }
         dismissMeetingDetectionPrompt()
         Task {
             guard let decision = currentMeetingDetectionStartDecision(
@@ -2377,6 +2472,20 @@ private struct ContentView: View {
                 event: AuditEventName.recordingStopped.rawValue,
                 detail: "sessionId=\(stopped.id) reason=\(stopped.stopReason?.rawValue ?? "none") localRecordingStatus=\(manifest.status.rawValue)"
             )
+            // Первая завершённая запись: веха отправляется из этого пути.
+            let recordingSeconds: TimeInterval = {
+                guard let startedAt = stopped.startedAt, let stoppedAt = stopped.stoppedAt else { return 0 }
+                return stoppedAt.timeIntervalSince(startedAt)
+            }()
+            let manifestStatus = manifest.status.rawValue
+            Task {
+                await activationReporter.noteFirstRecordingCompleted(
+                    durationBucket: Self.durationBucket(seconds: recordingSeconds),
+                    captureMode: "system_audio_and_microphone",
+                    completionState: manifestStatus,
+                    resultPendingState: manifest.status == .saved ? "upload_pending" : "degraded"
+                )
+            }
         } catch {
             let failureCategory = recordingStopFailureCategory(for: error)
             if let failed = try? captureController.fail(stopReason: .failed, failureCategory: failureCategory) {
@@ -2602,8 +2711,11 @@ private struct ContentView: View {
 
     @MainActor
     private func openSupportSignIn() {
-        guard let configuration = desktopCabinetConfiguration else { return }
-        selectedCabinetRoute = DesktopCabinetWorkspace.loginRoute(configuration: configuration)
+        guard desktopCabinetConfiguration != nil else { return }
+        // Повторный вход открывает тот же маршрут с метками, что и первый
+        // (FR-022): иначе кампания теряется ровно на том входе, которым
+        // приложение связывает аккаунт.
+        openCabinetSignInWithAttributionHandoff(reason: "support_sign_in")
         desktopCabinetState = .loading
     }
 
@@ -3337,6 +3449,28 @@ private final class AppLifecycleDelegate: NSObject, NSApplicationDelegate, NSMen
         // A notification may already have opened its target before macOS sends reopen.
         if !flag { presentMainWindow(reason: "reopen") }
         return true
+    }
+
+    /// Ссылка со страницы загрузки: метки кампании попадают в приложение (FR-022).
+    func application(_: NSApplication, open urls: [URL]) {
+        for url in urls {
+            let store = ProductAttributionHandoffStore()
+            // Разбор и запись живут в хранилище, поэтому тот же путь проверяем
+            // тестом; здесь остаются только журнал и показ окна.
+            guard let handoff = store.handleOpenURL(url) else {
+                AppLog.writeRaw(event: "attribution.handoff_rejected", detail: "scheme=\(url.scheme ?? "unknown")")
+                continue
+            }
+            AppLog.writeRaw(
+                event: "attribution.handoff_received",
+                detail: "scheme=\(handoff.bridgeID != nil ? "bridge" : "labels_only") campaignKnown=\(handoff.campaignKnown)"
+            )
+            presentMainWindow(reason: "attribution_handoff")
+            NotificationCenter.default.post(
+                name: .twoBrainRecDesktopAttributionHandoffDidArrive,
+                object: nil
+            )
+        }
     }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {

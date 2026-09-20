@@ -98,6 +98,8 @@ def test_public_analytics_event_catalog_and_labels_match_new_funnel() -> None:
         "public_landing_section_seen",
         "public_landing_cta_clicked",
         "public_download_viewed",
+        "public_signup_viewed",
+        "public_login_viewed",
         "public_installer_download_clicked",
         "public_login_intent_clicked",
         "public_product_tab_selected",
@@ -137,19 +139,39 @@ def test_public_analytics_event_catalog_and_labels_match_new_funnel() -> None:
     )
 
 
-def test_public_analytics_stays_disabled_outside_public_scope() -> None:
+def test_public_analytics_covers_the_auth_pages_and_stays_disabled_outside_public_scope() -> None:
+    """FR-027: sign-up and login are public pages, so consent covers them too."""
     settings = Settings(
         env="staging",
         public_analytics_enabled=True,
         public_analytics_yandex_metrica_id="12345678",
     )
 
-    context = build_public_analytics_context(settings, "/login")
+    for path, surface in (("/login", "public_login"), ("/sign-up", "public_signup")):
+        context = build_public_analytics_context(settings, path)
 
-    assert context["enabled"] is False
-    assert context["page_path"] is None
-    assert context["surface"] is None
-    assert context["yandex_metrica_id"] is None
+        assert context["enabled"] is True, path
+        assert context["consent_ui_enabled"] is True, path
+        assert context["page_path"] == path
+        assert context["surface"] == surface
+        # The pages carry a credential form, so the external counter stays off
+        # them and only the first-party relay may carry a consented event.
+        assert context["external_counter_allowed"] is False, path
+        assert context["external_counter_scope"] == ["public_landing", "public_download"]
+        assert context["replay_allowed"] is False, path
+        assert context["webvisor_allowed"] is False, path
+        assert context["click_map_allowed"] is False, path
+        assert context["scroll_map_allowed"] is False, path
+        assert context["form_analytics_allowed"] is False, path
+
+    private = build_public_analytics_context(settings, "/cabinet")
+
+    assert private["enabled"] is False
+    assert private["consent_ui_enabled"] is False
+    assert private["page_path"] is None
+    assert private["surface"] is None
+    assert private["yandex_metrica_id"] is None
+    assert private["external_counter_allowed"] is False
 
 
 def test_public_analytics_requires_production_or_explicit_validation_mode() -> None:

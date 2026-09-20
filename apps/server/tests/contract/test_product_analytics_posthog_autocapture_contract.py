@@ -109,6 +109,7 @@ def test_posthog_web_capture_endpoint_accepts_safe_proxy_event_without_provider_
         response = client.post(
             "/api/v1/product-analytics/posthog-web-capture",
             json={
+                "distinct_id": "graf_pseudo_user_c0ffee0000000000",
                 "event_type": "click",
                 "consent_state": "customized",
                 "page_class": "cabinet_home",
@@ -126,6 +127,41 @@ def test_posthog_web_capture_endpoint_accepts_safe_proxy_event_without_provider_
     assert "properties" not in str(body)
 
 
+def test_posthog_web_capture_refuses_a_visitor_without_a_pseudonymous_identity(tmp_path: Path) -> None:
+    """FR-010: no shared anonymous identifier may be invented for the provider.
+
+    A default identifier reused by every unidentified visitor would be a
+    long-lived identifier and would merge unrelated visits into one person.
+    """
+
+    app = create_app(_settings(tmp_path))
+
+    with TestClient(app) as client:
+        missing = client.post(
+            "/api/v1/product-analytics/posthog-web-capture",
+            json={
+                "event_type": "pageview",
+                "consent_state": "customized",
+                "page_class": "cabinet_home",
+                "sensitivity": "product",
+            },
+        )
+        shared_anonymous = client.post(
+            "/api/v1/product-analytics/posthog-web-capture",
+            json={
+                "distinct_id": "graf_pseudo_browser_anonymous",
+                "event_type": "pageview",
+                "consent_state": "customized",
+                "page_class": "cabinet_home",
+                "sensitivity": "product",
+            },
+        )
+
+    assert missing.status_code == 422
+    assert shared_anonymous.status_code == 400
+    assert shared_anonymous.json()["code"] == "posthog_autocapture_identity_rejected"
+
+
 def test_posthog_web_capture_endpoint_blocks_financial_page_inventory_entries(tmp_path: Path) -> None:
     app = create_app(_settings(tmp_path))
 
@@ -133,6 +169,7 @@ def test_posthog_web_capture_endpoint_blocks_financial_page_inventory_entries(tm
         response = client.post(
             "/api/v1/product-analytics/posthog-web-capture",
             json={
+                "distinct_id": "graf_pseudo_user_c0ffee0000000000",
                 "event_type": "click",
                 "consent_state": "customized",
                 "page_class": "billing_invoice",
@@ -218,6 +255,7 @@ def test_posthog_web_capture_rejects_unallowlisted_proxy_fields(tmp_path: Path) 
         response = client.post(
             "/api/v1/product-analytics/posthog-web-capture",
             json={
+                "distinct_id": "graf_pseudo_user_c0ffee0000000000",
                 "event_type": "click",
                 "consent_state": "customized",
                 "page_class": "settings",

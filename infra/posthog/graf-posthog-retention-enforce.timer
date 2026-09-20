@@ -1,0 +1,10 @@
+[Unit]
+Description=Enforce GRAF product analytics retention every day
+
+[Timer]
+OnCalendar=*-*-* 03:15:00
+Persistent=true
+Unit=graf-posthog-retention-enforce.service
+
+[Install]
+WantedBy=timers.target
