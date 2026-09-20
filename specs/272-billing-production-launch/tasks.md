@@ -170,3 +170,38 @@
 - [ ] T050 Рецензент оценивает все пункты
       `checklists/release-readiness.md`. Генерация чек-листа и локальный коммит
       не закрывают ревью, подписи ответственных или живую приёмку.
+
+## Phase 13: Convergence
+
+Проверка 20 сентября 2026 года на
+`7b2bc14a7b0dea01760bf2695b32208d76b121c1` выявила два воспроизводимых
+пробела в продлении. Обычный набор `test_renewal_charge.py`,
+`test_billing_observation.py` и `test_renewal_resolution.py` прошёл
+(`45 passed`), но изолированные проверки ниже не прошли. Проверки использовали
+только синтетические объекты в памяти, без обращения к провайдеру или production.
+Это уточняет границы прежних отметок T018–T021, а не подтверждает готовность.
+
+- [ ] T051 [US4] HIGH: в
+      `apps/server/src/twobrain_rec_server/billing/renewal_charge.py` разрешить
+      следующую попытку после подтверждённой отмены предыдущего платежа,
+      сохранив его `provider_id`, но продолжать блокировать новую попытку при
+      неопределённом исходе. Добавить проверку в
+      `apps/server/tests/unit/test_renewal_charge.py`: на границе −48 часов
+      отменённая первая попытка с ID провайдера должна создать вторую;
+      сейчас создаёт 0, тогда как без ID создаёт 1. Подтвердить предел трёх
+      попыток и повторный запуск без дублирования по FR-015, FR-016,
+      US4/AC2 и plan §2.3 (contradicts).
+- [ ] T052 [US4] HIGH: согласовать обработку подтверждённого отказа продления
+      в `apps/server/src/twobrain_rec_server/billing/renewal_charge.py`,
+      `apps/server/src/twobrain_rec_server/billing/webhook_reconciliation.py`
+      и `apps/server/src/twobrain_rec_server/workflows/worker.py`, используя
+      существующую очередь писем: HTTP-отказ, отмена из ответа провайдера,
+      авторитетного GET и вебхука должны давать одно предупреждение на попытку,
+      сохранять оплаченный доступ и применять правила первых двух/третьего
+      отказа одинаково. Зафиксировать регрессию в
+      `apps/server/tests/unit/test_billing_renewal_workflow.py` и
+      `apps/server/tests/unit/test_billing_observation.py`: сейчас
+      `run_billing_renewal_activity` при GET со статусом `canceled` отменяет
+      операцию и счёт, но ставит в очередь 0 писем. Проверить повторную
+      доставку без повторного письма по FR-017, FR-018, SC-004 и plan §2.3
+      (partial).
