@@ -2756,7 +2756,9 @@ async def billing_checkout_page(
     if await _billing_role(db, tenant_scope=tenant_scope, principal=principal) != "owner":
         return RedirectResponse("/billing?result=owner_only", status_code=303)
     settings = request.app.state.settings
-    checkout_result = request.query_params.get("result")
+    checkout_result = getattr(
+        request.state, "billing_checkout_result", request.query_params.get("result")
+    )
     blocking_operation = (
         await db.scalar(_blocking_payment_operation_query(tenant_scope.workspace_id).limit(1))
         if db is not None
@@ -2778,8 +2780,12 @@ async def billing_checkout_page(
     checkout_continuation_url = (
         continuation_candidate if is_allowed_confirmation_url(continuation_candidate) else None
     )
-    checkout_promo_code = request.cookies.get(_CHECKOUT_PROMO_COOKIE, "")
-    checkout_cycle = request.query_params.get("cycle", "month")
+    checkout_promo_code = getattr(
+        request.state, "billing_checkout_promo_code", request.cookies.get(_CHECKOUT_PROMO_COOKIE, "")
+    )
+    checkout_cycle = getattr(
+        request.state, "billing_checkout_cycle", request.query_params.get("cycle", "month")
+    )
     if checkout_cycle not in {"month", "year"}:
         checkout_cycle = "month"
     descriptor = plan_descriptor("personal")
@@ -2981,8 +2987,9 @@ async def start_billing_checkout(
     idempotency_key: str = Form(default="", max_length=240),
     offer_consent: bool = Form(default=False),
     recurring_consent: bool = Form(default=False),
+    offer_version: str = Form(default="", max_length=64),
     promo_code: str | None = Form(default=None, max_length=48),
-) -> RedirectResponse:
+) -> HTMLResponse:
     settings = request.app.state.settings
     if db is None:
         return RedirectResponse("/billing/checkout?result=unavailable", status_code=303)
@@ -3077,25 +3084,20 @@ async def start_billing_checkout(
         # row.  Static descriptors remain useful for read-only copy and unit
         # tests, but are never a checkout authority once the billing DB is
         # available.  An absent/stale/disabled row therefore fails closed.
-        catalog_rows = await db.scalars(
-            select(BillingPlanVersion)
-            .where(
-                BillingPlanVersion.plan_code == "personal",
-                BillingPlanVersion.cycle == cycle,
-            )
-            .order_by(BillingPlanVersion.version.desc())
-        )
-        catalog_snapshot = None
-        for catalog_row in catalog_rows:
-            try:
-                catalog_snapshot = validate_plan_version(catalog_row, now=now)
-                break
-            except (CatalogNotApproved, ValueError):
-                continue
+        catalog_snapshot = (await _approved_personal_catalog(db, now=now)).get(cycle)
         if catalog_snapshot is None:
             return RedirectResponse(
                 "/billing/checkout?result=catalog_not_approved", status_code=303
             )
+        if offer_version != catalog_snapshot.offer_version:
+            request.state.billing_checkout_result = "offer_changed"
+            request.state.billing_checkout_cycle = cycle
+            request.state.billing_checkout_promo_code = promo_code or ""
+            response = await billing_checkout_page(
+                request, tenant_scope=tenant_scope, principal=principal, db=db,
+            )
+            response.status_code = 409
+            return response
 
         promo: PromoCode | None = None
         promo_campaign: PromotionCampaign | None = None

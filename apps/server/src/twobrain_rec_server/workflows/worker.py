@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal, InvalidOperation
 from html import escape
 from typing import Any
 from uuid import NAMESPACE_URL, UUID, uuid5
@@ -31,12 +30,15 @@ from twobrain_rec_server.billing.notifications import (
     notification_copy,
 )
 from twobrain_rec_server.billing.operations import provider_key_is_expired
+from twobrain_rec_server.billing.reconciliation import validate_renewal_payment
 from twobrain_rec_server.billing.renewal_charge import (
     charge_renewal_operation,
     pending_renewal_charge_candidates,
     plan_due_renewals,
     project_renewal_cutoffs,
+    record_renewal_decline,
 )
+from twobrain_rec_server.billing.storage import lock_storage_workspace
 from twobrain_rec_server.billing.webhook_reconciliation import (
     reconcile_pending_initial_checkout_operations,
     reconcile_pending_webhook_events,
@@ -507,51 +509,6 @@ async def _reconcile_unknown_mediascribe_upload(
     return job
 
 
-def _provider_amount_minor(payment: dict[str, Any]) -> tuple[int, str]:
-    amount = payment.get("amount")
-    if not isinstance(amount, dict):
-        raise ValueError("provider payment amount is missing")
-    currency = amount.get("currency")
-    if not isinstance(currency, str) or not currency:
-        raise ValueError("provider payment currency is missing")
-    try:
-        decimal_value = Decimal(str(amount["value"]))
-    except (InvalidOperation, KeyError, TypeError, ValueError) as exc:
-        raise ValueError("provider payment amount is invalid") from exc
-    minor_value = decimal_value * 100
-    if (
-        not decimal_value.is_finite()
-        or decimal_value < 0
-        or minor_value != minor_value.to_integral_value()
-    ):
-        raise ValueError("provider payment amount precision is invalid")
-    return int(minor_value), currency
-
-
-def _validate_authoritative_renewal_payment(
-    payment: dict[str, Any],
-    *,
-    operation: BillingOperation,
-    invoice: BillingInvoice,
-) -> str:
-    if payment.get("id") != operation.provider_id:
-        raise ValueError("provider payment reference does not match")
-    metadata = payment.get("metadata")
-    if not isinstance(metadata, dict):
-        raise ValueError("provider payment metadata is missing")
-    if metadata.get("workspace_id") != str(operation.workspace_id):
-        raise ValueError("provider payment workspace does not match")
-    if metadata.get("operation_id") != str(operation.id):
-        raise ValueError("provider payment operation does not match")
-    amount_minor, currency = _provider_amount_minor(payment)
-    if amount_minor != invoice.amount_minor or currency != invoice.currency:
-        raise ValueError("provider payment amount does not match")
-    status = payment.get("status")
-    if not isinstance(status, str) or not status:
-        raise ValueError("provider payment status is missing")
-    return status
-
-
 async def run_billing_renewal_reconciler(settings: Any, temporal_client: object) -> None:
     """Plan one renewal, charge it once, then reconcile provider truth."""
     engine = create_engine(settings)
@@ -983,6 +940,16 @@ async def run_billing_renewal_activity(payload: dict[str, str]) -> dict[str, str
     try:
         async with sessionmaker() as db:
             await apply_tenant_context(db, context)
+            # Match entitlement projection before taking any dependent row.
+            await lock_storage_workspace(db, workspace_id)
+            workspace = await db.scalar(
+                select(Workspace).where(Workspace.id == workspace_id).with_for_update()
+            )
+            subscription = await db.scalar(
+                select(WorkspaceSubscription)
+                .where(WorkspaceSubscription.workspace_id == workspace_id)
+                .with_for_update()
+            )
             operation = await db.scalar(
                 select(BillingOperation)
                 .where(
@@ -1019,12 +986,6 @@ async def run_billing_renewal_activity(payload: dict[str, str]) -> dict[str, str
                     type="BillingRenewalProviderMismatch",
                     non_retryable=True,
                 )
-            workspace = await db.get(Workspace, workspace_id)
-            subscription = await db.scalar(
-                select(WorkspaceSubscription)
-                .where(WorkspaceSubscription.workspace_id == workspace_id)
-                .with_for_update()
-            )
             owner = None
             if (
                 workspace is not None
@@ -1070,6 +1031,16 @@ async def run_billing_renewal_activity(payload: dict[str, str]) -> dict[str, str
 
         async with sessionmaker() as db:
             await apply_tenant_context(db, context)
+            await lock_storage_workspace(db, workspace_id)
+            await db.scalar(
+                select(Workspace).where(Workspace.id == workspace_id).with_for_update()
+            )
+            subscription = await db.scalar(
+                select(WorkspaceSubscription)
+                .where(WorkspaceSubscription.workspace_id == workspace_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
             operation = await db.scalar(
                 select(BillingOperation)
                 .where(
@@ -1091,7 +1062,7 @@ async def run_billing_renewal_activity(payload: dict[str, str]) -> dict[str, str
                 select(BillingInvoice).where(
                     BillingInvoice.operation_id == operation_id,
                     BillingInvoice.workspace_id == workspace_id,
-                )
+                ).with_for_update()
             )
             if invoice is None or operation.provider_id != provider_id:
                 raise ApplicationError(
@@ -1100,7 +1071,7 @@ async def run_billing_renewal_activity(payload: dict[str, str]) -> dict[str, str
                     non_retryable=True,
                 )
             try:
-                provider_status = _validate_authoritative_renewal_payment(
+                provider_status = validate_renewal_payment(
                     payment,
                     operation=operation,
                     invoice=invoice,
@@ -1112,12 +1083,6 @@ async def run_billing_renewal_activity(payload: dict[str, str]) -> dict[str, str
                     non_retryable=True,
                 ) from exc
 
-            subscription = await db.scalar(
-                select(WorkspaceSubscription)
-                .where(WorkspaceSubscription.workspace_id == workspace_id)
-                .with_for_update()
-                .execution_options(populate_existing=True)
-            )
             now = datetime.now(UTC)
             key_expired = provider_key_is_expired(
                 expires_at=operation.provider_key_expires_at,
@@ -1168,10 +1133,9 @@ async def run_billing_renewal_activity(payload: dict[str, str]) -> dict[str, str
                             )
                         )
             elif provider_status in {"canceled", "cancelled"}:
-                operation.state = "canceled"
-                invoice.status = "canceled"
-                if subscription is not None:
-                    subscription.renewal_resolution = "canceled"
+                await record_renewal_decline(
+                    db, subscription=subscription, operation=operation, invoice=invoice, now=now,
+                )
             else:
                 operation.state = "provider_key_expired" if key_expired else "unknown"
                 if subscription is not None:

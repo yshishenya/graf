@@ -1779,6 +1779,17 @@
     outcome.focus();
   };
 
+  const initBillingFocus = () => {
+    const page = document.querySelector("main.billing-page");
+    if (!page || page.dataset.focusReady === "true") return;
+    page.dataset.focusReady = "true";
+    if (window.location.hash || (document.activeElement && document.activeElement !== document.body)) return;
+    const target = page.querySelector('[role="alert"]:not([hidden])') || page.querySelector("h1");
+    if (!target) return;
+    target.tabIndex = -1;
+    target.focus();
+  };
+
   const initAuthTransition = () => {
     const page = document.querySelector(".auth-page");
     if (!page || page.dataset.authTransitionReady === "true") return;
@@ -8776,6 +8787,7 @@
     initListDisclosures();
     initCodeForms();
     initOutcomeFocus();
+    initBillingFocus();
     initMeetingList();
     announceUploadProgress();
     initManualUpload();

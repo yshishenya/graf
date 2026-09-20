@@ -17,6 +17,7 @@ from twobrain_rec_server.billing.renewal_charge import (
     pending_renewal_charge_candidates,
     plan_due_renewals,
     project_renewal_cutoffs,
+    record_renewal_decline,
     renewal_attempt_due_at,
     renewal_invoice_number,
     renewal_operation_key,
@@ -406,8 +407,9 @@ async def test_planner_opens_the_first_attempt_at_once_for_a_late_window() -> No
 
 
 @pytest.mark.asyncio
-async def test_planner_waits_for_the_next_attempt_moment() -> None:
-    resolved_first = _stored_attempt(attempt=1, state="canceled")
+@pytest.mark.parametrize("provider_id", [None, "pay-attempt-1"])
+async def test_planner_waits_for_the_next_attempt_moment(provider_id: str | None) -> None:
+    resolved_first = _stored_attempt(attempt=1, state="canceled", provider_id=provider_id)
     subscription = _planning_subscription()
     common = [subscription, None, _planning_catalog(), UUID(int=1), "billing@2brain.pro"]
 
@@ -426,13 +428,18 @@ async def test_planner_waits_for_the_next_attempt_moment() -> None:
     assert second.idempotency_key.endswith(":a2")
     # An attempt planned exactly on its moment reserves exactly one window.
     assert second.provider_key_expires_at == PAID_THROUGH - timedelta(hours=24)
+    repeated = PlanningDb([*common, resolved_first, second])
+    assert await plan_due_renewals(repeated, now=PAID_THROUGH - timedelta(hours=47)) == (
+        second.id,
+    )
+    assert repeated.added == []
 
     # The last attempt never reaches past the paid-through boundary.
     last = PlanningDb(
         [
             *common,
-            _stored_attempt(attempt=1, state="canceled"),
-            _stored_attempt(attempt=2, state="canceled"),
+            resolved_first,
+            _stored_attempt(attempt=2, state="canceled", provider_id=provider_id),
             None,
         ]
     )
@@ -440,12 +447,27 @@ async def test_planner_waits_for_the_next_attempt_moment() -> None:
     third = next(row for row in last.added if isinstance(row, BillingOperation))
     assert third.request_snapshot["renewal_attempt"] == 3
     assert third.provider_key_expires_at == PAID_THROUGH
+    exhausted = PlanningDb([
+        *common,
+        resolved_first,
+        _stored_attempt(attempt=2, state="canceled", provider_id=provider_id),
+        _stored_attempt(attempt=3, state="canceled", provider_id=provider_id),
+    ])
+    assert await plan_due_renewals(exhausted, now=PAID_THROUGH - timedelta(hours=1)) == ()
+    assert exhausted.added == []
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("state", "provider_id"),
-    [("unknown", None), ("processing", None), ("sent", "pay-attempt-1")],
+    [
+        (state, provider_id)
+        for state in (
+            "unknown", "processing", "sent", "provider_key_expired",
+            "manual_resolution", "reconciliation_gap", "succeeded", "succeeded_refused",
+        )
+        for provider_id in (None, "pay-attempt-1")
+    ],
 )
 async def test_planner_never_starts_a_second_key_while_one_attempt_is_unresolved(
     state: str, provider_id: str | None
@@ -461,6 +483,7 @@ async def test_planner_never_starts_a_second_key_while_one_attempt_is_unresolved
                 UUID(int=1),
                 "billing@2brain.pro",
                 unresolved,
+                None,
             ]
         )
 
@@ -843,14 +866,55 @@ async def test_transport_unknown_never_retries_without_provider_id(
 
 
 @pytest.mark.asyncio
-@pytest.mark.asyncio
-@pytest.mark.parametrize("attempt", [1, 2])
-async def test_declined_attempt_before_the_last_one_keeps_recurring_authority(
+@pytest.mark.parametrize("attempt", [1, 2, 3])
+async def test_rate_limit_retries_same_attempt_and_key_without_decline_notice(
     monkeypatch, tmp_path: Path, attempt: int
 ) -> None:
     settings = _settings(tmp_path)
     subscription, operation, invoice, method = _rows(tmp_path, attempt=attempt)
-    provider = FakeProvider(YooKassaProviderError("declined", status_code=402))
+    provider = FakeProvider(YooKassaProviderError("rate limited", status_code=429))
+    monkeypatch.setattr(
+        "twobrain_rec_server.billing.renewal_charge.YooKassaClient", lambda _: provider
+    )
+    original_key = operation.idempotency_key
+    original_deadline = operation.provider_key_expires_at
+    for _ in range(2):
+        db = FakeDb([subscription, operation, invoice, method, None])
+        result = await charge_renewal_operation(
+            db, settings, operation_id=OPERATION_ID, workspace_id=WORKSPACE_ID,
+            now=_attempt_charge_moment(attempt),
+        )
+        assert result.status == operation.state == "scheduled"
+        assert operation.provider_id is None and invoice.status == "pending"
+        assert subscription.recurring_allowed and subscription.recurring_authority_version == 4
+        assert subscription.paid_through == PAID_THROUGH
+        assert operation.idempotency_key == original_key
+        assert operation.provider_key_expires_at == original_deadline
+        assert not any(isinstance(row, BillingNotificationDelivery) for row in db.added)
+    assert len(provider.calls) == 2
+    assert {call["idempotence_key"] for call in provider.calls} == {original_key}
+    # The existing provider-key deadline bounds even repeated rate limiting.
+    result = await charge_renewal_operation(
+        FakeDb([subscription, operation, invoice, method]), settings,
+        operation_id=OPERATION_ID, workspace_id=WORKSPACE_ID, now=original_deadline,
+    )
+    assert result.status == "manual_resolution"
+    assert len(provider.calls) == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("attempt", [1, 2])
+@pytest.mark.parametrize("response_kind", ["http_error", "canceled_payment"])
+async def test_declined_attempt_before_the_last_one_keeps_recurring_authority(
+    monkeypatch, tmp_path: Path, attempt: int, response_kind: str
+) -> None:
+    settings = _settings(tmp_path)
+    subscription, operation, invoice, method = _rows(tmp_path, attempt=attempt)
+    provider = FakeProvider(
+        YooKassaProviderError("declined", status_code=402)
+        if response_kind == "http_error"
+        else _canceled_payment()
+    )
     monkeypatch.setattr(
         "twobrain_rec_server.billing.renewal_charge.YooKassaClient",
         lambda _settings: provider,
@@ -881,12 +945,17 @@ async def test_declined_attempt_before_the_last_one_keeps_recurring_authority(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("response_kind", ["http_error", "canceled_payment"])
 async def test_confirmed_provider_decline_of_the_last_attempt_turns_authority_off(
-    monkeypatch, tmp_path: Path
+    monkeypatch, tmp_path: Path, response_kind: str
 ) -> None:
     settings = _settings(tmp_path)
     subscription, operation, invoice, method = _rows(tmp_path, attempt=3)
-    provider = FakeProvider(YooKassaProviderError("declined", status_code=402))
+    provider = FakeProvider(
+        YooKassaProviderError("declined", status_code=402)
+        if response_kind == "http_error"
+        else _canceled_payment()
+    )
     monkeypatch.setattr(
         "twobrain_rec_server.billing.renewal_charge.YooKassaClient",
         lambda _settings: provider,
@@ -908,6 +977,40 @@ async def test_confirmed_provider_decline_of_the_last_attempt_turns_authority_of
     assert subscription.renewal_resolution == "canceled"
     # The paid period is still running, so access continues to its own boundary.
     assert (subscription.plan_code, subscription.state) == ("personal", "personal")
+
+
+def _canceled_payment() -> dict[str, object]:
+    return {
+        "id": "pay-renewal-1",
+        "status": "canceled",
+        "amount": {"value": "790.00", "currency": "RUB"},
+        "metadata": {"workspace_id": str(WORKSPACE_ID), "operation_id": str(OPERATION_ID)},
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bad_field", ["metadata", "amount"])
+async def test_unbound_canceled_response_stays_unknown_without_next_attempt_or_notice(
+    monkeypatch, tmp_path: Path, bad_field: str
+) -> None:
+    settings = _settings(tmp_path)
+    subscription, operation, invoice, method = _rows(tmp_path, attempt=1)
+    payment = _canceled_payment()
+    payment[bad_field] = {}
+    provider = FakeProvider(payment)
+    monkeypatch.setattr(
+        "twobrain_rec_server.billing.renewal_charge.YooKassaClient", lambda _: provider
+    )
+    db = FakeDb([subscription, operation, invoice, method])
+    result = await charge_renewal_operation(
+        db, settings, operation_id=OPERATION_ID, workspace_id=WORKSPACE_ID,
+        now=_attempt_charge_moment(1),
+    )
+    assert result.status == operation.state == invoice.status == "unknown"
+    assert operation.provider_id == payment["id"]
+    assert subscription.recurring_allowed is True
+    assert subscription.recurring_authority_version == 4
+    assert not any(isinstance(row, BillingNotificationDelivery) for row in db.added)
 
 
 @pytest.mark.asyncio
@@ -934,3 +1037,54 @@ async def test_schedule_change_cancels_stale_operation_without_provider_call(
     assert result.status == "canceled"
     assert operation.state == "canceled"
     assert provider.calls == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("drift", ["none", "period", "owner", "authority", "succeeded", "succeeded_refused", "invoice_succeeded"])
+async def test_late_decline_never_changes_new_authority_or_success(
+    tmp_path: Path, drift: str
+) -> None:
+    _settings(tmp_path)
+    subscription, operation, invoice, _ = _rows(tmp_path, attempt=3)
+    operation.state = "sent"
+    operation.provider_id = "pay-renewal-1"
+    subscription.renewal_resolution = "previous"
+    if drift == "period":
+        subscription.paid_through += timedelta(days=30)
+    elif drift == "owner":
+        subscription.billing_owner_id = UUID(int=9)
+    elif drift == "authority":
+        subscription.recurring_authority_version += 1
+    elif drift in {"succeeded", "succeeded_refused"}:
+        operation.state = drift
+        invoice.status = "succeeded"
+    elif drift == "invoice_succeeded":
+        invoice.status = "succeeded"
+    original_state = operation.state
+    original_invoice = invoice.status
+    version = subscription.recurring_authority_version
+    paid_through = subscription.paid_through
+    db = FakeDb([None])
+    for _ in range(2):
+        await record_renewal_decline(
+            db, subscription=subscription, operation=operation, invoice=invoice,
+            now=PAID_THROUGH + timedelta(seconds=1),
+        )
+    assert subscription.paid_through == paid_through
+    notices = [row for row in db.added if isinstance(row, BillingNotificationDelivery)]
+    if drift == "none":
+        assert operation.state == invoice.status == "canceled"
+        assert subscription.recurring_allowed is False
+        assert subscription.recurring_authority_version == version + 1
+        assert subscription.plan_code == "free"
+        assert len(notices) == 1
+    else:
+        assert subscription.recurring_allowed is True
+        assert subscription.recurring_authority_version == version
+        assert subscription.renewal_resolution == "previous"
+        assert subscription.plan_code == "personal"
+        assert notices == []
+        if "succeeded" in drift:
+            assert (operation.state, invoice.status) == (original_state, original_invoice)
+        else:
+            assert operation.state == invoice.status == "canceled"

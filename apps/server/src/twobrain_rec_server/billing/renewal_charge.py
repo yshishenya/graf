@@ -40,6 +40,7 @@ from twobrain_rec_server.billing.payment_methods import (
     read_billing_encryption_key,
 )
 from twobrain_rec_server.billing.provider_events import validate_provider_identifier
+from twobrain_rec_server.billing.reconciliation import validate_renewal_payment
 from twobrain_rec_server.billing.yookassa import (
     YooKassaClient,
     YooKassaConfigurationError,
@@ -327,13 +328,9 @@ async def plan_due_renewals(
                     # Still chargeable: charge this attempt before the next one.
                     planned.append(existing.id)
                     break
-                if existing.provider_id is not None or existing.state in {
-                    "unknown",
-                    "processing",
-                    "provider_key_expired",
-                    "manual_resolution",
-                    "reconciliation_gap",
-                }:
+                if existing.state != "canceled" and not (
+                    existing.state == "scheduled" and existing.provider_id is None
+                ):
                     # The provider may still complete this attempt, so a new
                     # idempotency key must not open a second payment. Scope or
                     # reconciliation terminal states are also preserved as
@@ -617,6 +614,58 @@ async def _enqueue_renewal_attempt_failure(
     )
 
 
+async def record_renewal_decline(
+    db: AsyncSession,
+    *,
+    subscription: WorkspaceSubscription | None,
+    operation: BillingOperation,
+    invoice: BillingInvoice,
+    now: datetime,
+) -> None:
+    """Apply a confirmed decline to locked rows; the caller owns the transaction."""
+    if (
+        operation.kind != "renewal"
+        or invoice.operation_id != operation.id
+        or invoice.workspace_id != operation.workspace_id
+        or (subscription is not None and subscription.workspace_id != operation.workspace_id)
+    ):
+        raise ValueError("renewal decline binding does not match")
+    if operation.state in {"canceled", "succeeded", "succeeded_refused"} or invoice.status == "succeeded":
+        return
+    operation.state = "canceled"
+    invoice.status = "canceled"
+    snapshot = operation.request_snapshot
+    # A delayed observation may close old financial history, but must not
+    # disable a new owner's card or announce the end of a newer paid period.
+    if (
+        subscription is None
+        or subscription.paid_through is None
+        or subscription.billing_owner_id is None
+        or not isinstance(snapshot, Mapping)
+        or snapshot.get("billing_actor_user_id") != str(subscription.billing_owner_id)
+        or snapshot.get("paid_through_at") != _utc(subscription.paid_through).isoformat()
+        or type(snapshot.get("recurring_authority_version")) is not int
+        or snapshot["recurring_authority_version"] != subscription.recurring_authority_version
+    ):
+        return
+    if renewal_attempt_of(operation) >= RENEWAL_ATTEMPT_COUNT:
+        if subscription.recurring_allowed:
+            subscription.recurring_allowed = False
+            subscription.recurring_authority_version = (
+                subscription.recurring_authority_version or 0
+            ) + 1
+        subscription.renewal_resolution = "canceled"
+        if _utc(subscription.paid_through) <= _utc(now):
+            _project_free(subscription)
+    else:
+        subscription.renewal_resolution = "attempt_failed"
+    _record_charge_audit(
+        db, subscription=subscription, operation=operation,
+        outcome="canceled", reason_code="provider_declined",
+    )
+    await _enqueue_renewal_attempt_failure(db, subscription=subscription, invoice=invoice)
+
+
 async def charge_renewal_operation(
     db: AsyncSession,
     settings: Settings,
@@ -811,6 +860,16 @@ async def charge_renewal_operation(
             raise YooKassaProviderError("provider payment reference is missing")
         provider_id = validate_provider_identifier(provider_id)
         operation.provider_id = provider_id
+        if payment.get("status") == "canceled":
+            try:
+                validate_renewal_payment(payment, operation=operation, invoice=invoice)
+            except ValueError as exc:
+                raise YooKassaProviderError("provider payment binding is invalid") from exc
+            await record_renewal_decline(
+                db, subscription=subscription, operation=operation, invoice=invoice, now=current,
+            )
+            await db.commit()
+            return RenewalChargeResult(operation_id, operation.state, provider_id)
         operation.state = "sent"
         invoice.status = "pending"
         _record_charge_audit(
@@ -839,36 +898,21 @@ async def charge_renewal_operation(
         await db.commit()
         return RenewalChargeResult(operation_id, "canceled")
     except YooKassaProviderError as exc:
-        if exc.status_code is not None and 400 <= exc.status_code < 500:
-            operation.state = "canceled"
-            invoice.status = "canceled"
-            if attempt >= RENEWAL_ATTEMPT_COUNT:
-                # Only the last attempt of the period ends recurring access.
-                subscription.recurring_allowed = False
-                subscription.recurring_authority_version = (
-                    subscription.recurring_authority_version or 0
-                ) + 1
-                subscription.renewal_resolution = "canceled"
-                if (
-                    subscription.paid_through is not None
-                    and _utc(subscription.paid_through) <= current
-                ):
-                    _project_free(subscription)
-            else:
-                # The paid period stays active until its own boundary and the
-                # next attempt takes over.
-                subscription.renewal_resolution = "attempt_failed"
+        if exc.status_code == 429:
+            # The minute-based reconciler retries this operation with its
+            # original key; the persisted key deadline still bounds retries.
+            operation.state = "scheduled"
+            invoice.status = "pending"
+            subscription.renewal_resolution = "pending"
             _record_charge_audit(
-                db,
-                subscription=subscription,
-                operation=operation,
-                outcome="canceled",
-                reason_code="provider_declined",
+                db, subscription=subscription, operation=operation,
+                outcome="scheduled", reason_code="provider_rate_limited",
             )
-            await _enqueue_renewal_attempt_failure(
-                db,
-                subscription=subscription,
-                invoice=invoice,
+            await db.commit()
+            return RenewalChargeResult(operation_id, "scheduled")
+        if exc.status_code is not None and 400 <= exc.status_code < 500:
+            await record_renewal_decline(
+                db, subscription=subscription, operation=operation, invoice=invoice, now=current,
             )
             await db.commit()
             return RenewalChargeResult(operation_id, "canceled")

@@ -1,9 +1,42 @@
+import json
+import subprocess
 from pathlib import Path
+
+import pytest
 
 from twobrain_rec_server.cabinet.templates import render_template
 
 ROOT = Path(__file__).parents[4]
 TEMPLATE_ROOT = ROOT / "apps/server/src/twobrain_rec_server/cabinet/templates/cabinet/pages"
+
+
+@pytest.mark.browser
+def test_billing_keyboard_focus_and_error_recovery_in_browser(tmp_path):
+    from twobrain_rec_server.billing.catalog import plan_descriptor
+
+    context = dict(
+        plan=plan_descriptor("personal"), billing_enabled=True, catalog_ready=True,
+        checkout_idempotency_key="synthetic", monthly_price_label="1 000 ₽",
+        annual_price_label="10 000 ₽", csrf_token="synthetic", embedded=False,
+    )
+    pages = {name: render_template(
+        "cabinet/pages/billing_checkout_content.html", **context, checkout_result=result,
+    ) for name, result in (("checkout", None), ("error", "offer_changed"))}
+    for result in (None, "refreshed", "unchanged"):
+        pages[f"status-{result}"] = render_template(
+            "cabinet/pages/billing_operation_status_content.html",
+            embedded=False, invoice={"safe_number": "INV-SYNTHETIC"},
+            amount_label="1 000 ₽", operation_state="unknown",
+            operation_state_label="Уточняем статус", updated_at_label="20.09.2026",
+            status_result=result, can_refresh_payment=True,
+        )
+    fixture = tmp_path / "billing-pages.json"
+    fixture.write_text(json.dumps(pages), encoding="utf-8")
+    script = Path(__file__).parents[1] / "browser/billing-accessibility.test.cjs"
+    result = subprocess.run(
+        ["node", str(script), str(fixture)], capture_output=True, text=True, timeout=90,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 def test_billing_templates_keep_explicit_actions_and_live_statuses() -> None:

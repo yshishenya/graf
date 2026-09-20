@@ -36,7 +36,10 @@ from twobrain_rec_server.billing.reconciliation import (
     record_observed_receipt,
     record_observed_refund,
     saved_bank_card_confirmed,
+    validate_renewal_payment,
 )
+from twobrain_rec_server.billing.renewal_charge import record_renewal_decline
+from twobrain_rec_server.billing.storage import lock_storage_workspace
 from twobrain_rec_server.billing.yookassa import (
     YooKassaClient,
     YooKassaConfigurationError,
@@ -49,6 +52,7 @@ from twobrain_rec_server.db.models import (
     BillingWebhookEvent,
     Workspace,
     WorkspaceMembership,
+    WorkspaceSubscription,
 )
 
 if TYPE_CHECKING:
@@ -385,6 +389,18 @@ async def _reconcile_event(
     if event.event_type.startswith("payment."):
         payload = await provider.get_payment(event.object_id)
         observation = extract_payment_observation(payload, scope=scope)
+        if observation.status in {"succeeded", "canceled"}:
+            # Same prefix as entitlement projection and renewal observation:
+            # never acquire an operation before its workspace/subscription.
+            await lock_storage_workspace(db, event.workspace_id)
+            await db.scalar(
+                select(Workspace).where(Workspace.id == event.workspace_id).with_for_update()
+            )
+            subscription = await db.scalar(
+                select(WorkspaceSubscription)
+                .where(WorkspaceSubscription.workspace_id == event.workspace_id)
+                .with_for_update()
+            )
         if observation.status == "succeeded":
             operation = await _locked_operation(
                 db,
@@ -428,6 +444,23 @@ async def _reconcile_event(
                 workspace_id=event.workspace_id,
                 observation=observation,
             )
+            if operation is not None and operation.kind == "renewal":
+                invoice = await db.scalar(
+                    select(BillingInvoice).where(
+                        BillingInvoice.operation_id == operation.id,
+                        BillingInvoice.workspace_id == event.workspace_id,
+                    ).with_for_update()
+                )
+                if invoice is None or subscription is None:
+                    raise ProviderObservationError("renewal decline projection is missing")
+                if subscription.billing_owner_id != workspace.owner_user_id:
+                    raise ProviderObservationError("renewal owner does not match")
+                validate_renewal_payment(payload, operation=operation, invoice=invoice)
+                await record_renewal_decline(
+                    db, subscription=subscription, operation=operation, invoice=invoice,
+                    now=datetime.now(UTC),
+                )
+                return "observed"
             await release_payment_promo(
                 db,
                 workspace_id=event.workspace_id,
