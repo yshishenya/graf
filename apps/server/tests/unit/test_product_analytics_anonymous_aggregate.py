@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+
 from twobrain_rec_server.product_analytics import anonymous_aggregate as aggregate
 from twobrain_rec_server.product_analytics.anonymous_aggregate import (
     ANONYMOUS_AGGREGATE_SURFACES,
