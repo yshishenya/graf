@@ -484,6 +484,33 @@ async def test_planner_reuses_the_stored_attempt_instead_of_a_second_payment() -
 
 
 @pytest.mark.asyncio
+async def test_planner_does_not_create_a_new_charge_after_expired_unknown_attempt() -> None:
+    subscription = _planning_subscription()
+    expired = _stored_attempt(
+        attempt=1,
+        state="provider_key_expired",
+        provider_id=None,
+        key_expires_at=PAID_THROUGH - timedelta(hours=70),
+    )
+    db = PlanningDb(
+        [
+            subscription,
+            None,
+            _planning_catalog(),
+            UUID(int=1),
+            "billing@2brain.pro",
+            expired,
+            None,
+        ]
+    )
+
+    # The same unresolved idempotency key remains the only safe identity. A
+    # later attempt must not silently create a second charge after cutoff.
+    assert await plan_due_renewals(db, now=PAID_THROUGH - timedelta(hours=47)) == ()
+    assert not [row for row in db.added if isinstance(row, BillingOperation)]
+
+
+@pytest.mark.asyncio
 async def test_planner_takes_over_after_a_spent_provider_window() -> None:
     subscription = _planning_subscription()
     spent = _stored_attempt(

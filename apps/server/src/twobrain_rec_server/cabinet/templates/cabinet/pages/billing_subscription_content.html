@@ -16,8 +16,12 @@
       <section class="settings-section cabinet-card" aria-labelledby="billing-subscription-state-title">
         {% set displayed_plan_label = subscription_plan_label|default({"personal": "Личный", "trial": "Пробный период", "free": "Бесплатный"}.get(subscription.plan_code if subscription else "free", "Бесплатный")) %}
         <h2 id="billing-subscription-state-title">{{ displayed_plan_label }}</h2>
-        {% if subscription and (subscription.renewal_resolution|default(None)) in ["pending", "unknown", "provider_key_expired", "late_success"] %}
-        <p class="notice notice--warning" role="status" aria-live="polite">Проверяем результат последнего списания. Нового платежа не создаем. Если подтверждения не будет, доступ сразу перейдет на бесплатный тариф.</p>
+        {% if subscription and (subscription.renewal_resolution|default(None)) in ["pending", "unknown"] %}
+        <p class="notice notice--warning" role="status" aria-live="polite">Проверяем результат последнего списания. Нового платежа не создаем. Доступ остается действующим до оплаченной даты.</p>
+        {% elif subscription and subscription.renewal_resolution|default(None) == "provider_key_expired" %}
+        <p class="notice notice--warning" role="status" aria-live="polite">Срок проверки списания истек. Позднее подтверждение будет учтено; до новой оплаты доступ не продлевается.</p>
+        {% elif subscription and subscription.renewal_resolution|default(None) == "late_success" %}
+        <p class="notice" role="status" aria-live="polite">Позднее подтверждение списания получено. Статус доступа обновлен.</p>
         {% endif %}
         {% if active %}
         <p>Оплачено до: <strong>{{ paid_through_label|default("дата уточняется") }}</strong>.</p>

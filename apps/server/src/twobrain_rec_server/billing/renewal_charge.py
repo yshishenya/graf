@@ -330,9 +330,14 @@ async def plan_due_renewals(
                 if existing.provider_id is not None or existing.state in {
                     "unknown",
                     "processing",
+                    "provider_key_expired",
+                    "manual_resolution",
+                    "reconciliation_gap",
                 }:
                     # The provider may still complete this attempt, so a new
-                    # idempotency key must not open a second payment.
+                    # idempotency key must not open a second payment. Scope or
+                    # reconciliation terminal states are also preserved as
+                    # non-chargeable history for this paid period.
                     break
                 # Resolved, or spent with an expired provider window: the next
                 # attempt of the same period takes over.

@@ -56,6 +56,7 @@ def test_billing_maintenance_returns_only_safe_counters(monkeypatch) -> None:
         "released_storage_reservations": 0,
         "stuck_operations": 0,
         "abandoned_operations": 0,
+        "expired_provider_observations": 0,
         "storage_projections_checked": 0,
         "storage_addons_checked": 0,
         "pending_notifications": 0,

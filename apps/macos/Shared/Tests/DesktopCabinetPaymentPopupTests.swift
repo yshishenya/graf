@@ -11,10 +11,12 @@ import XCTest
 @MainActor
 final class DesktopCabinetPaymentPopupTests: XCTestCase {
     private let cabinet = URL(string: "https://rec.2brain.dev")!
+    private let provider = URL(string: "https://yookassa.test/checkout/abc")!
     private let bank = URL(string: "https://3ds.bank.example.test/acs")!
+    private let evil = URL(string: "https://evil.example/checkout")!
 
-    func testNewWindowFromBillingDocumentLoadsInTheSameWebView() async throws {
-        let (view, recorder) = try await makeWebView(documentPath: "/billing/checkout")
+    func testProviderPopupFromBillingDocumentLoadsInTheSameWebView() async throws {
+        let (view, recorder) = try await makeWebView(documentPath: "/billing/checkout", target: provider)
         let coordinator = makeCoordinator(view: view)
         let action = try XCTUnwrap(
             recorder.popupAction,
@@ -29,39 +31,149 @@ final class DesktopCabinetPaymentPopupTests: XCTestCase {
         )
 
         XCTAssertNil(created, "отдельное окно кабинет не создаёт")
-        let loaded = await waitUntil { recorder.mainFrameRequests.contains(self.bank) }
-        XCTAssertTrue(loaded, "адрес банка должен загрузиться в текущем представлении")
+        let loaded = await waitUntil { view.url == self.provider }
+        XCTAssertTrue(loaded, "страница провайдера должна загрузиться в текущем представлении")
+        XCTAssertTrue(view.navigationDelegate === coordinator)
+        XCTAssertTrue(view.uiDelegate === coordinator)
     }
 
-    func testNewWindowOutsideBillingDocumentIsNotLoaded() async throws {
-        let (view, recorder) = try await makeWebView(documentPath: "/")
-        let coordinator = makeCoordinator(view: view)
+    func testProviderPopupFailureClearsNavigationState() async throws {
+        let (view, recorder) = try await makeWebView(documentPath: "/billing/checkout", target: provider)
+        let navigation = EmbeddedCabinetNavigationController()
+        let coordinator = makeCoordinator(view: view, navigation: navigation)
         let action = try XCTUnwrap(recorder.popupAction)
 
-        let created = coordinator.webView(
+        XCTAssertNil(coordinator.webView(
             view,
             createWebViewWith: view.configuration,
             for: action,
             windowFeatures: WKWindowFeatures()
+        ))
+        let providerNavigation = try XCTUnwrap(view.requestedNavigations.last)
+        coordinator.webView(
+            view,
+            didFailProvisionalNavigation: providerNavigation,
+            withError: NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotConnectToHost)
         )
 
-        XCTAssertNil(created)
-        _ = await waitUntil(timeout: 1) { recorder.mainFrameRequests.contains(self.bank) }
-        XCTAssertFalse(
-            recorder.mainFrameRequests.contains(bank),
-            "вне оплаты внешний адрес по-прежнему не загружается"
-        )
+        XCTAssertFalse(navigation.isLoading, "неудачный popup не должен оставлять контроллер в состоянии загрузки")
     }
 
-    private func makeWebView(documentPath: String) async throws -> (WKWebView, PopupRecorder) {
+    func testProviderPopupFinishClearsNavigationState() async throws {
+        let (view, recorder) = try await makeWebView(documentPath: "/billing/checkout", target: provider)
+        let navigation = EmbeddedCabinetNavigationController()
+        let coordinator = makeCoordinator(view: view, navigation: navigation)
+        let action = try XCTUnwrap(recorder.popupAction)
+
+        XCTAssertNil(coordinator.webView(
+            view,
+            createWebViewWith: view.configuration,
+            for: action,
+            windowFeatures: WKWindowFeatures()
+        ))
+        let providerNavigation = try XCTUnwrap(view.requestedNavigations.last)
+        coordinator.webView(view, didFinish: providerNavigation)
+
+        XCTAssertFalse(navigation.isLoading, "завершившийся popup не должен оставлять контроллер в состоянии загрузки")
+    }
+
+    func testPopupWithNoWebKitNavigationClearsNavigationState() async throws {
+        let (sourceView, recorder) = try await makeWebView(documentPath: "/billing/checkout", target: provider)
+        let action = try XCTUnwrap(recorder.popupAction)
+        let configuration = WKWebViewConfiguration()
+        let view = NilLoadingPaymentWebView(frame: .zero, configuration: configuration)
+        view.documentURL = cabinet.appendingPathComponent("/billing/checkout")
+        let navigation = EmbeddedCabinetNavigationController()
+        let coordinator = makeCoordinator(view: view, navigation: navigation)
+
+        XCTAssertNil(coordinator.webView(
+            view,
+            createWebViewWith: sourceView.configuration,
+            for: action,
+            windowFeatures: WKWindowFeatures()
+        ))
+        XCTAssertFalse(navigation.isLoading, "nil от WKWebView.load не должен оставлять зависшую навигацию")
+    }
+
+    func testWebContentProcessTerminationClearsNavigationState() async throws {
+        let (view, recorder) = try await makeWebView(documentPath: "/billing/checkout", target: provider)
+        let navigation = EmbeddedCabinetNavigationController()
+        let coordinator = makeCoordinator(view: view, navigation: navigation)
+        let action = try XCTUnwrap(recorder.popupAction)
+
+        XCTAssertNil(coordinator.webView(
+            view,
+            createWebViewWith: view.configuration,
+            for: action,
+            windowFeatures: WKWindowFeatures()
+        ))
+        coordinator.webViewWebContentProcessDidTerminate(view)
+
+        XCTAssertFalse(navigation.isLoading, "после завершения процесса WebKit навигация должна быть закрыта")
+    }
+
+    func testDirectBankPopupFromBillingDocumentIsNotLoadedBeforeProviderHandoff() async throws {
+        let (view, recorder) = try await makeWebView(documentPath: "/billing/checkout", target: bank)
+        let coordinator = makeCoordinator(view: view)
+        let action = try XCTUnwrap(recorder.popupAction)
+
+        XCTAssertNil(
+            coordinator.webView(
+                view,
+                createWebViewWith: view.configuration,
+                for: action,
+                windowFeatures: WKWindowFeatures()
+            )
+        )
+        _ = await waitUntil(timeout: 1) { view.url == self.bank }
+        XCTAssertFalse(view.url == bank)
+        XCTAssertFalse(recorder.mainFrameRequests.contains(bank))
+    }
+
+    func testEvilPopupFromBillingDocumentIsNotLoaded() async throws {
+        let (view, recorder) = try await makeWebView(documentPath: "/billing/checkout", target: evil)
+        let coordinator = makeCoordinator(view: view)
+        let action = try XCTUnwrap(recorder.popupAction)
+
+        XCTAssertNil(
+            coordinator.webView(
+                view,
+                createWebViewWith: view.configuration,
+                for: action,
+                windowFeatures: WKWindowFeatures()
+            )
+        )
+        _ = await waitUntil(timeout: 1) { view.url == self.evil }
+        XCTAssertFalse(view.url == evil)
+        XCTAssertFalse(recorder.mainFrameRequests.contains(evil))
+    }
+
+    func testNewWindowOutsideBillingDocumentIsNotLoaded() async throws {
+        let (view, recorder) = try await makeWebView(documentPath: "/", target: bank)
+        let coordinator = makeCoordinator(view: view)
+        let action = try XCTUnwrap(recorder.popupAction)
+
+        XCTAssertNil(coordinator.webView(
+            view,
+            createWebViewWith: view.configuration,
+            for: action,
+            windowFeatures: WKWindowFeatures()
+        ))
+        _ = await waitUntil(timeout: 1) { view.url == self.bank }
+        XCTAssertFalse(view.url == bank)
+        XCTAssertFalse(recorder.mainFrameRequests.contains(bank))
+    }
+
+    private func makeWebView(documentPath: String, target: URL? = nil) async throws -> (TrackingPaymentWebView, PopupRecorder) {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
-        let view = WKWebView(frame: .zero, configuration: configuration)
+        let view = TrackingPaymentWebView(frame: .zero, configuration: configuration)
         let recorder = PopupRecorder()
         view.navigationDelegate = recorder
         let documentURL = cabinet.appendingPathComponent(documentPath)
+        let target = target ?? bank
         view.loadHTMLString(
-            "<a id='pay' href='\(bank.absoluteString)' target='_blank'>Оплатить</a>",
+            "<a id='pay' href='\(target.absoluteString)' target='_blank'>Оплатить</a>",
             baseURL: documentURL
         )
         let loaded = await waitUntil { recorder.documentFinished }
@@ -72,9 +184,20 @@ final class DesktopCabinetPaymentPopupTests: XCTestCase {
         return (view, recorder)
     }
 
-    private func makeCoordinator(view: WKWebView) -> EmbeddedCabinetWebView.Coordinator {
+    private func makeCoordinator(
+        view: WKWebView,
+        navigation: EmbeddedCabinetNavigationController = .init()
+    ) -> EmbeddedCabinetWebView.Coordinator {
         let policy = DesktopCabinetRoutePolicy(baseURL: cabinet)
-        return EmbeddedCabinetWebView.Coordinator(
+        let request = URLRequest(url: view.url ?? cabinet.appendingPathComponent("/billing/checkout"))
+        navigation.attach(
+            webView: view,
+            routePolicy: policy,
+            fallbackRequest: request,
+            initialRequest: request,
+            sessionExpired: false
+        )
+        let coordinator = EmbeddedCabinetWebView.Coordinator(
             routePolicy: policy,
             desktopHeaders: [:],
             cabinetState: .constant(.ready),
@@ -89,8 +212,11 @@ final class DesktopCabinetPaymentPopupTests: XCTestCase {
                 model: DesktopControlModel(),
                 status: { .denied }
             ),
-            navigationController: EmbeddedCabinetNavigationController()
+            navigationController: navigation
         )
+        view.navigationDelegate = coordinator
+        view.uiDelegate = coordinator
+        return coordinator
     }
 
     private func waitUntil(timeout: TimeInterval = 5, _ condition: () -> Bool) async -> Bool {
@@ -108,6 +234,10 @@ private final class PopupRecorder: NSObject, @preconcurrency WKNavigationDelegat
     private(set) var popupAction: WKNavigationAction?
     private(set) var mainFrameRequests: [URL] = []
     private(set) var documentFinished = false
+
+    func resetPopupAction() {
+        popupAction = nil
+    }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         documentFinished = true
@@ -128,4 +258,26 @@ private final class PopupRecorder: NSObject, @preconcurrency WKNavigationDelegat
         }
         decisionHandler(.allow)
     }
+}
+
+@MainActor
+private final class TrackingPaymentWebView: WKWebView {
+    private(set) var requestedNavigations: [WKNavigation] = []
+
+    override func load(_ request: URLRequest) -> WKNavigation? {
+        let navigation = super.load(request)
+        if let navigation {
+            requestedNavigations.append(navigation)
+        }
+        return navigation
+    }
+}
+
+@MainActor
+private final class NilLoadingPaymentWebView: WKWebView {
+    var documentURL: URL?
+
+    override var url: URL? { documentURL }
+
+    override func load(_: URLRequest) -> WKNavigation? { nil }
 }

@@ -60,6 +60,7 @@ def test_operation_outcomes() -> None:
     assert blocks_new_checkout("pending_reconciliation")
     assert blocks_new_checkout("manual_resolution")
     assert blocks_new_checkout("reconciliation_gap")
-    assert blocks_new_checkout("provider_key_expired")
+    assert not blocks_new_checkout("provider_key_expired")
+    assert not blocks_new_checkout("observation_expired")
     assert not blocks_new_checkout("canceled")
     assert not blocks_new_checkout("succeeded")

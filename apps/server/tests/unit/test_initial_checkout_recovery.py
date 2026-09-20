@@ -121,6 +121,23 @@ def test_expired_provider_key_blocks_continuation() -> None:
     assert billing._initial_checkout_can_continue(operation, now=now) is False
 
 
+def test_expired_provider_key_failure_closes_unbound_initial_checkout() -> None:
+    now = datetime(2026, 8, 25, 10, tzinfo=UTC)
+    operation = _operation(expires_at=now - timedelta(seconds=1), state="scheduled")
+    invoice = _invoice()
+
+    billing._record_initial_checkout_failure(
+        operation,
+        invoice,
+        httpx.ReadTimeout("provider unavailable"),
+        now=now,
+    )
+
+    assert operation.provider_id is None
+    assert operation.state == "canceled"
+    assert invoice.status == "canceled"
+
+
 def test_missing_provider_key_expiry_blocks_continuation() -> None:
     operation = _operation(expires_at=None)
 

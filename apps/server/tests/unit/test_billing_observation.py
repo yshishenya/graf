@@ -98,6 +98,68 @@ def test_checkout_keeps_provider_observation_enabled(monkeypatch, tmp_path: Path
     assert db.calls == 1
 
 
+def test_terminal_initial_observation_is_polled_only_by_explicit_operation_refresh(
+    monkeypatch, tmp_path: Path
+) -> None:
+    secret = tmp_path / "yookassa-secret"
+    secret.write_text("test", encoding="utf-8")
+    settings = Settings(
+        billing_provider_observation_enabled=True,
+        billing_yookassa_base_url="https://api.yookassa.test",
+        billing_yookassa_shop_id="shop-test",
+        billing_yookassa_secret_file=secret,
+    )
+    calls: list[str] = []
+
+    class _Provider:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def get_payment(self, payment_id: str):
+            calls.append(payment_id)
+            return {}
+
+    monkeypatch.setattr(webhook_reconciliation, "YooKassaClient", lambda _settings: _Provider())
+    monkeypatch.setattr(
+        webhook_reconciliation,
+        "extract_payment_observation",
+        lambda _payload, *, scope: SimpleNamespace(status="pending"),
+    )
+    operation = SimpleNamespace(
+        id=UUID("10000000-0000-4000-8000-000000000001"),
+        provider_id="payment-expired",
+        workspace_id=UUID("20000000-0000-4000-8000-000000000002"),
+        state="observation_expired",
+    )
+    workspace = Workspace(
+        id=operation.workspace_id,
+        organization_id=UUID("30000000-0000-4000-8000-000000000003"),
+        slug="personal-owner",
+        name="Personal owner",
+        kind="personal",
+        owner_user_id=UUID("40000000-0000-4000-8000-000000000004"),
+    )
+
+    class ExplicitDb(_Db):
+        async def scalar(self, query):
+            return workspace
+
+    db = ExplicitDb([])
+    assert asyncio.run(webhook_reconciliation.reconcile_pending_initial_checkout_operations(db, settings))["processed"] == 0
+    assert calls == []
+    db = ExplicitDb([operation])
+    result = asyncio.run(
+        webhook_reconciliation.reconcile_pending_initial_checkout_operations(
+            db, settings, operation_id=operation.id
+        )
+    )
+    assert result["processed"] == 1
+    assert calls == ["payment-expired"]
+
+
 def test_observation_only_polls_known_payment_without_enabling_checkout(
     monkeypatch, tmp_path: Path
 ) -> None:

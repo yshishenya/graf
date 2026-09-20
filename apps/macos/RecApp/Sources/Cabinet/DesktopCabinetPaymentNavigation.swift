@@ -62,9 +62,12 @@ public struct DesktopCabinetPaymentNavigation: Equatable, Sendable {
         startedAt != nil
     }
 
-    /// External hops are allowed only while a chain is live.
-    public var externalProviderNavigationAllowed: Bool {
-        isActive
+    /// External hops are allowed only while a chain is live and within its
+    /// bounded confirmation window. Callers evaluate this at the moment they
+    /// decide a navigation, before WebKit is allowed to load the next page.
+    public func externalProviderNavigationAllowed(at now: Date = Date()) -> Bool {
+        guard let startedAt else { return false }
+        return now.timeIntervalSince(startedAt) < timeLimit
     }
 
     /// Open a chain. `isBillingCheckoutDocument` must come from the route
@@ -86,7 +89,7 @@ public struct DesktopCabinetPaymentNavigation: Equatable, Sendable {
 
     /// Decide what a page the cabinet just loaded means for the chain.
     public func report(loadedURL: URL, now: Date = Date()) -> DesktopCabinetPaymentNavigationReport {
-        guard let startedAt, now.timeIntervalSince(startedAt) <= timeLimit else {
+        guard let startedAt, now.timeIntervalSince(startedAt) < timeLimit else {
             return .stopSession
         }
         // Off the cabinet origin a live chain keeps running: that is exactly the
