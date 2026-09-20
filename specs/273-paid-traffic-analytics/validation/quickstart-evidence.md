@@ -76,7 +76,8 @@ alert-каналов, сверка опубликованного consent-copy, 
   (`apps/server/src/twobrain_rec_server/product_analytics/acquisition.py`,
   `apps/server/src/twobrain_rec_server/public/downloads.py`,
   `apps/server/src/twobrain_rec_server/db/models/product_analytics.py`,
-  миграции `0093_anonymous_page_aggregate.py` и `0094_public_attribution.py`) и
+  миграции `0094_anonymous_page_aggregate.py`, `0095_public_attribution.py` и
+  `0096_client_attribution_bridge.py`) и
   новые тесты (`apps/server/tests/unit/test_product_analytics_*.py`,
   `apps/server/tests/contract/test_analytics_*.py`,
   `apps/server/tests/browser/public-analytics-consent.test.cjs`). Поэтому SHA

@@ -11,8 +11,8 @@ analytics stack (research.md §2, §3).
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0093_anonymous_page_aggregate"
-down_revision: str | None = "0092_recording_origin_cancel"
+revision: str = "0094_anonymous_page_aggregate"
+down_revision: str | None = "0093_billing_catalog_seed"
 branch_labels = None
 depends_on = None
 

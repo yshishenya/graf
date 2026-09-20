@@ -9,8 +9,8 @@ campaign reporting for level 2 (FR-014, FR-015, FR-016, FR-017).
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0094_public_attribution"
-down_revision: str | None = "0093_anonymous_page_aggregate"
+revision: str = "0095_public_attribution"
+down_revision: str | None = "0094_anonymous_page_aggregate"
 branch_labels = None
 depends_on = None
 

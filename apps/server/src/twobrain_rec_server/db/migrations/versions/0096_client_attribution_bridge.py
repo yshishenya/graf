@@ -11,8 +11,8 @@ and it is stored under the same retention category as the campaign it belongs to
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "0095_client_attribution_bridge"
-down_revision: str | None = "0094_public_attribution"
+revision: str = "0096_client_attribution_bridge"
+down_revision: str | None = "0095_public_attribution"
 branch_labels = None
 depends_on = None
 

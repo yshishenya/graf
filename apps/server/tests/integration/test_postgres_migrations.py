@@ -248,7 +248,7 @@ def test_production_share_head_upgrades_to_regeneration_merge(
         promotion_counter_function,
         promotion_counter_config,
     ) = asyncio.run(inspect_schema())
-    assert versions == ["0095_client_attribution_bridge"]
+    assert versions == ["0096_client_attribution_bridge"]
     assert "public.promotion_campaigns" in promotion_counter_function
     assert "search_path=pg_catalog, pg_temp" in promotion_counter_config
     assert {
@@ -1032,9 +1032,9 @@ def test_product_analytics_migrations_downgrade_cleanly(
     """Feature 273 has to be removable, not only deployable.
 
     Rollback is a release requirement of its own (FR-045): a migration that
-    cannot be undone turns a measurement problem into a stuck database. Both
+    cannot be undone turns a measurement problem into a stuck database. All
     migrations of the feature therefore have to drop exactly what they created
-    and leave the tables of feature 093 alone.
+    and leave the preceding billing catalog intact.
     """
 
     monkeypatch.setenv("TWOBRAIN_DATABASE_URL", postgres_clean_database_url)
@@ -1044,8 +1044,8 @@ def test_product_analytics_migrations_downgrade_cleanly(
         "script_location", str(ROOT / "apps/server/src/twobrain_rec_server/db/migrations")
     )
 
-    command.upgrade(alembic_config, "0095_client_attribution_bridge")
-    command.downgrade(alembic_config, "0092_recording_origin_cancel")
+    command.upgrade(alembic_config, "0096_client_attribution_bridge")
+    command.downgrade(alembic_config, "0093_billing_catalog_seed")
 
     async def inspect_schema() -> tuple[list[str], set[str], set[str]]:
         engine = create_async_engine(postgres_clean_database_url)
@@ -1081,12 +1081,12 @@ def test_product_analytics_migrations_downgrade_cleanly(
     versions, tables, columns = asyncio.run(inspect_schema())
 
     get_settings.cache_clear()
-    assert versions == ["0092_recording_origin_cancel"]
+    assert versions == ["0093_billing_catalog_seed"]
     assert "anonymous_page_aggregate_buckets" not in tables
     assert "public_visit_attributions" not in tables
     assert "client_acquisition_attributes" not in tables
     # Откат обязан убрать и колонку идентификатора моста (FR-045).
     assert "graf_attribution_id" not in columns
-    # The downgrade of feature 273 must not reach into the tables feature 093
-    # created, so a rollback of measurement cannot break the older counters.
+    # The downgrade of feature 273 must not reach into the preceding billing
+    # migration, so a rollback of measurement cannot break the catalog.
     assert "meetings" in tables

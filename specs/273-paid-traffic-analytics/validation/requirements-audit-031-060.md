@@ -71,9 +71,9 @@
 
 | Категория | Кандидаты в скрипте | Реальное имя (миграция и модель) |
 | --- | --- | --- |
-| `anonymous_aggregate` | `product_analytics_anonymous_aggregate`, `product_analytics_aggregate_buckets`, `anonymous_aggregate`, `product_analytics_aggregate` | `anonymous_page_aggregate_buckets` (`db/migrations/versions/0093_anonymous_page_aggregate.py`, `db/models/product_analytics.py::AnonymousPageAggregateBucket`) |
-| `visit_attribution` | `product_analytics_visit_attribution`, `visit_attribution`, `product_analytics_visit_attributions` | `public_visit_attributions` (`db/migrations/versions/0094_public_attribution.py`, `PublicVisitAttribution`) |
-| `acquisition_attribute` | `product_analytics_acquisition_attribute`, `product_analytics_client_acquisition_attribute`, `acquisition_attribute`, `customer_acquisition_attribute` | `client_acquisition_attributes` (`0094_public_attribution.py`, `ClientAcquisitionAttribute`) |
+| `anonymous_aggregate` | `product_analytics_anonymous_aggregate`, `product_analytics_aggregate_buckets`, `anonymous_aggregate`, `product_analytics_aggregate` | `anonymous_page_aggregate_buckets` (`db/migrations/versions/0094_anonymous_page_aggregate.py`, `db/models/product_analytics.py::AnonymousPageAggregateBucket`) |
+| `visit_attribution` | `product_analytics_visit_attribution`, `visit_attribution`, `product_analytics_visit_attributions` | `public_visit_attributions` (`db/migrations/versions/0095_public_attribution.py`, `PublicVisitAttribution`) |
+| `acquisition_attribute` | `product_analytics_acquisition_attribute`, `product_analytics_client_acquisition_attribute`, `acquisition_attribute`, `customer_acquisition_attribute` | `client_acquisition_attributes` (`0095_public_attribution.py`, `ClientAcquisitionAttribute`) |
 
 Ни один кандидат не совпадает с реальным именем, поэтому на живом узле все три
 категории попадут в `missing_categories`, прогон завершится `result=failed` с
