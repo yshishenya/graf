@@ -18,15 +18,14 @@ from twobrain_rec_server.billing.entitlements import (
 )
 from twobrain_rec_server.billing.events import enqueue_billing_notification
 from twobrain_rec_server.billing.notifications import BillingNotification
+from twobrain_rec_server.billing.operations import INITIAL_CHECKOUT_OBSERVATION_EXPIRED
 from twobrain_rec_server.billing.payment_methods import (
     extract_payment_method_label,
     extract_saved_bank_card,
     read_billing_encryption_key,
 )
 from twobrain_rec_server.billing.promotions import release_payment_promo
-from twobrain_rec_server.billing.provider_events import (
-    ProviderEventError,
-)
+from twobrain_rec_server.billing.provider_events import ProviderEventError
 from twobrain_rec_server.billing.reconciliation import (
     PaymentObservation,
     ProviderObservationError,
@@ -76,10 +75,17 @@ async def reconcile_pending_initial_checkout_operations(
     """
     if not (settings.billing_provider_observation_enabled or settings.billing_checkout_enabled):
         return {"processed": 0, "succeeded": 0, "canceled": 0, "pending": 0, "failed": 0}
+    observation_states = ("provider_pending", "unknown")
+    # The worker's unscoped pass is bounded to the live observation window. A
+    # terminal observation-expired row may be queried only by an explicit user
+    # refresh or webhook-linked operation id; otherwise the worker would poll
+    # the same provider forever after the deadline.
+    if operation_id is not None:
+        observation_states = (*observation_states, INITIAL_CHECKOUT_OBSERVATION_EXPIRED)
     filters = [
         BillingOperation.kind == "initial_checkout",
         BillingOperation.provider_id.is_not(None),
-        BillingOperation.state.in_(("provider_pending", "unknown")),
+        BillingOperation.state.in_(observation_states),
     ]
     if operation_id is not None:
         filters.append(BillingOperation.id == operation_id)

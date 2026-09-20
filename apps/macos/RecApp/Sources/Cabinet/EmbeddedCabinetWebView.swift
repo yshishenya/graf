@@ -1426,7 +1426,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
         for routeKind: DesktopCabinetRouteKind,
         url: URL? = nil
     ) -> Bool {
-        guard ![.authProvider, .authCallback].contains(routeKind) else {
+        guard ![.authProvider, .authCallback, .external].contains(routeKind) else {
             return false
         }
         guard let url else { return true }
@@ -1837,7 +1837,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             self.showsAppUpdateBadge = showsAppUpdateBadge
             self.onCheckForUpdates = onCheckForUpdates
             self.onOpenMeetingDetectionSettings = onOpenMeetingDetectionSettings
-        self.onOpenNotificationSettings = onOpenNotificationSettings
+            self.onOpenNotificationSettings = onOpenNotificationSettings
             self.supportIncidentBridge = supportIncidentBridge
             self.navigationController = navigationController
             paymentNavigation = DesktopCabinetPaymentNavigation(sessionOrigin: routePolicy.cabinetBaseURL)
@@ -1858,10 +1858,10 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             self.showsAppUpdateBadge = showsAppUpdateBadge
             self.onCheckForUpdates = onCheckForUpdates
             self.localRecordingRows = localRecordingRows
-        self.deletionOperations = deletionOperations
-        self.recoveryRequired = recoveryRequired
+            self.deletionOperations = deletionOperations
+            self.recoveryRequired = recoveryRequired
             self.onLocalRecordingAction = onLocalRecordingAction
-        self.onDeleteRecordings = onDeleteRecordings
+            self.onDeleteRecordings = onDeleteRecordings
         }
 
         @MainActor
@@ -2215,6 +2215,17 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                 return
             }
             if navigationAction.targetFrame?.isMainFrame == false {
+                // 3-D Secure may run in a cross-origin iframe. Keep the normal
+                // same-origin rule, but permit HTTPS payment subframes only
+                // after the exact provider handoff opened a live chain.
+                guard Self.allowsPaymentSubframeNavigation(
+                    to: url,
+                    routePolicy: routePolicy,
+                    paymentNavigation: paymentNavigation
+                ) else {
+                    decisionHandler(.cancel)
+                    return
+                }
                 decisionHandler(.allow)
                 return
             }
@@ -2238,20 +2249,19 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                 allowExternalAuthProvider: authContinuationActive || isAuthRoute(webView.url)
             )
 
-            let allowExternalPaymentProvider = paymentNavigation.externalProviderNavigationAllowed
-                || isCabinetBillingRoute(webView.url)
+            let paymentChainActive = paymentNavigation.externalProviderNavigationAllowed()
+            let startsPaymentChain = isCabinetBillingRoute(webView.url)
                 || isCabinetBillingRoute(navigationAction.sourceFrame.documentRequestURL)
             let decision = routePolicy.decision(
                 for: url,
                 allowExternalAuthProvider: authContinuationActive || isAuthRoute(webView.url),
-                allowExternalPaymentProvider: allowExternalPaymentProvider
+                allowExternalPaymentProvider: paymentChainActive,
+                allowExternalPaymentProviderHandoff: startsPaymentChain
             )
             // Handing the web view over from a cabinet billing page is the only
             // way into a payment confirmation chain. Capture it here, before the
             // deferred dispatch, because by then WebKit may already own a newer
             // document URL.
-            let startsPaymentChain = isCabinetBillingRoute(webView.url)
-                || isCabinetBillingRoute(navigationAction.sourceFrame.documentRequestURL)
             if decision.decision == .allow,
                [.meetingDetectionSettings, .notificationSettings].contains(decision.route.kind) {
                 navigationController.cancelPendingNavigation(webView: webView)
@@ -2274,6 +2284,18 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             switch decision.decision {
             case .allow:
                 dispatchAuthNavigation(in: webView, targetURL: url, decisionHandler: decisionHandler) { [self] in
+                    let chainStillAllowsExternal = paymentNavigation.externalProviderNavigationAllowed()
+                    let refreshedDecision = routePolicy.decision(
+                        for: url,
+                        allowExternalAuthProvider: authContinuationActive || isAuthRoute(webView.url),
+                        allowExternalPaymentProvider: chainStillAllowsExternal,
+                        allowExternalPaymentProviderHandoff: startsPaymentChain
+                    )
+                    guard refreshedDecision.decision == .allow else {
+                        paymentNavigation = paymentNavigation.stopped()
+                        decisionHandler(.cancel)
+                        return
+                    }
                     navigationController.retirePreviousNavigation(before: navigationAction)
                     if decision.route.kind == .external {
                         paymentNavigation = paymentNavigation.begin(
@@ -2504,7 +2526,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             let routeDecision = routePolicy.decision(
                 for: url,
                 allowExternalAuthProvider: authContinuationActive,
-                allowExternalPaymentProvider: paymentNavigation.externalProviderNavigationAllowed
+                allowExternalPaymentProvider: paymentNavigation.externalProviderNavigationAllowed()
             )
             if paymentNavigation.isActive, paymentNavigation.report(loadedURL: url) == .stopSession {
                 paymentNavigation = paymentNavigation.stopped()
@@ -2620,6 +2642,9 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                 decisionHandler(.cancel)
             case let .cancel(state):
                 cancelJavaScriptConfirmation()
+                if navigationResponse.isForMainFrame {
+                    paymentNavigation = paymentNavigation.stopped()
+                }
                 if navigationController.navigationDidCancel(
                     webView: webView,
                     expectedURL: navigationResponse.response.url
@@ -2644,6 +2669,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                 ?? navigationController.activeNavigationURL
             guard navigationController.navigationDidFail(webView: webView, navigation: navigation, error: error) else { return }
             finishAuthNavigation(in: webView, expectedURL: failedURL)
+            paymentNavigation = paymentNavigation.stopped()
             cancelJavaScriptConfirmation()
             transitionAfterNavigationFailure(error, webView: webView, phase: "committed")
         }
@@ -2655,6 +2681,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
                 ?? navigationController.activeNavigationURL
             guard navigationController.navigationDidFail(webView: webView, navigation: navigation, error: error) else { return }
             finishAuthNavigation(in: webView, expectedURL: failedURL)
+            paymentNavigation = paymentNavigation.stopped()
             cancelJavaScriptConfirmation()
             transitionAfterNavigationFailure(error, webView: webView, phase: "provisional")
         }
@@ -2678,6 +2705,7 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             webContentProcessTerminated = true
             recordingSettingsBridge.invalidate()
             notificationSettingsBridge.invalidate()
+            paymentNavigation = paymentNavigation.stopped()
             cancelJavaScriptConfirmation()
             navigationController.cancelPendingNavigation(webView: webView)
             finishAuthNavigation(in: webView, cancelled: true)
@@ -2706,8 +2734,10 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             guard let url = request.url else { return }
             let routeKind = routePolicy.decision(
                 for: url,
-                allowExternalAuthProvider: authContinuationActive
+                allowExternalAuthProvider: authContinuationActive,
+                allowExternalPaymentProvider: paymentNavigation.externalProviderNavigationAllowed()
             ).route.kind
+            guard routeKind != .external else { return }
             if EmbeddedCabinetWebView.shouldTrackSwiftUIRequestIdentity(
                 for: routeKind,
                 request: request
@@ -2821,6 +2851,24 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             return decision.decision == .allow && decision.route.kind == .billing
         }
 
+        nonisolated static func allowsPaymentSubframeNavigation(
+            to url: URL,
+            routePolicy: DesktopCabinetRoutePolicy,
+            paymentNavigation: DesktopCabinetPaymentNavigation,
+            now: Date = Date()
+        ) -> Bool {
+            if routePolicy.sharesSessionOrigin(with: url) {
+                return true
+            }
+            guard paymentNavigation.externalProviderNavigationAllowed(at: now) else {
+                return false
+            }
+            return routePolicy.decision(
+                for: url,
+                allowExternalPaymentProvider: true
+            ).decision == .allow
+        }
+
         /// Оплата и подтверждение банка нередко открываются новым окном или
         /// ссылкой с target="_blank". Отдельного окна у кабинета нет, поэтому
         /// такой переход выполняется в текущем представлении. Адрес проходит ту
@@ -2836,15 +2884,31 @@ public struct EmbeddedCabinetWebView: NSViewRepresentable {
             guard isActive, let url = navigationAction.request.url else { return nil }
             let scheme = url.scheme?.lowercased()
             guard scheme == "http" || scheme == "https" else { return nil }
+            let startsPaymentChain = isCabinetBillingRoute(webView.url)
+                || isCabinetBillingRoute(navigationAction.sourceFrame.documentRequestURL)
             let decision = routePolicy.decision(
                 for: url,
                 allowExternalAuthProvider: authContinuationActive || isAuthRoute(webView.url),
-                allowExternalPaymentProvider: paymentNavigation.externalProviderNavigationAllowed
-                    || isCabinetBillingRoute(webView.url)
-                    || isCabinetBillingRoute(navigationAction.sourceFrame.documentRequestURL)
+                allowExternalPaymentProvider: paymentNavigation.externalProviderNavigationAllowed(),
+                allowExternalPaymentProviderHandoff: startsPaymentChain
             )
             guard decision.decision == .allow else { return nil }
-            webView.load(navigationAction.request)
+            if decision.route.kind == .external {
+                paymentNavigation = paymentNavigation.begin(
+                    isBillingCheckoutDocument: startsPaymentChain,
+                    destination: url
+                )
+            }
+            guard let navigation = webView.load(navigationAction.request) else {
+                paymentNavigation = paymentNavigation.stopped()
+                navigationController.cancelPendingNavigation(webView: webView)
+                return nil
+            }
+            navigationController.navigationDidStart(
+                webView: webView,
+                navigation: navigation,
+                targetURL: url
+            )
             return nil
         }
     }

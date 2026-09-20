@@ -103,7 +103,8 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
     public func decision(
         for url: URL,
         allowExternalAuthProvider: Bool = false,
-        allowExternalPaymentProvider: Bool = false
+        allowExternalPaymentProvider: Bool = false,
+        allowExternalPaymentProviderHandoff: Bool = false
     ) -> DesktopCabinetRouteDecision {
         guard let scheme = url.scheme?.lowercased() else {
             return block(path: url.path, kind: .unsupported, reason: .invalidURL, message: "This meeting route cannot be opened.")
@@ -131,7 +132,11 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
                     userMessage: "Auth provider"
                 )
             }
-            return externalDecision(for: url, allowExternalPaymentProvider: allowExternalPaymentProvider)
+            return externalDecision(
+                for: url,
+                allowExternalPaymentProvider: allowExternalPaymentProvider,
+                allowExternalPaymentProviderHandoff: allowExternalPaymentProviderHandoff
+            )
         }
 
         let path = normalizedPath(url.path)
@@ -441,17 +446,27 @@ public struct DesktopCabinetRoutePolicy: Equatable, Sendable {
 
     private func externalDecision(
         for url: URL,
-        allowExternalPaymentProvider: Bool
+        allowExternalPaymentProvider: Bool,
+        allowExternalPaymentProviderHandoff: Bool
     ) -> DesktopCabinetRouteDecision {
         guard url.scheme?.lowercased() == "https" else {
             return block(path: normalizedPath(url.path), kind: .external, reason: .blockedUnknownRoute, message: "External links must use HTTPS.")
         }
         let host = url.host?.lowercased() ?? ""
         if allowExternalPaymentProvider {
-            // The caller only sets this flag while a payment confirmation chain
-            // is live (see DesktopCabinetPaymentNavigation). The chain leaves
-            // the payment provider for the cardholder's own bank, whose domain
-            // differs for every card issuer and cannot be enumerated here.
+            // A live confirmation chain may leave the provider for the
+            // cardholder's bank. This broad allowance is valid only after the
+            // provider handoff has already been accepted, never merely because
+            // the current document is a cabinet billing page.
+            return DesktopCabinetRouteDecision(
+                route: DesktopCabinetRoute(path: normalizedPath(url.path), kind: .external),
+                decision: .allow,
+                reason: .openExternalSafeLink,
+                userMessage: "Платежная страница"
+            )
+        }
+        if allowExternalPaymentProviderHandoff,
+           DesktopCabinetPaymentNavigation.allowedProviderHosts.contains(host) {
             return DesktopCabinetRouteDecision(
                 route: DesktopCabinetRoute(path: normalizedPath(url.path), kind: .external),
                 decision: .allow,
