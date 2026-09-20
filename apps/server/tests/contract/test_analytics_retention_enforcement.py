@@ -39,6 +39,7 @@ PRODUCT_ANALYTICS_MIGRATIONS = (
     REPO_ROOT / "apps/server/src/twobrain_rec_server/db/migrations/versions/0094_anonymous_page_aggregate.py",
     REPO_ROOT / "apps/server/src/twobrain_rec_server/db/migrations/versions/0095_public_attribution.py",
     REPO_ROOT / "apps/server/src/twobrain_rec_server/db/migrations/versions/0096_client_attribution_bridge.py",
+    REPO_ROOT / "apps/server/src/twobrain_rec_server/db/migrations/versions/0097_public_attribution_admission_index.py",
 )
 BILLING_MODELS_PATH = REPO_ROOT / "apps/server/src/twobrain_rec_server/db/models/billing.py"
 INVENTORY_PATH = REPO_ROOT / "infra/posthog/backup-volumes.txt"
