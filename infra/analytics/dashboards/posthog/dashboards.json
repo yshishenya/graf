@@ -1,0 +1,1199 @@
+{
+  "schema": "graf.analytics.posthog-dashboards.v1",
+  "provider": "posthog",
+  "feature": "273-paid-traffic-analytics",
+  "catalog": "../catalog.json",
+  "purpose": "Машиночитаемые определения дашбордов PostHog. Это файлы определений, а не картинки и не скриншоты: их применяет оператор к рабочему пространству аналитики.",
+  "apply": {
+    "requires_operator": true,
+    "why": "Применение требует доступа к рабочему пространству PostHog и живой доставки событий. Из репозитория подключение к продуктиве не выполняется.",
+    "steps": [
+      "1. Оператор входит в рабочее пространство PostHog с включённым вторым фактором.",
+      "2. Для каждого дашборда оператор создаёт дашборд с указанным именем и описанием.",
+      "3. Для каждой плитки оператор создаёт элемент: тело запроса берётся из поля query, тип — из поля insight.",
+      "4. Текстовые плитки роли caveats и completeness создаются как текстовые карточки дашборда с готовым текстом.",
+      "5. Оператор фиксирует результат применения в записи готовности отчёта: имя дашборда, владелец, состояние, время.",
+      "6. Оператор проверяет свежесть: плитка freshness должна показывать приходящие события; если линия обрывается, дашборд помечается устаревшим."
+    ],
+    "api_reference": {
+      "create_dashboard": "POST /api/projects/{project_id}/dashboards/",
+      "create_insight": "POST /api/projects/{project_id}/insights/",
+      "note": "Поля query повторяют тело запроса Insights API. Перед применением оператор сверяет набор полей с версией развёрнутого PostHog и правит только форму, не смысл."
+    },
+    "forbidden_in_this_file": [
+      "ключ проекта",
+      "личный ключ API",
+      "адрес узла аналитики",
+      "выгрузки событий",
+      "скриншоты с данными посетителей"
+    ]
+  },
+  "tile_roles": {
+    "primary": "Основная плитка с ответом на вопрос владельца.",
+    "freshness": "Обязательная плитка свежести: показывает, идут ли события вообще.",
+    "completeness": "Обязательная плитка полноты: показывает доставленные и пропущенные события за период.",
+    "caveats": "Обязательная текстовая плитка с оговорками отчёта."
+  },
+  "required_tile_roles": ["primary", "freshness", "completeness", "caveats"],
+  "caveat_tile_requirements": {
+    "universal_fragments": [
+      "доля посетителей без необязательного согласия",
+      "пробел в данных показывается как «нет данных», а не как 0",
+      "внутренний, служебный и тестовый трафик"
+    ],
+    "fragments_by_caveat_id": {
+      "attribution_window_90d": "последний непрямой источник в окне 90 дней",
+      "unknown_not_direct": "кампания неизвестна не равна прямому заходу"
+    },
+    "rule": "Универсальные оговорки обязательны на каждом дашборде. Оговорка из fragments_by_caveat_id обязательна тогда, когда тот же идентификатор оговорки объявлен у отчёта в catalog.json."
+  },
+  "data_availability": {
+    "status": "not_fillable_today",
+    "reason": "На дату определения отчётов доставка событий в PostHog выключена, а обезличенный счёт уровня 1 живёт в PostgreSQL и на отчётную поверхность PostHog не выгружается. Долю согласия считает продукт на своей отчётной поверхности из этого счёта и числа согласившихся визитов.",
+    "consequence": "Пустой дашборд сейчас означает выключенную доставку, а не отсутствие интереса. Это отмечено в плитке оговорок каждого дашборда.",
+    "unblocks_when": [
+      "включена доставка событий в PostHog решением о запуске",
+      "доля согласия перенесена в плитку R11 из отчёта продукта (GET /api/v1/product-analytics/reports)",
+      "подтверждено исключение внутреннего и служебного трафика"
+    ]
+  },
+  "dashboards": [
+    {
+      "report_id": "R01",
+      "name": "GRAF R01 — Сравнение каналов",
+      "description": "Визиты, намерение скачать, состоявшиеся скачивания, активации и стоимость активации по источнику, каналу и кампании.",
+      "owner": "growth analytics operator",
+      "tags": ["graf", "273", "R01", "acquisition"],
+      "refresh_hours": 26,
+      "tiles": [
+        {
+          "role": "primary",
+          "tile_kind": "insight",
+          "insight": "TRENDS",
+          "name": "Визиты и активации по каналам",
+          "query": {
+            "kind": "InsightVizNode",
+            "source": {
+              "kind": "TrendsQuery",
+              "series": [
+                {"kind": "EventsNode", "event": "public_landing_viewed", "name": "Визиты по согласию"},
+                {"kind": "EventsNode", "event": "public_installer_download_clicked", "name": "Нажатия «Скачать»"},
+                {"kind": "EventsNode", "event": "first_value_session_completed", "name": "Активации"}
+              ],
+              "breakdownFilter": {"breakdowns": [{"property": "utm_campaign", "type": "event"}]},
+              "dateRange": {"date_from": "-7d"},
+              "trendsFilter": {"display": "ActionsBarValue"}
+            }
+          }
+        },
+        {
+          "role": "freshness",
+          "tile_kind": "insight",
+          "insight": "TRENDS",
+          "name": "Свежесть данных: события по часам за 7 дней",
+          "stale_after_hours": 26,
+          "query": {
+            "kind": "InsightVizNode",
+            "source": {
+              "kind": "TrendsQuery",
+              "series": [
+                {"kind": "EventsNode", "event": "public_landing_viewed"},
+                {"kind": "EventsNode", "event": "first_value_session_completed"}
+              ],
+              "interval": "hour",
+              "dateRange": {"date_from": "-7d"}
+            }
+          }
+        },
+        {
+          "role": "completeness",
+          "tile_kind": "insight",
+          "insight": "TRENDS",
+          "name": "Полнота данных и пробелы: доставленные и пропущенные события",
+          "query": {
+            "kind": "InsightVizNode",
+            "source": {
+              "kind": "TrendsQuery",
+              "series": [
+                {"kind": "EventsNode", "event": "public_landing_viewed", "math": "total"},
+                {"kind": "EventsNode", "event": "first_value_session_completed", "math": "total"}
+              ],
+              "dateRange": {"date_from": "-7d"},
+              "trendsFilter": {"display": "ActionsTable"}
+            }
+          },
+          "rule": "Если за период нет ни одного события источника, значение не подставляется нулём: ячейка показывается как «нет данных», причина — в плитке оговорок и в отчёте о пробелах."
+        },
+        {
+          "role": "caveats",
+          "tile_kind": "text",
+          "name": "Обязательные оговорки",
+          "body": "Доля посетителей без необязательного согласия указана рядом с цифрами: эти посетители не дают событий уровня 3 и видны только в обезличенном счёте. Пробел в данных показывается как «нет данных», а не как 0: разрыв доставки — это пробел измерения, а не отсутствие интереса. В цифры может попадать внутренний, служебный и тестовый трафик до подтверждения фильтра. Применяется одно правило атрибуции: последний непрямой источник в окне 90 дней. Кампания неизвестна не равна прямому заходу. Корзины меньше трёх визитов не раскрываются, поэтому сумма по разрезу может быть меньше общего числа визитов. Удаление данных в GRAF не удаляет агрегаты и выгрузки у внешних получателей. Доставка событий в PostHog сегодня выключена: пустой дашборд означает выключенную доставку. Расход кабинета приходит с задержкой и переносится в отчёт задним числом. Обезличенный счёт уровня 1 живёт в PostgreSQL и на эту поверхность не выгружается."
+        }
+      ]
+    },
+    {
+      "report_id": "R02",
+      "name": "GRAF R02 — Сравнение объявлений",
+      "description": "Объявления, группы и ключевые слова: нажатия, состоявшиеся скачивания, активации и стоимость активации.",
+      "owner": "growth analytics operator",
+      "tags": ["graf", "273", "R02", "acquisition"],
+      "refresh_hours": 26,
+      "tiles": [
+        {
+          "role": "primary",
+          "tile_kind": "insight",
+          "insight": "TRENDS",
+          "name": "Результат по объявлению",
+          "query": {
+            "kind": "InsightVizNode",
+            "source": {
+              "kind": "TrendsQuery",
+              "series": [
+                {"kind": "EventsNode", "event": "public_installer_download_clicked", "name": "Нажатия «Скачать»"},
+                {"kind": "EventsNode", "event": "first_value_session_completed", "name": "Активации"}
+              ],
+              "breakdownFilter": {"breakdowns": [{"property": "utm_content", "type": "event"}]},
+              "dateRange": {"date_from": "-7d"},
+              "trendsFilter": {"display": "ActionsTable"}
+            }
+          }
+        },
+        {
+          "role": "primary",
+          "tile_kind": "insight",
+          "insight": "TRENDS",
+          "name": "Объявления с намерением и без активаций",
+          "query": {
+            "kind": "InsightVizNode",
+            "source": {
+              "kind": "TrendsQuery",
+              "series": [
+                {"kind": "EventsNode", "event": "public_installer_download_clicked", "name": "Намерение"},
+                {"kind": "EventsNode", "event": "first_value_session_completed", "name": "Активация"}
+              ],
+              "breakdownFilter": {"breakdowns": [{"property": "utm_term", "type": "event"}]},
+              "dateRange": {"date_from": "-14d"},
+              "trendsFilter": {"display": "ActionsBarValue"}
+            }
+          },
+          "rule": "Объявление с намерением и без активаций помечается «намерение без результата». Пустая строка активаций из-за отсутствия доставки помечается «нет данных» и не считается провалом."
+        },
+        {
+          "role": "freshness",
+          "tile_kind": "insight",
+          "insight": "TRENDS",
+          "name": "Свежесть данных: события объявлений по часам",
+          "stale_after_hours": 26,
+          "query": {
+            "kind": "InsightVizNode",
+            "source": {
+              "kind": "TrendsQuery",
+              "series": [{"kind": "EventsNode", "event": "public_installer_download_clicked"}],
+              "interval": "hour",
+              "dateRange": {"date_from": "-7d"}
+            }
+          }
+        },
+        {
+          "role": "completeness",
+          "tile_kind": "insight",
+          "insight": "TRENDS",
+          "name": "Полнота данных и пробелы по объявлениям",
+          "query": {
+            "kind": "InsightVizNode",
+            "source": {
+              "kind": "TrendsQuery",
+              "series": [
+                {"kind": "EventsNode", "event": "public_installer_download_clicked", "math": "total"},
+                {"kind": "EventsNode", "event": "first_value_session_completed", "math": "total"}
+              ],
+              "breakdownFilter": {"breakdowns": [{"property": "utm_content", "type": "event"}]},
+              "dateRange": {"date_from": "-7d"},
+              "trendsFilter": {"display": "ActionsTable"}
+            }
+          },
+          "rule": "Отсутствие строки объявления означает «нет данных», а не нулевую результативность."
+        },
+        {
+          "role": "caveats",
+          "tile_kind": "text",
+          "name": "Обязательные оговорки",
+          "body": "Доля посетителей без необязательного согласия указана рядом с цифрами: эти посетители не дают событий уровня 3 и видны только в обезличенном счёте. Пробел в данных показывается как «нет данных», а не как 0: разрыв доставки — это пробел измерения, а не отсутствие интереса. В цифры может попадать внутренний, служебный и тестовый трафик до подтверждения фильтра. Применяется одно правило атрибуции: последний непрямой источник в окне 90 дней. Кампания неизвестна не равна прямому заходу. Корзины меньше трёх визитов не раскрываются. Расход кабинета приходит с задержкой; расход без сопоставленной кампании показывается отдельной строкой и не размазывается по другим. Доставка событий в PostHog сегодня выключена: пустой дашборд означает выключенную доставку."
+        }
+      ]
+    },
+    {
+      "report_id": "R03",
+      "name": "GRAF R03 — Сравнение посадочных страниц",
+      "description": "Страницы входа: визиты, достижение секций, нажатия призыва, состоявшиеся скачивания и активации.",
+      "owner": "growth analytics operator",
+      "tags": ["graf", "273", "R03", "landing"],
+      "refresh_hours": 26,
+      "tiles": [
+        {
+          "role": "primary",
+          "tile_kind": "insight",
+          "insight": "FUNNELS",
+          "name": "Страница входа: от просмотра до скачивания",
+          "query": {
+            "kind": "InsightVizNode",
+            "source": {
+              "kind": "FunnelsQuery",
+              "series": [
+                {"kind": "EventsNode", "event": "public_landing_viewed", "name": "Просмотр страницы"},
+                {"kind": "EventsNode", "event": "public_landing_section_seen", "name": "Достижение секции"},
+                {"kind": "EventsNode", "event": "public_landing_cta_clicked", "name": "Нажатие призыва"},
+                {"kind": "EventsNode", "event": "public_download_viewed", "name": "Страница загрузки"},
+                {"kind": "EventsNode", "event": "public_installer_download_clicked", "name": "Нажатие «Скачать»"}
+              ],
+              "breakdownFilter": {"breakdowns": [{"property": "landing_path", "type": "event"}]},
+              "dateRange": {"date_from": "-7d"},
+              "funnelsFilter": {"funnelVizType": "steps"}
+            }
+          }
+        },
+        {
+          "role": "freshness",
+          "tile_kind": "insight",
+          "insight": "TRENDS",
+          "name": "Свежесть данных: события страниц по часам",
+          "stale_after_hours": 26,
+          "query": {
+            "kind": "InsightVizNode",
+            "source": {
+              "kind": "TrendsQuery",
+              "series": [{"kind": "EventsNode", "event": "public_landing_viewed"}],
+              "interval": "hour",
+              "dateRange": {"date_from": "-7d"}
+            }
+          }
+        },
+        {
+          "role": "completeness",
+          "tile_kind": "insight",
+          "insight": "TRENDS",
+          "name": "Полнота данных и пробелы по страницам",
+          "query": {
+            "kind": "InsightVizNode",
+            "source": {
+              "kind": "TrendsQuery",
+              "series": [
+                {"kind": "EventsNode", "event": "public_landing_viewed", "math": "total"},
+                {"kind": "EventsNode", "event": "public_installer_download_clicked", "math": "total"}
+              ],
+              "breakdownFilter": {"breakdowns": [{"property": "landing_path", "type": "event"}]},
+              "dateRange": {"date_from": "-7d"},
+              "trendsFilter": {"display": "ActionsTable"}
+            }
+          },
+          "rule": "Страница без событий за период показывается как «нет данных», а не как страница с нулевой конверсией."
+        },
+        {
+          "role": "caveats",
+          "tile_kind": "text",
+          "name": "Обязательные оговорки",
+          "body": "Доля посетителей без необязательного согласия указана рядом с цифрами: эти посетители не дают событий уровня 3, их визиты видны только в обезличенном счёте уровня 1. Пробел в данных показывается как «нет данных», а не как 0: разрыв доставки — это пробел измерения, а не отсутствие интереса. В цифры может попадать внутренний, служебный и тестовый трафик до подтверждения фильтра. Применяется одно правило атрибуции: последний непрямой источник в окне 90 дней. Корзины меньше трёх визитов не раскрываются, поэтому сумма по разрезу меньше общего числа визитов. Нажатия «Скачать» — это намерение, а не состоявшееся скачивание."
+        }
+      ]
+    },
+    {
+      "report_id": "R04",
+      "name": "GRAF R04 — Воронка от визита до первой ценности",
+      "description": "Полный путь: визит, страница загрузки, намерение скачать, состоявшееся скачивание, первый запуск, подключение аккаунта, первая ценность.",
+      "owner": "product analytics operator",
+      "tags": ["graf", "273", "R04", "funnel"],
+      "refresh_hours": 26,
+      "tiles": [
+        {
+          "role": "primary",
+          "tile_kind": "insight",
+          "insight": "FUNNELS",
+          "name": "Воронка: визит → скачивание → первый запуск → аккаунт → первая ценность",
+          "query": {
+            "kind": "InsightVizNode",
+            "source": {
+              "kind": "FunnelsQuery",
+              "series": [
+                {"kind": "EventsNode", "event": "public_landing_viewed", "name": "Визит"},
+                {"kind": "EventsNode", "event": "public_download_viewed", "name": "Страница загрузки"},
+                {"kind": "EventsNode", "event": "public_installer_download_clicked", "name": "Намерение скачать"},
+                {"kind": "EventsNode", "event": "desktop_first_opened", "name": "Первый запуск"},
+                {"kind": "EventsNode", "event": "desktop_account_connected", "name": "Подключение аккаунта"},
+                {"kind": "EventsNode", "event": "first_value_session_completed", "name": "Первая ценность"}
+              ],
+              "dateRange": {"date_from": "-30d"},
+              "funnelsFilter": {"funnelVizType": "steps", "funnelWindowInterval": 90, "funnelWindowIntervalUnit": "day"}
+            }
+          },
+          "rule": "Шаг «состоявшееся скачивание установщика» берётся из обезличенного агрегата уровня 1 и на этой поверхности показывается отдельной плиткой: в PostHog приходит только намерение скачать."
+        },
+        {
+          "role": "primary",
+          "tile_kind": "insight",
+          "insight": "FUNNELS",
+          "name": "Воронка по кампаниям",
+          "query": {
+            "kind": "InsightVizNode",
+            "source": {
+              "kind": "FunnelsQuery",
+              "series": [
+                {"kind": "EventsNode", "event": "public_installer_download_clicked", "name": "Намерение скачать"},
+                {"kind": "EventsNode", "event": "desktop_first_opened", "name": "Первый запуск"},
+                {"kind": "EventsNode", "event": "first_value_session_completed", "name": "Первая ценность"}
+              ],
+              "breakdownFilter": {"breakdowns": [{"property": "utm_campaign", "type": "event"}]},
+              "dateRange": {"date_from": "-30d"},
+              "funnelsFilter": {"funnelVizType": "steps"}
+            }
+          }
+        },
+        {
+          "role": "freshness",
+          "tile_kind": "insight",
+          "insight": "TRENDS",
+          "name": "Свежесть данных: шаги воронки по часам",
+          "stale_after_hours": 26,
+          "query": {
+            "kind": "InsightVizNode",
+            "source": {
+              "kind": "TrendsQuery",
+              "series": [
+                {"kind": "EventsNode", "event": "public_landing_viewed"},
+                {"kind": "EventsNode", "event": "desktop_first_opened"},
+                {"kind": "EventsNode", "event": "first_value_session_completed"}
+              ],
+              "interval": "hour",
+              "dateRange": {"date_from": "-7d"}
+            }
+          }
+        },
+        {
+          "role": "completeness",
+          "tile_kind": "insight",
+          "insight": "TRENDS",
+          "name": "Полнота данных по шагам воронки",
+          "query": {
+            "kind": "InsightVizNode",
+            "source": {
+              "kind": "TrendsQuery",
+              "series": [
+                {"kind": "EventsNode", "event": "public_landing_viewed", "math": "total"},
+                {"kind": "EventsNode", "event": "public_installer_download_clicked", "math": "total"},
+                {"kind": "EventsNode", "event": "desktop_first_opened", "math": "total"},
+                {"kind": "EventsNode", "event": "desktop_account_connected", "math": "total"},
+                {"kind": "EventsNode", "event": "first_value_session_completed", "math": "total"}
+              ],
+              "dateRange": {"date_from": "-7d"},
+              "trendsFilter": {"display": "ActionsTable"}
+            }
+          },
+          "rule": "Пустой шаг из-за отсутствия доставки показывается как «нет данных» и не обрывает воронку нулём."
+        },
+        {
+          "role": "caveats",
+          "tile_kind": "text",
+          "name": "Обязательные оговорки",
+          "body": "Доля посетителей без необязательного согласия указана рядом с цифрами: эти посетители не дают событий уровня 3, их визиты видны только в обезличенном счёте уровня 1. Пробел в данных показывается как «нет данных», а не как 0: разрыв доставки — это пробел измерения, а не отсутствие интереса. В цифры может попадать внутренний, служебный и тестовый трафик до подтверждения фильтра. Применяется одно правило атрибуции: последний непрямой источник в окне 90 дней. Кампания неизвестна не равна прямому заходу. Повторная отправка вехи не удваивает счёт. Знаменатели уровня 1 и уровня 3 различаются, поэтому доли между ними напрямую не сравниваются."
+        }
+      ]
+    },
+    {
+      "report_id": "R05",
+      "name": "GRAF R05 — Намерение скачать против состоявшейся активации",
+      "description": "Четыре отдельные колонки: нажатие «Скачать», состоявшееся скачивание установщика, первый запуск приложения и первая ценность.",
+      "owner": "product analytics operator",
+      "tags": ["graf", "273", "R05", "intent-vs-activation"],
+      "refresh_hours": 26,
+      "tiles": [
+        {
+          "role": "primary",
+          "tile_kind": "insight",
+          "insight": "TRENDS",
+          "name": "Намерение, скачивание, запуск и активация по кампаниям",
+          "query": {
+            "kind": "InsightVizNode",
+            "source": {
+              "kind": "TrendsQuery",
+              "series": [
+                {"kind": "EventsNode", "event": "public_installer_download_clicked", "name": "Намерение скачать"},
+                {"kind": "EventsNode", "event": "desktop_first_opened", "name": "Первый запуск"},
+                {"kind": "EventsNode", "event": "desktop_account_connected", "name": "Подключение аккаунта"},
+                {"kind": "EventsNode", "event": "first_value_session_completed", "name": "Активация"}
+              ],
+              "breakdownFilter": {"breakdowns": [{"property": "utm_campaign", "type": "event"}]},
+              "dateRange": {"date_from": "-30d"},
+              "trendsFilter": {"display": "ActionsTable"}
+            }
+          },
+          "rule": "Состоявшееся скачивание установщика приходит из обезличенного агрегата уровня 1 и показывается отдельной плиткой. Подпись «скачивания» запрещена для нажатий, подпись «активации» — для скачиваний и запусков."
+        },
+        {
+          "role": "primary",
+          "tile_kind": "insight",
+          "insight": "TRENDS",
+          "name": "Первый запуск без подключения аккаунта",
+          "query": {
+            "kind": "InsightVizNode",
+            "source": {
+              "kind": "TrendsQuery",
+              "series": [
+                {"kind": "EventsNode", "event": "desktop_first_opened", "name": "Первый запуск"},
+                {"kind": "EventsNode", "event": "desktop_account_connected", "name": "Подключение аккаунта"}
+              ],
+              "dateRange": {"date_from": "-30d"},
+              "trendsFilter": {"display": "ActionsLineGraph"}
+            }
+          }
+        },
+        {
+          "role": "freshness",
+          "tile_kind": "insight",
+          "insight": "TRENDS",
+          "name": "Свежесть данных: нажатия и вехи по часам",
+          "stale_after_hours": 26,
+          "query": {
+            "kind": "InsightVizNode",
+            "source": {
+              "kind": "TrendsQuery",
+              "series": [
+                {"kind": "EventsNode", "event": "public_installer_download_clicked"},
+                {"kind": "EventsNode", "event": "first_value_session_completed"}
+              ],
+              "interval": "hour",
+              "dateRange": {"date_from": "-7d"}
+            }
+          }
+        },
+        {
+          "role": "completeness",
+          "tile_kind": "insight",
+          "insight": "TRENDS",
+          "name": "Полнота данных: уровень 1 и уровень 3 отдельно",
+          "query": {
+            "kind": "InsightVizNode",
+            "source": {
+              "kind": "TrendsQuery",
+              "series": [
+                {"kind": "EventsNode", "event": "public_installer_download_clicked", "math": "total"},
+                {"kind": "EventsNode", "event": "desktop_first_opened", "math": "total"}
+              ],
+              "dateRange": {"date_from": "-7d"},
+              "trendsFilter": {"display": "ActionsTable"}
+            }
+          },
+          "rule": "Полнота уровня 1 и уровня 3 проверяется отдельно: если уровень 1 не выгружен, колонка состоявшихся скачиваний показывается как «нет данных», а не как 0."
+        },
+        {
+          "role": "caveats",
+          "tile_kind": "text",
+          "name": "Обязательные оговорки",
+          "body": "Доля посетителей без необязательного согласия указана рядом с цифрами: эти посетители не дают событий уровня 3. Пробел в данных показывается как «нет данных», а не как 0: разрыв доставки — это пробел измерения, а не отсутствие интереса. В цифры может попадать внутренний, служебный и тестовый трафик до подтверждения фильтра. Применяется одно правило атрибуции: последний непрямой источник в окне 90 дней. Кампания неизвестна не равна прямому заходу. Нажатие «Скачать» не является состоявшимся скачиванием, а скачивание не является активацией. Повторная отправка вехи не удваивает счёт."
+        }
+      ]
+    },
+    {
+      "report_id": "R06",
+      "name": "GRAF R06 — Отваливание на подключении аккаунта",
+      "description": "Сколько людей запустили приложение и не подключили аккаунт, без которого первая ценность недостижима.",
+      "owner": "product analytics operator",
+      "tags": ["graf", "273", "R06", "onboarding"],
+      "refresh_hours": 26,
+      "tiles": [
+        {
+          "role": "primary",
+          "tile_kind": "insight",
+          "insight": "FUNNELS",
+          "name": "Онбординг: запуск → аккаунт → авто-запись",
+          "query": {
+            "kind": "InsightVizNode",
+            "source": {
+              "kind": "FunnelsQuery",
+              "series": [
+                {"kind": "EventsNode", "event": "desktop_first_opened", "name": "Первый запуск"},
+                {"kind": "EventsNode", "event": "desktop_account_connected", "name": "Подключение аккаунта"},
+                {"kind": "EventsNode", "event": "desktop_autorecord_enabled", "name": "Авто-запись включена"}
+              ],
+              "dateRange": {"date_from": "-30d"},
+              "funnelsFilter": {"funnelVizType": "steps"}
+            }
+          }
+        },
+        {
+          "role": "primary",
+          "tile_kind": "insight",
+          "insight": "TRENDS",
+          "name": "Отваливание по версии приложения",
+          "query": {
+            "kind": "InsightVizNode",
+            "source": {
+              "kind": "TrendsQuery",
+              "series": [
+                {"kind": "EventsNode", "event": "desktop_first_opened", "name": "Первый запуск"},
+                {"kind": "EventsNode", "event": "desktop_account_connected", "name": "Подключение аккаунта"}
+              ],
+              "breakdownFilter": {"breakdowns": [{"property": "app_version_bucket", "type": "event"}]},
+              "dateRange": {"date_from": "-30d"},
+              "trendsFilter": {"display": "ActionsTable"}
+            }
+          }
+        },
+        {
+          "role": "freshness",
+          "tile_kind": "insight",
+          "insight": "TRENDS",
+          "name": "Свежесть данных: вехи онбординга по часам",
+          "stale_after_hours": 26,
+          "query": {
+            "kind": "InsightVizNode",
+            "source": {
+              "kind": "TrendsQuery",
+              "series": [{"kind": "EventsNode", "event": "desktop_account_connected"}],
+              "interval": "hour",
+              "dateRange": {"date_from": "-7d"}
+            }
+          }
+        },
+        {
+          "role": "completeness",
+          "tile_kind": "insight",
+          "insight": "TRENDS",
+          "name": "Полнота данных по вехам онбординга",
+          "query": {
+            "kind": "InsightVizNode",
+            "source": {
+              "kind": "TrendsQuery",
+              "series": [
+                {"kind": "EventsNode", "event": "desktop_first_opened", "math": "total"},
+                {"kind": "EventsNode", "event": "desktop_account_connected", "math": "total"},
+                {"kind": "EventsNode", "event": "desktop_autorecord_enabled", "math": "total"}
+              ],
+              "dateRange": {"date_from": "-7d"},
+              "trendsFilter": {"display": "ActionsTable"}
+            }
+          },
+          "rule": "Отсутствие вех из-за выключенной доставки показывается как «нет данных», а не как нулевое отваливание."
+        },
+        {
+          "role": "caveats",
+          "tile_kind": "text",
+          "name": "Обязательные оговорки",
+          "body": "Доля посетителей без необязательного согласия указана рядом с цифрами, хотя вехи активации относятся к своим пользователям. Пробел в данных показывается как «нет данных», а не как 0: разрыв доставки — это пробел измерения, а не отсутствие интереса. В цифры может попадать внутренний, служебный и тестовый трафик до подтверждения фильтра. Применяется одно правило атрибуции: последний непрямой источник в окне 90 дней. Первый запуск приложения не подписывается как активация. Повторная отправка вехи не удваивает счёт."
+        }
+      ]
+    },
+    {
+      "report_id": "R07",
+      "name": "GRAF R07 — Стоимость результата",
+      "description": "Расход рекламного кабинета, соединённый с конверсиями: стоимость активации, стоимость состоявшегося скачивания и вспомогательная стоимость намерения.",
+      "owner": "growth analytics operator",
+      "tags": ["graf", "273", "R07", "cost"],
+      "refresh_hours": 26,
+      "tiles": [
+        {
+          "role": "primary",
+          "tile_kind": "insight",
+          "insight": "TRENDS",
+          "name": "Активации и расход по кампаниям",
+          "query": {
+            "kind": "InsightVizNode",
+            "source": {
+              "kind": "TrendsQuery",
+              "series": [
+                {"kind": "EventsNode", "event": "first_value_session_completed", "name": "Активации"},
+                {"kind": "EventsNode", "event": "desktop_account_connected", "name": "Подключения аккаунта"}
+              ],
+              "breakdownFilter": {"breakdowns": [{"property": "utm_campaign", "type": "event"}]},
+              "dateRange": {"date_from": "-30d"},
+              "trendsFilter": {"display": "ActionsTable"}
+            }
+          },
+          "rule": "Стоимость активации считается как расход кабинета, делённый на число активаций. Если активаций нет или расход загружен не целиком, стоимость активации показывается как «нет данных», а не как 0 и не как бесконечность."
+        },
+        {
+          "role": "primary",
+          "tile_kind": "insight",
+          "insight": "TRENDS",
+          "name": "Стоимость по трём разным величинам",
+          "query": {
+            "kind": "InsightVizNode",
+            "source": {
+              "kind": "TrendsQuery",
+              "series": [
+                {"kind": "EventsNode", "event": "public_installer_download_clicked", "name": "Намерение скачать"},
+                {"kind": "EventsNode", "event": "first_value_session_completed", "name": "Активация"}
+              ],
+              "breakdownFilter": {"breakdowns": [{"property": "utm_content", "type": "event"}]},
+              "dateRange": {"date_from": "-30d"},
+              "trendsFilter": {"display": "ActionsTable"}
+            }
+          },
+          "rule": "Показываются три отдельные величины: стоимость намерения, стоимость состоявшегося скачивания и стоимость активации. Стоимостью результата называется только стоимость активации."
+        },
+        {
+          "role": "freshness",
+          "tile_kind": "insight",
+          "insight": "TRENDS",
+          "name": "Свежесть данных: активации по часам",
+          "stale_after_hours": 26,
+          "query": {
+            "kind": "InsightVizNode",
+            "source": {
+              "kind": "TrendsQuery",
+              "series": [{"kind": "EventsNode", "event": "first_value_session_completed"}],
+              "interval": "hour",
+              "dateRange": {"date_from": "-7d"}
+            }
+          }
+        },
+        {
+          "role": "completeness",
+          "tile_kind": "insight",
+          "insight": "TRENDS",
+          "name": "Полнота данных: загрузка расхода и конверсии",
+          "query": {
+            "kind": "InsightVizNode",
+            "source": {
+              "kind": "TrendsQuery",
+              "series": [
+                {"kind": "EventsNode", "event": "first_value_session_completed", "math": "total"},
+                {"kind": "EventsNode", "event": "desktop_account_connected", "math": "total"}
+              ],
+              "dateRange": {"date_from": "-30d"},
+              "trendsFilter": {"display": "ActionsTable"}
+            }
+          },
+          "rule": "Полнота расхода за каждый день периода проверяется отдельно. Если расход загружен за часть периода, стоимость результата не считается и показывается «нет данных»."
+        },
+        {
+          "role": "caveats",
+          "tile_kind": "text",
+          "name": "Обязательные оговорки",
+          "body": "Доля посетителей без необязательного согласия указана рядом с цифрами: без согласия конверсия не попадает в отчёт, и стоимость активации выглядит дороже. Пробел в данных показывается как «нет данных», а не как 0: разрыв доставки — это пробел измерения, а не отсутствие интереса. В цифры может попадать внутренний, служебный и тестовый трафик до подтверждения фильтра. Расход берётся из выгрузки кабинета и приходит с задержкой: списания и возвраты переносятся задним числом. Расход приводится к одной основе с НДС или без, смешивать основы нельзя. Расход без сопоставленной кампании показывается отдельной строкой и не распределяется по другим. Применяется одно правило атрибуции: последний непрямой источник в окне 90 дней."
+        }
+      ]
+    },
+    {
+      "report_id": "R08",
+      "name": "GRAF R08 — Полнота расхода рекламного кабинета",
+      "description": "Проверка, что расход загружен за каждый день периода и совпадает с кабинетом: без этого стоимость результата неверна.",
+      "owner": "growth analytics operator",
+      "tags": ["graf", "273", "R08", "cost", "reconciliation"],
+      "refresh_hours": 26,
+      "tiles": [
+        {
+          "role": "primary",
+          "tile_kind": "insight",
+          "insight": "TRENDS",
+          "name": "Расход по дням и кампаниям",
+          "query": {
+            "kind": "InsightVizNode",
+            "source": {
+              "kind": "TrendsQuery",
+              "series": [{"kind": "EventsNode", "event": "first_value_session_completed", "name": "Активации"}],
+              "breakdownFilter": {"breakdowns": [{"property": "utm_campaign", "type": "event"}]},
+              "dateRange": {"date_from": "-30d"},
+              "trendsFilter": {"display": "ActionsTable"}
+            }
+          },
+          "rule": "Расход сверяется по каждому дню периода. День без загруженного расхода помечается как пробел, а не как нулевой расход."
+        },
+        {
+          "role": "freshness",
+          "tile_kind": "insight",
+          "insight": "TRENDS",
+          "name": "Свежесть данных: последняя загрузка расхода",
+          "stale_after_hours": 26,
+          "query": {
+            "kind": "InsightVizNode",
+            "source": {
+              "kind": "TrendsQuery",
+              "series": [{"kind": "EventsNode", "event": "first_value_session_completed"}],
+              "interval": "day",
+              "dateRange": {"date_from": "-30d"}
+            }
+          }
+        },
+        {
+          "role": "completeness",
+          "tile_kind": "insight",
+          "insight": "TRENDS",
+          "name": "Полнота расхода: дни с загрузкой и дни без загрузки",
+          "query": {
+            "kind": "InsightVizNode",
+            "source": {
+              "kind": "TrendsQuery",
+              "series": [{"kind": "EventsNode", "event": "first_value_session_completed", "math": "total"}],
+              "interval": "day",
+              "dateRange": {"date_from": "-30d"},
+              "trendsFilter": {"display": "ActionsTable"}
+            }
+          },
+          "rule": "День без загрузки расхода показывается как «нет данных». Расхождение с кабинетом показывается только тогда, когда загружены обе стороны."
+        },
+        {
+          "role": "caveats",
+          "tile_kind": "text",
+          "name": "Обязательные оговорки",
+          "body": "Доля посетителей без необязательного согласия указана рядом с цифрами. Пробел в данных показывается как «нет данных», а не как 0: разрыв доставки или незагруженный расход — это пробел, а не отсутствие интереса. В цифры может попадать внутренний, служебный и тестовый трафик до подтверждения фильтра. Расход кабинета приходит с задержкой и корректируется задним числом. Основы с НДС и без НДС не смешиваются. Расход без сопоставленной кампании показывается отдельной строкой."
+        }
+      ]
+    },
+    {
+      "report_id": "R09",
+      "name": "GRAF R09 — Здоровье доставки данных",
+      "description": "Идёт ли измерение вообще: свежесть, отставание доставки, пробелы и состояние готовности аналитики.",
+      "owner": "infrastructure operator",
+      "tags": ["graf", "273", "R09", "delivery-health"],
+      "refresh_hours": 26,
+      "tiles": [
+        {
+          "role": "primary",
+          "tile_kind": "insight",
+          "insight": "TRENDS",
+          "name": "Приходящие события по часам за 30 дней",
+          "query": {
+            "kind": "InsightVizNode",
+            "source": {
+              "kind": "TrendsQuery",
+              "series": [
+                {"kind": "EventsNode", "event": "public_landing_viewed", "math": "total"},
+                {"kind": "EventsNode", "event": "desktop_first_opened", "math": "total"},
+                {"kind": "EventsNode", "event": "first_value_session_completed", "math": "total"}
+              ],
+              "interval": "hour",
+              "dateRange": {"date_from": "-30d"}
+            }
+          }
+        },
+        {
+          "role": "primary",
+          "tile_kind": "insight",
+          "insight": "TRENDS",
+          "name": "Обрыв в приёме событий: дни без событий",
+          "query": {
+            "kind": "InsightVizNode",
+            "source": {
+              "kind": "TrendsQuery",
+              "series": [{"kind": "EventsNode", "event": "public_landing_viewed", "math": "total"}],
+              "interval": "day",
+              "dateRange": {"date_from": "-30d"},
+              "trendsFilter": {"display": "ActionsBar"}
+            }
+          },
+          "rule": "День без событий при ожидаемом трафике помечается как пробел доставки и проверяется в отчёте о пробелах. Ноль в этом месте запрещён."
+        },
+        {
+          "role": "freshness",
+          "tile_kind": "insight",
+          "insight": "TRENDS",
+          "name": "Свежесть данных: события узла аналитики",
+          "stale_after_hours": 26,
+          "query": {
+            "kind": "InsightVizNode",
+            "source": {
+              "kind": "TrendsQuery",
+              "series": [{"kind": "EventsNode", "event": "public_landing_viewed"}],
+              "interval": "hour",
+              "dateRange": {"date_from": "-7d"}
+            }
+          }
+        },
+        {
+          "role": "completeness",
+          "tile_kind": "insight",
+          "insight": "TRENDS",
+          "name": "Полнота данных: события по источникам за период",
+          "query": {
+            "kind": "InsightVizNode",
+            "source": {
+              "kind": "TrendsQuery",
+              "series": [
+                {"kind": "EventsNode", "event": "public_landing_viewed", "math": "total"},
+                {"kind": "EventsNode", "event": "desktop_account_connected", "math": "total"}
+              ],
+              "dateRange": {"date_from": "-7d"},
+              "trendsFilter": {"display": "ActionsTable"}
+            }
+          },
+          "rule": "Состояние доставки, которое неизвестно, показывается как «нет данных», а не как «всё хорошо»."
+        },
+        {
+          "role": "caveats",
+          "tile_kind": "text",
+          "name": "Обязательные оговорки",
+          "body": "Доля посетителей без необязательного согласия указана рядом с цифрами. Пробел в данных показывается как «нет данных», а не как 0: разрыв доставки — это пробел измерения, а не отсутствие интереса. В цифры может попадать внутренний, служебный и тестовый трафик до подтверждения фильтра. Данные старше 26 часов помечаются устаревшими, и решения по ним не принимаются. Удаление данных в GRAF не удаляет агрегаты и выгрузки у внешних получателей. Доставка событий в PostHog сегодня выключена. Обезличенный счёт уровня 1 живёт в PostgreSQL и на эту поверхность не выгружается."
+        }
+      ]
+    },
+    {
+      "report_id": "R10",
+      "name": "GRAF R10 — Пробелы измерения: пробел не равен нулю",
+      "description": "Все места, где данных нет: причина, дата, источник и срок устранения, чтобы пустая ячейка не читалась как отсутствие интереса.",
+      "owner": "infrastructure operator",
+      "tags": ["graf", "273", "R10", "measurement-gaps"],
+      "refresh_hours": 26,
+      "tiles": [
+        {
+          "role": "primary",
+          "tile_kind": "insight",
+          "insight": "TRENDS",
+          "name": "События по часам: поиск обрывов",
+          "query": {
+            "kind": "InsightVizNode",
+            "source": {
+              "kind": "TrendsQuery",
+              "series": [
+                {"kind": "EventsNode", "event": "public_landing_viewed"},
+                {"kind": "EventsNode", "event": "public_installer_download_clicked"},
+                {"kind": "EventsNode", "event": "desktop_first_opened"},
+                {"kind": "EventsNode", "event": "first_value_session_completed"}
+              ],
+              "interval": "hour",
+              "dateRange": {"date_from": "-30d"}
+            }
+          }
+        },
+        {
+          "role": "primary",
+          "tile_kind": "insight",
+          "insight": "TRENDS",
+          "name": "Первое и последнее событие каждого вида",
+          "query": {
+            "kind": "InsightVizNode",
+            "source": {
+              "kind": "TrendsQuery",
+              "series": [
+                {"kind": "EventsNode", "event": "public_landing_viewed", "math": "total"},
+                {"kind": "EventsNode", "event": "desktop_account_connected", "math": "total"}
+              ],
+              "interval": "day",
+              "dateRange": {"date_from": "-30d"},
+              "trendsFilter": {"display": "ActionsTable"}
+            }
+          },
+          "rule": "Если линии обрываются, дни после обрыва помечаются как пробел. В отчёте эти дни показываются как «нет данных», а не как 0."
+        },
+        {
+          "role": "freshness",
+          "tile_kind": "insight",
+          "insight": "TRENDS",
+          "name": "Свежесть данных: последние события по видам",
+          "stale_after_hours": 26,
+          "query": {
+            "kind": "InsightVizNode",
+            "source": {
+              "kind": "TrendsQuery",
+              "series": [
+                {"kind": "EventsNode", "event": "public_landing_viewed"},
+                {"kind": "EventsNode", "event": "first_value_session_completed"}
+              ],
+              "interval": "hour",
+              "dateRange": {"date_from": "-7d"}
+            }
+          }
+        },
+        {
+          "role": "completeness",
+          "tile_kind": "insight",
+          "insight": "TRENDS",
+          "name": "Полнота данных: доставленные события против ожидаемых дней",
+          "query": {
+            "kind": "InsightVizNode",
+            "source": {
+              "kind": "TrendsQuery",
+              "series": [{"kind": "EventsNode", "event": "public_landing_viewed", "math": "total"}],
+              "interval": "day",
+              "dateRange": {"date_from": "-30d"},
+              "trendsFilter": {"display": "ActionsTable"}
+            }
+          },
+          "rule": "Пустой отчёт о пробелах сам означает неизвестное состояние измерения и показывается как «нет данных», а не как отсутствие пробелов."
+        },
+        {
+          "role": "caveats",
+          "tile_kind": "text",
+          "name": "Обязательные оговорки",
+          "body": "Пробел в данных показывается как «нет данных», а не как 0: разрыв доставки — это пробел измерения, а не отсутствие интереса. Доля посетителей без необязательного согласия указана рядом с цифрами. В цифры может попадать внутренний, служебный и тестовый трафик до подтверждения фильтра. Данные старше 26 часов помечаются устаревшими. Доставка событий в PostHog сегодня выключена: пустой дашборд означает выключенную доставку. Обезличенный счёт уровня 1 живёт в PostgreSQL и на эту поверхность не выгружается, поэтому его свежесть проверяется отдельно."
+        }
+      ]
+    },
+    {
+      "report_id": "R11",
+      "name": "GRAF R11 — Покрытие необязательным согласием",
+      "description": "Доля посетителей без необязательного согласия: с ней читается каждая цифра по каналам.",
+      "owner": "privacy/security reviewer",
+      "tags": ["graf", "273", "R11", "consent"],
+      "refresh_hours": 26,
+      "tiles": [
+        {
+          "role": "primary",
+          "tile_kind": "insight",
+          "insight": "TRENDS",
+          "name": "События по согласию как проверка знаменателя",
+          "query": {
+            "kind": "InsightVizNode",
+            "source": {
+              "kind": "TrendsQuery",
+              "series": [{"kind": "EventsNode", "event": "public_landing_viewed", "math": "total"}],
+              "interval": "day",
+              "dateRange": {"date_from": "-30d"},
+              "trendsFilter": {"display": "ActionsLineGraph"}
+            }
+          },
+          "rule": "Плитка показывает только согласившихся: это числитель доли. Долю считает продукт на своей отчётной поверхности (GET /api/v1/product-analytics/reports), соединяя согласившихся с обезличенным счётом уровня 1; в плитку переносится готовое значение из отчёта продукта, а не считается вручную."
+        },
+        {
+          "role": "freshness",
+          "tile_kind": "insight",
+          "insight": "TRENDS",
+          "name": "Свежесть данных: события по согласию",
+          "stale_after_hours": 26,
+          "query": {
+            "kind": "InsightVizNode",
+            "source": {
+              "kind": "TrendsQuery",
+              "series": [{"kind": "EventsNode", "event": "public_landing_viewed"}],
+              "interval": "hour",
+              "dateRange": {"date_from": "-7d"}
+            }
+          }
+        },
+        {
+          "role": "completeness",
+          "tile_kind": "insight",
+          "insight": "TRENDS",
+          "name": "Полнота данных: события по согласию и обезличенный счёт",
+          "query": {
+            "kind": "InsightVizNode",
+            "source": {
+              "kind": "TrendsQuery",
+              "series": [{"kind": "EventsNode", "event": "public_landing_viewed", "math": "total"}],
+              "interval": "day",
+              "dateRange": {"date_from": "-30d"},
+              "trendsFilter": {"display": "ActionsTable"}
+            }
+          },
+          "rule": "Если доля согласия не измерена, показывается «нет данных», и выводы по каналам не делаются."
+        },
+        {
+          "role": "caveats",
+          "tile_kind": "text",
+          "name": "Обязательные оговорки",
+          "body": "Доля посетителей без необязательного согласия указана рядом с цифрами: эти посетители не дают ни одного события уровня 3, их визиты видны только в обезличенном счёте уровня 1. Пробел в данных показывается как «нет данных», а не как 0: разрыв доставки — это пробел измерения, а не отсутствие интереса. В цифры может попадать внутренний, служебный и тестовый трафик до подтверждения фильтра. Корзины меньше трёх визитов не раскрываются. Обезличенный счёт уровня 1 живёт в PostgreSQL и на эту поверхность не выгружается: долю считает продукт на своей отчётной поверхности из этого счёта и числа согласившихся визитов, и в плитку переносится готовое значение. Счётчик Метрики видит только согласившихся, поэтому его знаменатель меньше обезличенного счёта."
+        }
+      ]
+    },
+    {
+      "report_id": "R12",
+      "name": "GRAF R12 — Качество атрибуции и защита от двойного счёта",
+      "description": "Доля конверсий с надёжной кампанией, слабой и неизвестной; проверка, что повторная отправка вехи не удваивает счёт.",
+      "owner": "product analytics operator",
+      "tags": ["graf", "273", "R12", "attribution"],
+      "refresh_hours": 26,
+      "tiles": [
+        {
+          "role": "primary",
+          "tile_kind": "insight",
+          "insight": "TRENDS",
+          "name": "Надёжность атрибуции по вехам",
+          "query": {
+            "kind": "InsightVizNode",
+            "source": {
+              "kind": "TrendsQuery",
+              "series": [
+                {"kind": "EventsNode", "event": "desktop_first_opened", "math": "total"},
+                {"kind": "EventsNode", "event": "desktop_account_connected", "math": "total"},
+                {"kind": "EventsNode", "event": "first_value_session_completed", "math": "total"}
+              ],
+              "breakdownFilter": {"breakdowns": [{"property": "attribution_reliability", "type": "event"}]},
+              "dateRange": {"date_from": "-30d"},
+              "trendsFilter": {"display": "ActionsTable"}
+            }
+          },
+          "rule": "Значения надёжности: связана надёжно, связана слабо, посчитана без связи, связать нельзя. Строка «связать нельзя» не складывается с прямыми заходами."
+        },
+        {
+          "role": "primary",
+          "tile_kind": "insight",
+          "insight": "FUNNELS",
+          "name": "Воронка по надёжности атрибуции",
+          "query": {
+            "kind": "InsightVizNode",
+            "source": {
+              "kind": "FunnelsQuery",
+              "series": [
+                {"kind": "EventsNode", "event": "desktop_first_opened", "name": "Первый запуск"},
+                {"kind": "EventsNode", "event": "desktop_account_connected", "name": "Подключение аккаунта"},
+                {"kind": "EventsNode", "event": "first_value_session_completed", "name": "Первая ценность"}
+              ],
+              "breakdownFilter": {"breakdowns": [{"property": "attribution_reliability", "type": "event"}]},
+              "dateRange": {"date_from": "-30d"},
+              "funnelsFilter": {"funnelVizType": "steps"}
+            }
+          }
+        },
+        {
+          "role": "freshness",
+          "tile_kind": "insight",
+          "insight": "TRENDS",
+          "name": "Свежесть данных: вехи по часам",
+          "stale_after_hours": 26,
+          "query": {
+            "kind": "InsightVizNode",
+            "source": {
+              "kind": "TrendsQuery",
+              "series": [
+                {"kind": "EventsNode", "event": "desktop_account_connected"},
+                {"kind": "EventsNode", "event": "first_value_session_completed"}
+              ],
+              "interval": "hour",
+              "dateRange": {"date_from": "-7d"}
+            }
+          }
+        },
+        {
+          "role": "completeness",
+          "tile_kind": "insight",
+          "insight": "TRENDS",
+          "name": "Полнота данных: вехи и повторные отправки",
+          "query": {
+            "kind": "InsightVizNode",
+            "source": {
+              "kind": "TrendsQuery",
+              "series": [
+                {"kind": "EventsNode", "event": "desktop_account_connected", "math": "total"},
+                {"kind": "EventsNode", "event": "first_value_session_completed", "math": "total"}
+              ],
+              "dateRange": {"date_from": "-30d"},
+              "trendsFilter": {"display": "ActionsTable"}
+            }
+          },
+          "rule": "Число событий сверяется с числом уникальных псевдонимных пользователей: расхождение означает сбой защиты от двойного счёта, а не рост активаций. Если вехи не пришли, значение показывается как «нет данных», а не как ноль."
+        },
+        {
+          "role": "caveats",
+          "tile_kind": "text",
+          "name": "Обязательные оговорки",
+          "body": "Доля посетителей без необязательного согласия указана рядом с цифрами. Пробел в данных показывается как «нет данных», а не как 0: разрыв доставки — это пробел измерения, а не отсутствие интереса. В цифры может попадать внутренний, служебный и тестовый трафик до подтверждения фильтра. Применяется одно правило атрибуции: последний непрямой источник в окне 90 дней. Кампания неизвестна не равна прямому заходу: неизвестное не складывается с прямыми и не переименовывается в них. Повторная отправка вехи не удваивает счёт. В Метрику загружаются только две согласованные вехи: подключение аккаунта и первая ценность. Прямая отправка из приложения в Метрику запрещена."
+        }
+      ]
+    },
+    {
+      "report_id": "R13",
+      "name": "GRAF R13 — Внутренний, служебный и тестовый трафик",
+      "description": "Сколько трафика признано внутренним и служебным, чтобы он не принимался за спрос.",
+      "owner": "infrastructure operator",
+      "tags": ["graf", "273", "R13", "internal-traffic"],
+      "refresh_hours": 26,
+      "tiles": [
+        {
+          "role": "primary",
+          "tile_kind": "insight",
+          "insight": "TRENDS",
+          "name": "События с признаком внутреннего трафика",
+          "query": {
+            "kind": "InsightVizNode",
+            "source": {
+              "kind": "TrendsQuery",
+              "series": [
+                {"kind": "EventsNode", "event": "public_landing_viewed", "math": "total"},
+                {"kind": "EventsNode", "event": "first_value_session_completed", "math": "total"}
+              ],
+              "breakdownFilter": {"breakdowns": [{"property": "traffic_class", "type": "event"}]},
+              "dateRange": {"date_from": "-30d"},
+              "trendsFilter": {"display": "ActionsTable"}
+            }
+          },
+          "rule": "Пока фильтр внутреннего трафика не подтверждён, все абсолютные значения читаются как «включая служебные». Это указано в плитке оговорок и в отчёте."
+        },
+        {
+          "role": "freshness",
+          "tile_kind": "insight",
+          "insight": "TRENDS",
+          "name": "Свежесть данных: события по часам",
+          "stale_after_hours": 26,
+          "query": {
+            "kind": "InsightVizNode",
+            "source": {
+              "kind": "TrendsQuery",
+              "series": [{"kind": "EventsNode", "event": "public_landing_viewed"}],
+              "interval": "hour",
+              "dateRange": {"date_from": "-7d"}
+            }
+          }
+        },
+        {
+          "role": "completeness",
+          "tile_kind": "insight",
+          "insight": "TRENDS",
+          "name": "Полнота данных: покрытие признака трафика",
+          "query": {
+            "kind": "InsightVizNode",
+            "source": {
+              "kind": "TrendsQuery",
+              "series": [{"kind": "EventsNode", "event": "public_landing_viewed", "math": "total"}],
+              "breakdownFilter": {"breakdowns": [{"property": "traffic_class", "type": "event"}]},
+              "interval": "day",
+              "dateRange": {"date_from": "-30d"},
+              "trendsFilter": {"display": "ActionsTable"}
+            }
+          },
+          "rule": "Если признак внутреннего трафика не измерен, покрытие показывается как «нет данных», и бизнес-выводы не делаются."
+        },
+        {
+          "role": "caveats",
+          "tile_kind": "text",
+          "name": "Обязательные оговорки",
+          "body": "Доля посетителей без необязательного согласия указана рядом с цифрами. Пробел в данных показывается как «нет данных», а не как 0: разрыв доставки — это пробел измерения, а не отсутствие интереса. В цифры может попадать внутренний, служебный и тестовый трафик до подтверждения фильтра: до этого абсолютные значения не годятся для бизнес-выводов. Данные старше 26 часов помечаются устаревшими."
+        }
+      ]
+    },
+    {
+      "report_id": "R14",
+      "name": "GRAF R14 — Доступ, хранение и удаление данных",
+      "description": "Кто видит аналитику, что с копиями и проверкой восстановления, какие сроки хранения действуют и что нельзя обещать про удаление.",
+      "owner": "privacy/security reviewer",
+      "tags": ["graf", "273", "R14", "access", "retention"],
+      "refresh_hours": 192,
+      "tiles": [
+        {
+          "role": "primary",
+          "tile_kind": "text",
+          "name": "Состояние доступа и хранения",
+          "body": "Заполняется оператором раз в неделю по данным готовности аналитики: состав операторов, включённый второй фактор, свежесть копии, дата успешной проверки восстановления, сроки хранения по категориям, список блокеров. Пустое состояние показывается как «нет данных» и блокирует заявление о готовности.",
+          "rule": "Отсутствие строк не означает отсутствие блокеров: список блокеров берётся из готовности аналитики, а не из пустоты отчёта."
+        },
+        {
+          "role": "freshness",
+          "tile_kind": "insight",
+          "insight": "TRENDS",
+          "name": "Свежесть данных: события как признак живого измерения",
+          "stale_after_hours": 192,
+          "query": {
+            "kind": "InsightVizNode",
+            "source": {
+              "kind": "TrendsQuery",
+              "series": [{"kind": "EventsNode", "event": "public_landing_viewed", "math": "total"}],
+              "interval": "day",
+              "dateRange": {"date_from": "-30d"}
+            }
+          }
+        },
+        {
+          "role": "completeness",
+          "tile_kind": "text",
+          "name": "Полнота данных: копии, восстановление и сроки",
+          "body": "Проверяются по отдельности: наличие копии, её свежесть, наличие выгрузки за пределы сервера, дата успешной проверки восстановления, заданный срок хранения у каждой категории. Незаполненная строка показывается как «нет данных», а не как «в порядке».",
+          "rule": "Срок хранения, отсутствующий у категории, является ошибкой конфигурации и блокирует заявление о готовности."
+        },
+        {
+          "role": "caveats",
+          "tile_kind": "text",
+          "name": "Обязательные оговорки",
+          "body": "Доля посетителей без необязательного согласия указана рядом с цифрами. Пробел в данных показывается как «нет данных», а не как 0. В цифры может попадать внутренний, служебный и тестовый трафик до подтверждения фильтра. Удаление данных в GRAF не удаляет агрегаты, выгрузки и уже загруженные офлайн-конверсии у внешних получателей: обещания об удалении ограничены хранилищем GRAF. Данные старше 26 часов помечаются устаревшими; для этого отчёта срок устаревания — семь дней."
+        }
+      ]
+    }
+  ]
+}

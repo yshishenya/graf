@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+from collections.abc import Mapping
 from typing import Any
 
 from twobrain_rec_server.config import Settings
@@ -19,7 +21,23 @@ from twobrain_rec_server.public.analytics import (
 )
 
 
-def build_browser_provider_context(settings: Settings, page_class: str) -> dict[str, Any]:
+def build_browser_provider_context(
+    settings: Settings,
+    page_class: str,
+    *,
+    environ: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
+    """Return the browser measurement context of a page class.
+
+    An anonymous browser has no analytics identity, and this context says so
+    instead of inventing one: ``distinct_id`` stays ``None`` and
+    ``identity_state`` stays ``anonymous``. A single shared browser pseudonym
+    (``graf_pseudo_browser_anonymous``) used to be handed to every anonymous
+    visitor, which collapsed all of them into one PostHog identity — a false
+    statement about the data and a risk, because unrelated visits looked like one
+    person (FR-007, FR-010). The controller refuses to send an event without an
+    identity, so an anonymous page contributes nothing optional at all.
+    """
     policy = get_page_class_policy(page_class)
     provider_config = ProductAnalyticsProviderConfig.from_settings(settings)
     posthog_active = bool(
@@ -29,7 +47,11 @@ def build_browser_provider_context(settings: Settings, page_class: str) -> dict[
         and policy.posthog_autocapture_state == "enabled"
         and provider_config.posthog.credential_suppression_enabled
     )
-    yandex_context = build_product_yandex_provider_context(settings, page_class)
+    yandex_context = build_product_yandex_provider_context(
+        settings,
+        page_class,
+        environ=environ,
+    )
     yandex_active = bool(yandex_context["enabled"])
     browser_consent = {
         "copy_version": settings.public_analytics_consent_copy_version,
@@ -70,7 +92,11 @@ def build_browser_provider_context(settings: Settings, page_class: str) -> dict[
             "delivery_route": "first_party_browser_proxy",
             "capture_endpoint": "/api/v1/product-analytics/posthog-web-capture",
             "identity_state": "anonymous",
-            "distinct_id": "graf_pseudo_browser_anonymous",
+            # No identifier is available before authentication, so none is
+            # claimed: the controller sends nothing until a real pseudonym
+            # arrives with the authenticated context (T033).
+            "distinct_id": None,
+            "identity_rule": "no_stable_identifier_before_authentication",
             "replay_enabled": False,
             "project_key": "configured_redacted" if provider_config.posthog.project_key_configured else "not_configured",
             "host": "configured_redacted" if provider_config.posthog.host else "not_configured",
@@ -111,7 +137,11 @@ def build_request_browser_provider_context(
     """Build page analytics context from the request's runtime settings."""
     app_state = getattr(getattr(request, "app", None), "state", None)
     settings = getattr(app_state, "settings", None) or Settings()
-    provider = build_browser_provider_context(settings, page_class)
+    provider = build_browser_provider_context(
+        settings,
+        page_class,
+        environ=dict(os.environ),
+    )
     if principal is None:
         return provider
 

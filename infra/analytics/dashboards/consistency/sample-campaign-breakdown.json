@@ -1,0 +1,115 @@
+{
+  "schema": "graf.analytics.campaign-consistency-sample.v1",
+  "feature": "273-paid-traffic-analytics",
+  "requirement": "SC-008",
+  "task": "T061",
+  "purpose": "Подготовленный набор для сверки разбивки по кампаниям между Метрикой и продуктовой аналитикой. Данные вымышленные, персональных данных нет. Обе поверхности описывают одни и те же визиты.",
+  "checked_at": "2026-09-08T00:00:00+00:00",
+  "period": {"from": "2026-09-01", "to": "2026-09-07"},
+  "window_days": 90,
+  "minimum_bucket_size": 3,
+  "compared_subset": "только посетители с необязательным согласием: только этот срез есть и в Метрике, и в продуктовой аналитике",
+  "single_rule": {
+    "rule": "last_non_direct_90d",
+    "window_days": 90,
+    "unknown_is_not_direct": true,
+    "label_normalizer": "тот же очиститель меток, что и в обезличенном агрегате уровня 1",
+    "code_reference": "apps/server/src/twobrain_rec_server/product_analytics/acquisition.py"
+  },
+  "bucket_mapping": {
+    "known_campaign": "если после очистки осталась хотя бы одна метка кампании — корзина называется по метке кампании",
+    "unknown_campaign": "если метки кампании нет или она отброшена очистителем, а заход не прямой — корзина «кампания неизвестна»",
+    "direct": "если заход прямой — корзина «прямой заход», она не складывается с «кампанией неизвестна»",
+    "suppressed": "корзины меньше трёх визитов не раскрываются и показываются как «скрыто: мало данных»"
+  },
+  "surfaces": {
+    "yandex_metrica": {
+      "shape": "строки отчёта Метрики, свёрнутые по кампании, источнику и дню",
+      "rows": [
+        {"row_id": "m01", "campaign_raw": "brand-search", "source": "yandex", "medium": "cpc", "traffic_source": "paid", "date": "2026-09-01", "visits": 2},
+        {"row_id": "m02", "campaign_raw": "generic-search", "source": "yandex", "medium": "cpc", "traffic_source": "paid", "date": "2026-09-01", "visits": 1},
+        {"row_id": "m03", "campaign_raw": "retargeting", "source": "yandex", "medium": "cpc", "traffic_source": "paid", "date": "2026-09-02", "visits": 1},
+        {"row_id": "m04", "campaign_raw": null, "source": null, "medium": null, "traffic_source": "organic", "date": "2026-09-02", "visits": 1},
+        {"row_id": "m05", "campaign_raw": "generic-search", "source": "yandex", "medium": "cpc", "traffic_source": "paid", "date": "2026-09-02", "visits": 1},
+        {"row_id": "m06", "campaign_raw": "brand-search", "source": "yandex", "medium": "cpc", "traffic_source": "paid", "date": "2026-09-03", "visits": 1},
+        {"row_id": "m07", "campaign_raw": null, "source": null, "medium": null, "traffic_source": "organic", "date": "2026-09-03", "visits": 1},
+        {"row_id": "m08", "campaign_raw": "retargeting", "source": "yandex", "medium": "cpc", "traffic_source": "paid", "date": "2026-09-04", "visits": 1},
+        {"row_id": "m09", "campaign_raw": null, "source": null, "medium": null, "traffic_source": "direct", "date": "2026-09-04", "visits": 1},
+        {"row_id": "m10", "campaign_raw": "generic-search", "source": "yandex", "medium": "cpc", "traffic_source": "paid", "date": "2026-09-05", "visits": 1},
+        {"row_id": "m11", "campaign_raw": null, "source": null, "medium": null, "traffic_source": "organic", "date": "2026-09-05", "visits": 1},
+        {"row_id": "m12", "campaign_raw": "brand-search", "source": "yandex", "medium": "cpc", "traffic_source": "paid", "date": "2026-09-06", "visits": 1},
+        {"row_id": "m13", "campaign_raw": "graf promo", "source": "yandex", "medium": "cpc", "traffic_source": "paid", "date": "2026-09-06", "visits": 1},
+        {"row_id": "m14", "campaign_raw": null, "source": null, "medium": null, "traffic_source": "direct", "date": "2026-09-01", "visits": 1},
+        {"row_id": "m15", "campaign_raw": null, "source": null, "medium": null, "traffic_source": "direct", "date": "2026-09-07", "visits": 1}
+      ],
+      "rows_outside_period": [
+        {"row_id": "m90", "campaign_raw": "brand-search", "source": "yandex", "medium": "cpc", "traffic_source": "paid", "date": "2026-05-15", "visits": 1}
+      ]
+    },
+    "product_analytics": {
+      "shape": "записи атрибуции визита, по одной на визит",
+      "rows": [
+        {"visit_ref": "v01", "campaign_raw": "brand-search", "source": "yandex", "medium": "cpc", "referrer_category": "paid", "first_seen_at": "2026-09-01T10:12:00+00:00", "linked_automatically": true},
+        {"visit_ref": "v02", "campaign_raw": "brand-search", "source": "yandex", "medium": "cpc", "referrer_category": "paid", "first_seen_at": "2026-09-01T18:40:00+00:00", "linked_automatically": true},
+        {"visit_ref": "v03", "campaign_raw": "brand-search", "source": "yandex", "medium": "cpc", "referrer_category": "paid", "first_seen_at": "2026-09-03T09:05:00+00:00", "linked_automatically": true},
+        {"visit_ref": "v04", "campaign_raw": "brand-search", "source": "yandex", "medium": "cpc", "referrer_category": "paid", "first_seen_at": "2026-09-06T21:30:00+00:00", "linked_automatically": false},
+        {"visit_ref": "v05", "campaign_raw": "generic-search", "source": "yandex", "medium": "cpc", "referrer_category": "paid", "first_seen_at": "2026-09-01T11:20:00+00:00", "linked_automatically": true},
+        {"visit_ref": "v06", "campaign_raw": "generic-search", "source": "yandex", "medium": "cpc", "referrer_category": "paid", "first_seen_at": "2026-09-02T14:02:00+00:00", "linked_automatically": true},
+        {"visit_ref": "v07", "campaign_raw": "generic-search", "source": "yandex", "medium": "cpc", "referrer_category": "paid", "first_seen_at": "2026-09-05T08:45:00+00:00", "linked_automatically": true},
+        {"visit_ref": "v08", "campaign_raw": "retargeting", "source": "yandex", "medium": "cpc", "referrer_category": "paid", "first_seen_at": "2026-09-02T16:15:00+00:00", "linked_automatically": false},
+        {"visit_ref": "v09", "campaign_raw": "retargeting", "source": "yandex", "medium": "cpc", "referrer_category": "paid", "first_seen_at": "2026-09-04T12:00:00+00:00", "linked_automatically": false},
+        {"visit_ref": "v10", "campaign_raw": null, "source": null, "medium": null, "referrer_category": "organic", "first_seen_at": "2026-09-02T09:30:00+00:00", "linked_automatically": false},
+        {"visit_ref": "v11", "campaign_raw": null, "source": null, "medium": null, "referrer_category": "organic", "first_seen_at": "2026-09-03T19:10:00+00:00", "linked_automatically": false},
+        {"visit_ref": "v12", "campaign_raw": null, "source": null, "medium": null, "referrer_category": "organic", "first_seen_at": "2026-09-05T13:25:00+00:00", "linked_automatically": false},
+        {"visit_ref": "v13", "campaign_raw": "graf promo", "source": "yandex", "medium": "cpc", "referrer_category": "paid", "first_seen_at": "2026-09-06T20:05:00+00:00", "linked_automatically": false},
+        {"visit_ref": "v14", "campaign_raw": null, "source": null, "medium": null, "referrer_category": "direct", "first_seen_at": "2026-09-01T07:50:00+00:00", "linked_automatically": false},
+        {"visit_ref": "v15", "campaign_raw": null, "source": null, "medium": null, "referrer_category": "direct", "first_seen_at": "2026-09-04T07:40:00+00:00", "linked_automatically": false},
+        {"visit_ref": "v16", "campaign_raw": null, "source": null, "medium": null, "referrer_category": "direct", "first_seen_at": "2026-09-07T22:10:00+00:00", "linked_automatically": false}
+      ],
+      "rows_outside_window": [
+        {"visit_ref": "v90", "campaign_raw": "brand-search", "source": "yandex", "medium": "cpc", "referrer_category": "paid", "first_seen_at": "2026-05-15T10:00:00+00:00", "linked_automatically": true}
+      ]
+    }
+  },
+  "expected": {
+    "disclosed_buckets": {
+      "brand-search": 4,
+      "generic-search": 3,
+      "кампания неизвестна": 4,
+      "прямой заход": 3
+    },
+    "suppressed_buckets": 1,
+    "suppressed_visits": 2,
+    "excluded_out_of_period_or_window": 1,
+    "total_in_scope_visits": 16,
+    "disclosed_visits": 14,
+    "note": "Метка «graf promo» содержит пробел и отбрасывается очистителем на обеих поверхностях, поэтому этот визит попадает в корзину «кампания неизвестна». Расхождение в этом месте означало бы, что одна из поверхностей показывает метку, которую другая скрывает."
+  },
+  "negative_cases": [
+    {
+      "case_id": "N1",
+      "mutation": "в продуктовой аналитике визит v13 приписан кампании brand-search",
+      "expected_detection": "расхождение по корзине brand-search и по корзине «кампания неизвестна»"
+    },
+    {
+      "case_id": "N2",
+      "mutation": "в Метрике прямой заход переименован в кампанию unknown",
+      "expected_detection": "расхождение: корзина «прямой заход» исчезла, появилась лишняя кампания unknown"
+    },
+    {
+      "case_id": "N3",
+      "mutation": "из продуктовой аналитики убрано окно 90 дней, визит v90 попадает в разбивку",
+      "expected_detection": "расхождение по корзине brand-search"
+    },
+    {
+      "case_id": "N4",
+      "mutation": "в Метрике не применяется очиститель меток и метка «graf promo» остаётся отдельной корзиной",
+      "expected_detection": "расхождение: лишняя корзина и недостача в корзине «кампания неизвестна»"
+    },
+    {
+      "case_id": "N5",
+      "mutation": "в продуктовой аналитике корзина retargeting раскрыта при двух визитах",
+      "expected_detection": "расхождение: раскрыта корзина, которая должна быть скрыта"
+    }
+  ]
+}

@@ -1,0 +1,380 @@
+{
+  "schema": "graf.analytics.yandex-reports.v1",
+  "provider": "yandex_metrica",
+  "feature": "273-paid-traffic-analytics",
+  "catalog": "../catalog.json",
+  "purpose": "Машиночитаемые определения отчётов Яндекс.Метрики по тем же разрезам, что и дашборды PostHog. Это файлы определений, а не картинки и не скриншоты.",
+  "apply": {
+    "requires_operator": true,
+    "why": "Настройка отчётов и целей выполняется в интерфейсе счётчика или через Reporting API с рабочим идентификатором счётчика и ключом доступа. Из репозитория подключение к продуктиве не делается.",
+    "steps": [
+      "1. Оператор входит в Метрику с включённым вторым фактором.",
+      "2. Оператор переносит определения отчётов в интерфейсе: отчёты → сохранённые отчёты, либо выполняет запрос Reporting API из поля reporting_api.",
+      "3. Идентификатор счётчика и идентификаторы целей подставляются во время применения и в репозиторий не попадают: в файле стоят метки вида <counter_id> и <goal_id:имя_цели>.",
+      "4. Оператор сверяет имена измерений и метрик с документацией Метрики и тарифом счётчика: часть отчётов зависит от подключённых возможностей.",
+      "5. Оператор записывает имена сохранённых отчётов, владельца, состояние и дату в запись готовности отчёта.",
+      "6. Оператор проверяет свежесть: дату последних данных в отчёте и задержку обработки."
+    ],
+    "api_reference": {
+      "endpoint": "GET https://api-metrika.yandex.net/stat/v1/data",
+      "docs": "https://yandex.com/dev/metrika/en/stat/",
+      "note": "Точный набор измерений и метрик проверяется оператором при применении: часть измерений зависит от тарифа и включённых отчётов. Смысл отчёта при этом не меняется."
+    },
+    "forbidden_in_this_file": [
+      "рабочий идентификатор счётчика",
+      "ключ доступа и токен",
+      "идентификаторы целей",
+      "номера кликов и идентификаторы посетителей",
+      "строки выгрузки офлайн-конверсий",
+      "скриншоты с данными посетителей"
+    ]
+  },
+  "goal_names": [
+    {"goal_name": "landing_view", "event": "public_landing_viewed", "priority": "diagnostic"},
+    {"goal_name": "landing_engaged", "event": "public_landing_section_seen", "priority": "secondary"},
+    {"goal_name": "landing_cta_click", "event": "public_landing_cta_clicked", "priority": "secondary"},
+    {"goal_name": "download_page_view", "event": "public_download_viewed", "priority": "secondary"},
+    {"goal_name": "installer_download_click", "event": "public_installer_download_clicked", "priority": "primary"},
+    {"goal_name": "login_intent_click", "event": "public_login_intent_clicked", "priority": "secondary"}
+  ],
+  "offline_conversion_names": ["desktop_account_connected", "first_value_session_completed"],
+  "goal_id_policy": "Идентификаторы целей и счётчика подставляются во время применения. В репозитории остаются только метки <counter_id> и <goal_id:имя_цели>.",
+  "attribution": {
+    "rule": "last_non_direct_90d",
+    "window_days": 90,
+    "in_metrica": "разрез по последнему значимому источнику и по меткам кампании",
+    "unknown_is_not_direct": true,
+    "caveat": "Метрика видит только согласившихся посетителей: её знаменатель меньше обезличенного счёта уровня 1."
+  },
+  "freshness_defaults": {
+    "stale_after_hours": 26,
+    "provider_delay_note": "У Метрики есть собственная задержка обработки данных; отчёт считается свежим, если последние данные не старше 26 часов и задержка провайдера не превышает сутки."
+  },
+  "reports": [
+    {
+      "report_id": "R01",
+      "yandex_id": "Y01",
+      "name": "GRAF Y01 — Сравнение каналов (Метрика)",
+      "owner": "growth analytics operator",
+      "ui_equivalent": "Отчёты → Источники, сводка; разрез «Последний значимый источник»; добавить цели нажатия скачивания и просмотра страниц",
+      "reporting_api": {
+        "method": "GET",
+        "path": "/stat/v1/data",
+        "params": {
+          "ids": "<counter_id>",
+          "metrics": ["ym:s:visits", "ym:s:users", "ym:s:goal<goal_id:installer_download_click>reaches", "ym:s:goal<goal_id:installer_download_click>conversionRate"],
+          "dimensions": ["ym:s:lastsignTrafficSource", "ym:s:lastsignUTMSource", "ym:s:lastsignUTMMedium", "ym:s:lastsignUTMCampaign"],
+          "accuracy": "full",
+          "limit": 100,
+          "sort": "-ym:s:visits"
+        }
+      },
+      "dimensions": ["источник (последний значимый)", "метка источника", "метка канала", "метка кампании"],
+      "goals": ["installer_download_click", "download_page_view"],
+      "caveats": ["metrica_consented_only", "metrica_sampling", "no_optional_consent_share", "internal_traffic", "delivery_gap_note", "unknown_not_direct", "attribution_window_90d"],
+      "empty_state": {
+        "no_data": "В отчёте нет строк за период: показывать «нет данных» и проверить согласие и задержку обработки, а не делать вывод об отсутствии спроса.",
+        "true_zero": "Визиты есть, нажатий скачивания нет: 0 нажатий — это настоящий ноль.",
+        "how_to_tell": "Раздел «Нулевые данные» в руководстве: согласие, конфигурация счётчика, задержка провайдера, фильтры и блокировщики."
+      },
+      "freshness": {"stale_after_hours": 26, "check": "дата последних данных в отчёте и задержка обработки счётчика"},
+      "requires_operator": true
+    },
+    {
+      "report_id": "R02",
+      "yandex_id": "Y02",
+      "name": "GRAF Y02 — Сравнение объявлений (Метрика)",
+      "owner": "growth analytics operator",
+      "ui_equivalent": "Отчёты → Источники → Директ, сводка; разрез по кампаниям, группам объявлений и объявлениям при связанном кабинете",
+      "reporting_api": {
+        "method": "GET",
+        "path": "/stat/v1/data",
+        "params": {
+          "ids": "<counter_id>",
+          "metrics": ["ym:s:visits", "ym:s:goal<goal_id:installer_download_click>reaches"],
+          "dimensions": ["ym:s:lastsignUTMCampaign", "ym:s:lastsignUTMContent", "ym:s:lastsignUTMTerm"],
+          "accuracy": "full",
+          "limit": 200,
+          "sort": "-ym:s:visits"
+        }
+      },
+      "dimensions": ["кампания", "объявление", "ключевое слово"],
+      "goals": ["installer_download_click", "landing_cta_click"],
+      "caveats": ["metrica_consented_only", "metrica_sampling", "no_optional_consent_share", "internal_traffic", "delivery_gap_note", "unknown_not_direct", "attribution_window_90d"],
+      "empty_state": {
+        "no_data": "Объявление без строк: «нет данных», а не провальное объявление.",
+        "true_zero": "Клики есть, целей нет: 0 достижений цели.",
+        "how_to_tell": "Свежесть отчёта и наличие кликов по объявлению из кабинета."
+      },
+      "freshness": {"stale_after_hours": 26, "check": "дата последних данных и состояние связи с кабинетом Директа"},
+      "requires_operator": true
+    },
+    {
+      "report_id": "R03",
+      "yandex_id": "Y03",
+      "name": "GRAF Y03 — Сравнение посадочных страниц (Метрика)",
+      "owner": "growth analytics operator",
+      "ui_equivalent": "Отчёты → Содержание → Страницы входа; разрез по странице входа и метке кампании",
+      "reporting_api": {
+        "method": "GET",
+        "path": "/stat/v1/data",
+        "params": {
+          "ids": "<counter_id>",
+          "metrics": ["ym:s:visits", "ym:s:users", "ym:s:goal<goal_id:installer_download_click>reaches"],
+          "dimensions": ["ym:s:landingPagePath", "ym:s:lastsignUTMCampaign"],
+          "accuracy": "full",
+          "limit": 200,
+          "sort": "-ym:s:visits"
+        }
+      },
+      "dimensions": ["страница входа", "кампания", "источник"],
+      "goals": ["landing_view", "landing_engaged", "download_page_view", "installer_download_click"],
+      "caveats": ["metrica_consented_only", "metrica_sampling", "no_optional_consent_share", "internal_traffic", "delivery_gap_note"],
+      "empty_state": {
+        "no_data": "Страница без строк: «нет данных»; вывод о слабой странице не делается.",
+        "true_zero": "Визиты есть, скачиваний нет: 0 и вывод «страница не доводит до скачивания».",
+        "how_to_tell": "Свежесть отчёта и наличие визитов по странице."
+      },
+      "freshness": {"stale_after_hours": 26, "check": "дата последних данных по странице входа"},
+      "requires_operator": true
+    },
+    {
+      "report_id": "R04",
+      "yandex_id": "Y04",
+      "name": "GRAF Y04 — Воронка от визита до первой ценности (Метрика)",
+      "owner": "product analytics operator",
+      "ui_equivalent": "Отчёты → Конверсии → Воронка по целям; шаги: просмотр страницы, страница загрузки, нажатие скачивания, подключение аккаунта, первая ценность",
+      "reporting_api": {
+        "method": "GET",
+        "path": "/stat/v1/data",
+        "params": {
+          "ids": "<counter_id>",
+          "metrics": ["ym:s:visits", "ym:s:goal<goal_id:landing_view>reaches", "ym:s:goal<goal_id:download_page_view>reaches", "ym:s:goal<goal_id:installer_download_click>reaches", "ym:s:offlineConversionDesktopAccountConnectedReaches", "ym:s:offlineConversionFirstValueSessionCompletedReaches"],
+          "dimensions": ["ym:s:lastsignUTMCampaign"],
+          "accuracy": "full",
+          "limit": 100,
+          "sort": "-ym:s:visits"
+        }
+      },
+      "dimensions": ["кампания", "шаг воронки"],
+      "goals": ["landing_view", "download_page_view", "installer_download_click"],
+      "offline_conversions": ["desktop_account_connected", "first_value_session_completed"],
+      "caveats": ["metrica_consented_only", "metrica_sampling", "offline_conversions_two_milestones", "yandex_desktop_direct_blocked", "no_optional_consent_share", "internal_traffic", "delivery_gap_note", "unknown_not_direct", "attribution_window_90d"],
+      "empty_state": {
+        "no_data": "Пустой шаг воронки: «нет данных» и проверка загрузки офлайн-конверсий, шаг не обрывается нулём.",
+        "true_zero": "На шаг не пришёл ни один человек при подтверждённой загрузке: 0.",
+        "how_to_tell": "Статус загрузки офлайн-конверсий и свежесть целей отдельно от веб-целей."
+      },
+      "freshness": {"stale_after_hours": 26, "check": "дата последних данных веб-целей и дата последней загрузки офлайн-конверсий"},
+      "requires_operator": true,
+      "note": "Метрика не содержит шага «состоявшееся скачивание установщика»: этот шаг виден только в обезличенном счёте уровня 1. В отчёте он показывается отдельной строкой из продуктового контура."
+    },
+    {
+      "report_id": "R05",
+      "yandex_id": "Y05",
+      "name": "GRAF Y05 — Намерение скачать против состоявшейся активации (Метрика)",
+      "owner": "product analytics operator",
+      "ui_equivalent": "Два отчёта рядом: цели по нажатию скачивания и отчёт по офлайн-конверсиям; подписи не смешиваются",
+      "reporting_api": {
+        "method": "GET",
+        "path": "/stat/v1/data",
+        "params": {
+          "ids": "<counter_id>",
+          "metrics": ["ym:s:goal<goal_id:installer_download_click>reaches", "ym:s:goal<goal_id:installer_download_click>conversionRate"],
+          "dimensions": ["ym:s:lastsignUTMCampaign", "ym:s:landingPagePath"],
+          "accuracy": "full",
+          "limit": 200,
+          "sort": "-ym:s:goal<goal_id:installer_download_click>reaches"
+        }
+      },
+      "dimensions": ["кампания", "страница входа"],
+      "goals": ["installer_download_click"],
+      "offline_conversions": ["desktop_account_connected", "first_value_session_completed"],
+      "caveats": ["metrica_consented_only", "metrica_sampling", "offline_conversions_two_milestones", "no_optional_consent_share", "internal_traffic", "delivery_gap_note", "attribution_window_90d"],
+      "empty_state": {
+        "no_data": "Цели и офлайн-конверсии не пришли: «нет данных» в обеих колонках, разрыв не считается.",
+        "true_zero": "Нажатий нет при подтверждённой доставке: 0 нажатий.",
+        "how_to_tell": "Свежесть веб-целей и статус загрузки офлайн-конверсий проверяются отдельно."
+      },
+      "freshness": {"stale_after_hours": 26, "check": "дата последних данных веб-целей и офлайн-конверсий"},
+      "requires_operator": true,
+      "intent_vs_activation": {
+        "separates": ["нажатие скачивания (цель Метрики)", "состоявшееся скачивание (уровень 1)", "активация (офлайн-конверсия)"],
+        "rule": "В Метрике нет шага «состоявшееся скачивание»: он берётся из уровня 1. Подписи «скачивания» и «активации» не смешиваются."
+      }
+    },
+    {
+      "report_id": "R06",
+      "yandex_id": "Y06",
+      "name": "GRAF Y06 — Отваливание на подключении аккаунта (Метрика)",
+      "owner": "product analytics operator",
+      "ui_equivalent": "Отчёты → Конверсии → Достижение цели «подключение аккаунта» с разрезом по кампании; рядом число загрузок приложения",
+      "reporting_api": {
+        "method": "GET",
+        "path": "/stat/v1/data",
+        "params": {
+          "ids": "<counter_id>",
+          "metrics": ["ym:s:goal<goal_id:installer_download_click>reaches", "ym:s:offlineConversionDesktopAccountConnectedReaches"],
+          "dimensions": ["ym:s:lastsignUTMCampaign"],
+          "accuracy": "full",
+          "limit": 100,
+          "sort": "-ym:s:goal<goal_id:installer_download_click>reaches"
+        }
+      },
+      "dimensions": ["кампания"],
+      "goals": ["installer_download_click"],
+      "offline_conversions": ["desktop_account_connected"],
+      "caveats": ["metrica_consented_only", "metrica_sampling", "offline_conversions_two_milestones", "yandex_desktop_direct_blocked", "no_optional_consent_share", "internal_traffic", "delivery_gap_note"],
+      "empty_state": {
+        "no_data": "Офлайн-конверсии не загружены: «нет данных», а не нулевое подключение аккаунта.",
+        "true_zero": "Загрузки были, подключений нет при подтверждённой загрузке конверсий: 0 подключений.",
+        "how_to_tell": "Статус загрузки офлайн-конверсий и число событий подключения аккаунта в продуктовой аналитике."
+      },
+      "freshness": {"stale_after_hours": 26, "check": "дата последней загрузки офлайн-конверсий"},
+      "requires_operator": true,
+      "note": "Первый запуск приложения в Метрику не передаётся: веха не входит в две согласованные офлайн-конверсии. Отваливание читается вместе с продуктовой аналитикой."
+    },
+    {
+      "report_id": "R07",
+      "yandex_id": "Y07",
+      "name": "GRAF Y07 — Стоимость результата (Метрика)",
+      "owner": "growth analytics operator",
+      "ui_equivalent": "Отчёты → Источники → Директ, расход; рядом отчёт по офлайн-конверсиям за тот же период",
+      "reporting_api": {
+        "method": "GET",
+        "path": "/stat/v1/data",
+        "params": {
+          "ids": "<counter_id>",
+          "metrics": ["ym:s:visits", "ym:s:goal<goal_id:installer_download_click>reaches"],
+          "dimensions": ["ym:s:lastsignUTMCampaign", "ym:s:date"],
+          "accuracy": "full",
+          "limit": 500,
+          "sort": "ym:s:date"
+        }
+      },
+      "dimensions": ["кампания", "день"],
+      "goals": ["installer_download_click"],
+      "offline_conversions": ["desktop_account_connected", "first_value_session_completed"],
+      "cost_note": "Расход берётся из связанного кабинета Директа или из выгрузки кабинета. Стоимость активации считается в продуктовом контуре, где соединяются расход и конверсии: в Метрике расхода и двух согласованных конверсий может не хватать для полной картины.",
+      "caveats": ["metrica_consented_only", "metrica_sampling", "cabinet_spend_delay", "cabinet_spend_no_vat_mixing", "partial_spend_period", "unmatched_spend_rows", "no_optional_consent_share", "internal_traffic", "delivery_gap_note"],
+      "empty_state": {
+        "no_data": "Расход за день не загружен: стоимость результата «нет данных», а не 0.",
+        "true_zero": "Расход подтверждённо нулевой: стоимость результата 0.",
+        "how_to_tell": "Наличие расхода за каждый день периода и статус связи с кабинетом."
+      },
+      "freshness": {"stale_after_hours": 26, "check": "дата последней загрузки расхода"},
+      "requires_operator": true
+    },
+    {
+      "report_id": "R08",
+      "yandex_id": "Y08",
+      "name": "GRAF Y08 — Полнота расхода рекламного кабинета (Метрика)",
+      "owner": "growth analytics operator",
+      "ui_equivalent": "Отчёты → Источники → Директ, расход по дням; сверка с выгрузкой кабинета",
+      "reporting_api": {
+        "method": "GET",
+        "path": "/stat/v1/data",
+        "params": {
+          "ids": "<counter_id>",
+          "metrics": ["ym:s:visits"],
+          "dimensions": ["ym:s:date", "ym:s:lastsignUTMCampaign"],
+          "accuracy": "full",
+          "limit": 500,
+          "sort": "ym:s:date"
+        }
+      },
+      "dimensions": ["день", "кампания"],
+      "goals": [],
+      "caveats": ["metrica_consented_only", "metrica_sampling", "cabinet_spend_delay", "cabinet_spend_no_vat_mixing", "partial_spend_period", "unmatched_spend_rows", "no_optional_consent_share", "internal_traffic", "delivery_gap_note"],
+      "empty_state": {
+        "no_data": "Одна из сторон не загружена: расхождение «нет данных», а не 0.",
+        "true_zero": "Обе стороны загружены и совпадают: расхождение 0.",
+        "how_to_tell": "Наличие строк за каждый день периода с обеих сторон."
+      },
+      "freshness": {"stale_after_hours": 26, "check": "дата последней загрузки расхода и дата последних данных счётчика"},
+      "requires_operator": true
+    },
+    {
+      "report_id": "R09",
+      "yandex_id": "Y09",
+      "name": "GRAF Y09 — Свежесть и пробелы данных (Метрика)",
+      "owner": "infrastructure operator",
+      "ui_equivalent": "Отчёты → Посещаемость по дням и часам: обрыв линии означает пробел сбора, а не отсутствие интереса",
+      "reporting_api": {
+        "method": "GET",
+        "path": "/stat/v1/data",
+        "params": {
+          "ids": "<counter_id>",
+          "metrics": ["ym:s:visits", "ym:s:users"],
+          "dimensions": ["ym:s:date"],
+          "accuracy": "full",
+          "limit": 100,
+          "sort": "ym:s:date"
+        }
+      },
+      "dimensions": ["день"],
+      "goals": [],
+      "covers_reports": ["R09", "R10"],
+      "caveats": ["metrica_consented_only", "metrica_sampling", "no_optional_consent_share", "internal_traffic", "delivery_gap_note", "freshness_stale_means_no_decision"],
+      "empty_state": {
+        "no_data": "День без строк: «нет данных». Причина проверяется по разделу «Нулевые данные» руководства, а не объясняется отсутствием спроса.",
+        "true_zero": "Визитов действительно не было и сбор подтверждён: 0 визитов.",
+        "how_to_tell": "Задержка обработки счётчика, согласие в браузере, фильтры и блокировщики проверяются по отдельности."
+      },
+      "freshness": {"stale_after_hours": 26, "check": "дата последних данных и задержка обработки данных счётчика"},
+      "requires_operator": true,
+      "note": "Возможности Метрики по показу пробелов слабее, чем у PostHog: основной отчёт о пробелах измерения ведётся в продуктовом контуре (R10), а Метрика показывает задержку и обрывы."
+    },
+    {
+      "report_id": "R12",
+      "yandex_id": "Y10",
+      "name": "GRAF Y10 — Качество атрибуции и офлайн-конверсии (Метрика)",
+      "owner": "product analytics operator",
+      "ui_equivalent": "Отчёты → Конверсии → Офлайн-конверсии; разрез по источнику и кампании; отдельно состояние загрузки",
+      "reporting_api": {
+        "method": "GET",
+        "path": "/stat/v1/data",
+        "params": {
+          "ids": "<counter_id>",
+          "metrics": ["ym:s:offlineConversionDesktopAccountConnectedReaches", "ym:s:offlineConversionFirstValueSessionCompletedReaches"],
+          "dimensions": ["ym:s:lastsignUTMCampaign", "ym:s:lastsignUTMSource"],
+          "accuracy": "full",
+          "limit": 200,
+          "sort": "-ym:s:offlineConversionFirstValueSessionCompletedReaches"
+        }
+      },
+      "dimensions": ["кампания", "источник"],
+      "goals": [],
+      "offline_conversions": ["desktop_account_connected", "first_value_session_completed"],
+      "caveats": ["metrica_consented_only", "metrica_sampling", "offline_conversions_two_milestones", "yandex_desktop_direct_blocked", "unknown_not_direct", "attribution_window_90d", "dedupe_rule", "no_optional_consent_share", "internal_traffic", "delivery_gap_note"],
+      "empty_state": {
+        "no_data": "Офлайн-конверсии не загружены: «нет данных»; выводы о качестве атрибуции не делаются.",
+        "true_zero": "Конверсии загружены, но атрибуция не нашла источник: 0 привязанных — это повод к разбору, а не вывод о каналах.",
+        "how_to_tell": "Состояние загрузки офлайн-конверсий и число событий в продуктовой аналитике за тот же период."
+      },
+      "freshness": {"stale_after_hours": 26, "check": "дата последней загрузки офлайн-конверсий и статус провайдера"},
+      "requires_operator": true,
+      "consistency_note": "Этот отчёт участвует в сверке разбивки по кампаниям с продуктовой аналитикой (SC-008)."
+    }
+  ],
+  "not_expressed_in_metrica": [
+    {
+      "report_id": "R11",
+      "reason": "Долю посетителей без необязательного согласия Метрика измерить не может: она видит только согласившихся. Показатель берётся из обезличенного счёта уровня 1 и указывается оговоркой в каждом отчёте Метрики."
+    },
+    {
+      "report_id": "R13",
+      "reason": "Фильтр внутреннего и служебного трафика в Метрике настраивается правилами счётчика и не выражается отчётом с определениями. Внутренний трафик остаётся оговоркой каждого отчёта."
+    },
+    {
+      "report_id": "R14",
+      "reason": "Доступ, копии, восстановление и сроки хранения относятся к контуру GRAF и PostHog. Метрика хранит данные по своим правилам, и это указано оговоркой."
+    }
+  ],
+  "consistency_check": {
+    "requirement": "SC-008, T061",
+    "sample": "../consistency/sample-campaign-breakdown.json",
+    "procedure": "../catalog.json#consistency_check",
+    "note": "Сверка выполняется по долям кампаний среди согласившихся посетителей, потому что только этот срез есть в обеих системах."
+  }
+}

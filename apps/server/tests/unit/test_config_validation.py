@@ -33,6 +33,19 @@ def test_production_config_accepts_non_local_runtime_credentials() -> None:
     assert settings.env == "production"
 
 
+def test_internal_analytics_hosts_parse_addresses_and_cidr_networks() -> None:
+    settings = Settings(
+        product_analytics_internal_hosts='["10.20.0.0/16", "198.51.100.24"]'
+    )
+
+    assert settings.product_analytics_internal_hosts == ("10.20.0.0/16", "198.51.100.24")
+
+
+def test_internal_analytics_hosts_reject_invalid_values() -> None:
+    with pytest.raises(ValidationError, match="product_analytics_internal_hosts"):
+        Settings(product_analytics_internal_hosts="not-an-address")
+
+
 def test_production_rejects_uncertified_yandex_calendar() -> None:
     with pytest.raises(ValidationError, match="uncertified Yandex Calendar"):
         _production_settings(calendar_allow_uncertified_yandex=True)

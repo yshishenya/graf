@@ -124,20 +124,32 @@ def test_public_pages_render_safe_campaign_context_without_private_values(
     assert "token=abc" not in response.text
 
 
-def test_public_analytics_provider_is_absent_from_private_and_legal_surfaces(
+def test_public_analytics_provider_is_absent_from_private_surfaces(
     postgres_worker_database_url: str,
 ) -> None:
+    """FR-027: consent covers every public page, and only the public ones."""
     app = _analytics_app(postgres_worker_database_url)
 
     with TestClient(app) as client:
         private_responses = [
             client.get(path, follow_redirects=True)
-            for path in ("/login", "/admin", "/cabinet/not-a-real-page", "/api/v1/health/live")
+            for path in ("/cabinet/not-a-real-page", "/api/v1/health/live")
         ]
-        legal_responses = [
+        # A private page without a session sends the visitor to the public login
+        # page, so the redirect itself is what must stay free of the config.
+        admin_redirect = client.get("/admin", follow_redirects=False)
+        public_responses = [
             client.get(path, follow_redirects=True)
             for path in ("/privacy", "/cookies", "/terms", "/offer", "/analytics-consent")
         ]
+        auth_responses = [
+            client.get(path, follow_redirects=True) for path in ("/login", "/sign-up")
+        ]
+
+    assert admin_redirect.status_code == 303
+    assert admin_redirect.headers["location"].startswith("/login")
+    assert "graf-public-analytics-config" not in admin_redirect.text
+    assert "analytics.js" not in admin_redirect.text
 
     for response in private_responses:
         assert response.status_code < 500
@@ -145,15 +157,70 @@ def test_public_analytics_provider_is_absent_from_private_and_legal_surfaces(
         assert "analytics.js" not in response.text
         assert "metrika/tag.js" not in response.text
 
-    for response in legal_responses:
+    # FR-027: consent-based measurement covers every public page, legal pages and
+    # the pages with a credential form included, so the first-party relay becomes
+    # available there after the visitor agrees. Level 3 never widens level 2:
+    # behaviour replay stays on the two published pages, and no provider script is
+    # part of the rendered HTML.
+    for response in public_responses:
         assert response.status_code < 500
         assert 'id="graf-public-analytics-config"' in response.text
         assert '"consent_ui_enabled": true' in response.text
-        assert '"enabled": false' in response.text
-        assert '"yandex_metrica_id": null' in response.text
+        assert '"enabled": true' in response.text
+        assert '"yandex_metrica_id": "12345678"' in response.text
+        assert '"measurement_scope": "all_public_pages_by_consent"' in response.text
+        assert '"replay_scope": ["public_landing", "public_download"]' in response.text
+        assert '"replay_allowed": false' in response.text
+        assert '"webvisor_allowed": false' in response.text
+        assert '"click_map_allowed": false' in response.text
+        assert '"scroll_map_allowed": false' in response.text
         assert "analytics.js" in response.text
         assert "cookieconsent.umd.js" in response.text
         assert "metrika/tag.js" not in response.text
+
+    for response, surface, page_view_event in (
+        (auth_responses[0], "public_login", "public_login_viewed"),
+        (auth_responses[1], "public_signup", "public_signup_viewed"),
+    ):
+        assert response.status_code == 200
+        assert 'id="graf-public-analytics-config"' in response.text
+        assert f'"surface": "{surface}"' in response.text
+        assert f'"{page_view_event}"' in response.text
+        assert '"consent_ui_enabled": true' in response.text
+        assert '"enabled": true' in response.text
+        assert '"measurement_scope": "all_public_pages_by_consent"' in response.text
+        # The page shows a credential form, so the visitor's decision authorises
+        # the first-party relay only: no external counter, no replay, no form
+        # analytics, and the relay carries a closed field list.
+        assert '"external_counter_allowed": false' in response.text
+        assert '"external_counter_scope": ["public_landing", "public_download"]' in response.text
+        assert '"replay_allowed": false' in response.text
+        assert '"webvisor_allowed": false' in response.text
+        assert '"click_map_allowed": false' in response.text
+        assert '"scroll_map_allowed": false' in response.text
+        assert '"form_analytics_allowed": false' in response.text
+        assert response.text.count("/static/public/analytics.js") == 1
+        assert "cookieconsent.umd.js" in response.text
+        assert "metrika/tag.js" not in response.text
+
+
+def test_published_copy_matches_the_measured_page_scope(postgres_worker_database_url: str) -> None:
+    """The disclosure cannot lag behind the measurement (privacy truth)."""
+    app = _analytics_app(postgres_worker_database_url)
+
+    with TestClient(app) as client:
+        cookies = " ".join(client.get("/cookies").text.split())
+        privacy = " ".join(client.get("/privacy").text.split())
+        analytics = " ".join(client.get("/analytics-consent").text.split())
+
+    assert "юридических страницах и странице описания аналитики" in cookies
+    assert "юридических страницах и странице описания аналитики" in privacy
+    assert "юридические страницы и страницу описания аналитики" in analytics
+    # Behaviour replay keeps the narrower published scope on every page.
+    for copy in (cookies, privacy, analytics):
+        assert "/download" in copy
+    assert "только на главной странице и странице скачивания" in privacy
+    assert "ограничено путями <code>/</code> и <code>/download</code>" in analytics
 
 
 def test_public_pages_and_controller_contain_exact_new_funnel_contract(
@@ -176,7 +243,8 @@ def test_public_pages_and_controller_contain_exact_new_funnel_contract(
     analytics_js = (PUBLIC_STATIC_DIR / "analytics.js").read_text(encoding="utf-8")
     for goal in (
         "public_landing_viewed", "public_landing_section_seen", "public_landing_cta_clicked",
-        "public_download_viewed", "public_installer_download_clicked", "public_login_intent_clicked",
+        "public_download_viewed", "public_signup_viewed", "public_login_viewed",
+        "public_installer_download_clicked", "public_login_intent_clicked",
         "public_product_tab_selected", "public_pricing_cycle_selected", "public_faq_opened",
     ):
         assert goal in analytics_js
