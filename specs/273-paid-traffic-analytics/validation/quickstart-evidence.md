@@ -12,8 +12,12 @@
 
 - **Рабочее дерево:** `/Users/yshishenya/Documents/crisp/.dsh-worktrees/paid-traffic-analytics`.
 - **Ветка:** `273-paid-traffic-analytics`.
-- **База дерева:** `7f39ea9552ea7d7ea1d56e568ecaf43a27d7a0be`; дерево остаётся грязным,
+- **База дерева:** `eb67ca5b47e0e60e63dcde626ffbc2e6c25d921d`; дерево остаётся грязным,
   поэтому SHA является базой, а не доказанным снимком реализации.
+- **P1 admission guard:** `bash apps/server/scripts/run_local_postgres_tests.sh --focused tests/contract/test_product_analytics_anonymous_aggregate_contract.py -q` — **16 passed**. Восемь конкурентных новых ссылок при лимите 3 создали ровно 3 durable-строки; после исчерпания квоты `/download` вернул `200`, независимый обезличенный агрегат не заблокирован.
+- **Расширенный focused-набор после P1:** `bash apps/server/scripts/run_local_postgres_tests.sh --focused ... -q` — **141 passed**; проверены acquisition, legal-basis, public analytics, config и registration/app handoff paths.
+- **Миграции:** `test_production_share_head_upgrades_to_regeneration_merge` и `test_product_analytics_migrations_downgrade_cleanly` — **2 passed**; `0097_public_attribution_admission_index` применился и откатился вместе с цепочкой Feature 273.
+- **Связанные проверки головы схемы и retention-контракта:** **39 passed**; `ruff`, `compileall` и `git diff --check` — **pass**.
 - **Provider smoke:** `bash infra/scripts/run-product-analytics-provider-smoke.sh` — **pass**.
   В синтетическом metadata-only окружении подтверждены `live_safe`-отправка
   PostHog, `live_safe`-загрузка Yandex Offline Conversions, readiness
@@ -67,10 +71,10 @@ alert-каналов, сверка опубликованного consent-copy, 
 - **Дата прогона:** 2026-09-19, часовой пояс +05.
 - **Рабочее дерево:** `/Users/yshishenya/Documents/crisp/.dsh-worktrees/paid-traffic-analytics`.
 - **Ветка:** `273-paid-traffic-analytics`.
-- **Коммит-основание:** `7f39ea9552ea7d7ea1d56e568ecaf43a27d7a0be`
+- **Коммит-основание исторического прогона:** `7f39ea9552ea7d7ea1d56e568ecaf43a27d7a0be`
   (2026-09-18, «[F271] Подготовка релиза 2026.09.18.3»), получен командой
   `git rev-parse HEAD`.
-- **Коммитов этой фичи в дереве нет.** Все изменения фичи 273 лежат в рабочей
+- **Коммитов этой фичи в дереве на момент исторического прогона нет.** Все изменения фичи 273 лежат в рабочей
   копии поверх коммита-основания: `git status --porcelain` показывает 137
   измененных или новых путей. Среди них новые файлы реализации
   (`apps/server/src/twobrain_rec_server/product_analytics/acquisition.py`,

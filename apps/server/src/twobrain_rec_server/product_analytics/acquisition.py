@@ -31,7 +31,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import select
+from sqlalchemy import func, select, text
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -66,6 +66,13 @@ ATTRIBUTION_REF_PREFIX = "graf_visit_"
 # references.  The bound is part of the server contract as well: auth must never
 # turn a caller-controlled collection into an unbounded database lookup.
 MAX_VISIT_ATTRIBUTION_REFS = 8
+# Durable visit rows are a handoff cache, not a request log. Keep the default
+# admission high enough for ordinary paid traffic while bounding an attacker
+# that sends a fresh campaign label on every request. The values are runtime
+# configurable so the operator can size them from the capacity baseline.
+PUBLIC_VISIT_ATTRIBUTION_ADMISSION_LIMIT = 10_000
+PUBLIC_VISIT_ATTRIBUTION_ADMISSION_WINDOW_SECONDS = 3_600
+PUBLIC_VISIT_ATTRIBUTION_ADMISSION_LOCK_KEY = "graf:public_visit_attribution:admission"
 CAMPAIGN_FIELDS = ("source", "medium", "campaign", "content", "term")
 # The unique constraint of ``client_acquisition_attributes``: one acquisition
 # attribute per account, which is what makes registration idempotent.
@@ -499,6 +506,84 @@ async def load_visit_attribution_by_ref(
     return _visit_attribution_from_row(row) if row is not None else None
 
 
+def _positive_setting(settings: Any | None, name: str, default: int) -> int:
+    value = getattr(settings, name, default)
+    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+        return value
+    return default
+
+
+def _session_dialect_name(session: AsyncSession) -> str | None:
+    get_bind = getattr(session, "get_bind", None)
+    if not callable(get_bind):
+        # Small in-process test doubles do not expose a SQLAlchemy bind. The
+        # real application database is PostgreSQL; keeping this fallback makes
+        # the best-effort writer tests independent of a database implementation.
+        return None
+    return getattr(get_bind().dialect, "name", None)
+
+
+async def _admit_visit_attribution_references(
+    session: AsyncSession,
+    references: Iterable[str],
+    *,
+    settings: Any | None = None,
+) -> tuple[str, ...]:
+    """Return references allowed to create or reuse durable rows.
+
+    PostgreSQL's transaction advisory lock serializes the check and the later
+    insert across every API process. The lock key is a constant; caller labels
+    and references cannot create independent quota buckets. The public response
+    remains independent because callers treat an empty result as a measurement
+    gap, not as a page error.
+    """
+
+    ordered = tuple(dict.fromkeys(references))
+    if not ordered or _session_dialect_name(session) != "postgresql":
+        return ordered
+
+    await session.execute(
+        text("select pg_advisory_xact_lock(hashtextextended(:lock_key, 0))"),
+        {"lock_key": PUBLIC_VISIT_ATTRIBUTION_ADMISSION_LOCK_KEY},
+    )
+    existing = set(
+        (
+            await session.scalars(
+                select(PublicVisitAttributionRow.attribution_ref).where(
+                    PublicVisitAttributionRow.attribution_ref.in_(ordered)
+                )
+            )
+        ).all()
+    )
+    candidates = [reference for reference in ordered if reference not in existing]
+    if not candidates:
+        return ordered
+
+    window_seconds = _positive_setting(
+        settings,
+        "product_analytics_visit_attribution_admission_window_seconds",
+        PUBLIC_VISIT_ATTRIBUTION_ADMISSION_WINDOW_SECONDS,
+    )
+    limit = _positive_setting(
+        settings,
+        "product_analytics_visit_attribution_admission_limit",
+        PUBLIC_VISIT_ATTRIBUTION_ADMISSION_LIMIT,
+    )
+    window_start = datetime.now(UTC) - timedelta(seconds=window_seconds)
+    created = await session.scalar(
+        select(func.count(PublicVisitAttributionRow.id)).where(
+            PublicVisitAttributionRow.created_at >= window_start
+        )
+    )
+    remaining = max(0, limit - int(created or 0))
+    admitted_new = set(candidates[:remaining])
+    return tuple(
+        reference
+        for reference in ordered
+        if reference in existing or reference in admitted_new
+    )
+
+
 async def record_visit_attributions_safely(
     session: AsyncSession | None,
     attributions: Iterable[Mapping[str, Any]],
@@ -532,34 +617,43 @@ async def record_visit_attributions_safely(
         )
     if session is None or not visits:
         return ()
-    table = PublicVisitAttributionRow.__table__
-    statement = (
-        postgresql_insert(table)
-        .values(
-            [
-                {
-                    "id": uuid4(),
-                    "attribution_ref": visit.attribution_ref,
-                    "source": visit.source,
-                    "medium": visit.medium,
-                    "campaign": visit.campaign,
-                    "content": visit.content,
-                    "term": visit.term,
-                    "yclid": visit.yclid,
-                    "landing_path": visit.landing_path,
-                    "first_seen_at": visit.first_seen_at,
-                    "expires_at": visit.expires_at,
-                }
-                for visit in visits
-            ]
-        )
-        .on_conflict_do_nothing(index_elements=[table.c.attribution_ref])
-    )
     try:
+        admitted_refs = await _admit_visit_attribution_references(
+            session,
+            (visit.attribution_ref for visit in visits),
+            settings=settings,
+        )
+        if not admitted_refs:
+            return ()
+        admitted = set(admitted_refs)
+        table = PublicVisitAttributionRow.__table__
+        statement = (
+            postgresql_insert(table)
+            .values(
+                [
+                    {
+                        "id": uuid4(),
+                        "attribution_ref": visit.attribution_ref,
+                        "source": visit.source,
+                        "medium": visit.medium,
+                        "campaign": visit.campaign,
+                        "content": visit.content,
+                        "term": visit.term,
+                        "yclid": visit.yclid,
+                        "landing_path": visit.landing_path,
+                        "first_seen_at": visit.first_seen_at,
+                        "expires_at": visit.expires_at,
+                    }
+                    for visit in visits
+                    if visit.attribution_ref in admitted
+                ]
+            )
+            .on_conflict_do_nothing(index_elements=[table.c.attribution_ref])
+        )
         await session.execute(statement)
         if commit:
             await session.commit()
-        return tuple(visit.attribution_ref for visit in visits)
+        return admitted_refs
     except Exception as exc:  # noqa: BLE001 - measurement must never break a page
         logger.warning(
             "visit attribution history was not recorded: error=%s",
@@ -600,25 +694,32 @@ async def record_visit_attribution_safely(
         first_seen_at=first_seen_at,
         attribution_ref=reference,
     )
-    table = PublicVisitAttributionRow.__table__
-    statement = (
-        postgresql_insert(table)
-        .values(
-            id=uuid4(),
-            attribution_ref=visit.attribution_ref,
-            source=visit.source,
-            medium=visit.medium,
-            campaign=visit.campaign,
-            content=visit.content,
-            term=visit.term,
-            yclid=visit.yclid,
-            landing_path=visit.landing_path,
-            first_seen_at=visit.first_seen_at,
-            expires_at=visit.expires_at,
-        )
-        .on_conflict_do_nothing(index_elements=[table.c.attribution_ref])
-    )
     try:
+        admitted_refs = await _admit_visit_attribution_references(
+            session,
+            (visit.attribution_ref,),
+            settings=settings,
+        )
+        if reference not in admitted_refs:
+            return None
+        table = PublicVisitAttributionRow.__table__
+        statement = (
+            postgresql_insert(table)
+            .values(
+                id=uuid4(),
+                attribution_ref=visit.attribution_ref,
+                source=visit.source,
+                medium=visit.medium,
+                campaign=visit.campaign,
+                content=visit.content,
+                term=visit.term,
+                yclid=visit.yclid,
+                landing_path=visit.landing_path,
+                first_seen_at=visit.first_seen_at,
+                expires_at=visit.expires_at,
+            )
+            .on_conflict_do_nothing(index_elements=[table.c.attribution_ref])
+        )
         await session.execute(statement)
         if commit:
             await session.commit()

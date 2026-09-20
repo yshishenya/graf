@@ -181,7 +181,7 @@ async def test_schema_startup_gate_requires_exact_migration_head() -> None:
 
 
 def test_worker_schema_head_is_derived_from_packaged_migrations() -> None:
-    assert packaged_schema_head() == "0096_client_attribution_bridge"
+    assert packaged_schema_head() == "0097_public_attribution_admission_index"
 
 
 @pytest.mark.anyio

@@ -108,6 +108,7 @@ class PublicVisitAttribution(Base):
             "yclid IS NULL OR (length(yclid) >= 8 AND length(yclid) <= 120)",
             name="attribution_yclid",
         ),
+        Index("ix_public_visit_attribution_created_at", "created_at"),
         Index("ix_public_visit_attribution_expiry", "expires_at"),
     )
 

@@ -248,7 +248,7 @@ def test_production_share_head_upgrades_to_regeneration_merge(
         promotion_counter_function,
         promotion_counter_config,
     ) = asyncio.run(inspect_schema())
-    assert versions == ["0096_client_attribution_bridge"]
+    assert versions == ["0097_public_attribution_admission_index"]
     assert "public.promotion_campaigns" in promotion_counter_function
     assert "search_path=pg_catalog, pg_temp" in promotion_counter_config
     assert {
@@ -1044,7 +1044,7 @@ def test_product_analytics_migrations_downgrade_cleanly(
         "script_location", str(ROOT / "apps/server/src/twobrain_rec_server/db/migrations")
     )
 
-    command.upgrade(alembic_config, "0096_client_attribution_bridge")
+    command.upgrade(alembic_config, "0097_public_attribution_admission_index")
     command.downgrade(alembic_config, "0093_billing_catalog_seed")
 
     async def inspect_schema() -> tuple[list[str], set[str], set[str]]:

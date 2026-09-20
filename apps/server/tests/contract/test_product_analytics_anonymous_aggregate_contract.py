@@ -14,17 +14,20 @@ import pytest
 import sqlalchemy as sa
 from alembic import command
 from alembic.config import Config
+from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
-from twobrain_rec_server.config import get_settings
+from twobrain_rec_server.config import Settings, get_settings
 from twobrain_rec_server.db.models.product_analytics import (
     AnonymousPageAggregateBucket,
     ClientAcquisitionAttribute,
     PublicVisitAttribution,
 )
+from twobrain_rec_server.main import create_app
 from twobrain_rec_server.product_analytics.acquisition import (
     build_client_acquisition_attribute,
+    record_visit_attribution_safely,
 )
 from twobrain_rec_server.product_analytics.anonymous_aggregate import (
     ANONYMOUS_AGGREGATE_SURFACES,
@@ -380,6 +383,67 @@ def test_visit_attribution_window_is_enforced_by_the_database(
     stored = asyncio.run(_rows(aggregate_database_url, VISIT_TABLE))
     assert len(stored) == 1
     assert (stored[0]["expires_at"] - stored[0]["first_seen_at"]).days == 90
+
+
+def test_concurrent_public_attribution_admission_is_bounded_without_blocking_pages(
+    aggregate_database_url: str,
+) -> None:
+    """A fresh label per request cannot bypass the shared durable-row quota."""
+
+    settings = Settings(
+        product_analytics_visit_attribution_admission_limit=3,
+        product_analytics_visit_attribution_admission_window_seconds=3_600,
+    )
+
+    async def write(reference: str) -> str | None:
+        engine = create_async_engine(aggregate_database_url, poolclass=NullPool)
+        try:
+            async with AsyncSession(engine, expire_on_commit=False) as session:
+                return await record_visit_attribution_safely(
+                    session,
+                    {
+                        "attribution_ref": reference,
+                        "utm_source": "yandex_direct",
+                        "utm_medium": "cpc",
+                        "utm_campaign": f"security_{reference[-8:]}",
+                        "landing_path": "/download",
+                        "first_seen_at": datetime.now(UTC),
+                    },
+                    settings=settings,
+                )
+        finally:
+            await engine.dispose()
+
+    references = [f"graf_visit_{uuid4().hex}" for _ in range(8)]
+
+    async def write_many() -> list[str | None]:
+        return list(await asyncio.gather(*(write(reference) for reference in references)))
+
+    outcomes = asyncio.run(write_many())
+
+    assert sum(outcome is not None for outcome in outcomes) == 3
+    assert len(asyncio.run(_rows(aggregate_database_url, VISIT_TABLE))) == 3
+
+    app = create_app(
+        Settings(
+            database_url=aggregate_database_url,
+            minio_access_key="test",
+            minio_secret_key="test",
+            minio_bucket="test-bucket",
+            public_analytics_enabled=True,
+            public_analytics_validation_mode="render_only",
+            public_analytics_yandex_metrica_id="12345678",
+            product_analytics_visit_attribution_admission_limit=3,
+            product_analytics_visit_attribution_admission_window_seconds=3_600,
+        )
+    )
+    with TestClient(app) as client:
+        response = client.get(
+            "/download?utm_source=yandex_direct&utm_medium=cpc&utm_campaign=after_cap"
+        )
+
+    assert response.status_code == 200
+    assert len(asyncio.run(_rows(aggregate_database_url, VISIT_TABLE))) == 3
 
 
 def test_client_attribute_requires_an_existing_account(aggregate_database_url: str) -> None:

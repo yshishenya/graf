@@ -124,6 +124,10 @@ class Settings(BaseSettings):
     # stands. The request classifier reads the ASGI peer address only; forwarded
     # headers are not trusted for this exclusion.
     product_analytics_internal_hosts: Annotated[tuple[str, ...], NoDecode] = ()
+    # Public campaign attribution is best-effort, but its durable reference table
+    # must have a bounded admission rate even when callers send fresh labels.
+    product_analytics_visit_attribution_admission_limit: PositiveInt = Field(default=10_000)
+    product_analytics_visit_attribution_admission_window_seconds: PositiveInt = Field(default=3_600)
     product_analytics_posthog_enabled: bool = False
     product_analytics_posthog_host: AnyUrl | None = None
     product_analytics_posthog_project_key_file: Path | None = None
