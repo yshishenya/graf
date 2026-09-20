@@ -80,7 +80,14 @@ The canonical significant/high-risk GRAF path is `specify → clarify → plan �
 checklist → tasks → analyze → taskstoissues → implement → converge →
 validation/release gates`. The shorter upstream six-step workflow is not a
 complete GRAF path. Custom checklist state is reviewer-owned; implementation
-must read it as a gate and must not mark review items complete.
+must read it as a gate and must not mark review items complete. Before
+implementation, automatically start an independent read-only reviewer agent for
+every reviewer-owned checklist without waiting for separate user confirmation.
+That reviewer may mark `[x]` only evidence-backed items, must leave unsupported
+items unchecked with reasons, must reread the checklist and report checked and
+unchecked totals, and may edit only the checklist plus its review report; it
+must not change code, specs, plans, tasks, governance, PRs, GitHub state,
+commits, releases or deployments.
 
 <!-- SPECKIT START -->
 For feature-specific context, read only the active paths reported by

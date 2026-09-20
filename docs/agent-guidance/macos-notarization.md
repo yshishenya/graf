@@ -165,10 +165,10 @@ for a resumed local signing-only operation, the read-only check remains:
 
 ```sh
 sh apps/macos/Installer/Scripts/release-app-update.sh \
-  --version YYYY.MM.DD.N --phase publish --verify-feed YYYY.MM.DD.N
+  --version YYYY.MM.DD.N --verify-feed-only YYYY.MM.DD.N
 ```
 
-`--verify-feed` reads the live feed read-only, requires well-formed XML, requires
+`--verify-feed-only` reads the live feed read-only, requires well-formed XML, requires
 the highest feed version to equal the released version, and requires the named
 archive URL to be HTTPS and to answer HTTP 200. The publication helper writes
 only after its local version/length validation and uses an atomic remote swap.

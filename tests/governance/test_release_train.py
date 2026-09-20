@@ -30,7 +30,24 @@ def _fixture(tmp_path: Path) -> Path:
     shutil.copy2(ROOT / "infra/release/candidate.schema.json", root / "infra/release/candidate.schema.json")
     shutil.copy2(ROOT / "scripts/validate-release-train.py", root / "scripts/validate-release-train.py")
     shutil.copy2(ROOT / "scripts/validate-ci-evidence.py", root / "scripts/validate-ci-evidence.py")
-    (root / "scripts/validate-pr-checks.py").write_text("import os,sys; sys.exit(17) if os.environ.get(\"TEST_PR_CHECKS_FAIL\") else print(\"[]\")\n")
+    (root / "scripts/validate-pr-checks.py").write_text(
+        """import argparse, json, os, sys
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--repository', required=True)
+parser.add_argument('--source-sha', required=True)
+parser.add_argument('--included-prs', required=True)
+args = parser.parse_args()
+if os.environ.get('TEST_PR_CHECKS_FAIL'):
+    sys.exit(17)
+print(json.dumps([
+    {'pr_number': int(number), 'target_sha': args.source_sha,
+     'checks': {'governance-fast': {'run_id': str(number)}}}
+    for number in args.included_prs.split(',')
+]))
+""",
+        encoding="utf-8",
+    )
     (root / ".gitignore").write_text(".dev/\n", encoding="utf-8")
     (root / "CHANGELOG.md").write_text("## [2026.09.01.1] - 2026-09-01\n\n- Feature 227\n- Feature 228\n\n## [2026.08.31.1] - 2026-08-31\n\n- Previous release\n", encoding="utf-8")
     for feature_id in ("227", "228"):
@@ -67,7 +84,7 @@ def _freeze_args(source: str, output: Path) -> list[str]:
         "--merge-groups",
         "mg-1",
         "--pr-receipts",
-        "pr-101,pr-102,pr-103",
+        "pr-101-governance-101,pr-102-governance-102,pr-103-governance-103",
         "--merge-group-receipts",
         "mg-1",
         "--operator",
@@ -269,7 +286,7 @@ fi
     assert json.loads(decision.read_text(encoding="utf-8"))["status"] == "go"
 
 
-def test_incomplete_pr_checks_block_train_freeze_and_current(tmp_path: Path, monkeypatch) -> None:
+def test_incomplete_pr_checks_block_train_freeze_but_recorded_train_remains_current(tmp_path: Path, monkeypatch) -> None:
     root = _fixture(tmp_path)
     source = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
     output = root / ".dev/release/trains/train.json"
@@ -281,4 +298,4 @@ def test_incomplete_pr_checks_block_train_freeze_and_current(tmp_path: Path, mon
     assert _run(root, *_freeze_args(source, output)).returncode == 0
     monkeypatch.setenv("TEST_PR_CHECKS_FAIL", "1")
     result = _run(root, "train-validate", str(output), "--current")
-    assert result.returncode != 0 and "complete release PR checks" in result.stderr
+    assert result.returncode == 0, result.stderr

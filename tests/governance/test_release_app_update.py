@@ -51,7 +51,8 @@ def test_help_lists_every_documented_flag():
     for flag in ('--version', '--phase', '--previous-tag', '--previous-app-asset',
                  '--candidate-app-asset', '--release-notes-asset', '--notes-file',
                  '--pkg', '--notary-profile', '--feed-url', '--app-sign-identity',
-                 '--installer-identity', '--verify-feed', '--repo-root', '--dry-run'):
+                 '--installer-identity', '--verify-feed', '--verify-feed-only',
+                 '--repo-root', '--dry-run'):
         assert flag in result.stderr, f'{flag} must stay documented'
 
 

@@ -64,6 +64,7 @@ NOTARY_PROFILE=${GRAF_NOTARY_PROFILE:-graf-notary}
 FEED_URL=${GRAF_UPDATE_FEED_URL:-$FEED_URL_DEFAULT}
 DRY_RUN=0
 VERIFY_FEED_VERSION=
+VERIFY_FEED_ONLY=0
 APP_SIGN_IDENTITY=${GRAF_APP_SIGN_IDENTITY:-}
 INSTALLER_IDENTITY=${DEVELOPER_ID_INSTALLER_IDENTITY:-}
 
@@ -97,7 +98,9 @@ archive and appcast atomically after deployment.
   --feed-url URL         Sparkle feed URL. Default: the canonical public feed.
   --app-sign-identity S  Developer ID Application identity. Default: discovered.
   --installer-identity S Developer ID Installer identity. Default: discovered.
-  --verify-feed V        Also assert that the live feed already offers V.
+  --verify-feed V        Read-only assertion that the live feed already offers V.
+  --verify-feed-only V   Run only the read-only live-feed assertion; never query,
+                         create, edit, upload, or sign a GitHub Release.
   --repo-root PATH       Repository root. Default: this checkout.
   --dry-run              Check prerequisites and print the plan. No build, no
                          Apple call, no upload, no draft release creation.
@@ -196,6 +199,7 @@ while [ "$#" -gt 0 ]; do
     --app-sign-identity) shift; [ "$#" -gt 0 ] || usage_error "--app-sign-identity needs a value"; APP_SIGN_IDENTITY=$1 ;;
     --installer-identity) shift; [ "$#" -gt 0 ] || usage_error "--installer-identity needs a value"; INSTALLER_IDENTITY=$1 ;;
     --verify-feed) shift; [ "$#" -gt 0 ] || usage_error "--verify-feed needs a value"; VERIFY_FEED_VERSION=$1 ;;
+    --verify-feed-only) shift; [ "$#" -gt 0 ] || usage_error "--verify-feed-only needs a value"; VERIFY_FEED_VERSION=$1; VERIFY_FEED_ONLY=1 ;;
     --repo-root) shift; [ "$#" -gt 0 ] || usage_error "--repo-root needs a value"; REPO_ROOT=$1 ;;
     --dry-run) DRY_RUN=1 ;;
     -h|--help) usage; exit 0 ;;
@@ -602,7 +606,7 @@ run_publish() {
   printf '\nrelease_tag=v%s\nprevious_tag=%s\nsource=%s\ndraft_assets_uploaded=yes\nproduction_feed=awaiting_outer_release_driver\n' \
     "$VERSION" "$PREVIOUS_TAG" "$SOURCE_SHA"
   printf 'next_step=release.sh publishes the archive first and replaces graf-appcast.xml last\n'
-  printf 'check=release-app-update.sh --version %s --phase publish --verify-feed %s\n' \
+  printf 'check=release-app-update.sh --version %s --verify-feed-only %s\n' \
     "$VERSION" "$VERSION"
 }
 
@@ -678,6 +682,12 @@ if [ "$DRY_RUN" = 0 ] && [ -z "$REPO_ROOT" ]; then
 fi
 [ -z "$REPO_ROOT" ] || cd "$REPO_ROOT"
 
+if [ "$VERIFY_FEED_ONLY" = 1 ]; then
+  derive_paths
+  [ -n "$VERSION" ] || usage_error "--version is required with --verify-feed-only"
+  verify_live_feed "$VERIFY_FEED_VERSION"
+  exit 0
+fi
 run_prerequisites
 report_prerequisites
 SOURCE_SHA=$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || printf 'unknown')
